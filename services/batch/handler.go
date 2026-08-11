@@ -18,6 +18,13 @@ import (
 )
 
 const (
+	// opListTagsForResource, opTagResource, and opUntagResource name the three
+	// tag operations shared by the main Handler's GetSupportedOperations/
+	// ExtractOperation and TagsRouter's GetSupportedOperations (tags_route.go).
+	opListTagsForResource = "ListTagsForResource"
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
+
 	v1Prefix              = "/v1/"
 	tagsPrefix            = "/v1/tags/"
 	appsyncV1Prefix       = "/v1/apis"
@@ -95,9 +102,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"SubmitJob",
 		"TerminateJob",
 		"CancelJob",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
+		opListTagsForResource,
+		opTagResource,
+		opUntagResource,
 		"CreateConsumableResource",
 		"DeleteConsumableResource",
 		"DescribeConsumableResource",
@@ -138,11 +145,19 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 
 // RouteMatcher returns a function that matches Batch requests.
 // It matches /v1/ paths but explicitly excludes /v1/apis (AppSync),
-// CodeArtifact paths, Kafka paths, and Kafka tag resource paths to
-// prevent routing conflicts when multiple services use PriorityPathVersioned.
+// CodeArtifact paths, and Kafka paths to prevent routing conflicts when
+// multiple services use PriorityPathVersioned. The tags path is scoped by
+// ARN via isBatchTagPath instead of excluded outright, since Batch owns its
+// own ARNs there too (see isAppSyncTagPath in services/appsync/handler.go
+// for the mirrored guard that stops AppSync's tag-path matcher from
+// claiming Batch's ARNs in the first place).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
+		if strings.HasPrefix(path, tagsPrefix) {
+			return isBatchTagPath(path)
+		}
 		// Exclude AppSync paths (/v1/apis) which share the /v1/ prefix.
 		if strings.HasPrefix(path, appsyncV1Prefix) {
 			return false
@@ -157,13 +172,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 		// Exclude Kafka (MSK) paths which share the /v1/ prefix.
-		// Exclude Kafka (MSK) paths which share the /v1/ prefix.
 		if strings.HasPrefix(path, kafkaClustersPrefix) ||
 			strings.HasPrefix(path, kafkaConfigurationsPrefix) {
-			return false
-		}
-		// Exclude Kafka tag resource paths (/v1/tags/{kafka-arn}).
-		if isKafkaTagPath(path) {
 			return false
 		}
 
@@ -175,9 +185,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // reach the service name at index 2 (arn:partition:service:...).
 const arnSplitNForService = 4
 
-// isKafkaTagPath reports whether path is a /v1/tags/{arn} path for a Kafka ARN.
-// Kafka's RouteMatcher handles these; the Batch handler must not intercept them.
-func isKafkaTagPath(path string) bool {
+// isBatchTagPath reports whether path is a /v1/tags/{arn} path for a Batch ARN.
+// Used as an inclusion guard so this handler only claims its own ARNs -- it can't
+// steal Kafka/CodeArtifact/AppSync/MQ/Pinpoint/Polly's tag requests, all of which
+// share this same "/v1/tags/{arn}" prefix.
+func isBatchTagPath(path string) bool {
 	if !strings.HasPrefix(path, tagsPrefix) {
 		return false
 	}
@@ -195,7 +207,7 @@ func isKafkaTagPath(path string) bool {
 	// arn:partition:service:region:account:resource — check the service segment.
 	parts := strings.SplitN(decodedARN, ":", arnSplitNForService)
 
-	return len(parts) >= 3 && parts[2] == "kafka"
+	return len(parts) >= 3 && parts[2] == "batch"
 }
 
 // MatchPriority returns the routing priority.
@@ -209,11 +221,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if strings.HasPrefix(path, tagsPrefix) {
 		switch method {
 		case http.MethodGet:
-			return "ListTagsForResource"
+			return opListTagsForResource
 		case http.MethodPost:
-			return "TagResource"
+			return opTagResource
 		case http.MethodDelete:
-			return "UntagResource"
+			return opUntagResource
 		}
 	}
 

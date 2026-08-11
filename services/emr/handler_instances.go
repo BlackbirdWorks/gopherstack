@@ -10,6 +10,7 @@ type listInstancesInput struct {
 	ClusterID          string   `json:"ClusterId"`
 	InstanceGroupID    string   `json:"InstanceGroupId"`
 	InstanceFleetID    string   `json:"InstanceFleetId"`
+	InstanceFleetType  string   `json:"InstanceFleetType"`
 	Marker             string   `json:"Marker"`
 	InstanceGroupTypes []string `json:"InstanceGroupTypes"`
 	InstanceStates     []string `json:"InstanceStates"`
@@ -24,6 +25,7 @@ func (h *Handler) handleListInstances(ctx context.Context, in *listInstancesInpu
 	params := ListInstancesParams{
 		InstanceGroupID:    in.InstanceGroupID,
 		InstanceFleetID:    in.InstanceFleetID,
+		InstanceFleetType:  in.InstanceFleetType,
 		InstanceGroupTypes: in.InstanceGroupTypes,
 		InstanceStates:     in.InstanceStates,
 		Marker:             in.Marker,

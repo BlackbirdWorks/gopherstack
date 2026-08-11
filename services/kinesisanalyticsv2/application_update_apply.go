@@ -182,6 +182,10 @@ func applyApplicationConfigurationUpdate(app *Application, upd *ApplicationConfi
 		applyFlinkConfigUpdate(app, upd.FlinkApplicationConfigurationUpdate)
 	}
 
+	if upd.ZeppelinApplicationConfigurationUpdate != nil {
+		applyZeppelinConfigUpdate(app, upd.ZeppelinApplicationConfigurationUpdate)
+	}
+
 	if upd.HasEnvironmentPropertyUpdates {
 		app.EnvironmentPropertyGroups = upd.EnvironmentPropertyUpdates
 	}
@@ -369,6 +373,66 @@ func applyParallelismConfigUpdate(cur *ParallelismConfigDesc, upd *ParallelismCo
 	}
 
 	return cur
+}
+
+// applyZeppelinConfigUpdate mirrors applyFlinkConfigUpdate's merge-not-replace
+// pattern for ZeppelinApplicationConfigurationUpdate's four sub-updates.
+// MonitoringConfigurationDescription is a required member of the real
+// ZeppelinApplicationConfigurationDescription (botocore
+// kinesisanalyticsv2/2018-05-23/service-2.json.gz), so ZeppelinConfig is
+// only initialized once a monitoring/catalog/deploy/artifact update actually
+// arrives -- never left as an empty non-nil struct with a nil monitoring field.
+func applyZeppelinConfigUpdate(app *Application, upd *ZeppelinApplicationConfigUpdate) {
+	if app.ZeppelinConfig == nil {
+		app.ZeppelinConfig = &ZeppelinApplicationConfigDescription{}
+	}
+
+	if upd.MonitoringConfigurationUpdate != nil {
+		if app.ZeppelinConfig.MonitoringConfigurationDescription == nil {
+			app.ZeppelinConfig.MonitoringConfigurationDescription = &ZeppelinMonitoringConfigDesc{}
+		}
+
+		app.ZeppelinConfig.MonitoringConfigurationDescription.LogLevel = upd.MonitoringConfigurationUpdate.LogLevelUpdate
+	}
+
+	if upd.CatalogConfigurationUpdate != nil {
+		app.ZeppelinConfig.CatalogConfigurationDescription = &CatalogConfigDescription{
+			GlueDataCatalogConfigurationDescription: &GlueDataCatalogConfigDesc{
+				DatabaseARN: upd.CatalogConfigurationUpdate.DatabaseARNUpdate,
+			},
+		}
+	}
+
+	if upd.DeployAsApplicationConfigurationUpdate != nil {
+		applyDeployAsApplicationConfigUpdate(app.ZeppelinConfig, upd.DeployAsApplicationConfigurationUpdate)
+	}
+
+	if upd.HasCustomArtifactsConfigurationUpdate {
+		app.ZeppelinConfig.CustomArtifactsConfigurationDescription = upd.CustomArtifactsConfigurationUpdate
+	}
+}
+
+func applyDeployAsApplicationConfigUpdate(
+	zc *ZeppelinApplicationConfigDescription, upd *DeployAsApplicationConfigUpdate,
+) {
+	cur := zc.DeployAsApplicationConfigurationDescription
+	if cur == nil {
+		cur = &DeployAsApplicationConfigDescription{}
+	}
+
+	if cur.S3ContentLocationDescription == nil {
+		cur.S3ContentLocationDescription = &S3ContentBaseLocationDesc{}
+	}
+
+	if upd.BucketARNUpdate != "" {
+		cur.S3ContentLocationDescription.BucketARN = upd.BucketARNUpdate
+	}
+
+	if upd.BasePathUpdate != "" {
+		cur.S3ContentLocationDescription.BasePath = upd.BasePathUpdate
+	}
+
+	zc.DeployAsApplicationConfigurationDescription = cur
 }
 
 func applySQLConfigUpdate(app *Application, upd *SQLApplicationConfigUpdate) {

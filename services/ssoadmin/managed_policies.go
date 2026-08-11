@@ -24,6 +24,7 @@ func (b *InMemoryBackend) AttachManagedPolicyToPermissionSet(
 		}
 	}
 	ps.ManagedPolicies = append(ps.ManagedPolicies, ManagedPolicy{Arn: managedPolicyArn, Name: name})
+	bumpModified(ps)
 
 	return nil
 }
@@ -53,6 +54,7 @@ func (b *InMemoryBackend) DetachManagedPolicyFromPermissionSet(
 		return ErrRequestNotFound
 	}
 	ps.ManagedPolicies = remaining
+	bumpModified(ps)
 
 	return nil
 }
@@ -125,6 +127,7 @@ func (b *InMemoryBackend) AttachCustomerManagedPolicyReferenceToPermissionSet(
 		b.customerManagedPolicies[permissionSetArn],
 		CustomerManagedPolicyReference{Name: name, Path: path},
 	)
+	bumpModified(ps)
 
 	return nil
 }
@@ -173,6 +176,7 @@ func (b *InMemoryBackend) DetachCustomerManagedPolicyReferenceFromPermissionSet(
 		return ErrRequestNotFound
 	}
 	b.customerManagedPolicies[permissionSetArn] = remaining
+	bumpModified(ps)
 
 	return nil
 }

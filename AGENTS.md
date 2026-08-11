@@ -11,6 +11,11 @@ go vet ./services/<pkg>/...
 golangci-lint run ./services/<pkg>/...
 ```
 
+`make lint` also runs mulint (mutex misuse detection) via `go vet -vettool`.
+mulint cannot follow mutex wrappers across package boundaries, so it does
+**not** see `lockmetrics.RWMutex` (used almost everywhere in this repo) — it
+only guards direct `sync.Mutex`/`sync.RWMutex` use.
+
 
 **Logging — context-aware only (no exceptions):**
 - NEVER call `slog.Default()` or construct an ad-hoc `slog.New(...)` in service/production

@@ -10,6 +10,8 @@ import (
 const (
 	deployIDChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	deployIDLen   = 9
+
+	defaultDeploymentCreator = "user"
 )
 
 // simulatedDeployDuration is the simulated time for a deployment to complete.
@@ -39,8 +41,12 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 	}
 
+	if err := validateFileExistsBehavior(opts.FileExistsBehavior); err != nil {
+		return nil, err
+	}
+
 	if opts.Creator == "" {
-		opts.Creator = "user"
+		opts.Creator = defaultDeploymentCreator
 	}
 
 	deployID := generateDeploymentID()
@@ -147,15 +153,29 @@ func (b *InMemoryBackend) StopDeployment(deploymentID string) error {
 }
 
 // ContinueDeployment marks a blue/green deployment as continuing past the wait point.
+// Real AWS requires the deployment to be in Ready status (types/errors.go:556-557,
+// "The deployment does not have a status of Ready and can't continue yet.");
+// terminal statuses get DeploymentAlreadyCompletedException instead
+// (types/errors.go:221, "The deployment is already complete.").
 func (b *InMemoryBackend) ContinueDeployment(deploymentID string) error {
 	b.mu.Lock("ContinueDeployment")
 	defer b.mu.Unlock()
 
-	if !b.deployments.Has(deploymentID) {
+	d, ok := b.deployments.Get(deploymentID)
+	if !ok {
 		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
-	return nil
+	switch d.Status {
+	case statusReady:
+		return nil
+	case statusSucceeded, statusFailed, statusStopped:
+		return fmt.Errorf("%w: deployment %s is already complete", ErrDeploymentAlreadyCompleted, deploymentID)
+	default:
+		return fmt.Errorf(
+			"%w: deployment %s does not have a status of Ready", ErrDeploymentNotInReadyState, deploymentID,
+		)
+	}
 }
 
 // BatchGetDeployments returns deployment structs for the given IDs.

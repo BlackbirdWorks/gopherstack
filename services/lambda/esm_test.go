@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -621,30 +622,32 @@ func TestLambda_UpdateESM_UpdatesLastModified(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, backend := newRealHandler(t)
+			synctest.Test(t, func(t *testing.T) {
+				_, backend := newRealHandler(t)
 
-			require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "update-esm-fn"}))
+				require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "update-esm-fn"}))
 
-			m, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
-				EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/update-stream",
-				FunctionName:   "update-esm-fn",
-				Enabled:        true,
+				m, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+					EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/update-stream",
+					FunctionName:   "update-esm-fn",
+					Enabled:        true,
+				})
+				require.NoError(t, err)
+
+				createdAt := m.LastModified
+
+				// Ensure at least 1ms passes.
+				time.Sleep(time.Millisecond)
+
+				updated, updateErr := backend.UpdateEventSourceMapping(m.UUID, &lambda.UpdateEventSourceMappingInput{
+					Enabled:   new(false),
+					BatchSize: 0,
+				})
+				require.NoError(t, updateErr)
+
+				assert.True(t, updated.LastModified.After(createdAt),
+					"LastModified should be after creation time: got %v, created %v", updated.LastModified, createdAt)
 			})
-			require.NoError(t, err)
-
-			createdAt := m.LastModified
-
-			// Ensure at least 1ms passes.
-			time.Sleep(time.Millisecond)
-
-			updated, updateErr := backend.UpdateEventSourceMapping(m.UUID, &lambda.UpdateEventSourceMappingInput{
-				Enabled:   new(false),
-				BatchSize: 0,
-			})
-			require.NoError(t, updateErr)
-
-			assert.True(t, updated.LastModified.After(createdAt),
-				"LastModified should be after creation time: got %v, created %v", updated.LastModified, createdAt)
 		})
 	}
 }

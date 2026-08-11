@@ -184,13 +184,13 @@ func TestMain(m *testing.M) {
 	// (e.g. from CI or `go build`), otherwise fall back to the full
 	// multi-stage Dockerfile that compiles from source.
 	dockerfile := "Dockerfile"
-	binPath := "../../bin/gopherstack"
+	binPath := "../../bin/gopherstack-linux"
 
 	// If we are on Mac, we MUST build a Linux binary for the container.
 	if runtime.GOOS == "darwin" {
 		logger.Info("running on Darwin, building Linux binary for container tests...")
 		// Use relative path but run from the directory containing go.mod to ensure embed works.
-		cmd := exec.Command("go", "build", "-trimpath", "-o", "bin/gopherstack", ".")
+		cmd := exec.Command("go", "build", "-trimpath", "-o", "bin/gopherstack-linux", ".")
 		cmd.Dir = "../../"
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOTOOLCHAIN=local")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -280,6 +280,15 @@ func checkDocker() (err error) {
 	_, err = testcontainers.NewDockerProvider()
 
 	return err
+}
+
+// cleanupContext returns a fresh, live context for use inside t.Cleanup.
+// t.Context() is cancelled just before cleanup functions run, so AWS calls
+// made with it fail instantly with "context canceled".
+func cleanupContext(t *testing.T) (context.Context, context.CancelFunc) {
+	t.Helper()
+
+	return context.WithTimeout(context.Background(), 30*time.Second)
 }
 
 // createDynamoDBClient returns a DynamoDB client pointed at the shared test container.
@@ -946,6 +955,9 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 	t.Helper()
 
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		if !t.Failed() {
 			return
 		}
@@ -956,10 +968,9 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 			return
 		}
 
-		ctx := t.Context()
 		t.Logf("\n========== CONTAINER LOGS FOR FAILED TEST: %s ==========\n", t.Name())
 
-		logs, err := sharedContainer.Logs(ctx)
+		logs, err := sharedContainer.Logs(cleanupCtx)
 		if err != nil {
 			t.Logf("Failed to retrieve container logs: %v", err)
 

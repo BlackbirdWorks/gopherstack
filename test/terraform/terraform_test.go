@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"net/http"
@@ -943,6 +944,26 @@ func renderFixture(t *testing.T, name string, vars map[string]any) string {
 	require.NoError(t, tmpl.Execute(&buf, vars), "rendering fixture %s", path)
 
 	return buf.String()
+}
+
+// vpcCIDRVars returns VPCCidr/SubnetCidrA/SubnetCidrB template vars for a
+// fixture that provisions its own VPC, derived from a stable hash of the
+// test's name. This keeps CIDRs identical across runs while guaranteeing
+// distinct parallel subtests don't allocate the same 10.x.0.0/16 block —
+// EC2's CreateVpc rejects a CIDR overlapping any existing VPC account-wide,
+// and the shared test container puts every parallel subtest in that account.
+func vpcCIDRVars(t *testing.T) map[string]any {
+	t.Helper()
+
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(t.Name()))
+	octet := int(h.Sum32()%254) + 1
+
+	return map[string]any{
+		"VPCCidr":     fmt.Sprintf("10.%d.0.0/16", octet),
+		"SubnetCidrA": fmt.Sprintf("10.%d.1.0/24", octet),
+		"SubnetCidrB": fmt.Sprintf("10.%d.2.0/24", octet),
+	}
 }
 
 // tfTestCase describes one scenario within a per-service Terraform test table.
@@ -2680,9 +2701,10 @@ func TestTerraform_EC2(t *testing.T) {
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
-				return map[string]any{
-					"ENIDescription": "tf-eni-" + uuid.NewString()[:8],
-				}
+				vars := vpcCIDRVars(t)
+				vars["ENIDescription"] = "tf-eni-" + uuid.NewString()[:8]
+
+				return vars
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
@@ -2713,9 +2735,10 @@ func TestTerraform_EC2(t *testing.T) {
 				t.Helper()
 				id := uuid.NewString()[:8]
 
-				return map[string]any{
-					"SGName": "tf-ec2-sg-" + id,
-				}
+				vars := vpcCIDRVars(t)
+				vars["SGName"] = "tf-ec2-sg-" + id
+
+				return vars
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
@@ -2743,20 +2766,22 @@ func TestTerraform_EC2(t *testing.T) {
 
 				// Verify that tags from the fixture's `tags = {}` blocks were stored
 				// (via TagSpecification on CreateVpc / standalone CreateTags).
-				// Find the VPC created by this fixture (CIDR 10.0.0.0/16).
+				// Find the VPC created by this fixture (CIDR is per-test, see vpcCIDRVars).
+				vpcCidr := vars["VPCCidr"].(string)
+
 				vpcsOut, err := client.DescribeVpcs(ctx, &ec2svc.DescribeVpcsInput{})
 				require.NoError(t, err, "DescribeVpcs should succeed after terraform apply")
 
 				var vpcID string
 				for _, vpc := range vpcsOut.Vpcs {
-					if aws.ToString(vpc.CidrBlock) == "10.2.0.0/16" && !aws.ToBool(vpc.IsDefault) {
+					if aws.ToString(vpc.CidrBlock) == vpcCidr && !aws.ToBool(vpc.IsDefault) {
 						vpcID = aws.ToString(vpc.VpcId)
 
 						break
 					}
 				}
 
-				require.NotEmpty(t, vpcID, "VPC with CIDR 10.2.0.0/16 should exist after terraform apply")
+				require.NotEmpty(t, vpcID, "VPC with CIDR %s should exist after terraform apply", vpcCidr)
 
 				// DescribeTags with resource-id filter to get tags for the fixture's VPC.
 				tagsOut, err := client.DescribeTags(ctx, &ec2svc.DescribeTagsInput{

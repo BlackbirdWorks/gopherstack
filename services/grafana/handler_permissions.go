@@ -34,7 +34,7 @@ func (h *Handler) handleListPermissions(_ context.Context, r *http.Request, _ []
 	return json.Marshal(out)
 }
 
-func (h *Handler) handleUpdatePermissions(_ context.Context, r *http.Request, body []byte) ([]byte, error) {
+func (h *Handler) handleUpdatePermissions(ctx context.Context, r *http.Request, body []byte) ([]byte, error) {
 	segs := rawPathSegments(r)
 
 	var req updatePermissionsRequest
@@ -42,7 +42,7 @@ func (h *Handler) handleUpdatePermissions(_ context.Context, r *http.Request, bo
 		return nil, validationError("invalid request body: " + err.Error())
 	}
 
-	errs, err := h.Backend.UpdatePermissions(segs[1], req.UpdateInstructionBatch)
+	errs, err := h.Backend.UpdatePermissions(ctx, segs[1], req.UpdateInstructionBatch)
 	if err != nil {
 		return nil, err
 	}

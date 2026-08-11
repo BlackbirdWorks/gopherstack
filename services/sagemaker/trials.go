@@ -38,7 +38,7 @@ func cloneTrial(t *Trial) *Trial {
 // CreateTrial creates a new trial.
 func (b *InMemoryBackend) CreateTrial(
 	ctx context.Context,
-	name, experimentName string,
+	name, experimentName, displayName string,
 	tags map[string]string,
 ) (*Trial, error) {
 	b.mu.Lock("CreateTrial")
@@ -57,6 +57,7 @@ func (b *InMemoryBackend) CreateTrial(
 		TrialName:        name,
 		TrialArn:         trialArn,
 		ExperimentName:   experimentName,
+		DisplayName:      displayName,
 		CreationTime:     now,
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),

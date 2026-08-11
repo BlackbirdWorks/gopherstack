@@ -2,10 +2,13 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onDestroy, untrack } from 'svelte';
 	import { getDynamoDBClient, getDynamoDBStreamsClient } from '$lib/aws-client';
-import { currentRegion } from '$lib/region.svelte';
+import { currentRegion, isAllRegions, setStoredRegion } from '$lib/region.svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { multiRegionList } from '$lib/multi-region';
 import { urlState, setUrlParams } from '$lib/url-state.svelte';
 import LiveDot from '$lib/components/LiveDot.svelte';
+import RegionChip from '$lib/components/RegionChip.svelte';
+import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } from '@aws-sdk/client-dynamodb-streams';
 	import {
 		ListTablesCommand,
@@ -78,6 +81,16 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 	let tableDetails = $state<Map<string, TableDescription>>(new Map());
 	let loading = $state(true);
 	let loadTablesError = $state('');
+	// All-mode table list: a flat, region-tagged row list rather than the
+	// single-region `tableNames`/`tableDetails` above. Keeping these
+	// separate (instead of keying tableDetails by name) sidesteps the trap
+	// where the same table name legitimately exists in two regions under
+	// All -- a Map keyed by name alone would silently drop one of them.
+	// Opening a row switches the picker to that row's concrete region and
+	// reuses the single-region detail machinery unchanged, the same way
+	// opening a resource in the real AWS console always means one region.
+	let allRegionTables = $state<{ name: string; region: string }[]>([]);
+	let allRegionErrors = $state<{ region: string; error: unknown }[]>([]);
 	// URL-backed (?q=...); see url-state.svelte.ts. Not read inside the
 	// onRegionChange effect below (loadTables never references it), so no
 	// untrack() is needed at that call site.
@@ -424,9 +437,34 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	}
 
 	// Table List Operations
+	// In All mode, fans ListTablesCommand out across every region with data
+	// and populates the flat, region-tagged `allRegionTables` list instead
+	// of `tableNames`/`tableDetails` -- see the comment on those fields for
+	// why they can't just be reused with a composite key. Single-region mode
+	// is untouched: same ddb().send(ListTablesCommand) call as before.
 	async function loadTables() {
 		loading = true;
 		loadTablesError = '';
+
+		if (isAllRegions()) {
+			try {
+				const result = await multiRegionList((region) => getDynamoDBClient(region).send(new ListTablesCommand({})), (r) => r.TableNames ?? []);
+				allRegionTables = result.items
+					.map(({ region, item }) => ({ name: item, region }))
+					.toSorted((a, b) => a.name.localeCompare(b.name) || a.region.localeCompare(b.region));
+				allRegionErrors = result.errors;
+				if (result.errors.length > 0) {
+					toast.error(`Failed to list tables from ${result.errors.length} region${result.errors.length === 1 ? '' : 's'}`);
+				}
+			} catch (err: unknown) {
+				loadTablesError = describeError(err);
+				toast.error(`Failed to list tables: ${loadTablesError}`);
+			} finally {
+				loading = false;
+			}
+			return;
+		}
+
 		try {
 			const res = await ddb().send(new ListTablesCommand({}));
 			tableNames = res.TableNames ?? [];
@@ -447,6 +485,19 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 		} finally {
 			loading = false;
 		}
+	}
+
+	// Opening an All-mode row pins the picker to that row's region, then
+	// deep-links into the existing single-region detail view for it -- the
+	// same "open a resource means one concrete region" rule the real AWS
+	// console follows. setStoredRegion() is a plain module write (not a
+	// urlState .set()), so pairing it with the ONE setUrlParams() call below
+	// is not subject to the same-tick multi-.set() hazard url-state.svelte.ts
+	// documents; that hazard is specifically about chaining multiple urlState
+	// .set() calls.
+	function openTableInRegion(region: string, name: string): void {
+		setStoredRegion(region);
+		setUrlParams(activeTabParam.write('overview'), selectedTableParam.write(name));
 	}
 
 	async function createTable() {
@@ -947,19 +998,22 @@ async function togglePitr(): Promise<void> {
 	
 async function loadNativeStreams() {
   if (!streamARN) return;
+  // Capture the client once, synchronously, rather than calling the
+  // regionalClient() accessor again after each await below.
+  const client = ddbStreams();
   try {
-    const desc = await ddbStreams().send(new DescribeStreamCommand({StreamArn: streamARN}));
+    const desc = await client.send(new DescribeStreamCommand({StreamArn: streamARN}));
     if (!desc.StreamDescription?.Shards) return;
     let recordsHtml = '';
     for (const shard of desc.StreamDescription.Shards) {
       if (!shard.ShardId) continue;
-      const it = await ddbStreams().send(new GetShardIteratorCommand({
+      const it = await client.send(new GetShardIteratorCommand({
         StreamArn: streamARN,
         ShardId: shard.ShardId,
         ShardIteratorType: "TRIM_HORIZON"
       }));
       if (!it.ShardIterator) continue;
-      const recs = await ddbStreams().send(new GetRecordsCommand({ShardIterator: it.ShardIterator, Limit: 100}));
+      const recs = await client.send(new GetRecordsCommand({ShardIterator: it.ShardIterator, Limit: 100}));
       if (recs.Records) {
          for (const r of recs.Records) {
            recordsHtml += `<div>Native Stream Record: ${r.eventName} ${JSON.stringify(r.dynamodb)}</div>`;
@@ -1021,6 +1075,16 @@ async function loadStreamEvents() {
 		}
 	}
 
+	// loadStreamEvents()'s first line reads streamEventsHtml (to decide whether
+	// to show a loading spinner). Called synchronously here, that read happens
+	// while this effect is still tracking -- making the effect depend on
+	// streamEventsHtml. Since this effect also writes streamEventsHtml (both
+	// directly, above, and via loadStreamEvents/loadNativeStreams once their
+	// fetch resolves), every write becomes a trigger to run again, which
+	// writes streamEventsHtml = '' and immediately re-fetches: an infinite
+	// ping-pong loop, observed hammering the backend at ~2ms intervals.
+	// untrack() keeps the initial fire from being read as a dependency, the
+	// same hazard region-effect.svelte.ts documents for onRegionChange.
 	$effect(() => {
 		if (activeTab === 'streams' && selectedTable && streamsEnabled) {
 			stopStreamPolling();
@@ -1029,8 +1093,7 @@ async function loadStreamEvents() {
 			streamEventsHtml = '';
 			streamInfo = null;
 			streamEventFilter = 'ALL';
-			loadStreamInfo();
-			loadStreamEvents();
+			untrack(() => { loadStreamInfo(); loadStreamEvents(); });
 			streamPollTimer = setInterval(() => { loadStreamEvents(); loadStreamInfo(); }, 3000);
 			return () => { stopStreamPolling(); };
 		}
@@ -1336,7 +1399,7 @@ function setPartiqlExample(query: string) {
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
 				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups'], ['pitr', 'PITR'], ['replicas', 'Replicas'], ['tags', 'Tags']] as [id, label]}
 					<li class="me-2">
-						<button onclick={() => { activeTabParam.set(id); }}
+						<button id="{id}-tab" onclick={() => { activeTabParam.set(id); }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
 							{label}
 						</button>
@@ -1452,7 +1515,7 @@ function setPartiqlExample(query: string) {
 						<div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">{selectedTableDesc?.LocalSecondaryIndexes?.length ?? 0}</div>
 						<div class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">local indexes</div>
 					</div>
-					<div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
+					<div id="ttl-status-card" class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
 						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">TTL</div>
 						<div class="mt-1">
 							{#if ttlEnabled}
@@ -2113,19 +2176,21 @@ function setPartiqlExample(query: string) {
 				<form onsubmit={(e) => { e.preventDefault(); executePartiQL(); }}>
 					<div class="mb-3">
 						<label for="partiql-stmt" class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Statement</label>
-						<textarea id="partiql-stmt" bind:value={partiqlStatement} rows="4" class="w-full font-mono text-sm p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500" placeholder='SELECT * FROM "table"'></textarea>
+						<textarea id="partiql-stmt" name="statement" bind:value={partiqlStatement} rows="4" class="w-full font-mono text-sm p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500" placeholder='SELECT * FROM "table"'></textarea>
 					</div>
 					<div class="flex gap-2">
-						<button type="submit" disabled={partiqlLoading} class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-300 text-sm font-medium disabled:opacity-50">{partiqlLoading ? 'Executing...' : 'Execute'}</button>
+						<button id="partiql-execute" type="submit" disabled={partiqlLoading} class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-300 text-sm font-medium disabled:opacity-50">{partiqlLoading ? 'Executing...' : 'Execute'}</button>
 						{#if partiqlResults.length > 0}
 							<button type="button" onclick={() => exportJson(partiqlResults, `${selectedTable ?? 'partiql'}-results.json`)} class="px-4 py-2 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Download Results</button>
 						{/if}
 					</div>
 				</form>
-				{#if partiqlCount > 0}
-					<p class="text-sm text-slate-600 dark:text-slate-400">{partiqlCount} result{partiqlCount !== 1 ? 's' : ''}{partiqlDuration > 0 ? ` · ${partiqlDuration} ms` : ''}</p>
-				{/if}
-				{@render resultsTable(partiqlResults)}
+				<div id="partiql-output">
+					{#if partiqlCount > 0}
+						<p class="text-sm text-slate-600 dark:text-slate-400">{partiqlCount} result{partiqlCount !== 1 ? 's' : ''}{partiqlDuration > 0 ? ` · ${partiqlDuration} ms` : ''}</p>
+					{/if}
+					{@render resultsTable(partiqlResults)}
+				</div>
 			</div>
 		{:else if activeTab === 'metrics'}
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
@@ -2401,10 +2466,11 @@ function setPartiqlExample(query: string) {
 				</h1>
 				<p class="mt-2 text-sm text-slate-600 dark:text-slate-400 flex items-center gap-2">
 					Manage your DynamoDB tables.
-					<span class="text-xs bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium">{currentRegion()}</span>
+					<span class="text-xs bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium">{isAllRegions() ? 'All regions' : currentRegion()}</span>
 				</p>
 			</div>
-			<div class="flex gap-2">
+			<div class="flex items-center gap-2">
+				<WriteRegionHint />
 				<button id="purge-all-btn" onclick={purgeAll} class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-red-600 dark:hover:bg-red-700 focus:outline-none dark:focus:ring-red-900">Purge All</button>
 				<button id="create-table-btn" onclick={() => { showCreateModal = true; }} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">+ Create Table</button>
 			</div>
@@ -2443,6 +2509,39 @@ function setPartiqlExample(query: string) {
 			<div class="flex items-center justify-center p-8">
 				<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /><path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" /></svg>
 			</div>
+		{:else if isAllRegions()}
+			{#if allRegionErrors.length > 0}
+				<div role="alert" class="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+					Failed to load tables from: {allRegionErrors.map((e) => e.region).join(', ')}
+				</div>
+			{/if}
+			{#if allRegionTables.length === 0}
+				<div class="text-center py-12 text-slate-500">
+					<svg class="w-16 h-16 mx-auto mb-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" /></svg>
+					<p class="text-lg font-medium">No tables found in any region</p>
+				</div>
+			{:else}
+				<!--
+					Read/open-only: this row list spans regions, so per-row destructive
+					actions live on the single-region detail page a row opens into
+					(openTableInRegion pins the picker to that row's region first) --
+					not here, where a stray "delete" click can't be scoped to one region
+					as unambiguously as a page-wide `ddb()` call can.
+				-->
+				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+					{#each allRegionTables as row (row.region + '::' + row.name)}
+						<button
+							onclick={() => openTableInRegion(row.region, row.name)}
+							class="text-left p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group"
+						>
+							<div class="flex items-center gap-2">
+								<h3 class="text-base font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{row.name}</h3>
+								<RegionChip region={row.region} />
+							</div>
+						</button>
+					{/each}
+				</div>
+			{/if}
 		{:else if filteredTables.length === 0}
 			<div class="text-center py-12 text-slate-500">
 				<svg class="w-16 h-16 mx-auto mb-4 text-slate-300 dark:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" /></svg>

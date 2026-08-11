@@ -8,7 +8,7 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-func (h *Handler) handleGrantPermissions(_ context.Context, c *echo.Context, body []byte) error {
+func (h *Handler) handleGrantPermissions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in grantPermissionsInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
@@ -22,14 +22,14 @@ func (h *Handler) handleGrantPermissions(_ context.Context, c *echo.Context, bod
 		Condition:                  in.Condition,
 	}
 
-	if err := h.Backend.GrantPermissions(entry); err != nil {
+	if err := h.Backend.GrantPermissions(ctx, entry); err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, grantPermissionsOutput{})
 }
 
-func (h *Handler) handleRevokePermissions(_ context.Context, c *echo.Context, body []byte) error {
+func (h *Handler) handleRevokePermissions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in revokePermissionsInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
@@ -43,7 +43,7 @@ func (h *Handler) handleRevokePermissions(_ context.Context, c *echo.Context, bo
 		Condition:                  in.Condition,
 	}
 
-	if err := h.Backend.RevokePermissions(entry); err != nil {
+	if err := h.Backend.RevokePermissions(ctx, entry); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -72,7 +72,7 @@ func (h *Handler) handleListPermissions(_ context.Context, c *echo.Context, body
 	})
 }
 
-func (h *Handler) handleBatchGrantPermissions(_ context.Context, c *echo.Context, body []byte) error {
+func (h *Handler) handleBatchGrantPermissions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in batchGrantPermissionsInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
@@ -82,7 +82,7 @@ func (h *Handler) handleBatchGrantPermissions(_ context.Context, c *echo.Context
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
-	failures := h.Backend.BatchGrantPermissions(in.Entries)
+	failures := h.Backend.BatchGrantPermissions(ctx, in.Entries)
 
 	result := batchGrantPermissionsOutput{Failures: make([]BatchFailureEntry, 0, len(failures))}
 
@@ -95,7 +95,7 @@ func (h *Handler) handleBatchGrantPermissions(_ context.Context, c *echo.Context
 	return c.JSON(http.StatusOK, result)
 }
 
-func (h *Handler) handleBatchRevokePermissions(_ context.Context, c *echo.Context, body []byte) error {
+func (h *Handler) handleBatchRevokePermissions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in batchRevokePermissionsInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
@@ -105,7 +105,7 @@ func (h *Handler) handleBatchRevokePermissions(_ context.Context, c *echo.Contex
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
-	failures := h.Backend.BatchRevokePermissions(in.Entries)
+	failures := h.Backend.BatchRevokePermissions(ctx, in.Entries)
 
 	result := batchRevokePermissionsOutput{Failures: make([]BatchFailureEntry, 0, len(failures))}
 

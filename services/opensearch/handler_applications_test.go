@@ -15,7 +15,7 @@ func TestCreateApplication_EmptyName(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateApplication("", nil, nil)
+	_, err := b.CreateApplication("", nil, nil, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, opensearch.ErrInvalidParameter)
 }
@@ -24,10 +24,10 @@ func TestCreateApplication_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateApplication("my-app", nil, nil)
+	_, err := b.CreateApplication("my-app", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateApplication("my-app", nil, nil)
+	_, err = b.CreateApplication("my-app", nil, nil, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, opensearch.ErrApplicationAlreadyExists)
 }
@@ -63,7 +63,7 @@ func TestApplications_CRUD(t *testing.T) {
 
 			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-			app, err := b.CreateApplication(tt.appName, nil, nil)
+			app, err := b.CreateApplication(tt.appName, nil, nil, nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, app.ID)
 			assert.Equal(t, tt.appName, app.Name)
@@ -159,10 +159,11 @@ func TestApplications_GetAndUpdateWireShape(t *testing.T) {
 	cr.Body.Close()
 	require.Equal(t, http.StatusOK, cr.StatusCode)
 
-	appID := cOut["Id"].(string)
-	assert.NotEmpty(t, cOut["CreatedAt"])
+	appID := cOut["id"].(string)
+	assert.NotEmpty(t, cOut["createdAt"])
 	// CreateApplicationOutput has no Status field on the real API.
 	assert.NotContains(t, cOut, "Status")
+	assert.NotContains(t, cOut, "status")
 
 	// GetApplication must include Status, Endpoint, CreatedAt, LastUpdatedAt.
 	gr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/application/"+appID, nil)
@@ -202,7 +203,7 @@ func TestOpenSearchHandler_CreateApplication(t *testing.T) {
 			name:         "success",
 			appName:      "my-app",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"my-app", "Id", "Arn"},
+			wantContains: []string{"my-app", "\"id\"", "\"arn\""},
 		},
 		{
 			name:     "no_name",
@@ -281,7 +282,7 @@ func createTestApplication(t *testing.T, h *opensearch.Handler, name string) str
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 
-	id, ok := out["Id"].(string)
+	id, ok := out["id"].(string)
 	require.True(t, ok)
 
 	return id

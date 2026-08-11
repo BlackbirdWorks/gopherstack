@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -49,10 +48,8 @@ func startChaosContainer(t *testing.T) string {
 
 	ctx := t.Context()
 
-	dockerfile := "Dockerfile"
-	if _, err := os.Stat("../../bin/gopherstack"); err == nil {
-		dockerfile = "Dockerfile.test"
-	}
+	dockerfile, err := dockerfileFor()
+	require.NoError(t, err)
 
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
@@ -72,7 +69,10 @@ func startChaosContainer(t *testing.T) string {
 	require.NoError(t, err, "failed to start chaos test container")
 
 	t.Cleanup(func() {
-		_ = container.Terminate(ctx)
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_ = container.Terminate(cleanupCtx)
 	})
 
 	mappedPort, err := container.MappedPort(ctx, "8000")

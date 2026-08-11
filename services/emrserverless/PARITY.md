@@ -1,6 +1,6 @@
 ---
 service: emrserverless
-sdk_module: aws-sdk-go-v2/service/emrserverless@v1.40.2
+sdk_module: aws-sdk-go-v2/service/emrserverless@v1.44.4
 last_audit_commit: b0d0cfe0
 last_audit_date: 2026-07-24
 overall: A
@@ -33,7 +33,7 @@ families:
   timestamps: {status: ok, note: "all createdAt/updatedAt/startedAt/endedAt/authTokenExpiresAt/jobCreatedAt use epochSeconds() (float64 Unix seconds), matching restjson1 epoch-seconds timestamp serialization -- no ISO8601 string bugs found"}
   session_family: {status: ok, note: "fully field-diffed this pass (previously only spot-checked/deferred) against types.Session/SessionSummary and every session op's Input/Output shape in the SDK module -- no bugs found; optional resource-usage fields (billedResourceUtilization/totalResourceUtilization/totalExecutionDurationSeconds/idleSince/networkConfiguration) are intentionally omitted since this backend does not simulate real resource billing, matching the same documented omission already accepted for JobRun/Application"}
 gaps:
-  - "JobRunState is missing the real SDK's QUEUED value (types.enums.go has SUBMITTED/PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/CANCELLING/CANCELLED/QUEUED); this backend's StartJobRun always starts a run in SUBMITTED and never transitions through QUEUED. Not fixed this pass (no client-visible bug -- the backend's job runs complete no real work, so there's no natural point at which QUEUED would be observed); flag for a follow-up bd issue if job-lifecycle simulation is ever added."
+  - "Fixed: JobRunState was missing the real SDK's QUEUED constant (types/enums.go:76-84 in aws-sdk-go-v2/service/emrserverless@v1.44.4, also emr-serverless/2021-07-13/service-2.json shapes.JobRunState, both list SUBMITTED/PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/CANCELLING/CANCELLED/QUEUED). Added JobRunStateQueued for enum completeness. The lifecycle itself is unaffected: StartJobRun still only ever produces SUBMITTED (or CANCELLED via explicit cancel) -- this backend does not model application capacity/scheduler configuration, which is the only real trigger for QUEUED (see JobRun.queuedDurationMilliseconds / SchedulerConfiguration.queueTimeoutMinutes in service-2.json), so nothing ever enters PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/CANCELLING/QUEUED either -- not just QUEUED. This is a self-consistent simplification (every client-polled field agrees the run stays SUBMITTED), not an instant-success bug; simulating job execution to make QUEUED observable is out of scope without job-lifecycle simulation (tracked separately if ever undertaken)."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; sessionTokens/applicationTokens/jobRunTokens are plain in-memory maps cleaned up on DeleteApplication and full Reset(), and persisted/restored alongside the store.Table-backed resources -- no unbounded growth path found. Re-verified this pass: no new goroutines/tickers were introduced by the field additions."}
 ---

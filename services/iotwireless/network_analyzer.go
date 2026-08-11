@@ -17,7 +17,7 @@ func copyNetworkAnalyzerConfig(nc *NetworkAnalyzerConfig) *NetworkAnalyzerConfig
 	cp := *nc
 	cp.Tags = make(map[string]string, len(nc.Tags))
 	maps.Copy(cp.Tags, nc.Tags)
-	cp.TraceContent = copyAnyMap(nc.TraceContent)
+	cp.TraceContent = copyTraceContent(nc.TraceContent)
 
 	if nc.WirelessDevices != nil {
 		cp.WirelessDevices = make([]string, len(nc.WirelessDevices))
@@ -41,7 +41,7 @@ func copyNetworkAnalyzerConfig(nc *NetworkAnalyzerConfig) *NetworkAnalyzerConfig
 func (b *InMemoryBackend) CreateNetworkAnalyzerConfig(
 	accountID, region, name, description string,
 	wirelessDevices, wirelessGateways, multicastGroups []string,
-	traceContent map[string]any,
+	traceContent *TraceContent,
 	tags map[string]string,
 ) (*NetworkAnalyzerConfig, error) {
 	b.mu.Lock("CreateNetworkAnalyzerConfig")
@@ -121,11 +121,16 @@ func (b *InMemoryBackend) DeleteNetworkAnalyzerConfig(accountID, region, name st
 	return nil
 }
 
-// UpdateNetworkAnalyzerConfig updates mutable fields on an existing network analyzer configuration.
+// UpdateNetworkAnalyzerConfig updates mutable fields on an existing network
+// analyzer configuration. traceContent, if non-nil, replaces the stored
+// TraceContent wholesale rather than merging field-by-field: unlike
+// LoRaWANUpdateDevice, types.TraceContent's fields (LogLevel/
+// MulticastFrameInfo/WirelessDeviceFrameInfo) aren't optional pointers, so
+// there is no way for a client to express "leave this one sub-field alone".
 func (b *InMemoryBackend) UpdateNetworkAnalyzerConfig(
 	accountID, region, name, description string,
 	wirelessDevices, wirelessGateways []string,
-	traceContent map[string]any,
+	traceContent *TraceContent,
 ) error {
 	b.mu.Lock("UpdateNetworkAnalyzerConfig")
 	defer b.mu.Unlock()
@@ -145,7 +150,9 @@ func (b *InMemoryBackend) UpdateNetworkAnalyzerConfig(
 		nc.WirelessGateways = append([]string(nil), wirelessGateways...)
 	}
 
-	nc.TraceContent = mergeAnyMap(nc.TraceContent, traceContent)
+	if traceContent != nil {
+		nc.TraceContent = traceContent
+	}
 
 	return nil
 }

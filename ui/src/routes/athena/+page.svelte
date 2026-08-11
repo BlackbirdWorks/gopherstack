@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
 	import { getAthenaClient } from '$lib/aws-client';
 	import {
 		ListWorkGroupsCommand,
@@ -51,13 +53,15 @@
 	let showRuntimeStats = $state(false);
 	let pollingInterval: ReturnType<typeof setInterval> | undefined;
 
-	// Work Groups
-	let workgroups = $state<WorkGroupSummary[]>([]);
+	// Work Groups. Fanned out across regions in All mode -- each row is tagged
+	// with the region its ListWorkGroups call came from.
+	type Regioned<T> = T & { region: string };
+	let workgroups = $state<Regioned<WorkGroupSummary>[]>([]);
 	let loadingWorkgroups = $state(false);
 	let selectedWorkgroup = $state<string | null>(null);
 
-	// Data Catalogs
-	let catalogs = $state<DataCatalogSummary[]>([]);
+	// Data Catalogs (also fanned out across regions in All mode)
+	let catalogs = $state<Regioned<DataCatalogSummary>[]>([]);
 	let loadingCatalogs = $state(false);
 
 	// History
@@ -218,8 +222,12 @@
 	async function loadWorkgroups() {
 		loadingWorkgroups = true;
 		try {
-			const resp = await athena().send(new ListWorkGroupsCommand({}));
-			workgroups = resp.WorkGroups ?? [];
+			const result = await multiRegionList(
+				(region) => getAthenaClient(region).send(new ListWorkGroupsCommand({})),
+				(r) => r.WorkGroups ?? []
+			);
+			workgroups = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load workgroups from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load workgroups: ' + String(e));
 		} finally {
@@ -230,8 +238,12 @@
 	async function loadCatalogs() {
 		loadingCatalogs = true;
 		try {
-			const resp = await athena().send(new ListDataCatalogsCommand({}));
-			catalogs = resp.DataCatalogsSummary ?? [];
+			const result = await multiRegionList(
+				(region) => getAthenaClient(region).send(new ListDataCatalogsCommand({})),
+				(r) => r.DataCatalogsSummary ?? []
+			);
+			catalogs = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load catalogs from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load catalogs: ' + String(e));
 		} finally {
@@ -686,6 +698,7 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
 						<tr>
 							<th class="px-4 py-3 text-left">Name</th>
+							<th class="px-4 py-3 text-left">Region</th>
 							<th class="px-4 py-3 text-left">State</th>
 							<th class="px-4 py-3 text-left">Description</th>
 						</tr>
@@ -694,6 +707,7 @@
 						{#each workgroups as wg}
 							<tr>
 								<td class="px-4 py-3 font-medium text-teal-600 dark:text-teal-400">{wg.Name}</td>
+								<td class="px-4 py-3"><RegionChip region={wg.region} /></td>
 								<td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${wg.State === 'ENABLED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{wg.State}</span></td>
 								<td class="px-4 py-3 text-xs text-gray-500">{wg.Description ?? '-'}</td>
 							</tr>
@@ -719,6 +733,7 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
 						<tr>
 							<th class="px-4 py-3 text-left">Catalog Name</th>
+							<th class="px-4 py-3 text-left">Region</th>
 							<th class="px-4 py-3 text-left">Type</th>
 							<th class="px-4 py-3 text-left">Description</th>
 						</tr>
@@ -727,6 +742,7 @@
 						{#each catalogs as cat}
 							<tr>
 								<td class="px-4 py-3 font-medium">{cat.CatalogName}</td>
+								<td class="px-4 py-3"><RegionChip region={cat.region} /></td>
 								<td class="px-4 py-3 text-xs text-gray-500">{cat.Type}</td>
 								<td class="px-4 py-3 text-xs text-gray-500">-</td>
 							</tr>

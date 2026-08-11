@@ -44,7 +44,7 @@ func (h *Handler) handleUpdateDomainConfigDryRun(
 	})
 }
 
-// toDomainConfigJSON builds the DescribeDomainConfig / UpdateDomainConfig response body.
+// Builds the DescribeDomainConfig / UpdateDomainConfig response body.
 func toDomainConfigJSON(d *Domain) domainConfigFields {
 	active := opensearchConfigStatus{State: domainStatusActive}
 	st := toDomainStatusJSON(d)
@@ -158,7 +158,7 @@ type domainConfigFields struct {
 	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions"`
 	OffPeakWindowOptions        opensearchConfigValue `json:"OffPeakWindowOptions"`
 	IdentityCenterOptions       opensearchConfigValue `json:"IdentityCenterOptions"`
-	EnableSoftwareUpdateOptions opensearchConfigValue `json:"EnableSoftwareUpdateOptions"`
+	EnableSoftwareUpdateOptions opensearchConfigValue `json:"SoftwareUpdateOptions"`
 }
 
 func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Request, name string) {

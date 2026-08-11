@@ -13,7 +13,7 @@ func aggregationAuthKey(accountID, region string) string {
 }
 
 // PutAggregationAuthorization creates or updates an aggregation authorization.
-func (b *InMemoryBackend) PutAggregationAuthorization(accountID, region string) error {
+func (b *InMemoryBackend) PutAggregationAuthorization(accountID, region string, tags []Tag) error {
 	b.mu.Lock("PutAggregationAuthorization")
 	defer b.mu.Unlock()
 
@@ -27,6 +27,7 @@ func (b *InMemoryBackend) PutAggregationAuthorization(accountID, region string) 
 		AuthorizedAwsRegion:         region,
 		AggregationAuthorizationArn: arn,
 	})
+	b.setResourceTagsLocked(arn, tags)
 
 	return nil
 }
@@ -90,10 +91,13 @@ func (b *InMemoryBackend) DeleteAggregationAuthorization(accountID, region strin
 }
 
 // PutConfigurationAggregator creates or updates a configuration aggregator.
+// A pre-existing aggregator keeps its ARN across updates, matching real AWS
+// Config Put (create-or-update) semantics.
 func (b *InMemoryBackend) PutConfigurationAggregator(
 	name string,
 	accountSources []AccountAggregationSource,
 	orgSource *OrganizationAggregationSource,
+	tags []Tag,
 ) error {
 	if name == "" {
 		return fmt.Errorf("%w: ConfigurationAggregatorName is required", ErrValidation)
@@ -102,11 +106,14 @@ func (b *InMemoryBackend) PutConfigurationAggregator(
 	b.mu.Lock("PutConfigurationAggregator")
 	defer b.mu.Unlock()
 
-	b.aggregatorCounter++
-	arn := fmt.Sprintf(
-		"arn:aws:config:%s:%s:config-aggregator/config-aggregator-%08d",
-		b.region, b.accountID, b.aggregatorCounter,
-	)
+	arn, ok := existingAggregatorArnLocked(b, name)
+	if !ok {
+		b.aggregatorCounter++
+		arn = fmt.Sprintf(
+			"arn:aws:config:%s:%s:config-aggregator/config-aggregator-%08d",
+			b.region, b.accountID, b.aggregatorCounter,
+		)
+	}
 
 	b.aggregators.Put(&ConfigurationAggregator{
 		ConfigurationAggregatorName:   name,
@@ -114,8 +121,19 @@ func (b *InMemoryBackend) PutConfigurationAggregator(
 		AccountAggregationSources:     accountSources,
 		OrganizationAggregationSource: orgSource,
 	})
+	b.setResourceTagsLocked(arn, tags)
 
 	return nil
+}
+
+// existingAggregatorArnLocked returns the ARN of the aggregator named name, if any.
+func existingAggregatorArnLocked(b *InMemoryBackend, name string) (string, bool) {
+	existing, ok := b.aggregators.Get(name)
+	if !ok {
+		return "", false
+	}
+
+	return existing.ConfigurationAggregatorArn, true
 }
 
 // DeleteConfigurationAggregator deletes a configuration aggregator by name.

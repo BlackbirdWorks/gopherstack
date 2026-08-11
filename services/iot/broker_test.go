@@ -194,14 +194,11 @@ func startTestBroker(t *testing.T, backend *iot.InMemoryBackend, port int) *iot.
 }
 
 // TestBroker_ClientSubscriptionsAndSendToClient exercises Broker's
-// MQTTPublisher extensions -- ClientSubscriptions and SendToClient -- against
-// a REAL mochi-mqtt session established by a real paho MQTT client over a
-// real TCP loopback connection (not a mock), proving: (1) ClientSubscriptions
-// reads genuine per-client subscription state (cl.State.Subscriptions) once
-// a client has actually subscribed, and (2) SendToClient genuinely delivers
-// straight to one client's connection -- the client receives a message on a
-// topic it never subscribed to, which is only possible via a direct,
-// per-client write, not the topic-broadcast Publish path.
+// MQTTPublisher extensions — ClientSubscriptions and SendToClient — against
+// a real mochi-mqtt session via a real paho MQTT client over real TCP
+// loopback (not a mock): ClientSubscriptions reads genuine per-client
+// subscription state, and SendToClient delivers to one client on a topic it
+// never subscribed to, proving it bypasses the topic-broadcast Publish path.
 func TestBroker_ClientSubscriptionsAndSendToClient(t *testing.T) {
 	t.Parallel()
 

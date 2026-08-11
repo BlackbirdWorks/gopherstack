@@ -10,10 +10,24 @@ const (
 	calcStateCreated   = "CREATED"
 	calcStateQueued    = "QUEUED"
 	calcStateRunning   = "RUNNING"
+	calcStateCanceling = "CANCELING"
 	calcStateCompleted = "COMPLETED"
 	calcStateFailed    = "FAILED"
 	calcStateCanceled  = "CANCELED"
 )
+
+// isValidCalculationExecutionState reports whether state is one of the eight
+// CalculationExecutionState enum values Athena defines
+// (aws-sdk-go-v2/service/athena@v1.60.4 types/enums.go:22-34).
+func isValidCalculationExecutionState(state string) bool {
+	switch state {
+	case calcStateCreating, calcStateCreated, calcStateQueued, calcStateRunning,
+		calcStateCanceling, calcStateCanceled, calcStateCompleted, calcStateFailed:
+		return true
+	default:
+		return false
+	}
+}
 
 // StartCalculationExecution starts a Spark calculation in the given session.
 func (b *InMemoryBackend) StartCalculationExecution(
@@ -131,6 +145,10 @@ func (b *InMemoryBackend) StopCalculationExecution(id string) (string, error) {
 func (b *InMemoryBackend) ListCalculationExecutions(sessionID, stateFilter string) ([]CalculationSummary, error) {
 	if sessionID == "" {
 		return nil, fmt.Errorf("%w: SessionId is required", ErrValidation)
+	}
+
+	if stateFilter != "" && !isValidCalculationExecutionState(stateFilter) {
+		return nil, fmt.Errorf("%w: StateFilter %q is invalid", ErrValidation, stateFilter)
 	}
 
 	b.mu.RLock("ListCalculationExecutions")

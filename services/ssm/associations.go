@@ -99,6 +99,19 @@ func (b *InMemoryBackend) CreateAssociation(
 	b.associationsStore(region).Put(&assoc)
 	b.recordAssociationExecutionLocked(region, assoc)
 
+	if len(input.Tags) > 0 {
+		if b.miscResourceTags[region] == nil {
+			b.miscResourceTags[region] = make(map[string]map[string]string)
+		}
+		miscTags := b.miscResourceTagsStore(region)
+		if miscTags[assocID] == nil {
+			miscTags[assocID] = make(map[string]string)
+		}
+		for _, t := range input.Tags {
+			miscTags[assocID][t.Key] = t.Value
+		}
+	}
+
 	return &CreateAssociationOutput{AssociationDescription: assoc}, nil
 }
 

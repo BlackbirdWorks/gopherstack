@@ -455,6 +455,7 @@ var errCodeLookup = []struct {
 	{ErrMultiRegionParameterGroupNotFound, "MultiRegionParameterGroupNotFoundFault", http.StatusBadRequest},
 	{ErrInvalidARN, "InvalidARNFault", http.StatusBadRequest},
 	{ErrReservationAlreadyExists, "ReservedNodeAlreadyExistsFault", http.StatusBadRequest},
+	{ErrServiceUpdateNotFound, "ServiceUpdateNotFoundFault", http.StatusBadRequest},
 }
 
 // writeBackendError translates a backend error to an HTTP response. It

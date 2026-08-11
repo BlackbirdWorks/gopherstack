@@ -144,7 +144,7 @@ func TestHandler_TagsOnEvaluationJob(t *testing.T) { //nolint:paralleltest // ex
 	// Create a job with tags.
 	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
 		"jobName": "tagged-job",
-		"tags": []map[string]string{
+		"jobTags": []map[string]string{
 			{"key": "project", "value": "alpha"},
 		},
 	})
@@ -767,6 +767,66 @@ func TestAccuracy_EvaluationJob_ListFilters(t *testing.T) {
 	var outNoMatch map[string]any
 	mustUnmarshal(t, recNoMatch, &outNoMatch)
 	assert.Empty(t, outNoMatch["jobSummaries"])
+}
+
+// TestAccuracy_EvaluationJob_ApplicationTypeEqualsFilter locks in that
+// ListEvaluationJobs' applicationTypeEquals query param (aws-sdk-go-v2
+// serializers.go:6329-6331) is actually parsed and applied, not silently
+// ignored, and that the field it filters on round-trips through Create.
+func TestAccuracy_EvaluationJob_ApplicationTypeEqualsFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		query     string
+		wantNames []string
+	}{
+		{
+			name:      "modelevaluation matches model job",
+			query:     "?applicationTypeEquals=ModelEvaluation",
+			wantNames: []string{"model-job"},
+		},
+		{
+			name:      "ragevaluation matches rag job",
+			query:     "?applicationTypeEquals=RagEvaluation",
+			wantNames: []string{"rag-job"},
+		},
+		{name: "no filter matches all", query: "", wantNames: []string{"model-job", "rag-job"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			recModel := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
+				"jobName":         "model-job",
+				"applicationType": "ModelEvaluation",
+			})
+			require.Equal(t, http.StatusCreated, recModel.Code)
+
+			recRag := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
+				"jobName":         "rag-job",
+				"applicationType": "RagEvaluation",
+			})
+			require.Equal(t, http.StatusCreated, recRag.Code)
+
+			rec := doRequest(t, h, http.MethodGet, "/evaluation-jobs"+tt.query, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+			jobs := out["jobSummaries"].([]any)
+
+			gotNames := make([]string, 0, len(jobs))
+			for _, raw := range jobs {
+				gotNames = append(gotNames, raw.(map[string]any)["jobName"].(string))
+			}
+
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
 }
 
 func TestHandler_StopEvaluationJob(t *testing.T) {

@@ -117,8 +117,13 @@ func TestExtractResource_V2Path(t *testing.T) {
 }
 
 // TestRouteMatcher_V2Strict checks that the route matcher does not match
-// paths that start with "/v2" but are not the Docker registry v2 API
-// (e.g. S3Control's "/v20180820/..." paths).
+// paths that start with "/v2" but are not the Docker registry v2 API: both
+// S3Control's "/v20180820/..." paths (different literal, pre-existing
+// coverage) and ApiGatewayV2's real "/v2/..." wire paths (CreateApi is
+// "/v2/apis", ListTagsForResource is "/v2/tags/{arn}", ...) -- ECR's bare
+// "/v2/" prefix used to swallow every one of those when the local registry
+// is enabled, since neither shares any of the real Docker registry route
+// markers (see gopherstack-61i8).
 func TestRouteMatcher_V2Strict(t *testing.T) {
 	t.Parallel()
 
@@ -134,9 +139,16 @@ func TestRouteMatcher_V2Strict(t *testing.T) {
 	}{
 		{path: "/v2/", wantMatch: true},
 		{path: "/v2/my-repo/manifests/latest", wantMatch: true},
+		{path: "/v2/org/app/blobs/sha256:abc", wantMatch: true},
+		{path: "/v2/my-repo/tags/list", wantMatch: true},
+		{path: "/v2/_catalog", wantMatch: true},
 		{path: "/v2", wantMatch: true},
 		{path: "/v20180820/bucket", wantMatch: false},
 		{path: "/v2abc/something", wantMatch: false},
+		{path: "/v2/apis", wantMatch: false},
+		{path: "/v2/apis/api-id", wantMatch: false},
+		{path: "/v2/domainnames", wantMatch: false},
+		{path: "/v2/tags/arn:aws:apigateway:us-east-1::/apis/api-id", wantMatch: false},
 	}
 
 	for _, tt := range tests {

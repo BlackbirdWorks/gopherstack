@@ -163,6 +163,39 @@ func TestCreateAutomationRule_ResponseFields(t *testing.T) {
 	assert.InDelta(t, float64(5), resp["RuleOrder"], 0)
 }
 
+// TestCreateAutomationRule_TagsReachTagStore verifies that Tags supplied on
+// CreateAutomationRule (confirmed accepted by the real
+// CreateAutomationRuleRequest, botocore securityhub/2018-10-26) reach the
+// same store ListTagsForResource reads (gopherstack-2mwl).
+func TestCreateAutomationRule_TagsReachTagStore(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	enableHub(t, h)
+
+	rec := doRequest(t, h, http.MethodPost, "/automationrules/create", map[string]any{
+		"RuleName":  "tagged-rule",
+		"RuleOrder": float64(1),
+		"Criteria":  map[string]any{},
+		"Actions":   []any{},
+		"Tags":      map[string]any{"team": "sec"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ruleArn, _ := resp["RuleArn"].(string)
+	require.NotEmpty(t, ruleArn)
+
+	tagRec := doRequest(t, h, http.MethodGet, "/tags/"+ruleArn, nil)
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	var tagResp map[string]any
+	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp))
+	tags, _ := tagResp["Tags"].(map[string]any)
+	assert.Equal(t, "sec", tags["team"])
+}
+
 // TestParity_BatchUpdateAutomationRules_CriteriaAndActions verifies that
 // BatchUpdateAutomationRules persists updates to Criteria and Actions fields.
 func TestBatchUpdateAutomationRules_CriteriaAndActions(t *testing.T) {

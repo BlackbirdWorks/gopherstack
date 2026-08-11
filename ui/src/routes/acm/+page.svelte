@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getACMClient } from '$lib/aws-client';
 	import {
 		ListCertificatesCommand,
@@ -28,9 +31,15 @@
 
 	const acm = regionalClient(getACMClient);
 
+	// Every row carries the region its ListCertificates call was made
+	// against. Detail/action calls must build a client for THAT region --
+	// in All mode the same domain can legitimately have certificates in two
+	// different regions.
+	type Regioned<T> = T & { region: string };
+
 	let loading = $state(false);
-	let certificates = $state<CertificateSummary[]>([]);
-	let selectedCert = $state<CertificateDetail | null>(null);
+	let certificates = $state<Regioned<CertificateSummary>[]>([]);
+	let selectedCert = $state<Regioned<CertificateDetail> | null>(null);
 	let loadingDetail = $state(false);
 	
 	// Filtering
@@ -127,8 +136,12 @@
 	async function loadCertificates() {
 		loading = true;
 		try {
-			const res = await acm().send(new ListCertificatesCommand({ MaxItems: 100 }));
-			certificates = res.CertificateSummaryList ?? [];
+			const result = await multiRegionList(
+				(region) => getACMClient(region).send(new ListCertificatesCommand({ MaxItems: 100 })),
+				(r) => r.CertificateSummaryList ?? []
+			);
+			certificates = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load certificates from ${result.errors.length} region(s)`);
 			// Cleanup selectedArns
 			const currentArns = new Set(certificates.map(c => c.CertificateArn));
 			selectedArns = new Set([...selectedArns].filter(a => currentArns.has(a)));
@@ -139,13 +152,13 @@
 		}
 	}
 
-	async function viewCertificate(arn: string) {
+	async function viewCertificate(arn: string, region: string) {
 		loadingDetail = true;
 		selectedCert = null;
 		detailTab = 'overview';
 		try {
-			const res = await acm().send(new DescribeCertificateCommand({ CertificateArn: arn }));
-			selectedCert = res.Certificate ?? null;
+			const res = await getACMClient(region).send(new DescribeCertificateCommand({ CertificateArn: arn }));
+			selectedCert = res.Certificate ? { ...res.Certificate, region } : null;
 		} catch (e) {
 			toast.error(`Failed to load certificate details: ${e}`);
 		} finally {
@@ -199,10 +212,10 @@
 		}
 	}
 
-	async function deleteCertificate(arn: string, domain?: string) {
+	async function deleteCertificate(arn: string, region: string, domain?: string) {
 		if (!await confirmDestructive({ title: 'Delete Certificate', message: `Delete certificate for "${domain ?? arn}"? This cannot be undone.` })) return;
 		try {
-			await acm().send(new DeleteCertificateCommand({ CertificateArn: arn }));
+			await getACMClient(region).send(new DeleteCertificateCommand({ CertificateArn: arn }));
 			toast.success('Certificate deleted');
 			if (selectedCert?.CertificateArn === arn) selectedCert = null;
 			await loadCertificates();
@@ -216,8 +229,10 @@
 		if (!await confirmDestructive({ title: 'Delete Certificates', message: `Delete ${selectedArns.size} certificates? This cannot be undone.` })) return;
 		let successCount = 0;
 		for (const arn of selectedArns) {
+			const region = certificates.find((c) => c.CertificateArn === arn)?.region;
+			if (!region) continue;
 			try {
-				await acm().send(new DeleteCertificateCommand({ CertificateArn: arn }));
+				await getACMClient(region).send(new DeleteCertificateCommand({ CertificateArn: arn }));
 				successCount++;
 				if (selectedCert?.CertificateArn === arn) selectedCert = null;
 			} catch (e) {
@@ -228,19 +243,19 @@
 		await loadCertificates();
 	}
 
-	async function renewCertificate(arn: string) {
+	async function renewCertificate(arn: string, region: string) {
 		try {
-			await acm().send(new RenewCertificateCommand({ CertificateArn: arn }));
+			await getACMClient(region).send(new RenewCertificateCommand({ CertificateArn: arn }));
 			toast.success('Certificate renewal initiated');
-			if (selectedCert?.CertificateArn === arn) await viewCertificate(arn);
+			if (selectedCert?.CertificateArn === arn) await viewCertificate(arn, region);
 		} catch (e) {
 			toast.error(`Failed to renew certificate: ${e}`);
 		}
 	}
 
-	async function resendValidationEmail(arn: string, domain: string, validationDomain: string) {
+	async function resendValidationEmail(arn: string, region: string, domain: string, validationDomain: string) {
 		try {
-			await acm().send(new ResendValidationEmailCommand({
+			await getACMClient(region).send(new ResendValidationEmailCommand({
 				CertificateArn: arn,
 				Domain: domain,
 				ValidationDomain: validationDomain
@@ -255,7 +270,7 @@
 		if (!selectedCert?.CertificateArn || !exportPassphrase) return;
 		exporting = true;
 		try {
-			const res = await acm().send(new ExportCertificateCommand({
+			const res = await getACMClient(selectedCert.region).send(new ExportCertificateCommand({
 				CertificateArn: selectedCert.CertificateArn,
 				Passphrase: new TextEncoder().encode(exportPassphrase)
 			}));
@@ -287,7 +302,7 @@
 			if (!res.ok) throw new Error(await res.text());
 			toast.success('Certificate revoked');
 			showRevokeModal = false;
-			await viewCertificate(selectedCert.CertificateArn);
+			await viewCertificate(selectedCert.CertificateArn, selectedCert.region);
 			await loadCertificates();
 		} catch (e) {
 			toast.error(`Failed to revoke certificate: ${e}`);
@@ -322,10 +337,10 @@
 		}
 	}
 
-	async function loadTags(arn: string) {
+	async function loadTags(arn: string, region: string) {
 		loadingTags = true;
 		try {
-			const res = await acm().send(new ListTagsForCertificateCommand({ CertificateArn: arn }));
+			const res = await getACMClient(region).send(new ListTagsForCertificateCommand({ CertificateArn: arn }));
 			tags = res.Tags ?? [];
 		} catch (e) {
 			toast.error(`Failed to load tags: ${e}`);
@@ -337,14 +352,14 @@
 	async function addTag() {
 		if (!selectedCert?.CertificateArn || !newTagKey) return;
 		try {
-			await acm().send(new AddTagsToCertificateCommand({
+			await getACMClient(selectedCert.region).send(new AddTagsToCertificateCommand({
 				CertificateArn: selectedCert.CertificateArn,
 				Tags: [{ Key: newTagKey, Value: newTagValue }]
 			}));
 			toast.success('Tag added');
 			newTagKey = '';
 			newTagValue = '';
-			await loadTags(selectedCert.CertificateArn);
+			await loadTags(selectedCert.CertificateArn, selectedCert.region);
 		} catch (e) {
 			toast.error(`Failed to add tag: ${e}`);
 		}
@@ -353,12 +368,12 @@
 	async function removeTag(key: string, value?: string) {
 		if (!selectedCert?.CertificateArn) return;
 		try {
-			await acm().send(new RemoveTagsFromCertificateCommand({
+			await getACMClient(selectedCert.region).send(new RemoveTagsFromCertificateCommand({
 				CertificateArn: selectedCert.CertificateArn,
 				Tags: [{ Key: key, Value: value }]
 			}));
 			toast.success('Tag removed');
-			await loadTags(selectedCert.CertificateArn);
+			await loadTags(selectedCert.CertificateArn, selectedCert.region);
 		} catch (e) {
 			toast.error(`Failed to remove tag: ${e}`);
 		}
@@ -371,7 +386,7 @@
 
 	$effect(() => {
 		if (selectedCert && detailTab === 'tags') {
-			loadTags(selectedCert.CertificateArn!);
+			loadTags(selectedCert.CertificateArn!, selectedCert.region);
 		}
 	});
 
@@ -396,7 +411,8 @@
 				<p class="text-sm text-muted-foreground">Provision and manage SSL/TLS certificates</p>
 			</div>
 		</div>
-		<div class="flex gap-2">
+		<div class="flex gap-2 items-center">
+			<WriteRegionHint />
 			<button onclick={loadConfig} class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent" title="Account Configuration">
 				<Settings class="h-4 w-4" />
 			</button>
@@ -478,6 +494,7 @@
 							<input type="checkbox" onchange={(e) => toggleAll(e.currentTarget.checked)} class="rounded border-gray-300" checked={selectedArns.size === filteredCerts.length && filteredCerts.length > 0} />
 						</th>
 						<th class="px-4 py-3 text-left font-medium">Domain Name</th>
+						<th class="px-4 py-3 text-left font-medium">Region</th>
 						<th class="px-4 py-3 text-left font-medium">Status</th>
 						<th class="px-4 py-3 text-left font-medium">Type</th>
 						<th class="px-4 py-3 text-left font-medium">Expires</th>
@@ -487,7 +504,7 @@
 				<tbody class="divide-y">
 					{#each filteredCerts as cert}
 						{@const icon = certTypeIcon(cert.Status)}
-						<tr class="hover:bg-muted/30 cursor-pointer" onclick={() => viewCertificate(cert.CertificateArn ?? '')}>
+						<tr class="hover:bg-muted/30 cursor-pointer" onclick={() => viewCertificate(cert.CertificateArn ?? '', cert.region)}>
 							<td class="px-4 py-3" onclick={(e) => e.stopPropagation()}>
 								<input type="checkbox" class="rounded border-gray-300" checked={selectedArns.has(cert.CertificateArn ?? '')} onchange={(e) => toggleOne(cert.CertificateArn ?? '', e.currentTarget.checked)} />
 							</td>
@@ -505,6 +522,7 @@
 									<span class="font-medium">{cert.DomainName}</span>
 								</div>
 							</td>
+							<td class="px-4 py-3"><RegionChip region={cert.region} /></td>
 							<td class="px-4 py-3">
 								<span class="rounded-full px-2 py-0.5 text-xs font-medium {statusBadge(cert.Status)}">
 									{cert.Status ?? '—'}
@@ -529,10 +547,10 @@
 								{/if}
 							</td>
 							<td class="px-4 py-3 text-right flex justify-end gap-1">
-								<button onclick={(e) => { e.stopPropagation(); viewCertificate(cert.CertificateArn ?? ''); }} class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950" title="View details">
+								<button onclick={(e) => { e.stopPropagation(); viewCertificate(cert.CertificateArn ?? '', cert.region); }} class="rounded p-1 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950" title="View details">
 									<Eye class="h-4 w-4" />
 								</button>
-								<button onclick={(e) => { e.stopPropagation(); deleteCertificate(cert.CertificateArn ?? '', cert.DomainName); }} class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950" title="Delete certificate">
+								<button onclick={(e) => { e.stopPropagation(); deleteCertificate(cert.CertificateArn ?? '', cert.region, cert.DomainName); }} class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950" title="Delete certificate">
 									<Trash2 class="h-4 w-4" />
 								</button>
 							</td>
@@ -566,6 +584,7 @@
 					<div>
 						<h3 class="font-semibold">{selectedCert.DomainName}</h3>
 						<div class="flex items-center gap-2 mt-0.5">
+							<RegionChip region={selectedCert.region} />
 							<span class="rounded-full px-2 py-0.5 text-xs font-medium {statusBadge(selectedCert.Status)}">
 								{selectedCert.Status}
 							</span>
@@ -589,7 +608,7 @@
 						Export
 					</button>
 					{#if selectedCert.Status === 'ISSUED'}
-						<button onclick={() => renewCertificate(selectedCert?.CertificateArn ?? '')} class="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs hover:bg-accent">
+						<button onclick={() => selectedCert && renewCertificate(selectedCert.CertificateArn ?? '', selectedCert.region)} class="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs hover:bg-accent">
 							<RefreshCw class="h-3.5 w-3.5" />
 							Renew
 						</button>
@@ -598,7 +617,7 @@
 							Revoke
 						</button>
 					{/if}
-					<button onclick={() => deleteCertificate(selectedCert?.CertificateArn ?? '', selectedCert?.DomainName)} class="flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950">
+					<button onclick={() => selectedCert && deleteCertificate(selectedCert.CertificateArn ?? '', selectedCert.region, selectedCert.DomainName)} class="flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950">
 						<Trash2 class="h-3.5 w-3.5" />
 						Delete
 					</button>
@@ -713,7 +732,7 @@
 											</td>
 											<td class="px-3 py-2 text-right">
 												{#if opt.ValidationMethod === 'EMAIL' && opt.ValidationStatus === 'PENDING_VALIDATION'}
-													<button onclick={() => resendValidationEmail(selectedCert?.CertificateArn ?? '', opt.DomainName ?? '', opt.ValidationDomain ?? opt.DomainName ?? '')} class="text-blue-500 hover:text-blue-700" title="Resend Email">
+													<button onclick={() => selectedCert && resendValidationEmail(selectedCert.CertificateArn ?? '', selectedCert.region, opt.DomainName ?? '', opt.ValidationDomain ?? opt.DomainName ?? '')} class="text-blue-500 hover:text-blue-700" title="Resend Email">
 														<Mail class="h-4 w-4" />
 													</button>
 												{/if}

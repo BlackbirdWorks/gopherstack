@@ -15,6 +15,7 @@ import (
 const (
 	keyStateValue = "StateValue"
 	keyState      = "State"
+	keyStatus     = "Status"
 )
 
 const (
@@ -458,16 +459,40 @@ func (h *Handler) cborListTagsForResource(input cbor.Map, c *echo.Context) error
 	return writeCBOR(c, cbor.Map{"Tags": tagList})
 }
 
+// cborTagsFromInput extracts a Tags list (`[]{Key,Value}`) from a CBOR
+// operation input, matching how CreateOrUpdateTags-style ops and every
+// Tags-accepting Put* op encode tags on the wire.
+func cborTagsFromInput(input cbor.Map) map[string]string {
+	tagList, ok := input["Tags"].(cbor.List)
+	if !ok {
+		return nil
+	}
+
+	kv := make(map[string]string, len(tagList))
+	for _, item := range tagList {
+		if m, isMap := item.(cbor.Map); isMap {
+			kv[cborStr(m, "Key")] = cborStr(m, keyValue)
+		}
+	}
+
+	return kv
+}
+
+// applyCreationTags stores any Tags present on a Put*/Create* CBOR input
+// against resourceARN. Every tag-accepting Put* op (PutMetricAlarm,
+// PutCompositeAlarm, PutLogAlarm, PutDashboard, PutInsightRule,
+// PutMetricStream, PutAlarmMuteRule) must call this after the resource is
+// created, or Tags supplied at creation are silently dropped
+// (gopherstack-2mwl).
+func (h *Handler) applyCreationTags(input cbor.Map, resourceARN string) {
+	if kv := cborTagsFromInput(input); len(kv) > 0 {
+		h.setTags(resourceARN, kv)
+	}
+}
+
 func (h *Handler) cborTagResource(input cbor.Map, c *echo.Context) error {
 	arn := cborStr(input, "ResourceARN")
-
-	if tagList, ok := input["Tags"].(cbor.List); ok {
-		kv := make(map[string]string, len(tagList))
-		for _, item := range tagList {
-			if m, isMap := item.(cbor.Map); isMap {
-				kv[cborStr(m, "Key")] = cborStr(m, keyValue)
-			}
-		}
+	if kv := cborTagsFromInput(input); kv != nil {
 		h.setTags(arn, kv)
 	}
 

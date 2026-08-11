@@ -601,26 +601,16 @@ func TestHandler_CopyObject_Versioned(t *testing.T) {
 	}
 }
 
-// TestCopyObject_SSEAndChecksum is a table test covering three related
-// CopyObject wire-shape fixes:
-//   - checksum propagation: CopyObjectResult now includes the destination's
-//     checksum, matching real S3's types.CopyObjectResult (ChecksumCRC32/
-//     CRC32C/SHA1/SHA256/CRC64NVME alongside ETag/LastModified);
-//   - destination SSE-KMS: CopyObject now honors destination-side
-//     server-side-encryption headers (independent of whatever encryption, if
-//     any, the source object used) and echoes the SSE-KMS response headers
-//     exactly like PutObject does;
-//   - copy-source SSE-C: copying an SSE-C encrypted source object now fails
-//     with 400 InvalidRequest when the caller omits the
-//     x-amz-copy-source-server-side-encryption-customer-* headers, and 400
-//     BadDigest when the supplied key-MD5 is wrong, instead of the pre-fix
-//     behavior where decryptVersionForGet silently handed back ciphertext and
-//     the copy "succeeded" with corrupted, unreadable data at the
-//     destination; supplying the correct key decrypts correctly.
+// TestCopyObject_SSEAndChecksum covers three CopyObject wire-shape behaviors:
+// CopyObjectResult includes the destination's checksum (matching real S3's
+// types.CopyObjectResult); destination SSE-KMS headers are honored independent
+// of the source's encryption and echoed like PutObject does; and copying an
+// SSE-C source without the x-amz-copy-source-server-side-encryption-customer-*
+// headers fails with 400 InvalidRequest (400 BadDigest on a wrong key-MD5)
+// rather than silently returning corrupted ciphertext.
 //
-// Fixture buckets/objects (checksum source, plaintext source, SSE-C source)
-// are created once and shared read-only across parallel subtests, each of
-// which copies to its own distinct destination key.
+// Fixture buckets/objects are created once and shared read-only across parallel
+// subtests, each copying to its own distinct destination key.
 func TestCopyObject_SSEAndChecksum(t *testing.T) {
 	t.Parallel()
 

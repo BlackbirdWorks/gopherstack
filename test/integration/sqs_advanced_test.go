@@ -135,20 +135,17 @@ func TestIntegration_SQS_DelayQueue(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		waitBefore   time.Duration
 		delaySeconds int32
 		wantVisible  bool
 	}{
 		{
 			name:         "message_hidden_during_delay",
 			delaySeconds: 5,
-			waitBefore:   0,
 			wantVisible:  false,
 		},
 		{
 			name:         "message_visible_after_delay",
 			delaySeconds: 1,
-			waitBefore:   2 * time.Second,
 			wantVisible:  true,
 		},
 	}
@@ -172,21 +169,29 @@ func TestIntegration_SQS_DelayQueue(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			if tt.waitBefore > 0 {
-				time.Sleep(tt.waitBefore)
-			}
-
-			recvOut, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-				QueueUrl:            queueURL,
-				MaxNumberOfMessages: 1,
-				WaitTimeSeconds:     0,
-			})
-			require.NoError(t, err)
+			var recvOut *sqs.ReceiveMessageOutput
 
 			if tt.wantVisible {
-				require.Len(t, recvOut.Messages, 1, "message should be visible after delay")
+				require.Eventually(t, func() bool {
+					var recvErr error
+					recvOut, recvErr = client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+						QueueUrl:            queueURL,
+						MaxNumberOfMessages: 1,
+						WaitTimeSeconds:     0,
+					})
+
+					return recvErr == nil && len(recvOut.Messages) == 1
+				}, 5*time.Second, 50*time.Millisecond, "message should become visible after delay")
+
 				assert.Equal(t, "delayed-message", aws.ToString(recvOut.Messages[0].Body))
 			} else {
+				var recvErr error
+				recvOut, recvErr = client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+					QueueUrl:            queueURL,
+					MaxNumberOfMessages: 1,
+					WaitTimeSeconds:     0,
+				})
+				require.NoError(t, recvErr)
 				assert.Empty(t, recvOut.Messages, "message should be hidden during delay")
 			}
 		})
@@ -204,19 +209,16 @@ func TestIntegration_SQS_QueueLevelDelay(t *testing.T) {
 	tests := []struct {
 		name           string
 		queueDelaySecs string
-		waitBefore     time.Duration
 		wantVisible    bool
 	}{
 		{
 			name:           "queue_delay_hides_message",
 			queueDelaySecs: "5",
-			waitBefore:     0,
 			wantVisible:    false,
 		},
 		{
 			name:           "queue_delay_message_becomes_visible",
 			queueDelaySecs: "1",
-			waitBefore:     2 * time.Second,
 			wantVisible:    true,
 		},
 	}
@@ -242,20 +244,27 @@ func TestIntegration_SQS_QueueLevelDelay(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			if tt.waitBefore > 0 {
-				time.Sleep(tt.waitBefore)
-			}
-
-			recvOut, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-				QueueUrl:            queueURL,
-				MaxNumberOfMessages: 1,
-				WaitTimeSeconds:     0,
-			})
-			require.NoError(t, err)
+			var recvOut *sqs.ReceiveMessageOutput
 
 			if tt.wantVisible {
-				require.Len(t, recvOut.Messages, 1, "message should be visible")
+				require.Eventually(t, func() bool {
+					var recvErr error
+					recvOut, recvErr = client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+						QueueUrl:            queueURL,
+						MaxNumberOfMessages: 1,
+						WaitTimeSeconds:     0,
+					})
+
+					return recvErr == nil && len(recvOut.Messages) == 1
+				}, 5*time.Second, 50*time.Millisecond, "message should become visible")
 			} else {
+				var recvErr error
+				recvOut, recvErr = client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+					QueueUrl:            queueURL,
+					MaxNumberOfMessages: 1,
+					WaitTimeSeconds:     0,
+				})
+				require.NoError(t, recvErr)
 				assert.Empty(t, recvOut.Messages, "message should still be hidden")
 			}
 		})

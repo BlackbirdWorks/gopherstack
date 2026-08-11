@@ -108,17 +108,11 @@ func TestHandler_PostObject(t *testing.T) {
 	}
 }
 
-// TestHandler_PostObject_FormFieldPassthrough is a table test covering three
-// presigned-POST form fields that were previously silently ignored and are
-// now applied to the uploaded object exactly like their PutObject header
-// equivalents:
-//   - x-amz-server-side-encryption / -aws-kms-key-id (SSE-KMS): the object
-//     must be encrypted and the response must echo matching SSE headers;
-//   - x-amz-storage-class: the stored object's StorageClass must reflect it;
-//   - x-amz-checksum-algorithm: the object must get a server-computed
-//     checksum of that algorithm.
-//
-// Each case uses its own bucket/key so subtests can run fully in parallel.
+// TestHandler_PostObject_FormFieldPassthrough covers three presigned-POST form
+// fields applied to the uploaded object exactly like their PutObject header
+// equivalents: x-amz-server-side-encryption(-aws-kms-key-id), x-amz-storage-class,
+// and x-amz-checksum-algorithm. Each case uses its own bucket/key so subtests run
+// fully in parallel.
 func TestHandler_PostObject_FormFieldPassthrough(t *testing.T) {
 	t.Parallel()
 

@@ -145,6 +145,125 @@ func TestRebuildWorkspaces_DoesNotChangeState(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Reboot/Rebuild state preconditions
+// ---------------------------------------------------------------------------
+
+// TestRebootRebuildWorkspaces_StatePrecondition verifies real AWS's
+// documented state preconditions ("You cannot reboot a WorkSpace unless its
+// state is AVAILABLE, UNHEALTHY, or REBOOTING" /
+// "You cannot rebuild a WorkSpace unless its state is AVAILABLE, ERROR,
+// UNHEALTHY, STOPPED, or REBOOTING") are enforced as a per-item
+// FailedRequests entry, not silently accepted.
+func TestRebootRebuildWorkspaces_StatePrecondition(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		target      string
+		requestsKey string
+		wantFailed  bool
+	}{
+		{
+			name: "reboot rejects admin-maintenance workspace", target: "RebootWorkspaces",
+			requestsKey: "RebootWorkspaceRequests", wantFailed: true,
+		},
+		{
+			name: "rebuild rejects admin-maintenance workspace", target: "RebuildWorkspaces",
+			requestsKey: "RebuildWorkspaceRequests", wantFailed: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
+			h := workspaces.NewHandler(backend)
+			wsID := createWorkspace(t, h)
+
+			modRec := doTargetRequest(t, h, "ModifyWorkspaceState", map[string]any{
+				"WorkspaceId":    wsID,
+				"WorkspaceState": "ADMIN_MAINTENANCE",
+			})
+			require.Equal(t, http.StatusOK, modRec.Code)
+
+			rec := doTargetRequest(t, h, tc.target, map[string]any{
+				tc.requestsKey: []map[string]any{{"WorkspaceId": wsID}},
+			})
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+
+			var out struct {
+				FailedRequests []struct {
+					WorkspaceId  string `json:"WorkspaceId"` //nolint:revive,staticcheck // AWS wire casing.
+					ErrorCode    string `json:"ErrorCode"`
+					ErrorMessage string `json:"ErrorMessage"`
+				} `json:"FailedRequests"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			if !tc.wantFailed {
+				assert.Empty(t, out.FailedRequests)
+
+				return
+			}
+
+			require.Len(t, out.FailedRequests, 1)
+			assert.Equal(t, wsID, out.FailedRequests[0].WorkspaceId)
+			assert.Equal(t, "OperationNotSupportedException", out.FailedRequests[0].ErrorCode)
+		})
+	}
+}
+
+func TestRebootWorkspaces_AllowsAvailableAndStopped(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		state string
+		stop  bool
+	}{
+		{name: "available workspace is rebootable", stop: false, state: "AVAILABLE"},
+		{name: "stopped workspace is not rebootable", stop: true, state: "STOPPED"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
+			h := workspaces.NewHandler(backend)
+			wsID := createWorkspace(t, h)
+
+			if tc.stop {
+				stopRec := doTargetRequest(t, h, "StopWorkspaces", map[string]any{
+					"StopWorkspaceRequests": []map[string]any{{"WorkspaceId": wsID}},
+				})
+				require.Equal(t, http.StatusOK, stopRec.Code)
+			}
+
+			rec := doTargetRequest(t, h, "RebootWorkspaces", map[string]any{
+				"RebootWorkspaceRequests": []map[string]any{{"WorkspaceId": wsID}},
+			})
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+
+			var out struct {
+				FailedRequests []struct {
+					ErrorCode string `json:"ErrorCode"`
+				} `json:"FailedRequests"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			if tc.stop {
+				require.Len(t, out.FailedRequests, 1)
+				assert.Equal(t, "OperationNotSupportedException", out.FailedRequests[0].ErrorCode)
+			} else {
+				assert.Empty(t, out.FailedRequests)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // MigrateWorkspace
 // ---------------------------------------------------------------------------
 

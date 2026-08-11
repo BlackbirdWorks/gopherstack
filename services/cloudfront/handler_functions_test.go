@@ -45,7 +45,7 @@ func TestFunctionStatusDevelopment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 			rec := doReq(t, h, tt.method, tt.path, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
@@ -105,7 +105,7 @@ func TestFunctionRuntimeValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 			rec := doReq(t, h, http.MethodPost, "/2020-05-31/function", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
@@ -168,7 +168,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("get-fn", "comment", "cloudfront-js-2.0", "code")
+				_, err := h.Backend.CreateFunction("get-fn", "comment", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/get-fn"
@@ -202,7 +202,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("desc-fn", "comment", "cloudfront-js-2.0", "code")
+				_, err := h.Backend.CreateFunction("desc-fn", "comment", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/desc-fn/describe"
@@ -220,7 +220,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("list-fn", "comment", "cloudfront-js-2.0", "code")
+				_, err := h.Backend.CreateFunction("list-fn", "comment", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
 
 				return ""
@@ -239,7 +239,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("pub-fn", "comment", "cloudfront-js-2.0", "code")
+				_, err := h.Backend.CreateFunction("pub-fn", "comment", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/pub-fn/publish"
@@ -263,14 +263,14 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			method: http.MethodPut,
 			path:   "",
 			body: []byte(
-				`<CreateFunctionRequest>` +
+				`<UpdateFunctionRequest>` +
 					`<Name>upd-fn</Name>` +
 					`<FunctionConfig><Comment>updated</Comment><Runtime>cloudfront-js-2.0</Runtime></FunctionConfig>` +
-					`</CreateFunctionRequest>`,
+					`</UpdateFunctionRequest>`,
 			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("upd-fn", "original", "cloudfront-js-2.0", "code")
+				_, err := h.Backend.CreateFunction("upd-fn", "original", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/upd-fn"
@@ -296,7 +296,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("del-fn", "comment", "cloudfront-js-2.0", "code")
+				_, err := h.Backend.CreateFunction("del-fn", "comment", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/del-fn"
@@ -319,7 +319,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("test-fn", "comment", "cloudfront-js-2.0", "code")
+				_, err := h.Backend.CreateFunction("test-fn", "comment", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/test-fn/test"
@@ -337,7 +337,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 
 			if tt.setup != nil {

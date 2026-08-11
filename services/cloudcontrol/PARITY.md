@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudcontrol
-sdk_module: aws-sdk-go-v2/service/cloudcontrol@v1.29.15
+sdk_module: aws-sdk-go-v2/service/cloudcontrol@v1.32.4
 last_audit_commit: 0689b86e
 last_audit_date: 2026-07-26
 overall: A            # follow-up pass (gopherstack-c9yf): ResourceModel filter + ClientTokenConflict fixed for real

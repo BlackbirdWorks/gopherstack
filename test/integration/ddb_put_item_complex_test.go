@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -37,12 +36,15 @@ func TestIntegration_DDB_PutItem_Complex(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTable(cleanupCtx, &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	waitForDDBTableActive(t, client, tableName)
 
 	complexItem := map[string]types.AttributeValue{
 		"pk": &types.AttributeValueMemberS{Value: "complex-1"},
@@ -125,12 +127,15 @@ func TestIntegration_DDB_PutItem_CompositeComplex(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTable(cleanupCtx, &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	waitForDDBTableActive(t, client, tableName)
 
 	itemName := "multi-version-item"
 	for i := 1; i <= 5; i++ {

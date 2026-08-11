@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -19,6 +20,12 @@ import (
 // format had no version field at all, so an old snapshot decodes with
 // Version == 0, which is guaranteed to mismatch ssoadminSnapshotVersion and
 // is discarded the same way any other incompatible snapshot is.
+//
+// Do NOT bump when a field is merely ADDED. encoding/json decodes an older
+// snapshot missing a new field fine, leaving it zero; bumping instead sends
+// Restore down the ResetAll path and destroys data the upgrade was only
+// meant to extend. ProvisionedAt was added that way and correctly did not
+// warrant a bump.
 const ssoadminSnapshotVersion = 2
 
 // instanceACASnapshot and permissionsBoundarySnapshot are DTOs used only for
@@ -70,6 +77,7 @@ type backendSnapshot struct {
 	Tables                  map[string]json.RawMessage                  `json:"tables"`
 	Assignments             map[string][]*AccountAssignment             `json:"assignments"`
 	AssignmentCreationIDs   map[string]string                           `json:"assignmentCreationIDs"`
+	ProvisionedAt           map[string]time.Time                        `json:"provisionedAt"`
 	InstanceRegions         map[string][]RegionMetadata                 `json:"instanceRegions"`
 	CustomerManagedPolicies map[string][]CustomerManagedPolicyReference `json:"customerManagedPolicies"`
 	ApplicationAssignments  map[string][]*ApplicationAssignment         `json:"applicationAssignments"`
@@ -119,6 +127,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Tables:                  tables,
 		Assignments:             b.assignments,
 		AssignmentCreationIDs:   b.assignmentCreationIDs,
+		ProvisionedAt:           b.provisionedAt,
 		InstanceRegions:         b.instanceRegions,
 		CustomerManagedPolicies: b.customerManagedPolicies,
 		ApplicationAssignments:  b.applicationAssignments,
@@ -168,6 +177,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.permissionBoundaries.Reset()
 		b.assignments = make(map[string][]*AccountAssignment)
 		b.assignmentCreationIDs = make(map[string]string)
+		b.provisionedAt = make(map[string]time.Time)
 		b.instanceRegions = make(map[string][]RegionMetadata)
 		b.customerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
 		b.applicationAssignments = make(map[string][]*ApplicationAssignment)
@@ -191,6 +201,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.assignments = ensureNonNilMap(snap.Assignments)
 	b.assignmentCreationIDs = ensureNonNilMap(snap.AssignmentCreationIDs)
+	b.provisionedAt = ensureNonNilMap(snap.ProvisionedAt)
 	b.instanceRegions = ensureNonNilMap(snap.InstanceRegions)
 	b.customerManagedPolicies = ensureNonNilMap(snap.CustomerManagedPolicies)
 	b.applicationAssignments = ensureNonNilMap(snap.ApplicationAssignments)

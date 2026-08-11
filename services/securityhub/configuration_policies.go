@@ -35,6 +35,10 @@ func (b *InMemoryBackend) CreateConfigurationPolicy(
 	}
 	b.configPolicies.Put(cp)
 
+	if len(tags) > 0 {
+		b.tags[cp.Arn] = tags
+	}
+
 	return cp, nil
 }
 

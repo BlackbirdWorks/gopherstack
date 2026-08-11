@@ -75,7 +75,7 @@ func (t *storedTemplate) toTemplate(versionNumber int64) (*Template, bool) {
 // ---- Templates ----
 
 func (b *InMemoryBackend) CreateTemplate(
-	accountID, templateID, name, sourceEntityArn string,
+	accountID, templateID, name, sourceEntityArn, versionDescription string,
 	definition map[string]any,
 	permissions []ResourcePermission,
 	tags map[string]string,
@@ -107,6 +107,7 @@ func (b *InMemoryBackend) CreateTemplate(
 				Status:          statusCreationSuccessful,
 				SourceEntityArn: sourceEntityArn,
 				Definition:      definition,
+				Description:     versionDescription,
 			},
 		},
 		LatestVersion: 1,
@@ -142,7 +143,7 @@ func (b *InMemoryBackend) DescribeTemplate(accountID, templateID string, version
 }
 
 func (b *InMemoryBackend) UpdateTemplate(
-	accountID, templateID, name, sourceEntityArn string,
+	accountID, templateID, name, sourceEntityArn, versionDescription string,
 	definition map[string]any,
 ) (*Template, error) {
 	b.mu.Lock("UpdateTemplate")
@@ -174,6 +175,7 @@ func (b *InMemoryBackend) UpdateTemplate(
 		Status:          statusCreationSuccessful,
 		SourceEntityArn: sourceEntityArn,
 		Definition:      definition,
+		Description:     versionDescription,
 	}
 	t.LatestVersion = nextVersion
 	t.Aliases[templateAliasLatest] = nextVersion

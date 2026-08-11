@@ -30,8 +30,7 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 			b := newBackend()
 
 			network, _, err := b.CreateNetwork(
-				testRegion, testAccountID, "tagged-net", "", "", "", "m1", "", nil, nil, "", "admin", "",
-			)
+				testRegion, testAccountID, "tagged-net", "", "", "", "m1", "", nil, nil, nil, "", "admin", "")
 			require.NoError(t, err)
 
 			// TagResource on network
@@ -80,12 +79,11 @@ func TestInMemoryBackend_TagOperationsOnMember(t *testing.T) {
 				"",
 				"initial",
 				"",
-				nil,
+				nil, nil,
 				nil,
 				"",
 				"admin",
-				"",
-			)
+				"")
 			require.NoError(t, err)
 
 			// Tag the initial member

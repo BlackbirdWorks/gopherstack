@@ -14,7 +14,21 @@ import (
 
 // testDataProtectionPolicy is a well-formed data protection policy JSON used across
 // GetDataProtectionPolicy and PutDataProtectionPolicy tests.
-const testDataProtectionPolicy = `{"Version":"2021-06-01","Statement":[]}`
+const testDataProtectionPolicy = `{"Name":"test-policy","Version":"2021-06-01","Statement":[]}`
+
+// dataProtectionPolicyMaxLength is the AWS-documented DataProtectionPolicy size cap
+// (aws-sdk-go-v2 PutDataProtectionPolicyInput.DataProtectionPolicy: "Length
+// Constraints: Maximum length of 30,720").
+const dataProtectionPolicyMaxLength = 30720
+
+// buildOversizedDataProtectionPolicy returns an otherwise well-formed data
+// protection policy JSON that exceeds dataProtectionPolicyMaxLength via its
+// Description field.
+func buildOversizedDataProtectionPolicy() string {
+	padding := strings.Repeat("a", dataProtectionPolicyMaxLength)
+
+	return `{"Name":"test-policy","Description":"` + padding + `","Version":"2021-06-01","Statement":[]}`
+}
 
 // TestCreateTopicKMSMasterKeyIDValidation verifies that CreateTopic accepts
 // well-formed KMS alias/ARN/key-ID values for KmsMasterKeyId and rejects garbage.
@@ -235,6 +249,20 @@ func TestInMemoryBackend_SetTopicAttributes(t *testing.T) {
 			attrValue: "Y",
 			wantErr:   sns.ErrTopicNotFound,
 		},
+		{
+			// DataProtectionPolicy is set only through PutDataProtectionPolicy on
+			// real AWS SNS — confirmed absent from SetTopicAttributes's documented
+			// AttributeName list (aws-sdk-go-v2/service/sns@v1.42.4
+			// api_op_SetTopicAttributes.go).
+			name: "data_protection_policy_rejected",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("dpp-attr-topic", nil)
+			},
+			topicArn:  "arn:aws:sns:us-east-1:000000000000:dpp-attr-topic",
+			attrName:  "DataProtectionPolicy",
+			attrValue: testDataProtectionPolicy,
+			wantErr:   sns.ErrInvalidParameter,
+		},
 	}
 
 	for _, tt := range tests {
@@ -402,7 +430,7 @@ func TestSNS_GetDataProtectionPolicy(t *testing.T) {
 			name: "with_policy",
 			setup: func(b *sns.InMemoryBackend) string {
 				tp, _ := b.CreateTopic("policy-topic2", nil)
-				require.NoError(t, b.SetTopicAttributes(tp.TopicArn, "DataProtectionPolicy", testDataProtectionPolicy))
+				require.NoError(t, b.PutDataProtectionPolicy(tp.TopicArn, testDataProtectionPolicy))
 
 				return tp.TopicArn
 			},
@@ -511,7 +539,7 @@ func TestSNS_PutDataProtectionPolicyJSONValidation(t *testing.T) {
 	}{
 		{
 			name:   "valid_json",
-			policy: `{"Version":"2021-06-01","Statement":[]}`,
+			policy: `{"Name":"test-policy","Version":"2021-06-01","Statement":[]}`,
 		},
 		{
 			name:   "empty_policy_allowed",
@@ -525,6 +553,31 @@ func TestSNS_PutDataProtectionPolicyJSONValidation(t *testing.T) {
 		{
 			name:    "partial_json_rejected",
 			policy:  `{"Version":`,
+			wantErr: true,
+		},
+		{
+			name:    "missing_name_rejected",
+			policy:  `{"Version":"2021-06-01","Statement":[]}`,
+			wantErr: true,
+		},
+		{
+			name:    "missing_version_rejected",
+			policy:  `{"Name":"test-policy","Statement":[]}`,
+			wantErr: true,
+		},
+		{
+			name:    "missing_statement_rejected",
+			policy:  `{"Name":"test-policy","Version":"2021-06-01"}`,
+			wantErr: true,
+		},
+		{
+			name:    "json_array_rejected",
+			policy:  `["Name","Version","Statement"]`,
+			wantErr: true,
+		},
+		{
+			name:    "over_max_length_rejected",
+			policy:  buildOversizedDataProtectionPolicy(),
 			wantErr: true,
 		},
 	}
@@ -577,6 +630,28 @@ func TestSNS_GetTopicAttributesComputed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "1", attrs["SubscriptionsConfirmed"])
 	assert.Equal(t, "1", attrs["SubscriptionsPending"])
+}
+
+// TestSNS_GetTopicAttributesExcludesDataProtectionPolicy verifies that a topic's
+// DataProtectionPolicy, once set via PutDataProtectionPolicy, does not leak into
+// the generic GetTopicAttributes response — real AWS exposes it only through the
+// dedicated GetDataProtectionPolicy operation.
+func TestSNS_GetTopicAttributesExcludesDataProtectionPolicy(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	topic, err := b.CreateTopic("dpp-leak-topic", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.PutDataProtectionPolicy(topic.TopicArn, testDataProtectionPolicy))
+
+	attrs, err := b.GetTopicAttributes(topic.TopicArn)
+	require.NoError(t, err)
+	assert.NotContains(t, attrs, "DataProtectionPolicy")
+
+	policy, err := b.GetDataProtectionPolicy(topic.TopicArn)
+	require.NoError(t, err)
+	assert.JSONEq(t, testDataProtectionPolicy, policy)
 }
 
 func TestSNS_CreateTopicRejectsInvalidKmsMasterKeyId(t *testing.T) {

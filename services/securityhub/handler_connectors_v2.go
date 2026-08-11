@@ -38,7 +38,7 @@ func classifyTicketsV2Path(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
-func (h *Handler) handleCreateConnectorV2(c *echo.Context, body map[string]any) error { //nolint:dupl // existing issue.
+func (h *Handler) handleCreateConnectorV2(c *echo.Context, body map[string]any) error {
 	name, _ := body["Name"].(string)
 	description, _ := body["Description"].(string)
 
@@ -60,7 +60,7 @@ func (h *Handler) handleCreateConnectorV2(c *echo.Context, body map[string]any) 
 
 	conn, err := h.Backend.CreateConnectorV2(name, description, provider, tags)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
@@ -70,13 +70,13 @@ func (h *Handler) handleGetConnectorV2(c *echo.Context, connectorID string) erro
 	conn, err := h.Backend.GetConnectorV2(connectorID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{keyMessage: "Connector V2 not found"}, //nolint:goconst // existing issue.
+			return typedErrorResponse(
+				c, http.StatusNotFound, "ResourceNotFoundException",
+				"Connector V2 not found",
 			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
@@ -124,10 +124,10 @@ func (h *Handler) handleUpdateConnectorV2(c *echo.Context, connectorID string, b
 	conn, err := h.Backend.UpdateConnectorV2(connectorID, name, description, provider)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Connector V2 not found"})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Connector V2 not found")
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
@@ -136,10 +136,10 @@ func (h *Handler) handleUpdateConnectorV2(c *echo.Context, connectorID string, b
 func (h *Handler) handleDeleteConnectorV2(c *echo.Context, connectorID string) error {
 	if err := h.Backend.DeleteConnectorV2(connectorID); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Connector V2 not found"})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Connector V2 not found")
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -157,10 +157,10 @@ func (h *Handler) handleRegisterConnectorV2(c *echo.Context, body map[string]any
 	conn, err := h.Backend.RegisterConnectorV2(connectorID, provider)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Connector V2 not found"})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Connector V2 not found")
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
@@ -198,7 +198,7 @@ func (h *Handler) handleCreateTicketV2(c *echo.Context, body map[string]any) err
 
 	ticket, err := h.Backend.CreateTicketV2(ticketConfig, tags)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

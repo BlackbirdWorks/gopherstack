@@ -100,6 +100,7 @@ type InMemoryBackend struct {
 	lambdaInvoker    LambdaInvoker
 	ec2Actioner      EC2InstanceActioner
 	asgExecutor      AutoScalingPolicyExecutor
+	firehosePutter   FirehosePutter
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string
@@ -164,6 +165,14 @@ func (b *InMemoryBackend) SetAutoScalingExecutor(e AutoScalingPolicyExecutor) {
 	b.mu.Lock("SetAutoScalingExecutor")
 	defer b.mu.Unlock()
 	b.asgExecutor = e
+}
+
+// SetFirehosePutter registers a Firehose backend used to deliver matched
+// metric-stream data to each stream's configured delivery stream.
+func (b *InMemoryBackend) SetFirehosePutter(fh FirehosePutter) {
+	b.mu.Lock("SetFirehosePutter")
+	defer b.mu.Unlock()
+	b.firehosePutter = fh
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

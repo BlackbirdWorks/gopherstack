@@ -183,6 +183,35 @@ func (b *InMemoryBackend) GetDataQualityRulesetEvaluationRun(
 	return &cp, nil
 }
 
+// BatchGetDataQualityRulesetEvaluationRun retrieves multiple evaluation runs
+// by ID in a single call, splitting the result into found runs and the
+// subset of runIDs that don't exist -- matches BatchGetCrawlers' shape
+// (crawlers.go).
+func (b *InMemoryBackend) BatchGetDataQualityRulesetEvaluationRun(
+	runIDs []string,
+) ([]*DataQualityEvaluationRun, []string) {
+	b.mu.RLock("BatchGetDataQualityRulesetEvaluationRun")
+	defer b.mu.RUnlock()
+
+	found := make([]*DataQualityEvaluationRun, 0, len(runIDs))
+	missing := make([]string, 0, len(runIDs))
+
+	for _, runID := range runIDs {
+		run, ok := b.dataQualityEvalRuns.Get(runID)
+		if !ok {
+			missing = append(missing, runID)
+
+			continue
+		}
+
+		cp := *run
+		cp.RulesetNames = append([]string(nil), run.RulesetNames...)
+		found = append(found, &cp)
+	}
+
+	return found, missing
+}
+
 // CancelDataQualityRulesetEvaluationRun cancels an active evaluation run.
 func (b *InMemoryBackend) CancelDataQualityRulesetEvaluationRun(runID string) error {
 	b.mu.Lock("CancelDataQualityRulesetEvaluationRun")

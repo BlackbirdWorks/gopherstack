@@ -338,14 +338,11 @@ func TestDescribeThingGroup_IncludesParentGroupName(t *testing.T) {
 	assert.Equal(t, "parent-group", meta["parentGroupName"])
 }
 
-// TestDescribeThingGroup_RootToParentThingGroups is a regression test: the
-// real ThingGroupMetadata shape has a "rootToParentThingGroups" field (a
-// root-first list of {groupName, groupArn} ancestors) that gopherstack did
-// not implement at all -- verified against
-// aws-sdk-go-v2/service/iot@v1.76.0's
-// awsRestjson1_deserializeDocumentThingGroupMetadata. A root-level group has
-// no ancestors, so the field should be entirely absent (matching real AWS,
-// which omits it rather than sending an empty list).
+// TestDescribeThingGroup_RootToParentThingGroups covers ThingGroupMetadata's
+// "rootToParentThingGroups" field (root-first list of {groupName, groupArn}
+// ancestors; awsRestjson1_deserializeDocumentThingGroupMetadata, v1.77.4). A
+// root-level group has no ancestors, so real AWS omits the field entirely
+// rather than sending an empty list.
 func TestDescribeThingGroup_RootToParentThingGroups(t *testing.T) {
 	t.Parallel()
 

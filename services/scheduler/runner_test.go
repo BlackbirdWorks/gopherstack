@@ -1,7 +1,10 @@
 package scheduler_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -9,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
@@ -1216,54 +1220,8 @@ func TestRunner_DLQ_SentOnExhaustion(t *testing.T) {
 	assert.Equal(t, dlqARN, arns[0])
 }
 
-// TestScheduler_ParseAtExpression tests parsing of at() one-time expressions.
-func TestScheduler_ParseAtExpression(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		want    time.Time
-		name    string
-		expr    string
-		wantErr bool
-	}{
-		{
-			name: "valid",
-			expr: "at(2024-06-01T09:30:00)",
-			want: time.Date(2024, 6, 1, 9, 30, 0, 0, time.UTC),
-		},
-		{
-			name:    "missing time component",
-			expr:    "at(2024-06-01)",
-			wantErr: true,
-		},
-		{
-			name:    "not a datetime at all",
-			expr:    "at(not-a-date)",
-			wantErr: true,
-		},
-		{
-			name:    "empty",
-			expr:    "at()",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := scheduler.ParseAtExpression(tt.expr, time.UTC)
-			if tt.wantErr {
-				require.Error(t, err)
-
-				return
-			}
-
-			require.NoError(t, err)
-			assert.True(t, tt.want.Equal(got))
-		})
-	}
-}
+// TestScheduler_ParseAtExpression lives in whitebox_test.go: it whitebox-tests
+// the unexported parseAtExpression directly.
 
 // TestScheduler_Runner_AtExpressionFiresOnceThenNeverAgain verifies a one-time
 // at() schedule fires exactly once, even across further polls where it remains
@@ -1479,32 +1437,60 @@ func TestScheduler_Runner_AtExpressionIgnoresStartAndEndDate(t *testing.T) {
 	assert.Len(t, invoker.Called(), 1, "at() schedules ignore StartDate/EndDate per AWS semantics")
 }
 
-// TestScheduler_Runner_LocCacheEviction verifies stale *time.Location cache entries
-// are swept once no active schedule references their timezone anymore.
-func TestScheduler_Runner_LocCacheEviction(t *testing.T) {
+// TestScheduler_Runner_SwallowsPreExistingInvalidExpression covers gopherstack-8cg7's
+// runner-swallow decision: CreateSchedule/UpdateSchedule now reject invalid
+// expressions, but a snapshot taken before that fix can still hold one. Restore
+// must not reject data it previously accepted (simulated here by mutating a valid
+// snapshot's expression after taking it), and the runner must keep polling --
+// neither panicking nor firing -- while warning exactly once, not once per poll.
+func TestScheduler_Runner_SwallowsPreExistingInvalidExpression(t *testing.T) {
 	t.Parallel()
 
-	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:loc-evict-fn"
-	const role = "arn:aws:iam::000000000000:role/r"
-
-	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := newRunnerTestBackend(t)
+	target := scheduler.Target{
+		ARN:     "arn:aws:lambda:us-east-1:000000000000:function:f",
+		RoleARN: "arn:aws:iam::000000000000:role/r",
+	}
 	_, err := backend.CreateSchedule(
 		context.Background(),
-		"loc-evict-sched", "", "cron(0 12 * * ? *)", "", "America/New_York",
-		scheduler.Target{ARN: lambdaARN, RoleARN: role},
-		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+		"pre-existing-bad-expr", "", "rate(1 minute)", "", "",
+		target, "ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
 	)
 	require.NoError(t, err)
 
-	runner := scheduler.NewRunner(backend)
-	runner.SetLambdaInvoker(&mockLambdaInvoker{})
+	snap := backend.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
 
-	matchTime := time.Date(2024, 1, 15, 17, 0, 0, 0, time.UTC) // 12:00 EST
-	scheduler.CheckAndFireSchedules(t.Context(), runner, matchTime)
-	require.Equal(t, 1, scheduler.LocCacheLen(runner), "timezone should be cached after first poll")
+	oldExpr := []byte(`"scheduleExpression":"rate(1 minute)"`)
+	newExpr := []byte(`"scheduleExpression":"rate(5)"`)
+	mutated := bytes.Replace(snap, oldExpr, newExpr, 1)
+	require.NotEqual(t, snap, mutated, "expression substring not found in snapshot bytes")
 
-	require.NoError(t, backend.DeleteSchedule(context.Background(), "loc-evict-sched", ""))
+	restored := newRunnerTestBackend(t)
+	require.NoError(t, restored.Restore(t.Context(), mutated), "restore must accept data it previously accepted")
 
-	scheduler.CheckAndFireSchedules(t.Context(), runner, matchTime.Add(time.Hour))
-	assert.Equal(t, 0, scheduler.LocCacheLen(runner), "stale timezone cache entries should be evicted")
+	got, err := restored.GetSchedule(context.Background(), "pre-existing-bad-expr", "")
+	require.NoError(t, err)
+	assert.Equal(t, "rate(5)", got.ScheduleExpression, "restore must not silently correct or drop stale invalid data")
+
+	var logBuf bytes.Buffer
+
+	testLogger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ctx := logger.Save(t.Context(), testLogger)
+
+	runner := scheduler.NewRunner(restored)
+	invoker := &mockLambdaInvoker{}
+	runner.SetLambdaInvoker(invoker)
+
+	now := time.Now()
+	for range 3 {
+		scheduler.CheckAndFireSchedules(ctx, runner, now)
+	}
+
+	assert.Empty(t, invoker.Called(), "an unparseable expression must never fire")
+	warnCount := strings.Count(logBuf.String(), "unparseable expression")
+	assert.Equal(t, 1, warnCount, "must warn exactly once, not once per poll")
 }
+
+// TestScheduler_Runner_LocCacheEviction lives in whitebox_test.go: it needs
+// direct access to the unexported Runner timezone cache.

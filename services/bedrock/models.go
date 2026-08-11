@@ -207,6 +207,7 @@ type EvaluationJob struct {
 	JobDescription   string                     `json:"jobDescription,omitempty"`
 	RoleArn          string                     `json:"roleArn,omitempty"`
 	Status           string                     `json:"status"`
+	ApplicationType  string                     `json:"applicationType,omitempty"`
 	Tags             []Tag                      `json:"tags,omitempty"`
 	EvaluatorConfig  *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
 	InferenceConfig  *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
@@ -215,13 +216,15 @@ type EvaluationJob struct {
 
 // AutomatedReasoningPolicy represents an Automated Reasoning policy.
 type AutomatedReasoningPolicy struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	PolicyArn   string    `json:"policyArn"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Status      string    `json:"status"`
-	Tags        []Tag     `json:"tags,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+	PolicyArn      string    `json:"policyArn"`
+	Name           string    `json:"name"`
+	Description    string    `json:"description,omitempty"`
+	Status         string    `json:"status"`
+	DefinitionHash string    `json:"definitionHash,omitempty"`
+	Version        string    `json:"version,omitempty"`
+	Tags           []Tag     `json:"tags,omitempty"`
 }
 
 // AutomatedReasoningPolicyBuildWorkflow represents a build workflow for a policy.
@@ -233,8 +236,14 @@ type AutomatedReasoningPolicyBuildWorkflow struct {
 
 // AutomatedReasoningPolicyTestCase represents a test case for a policy.
 type AutomatedReasoningPolicyTestCase struct {
-	TestCaseID string `json:"testCaseId"`
-	PolicyArn  string `json:"policyArn"`
+	CreatedAt                        time.Time `json:"createdAt"`
+	UpdatedAt                        time.Time `json:"updatedAt"`
+	ConfidenceThreshold              *float64  `json:"confidenceThreshold,omitempty"`
+	TestCaseID                       string    `json:"testCaseId"`
+	PolicyArn                        string    `json:"policyArn"`
+	GuardContent                     string    `json:"guardContent,omitempty"`
+	QueryContent                     string    `json:"queryContent,omitempty"`
+	ExpectedAggregatedFindingsResult string    `json:"expectedAggregatedFindingsResult,omitempty"`
 }
 
 // AutomatedReasoningPolicyVersion represents a version of a policy.
@@ -244,14 +253,25 @@ type AutomatedReasoningPolicyVersion struct {
 	Name           string    `json:"name"`
 	DefinitionHash string    `json:"definitionHash"`
 	Version        string    `json:"version"`
+	Tags           []Tag     `json:"tags,omitempty"`
 }
 
-// CustomModel represents a custom model.
+// CustomModel represents a custom model, either imported via CreateCustomModel
+// (BaseModelArn empty: the wire input never supplies a base model, and
+// gopherstack does not process model artifacts to derive one) or produced by
+// a completed CreateModelCustomizationJob (BaseModelArn/BaseModelName/JobArn/
+// JobName populated from the job).
 type CustomModel struct {
-	CreationTime time.Time `json:"creationTime"`
-	ModelArn     string    `json:"modelArn"`
-	ModelName    string    `json:"modelName"`
-	Tags         []Tag     `json:"tags,omitempty"`
+	CreationTime      time.Time `json:"creationTime"`
+	ModelArn          string    `json:"modelArn"`
+	ModelName         string    `json:"modelName"`
+	ModelStatus       string    `json:"modelStatus"`
+	BaseModelArn      string    `json:"baseModelArn,omitempty"`
+	BaseModelName     string    `json:"baseModelName,omitempty"`
+	CustomizationType string    `json:"customizationType,omitempty"`
+	JobArn            string    `json:"jobArn,omitempty"`
+	JobName           string    `json:"jobName,omitempty"`
+	Tags              []Tag     `json:"tags,omitempty"`
 }
 
 // CustomModelDeployment represents a custom model deployment.
@@ -323,7 +343,12 @@ type ModelImportJob struct {
 	Tags              []Tag      `json:"tags,omitempty"`
 }
 
-// ModelCustomizationJob represents a model customization job.
+// ModelCustomizationJob represents a model customization job. BaseModelName is
+// the display name of the foundation model resolved from BaseModelArn (best
+// effort: only populated when the base model identifier matches a seeded
+// foundation model), carried here so the CustomModel materialized on
+// completion (see AdvanceCustomizationJobStatuses) can populate
+// CustomModelSummary's required baseModelName without a second lookup.
 type ModelCustomizationJob struct {
 	CreationTime      time.Time `json:"creationTime"`
 	LastModifiedTime  time.Time `json:"lastModifiedTime"`
@@ -331,7 +356,9 @@ type ModelCustomizationJob struct {
 	JobArn            string    `json:"jobArn"`
 	JobName           string    `json:"jobName"`
 	BaseModelArn      string    `json:"baseModelArn"`
+	BaseModelName     string    `json:"baseModelName,omitempty"`
 	OutputModelArn    string    `json:"outputModelArn"`
+	CustomModelName   string    `json:"customModelName"`
 	Status            string    `json:"status"`
 	CustomizationType string    `json:"customizationType,omitempty"`
 	Tags              []Tag     `json:"tags,omitempty"`
@@ -383,6 +410,7 @@ type CreateEvaluationJobInput struct {
 	JobName         string
 	JobDescription  string
 	RoleArn         string
+	ApplicationType string
 	Tags            []Tag
 	EvaluatorConfig *EvaluationModelConfig
 	InferenceConfig *EvaluationInferenceConfig
@@ -477,6 +505,19 @@ type ListModelInvocationJobsInput struct {
 
 // ListEvaluationJobsInput holds filter/pagination params for ListEvaluationJobs.
 type ListEvaluationJobsInput struct {
+	StatusEquals          string
+	ApplicationTypeEquals string
+	NameContains          string
+	CreationTimeAfter     *time.Time
+	CreationTimeBefore    *time.Time
+	SortBy                string // CreationTime (default)
+	SortOrder             string // Ascending (default) | Descending
+	NextToken             string
+}
+
+// ListModelCustomizationJobsInput holds filter/pagination params for
+// ListModelCustomizationJobs.
+type ListModelCustomizationJobsInput struct {
 	StatusEquals       string
 	NameContains       string
 	CreationTimeAfter  *time.Time
@@ -484,6 +525,20 @@ type ListEvaluationJobsInput struct {
 	SortBy             string // CreationTime (default)
 	SortOrder          string // Ascending (default) | Descending
 	NextToken          string
+}
+
+// ListCustomModelsInput holds filter/pagination params for ListCustomModels.
+type ListCustomModelsInput struct {
+	CreationTimeAfter        *time.Time
+	CreationTimeBefore       *time.Time
+	IsOwned                  *bool
+	ModelStatus              string
+	NameContains             string
+	BaseModelArnEquals       string
+	FoundationModelArnEquals string
+	SortBy                   string
+	SortOrder                string
+	NextToken                string
 }
 
 // Agent represents an Amazon Bedrock Agent.
@@ -610,44 +665,51 @@ type AgentConfiguration struct {
 	RoleArn                string
 }
 
-// Flow represents an Amazon Bedrock Flow.
+// Flow represents an Amazon Bedrock Flow. CreateFlowResponse/GetFlowResponse/
+// UpdateFlowResponse have no httpPayload member (botocore bedrock-agent
+// 2023-06-05), so id/arn are flat wire keys, not flowId/flowArn.
 type Flow struct {
 	CreatedAt   time.Time         `json:"createdAt"`
 	UpdatedAt   time.Time         `json:"updatedAt"`
 	Tags        map[string]string `json:"tags,omitempty"`
-	FlowID      string            `json:"flowId"`
-	FlowArn     string            `json:"flowArn"`
+	FlowID      string            `json:"id"`
+	FlowArn     string            `json:"arn"`
 	Name        string            `json:"name"`
 	Description string            `json:"description,omitempty"`
 	Status      string            `json:"status"`
 }
 
-// FlowAlias represents an alias for a Bedrock Flow.
+// FlowAlias represents an alias for a Bedrock Flow. Its own id/arn are flat
+// "id"/"arn"; "flowId" names only the parent flow (see Flow's doc comment).
 type FlowAlias struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
-	FlowAliasID  string    `json:"flowAliasId"`
-	FlowAliasArn string    `json:"flowAliasArn"`
+	FlowAliasID  string    `json:"id"`
+	FlowAliasArn string    `json:"arn"`
 	FlowID       string    `json:"flowId"`
 	Name         string    `json:"name"`
 	Description  string    `json:"description,omitempty"`
 }
 
-// FlowVersion represents a snapshot version of a Flow.
+// FlowVersion represents a snapshot version of a Flow. GetFlowVersionResponse
+// has no "flowId" member; the flow's own id/arn ride in "id"/"arn" (see
+// Flow's doc comment).
 type FlowVersion struct {
 	CreatedAt time.Time `json:"createdAt"`
-	FlowID    string    `json:"flowId"`
+	FlowID    string    `json:"id"`
+	FlowArn   string    `json:"arn"`
 	Version   string    `json:"version"`
 	Status    string    `json:"status"`
 }
 
-// Prompt represents an Amazon Bedrock Prompt.
+// Prompt represents an Amazon Bedrock Prompt (see Flow's doc comment for why
+// id/arn are flat wire keys).
 type Prompt struct {
 	CreatedAt   time.Time         `json:"createdAt"`
 	UpdatedAt   time.Time         `json:"updatedAt"`
 	Tags        map[string]string `json:"tags,omitempty"`
-	PromptID    string            `json:"promptId"`
-	PromptArn   string            `json:"promptArn"`
+	PromptID    string            `json:"id"`
+	PromptArn   string            `json:"arn"`
 	Name        string            `json:"name"`
 	Description string            `json:"description,omitempty"`
 }

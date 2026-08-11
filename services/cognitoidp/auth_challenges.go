@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"math/big"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -45,12 +46,14 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
+	hash, saltHex, verifierHex, err := hashAndSRP(entry.PoolID, entry.Username, newPassword)
 	if err != nil {
-		return nil, fmt.Errorf("hashing password: %w", err)
+		return nil, err
 	}
 
-	user.PasswordHash = string(hash)
+	user.PasswordHash = hash
+	user.SRPSalt = saltHex
+	user.SRPVerifier = verifierHex
 	user.Status = UserStatusConfirmed
 	user.UpdatedAt = time.Now()
 	delete(b.mfaSessions, session)
@@ -63,9 +66,16 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 	return result.Tokens, nil
 }
 
-// RespondToSRPChallenge completes the USER_SRP_AUTH two-step flow. The session token
-// was issued by authenticate() after credentials were verified; this call issues tokens.
-func (b *InMemoryBackend) RespondToSRPChallenge(clientID, session string) (*TokenResult, error) {
+// RespondToSRPChallenge completes the USER_SRP_AUTH/ADMIN_USER_SRP_AUTH handshake
+// started by startSRPAuthLocked. It recomputes the SRP shared secret from the server's
+// stored (A, b, B, v) session state, derives the same HKDF session key a real SRP
+// client derives, and verifies the client's PASSWORD_CLAIM_SIGNATURE -- the actual
+// zero-knowledge proof that the client knows the password without ever having sent it.
+// On success this runs the same FORCE_CHANGE_PASSWORD/MFA gate any other credential
+// check runs, so it may return a further challenge rather than tokens.
+func (b *InMemoryBackend) RespondToSRPChallenge(
+	clientID, session string, challengeResponses map[string]string,
+) (*AuthResult, error) {
 	b.mu.Lock("RespondToSRPChallenge")
 	defer b.mu.Unlock()
 
@@ -98,14 +108,64 @@ func (b *InMemoryBackend) RespondToSRPChallenge(clientID, session string) (*Toke
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
 
-	delete(b.mfaSessions, session)
-
-	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
-	if err != nil {
+	if err := verifySRPPasswordClaim(entry, user, challengeResponses); err != nil {
 		return nil, err
 	}
 
-	return result.Tokens, nil
+	delete(b.mfaSessions, session)
+
+	return b.postCredentialCheckLocked(pool, clientID, user)
+}
+
+// verifySRPPasswordClaim checks a client's PASSWORD_CLAIM_SECRET_BLOCK/
+// PASSWORD_CLAIM_SIGNATURE/TIMESTAMP against the server-side SRP session state stored
+// in entry, matching CognitoUser.js's authenticateUserDefaultAuth computation exactly.
+func verifySRPPasswordClaim(entry *mfaSessionEntry, user *User, challengeResponses map[string]string) error {
+	secretBlockB64 := challengeResponses["PASSWORD_CLAIM_SECRET_BLOCK"]
+	if secretBlockB64 == "" || secretBlockB64 != entry.SRPSecretBlock {
+		return fmt.Errorf("%w: PASSWORD_CLAIM_SECRET_BLOCK mismatch", ErrNotAuthorized)
+	}
+
+	secretBlock, err := base64.StdEncoding.DecodeString(secretBlockB64)
+	if err != nil {
+		return fmt.Errorf("%w: invalid PASSWORD_CLAIM_SECRET_BLOCK", ErrNotAuthorized)
+	}
+
+	timestamp := challengeResponses["TIMESTAMP"]
+	if timestamp == "" {
+		return fmt.Errorf("%w: missing TIMESTAMP", ErrNotAuthorized)
+	}
+
+	providedSig, err := base64.StdEncoding.DecodeString(challengeResponses["PASSWORD_CLAIM_SIGNATURE"])
+	if err != nil {
+		return fmt.Errorf("%w: invalid PASSWORD_CLAIM_SIGNATURE", ErrNotAuthorized)
+	}
+
+	aPub, aOK := new(big.Int).SetString(entry.SRPA, hexBase)
+	bPriv, bOK := new(big.Int).SetString(entry.SRPb, hexBase)
+	bPub, bpOK := new(big.Int).SetString(entry.SRPB, hexBase)
+	verifier, vOK := new(big.Int).SetString(user.SRPVerifier, hexBase)
+
+	if !aOK || !bOK || !bpOK || !vOK {
+		return fmt.Errorf("%w: corrupt SRP session state", ErrNotAuthorized)
+	}
+
+	u := srpCalculateU(aPub, bPub)
+	if u.Sign() == 0 {
+		return fmt.Errorf("%w: SRP U cannot be zero", ErrNotAuthorized)
+	}
+
+	s := srpServerS(aPub, verifier, u, bPriv)
+	hkdfKey := srpHKDF(s, u)
+
+	poolName := srpPoolName(entry.PoolID)
+	expectedSig := srpComputeSignature(hkdfKey, poolName, entry.Username, secretBlock, timestamp)
+
+	if !hmac.Equal(expectedSig, providedSig) {
+		return fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
+	}
+
+	return nil
 }
 
 // ValidateSecretHash validates the SECRET_HASH field for a client that has a secret.

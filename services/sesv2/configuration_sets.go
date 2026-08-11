@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -31,8 +32,17 @@ type ConfigurationSet struct {
 	ReputationMetricsEnabled     bool              `json:"reputationMetricsEnabled"`
 }
 
+// configurationSetARN builds the ARN for a configuration set:
+// arn:{partition}:ses:{region}:{account}:configuration-set/{name}. Confirmed
+// against terraform-provider-aws's configurationSetARN
+// (internal/service/sesv2/configuration_set.go), which must construct this
+// exact ARN to tag/import real configuration sets.
+func (b *InMemoryBackend) configurationSetARN(name string) string {
+	return arn.Build("ses", b.region, b.accountID, "configuration-set/"+name)
+}
+
 // CreateConfigurationSet creates a new configuration set.
-func (b *InMemoryBackend) CreateConfigurationSet(name string) (*ConfigurationSet, error) {
+func (b *InMemoryBackend) CreateConfigurationSet(name string, tags map[string]string) (*ConfigurationSet, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: ConfigurationSetName is required", ErrInvalidInput)
 	}
@@ -48,8 +58,13 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string) (*ConfigurationSet
 		Name:           name,
 		CreatedAt:      time.Now(),
 		SendingEnabled: true,
+		Tags:           tags,
 	}
 	b.configurationSets.Put(cs)
+
+	if len(tags) > 0 {
+		b.putResourceTagsLocked(b.configurationSetARN(name), tags)
+	}
 
 	cp := *cs
 

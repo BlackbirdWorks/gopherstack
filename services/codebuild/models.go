@@ -131,7 +131,7 @@ type FileSystemLocation struct {
 // Project represents an in-memory AWS CodeBuild project.
 type Project struct {
 	Cache                   *ProjectCache          `json:"cache,omitempty"`
-	Tags                    map[string]string      `json:"tags,omitempty"`
+	Tags                    wireTags               `json:"tags,omitempty"`
 	Badge                   *ProjectBadge          `json:"badge,omitempty"`
 	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig,omitempty"`
 	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
@@ -190,7 +190,7 @@ type BuildLogs struct {
 // Build represents an in-memory AWS CodeBuild build execution.
 type Build struct {
 	Source                 *ProjectSource      `json:"source,omitempty"`
-	Tags                   map[string]string   `json:"tags,omitempty"`
+	Tags                   wireTags            `json:"tags,omitempty"`
 	Logs                   *BuildLogs          `json:"logs,omitempty"`
 	Artifacts              *ProjectArtifacts   `json:"artifacts,omitempty"`
 	Environment            *ProjectEnvironment `json:"environment,omitempty"`
@@ -219,7 +219,7 @@ type ReportExportConfig struct {
 
 // ReportGroup represents an in-memory AWS CodeBuild report group.
 type ReportGroup struct {
-	Tags         map[string]string  `json:"tags,omitempty"`
+	Tags         wireTags           `json:"tags,omitempty"`
 	ExportConfig ReportExportConfig `json:"exportConfig"`
 	Arn          string             `json:"arn"`
 	Name         string             `json:"name"`
@@ -305,7 +305,7 @@ type ProxyConfiguration struct {
 
 // Fleet represents an in-memory AWS CodeBuild compute fleet.
 type Fleet struct {
-	Tags                 map[string]string     `json:"tags,omitempty"`
+	Tags                 wireTags              `json:"tags,omitempty"`
 	Status               *FleetStatus          `json:"status,omitempty"`
 	ScalingConfiguration *ScalingConfiguration `json:"scalingConfiguration,omitempty"`
 	ComputeConfiguration *ComputeConfiguration `json:"computeConfiguration,omitempty"`
@@ -326,13 +326,13 @@ type Fleet struct {
 
 // BuildBatch represents an in-memory AWS CodeBuild build batch.
 type BuildBatch struct {
-	Tags             map[string]string `json:"tags,omitempty"`
-	ID               string            `json:"id"`
-	Arn              string            `json:"arn"`
-	ProjectName      string            `json:"projectName"`
-	BuildBatchStatus string            `json:"buildBatchStatus"`
-	StartTime        float64           `json:"startTime,omitempty"`
-	EndTime          float64           `json:"endTime,omitempty"`
+	Tags             wireTags `json:"tags,omitempty"`
+	ID               string   `json:"id"`
+	Arn              string   `json:"arn"`
+	ProjectName      string   `json:"projectName"`
+	BuildBatchStatus string   `json:"buildBatchStatus"`
+	StartTime        float64  `json:"startTime,omitempty"`
+	EndTime          float64  `json:"endTime,omitempty"`
 }
 
 // CommandExecution represents an in-memory AWS CodeBuild command execution.
@@ -405,16 +405,32 @@ type SourceCredentials struct {
 	AuthType   string `json:"authType"`
 }
 
-// CodeCoverage represents a code coverage entry returned by DescribeCodeCoverages.
+// CodeCoverage represents a code coverage entry returned by DescribeCodeCoverages
+// (aws-sdk-go-v2/service/codebuild@v1.72.4/types.CodeCoverage; field-diffed via
+// deserializers.go's awsAwsjson11_deserializeDocumentCodeCoverage).
 type CodeCoverage struct {
-	FilePath       string  `json:"filePath,omitempty"`
-	BranchCoverage float64 `json:"branchCoverage,omitempty"`
-	LineCoverage   float64 `json:"lineCoverage,omitempty"`
+	ID                       string  `json:"id,omitempty"`
+	ReportARN                string  `json:"reportARN,omitempty"`
+	FilePath                 string  `json:"filePath,omitempty"`
+	LineCoveragePercentage   float64 `json:"lineCoveragePercentage,omitempty"`
+	LinesCovered             int32   `json:"linesCovered,omitempty"`
+	LinesMissed              int32   `json:"linesMissed,omitempty"`
+	BranchCoveragePercentage float64 `json:"branchCoveragePercentage,omitempty"`
+	BranchesCovered          int32   `json:"branchesCovered,omitempty"`
+	BranchesMissed           int32   `json:"branchesMissed,omitempty"`
+	Expired                  float64 `json:"expired,omitempty"`
 }
 
-// TestCase represents a test case entry returned by DescribeTestCases.
+// TestCase represents a test case entry returned by DescribeTestCases
+// (aws-sdk-go-v2/service/codebuild@v1.72.4/types.TestCase).
 type TestCase struct {
-	Name     string  `json:"name,omitempty"`
-	Status   string  `json:"status,omitempty"`
-	Duration float64 `json:"duration,omitempty"`
+	ReportArn             string  `json:"reportArn,omitempty"`
+	TestRawDataPath       string  `json:"testRawDataPath,omitempty"`
+	Prefix                string  `json:"prefix,omitempty"`
+	Name                  string  `json:"name,omitempty"`
+	Status                string  `json:"status,omitempty"`
+	Message               string  `json:"message,omitempty"`
+	TestSuiteName         string  `json:"testSuiteName,omitempty"`
+	DurationInNanoSeconds int64   `json:"durationInNanoSeconds,omitempty"`
+	Expired               float64 `json:"expired,omitempty"`
 }

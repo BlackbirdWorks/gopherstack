@@ -72,7 +72,7 @@ type ec2ConfigOutput struct {
 // describeLocationEfsOutput intentionally has no EfsFilesystemArn or
 // Subdirectory field: the real DescribeLocationEfsOutput has neither -- the
 // file system and path are folded into LocationUri only (confirmed against
-// aws-sdk-go-v2 v1.59.2: AccessPointArn, CreationTime, Ec2Config,
+// aws-sdk-go-v2 v1.61.4: AccessPointArn, CreationTime, Ec2Config,
 // FileSystemAccessRoleArn, InTransitEncryption, LocationArn, LocationUri).
 type describeLocationEfsOutput struct {
 	Ec2Config               *ec2ConfigOutput `json:"Ec2Config,omitempty"`

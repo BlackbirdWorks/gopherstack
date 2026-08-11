@@ -42,7 +42,10 @@ func TestIntegration_Backup_VaultAndPlanLifecycle(t *testing.T) {
 	assert.Equal(t, vaultName, aws.ToString(createVaultOut.BackupVaultName))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteBackupVault(ctx, &backupsdk.DeleteBackupVaultInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteBackupVault(cleanupCtx, &backupsdk.DeleteBackupVaultInput{
 			BackupVaultName: aws.String(vaultName),
 		})
 	})
@@ -95,7 +98,10 @@ func TestIntegration_Backup_VaultAndPlanLifecycle(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(createPlanOut.BackupPlanArn))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteBackupPlan(ctx, &backupsdk.DeleteBackupPlanInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteBackupPlan(cleanupCtx, &backupsdk.DeleteBackupPlanInput{
 			BackupPlanId: aws.String(planID),
 		})
 	})

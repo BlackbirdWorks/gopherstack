@@ -148,17 +148,18 @@ func TestIntegration_SQS_VisibilityTimeout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, recvOut2.Messages, "message should be invisible immediately after first receive")
 
-	// Wait for visibility timeout to expire (1s + buffer)
-	time.Sleep(2 * time.Second)
+	// Poll until the visibility timeout expires and the message reappears.
+	var recvOut3 *sqs.ReceiveMessageOutput
+	require.Eventually(t, func() bool {
+		var recvErr error
+		recvOut3, recvErr = client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl:            queueURL,
+			MaxNumberOfMessages: 1,
+			WaitTimeSeconds:     0,
+		})
 
-	// Receive again — message should be visible again
-	recvOut3, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:            queueURL,
-		MaxNumberOfMessages: 1,
-		WaitTimeSeconds:     0,
-	})
-	require.NoError(t, err)
-	assert.Len(t, recvOut3.Messages, 1, "message should be visible again after visibility timeout")
+		return recvErr == nil && len(recvOut3.Messages) == 1
+	}, 5*time.Second, 100*time.Millisecond, "message should become visible again after visibility timeout")
 }
 
 func TestIntegration_SQS_BatchOperations(t *testing.T) {

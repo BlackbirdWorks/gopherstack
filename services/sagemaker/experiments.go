@@ -38,7 +38,7 @@ func cloneExperiment(e *Experiment) *Experiment {
 // CreateExperiment creates a new experiment.
 func (b *InMemoryBackend) CreateExperiment(
 	ctx context.Context,
-	name string,
+	name, displayName, description string,
 	tags map[string]string,
 ) (*Experiment, error) {
 	b.mu.Lock("CreateExperiment")
@@ -56,6 +56,8 @@ func (b *InMemoryBackend) CreateExperiment(
 	e := &Experiment{
 		ExperimentName:   name,
 		ExperimentArn:    expArn,
+		DisplayName:      displayName,
+		Description:      description,
 		CreationTime:     now,
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),

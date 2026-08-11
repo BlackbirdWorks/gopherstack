@@ -85,4 +85,11 @@ var (
 		"ReservedNodeAlreadyExistsFault: reserved node already exists",
 		awserr.ErrAlreadyExists,
 	)
+	// ErrServiceUpdateNotFound is returned when BatchUpdateCluster names a service
+	// update that doesn't exist (real AWS fault: ServiceUpdateNotFoundFault, confirmed
+	// in botocore's memorydb/2021-01-01/service-2.json BatchUpdateCluster.errors).
+	ErrServiceUpdateNotFound = awserr.New(
+		"ServiceUpdateNotFoundFault: service update not found",
+		awserr.ErrNotFound,
+	)
 )

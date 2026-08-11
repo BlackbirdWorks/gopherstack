@@ -115,7 +115,7 @@ func (h *Handler) handleGetConsoleOutput(vals url.Values, reqID string) (any, er
 	return &consoleOutputResponse{
 		RequestID:  reqID,
 		InstanceID: instanceID,
-		Timestamp:  ts.Format("2006-01-02T15:04:05.000Z"),
+		Timestamp:  ts.UTC().Format("2006-01-02T15:04:05.000Z"),
 		Output:     output,
 	}, nil
 }
@@ -588,7 +588,7 @@ func (h *Handler) handleGetPasswordData(vals url.Values, reqID string) (any, err
 	return &passwordDataResponse{
 		RequestID:    reqID,
 		InstanceID:   instanceID,
-		Timestamp:    ts.Format("2006-01-02T15:04:05.000Z"),
+		Timestamp:    ts.UTC().Format("2006-01-02T15:04:05.000Z"),
 		PasswordData: data,
 	}, nil
 }

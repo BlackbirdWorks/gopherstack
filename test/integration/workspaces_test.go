@@ -63,7 +63,10 @@ func TestIntegration_WorkSpaces_IpGroupLifecycle(t *testing.T) {
 			require.NotEmpty(t, groupID, "group id must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteIpGroup(ctx, &workspacessdk.DeleteIpGroupInput{GroupId: aws.String(groupID)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteIpGroup(cleanupCtx, &workspacessdk.DeleteIpGroupInput{GroupId: aws.String(groupID)})
 			})
 
 			descOut, err := client.DescribeIpGroups(ctx, &workspacessdk.DescribeIpGroupsInput{
@@ -107,7 +110,10 @@ func TestIntegration_WorkSpaces_ConnectionAliasLifecycle(t *testing.T) {
 			require.NotEmpty(t, aliasID, "alias id must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteConnectionAlias(ctx, &workspacessdk.DeleteConnectionAliasInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteConnectionAlias(cleanupCtx, &workspacessdk.DeleteConnectionAliasInput{
 					AliasId: aws.String(aliasID),
 				})
 			})

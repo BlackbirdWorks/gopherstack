@@ -143,8 +143,10 @@ func (b *InMemoryBackend) DeletePackageGroup(ctx context.Context, domainName, pa
 
 // GetAssociatedPackageGroup returns the most specific package group whose
 // pattern matches the given package coordinate, per AWS's pattern
-// specificity algorithm (see package_group_pattern.go). Returns (nil, nil)
-// if no group in the domain matches -- not an error per the real API.
+// specificity algorithm (see package_group_pattern.go), plus its
+// associationType ("STRONG" or "WEAK" -- see bestMatchingGroup). Returns
+// (nil, "", nil) if no group in the domain matches -- not an error per the
+// real API.
 //
 // Scope note: this backend does not auto-create the implicit root group
 // ("/*") that real AWS attaches to every domain, so an empty domain (or one
@@ -153,31 +155,39 @@ func (b *InMemoryBackend) DeletePackageGroup(ctx context.Context, domainName, pa
 func (b *InMemoryBackend) GetAssociatedPackageGroup(
 	ctx context.Context,
 	domainName, format, namespace, name string,
-) (*PackageGroup, error) {
+) (*PackageGroup, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("GetAssociatedPackageGroup")
 	defer b.mu.RUnlock()
 
 	if !b.domains.Has(regionKey(region, domainName)) {
-		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
+		return nil, "", fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	match := bestMatchingGroup(b.packageGroupsByRegion.Get(region), domainName, format, namespace, name)
+	match, assocType := bestMatchingGroup(b.packageGroupsByRegion.Get(region), domainName, format, namespace, name)
 	if match == nil {
-		return nil, nil //nolint:nilnil // AWS returns no error when no group matches
+		return nil, "", nil // AWS returns no error when no group matches
 	}
 	cp := *match
 
-	return &cp, nil
+	return &cp, assocType, nil
 }
 
 // bestMatchingGroup returns the most specific group among entries (scoped
-// to domainName) whose pattern matches the given coordinate, or nil if none
-// match. Malformed patterns (should not occur -- CreatePackageGroup
-// validates on write) are skipped defensively.
-func bestMatchingGroup(entries []*PackageGroup, domainName, format, namespace, name string) *PackageGroup {
+// to domainName) whose pattern weak-matches the given coordinate (weak
+// match is a superset of strong match, so this also finds strong matches),
+// plus its associationType ("STRONG" if the package's literal coordinate
+// equals the winning pattern exactly, "WEAK" if it only matches after
+// casefold/separator normalization -- see package_group_pattern.go). Returns
+// (nil, "") if no group matches at all. Malformed patterns (should not
+// occur -- CreatePackageGroup validates on write) are skipped defensively.
+func bestMatchingGroup(
+	entries []*PackageGroup, domainName, format, namespace, name string,
+) (*PackageGroup, string) {
 	var best *PackageGroup
+
+	var bestParsed *groupPattern
 
 	var bestRank int
 
@@ -187,18 +197,27 @@ func bestMatchingGroup(entries []*PackageGroup, domainName, format, namespace, n
 		}
 
 		parsed, err := parseGroupPattern(pg.Pattern)
-		if err != nil || !parsed.matches(format, namespace, name) {
+		if err != nil || !parsed.matchesWeak(format, namespace, name) {
 			continue
 		}
 
 		rank := parsed.specificityRank()
 		if best == nil || rank > bestRank {
 			best = pg
+			bestParsed = parsed
 			bestRank = rank
 		}
 	}
 
-	return best
+	if best == nil {
+		return nil, ""
+	}
+
+	if bestParsed.matches(format, namespace, name) {
+		return best, "STRONG"
+	}
+
+	return best, "WEAK"
 }
 
 // ListPackageGroups returns all package groups in a domain, optionally filtered by prefix.
@@ -518,12 +537,24 @@ func (b *InMemoryBackend) ListAllowedRepositoriesForGroup(
 	return slices.Clone(r.AllowedRepositories), nil
 }
 
+// AssociatedPackage pairs a Package with its associationType ("STRONG" or
+// "WEAK") relative to the package group it was matched against -- see
+// bestMatchingGroup. This is a query-result shape, not a stored field on
+// Package itself (the same package has a different associationType per
+// group it's queried against).
+type AssociatedPackage struct {
+	Package         *Package
+	AssociationType string
+}
+
 // ListAssociatedPackages returns the packages in the domain whose
 // most-specific matching package group (see bestMatchingGroup) is exactly
 // the group identified by pattern. Packages are deduplicated by
 // (format, namespace, name) across every repository in the domain, mirroring
 // how ListPackages dedupes within a single repository.
-func (b *InMemoryBackend) ListAssociatedPackages(ctx context.Context, domainName, pattern string) ([]*Package, error) {
+func (b *InMemoryBackend) ListAssociatedPackages(
+	ctx context.Context, domainName, pattern string,
+) ([]AssociatedPackage, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListAssociatedPackages")
@@ -539,7 +570,7 @@ func (b *InMemoryBackend) ListAssociatedPackages(ctx context.Context, domainName
 
 	groups := b.packageGroupsByRegion.Get(region)
 	seen := make(map[string]bool)
-	result := make([]*Package, 0)
+	result := make([]AssociatedPackage, 0)
 
 	for _, pkg := range b.packagesByRegion.Get(region) {
 		if pkg.DomainName != domainName {
@@ -551,18 +582,18 @@ func (b *InMemoryBackend) ListAssociatedPackages(ctx context.Context, domainName
 			continue
 		}
 
-		match := bestMatchingGroup(groups, domainName, pkg.Format, pkg.Namespace, pkg.Name)
+		match, assocType := bestMatchingGroup(groups, domainName, pkg.Format, pkg.Namespace, pkg.Name)
 		if match == nil || match.Pattern != pattern {
 			continue
 		}
 
 		seen[dedupeKey] = true
 		cp := *pkg
-		result = append(result, &cp)
+		result = append(result, AssociatedPackage{Package: &cp, AssociationType: assocType})
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
+		return result[i].Package.Name < result[j].Package.Name
 	})
 
 	return result, nil

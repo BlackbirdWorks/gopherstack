@@ -19,4 +19,25 @@ var (
 	errInvalidOTP      = errors.New("ValidationException: invalid OTP")
 	// errInvalidNextToken is returned when ListRegions receives an undecodable cursor.
 	errInvalidNextToken = errors.New("ValidationException: invalid nextToken")
+	// errNoPrimaryEmailUpdateStatus is returned by GetPrimaryEmailUpdateStatus
+	// when no primary email update has ever been started for this account.
+	errNoPrimaryEmailUpdateStatus = errors.New(
+		"ResourceNotFoundException: no primary email update found for this account",
+	)
+	// errGovCloudNotLinked is returned by GetGovCloudAccountInformation. Real
+	// AWS returns exactly this ResourceNotFoundException/404 for a standard
+	// account with no linked GovCloud pair (confirmed against the API
+	// reference's documented example response: {"message":"GovCloud Account
+	// ID not found for Standard Account - ..."}). This backend models a
+	// single, standalone (non-organization-member) account -- see the
+	// AccountId-targeting gap in PARITY.md -- so no account it simulates ever
+	// has a linked GovCloud pair, and this error always fires.
+	errGovCloudNotLinked = errors.New("ResourceNotFoundException: GovCloud Account ID not found for Standard Account")
+	// errPrimaryEmailInUse is StartPrimaryEmailUpdate's documented
+	// ConflictException trigger ("if you try to change an account's root
+	// user email to an email address which is already in use" --
+	// types.ConflictException doc comment in the pinned SDK's
+	// types/errors.go). This single-account backend only ever knows of one
+	// email in use: its own current primaryEmail.
+	errPrimaryEmailInUse = errors.New("ConflictException: primary email address is already in use")
 )

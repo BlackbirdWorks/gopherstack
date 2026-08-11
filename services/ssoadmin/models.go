@@ -82,6 +82,11 @@ const (
 	targetTypeAWSAccount             = "AWS_ACCOUNT"
 	targetTypeAllProvisionedAccounts = "ALL_PROVISIONED_ACCOUNTS"
 
+	// Valid values for the ProvisioningStatus filter on
+	// ListPermissionSetsProvisionedToAccount/ListAccountsForProvisionedPermissionSet.
+	provisioningStatusLatestProvisioned    = "LATEST_PERMISSION_SET_PROVISIONED"
+	provisioningStatusLatestNotProvisioned = "LATEST_PERMISSION_SET_NOT_PROVISIONED"
+
 	// Valid authentication method types.
 	authMethodTypeIAM = "IAM"
 
@@ -127,7 +132,14 @@ type Instance struct {
 
 // PermissionSet represents an AWS SSO permission set.
 type PermissionSet struct {
-	CreatedDate      time.Time         `json:"CreatedDate"`
+	CreatedDate time.Time `json:"CreatedDate"`
+	// ModifiedDate is internal bookkeeping only -- not a real AWS wire field
+	// (aws-sdk-go-v2's types.PermissionSet has no LastModified concept) --
+	// used to derive ListPermissionSetsProvisionedToAccount/
+	// ListAccountsForProvisionedPermissionSet's ProvisioningStatus filter:
+	// an account is LATEST_PERMISSION_SET_PROVISIONED iff the permission set
+	// has not been edited since it was last provisioned to that account.
+	ModifiedDate     time.Time         `json:"ModifiedDate"`
 	Tags             map[string]string `json:"Tags"`
 	PermissionSetArn string            `json:"PermissionSetArn"`
 	InstanceArn      string            `json:"InstanceArn"`

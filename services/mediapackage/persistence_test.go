@@ -84,6 +84,54 @@ func Test_SnapshotRestore(t *testing.T) {
 			},
 		},
 		{
+			name: "originEndpoints_typedPackagingConfig",
+			seed: func(t *testing.T, b *mediapackage.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateChannel("chan1", "", nil)
+				require.NoError(t, err)
+
+				pkg := mediapackage.PackagingConfig{
+					Authorization: &mediapackage.Authorization{
+						CdnIdentifierSecret: "arn:aws:secretsmanager:1",
+						SecretsRoleArn:      "arn:aws:iam:1",
+					},
+					MssPackage: &mediapackage.MssPackage{
+						SegmentDurationSeconds: 10,
+						Encryption: &mediapackage.MssEncryption{
+							SpekeKeyProvider: &mediapackage.SpekeKeyProvider{
+								ResourceID: "r1",
+								RoleArn:    "arn:aws:iam:1",
+								URL:        "https://speke.example.com",
+								SystemIDs:  []string{"81376844-f976-481e-a695-0e6108b45a58"},
+							},
+						},
+					},
+				}
+				_, err = b.CreateOriginEndpoint("chan1", "ep1", "", "", 0, 0, "", nil, nil, pkg)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *mediapackage.InMemoryBackend) {
+				t.Helper()
+
+				ep, err := b.DescribeOriginEndpoint("ep1")
+				require.NoError(t, err)
+
+				require.NotNil(t, ep.Authorization)
+				assert.Equal(t, "arn:aws:secretsmanager:1", ep.Authorization.CdnIdentifierSecret)
+
+				require.NotNil(t, ep.MssPackage)
+				require.NotNil(t, ep.MssPackage.Encryption)
+				require.NotNil(t, ep.MssPackage.Encryption.SpekeKeyProvider)
+				assert.Equal(t, "r1", ep.MssPackage.Encryption.SpekeKeyProvider.ResourceID)
+				assert.Equal(
+					t,
+					[]string{"81376844-f976-481e-a695-0e6108b45a58"},
+					ep.MssPackage.Encryption.SpekeKeyProvider.SystemIDs,
+				)
+			},
+		},
+		{
 			name: "harvestJobs",
 			seed: func(t *testing.T, b *mediapackage.InMemoryBackend) {
 				t.Helper()

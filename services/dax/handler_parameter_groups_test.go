@@ -126,3 +126,21 @@ func TestHandlerParameterGroups(t *testing.T) {
 		})
 	}
 }
+
+// TestHandlerUpdateParameterGroupRequiresParameterNameValues verifies that omitting the
+// @required ParameterNameValues field (validators.go:654, validateOpUpdateParameterGroupInput)
+// is rejected rather than silently treated as a successful no-op update.
+func TestHandlerUpdateParameterGroupRequiresParameterNameValues(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+
+	createRec := daxRequest(t, h, "CreateParameterGroup", map[string]any{"ParameterGroupName": "pnv-required"})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	rec := daxRequest(t, h, "UpdateParameterGroup", map[string]any{"ParameterGroupName": "pnv-required"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "InvalidParameterValueException", errResp["__type"])
+}

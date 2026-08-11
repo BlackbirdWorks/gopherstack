@@ -13,19 +13,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
-// TestDashboardRegionScoping_ListBucketsIgnoresSelectedRegion guards against
-// bd gopherstack-pejf ("S3 dashboard UI: region selector ignored, forces
-// ap-southeast-1 -> 'select a region'"). The gopherstack dashboard's S3 view
-// is a compiled SvelteKit SPA that talks to this handler directly via the AWS
-// SDK (there is no Go-side dashboard REST endpoint for S3 — see
-// dashboard/ui.go's unused S3Ops field and services/s3/dashboard.go's
-// never-wired DashboardProvider), so the only Go-side surface that can drop a
-// selected region is this handler's region resolution.
-//
-// ListBuckets is a global, account-wide operation in real S3 (and here): it
-// must return buckets regardless of which region the caller's request is
-// signed for, exactly like the dashboard's bucket-list view needs regardless
-// of the region selector's current value.
+// TestDashboardRegionScoping_ListBucketsIgnoresSelectedRegion guards the
+// dashboard's S3 view, a compiled SvelteKit SPA that talks to this handler
+// directly via the AWS SDK (no Go-side dashboard REST endpoint for S3), so the
+// only Go-side surface that can drop a selected region is this handler's region
+// resolution. ListBuckets is a global, account-wide operation in real S3 (and
+// here): it must return buckets regardless of which region the request is
+// signed for.
 func TestDashboardRegionScoping_ListBucketsIgnoresSelectedRegion(t *testing.T) {
 	t.Parallel()
 
@@ -61,16 +55,11 @@ type listAllMyBucketsResultXML struct {
 	} `xml:"Buckets>Bucket"`
 }
 
-// TestDashboardRegionScoping_ListBucketsReportsEachBucketsTrueRegion is the
-// actual fix for the user-reported issue behind bd gopherstack-pejf's
-// surrounding investigation: ListBuckets is correctly account-global (see
-// TestDashboardRegionScoping_ListBucketsIgnoresSelectedRegion above), so
-// buckets created in a region other than the dashboard's currently selected
-// one correctly still show up in the list -- but with nothing on screen
-// saying they live somewhere else. The fix is BucketRegion on each Bucket
-// element, sourced from the same per-bucket InMemoryBackend.BucketRegion
-// state that already drives enforceBucketRegion's cross-region redirect, so
-// the value can never drift from what actually gates bucket access.
+// TestDashboardRegionScoping_ListBucketsReportsEachBucketsTrueRegion verifies
+// BucketRegion on each Bucket element, sourced from the same per-bucket
+// InMemoryBackend.BucketRegion state that already drives enforceBucketRegion's
+// cross-region redirect, so the value can never drift from what actually gates
+// bucket access.
 func TestDashboardRegionScoping_ListBucketsReportsEachBucketsTrueRegion(t *testing.T) {
 	t.Parallel()
 
@@ -149,24 +138,10 @@ func TestDashboardRegionScoping_BucketAccessHonorsSelectedRegion(t *testing.T) {
 
 		require.Equal(t, http.StatusMovedPermanently, rec.Code)
 		assert.Equal(t, "eu-west-1", rec.Header().Get("X-Amz-Bucket-Region"))
-		// Regression guard for the actual root cause of "S3 dashboard: shows
-		// buckets stuck in the wrong region no matter what the selector says"
-		// (the earlier "fixed" verdict on gopherstack-pejf only checked the
-		// signed region, not what the browser does with the response). A 301
-		// is heuristically cacheable by browsers even with zero explicit
-		// caching headers -- confirmed against a running binary via
-		// Playwright: fetch(url) (default cache) replayed a stale 301 from
-		// several minutes earlier for a request that was, in fact, correctly
-		// signed for the bucket's true region, while fetch(url, {cache:
-		// 'reload'}) against the identical signed headers got a live 200.
-		// The browser HTTP cache keys on method+URL, not on the Authorization
-		// header, so once any request to a given bucket+query URL is signed
-		// for the wrong region, every later request to that same URL --
-		// including ones correctly re-signed after the user fixes the region
-		// selector -- can be served the stale redirect straight out of cache
-		// without ever reaching this handler again. Without Cache-Control:
-		// no-store here, this line's own 301 response would be exactly such
-		// a poison pill.
+		// Regression guard: browsers cache a 301 by method+URL, not Authorization
+		// header, so this response needs Cache-Control: no-store or a later
+		// correctly re-signed request replays the stale redirect. See
+		// enforceBucketRegion's doc comment in handler.go.
 		assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
 	})
 }

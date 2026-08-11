@@ -17,15 +17,15 @@ type accessAdvisorJob struct {
 func (b *InMemoryBackend) GenerateServiceLastAccessedDetailsForEntity(entityARN string) string {
 	jobID := "sladjob-" + newID("")
 
-	c := b.comp()
-	c.mu.Lock()
-	c.accessAdvisorJobs[jobID] = &accessAdvisorJob{
+	b.mu.Lock("GenerateServiceLastAccessedDetailsForEntity")
+	defer b.mu.Unlock()
+
+	b.comp().accessAdvisorJobs[jobID] = &accessAdvisorJob{
 		JobID:     jobID,
 		EntityARN: entityARN,
 		CreatedAt: time.Now().UTC(),
 		Status:    jobStatusCompleted, // Immediately complete in the mock
 	}
-	c.mu.Unlock()
 
 	return jobID
 }
@@ -33,19 +33,18 @@ func (b *InMemoryBackend) GenerateServiceLastAccessedDetailsForEntity(entityARN 
 // GetServiceLastAccessedDetails returns the access details for a given job ID.
 // Returns job status and the list of service access details.
 func (b *InMemoryBackend) GetServiceLastAccessedDetails(jobID string) (string, []ServiceLastAccessedDetail, error) {
-	c := b.comp()
-	c.mu.Lock()
-	job, exists := c.accessAdvisorJobs[jobID]
-	c.mu.Unlock()
+	b.mu.RLock("GetServiceLastAccessedDetails")
+	defer b.mu.RUnlock()
 
+	c := b.comp()
+
+	job, exists := c.accessAdvisorJobs[jobID]
 	if !exists {
 		// Return COMPLETED with empty list if job not found (permissive mock behavior).
 		return jobStatusCompleted, []ServiceLastAccessedDetail{}, nil
 	}
 
-	c.mu.Lock()
 	entityDetails := c.serviceLastAccessed[job.EntityARN]
-	c.mu.Unlock()
 
 	result := make([]ServiceLastAccessedDetail, 0, len(entityDetails))
 
@@ -62,10 +61,10 @@ func (b *InMemoryBackend) GetServiceLastAccessedDetails(jobID string) (string, [
 
 // RecordServiceAccess records that an entity accessed a service.
 func (b *InMemoryBackend) RecordServiceAccess(entityARN, serviceNamespace, serviceName string) {
-	c := b.comp()
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	b.mu.Lock("RecordServiceAccess")
+	defer b.mu.Unlock()
 
+	c := b.comp()
 	if c.serviceLastAccessed[entityARN] == nil {
 		c.serviceLastAccessed[entityARN] = make(map[string]ServiceLastAccessedDetail)
 	}

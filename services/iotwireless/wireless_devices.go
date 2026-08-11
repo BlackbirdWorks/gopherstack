@@ -17,13 +17,13 @@ func wirelessDeviceARN(region, accountID, id string) string {
 }
 
 // copyWirelessDevice returns a shallow copy of d with independent Tags,
-// LoRaWAN, and Sidewalk maps.
+// LoRaWAN, and Sidewalk.
 func copyWirelessDevice(d *WirelessDevice) *WirelessDevice {
 	cp := *d
 	cp.Tags = make(map[string]string, len(d.Tags))
 	maps.Copy(cp.Tags, d.Tags)
-	cp.LoRaWAN = copyAnyMap(d.LoRaWAN)
-	cp.Sidewalk = copyAnyMap(d.Sidewalk)
+	cp.LoRaWAN = copyLoRaWANDevice(d.LoRaWAN)
+	cp.Sidewalk = copySidewalkDevice(d.Sidewalk)
 
 	return &cp
 }
@@ -31,7 +31,7 @@ func copyWirelessDevice(d *WirelessDevice) *WirelessDevice {
 // CreateWirelessDevice creates a new wireless device.
 func (b *InMemoryBackend) CreateWirelessDevice(
 	accountID, region, name, devType, destinationName, description, positioning string,
-	loRaWAN, sidewalk map[string]any,
+	loRaWAN *LoRaWANDevice, sidewalk *SidewalkCreateWirelessDevice,
 	tags map[string]string,
 ) (*WirelessDevice, error) {
 	b.mu.Lock("CreateWirelessDevice")
@@ -49,7 +49,7 @@ func (b *InMemoryBackend) CreateWirelessDevice(
 		Description:     description,
 		Positioning:     positioning,
 		LoRaWAN:         loRaWAN,
-		Sidewalk:        sidewalk,
+		Sidewalk:        sidewalkDeviceFromCreate(sidewalk),
 		Tags:            newTagsCopy(tags),
 		CreatedAt:       time.Now(),
 		AccountID:       accountID,
@@ -75,9 +75,76 @@ func (b *InMemoryBackend) GetWirelessDevice(accountID, region, id string) (*Wire
 	return copyWirelessDevice(d), nil
 }
 
-// ListWirelessDevices returns all wireless devices for the given account and region,
-// sorted by name for deterministic output.
-func (b *InMemoryBackend) ListWirelessDevices(accountID, region string) []*WirelessDevice {
+// ListWirelessDevicesFilter narrows ListWirelessDevices' result set. Each
+// non-empty field is a query-string filter on ListWirelessDevicesInput
+// (destinationName/deviceProfileId/serviceProfileId/fuotaTaskId/
+// multicastGroupId/wirelessDeviceType -- api_op_ListWirelessDevices.go:29-56,
+// serializers.go:6439). Multiple set filters combine with AND: this isn't
+// documented in the SDK model (the client just forwards whatever query
+// params are set), so this is a chosen semantic, matching how every other
+// narrowing List filter in this codebase intersects rather than unions.
+type ListWirelessDevicesFilter struct {
+	DestinationName    string
+	DeviceProfileID    string
+	ServiceProfileID   string
+	FuotaTaskID        string
+	MulticastGroupID   string
+	WirelessDeviceType string
+}
+
+// matches reports whether d satisfies every non-empty filter field. An empty
+// filter field means "not requested" and never excludes a device -- matching
+// ListWirelessDevicesInput's *string/enum fields being nil (query param
+// absent) when the client omits them.
+func (f ListWirelessDevicesFilter) matches(b *InMemoryBackend, d *WirelessDevice) bool {
+	if f.DestinationName != "" && d.DestinationName != f.DestinationName {
+		return false
+	}
+
+	if f.WirelessDeviceType != "" && d.Type != f.WirelessDeviceType {
+		return false
+	}
+
+	if f.DeviceProfileID != "" && !hasDeviceProfileID(d, f.DeviceProfileID) {
+		return false
+	}
+
+	if f.ServiceProfileID != "" &&
+		(d.LoRaWAN == nil || d.LoRaWAN.ServiceProfileID == nil || *d.LoRaWAN.ServiceProfileID != f.ServiceProfileID) {
+		return false
+	}
+
+	if f.FuotaTaskID != "" && !b.fuotaTaskDevices[f.FuotaTaskID][d.ID] {
+		return false
+	}
+
+	if f.MulticastGroupID != "" && !b.multicastGroupDevices[f.MulticastGroupID][d.ID] {
+		return false
+	}
+
+	return true
+}
+
+// hasDeviceProfileID checks LoRaWAN.DeviceProfileID for LoRaWAN devices and
+// Sidewalk.DeviceProfileID for Sidewalk devices -- real AWS's DeviceProfileID
+// filter applies to whichever wireless technology the device uses.
+func hasDeviceProfileID(d *WirelessDevice, id string) bool {
+	if d.LoRaWAN != nil && d.LoRaWAN.DeviceProfileID != nil && *d.LoRaWAN.DeviceProfileID == id {
+		return true
+	}
+
+	if d.Sidewalk != nil && d.Sidewalk.DeviceProfileID != nil && *d.Sidewalk.DeviceProfileID == id {
+		return true
+	}
+
+	return false
+}
+
+// ListWirelessDevices returns wireless devices for the given account and
+// region matching filter, sorted by name for deterministic output.
+func (b *InMemoryBackend) ListWirelessDevices(
+	accountID, region string, filter ListWirelessDevicesFilter,
+) []*WirelessDevice {
 	b.mu.RLock("ListWirelessDevices")
 	defer b.mu.RUnlock()
 
@@ -85,7 +152,7 @@ func (b *InMemoryBackend) ListWirelessDevices(accountID, region string) []*Wirel
 	result := make([]*WirelessDevice, 0, len(all))
 
 	for _, d := range all {
-		if d.AccountID == accountID && d.Region == region {
+		if d.AccountID == accountID && d.Region == region && filter.matches(b, d) {
 			result = append(result, copyWirelessDevice(d))
 		}
 	}
@@ -167,15 +234,16 @@ func (b *InMemoryBackend) AddWirelessDeviceInternal(accountID, region string, d 
 }
 
 // UpdateWirelessDevice updates mutable fields on an existing wireless device.
-// loRaWAN/sidewalk are merged key-by-key into the stored configuration
+// loRaWAN/sidewalk are merged field-by-field into the stored configuration
 // (rather than wholesale replaced), matching real AWS's UpdateWirelessDevice
-// semantics of updating only the LoRaWAN/Sidewalk sub-fields the client
-// actually supplied (e.g. LoRaWANUpdateDevice only carries DeviceProfileId/
-// ServiceProfileId/ABP/FPorts -- not DevEui -- so a full replace would
-// silently drop DevEui that CreateWirelessDevice originally stored).
+// semantics of updating only the LoRaWANUpdateDevice/SidewalkUpdateWirelessDevice
+// sub-fields the client actually supplied (e.g. LoRaWANUpdateDevice only
+// carries DeviceProfileID/ServiceProfileID/ABP/FPorts -- not DevEui -- so a
+// full replace would silently drop DevEui that CreateWirelessDevice
+// originally stored).
 func (b *InMemoryBackend) UpdateWirelessDevice(
 	accountID, region, id, name, description, destinationName, positioning string,
-	loRaWAN, sidewalk map[string]any,
+	loRaWAN *LoRaWANUpdateDevice, sidewalk *SidewalkUpdateWirelessDevice,
 ) error {
 	b.mu.Lock("UpdateWirelessDevice")
 	defer b.mu.Unlock()
@@ -199,8 +267,8 @@ func (b *InMemoryBackend) UpdateWirelessDevice(
 		d.Positioning = positioning
 	}
 
-	d.LoRaWAN = mergeAnyMap(d.LoRaWAN, loRaWAN)
-	d.Sidewalk = mergeAnyMap(d.Sidewalk, sidewalk)
+	d.LoRaWAN = mergeLoRaWANDeviceUpdate(d.LoRaWAN, loRaWAN)
+	d.Sidewalk = mergeSidewalkDeviceUpdate(d.Sidewalk, sidewalk)
 
 	return nil
 }

@@ -153,7 +153,7 @@ func TestConnectionGroup_NotFound(t *testing.T) {
 // update/delete is rejected with 412 PreconditionFailed, and the correct ETag succeeds.
 func TestConnectionGroup_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
 	createRec := doXML(t, h, http.MethodPost, prefix+"connection-group",
@@ -249,7 +249,7 @@ func TestConnectionGroup_Persistence(t *testing.T) {
 		t.Fatal("expected non-empty snapshot")
 	}
 
-	restored := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	restored := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	if err := restored.Restore(t.Context(), snap); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestConnectionFunction_NotFound(t *testing.T) {
 // on update/delete/publish/test is rejected with 412 PreconditionFailed.
 func TestConnectionFunction_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
 	createRec := doXML(t, h, http.MethodPost, prefix+"connection-function",
@@ -555,7 +555,7 @@ func TestConnectionFunction_Persistence(t *testing.T) {
 		t.Fatal("expected non-empty snapshot")
 	}
 
-	restored := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	restored := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	if err := restored.Restore(t.Context(), snap); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}
@@ -609,7 +609,7 @@ func TestListDistributionsByConnectionFunction(t *testing.T) {
 // TestConnectionGroup_ListDistributionsByConnectionGroup tests connection group Get/List/Update/Delete.
 func TestConnectionGroup_ListDistributionsByConnectionGroup(t *testing.T) {
 	t.Parallel()
-	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	h := cloudfront.NewHandler(b)
 	const prefix = "/2020-05-31/"
 
@@ -686,7 +686,7 @@ func TestTestConnectionFunction_TableDriven(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := cloudfront.NewHandler(newTestBackend())
+			h := cloudfront.NewHandler(newTestBackend(t))
 			fnID := tt.setup(h)
 			rec := cfRequest(t, h, http.MethodPost, prefix+"connection-function/"+fnID+"/test", "")
 
@@ -748,7 +748,7 @@ func TestCreateConnectionFunction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/connection-function", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			tt.check(t, rec)
@@ -806,7 +806,7 @@ func TestCreateConnectionGroup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/connection-group", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			tt.check(t, rec)
@@ -818,7 +818,7 @@ func TestCreateConnectionGroup(t *testing.T) {
 func TestConnectionFunctionByID(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	// Create two functions with same name (should succeed - AWS allows this).
 	fn1, err := b.CreateConnectionFunction("shared-name", "first fn")

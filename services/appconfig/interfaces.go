@@ -226,14 +226,11 @@ type StorageBackend interface {
 	// version label of the configuration currently active (the most
 	// recently COMPLETEd deployment) for the given
 	// application/environment/configuration-profile, each resolved by ID
-	// or name exactly like GetConfiguration. It has no caller within this
-	// package today -- it is a public read accessor exposed for a future
-	// appconfig -> appconfigdata bridge (bd gopherstack-uiyi): once a
-	// deployment completes, cli.go wiring (out of scope for this change)
-	// can call this and push the result into
-	// appconfigdata's SetConfiguration(app, env, profile, content,
-	// contentType) so GetLatestConfiguration polling reflects real
-	// deployment state instead of an unpopulated store.
+	// or name exactly like GetConfiguration. It is a public read accessor
+	// for callers outside this package; the appconfig -> appconfigdata
+	// bridge (bd gopherstack-uiyi, see DeployedConfigurationPublisher)
+	// pushes the same data automatically as deployments complete, so this
+	// accessor's own callers are external/read-path only.
 	CurrentDeployedConfiguration(
 		application, environment, configuration string,
 	) (content []byte, contentType, versionLabel string, err error)

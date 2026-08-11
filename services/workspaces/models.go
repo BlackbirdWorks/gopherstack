@@ -56,7 +56,7 @@ type InMemoryBackend struct {
 	directoryIpGroups    map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
 	mu                   *lockmetrics.RWMutex
 	clientProperties     map[string]storedClientProps
-	appAssociations      map[string]map[string]struct{}
+	appAssociations      map[string]map[string]*storedAppAssociation
 	accountConfig        storedAccountConfig
 	accountID            string
 	region               string
@@ -205,6 +205,15 @@ type storedApplication struct {
 	Name  string `json:"name"`
 	Owner string `json:"owner"`
 	State string `json:"state"`
+}
+
+// storedAppAssociation tracks a workspace<->application association.
+// appAssociations is ephemeral (not part of backendSnapshot), so this
+// carries no json tags -- see persistence.go.
+type storedAppAssociation struct {
+	CreatedAt       time.Time
+	LastUpdatedTime time.Time
+	State           string
 }
 
 // ---------------------------------------------------------------------------

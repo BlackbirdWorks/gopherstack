@@ -5,10 +5,16 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codestarconnections
-sdk_module: aws-sdk-go-v2/service/codestarconnections@v1.35.15   # version audited against
-last_audit_commit: e862cdc2                       # HEAD when this manifest was written
-last_audit_date: 2026-07-24
+sdk_module: aws-sdk-go-v2/service/codestarconnections@v1.38.4   # version audited against
+last_audit_commit: 1d7169f66                       # HEAD when this manifest was written
+last_audit_date: 2026-08-07
 overall: A            # zero-gap field-diff pass against botocore's authoritative per-op error lists
+                      # (2026-07-24). This pass (gopherstack-7mmd): re-examined whether
+                      # GetResourceSyncStatus's Git-SHA-bearing fields and SyncBlocker.Contexts
+                      # are buildable with a scoped simulation, or genuinely structural. Concluded
+                      # structural (no code change) -- see structural_gaps and Notes below for the
+                      # reasoning. Spot-audit of the rest of the surface (stub/no-op patterns,
+                      # live-client construction) turned up nothing new.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -46,14 +52,44 @@ families:
   ErrorTaxonomy: {status: ok, note: "Every error sentinel field-diffed this pass against botocore's codestar-connections/2019-12-01/service-2.json operations[].errors (the authoritative per-op error list, cross-checked against aws-sdk-go-v2/service/codestarconnections/types/errors.go's exhaustive 17-type catalog). Two invented-type bugs fixed: ErrValidation was 'ValidationException' (does not exist in this service's real error catalog at all) -> now InvalidInputException; DeleteHost's dependency-check error was 'ConflictException' (a real type, but not in DeleteHost's real error list -- it belongs to UpdateHost's) -> now ResourceUnavailableException. Both fixes mirror decisions already made and evidence-documented in the codeconnections sibling service's own error-taxonomy audit. New ErrTagLimitExceeded sentinel (LimitExceededException) replaces the previous ErrValidation/InvalidInputException mapping for 'too many tags' on CreateConnection/CreateHost/TagResource, none of which document InvalidInputException as a possible error for that case."}
   Tagging: {status: ok, note: "Connections, hosts, AND repository links are all real taggable resources (CreateRepositoryLinkInput has a genuine Tags member -- see CreateRepositoryLink note above). Sync configurations are NOT taggable (CreateSyncConfigurationInput has no Tags member at all in the real SDK) -- verified, not touched."}
 gaps:
-  - GetResourceSyncStatus does not populate optional DesiredState/LatestSuccessfulSync (types.Revision-bearing) fields -- would require simulating actual git repo content/commit SHAs (types.Revision.Sha is a required member with no real backing state in this emulator); fabricating a placeholder SHA would violate parity-principles.md's no-fabricated-data rule, so this remains genuinely out of scope rather than a stub (bd: file follow-up if a git-content simulation layer is ever built for another service)
-  - SyncBlocker.Contexts ([]types.SyncBlockerContext) is never populated -- real AWS creates sync blockers (with contexts describing what went wrong) automatically as a side effect of internal Git-sync/CloudFormation validation; gopherstack's only blocker-creation path is the CreateSyncBlocker test/internal helper (not a routed customer-facing op), which has no realistic source of context data to attach. Contexts is an optional member, so omitting it is wire-correct (not a shape bug), just an unreachable-without-simulation feature
-deferred:
-  - PullRequestComment field (CreateSyncConfiguration/UpdateSyncConfiguration/SyncConfiguration) — present in current AWS API docs but NOT in the pinned aws-sdk-go-v2@v1.35.15 SDK's types/serializers/deserializers; correctly omitted to match the SDK version actually vendored by this repo
+  - PullRequestComment field (CreateSyncConfiguration/UpdateSyncConfiguration/SyncConfiguration) — present in current AWS API docs but NOT in the pinned aws-sdk-go-v2@v1.35.15 SDK's types/serializers/deserializers; correctly omitted to match the SDK version actually vendored by this repo (not a gap in the usual sense — flagged here only so a future SDK bump re-checks it)
+structural_gaps:
+  - "GetResourceSyncStatus does not populate optional DesiredState/LatestSuccessfulSync (types.Revision-bearing) fields, nor InitialRevision/TargetRevision within LatestSync/LatestSuccessfulSync. types.Revision.Sha is a required member (a 40-hex-char git commit SHA) with no real backing state in this emulator: RECLASSIFIED this pass (gopherstack-7mmd) from gaps to structural_gaps after re-examining whether a scoped simulation is buildable. It is not, for two independent reasons specific to this service (not merely 'large'): (1) codestarconnections has zero concept of repository content anywhere in its data model -- RepositoryLink stores only an ARN to an external provider connection (GitHub/Bitbucket/etc.), never any file tree, commit graph, or branch HEAD; there is no internal state a SHA could be honestly derived FROM. (2) There is no customer-facing operation in this service that would ever cause AWS to observe/generate a new commit SHA in the first place -- sync statuses are populated exclusively via the SetRepositorySyncStatus/SetResourceSyncStatus test/internal helpers (sync_statuses.go), not any routed op, so there is no real 'moment' analogous to a real sync attempt to hang a SHA off of. Fabricating a placeholder SHA would present as if the emulator had observed a specific real commit from an external git host it has never connected to -- exactly the kind of fabricated data parity-principles.md's no-stub rule prohibits. The current behavior (omit the whole optional Revision-bearing wrapper) is wire-correct, not a stub. (bd: gopherstack-7mmd)"
+  - "SyncBlocker.Contexts ([]types.SyncBlockerContext) is never populated. Real AWS creates sync blockers, with contexts describing what specifically went wrong, as a side effect of internal Git-sync/CloudFormation validation actually running against real repository content and a real CloudFormation stack. This emulator has neither: no git content (see the Revision.Sha structural gap above) and no CloudFormation integration. gopherstack's only blocker-creation path is the CreateSyncBlocker test/internal helper (not a routed customer-facing op), which has no realistic source of context data to attach -- there is no internal event this backend could honestly summarize into a Contexts entry. Contexts is an optional member, so omitting it remains wire-correct. RECLASSIFIED this pass from gaps to structural_gaps for the same reason as the Revision.Sha entry above: the missing data's source (real CFN validation against real git content) cannot exist in this emulator, not merely a feature this pass ran out of room for. (bd: gopherstack-7mmd)"
+deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/Index behind lockmetrics.RWMutex, snapshotted via persistence.go. NEW this pass: repositoryLinksByArn secondary index added (store.Table auto-maintains it through Put/Delete/Restore, same as every other index in this service) to let tags.go resolve repository link ARNs without a ghost/duplicate row risk -- DeleteRepositoryLink still removes the whole RepositoryLink (including its embedded Tags map) in one Delete call, so no separate tag store exists to leak."}
 ---
 
 ## Notes
+
+### 2026-08-07 pass (gopherstack-7mmd): is simulated git state in scope?
+
+The assigned follow-up asked whether "sync-status revisions need simulated git SHA" is
+buildable this pass, or whether a documented subset is the honest answer. Re-read the full
+data model (`store.go`, `sync_configurations.go`, `sync_statuses.go`) end to end before
+concluding: **no code change**, reclassified both affected gap entries to `structural_gaps`
+(see that section for the full reasoning). Summary of why this differs from a "merely large"
+gap that would stay in `gaps`:
+
+- This service's entire data model has no representation of repository *content* at any
+  layer -- `RepositoryLink` is an ARN pointing at an external provider connection, never a
+  file tree/commit graph/branch pointer. A commit SHA has nothing internal to be derived
+  from, unlike (for comparison) a case this same audit pass found genuinely buildable in
+  `codecommit` -- gopherstack owns and generates that service's commit graph itself, so
+  fixing gaps there was a data-model *rework*, not a data-*source* problem.
+  `codestarconnections` has no such internal source to rework in the first place.
+- There is no routed, customer-facing operation that ever causes a sync attempt to occur in
+  this backend -- `SetRepositorySyncStatus`/`SetResourceSyncStatus` are test/internal
+  helpers only. Real AWS's SHA comes from actually contacting GitHub/Bitbucket during a real
+  sync; simulating that would mean either integrating with a real external git host (out of
+  an emulator's reach entirely) or inventing one, which is exactly the fabricated-data
+  pattern this repo's conventions prohibit.
+
+Considered and rejected: a deterministic-but-fake SHA (e.g. hashed from the resource name +
+a revision counter) would at least be internally consistent and non-random, but it would
+still assert to a real AWS SDK client that a specific git commit exists and was observed --
+untrue in every case, since no such commit was ever seen by anything. That crosses from
+"simplification" into "fabrication," so it was not implemented.
 
 - Protocol is `application/x-amz-json-1.0` (awsjson1.0), single POST endpoint,
   `X-Amz-Target: CodeStar_connections_20191201.<Op>` — verified against every

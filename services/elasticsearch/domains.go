@@ -69,6 +69,7 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 		CognitoOptions:              cloneCognitoOptions(inp.CognitoOptions),
 		AdvancedSecurityOptions:     cloneAdvancedSecurityOptions(inp.AdvancedSecurityOptions),
 		AutoTuneOptions:             cloneAutoTuneOptions(inp.AutoTuneOptions),
+		DeploymentStrategyOptions:   cloneDeploymentStrategyOptions(inp.DeploymentStrategyOptions),
 		LogPublishingOptions:        cloneLogPublishingOptions(inp.LogPublishingOptions),
 		EncryptionAtRestEnabled:     inp.EncryptionAtRestEnabled,
 		NodeToNodeEncryptionEnabled: inp.NodeToNodeEncryptionEnabled,

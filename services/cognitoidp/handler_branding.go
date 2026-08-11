@@ -3,6 +3,7 @@ package cognitoidp
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -49,21 +50,30 @@ func toUICustomizationJSON(ui *UICustomization) *uiCustomizationJSON {
 	return out
 }
 
+func toManagedLoginBrandingType(mlb *ManagedLoginBranding) *managedLoginBrandingType {
+	return &managedLoginBrandingType{
+		ManagedLoginBrandingID:   mlb.ManagedLoginBrandingID,
+		UserPoolID:               mlb.UserPoolID,
+		Settings:                 mlb.Settings,
+		Assets:                   mlb.Assets,
+		UseCognitoProvidedValues: mlb.UseCognitoProvidedValues,
+		CreationDate:             awstime.Epoch(mlb.CreatedAt),
+		LastModifiedDate:         awstime.Epoch(mlb.LastModifiedAt),
+	}
+}
+
 func (h *Handler) handleCreateManagedLoginBranding(
 	_ context.Context,
 	in *createManagedLoginBrandingInput,
 ) (*createManagedLoginBrandingOutput, error) {
-	mlb, err := h.Backend.CreateManagedLoginBranding(in.UserPoolID, in.ClientID)
+	mlb, err := h.Backend.CreateManagedLoginBranding(
+		in.UserPoolID, in.ClientID, in.Settings, in.Assets, in.UseCognitoProvidedValues,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createManagedLoginBrandingOutput{
-		ManagedLoginBranding: &managedLoginBrandingType{
-			UserPoolID:             mlb.UserPoolID,
-			ManagedLoginBrandingID: mlb.ManagedLoginBrandingID,
-		},
-	}, nil
+	return &createManagedLoginBrandingOutput{ManagedLoginBranding: toManagedLoginBrandingType(mlb)}, nil
 }
 
 func (h *Handler) handleDeleteManagedLoginBranding(
@@ -86,12 +96,7 @@ func (h *Handler) handleDescribeManagedLoginBranding(
 		return nil, err
 	}
 
-	return &describeManagedLoginBrandingOutput{
-		ManagedLoginBranding: &managedLoginBrandingType{
-			ManagedLoginBrandingID: mlb.ManagedLoginBrandingID,
-			UserPoolID:             mlb.UserPoolID,
-		},
-	}, nil
+	return &describeManagedLoginBrandingOutput{ManagedLoginBranding: toManagedLoginBrandingType(mlb)}, nil
 }
 
 func (h *Handler) handleDescribeManagedLoginBrandingByClient(
@@ -103,29 +108,21 @@ func (h *Handler) handleDescribeManagedLoginBrandingByClient(
 		return nil, err
 	}
 
-	return &describeManagedLoginBrandingByClientOutput{
-		ManagedLoginBranding: &managedLoginBrandingType{
-			ManagedLoginBrandingID: mlb.ManagedLoginBrandingID,
-			UserPoolID:             mlb.UserPoolID,
-		},
-	}, nil
+	return &describeManagedLoginBrandingByClientOutput{ManagedLoginBranding: toManagedLoginBrandingType(mlb)}, nil
 }
 
 func (h *Handler) handleUpdateManagedLoginBranding(
 	_ context.Context,
 	in *updateManagedLoginBrandingInput,
 ) (*updateManagedLoginBrandingOutput, error) {
-	mlb, err := h.Backend.UpdateManagedLoginBranding(in.UserPoolID, in.ManagedLoginBrandingID)
+	mlb, err := h.Backend.UpdateManagedLoginBranding(
+		in.UserPoolID, in.ManagedLoginBrandingID, in.Settings, in.Assets, in.UseCognitoProvidedValues,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &updateManagedLoginBrandingOutput{
-		ManagedLoginBranding: &managedLoginBrandingType{
-			ManagedLoginBrandingID: mlb.ManagedLoginBrandingID,
-			UserPoolID:             mlb.UserPoolID,
-		},
-	}, nil
+	return &updateManagedLoginBrandingOutput{ManagedLoginBranding: toManagedLoginBrandingType(mlb)}, nil
 }
 
 func (h *Handler) handleGetUICustomization(

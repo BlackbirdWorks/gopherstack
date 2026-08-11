@@ -48,55 +48,36 @@ func TestCreateProbeQuota_ProbesPerMonitor(t *testing.T) {
 
 	const limit = 24
 
-	t.Run("via CreateProbe", func(t *testing.T) {
-		t.Parallel()
+	b := newTestBackend(t)
+	ctx := context.Background()
 
-		b := newTestBackend(t)
-		ctx := context.Background()
+	_, err := b.CreateMonitor(ctx, "probe-quota-mon", nil, nil, nil)
+	require.NoError(t, err)
 
-		_, err := b.CreateMonitor(ctx, "probe-quota-mon", nil, nil, nil)
-		require.NoError(t, err)
-
-		for i := range limit {
-			_, createErr := b.CreateProbe(ctx, "probe-quota-mon", &networkmonitor.ProbeInputForTest{
-				Destination: "10.0.0.1",
-				Protocol:    "ICMP",
-				// A distinct sourceArn per probe keeps this test isolated
-				// from the per-subnet quota (see the sibling test below).
-				SourceArn: fmt.Sprintf("arn:aws:ec2:us-east-1:000000000000:subnet/subnet-%02d", i),
-			}, nil)
-			require.NoError(t, createErr, "probe %d should be within the per-monitor quota", i)
-		}
-
-		_, err = b.CreateProbe(ctx, "probe-quota-mon", &networkmonitor.ProbeInputForTest{
+	for i := range limit {
+		_, createErr := b.CreateProbe(ctx, "probe-quota-mon", &networkmonitor.ProbeInputForTest{
 			Destination: "10.0.0.1",
 			Protocol:    "ICMP",
-			SourceArn:   "arn:aws:ec2:us-east-1:000000000000:subnet/subnet-99",
+			// A distinct sourceArn per probe keeps this test isolated
+			// from the per-subnet quota (see the sibling test below).
+			SourceArn: fmt.Sprintf("arn:aws:ec2:us-east-1:000000000000:subnet/subnet-%02d", i),
 		}, nil)
-		require.Error(t, err, "the 25th probe must be rejected")
-		require.ErrorIs(t, err, networkmonitor.ErrServiceQuotaExceeded)
-	})
+		require.NoError(t, createErr, "probe %d should be within the per-monitor quota", i)
+	}
 
-	t.Run("via CreateMonitor nested probes", func(t *testing.T) {
-		t.Parallel()
-
-		b := newTestBackend(t)
-		ctx := context.Background()
-
-		probes := make([]networkmonitor.ProbeInputForTest, limit+1)
-		for i := range probes {
-			probes[i] = networkmonitor.ProbeInputForTest{
-				Destination: "10.0.0.1",
-				Protocol:    "ICMP",
-				SourceArn:   fmt.Sprintf("arn:aws:ec2:us-east-1:000000000000:subnet/subnet-%02d", i),
-			}
-		}
-
-		_, err := networkmonitor.CreateMonitorWithProbesForTest(ctx, b, "nested-quota-mon", probes)
-		require.Error(t, err, "creating a monitor with 25 nested probes must be rejected")
-		require.ErrorIs(t, err, networkmonitor.ErrServiceQuotaExceeded)
-	})
+	_, err = b.CreateProbe(ctx, "probe-quota-mon", &networkmonitor.ProbeInputForTest{
+		Destination: "10.0.0.1",
+		Protocol:    "ICMP",
+		SourceArn:   "arn:aws:ec2:us-east-1:000000000000:subnet/subnet-99",
+	}, nil)
+	require.Error(t, err, "the 25th probe must be rejected")
+	require.ErrorIs(t, err, networkmonitor.ErrServiceQuotaExceeded)
 }
+
+// TestCreateProbeQuota_ProbesPerMonitor_ViaNestedProbes covers the same
+// per-monitor probe quota as TestCreateProbeQuota_ProbesPerMonitor, but via
+// CreateMonitor's nested probes parameter. It lives in whitebox_test.go: it
+// needs direct access to the unexported createMonitorProbeInput conversion.
 
 // TestCreateProbeQuota_ProbesPerSubnet verifies the "Number of probes per
 // subnet for each monitor" quota (default 4): the 5th probe sharing a

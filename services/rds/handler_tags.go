@@ -23,6 +23,17 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 	}, nil
 }
 
+// applyCreateTags parses the Tags.Tag.N.Key/Value parameters every RDS
+// Create* op accepts and, if present, stores them under arn -- the same
+// store ListTagsForResource reads. Every Create* op that accepts Tags in the
+// real SDK must call this (gopherstack-2mwl: tags accepted but never
+// reaching the tag store).
+func (h *Handler) applyCreateTags(vals url.Values, arn string) {
+	if tags := parseTagEntries(vals); len(tags) > 0 {
+		h.Backend.AddTagsToResource(arn, tags)
+	}
+}
+
 func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
 	arn := vals.Get("ResourceName")
 	tags := parseTagEntries(vals)

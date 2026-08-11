@@ -11,10 +11,10 @@ import (
 )
 
 type createWirelessGatewayRequest struct {
-	LoRaWAN     map[string]any `json:"LoRaWAN,omitempty"`
-	Name        string         `json:"Name"`
-	Description string         `json:"Description"`
-	Tags        []tags.KV      `json:"Tags"`
+	LoRaWAN     *LoRaWANGateway `json:"LoRaWAN,omitempty"`
+	Name        string          `json:"Name"`
+	Description string          `json:"Description"`
+	Tags        []tags.KV       `json:"Tags"`
 }
 
 type createWirelessGatewayResponse struct {
@@ -23,13 +23,13 @@ type createWirelessGatewayResponse struct {
 }
 
 type wirelessGatewayEntry struct {
-	LoRaWAN     map[string]any `json:"LoRaWAN,omitempty"`
-	Arn         string         `json:"Arn"`
-	ID          string         `json:"Id"`
-	Name        string         `json:"Name"`
-	Description string         `json:"Description"`
-	ThingArn    string         `json:"ThingArn,omitempty"`
-	ThingName   string         `json:"ThingName,omitempty"`
+	LoRaWAN     *LoRaWANGateway `json:"LoRaWAN,omitempty"`
+	Arn         string          `json:"Arn"`
+	ID          string          `json:"Id"`
+	Name        string          `json:"Name"`
+	Description string          `json:"Description"`
+	ThingArn    string          `json:"ThingArn,omitempty"`
+	ThingName   string          `json:"ThingName,omitempty"`
 }
 
 type listWirelessGatewaysResponse struct {
@@ -143,21 +143,9 @@ func (h *Handler) updateWirelessGateway(c *echo.Context, id string) error {
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	loRaWANUpdates := map[string]any{}
-	if req.JoinEuiFilters != nil {
-		loRaWANUpdates["JoinEuiFilters"] = req.JoinEuiFilters
-	}
-
-	if req.NetIDFilters != nil {
-		loRaWANUpdates["NetIdFilters"] = req.NetIDFilters
-	}
-
-	if req.MaxEirp != nil {
-		loRaWANUpdates["MaxEirp"] = *req.MaxEirp
-	}
-
 	if err := h.Backend.UpdateWirelessGateway(
-		h.AccountID, h.DefaultRegion, id, req.Name, req.Description, loRaWANUpdates,
+		h.AccountID, h.DefaultRegion, id, req.Name, req.Description,
+		req.JoinEuiFilters, req.NetIDFilters, req.MaxEirp,
 	); err != nil {
 		return handleError(c, err)
 	}

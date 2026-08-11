@@ -24,6 +24,7 @@ type TrialComponent struct {
 	LastModifiedTime   time.Time                         `json:"LastModifiedTime"`
 	StartTime          *time.Time                        `json:"StartTime,omitempty"`
 	EndTime            *time.Time                        `json:"EndTime,omitempty"`
+	Status             *TrialComponentStatus             `json:"Status,omitempty"`
 	Tags               map[string]string                 `json:"Tags,omitempty"`
 	Parameters         map[string]TrialComponentValue    `json:"Parameters,omitempty"`
 	InputArtifacts     map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
@@ -31,7 +32,15 @@ type TrialComponent struct {
 	TrialComponentName string                            `json:"TrialComponentName"`
 	TrialComponentArn  string                            `json:"TrialComponentArn"`
 	DisplayName        string                            `json:"DisplayName,omitempty"`
-	Status             string                            `json:"Status,omitempty"`
+}
+
+// TrialComponentStatus reports a trial component's lifecycle state.
+// SDK ref: aws-sdk-go-v2/service/sagemaker/types.TrialComponentStatus
+// ({PrimaryStatus, Message}) — DescribeTrialComponentOutput.Status is this
+// struct on the wire, never a bare string.
+type TrialComponentStatus struct {
+	PrimaryStatus string `json:"PrimaryStatus,omitempty"`
+	Message       string `json:"Message,omitempty"`
 }
 
 // TrialComponentValue is a number or string parameter value.
@@ -53,37 +62,73 @@ func cloneTrialComponent(tc *TrialComponent) *TrialComponent {
 	cp.InputArtifacts = maps.Clone(tc.InputArtifacts)
 	cp.OutputArtifacts = maps.Clone(tc.OutputArtifacts)
 
+	if tc.StartTime != nil {
+		st := *tc.StartTime
+		cp.StartTime = &st
+	}
+
+	if tc.EndTime != nil {
+		et := *tc.EndTime
+		cp.EndTime = &et
+	}
+
+	if tc.Status != nil {
+		st := *tc.Status
+		cp.Status = &st
+	}
+
 	return &cp
+}
+
+// CreateTrialComponentOptions holds the parameters CreateTrialComponent accepts.
+type CreateTrialComponentOptions struct {
+	StartTime          *time.Time
+	EndTime            *time.Time
+	Status             *TrialComponentStatus
+	Parameters         map[string]TrialComponentValue
+	InputArtifacts     map[string]TrialComponentArtifact
+	OutputArtifacts    map[string]TrialComponentArtifact
+	Tags               map[string]string
+	TrialComponentName string
+	DisplayName        string
 }
 
 // CreateTrialComponent creates a new trial component.
 func (b *InMemoryBackend) CreateTrialComponent(
 	ctx context.Context,
-	name string,
-	tags map[string]string,
+	opts CreateTrialComponentOptions,
 ) (*TrialComponent, error) {
 	b.mu.Lock("CreateTrialComponent")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.trialComponentsStore(region).Get(name); ok {
+	if _, ok := b.trialComponentsStore(region).Get(opts.TrialComponentName); ok {
 		return nil, fmt.Errorf(
 			"%w: trial component %s already exists",
 			ErrTrialComponentAlreadyExists,
-			name,
+			opts.TrialComponentName,
 		)
 	}
 
-	tcArn := arn.Build("sagemaker", region, b.accountID, "experiment-trial-component/"+name)
+	tcArn := arn.Build(
+		"sagemaker", region, b.accountID, "experiment-trial-component/"+opts.TrialComponentName,
+	)
 	now := time.Now()
 
 	tc := &TrialComponent{
-		TrialComponentName: name,
+		TrialComponentName: opts.TrialComponentName,
 		TrialComponentArn:  tcArn,
+		DisplayName:        opts.DisplayName,
+		StartTime:          opts.StartTime,
+		EndTime:            opts.EndTime,
+		Status:             opts.Status,
+		Parameters:         maps.Clone(opts.Parameters),
+		InputArtifacts:     maps.Clone(opts.InputArtifacts),
+		OutputArtifacts:    maps.Clone(opts.OutputArtifacts),
 		CreationTime:       now,
 		LastModifiedTime:   now,
-		Tags:               mergeTags(nil, tags),
+		Tags:               mergeTags(nil, opts.Tags),
 	}
 	b.trialComponentsStore(region).Put(tc)
 
@@ -126,11 +171,13 @@ func (b *InMemoryBackend) DeleteTrialComponent(ctx context.Context, name string)
 
 // UpdateTrialComponentOptions holds optional fields for UpdateTrialComponent.
 type UpdateTrialComponentOptions struct {
+	StartTime       *time.Time
+	EndTime         *time.Time
+	Status          *TrialComponentStatus
 	Parameters      map[string]TrialComponentValue    `json:"Parameters,omitempty"`
 	InputArtifacts  map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
 	OutputArtifacts map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
 	DisplayName     string                            `json:"DisplayName,omitempty"`
-	Status          string                            `json:"Status,omitempty"`
 }
 
 // UpdateTrialComponent mutates DisplayName, Parameters, and Artifacts on a trial component.
@@ -152,8 +199,17 @@ func (b *InMemoryBackend) UpdateTrialComponent(
 	if opts.DisplayName != "" {
 		tc.DisplayName = opts.DisplayName
 	}
-	if opts.Status != "" {
-		tc.Status = opts.Status
+	if opts.Status != nil {
+		st := *opts.Status
+		tc.Status = &st
+	}
+	if opts.StartTime != nil {
+		st := *opts.StartTime
+		tc.StartTime = &st
+	}
+	if opts.EndTime != nil {
+		et := *opts.EndTime
+		tc.EndTime = &et
 	}
 	if len(opts.Parameters) > 0 {
 		if tc.Parameters == nil {

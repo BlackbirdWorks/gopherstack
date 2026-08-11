@@ -113,7 +113,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	}))
 
 	// Grant, with a SourceArn constraint -- added alongside GranteeServicePrincipal/
-	// RetiringServicePrincipal/IssuingAccount as real aws-sdk-go-v2/service/kms@v1.54.0
+	// RetiringServicePrincipal/IssuingAccount as real aws-sdk-go-v2/service/kms@v1.55.4
 	// GrantConstraints/GrantListEntry fields; must survive Snapshot/Restore like every
 	// other field on Grant (this exact codebase's PARITY.md previously found a real
 	// persistence gap where fields applied outside InMemoryBackend's own state were

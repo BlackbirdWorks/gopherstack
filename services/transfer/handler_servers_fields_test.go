@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -117,54 +118,42 @@ func TestHandler_UpdateServerLoggingRoleAndBanners(t *testing.T) {
 func TestHandler_StartServerStartingState(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	createRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
-	require.Equal(t, http.StatusOK, createRec.Code)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		createRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
+		require.Equal(t, http.StatusOK, createRec.Code)
 
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	serverID := createResp["ServerId"].(string)
+		var createResp map[string]any
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		serverID := createResp["ServerId"].(string)
 
-	// Stop the server first so we can start it.
-	stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
-	require.Equal(t, http.StatusOK, stopRec.Code)
+		// Stop the server first so we can start it.
+		stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
+		require.Equal(t, http.StatusOK, stopRec.Code)
+		time.Sleep(serverTransitionWait)
 
-	// Poll until OFFLINE.
-	var state string
-	for range 30 {
 		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		var resp map[string]any
 		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
-		state = resp["Server"].(map[string]any)["State"].(string)
-		if state == "OFFLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
-	require.Equal(t, "OFFLINE", state)
+		require.Equal(t, "OFFLINE", resp["Server"].(map[string]any)["State"].(string))
 
-	// Start the server: immediate state should be STARTING.
-	startRec := doTransferRequest(t, h, "StartServer", map[string]any{"ServerId": serverID})
-	require.Equal(t, http.StatusOK, startRec.Code)
+		// Start the server: immediate state should be STARTING.
+		startRec := doTransferRequest(t, h, "StartServer", map[string]any{"ServerId": serverID})
+		require.Equal(t, http.StatusOK, startRec.Code)
 
-	// Check immediately — should be STARTING (async transition hasn't fired yet).
-	descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
-	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
-	immediateState := descResp["Server"].(map[string]any)["State"].(string)
-	assert.Equal(t, "STARTING", immediateState)
+		// Check immediately — should be STARTING (async transition hasn't fired yet).
+		descRec = doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
+		var descResp map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		immediateState := descResp["Server"].(map[string]any)["State"].(string)
+		assert.Equal(t, "STARTING", immediateState)
 
-	// Poll until ONLINE.
-	for range 30 {
+		// Wait past the async transition to ONLINE.
+		time.Sleep(serverTransitionWait)
 		descRec = doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		_ = json.Unmarshal(descRec.Body.Bytes(), &descResp)
-		state = descResp["Server"].(map[string]any)["State"].(string)
-		if state == "ONLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
-	assert.Equal(t, "ONLINE", state)
+		assert.Equal(t, "ONLINE", descResp["Server"].(map[string]any)["State"].(string))
+	})
 }
 
 // Test 14: TestIdentityProvider SERVICE_MANAGED known user returns 200.

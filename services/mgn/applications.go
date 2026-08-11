@@ -5,15 +5,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family E (8 ops): CreateApplication, UpdateApplication,
-// DeleteApplication, ListApplications, ArchiveApplication,
-// UnarchiveApplication, AssociateSourceServers, DisassociateSourceServers.
-//
 // Wave contains Application (waves.go's Associate/DisassociateApplications);
-// Application contains SourceServer (this file's Associate/
-// DisassociateSourceServers) -- SourceServer.ApplicationID is the reverse
-// pointer, but there is no direct SourceServer<->Wave association at all
-// (PARITY.md's confirmed grouping hierarchy).
+// Application contains SourceServer (this file's Associate/DisassociateSourceServers)
+// -- SourceServer.ApplicationID is the reverse pointer, but there is no direct
+// SourceServer<->Wave association at all (PARITY.md's confirmed grouping hierarchy).
 
 func (b *InMemoryBackend) resolveApplicationLocked(id string) (*Application, bool) {
 	return b.applications.Get(id)

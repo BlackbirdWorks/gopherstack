@@ -92,9 +92,60 @@ func extractBaseURL(body map[string]any) string {
 		return ""
 	}
 
-	baseURL, _ := httpConfig["BaseUrl"].(string)
+	baseURL, _ := httpConfig[keyBaseURL].(string)
 
 	return baseURL
+}
+
+func extractAccessConfiguration(body map[string]any) *AccessConfiguration {
+	raw, _ := body["AccessConfiguration"].(map[string]any)
+	if raw == nil {
+		return nil
+	}
+
+	cfg := &AccessConfiguration{AccessType: stringField(raw, "AccessType")}
+
+	if smat, ok := raw["SecretsManagerAccessTokenConfiguration"].(map[string]any); ok {
+		cfg.SecretsManagerAccessTokenConfiguration = &SecretsManagerAccessTokenConfiguration{
+			HeaderName:      stringField(smat, "HeaderName"),
+			SecretArn:       stringField(smat, "SecretArn"),
+			SecretStringKey: stringField(smat, "SecretStringKey"),
+		}
+	}
+
+	return cfg
+}
+
+func extractDefaultSegmentDeliveryConfiguration(body map[string]any) *DefaultSegmentDeliveryConfiguration {
+	raw, _ := body["DefaultSegmentDeliveryConfiguration"].(map[string]any)
+	if raw == nil {
+		return nil
+	}
+
+	return &DefaultSegmentDeliveryConfiguration{BaseURL: stringField(raw, keyBaseURL)}
+}
+
+func extractSegmentDeliveryConfigurations(body map[string]any) []SegmentDeliveryConfiguration {
+	raw, _ := body["SegmentDeliveryConfigurations"].([]any)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	out := make([]SegmentDeliveryConfiguration, 0, len(raw))
+
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		out = append(out, SegmentDeliveryConfiguration{
+			BaseURL: stringField(m, keyBaseURL),
+			Name:    stringField(m, "Name"),
+		})
+	}
+
+	return out
 }
 
 func extractOutputs(body map[string]any) []OutputItem {

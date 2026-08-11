@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import GluePage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -12,10 +13,22 @@ vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
+
 describe("Glue Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -113,5 +126,50 @@ describe("Glue Page", () => {
     mockSend.mockResolvedValue({ DatabaseList: [] });
     render(GluePage);
     expect(screen.getByPlaceholderText("Search...")).toBeInTheDocument();
+  });
+
+  describe("All regions mode", () => {
+    it("fans GetDatabases out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ DatabaseList: [{ Name: "analytics_db" }] });
+      mockSend.mockResolvedValueOnce({ DatabaseList: [{ Name: "eu_db" }] });
+
+      render(GluePage);
+
+      await waitFor(() => expect(screen.getByText("analytics_db")).toBeInTheDocument());
+      expect(screen.getByText("eu_db")).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one GetDatabases call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({ DatabaseList: [{ Name: "analytics_db" }] });
+      render(GluePage);
+      await waitFor(() => expect(screen.getByText("analytics_db")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the same database name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ DatabaseList: [{ Name: "shared_db" }] });
+      mockSend.mockResolvedValueOnce({ DatabaseList: [{ Name: "shared_db" }] });
+
+      render(GluePage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("shared_db");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) => within(r.closest("button") as HTMLElement).getByTestId("region-chip").textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
   });
 });

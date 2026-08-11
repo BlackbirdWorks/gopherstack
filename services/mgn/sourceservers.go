@@ -7,64 +7,77 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family A (16 ops): DescribeSourceServers, UpdateSourceServer,
-// UpdateSourceServerReplicationType, DeleteSourceServer,
-// ChangeServerLifeCycleState, DisconnectFromService, FinalizeCutover,
-// MarkAsArchived, StartTest, StartCutover, StartReplication, StopReplication,
-// PauseReplication, ResumeReplication, RetryDataReplication,
-// TerminateTargetInstances.
+// Real AWS creates a SourceServer only via the MGN Replication Agent's internal,
+// non-public registration call. The only PUBLIC creation path is StartImport's
+// bulk metadata load (exportimport.go): s3import.go reads the caller-supplied S3
+// object and parses it as a documented, best-effort CSV schema (AWS does not
+// publish the real one), creating one SourceServer per valid row via
+// createSourceServerLocked. Every server starts NOT_READY/INITIATING and
+// progresses to READY_FOR_TEST/CONTINUOUS over 3 asyncTransitionDelay ticks
+// (scheduleReplicationLocked).
 //
-// # The hard design problem: how a SourceServer comes to exist at all
+// LifeCycleState transitions (documented, SDK-inferred, not independently
+// confirmed against AWS's unpublished state machine):
 //
-// No public operation in this 95-op SDK surface creates a SourceServer
-// directly. Real AWS creates one only when the MGN Replication Agent,
-// installed on the actual source machine, calls an internal, non-public
-// control-plane API to register itself -- that call is not part of this
-// SDK. The only PUBLIC creation path is StartImport's bulk metadata load
-// (see exportimport.go), and gopherstack-i6oz's resolution (2026-08-01) is
-// to make that path real: s3import.go reads the caller-supplied S3 object
-// through this package's cross-service S3Accessor seam and parses it as a
-// documented, best-effort CSV schema (AWS does not publish the real one
-// anywhere in this SDK), creating one SourceServer per valid row via
-// createSourceServerLocked below. This is now the ONLY SourceServer
-// creation path in this backend -- the earlier non-SDK SeedSourceServer
-// seam has been removed now that the real wire path works, closing the
-// wire-reachability gap this service was originally graded down for. A
-// newly created SourceServer starts `NOT_READY`/`INITIATING` and progresses
-// to `READY_FOR_TEST`/`CONTINUOUS` over 3 `asyncTransitionDelay` ticks
-// (scheduleReplicationLocked below) regardless of which row created it.
+//	PENDING_INSTALLATION/DISCOVERED are skipped -- seeded directly into NOT_READY.
+//	NOT_READY -> READY_FOR_TEST   once DataReplicationState reaches CONTINUOUS.
+//	READY_FOR_TEST -> TESTING     via StartTest.
+//	TESTING -> READY_FOR_CUTOVER  once the Job completes.
+//	READY_FOR_CUTOVER -> CUTTING_OVER  via StartCutover.
+//	CUTTING_OVER -> CUTOVER       via FinalizeCutover (a distinct call, not automatic).
+//	CUTOVER -> DISCONNECTED       via DisconnectFromService, the terminal state.
 //
-// # LifeCycleState transition table (documented, SDK-inferred -- NOT
-// independently confirmed against AWS's real, unpublished state machine)
-//
-//	PENDING_INSTALLATION -> NOT_READY   once the (simulated) replication agent
-//	                                    "reports in" -- this backend skips
-//	                                    PENDING_INSTALLATION/DISCOVERED
-//	                                    entirely and seeds directly into
-//	                                    NOT_READY, since there is no real
-//	                                    agent-discovery event to model.
-//	NOT_READY            -> READY_FOR_TEST   once DataReplicationState reaches
-//	                                          CONTINUOUS (scheduleReplication).
-//	READY_FOR_TEST       -> TESTING          via StartTest.
-//	TESTING              -> READY_FOR_CUTOVER  once the Job completes.
-//	READY_FOR_CUTOVER    -> CUTTING_OVER     via StartCutover.
-//	CUTTING_OVER         -> CUTOVER          via FinalizeCutover (does NOT
-//	                                          happen automatically on Job
-//	                                          completion -- FinalizeCutover is
-//	                                          a distinct, separate call).
-//	CUTOVER              -> DISCONNECTED     via DisconnectFromService, the
-//	                                          terminal, expected end state.
-//
-// ChangeServerLifeCycleState is the one caller-driven escape hatch: it can
-// force State directly to READY_FOR_TEST/READY_FOR_CUTOVER/CUTOVER (the only
-// 3 values types.ChangeServerLifeCycleStateSourceServerLifecycleState
-// exposes), bypassing the table above -- exactly matching real AWS's own
-// documented purpose for this call (a manual override for operators).
+// ChangeServerLifeCycleState is the one caller-driven escape hatch: it can force
+// State directly to READY_FOR_TEST/READY_FOR_CUTOVER/CUTOVER, bypassing the table
+// above -- matching real AWS's documented manual-override purpose for this call.
 
 // resolveSourceServerLocked resolves sourceServerID to its stored
 // SourceServer. Callers must hold b.mu.
 func (b *InMemoryBackend) resolveSourceServerLocked(sourceServerID string) (*SourceServer, bool) {
 	return b.sourceServers.Get(sourceServerID)
+}
+
+// resolveSourceServerByUserProvidedIDLocked finds the SourceServer whose
+// UserProvidedID matches, or false if none does. Backs StartImport's
+// re-import dedup: real AWS documents "mgn:server:user-provided-id" as "used
+// by MGN to consistently recognize the server replication, and avoid
+// duplication when importing inventory from a CSV file" (MGN User Guide,
+// Import parameters) -- the natural key this backend uses to decide whether
+// a row updates an existing SourceServer (ModifiedCount) or creates a new
+// one (CreatedCount). Callers must hold b.mu.
+func (b *InMemoryBackend) resolveSourceServerByUserProvidedIDLocked(userProvidedID string) (*SourceServer, bool) {
+	if userProvidedID == "" {
+		return nil, false
+	}
+
+	for _, s := range b.sourceServers.Snapshot() {
+		if s.UserProvidedID == userProvidedID {
+			return s, true
+		}
+	}
+
+	return nil, false
+}
+
+// applyImportRowLocked overwrites an existing SourceServer's
+// SourceProperties/FqdnForActionFramework/tags with a re-imported row's
+// values -- the "update" half of StartImport's dedup-by-UserProvidedID
+// convention (see resolveSourceServerByUserProvidedIDLocked). Callers must
+// hold b.mu.
+func (b *InMemoryBackend) applyImportRowLocked(s *SourceServer, seed sourceServerSeed) {
+	s.SourceProperties = seed.SourceProperties
+
+	if seed.FqdnForActionFramework != "" {
+		s.FqdnForActionFramework = seed.FqdnForActionFramework
+	}
+
+	if s.SourceProperties != nil {
+		s.SourceProperties.LastUpdatedDateTime = nowRFC3339()
+	}
+
+	if s.Tags != nil {
+		s.Tags.Merge(seed.ImportTags)
+	}
 }
 
 // sourceServerSeed configures createSourceServerLocked -- the single
@@ -74,12 +87,14 @@ func (b *InMemoryBackend) resolveSourceServerLocked(sourceServerID string) (*Sou
 // comment) rather than an AWS-confirmed one, since no real source machine
 // exists to derive defaults from.
 type sourceServerSeed struct {
-	SourceProperties  *SourceProperties
-	SourceServerID    string
-	UserProvidedID    string
-	ReplicationType   string
-	DiskDeviceName    string
-	TotalStorageBytes int64
+	SourceProperties       *SourceProperties
+	ImportTags             map[string]string
+	SourceServerID         string
+	UserProvidedID         string
+	FqdnForActionFramework string
+	ReplicationType        string
+	DiskDeviceName         string
+	TotalStorageBytes      int64
 }
 
 // createSourceServerLocked creates a new SourceServer directly in this
@@ -111,14 +126,16 @@ func (b *InMemoryBackend) createSourceServerLocked(seed sourceServerSeed) *Sourc
 
 	now := nowRFC3339()
 	t := tags.New("mgn.sourceserver." + id + ".tags")
+	t.Merge(seed.ImportTags)
 
 	s := &SourceServer{
-		SourceServerID:   id,
-		Arn:              b.sourceServerARN(id),
-		UserProvidedID:   seed.UserProvidedID,
-		ReplicationType:  replicationType,
-		SourceProperties: seed.SourceProperties,
-		Tags:             t,
+		SourceServerID:         id,
+		Arn:                    b.sourceServerARN(id),
+		UserProvidedID:         seed.UserProvidedID,
+		FqdnForActionFramework: seed.FqdnForActionFramework,
+		ReplicationType:        replicationType,
+		SourceProperties:       seed.SourceProperties,
+		Tags:                   t,
 		LifeCycle: &LifeCycle{
 			State:                     LifeCycleStateNotReady,
 			AddedToServiceDateTime:    now,
@@ -178,25 +195,15 @@ func seedInitiationSteps() []DataReplicationInitiationStep {
 }
 
 // scheduleReplicationLocked walks a newly seeded/restarted SourceServer's
-// DataReplicationInfo through INITIATING -> INITIAL_SYNC -> BACKLOG ->
-// CONTINUOUS over 3 asyncTransitionDelay ticks, monotonically increasing
-// ReplicatedStorageBytes toward TotalStorageBytes -- a deterministic,
-// time-based progression (PARITY.md's explicit guidance), never a
-// fabricated realistic-looking bandwidth/lag figure. All 12
+// DataReplicationInfo through INITIATING -> INITIAL_SYNC -> BACKLOG -> CONTINUOUS
+// over 3 asyncTransitionDelay ticks, monotonically increasing
+// ReplicatedStorageBytes toward TotalStorageBytes -- deterministic, time-based
+// progression per PARITY.md, never a fabricated bandwidth/lag figure. All 12
 // DataReplicationInitiationStep entries are marked SUCCEEDED together at the
-// first tick rather than walked one real timer-tick per step: the SDK
-// documents 12 discrete steps, but per-step ticks would need ~1.2s of real
-// wall-clock time per seeded server purely for test-timing reasons with no
-// additional honesty gained (PARITY.md explicitly sanctions "returning them
-// all at once ... if explicitly documented" as a defensible simpler pass).
-// Every tick re-checks the server still exists and is still in the state
-// this scheduler put it in before mutating, so a later
-// Stop/Pause/DisconnectFromService call correctly halts further progression
-// without needing to cancel the underlying timer. Each tick's own mutation
-// is a separate named tickReplicationXLocked method purely to keep this
-// function's own cognitive complexity low (decomposition, not suppression
-// -- see .claude/memories/parity-principles.md's ban on cyclop/funlen/
-// gocyclo/gocognit suppressions).
+// first tick rather than one real timer-tick per step (PARITY.md sanctions this
+// as a defensible simpler pass). Every tick re-checks the server still exists and
+// is still in the state this scheduler put it in, so a later
+// Stop/Pause/DisconnectFromService halts progression without cancelling the timer.
 func (b *InMemoryBackend) scheduleReplicationLocked(sourceServerID string) {
 	b.work.After("ReplicationInitiated", asyncTransitionDelay, func() {
 		b.tickReplicationInitiatedLocked(sourceServerID)
@@ -345,12 +352,25 @@ func (b *InMemoryBackend) DescribeSourceServers(
 	return page.New(filtered, token, limit, defaultPageLimit), nil
 }
 
-// UpdateSourceServer applies a ConnectorAction to sourceServerID and returns
-// the flattened SourceServer (PARITY.md wire-trap #1).
-func (b *InMemoryBackend) UpdateSourceServer(
-	sourceServerID string,
-	action *SourceServerConnectorAction,
-) (*SourceServer, error) {
+// SourceServerUpdate configures UpdateSourceServer -- every field is a
+// pointer so a field absent from the caller's JSON body (nil) leaves the
+// corresponding SourceServer field unchanged, matching real AWS's
+// partial-update semantics for this op (never wiping ConnectorAction just
+// because a caller only meant to set FqdnForActionFramework). Platform has
+// no field to land in deliberately: the real SDK's own SourceServer/
+// SourceProperties output shape has no Platform field to read it back from
+// either (confirmed by direct SDK read, same as s3import.go's identical
+// finding for mgn:server:platform) -- accepted and silently dropped, not a
+// bug.
+type SourceServerUpdate struct {
+	ConnectorAction        *SourceServerConnectorAction
+	FqdnForActionFramework *string
+	UserProvidedID         *string
+}
+
+// UpdateSourceServer applies update to sourceServerID and returns the
+// flattened SourceServer (PARITY.md wire-trap #1).
+func (b *InMemoryBackend) UpdateSourceServer(sourceServerID string, update SourceServerUpdate) (*SourceServer, error) {
 	b.mu.Lock("UpdateSourceServer")
 	defer b.mu.Unlock()
 
@@ -363,7 +383,17 @@ func (b *InMemoryBackend) UpdateSourceServer(
 		return nil, notFoundError(resourceSourceServer, sourceServerID)
 	}
 
-	s.ConnectorAction = action
+	if update.ConnectorAction != nil {
+		s.ConnectorAction = update.ConnectorAction
+	}
+
+	if update.FqdnForActionFramework != nil {
+		s.FqdnForActionFramework = *update.FqdnForActionFramework
+	}
+
+	if update.UserProvidedID != nil {
+		s.UserProvidedID = *update.UserProvidedID
+	}
 
 	return s.clone(), nil
 }

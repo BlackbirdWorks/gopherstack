@@ -1,6 +1,6 @@
 ---
 service: resourcegroups
-sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.33.22
+sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.36.4
 last_audit_commit: 343e1204   # HEAD when this audit started (parity-4 sweep)
 last_audit_date: 2026-07-24
 overall: A            # genuine wire-shape and behavior fixes found and fixed
@@ -14,8 +14,8 @@ ops:
   UpdateGroupQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   GetGroupConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: removed fabricated GroupName field, added required Status field"}
   PutGroupConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  GroupResources: {wire: ok, errors: ok, state: ok, persist: ok}
-  UngroupResources: {wire: ok, errors: ok, state: ok, persist: ok}
+  GroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now rejects a group with a ResourceQuery (BadRequestException) instead of silently accepting membership writes on a query-based group -- see 'Real bugs fixed this sweep'"}
+  UngroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same ResourceQuery-group rejection as GroupResources"}
   ListGroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: deprecated ResourceIdentifiers field now populated identically to Resources; QueryErrors field now present on the wire (always empty -- see gaps, CFN-stack queries not modeled)"}
   ListGroupingStatuses: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UpdatedAt now epoch-seconds, was RFC3339 string"}
   SearchResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: QueryErrors field now present on the wire (always empty -- see gaps, CFN-stack queries not modeled)"}
@@ -31,8 +31,9 @@ ops:
 families:
   route_matcher: {status: ok, note: "verified every REST path/method (POST for all ops except GET/PUT/PATCH /resources/{Arn}/tags) against serializers.go opPath/request.Method -- exact match, no gaps"}
 gaps:
-  - "SearchResources/ListGroupResources' QueryErrors field is present on the wire but always empty: its documented ErrorCode values (CLOUDFORMATION_STACK_INACTIVE, CLOUDFORMATION_STACK_NOT_EXISTING, CLOUDFORMATION_STACK_UNASSUMABLE_ROLE, RESOURCE_TYPE_NOT_SUPPORTED) only ever arise for CLOUDFORMATION_STACK_1_0-based groups, which this emulator does not model (no CloudFormation backend integration). Genuinely cannot be finished without modeling CloudFormation stacks. (bd: gopherstack-rg-cfn-queryerrors)"
-  - "ListGroupResourcesItem.Status (AWS::EC2::HostManagement pending-membership state, real types.ResourceStatus) is never populated; this emulator does not model AWS::EC2::HostManagement async grouping, so the field is legitimately always absent (matches real AWS behavior for any group NOT of that configuration type, but would be wrong for one that is). Genuinely cannot be finished without modeling async host-management grouping. (bd: gopherstack-rg-hostmgmt-status)"
+  - "SearchResources/ListGroupResources' QueryErrors field is present on the wire but always empty. CLOUDFORMATION_STACK_INACTIVE/NOT_EXISTING/UNASSUMABLE_ROLE only ever arise for CLOUDFORMATION_STACK_1_0-based groups (AWS docs describe them as occurring when 'the CloudFormation stack on which the query is based either does not exist, or has a status that renders the stack inactive'); RESOURCE_TYPE_NOT_SUPPORTED is likewise CFN-only by mechanism -- it is absent from SearchResourcesOutput.QueryErrors' own possible-value doc (api_op_SearchResources.go:79-86, aws-sdk-go-v2/service/resourcegroups@v1.36.4, lists only the 3 CFN codes) but present on ListGroupResourcesOutput's (api_op_ListGroupResources.go:105-108, lists all 4), and it is never documented independently of the 3 explicit CFN codes anywhere in the public API reference. Ordinary TAG_FILTERS_1_0 queries can't hit it: tag:GetResources (which backs tag-based membership) only ever returns already-taggable/supported resources, so there's no 'unsupported type' to error on outside a CFN-stack-to-Resource-Groups-type translation. Re-checked this sweep: 'no CFN stack backend' is stale framing -- gopherstack has a real CloudFormation stack backend (services/cloudformation) and an established cross-service wiring pattern for a Provider to reach another service's backend (services/sagemakerruntime/provider.go's sagemakerHandlerProvider; services/cloudformation/provider.go's BackendsProvider), so this isn't structurally blocked. What's actually missing: resourcegroups' Provider.Init (provider.go) never receives a CloudFormation backend reference, and SearchResources/ListGroupResources' CLOUDFORMATION_STACK_1_0 path (query.go's SearchResources, resources.go's ListGroupResources) doesn't evaluate the query against real stack resources at all -- it silently falls through to the same manually-grouped-ARN set used for every other group, CFN-scoping and all. Finishing this needs a handler-provider interface threaded into Provider.Init to reach the cloudformation backend, real CLOUDFORMATION_STACK_1_0 query evaluation against that stack's resources, and the stack-state checks that drive the three CFN error codes -- left undone this sweep as cross-service wiring, out of the single-service scope of this pass. (bd: gopherstack-rg-cfn-queryerrors)"
+  - "ListGroupResourcesItem.Status (real types.ResourceStatus) is never populated. Confirmed via AWS docs (API_ListGroupResourcesItem.html): 'This field is present in the response only if the group is of type AWS::EC2::HostManagement.' That's a group *configuration* type (License Manager host resource groups over EC2 Dedicated Hosts), which this emulator does allow-list (groups.go's validConfigTypes already accepts AWS::EC2::HostManagement), and the underlying resource type (EC2 Dedicated Hosts) is itself modeled elsewhere in gopherstack (services/ec2's AllocateHosts/etc) -- so the prior framing ('a resource type this backend has no notion of') overstated the gap. The real reason Status can never be right here: GroupResources/UngroupResources (resources.go) are fully synchronous in this backend for every group, HostManagement-configured or not -- membership changes complete before the call returns, so there is never a window in which a resource is genuinely 'not completed yet' (the only state ResourceStatus.Name can hold is PENDING). Populating Status would mean fabricating an async delay this backend doesn't otherwise model anywhere, which the no-stub rule rules out. Legitimate, permanent absence -- not fixable without inventing asynchronicity, not a resource-type gap. (bd: gopherstack-rg-hostmgmt-status)"
+  - "TAG_FILTERS_1_0/CLOUDFORMATION_STACK_1_0 groups have no dynamic membership evaluation: ListGroupResources/SearchResources both source 'membership' from the manually-tracked groupResources store (populated only by GroupResources), not from evaluating the query against real tagged resources or a CFN stack. As of this sweep, GroupResources/UngroupResources correctly reject being called on a group that has a ResourceQuery (see 'Real bugs fixed this sweep'), which means a TAG_FILTERS_1_0/CLOUDFORMATION_STACK_1_0 group's ListGroupResources is now honestly always-empty rather than showing whatever was manually (and invalidly) added -- surfacing, rather than introducing, this gap. A TAG_FILTERS_1_0 query's TagFilters (key/value pairs) are also parsed (tagFilterQuery.TagFilters) but never applied -- only ResourceTypeFilters is honored (query.go's SearchResources/parseResourceTypeFilters). Needs a real tagged-resource evaluation path (or cross-service tag registry access) to close; not attempted this sweep."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors; CancelTagSyncTask fix removes the only TTL-dependent eviction path's live producer (tagSyncTaskTTL eviction in ListTagSyncTasks is now effectively dead code since nothing sets a non-ACTIVE status, but is left as harmless defensive generic logic for a future ERROR-status producer)"}
 ---
@@ -160,11 +161,34 @@ aws-sdk-go-v2/service/resourcegroups@v1.33.22 and matches gopherstack's
     `CLOUDFORMATION_STACK_1_0`-based groups (the only source of `QueryError`s) are not
     modeled -- see gaps.
 
+### Real bugs fixed this sweep (parity-5, 2026-08-10)
+
+14. **`GroupResources`/`UngroupResources` accepted any group, including one with a
+    `ResourceQuery`.** Real `GroupResources` docs carry an explicit "Important" callout:
+    "You can only use this operation with the following groups:
+    `AWS::EC2::HostManagement`, `AWS::EC2::CapacityReservationPool`,
+    `AWS::ResourceGroups::ApplicationGroup`. Other resource group types ... are not
+    currently supported by this operation." `UngroupResources` docs are equally explicit:
+    "This operation works only with static groups that you populated using the
+    `GroupResources` operation. It doesn't work with any resource groups that are
+    automatically populated by tag-based or CloudFormation stack-based queries."
+    gopherstack's `InMemoryBackend.GroupResources`/`UngroupResources` (resources.go)
+    checked only that the named group existed, so a caller could silently write explicit
+    membership onto a `TAG_FILTERS_1_0`/`CLOUDFORMATION_STACK_1_0` group -- membership
+    the real API computes dynamically from the query and would reject a manual write for.
+    Fixed: both now return `BadRequestException` (`ErrValidation`) when the target
+    group's `ResourceQuery != nil`, proven by `TestGroupResources_RejectsQueryBasedGroup`
+    (failed before the fix: `An error is expected but got nil`). Narrower than the full
+    3-configuration-type allow-list the docs describe (that stricter check isn't
+    implemented, since none of the 3 types have any real behavior modeled here either --
+    would need its own audit before enforcing); see gaps for the resulting exposure of
+    query-based groups' membership evaluation gap.
+
 ### Wire-shape traps confirmed correct (do not re-flag)
 
 - `ListGroupResourcesItem`'s wire shape (`Identifier`, optional `Status`) matches;
-  `Status` (host-management pending-state) is legitimately omitted since gopherstack
-  doesn't model `AWS::EC2::HostManagement` async grouping.
+  `Status` is legitimately omitted -- see gaps for why (it's a synchronicity gap, not a
+  missing-resource-type gap).
 - `GroupResourcesOutput`/`UngroupResourcesOutput`'s `Pending` field reusing
   `GroupingFailedItem`'s shape (`ResourceArn`/`ErrorCode`/`ErrorMessage`) instead of the
   real `PendingResource` shape (`ResourceArn` only) is currently harmless: `Pending` is

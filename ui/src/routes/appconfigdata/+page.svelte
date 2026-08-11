@@ -3,7 +3,7 @@
 	// StartConfigurationSession and GetLatestConfiguration. A client starts a
 	// session against an app/env/configuration-profile triple, then polls with
 	// a token that AWS rotates on every successful call (the response's
-	// Next-Poll-Configuration-Token is what the NEXT poll must use; the token
+	// NextPollConfigurationToken is what the NEXT poll must use; the token
 	// from StartConfigurationSession is single-use). There is nothing to
 	// create, update, list, or delete in the AWS API surface -- the CRUD floor
 	// does not apply here, the same call made for redshiftdata/+page.svelte
@@ -11,33 +11,14 @@
 	// (credential-issuing, no listable resources). So this page is organized
 	// around the real two-op poll workflow instead of a forced CRUD shape.
 	//
-	// ---------------------------------------------------------------------
-	// No installed SDK client for this service (verified, not assumed)
-	// ---------------------------------------------------------------------
-	// Every other rewritten page in this sweep calls `regionalClient(getXClient)`
-	// and sends typed Commands from an `@aws-sdk/client-*` package. That is NOT
-	// possible here: `@aws-sdk/client-appconfigdata` is absent from both
-	// ui/package.json and ui/node_modules (confirmed with `npm ls
-	// @aws-sdk/client-appconfigdata` -> "(empty)"), and there is no
-	// `getAppConfigDataClient` in $lib/aws-client.ts -- every other AWS service
-	// page in this app has one, this is the only one that does not. Adding the
-	// dependency would mean editing package.json/package-lock.json, which is
-	// outside this page's edit scope for this pass. Since the gopherstack
-	// backend does not verify SigV4 signatures (aws-client.ts's clientConfig()
-	// uses static "test"/"test" credentials purely to satisfy the SDK's
-	// signer -- see pkgs/service/cloudtrail_capture.go, which only ever READS
-	// the Authorization header for telemetry, never validates it), a plain
-	// `fetch()` against the exact documented wire shape reaches the same
-	// backend the SDK would: POST /configurationsessions (restjson1, 201) and
-	// GET /configuration?configuration_token=... (200, raw body blob + control
-	// headers) -- both verified directly against
-	// services/appconfigdata/handler.go, models.go, and errors.go, not
-	// invented. `onRegionChange` is still used (this service's storage is
-	// region-agnostic -- Session/ConfigurationProfile in
-	// services/appconfigdata/models.go carry no region field -- but every
-	// other page refreshes its active tab on region switch, and there is no
-	// reason for this one to silently do less than that if region-scoping is
-	// ever added).
+	// Both real AWS operations go through the typed `@aws-sdk/client-appconfigdata`
+	// client via `regionalClient(getAppConfigDataClient)`, same as every other
+	// page (gopherstack-ks2s.18). Only the gopherstack-only admin endpoints
+	// below (Sessions/Fixtures/Stats tabs) still use plain fetch(), since they
+	// are not real AWS operations and have no SDK client to speak of.
+	// GetLatestConfigurationResponse has no ETag field in the real service
+	// model (verified in @aws-sdk/client-appconfigdata's schema) even though
+	// the backend sets one -- the typed client path does not surface it.
 	//
 	// ---------------------------------------------------------------------
 	// bd gopherstack-uiyi ("appconfigdata disconnected from appconfig
@@ -64,7 +45,12 @@
 	// honestly labeled), not as part of the real AppConfig deployment
 	// lifecycle, and the Poll Console explains the 404 a visitor will hit if
 	// they start a session before seeding one.
-	import { onRegionChange } from '$lib/region-effect.svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { getAppConfigDataClient } from '$lib/aws-client';
+	import {
+		StartConfigurationSessionCommand,
+		GetLatestConfigurationCommand
+	} from '@aws-sdk/client-appconfigdata';
 	import { toast } from 'svelte-sonner';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { createTabLoader } from '$lib/tab-loader.svelte';
@@ -155,31 +141,10 @@
 
 	// ==================== Helpers ====================
 
-	// Same shape every other page's describeError produces (err.name from the
+	// Same shape every other page's describeError produces: err.name from the
 	// AWS exception type, err.$metadata.httpStatusCode from the response,
-	// err.message from the body) -- built here from a raw fetch Response
-	// instead of an SDK-thrown error, since there is no SDK on this page.
-	async function awsErrorFromResponse(
-		res: Response
-	): Promise<Error & { $metadata: { httpStatusCode: number } }> {
-		let body: Record<string, unknown> = {};
-		try {
-			body = await res.json();
-		} catch {
-			// no/invalid JSON body
-		}
-		// AWS's REST-JSON error bodies use the literal field name "__type" (see
-		// services/appconfigdata/models.go's awsErrorBody) -- read it via
-		// bracket notation so the property name (not a variable we chose) isn't
-		// flagged by the dangling-underscore lint rule.
-		const exceptionType = typeof body['__type'] === 'string' ? (body['__type'] as string) : undefined;
-		const exceptionMessage = typeof body['message'] === 'string' ? (body['message'] as string) : undefined;
-		return Object.assign(new Error(exceptionMessage ?? res.statusText ?? `status ${res.status}`), {
-			name: exceptionType ?? `HTTPError${res.status}`,
-			$metadata: { httpStatusCode: res.status }
-		});
-	}
-
+	// err.message from the body -- matches what the SDK throws for the two
+	// real ops and the bare-status errors the gopherstack admin endpoints throw.
 	function describeError(e: unknown): string {
 		if (e && typeof e === 'object') {
 			const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
@@ -189,6 +154,13 @@
 			return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
 		}
 		return String(e);
+	}
+
+	function errorStatus(e: unknown): number | undefined {
+		if (e && typeof e === 'object') {
+			return (e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+		}
+		return undefined;
 	}
 
 	function rethrowDescribed(e: unknown): never {
@@ -256,6 +228,8 @@
 	$effect(() => { lsSet('profile', pcProfile); });
 	$effect(() => { lsSet('pollInterval', pcPollInterval); });
 
+	const client = regionalClient(getAppConfigDataClient);
+
 	let currentToken = $state<string | null>(null);
 	let sessionStartedAt = $state<Date | null>(null);
 	let startBusy = $state(false);
@@ -268,7 +242,6 @@
 		content: string;
 		contentType: string;
 		versionLabel: string;
-		etag: string;
 		nextPollInterval: number;
 		at: Date;
 	};
@@ -333,29 +306,22 @@
 		pollError = null;
 		noActiveDeployment = false;
 		try {
-			const interval = pcPollInterval.trim() ? Number(pcPollInterval.trim()) : 0;
-			const res = await fetch('/configurationsessions', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
+			const interval = pcPollInterval.trim() ? Number(pcPollInterval.trim()) : undefined;
+			const resp = await client().send(
+				new StartConfigurationSessionCommand({
 					ApplicationIdentifier: app,
 					EnvironmentIdentifier: env,
 					ConfigurationProfileIdentifier: profile,
 					RequiredMinimumPollIntervalInSeconds: interval
 				})
-			});
-			if (!res.ok) {
-				const err = await awsErrorFromResponse(res);
-				if (err.$metadata.httpStatusCode === 404) noActiveDeployment = true;
-				throw err;
-			}
-			const body = (await res.json()) as { InitialConfigurationToken?: string };
+			);
 			resetSessionState();
-			currentToken = body.InitialConfigurationToken ?? null;
+			currentToken = resp.InitialConfigurationToken ?? null;
 			sessionStartedAt = new Date();
 			toast.success('Configuration session started');
 			await loadStats();
 		} catch (e) {
+			if (errorStatus(e) === 404) noActiveDeployment = true;
 			pollError = describeError(e);
 			toast.error(describeError(e));
 		} finally {
@@ -363,12 +329,8 @@
 		}
 	}
 
-	async function handlePollFailure(res: Response, tokenBefore: string): Promise<void> {
-		const err = await awsErrorFromResponse(res);
-		const retryAfter = res.headers.get('Retry-After');
-		const message = retryAfter
-			? `${describeError(err)} (Retry-After: ${retryAfter}s)`
-			: describeError(err);
+	function handlePollFailure(e: unknown, tokenBefore: string): void {
+		const message = describeError(e);
 		pollLog = [
 			{
 				id: ++pollLogSeq,
@@ -387,17 +349,24 @@
 
 	// Applies a successful GetLatestConfiguration response to session state and
 	// returns the interval the caller should use to schedule the next auto-poll.
-	async function applyPollSuccess(res: Response, tokenBefore: string): Promise<number> {
-		// Per services/appconfigdata/handler.go's writeGetLatestConfigurationResponse:
-		// these poll-control headers are ALWAYS set, whether or not content
-		// changed; Content-Type/ETag are only set when content changed.
-		const nextToken = res.headers.get('Next-Poll-Configuration-Token') ?? '';
-		const nextIntervalHeader = res.headers.get('Next-Poll-Interval-In-Seconds');
-		const nextInterval = nextIntervalHeader ? Number(nextIntervalHeader) : 30;
-		const versionLabel = res.headers.get('Version-Label') ?? '';
-		const contentTypeHeader = res.headers.get('Content-Type') ?? '';
-		const etag = res.headers.get('ETag') ?? '';
-		const text = await res.text();
+	function applyPollSuccess(
+		resp: {
+			NextPollConfigurationToken?: string;
+			NextPollIntervalInSeconds?: number;
+			VersionLabel?: string;
+			ContentType?: string;
+			Configuration?: Uint8Array;
+		},
+		tokenBefore: string
+	): number {
+		const nextToken = resp.NextPollConfigurationToken ?? '';
+		const nextInterval = resp.NextPollIntervalInSeconds ?? 30;
+		const versionLabel = resp.VersionLabel ?? '';
+		const contentTypeHeader = resp.ContentType ?? '';
+		const text =
+			resp.Configuration && resp.Configuration.length > 0
+				? new TextDecoder().decode(resp.Configuration)
+				: '';
 		const changed = text.length > 0;
 
 		// The token from this poll response is the ONLY token valid for the
@@ -413,7 +382,6 @@
 			content: changed ? text : (lastPoll?.content ?? ''),
 			contentType: changed ? contentTypeHeader : (lastPoll?.contentType ?? ''),
 			versionLabel: versionLabel || (lastPoll?.versionLabel ?? ''),
-			etag: etag || (lastPoll?.etag ?? ''),
 			nextPollInterval: nextInterval,
 			at: new Date()
 		};
@@ -439,20 +407,14 @@
 		pollBusy = true;
 		const tokenBefore = currentToken;
 		try {
-			const res = await fetch(`/configuration?configuration_token=${encodeURIComponent(currentToken)}`);
-			if (!res.ok) {
-				await handlePollFailure(res, tokenBefore);
-				return;
-			}
-
-			const nextInterval = await applyPollSuccess(res, tokenBefore);
+			const resp = await client().send(
+				new GetLatestConfigurationCommand({ ConfigurationToken: currentToken })
+			);
+			const nextInterval = applyPollSuccess(resp, tokenBefore);
 
 			if (autoPoll) scheduleNextAutoPoll(nextInterval);
 		} catch (e) {
-			pollError = describeError(e);
-			toast.error(describeError(e));
-			stopAutoPollTimers();
-			autoPoll = false;
+			handlePollFailure(e, tokenBefore);
 		} finally {
 			pollBusy = false;
 		}
@@ -853,7 +815,6 @@
 							{#if lastPoll.contentType}<span class="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5">{lastPoll.contentType}</span>{/if}
 							{#if lastPoll.versionLabel}<span>Version-Label: <strong>{lastPoll.versionLabel}</strong></span>{/if}
 							<span>Next-Poll-Interval-In-Seconds: <strong>{lastPoll.nextPollInterval}</strong></span>
-							{#if lastPoll.etag}<span class="font-mono">ETag: {lastPoll.etag}</span>{/if}
 							<span>{formatDate(lastPoll.at)}</span>
 						</div>
 

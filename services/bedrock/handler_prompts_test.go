@@ -22,7 +22,7 @@ func TestPromptCRUD(t *testing.T) {
 
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	promptID := body["prompt"].(map[string]any)["promptId"].(string)
+	promptID, _ := body["id"].(string)
 	assert.NotEmpty(t, promptID)
 
 	// Get
@@ -87,17 +87,15 @@ func TestAccuracy_Prompt_VariantPreserved(t *testing.T) {
 
 	var createBody map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createBody))
-	prompt := createBody["prompt"].(map[string]any)
-	promptID := prompt["promptId"].(string)
+	promptID, _ := createBody["id"].(string)
 	assert.NotEmpty(t, promptID)
 
 	// GET preserves name and description
 	getRec := doAgentRequest(t, h, http.MethodGet, "/prompts/"+promptID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
-	var getBody map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getBody))
-	gotPrompt := getBody["prompt"].(map[string]any)
+	var gotPrompt map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gotPrompt))
 	assert.Equal(t, "variant-prompt", gotPrompt["name"])
 	assert.Equal(t, "a prompt with variants", gotPrompt["description"])
 }
@@ -115,7 +113,7 @@ func TestAccuracy_Prompt_VersionPreservesContent(t *testing.T) {
 
 	var createBody map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createBody))
-	promptID := createBody["prompt"].(map[string]any)["promptId"].(string)
+	promptID, _ := createBody["id"].(string)
 
 	// Create version
 	verRec := doAgentRequest(t, h, http.MethodPost, "/prompts/"+promptID+"/versions", nil)
@@ -149,7 +147,7 @@ func TestAccuracy_Prompt_UpdateNameAndDescription(t *testing.T) {
 
 	var createBody map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createBody))
-	promptID := createBody["prompt"].(map[string]any)["promptId"].(string)
+	promptID, _ := createBody["id"].(string)
 
 	// Update
 	updateRec := doAgentRequest(t, h, http.MethodPut, "/prompts/"+promptID,
@@ -160,9 +158,8 @@ func TestAccuracy_Prompt_UpdateNameAndDescription(t *testing.T) {
 	getRec := doAgentRequest(t, h, http.MethodGet, "/prompts/"+promptID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
-	var getBody map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getBody))
-	p := getBody["prompt"].(map[string]any)
+	var p map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &p))
 	assert.Equal(t, "updated-name", p["name"])
 	assert.Equal(t, "updated desc", p["description"])
 }

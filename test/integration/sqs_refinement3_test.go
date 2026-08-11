@@ -27,7 +27,10 @@ func TestIntegration_SQS_PurgeCooldown(t *testing.T) {
 
 	qURL := *out.QueueUrl
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 	})
 
 	// First purge should succeed.
@@ -57,7 +60,10 @@ func TestIntegration_SQS_SqsManagedSseEnabled(t *testing.T) {
 
 	qURL := *out.QueueUrl
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 	})
 
 	attrsOut, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
@@ -102,7 +108,10 @@ func TestIntegration_SQS_ReceiveMessageWaitTimeSeconds(t *testing.T) {
 
 			qURL := *qOut.QueueUrl
 			t.Cleanup(func() {
-				_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 			})
 
 			_, setErr := client.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{
@@ -173,7 +182,10 @@ func TestIntegration_SQS_FIFONameValidation(t *testing.T) {
 
 			require.NoError(t, createErr)
 			t.Cleanup(func() {
-				_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: out.QueueUrl})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: out.QueueUrl})
 			})
 		})
 	}
@@ -195,7 +207,10 @@ func TestIntegration_SQS_DeleteMessageBatchValidation(t *testing.T) {
 
 	qURL := *out.QueueUrl
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 	})
 
 	// Send two messages so we have receipt handles to work with.
@@ -262,7 +277,10 @@ func TestIntegration_SQS_SystemAttributes(t *testing.T) {
 
 	qURL := *out.QueueUrl
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 	})
 
 	_, err = client.SendMessage(ctx, &sqs.SendMessageInput{

@@ -57,6 +57,10 @@ func TestDynamoDBStreamsDashboard(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
 
+	// Region: All's cross-region list has no #table-{name} ids -- see the
+	// comment in TestE2E_DynamoDB_CreateTable in e2e_test.go.
+	switchRegion(t, page, "us-east-1")
+
 	err = page.Locator("text=streams-dashboard-e2e").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})

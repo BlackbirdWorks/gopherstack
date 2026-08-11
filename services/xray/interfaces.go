@@ -47,7 +47,10 @@ type StorageBackend interface {
 	GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace, error)
 	// Sampling statistics
 	GetSamplingStatisticSummaries() []SamplingStatisticSummary
-	GetSamplingTargets(docs []SamplingStatisticsDocument) ([]SamplingTargetResult, []UnprocessedStatisticsResult)
+	GetSamplingTargets(
+		docs []SamplingStatisticsDocument,
+		boostDocs []SamplingBoostStatisticsDocument,
+	) ([]SamplingTargetResult, []UnprocessedStatisticsResult, []UnprocessedStatisticsResult)
 	LastRuleModification() time.Time
 	// Service graph operations
 	GetServiceGraph(startTime, endTime time.Time) []map[string]any

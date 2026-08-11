@@ -79,6 +79,7 @@ const (
 	opRestoreTableFromBackup              = "RestoreTableFromBackup"
 	opRestoreTableToPointInTime           = "RestoreTableToPointInTime"
 	opScan                                = "Scan"
+	opSearchVectors                       = "SearchVectors"
 	opTagResource                         = "TagResource"
 	opTransactGetItems                    = "TransactGetItems"
 )
@@ -270,6 +271,7 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		opRestoreTableFromBackup,
 		opRestoreTableToPointInTime,
 		opScan,
+		opSearchVectors,
 		opTagResource,
 		opTransactGetItems,
 		opTransactWriteItems,
@@ -513,6 +515,7 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		opUpdateItem,
 		opQuery,
 		opScan,
+		opSearchVectors,
 		opBatchGetItem,
 		opBatchWriteItem:
 		return h.dispatchItemOps(ctx, action, body)
@@ -805,6 +808,11 @@ func (h *DynamoDBHandler) dispatchItemOps(
 		return handleOpErr(
 			ctx, action, body,
 			models.ToSDKQueryInput, h.Backend.Query, models.FromSDKQueryOutput,
+		)
+	case opSearchVectors:
+		return handleOpErr(
+			ctx, action, body,
+			models.ToSDKSearchVectorsInput, h.Backend.SearchVectors, models.FromSDKSearchVectorsOutput,
 		)
 	case opBatchGetItem:
 		return handleOpErr(

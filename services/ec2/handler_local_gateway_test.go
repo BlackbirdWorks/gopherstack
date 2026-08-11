@@ -348,14 +348,9 @@ func TestHandler_LocalGatewayVirtualInterface_CreateDelete(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DeleteLocalGatewayVirtualInterfaceGroupResponse")
 }
 
-// TestHandler_LocalGateway_TagDualWritePathVisibility proves that
-// local_gateway.go's virtual interface / virtual interface group resources
-// consolidated onto the shared tag store: a tag supplied at create time
-// (TagSpecification) and a tag added afterwards via CreateTags are BOTH
-// visible through the resource's own Describe call AND through the generic
-// DescribeTags call. Before the tag-dual-storage fix, these types carried
-// their own embedded Tags field that was populated only at create time, so a
-// post-creation CreateTags call was invisible to Describe.
+// TestHandler_LocalGateway_TagDualWritePathVisibility proves a create-time tag
+// and one added later via CreateTags are BOTH visible through the resource's own
+// Describe and through DescribeTags.
 func TestHandler_LocalGateway_TagDualWritePathVisibility(t *testing.T) {
 	t.Parallel()
 

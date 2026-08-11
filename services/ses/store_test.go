@@ -20,7 +20,9 @@ func TestBackendReset(t *testing.T) {
 	require.NoError(t, b.CreateReceiptRuleSet("rs1"))
 	require.NoError(t, b.CreateReceiptFilter(ses.ReceiptFilter{Name: "f1", Policy: "Allow", CIDR: "0.0.0.0/0"}))
 	require.NoError(t, b.CreateConfigurationSet("cs1"))
-	require.NoError(t, b.CreateConfigurationSetEventDestination("cs1", ses.EventDestination{Name: "dest1"}))
+	require.NoError(t, b.CreateConfigurationSetEventDestination(
+		"cs1", ses.EventDestination{Name: "dest1", MatchingEventTypes: []string{"send"}},
+	))
 	require.NoError(t, b.CreateConfigurationSetTrackingOptions("cs1", "track.example.com"))
 	b.AddCustomVerifTemplateInternal(ses.CustomVerificationEmailTemplate{TemplateName: "tmpl1"})
 

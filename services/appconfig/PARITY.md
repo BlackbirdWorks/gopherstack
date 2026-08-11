@@ -1,6 +1,6 @@
 ---
 service: appconfig
-sdk_module: aws-sdk-go-v2/service/appconfig@v1.48.0    # version audited against (bumped from v1.43.11)
+sdk_module: aws-sdk-go-v2/service/appconfig@v1.48.4    # version audited against (bumped from v1.43.11)
 last_audit_commit: f86ef17b                            # HEAD when the pre-existing 45 ops were last audited
 last_audit_date: 2026-07-30
 overall: A            # RAISED from A- (parity-5, this pass). The 2026-07-30 re-audit confirmed all four

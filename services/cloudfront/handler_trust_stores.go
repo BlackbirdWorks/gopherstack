@@ -39,6 +39,9 @@ type createTrustStoreRequestXML struct {
 	// shape, but is accepted here too for backward compatibility with callers that send it.
 	CertificateAuthorityCertificatesBundle trustStoreCertificateBundleXML `xml:"CertificateAuthorityCertificatesBundle"`
 	Comment                                string                         `xml:"Comment"`
+	// Tags is *types.Tags on the wire: Items wraps the Tag list, not a bare
+	// Tags>Tag path (cloudfront@v1.67.4 serializers.go awsRestxml_serializeDocumentTags).
+	Tags []tagXML `xml:"Tags>Items>Tag"`
 }
 
 // bundle resolves the CA certificate bundle from whichever shape was populated, preferring the
@@ -88,7 +91,12 @@ func (h *Handler) handleCreateTrustStore(c *echo.Context) error {
 			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CreateTrustStoreRequest XML"))
 		}
 	}
-	ts, createErr := h.Backend.CreateTrustStore(req.Name, req.Comment, req.bundle())
+	tags := make(map[string]string, len(req.Tags))
+	for _, tag := range req.Tags {
+		tags[tag.Key] = tag.Value
+	}
+
+	ts, createErr := h.Backend.CreateTrustStore(req.Name, req.Comment, req.bundle(), tags)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}

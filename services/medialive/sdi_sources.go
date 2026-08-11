@@ -9,10 +9,13 @@ import (
 
 // --- SdiSource operations ---
 
-// CreateSdiSource creates a new SDI source.
+// CreateSdiSource creates a new SDI source. Unlike the resource kinds
+// taggableResourceTags covers, real DescribeSdiSourceResult has no Tags
+// field (verified: types.SdiSource, medialive@v1.101.4 types/types.go:7622),
+// so tags go into the legacy per-ARN b.tags store, not the resource struct.
 func (b *InMemoryBackend) CreateSdiSource(
 	name, sdiType, mode string,
-	_ map[string]string,
+	tags map[string]string,
 ) (*SdiSource, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
@@ -41,6 +44,7 @@ func (b *InMemoryBackend) CreateSdiSource(
 	defer b.mu.Unlock()
 
 	b.sdiSources.Put(s)
+	b.tags[s.ARN] = copyTags(tags)
 
 	return s.toSdiSource(), nil
 }

@@ -701,10 +701,10 @@ func TestGetInsight_FieldsReturned(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		insight     xray.Insight
 		name        string
 		wantState   string
 		wantSummary string
+		insight     xray.Insight
 	}{
 		{
 			name: "active insight fields",

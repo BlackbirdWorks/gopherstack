@@ -11,7 +11,7 @@ package bedrockagent
 // "policy" and a "revisionId"/"expectedRevisionId" optimistic-concurrency
 // pair.
 //
-// Verified directly against aws-sdk-go-v2/service/bedrockagent v1.58.0's
+// Verified directly against aws-sdk-go-v2/service/bedrockagent v1.58.4's
 // api_op_{Put,Get,Delete}ResourcePolicy.go, serializers.go (the
 // awsRestjson1_serializeOpHttpBindings*/awsRestjson1_serializeOpDocument*
 // helpers), deserializers.go, and validators.go, plus AWS's published API

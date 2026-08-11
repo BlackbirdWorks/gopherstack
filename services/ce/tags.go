@@ -88,3 +88,51 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	return ErrNotFound
 }
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every CE resource ARN (cost categories, anomaly monitors,
+// anomaly subscriptions) that currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	b.costCategories.Range(func(cat *CostCategory) bool {
+		if len(cat.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: cat.ARN, Tags: cloneCETags(cat.Tags)})
+		}
+
+		return true
+	})
+
+	b.anomalyMonitors.Range(func(mon *AnomalyMonitor) bool {
+		if len(mon.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: mon.MonitorARN, Tags: cloneCETags(mon.Tags)})
+		}
+
+		return true
+	})
+
+	b.anomalySubscriptions.Range(func(sub *AnomalySubscription) bool {
+		if len(sub.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: sub.SubscriptionARN, Tags: cloneCETags(sub.Tags)})
+		}
+
+		return true
+	})
+
+	return out
+}
+
+func cloneCETags(tags map[string]string) map[string]string {
+	out := make(map[string]string, len(tags))
+	maps.Copy(out, tags)
+
+	return out
+}

@@ -32,7 +32,10 @@ func TestRotateSecret_CreatesNewVersion(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "rot-new-ver"})
+	out, err := b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "rot-new-ver",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, out.VersionID)
 	assert.NotEqual(t, "ver-orig", out.VersionID)
@@ -49,7 +52,10 @@ func TestRotateSecret_AWSCURRENTPromotedToAWSPREVIOUS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "rot-stages"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "rot-stages",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 
 	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "rot-stages"})
@@ -83,7 +89,10 @@ func TestRotateSecret_LastRotatedDateUpdated(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "rot-date"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "rot-date",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 
 	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "rot-date"})
@@ -105,7 +114,10 @@ func TestRotateSecret_RotationEnabledAfterRotate(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "rot-enabled"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "rot-enabled",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 
 	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "rot-enabled"})
@@ -128,6 +140,7 @@ func TestRotateSecret_RotateImmediatelyFalse(t *testing.T) {
 	days := int64(30)
 	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
 		SecretID:          "rot-no-imm",
+		RotationLambdaARN: testLambdaARN,
 		RotateImmediately: &noImm,
 		RotationRules: &secretsmanager.RotationRulesType{
 			AutomaticallyAfterDays: &days,
@@ -186,6 +199,49 @@ func TestRotateSecret_DeletedFails(t *testing.T) {
 	require.ErrorIs(t, err, secretsmanager.ErrSecretDeleted)
 }
 
+// TestRotateSecret_NoRotationStrategyConfigured_Rejected verifies gopherstack-9wuh's
+// fix: real AWS rejects RotateSecret with InvalidRequestException when no
+// RotationLambdaARN is configured, neither already stored on the secret nor
+// supplied on this request -- see aws-sdk-go-v2/service/secretsmanager@v1.44.4
+// types/errors.go's InvalidRequestException doc comment ("You tried to enable
+// rotation on a secret that doesn't already have a Lambda function ARN configured
+// and you didn't include such an ARN as a parameter in this call"). The rejected
+// call must also leave the secret's rotation state and version set untouched
+// (parity-principles.md's "state mutated before validation" bug class).
+func TestRotateSecret_NoRotationStrategyConfigured_Rejected(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "no-strategy",
+		SecretString: "v1",
+	})
+	require.NoError(t, err)
+
+	before, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "no-strategy"})
+	require.NoError(t, err)
+
+	days := int64(30)
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID: "no-strategy",
+		RotationRules: &secretsmanager.RotationRulesType{
+			AutomaticallyAfterDays: &days,
+		},
+	})
+	require.ErrorIs(t, err, secretsmanager.ErrRotationStrategyRequired)
+
+	after, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "no-strategy"})
+	require.NoError(t, err)
+	assert.False(t, after.RotationEnabled, "rejected RotateSecret must not enable rotation")
+	assert.Nil(t, after.RotationRules, "rejected RotateSecret must not persist RotationRules")
+	assert.Equal(t, before.VersionIDsToStages, after.VersionIDsToStages,
+		"rejected RotateSecret must not create a new version")
+
+	val, err := b.GetSecretValue(context.Background(), &secretsmanager.GetSecretValueInput{SecretID: "no-strategy"})
+	require.NoError(t, err)
+	assert.Equal(t, "v1", val.SecretString)
+}
+
 // ---------------------------------------------------------------------------
 // RotateSecret HTTP + Lambda invocation
 // ---------------------------------------------------------------------------
@@ -205,7 +261,7 @@ func TestRotateSecret_Backend(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	rotateBody := `{"SecretId":"rotate-secret"}`
+	rotateBody := fmt.Sprintf(`{"SecretId":"rotate-secret","RotationLambdaARN":%q}`, testLambdaARN)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(rotateBody))
 	req.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
 	rec := httptest.NewRecorder()
@@ -217,14 +273,16 @@ func TestRotateSecret_Backend(t *testing.T) {
 	assert.Equal(t, "rotate-secret", out.Name)
 	assert.NotEmpty(t, out.VersionID)
 
-	// New version should be AWSCURRENT
+	// New version should be AWSCURRENT. A Lambda ARN is configured but no invoker
+	// is wired, so the backend promotes immediately with a freshly generated value
+	// (see rotateSecretLocked) rather than carrying "original-value" forward.
 	curr, err := backend.GetSecretValue(
 		context.Background(),
 		&secretsmanager.GetSecretValueInput{SecretID: "rotate-secret"},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, out.VersionID, curr.VersionID)
-	assert.Equal(t, "original-value", curr.SecretString)
+	assert.NotEqual(t, "original-value", curr.SecretString)
 }
 
 // TestRotateSecret_WithLambda tests RotateSecret invoking a rotation Lambda.
@@ -270,6 +328,70 @@ func TestRotateSecret_WithLambda(t *testing.T) {
 		assert.Equal(t, steps[i], event["Step"])
 		assert.NotEmpty(t, event["ClientRequestToken"])
 	}
+}
+
+// TestRotateSecret_OmittedARNUsesStoredLambda verifies that once a rotation
+// Lambda ARN is configured on a secret, a later RotateSecret call that omits
+// RotationLambdaARN (the normal case -- real callers configure it once, not
+// on every call) still invokes that Lambda rather than silently promoting
+// straight to AWSCURRENT.
+func TestRotateSecret_OmittedARNUsesStoredLambda(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend)
+
+	mock := &mockLambdaInvoker{}
+	h.SetLambdaInvoker(mock)
+
+	_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "omitted-arn-secret",
+		SecretString: "initial-value",
+	})
+	require.NoError(t, err)
+
+	const lambdaRotateARN = "arn:aws:lambda:us-east-1:000000000000:function:my-rotator"
+
+	firstBody := fmt.Sprintf(
+		`{"SecretId":"omitted-arn-secret","RotationLambdaARN":%q}`,
+		lambdaRotateARN,
+	)
+	firstReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(firstBody))
+	firstReq.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
+	firstRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(firstReq, firstRec)))
+	require.Equal(t, http.StatusOK, firstRec.Code)
+	require.Len(t, mock.calls, 4)
+
+	mock.calls = nil
+
+	secondBody := `{"SecretId":"omitted-arn-secret"}`
+	secondReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(secondBody))
+	secondReq.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
+	secondRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(secondReq, secondRec)))
+	assert.Equal(t, http.StatusOK, secondRec.Code)
+
+	require.Len(t, mock.calls, 4)
+
+	steps := []string{"createSecret", "setSecret", "testSecret", "finishSecret"}
+	for i, call := range mock.calls {
+		assert.Equal(t, "my-rotator", call.name)
+		assert.Equal(t, steps[i], func() string {
+			var event map[string]string
+			require.NoError(t, json.Unmarshal(call.payload, &event))
+
+			return event["Step"]
+		}())
+	}
+
+	desc, err := backend.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{
+		SecretID: "omitted-arn-secret",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, lambdaRotateARN, desc.RotationLambdaARN)
 }
 
 // TestRotateSecret_RotateImmediatelyFalseWithLambdaRunsTestSecretProbe verifies the
@@ -429,7 +551,10 @@ func TestRotateSecret_RotationEnabledFlag(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, desc.RotationEnabled)
 
-	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "rot-flag-test"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "rot-flag-test",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 
 	// After rotation: RotationEnabled should be true and LastChangedDate set.
@@ -480,7 +605,10 @@ func TestRotateSecret_LastRotatedDate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, desc0.LastRotatedDate)
 
-	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "lrd-test"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "lrd-test",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 
 	desc1, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "lrd-test"})
@@ -551,7 +679,8 @@ func TestRotateSecret_CronScheduleTriggersRotation(t *testing.T) {
 
 	// Use a cron that fires every minute to trigger fast in tests.
 	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
-		SecretID: "cron-sched-secret",
+		SecretID:          "cron-sched-secret",
+		RotationLambdaARN: testLambdaARN,
 		RotationRules: &secretsmanager.RotationRulesType{
 			ScheduleExpression: "cron(* * * * ? *)",
 		},
@@ -595,7 +724,8 @@ func TestRotateSecret_ScheduleExpressionPersisted(t *testing.T) {
 	const expr = "cron(0 12 * * ? *)"
 	rotateImmediately := false
 	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
-		SecretID: "cron-persist",
+		SecretID:          "cron-persist",
+		RotationLambdaARN: testLambdaARN,
 		RotationRules: &secretsmanager.RotationRulesType{
 			ScheduleExpression: expr,
 		},
@@ -653,8 +783,8 @@ func TestRotateSecret_RulesAndScheduler(t *testing.T) {
 	rotateImmediatelyFalse := false
 
 	tests := []struct {
-		rotateInput        secretsmanager.RotateSecretInput
 		name               string
+		rotateInput        secretsmanager.RotateSecretInput
 		waitForAutoRotate  time.Duration
 		wantAutoRotation   bool
 		wantImmediateEmpty bool
@@ -662,7 +792,8 @@ func TestRotateSecret_RulesAndScheduler(t *testing.T) {
 		{
 			name: "rotate_immediately_false_sets_rules_only",
 			rotateInput: secretsmanager.RotateSecretInput{
-				SecretID: "sched-secret",
+				SecretID:          "sched-secret",
+				RotationLambdaARN: testLambdaARN,
 				RotationRules: &secretsmanager.RotationRulesType{
 					AutomaticallyAfterDays: &afterSevenDays,
 				},
@@ -673,7 +804,8 @@ func TestRotateSecret_RulesAndScheduler(t *testing.T) {
 		{
 			name: "rate_expression_triggers_background_rotation",
 			rotateInput: secretsmanager.RotateSecretInput{
-				SecretID: "sched-secret",
+				SecretID:          "sched-secret",
+				RotationLambdaARN: testLambdaARN,
 				RotationRules: &secretsmanager.RotationRulesType{
 					ScheduleExpression: "rate(1 second)",
 				},

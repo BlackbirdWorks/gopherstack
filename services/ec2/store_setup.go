@@ -15,8 +15,15 @@ import (
 
 func addressAttributesKeyFn(v *AddressAttribute) string { return v.AllocationID }
 func addressesKeyFn(v *Address) string                  { return v.AllocationID }
-func bundleTasksKeyFn(v *BundleTask) string             { return v.BundleID }
-func byoipCidrsKeyFn(v *ByoipCidr) string               { return v.Cidr }
+func applicationStatusChecksKeyFn(v *ApplicationStatusCheck) string {
+	return v.ApplicationStatusCheckID
+}
+func applicationStatusCheckAssociationsKeyFn(v *ApplicationStatusCheckAssociation) string {
+	return appStatusCheckAssociationKeyFn(v)
+}
+func applicationStatusSuppressionsKeyFn(v *ApplicationStatusSuppression) string { return v.InstanceID }
+func bundleTasksKeyFn(v *BundleTask) string                                     { return v.BundleID }
+func byoipCidrsKeyFn(v *ByoipCidr) string                                       { return v.Cidr }
 func capacityBlockExtensionOfferingsKeyFn(v *CapacityBlockExtensionOffering) string {
 	return v.CapacityBlockExtensionOfferingID
 }
@@ -203,6 +210,9 @@ func tgwPolicyTableAssociationsKeyFn(v *TransitGatewayPolicyTableAssociation) st
 	return v.TransitGatewayPolicyTableID + ":" + v.TransitGatewayAttachmentID
 }
 func tgwPolicyTablesKeyFn(v *TransitGatewayPolicyTable) string { return v.TransitGatewayPolicyTableID }
+func tgwPolicyTableEntriesKeyFn(v *TransitGatewayPolicyTableEntry) string {
+	return v.TransitGatewayPolicyTableID + ":" + strconv.Itoa(v.PolicyRuleNumber)
+}
 func tgwPrefixListRefsKeyFn(v *TransitGatewayPrefixListReference) string {
 	return v.TransitGatewayRouteTableID + "/" + v.PrefixListID
 }
@@ -261,29 +271,15 @@ func vpnConnectionRoutesKeyFn(v *VpnConnectionRoute) string {
 func vpnConnectionsKeyFn(v *VpnConnection) string { return v.VpnConnectionID }
 func vpnGatewaysKeyFn(v *VpnGateway) string       { return v.VpnGatewayID }
 
-// registerAllTables registers every converted resource map on b.registry
-// exactly once. It must be called during construction only (immediately after
-// b.registry is created), never on every Reset() -- store.Register panics on a
-// duplicate name, so runtime resets go through registry.ResetAll() instead
-// (see InMemoryBackend.Reset in accept_ops.go).
+// registerAllTables registers every converted resource map on b.registry exactly
+// once, during construction only -- store.Register panics on a duplicate name, so
+// runtime resets go through registry.ResetAll() instead (see InMemoryBackend.Reset
+// in accept_ops.go).
 //
-// The following resource fields are deliberately left as plain maps (not
-// registered here) because their key is not a pure function of the stored
-// value's own fields, which store.Table requires:
-//   - addressTransfers: mixed keying convention across call sites (AllocationID
-//     in normal flow vs PublicIP in AddAddressTransferInternal test-seed
-//     helper) -- pre-existing quirk, not a pure function of value identity
-//   - instanceIMDSOptions: value type IMDSOptions carries no identity field of
-//     its own; keyed externally by instanceID
-//   - verifiedAccessEndpointPolicies: value type VerifiedAccessPolicy carries
-//     no identity field; keyed externally by endpoint ID
-//   - verifiedAccessGroupPolicies: value type VerifiedAccessPolicy carries no
-//     identity field; keyed externally by group ID (shares type with
-//     verifiedAccessEndpointPolicies)
-//   - vpcCidrAssociations: key composite (vpcID+":"+AssociationID) requires
-//     vpcID which is not stored on VpcCidrBlockAssociation value
-//   - vpcPeeringOptions: value type PeeringConnectionOptions carries no
-//     identity field of its own; keyed externally by peeringID
+// addressTransfers, instanceIMDSOptions, verifiedAccessEndpointPolicies,
+// verifiedAccessGroupPolicies, vpcCidrAssociations, and vpcPeeringOptions stay
+// plain maps here: their key isn't a pure function of the stored value's own
+// fields, which store.Table requires.
 func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)
@@ -833,6 +829,13 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.tgwPolicyTables = store.Register(b.registry, "tgwPolicyTables", store.New(tgwPolicyTablesKeyFn))
 	},
 	func(b *InMemoryBackend) {
+		b.tgwPolicyTableEntries = store.Register(
+			b.registry,
+			"tgwPolicyTableEntries",
+			store.New(tgwPolicyTableEntriesKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
 		b.tgwPrefixListRefs = store.Register(b.registry, "tgwPrefixListRefs", store.New(tgwPrefixListRefsKeyFn))
 	},
 	func(b *InMemoryBackend) {
@@ -988,5 +991,26 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.vpnGateways = store.Register(b.registry, "vpnGateways", store.New(vpnGatewaysKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.applicationStatusChecks = store.Register(
+			b.registry,
+			"applicationStatusChecks",
+			store.New(applicationStatusChecksKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.applicationStatusCheckAssociations = store.Register(
+			b.registry,
+			"applicationStatusCheckAssociations",
+			store.New(applicationStatusCheckAssociationsKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.applicationStatusSuppressions = store.Register(
+			b.registry,
+			"applicationStatusSuppressions",
+			store.New(applicationStatusSuppressionsKeyFn),
+		)
 	},
 }

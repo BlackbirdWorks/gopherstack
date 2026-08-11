@@ -640,18 +640,9 @@ func TestListServicesByNamespace_Filter(t *testing.T) {
 	assert.Len(t, arns, 2)
 }
 
-// TestService_Tags_ResourceTagSync proves Service.Tags is now synchronized
-// with the shared resourceTags map (TagResource/UntagResource/
-// ListTagsForResource), and that DescribeServices only returns tags when
-// Include=[TAGS] is requested -- mirroring the identical fix already applied
-// to ExpressGatewayService (see
-// TestExpressGatewayService_TagResource_VisibleOnDescribe in
-// handler_express_gateway_test.go) and to Cluster (describeClusterIncludeTags
-// in handler_clusters.go). Previously CreateService set svc.Tags directly
-// and DescribeServices echoed that same stale field unconditionally: a
-// TagResource call after creation was invisible on Describe, tags supplied at
-// creation were invisible to ListTagsForResource, and DescribeServices leaked
-// tags even when the caller never asked for them (no Include gating at all).
+// TestService_Tags_ResourceTagSync proves Service.Tags is synchronized with the
+// shared resourceTags map (TagResource/UntagResource/ListTagsForResource), and
+// that DescribeServices only returns tags when Include=[TAGS] is requested.
 func TestService_Tags_ResourceTagSync(t *testing.T) {
 	t.Parallel()
 

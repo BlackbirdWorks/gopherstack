@@ -62,7 +62,10 @@ func TestIntegration_QuickSight_GroupLifecycle(t *testing.T) {
 			assert.Equal(t, tt.groupName, aws.ToString(createOut.Group.GroupName))
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteGroup(ctx, &quicksightsdk.DeleteGroupInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteGroup(cleanupCtx, &quicksightsdk.DeleteGroupInput{
 					AwsAccountId: aws.String(quicksightAccountID),
 					Namespace:    aws.String("default"),
 					GroupName:    aws.String(tt.groupName),

@@ -96,7 +96,7 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 		LoggingEnabled: true,
 	})
 	b.PutUseCaseForModelAccess([]byte("test use case form data"))
-	require.NoError(t, b.UpdateAutomatedReasoningPolicyAnnotations(ids.arpARN))
+	require.NoError(t, b.UpdateAutomatedReasoningPolicyAnnotations(ids.arpARN, ids.arpWorkflowID))
 	require.NoError(t, b.TagAgentResource(ids.agentArn, map[string]string{"team": "platform"}))
 
 	seedParity4Resources(t, b, &ids)
@@ -212,10 +212,12 @@ func seedJobResources(
 	tc, err := b.CreateAutomatedReasoningPolicyTestCase(arp.PolicyArn)
 	require.NoError(t, err)
 
-	arpv, err := b.CreateAutomatedReasoningPolicyVersion(arp.PolicyArn, "definition-hash-123")
+	arpv, err := b.CreateAutomatedReasoningPolicyVersion(arp.PolicyArn, "definition-hash-123", nil)
 	require.NoError(t, err)
 
-	mcj, err := b.CreateModelCustomizationJob("test-cust-job", "amazon.titan-text-express-v1", "FINE_TUNING", tags)
+	mcj, err := b.CreateModelCustomizationJob(
+		"test-cust-job", "test-cust-model", "amazon.titan-text-express-v1", "FINE_TUNING", tags,
+	)
 	require.NoError(t, err)
 
 	mcpj, err := b.CreateModelCopyJob(customModelARN, tags)
@@ -518,7 +520,7 @@ func assertJobState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs
 	require.NoError(t, err)
 	assert.Equal(t, ids.arpTestCaseID, tc.TestCaseID)
 
-	arpv, err := fresh.ExportAutomatedReasoningPolicyVersion(ids.arpARN, ids.arpVersion)
+	arpv, err := fresh.ExportAutomatedReasoningPolicyVersion(ids.arpARN + "/version/" + ids.arpVersion)
 	require.NoError(t, err)
 	assert.Equal(t, "definition-hash-123", arpv["definitionHash"])
 
@@ -671,7 +673,7 @@ func assertMiscRawState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtur
 	uc := fresh.GetUseCaseForModelAccess()
 	assert.Equal(t, []byte("test use case form data"), uc)
 
-	anns, err := fresh.GetAutomatedReasoningPolicyAnnotations(ids.arpARN)
+	anns, err := fresh.GetAutomatedReasoningPolicyAnnotations(ids.arpARN, ids.arpWorkflowID)
 	require.NoError(t, err)
 	assert.NotNil(t, anns["annotations"])
 

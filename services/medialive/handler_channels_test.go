@@ -399,7 +399,7 @@ func minimalValidEncoderSettings() *types.EncoderSettings {
 // TestChannel_ExtendedFieldsSDKRoundTrip proves gopherstack-jb9i's fix for
 // medialive/gopherstack-jb9i: CreateChannelInput/UpdateChannelInput have 17
 // real top-level members (verified against
-// aws-sdk-go-v2/service/medialive@v1.97.2's api_op_CreateChannel.go), and
+// aws-sdk-go-v2/service/medialive@v1.101.4's api_op_CreateChannel.go), and
 // before this fix gopherstack modeled only 5. Every case below drives a real
 // SDK client through the actual router path (see newTestChannelClient) and
 // asserts on the SDK's OWN decoded response type, not a hand-rolled JSON
@@ -703,6 +703,293 @@ func TestChannel_ExtendedFieldsSDKRoundTrip(t *testing.T) {
 			},
 		},
 		{
+			name: "encoderSettings.availConfiguration round-trips the esam variant and scte35SegmentationScope",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				es := minimalValidEncoderSettings()
+				es.AvailConfiguration = &types.AvailConfiguration{
+					Scte35SegmentationScope: types.Scte35SegmentationScopeScte35EnabledOutputGroups,
+					AvailSettings: &types.AvailSettings{
+						Esam: &types.Esam{
+							AcquisitionPointId: aws.String("acq-1"),
+							PoisEndpoint:       aws.String("https://pois.example.com"),
+							AdAvailOffset:      aws.Int32(500),
+							ZoneIdentity:       aws.String("zone-1"),
+						},
+					},
+				}
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-avail-esam"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: es,
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, desc.EncoderSettings.AvailConfiguration)
+				avail := desc.EncoderSettings.AvailConfiguration
+				assert.Equal(t, types.Scte35SegmentationScopeScte35EnabledOutputGroups, avail.Scte35SegmentationScope)
+				require.NotNil(t, avail.AvailSettings)
+				require.NotNil(t, avail.AvailSettings.Esam)
+				assert.Equal(t, "acq-1", aws.ToString(avail.AvailSettings.Esam.AcquisitionPointId))
+				assert.Equal(t, "https://pois.example.com", aws.ToString(avail.AvailSettings.Esam.PoisEndpoint))
+				assert.Equal(t, int32(500), aws.ToInt32(avail.AvailSettings.Esam.AdAvailOffset))
+				assert.Equal(t, "zone-1", aws.ToString(avail.AvailSettings.Esam.ZoneIdentity))
+			},
+		},
+		{
+			name: "encoderSettings.availConfiguration round-trips the scte35SpliceInsert and " +
+				"scte35TimeSignalApos variants",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				esSplice := minimalValidEncoderSettings()
+				esSplice.AvailConfiguration = &types.AvailConfiguration{
+					AvailSettings: &types.AvailSettings{
+						Scte35SpliceInsert: &types.Scte35SpliceInsert{
+							AdAvailOffset:          aws.Int32(-100),
+							NoRegionalBlackoutFlag: types.Scte35SpliceInsertNoRegionalBlackoutBehaviorIgnore,
+							WebDeliveryAllowedFlag: types.Scte35SpliceInsertWebDeliveryAllowedBehaviorFollow,
+						},
+					},
+				}
+
+				spliceOut, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-avail-splice"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: esSplice,
+				})
+				require.NoError(t, err)
+
+				spliceDesc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: spliceOut.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, spliceDesc.EncoderSettings.AvailConfiguration.AvailSettings.Scte35SpliceInsert)
+				splice := spliceDesc.EncoderSettings.AvailConfiguration.AvailSettings.Scte35SpliceInsert
+				assert.Equal(t, int32(-100), aws.ToInt32(splice.AdAvailOffset))
+				assert.Equal(t, types.Scte35SpliceInsertNoRegionalBlackoutBehaviorIgnore, splice.NoRegionalBlackoutFlag)
+				assert.Equal(t, types.Scte35SpliceInsertWebDeliveryAllowedBehaviorFollow, splice.WebDeliveryAllowedFlag)
+
+				esApos := minimalValidEncoderSettings()
+				esApos.AvailConfiguration = &types.AvailConfiguration{
+					AvailSettings: &types.AvailSettings{
+						Scte35TimeSignalApos: &types.Scte35TimeSignalApos{
+							AdAvailOffset:          aws.Int32(200),
+							NoRegionalBlackoutFlag: types.Scte35AposNoRegionalBlackoutBehaviorFollow,
+						},
+					},
+				}
+
+				aposOut, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-avail-apos"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: esApos,
+				})
+				require.NoError(t, err)
+
+				aposDesc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: aposOut.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, aposDesc.EncoderSettings.AvailConfiguration.AvailSettings.Scte35TimeSignalApos)
+				apos := aposDesc.EncoderSettings.AvailConfiguration.AvailSettings.Scte35TimeSignalApos
+				assert.Equal(t, int32(200), aws.ToInt32(apos.AdAvailOffset))
+				assert.Equal(t, types.Scte35AposNoRegionalBlackoutBehaviorFollow, apos.NoRegionalBlackoutFlag)
+			},
+		},
+		{
+			name: "encoderSettings.colorCorrectionSettings round-trips globalColorCorrections",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				es := minimalValidEncoderSettings()
+				es.ColorCorrectionSettings = &types.ColorCorrectionSettings{
+					GlobalColorCorrections: []types.ColorCorrection{
+						{
+							InputColorSpace: types.ColorSpaceRec709, OutputColorSpace: types.ColorSpaceHdr10,
+							Uri: aws.String("s3://my-bucket/lut1.cube"),
+						},
+					},
+				}
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-color-correction"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: es,
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, desc.EncoderSettings.ColorCorrectionSettings)
+				require.Len(t, desc.EncoderSettings.ColorCorrectionSettings.GlobalColorCorrections, 1)
+				cc := desc.EncoderSettings.ColorCorrectionSettings.GlobalColorCorrections[0]
+				assert.Equal(t, types.ColorSpaceRec709, cc.InputColorSpace)
+				assert.Equal(t, types.ColorSpaceHdr10, cc.OutputColorSpace)
+				assert.Equal(t, "s3://my-bucket/lut1.cube", aws.ToString(cc.Uri))
+			},
+		},
+		{
+			name: "encoderSettings.motionGraphicsConfiguration and nielsenConfiguration round-trip",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				es := minimalValidEncoderSettings()
+				es.MotionGraphicsConfiguration = &types.MotionGraphicsConfiguration{
+					MotionGraphicsInsertion: types.MotionGraphicsInsertionEnabled,
+					MotionGraphicsSettings: &types.MotionGraphicsSettings{
+						HtmlMotionGraphicsSettings: &types.HtmlMotionGraphicsSettings{},
+					},
+				}
+				es.NielsenConfiguration = &types.NielsenConfiguration{
+					DistributorId:          aws.String("dist-1"),
+					NielsenPcmToId3Tagging: types.NielsenPcmToId3TaggingStateEnabled,
+				}
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-motion-nielsen"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: es,
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+
+				require.NotNil(t, desc.EncoderSettings.MotionGraphicsConfiguration)
+				mg := desc.EncoderSettings.MotionGraphicsConfiguration
+				assert.Equal(t, types.MotionGraphicsInsertionEnabled, mg.MotionGraphicsInsertion)
+				require.NotNil(t, mg.MotionGraphicsSettings)
+				assert.NotNil(t, mg.MotionGraphicsSettings.HtmlMotionGraphicsSettings)
+
+				require.NotNil(t, desc.EncoderSettings.NielsenConfiguration)
+				assert.Equal(t, "dist-1", aws.ToString(desc.EncoderSettings.NielsenConfiguration.DistributorId))
+				assert.Equal(
+					t, types.NielsenPcmToId3TaggingStateEnabled,
+					desc.EncoderSettings.NielsenConfiguration.NielsenPcmToId3Tagging,
+				)
+			},
+		},
+		{
+			name: "encoderSettings.audioDescriptions round-trips codecSettings' aacSettings variant plus " +
+				"audioNormalizationSettings/remixSettings/audioWatermarkingSettings/audioDashRoles/" +
+				"dvbDashAccessibility",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				es := minimalValidEncoderSettings()
+				es.AudioDescriptions[0].AudioDashRoles = []types.DashRoleAudio{types.DashRoleAudioMain}
+				es.AudioDescriptions[0].DvbDashAccessibility = types.DvbDashAccessibilityDvbdash6MainProgram
+				es.AudioDescriptions[0].CodecSettings = &types.AudioCodecSettings{
+					AacSettings: &types.AacSettings{
+						Bitrate: aws.Float64(128000), CodingMode: types.AacCodingModeCodingMode20,
+						InputType: types.AacInputTypeNormal, Profile: types.AacProfileLc,
+						RateControlMode: types.AacRateControlModeVbr, RawFormat: types.AacRawFormatNone,
+						SampleRate: aws.Float64(48000), Spec: types.AacSpecMpeg4,
+						VbrQuality: types.AacVbrQualityHigh,
+					},
+				}
+				es.AudioDescriptions[0].AudioNormalizationSettings = &types.AudioNormalizationSettings{
+					Algorithm:  types.AudioNormalizationAlgorithmItu17701,
+					TargetLkfs: aws.Float64(-24),
+				}
+				es.AudioDescriptions[0].RemixSettings = &types.RemixSettings{
+					ChannelsIn: aws.Int32(2), ChannelsOut: aws.Int32(1),
+					ChannelMappings: []types.AudioChannelMapping{
+						{
+							OutputChannel: aws.Int32(0),
+							InputChannelLevels: []types.InputChannelLevel{
+								{InputChannel: aws.Int32(0), Gain: aws.Int32(0)},
+								{InputChannel: aws.Int32(1), Gain: aws.Int32(-60)},
+							},
+						},
+					},
+				}
+				es.AudioDescriptions[0].AudioWatermarkingSettings = &types.AudioWatermarkSettings{
+					NielsenWatermarksSettings: &types.NielsenWatermarksSettings{
+						NielsenDistributionType: types.NielsenWatermarksDistributionTypesProgramContent,
+						NielsenCbetSettings: &types.NielsenCBET{
+							CbetCheckDigitString: aws.String("12345"),
+							CbetStepaside:        types.NielsenWatermarksCbetStepasideDisabled,
+							Csid:                 aws.String("csid-1"),
+						},
+					},
+				}
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-audio-codec"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: es,
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.Len(t, desc.EncoderSettings.AudioDescriptions, 1)
+				ad := desc.EncoderSettings.AudioDescriptions[0]
+
+				assert.ElementsMatch(t, []types.DashRoleAudio{types.DashRoleAudioMain}, ad.AudioDashRoles)
+				assert.Equal(t, types.DvbDashAccessibilityDvbdash6MainProgram, ad.DvbDashAccessibility)
+
+				require.NotNil(t, ad.CodecSettings)
+				require.NotNil(t, ad.CodecSettings.AacSettings)
+				aac := ad.CodecSettings.AacSettings
+				assert.InDelta(t, 128000, aws.ToFloat64(aac.Bitrate), 0)
+				assert.Equal(t, types.AacCodingModeCodingMode20, aac.CodingMode)
+				assert.Equal(t, types.AacProfileLc, aac.Profile)
+				assert.Equal(t, types.AacVbrQualityHigh, aac.VbrQuality)
+
+				require.NotNil(t, ad.AudioNormalizationSettings)
+				assert.Equal(t, types.AudioNormalizationAlgorithmItu17701, ad.AudioNormalizationSettings.Algorithm)
+				assert.InDelta(t, -24, aws.ToFloat64(ad.AudioNormalizationSettings.TargetLkfs), 0)
+
+				require.NotNil(t, ad.RemixSettings)
+				assert.Equal(t, int32(2), aws.ToInt32(ad.RemixSettings.ChannelsIn))
+				require.Len(t, ad.RemixSettings.ChannelMappings, 1)
+				require.Len(t, ad.RemixSettings.ChannelMappings[0].InputChannelLevels, 2)
+				assert.Equal(t, int32(-60), aws.ToInt32(ad.RemixSettings.ChannelMappings[0].InputChannelLevels[1].Gain))
+
+				require.NotNil(t, ad.AudioWatermarkingSettings)
+				require.NotNil(t, ad.AudioWatermarkingSettings.NielsenWatermarksSettings)
+				nw := ad.AudioWatermarkingSettings.NielsenWatermarksSettings
+				assert.Equal(t, types.NielsenWatermarksDistributionTypesProgramContent, nw.NielsenDistributionType)
+				require.NotNil(t, nw.NielsenCbetSettings)
+				assert.Equal(t, "12345", aws.ToString(nw.NielsenCbetSettings.CbetCheckDigitString))
+				assert.Equal(t, "csid-1", aws.ToString(nw.NielsenCbetSettings.Csid))
+			},
+		},
+		{
+			name: "encoderSettings.audioDescriptions round-trips codecSettings' passThroughSettings empty-marker variant",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				es := minimalValidEncoderSettings()
+				es.AudioDescriptions[0].CodecSettings = &types.AudioCodecSettings{
+					PassThroughSettings: &types.PassThroughSettings{},
+				}
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-audio-passthrough"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: es,
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.Len(t, desc.EncoderSettings.AudioDescriptions, 1)
+				require.NotNil(t, desc.EncoderSettings.AudioDescriptions[0].CodecSettings)
+				assert.NotNil(t, desc.EncoderSettings.AudioDescriptions[0].CodecSettings.PassThroughSettings)
+			},
+		},
+		{
 			name: "linkedChannelSettings: primary's followingChannelArns is derived from another " +
 				"channel's follower settings, not stored on the primary itself",
 			run: func(t *testing.T, client *medialivesdk.Client) {
@@ -751,6 +1038,324 @@ func TestChannel_ExtendedFieldsSDKRoundTrip(t *testing.T) {
 					t, []string{aws.ToString(followerOut.Channel.Arn)},
 					primaryDesc.LinkedChannelSettings.PrimaryChannelSettings.FollowingChannelArns,
 				)
+			},
+		},
+		{
+			name: "inputAttachments.inputSettings round-trips audioSelectors' 4 selector-settings " +
+				"variants plus premixer/remix/normalization nesting",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				inpOut, err := client.CreateInput(t.Context(), &medialivesdk.CreateInputInput{
+					Name: aws.String("rt-input-audio"), Type: types.InputTypeUdpPush,
+				})
+				require.NoError(t, err)
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-input-settings-audio"), ChannelClass: types.ChannelClassStandard,
+					InputAttachments: []types.InputAttachment{
+						{
+							InputAttachmentName: aws.String("primary"), InputId: inpOut.Input.Id,
+							InputSettings: &types.InputSettings{
+								AudioSelectors: []types.AudioSelector{
+									{
+										Name: aws.String("aud-lang"),
+										SelectorSettings: &types.AudioSelectorSettings{
+											AudioLanguageSelection: &types.AudioLanguageSelection{
+												LanguageCode:            aws.String("eng"),
+												LanguageSelectionPolicy: types.AudioLanguageSelectionPolicyStrict,
+											},
+										},
+									},
+									{
+										Name: aws.String("aud-hls"),
+										SelectorSettings: &types.AudioSelectorSettings{
+											AudioHlsRenditionSelection: &types.AudioHlsRenditionSelection{
+												GroupId: aws.String("grp1"), Name: aws.String("rend1"),
+											},
+										},
+									},
+									{
+										Name: aws.String("aud-pid"),
+										SelectorSettings: &types.AudioSelectorSettings{
+											AudioPidSelection: &types.AudioPidSelection{
+												Pid: aws.Int32(101),
+												Pids: []types.AudioPid{
+													{
+														Pid: aws.Int32(102),
+														DolbyEDecode: &types.AudioDolbyEDecode{
+															ProgramSelection: types.DolbyEProgramSelectionProgram1,
+														},
+														PremixSettings: &types.AudioPreMixerSettings{
+															Channels: aws.Int32(2),
+															GainDb:   aws.Float64(3.5),
+															AudioNormalizationSettings: &types.AudioNormalizationSettings{
+																Algorithm:            types.AudioNormalizationAlgorithmItu17701,
+																AlgorithmControl:     types.AudioNormalizationAlgorithmControlCorrectAudio,
+																PeakCalculation:      types.AudioNormalizationPeakCalculationTruePeak,
+																PeakLimiterThreshold: aws.Float64(-2),
+																TargetLkfs:           aws.Float64(-23),
+															},
+															RemixSettings: &types.RemixSettings{
+																ChannelsIn: aws.Int32(2), ChannelsOut: aws.Int32(2),
+																ChannelMappings: []types.AudioChannelMapping{
+																	{
+																		OutputChannel: aws.Int32(0),
+																		InputChannelLevels: []types.InputChannelLevel{
+																			{
+																				InputChannel: aws.Int32(0),
+																				Gain:         aws.Int32(-3),
+																			},
+																		},
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+									{
+										Name: aws.String("aud-track"),
+										SelectorSettings: &types.AudioSelectorSettings{
+											AudioTrackSelection: &types.AudioTrackSelection{
+												DolbyEDecode: &types.AudioDolbyEDecode{
+													ProgramSelection: types.DolbyEProgramSelectionAllChannels,
+												},
+												Tracks: []types.AudioTrack{{Track: aws.Int32(1)}},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.Len(t, desc.InputAttachments, 1)
+				require.NotNil(t, desc.InputAttachments[0].InputSettings)
+				sel := desc.InputAttachments[0].InputSettings.AudioSelectors
+				require.Len(t, sel, 4)
+
+				require.NotNil(t, sel[0].SelectorSettings.AudioLanguageSelection)
+				assert.Equal(t, "eng", aws.ToString(sel[0].SelectorSettings.AudioLanguageSelection.LanguageCode))
+				assert.Equal(
+					t, types.AudioLanguageSelectionPolicyStrict,
+					sel[0].SelectorSettings.AudioLanguageSelection.LanguageSelectionPolicy,
+				)
+
+				require.NotNil(t, sel[1].SelectorSettings.AudioHlsRenditionSelection)
+				assert.Equal(t, "grp1", aws.ToString(sel[1].SelectorSettings.AudioHlsRenditionSelection.GroupId))
+
+				require.NotNil(t, sel[2].SelectorSettings.AudioPidSelection)
+				pidSel := sel[2].SelectorSettings.AudioPidSelection
+				assert.Equal(t, int32(101), aws.ToInt32(pidSel.Pid))
+				require.Len(t, pidSel.Pids, 1)
+				premix := pidSel.Pids[0].PremixSettings
+				require.NotNil(t, premix)
+				assert.Equal(t, int32(2), aws.ToInt32(premix.Channels))
+				assert.InDelta(t, 3.5, aws.ToFloat64(premix.GainDb), 0)
+				require.NotNil(t, premix.AudioNormalizationSettings)
+				assert.Equal(t, types.AudioNormalizationAlgorithmItu17701, premix.AudioNormalizationSettings.Algorithm)
+				require.NotNil(t, premix.RemixSettings)
+				require.Len(t, premix.RemixSettings.ChannelMappings, 1)
+				assert.Equal(
+					t, int32(-3),
+					aws.ToInt32(premix.RemixSettings.ChannelMappings[0].InputChannelLevels[0].Gain),
+				)
+
+				require.NotNil(t, sel[3].SelectorSettings.AudioTrackSelection)
+				assert.Equal(
+					t, types.DolbyEProgramSelectionAllChannels,
+					sel[3].SelectorSettings.AudioTrackSelection.DolbyEDecode.ProgramSelection,
+				)
+				require.Len(t, sel[3].SelectorSettings.AudioTrackSelection.Tracks, 1)
+				assert.Equal(t, int32(1), aws.ToInt32(sel[3].SelectorSettings.AudioTrackSelection.Tracks[0].Track))
+			},
+		},
+		{
+			name: "inputAttachments.inputSettings round-trips captionSelectors' source-format variants " +
+				"including the empty aribSourceSettings marker",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				inpOut, err := client.CreateInput(t.Context(), &medialivesdk.CreateInputInput{
+					Name: aws.String("rt-input-caption"), Type: types.InputTypeUdpPush,
+				})
+				require.NoError(t, err)
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-input-settings-caption"), ChannelClass: types.ChannelClassStandard,
+					InputAttachments: []types.InputAttachment{
+						{
+							InputAttachmentName: aws.String("primary"), InputId: inpOut.Input.Id,
+							InputSettings: &types.InputSettings{
+								CaptionSelectors: []types.CaptionSelector{
+									{
+										Name: aws.String("cap-dvb"), LanguageCode: aws.String("eng"),
+										SelectorSettings: &types.CaptionSelectorSettings{
+											DvbSubSourceSettings: &types.DvbSubSourceSettings{
+												OcrLanguage: types.DvbSubOcrLanguageEng, Pid: aws.Int32(200),
+											},
+										},
+									},
+									{
+										Name: aws.String("cap-embedded"),
+										SelectorSettings: &types.CaptionSelectorSettings{
+											EmbeddedSourceSettings: &types.EmbeddedSourceSettings{
+												Convert608To708:        types.EmbeddedConvert608To708Upconvert,
+												Scte20Detection:        types.EmbeddedScte20DetectionAuto,
+												Source608ChannelNumber: aws.Int32(1),
+											},
+										},
+									},
+									{
+										Name: aws.String("cap-teletext"),
+										SelectorSettings: &types.CaptionSelectorSettings{
+											TeletextSourceSettings: &types.TeletextSourceSettings{
+												PageNumber: aws.String("100"),
+												OutputRectangle: &types.CaptionRectangle{
+													Height: aws.Float64(50), LeftOffset: aws.Float64(10),
+													TopOffset: aws.Float64(10), Width: aws.Float64(80),
+												},
+											},
+										},
+									},
+									{
+										Name: aws.String("cap-arib"),
+										SelectorSettings: &types.CaptionSelectorSettings{
+											AribSourceSettings: &types.AribSourceSettings{},
+										},
+									},
+								},
+							},
+						},
+					},
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.Len(t, desc.InputAttachments, 1)
+				require.NotNil(t, desc.InputAttachments[0].InputSettings)
+				sel := desc.InputAttachments[0].InputSettings.CaptionSelectors
+				require.Len(t, sel, 4)
+
+				require.NotNil(t, sel[0].SelectorSettings.DvbSubSourceSettings)
+				assert.Equal(t, types.DvbSubOcrLanguageEng, sel[0].SelectorSettings.DvbSubSourceSettings.OcrLanguage)
+				assert.Equal(t, int32(200), aws.ToInt32(sel[0].SelectorSettings.DvbSubSourceSettings.Pid))
+
+				require.NotNil(t, sel[1].SelectorSettings.EmbeddedSourceSettings)
+				assert.Equal(
+					t, types.EmbeddedConvert608To708Upconvert,
+					sel[1].SelectorSettings.EmbeddedSourceSettings.Convert608To708,
+				)
+
+				require.NotNil(t, sel[2].SelectorSettings.TeletextSourceSettings)
+				assert.Equal(t, "100", aws.ToString(sel[2].SelectorSettings.TeletextSourceSettings.PageNumber))
+				require.NotNil(t, sel[2].SelectorSettings.TeletextSourceSettings.OutputRectangle)
+				assert.InDelta(
+					t, 50, aws.ToFloat64(sel[2].SelectorSettings.TeletextSourceSettings.OutputRectangle.Height), 0,
+				)
+
+				assert.NotNil(t, sel[3].SelectorSettings.AribSourceSettings)
+			},
+		},
+		{
+			name: "inputAttachments.inputSettings round-trips videoSelector, networkInputSettings, and flat filter fields",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				inpOut, err := client.CreateInput(t.Context(), &medialivesdk.CreateInputInput{
+					Name: aws.String("rt-input-video"), Type: types.InputTypeUdpPush,
+				})
+				require.NoError(t, err)
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-input-settings-video"), ChannelClass: types.ChannelClassStandard,
+					InputAttachments: []types.InputAttachment{
+						{
+							InputAttachmentName: aws.String("primary"), InputId: inpOut.Input.Id,
+							InputSettings: &types.InputSettings{
+								DeblockFilter:           types.InputDeblockFilterEnabled,
+								DenoiseFilter:           types.InputDenoiseFilterEnabled,
+								FilterStrength:          aws.Int32(3),
+								InputFilter:             types.InputFilterAuto,
+								Scte35Pid:               aws.Int32(500),
+								Smpte2038DataPreference: types.Smpte2038DataPreferencePrefer,
+								SourceEndBehavior:       types.InputSourceEndBehaviorLoop,
+								VideoSelector: &types.VideoSelector{
+									ColorSpace:      types.VideoSelectorColorSpaceHdr10,
+									ColorSpaceUsage: types.VideoSelectorColorSpaceUsageForce,
+									ColorSpaceSettings: &types.VideoSelectorColorSpaceSettings{
+										Hdr10Settings: &types.Hdr10Settings{
+											MaxCll:  aws.Int32(1000),
+											MaxFall: aws.Int32(400),
+										},
+									},
+									SelectorSettings: &types.VideoSelectorSettings{
+										VideoSelectorProgramId: &types.VideoSelectorProgramId{ProgramId: aws.Int32(7)},
+									},
+								},
+								NetworkInputSettings: &types.NetworkInputSettings{
+									ServerValidation: types.NetworkInputServerValidationCheckCryptographyOnly,
+									HlsInputSettings: &types.HlsInputSettings{
+										Bandwidth: aws.Int32(5000000), BufferSegments: aws.Int32(3),
+										Retries: aws.Int32(5), RetryInterval: aws.Int32(2),
+										Scte35Source: types.HlsScte35SourceTypeManifest,
+									},
+								},
+							},
+						},
+					},
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.Len(t, desc.InputAttachments, 1)
+				s := desc.InputAttachments[0].InputSettings
+				require.NotNil(t, s)
+
+				assert.Equal(t, types.InputDeblockFilterEnabled, s.DeblockFilter)
+				assert.Equal(t, types.InputDenoiseFilterEnabled, s.DenoiseFilter)
+				assert.Equal(t, int32(3), aws.ToInt32(s.FilterStrength))
+				assert.Equal(t, types.InputFilterAuto, s.InputFilter)
+				assert.Equal(t, int32(500), aws.ToInt32(s.Scte35Pid))
+				assert.Equal(t, types.Smpte2038DataPreferencePrefer, s.Smpte2038DataPreference)
+				assert.Equal(t, types.InputSourceEndBehaviorLoop, s.SourceEndBehavior)
+
+				require.NotNil(t, s.VideoSelector)
+				assert.Equal(t, types.VideoSelectorColorSpaceHdr10, s.VideoSelector.ColorSpace)
+				assert.Equal(t, types.VideoSelectorColorSpaceUsageForce, s.VideoSelector.ColorSpaceUsage)
+				require.NotNil(t, s.VideoSelector.ColorSpaceSettings)
+				require.NotNil(t, s.VideoSelector.ColorSpaceSettings.Hdr10Settings)
+				assert.Equal(t, int32(1000), aws.ToInt32(s.VideoSelector.ColorSpaceSettings.Hdr10Settings.MaxCll))
+				require.NotNil(t, s.VideoSelector.SelectorSettings)
+				require.NotNil(t, s.VideoSelector.SelectorSettings.VideoSelectorProgramId)
+				assert.Equal(
+					t,
+					int32(7),
+					aws.ToInt32(s.VideoSelector.SelectorSettings.VideoSelectorProgramId.ProgramId),
+				)
+
+				require.NotNil(t, s.NetworkInputSettings)
+				assert.Equal(
+					t, types.NetworkInputServerValidationCheckCryptographyOnly, s.NetworkInputSettings.ServerValidation,
+				)
+				require.NotNil(t, s.NetworkInputSettings.HlsInputSettings)
+				assert.Equal(t, int32(5000000), aws.ToInt32(s.NetworkInputSettings.HlsInputSettings.Bandwidth))
+				assert.Equal(t, types.HlsScte35SourceTypeManifest, s.NetworkInputSettings.HlsInputSettings.Scte35Source)
 			},
 		},
 		{

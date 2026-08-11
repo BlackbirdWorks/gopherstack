@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/google/uuid"
 )
 
@@ -335,26 +336,12 @@ type PolicyVersionIdentifier struct {
 }
 
 // ResourceIdentifier identifies the noncompliant resource behind an audit
-// finding (types.ResourceIdentifier, confirmed against v1.76.0's field set:
-// account, caCertificateId, clientId, cognitoIdentityPoolId,
-// deviceCertificateArn, deviceCertificateId, iamRoleArn,
-// issuerCertificateIdentifier, policyVersionIdentifier, roleAliasArn -- ten
-// discriminator fields in total). Real AWS populates exactly the one (or
-// two) fields relevant to the audit check that produced the finding, e.g.
-// DEVICE_CERTIFICATE_EXPIRING_CHECK populates deviceCertificateId,
-// IOT_POLICY_OVERLY_PERMISSIVE_CHECK populates policyVersionIdentifier,
-// IOT_ROLE_ALIAS_OVERLY_PERMISSIVE_CHECK populates roleAliasArn, and so on.
-//
-// Modeling this as a real, fully-typed struct -- rather than a freeform map,
-// like RelatedResources' entries elsewhere in this file -- is what makes
-// ListAuditFindings' resourceIdentifier filter honestly implementable: see
-// matchResourceIdentifier, which matches a finding when every field SET on
-// the filter is present and equal on the finding's own identifier, the same
-// per-field discriminator semantics the real service uses. This resolves the
-// gap PARITY.md previously recorded as unimplementable "without guessing
-// per-check-type semantics" -- no guessing is required once the shape itself
-// is real and callers (SeedAuditFinding) populate only the field(s)
-// appropriate to the check they're simulating.
+// finding (types.ResourceIdentifier, v1.77.4's ten discriminator fields).
+// Real AWS populates only the field(s) relevant to the check that produced
+// the finding, e.g. DEVICE_CERTIFICATE_EXPIRING_CHECK sets
+// deviceCertificateId. A fully-typed struct (vs. a freeform map) is what
+// lets ListAuditFindings' resourceIdentifier filter match honestly per
+// matchResourceIdentifier below.
 type ResourceIdentifier struct {
 	IssuerCertificateIdentifier *IssuerCertificateIdentifier `json:"issuerCertificateIdentifier,omitempty"`
 	PolicyVersionIdentifier     *PolicyVersionIdentifier     `json:"policyVersionIdentifier,omitempty"`
@@ -430,19 +417,13 @@ func cloneAuditFinding(f *AuditFinding) *AuditFinding {
 	return &cp
 }
 
-// SeedAuditFinding injects an audit finding into the backend so that
+// SeedAuditFinding injects an audit finding into the backend so
 // DescribeAuditFinding, ListAuditFindings, and ListRelatedResourcesForAuditFinding
-// return realistic data. AWS IoT populates audit findings internally when an audit
-// task runs; this is the additive hook gopherstack exposes so callers (and tests)
-// can populate findings deterministically instead of always seeing an empty set.
-// It returns the stored finding, generating a FindingID when none is supplied.
+// return realistic data instead of an empty set. Returns the stored finding,
+// generating a FindingID when none is supplied.
 //
-// TaskStartTime is auto-populated from the referenced AuditTask's own
-// TaskStartTime when the finding has a TaskID but no explicit TaskStartTime
-// -- real AWS's AuditFinding.taskStartTime always reflects when the audit
-// task that produced the finding began, so deriving it from the already-
-// known task record (rather than leaving it unset or requiring every
-// caller to redundantly pass it) keeps the two representations consistent.
+// TaskStartTime, when unset, is derived from the referenced AuditTask so it
+// stays consistent with the task that produced the finding.
 func (b *InMemoryBackend) SeedAuditFinding(f *AuditFinding) *AuditFinding {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -495,14 +476,9 @@ type ListAuditFindingsFilter struct {
 }
 
 // matchResourceIdentifier reports whether actual satisfies filter: every
-// field SET on filter must be present and equal on actual, mirroring real
-// AWS's per-field discriminator matching (a filter that sets
-// deviceCertificateId only matches findings whose own resourceIdentifier has
-// that same deviceCertificateId, regardless of what else may or may not be
-// set on either side). A nil filter always matches -- no resourceIdentifier
-// filter was requested. A non-nil filter against a finding with no
-// resourceIdentifier at all never matches, since there is nothing to compare
-// against.
+// field SET on filter must be present and equal on actual (AWS's per-field
+// discriminator matching). Nil filter always matches; non-nil filter against
+// a finding with no resourceIdentifier never matches.
 func matchResourceIdentifier(filter, actual *ResourceIdentifier) bool {
 	if filter == nil {
 		return true
@@ -691,12 +667,13 @@ func (b *InMemoryBackend) scheduledAuditARN(name string) string {
 
 // CreateScheduledAuditInput holds input for CreateScheduledAudit.
 type CreateScheduledAuditInput struct {
-	Tags               map[string]string `json:"tags,omitempty"`
-	ScheduledAuditName string            `json:"scheduledAuditName"`
-	Frequency          string            `json:"frequency"`
-	DayOfMonth         string            `json:"dayOfMonth,omitempty"`
-	DayOfWeek          string            `json:"dayOfWeek,omitempty"`
-	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:4389, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags               []tags.KV `json:"tags,omitempty"`
+	ScheduledAuditName string    `json:"scheduledAuditName"`
+	Frequency          string    `json:"frequency"`
+	DayOfMonth         string    `json:"dayOfMonth,omitempty"`
+	DayOfWeek          string    `json:"dayOfWeek,omitempty"`
+	TargetCheckNames   []string  `json:"targetCheckNames,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateScheduledAudit(
@@ -719,9 +696,10 @@ func (b *InMemoryBackend) CreateScheduledAudit(
 		DayOfMonth:         input.DayOfMonth,
 		DayOfWeek:          input.DayOfWeek,
 		TargetCheckNames:   append([]string(nil), input.TargetCheckNames...),
-		Tags:               input.Tags,
+		Tags:               tags.MapFromKV(input.Tags),
 	}
 	b.scheduledAudits.Put(sa)
+	b.putResourceTagsLocked(sa.ScheduledAuditARN, sa.Tags)
 
 	return cloneScheduledAudit(sa), nil
 }
@@ -813,10 +791,10 @@ func (b *InMemoryBackend) mitigationActionARN(name string) string {
 
 // CreateMitigationActionInput holds input for CreateMitigationAction.
 type CreateMitigationActionInput struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	ActionParams map[string]any    `json:"actionParams,omitempty"`
-	ActionName   string            `json:"actionName"`
-	RoleARN      string            `json:"roleArn,omitempty"`
+	ActionParams map[string]any `json:"actionParams,omitempty"`
+	ActionName   string         `json:"actionName"`
+	RoleARN      string         `json:"roleArn,omitempty"`
+	Tags         []tags.KV      `json:"tags,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateMitigationAction(
@@ -839,11 +817,12 @@ func (b *InMemoryBackend) CreateMitigationAction(
 		ActionID:         uuid.NewString(),
 		RoleARN:          input.RoleARN,
 		ActionParams:     input.ActionParams,
-		Tags:             input.Tags,
+		Tags:             tags.MapFromKV(input.Tags),
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}
 	b.mitigationActions.Put(ma)
+	b.putResourceTagsLocked(ma.ActionARN, ma.Tags)
 
 	return cloneMitigationAction(ma), nil
 }

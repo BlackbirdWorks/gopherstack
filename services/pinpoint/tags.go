@@ -65,6 +65,35 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return nonNilTagsCopy(res.getTags()), nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Pinpoint resource ARN that currently has at
+// least one tag. Export/import jobs build ARNs (export_import_jobs.go) but
+// are never entered into arnIndex -- they don't implement tagHolder -- so
+// they never appear here, matching the real API's TagResource, which only
+// documents app, campaign, journey, segment, and template ARNs.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.arnIndex))
+
+	for resourceARN, res := range b.arnIndex {
+		tags := res.getTags()
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceARN, Tags: nonNilTagsCopy(tags)})
+	}
+
+	return out
+}
+
 // ──────────────────────────────────────────────────
 // tagHolder implementations
 // ──────────────────────────────────────────────────

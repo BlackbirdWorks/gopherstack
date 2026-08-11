@@ -334,6 +334,23 @@ func TestFindingRecommendationLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
+		{
+			// Previously GenerateFindingRecommendation created a recommendation
+			// record for any finding ID unconditionally, without checking it
+			// exists -- a bogus ID would 200 and fabricate a ResourceArn-less
+			// record. It must now 404, matching GetFindingRecommendation's
+			// modeled ResourceNotFoundException.
+			name: "generate_for_missing_finding_is_not_found",
+			fn: func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler) {
+				t.Helper()
+				arn := mustAnalyzer(t, b, "rec-missing-finding-analyzer")
+
+				rec := doRequest(t, h, http.MethodPost, "/recommendation/no-such-finding", map[string]any{
+					"analyzerArn": arn,
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -345,4 +362,37 @@ func TestFindingRecommendationLifecycle(t *testing.T) {
 			tt.fn(t, b, h)
 		})
 	}
+}
+
+// TestGetFindingRecommendation_WireShape verifies the required resourceArn
+// and startedAt response members are present, and recommendationType uses
+// the real wire value -- per aws-sdk-go-v2 api_op_GetFindingRecommendation.go
+// (v1.51.4), resourceArn/startedAt/status are required
+// GetFindingRecommendationOutput members, and RecommendationType's only
+// known value is "UnusedPermissionRecommendation" (types/enums.go:579).
+func TestGetFindingRecommendation_WireShape(t *testing.T) {
+	t.Parallel()
+
+	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
+	h := accessanalyzer.NewHandler(b)
+
+	arn := mustAnalyzer(t, b, "rec-wire-analyzer")
+	findingID := mustFinding(t, b, "rec-wire-analyzer")
+
+	genRec := doRequest(t, h, http.MethodPost, "/recommendation/"+findingID, map[string]any{
+		"analyzerArn": arn,
+	})
+	require.Equal(t, http.StatusOK, genRec.Code)
+
+	getRec := doRequest(t, h, http.MethodGet, "/recommendation/"+findingID+"?analyzerArn="+arn, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+
+	assert.Equal(t, "UnusedPermissionRecommendation", resp["recommendationType"])
+	assert.Equal(t, "arn:aws:s3:::bucket", resp["resourceArn"])
+	assert.NotEmpty(t, resp["startedAt"])
+	assert.NotEmpty(t, resp["completedAt"])
+	assert.Equal(t, "SUCCEEDED", resp["status"])
 }

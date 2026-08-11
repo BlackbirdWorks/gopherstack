@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -187,6 +190,36 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	// Verify deleted.
 	rec = doSageMakerRequest(t, h, "DescribeCluster", map[string]any{"ClusterName": "my-cluster"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateCluster_ClusterRoleAndVpcConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateCluster", map[string]any{
+		"ClusterName": "cluster-with-vpc",
+		"ClusterRole": "arn:aws:iam::000000000000:role/HyperPodClusterRole",
+		"VpcConfig": map[string]any{
+			"SecurityGroupIds": []any{"sg-123"},
+			"Subnets":          []any{"subnet-abc"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeCluster", map[string]any{"ClusterName": "cluster-with-vpc"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "arn:aws:iam::000000000000:role/HyperPodClusterRole", descResp["ClusterRole"])
+
+	vpcConfig, ok := descResp["VpcConfig"].(map[string]any)
+	require.True(t, ok, "DescribeCluster must return the accepted VpcConfig")
+	sgIDs, ok := vpcConfig["SecurityGroupIds"].([]any)
+	require.True(t, ok)
+	require.Len(t, sgIDs, 1)
+	assert.Equal(t, "sg-123", sgIDs[0])
 }
 
 func TestHandler_CreateCluster_Duplicate(t *testing.T) {
@@ -931,6 +964,141 @@ func TestHandler_BatchAddClusterNodes_DuplicateNodeFails(t *testing.T) {
 // ---------------------------------------------------------------------------
 // StartClusterHealthCheck
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// CreateCluster/UpdateCluster: AutoScaling, Orchestrator, NodeProvisioningMode,
+// TieredStorageConfig (gopherstack-i359)
+// ---------------------------------------------------------------------------
+
+// TestHandler_CreateCluster_NestedTypes_RealClient round-trips CreateClusterInput's
+// AutoScaling/Orchestrator/NodeProvisioningMode/TieredStorageConfig through the real
+// aws-sdk-go-v2 client so the assertions come from the SDK's own generated types, not
+// from field names this handler happens to produce.
+func TestHandler_CreateCluster_NestedTypes_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateCluster(t.Context(), &sagemakersdk.CreateClusterInput{
+		ClusterName: aws.String("nested-cluster"),
+		AutoScaling: &smtypes.ClusterAutoScalingConfig{
+			Mode:           smtypes.ClusterAutoScalingModeEnable,
+			AutoScalerType: smtypes.ClusterAutoScalerTypeKarpenter,
+		},
+		Orchestrator: &smtypes.ClusterOrchestrator{
+			Eks: &smtypes.ClusterOrchestratorEksConfig{
+				ClusterArn: aws.String("arn:aws:eks:us-east-1:000000000000:cluster/eks1"),
+			},
+		},
+		NodeProvisioningMode: smtypes.ClusterNodeProvisioningModeContinuous,
+		TieredStorageConfig: &smtypes.ClusterTieredStorageConfig{
+			Mode:                               smtypes.ClusterConfigModeEnable,
+			InstanceMemoryAllocationPercentage: aws.Int32(25),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeCluster(t.Context(), &sagemakersdk.DescribeClusterInput{
+		ClusterName: aws.String("nested-cluster"),
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, out.AutoScaling)
+	assert.Equal(t, smtypes.ClusterAutoScalingModeEnable, out.AutoScaling.Mode)
+	assert.Equal(t, smtypes.ClusterAutoScalerTypeKarpenter, out.AutoScaling.AutoScalerType)
+	assert.NotEmpty(t, out.AutoScaling.Status)
+
+	require.NotNil(t, out.Orchestrator)
+	require.NotNil(t, out.Orchestrator.Eks)
+	assert.Equal(t, "arn:aws:eks:us-east-1:000000000000:cluster/eks1", aws.ToString(out.Orchestrator.Eks.ClusterArn))
+	assert.Nil(t, out.Orchestrator.Slurm)
+
+	assert.Equal(t, smtypes.ClusterNodeProvisioningModeContinuous, out.NodeProvisioningMode)
+
+	require.NotNil(t, out.TieredStorageConfig)
+	assert.Equal(t, smtypes.ClusterConfigModeEnable, out.TieredStorageConfig.Mode)
+	assert.Equal(t, int32(25), aws.ToInt32(out.TieredStorageConfig.InstanceMemoryAllocationPercentage))
+}
+
+// TestHandler_UpdateCluster_NestedTypes_RealClient verifies UpdateCluster can set
+// Orchestrator (Slurm variant this time) and NodeProvisioningMode on an existing cluster.
+func TestHandler_UpdateCluster_NestedTypes_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateCluster(t.Context(), &sagemakersdk.CreateClusterInput{
+		ClusterName: aws.String("update-nested-cluster"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateCluster(t.Context(), &sagemakersdk.UpdateClusterInput{
+		ClusterName: aws.String("update-nested-cluster"),
+		Orchestrator: &smtypes.ClusterOrchestrator{
+			Slurm: &smtypes.ClusterOrchestratorSlurmConfig{
+				SlurmConfigStrategy: smtypes.ClusterSlurmConfigStrategyMerge,
+			},
+		},
+		NodeProvisioningMode: smtypes.ClusterNodeProvisioningModeContinuous,
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeCluster(t.Context(), &sagemakersdk.DescribeClusterInput{
+		ClusterName: aws.String("update-nested-cluster"),
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, out.Orchestrator)
+	require.NotNil(t, out.Orchestrator.Slurm)
+	assert.Equal(t, smtypes.ClusterSlurmConfigStrategyMerge, out.Orchestrator.Slurm.SlurmConfigStrategy)
+	assert.Nil(t, out.Orchestrator.Eks)
+	assert.Equal(t, smtypes.ClusterNodeProvisioningModeContinuous, out.NodeProvisioningMode)
+}
+
+// TestHandler_CreateCluster_OrchestratorValidation checks the real CreateClusterInput
+// business rule (api_op_CreateCluster.go:76-78, sagemaker@v1.263.2): "you must provide
+// exactly one orchestrator configuration: either Eks or Slurm. Specifying both or
+// providing an empty configuration returns a validation error.".
+func TestHandler_CreateCluster_OrchestratorValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		orchestrator map[string]any
+		name         string
+	}{
+		{
+			name: "both eks and slurm set",
+			orchestrator: map[string]any{
+				"Eks":   map[string]any{"ClusterArn": "arn:aws:eks:us-east-1:000000000000:cluster/x"},
+				"Slurm": map[string]any{"SlurmConfigStrategy": "Managed"},
+			},
+		},
+		{
+			name:         "neither eks nor slurm set",
+			orchestrator: map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doSageMakerRequest(t, h, "CreateCluster", map[string]any{
+				"ClusterName":  "bad-orchestrator-cluster",
+				"Orchestrator": tt.orchestrator,
+			})
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "ValidationException", body["__type"])
+		})
+	}
+}
 
 func TestHandler_StartClusterHealthCheck(t *testing.T) {
 	t.Parallel()

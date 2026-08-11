@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func resolveCertificateOps(path, method string) string {
@@ -213,13 +214,9 @@ func certificateTransferData(cert *Certificate) map[string]any {
 }
 
 // certificateDescriptionFields builds the full CertificateDescription wire
-// shape returned by DescribeCertificate, field-diffed against
-// aws-sdk-go-v2/service/iot@v1.76.0's CertificateDescription (see
-// gopherstack-jy57: this previously only returned
-// certificateId/certificateArn/status/creationDate/lastModifiedDate/
-// certificatePem, and creationDate/lastModifiedDate were raw time.Time values
-// -- json.Marshal renders those as RFC3339 strings, but the real restjson1
-// deserializer requires a JSON number of epoch seconds).
+// shape returned by DescribeCertificate (aws-sdk-go-v2/service/iot@v1.77.4).
+// creationDate/lastModifiedDate must be epoch-second JSON numbers, not
+// RFC3339 strings — the real restjson1 deserializer requires numbers.
 func certificateDescriptionFields(cert *Certificate) map[string]any {
 	out := map[string]any{
 		keyCertificateID:    cert.CertificateID,
@@ -319,6 +316,8 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 	var body struct {
 		LambdaFunctionARN           string   `json:"lambdaFunctionArn"`
 		AccountDefaultForOperations []string `json:"accountDefaultForOperations"`
+		// []types.Tag on the wire, not a map (serializers.go:1992, aws-sdk-go-v2/service/iot@v1.77.4).
+		Tags []tags.KV `json:"tags,omitempty"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
@@ -330,6 +329,7 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 		CertificateProviderName:     name,
 		LambdaFunctionARN:           body.LambdaFunctionARN,
 		AccountDefaultForOperations: body.AccountDefaultForOperations,
+		Tags:                        tags.MapFromKV(body.Tags),
 	})
 	if err != nil {
 		return h.handleError(c, err)
@@ -430,12 +430,13 @@ func (h *Handler) handleRegisterCACertificate(c *echo.Context) error {
 		CACertificate           string `json:"caCertificate"`
 		VerificationCertificate string `json:"verificationCertificate,omitempty"`
 		Status                  string `json:"registrationConfig,omitempty"`
-		Tags                    []any  `json:"tags,omitempty"`
+		// []types.Tag on the wire, not a map (serializers.go:18065, aws-sdk-go-v2/service/iot@v1.77.4).
+		Tags []tags.KV `json:"tags,omitempty"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	ca, err := h.Backend.RegisterCACertificate(req.CACertificate, "ACTIVE")
+	ca, err := h.Backend.RegisterCACertificate(req.CACertificate, "ACTIVE", tags.MapFromKV(req.Tags))
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -475,7 +476,9 @@ func (h *Handler) handleUpdateCACertificate(c *echo.Context) error {
 	var req struct {
 		NewStatus string `json:"newStatus"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	if err := h.Backend.UpdateCACertificate(id, req.NewStatus); err != nil {
 		return respondErr(c, err)
 	}

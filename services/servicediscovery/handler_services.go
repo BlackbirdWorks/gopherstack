@@ -80,6 +80,48 @@ func parseHealthCheckCustomConfig(req *healthCheckCustomConfigRequest) *HealthCh
 	}
 }
 
+// validateDNSConfigEnums enforces the closed enums from the botocore model
+// (servicediscovery/2017-03-14/service-2.json): shape RoutingPolicy{enum:
+// [MULTIVALUE,WEIGHTED]} (optional) and RecordType{enum:[SRV,A,AAAA,CNAME]}
+// (required per DnsRecord).
+func validateDNSConfigEnums(dc *DNSConfig) error {
+	if dc == nil {
+		return nil
+	}
+
+	switch dc.RoutingPolicy {
+	case "", "MULTIVALUE", "WEIGHTED":
+	default:
+		return fmt.Errorf("%w: RoutingPolicy %q is not one of MULTIVALUE, WEIGHTED", ErrInvalidInput, dc.RoutingPolicy)
+	}
+
+	for _, r := range dc.DNSRecords {
+		switch r.Type {
+		case "SRV", "A", "AAAA", "CNAME":
+		default:
+			return fmt.Errorf("%w: DnsRecords Type %q is not one of SRV, A, AAAA, CNAME", ErrInvalidInput, r.Type)
+		}
+	}
+
+	return nil
+}
+
+// validateHealthCheckConfigEnum enforces the closed HealthCheckType enum
+// (service-2.json: HealthCheckType{enum:[HTTP,HTTPS,TCP]}).
+func validateHealthCheckConfigEnum(hc *HealthCheckConfig) error {
+	if hc == nil {
+		return nil
+	}
+
+	switch hc.Type {
+	case "HTTP", "HTTPS", "TCP":
+	default:
+		return fmt.Errorf("%w: HealthCheckConfig Type %q is not one of HTTP, HTTPS, TCP", ErrInvalidInput, hc.Type)
+	}
+
+	return nil
+}
+
 func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, error) {
 	var req createServiceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -97,6 +139,16 @@ func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, e
 		)
 	}
 
+	dnsConfig := parseDNSConfig(req.DNSConfig)
+	if err := validateDNSConfigEnums(dnsConfig); err != nil {
+		return nil, err
+	}
+
+	healthCheckConfig := parseHealthCheckConfig(req.HealthCheckConfig)
+	if err := validateHealthCheckConfigEnum(healthCheckConfig); err != nil {
+		return nil, err
+	}
+
 	if err := validateTags(req.Tags); err != nil {
 		return nil, err
 	}
@@ -106,8 +158,8 @@ func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, e
 		req.NamespaceID,
 		req.Description,
 		req.Type,
-		parseDNSConfig(req.DNSConfig),
-		parseHealthCheckConfig(req.HealthCheckConfig),
+		dnsConfig,
+		healthCheckConfig,
 		parseHealthCheckCustomConfig(req.HealthCheckCustomConfig),
 		tagsToMap(req.Tags),
 	)
@@ -309,11 +361,21 @@ func (h *Handler) handleUpdateService(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	dnsConfig := parseDNSConfig(req.Service.DNSConfig)
+	if err := validateDNSConfigEnums(dnsConfig); err != nil {
+		return nil, err
+	}
+
+	healthCheckConfig := parseHealthCheckConfig(req.Service.HealthCheckConfig)
+	if err := validateHealthCheckConfigEnum(healthCheckConfig); err != nil {
+		return nil, err
+	}
+
 	opID, err := h.Backend.UpdateService(
 		req.ID,
 		req.Service.Description,
-		parseDNSConfig(req.Service.DNSConfig),
-		parseHealthCheckConfig(req.Service.HealthCheckConfig),
+		dnsConfig,
+		healthCheckConfig,
 	)
 	if err != nil {
 		return nil, err
@@ -362,6 +424,10 @@ func (h *Handler) handleUpdateServiceAttributes(_ context.Context, body []byte) 
 
 	if req.ServiceARN == "" {
 		return fmt.Errorf("%w: ServiceArn is required", errInvalidRequest)
+	}
+
+	if err := validateServiceAttributeShape(req.Attributes); err != nil {
+		return err
 	}
 
 	return h.Backend.UpdateServiceAttributes(req.ServiceARN, req.Attributes)

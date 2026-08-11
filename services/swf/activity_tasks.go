@@ -2,6 +2,7 @@ package swf
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -19,6 +20,8 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 	b.mu.Lock("PollForActivityTask")
 	defer b.mu.Unlock()
 
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
 	key := domain + ":" + taskList
 	queue := b.activityQueues[key]
 	if len(queue) == 0 {
@@ -32,7 +35,7 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 
 	// Emit ActivityTaskStarted event and record active task.
 	startedEventID := b.appendHistoryEventLocked(
-		domain, task.WorkflowID, "ActivityTaskStarted",
+		domain, task.WorkflowID, task.RunID, "ActivityTaskStarted",
 		map[string]any{
 			eventAttrKey("ActivityTaskStarted"): map[string]any{
 				attrScheduledEvID: task.ScheduledEventID,
@@ -59,15 +62,17 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 // RecordActivityTaskHeartbeat acknowledges a heartbeat for an activity task token.
 // Returns true if cancel has been requested for the workflow; always false in this emulator.
 func (b *InMemoryBackend) RecordActivityTaskHeartbeat(taskToken string) (bool, error) {
-	b.mu.RLock("RecordActivityTaskHeartbeat")
-	defer b.mu.RUnlock()
+	b.mu.Lock("RecordActivityTaskHeartbeat")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
 		return false, fmt.Errorf("%w: task token %s not found", ErrNotFound, taskToken)
 	}
 
-	exec, ok := b.executions.Get(rec.Domain + ":" + rec.WorkflowID)
+	exec, ok := b.executions.Get(executionKey(rec.Domain, rec.WorkflowID, rec.RunID))
 	if !ok {
 		return false, nil
 	}
@@ -79,6 +84,8 @@ func (b *InMemoryBackend) RecordActivityTaskHeartbeat(taskToken string) (bool, e
 func (b *InMemoryBackend) RespondActivityTaskCanceled(taskToken, details string) error {
 	b.mu.Lock("RespondActivityTaskCanceled")
 	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
@@ -94,8 +101,8 @@ func (b *InMemoryBackend) RespondActivityTaskCanceled(taskToken, details string)
 			attrStartedEvID:   rec.StartedEventID,
 		},
 	}
-	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, "ActivityTaskCanceled", attrs)
-	b.enqueueDecisionTaskLocked(rec.Domain, rec.WorkflowID)
+	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, rec.RunID, "ActivityTaskCanceled", attrs)
+	b.enqueueDecisionTaskLocked(rec.Domain, rec.WorkflowID, rec.RunID)
 
 	return nil
 }
@@ -104,6 +111,8 @@ func (b *InMemoryBackend) RespondActivityTaskCanceled(taskToken, details string)
 func (b *InMemoryBackend) RespondActivityTaskCompleted(taskToken, result string) error {
 	b.mu.Lock("RespondActivityTaskCompleted")
 	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
@@ -119,8 +128,8 @@ func (b *InMemoryBackend) RespondActivityTaskCompleted(taskToken, result string)
 			attrStartedEvID:   rec.StartedEventID,
 		},
 	}
-	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, "ActivityTaskCompleted", attrs)
-	b.enqueueDecisionTaskLocked(rec.Domain, rec.WorkflowID)
+	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, rec.RunID, "ActivityTaskCompleted", attrs)
+	b.enqueueDecisionTaskLocked(rec.Domain, rec.WorkflowID, rec.RunID)
 
 	return nil
 }
@@ -129,6 +138,8 @@ func (b *InMemoryBackend) RespondActivityTaskCompleted(taskToken, result string)
 func (b *InMemoryBackend) RespondActivityTaskFailed(taskToken, reason, details string) error {
 	b.mu.Lock("RespondActivityTaskFailed")
 	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
@@ -145,8 +156,8 @@ func (b *InMemoryBackend) RespondActivityTaskFailed(taskToken, reason, details s
 			attrStartedEvID:   rec.StartedEventID,
 		},
 	}
-	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, "ActivityTaskFailed", attrs)
-	b.enqueueDecisionTaskLocked(rec.Domain, rec.WorkflowID)
+	b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, rec.RunID, "ActivityTaskFailed", attrs)
+	b.enqueueDecisionTaskLocked(rec.Domain, rec.WorkflowID, rec.RunID)
 
 	return nil
 }

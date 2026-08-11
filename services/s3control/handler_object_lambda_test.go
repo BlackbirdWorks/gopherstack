@@ -212,14 +212,9 @@ func TestListAccessPointsForObjectLambda_Pagination(t *testing.T) {
 	}
 }
 
-// TestGetAccessPointForObjectLambda_NoFabricatedArn locks in a
-// gopherstack-tir4 finding: GetAccessPointForObjectLambdaOutput has NO
-// ObjectLambdaAccessPointArn field in the real SDK (confirmed against
-// aws-sdk-go-v2/service/s3control's GetAccessPointForObjectLambdaOutput,
-// whose only members are Alias/CreationDate/Name/
-// PublicAccessBlockConfiguration). A previous version of this handler
-// emitted an ObjectLambdaAccessPointArn element that no real client would
-// ever see on this response.
+// TestGetAccessPointForObjectLambda_NoFabricatedArn asserts real
+// GetAccessPointForObjectLambdaOutput has no ObjectLambdaAccessPointArn
+// field — its only members are Alias/CreationDate/Name/PublicAccessBlockConfiguration.
 func TestGetAccessPointForObjectLambda_NoFabricatedArn(t *testing.T) {
 	t.Parallel()
 
@@ -242,15 +237,13 @@ func TestGetAccessPointForObjectLambda_NoFabricatedArn(t *testing.T) {
 	assert.Equal(t, "my-olap", out.Name)
 }
 
-// TestAccessPointConfigurationForObjectLambda_WireShape locks in a
-// gopherstack-tir4 finding: GetAccessPointConfigurationForObjectLambdaOutput
-// wraps its payload under "<Configuration>", not "<ObjectLambdaConfiguration>"
-// (confirmed against
-// awsRestxml_deserializeOpDocumentGetAccessPointConfigurationForObjectLambdaOutput,
-// which only recognizes "Configuration" at the top level). It also asserts
-// that a real client's nested TransformationConfigurations/
-// SupportingAccessPoint structure round-trips through Put then Get intact,
-// rather than being flattened to concatenated character data.
+// TestAccessPointConfigurationForObjectLambda_WireShape covers:
+// GetAccessPointConfigurationForObjectLambdaOutput wraps its payload under
+// "<Configuration>", not "<ObjectLambdaConfiguration>"
+// (awsRestxml_deserializeOpDocumentGetAccessPointConfigurationForObjectLambdaOutput
+// only recognizes "Configuration" at the top level), and a nested
+// TransformationConfigurations/SupportingAccessPoint structure round-trips
+// through Put then Get intact.
 func TestAccessPointConfigurationForObjectLambda_WireShape(t *testing.T) {
 	t.Parallel()
 

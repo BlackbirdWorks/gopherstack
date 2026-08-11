@@ -155,8 +155,9 @@ func subnetEntriesFromIDs(ids []string, region string) []SubnetEntry {
 
 	for _, id := range ids {
 		entries = append(entries, SubnetEntry{
-			SubnetID:         id,
-			AvailabilityZone: region + "a",
+			SubnetID:              id,
+			AvailabilityZone:      region + "a",
+			SupportedNetworkTypes: []string{NetworkTypeIPv4},
 		})
 	}
 

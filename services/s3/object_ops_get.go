@@ -267,6 +267,7 @@ func buildGetObjectDetails(ver *s3.GetObjectOutput) objectCommonDetails {
 		SSEKMSKeyID:       aws.ToString(ver.SSEKMSKeyId),
 		SSECAlgorithm:     aws.ToString(ver.SSECustomerAlgorithm),
 		SSECKeyMD5:        aws.ToString(ver.SSECustomerKeyMD5),
+		TagCount:          ver.TagCount,
 	}
 }
 

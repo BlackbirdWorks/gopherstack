@@ -11,28 +11,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-// s3controlSnapshotVersion identifies the shape of [backendSnapshot]. It must
-// be bumped whenever a change to a DTO type or backendSnapshot itself would
-// make an older snapshot unsafe to decode as the current shape. Restore
-// compares this against the persisted value and discards (ResetAll, not a
-// partial decode) any mismatch -- see Restore. The pre-Phase-3.3 snapshot
-// format had no version field at all, so an old snapshot decodes with
-// Version == 0, which is guaranteed to mismatch s3controlSnapshotVersion and
-// is discarded the same way any other incompatible snapshot is.
+// s3controlSnapshotVersion identifies the shape of [backendSnapshot]. Bump
+// whenever a change to a DTO type or backendSnapshot itself would make an
+// older snapshot unsafe to decode; Restore compares this against the
+// persisted value and discards (ResetAll, not a partial decode) any
+// mismatch. A pre-versioning snapshot decodes with Version == 0, which
+// mismatches and is discarded the same way.
 //
-// Bumped 1 -> 2: LEAK/PERSISTENCE-GAP FIX -- the "batch1 additions" raw maps
-// (see store.go's field doc comment) were never wired into backendSnapshot
-// at all: accessPointScopes, objectLambdaAPPolicies, objectLambdaAPConfigs,
-// bucketPolicies, bucketTagging, bucketLifecycle, bucketVersioning,
-// mrapRoutes, accessGrantsInstancePolicies, jobTags. Only the "batch2"
-// fields (bucketReplication, storageLensConfigs, storageLensConfigTags,
-// resourceTags, accessPointPolicies) were ever round-tripped. A
-// Snapshot/Restore cycle (e.g. a service restart with persistence enabled)
-// silently dropped every one of those ten fields -- access point scopes,
-// Object Lambda AP policies/configs, Outposts bucket policy/tagging/
-// lifecycle/versioning, MRAP routes, Access Grants instance resource
-// policies, and job tags all vanished on restore even though the owning
-// resources themselves survived.
+// Bumped 1 -> 2: ten raw maps (accessPointScopes, objectLambdaAPPolicies,
+// objectLambdaAPConfigs, bucketPolicies, bucketTagging, bucketLifecycle,
+// bucketVersioning, mrapRoutes, accessGrantsInstancePolicies, jobTags) were
+// never wired into backendSnapshot, so a Snapshot/Restore cycle silently
+// dropped all of them even though the owning resources survived.
 const s3controlSnapshotVersion = 2
 
 // mrapRequestSnapshot and accessPointPABSnapshot are DTOs used only for

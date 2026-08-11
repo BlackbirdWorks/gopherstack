@@ -26,9 +26,16 @@ func (h *Handler) handleCreateDBParameterGroup(ctx context.Context, vals url.Val
 	name := vals.Get("DBParameterGroupName")
 	family := vals.Get("DBParameterGroupFamily")
 	description := vals.Get("Description")
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	pg, err := h.Backend.CreateDBParameterGroup(ctx, name, family, description)
 	if err != nil {
 		return nil, err
+	}
+	if len(tags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, pg.DBParameterGroupArn, tags)
 	}
 
 	return &createDBParameterGroupResponse{

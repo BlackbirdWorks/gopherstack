@@ -117,6 +117,8 @@ func (h *Handler) handleCreateDBShardGroup(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, sg.DBShardGroupArn)
+
 	return &createDBShardGroupResponse{
 		Xmlns:                  rdsXMLNS,
 		DBShardGroupIdentifier: sg.DBShardGroupIdentifier,

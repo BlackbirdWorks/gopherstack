@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -74,6 +75,13 @@ const (
 	// patchPathSegs2 is the segment count of a two-level PATCH path such as
 	// "/variables/{name}" or "/throttle/rateLimit" (field + one sub-key).
 	patchPathSegs2 = 2
+
+	// fieldRequestParameters and fieldResponseParameters name the
+	// Method/Integration/MethodResponse/IntegrationResponse request- and
+	// response-parameter map fields shared by several per-key PATCH resolvers
+	// below.
+	fieldRequestParameters  = "requestParameters"
+	fieldResponseParameters = "responseParameters"
 )
 
 // patchOp is a single PATCH operation from a PATCH request body, matching
@@ -141,6 +149,7 @@ var patchFieldKind = map[string]string{
 	"apiKeyRequired":               patchKindBool,
 	"authorizerResultTtlInSeconds": patchKindInt,
 	"disableExecuteApiEndpoint":    patchKindBool, // RestApi.disableExecuteApiEndpoint
+	"timeoutInMillis":              patchKindInt,  // Integration.timeoutInMillis
 }
 
 // removableTopLevelScalar lists, per action, the single-segment top-level
@@ -157,6 +166,12 @@ var patchFieldKind = map[string]string{
 var removableTopLevelScalar = map[string]map[string]bool{
 	opUpdateRestAPI:    {"description": true},
 	opUpdateAuthorizer: {"identitySource": true},
+	opUpdateDomainName: {
+		"certificateArn": true, "certificateName": true,
+		"regionalCertificateArn": true, "regionalCertificateName": true,
+		"ownershipVerificationCertificateArn": true,
+	},
+	opUpdateUsagePlan: {"productCode": true},
 }
 
 // coerceTopLevelPatchValue converts a top-level PATCH value (always a JSON
@@ -192,6 +207,20 @@ func coerceTopLevelPatchValue(field string, raw json.RawMessage) json.RawMessage
 	}
 
 	return raw
+}
+
+// patchIgnorableErr reports whether err is non-nil, for the handful of spots
+// in this file that deliberately swallow an error rather than propagate it:
+// a backend lookup needed to merge a PATCH op into current state failing
+// (e.g. the target was deleted concurrently — the outer Update* backend call
+// re-resolves the same identifier right after and returns the authoritative
+// NotFoundException, so this lookup's error would be redundant), or the
+// defensive json.Marshal(out) in applyStructuredPatch falling back to the
+// original body. Factored out so that intent, rather than a bare "err !=
+// nil" the nilerr linter can't tell from an accidental swallow, is visible at
+// every call site.
+func patchIgnorableErr(err error) bool {
+	return err != nil
 }
 
 // patchValueString decodes a PATCH operation's Value into a Go string. Value
@@ -282,6 +311,16 @@ func cloneStringMap(m map[string]string) map[string]string {
 	return out
 }
 
+// cloneBoolMap is cloneStringMap's map[string]bool counterpart, used for
+// Method.RequestParameters and MethodResponse.ResponseParameters (both
+// AWS-modeled as presence flags rather than string values).
+func cloneBoolMap(m map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(m))
+	maps.Copy(out, m)
+
+	return out
+}
+
 // applyStructuredPatch resolves a PATCH request body into the flat JSON
 // object that the target action's Update*Input struct unmarshals from,
 // correctly handling per-entry map/list edits, nested struct-field edits,
@@ -289,17 +328,22 @@ func cloneStringMap(m map[string]string) map[string]string {
 // old single-field flatten supported (see package doc). Non-patch bodies
 // (plain field objects, GET/DELETE's synthesized "{}", etc.) pass through
 // unchanged.
-func (h *Handler) applyStructuredPatch(action string, pathParams map[string]string, body []byte) []byte {
+func (h *Handler) applyStructuredPatch(action string, pathParams map[string]string, body []byte) ([]byte, error) {
 	ops, rest, isPatch := parsePatchDocument(body)
 	if !isPatch {
-		return body
+		return body, nil
 	}
 
 	out := make(map[string]json.RawMessage, len(rest)+len(ops))
 	maps.Copy(out, rest)
 
 	for _, op := range ops {
-		if h.applyResourcePatchOp(action, pathParams, op, out) {
+		handled, err := h.applyResourcePatchOp(action, pathParams, op, out)
+		if err != nil {
+			return nil, err
+		}
+
+		if handled {
 			continue
 		}
 
@@ -307,11 +351,26 @@ func (h *Handler) applyStructuredPatch(action string, pathParams map[string]stri
 	}
 
 	raw, err := json.Marshal(out)
-	if err != nil {
-		return body
+	if patchIgnorableErr(err) {
+		return body, nil
 	}
 
-	return raw
+	return raw, nil
+}
+
+// unsupportedPatchOp rejects an op/path combination that patch-operations.html
+// documents as "Not supported" for this path, instead of silently applying or
+// dropping it (see package doc: silently accepting a patch that changes nothing
+// is the bug this file fixes).
+func unsupportedPatchOp(path, op string) error {
+	return fmt.Errorf("%w: unsupported PATCH op %q for path %q", ErrInvalidParameter, op, path)
+}
+
+// unmodeledPatchPath rejects a PATCH path that patch-operations.html documents as
+// AWS-supported but that this backend does not (yet) track as real state, rather
+// than silently accepting a patch that changes nothing.
+func unmodeledPatchPath(action, path string) error {
+	return fmt.Errorf("%w: %s does not support PATCH path %q in this emulator", ErrInvalidParameter, action, path)
 }
 
 // applyTopLevelPatchOp is the fallback for every path/action combination the
@@ -342,35 +401,58 @@ func applyTopLevelPatchOp(action string, op patchOp, out map[string]json.RawMess
 	}
 }
 
+// resourcePatchResolver is the shared signature for every per-action PATCH
+// resolver dispatched by resourcePatchResolvers. Returns (true, nil) when the
+// op was fully handled (including "handled as an intentional no-op", e.g. an
+// unresolvable "copy" source), (true, err) when the op/path/value combination
+// is one this action must reject, or (false, nil) to fall through to the
+// generic top-level fallback.
+type resourcePatchResolver func(
+	h *Handler, pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error)
+
+// resourcePatchResolvers maps each action with map/struct/list/rejectable
+// PATCH targets to its resolver. A map keeps applyResourcePatchOp a flat
+// lookup instead of a growing switch, so adding actions here doesn't raise
+// its cyclomatic complexity.
+//
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var resourcePatchResolvers = map[string]resourcePatchResolver{
+	opUpdateStage:               (*Handler).applyStagePatchOp,
+	opUpdateRestAPI:             (*Handler).applyRestAPIPatchOp,
+	opUpdateAccount:             (*Handler).applyAccountPatchOp,
+	opUpdateUsagePlan:           (*Handler).applyUsagePlanPatchOp,
+	opUpdateGatewayResponse:     (*Handler).applyGatewayResponsePatchOp,
+	opUpdateAPIKey:              (*Handler).applyAPIKeyPatchOp,
+	opUpdateDomainName:          (*Handler).applyDomainNamePatchOp,
+	opUpdateResource:            (*Handler).applyResourceEntityPatchOp,
+	opUpdateMethod:              (*Handler).applyMethodPatchOp,
+	opUpdateIntegration:         (*Handler).applyIntegrationPatchOp,
+	opUpdateIntegrationResponse: (*Handler).applyIntegrationResponsePatchOp,
+	opUpdateMethodResponse:      (*Handler).applyMethodResponsePatchOp,
+	opUpdateBasePathMapping:     (*Handler).applyBasePathMappingPatchOp,
+	opUpdateAuthorizer:          (*Handler).applyAuthorizerPatchOp,
+}
+
 // applyResourcePatchOp dispatches to the per-action patch resolver for
-// actions with map/struct/list PATCH targets that need current backend state
-// to merge correctly. Returns true when the op was fully handled (including
-// "handled as an intentional no-op", e.g. an unresolvable "copy" source) so
-// the caller must not also apply the generic top-level fallback.
+// actions with map/struct/list/rejectable PATCH targets that need current
+// backend state (or an explicit AWS-documented rejection) that a flat
+// single-field replace cannot express. See resourcePatchResolver's doc
+// comment for the return-value contract.
 func (h *Handler) applyResourcePatchOp(
 	action string, pathParams map[string]string, op patchOp, out map[string]json.RawMessage,
-) bool {
+) (bool, error) {
 	segs := patchPathSegments(op.Path)
 	if len(segs) == 0 {
-		return false
+		return false, nil
 	}
 
-	switch action {
-	case opUpdateStage:
-		return h.applyStagePatchOp(pathParams, op, segs, out)
-	case opUpdateRestAPI:
-		return h.applyRestAPIPatchOp(pathParams, op, segs, out)
-	case opUpdateAccount:
-		return h.applyAccountPatchOp(op, segs, out)
-	case opUpdateUsagePlan:
-		return h.applyUsagePlanPatchOp(pathParams, op, segs, out)
-	case opUpdateGatewayResponse:
-		return h.applyGatewayResponsePatchOp(pathParams, op, segs, out)
-	case opUpdateAPIKey:
-		return h.applyAPIKeyPatchOp(pathParams, op, segs, out)
-	default:
-		return false
+	resolver, ok := resourcePatchResolvers[action]
+	if !ok {
+		return false, nil
 	}
+
+	return resolver(h, pathParams, op, segs, out)
 }
 
 // applyStagePatchOp handles UpdateStage PATCH ops that a flat top-level
@@ -379,41 +461,43 @@ func (h *Handler) applyResourcePatchOp(
 // and per-route method settings.
 func (h *Handler) applyStagePatchOp(
 	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
-) bool {
+) (bool, error) {
 	if op.Op == patchOpCopy && op.Path == "/deploymentId" && op.From == "/canarySettings/deploymentId" {
 		stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
-		if err != nil || stage.CanarySettings == nil {
-			return true
+		if patchIgnorableErr(err) || stage.CanarySettings == nil {
+			return true, nil
 		}
 
 		setJSONValue(out, "deploymentId", stage.CanarySettings.DeploymentID)
 
-		return true
+		return true, nil
 	}
 
 	if len(segs) >= 3 && (segs[0] == "*" || strings.HasPrefix(segs[0], "~1")) {
-		return h.applyStageMethodSettingPatch(pathParams, op, segs, out)
+		return h.applyStageMethodSettingPatch(pathParams, op, segs, out), nil
 	}
 
 	if len(segs) != patchPathSegs2 {
-		return false
+		return false, nil
 	}
 
 	switch segs[0] {
 	case "variables":
-		return h.applyStageVariablePatch(pathParams, op, segs[1], out)
+		return h.applyStageVariablePatch(pathParams, op, segs[1], out), nil
 	case "canarySettings":
-		return h.applyStageCanaryPatch(pathParams, op, segs[1], out)
+		return h.applyStageCanaryPatch(pathParams, op, segs[1], out), nil
 	case "accessLogSettings":
-		return h.applyStageAccessLogPatch(pathParams, op, segs[1], out)
+		return h.applyStageAccessLogPatch(pathParams, op, segs[1], out), nil
 	default:
-		return false
+		return false, nil
 	}
 }
 
 // applyStageVariablePatch adds/replaces/removes a single stage variable
 // ("/variables/{name}"), merging with the stage's existing variables (a
-// wholesale replace would otherwise silently drop every other variable).
+// wholesale replace would otherwise silently drop every other variable), and
+// with whatever an earlier op in the SAME request already staged into
+// out["variables"] (see stagedValue's doc comment).
 func (h *Handler) applyStageVariablePatch(
 	pathParams map[string]string, op patchOp, rawName string, out map[string]json.RawMessage,
 ) bool {
@@ -421,17 +505,22 @@ func (h *Handler) applyStageVariablePatch(
 		return false
 	}
 
-	stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
-	if err != nil {
-		return true
+	vars, ok := stagedValue[map[string]string](out, "variables")
+	if !ok {
+		stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
+		if err != nil {
+			return true
+		}
+
+		vars = stage.Variables
 	}
 
-	vars := cloneStringMap(stage.Variables)
+	vars = cloneStringMap(vars)
 	name := jsonPointerUnescape(rawName)
 
 	if op.Op == patchOpRemove {
 		delete(vars, name)
-	} else if v, ok := patchValueString(op.Value); ok {
+	} else if v, valOK := patchValueString(op.Value); valOK {
 		vars[name] = v
 	}
 
@@ -442,7 +531,8 @@ func (h *Handler) applyStageVariablePatch(
 
 // applyStageCanaryPatch replaces a single CanarySettings sub-field
 // ("/canarySettings/{deploymentId,percentTraffic,useStageCache}"), merging
-// with the stage's existing canary settings.
+// with the stage's existing canary settings and whatever an earlier op in the
+// SAME request already staged into out["canarySettings"].
 func (h *Handler) applyStageCanaryPatch(
 	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
 ) bool {
@@ -450,14 +540,16 @@ func (h *Handler) applyStageCanaryPatch(
 		return false
 	}
 
-	stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
-	if err != nil {
-		return true
-	}
+	cur, ok := stagedValue[CanarySettings](out, "canarySettings")
+	if !ok {
+		stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
+		if err != nil {
+			return true
+		}
 
-	cur := CanarySettings{}
-	if stage.CanarySettings != nil {
-		cur = *stage.CanarySettings
+		if stage.CanarySettings != nil {
+			cur = *stage.CanarySettings
+		}
 	}
 
 	val, _ := patchValueString(op.Value)
@@ -516,7 +608,8 @@ func applyStageCanaryProp(cur *CanarySettings, prop, val string, remove bool) bo
 
 // applyStageAccessLogPatch replaces a single AccessLogSettings sub-field
 // ("/accessLogSettings/{destinationArn,format}"), merging with the stage's
-// existing access log settings.
+// existing access log settings and whatever an earlier op in the SAME
+// request already staged into out["accessLogSettings"].
 func (h *Handler) applyStageAccessLogPatch(
 	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
 ) bool {
@@ -524,14 +617,16 @@ func (h *Handler) applyStageAccessLogPatch(
 		return false
 	}
 
-	stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
-	if err != nil {
-		return true
-	}
+	cur, ok := stagedValue[AccessLogSettings](out, "accessLogSettings")
+	if !ok {
+		stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
+		if err != nil {
+			return true
+		}
 
-	cur := AccessLogSettings{}
-	if stage.AccessLogSettings != nil {
-		cur = *stage.AccessLogSettings
+		if stage.AccessLogSettings != nil {
+			cur = *stage.AccessLogSettings
+		}
 	}
 
 	val, _ := patchValueString(op.Value)
@@ -675,25 +770,31 @@ func (h *Handler) applyStageMethodSettingPatch(
 // applyRestAPIPatchOp handles UpdateRestApi's binary-media-type membership
 // edits ("/binaryMediaTypes/{escaped-media-type}", add/remove), merging with
 // the API's existing binary media types (a wholesale replace would otherwise
-// silently drop every other configured type).
+// silently drop every other configured type) and whatever an earlier op in
+// the SAME request already staged into out["binaryMediaTypes"].
 func (h *Handler) applyRestAPIPatchOp(
 	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
-) bool {
+) (bool, error) {
 	if len(segs) != patchPathSegs2 || segs[0] != "binaryMediaTypes" {
-		return false
+		return false, nil
 	}
 
 	if op.Op != patchOpAdd && op.Op != patchOpRemove {
-		return false
+		return false, nil
 	}
 
-	api, err := h.Backend.GetRestAPI(pathParams[keyRestAPIID])
-	if err != nil {
-		return true
+	types, ok := stagedValue[[]string](out, "binaryMediaTypes")
+	if !ok {
+		api, err := h.Backend.GetRestAPI(pathParams[keyRestAPIID])
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		types = api.BinaryMediaTypes
 	}
 
 	mediaType := jsonPointerUnescape(segs[1])
-	types := slices.Clone(api.BinaryMediaTypes)
+	types = slices.Clone(types)
 
 	if op.Op == patchOpAdd {
 		if !slices.Contains(types, mediaType) {
@@ -709,36 +810,62 @@ func (h *Handler) applyRestAPIPatchOp(
 
 	setJSONValue(out, "binaryMediaTypes", types)
 
-	return true
+	return true, nil
 }
 
+// accountFeatureUsagePlans is the one feature patch-operations.html documents
+// as blocked from removal (UpdateAccount "/features" row: "op:remove
+// Supported, but not for the UsagePlans feature").
+const accountFeatureUsagePlans = "UsagePlans"
+
 // applyAccountPatchOp handles UpdateAccount's nested ThrottleSettings edits
-// ("/throttle/{rateLimit,burstLimit}"), merging with the account's existing
-// throttle settings. "/cloudwatchRoleArn" is a plain top-level string field
-// and is handled by the generic fallback (applyTopLevelPatchOp).
-func (h *Handler) applyAccountPatchOp(op patchOp, segs []string, out map[string]json.RawMessage) bool {
+// ("/throttle/{rateLimit,burstLimit}") and "/features" add/remove list
+// membership. "/cloudwatchRoleArn" is a plain top-level string field and is
+// handled by the generic fallback (applyTopLevelPatchOp).
+func (h *Handler) applyAccountPatchOp(
+	_ map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) == 1 && segs[0] == "features" {
+		return h.applyAccountFeaturesPatch(op, out)
+	}
+
 	if len(segs) != patchPathSegs2 || segs[0] != "throttle" {
-		return false
+		return false, nil
 	}
 
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
-		return false
+		return false, nil
 	}
 
-	acct, err := h.Backend.GetAccount()
-	if err != nil {
-		return true
-	}
+	cur, ok := stagedValue[ThrottleSettings](out, "throttleSettings")
+	if !ok {
+		acct, err := h.Backend.GetAccount()
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
 
-	cur := ThrottleSettings{}
-	if acct.ThrottleSettings != nil {
-		cur = *acct.ThrottleSettings
+		if acct.ThrottleSettings != nil {
+			cur = *acct.ThrottleSettings
+		}
 	}
 
 	val, _ := patchValueString(op.Value)
-	remove := op.Op == patchOpRemove
 
-	switch segs[1] {
+	if !applyAccountThrottleProp(&cur, segs[1], val, op.Op == patchOpRemove) {
+		return false, nil
+	}
+
+	setJSONValue(out, "throttleSettings", &cur)
+
+	return true, nil
+}
+
+// applyAccountThrottleProp merges one ThrottleSettings sub-field
+// ("rateLimit" or "burstLimit") into cur in place. Returns false when prop
+// isn't recognized, matching applyResourcePatchOp's "unhandled -> fall
+// through" contract.
+func applyAccountThrottleProp(cur *ThrottleSettings, prop, val string, remove bool) bool {
+	switch prop {
 	case "rateLimit":
 		if remove {
 			cur.RateLimit = 0
@@ -755,9 +882,57 @@ func (h *Handler) applyAccountPatchOp(op patchOp, segs []string, out map[string]
 		return false
 	}
 
-	setJSONValue(out, "throttleSettings", &cur)
-
 	return true
+}
+
+// applyAccountFeaturesPatch adds/removes one entry of the account's Features
+// list, merging with the account's existing features (a wholesale replace
+// would otherwise silently drop every other feature) and whatever an earlier
+// op in the SAME request already staged into out["features"]. Rejects
+// removing accountFeatureUsagePlans, matching patch-operations.html's
+// documented exception, and any op other than add/remove (replace is "Not
+// supported").
+func (h *Handler) applyAccountFeaturesPatch(op patchOp, out map[string]json.RawMessage) (bool, error) {
+	if op.Op != patchOpAdd && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/features", op.Op)
+	}
+
+	val, ok := patchValueString(op.Value)
+	if !ok {
+		return true, nil
+	}
+
+	if op.Op == patchOpRemove && val == accountFeatureUsagePlans {
+		return true, unsupportedPatchOp("/features", op.Op)
+	}
+
+	features, ok := stagedValue[[]string](out, "features")
+	if !ok {
+		acct, err := h.Backend.GetAccount()
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		features = acct.Features
+	}
+
+	features = slices.Clone(features)
+
+	if op.Op == patchOpAdd {
+		if !slices.Contains(features, val) {
+			features = append(features, val)
+		}
+	} else {
+		features = slices.DeleteFunc(features, func(f string) bool { return f == val })
+	}
+
+	if features == nil {
+		features = []string{}
+	}
+
+	setJSONValue(out, "features", features)
+
+	return true, nil
 }
 
 // currentUsagePlanAPIStages returns the APIStages already staged in
@@ -788,16 +963,16 @@ func (h *Handler) currentUsagePlanAPIStages(
 // reference.
 func (h *Handler) applyUsagePlanPatchOp(
 	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
-) bool {
+) (bool, error) {
 	if len(segs) == 1 && segs[0] == "apiStages" {
-		return h.applyUsagePlanAPIStageMembershipPatch(pathParams, op, out)
+		return h.applyUsagePlanAPIStageMembershipPatch(pathParams, op, out), nil
 	}
 
 	if len(segs) >= patchPathSegs2+1 && segs[0] == "apiStages" && segs[2] == "throttle" {
-		return h.applyUsagePlanThrottlePatch(pathParams, op, segs, out)
+		return h.applyUsagePlanThrottlePatch(pathParams, op, segs, out), nil
 	}
 
-	return false
+	return false, nil
 }
 
 // applyUsagePlanAPIStageMembershipPatch handles the whole-apiStage add/remove
@@ -961,41 +1136,45 @@ func (h *Handler) mergeUsagePlanThrottleEntry(
 // responseParameters/responseTemplates edits
 // ("/responseParameters/{key}", "/responseTemplates/{key}"), merging with the
 // gateway response's existing entries (falling back to AWS's implicit
-// default response when none has been customized yet).
+// default response when none has been customized yet) and whatever an
+// earlier op in the SAME request already staged into out[segs[0]].
 func (h *Handler) applyGatewayResponsePatchOp(
 	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
-) bool {
-	if len(segs) != patchPathSegs2 || (segs[0] != "responseParameters" && segs[0] != "responseTemplates") {
-		return false
+) (bool, error) {
+	if len(segs) != patchPathSegs2 || (segs[0] != fieldResponseParameters && segs[0] != "responseTemplates") {
+		return false, nil
 	}
 
 	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
-		return false
+		return false, nil
 	}
 
-	gr, err := h.Backend.GetGatewayResponse(pathParams[keyRestAPIID], pathParams[keyResponseType])
-	if err != nil {
-		return true
+	m, ok := stagedValue[map[string]string](out, segs[0])
+	if !ok {
+		gr, err := h.Backend.GetGatewayResponse(pathParams[keyRestAPIID], pathParams[keyResponseType])
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		if segs[0] == fieldResponseParameters {
+			m = gr.ResponseParameters
+		} else {
+			m = gr.ResponseTemplates
+		}
 	}
 
 	key := jsonPointerUnescape(segs[1])
-
-	var m map[string]string
-	if segs[0] == "responseParameters" {
-		m = cloneStringMap(gr.ResponseParameters)
-	} else {
-		m = cloneStringMap(gr.ResponseTemplates)
-	}
+	m = cloneStringMap(m)
 
 	if op.Op == patchOpRemove {
 		delete(m, key)
-	} else if v, ok := patchValueString(op.Value); ok {
+	} else if v, valOK := patchValueString(op.Value); valOK {
 		m[key] = v
 	}
 
 	setJSONValue(out, segs[0], m)
 
-	return true
+	return true, nil
 }
 
 // applyAPIKeyPatchOp handles UpdateApiKey's "/stages" add/remove (AWS
@@ -1007,18 +1186,18 @@ func (h *Handler) applyGatewayResponsePatchOp(
 // associated stage).
 func (h *Handler) applyAPIKeyPatchOp(
 	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
-) bool {
+) (bool, error) {
 	if len(segs) != 1 || segs[0] != "stages" {
-		return false
+		return false, nil
 	}
 
 	if op.Op != patchOpAdd && op.Op != patchOpRemove {
-		return false
+		return false, nil
 	}
 
 	val, ok := patchValueString(op.Value)
 	if !ok {
-		return true
+		return true, nil
 	}
 
 	var stageKeys []string
@@ -1026,8 +1205,8 @@ func (h *Handler) applyAPIKeyPatchOp(
 		stageKeys = slices.Clone(staged)
 	} else {
 		key, err := h.Backend.GetAPIKey(pathParams[keyAPIKeyID])
-		if err != nil {
-			return true
+		if patchIgnorableErr(err) {
+			return true, nil
 		}
 
 		stageKeys = slices.Clone(key.StageKeys)
@@ -1047,5 +1226,649 @@ func (h *Handler) applyAPIKeyPatchOp(
 
 	setJSONValue(out, "stageKeys", stageKeys)
 
+	return true, nil
+}
+
+// applyDomainNamePatchOp handles UpdateDomainName's nested PATCH paths
+// ("/endpointConfiguration/types", "/endpointConfiguration/ipAddressType",
+// "/mutualTlsAuthentication/{truststoreUri,truststoreVersion}" — see
+// patch-operations.html's UpdateDomainName table). Before this, applyResourcePatchOp
+// had no case for opUpdateDomainName at all, so every nested DomainName PATCH
+// path silently no-opped via applyTopLevelPatchOp's path-contains-"/" guard.
+func (h *Handler) applyDomainNamePatchOp(
+	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) != patchPathSegs2 {
+		return false, nil
+	}
+
+	switch segs[0] {
+	case "endpointConfiguration":
+		return h.applyDomainNameEndpointConfigPatch(pathParams, op, segs[1], out), nil
+	case "mutualTlsAuthentication":
+		return h.applyDomainNameMTLSPatch(pathParams, op, segs[1], out), nil
+	default:
+		return false, nil
+	}
+}
+
+// applyDomainNameEndpointConfigPatch handles "/endpointConfiguration/types"
+// (add/remove one endpoint type) and "/endpointConfiguration/ipAddressType"
+// (replace), merging with the domain name's existing endpoint configuration
+// and whatever an earlier op in the SAME request already staged into
+// out["endpointConfiguration"].
+func (h *Handler) applyDomainNameEndpointConfigPatch(
+	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
+) bool {
+	cur, ok := stagedValue[EndpointConfiguration](out, "endpointConfiguration")
+	if !ok {
+		dn, err := h.Backend.GetDomainName(pathParams[keyDomainName])
+		if err != nil {
+			return true
+		}
+
+		if dn.EndpointConfiguration != nil {
+			cur = *dn.EndpointConfiguration
+		}
+	}
+
+	val, _ := patchValueString(op.Value)
+
+	switch prop {
+	case "types":
+		if op.Op != patchOpAdd && op.Op != patchOpRemove {
+			return false
+		}
+
+		types := slices.Clone(cur.Types)
+		if op.Op == patchOpAdd {
+			if !slices.Contains(types, val) {
+				types = append(types, val)
+			}
+		} else {
+			types = slices.DeleteFunc(types, func(t string) bool { return t == val })
+		}
+
+		cur.Types = types
+	case "ipAddressType":
+		if op.Op != patchOpReplace {
+			return false
+		}
+
+		cur.IPAddressType = val
+	default:
+		return false
+	}
+
+	setJSONValue(out, "endpointConfiguration", &cur)
+
 	return true
+}
+
+// applyDomainNameMTLSPatch handles a single MutualTLSAuthentication sub-field
+// ("/mutualTlsAuthentication/{truststoreUri,truststoreVersion}"), merging
+// with the domain name's existing mTLS configuration and whatever an earlier
+// op in the SAME request already staged into out["mutualTlsAuthentication"].
+func (h *Handler) applyDomainNameMTLSPatch(
+	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
+) bool {
+	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
+		return false
+	}
+
+	cur, ok := stagedValue[MutualTLSAuthentication](out, "mutualTlsAuthentication")
+	if !ok {
+		dn, err := h.Backend.GetDomainName(pathParams[keyDomainName])
+		if err != nil {
+			return true
+		}
+
+		if dn.MutualTLSAuthentication != nil {
+			cur = *dn.MutualTLSAuthentication
+		}
+	}
+
+	val, _ := patchValueString(op.Value)
+	if op.Op == patchOpRemove {
+		val = ""
+	}
+
+	switch prop {
+	case "truststoreUri":
+		cur.TruststoreURI = val
+	case "truststoreVersion":
+		cur.TruststoreVersion = val
+	default:
+		return false
+	}
+
+	setJSONValue(out, "mutualTlsAuthentication", &cur)
+
+	return true
+}
+
+// applyResourceEntityPatchOp handles UpdateResource's "/parentId" (move a
+// resource to a new parent, recomputing its subtree's Path — see
+// InMemoryBackend.UpdateResource). "/pathPart" is a plain top-level string
+// field and is left to the generic fallback (applyTopLevelPatchOp).
+// patch-operations.html's UpdateResource table documents both paths as
+// replace-only.
+func (h *Handler) applyResourceEntityPatchOp(
+	_ map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) != 1 || segs[0] != "parentId" {
+		return false, nil
+	}
+
+	if op.Op != patchOpReplace {
+		return true, unsupportedPatchOp("/parentId", op.Op)
+	}
+
+	out["parentId"] = op.Value
+
+	return true, nil
+}
+
+// applyBasePathMappingPatchOp resolves UpdateBasePathMapping's PATCH paths.
+// AWS's own docs disagree on how "/basepath" is cased: patch-operations.html
+// spells it lowercase ("/basepath", also "/restapiId" — note the capital I
+// even there), while the AWS CLI reference's own worked example (docs.aws.
+// amazon.com/cli/latest/reference/apigateway/update-base-path-mapping.html,
+// also mirrored in AWS's Doc SDK Examples code-library page) uses
+// path='/basePath' and returns a populated "basePath" in its shown output —
+// both spellings are accepted here rather than picking one.
+//
+// Renaming the base path itself needs a dedicated resolver, not just a case
+// alias: UpdateBasePathMappingInput's "basePath" field does DOUBLE DUTY as
+// both the REQUIRED identity used to look up which mapping to update (from
+// the URL path segment) and, naively, the field a "/basepath" patch would
+// target — but pathParams is merged into the body via injectJSONFieldAPIGW
+// AFTER applyStructuredPatch runs (handler.go) and unconditionally overwrites
+// "basePath" with the URL's OLD value, clobbering anything staged here
+// regardless of casing. So both spellings stage the new value under
+// "newBasePath" instead, a field private to this backend's
+// UpdateBasePathMappingInput with no equivalent on the real AWS wire (every
+// real client only ever sends the rename through patchOperations), which
+// InMemoryBackend.UpdateBasePathMapping applies as an actual key rename.
+//
+// "/restapiId" is aliased explicitly to RestAPIID's "restApiId" json tag
+// rather than relied on via json.Unmarshal's incidental case-insensitive
+// field match (which happens to also save it, since RestAPIID isn't
+// pathParams-clobbered — but relying on that would be an accident, not a
+// decision). "/restApiId" and "/stage" are spelled identically in every AWS
+// source and already work via the generic fallback (applyTopLevelPatchOp).
+func (h *Handler) applyBasePathMappingPatchOp(
+	_ map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) != 1 {
+		return false, nil
+	}
+
+	if op.Op != patchOpReplace && op.Op != patchOpAdd {
+		return false, nil
+	}
+
+	switch segs[0] {
+	case "basepath", "basePath":
+		out["newBasePath"] = coerceTopLevelPatchValue("newBasePath", op.Value)
+	case "restapiId":
+		out["restApiId"] = coerceTopLevelPatchValue("restApiId", op.Value)
+	default:
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// applyAuthorizerPatchOp handles UpdateAuthorizer's "/providerARNs" add/remove
+// list-membership edits (patch-operations.html: UpdateAuthorizer table
+// documents add/remove as supported, replace as not supported), merging with
+// the authorizer's existing ProviderARNs (a wholesale replace would otherwise
+// silently drop every other ARN) and whatever an earlier op in the SAME
+// request already staged into out["providerARNs"]. Before this, the path fell
+// through to applyTopLevelPatchOp, which wrote the raw Value JSON string
+// straight into a field UpdateAuthorizerInput types as []string —
+// json.Unmarshal then failed the WHOLE PATCH request with a 500 (same bug
+// class as UpdateIntegration's /cacheKeyParameters).
+func (h *Handler) applyAuthorizerPatchOp(
+	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) != 1 || segs[0] != "providerARNs" {
+		return false, nil
+	}
+
+	if op.Op != patchOpAdd && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/providerARNs", op.Op)
+	}
+
+	val, ok := patchValueString(op.Value)
+	if !ok {
+		return true, nil
+	}
+
+	arns, ok := stagedValue[[]string](out, "providerARNs")
+	if !ok {
+		auth, err := h.Backend.GetAuthorizer(pathParams[keyRestAPIID], pathParams[keyAuthorizerID])
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		arns = auth.ProviderARNs
+	}
+
+	arns = slices.Clone(arns)
+
+	if op.Op == patchOpAdd {
+		if !slices.Contains(arns, val) {
+			arns = append(arns, val)
+		}
+	} else {
+		arns = slices.DeleteFunc(arns, func(a string) bool { return a == val })
+	}
+
+	if arns == nil {
+		arns = []string{}
+	}
+
+	setJSONValue(out, "providerARNs", arns)
+
+	return true, nil
+}
+
+// applyMethodPatchOp handles UpdateMethod's per-key "/requestParameters/{name}"
+// and "/requestModels/{content-type}" map edits. "/authorizationScopes" is
+// AWS-documented (patch-operations.html) as add/remove-supported but Method
+// has no AuthorizationScopes field in this backend, so it is rejected rather
+// than silently accepted (see package doc). The remaining top-level scalars
+// (authorizationType, authorizerId, apiKeyRequired, operationName,
+// requestValidatorId) are plain replace-only fields left to the generic
+// fallback.
+func (h *Handler) applyMethodPatchOp(
+	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) == 1 && segs[0] == "authorizationScopes" {
+		return true, unmodeledPatchPath(opUpdateMethod, op.Path)
+	}
+
+	if len(segs) != patchPathSegs2 {
+		return false, nil
+	}
+
+	switch segs[0] {
+	case fieldRequestParameters:
+		return h.applyMethodRequestParameterPatch(pathParams, op, segs[1], out)
+	case "requestModels":
+		return h.applyMethodRequestModelPatch(pathParams, op, segs[1], out)
+	default:
+		return false, nil
+	}
+}
+
+// applyMethodRequestParameterPatch adds/replaces/removes a single method
+// request-parameter flag ("/requestParameters/{name}"), merging with the
+// method's existing RequestParameters (a wholesale replace would otherwise
+// silently drop every other parameter) and whatever an earlier op in the SAME
+// request already staged into out["requestParameters"].
+func (h *Handler) applyMethodRequestParameterPatch(
+	pathParams map[string]string, op patchOp, rawName string, out map[string]json.RawMessage,
+) (bool, error) {
+	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/requestParameters", op.Op)
+	}
+
+	params, ok := stagedValue[map[string]bool](out, fieldRequestParameters)
+	if !ok {
+		m, err := h.Backend.GetMethod(pathParams[keyRestAPIID], pathParams[keyResourceID], pathParams[keyHTTPMethod])
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		params = m.RequestParameters
+	}
+
+	params = cloneBoolMap(params)
+	name := jsonPointerUnescape(rawName)
+
+	if op.Op == patchOpRemove {
+		delete(params, name)
+	} else {
+		val, _ := patchValueString(op.Value)
+		params[name] = parseBoolLenient(val)
+	}
+
+	setJSONValue(out, fieldRequestParameters, params)
+
+	return true, nil
+}
+
+// applyMethodRequestModelPatch adds/replaces/removes a single method request
+// model mapping ("/requestModels/{content-type}"), merging with the method's
+// existing RequestModels and whatever an earlier op in the SAME request
+// already staged into out["requestModels"].
+func (h *Handler) applyMethodRequestModelPatch(
+	pathParams map[string]string, op patchOp, rawContentType string, out map[string]json.RawMessage,
+) (bool, error) {
+	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/requestModels", op.Op)
+	}
+
+	models, ok := stagedValue[map[string]string](out, "requestModels")
+	if !ok {
+		m, err := h.Backend.GetMethod(pathParams[keyRestAPIID], pathParams[keyResourceID], pathParams[keyHTTPMethod])
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		models = m.RequestModels
+	}
+
+	models = cloneStringMap(models)
+	contentType := jsonPointerUnescape(rawContentType)
+
+	if op.Op == patchOpRemove {
+		delete(models, contentType)
+	} else if v, valOK := patchValueString(op.Value); valOK {
+		models[contentType] = v
+	}
+
+	setJSONValue(out, "requestModels", models)
+
+	return true, nil
+}
+
+// applyIntegrationPatchOp handles UpdateIntegration's PATCH paths that a flat
+// top-level replace cannot express: "/cacheKeyParameters" (list membership),
+// the per-key "/requestParameters/{name}" and "/requestTemplates/{content-type}"
+// map edits, and three paths patch-operations.html documents that this
+// backend does not model: "/type" (documented "Not supported" for every op),
+// "/integrationTarget", "/responseTransferMode", and
+// "/tlsConfig/insecureSkipVerification" (rejected rather than silently
+// accepted — see package doc). The remaining top-level scalars (cacheNamespace,
+// connectionId, connectionType, contentHandling, httpMethod, passthroughBehavior,
+// uri, timeoutInMillis) are plain replace-only fields left to the generic fallback.
+func (h *Handler) applyIntegrationPatchOp(
+	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) == 1 {
+		return h.applyIntegrationTopLevelPatchOp(pathParams, op, segs[0], out)
+	}
+
+	if len(segs) != patchPathSegs2 {
+		return false, nil
+	}
+
+	switch segs[0] {
+	case fieldRequestParameters:
+		return h.applyIntegrationMapPatch(pathParams, op, fieldRequestParameters, segs[1], out)
+	case "requestTemplates":
+		return h.applyIntegrationMapPatch(pathParams, op, "requestTemplates", segs[1], out)
+	case "tlsConfig":
+		return true, unmodeledPatchPath(opUpdateIntegration, op.Path)
+	default:
+		return false, nil
+	}
+}
+
+// applyIntegrationTopLevelPatchOp handles UpdateIntegration's single-segment
+// PATCH paths that need explicit rejection or list-membership merging rather
+// than the generic scalar fallback.
+func (h *Handler) applyIntegrationTopLevelPatchOp(
+	pathParams map[string]string, op patchOp, field string, out map[string]json.RawMessage,
+) (bool, error) {
+	switch field {
+	case "type":
+		return true, unsupportedPatchOp("/type", op.Op)
+	case "integrationTarget", "responseTransferMode":
+		return true, unmodeledPatchPath(opUpdateIntegration, op.Path)
+	case "cacheKeyParameters":
+		return h.applyIntegrationCacheKeyParametersPatch(pathParams, op, out)
+	default:
+		return false, nil
+	}
+}
+
+// applyIntegrationCacheKeyParametersPatch adds/removes one cache-key
+// parameter ("/cacheKeyParameters", Value the parameter string), merging with
+// the integration's existing CacheKeyParameters. patch-operations.html lists
+// op:replace as supported alongside add/remove; since PatchOperation.Value is a
+// single string (not an array) there is no documented way for one "replace"
+// op to set the whole list at once, so it is treated as an idempotent add,
+// matching this file's other single-segment list-membership paths
+// (UpdateApiKey's "/stages", UpdateRestApi's "/binaryMediaTypes").
+func (h *Handler) applyIntegrationCacheKeyParametersPatch(
+	pathParams map[string]string, op patchOp, out map[string]json.RawMessage,
+) (bool, error) {
+	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/cacheKeyParameters", op.Op)
+	}
+
+	val, ok := patchValueString(op.Value)
+	if !ok {
+		return true, nil
+	}
+
+	params, ok := stagedValue[[]string](out, "cacheKeyParameters")
+	if !ok {
+		integ, err := h.Backend.GetIntegration(
+			pathParams[keyRestAPIID], pathParams[keyResourceID], pathParams[keyHTTPMethod],
+		)
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		params = integ.CacheKeyParameters
+	}
+
+	params = slices.Clone(params)
+
+	if op.Op == patchOpRemove {
+		params = slices.DeleteFunc(params, func(p string) bool { return p == val })
+	} else if !slices.Contains(params, val) {
+		params = append(params, val)
+	}
+
+	if params == nil {
+		params = []string{}
+	}
+
+	setJSONValue(out, "cacheKeyParameters", params)
+
+	return true, nil
+}
+
+// applyIntegrationMapPatch adds/replaces/removes a single entry of
+// UpdateIntegration's "requestParameters" or "requestTemplates" map, merging
+// with the integration's existing map and whatever an earlier op in the SAME
+// request already staged into out[field].
+func (h *Handler) applyIntegrationMapPatch(
+	pathParams map[string]string, op patchOp, field, rawKey string, out map[string]json.RawMessage,
+) (bool, error) {
+	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/"+field, op.Op)
+	}
+
+	m, ok := stagedValue[map[string]string](out, field)
+	if !ok {
+		integ, err := h.Backend.GetIntegration(
+			pathParams[keyRestAPIID], pathParams[keyResourceID], pathParams[keyHTTPMethod],
+		)
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		if field == fieldRequestParameters {
+			m = integ.RequestParameters
+		} else {
+			m = integ.RequestTemplates
+		}
+	}
+
+	m = cloneStringMap(m)
+	key := jsonPointerUnescape(rawKey)
+
+	if op.Op == patchOpRemove {
+		delete(m, key)
+	} else if v, valOK := patchValueString(op.Value); valOK {
+		m[key] = v
+	}
+
+	setJSONValue(out, field, m)
+
+	return true, nil
+}
+
+// applyIntegrationResponsePatchOp handles UpdateIntegrationResponse's per-key
+// "/responseParameters/{name}" and "/responseTemplates/{content-type}" map
+// edits. "/contentHandling" and "/selectionPattern" are plain top-level
+// replace-only fields left to the generic fallback.
+func (h *Handler) applyIntegrationResponsePatchOp(
+	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) != patchPathSegs2 {
+		return false, nil
+	}
+
+	switch segs[0] {
+	case fieldResponseParameters:
+		return h.applyIntegrationResponseMapPatch(pathParams, op, fieldResponseParameters, segs[1], out)
+	case "responseTemplates":
+		return h.applyIntegrationResponseMapPatch(pathParams, op, "responseTemplates", segs[1], out)
+	default:
+		return false, nil
+	}
+}
+
+// applyIntegrationResponseMapPatch adds/replaces/removes a single entry of
+// UpdateIntegrationResponse's "responseParameters" or "responseTemplates" map,
+// merging with the integration response's existing map and whatever an
+// earlier op in the SAME request already staged into out[field].
+func (h *Handler) applyIntegrationResponseMapPatch(
+	pathParams map[string]string, op patchOp, field, rawKey string, out map[string]json.RawMessage,
+) (bool, error) {
+	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/"+field, op.Op)
+	}
+
+	m, ok := stagedValue[map[string]string](out, field)
+	if !ok {
+		ir, err := h.Backend.GetIntegrationResponse(
+			pathParams[keyRestAPIID], pathParams[keyResourceID], pathParams[keyHTTPMethod], pathParams[keyStatusCode],
+		)
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		if field == fieldResponseParameters {
+			m = ir.ResponseParameters
+		} else {
+			m = ir.ResponseTemplates
+		}
+	}
+
+	m = cloneStringMap(m)
+	key := jsonPointerUnescape(rawKey)
+
+	if op.Op == patchOpRemove {
+		delete(m, key)
+	} else if v, valOK := patchValueString(op.Value); valOK {
+		m[key] = v
+	}
+
+	setJSONValue(out, field, m)
+
+	return true, nil
+}
+
+// applyMethodResponsePatchOp handles UpdateMethodResponse's per-key
+// "/responseModels/{content-type}" and "/responseParameters/{name}" map edits.
+func (h *Handler) applyMethodResponsePatchOp(
+	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) != patchPathSegs2 {
+		return false, nil
+	}
+
+	switch segs[0] {
+	case "responseModels":
+		return h.applyMethodResponseModelPatch(pathParams, op, segs[1], out)
+	case fieldResponseParameters:
+		return h.applyMethodResponseParameterPatch(pathParams, op, segs[1], out)
+	default:
+		return false, nil
+	}
+}
+
+// applyMethodResponseModelPatch adds/replaces/removes a single method
+// response model mapping ("/responseModels/{content-type}"), merging with the
+// method response's existing ResponseModels and whatever an earlier op in the
+// SAME request already staged into out["responseModels"].
+func (h *Handler) applyMethodResponseModelPatch(
+	pathParams map[string]string, op patchOp, rawContentType string, out map[string]json.RawMessage,
+) (bool, error) {
+	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/responseModels", op.Op)
+	}
+
+	models, ok := stagedValue[map[string]string](out, "responseModels")
+	if !ok {
+		mr, err := h.Backend.GetMethodResponse(
+			pathParams[keyRestAPIID], pathParams[keyResourceID], pathParams[keyHTTPMethod], pathParams[keyStatusCode],
+		)
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		models = mr.ResponseModels
+	}
+
+	models = cloneStringMap(models)
+	contentType := jsonPointerUnescape(rawContentType)
+
+	if op.Op == patchOpRemove {
+		delete(models, contentType)
+	} else if v, valOK := patchValueString(op.Value); valOK {
+		models[contentType] = v
+	}
+
+	setJSONValue(out, "responseModels", models)
+
+	return true, nil
+}
+
+// applyMethodResponseParameterPatch adds/replaces/removes a single method
+// response-parameter flag ("/responseParameters/{name}"), merging with the
+// method response's existing ResponseParameters and whatever an earlier op in
+// the SAME request already staged into out["responseParameters"].
+func (h *Handler) applyMethodResponseParameterPatch(
+	pathParams map[string]string, op patchOp, rawName string, out map[string]json.RawMessage,
+) (bool, error) {
+	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/responseParameters", op.Op)
+	}
+
+	params, ok := stagedValue[map[string]bool](out, fieldResponseParameters)
+	if !ok {
+		mr, err := h.Backend.GetMethodResponse(
+			pathParams[keyRestAPIID], pathParams[keyResourceID], pathParams[keyHTTPMethod], pathParams[keyStatusCode],
+		)
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		params = mr.ResponseParameters
+	}
+
+	params = cloneBoolMap(params)
+	name := jsonPointerUnescape(rawName)
+
+	if op.Op == patchOpRemove {
+		delete(params, name)
+	} else {
+		val, _ := patchValueString(op.Value)
+		params[name] = parseBoolLenient(val)
+	}
+
+	setJSONValue(out, fieldResponseParameters, params)
+
+	return true, nil
 }

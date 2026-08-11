@@ -244,6 +244,67 @@ func TestHandler_DeleteDataCatalog_ReturnsDataCatalog(t *testing.T) {
 	assert.Equal(t, "del-cat2", dc["Name"])
 }
 
+// TestHandler_DeleteDataCatalog_DeleteCatalogOnly locks in that
+// DeleteCatalogOnly is rejected for non-FEDERATED catalogs (real AWS: "You
+// can only use this with the FEDERATED catalogs" --
+// aws-sdk-go-v2/service/athena@v1.60.4 api_op_DeleteDataCatalog.go:34-37) and
+// accepted for FEDERATED ones.
+func TestHandler_DeleteDataCatalog_DeleteCatalogOnly(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		catalogType string
+		wantStatus  int
+	}{
+		{name: "rejected_for_glue", catalogType: "GLUE", wantStatus: http.StatusBadRequest},
+		{name: "rejected_for_hive", catalogType: "HIVE", wantStatus: http.StatusBadRequest},
+		{name: "rejected_for_lambda", catalogType: "LAMBDA", wantStatus: http.StatusBadRequest},
+		{name: "allowed_for_federated", catalogType: "FEDERATED", wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			catalogName := "dco-" + tt.name
+
+			rec := doRequest(t, h, "CreateDataCatalog",
+				fmt.Sprintf(`{"Name":%q,"Type":%q}`, catalogName, tt.catalogType))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			rec = doRequest(t, h, "DeleteDataCatalog",
+				fmt.Sprintf(`{"Name":%q,"DeleteCatalogOnly":true}`, catalogName))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestHandler_DeleteDataCatalog_FederatedReportsDeleteComplete locks in that
+// deleting a FEDERATED catalog reports DELETE_COMPLETE, one of the
+// documented deletion statuses for FEDERATED catalogs (real AWS:
+// aws-sdk-go-v2/service/athena@v1.60.4 types/types.go DataCatalog.Status doc
+// comment) -- rather than echoing back the stale pre-deletion creation
+// status.
+func TestHandler_DeleteDataCatalog_FederatedReportsDeleteComplete(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDataCatalog", `{"Name":"fed-del","Type":"FEDERATED"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DeleteDataCatalog", `{"Name":"fed-del"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	dc, ok := resp["DataCatalog"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "DELETE_COMPLETE", dc["Status"])
+}
+
 // --- Additional QueryExecution tests ---
 
 func TestHandler_CreateDataCatalog_Validation(t *testing.T) {

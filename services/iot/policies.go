@@ -45,6 +45,7 @@ func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyO
 			CreatedAt:        now,
 		},
 	}
+	b.putResourceTagsLocked(arn, input.Tags)
 
 	return &CreatePolicyOutput{
 		PolicyName:      input.PolicyName,

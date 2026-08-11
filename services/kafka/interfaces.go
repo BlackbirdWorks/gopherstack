@@ -147,6 +147,27 @@ type StorageBackend interface {
 	ListKafkaVersions(ctx context.Context) []*MSKVersion
 	GetCompatibleKafkaVersions(ctx context.Context, clusterArn string) ([]*MSKVersion, error)
 
+	// Channel operations
+	CreateChannel(
+		ctx context.Context,
+		clusterArn, channelName string,
+		topicConfigurationList []TopicConfiguration,
+		encryptionConfiguration *ChannelEncryptionConfiguration,
+		icebergDestinationConfiguration *IcebergDestinationConfiguration,
+		s3DestinationConfiguration *S3DestinationConfiguration,
+		loggingInfo *ChannelLoggingInfo,
+		tags map[string]string,
+	) (*Channel, error)
+	DeleteChannel(ctx context.Context, clusterArn, channelArn string) (*Channel, error)
+	DescribeChannel(ctx context.Context, clusterArn, channelArn string) (*Channel, error)
+	ListChannels(ctx context.Context, clusterArn, topicNameFilter string) ([]*Channel, error)
+	UpdateChannel(
+		ctx context.Context,
+		clusterArn, channelArn string,
+		icebergDestinationUpdate *IcebergDestinationUpdate,
+		s3DestinationUpdate *S3DestinationUpdate,
+	) (*Channel, error)
+
 	// Lifecycle
 	Reset()
 	Region() string

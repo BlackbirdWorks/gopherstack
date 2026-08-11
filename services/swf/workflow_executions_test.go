@@ -55,7 +55,7 @@ func TestWorkflowExecution(t *testing.T) {
 				assert.Equal(t, tt.wantStatus, exec.Status)
 			}
 
-			got, err := b.DescribeWorkflowExecution(tt.domain, tt.workflowID)
+			got, err := b.DescribeWorkflowExecution(tt.domain, tt.workflowID, "")
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -251,7 +251,7 @@ func TestTerminateWorkflowExecution_ReasonInHistory(t *testing.T) {
 
 	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "out of budget", "details here", ""))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 	require.NotEmpty(t, events)
 	last := events[len(events)-1]
 	assert.Equal(t, "WorkflowExecutionTerminated", last.EventType)
@@ -274,7 +274,7 @@ func TestTerminateWorkflowExecution(t *testing.T) {
 
 	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", ""))
 
-	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+	exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "TERMINATED", exec.Status)
 	assert.Equal(t, "TERMINATED", exec.CloseStatus)
@@ -343,7 +343,7 @@ func TestRequestCancelWorkflowExecution_SetsFlag(t *testing.T) {
 
 	require.NoError(t, b.RequestCancelWorkflowExecution("dom", "wf-1", ""))
 
-	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+	exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 	require.NoError(t, err)
 	assert.True(t, exec.CancelRequested)
 }

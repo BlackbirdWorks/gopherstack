@@ -21,6 +21,10 @@ func (b *InMemoryBackend) PutObjectLockConfiguration(
 	bucket.mu.Lock("PutObjectLockConfiguration")
 	defer bucket.mu.Unlock()
 
+	if !bucket.ObjectLockEnabled {
+		return ErrObjectLockNotEnabled
+	}
+
 	bucket.ObjectLockConfig = configXML
 
 	return nil

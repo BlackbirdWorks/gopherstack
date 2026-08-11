@@ -680,7 +680,7 @@ func TestFirewallRuleCRUD(t *testing.T) {
 // DnsThreatProtection rule by its system-generated FirewallThreatProtectionId
 // instead of a domain list (verified against CreateFirewallRuleInput's doc
 // comment and api_op_{Update,Delete}FirewallRule.go in
-// aws-sdk-go-v2/service/route53resolver@v1.48.0).
+// aws-sdk-go-v2/service/route53resolver@v1.48.4).
 func TestFirewallRule_DnsThreatProtection(t *testing.T) {
 	t.Parallel()
 
@@ -886,6 +886,207 @@ func TestFirewallRule_UpdateDeleteByThreatProtectionId(t *testing.T) {
 		"FirewallThreatProtectionId": threatProtectionID,
 	})
 	assert.Equal(t, http.StatusNotFound, deleteAgainRec.Code)
+}
+
+// TestDeleteFirewallRule_QtypeMismatch verifies that a Qtype supplied on
+// DeleteFirewallRule must match the resolved rule's stored Qtype -- a
+// mismatched value must not delete the rule. DeleteFirewallRuleInput
+// carries Qtype (verified against api_op_DeleteFirewallRule.go) but the
+// wire struct previously had no field for it, so a real client's value was
+// silently dropped and the rule was deleted regardless of what Qtype it
+// asked for.
+func TestDeleteFirewallRule_QtypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		qtype      string
+		wantStatus int
+	}{
+		{name: "matching_qtype_deletes", qtype: "A", wantStatus: http.StatusOK},
+		{name: "mismatched_qtype_not_found", qtype: "AAAA", wantStatus: http.StatusNotFound},
+		{name: "omitted_qtype_deletes", qtype: "", wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "qtype-del-grp"})
+			require.Equal(t, http.StatusOK, grpRec.Code)
+			grpID, _ := decodeJSON(t, grpRec)["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+			dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "qtype-del-dl"})
+			require.Equal(t, http.StatusOK, dlRec.Code)
+			dlID, _ := decodeJSON(t, dlRec)["FirewallDomainList"].(map[string]any)["Id"].(string)
+
+			createRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+				"FirewallRuleGroupId":  grpID,
+				"FirewallDomainListId": dlID,
+				"Priority":             100,
+				"Action":               "ALLOW",
+				"Qtype":                "A",
+				"Name":                 "qtype-del-rule",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			deleteRec := doRequest(t, h, "DeleteFirewallRule", map[string]any{
+				"FirewallRuleGroupId":  grpID,
+				"FirewallDomainListId": dlID,
+				"Qtype":                tt.qtype,
+			})
+			assert.Equal(t, tt.wantStatus, deleteRec.Code)
+
+			listRec := doRequest(t, h, "ListFirewallRules", map[string]any{"FirewallRuleGroupId": grpID})
+			require.Equal(t, http.StatusOK, listRec.Code)
+			rules, _ := decodeJSON(t, listRec)["FirewallRules"].([]any)
+			if tt.wantStatus == http.StatusOK {
+				assert.Empty(t, rules, "rule must be gone after a successful delete")
+			} else {
+				assert.Len(t, rules, 1, "rule must survive a delete with a mismatched Qtype")
+			}
+		})
+	}
+}
+
+// TestUpdateFirewallRule_DnsThreatProtectionImmutable verifies that a
+// rule's top-level DnsThreatProtection match source cannot be changed by
+// UpdateFirewallRule -- verified against api_op_UpdateFirewallRule.go's
+// doc comment: "The rule's FirewallRuleType, FirewallDomainListId, and
+// top-level DnsThreatProtection match source cannot be changed after
+// creation." The field previously had no wire struct entry at all on
+// Update, so a real client's value -- whether a harmless re-assertion or a
+// disallowed change -- was silently dropped.
+func TestUpdateFirewallRule_DnsThreatProtectionImmutable(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "dtp-immutable-grp"})
+	require.Equal(t, http.StatusOK, grpRec.Code)
+	grpID, _ := decodeJSON(t, grpRec)["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+	createRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+		"FirewallRuleGroupId": grpID,
+		"DnsThreatProtection": "DGA",
+		"ConfidenceThreshold": "MEDIUM",
+		"Name":                "dtp-immutable-rule",
+		"Action":              "ALERT",
+		"Priority":            100,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	createdRule, _ := decodeJSON(t, createRec)["FirewallRule"].(map[string]any)
+	threatProtectionID, _ := createdRule["FirewallThreatProtectionId"].(string)
+	require.NotEmpty(t, threatProtectionID)
+
+	// Re-asserting the same value is a no-op, not an error.
+	sameRec := doRequest(t, h, "UpdateFirewallRule", map[string]any{
+		"FirewallRuleGroupId":        grpID,
+		"FirewallThreatProtectionId": threatProtectionID,
+		"DnsThreatProtection":        "DGA",
+	})
+	assert.Equal(t, http.StatusOK, sameRec.Code)
+
+	// Changing it to a different (even valid) value must be rejected.
+	changedRec := doRequest(t, h, "UpdateFirewallRule", map[string]any{
+		"FirewallRuleGroupId":        grpID,
+		"FirewallThreatProtectionId": threatProtectionID,
+		"DnsThreatProtection":        "DNS_TUNNELING",
+	})
+	assert.Equal(t, http.StatusBadRequest, changedRec.Code)
+
+	listRec := doRequest(t, h, "ListFirewallRules", map[string]any{"FirewallRuleGroupId": grpID})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	rules, _ := decodeJSON(t, listRec)["FirewallRules"].([]any)
+	require.Len(t, rules, 1)
+	assert.Equal(
+		t,
+		"DGA",
+		rules[0].(map[string]any)["DnsThreatProtection"],
+		"rejected update must not have changed the match source",
+	)
+}
+
+// TestFirewallRuleType_DnsThreatProtection verifies CreateFirewallRule and
+// UpdateFirewallRule accept the FirewallRuleType tagged-union syntax for a
+// DnsThreatProtection rule (verified against api_op_CreateFirewallRule.go /
+// api_op_UpdateFirewallRule.go and types.FirewallRuleType) as an alternate
+// to the flat top-level DnsThreatProtection/ConfidenceThreshold fields --
+// both map onto the same backend state. The wire struct previously had no
+// field for FirewallRuleType at all, so a real client using this syntax
+// got a rule created with no match source, silently.
+func TestFirewallRuleType_DnsThreatProtection(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "frt-grp"})
+	require.Equal(t, http.StatusOK, grpRec.Code)
+	grpID, _ := decodeJSON(t, grpRec)["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+	createRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+		"FirewallRuleGroupId": grpID,
+		"Name":                "frt-rule",
+		"Action":              "ALERT",
+		"Priority":            100,
+		"FirewallRuleType": map[string]any{
+			"DnsThreatProtection": map[string]any{
+				"Value":               "DGA",
+				"ConfidenceThreshold": "MEDIUM",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	rule, ok := decodeJSON(t, createRec)["FirewallRule"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(
+		t,
+		"DGA",
+		rule["DnsThreatProtection"],
+		"FirewallRuleType.DnsThreatProtection must land in the same backend field as the flat syntax",
+	)
+	assert.Equal(t, "MEDIUM", rule["ConfidenceThreshold"])
+	frt, ok := rule["FirewallRuleType"].(map[string]any)
+	require.True(t, ok, "response must echo FirewallRuleType too")
+	dtp, ok := frt["DnsThreatProtection"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "DGA", dtp["Value"])
+	assert.Equal(t, "MEDIUM", dtp["ConfidenceThreshold"])
+
+	// Mutually exclusive with the top-level DnsThreatProtection field.
+	conflictRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+		"FirewallRuleGroupId": grpID,
+		"Name":                "frt-conflict-rule",
+		"Action":              "ALERT",
+		"Priority":            200,
+		"DnsThreatProtection": "DGA",
+		"ConfidenceThreshold": "MEDIUM",
+		"FirewallRuleType": map[string]any{
+			"DnsThreatProtection": map[string]any{
+				"Value":               "DGA",
+				"ConfidenceThreshold": "MEDIUM",
+			},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, conflictRec.Code)
+
+	// The other three tagged-union variants have no closed set of category
+	// identifiers to validate against and must be rejected, not silently
+	// accepted.
+	unsupportedRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
+		"FirewallRuleGroupId": grpID,
+		"Name":                "frt-unsupported-rule",
+		"Action":              "ALERT",
+		"Priority":            300,
+		"FirewallRuleType": map[string]any{
+			"FirewallAdvancedContentCategory": map[string]any{
+				"Category": "VIOLENCE_AND_HATE_SPEECH",
+			},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, unsupportedRec.Code)
 }
 
 // TestFirewallRule_DomainRedirectionAction covers

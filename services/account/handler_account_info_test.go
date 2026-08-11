@@ -197,6 +197,91 @@ func TestHandler_PrimaryEmail_StartMissingFields(t *testing.T) {
 	}
 }
 
+func TestHandler_PrimaryEmail_StartConflictsOnCurrentEmail(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	getRec := doRequest(t, h, "/getPrimaryEmail", map[string]any{"AccountId": "000000000000"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+	currentEmail, ok := getOut["PrimaryEmail"].(string)
+	require.True(t, ok)
+
+	rec := doRequest(t, h, "/startPrimaryEmailUpdate", map[string]any{
+		"AccountId":    "000000000000",
+		"PrimaryEmail": currentEmail,
+	})
+	require.Equal(t, http.StatusConflict, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.Equal(t, "ConflictException", out["__type"])
+	assert.Equal(t, "ConflictException", rec.Header().Get("X-Amzn-Errortype"))
+}
+
+func TestHandler_GetPrimaryEmailUpdateStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantBody   string
+		wantStatus int
+		accept     bool
+	}{
+		{name: "never_started", wantStatus: http.StatusNotFound},
+		{name: "pending", wantStatus: http.StatusOK, wantBody: "PENDING"},
+		{name: "accepted", accept: true, wantStatus: http.StatusOK, wantBody: "ACCEPTED"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name != "never_started" {
+				doRequest(t, h, "/startPrimaryEmailUpdate", map[string]any{
+					"AccountId": "000000000000", "PrimaryEmail": "new@example.com",
+				})
+			}
+
+			if tt.accept {
+				doRequest(t, h, "/acceptPrimaryEmailUpdate", map[string]any{
+					"AccountId": "000000000000", "Otp": "123456", "PrimaryEmail": "new@example.com",
+				})
+			}
+
+			rec := doRequest(t, h, "/getPrimaryEmailUpdateStatus", map[string]any{"AccountId": "000000000000"})
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var out map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Equal(t, tt.wantBody, out["Status"])
+			assert.NotZero(t, out["UpdatedAt"])
+		})
+	}
+}
+
+func TestHandler_GetGovCloudAccountInformation_NotLinked(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "/getGovCloudAccountInformation", map[string]any{"StandardAccountId": "000000000000"})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.Equal(t, "ResourceNotFoundException", out["__type"])
+	assert.Equal(t, "ResourceNotFoundException", rec.Header().Get("X-Amzn-Errortype"))
+}
+
 func TestHandler_AcceptPrimaryEmailUpdate_MissingFields(t *testing.T) {
 	t.Parallel()
 

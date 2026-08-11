@@ -52,16 +52,40 @@ func (b *InMemoryBackend) getOrCreateIdentityLocked(identity string) *IdentityRe
 	return rec
 }
 
-// ListIdentities returns a paginated list of registered identities sorted alphabetically.
-func (b *InMemoryBackend) ListIdentities(nextToken string, maxItems int) page.Page[string] {
+// identityTypeEmailAddress and identityTypeDomain are the two values of the AWS
+// SES IdentityType enum, confirmed via aws-sdk-go-v2/service/ses/types/enums.go.
+const (
+	identityTypeEmailAddress = "EmailAddress"
+	identityTypeDomain       = "Domain"
+)
+
+// ListIdentities returns a paginated list of registered identities sorted
+// alphabetically, optionally filtered by identityType ("EmailAddress" or
+// "Domain"; "" means no filter). The filter is applied before pagination,
+// matching real AWS SES (NextToken continuation requires re-supplying the
+// same IdentityType used in the original call).
+func (b *InMemoryBackend) ListIdentities(nextToken string, maxItems int, identityType string) page.Page[string] {
 	b.mu.RLock("ListIdentities")
 	defer b.mu.RUnlock()
 
 	snap := b.identities.Snapshot()
-	out := make([]string, len(snap))
+	out := make([]string, 0, len(snap))
 
-	for i, rec := range snap {
-		out[i] = rec.Identity
+	for _, rec := range snap {
+		isEmail := strings.Contains(rec.Identity, "@")
+
+		switch identityType {
+		case identityTypeEmailAddress:
+			if !isEmail {
+				continue
+			}
+		case identityTypeDomain:
+			if isEmail {
+				continue
+			}
+		}
+
+		out = append(out, rec.Identity)
 	}
 
 	return page.New(out, nextToken, maxItems, sesDefaultMaxItems)
@@ -322,6 +346,18 @@ func (b *InMemoryBackend) SetIdentityFeedbackForwardingEnabled(identity string, 
 	return nil
 }
 
+// isValidNotificationType reports whether notificationType is one of the
+// three values of the AWS SES NotificationType enum (Bounce, Complaint,
+// Delivery); confirmed via aws-sdk-go-v2/service/ses/types/enums.go.
+func isValidNotificationType(notificationType string) bool {
+	switch notificationType {
+	case notifTypeBounce, notifTypeComplaint, notifTypeDelivery:
+		return true
+	default:
+		return false
+	}
+}
+
 // SetIdentityHeadersInNotificationsEnabled persists the header-inclusion flag for an identity
 // and notification type (Bounce, Complaint, or Delivery).
 func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(
@@ -333,6 +369,10 @@ func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(
 
 	if strings.TrimSpace(notificationType) == "" {
 		return fmt.Errorf("%w: NotificationType is required", ErrInvalidParameter)
+	}
+
+	if !isValidNotificationType(notificationType) {
+		return fmt.Errorf("%w: NotificationType must be Bounce, Complaint, or Delivery", ErrValidation)
 	}
 
 	b.mu.Lock("SetIdentityHeadersInNotificationsEnabled")
@@ -361,6 +401,10 @@ func (b *InMemoryBackend) SetIdentityNotificationTopic(identity, notificationTyp
 
 	if strings.TrimSpace(notificationType) == "" {
 		return fmt.Errorf("%w: NotificationType is required", ErrInvalidParameter)
+	}
+
+	if !isValidNotificationType(notificationType) {
+		return fmt.Errorf("%w: NotificationType must be Bounce, Complaint, or Delivery", ErrValidation)
 	}
 
 	b.mu.Lock("SetIdentityNotificationTopic")

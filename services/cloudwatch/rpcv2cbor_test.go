@@ -259,10 +259,17 @@ func TestCBOR(t *testing.T) {
 			name: "PutAlarmMuteRule",
 			op:   "PutAlarmMuteRule",
 			body: cbor.Map{
-				"MuteName":     cbor.String("mute-cbor"),
-				"Description":  cbor.String("cbor mute"),
-				"MuteDuration": cbor.Uint(60),
-				"AlarmNames":   cbor.List{cbor.String("alarm-a")},
+				"Name":        cbor.String("mute-cbor"),
+				"Description": cbor.String("cbor mute"),
+				"Rule": cbor.Map{
+					"Schedule": cbor.Map{
+						"Expression": cbor.String("cron(0 2 * * *)"),
+						"Duration":   cbor.String("PT1H"),
+					},
+				},
+				"MuteTargets": cbor.Map{
+					"AlarmNames": cbor.List{cbor.String("alarm-a")},
+				},
 			},
 			wantCode: http.StatusOK,
 		},
@@ -272,7 +279,7 @@ func TestCBOR(t *testing.T) {
 			body: cbor.Map{
 				"RuleName":       cbor.String("cbor-rule"),
 				"RuleState":      cbor.String("ENABLED"),
-				"RuleDefinition": cbor.String(`{"Schema":"CloudWatchLogRule"}`),
+				"RuleDefinition": cbor.String(validInsightRuleDefinition),
 			},
 			wantCode: http.StatusOK,
 		},
@@ -293,7 +300,7 @@ func TestCBOR(t *testing.T) {
 			// unknown ops (InvalidAction), not silently routed anywhere.
 			name:     "UpdateAlarmMuteRule/not a real op",
 			op:       "UpdateAlarmMuteRule",
-			body:     cbor.Map{"MuteName": cbor.String("missing-mute")},
+			body:     cbor.Map{"Name": cbor.String("missing-mute")},
 			wantCode: http.StatusBadRequest,
 		},
 		{

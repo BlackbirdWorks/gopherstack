@@ -40,11 +40,17 @@ func TestIntegration_StepFunctions_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 	execArn := *execOut.ExecutionArn
 
-	// Wait a moment then DescribeExecution
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the execution to finish, then DescribeExecution.
+	var descOut *sfnsdk.DescribeExecutionOutput
+	require.Eventually(t, func() bool {
+		var descErr error
+		descOut, descErr = client.DescribeExecution(ctx, &sfnsdk.DescribeExecutionInput{
+			ExecutionArn: aws.String(execArn),
+		})
 
-	descOut, err := client.DescribeExecution(ctx, &sfnsdk.DescribeExecutionInput{ExecutionArn: aws.String(execArn)})
-	require.NoError(t, err)
+		return descErr == nil && descOut.Status != sfntypes.ExecutionStatusRunning
+	}, 5*time.Second, 50*time.Millisecond)
+
 	assert.Equal(t, execArn, *descOut.ExecutionArn)
 
 	// GetExecutionHistory

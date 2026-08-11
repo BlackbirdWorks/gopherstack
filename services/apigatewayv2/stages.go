@@ -32,6 +32,7 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 		ClientCertificateID:  input.ClientCertificateID,
 		AutoDeploy:           input.AutoDeploy,
 		StageVariables:       input.StageVariables,
+		Tags:                 copyTags(input.Tags),
 		CreatedDate:          now,
 		LastUpdatedDate:      now,
 		AccessLogSettings:    input.AccessLogSettings,
@@ -116,6 +117,13 @@ func (b *InMemoryBackend) UpdateStage(apiID, stageName string, input UpdateStage
 	s, ok := b.stages.Get(stageKey(apiID, stageName))
 	if !ok {
 		return nil, ErrStageNotFound
+	}
+
+	// Real AWS: "If you created an API using quick create, the $default
+	// stage is managed by API Gateway. You can't modify the $default
+	// stage." (service-2.json, Stage.ApiGatewayManaged doc).
+	if s.APIGatewayManaged {
+		return nil, fmt.Errorf("%w: a quick-create managed stage can't be modified", ErrBadRequest)
 	}
 
 	if input.DeploymentID != "" {

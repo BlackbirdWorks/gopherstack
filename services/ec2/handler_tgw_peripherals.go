@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
+	"strconv"
 )
 
 // ---- Handler registration ----
@@ -17,6 +18,9 @@ func registerTGWPeripheralsOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisassociateTransitGatewayPolicyTable"] = h.handleDisassociateTransitGatewayPolicyTable
 	ops["GetTransitGatewayPolicyTableAssociations"] = h.handleGetTransitGatewayPolicyTableAssociations
 	ops["GetTransitGatewayPolicyTableEntries"] = h.handleGetTransitGatewayPolicyTableEntries
+	ops["CreateTransitGatewayPolicyTableEntry"] = h.handleCreateTransitGatewayPolicyTableEntry
+	ops["ModifyTransitGatewayPolicyTableEntry"] = h.handleModifyTransitGatewayPolicyTableEntry
+	ops["DeleteTransitGatewayPolicyTableEntry"] = h.handleDeleteTransitGatewayPolicyTableEntry
 
 	// Transit Gateway Route Table Announcements
 	ops["CreateTransitGatewayRouteTableAnnouncement"] = h.handleCreateTransitGatewayRouteTableAnnouncement
@@ -51,6 +55,9 @@ func tgwPeripheralsSupportedOperations() []string {
 		"DisassociateTransitGatewayPolicyTable",
 		"GetTransitGatewayPolicyTableAssociations",
 		"GetTransitGatewayPolicyTableEntries",
+		"CreateTransitGatewayPolicyTableEntry",
+		"ModifyTransitGatewayPolicyTableEntry",
+		"DeleteTransitGatewayPolicyTableEntry",
 		"CreateTransitGatewayRouteTableAnnouncement",
 		"DeleteTransitGatewayRouteTableAnnouncement",
 		"DescribeTransitGatewayRouteTableAnnouncements",
@@ -153,20 +160,56 @@ type getTransitGatewayPolicyTableAssociationsResponse struct {
 	} `xml:"associations"`
 }
 
+// tgwPolicyRuleItem mirrors the real AWS TransitGatewayPolicyRule shape
+// (field-diffed against the installed SDK's
+// awsEc2query_deserializeDocumentTransitGatewayPolicyRule).
+type tgwPolicyRuleItem struct {
+	MetaData             *tgwPolicyRuleMetaDataItem `xml:"metaData,omitempty"`
+	SourceCidrBlock      string                     `xml:"sourceCidrBlock,omitempty"`
+	SourcePortRange      string                     `xml:"sourcePortRange,omitempty"`
+	DestinationCidrBlock string                     `xml:"destinationCidrBlock,omitempty"`
+	DestinationPortRange string                     `xml:"destinationPortRange,omitempty"`
+	Protocol             string                     `xml:"protocol,omitempty"`
+}
+
+// tgwPolicyRuleMetaDataItem mirrors the real AWS TransitGatewayPolicyRuleMetaData shape.
+type tgwPolicyRuleMetaDataItem struct {
+	MetaDataKey   string `xml:"metaDataKey,omitempty"`
+	MetaDataValue string `xml:"metaDataValue,omitempty"`
+}
+
 // tgwPolicyTableEntryItem mirrors the real AWS TransitGatewayPolicyTableEntry
-// shape. There is no API to create these entries directly (they are derived
-// internally by AWS from attached resources), so this type is only ever used
-// to render an empty transitGatewayPolicyTableEntries list.
+// shape (field-diffed against the installed SDK's
+// awsEc2query_deserializeDocumentTransitGatewayPolicyTableEntry).
 type tgwPolicyTableEntryItem struct {
-	PolicyRuleNumber   string `xml:"policyRuleNumber,omitempty"`
-	TargetRouteTableID string `xml:"targetRouteTableId,omitempty"`
-	PolicyRule         struct {
-		SourceCidrBlock      string `xml:"sourceCidrBlock,omitempty"`
-		SourcePortRange      string `xml:"sourcePortRange,omitempty"`
-		DestinationCidrBlock string `xml:"destinationCidrBlock,omitempty"`
-		DestinationPortRange string `xml:"destinationPortRange,omitempty"`
-		Protocol             string `xml:"protocol,omitempty"`
-	} `xml:"policyRule"`
+	PolicyRule         tgwPolicyRuleItem `xml:"policyRule"`
+	TargetRouteTableID string            `xml:"targetRouteTableId,omitempty"`
+	State              string            `xml:"state,omitempty"`
+	PolicyRuleNumber   int               `xml:"policyRuleNumber,omitempty"`
+}
+
+func tgwPolicyTableEntryToItem(e *TransitGatewayPolicyTableEntry) tgwPolicyTableEntryItem {
+	item := tgwPolicyTableEntryItem{
+		PolicyRuleNumber:   e.PolicyRuleNumber,
+		TargetRouteTableID: e.TargetRouteTableID,
+		State:              e.State,
+		PolicyRule: tgwPolicyRuleItem{
+			SourceCidrBlock:      e.SourceCidrBlock,
+			SourcePortRange:      e.SourcePortRange,
+			DestinationCidrBlock: e.DestinationCidrBlock,
+			DestinationPortRange: e.DestinationPortRange,
+			Protocol:             e.Protocol,
+		},
+	}
+
+	if e.MetaDataKey != "" || e.MetaDataValue != "" {
+		item.PolicyRule.MetaData = &tgwPolicyRuleMetaDataItem{
+			MetaDataKey:   e.MetaDataKey,
+			MetaDataValue: e.MetaDataValue,
+		}
+	}
+
+	return item
 }
 
 type getTransitGatewayPolicyTableEntriesResponse struct {
@@ -176,6 +219,27 @@ type getTransitGatewayPolicyTableEntriesResponse struct {
 	Entries   struct {
 		Items []tgwPolicyTableEntryItem `xml:"item"`
 	} `xml:"transitGatewayPolicyTableEntries"`
+}
+
+type createTransitGatewayPolicyTableEntryResponse struct {
+	XMLName   xml.Name                `xml:"CreateTransitGatewayPolicyTableEntryResponse"`
+	Xmlns     string                  `xml:"xmlns,attr"`
+	RequestID string                  `xml:"requestId"`
+	Entry     tgwPolicyTableEntryItem `xml:"transitGatewayPolicyTableEntry"`
+}
+
+type modifyTransitGatewayPolicyTableEntryResponse struct {
+	XMLName   xml.Name                `xml:"ModifyTransitGatewayPolicyTableEntryResponse"`
+	Xmlns     string                  `xml:"xmlns,attr"`
+	RequestID string                  `xml:"requestId"`
+	Entry     tgwPolicyTableEntryItem `xml:"transitGatewayPolicyTableEntry"`
+}
+
+type deleteTransitGatewayPolicyTableEntryResponse struct {
+	XMLName   xml.Name                `xml:"DeleteTransitGatewayPolicyTableEntryResponse"`
+	Xmlns     string                  `xml:"xmlns,attr"`
+	RequestID string                  `xml:"requestId"`
+	Entry     tgwPolicyTableEntryItem `xml:"transitGatewayPolicyTableEntry"`
 }
 
 // ---- XML types: route table announcements ----
@@ -460,11 +524,98 @@ func (h *Handler) handleGetTransitGatewayPolicyTableEntries(
 	reqID string,
 ) (any, error) {
 	policyTableID := vals.Get("TransitGatewayPolicyTableId")
-	if err := h.Backend.GetTransitGatewayPolicyTableEntries(policyTableID); err != nil {
+
+	entries, err := h.Backend.GetTransitGatewayPolicyTableEntries(policyTableID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &getTransitGatewayPolicyTableEntriesResponse{Xmlns: ec2XMLNS, RequestID: reqID}, nil
+	resp := &getTransitGatewayPolicyTableEntriesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
+	for _, e := range entries {
+		resp.Entries.Items = append(resp.Entries.Items, tgwPolicyTableEntryToItem(e))
+	}
+
+	return resp, nil
+}
+
+// policyRuleFromVals builds the PolicyRule-matching fields of a
+// TransitGatewayPolicyTableEntry from the wire's "PolicyRule.*" nested query
+// parameters (field-diffed against the installed SDK's
+// awsEc2query_serializeDocumentTransitGatewayRequestPolicyRule).
+func policyRuleFromVals(vals url.Values) TransitGatewayPolicyTableEntry {
+	return TransitGatewayPolicyTableEntry{
+		SourceCidrBlock:      vals.Get("PolicyRule.SourceCidrBlock"),
+		SourcePortRange:      vals.Get("PolicyRule.SourcePortRange"),
+		DestinationCidrBlock: vals.Get("PolicyRule.DestinationCidrBlock"),
+		DestinationPortRange: vals.Get("PolicyRule.DestinationPortRange"),
+		Protocol:             vals.Get("PolicyRule.Protocol"),
+		MetaDataKey:          vals.Get("PolicyRule.MetaData.MetaDataKey"),
+		MetaDataValue:        vals.Get("PolicyRule.MetaData.MetaDataValue"),
+	}
+}
+
+func (h *Handler) handleCreateTransitGatewayPolicyTableEntry(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	policyTableID := vals.Get("TransitGatewayPolicyTableId")
+	ruleNumber, _ := strconv.Atoi(vals.Get("PolicyRuleNumber"))
+
+	entry := policyRuleFromVals(vals)
+	entry.PolicyRuleNumber = ruleNumber
+	entry.TargetRouteTableID = vals.Get("TargetRouteTableId")
+
+	stored, err := h.Backend.CreateTransitGatewayPolicyTableEntry(policyTableID, &entry)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createTransitGatewayPolicyTableEntryResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Entry:     tgwPolicyTableEntryToItem(stored),
+	}, nil
+}
+
+func (h *Handler) handleModifyTransitGatewayPolicyTableEntry(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	policyTableID := vals.Get("TransitGatewayPolicyTableId")
+	ruleNumber, _ := strconv.Atoi(vals.Get("PolicyRuleNumber"))
+
+	updates := policyRuleFromVals(vals)
+	updates.TargetRouteTableID = vals.Get("TargetRouteTableId")
+
+	entry, err := h.Backend.ModifyTransitGatewayPolicyTableEntry(policyTableID, ruleNumber, &updates)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyTransitGatewayPolicyTableEntryResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Entry:     tgwPolicyTableEntryToItem(entry),
+	}, nil
+}
+
+func (h *Handler) handleDeleteTransitGatewayPolicyTableEntry(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	policyTableID := vals.Get("TransitGatewayPolicyTableId")
+	ruleNumber, _ := strconv.Atoi(vals.Get("PolicyRuleNumber"))
+
+	entry, err := h.Backend.DeleteTransitGatewayPolicyTableEntry(policyTableID, ruleNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteTransitGatewayPolicyTableEntryResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Entry:     tgwPolicyTableEntryToItem(entry),
+	}, nil
 }
 
 // ---- Handlers: route table announcements ----

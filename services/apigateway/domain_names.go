@@ -212,7 +212,7 @@ func (b *InMemoryBackend) GetDomainNamesPage(limit int, position string) ([]Doma
 	return page, pos, nil
 }
 
-// UpdateDomainName updates a domain name's certificate ARN.
+// UpdateDomainName applies a partial update to a domain name's mutable fields.
 func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*DomainName, error) {
 	b.mu.Lock("UpdateDomainName")
 	defer b.mu.Unlock()
@@ -222,21 +222,55 @@ func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*Domain
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, input.DomainName)
 	}
 
-	if input.CertificateARN != "" {
-		d.CertificateARN = input.CertificateARN
+	if input.CertificateARN != nil {
+		d.CertificateARN = *input.CertificateARN
 	}
 
-	if input.RegionalCertificateARN != "" {
-		d.RegionalCertificateARN = input.RegionalCertificateARN
+	if input.CertificateName != nil {
+		d.CertificateName = *input.CertificateName
+	}
+
+	if input.RegionalCertificateARN != nil {
+		d.RegionalCertificateARN = *input.RegionalCertificateARN
+	}
+
+	if input.RegionalCertificateName != nil {
+		d.RegionalCertificateName = *input.RegionalCertificateName
+	}
+
+	if input.OwnershipVerificationCertificateARN != nil {
+		d.OwnershipVerificationCertificateARN = *input.OwnershipVerificationCertificateARN
 	}
 
 	if input.SecurityPolicy != "" {
 		d.SecurityPolicy = input.SecurityPolicy
 	}
 
+	if input.ManagementPolicy != "" {
+		d.ManagementPolicy = input.ManagementPolicy
+	}
+
+	if input.Policy != "" {
+		d.Policy = input.Policy
+	}
+
+	if input.RoutingMode != "" {
+		d.RoutingMode = input.RoutingMode
+	}
+
+	if input.EndpointAccessMode != "" {
+		d.EndpointAccessMode = input.EndpointAccessMode
+	}
+
 	if input.EndpointConfiguration != nil {
 		d.EndpointConfiguration = input.EndpointConfiguration
 	}
 
-	return d, nil
+	if input.MutualTLSAuthentication != nil {
+		d.MutualTLSAuthentication = input.MutualTLSAuthentication
+	}
+
+	cp := *d
+
+	return &cp, nil
 }

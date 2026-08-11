@@ -28,10 +28,10 @@ func (h *Handler) handleGetSecurityControlDefinition(c *echo.Context) error {
 	def, err := h.Backend.GetSecurityControlDefinition(secCtlID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Security control not found"})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Security control not found")
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -113,7 +113,7 @@ func (h *Handler) handleUpdateSecurityControl(c *echo.Context, body map[string]a
 	lastUpdateReason, _ := body["LastUpdateReason"].(string)
 
 	if err := h.Backend.UpdateSecurityControl(secCtlID, parameters, lastUpdateReason); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

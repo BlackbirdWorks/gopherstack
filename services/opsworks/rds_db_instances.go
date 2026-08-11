@@ -5,9 +5,15 @@ import (
 	"strings"
 )
 
-// RegisterRdsDBInstance registers an RDS DB instance with a stack.
-func (b *InMemoryBackend) RegisterRdsDBInstance(stackID, rdsDBInstanceArn, dbUser, _ string) error {
-	if rdsDBInstanceArn == "" {
+// RegisterRdsDBInstance registers an RDS DB instance with a stack. StackId,
+// RdsDbInstanceArn, DbUser, and DbPassword are all "This member is required"
+// on the real RegisterRdsDbInstanceInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_RegisterRdsDbInstance.go).
+// dbPassword is intentionally unused beyond validation: the real
+// DescribeRdsDbInstances response never echoes it back (see
+// storedRdsDBInstance's doc comment), so there is nothing to store it for.
+func (b *InMemoryBackend) RegisterRdsDBInstance(stackID, rdsDBInstanceArn, dbUser, dbPassword string) error {
+	if stackID == "" || rdsDBInstanceArn == "" || dbUser == "" || dbPassword == "" {
 		return ErrValidation
 	}
 

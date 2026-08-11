@@ -40,6 +40,10 @@ func (h *Handler) cborPutInsightRuleWithName(
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	if rule, err := h.Backend.GetInsightRule(ruleName); err == nil {
+		h.applyCreationTags(input, rule.Arn)
+	}
+
 	return writeCBOR(c, cbor.Map{})
 }
 

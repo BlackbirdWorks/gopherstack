@@ -137,6 +137,6 @@ func experimentRunErrorResponse(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return badRequestResponse(c, err)
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return internalServerErrorResponse(c, err)
 	}
 }

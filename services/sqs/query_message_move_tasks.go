@@ -100,7 +100,10 @@ func (h *Handler) queryListMessageMoveTasks(vals url.Values) ([]byte, int, *quer
 	}
 
 	type result struct {
-		Results []taskEntry `xml:"Results"`
+		// AWS's documented Query-protocol response wraps each entry in
+		// <Result>, not <Results> (see API_ListMessageMoveTasks.html sample
+		// response).
+		Results []taskEntry `xml:"Result"`
 	}
 
 	type response struct {

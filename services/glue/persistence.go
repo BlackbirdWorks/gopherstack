@@ -44,6 +44,7 @@ type backendSnapshot struct {
 	SchemaVersionMetadata     map[string]map[string]string              `json:"schemaVersionMetadata"`
 	IterableFormItems         iterableFormItemsMap                      `json:"iterableFormItems"`
 	GlueIdentityCenterConfig  *IdentityCenterConfig                     `json:"glueIdentityCenterConfig,omitempty"`
+	DataCatalogExportConfig   *DataCatalogExportConfiguration           `json:"dataCatalogExportConfig,omitempty"`
 	Version                   int                                       `json:"version"`
 }
 
@@ -79,6 +80,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		CrawlHistory:              b.crawlHistory,
 		SchemaVersionMetadata:     b.schemaVersionMetadata,
 		GlueIdentityCenterConfig:  b.glueIdentityCenterConfig,
+		DataCatalogExportConfig:   b.dataCatalogExportConfig,
 		IterableFormItems:         b.iterableFormItems,
 	}
 
@@ -192,6 +194,7 @@ func (b *InMemoryBackend) restoreFromSnapshot(snap backendSnapshot) {
 	b.crawlHistory = snap.CrawlHistory
 	b.schemaVersionMetadata = snap.SchemaVersionMetadata
 	b.glueIdentityCenterConfig = snap.GlueIdentityCenterConfig
+	b.dataCatalogExportConfig = snap.DataCatalogExportConfig
 	b.iterableFormItems = snap.IterableFormItems
 }
 

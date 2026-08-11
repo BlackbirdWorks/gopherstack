@@ -64,6 +64,11 @@ func (b *InMemoryBackend) rebuildServerlessIndexes() {
 	b.slSnapshotIdx.rebuildFromKeys(tableKeys(b.slSnapshots, slSnapshotsKeyFn))
 	b.slUsageLimitIdx.rebuildFromKeys(tableKeys(b.slUsageLimits, slUsageLimitsKeyFn))
 	b.slScheduledActionIdx.rebuildFromKeys(tableKeys(b.slScheduledActions, slScheduledActionsKeyFn))
+	b.slCustomDomainIdx.rebuildFromKeys(tableKeys(b.slCustomDomains, slCustomDomainsSLKeyFn))
+	b.slSnapshotCopyConfigIdx.rebuildFromKeys(tableKeys(b.slSnapshotCopyConfig, slSnapshotCopyConfigKeyFn))
+	b.slRecoveryPointIdx.rebuildFromKeys(tableKeys(b.slRecoveryPoints, slRecoveryPointsKeyFn))
+	b.slTableRestoreStatusIdx.rebuildFromKeys(tableKeys(b.slTableRestoreStatuses, slTableRestoreStatusesKeyFn))
+	b.slEndpointAccessIdx.rebuildFromKeys(tableKeys(b.slEndpointAccesses, slEndpointAccessesKeyFn))
 }
 
 // resetServerlessIndexes clears every serverless sorted index.
@@ -73,4 +78,9 @@ func (b *InMemoryBackend) resetServerlessIndexes() {
 	b.slSnapshotIdx.reset()
 	b.slUsageLimitIdx.reset()
 	b.slScheduledActionIdx.reset()
+	b.slCustomDomainIdx.reset()
+	b.slSnapshotCopyConfigIdx.reset()
+	b.slRecoveryPointIdx.reset()
+	b.slTableRestoreStatusIdx.reset()
+	b.slEndpointAccessIdx.reset()
 }

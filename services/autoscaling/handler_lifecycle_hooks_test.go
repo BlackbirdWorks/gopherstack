@@ -1,6 +1,7 @@
 package autoscaling_test
 
 import (
+	"context"
 	"encoding/xml"
 	"net/http"
 	"net/url"
@@ -129,14 +130,18 @@ func TestAutoscalingHandler_LifecycleHookGatesLaunch(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name           string
-		result         string
-		wantState      string
-		wantRemoved    bool
-		wantInstanceOK bool
+		name            string
+		result          string
+		wantState       string
+		wantReplacement bool
 	}{
-		{name: "continue resolves to InService", result: "CONTINUE", wantState: "InService", wantInstanceOK: true},
-		{name: "abandon removes the instance", result: "ABANDON", wantRemoved: true},
+		{name: "continue resolves to InService", result: "CONTINUE", wantState: "InService"},
+		{
+			name:            "abandon terminates and relaunches a replacement",
+			result:          "ABANDON",
+			wantState:       "Pending:Wait",
+			wantReplacement: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -197,15 +202,16 @@ func TestAutoscalingHandler_LifecycleHookGatesLaunch(t *testing.T) {
 			parsed = describeASGInstances(t, body)
 			gotInstances := parsed.Result.AutoScalingGroups.Members[0].Instances.Members
 
-			if tc.wantRemoved {
-				assert.Empty(t, gotInstances, "ABANDON on a launch hook must remove the instance")
-
-				return
-			}
-
+			// AWS: ABANDON on a launch hook means "terminate and replace the instance"
+			// (lifecycle-hooks.html), so DesiredCapacity=1 is maintained by a
+			// replacement -- not left at zero.
 			require.Len(t, gotInstances, 1)
-			assert.Equal(t, tc.wantState, gotInstances[0].LifecycleState,
-				"CompleteLifecycleAction(CONTINUE) must move the instance to InService")
+			assert.Equal(t, tc.wantState, gotInstances[0].LifecycleState)
+
+			if tc.wantReplacement {
+				assert.NotEqual(t, inst.InstanceID, gotInstances[0].InstanceID,
+					"the replacement must be a new instance, not the abandoned one")
+			}
 		})
 	}
 }
@@ -671,4 +677,346 @@ func TestAutoscalingHandler_PutAndDescribeLifecycleHooks(t *testing.T) {
 			}
 		})
 	}
+}
+
+// completeLifecycleAction posts CompleteLifecycleAction for (asgName, hookName,
+// instanceID) and requires it to succeed. AWS's CompleteLifecycleAction is a
+// no-op (still 200) when no pending action matches, which the chain-ordering
+// tests below rely on to prove a hook is NOT yet armed.
+func completeLifecycleAction(t *testing.T, h *autoscaling.Handler, asgName, hookName, instanceID, result string) {
+	t.Helper()
+
+	code, body := doAS(t, h, "CompleteLifecycleAction", url.Values{
+		"AutoScalingGroupName":  {asgName},
+		"LifecycleHookName":     {hookName},
+		"InstanceId":            {instanceID},
+		"LifecycleActionResult": {result},
+	})
+	require.Equal(t, 200, code, body)
+}
+
+// soleInstanceState returns the LifecycleState and InstanceID of asgName's only
+// instance, or ("", "") if the group has none.
+func soleInstanceState(t *testing.T, h *autoscaling.Handler, asgName string) (string, string) {
+	t.Helper()
+
+	code, body := doAS(t, h, "DescribeAutoScalingGroups", url.Values{
+		"AutoScalingGroupNames.member.1": {asgName},
+	})
+	require.Equal(t, 200, code, body)
+
+	members := describeASGInstances(t, body).Result.AutoScalingGroups.Members[0].Instances.Members
+	if len(members) == 0 {
+		return "", ""
+	}
+
+	require.Len(t, members, 1)
+
+	return members[0].LifecycleState, members[0].InstanceID
+}
+
+func putLaunchOrTerminateHook(t *testing.T, h *autoscaling.Handler, asgName, hookName, transition string) {
+	t.Helper()
+
+	code, body := doAS(t, h, "PutLifecycleHook", url.Values{
+		"AutoScalingGroupName": {asgName},
+		"LifecycleHookName":    {hookName},
+		"LifecycleTransition":  {transition},
+		"HeartbeatTimeout":     {"60"},
+	})
+	require.Equal(t, 200, code, body)
+}
+
+// TestAutoscalingHandler_LifecycleHookChainOrdering verifies that two hooks on
+// the same transition form an ordered chain: the second is only armed once the
+// first resolves with CONTINUE, and the transition only completes once both
+// have. Before the chain fix, PutLifecycleHook's second registration on a
+// transition was armed by nothing -- CompleteLifecycleAction/heartbeat timeout
+// for it would never find a pending action, so a caller relying on it for a
+// signal got silence forever.
+func TestAutoscalingHandler_LifecycleHookChainOrdering(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		arm         func(t *testing.T, h *autoscaling.Handler) (asgName, instanceID string)
+		assertFinal func(t *testing.T, h *autoscaling.Handler, asgName string)
+		name        string
+		waitState   string
+	}{
+		{
+			name:      "launching",
+			waitState: "Pending:Wait",
+			arm: func(t *testing.T, h *autoscaling.Handler) (string, string) {
+				t.Helper()
+
+				asgName := "chain-order-launch"
+				code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+					"AutoScalingGroupName":       {asgName},
+					"MinSize":                    {"0"},
+					"MaxSize":                    {"5"},
+					"AvailabilityZones.member.1": {"us-east-1a"},
+				})
+				require.Equal(t, 200, code, body)
+
+				putLaunchOrTerminateHook(t, h, asgName, "hook-1", "autoscaling:EC2_INSTANCE_LAUNCHING")
+				putLaunchOrTerminateHook(t, h, asgName, "hook-2", "autoscaling:EC2_INSTANCE_LAUNCHING")
+
+				code, body = doAS(t, h, "SetDesiredCapacity", url.Values{
+					"AutoScalingGroupName": {asgName},
+					"DesiredCapacity":      {"1"},
+				})
+				require.Equal(t, 200, code, body)
+
+				state, instanceID := soleInstanceState(t, h, asgName)
+				require.Equal(t, "Pending:Wait", state)
+
+				return asgName, instanceID
+			},
+			assertFinal: func(t *testing.T, h *autoscaling.Handler, asgName string) {
+				t.Helper()
+
+				state, _ := soleInstanceState(t, h, asgName)
+				assert.Equal(t, "InService", state)
+			},
+		},
+		{
+			name:      "terminating",
+			waitState: "Terminating:Wait",
+			arm: func(t *testing.T, h *autoscaling.Handler) (string, string) {
+				t.Helper()
+
+				asgName := "chain-order-terminate"
+				code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+					"AutoScalingGroupName":       {asgName},
+					"MinSize":                    {"0"},
+					"MaxSize":                    {"5"},
+					"DesiredCapacity":            {"1"},
+					"AvailabilityZones.member.1": {"us-east-1a"},
+				})
+				require.Equal(t, 200, code, body)
+
+				_, instanceID := soleInstanceState(t, h, asgName)
+
+				putLaunchOrTerminateHook(t, h, asgName, "hook-1", "autoscaling:EC2_INSTANCE_TERMINATING")
+				putLaunchOrTerminateHook(t, h, asgName, "hook-2", "autoscaling:EC2_INSTANCE_TERMINATING")
+
+				code, body = doAS(t, h, "TerminateInstanceInAutoScalingGroup", url.Values{
+					"InstanceId":                     {instanceID},
+					"ShouldDecrementDesiredCapacity": {"true"},
+				})
+				require.Equal(t, 200, code, body)
+
+				state, _ := soleInstanceState(t, h, asgName)
+				require.Equal(t, "Terminating:Wait", state)
+
+				return asgName, instanceID
+			},
+			assertFinal: func(t *testing.T, h *autoscaling.Handler, asgName string) {
+				t.Helper()
+
+				state, _ := soleInstanceState(t, h, asgName)
+				assert.Empty(t, state, "instance must be removed once the terminating chain is exhausted")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			asgName, instanceID := tc.arm(t, h)
+
+			// hook-2 is not armed yet -- completing it now must be a no-op.
+			completeLifecycleAction(t, h, asgName, "hook-2", instanceID, "CONTINUE")
+			state, _ := soleInstanceState(t, h, asgName)
+			assert.Equal(t, tc.waitState, state, "hook-2 completing early must not advance the chain")
+
+			// hook-1 resolves and re-arms hook-2 -- the chain is not finished yet.
+			completeLifecycleAction(t, h, asgName, "hook-1", instanceID, "CONTINUE")
+			state, _ = soleInstanceState(t, h, asgName)
+			assert.Equal(t, tc.waitState, state, "hook-1 CONTINUE must re-arm hook-2, not finish the transition")
+
+			// hook-1 already resolved -- completing it again must be a no-op.
+			completeLifecycleAction(t, h, asgName, "hook-1", instanceID, "CONTINUE")
+			state, _ = soleInstanceState(t, h, asgName)
+			assert.Equal(t, tc.waitState, state, "re-completing hook-1 must not skip ahead")
+
+			// hook-2 resolves -- the chain is exhausted, so the transition completes.
+			completeLifecycleAction(t, h, asgName, "hook-2", instanceID, "CONTINUE")
+			tc.assertFinal(t, h, asgName)
+		})
+	}
+}
+
+// launchChainAbandonShortCircuits uses a three-hook launching chain: hook-1
+// CONTINUE must first advance the chain to hook-2 (the same chain-advance
+// TestAutoscalingHandler_LifecycleHookChainOrdering covers -- asserted again
+// here so this test cannot pass merely because the pre-fix code arms only
+// hook-1), and then ABANDON on hook-2 must terminate-and-replace the instance
+// (b7d3a8485's terminate-and-replace disposition) without ever arming hook-3.
+// The replacement -- a new instance -- restarts the chain at hook-1.
+func launchChainAbandonShortCircuits(t *testing.T) {
+	t.Helper()
+
+	h := newAutoscalingHandler()
+	asgName := "chain-abandon-launch"
+
+	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+		"AutoScalingGroupName":       {asgName},
+		"MinSize":                    {"0"},
+		"MaxSize":                    {"5"},
+		"AvailabilityZones.member.1": {"us-east-1a"},
+	})
+	require.Equal(t, 200, code, body)
+
+	for _, hookName := range []string{"hook-1", "hook-2", "hook-3"} {
+		putLaunchOrTerminateHook(t, h, asgName, hookName, "autoscaling:EC2_INSTANCE_LAUNCHING")
+	}
+
+	code, body = doAS(t, h, "SetDesiredCapacity", url.Values{
+		"AutoScalingGroupName": {asgName},
+		"DesiredCapacity":      {"1"},
+	})
+	require.Equal(t, 200, code, body)
+
+	state, originalID := soleInstanceState(t, h, asgName)
+	require.Equal(t, "Pending:Wait", state)
+
+	completeLifecycleAction(t, h, asgName, "hook-1", originalID, "CONTINUE")
+	state, _ = soleInstanceState(t, h, asgName)
+	require.Equal(t, "Pending:Wait", state, "hook-1 CONTINUE must re-arm hook-2 before ABANDON is even relevant")
+
+	completeLifecycleAction(t, h, asgName, "hook-2", originalID, "ABANDON")
+
+	state, replacementID := soleInstanceState(t, h, asgName)
+	require.NotEmpty(t, replacementID, "ABANDON on hook-2 must terminate-and-replace, not leave the group short")
+	assert.NotEqual(t, originalID, replacementID, "the replacement must be a new instance")
+	assert.Equal(t, "Pending:Wait", state, "the replacement is itself gated by the launch chain")
+
+	// hook-3 must never have been armed for the abandoned instance: ABANDON on
+	// hook-2 short-circuits it. The replacement restarts the chain at hook-1, so
+	// completing hook-3 now is still a no-op.
+	completeLifecycleAction(t, h, asgName, "hook-3", replacementID, "CONTINUE")
+	state, _ = soleInstanceState(t, h, asgName)
+	assert.Equal(t, "Pending:Wait", state, "the replacement's chain starts at hook-1, not hook-3")
+}
+
+// terminateChainAbandonShortCircuits uses a three-hook terminating chain:
+// hook-1 CONTINUE must first advance the chain to hook-2 (asserted here too,
+// so this test cannot pass merely because the pre-fix code arms only hook-1),
+// and then ABANDON on hook-2 must finish the termination immediately, without
+// ever arming hook-3.
+func terminateChainAbandonShortCircuits(t *testing.T) {
+	t.Helper()
+
+	h := newAutoscalingHandler()
+	asgName := "chain-abandon-terminate"
+
+	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+		"AutoScalingGroupName":       {asgName},
+		"MinSize":                    {"0"},
+		"MaxSize":                    {"5"},
+		"DesiredCapacity":            {"1"},
+		"AvailabilityZones.member.1": {"us-east-1a"},
+	})
+	require.Equal(t, 200, code, body)
+
+	_, instanceID := soleInstanceState(t, h, asgName)
+
+	for _, hookName := range []string{"hook-1", "hook-2", "hook-3"} {
+		putLaunchOrTerminateHook(t, h, asgName, hookName, "autoscaling:EC2_INSTANCE_TERMINATING")
+	}
+
+	code, body = doAS(t, h, "TerminateInstanceInAutoScalingGroup", url.Values{
+		"InstanceId":                     {instanceID},
+		"ShouldDecrementDesiredCapacity": {"true"},
+	})
+	require.Equal(t, 200, code, body)
+
+	completeLifecycleAction(t, h, asgName, "hook-1", instanceID, "CONTINUE")
+	state, _ := soleInstanceState(t, h, asgName)
+	require.Equal(t, "Terminating:Wait", state, "hook-1 CONTINUE must re-arm hook-2 before ABANDON is even relevant")
+
+	completeLifecycleAction(t, h, asgName, "hook-2", instanceID, "ABANDON")
+
+	state, _ = soleInstanceState(t, h, asgName)
+	assert.Empty(t, state, "ABANDON on hook-2 must finish termination immediately, without waiting on hook-3")
+}
+
+func TestAutoscalingHandler_LifecycleHookChainAbandonShortCircuits(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{name: "launching", run: launchChainAbandonShortCircuits},
+		{name: "terminating", run: terminateChainAbandonShortCircuits},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
+}
+
+// TestAutoscalingHandler_LifecycleHookChainResumesAfterRestore verifies that a
+// group snapshotted mid-chain (past hook-1, waiting on hook-2) resumes at
+// hook-2 after Restore, instead of restarting the chain at hook-1 or leaving
+// the instance stuck forever (in-flight timers are never persisted -- see
+// rearmPendingWaits).
+func TestAutoscalingHandler_LifecycleHookChainResumesAfterRestore(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := autoscaling.NewInMemoryBackend()
+	h := autoscaling.NewHandler(b)
+	asgName := "chain-restore-asg"
+
+	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+		"AutoScalingGroupName":       {asgName},
+		"MinSize":                    {"0"},
+		"MaxSize":                    {"5"},
+		"AvailabilityZones.member.1": {"us-east-1a"},
+	})
+	require.Equal(t, 200, code, body)
+
+	putLaunchOrTerminateHook(t, h, asgName, "hook-1", "autoscaling:EC2_INSTANCE_LAUNCHING")
+	putLaunchOrTerminateHook(t, h, asgName, "hook-2", "autoscaling:EC2_INSTANCE_LAUNCHING")
+
+	code, body = doAS(t, h, "SetDesiredCapacity", url.Values{
+		"AutoScalingGroupName": {asgName},
+		"DesiredCapacity":      {"1"},
+	})
+	require.Equal(t, 200, code, body)
+
+	state, instanceID := soleInstanceState(t, h, asgName)
+	require.Equal(t, "Pending:Wait", state)
+
+	// Advance past hook-1 so the group is paused mid-chain, on hook-2, before
+	// snapshotting.
+	completeLifecycleAction(t, h, asgName, "hook-1", instanceID, "CONTINUE")
+	state, _ = soleInstanceState(t, h, asgName)
+	require.Equal(t, "Pending:Wait", state, "must still be mid-chain, waiting on hook-2, before snapshotting")
+
+	snap := b.Snapshot(ctx)
+	require.NotEmpty(t, snap)
+
+	restored := autoscaling.NewInMemoryBackend()
+	require.NoError(t, restored.Restore(ctx, snap))
+	rh := autoscaling.NewHandler(restored)
+
+	// hook-1 already resolved before the snapshot: restarting the chain at
+	// hook-1 would be wrong, so completing it again post-restore must be a no-op.
+	completeLifecycleAction(t, rh, asgName, "hook-1", instanceID, "CONTINUE")
+	state, _ = soleInstanceState(t, rh, asgName)
+	assert.Equal(t, "Pending:Wait", state, "restore must resume at hook-2, not restart the chain at hook-1")
+
+	// hook-2 is the actually-pending hook: completing it resolves the wait.
+	completeLifecycleAction(t, rh, asgName, "hook-2", instanceID, "CONTINUE")
+	state, _ = soleInstanceState(t, rh, asgName)
+	assert.Equal(t, "InService", state, "restore must not drop the pending wait")
 }

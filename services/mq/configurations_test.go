@@ -270,6 +270,28 @@ func TestDeleteConfiguration(t *testing.T) {
 	}
 }
 
+func TestDeleteConfiguration_InUseByBroker(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	configID := createTestConfig(t, h, "referenced-config", mq.EngineTypeActiveMQ)
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers", map[string]any{
+		"brokerName":    "config-user-broker",
+		"engineType":    mq.EngineTypeActiveMQ,
+		"configuration": map[string]any{"id": configID, "revision": 1},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "CreateBroker failed: %s", rec.Body.String())
+
+	rec = doRequest(t, h, http.MethodDelete, "/v1/configurations/"+configID, nil)
+	assert.Equal(t, http.StatusConflict, rec.Code, "delete of in-use configuration must fail: %s", rec.Body.String())
+	assert.Equal(t, "ConflictException", parseResponse(t, rec)["__type"])
+
+	// still describable -- delete must not have partially applied.
+	rec = doRequest(t, h, http.MethodGet, "/v1/configurations/"+configID, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestListConfigurations_PaginationOpaqueToken(t *testing.T) {
 	t.Parallel()
 

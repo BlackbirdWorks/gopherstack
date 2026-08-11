@@ -29,6 +29,8 @@ func (h *Handler) handleDescribeServiceUpdates(ctx context.Context, c *echo.Cont
 	for _, su := range updates {
 		objs = append(objs, serviceUpdateObject{
 			ServiceUpdateName:   su.ServiceUpdateName,
+			ClusterName:         su.ClusterName,
+			NodesUpdated:        su.NodesUpdated,
 			ReleaseDate:         awstime.Epoch(su.ReleaseDate),
 			Description:         su.Description,
 			Status:              su.Status,

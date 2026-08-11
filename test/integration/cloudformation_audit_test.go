@@ -100,7 +100,10 @@ func TestIntegration_CFNAudit_UpdateTerminationProtectionStackID(t *testing.T) {
 	require.NotNil(t, createOut.StackId)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{
 			StackName: aws.String(stackName),
 		})
 	})

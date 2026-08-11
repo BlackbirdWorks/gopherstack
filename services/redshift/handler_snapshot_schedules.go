@@ -7,28 +7,30 @@ import (
 
 // ---- CreateSnapshotSchedule ----
 
-// xmlClusterAssociatedToSchedule mirrors types.ClusterAssociatedToSchedule. This
+// xmlClusterScheduleAssoc mirrors types.ClusterAssociatedToSchedule. This
 // backend only ever produces the "ACTIVE" state (association is applied
 // synchronously by ModifyClusterSnapshotSchedule; MODIFYING/FAILED do not occur).
-type xmlClusterAssociatedToSchedule struct {
+type xmlClusterScheduleAssoc struct {
 	ClusterIdentifier        string `xml:"ClusterIdentifier"`
 	ScheduleAssociationState string `xml:"ScheduleAssociationState"`
 }
 
+// redshift@v1.65.4 deserializers.go:23753 wraps each entry in
+// <ClusterAssociatedToSchedule>, not <member>.
 type xmlSnapshotSchedule struct {
-	ScheduleIdentifier     string                           `xml:"ScheduleIdentifier"`
-	Description            string                           `xml:"ScheduleDescription,omitempty"`
-	ScheduleDefinitions    []string                         `xml:"ScheduleDefinitions>ScheduleDefinition,omitempty"`
-	AssociatedClusters     []xmlClusterAssociatedToSchedule `xml:"AssociatedClusters>member,omitempty"`
-	AssociatedClusterCount int                              `xml:"AssociatedClusterCount"`
+	ScheduleIdentifier     string                    `xml:"ScheduleIdentifier"`
+	Description            string                    `xml:"ScheduleDescription,omitempty"`
+	ScheduleDefinitions    []string                  `xml:"ScheduleDefinitions>ScheduleDefinition,omitempty"`
+	AssociatedClusters     []xmlClusterScheduleAssoc `xml:"AssociatedClusters>ClusterAssociatedToSchedule,omitempty"`
+	AssociatedClusterCount int                       `xml:"AssociatedClusterCount"`
 }
 
 // snapshotScheduleToXML converts a backend SnapshotSchedule (with AssociatedClusters
 // already populated by the backend, see cloneSnapshotSchedule) into its wire shape.
 func snapshotScheduleToXML(s *SnapshotSchedule) xmlSnapshotSchedule {
-	assoc := make([]xmlClusterAssociatedToSchedule, 0, len(s.AssociatedClusters))
+	assoc := make([]xmlClusterScheduleAssoc, 0, len(s.AssociatedClusters))
 	for _, clusterID := range s.AssociatedClusters {
-		assoc = append(assoc, xmlClusterAssociatedToSchedule{
+		assoc = append(assoc, xmlClusterScheduleAssoc{
 			ClusterIdentifier:        clusterID,
 			ScheduleAssociationState: dataShareStatusActive,
 		})

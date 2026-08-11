@@ -61,11 +61,13 @@ type customDomainAssociation struct {
 	CustomDomainCertificateArn string `xml:"CustomDomainCertificateArn"`
 }
 
+// redshift@v1.65.4 deserializers.go:49708,23893 names this field Associations,
+// each entry wrapped in <Association>, not <CustomDomainAssociations>/<CustomDomainAssociation>.
 type describeCustomDomainAssociationsResponse struct {
 	XMLName xml.Name `xml:"DescribeCustomDomainAssociationsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
-		CustomDomainAssociations []customDomainAssociation `xml:"CustomDomainAssociations>CustomDomainAssociation"`
+		CustomDomainAssociations []customDomainAssociation `xml:"Associations>Association"`
 	} `xml:"DescribeCustomDomainAssociationsResult"`
 }
 

@@ -436,7 +436,7 @@ func (rc *ResourceCreator) createAPIGatewayMethod(
 	httpMethod := strProp(props, "HttpMethod", params, physicalIDs)
 	authorizationType := strProp(props, "AuthorizationType", params, physicalIDs)
 	if authorizationType == "" {
-		authorizationType = "NONE"
+		authorizationType = valueNone
 	}
 
 	if _, err := rc.backends.APIGateway.Backend.PutMethod(apigwbackend.PutMethodInput{

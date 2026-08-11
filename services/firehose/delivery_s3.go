@@ -69,7 +69,7 @@ func (b *InMemoryBackend) deliverToS3(
 
 	var firstErr error
 	for _, group := range groups {
-		if putErr := b.writeRecordsToBucket(
+		if _, putErr := b.writeRecordsToBucket(
 			ctx, group.records, dest.BucketARN, group.prefix,
 			dest.FileExtension, dest.CompressionFormat, streamName,
 		); putErr != nil && firstErr == nil {
@@ -105,19 +105,20 @@ func (b *InMemoryBackend) routeToErrorOutput(
 		bucketARN = dest.S3BackupDescription.BucketARN
 	}
 
-	_ = b.writeRecordsToBucket(ctx, records, bucketARN, prefix, "", dest.CompressionFormat, streamName)
+	_, _ = b.writeRecordsToBucket(ctx, records, bucketARN, prefix, "", dest.CompressionFormat, streamName)
 }
 
 // writeRecordsToBucket concatenates records (newline-separated), optionally gzip-compresses
 // them, and writes a single object under the given bucket/prefix. fileExtension, when set,
 // is appended to the generated object key. It is a no-op when the effective body is empty.
+// Returns the object key that was written, or "" when nothing was written.
 func (b *InMemoryBackend) writeRecordsToBucket(
 	ctx context.Context,
 	records [][]byte,
 	bucketARN, prefix, fileExtension, compressionFormat, streamName string,
-) error {
+) (string, error) {
 	if b.s3 == nil {
-		return nil
+		return "", nil
 	}
 
 	var buf bytes.Buffer
@@ -134,7 +135,7 @@ func (b *InMemoryBackend) writeRecordsToBucket(
 
 	body := buf.Bytes()
 	if len(body) == 0 {
-		return nil
+		return "", nil
 	}
 
 	compression := strings.ToUpper(compressionFormat)
@@ -149,7 +150,7 @@ func (b *InMemoryBackend) writeRecordsToBucket(
 	case "GZIP":
 		compressed, gzErr := gzipCompress(body)
 		if gzErr != nil {
-			return gzErr
+			return "", gzErr
 		}
 		finalBody = compressed
 		contentEncoding = aws.String("gzip")
@@ -168,9 +169,11 @@ func (b *InMemoryBackend) writeRecordsToBucket(
 		ContentEncoding: contentEncoding,
 	}
 
-	_, err := b.s3.PutObject(ctx, input)
+	if _, err := b.s3.PutObject(ctx, input); err != nil {
+		return "", err
+	}
 
-	return err
+	return key, nil
 }
 
 // buildS3Key constructs an S3 object key matching the AWS format:

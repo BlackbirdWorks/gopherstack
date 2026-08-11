@@ -502,6 +502,27 @@ linters:
       # injectable RNG field, so it must live in the same package.
       - path: 'route53/routing_test.go'
         linters: [ testpackage ]
+      # ordering_requirements_test.go white-box tests buildOrderingRequirements
+      # and its unexported per-check helpers directly with hand-built Site/
+      # Outpost structs -- several of the real OrderingRequirementType checks
+      # (SHIPPING_ADDRESS_MISSING_CONTACT_*) need a partially-populated Address
+      # the real SDK client's own validators.go refuses to construct (every
+      # Address field is client-side required once OperatingAddress/
+      # ShippingAddress is non-nil), so this cannot be reached through the
+      # real SDK client the way this package's other tests are.
+      - path: 'outposts/ordering_requirements_test.go'
+        linters: [ testpackage ]
+      # iotanalytics is AWS-deprecated (no longer available for use), so every
+      # SDK type/method/field the client touches carries an SA1019 deprecation
+      # notice -- gopherstack still emulates it, so the whole file is exempt
+      # rather than sprinkling ~15 identical inline nolints.
+      - path: 'iotanalytics/handler_create_tags_test.go'
+        linters: [ staticcheck ]
+      # Same reasoning as iotanalytics/handler_create_tags_test.go above -- this
+      # cli.go composition-root wiring test also drives the deprecated iotanalytics
+      # SDK client end to end.
+      - path: 'cli_iotanalytics_lambda_iot_wiring_test.go'
+        linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'
@@ -514,6 +535,20 @@ linters:
       - path: 'autoscaling/scheduled_action_cron_test.go'
         linters: [ testpackage ]
       - path: 'autoscaling/scheduled_action_scheduler_test.go'
+        linters: [ testpackage ]
+      # whitebox_test.go: the export_test.go cleanup (gopherstack-f84y) moved
+      # tests needing unexported field/const access out of the external _test
+      # package into these in-package files instead of re-exporting test-only
+      # helpers. One shared rule covers every service's whitebox_test.go.
+      - path: 'whitebox_test\.go$'
+        linters: [ testpackage ]
+      - path: 'sdkcheck/check_test.go'
+        linters: [ testpackage ]
+      - path: 'pkgs/telemetry/collector_test.go'
+        linters: [ testpackage ]
+      - path: 'cognitoidentity/errors_test.go'
+        linters: [ testpackage ]
+      - path: 'glacier/select_sql_test.go'
         linters: [ testpackage ]
       - text: 'should have a package comment'
         linters: [ revive ]

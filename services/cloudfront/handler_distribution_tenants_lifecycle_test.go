@@ -17,7 +17,7 @@ import (
 // that does not exist (rather than the previous hardcoded always-SUCCESS stub).
 func TestGetManagedCertificateDetails_NotFound(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
 	rec := doXML(t, h, http.MethodGet, prefix+"distribution-tenant/does-not-exist/managed-certificate-details", nil)
@@ -30,7 +30,7 @@ func TestGetManagedCertificateDetails_NotFound(t *testing.T) {
 // tenant (a real, cached backend value, not a fresh random result each time).
 func TestGetManagedCertificateDetails_StableACrossCalls(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
 	createBody := `<CreateDistributionTenantRequest>` +
@@ -471,7 +471,7 @@ func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := cloudfront.NewHandler(newTestBackend())
+			h := cloudfront.NewHandler(newTestBackend(t))
 			tenantID := tt.setup(h)
 			certPath := prefix + "distribution-tenant/" + tenantID + "/managed-certificate-details"
 			rec := doTenantReq(t, h, http.MethodGet, certPath)
@@ -503,7 +503,7 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 			setup:    func(_ *cloudfront.InMemoryBackend) {},
 			domain:   "nonexistent.example.com",
 			wantCode: http.StatusOK,
-			wantBody: []string{"DomainConflictList", "<Quantity>0</Quantity>"},
+			wantBody: []string{"DomainConflictList", "<DomainConflicts></DomainConflicts>"},
 		},
 		{
 			name: "conflict_via_distribution_alias",
@@ -516,7 +516,7 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 			domain:   "conflict.example.com",
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "conflict.example.com"},
-			wantNot:  []string{"<Quantity>0</Quantity>"},
+			wantNot:  []string{"<DomainConflicts></DomainConflicts>"},
 		},
 		{
 			name: "conflict_via_distribution_tenant_domain",
@@ -531,14 +531,14 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 			domain:   "tenant-domain.example.com",
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "tenant-domain.example.com"},
-			wantNot:  []string{"<Quantity>0</Quantity>"},
+			wantNot:  []string{"<DomainConflicts></DomainConflicts>"},
 		},
 		{
 			name:     "empty_domain_returns_empty_list",
 			setup:    func(_ *cloudfront.InMemoryBackend) {},
 			domain:   "",
 			wantCode: http.StatusOK,
-			wantBody: []string{"DomainConflictList", "<Quantity>0</Quantity>"},
+			wantBody: []string{"DomainConflictList", "<DomainConflicts></DomainConflicts>"},
 		},
 	}
 
@@ -546,7 +546,7 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			tt.setup(b)
 			h := cloudfront.NewHandler(b)
 
@@ -603,7 +603,7 @@ func TestAssociateDistributionTenantWebACL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 
 			var path string
 			if tt.tenantID == "" {

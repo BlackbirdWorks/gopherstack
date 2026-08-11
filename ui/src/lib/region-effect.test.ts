@@ -2,7 +2,7 @@ import { flushSync } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { onRegionChange, regionalClient } from "./region-effect.svelte";
 import { withEffectRoot } from "./region-effect.harness.svelte";
-import { DEFAULT_REGION, setStoredRegion } from "./region.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "./region.svelte";
 
 // Everything here is imported statically (not via vi.resetModules() +
 // dynamic import, unlike region.test.ts) because $effect needs the SAME
@@ -40,6 +40,27 @@ describe("onRegionChange", () => {
     expect(callback).toHaveBeenCalledTimes(2);
 
     setStoredRegion("ap-southeast-1");
+    flushSync();
+    expect(callback).toHaveBeenCalledTimes(3);
+    cleanup();
+  });
+
+  it("re-runs on toggling All mode even when the resolved single region doesn't change", () => {
+    // Starting region is DEFAULT_REGION, so currentRegion() stays
+    // DEFAULT_REGION on both sides of this transition -- only
+    // currentRegionSelection() changes. A page relying on multiRegionList
+    // needs this to still re-fire so it can fan out once All is selected.
+    const callback = vi.fn();
+
+    const { cleanup } = withEffectRoot(() => onRegionChange(callback));
+    flushSync();
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    setStoredRegion(ALL_REGIONS);
+    flushSync();
+    expect(callback).toHaveBeenCalledTimes(2);
+
+    setStoredRegion(DEFAULT_REGION);
     flushSync();
     expect(callback).toHaveBeenCalledTimes(3);
     cleanup();

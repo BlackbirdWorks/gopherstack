@@ -53,6 +53,31 @@ func TestHandler_CreateLabelingJob(t *testing.T) {
 	assert.Contains(t, resp["LabelingJobArn"], "labeling-job/job-1")
 }
 
+func TestHandler_CreateLabelingJob_TagsRoundTripThroughDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := createLabelingJobRequestBody("job-tags", "arn:aws:sagemaker:us-east-1:000000000000:workteam/team-1")
+	body["Tags"] = []any{
+		map[string]any{"Key": "env", "Value": "prod"},
+	}
+
+	rec := doSageMakerRequest(t, h, "CreateLabelingJob", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeLabelingJob", map[string]any{"LabelingJobName": "job-tags"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	tags, ok := resp["Tags"].([]any)
+	require.True(t, ok, "DescribeLabelingJob must return Tags")
+	require.Len(t, tags, 1)
+	assert.Equal(t, "env", tags[0].(map[string]any)["Key"])
+	assert.Equal(t, "prod", tags[0].(map[string]any)["Value"])
+}
+
 func TestHandler_CreateLabelingJob_MissingRequiredFields(t *testing.T) {
 	t.Parallel()
 

@@ -351,23 +351,21 @@ type CopyJob struct {
 // VaultAccessPolicy holds an access policy document for a backup vault.
 //
 // VaultName is not part of the AWS wire shape; it exists purely so
-// store.Table's keyFn can derive a key from the value itself (this table is
-// never persisted, so a json:"-" key field carries no round-trip risk --
-// see store_setup.go).
+// store.Table's keyFn can derive a key from the value itself, and carries a
+// real json tag (not "-") since this table is persisted -- see store_setup.go.
 type VaultAccessPolicy struct {
-	VaultName string `json:"-"`
+	VaultName string `json:"vaultName"`
 	Policy    string `json:"policy"`
 }
 
 // VaultLockConfig holds the lock configuration for a backup vault.
 //
 // VaultName is not part of the AWS wire shape; it exists purely so
-// store.Table's keyFn can derive a key from the value itself (this table is
-// never persisted, so a json:"-" key field carries no round-trip risk --
-// see store_setup.go).
+// store.Table's keyFn can derive a key from the value itself, and carries a
+// real json tag (not "-") since this table is persisted -- see store_setup.go.
 type VaultLockConfig struct {
 	LockDate          *time.Time `json:"lockDate,omitempty"`
-	VaultName         string     `json:"-"`
+	VaultName         string     `json:"vaultName"`
 	MinRetentionDays  int64      `json:"minRetentionDays,omitempty"`
 	MaxRetentionDays  int64      `json:"maxRetentionDays,omitempty"`
 	ChangeableForDays int64      `json:"changeableForDays,omitempty"`
@@ -376,23 +374,20 @@ type VaultLockConfig struct {
 // VaultNotificationConfig holds notification settings for a backup vault.
 //
 // VaultName is not part of the AWS wire shape; it exists purely so
-// store.Table's keyFn can derive a key from the value itself (this table is
-// never persisted, so a json:"-" key field carries no round-trip risk --
-// see store_setup.go).
+// store.Table's keyFn can derive a key from the value itself, and carries a
+// real json tag (not "-") since this table is persisted -- see store_setup.go.
 type VaultNotificationConfig struct {
-	VaultName         string   `json:"-"`
+	VaultName         string   `json:"vaultName"`
 	SNSTopicArn       string   `json:"snsTopicArn"`
 	BackupVaultEvents []string `json:"backupVaultEvents"`
 }
 
 // InMemoryBackend is the in-memory store for AWS Backup resources.
 //
-// Resource collections are *store.Table[T] (see pkgs/store's package doc).
-// PERSISTED tables are registered on registry; VOLATILE tables (never part
-// of backendSnapshot) are constructed but deliberately not registered --
-// see store_setup.go for the full split and rationale. A handful of maps
-// remain plain map[string]string because their values are not *T (mirroring
-// services/ses's "policies" precedent).
+// Resource collections are *store.Table[T] (see pkgs/store's package doc),
+// every one registered on registry so Snapshot/Restore covers it -- see
+// store_setup.go. A handful of maps remain plain map[string]string because
+// their values are not *T (mirroring services/ses's "policies" precedent).
 type InMemoryBackend struct {
 	regionSettings                 *RegionSettings
 	mu                             *lockmetrics.RWMutex
@@ -409,29 +404,28 @@ type InMemoryBackend struct {
 	restoreTestingPlans            *store.Table[RestoreTestingPlan]
 	restoreTestingSelections       *store.Table[RestoreTestingSelection] // composite key: planName#selectionName
 	restoreTestingSelectionsByPlan *store.Index[RestoreTestingSelection] // grouped by RestoreTestingPlanName
-	recoveryPoints                 *store.Table[RecoveryPoint]           // composite key: vaultName#rpArn; VOLATILE
+	recoveryPoints                 *store.Table[RecoveryPoint]           // composite key: vaultName#rpArn
 	recoveryPointsByVault          *store.Index[RecoveryPoint]           // grouped by BackupVaultName
-	copyJobs                       *store.Table[CopyJob]                 // VOLATILE
-	vaultAccessPolicies            *store.Table[VaultAccessPolicy]       // VOLATILE
-	vaultLockConfigs               *store.Table[VaultLockConfig]         // VOLATILE
-	vaultNotifications             *store.Table[VaultNotificationConfig] // VOLATILE
-	mpaApprovals                   map[string]string                     // vaultName → mpaApprovalTeamArn
-	vaultARNIndex                  map[string]string                     // ARN → vault name
-	planARNIndex                   map[string]string                     // ARN → plan name
-	planIDIndex                    map[string]string                     // plan ID → plan name
-	frameworkARNIndex              map[string]string                     // ARN → framework name
-	reportPlanARNIndex             map[string]string                     // ARN → report plan name
-	// batch1 additions (all VOLATILE -- never part of backendSnapshot)
-	restoreJobs              *store.Table[RestoreJob]
-	reportJobs               *store.Table[ReportJob]
-	scanJobs                 *store.Table[ScanJob]
-	tieringConfigs           *store.Table[TieringConfiguration]
-	protectedResources       *store.Table[ProtectedResource]
-	globalSettings           map[string]string
-	recoveryPointIndexStatus map[string]string // vaultName:rpArn → index status
-	globalSettingsLastUpdate time.Time
-	accountID                string
-	region                   string
+	copyJobs                       *store.Table[CopyJob]
+	vaultAccessPolicies            *store.Table[VaultAccessPolicy]
+	vaultLockConfigs               *store.Table[VaultLockConfig]
+	vaultNotifications             *store.Table[VaultNotificationConfig]
+	mpaApprovals                   map[string]string // vaultName → mpaApprovalTeamArn
+	vaultARNIndex                  map[string]string // ARN → vault name
+	planARNIndex                   map[string]string // ARN → plan name
+	planIDIndex                    map[string]string // plan ID → plan name
+	frameworkARNIndex              map[string]string // ARN → framework name
+	reportPlanARNIndex             map[string]string // ARN → report plan name
+	restoreJobs                    *store.Table[RestoreJob]
+	reportJobs                     *store.Table[ReportJob]
+	scanJobs                       *store.Table[ScanJob]
+	tieringConfigs                 *store.Table[TieringConfiguration]
+	protectedResources             *store.Table[ProtectedResource]
+	globalSettings                 map[string]string
+	recoveryPointIndexStatus       map[string]string // vaultName:rpArn → index status
+	globalSettingsLastUpdate       time.Time
+	accountID                      string
+	region                         string
 }
 
 // RestoreJob represents an AWS Backup restore job.

@@ -14,6 +14,7 @@ func TestProgram_CRUD(t *testing.T) {
 
 	h := newTestHandler(t)
 	createTestChannel(t, h)
+	createTestSourceLocationAndVodSource(t, h)
 
 	// create program
 	createBody := testScheduleConfigBody(1_700_000_000_000)
@@ -74,10 +75,15 @@ func TestProgram_NotFound(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "create under missing channel returns 404",
-			method:   http.MethodPost,
-			path:     "/channel/nope/program/prog1",
-			body:     testScheduleConfigBody(1_700_000_000_000),
+			name:   "create under missing channel returns 404",
+			method: http.MethodPost,
+			path:   "/channel/nope/program/prog1",
+			body: func() map[string]any {
+				body := testScheduleConfigBody(1_700_000_000_000)
+				body["SourceLocationName"] = "sl1"
+
+				return body
+			}(),
 			wantCode: http.StatusNotFound,
 		},
 		{
@@ -127,7 +133,7 @@ func TestHandleGetChannelSchedule_WithItems(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createTestSourceLocation(t, h)
+	createTestSourceLocationAndVodSource(t, h)
 
 	// Create channel
 	doRequest(t, h, http.MethodPost, "/channel/ch1", map[string]any{

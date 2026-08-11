@@ -286,7 +286,7 @@ func baseSupportedOperations() []string {
 }
 
 // parity4SupportedOperations returns the 10 ops added by the
-// aws-sdk-go-v2/service/bedrock bump to v1.66.0 (see PARITY.md).
+// aws-sdk-go-v2/service/bedrock bump to v1.66.4 (see PARITY.md).
 func parity4SupportedOperations() []string {
 	return []string{
 		"CreateAdvancedPromptOptimizationJob",

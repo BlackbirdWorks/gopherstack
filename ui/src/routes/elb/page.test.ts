@@ -8,6 +8,11 @@ vi.mock("$lib/aws-client", () => ({
   getELBClient: () => ({ send: mockSend }),
 }));
 
+const confirmDestructive = vi.fn().mockResolvedValue(true);
+vi.mock("$lib/confirm-dialog", () => ({
+  confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
+}));
+
 const toastError = vi.fn();
 const toastSuccess = vi.fn();
 vi.mock("svelte-sonner", () => ({
@@ -50,6 +55,8 @@ describe("ELB (Classic Load Balancers) Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    confirmDestructive.mockReset();
+    confirmDestructive.mockResolvedValue(true);
   });
 
   it("renders page title", () => {
@@ -111,13 +118,7 @@ describe("ELB (Classic Load Balancers) Page", () => {
     await waitFor(() => screen.getByText("No load balancers found."));
 
     await fireEvent.click(screen.getByText("+ Create Load Balancer"));
-    // This page's modal <label> elements have no `for` attribute pointing
-    // at their inputs (confirmed by grepping the whole file: every <label>
-    // is a plain sibling, not a wrapper, and only one input in the entire
-    // page even has an `id`) -- a real accessibility bug, but out of scope
-    // to fix here (it spans ~25 fields across every modal). Select by
-    // placeholder instead of getByLabelText to work around it.
-    await fireEvent.input(screen.getByPlaceholderText("my-lb"), { target: { value: "new-lb" } });
+    await fireEvent.input(screen.getByLabelText("Name"), { target: { value: "new-lb" } });
 
     mockSend.mockResolvedValueOnce({});
     mockSend.mockResolvedValueOnce({
@@ -146,13 +147,7 @@ describe("ELB (Classic Load Balancers) Page", () => {
     );
   });
 
-  it("deletes a load balancer immediately, with no confirmation dialog", async () => {
-    // Unlike dms/detective (confirmDestructive) and sesv2 (same) and
-    // lakeformation (its own inline confirm modal), this page has no
-    // confirmation step at all before DeleteLoadBalancerCommand fires --
-    // confirmed by grepping the page for confirmDestructive / a custom
-    // confirm modal and finding neither. Test reflects the actual (no
-    // confirmation) behavior rather than one this page doesn't implement.
+  it("deletes a load balancer after confirming", async () => {
     mockSend.mockResolvedValueOnce({ LoadBalancerDescriptions: [exampleLB] });
     render(ElbPage);
     await waitFor(() => screen.getByText("my-lb"));
@@ -162,6 +157,9 @@ describe("ELB (Classic Load Balancers) Page", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
+    expect(confirmDestructive).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("my-lb") }),
+    );
     await waitFor(() => screen.getByText("No load balancers found."));
     expect(mockSend).toHaveBeenNthCalledWith(
       2,
@@ -169,7 +167,21 @@ describe("ELB (Classic Load Balancers) Page", () => {
     );
   });
 
-  it("shows a toast with the AWS error message when a load fails", async () => {
+  it("does not delete a load balancer when the confirm dialog is declined", async () => {
+    confirmDestructive.mockResolvedValue(false);
+    mockSend.mockResolvedValueOnce({ LoadBalancerDescriptions: [exampleLB] });
+    render(ElbPage);
+    await waitFor(() => screen.getByText("my-lb"));
+
+    const callsBefore = mockSend.mock.calls.length;
+    await fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(confirmDestructive).toHaveBeenCalled();
+    expect(mockSend).toHaveBeenCalledTimes(callsBefore);
+    expect(screen.getByText("my-lb")).toBeInTheDocument();
+  });
+
+  it("shows a toast with the AWS error code and message when a load fails", async () => {
     const error = Object.assign(new Error("Rate exceeded."), {
       name: "ThrottlingException",
       $metadata: { httpStatusCode: 429 },
@@ -179,7 +191,9 @@ describe("ELB (Classic Load Balancers) Page", () => {
     render(ElbPage);
 
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith("Failed to load balancers: Rate exceeded.");
+      expect(toastError).toHaveBeenCalledWith(
+        "Failed to load balancers: ThrottlingException (HTTP 429): Rate exceeded.",
+      );
     });
   });
 
@@ -200,10 +214,8 @@ describe("ELB (Classic Load Balancers) Page", () => {
     // The Add Listener modal has exactly one <select> (Protocol); its
     // default LB Port (443) and Instance Port (8443) already match what
     // this test expects, so only Protocol and the cert ARN need changing.
-    // (See the "creates a load balancer" test above for why this isn't
-    // getByLabelText.)
     await fireEvent.change(screen.getByRole("combobox"), { target: { value: "HTTPS" } });
-    await fireEvent.input(screen.getByPlaceholderText("arn:aws:acm:…"), {
+    await fireEvent.input(screen.getByLabelText("SSL Certificate ARN"), {
       target: { value: "arn:aws:acm:us-east-1:123456789012:certificate/abc" },
     });
 
@@ -283,6 +295,9 @@ describe("ELB (Classic Load Balancers) Page", () => {
 
     await fireEvent.click(screen.getByText("Remove"));
 
+    expect(confirmDestructive).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("80") }),
+    );
     await waitFor(() => {
       expect(mockSend).toHaveBeenNthCalledWith(
         4,
@@ -304,12 +319,7 @@ describe("ELB (Classic Load Balancers) Page", () => {
     await waitFor(() => screen.getByText(exampleLB.DNSName));
 
     await fireEvent.click(screen.getByRole("button", { name: "Health Check" }));
-    // The Target label/input pair has no `for`/`id` and no placeholder;
-    // it's the sole text input in this tab (the rest are type="number"),
-    // and is its label's next DOM sibling per the markup.
-    const targetInput = screen.getByText("Target (e.g. HTTP:80/health)")
-      .nextElementSibling as HTMLInputElement;
-    await fireEvent.input(targetInput, {
+    await fireEvent.input(screen.getByLabelText("Target (e.g. HTTP:80/health)"), {
       target: { value: "HTTP:9090/status" },
     });
 

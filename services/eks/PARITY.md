@@ -1,7 +1,7 @@
 ---
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: eks
-sdk_module: aws-sdk-go-v2/service/eks@v1.89.0
+sdk_module: aws-sdk-go-v2/service/eks@v1.90.4
 last_audit_commit: 7c297a53
 last_audit_date: 2026-07-23
 overall: A            # route-matcher pass (prior audit) + gaps/deferred closeout pass (this audit)

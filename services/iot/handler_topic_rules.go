@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -114,11 +115,37 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 	if createErr := h.Backend.CreateTopicRule(&CreateTopicRuleInput{
 		RuleName:         ruleName,
 		TopicRulePayload: payload,
+		Tags:             parseTaggingHeader(c.Request().Header.Get("X-Amz-Tagging")),
 	}); createErr != nil {
 		return h.handleError(c, createErr)
 	}
 
 	return c.NoContent(http.StatusOK)
+}
+
+// parseTaggingHeader decodes CreateTopicRuleInput.Tags's wire form -- a
+// query-string-encoded "key1=value1&key2=value2" string carried in the
+// X-Amz-Tagging header, not the JSON body (verified: iot@v1.77.4
+// api_op_CreateTopicRule.go:55, serializers.go:5083-5086
+// awsRestjson1_serializeOpHttpBindingsCreateTopicRuleInput).
+func parseTaggingHeader(raw string) map[string]string {
+	if raw == "" {
+		return nil
+	}
+
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return nil
+	}
+
+	out := make(map[string]string, len(values))
+	for k, v := range values {
+		if len(v) > 0 {
+			out[k] = v[0]
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) handleGetTopicRule(c *echo.Context) error {

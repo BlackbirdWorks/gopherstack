@@ -28,7 +28,7 @@ const (
 func (b *InMemoryBackend) CreateScheduledQuery(
 	ctx context.Context,
 	name, queryString, scheduleExpression, executionRoleArn,
-	notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken string,
+	notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken, kmsKeyID string,
 	tags map[string]string,
 ) (*ScheduledQuery, error) {
 	if err := validateScheduleExpression(scheduleExpression); err != nil {
@@ -67,6 +67,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		ErrorReportS3BucketName: errorReportS3BucketName,
 		TargetDatabase:          targetDatabase,
 		TargetTable:             targetTable,
+		KmsKeyID:                kmsKeyID,
 		State:                   scheduledQueryStateEnabled,
 		CreationTime:            time.Now(),
 		Tags:                    make(map[string]string),
@@ -80,6 +81,14 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 
 	if clientToken != "" {
 		b.scheduledQueryTokens.set(clientToken, arnStr)
+	}
+
+	if len(tags) > 0 && b.tagWriteBackend != nil {
+		// Best-effort: TimestreamWrite is the shared tag store real clients'
+		// TagResource/ListTagsForResource calls hit (writeServiceTagOps); a
+		// failure here would only affect that cross-service view, not this
+		// scheduled query's own creation.
+		_ = b.tagWriteBackend.TagResource(arnStr, tags)
 	}
 
 	return cloneScheduledQuery(sq), nil
@@ -355,7 +364,10 @@ func previousInvocationTime(expr string, from time.Time) time.Time {
 // Full ScheduledQuery view helpers (gap #19, #21)
 // ---------------------------------------------------------------------------
 
-// scheduledQueryRunStatus values.
+// scheduledQueryRunStatus values (types.ScheduledQueryRunStatus has a 4th,
+// MANUAL_TRIGGER_FAILURE, omitted here: see PARITY.md gaps). AUTO_TRIGGER_*
+// are unreachable in this emulator -- there is no scheduler goroutine, so
+// every run is produced by an explicit ExecuteScheduledQuery call.
 const (
 	runStatusAutoTriggerSuccess   = "AUTO_TRIGGER_SUCCESS"
 	runStatusAutoTriggerFailure   = "AUTO_TRIGGER_FAILURE"
@@ -386,7 +398,7 @@ func buildScheduledQueryListEntry(sq *ScheduledQuery) ScheduledQueryListEntry {
 	}
 	now := time.Now()
 	if !sq.LastRunTime.IsZero() {
-		entry.LastRunStatus = runStatusAutoTriggerSuccess
+		entry.LastRunStatus = runStatusManualTriggerSuccess
 		entry.PreviousInvocationTime = epochSeconds(sq.LastRunTime)
 	} else if sq.ScheduleExpression != "" {
 		entry.PreviousInvocationTime = epochSeconds(previousInvocationTime(sq.ScheduleExpression, now))
@@ -404,7 +416,7 @@ func buildLastRunSummary(sq *ScheduledQuery) *LastRunSummary {
 	triggerTime := sq.LastRunTime.Add(-time.Second)
 
 	return &LastRunSummary{
-		RunStatus:      runStatusAutoTriggerSuccess,
+		RunStatus:      runStatusManualTriggerSuccess,
 		InvocationTime: epochSeconds(sq.LastRunTime),
 		TriggerTime:    epochSeconds(triggerTime),
 		ExecutionStats: &ExecutionStats{

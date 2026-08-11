@@ -97,3 +97,34 @@ func (b *InMemoryBackend) findByARN(region, resourceARN string) *Application {
 
 	return nil
 }
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every application ARN that currently has at least
+// one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	apps := b.applications.All()
+	out := make([]TaggedEntry, 0, len(apps))
+
+	for _, app := range apps {
+		if len(app.Tags) == 0 {
+			continue
+		}
+
+		tags := make(map[string]string, len(app.Tags))
+		for _, t := range app.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		out = append(out, TaggedEntry{ARN: app.ApplicationARN, Tags: tags})
+	}
+
+	return out
+}

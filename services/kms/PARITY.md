@@ -1,6 +1,6 @@
 ---
 service: kms
-sdk_module: aws-sdk-go-v2/service/kms@v1.54.0
+sdk_module: aws-sdk-go-v2/service/kms@v1.55.4
 last_audit_commit: 13c27883a00454a6e63bc767d096528ecfd6c4b1
 last_audit_date: 2026-07-23
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
@@ -65,7 +65,7 @@ ops:
   GetKeyPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant -- reads the policy from the key's own region (ARN-embedded region for an ARN input)"}
   ListKeyPolicies: {wire: ok, errors: ok, state: ok, persist: n/a, note: "already region-aware (routes through lookupKey); confirmed no change needed"}
   GetParametersForImport: {wire: ok, errors: ok, state: ok, persist: ok, note: "real RSA-2048/3072/4096 wrapping keypair generated per call"}
-  ImportKeyMaterial: {wire: ok, errors: ok, state: ok, persist: ok, note: "real RSA-OAEP unwrap of caller material"}
+  ImportKeyMaterial: {wire: ok, errors: ok, state: ok, persist: ok, note: "real RSA-OAEP unwrap of caller material. FIXED 2026-08-11 -- the key material field was wire-tagged KeyMaterial; the real ImportKeyMaterialRequest field is EncryptedKeyMaterial, so every real client's material was rejected with 'KeyMaterial must not be empty'. ImportToken remains unmodeled -- resolveKeyMaterial looks up the wrapping key by KeyId alone (set by GetParametersForImport), so the token's value was never load-bearing; Go silently drops the extra unrecognized field, which is harmless"}
   DeleteImportedKeyMaterial: {wire: ok, errors: ok, state: ok, persist: ok}
   ReplicateKey: {wire: fixed, errors: ok, state: ok, persist: ok, note: "tag validation moved before replica creation (was: orphan-leak on bad tag, and tags on ReplicateKey bypassed validateTag entirely); ReplicateKeyInput was ALSO missing the Policy field entirely (confirmed against aws-sdk-go-v2/service/kms@v1.54.0's api_op_ReplicateKey.go) -- an inline replica policy was silently dropped, so GetKeyPolicy on the replica always returned the synthesized default, the exact same bug class (and same Terraform symptom: aws_kms_replica_key's post-apply GetKeyPolicy poll never converges) as the already-fixed CreateKey Policy bug. Fixed by adding Policy (+ BypassPolicyLockoutSafetyCheck, unused like CreateKey's own copy since there is no IAM layer) to ReplicateKeyInput and persisting it into the replica's region-scoped policiesStore, mirroring CreateKey exactly."}
   UpdateKeyDescription: {wire: ok, errors: ok, state: ok, persist: ok}

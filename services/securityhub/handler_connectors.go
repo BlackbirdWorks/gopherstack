@@ -53,17 +53,21 @@ func (h *Handler) handleCreateConnector(c *echo.Context, body map[string]any) er
 		}
 	}
 
+	// CreateConnector uses the newer ValidationException/InternalServerException
+	// vocabulary despite its non-"V2" name (securityhub@v1.75.4 deserializers.go,
+	// op CreateConnector) -- unlike the classic REST ops elsewhere in this
+	// package, which use InvalidInputException/InternalException.
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgNameRequired})
+		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", msgNameRequired)
 	}
 
 	if provider == nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: "Provider is required"})
+		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", "Provider is required")
 	}
 
 	conn, err := h.Backend.CreateConnector(name, description, provider, tags)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -78,10 +82,10 @@ func (h *Handler) handleGetConnector(c *echo.Context, connectorID string) error 
 	conn, err := h.Backend.GetConnector(connectorID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: msgConnectorNotFound})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", msgConnectorNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, connectorToGetResponse(conn))
@@ -123,10 +127,10 @@ func (h *Handler) handleUpdateConnector(c *echo.Context, connectorID string, bod
 	conn, err := h.Backend.UpdateConnector(connectorID, description, provider)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: msgConnectorNotFound})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", msgConnectorNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -139,10 +143,10 @@ func (h *Handler) handleDeleteConnector(c *echo.Context, connectorID string) err
 	status, err := h.Backend.DeleteConnector(connectorID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: msgConnectorNotFound})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", msgConnectorNotFound)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyEnablementStatus: status})

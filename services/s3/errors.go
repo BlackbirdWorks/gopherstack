@@ -21,19 +21,22 @@ var (
 	ErrPermanentRedirect = errors.New("PermanentRedirect")
 	// ErrPreconditionFailed is returned when an If-Match / If-None-Match
 	// condition on a write op (PutObject / DeleteObject) fails.
-	ErrPreconditionFailed         = errors.New("PreconditionFailed")
-	ErrNotImplemented             = errors.New("NotImplemented")
-	ErrMethodNotAllowed           = errors.New("MethodNotAllowed")
-	ErrInvalidArgument            = errors.New(errInvalidArgument)
-	ErrNoSuchUpload               = awserr.New("NoSuchUpload", awserr.ErrNotFound)
-	ErrInvalidPart                = errors.New("InvalidPart")
-	ErrInvalidPartOrder           = errors.New("InvalidPartOrder")
-	ErrEmptyParts                 = errors.New("InvalidRequest")
-	ErrNoCompressor               = errors.New("data is compressed but no compressor available")
-	ErrNoBucketPolicy             = errors.New("NoSuchBucketPolicy")
-	ErrNoCORSConfig               = errors.New("NoSuchCORSConfiguration")
-	ErrNoLifecycleConfig          = errors.New("NoSuchLifecycleConfiguration")
-	ErrNoObjectLockConfig         = errors.New("ObjectLockConfigurationNotFoundError")
+	ErrPreconditionFailed = errors.New("PreconditionFailed")
+	ErrNotImplemented     = errors.New("NotImplemented")
+	ErrMethodNotAllowed   = errors.New("MethodNotAllowed")
+	ErrInvalidArgument    = errors.New(errInvalidArgument)
+	ErrNoSuchUpload       = awserr.New("NoSuchUpload", awserr.ErrNotFound)
+	ErrInvalidPart        = errors.New("InvalidPart")
+	ErrInvalidPartOrder   = errors.New("InvalidPartOrder")
+	ErrEmptyParts         = errors.New("InvalidRequest")
+	ErrNoCompressor       = errors.New("data is compressed but no compressor available")
+	ErrNoBucketPolicy     = errors.New("NoSuchBucketPolicy")
+	ErrNoCORSConfig       = errors.New("NoSuchCORSConfiguration")
+	ErrNoLifecycleConfig  = errors.New("NoSuchLifecycleConfiguration")
+	ErrNoObjectLockConfig = errors.New("ObjectLockConfigurationNotFoundError")
+	// ErrObjectLockNotEnabled is InvalidBucketState: PutObjectLockConfiguration
+	// on a bucket not created with x-amz-bucket-object-lock-enabled: true.
+	ErrObjectLockNotEnabled       = errors.New("InvalidBucketState")
 	ErrNoWebsiteConfig            = errors.New("NoSuchWebsiteConfiguration")
 	ErrNoEncryptionConfig         = errors.New("ServerSideEncryptionConfigurationNotFoundError")
 	ErrObjectLocked               = errors.New(errAccessDenied)
@@ -254,6 +257,11 @@ func configErrorTable() []s3ErrorEntry {
 			"ObjectLockConfigurationNotFoundError",
 			"Object Lock configuration does not exist for this bucket",
 			http.StatusNotFound,
+		}},
+		{ErrObjectLockNotEnabled, s3ErrorInfo{
+			"InvalidBucketState",
+			"The request is not valid with the current state of the bucket.",
+			http.StatusConflict,
 		}},
 		{ErrNoWebsiteConfig, s3ErrorInfo{
 			"NoSuchWebsiteConfiguration",

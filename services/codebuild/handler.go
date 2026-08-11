@@ -17,6 +17,7 @@ import (
 
 const (
 	codebuildTargetPrefix = "CodeBuild_20161006."
+	keyName               = "name"
 )
 
 var (
@@ -280,10 +281,23 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	// errInvalidRequest backs every required-field check in this package (see
+	// handler_builds.go, handler_projects.go, ...), so this is a real
+	// client-triggerable path, not just malformed JSON/an unknown action.
+	// codebuild@v1.72.4 models InvalidInputException on 58 of its 59 operations
+	// (all but the parameterless ListCuratedEnvironmentImages, which never
+	// raises errInvalidRequest), so it is a safe blanket fallback here.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidInputException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
+		// codebuild@v1.72.4's types/errors.go declares no internal-server/
+		// generic-server exception at all -- left untyped rather than inventing one.
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 }

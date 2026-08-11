@@ -51,8 +51,10 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 2. Navigate to table detail page
-	_, err = page.Goto(server.URL + "/dashboard/dynamodb/table/" + tableName)
+	// 2. Navigate to table detail page. The detail view is selected via the
+	// ?table= query param, not a path segment -- see e88712a92, which
+	// deleted the orphaned /dynamodb/table/[tableName] route in favor of it.
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb?table=" + tableName)
 	require.NoError(t, err)
 
 	// 3. Verify initial Streams status (DISABLED)

@@ -3,10 +3,14 @@ package s3
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 func (b *InMemoryBackend) PutObjectTagging(
@@ -243,6 +247,107 @@ func (b *InMemoryBackend) DeleteBucketTagging(_ context.Context, bucketName stri
 	defer bucket.mu.Unlock()
 
 	bucket.Tags = nil
+
+	return nil
+}
+
+// TaggedEntry pairs a bucket ARN with its tag set, for the Resource Groups
+// Tagging API's GetResources (see cli.go's wireTaggingS3).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every bucket's tag set keyed by its ARN. Real S3
+// object ARNs are excluded: GetResources's own ResourceTypeFilters
+// documentation only ever gives "s3:bucket" as the S3 example (botocore
+// 1.43.56, resourcegroupstaggingapi/2017-01-26/service-2.json.gz,
+// GetResourcesInput.ResourceTypeFilters), and objects have no such type.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	all := b.buckets.All()
+	b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(all))
+
+	for _, bucket := range all {
+		if bucket.DeletePending || bucket.IsDirectoryBucket {
+			continue
+		}
+
+		bucket.mu.RLock("TaggedResources")
+		tags := make(map[string]string, len(bucket.Tags))
+		for _, t := range bucket.Tags {
+			tags[aws.ToString(t.Key)] = aws.ToString(t.Value)
+		}
+		bucket.mu.RUnlock()
+
+		out = append(out, TaggedEntry{ARN: arn.BuildS3(bucket.Name), Tags: tags})
+	}
+
+	return out
+}
+
+// MergeBucketTags adds/overwrites tags in a bucket's existing tag set. Unlike
+// PutBucketTagging (which replaces the whole set, matching real S3's
+// PutBucketTagging semantics), this merges -- the semantics Resource Groups
+// Tagging API's TagResources needs.
+func (b *InMemoryBackend) MergeBucketTags(bucketName string, newTags map[string]string) error {
+	b.mu.RLock("MergeBucketTags")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("MergeBucketTags")
+	defer bucket.mu.Unlock()
+
+	merged := make(map[string]string, len(bucket.Tags)+len(newTags))
+	for _, t := range bucket.Tags {
+		merged[aws.ToString(t.Key)] = aws.ToString(t.Value)
+	}
+
+	maps.Copy(merged, newTags)
+
+	tags := make([]types.Tag, 0, len(merged))
+	for k, v := range merged {
+		tags = append(tags, types.Tag{Key: aws.String(k), Value: aws.String(v)})
+	}
+
+	bucket.Tags = tags
+
+	return nil
+}
+
+// RemoveBucketTags deletes specific tag keys from a bucket's tag set, for
+// Resource Groups Tagging API's UntagResources.
+func (b *InMemoryBackend) RemoveBucketTags(bucketName string, keys []string) error {
+	b.mu.RLock("RemoveBucketTags")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	drop := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		drop[k] = true
+	}
+
+	bucket.mu.Lock("RemoveBucketTags")
+	defer bucket.mu.Unlock()
+
+	kept := make([]types.Tag, 0, len(bucket.Tags))
+	for _, t := range bucket.Tags {
+		if !drop[aws.ToString(t.Key)] {
+			kept = append(kept, t)
+		}
+	}
+
+	bucket.Tags = kept
 
 	return nil
 }

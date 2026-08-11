@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
 	"github.com/blackbirdworks/gopherstack/services/acm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -299,6 +300,29 @@ func TestACMBackend_FailCertificate_FailureReason(t *testing.T) {
 			require.NoError(t, descErr)
 			assert.Equal(t, "FAILED", described.Status)
 			assert.Equal(t, tt.reason, described.FailureReason)
+		})
+	}
+}
+
+// Anti-drift: every value the pinned SDK's types.RevocationReason enum knows
+// about must be accepted, including the deprecated-but-still-live SUPERCEDED
+// alias AWS keeps alongside SUPERSEDED (types/enums.go). Catches a
+// hand-maintained allowlist falling behind again.
+func TestACMBackend_RevokeCertificate_EverySDKRevocationReasonAccepted(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM := generateTestCert(t)
+
+	for _, reason := range sdktypes.RevocationReason("").Values() {
+		t.Run(string(reason), func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			cert, err := b.ImportCertificate(context.Background(), certPEM, keyPEM, "", "")
+			require.NoError(t, err)
+
+			err = b.RevokeCertificate(context.Background(), cert.ARN, string(reason))
+			require.NoError(t, err, "expected SDK RevocationReason %s to be accepted", reason)
 		})
 	}
 }

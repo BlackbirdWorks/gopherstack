@@ -164,3 +164,59 @@ func TestCancelPolicyGeneration(t *testing.T) {
 		})
 	}
 }
+
+// TestStartPolicyGeneration_CloudTrailDetails verifies StartPolicyGenerationInput's
+// optional cloudTrailDetails (aws-sdk-go-v2 api_op_StartPolicyGeneration.go,
+// v1.51.4) is stored and echoed back by GetGeneratedPolicy as
+// generatedPolicyResult.properties.cloudTrailProperties (types.CloudTrailProperties,
+// types/types.go:2375) -- previously silently discarded on the floor.
+func TestStartPolicyGeneration_CloudTrailDetails(t *testing.T) {
+	t.Parallel()
+
+	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
+	h := accessanalyzer.NewHandler(b)
+
+	startRec := doRequest(t, h, http.MethodPut, "/policy/generation", map[string]any{
+		"policyGenerationDetails": map[string]any{"principalArn": "arn:aws:iam::000000000000:role/R"},
+		"cloudTrailDetails": map[string]any{
+			"accessRole": "arn:aws:iam::000000000000:role/access",
+			"startTime":  "2026-01-01T00:00:00Z",
+			"endTime":    "2026-02-01T00:00:00Z",
+			"trails": []map[string]any{
+				{"cloudTrailArn": "arn:aws:cloudtrail:us-east-1:000000000000:trail/MyTrail", "allRegions": true},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startResp map[string]string
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+
+	getRec := doRequest(t, h, http.MethodGet, "/policy/generation/"+startResp["jobId"], nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+
+	result, ok := resp["generatedPolicyResult"].(map[string]any)
+	require.True(t, ok)
+	properties, ok := result["properties"].(map[string]any)
+	require.True(t, ok)
+
+	ctp, ok := properties["cloudTrailProperties"].(map[string]any)
+	require.True(t, ok, "cloudTrailProperties must be echoed back when cloudTrailDetails was supplied")
+	assert.Equal(t, "2026-01-01T00:00:00Z", ctp["startTime"])
+	assert.Equal(t, "2026-02-01T00:00:00Z", ctp["endTime"])
+
+	trails, ok := ctp["trailProperties"].([]any)
+	require.True(t, ok)
+	require.Len(t, trails, 1)
+
+	trail, ok := trails[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "arn:aws:cloudtrail:us-east-1:000000000000:trail/MyTrail", trail["cloudTrailArn"])
+	assert.Equal(t, true, trail["allRegions"])
+
+	_, hasAccessRole := ctp["accessRole"]
+	assert.False(t, hasAccessRole, "accessRole has no CloudTrailProperties counterpart")
+}

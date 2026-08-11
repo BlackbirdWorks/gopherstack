@@ -2,6 +2,7 @@ package glue
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -139,6 +140,7 @@ func cloneMLTransform(m *MLTransform) *MLTransform {
 	cp.InputRecordTables = make([]GlueTable, len(m.InputRecordTables))
 	copy(cp.InputRecordTables, m.InputRecordTables)
 	cp.Schema = append([]SchemaColumnEntry(nil), m.Schema...)
+	cp.Tags = maps.Clone(m.Tags)
 
 	if m.TransformEncryption != nil {
 		te := *m.TransformEncryption
@@ -259,6 +261,7 @@ func (b *InMemoryBackend) UpdateMLTransform(id string, update MLTransform) error
 	update.TransformID = id
 	update.CreatedOn = existing.CreatedOn
 	update.LastModifiedOn = float64(time.Now().Unix())
+	update.Tags = existing.Tags
 	b.mlTransforms.Put(&update)
 
 	return nil

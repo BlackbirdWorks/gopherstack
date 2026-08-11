@@ -70,7 +70,7 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 				t.Helper()
 				_, err := b.CreateRegistry("registry", "description", nil)
 				require.NoError(t, err)
-				_, err = b.CreateSchema("registry", "schema", "JSON", "NONE", "", nil)
+				_, _, err = b.CreateSchema("registry", "schema", "JSON", "NONE", "", "", nil)
 				require.NoError(t, err)
 				_, err = b.RegisterSchemaVersion("registry", "schema", "{}")
 				require.NoError(t, err)

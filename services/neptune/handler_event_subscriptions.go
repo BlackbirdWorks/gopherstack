@@ -31,6 +31,10 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 	sourceType := vals.Get("SourceType")
 	enabled := vals.Get("Enabled") != "false"
 	sourceIDs := parseSourceIDMembers(vals)
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	sub, err := h.Backend.CreateEventSubscription(
 		ctx,
 		name,
@@ -41,6 +45,9 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 	)
 	if err != nil {
 		return nil, err
+	}
+	if len(tags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, sub.EventSubscriptionArn, tags)
 	}
 
 	return &createEventSubscriptionResponse{
@@ -214,16 +221,19 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 		Status:                   sub.Status,
 		SourceType:               sub.SourceType,
 		SubscriptionCreationTime: sub.SubscriptionCreationTime,
-		SourceIDs:                xmlSourceIDList{Members: ids},
+		SourceIDs:                xmlEventSourceIDList{Members: ids},
 		EventCategoriesList:      xmlEventCategoryItemList{Members: cats},
 		Enabled:                  sub.Enabled,
 	}
 }
 
+// The real request serializer (neptune@v1.48.4 serializers.go:5980,
+// awsAwsquery_serializeDocumentSourceIdsList) encodes each entry as
+// "SourceIds.SourceId.N", not "SourceIds.member.N".
 func parseSourceIDMembers(vals url.Values) []string {
 	var ids []string
 	for i := 1; ; i++ {
-		id := vals.Get(fmt.Sprintf("SourceIds.member.%d", i))
+		id := vals.Get(fmt.Sprintf("SourceIds.SourceId.%d", i))
 		if id == "" {
 			return ids
 		}
@@ -235,8 +245,19 @@ type xmlSourceID struct {
 	Member string `xml:",chardata"`
 }
 
+// xmlSourceIDList backs DBClusterEndpoint.StaticMembers/ExcludedMembers,
+// which decode via the generic StringList deserializer (neptune@v1.48.4
+// deserializers.go:22316, wraps each entry in <member>).
 type xmlSourceIDList struct {
 	Members []xmlSourceID `xml:"member"`
+}
+
+// xmlEventSourceIDList backs EventSubscription.SourceIds, a distinct AWS
+// shape (SourceIdsList) from the StringList used for StaticMembers/
+// ExcludedMembers above: it wraps each entry in <SourceId>, not <member>
+// (neptune@v1.48.4 deserializers.go:22089).
+type xmlEventSourceIDList struct {
+	Members []xmlSourceID `xml:"SourceId"`
 }
 
 type xmlEventCategoryItemList struct {
@@ -250,7 +271,7 @@ type xmlEventSubscription struct {
 	Status                   string                   `xml:"Status"`
 	SourceType               string                   `xml:"SourceType,omitempty"`
 	SubscriptionCreationTime string                   `xml:"SubscriptionCreationTime,omitempty"`
-	SourceIDs                xmlSourceIDList          `xml:"SourceIdsList"`
+	SourceIDs                xmlEventSourceIDList     `xml:"SourceIdsList"`
 	EventCategoriesList      xmlEventCategoryItemList `xml:"EventCategoriesList"`
 	Enabled                  bool                     `xml:"Enabled"`
 }

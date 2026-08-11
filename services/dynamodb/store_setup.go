@@ -1,22 +1,13 @@
 package dynamodb
 
-// Code in this file supports the Phase 3.3 datalayer refactor: every
-// map[string]*T backend resource field on InMemoryDB is registered exactly
-// once, here, as a *store.Table[T] on db.registry. See pkgs/store's package
-// doc and the services/sqs pilot (commit 0f09d77c) plus the services/ec2
-// conversion (commit 12e611a4) for the pattern this follows.
+// Every map[string]*T backend resource field on InMemoryDB is registered exactly
+// once, here, as a *store.Table[T] on db.registry. See pkgs/store's package doc.
 //
-// Fields deliberately left as plain maps (NOT registered here):
-//   - txnTokens, txnPending (map[string]time.Time): the value (a bare
-//     time.Time expiry/start timestamp) carries no identity of its own —
-//     store.Table's model requires keyFn to derive the primary key FROM the
-//     value, which is impossible here since the key is an opaque caller-chosen
-//     idempotency token that appears nowhere in the stored time.Time.
-//   - fisReplicationPaused (map[string]time.Time): same reasoning, keyed by
-//     an externally-supplied table ARN/name that the time.Time value can't
-//     reproduce.
-//
-// This mirrors ec2's documented handful of non-pure-key-fn exclusions.
+// txnTokens, txnPending, and fisReplicationPaused (all map[string]time.Time) are
+// deliberately left as plain maps: the value carries no identity of its own --
+// store.Table's keyFn must derive the primary key FROM the value, which is
+// impossible when the key is an opaque, externally-supplied token/ARN that never
+// appears in the stored time.Time.
 
 import (
 	"sort"
@@ -35,18 +26,12 @@ import (
 func tableKey(region, name string) string { return region + "/" + name }
 
 // tableRegion extracts the region a Table belongs to by parsing its ARN
-// (format: arn:{partition}:dynamodb:{region}:{account}:table/{name}, see
-// pkgs/arn.Build). TableArn is always populated with the owning region
-// before a Table is inserted into db.tables/db.deletingTables -- see
-// CreateTable, cloneTableSchema, buildReplicaTableLocked,
-// installRestoredTable, buildReplicaTable -- and is never mutated afterward,
-// so this is a stable, pure derivation suitable for use as a store.Table /
-// store.Index key function. (db.regionFromARN is intentionally not reused
-// here: it falls back to db.defaultRegion when parsing fails, which would
-// make the key function depend on backend state rather than purely on the
-// value, violating the contract store.Table/store.Index key functions rely on.)
-// arnRegionPartIndex is the 0-based index of the region component in a
-// colon-split ARN (arn:{partition}:{service}:{region}:{account}:{resource}).
+// (arn:{partition}:dynamodb:{region}:{account}:table/{name}). TableArn is always
+// populated before a Table is inserted into db.tables/db.deletingTables and
+// never mutated afterward, so this is a stable, pure derivation suitable for a
+// store.Table/store.Index key function. db.regionFromARN is intentionally not
+// reused here: it falls back to db.defaultRegion on parse failure, which would
+// make the key function depend on backend state rather than purely on the value.
 const arnRegionPartIndex = 3
 
 func tableRegion(t *Table) string {
@@ -66,17 +51,13 @@ func tableRegion(t *Table) string {
 func tableKeyFn(t *Table) string { return tableKey(tableRegion(t), t.Name) }
 
 // streamARNKeyFn is the store.Table key function for db.streamARNIndex, a
-// reverse index from a table's StreamARN back to the same *Table pointer
-// stored in db.tables. Unlike Name/TableArn, StreamARN DOES change in place
-// on an existing Table (EnableStream/DisableStream/UpdateTable), so
-// db.streamARNIndex is never wired up via store.Table.Put on every mutation;
-// callers instead call Delete(oldARN) followed by Put(table) explicitly,
-// exactly mirroring the manual map delete+insert this replaces (see
-// EnableStream, DisableStream, UpdateTable, DeleteTable). This is safe
-// specifically because streamARNIndex is its own primary-keyed store.Table
-// rather than a store.Index (secondary index) over db.tables -- a
-// store.Index's automatic Put-triggered remove/add pair derives its "old"
-// key from the current (already-mutated) value, which would be wrong here.
+// reverse index from a table's StreamARN back to the same *Table pointer in
+// db.tables. Unlike Name/TableArn, StreamARN DOES change in place
+// (EnableStream/DisableStream/UpdateTable), so callers call Delete(oldARN) then
+// Put(table) explicitly rather than relying on store.Table.Put -- safe because
+// streamARNIndex is its own primary-keyed store.Table, not a store.Index over
+// db.tables (whose automatic remove/add pair would derive the "old" key from
+// the already-mutated value, which would be wrong here).
 func streamARNKeyFn(t *Table) string { return t.StreamARN }
 
 // backupKeyFn is the store.Table key function for db.backups.

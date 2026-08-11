@@ -107,6 +107,18 @@ func (b *InMemoryBackend) UpdateWorkspace(id string, req *updateWorkspaceRequest
 		return nil, err
 	}
 
+	if err := b.validateWorkspaceRoleArn(req.WorkspaceRoleArn); err != nil {
+		return nil, err
+	}
+
+	if err := b.validateVpcConfiguration(req.VpcConfiguration); err != nil {
+		return nil, err
+	}
+
+	if err := b.validateOrganizationalUnits(req.WorkspaceOrganizationalUnits); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateWorkspace")
 	defer b.mu.Unlock()
 
@@ -143,6 +155,20 @@ func (b *InMemoryBackend) DeleteWorkspace(id string) (*Workspace, error) {
 	w, ok := b.workspaces.Get(id)
 	if !ok {
 		return nil, notFoundError(resourceTypeWorkspace, id)
+	}
+
+	if reason, degraded := b.injectedTransitionOutcome(); reason != "" || degraded {
+		if degraded {
+			reason = "chaos-injected deletion failure"
+		}
+
+		w.Status = StatusDeletionFailed
+		w.DegradedWorkspaceReason = reason
+		w.Modified = time.Now().UTC()
+
+		cp := *w
+
+		return &cp, nil
 	}
 
 	cp := *w

@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -21,10 +20,8 @@ func startLatencyContainer(t *testing.T, latencyMs string) (testcontainers.Conta
 
 	ctx := t.Context()
 
-	dockerfile := "Dockerfile"
-	if _, err := os.Stat("../../bin/gopherstack"); err == nil {
-		dockerfile = "Dockerfile.test"
-	}
+	dockerfile, err := dockerfileFor()
+	require.NoError(t, err)
 
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
@@ -47,7 +44,10 @@ func startLatencyContainer(t *testing.T, latencyMs string) (testcontainers.Conta
 	require.NoError(t, err, "failed to start latency container")
 
 	t.Cleanup(func() {
-		_ = container.Terminate(ctx)
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_ = container.Terminate(cleanupCtx)
 	})
 
 	mappedPort, err := container.MappedPort(ctx, "8000")

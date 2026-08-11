@@ -112,6 +112,10 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		return nil, err
 	}
 
+	if !fifoThroughputPairingValid(nil, input.Attributes) {
+		return nil, ErrInvalidAttribute
+	}
+
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
 

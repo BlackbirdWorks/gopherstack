@@ -340,6 +340,43 @@ func ExtractServiceFromRequest(r *http.Request) string {
 	return ""
 }
 
+// TagsPathPrefix is the shared "/tags/{resourceArn}" prefix multiple
+// services expose for TagResource/UntagResource/ListTagsForResource.
+const TagsPathPrefix = "/tags/"
+
+// MatchesTaggedResourceARN reports whether path is a "/tags/{resourceArn}"
+// request whose ARN names serviceName (arn:{partition}:{serviceName}:...).
+// Several services share the "/tags/" prefix; only the ARN's own service
+// segment reliably disambiguates the true owner -- a bare prefix match
+// steals every other service's tag requests too (see gopherstack-sokq).
+func MatchesTaggedResourceARN(path, serviceName string) bool {
+	after, ok := strings.CutPrefix(path, TagsPathPrefix)
+	if !ok {
+		return false
+	}
+
+	return strings.Contains(after, ":"+serviceName+":")
+}
+
+// ScopedPrefixMatch reports whether path has the given prefix AND the
+// request's SigV4 signing scope, if present, permits serviceName to claim
+// it: an unsigned request (no Authorization header, or none carrying a
+// recognizable scope) still matches, but a request signed for a different,
+// known service does not. Use this in a RouteMatcher instead of a bare
+// strings.HasPrefix whenever the path shape is one another service's real
+// wire API could also produce -- a bare prefix match steals that service's
+// requests (see gopherstack-vpoh: iotdataplane's own "/connections/{id}"
+// swallowed Outposts' GetConnection).
+func ScopedPrefixMatch(r *http.Request, path, prefix, serviceName string) bool {
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+
+	scope := ExtractServiceFromRequest(r)
+
+	return scope == "" || scope == serviceName
+}
+
 // SanitizeHeaderString removes all characters except alphanumeric, hyphens,
 // underscores, and periods. This breaks the taint for static analysis tools
 // like CodeQL which flag raw header values in logs.

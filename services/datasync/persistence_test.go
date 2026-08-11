@@ -187,6 +187,46 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestInMemoryBackend_SnapshotRestore_SecretConfigAndKerberos verifies the
+// CmkSecretConfig/CustomSecretConfig and SMB Kerberos/DNS fields (added to
+// storedSmbConfig/storedXConfig with omitempty -- additive, no snapshot
+// version bump needed) survive a Snapshot -> Restore round trip.
+func TestInMemoryBackend_SnapshotRestore_SecretConfigAndKerberos(t *testing.T) {
+	t.Parallel()
+
+	b := datasync.NewInMemoryBackend("000000000000", "us-east-1")
+
+	loc, err := b.CreateLocationSmb(
+		"smb.example.com", "/share", "", "", "", "KERBEROS",
+		nil, nil, nil,
+		datasync.SmbKerberosConfig{
+			KerberosPrincipal: "HOST/user@REALM.ORG",
+			KerberosKeytab:    "keytab-bytes",
+			KerberosKrb5Conf:  "krb5-conf-bytes",
+			DNSIPAddresses:    []string{"10.0.0.1"},
+		},
+		datasync.SecretConfig{Cmk: &datasync.CmkSecretConfig{
+			SecretArn: "arn:aws:secretsmanager:us-east-1:000000000000:secret:s",
+			KmsKeyArn: "arn:aws:kms:us-east-1:000000000000:key/k",
+		}},
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := datasync.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	restored, err := fresh.DescribeLocationSmb(loc.LocationArn)
+	require.NoError(t, err)
+	assert.Equal(t, "HOST/user@REALM.ORG", restored.KerberosPrincipal)
+	assert.Equal(t, []string{"10.0.0.1"}, restored.DNSIPAddresses)
+	require.NotNil(t, restored.CmkSecretConfig)
+	assert.Equal(t, "arn:aws:secretsmanager:us-east-1:000000000000:secret:s", restored.CmkSecretConfig.SecretArn)
+	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/k", restored.CmkSecretConfig.KmsKeyArn)
+}
+
 // TestHandler_SnapshotRestoreDelegate verifies Handler.Snapshot/Restore
 // delegate to the backend. Before Phase 3.3, datasync had no such delegation
 // even though InMemoryBackend implemented both -- dead wiring, since nothing

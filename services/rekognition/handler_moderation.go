@@ -26,9 +26,9 @@ type moderationLabelEntry struct {
 	Confidence float32 `json:"Confidence"`
 }
 
-type detectModerationLabelsResp struct { //nolint:govet // existing issue.
-	ModerationLabels       []moderationLabelEntry `json:"ModerationLabels"`
+type detectModerationLabelsResp struct {
 	ModerationModelVersion string                 `json:"ModerationModelVersion"`
+	ModerationLabels       []moderationLabelEntry `json:"ModerationLabels"`
 }
 
 func (h *Handler) handleDetectModerationLabels(
@@ -50,12 +50,12 @@ func (h *Handler) handleDetectModerationLabels(
 	}, nil
 }
 
-type detectProtectiveEquipmentReq struct { //nolint:govet // existing issue.
-	Image                   imageRef  `json:"Image"`
+type detectProtectiveEquipmentReq struct {
 	SummarizationAttributes *struct { //nolint:govet // existing issue.
 		MinConfidence          float32  `json:"MinConfidence"`
 		RequiredEquipmentTypes []string `json:"RequiredEquipmentTypes"`
 	} `json:"SummarizationAttributes"`
+	Image imageRef `json:"Image"`
 }
 
 type protectiveEquipmentPersonEntry struct {
@@ -63,9 +63,9 @@ type protectiveEquipmentPersonEntry struct {
 	Confidence float32 `json:"Confidence"`
 }
 
-type detectProtectiveEquipmentResp struct { //nolint:govet // existing issue.
-	Persons                         []protectiveEquipmentPersonEntry `json:"Persons"`
+type detectProtectiveEquipmentResp struct {
 	ProtectiveEquipmentModelVersion string                           `json:"ProtectiveEquipmentModelVersion"`
+	Persons                         []protectiveEquipmentPersonEntry `json:"Persons"`
 }
 
 func (h *Handler) handleDetectProtectiveEquipment(
@@ -87,9 +87,17 @@ type startContentModerationReq struct {
 }
 
 func (h *Handler) handleStartContentModeration(
-	_ context.Context, _ *startContentModerationReq,
+	_ context.Context, req *startContentModerationReq,
 ) (*startJobResp, error) {
-	jobID, err := h.Backend.StartAsyncJob("content_moderation", "")
+	bucket, name, version := videoRefS3(req.Video)
+
+	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
+		JobType:        "content_moderation",
+		JobTag:         req.JobTag,
+		VideoS3Bucket:  bucket,
+		VideoS3Name:    name,
+		VideoS3Version: version,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -97,15 +105,33 @@ func (h *Handler) handleStartContentModeration(
 	return &startJobResp{JobId: jobID}, nil
 }
 
-type getContentModerationResp struct {
-	getJobBaseResp
-	ModerationLabels []struct{} `json:"ModerationLabels"`
+type getContentModerationReq struct {
+	JobId       string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+	NextToken   string `json:"NextToken"`
+	AggregateBy string `json:"AggregateBy"`
+	SortBy      string `json:"SortBy"`
+	MaxResults  int32  `json:"MaxResults"`
 }
 
+type getContentModerationResp struct {
+	getJobBaseResp
+	GetRequestMetadata *getRequestMetadataWire `json:"GetRequestMetadata,omitempty"`
+	ModerationLabels   []struct{}              `json:"ModerationLabels"`
+}
+
+// contentModerationSortByDefault / contentModerationAggregateByDefault are
+// GetContentModerationInput's documented defaults ("The default sort is by
+// TIMESTAMP." / "Default aggregation option is TIMESTAMPS.",
+// api_op_GetContentModeration.go).
+const (
+	contentModerationSortByDefault      = "TIMESTAMP"
+	contentModerationAggregateByDefault = "TIMESTAMPS"
+)
+
 func (h *Handler) handleGetContentModeration(
-	_ context.Context, req *getJobReq,
+	_ context.Context, req *getContentModerationReq,
 ) (*getContentModerationResp, error) {
-	base, err := h.getJobBase(req.JobId)
+	base, _, err := h.getJobBase(req.JobId)
 	if err != nil {
 		return nil, err
 	}
@@ -113,5 +139,9 @@ func (h *Handler) handleGetContentModeration(
 	return &getContentModerationResp{
 		getJobBaseResp:   *base,
 		ModerationLabels: []struct{}{},
+		GetRequestMetadata: &getRequestMetadataWire{
+			AggregateBy: orDefault(req.AggregateBy, contentModerationAggregateByDefault),
+			SortBy:      orDefault(req.SortBy, contentModerationSortByDefault),
+		},
 	}, nil
 }

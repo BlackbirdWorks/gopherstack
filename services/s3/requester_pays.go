@@ -25,14 +25,10 @@ const requestPaymentRequester = "Requester"
 
 // enforceRequesterPays implements AWS Requester-Pays semantics: when a bucket's
 // request-payment configuration is "Requester", every object request must carry
-// the header `x-amz-request-payer: requester`. A request that omits it is
-// rejected with 403 AccessDenied, exactly as S3 does for a non-owner requester.
-//
-// It returns true when the request may proceed. When enforcement fails it writes
-// the AWS-accurate error response and returns false. Anonymous/owner-vs-requester
-// distinction is not modeled (gopherstack is single-tenant), so the presence of
-// the acknowledgement header is the gate — which matches the observable contract
-// SDK callers must satisfy against real S3.
+// `x-amz-request-payer: requester` or be rejected with 403 AccessDenied. Returns
+// true when the request may proceed; on failure it writes the AWS-accurate error
+// response and returns false. Owner-vs-requester isn't modeled (single-tenant),
+// so header presence alone is the gate, matching the observable SDK contract.
 func (h *S3Handler) enforceRequesterPays(
 	ctx context.Context,
 	w http.ResponseWriter,

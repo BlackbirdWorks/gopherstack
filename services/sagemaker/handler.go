@@ -915,6 +915,18 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrConflictException):
+		// ClusterSchedulerConfig/ComputeQuota only — see ErrConflictException's
+		// doc comment. Checked before the generic ErrConflict case below so
+		// these resources' real "ConflictException" wire exception isn't
+		// papered over with the blanket ResourceInUse the rest of the service
+		// emits.
+		payload, _ := json.Marshal(map[string]string{
+			keyTypeField:    "ConflictException",
+			keyMessageField: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ResourceInUse",

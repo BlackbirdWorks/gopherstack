@@ -624,3 +624,36 @@ func TestACMBackend_SearchCertificates(t *testing.T) {
 	_, err = b.SearchCertificates(ctx, acm.SearchCertificatesParams{NextToken: "not-valid-base64!!"})
 	assert.ErrorIs(t, err, acm.ErrInvalidParameter)
 }
+
+// TestACMHandler_ListCertificates_InvalidArgsException locks in the fix for
+// ListCertificates accepting any CertificateStatuses/Includes/SortBy/
+// SortOrder string and silently matching nothing, instead of rejecting it.
+// ListCertificates' deserializer recognizes exactly two errors --
+// InvalidArgsException and ValidationException (deserializers.go:2735-2739,
+// aws-sdk-go-v2/service/acm@v1.43.4) -- so an invalid filter value must
+// return InvalidArgsException, not a silent empty page.
+func TestACMHandler_ListCertificates_InvalidArgsException(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "bad_certificate_status", body: `{"CertificateStatuses":["BOGUS"]}`},
+		{name: "bad_sort_by", body: `{"SortBy":"DOMAIN_NAME"}`},
+		{name: "bad_sort_order", body: `{"SortBy":"CREATED_AT","SortOrder":"SIDEWAYS"}`},
+		{name: "bad_key_type", body: `{"Includes":{"KeyTypes":["RSA_512"]}}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newACMHandler()
+
+			rec := postACMJSON(t, h, "ListCertificates", tt.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "InvalidArgsException")
+		})
+	}
+}

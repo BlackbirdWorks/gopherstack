@@ -76,7 +76,7 @@ func TestResponseHeadersPolicyConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 			rec := doReq(t, h, http.MethodPost, "/2020-05-31/response-headers-policy", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
@@ -251,7 +251,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 
 			if tt.setup != nil {
@@ -285,7 +285,7 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 func TestResponseHeadersPolicyCORSItems_WireRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	body := []byte(`<ResponseHeadersPolicyConfig><Name>wire-rhp</Name>` +
 		`<CorsConfig>` +

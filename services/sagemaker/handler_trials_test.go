@@ -75,3 +75,34 @@ func TestHandler_UpdateTrial(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	assert.Equal(t, "Trial Display", descResp["DisplayName"])
 }
+
+func TestHandler_CreateTrial_DisplayName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateExperiment", map[string]any{"ExperimentName": "exp-dn"})
+
+	rec := doSageMakerRequest(t, h, "CreateTrial", map[string]any{
+		"TrialName":      "trial-with-display",
+		"ExperimentName": "exp-dn",
+		"DisplayName":    "My Trial",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeTrial", map[string]any{"TrialName": "trial-with-display"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "My Trial", descResp["DisplayName"])
+
+	rec = doSageMakerRequest(t, h, "ListTrials", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	summaries := listResp["TrialSummaries"].([]any)
+	require.Len(t, summaries, 1)
+	assert.Equal(t, "My Trial", summaries[0].(map[string]any)["DisplayName"])
+}

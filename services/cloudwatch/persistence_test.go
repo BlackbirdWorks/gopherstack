@@ -315,7 +315,7 @@ func TestInMemoryBackend_SnapshotRestore_NewResourceTypes(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
 				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{
-					MuteName:    "persist-mute",
+					Name:        "persist-mute",
 					Description: "test mute",
 					AlarmNames:  []string{"alarm-a", "alarm-b"},
 				})
@@ -372,7 +372,7 @@ func TestInMemoryBackend_Reset_ClearsNewMaps(t *testing.T) {
 	b.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{Namespace: "NS", MetricName: "M", Stat: "Sum"})
 	b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "rule-to-clear"})
 	b.PutMetricStreamInternal(&cloudwatch.MetricStream{Name: "stream-to-clear"})
-	b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{MuteName: "mute-to-clear"})
+	b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{Name: "mute-to-clear"})
 
 	b.Reset()
 
@@ -518,7 +518,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	})
 
 	// alarmMuteRules.
-	original.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{MuteName: "full-state-mute"})
+	original.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{Name: "full-state-mute"})
 
 	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)

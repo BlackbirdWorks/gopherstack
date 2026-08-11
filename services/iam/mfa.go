@@ -38,12 +38,13 @@ func (b *InMemoryBackend) EnableMFADevice(userName, serialNumber, authCode1, aut
 		return err
 	}
 
-	c := b.comp()
-	c.mu.Lock()
-	c.mfaUserLinks[serialNumber] = userName
-	c.mu.Unlock()
+	b.mu.Lock("EnableMFADevice")
+	b.comp().mfaUserLinks[serialNumber] = userName
+	b.mu.Unlock()
 
-	// Update device status to Active.
+	// Update device status to Active. Must run after releasing b.mu above:
+	// setMFADeviceStatus takes its own b.mu.Lock, and lockmetrics.RWMutex (like
+	// sync.RWMutex) is not reentrant.
 	_ = b.setMFADeviceStatus(serialNumber, MFAStatusEnabled)
 
 	return nil
@@ -72,11 +73,11 @@ func (b *InMemoryBackend) DeactivateMFADevice(userName, serialNumber string) err
 		)
 	}
 
-	c := b.comp()
-	c.mu.Lock()
-	delete(c.mfaUserLinks, serialNumber)
-	c.mu.Unlock()
+	b.mu.Lock("DeactivateMFADevice")
+	delete(b.comp().mfaUserLinks, serialNumber)
+	b.mu.Unlock()
 
+	// Must run after releasing b.mu above: see EnableMFADevice's matching note.
 	_ = b.setMFADeviceStatus(serialNumber, MFAStatusDeactivated)
 
 	return nil
@@ -84,11 +85,10 @@ func (b *InMemoryBackend) DeactivateMFADevice(userName, serialNumber string) err
 
 // GetMFADeviceOwner returns the user name that owns the given MFA device, or "".
 func (b *InMemoryBackend) GetMFADeviceOwner(serialNumber string) string {
-	c := b.comp()
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	b.mu.RLock("GetMFADeviceOwner")
+	defer b.mu.RUnlock()
 
-	return c.mfaUserLinks[serialNumber]
+	return b.comp().mfaUserLinks[serialNumber]
 }
 
 // ListMFADevicesForUser returns all MFA devices assigned to a user.
@@ -101,8 +101,6 @@ func (b *InMemoryBackend) ListMFADevicesForUser(userName string) ([]VirtualMFADe
 	}
 
 	c := b.comp()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	var devices []VirtualMFADevice
 
@@ -124,17 +122,14 @@ func (b *InMemoryBackend) ListMFADevicesForUser(userName string) ([]VirtualMFADe
 // It returns ErrUserNotFound (mapped to NoSuchEntity) when no such device exists.
 func (b *InMemoryBackend) GetVirtualMFADevice(serialNumber string) (VirtualMFADevice, string, error) {
 	b.mu.RLock("GetVirtualMFADevice")
-	dev, exists := b.virtualMFADevices.Get(serialNumber)
-	b.mu.RUnlock()
+	defer b.mu.RUnlock()
 
+	dev, exists := b.virtualMFADevices.Get(serialNumber)
 	if !exists {
 		return VirtualMFADevice{}, "", fmt.Errorf("%w: virtual MFA device %q not found", ErrUserNotFound, serialNumber)
 	}
 
-	c := b.comp()
-	c.mu.Lock()
-	owner := c.mfaUserLinks[serialNumber]
-	c.mu.Unlock()
+	owner := b.comp().mfaUserLinks[serialNumber]
 
 	return *dev, owner, nil
 }
@@ -148,6 +143,7 @@ func (b *InMemoryBackend) ResyncMFADevice(userName, serialNumber, authCode1, aut
 	b.mu.RLock("ResyncMFADevice-check")
 	_, userExists := b.users.Get(userName)
 	_, deviceExists := b.virtualMFADevices.Get(serialNumber)
+	owner := b.comp().mfaUserLinks[serialNumber]
 	b.mu.RUnlock()
 
 	if !userExists {
@@ -157,11 +153,6 @@ func (b *InMemoryBackend) ResyncMFADevice(userName, serialNumber, authCode1, aut
 	if !deviceExists {
 		return fmt.Errorf("%w: virtual MFA device %q not found", ErrUserNotFound, serialNumber)
 	}
-
-	c := b.comp()
-	c.mu.Lock()
-	owner := c.mfaUserLinks[serialNumber]
-	c.mu.Unlock()
 
 	if owner != userName {
 		return fmt.Errorf(

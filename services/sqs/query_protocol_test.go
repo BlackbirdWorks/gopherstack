@@ -880,14 +880,15 @@ func TestQueryProtocol_TagListUntagQueue(t *testing.T) {
 	h := newTestHandler(t)
 	queueURL := queryCreateQueue(t, h, "query-tag-queue")
 
-	// TagQueue with Tags.member.N.Key / Tags.member.N.Value encoding.
+	// TagQueue with Tag.N.Key / Tag.N.Value encoding (TagMap is flattened
+	// with locationName "Tag"; see sqs 2012-11-05 service-2.json).
 	tagRec := doQueryRequest(t, h, url.Values{
-		"Action":              {"TagQueue"},
-		"QueueUrl":            {queueURL},
-		"Tags.member.1.Key":   {"env"},
-		"Tags.member.1.Value": {"prod"},
-		"Tags.member.2.Key":   {"team"},
-		"Tags.member.2.Value": {"platform"},
+		"Action":      {"TagQueue"},
+		"QueueUrl":    {queueURL},
+		"Tag.1.Key":   {"env"},
+		"Tag.1.Value": {"prod"},
+		"Tag.2.Key":   {"team"},
+		"Tag.2.Value": {"platform"},
 	})
 	require.Equal(t, http.StatusOK, tagRec.Code, "tag body: %s", tagRec.Body.String())
 	assert.NotContains(t, tagRec.Body.String(), "InvalidAction")
@@ -917,11 +918,12 @@ func TestQueryProtocol_TagListUntagQueue(t *testing.T) {
 	}
 	assert.Equal(t, map[string]string{"env": "prod", "team": "platform"}, got)
 
-	// UntagQueue with TagKeys.member.N encoding.
+	// UntagQueue with TagKey.N encoding (TagKeyList is flattened with member
+	// locationName "TagKey").
 	untagRec := doQueryRequest(t, h, url.Values{
-		"Action":           {"UntagQueue"},
-		"QueueUrl":         {queueURL},
-		"TagKeys.member.1": {"team"},
+		"Action":   {"UntagQueue"},
+		"QueueUrl": {queueURL},
+		"TagKey.1": {"team"},
 	})
 	require.Equal(t, http.StatusOK, untagRec.Code, "untag body: %s", untagRec.Body.String())
 	assert.Contains(t, untagRec.Body.String(), "UntagQueueResponse")
@@ -995,6 +997,21 @@ func TestQueryProtocol_MessageMoveTasks(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code, "list body: %s", listRec.Body.String())
 	assert.Contains(t, listRec.Body.String(), "ListMessageMoveTasksResponse")
 	assert.NotContains(t, listRec.Body.String(), "InvalidAction")
+
+	// Decode with the AWS-documented element name (<Result>, not <Results>;
+	// see API_ListMessageMoveTasks.html sample response) to prove the task we
+	// just started is actually reachable through the wire shape a real client
+	// would parse, not just present as a raw substring.
+	var listResp struct {
+		Result struct {
+			Entries []struct {
+				SourceArn string `xml:"SourceArn"`
+			} `xml:"Result"`
+		} `xml:"ListMessageMoveTasksResult"`
+	}
+	require.NoError(t, xml.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NotEmpty(t, listResp.Result.Entries)
+	assert.Equal(t, dlqArn, listResp.Result.Entries[0].SourceArn)
 
 	if handle := strings.TrimSpace(startResp.Result.TaskHandle); handle != "" {
 		cancelRec := doQueryRequest(t, h, url.Values{

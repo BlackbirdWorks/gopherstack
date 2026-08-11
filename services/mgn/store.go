@@ -14,21 +14,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
-// InMemoryBackend is the in-memory store for AWS Application Migration
-// Service (MGN).
+// InMemoryBackend is the in-memory store for AWS Application Migration Service
+// (MGN).
 //
-// A single coarse lock guards every collection below: operations routinely
-// cross resource boundaries (AssociateSourceServers reads+writes an
-// Application and every named SourceServer; StartTest/StartCutover create a
-// Job while reading N SourceServers; TagResource resolves an ARN into
-// whichever of 12 taggable resource kinds it names), so the invariant
-// boundary is the whole backend -- see .claude/memories/pkgs-catalog.md's
-// locking rule.
+// A single coarse lock guards every collection below: operations routinely cross
+// resource boundaries (AssociateSourceServers touches an Application and every
+// named SourceServer; StartTest/StartCutover create a Job while reading N
+// SourceServers; TagResource resolves an ARN into any of 12 taggable resource
+// kinds), so the invariant boundary is the whole backend.
 type InMemoryBackend struct {
-	sourceServers               *store.Table[SourceServer]
-	launchConfigs               *store.Table[LaunchConfiguration]
-	replicationConfigs          *store.Table[ReplicationConfiguration]
-	launchTemplates             *store.Table[LaunchConfigurationTemplate]
+	s3                          S3Accessor
+	appConfig                   any
+	sourceServerActionsByServer *store.Index[SourceServerActionDocument]
+	nmJobs                      *store.Table[NetworkMigrationJob]
 	replicationTemplates        *store.Table[ReplicationConfigurationTemplate]
 	jobs                        *store.Table[Job]
 	jobLogs                     *store.Table[JobLog]
@@ -41,22 +39,22 @@ type InMemoryBackend struct {
 	importTasks                 *store.Table[ImportTask]
 	importFileEnrichments       *store.Table[ImportFileEnrichment]
 	sourceServerActions         *store.Table[SourceServerActionDocument]
-	sourceServerActionsByServer *store.Index[SourceServerActionDocument]
-	templateActions             *store.Table[TemplateActionDocument]
-	templateActionsByTemplate   *store.Index[TemplateActionDocument]
+	launchTemplates             *store.Table[LaunchConfigurationTemplate]
+	sourceServers               *store.Table[SourceServer]
+	registry                    *store.Registry
 	nmDefinitions               *store.Table[NetworkMigrationDefinition]
 	nmExecutions                *store.Table[NetworkMigrationExecution]
 	nmExecutionsByDef           *store.Index[NetworkMigrationExecution]
-	nmJobs                      *store.Table[NetworkMigrationJob]
+	templateActions             *store.Table[TemplateActionDocument]
 	nmJobsByExecution           *store.Index[NetworkMigrationJob]
-	registry                    *store.Registry
-
-	mu                 *lockmetrics.RWMutex
-	work               *worker.Group
-	s3                 S3Accessor
-	accountID          string
-	region             string
-	serviceInitialized bool
+	templateActionsByTemplate   *store.Index[TemplateActionDocument]
+	mu                          *lockmetrics.RWMutex
+	work                        *worker.Group
+	replicationConfigs          *store.Table[ReplicationConfiguration]
+	launchConfigs               *store.Table[LaunchConfiguration]
+	region                      string
+	accountID                   string
+	serviceInitialized          bool
 }
 
 // NewInMemoryBackend creates a new in-memory AWS Application Migration
@@ -154,16 +152,12 @@ func closeTags(t interface{ Close() }) {
 
 // ---- ARN builders ----
 //
-// UNCONFIRMED resource-path segments: Terraform's AWS provider has ZERO MGN
-// resources to corroborate against (PARITY.md's "gaps" section -- confirmed
-// via GitHub API directory listing, internal/service/mgn/ contains only
-// generated client boilerplate), and AWS's own Service Authorization
-// Reference page returned only a JS shell to automated fetching. Only the
-// ARN service segment ("mgn") has indirect corroboration, via botocore's
-// service-2.json endpointPrefix/serviceId/signingName all being literally
-// "mgn". Every resource-path segment below is this package's best-effort
-// guess from AWS naming convention (kebab-case singular resource kind,
-// matching resiliencehub/outposts' own convention), NOT a confirmed value.
+// UNCONFIRMED resource-path segments (PARITY.md's "gaps" section): Terraform's
+// AWS provider has zero MGN resources to corroborate against. Only the ARN
+// service segment ("mgn") has indirect corroboration, via botocore's
+// service-2.json endpointPrefix/serviceId/signingName. Every resource-path
+// segment below is a best-effort guess from AWS naming convention (kebab-case
+// singular), NOT a confirmed value.
 
 func (b *InMemoryBackend) sourceServerARN(id string) string {
 	return arn.Build("mgn", b.region, b.accountID, "source-server/"+id)

@@ -26,9 +26,16 @@ func (h *Handler) handleDescribeGlobalClusters(ctx context.Context, _ url.Values
 func (h *Handler) handleCreateGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
 	sourceDBClusterID := vals.Get("SourceDBClusterIdentifier")
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	gc, err := h.Backend.CreateGlobalCluster(ctx, globalClusterID, sourceDBClusterID)
 	if err != nil {
 		return nil, err
+	}
+	if len(tags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, gc.GlobalClusterArn, tags)
 	}
 
 	return &createGlobalClusterResponse{
@@ -151,8 +158,10 @@ type xmlGlobalClusterMemberList struct {
 	Members []xmlGlobalClusterMember `xml:"GlobalClusterMember"`
 }
 
+// neptune@v1.48.4 deserializers.go:18396 wraps each entry in
+// <GlobalClusterMember>, not <GlobalCluster>.
 type xmlGlobalClusterList struct {
-	Members []xmlGlobalCluster `xml:"GlobalCluster"`
+	Members []xmlGlobalCluster `xml:"GlobalClusterMember"`
 }
 
 type xmlGlobalCluster struct {

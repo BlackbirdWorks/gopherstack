@@ -22,6 +22,7 @@ func TestCreateStackInstances_ProvisionsChildStacks(t *testing.T) {
 		t.Context(),
 		"prov-ss",
 		[]string{"111111111111", "222222222222"},
+		nil,
 		[]string{"us-east-1"},
 	)
 	require.NoError(t, err)
@@ -50,7 +51,9 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	_, err := b.CreateStackSet("teardown-ss", "desc", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
-	_, err = b.CreateStackInstances(t.Context(), "teardown-ss", []string{"111111111111"}, []string{"us-east-1"})
+	_, err = b.CreateStackInstances(
+		t.Context(), "teardown-ss", []string{"111111111111"}, nil, []string{"us-east-1"},
+	)
 	require.NoError(t, err)
 
 	instances, err := b.ListStackInstances("teardown-ss", "")
@@ -58,7 +61,9 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	require.Len(t, instances.Data, 1)
 	childID := instances.Data[0].StackID
 
-	_, err = b.DeleteStackInstances(t.Context(), "teardown-ss", []string{"111111111111"}, []string{"us-east-1"})
+	_, err = b.DeleteStackInstances(
+		t.Context(), "teardown-ss", []string{"111111111111"}, nil, []string{"us-east-1"},
+	)
 	require.NoError(t, err)
 
 	remaining, err := b.ListStackInstances("teardown-ss", "")

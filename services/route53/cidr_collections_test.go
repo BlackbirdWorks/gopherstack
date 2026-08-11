@@ -227,11 +227,11 @@ func TestChangeCidrCollection_ParseBody(t *testing.T) {
 			body: `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <Changes>
-    <Change>
+    <member>
       <LocationName>us-east-1</LocationName>
       <Action>PUT</Action>
       <CidrList><Cidr>10.0.0.0/8</Cidr></CidrList>
-    </Change>
+    </member>
   </Changes>
 </ChangeCidrCollectionRequest>`,
 			wantCode: http.StatusOK,
@@ -334,13 +334,13 @@ func TestListCidrBlocks_Handler(t *testing.T) {
 	changeBody := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <Changes>
-    <Change>
+    <member>
       <LocationName>datacenter</LocationName>
       <Action>PUT</Action>
       <CidrList>
         <Cidr>10.1.0.0/16</Cidr>
       </CidrList>
-    </Change>
+    </member>
   </Changes>
 </ChangeCidrCollectionRequest>`
 
@@ -462,4 +462,51 @@ func TestRoute53_ChangeCidrCollection(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRoute53_ChangeCidrCollection_AppliesRealWireShape sends a
+// ChangeCidrCollection body using the real client's wire shape
+// (Changes>member, per route53@v1.65.6 serializers.go
+// awsRestxml_serializeDocumentCidrCollectionChanges) and verifies the CIDR
+// block is actually stored, not silently dropped by a wrapper mismatch.
+func TestRoute53_ChangeCidrCollection_AppliesRealWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	createBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>test-cidrs-wire</Name>
+  <CallerReference>cidr-ref-wire</CallerReference>
+</CreateCidrCollectionRequest>`
+	createRec := send(t, h, http.MethodPost, "/2013-04-01/cidrcollection", createBody)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	var created struct {
+		Collection struct {
+			ID string `xml:"Id"`
+		} `xml:"Collection"`
+	}
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &created))
+	collectionID := created.Collection.ID
+	require.NotEmpty(t, collectionID)
+
+	changeBody := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Changes>
+    <member>
+      <LocationName>loc-a</LocationName>
+      <Action>PUT</Action>
+      <CidrList>
+        <Cidr>10.0.0.0/24</Cidr>
+      </CidrList>
+    </member>
+  </Changes>
+</ChangeCidrCollectionRequest>`
+	changeRec := send(t, h, http.MethodPost, "/2013-04-01/cidrcollection/"+collectionID, changeBody)
+	require.Equal(t, http.StatusOK, changeRec.Code, changeRec.Body.String())
+
+	blocksRec := send(t, h, http.MethodGet, "/2013-04-01/cidrcollection/"+collectionID+"/cidrblocks?location=loc-a", "")
+	require.Equal(t, http.StatusOK, blocksRec.Code, blocksRec.Body.String())
+	assert.Contains(t, blocksRec.Body.String(), "10.0.0.0/24")
 }

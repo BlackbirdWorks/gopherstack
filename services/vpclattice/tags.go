@@ -49,3 +49,30 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 
 	return result, nil
 }
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every VPC Lattice resource ARN that currently has
+// at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for arn, tags := range b.tags {
+		if len(tags) == 0 {
+			continue
+		}
+
+		cp := make(map[string]string, len(tags))
+		maps.Copy(cp, tags)
+		out = append(out, TaggedEntry{ARN: arn, Tags: cp})
+	}
+
+	return out
+}

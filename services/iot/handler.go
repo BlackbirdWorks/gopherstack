@@ -21,6 +21,8 @@ import (
 const (
 	iotMatchPriority = 90
 	unknownOperation = "Unknown"
+	// iotServiceName is the SigV4 signing name real IoT control-plane requests carry.
+	iotServiceName = "iot"
 	// headerIoTPrincipal is the HTTP header name for the IoT principal (certificate ARN or Cognito identity).
 	headerIoTPrincipal = "X-Amzn-Principal"
 	// headerIoTThingName is the HTTP header name for the thing name used in AttachPrincipalPolicy.
@@ -64,7 +66,7 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
-func (h *Handler) ChaosServiceName() string { return "iot" }
+func (h *Handler) ChaosServiceName() string { return iotServiceName }
 
 // ChaosOperations returns all operations that can be fault-injected.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
@@ -78,7 +80,19 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if path == pathPolicies || strings.HasPrefix(path, pathPolicies+"/") {
 			svc := httputils.ExtractServiceFromRequest(c.Request())
 
-			return svc == "" || svc == "iot"
+			return svc == "" || svc == iotServiceName
+		}
+
+		// "/api/things/shadow/" (ListNamedShadowsForThing/ListThingsWithShadows) and
+		// "/things/{name}/shadow..." (Get/Update/DeleteThingShadow) are entirely
+		// iotdataplane's real wire paths (signs as "iotdata"); iot has no shadow
+		// operations in the real API at all. Scope both by SigV4 so a
+		// correctly-signed iotdataplane request isn't swallowed here (see
+		// gopherstack-61i8).
+		if strings.HasPrefix(path, "/api/things/shadow/") || isThingShadowPath(path) {
+			svc := httputils.ExtractServiceFromRequest(c.Request())
+
+			return svc == "" || svc == iotServiceName
 		}
 
 		return matchIoTPath(path)

@@ -7,31 +7,35 @@ import (
 // --- RunJobFlow ---
 
 type runJobFlowInput struct {
-	SecurityConfiguration   string                  `json:"SecurityConfiguration"`
-	ReleaseLabel            string                  `json:"ReleaseLabel"`
-	OSReleaseLabel          string                  `json:"OSReleaseLabel"`
-	LogURI                  string                  `json:"LogUri"`
-	ServiceRole             string                  `json:"ServiceRole"`
-	JobFlowRole             string                  `json:"JobFlowRole"`
-	AutoScalingRole         string                  `json:"AutoScalingRole"`
-	Name                    string                  `json:"Name"`
-	ScaleDownBehavior       string                  `json:"ScaleDownBehavior"`
-	CustomAmiID             string                  `json:"CustomAmiId"`
-	Tags                    []Tag                   `json:"Tags"`
-	Applications            []Application           `json:"Applications"`
-	Configurations          []Configuration         `json:"Configurations"`
-	Steps                   []StepSpec              `json:"Steps"`
-	BootstrapActions        []BootstrapActionConfig `json:"BootstrapActions"`
-	KerberosAttributes      *KerberosAttributes     `json:"KerberosAttributes"`
-	PlacementGroupConfigs   []PlacementGroupConfig  `json:"PlacementGroupConfigs"`
-	ManagedScalingPolicy    *ManagedScalingPolicy   `json:"ManagedScalingPolicy"`
-	AutoTerminationPolicy   *AutoTerminationPolicy  `json:"AutoTerminationPolicy"`
-	Instances               RunJobFlowInstances     `json:"Instances"`
-	StepConcurrencyLevel    int                     `json:"StepConcurrencyLevel"`
-	EbsRootVolumeSize       int                     `json:"EbsRootVolumeSize"`
-	EbsRootVolumeIops       int                     `json:"EbsRootVolumeIops"`
-	EbsRootVolumeThroughput int                     `json:"EbsRootVolumeThroughput"`
-	VisibleToAllUsers       bool                    `json:"VisibleToAllUsers"`
+	KerberosAttributes      *KerberosAttributes      `json:"KerberosAttributes"`
+	MonitoringConfiguration *MonitoringConfiguration `json:"MonitoringConfiguration"`
+	AutoTerminationPolicy   *AutoTerminationPolicy   `json:"AutoTerminationPolicy"`
+	ManagedScalingPolicy    *ManagedScalingPolicy    `json:"ManagedScalingPolicy"`
+	LogEncryptionKmsKeyID   string                   `json:"LogEncryptionKmsKeyId"`
+	AmiVersion              string                   `json:"AmiVersion"`
+	AutoScalingRole         string                   `json:"AutoScalingRole"`
+	Name                    string                   `json:"Name"`
+	ScaleDownBehavior       string                   `json:"ScaleDownBehavior"`
+	CustomAmiID             string                   `json:"CustomAmiId"`
+	JobFlowRole             string                   `json:"JobFlowRole"`
+	RepoUpgradeOnBoot       string                   `json:"RepoUpgradeOnBoot"`
+	SecurityConfiguration   string                   `json:"SecurityConfiguration"`
+	ReleaseLabel            string                   `json:"ReleaseLabel"`
+	OSReleaseLabel          string                   `json:"OSReleaseLabel"`
+	ServiceRole             string                   `json:"ServiceRole"`
+	LogURI                  string                   `json:"LogUri"`
+	PlacementGroupConfigs   []PlacementGroupConfig   `json:"PlacementGroupConfigs"`
+	BootstrapActions        []BootstrapActionConfig  `json:"BootstrapActions"`
+	Steps                   []StepSpec               `json:"Steps"`
+	Configurations          []Configuration          `json:"Configurations"`
+	Applications            []Application            `json:"Applications"`
+	Tags                    []Tag                    `json:"Tags"`
+	Instances               RunJobFlowInstances      `json:"Instances"`
+	StepConcurrencyLevel    int                      `json:"StepConcurrencyLevel"`
+	EbsRootVolumeSize       int                      `json:"EbsRootVolumeSize"`
+	EbsRootVolumeIops       int                      `json:"EbsRootVolumeIops"`
+	EbsRootVolumeThroughput int                      `json:"EbsRootVolumeThroughput"`
+	VisibleToAllUsers       bool                     `json:"VisibleToAllUsers"`
 }
 
 type runJobFlowOutput struct {
@@ -53,8 +57,12 @@ func (h *Handler) handleRunJobFlow(ctx context.Context, in *runJobFlowInput) (*r
 		PlacementGroupConfigs:   in.PlacementGroupConfigs,
 		ManagedScalingPolicy:    in.ManagedScalingPolicy,
 		AutoTerminationPolicy:   in.AutoTerminationPolicy,
+		MonitoringConfiguration: in.MonitoringConfiguration,
 		Instances:               in.Instances,
 		LogURI:                  in.LogURI,
+		LogEncryptionKmsKeyID:   in.LogEncryptionKmsKeyID,
+		RepoUpgradeOnBoot:       in.RepoUpgradeOnBoot,
+		AmiVersion:              in.AmiVersion,
 		ServiceRole:             in.ServiceRole,
 		JobFlowRole:             in.JobFlowRole,
 		AutoScalingRole:         in.AutoScalingRole,

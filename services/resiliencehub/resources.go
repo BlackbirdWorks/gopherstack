@@ -385,13 +385,12 @@ func (b *InMemoryBackend) ListAppVersionResourceMappings(
 // ResolveAppVersionResources kicks off an async resolution of (appArn,
 // appVersion)'s ResourceMappings into concrete PhysicalResource entries. See
 // resolveMappingsLocked for exactly which mapping types this backend
-// genuinely resolves versus honestly leaves unresolved -- a scoped,
-// documented judgment call (PARITY.md's "Resource mapping" section
-// recommended deeper cross-service resolution; this pass resolves the
-// "Resource" mapping type for real and honestly declines AppRegistryApp/
-// Terraform/CfnStack/ResourceGroup/EKS rather than fabricating discovered
-// resources for them -- see PARITY.md's gaps section for why that is a
-// narrower scope than the audit's recommendation).
+// genuinely resolves versus honestly leaves unresolved: "Resource" (a real
+// pass-through) and "CfnStack"/"ResourceGroup"/"EKS" (real cross-service
+// lookups against services/cloudformation, services/resourcegroups, and
+// services/eks -- see cross_service.go) are resolved for real;
+// "AppRegistryApp"/"Terraform" are honestly declined since no backing
+// service exists in this tree for either.
 func (b *InMemoryBackend) ResolveAppVersionResources(appArn, appVersion string) (*App, string, string, error) {
 	b.mu.Lock("ResolveAppVersionResources")
 	defer b.mu.Unlock()
@@ -415,8 +414,8 @@ func (b *InMemoryBackend) ResolveAppVersionResources(appArn, appVersion string) 
 }
 
 // scheduleResolution transitions a version's resolution Pending -> Success,
-// materializing every "Resource"-type mapping into a PhysicalResource entry
-// along the way -- see resolveMappingsLocked.
+// materializing every resolvable mapping into a PhysicalResource entry along
+// the way -- see resolveMappingsLocked.
 func (b *InMemoryBackend) scheduleResolution(appID, versionNumber, resolutionID string) {
 	b.work.After("ResolveAppVersionResources", asyncTransitionDelay, func() {
 		b.mu.Lock("ResolveAppVersionResources-async")
@@ -432,37 +431,55 @@ func (b *InMemoryBackend) scheduleResolution(appID, versionNumber, resolutionID 
 			return
 		}
 
-		resolveMappingsLocked(v)
+		b.resolveMappingsLocked(v)
 		v.Resolution.Status = AsyncStatusSuccess
 	})
 }
 
-// resolveMappingsLocked materializes every "Resource"-type ResourceMapping on
-// v into a PhysicalResource entry (a real, non-fabricated pass-through: the
-// mapping already carries a caller-supplied PhysicalResourceId). Every other
-// MappingType (CfnStack/ResourceGroup/EKS/AppRegistryApp/Terraform) is left
-// unresolved: this backend does not query the other in-tree services'
-// backends for cross-service resolution in this pass, a scoped, documented
-// deviation from PARITY.md's recommendation to do so -- see PARITY.md's
-// gaps section. Callers must hold b.mu.
-func resolveMappingsLocked(v *AppVersion) {
+// resolveMappingsLocked materializes every ResourceMapping on v into a
+// PhysicalResource entry, per MappingType: "Resource" is a real,
+// non-fabricated pass-through (the mapping already carries a caller-supplied
+// PhysicalResourceId); "CfnStack"/"ResourceGroup"/"EKS" are resolved against
+// this emulator's real CloudFormation/Resource Groups/EKS backends when
+// wired (see cross_service.go) -- genuine cross-service resolution, not
+// fabricated resource lists. "AppRegistryApp"/"Terraform" are left
+// unresolved: no services/appregistry backend exists in this tree, and
+// Terraform state files are an external S3 concept with no local semantics
+// -- an honest, documented gap, not a stub. Callers must hold b.mu.
+func (b *InMemoryBackend) resolveMappingsLocked(v *AppVersion) {
 	for _, m := range v.ResourceMappings {
-		if m.MappingType != MappingTypeResource || m.PhysicalResourceID == nil {
-			continue
+		switch m.MappingType {
+		case MappingTypeResource:
+			resolveResourceMappingLocked(v, m)
+		case MappingTypeCfnStack:
+			b.resolveCfnStackMappingLocked(v, m)
+		case MappingTypeResourceGroup:
+			b.resolveResourceGroupMappingLocked(v, m)
+		case MappingTypeEKS:
+			b.resolveEKSMappingLocked(v, m)
 		}
-
-		loc := findResourceLocator{resourceName: m.ResourceName, physicalID: m.PhysicalResourceID.Identifier}
-		if existing, _ := findResource(v, loc); existing != nil {
-			continue
-		}
-
-		v.Resources = append(v.Resources, &PhysicalResource{
-			PhysicalResourceID: m.PhysicalResourceID.clone(),
-			ResourceName:       m.ResourceName,
-			ResourceType:       resourceTypeFromPhysicalID(m.PhysicalResourceID),
-			SourceType:         ResourceSourceDiscovered,
-		})
 	}
+}
+
+// resolveResourceMappingLocked materializes m's caller-supplied
+// PhysicalResourceId into a PhysicalResource entry -- a real, non-fabricated
+// pass-through. Callers must hold b.mu.
+func resolveResourceMappingLocked(v *AppVersion, m ResourceMapping) {
+	if m.PhysicalResourceID == nil {
+		return
+	}
+
+	loc := findResourceLocator{resourceName: m.ResourceName, physicalID: m.PhysicalResourceID.Identifier}
+	if existing, _ := findResource(v, loc); existing != nil {
+		return
+	}
+
+	v.Resources = append(v.Resources, &PhysicalResource{
+		PhysicalResourceID: m.PhysicalResourceID.clone(),
+		ResourceName:       m.ResourceName,
+		ResourceType:       resourceTypeFromPhysicalID(m.PhysicalResourceID),
+		SourceType:         ResourceSourceDiscovered,
+	})
 }
 
 // resourceTypeFromPhysicalID returns a best-effort ResourceType string for a
@@ -537,16 +554,15 @@ func (b *InMemoryBackend) ImportResourcesToDraftAppVersion(
 		})
 	}
 
-	b.scheduleImport(a.ID)
+	b.scheduleImport(a.ID, req.SourceArns, req.EksSources)
 
 	return a.clone(), AsyncStatusPending, nil
 }
 
-// scheduleImport transitions an App's import status Pending -> Success. No
-// resources are actually discovered from the recorded input sources in this
-// pass -- see PARITY.md's cross-service resolution scoping note in
-// resolveMappingsLocked's doc comment, which applies identically here.
-func (b *InMemoryBackend) scheduleImport(appID string) {
+// scheduleImport transitions an App's import status Pending ->
+// Success|Failed, resolving sourceArns/eksSources against real cross-service
+// backend state along the way -- see resolveImportSourcesLocked.
+func (b *InMemoryBackend) scheduleImport(appID string, sourceArns []string, eksSources []eksSourceWire) {
 	b.work.After("ImportResourcesToDraftAppVersion", asyncTransitionDelay, func() {
 		b.mu.Lock("ImportResourcesToDraftAppVersion-async")
 		defer b.mu.Unlock()
@@ -556,8 +572,68 @@ func (b *InMemoryBackend) scheduleImport(appID string) {
 			return
 		}
 
-		a.Import.Status = AsyncStatusSuccess
+		errDetails := b.resolveImportSourcesLocked(a.Draft, sourceArns, eksSources)
+
 		a.Import.StatusChangeTime = time.Now().UTC()
+
+		if len(errDetails) > 0 {
+			a.Import.Status = AsyncStatusFailed
+			a.Import.ErrorMessage = errDetails[0]
+			a.Import.ErrorDetails = errDetails
+
+			return
+		}
+
+		a.Import.Status = AsyncStatusSuccess
+	})
+}
+
+// resolveImportSourcesLocked resolves sourceArns (by ARN service segment)
+// and eksSources (by EksClusterArn) against this emulator's real EC2/RDS/
+// DynamoDB/EKS backends (see cross_service.go), materializing every resolved
+// source into v's Resources. Returns one AWS-accurate ResourceNotFoundException
+// -shaped message per source that a wired, recognized backend could not find
+// -- a source whose service this backend has no cross-service resolution for
+// is left honestly unresolved, not reported as an error, matching
+// resolveMappingsLocked's AppRegistryApp/Terraform treatment. Callers must
+// hold b.mu.
+func (b *InMemoryBackend) resolveImportSourcesLocked(
+	v *AppVersion, sourceArns []string, eksSources []eksSourceWire,
+) []string {
+	var errDetails []string
+
+	for _, sourceArn := range sourceArns {
+		if materialized, checked := b.resolveSourceArnLocked(v, sourceArn); checked && !materialized {
+			errDetails = append(errDetails, notFoundError(resourceAppResource, sourceArn).Error())
+		}
+	}
+
+	for _, e := range eksSources {
+		if e.EksClusterArn == "" {
+			continue
+		}
+
+		if materialized, checked := b.resolveEKSSourceArnLocked(v, e.EksClusterArn); checked && !materialized {
+			errDetails = append(errDetails, notFoundError(resourceAppResource, e.EksClusterArn).Error())
+		}
+	}
+
+	return errDetails
+}
+
+// recordDiscoveredResourceLocked appends sourceArn as a discovered
+// PhysicalResource to v, deduplicating against an already-recorded resource
+// with the same ARN identifier. Callers must hold b.mu.
+func recordDiscoveredResourceLocked(v *AppVersion, sourceArn, resourceType string) {
+	loc := findResourceLocator{physicalID: sourceArn}
+	if existing, _ := findResource(v, loc); existing != nil {
+		return
+	}
+
+	v.Resources = append(v.Resources, &PhysicalResource{
+		PhysicalResourceID: &PhysicalResourceID{Identifier: sourceArn, Type: PhysicalIDTypeArn},
+		ResourceType:       resourceType,
+		SourceType:         ResourceSourceDiscovered,
 	})
 }
 

@@ -14,8 +14,15 @@ import (
 
 func (h *Handler) handleCreateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		TrialComponentName string      `json:"TrialComponentName"`
-		Tags               []tagObject `json:"Tags"`
+		StartTime          *float64                          `json:"StartTime,omitempty"`
+		EndTime            *float64                          `json:"EndTime,omitempty"`
+		Status             *TrialComponentStatus             `json:"Status,omitempty"`
+		Parameters         map[string]TrialComponentValue    `json:"Parameters,omitempty"`
+		InputArtifacts     map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
+		OutputArtifacts    map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
+		TrialComponentName string                            `json:"TrialComponentName"`
+		DisplayName        string                            `json:"DisplayName,omitempty"`
+		Tags               []tagObject                       `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -26,7 +33,17 @@ func (h *Handler) handleCreateTrialComponent(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: TrialComponentName is required", errInvalidRequest)
 	}
 
-	tc, err := h.Backend.CreateTrialComponent(ctx, req.TrialComponentName, fromTagObjects(req.Tags))
+	tc, err := h.Backend.CreateTrialComponent(ctx, CreateTrialComponentOptions{
+		TrialComponentName: req.TrialComponentName,
+		DisplayName:        req.DisplayName,
+		StartTime:          timeFromEpochSecondsPtr(req.StartTime),
+		EndTime:            timeFromEpochSecondsPtr(req.EndTime),
+		Status:             req.Status,
+		Parameters:         req.Parameters,
+		InputArtifacts:     req.InputArtifacts,
+		OutputArtifacts:    req.OutputArtifacts,
+		Tags:               fromTagObjects(req.Tags),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -64,8 +81,14 @@ func (h *Handler) handleDescribeTrialComponent(ctx context.Context, body []byte)
 	if tc.DisplayName != "" {
 		resp["DisplayName"] = tc.DisplayName
 	}
-	if tc.Status != "" {
+	if tc.Status != nil {
 		resp["Status"] = tc.Status
+	}
+	if tc.StartTime != nil {
+		resp["StartTime"] = epochSeconds(*tc.StartTime)
+	}
+	if tc.EndTime != nil {
+		resp["EndTime"] = epochSeconds(*tc.EndTime)
 	}
 	if len(tc.Parameters) > 0 {
 		resp["Parameters"] = tc.Parameters
@@ -164,8 +187,8 @@ func (h *Handler) handleListTrialComponents(ctx context.Context, body []byte) ([
 		if tc.DisplayName != "" {
 			summary["DisplayName"] = tc.DisplayName
 		}
-		if tc.Status != "" {
-			summary["Status"] = map[string]string{"PrimaryStatus": tc.Status}
+		if tc.Status != nil {
+			summary["Status"] = tc.Status
 		}
 		if tc.StartTime != nil {
 			summary["StartTime"] = epochSeconds(*tc.StartTime)
@@ -182,12 +205,14 @@ func (h *Handler) handleListTrialComponents(ctx context.Context, body []byte) ([
 
 func (h *Handler) handleUpdateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		StartTime          *float64                          `json:"StartTime,omitempty"`
+		EndTime            *float64                          `json:"EndTime,omitempty"`
+		Status             *TrialComponentStatus             `json:"Status,omitempty"`
 		Parameters         map[string]TrialComponentValue    `json:"Parameters,omitempty"`
 		InputArtifacts     map[string]TrialComponentArtifact `json:"InputArtifacts,omitempty"`
 		OutputArtifacts    map[string]TrialComponentArtifact `json:"OutputArtifacts,omitempty"`
 		TrialComponentName string                            `json:"TrialComponentName"`
 		DisplayName        string                            `json:"DisplayName,omitempty"`
-		Status             string                            `json:"Status,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -201,6 +226,8 @@ func (h *Handler) handleUpdateTrialComponent(ctx context.Context, body []byte) (
 	opts := UpdateTrialComponentOptions{
 		DisplayName:     req.DisplayName,
 		Status:          req.Status,
+		StartTime:       timeFromEpochSecondsPtr(req.StartTime),
+		EndTime:         timeFromEpochSecondsPtr(req.EndTime),
 		Parameters:      req.Parameters,
 		InputArtifacts:  req.InputArtifacts,
 		OutputArtifacts: req.OutputArtifacts,

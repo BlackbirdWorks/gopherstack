@@ -594,6 +594,22 @@ func toRouteAnalysisPathWire(p *RouteAnalysisPath) *routeAnalysisPathWire {
 		}
 	}
 
+	for _, c := range p.Path {
+		pc := pathComponentWire{DestinationCidrBlock: c.DestinationCidrBlock, Sequence: c.Sequence}
+		if c.Resource != nil {
+			pc.Resource = &networkResourceSummaryWire{
+				Definition:           c.Resource.Definition,
+				IsMiddlebox:          c.Resource.IsMiddlebox,
+				NameTag:              c.Resource.NameTag,
+				RegisteredGatewayArn: c.Resource.RegisteredGatewayArn,
+				ResourceArn:          c.Resource.ResourceArn,
+				ResourceType:         c.Resource.ResourceType,
+			}
+		}
+
+		w.Path = append(w.Path, pc)
+	}
+
 	return w
 }
 
@@ -613,6 +629,45 @@ func toRouteAnalysisWire(r *RouteAnalysis) *routeAnalysisWire {
 		Status:            r.Status,
 		IncludeReturnPath: r.IncludeReturnPath,
 	}
+}
+
+// ---- Core Network Policy change set / change events ----
+
+func toCoreNetworkChangeValuesWire(v *CoreNetworkChangeValues) *coreNetworkChangeValuesWire {
+	if v == nil {
+		return nil
+	}
+
+	return &coreNetworkChangeValuesWire{
+		SegmentName: v.SegmentName, NetworkFunctionGroupName: v.NetworkFunctionGroupName,
+	}
+}
+
+func toCoreNetworkChangesWire(changes []CoreNetworkChange) []coreNetworkChangeWire {
+	out := make([]coreNetworkChangeWire, 0, len(changes))
+
+	for _, c := range changes {
+		out = append(out, coreNetworkChangeWire{
+			Action: c.Action, Identifier: c.Identifier, IdentifierPath: c.IdentifierPath, Type: c.Type,
+			NewValues:      toCoreNetworkChangeValuesWire(c.NewValues),
+			PreviousValues: toCoreNetworkChangeValuesWire(c.PreviousValues),
+		})
+	}
+
+	return out
+}
+
+func toCoreNetworkChangeEventsWire(events []CoreNetworkChangeEvent) []coreNetworkChangeEventWire {
+	out := make([]coreNetworkChangeEventWire, 0, len(events))
+
+	for _, e := range events {
+		out = append(out, coreNetworkChangeEventWire{
+			Action: e.Action, IdentifierPath: e.IdentifierPath, Status: e.Status, Type: e.Type,
+			Values: toCoreNetworkChangeValuesWire(e.Values), EventTime: epochPtr(e.EventTime),
+		})
+	}
+
+	return out
 }
 
 // ---- Organizations integration ----

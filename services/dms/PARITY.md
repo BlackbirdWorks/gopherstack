@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dms
-sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.61.8
+sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.66.4
 last_audit_commit: d13e2307f4f1086d83076beb50c1303761fa8369
 last_audit_date: 2026-07-31
 overall: A            # 2026-07-23 pass: closed all 4 gaps + all 3 deferred
@@ -46,10 +46,10 @@ ops:
   ModifyReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   RebootReplicationInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "synchronous no-op reboot is correct emulation -- real reboot causes only a momentary outage, no persistent field changes"}
   ApplyPendingMaintenanceAction: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- ApplyAction/OptInType previously accepted arbitrary strings; now validated against the SDK's documented valid-values lists (os-upgrade|system-update|db-upgrade|os-patch and immediate|next-maintenance|undo-opt-in), 400 ValidationException otherwise. Still correctly returns an empty PendingMaintenanceActionDetails -- no pending-maintenance-action producer exists in this emulation, matching a freshly-created instance's real state."}
-  CreateEndpoint: {wire: partial, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName validated against types.ReplicationEndpointTypeValue and the documented EngineName valid-values list. FIXED 2026-07-31 -- Password was accepted in the request but silently dropped (never stored, never usable); now stored on Endpoint.Password and never put on the wire (matching the real Endpoint type, which has no Password field -- AWS never echoes credentials back). Still wire: partial -- engine-specific nested settings (MySQLSettings/PostgreSQLSettings/S3Settings/DynamoDbSettings/KafkaSettings/... -- ~15 heterogeneous structs) are accepted (Go silently ignores unknown JSON fields) but not modeled or stored; scope decision this pass was Password-only given the size of fully wiring every engine settings block relative to this emulator's value (no real DB/broker connections exist for these settings to configure). Revisit if a specific engine's settings become load-bearing for a client."}
+  CreateEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName validated against types.ReplicationEndpointTypeValue and the documented EngineName valid-values list. FIXED 2026-07-31 -- Password was accepted in the request but silently dropped (never stored, never usable); now stored on Endpoint.Password and never put on the wire (matching the real Endpoint type, which has no Password field -- AWS never echoes credentials back). FIXED 2026-08-10 (gopherstack-z79q) -- CreateEndpointInput/ModifyEndpointInput's 19 heterogeneous engine-specific settings structs (MySQLSettings/PostgreSQLSettings/S3Settings/OracleSettings/... totaling ~300 fields) were being silently dropped by encoding/json instead of modeled. Judgment: modeling all ~300 fields faithfully (validated types, stored, echoed on Describe, persisted) is not achievable in one pass, and a partial subset would be worse than the honest gap (a client seeing some settings preserved would reasonably assume the rest are too). Per the no-stub rule, the drop is now made visible instead: any request that sets one of the 19 settings fields is rejected with 400 ValidationException naming the field, matching the sagemaker PipelineDefinitionS3Location / cloudformation AccountFilterType precedent for explicitly-rejected-rather-than-silently-dropped fields. See engineSettingsFields in handler_endpoints.go."}
   DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects delete while referenced by a task"}
-  ModifyEndpoint: {wire: partial, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName accepted on Modify, validated with the same enum check as Create, and applied. FIXED 2026-07-31 -- same Password fix and same wire: partial caveat (engine settings not modeled) as CreateEndpoint above"}
+  ModifyEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "EndpointType/EngineName accepted on Modify, validated with the same enum check as Create, and applied. FIXED 2026-07-31 -- same Password fix as CreateEndpoint above. FIXED 2026-08-10 (gopherstack-z79q) -- same engine-settings explicit-rejection fix as CreateEndpoint above"}
   TestConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "records a Connection row, visible via DescribeConnections"}
   DescribeConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07-31 -- never called dmsPaginate or set Marker on the response, unlike every other Describe op in this service, so MaxRecords/Marker were silently ignored; now paginated like its siblings"}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -62,6 +62,7 @@ ops:
   MoveReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok}
   ReloadTables: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- was a disguised no-op that echoed ReplicationTaskArn without validating anything; now requires TablesToReload, validates ReloadOption enum, 404s on an unknown task, and 400 InvalidResourceStateFault unless the task is currently RUNNING (matches the SDK doc: 'You can only use this operation with a task in the RUNNING state')"}
   ReloadReplicationTables: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- two bugs: (1) the request field was wrongly named ReplicationTaskArn instead of the real ReplicationConfigArn, silently discarding the client's ARN; (2) it never validated anything. Now requires TablesToReload, validates ReloadOption, 404s on an unknown replication config, and 400s unless the associated Replication is RUNNING"}
+  DescribeReplicationTableStatistics: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED 2026-08-11 -- request/response fields were copy-pasted from the sibling DescribeTableStatistics op (ReplicationTaskArn/TableStatistics) instead of this op's real fields (ReplicationConfigArn/ReplicationTableStatistics); the wrong request field meant the config ARN was silently discarded and the handler queried an arbitrary replication task instead. Now validates the config exists (404 if not) and echoes ReplicationConfigArn. Always returns an empty ReplicationTableStatistics list -- ReplicationConfig carries no TableMappings state in this emulation (see models.go), so per-table stats have no honest backend source; adding fabricated stats would be worse than an accurate empty list"}
   CreateReplicationSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates ReplicationSubnetGroupDescription/SubnetIds as required (real API marks both required); SubnetIds accepted but not modeled (no VPC subnet emulation), matching pre-existing convention. FIXED 2026-07-31 -- the response wire shape emitted a ReplicationSubnetGroupArn field; the real ReplicationSubnetGroup type has no Arn field at all (subnet groups are referenced by identifier on the wire; a client must build the ARN itself from the deterministic arn:aws:dms:<region>:<account>:subgrp:<identifier> format to tag one). Field removed from the wire struct; the internal Go model still tracks an ARN for indexing/tagging lookups, which is correct -- only the JSON response was wrong"}
   DescribeReplicationSubnetGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "same Arn-field fix as CreateReplicationSubnetGroup (2026-07-31)"}
   ModifyReplicationSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "a real backend.ModifyReplicationSubnetGroup mutates and persists the description. Same Arn-field fix as CreateReplicationSubnetGroup (2026-07-31)"}
@@ -87,20 +88,20 @@ ops:
   StopDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDataProvider: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDataProviders: {wire: ok, errors: ok, state: ok, persist: ok}
-  ModifyDataProvider: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteDataProvider: {wire: ok, errors: ok, state: ok, persist: ok}
+  ModifyDataProvider: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was named DataProviderArn; the real ModifyDataProviderMessage field is DataProviderIdentifier, so every real client's identifier was silently discarded"}
+  DeleteDataProvider: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- same DataProviderArn/DataProviderIdentifier bug as ModifyDataProvider"}
   CreateEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07-31 -- the response wire shape (eventSubscriptionJSON) used SubscriptionName and EventCategories, which are CreateEventSubscriptionMessage (request) field names; the real EventSubscription response type uses CustSubscriptionId and EventCategoriesList instead. A real SDK client deserializing the response got an empty subscription identifier and empty categories. Request-side field names (SubscriptionName/EventCategories on the input) were already correct and left unchanged -- the asymmetry between request and response field names is genuine AWS behavior, not a bug"}
   DescribeEventSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CustSubscriptionId/EventCategoriesList fix as CreateEventSubscription (2026-07-31)"}
   ModifyEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CustSubscriptionId/EventCategoriesList fix as CreateEventSubscription (2026-07-31)"}
   DeleteEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CustSubscriptionId/EventCategoriesList fix as CreateEventSubscription (2026-07-31)"}
   CreateInstanceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeInstanceProfiles: {wire: ok, errors: ok, state: ok, persist: ok}
-  ModifyInstanceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteInstanceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
+  ModifyInstanceProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was named InstanceProfileArn; the real ModifyInstanceProfileMessage field is InstanceProfileIdentifier, so every real client's identifier was silently discarded"}
+  DeleteInstanceProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- same InstanceProfileArn/InstanceProfileIdentifier bug as ModifyInstanceProfile"}
   CreateMigrationProject: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMigrationProjects: {wire: ok, errors: ok, state: ok, persist: ok}
-  ModifyMigrationProject: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteMigrationProject: {wire: ok, errors: ok, state: ok, persist: ok}
+  ModifyMigrationProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was named MigrationProjectArn; the real ModifyMigrationProjectMessage field is MigrationProjectIdentifier, so every real client's identifier was silently discarded"}
+  DeleteMigrationProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- same MigrationProjectArn/MigrationProjectIdentifier bug as ModifyMigrationProject"}
   ImportCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07-31 -- the backend stored CertificatePem on Import but the response wire shape (certificateJSON) never returned it, on Import or Describe, even though the real Certificate type carries CertificatePem. Now returned on both"}
   DescribeCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CertificatePem fix as ImportCertificate (2026-07-31)"}
   DeleteCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CertificatePem fix as ImportCertificate (2026-07-31) -- certToJSON is shared by all three certificate ops"}
@@ -168,11 +169,36 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
      but never stored it (silently dropped); now stored on `Endpoint`
      internally and never put on the wire (matching real AWS, which never
      echoes credentials back). Engine-specific nested settings blocks
-     (`MySQLSettings`, `S3Settings`, etc.) remain deliberately unmodeled --
-     see the `CreateEndpoint`/`ModifyEndpoint` op notes above for the scope
-     rationale.
+     (`MySQLSettings`, `S3Settings`, etc.) were left deliberately unmodeled
+     at the time -- resolved 2026-08-10, see the note below.
   5. `DescribeConnections` never called `dmsPaginate` or set `Marker` on the
      response, unlike every other Describe op in this service.
+
+- **2026-08-10 engine-specific endpoint settings (gopherstack-z79q)**:
+  `CreateEndpointInput`/`ModifyEndpointInput` accept 19 heterogeneous
+  engine-specific settings structs (`MySQLSettings`, `PostgreSQLSettings`,
+  `S3Settings`, `OracleSettings`, `MongoDbSettings`, `KafkaSettings`,
+  `KinesisSettings`, `RedshiftSettings`, `DynamoDbSettings`,
+  `ElasticsearchSettings`, `NeptuneSettings`, `DocDbSettings`,
+  `IBMDb2Settings`, `MicrosoftSQLServerSettings`, `SybaseSettings`,
+  `DmsTransferSettings`, `GcpMySQLSettings`, `RedisSettings`,
+  `TimestreamSettings`), field-counted directly against
+  `aws-sdk-go-v2/service/databasemigrationservice/types/types.go`
+  (`@v1.61.8`): ~301 fields total (2 to 44 fields per struct; `S3Settings`
+  alone has 41, `OracleSettings` 44). Modeling all of them faithfully
+  (validated types, stored, echoed on `DescribeEndpoints`, persisted) is not
+  achievable in one pass, and per the issue's own instruction a partial
+  subset is worse than the honest gap -- a client seeing some settings
+  preserved would reasonably assume the rest are too. Instead of leaving the
+  silent drop in place (the pre-existing behavior: `encoding/json` ignores
+  unknown fields), the drop is now made visible: `engineSettingsFields` in
+  `handler_endpoints.go` decodes all 19 fields, and `CreateEndpoint`/
+  `ModifyEndpoint` reject the request with 400 `ValidationException` naming
+  the field if any is set, rather than accepting and discarding it. This
+  follows the same explicit-rejection-over-silent-drop precedent as
+  sagemaker's `PipelineDefinitionS3Location` and cloudformation's
+  unsupported `AccountFilterType` values. The `Password` fix from
+  2026-07-31 is unaffected and unchanged.
 
 - **Wire protocol**: `application/x-amz-json-1.1` (awsjson1.1), target prefix
   `AmazonDMSv20160101.<Action>`. All request/response bodies are flat JSON

@@ -14,6 +14,8 @@ func TestDataSync_Nfs(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	agentArn1 := createTestAgent(t, h)
+	agentArn2 := createTestAgent(t, h)
 
 	// Create
 	rec := doRequest(t, h, "CreateLocationNfs", map[string]any{
@@ -21,7 +23,7 @@ func TestDataSync_Nfs(t *testing.T) {
 		"Subdirectory":   "/exports/data",
 		"MountOptions":   map[string]any{"Version": "NFS4_0"},
 		"OnPremConfig": map[string]any{
-			"AgentArns": []string{"arn:aws:datasync:us-east-1:000000000000:agent/agent1"},
+			"AgentArns": []string{agentArn1},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -49,7 +51,7 @@ func TestDataSync_Nfs(t *testing.T) {
 		"Subdirectory": "/exports/updated",
 		"MountOptions": map[string]any{"Version": "NFS4_1"},
 		"OnPremConfig": map[string]any{
-			"AgentArns": []string{"arn:aws:datasync:us-east-1:000000000000:agent/agent2"},
+			"AgentArns": []string{agentArn2},
 		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)

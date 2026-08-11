@@ -16,7 +16,7 @@ type createRepositoryLinkInput struct {
 }
 
 // repositoryLinkItem is the wire shape of RepositoryLinkInfo
-// (aws-sdk-go-v2/service/codeconnections@v1.10.22 types.RepositoryLinkInfo).
+// (aws-sdk-go-v2/service/codeconnections@v1.13.4 types.RepositoryLinkInfo).
 // It deliberately has NO Tags field: the real RepositoryLinkInfo struct has
 // no Tags member at all -- tags for a repository link are only ever returned
 // via ListTagsForResource. A previous audit pass added a Tags field here

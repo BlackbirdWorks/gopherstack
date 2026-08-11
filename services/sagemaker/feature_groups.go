@@ -23,15 +23,70 @@ type FeatureDefinition struct {
 	FeatureType string `json:"FeatureType,omitempty"`
 }
 
+// TTLDuration mirrors types.TtlDuration.
+type TTLDuration struct {
+	Value *int32 `json:"Value,omitempty"`
+	Unit  string `json:"Unit,omitempty"`
+}
+
+// OnlineStoreSecurityConfig mirrors types.OnlineStoreSecurityConfig.
+type OnlineStoreSecurityConfig struct {
+	KmsKeyID string `json:"KmsKeyId,omitempty"`
+}
+
+// OnlineStoreConfig mirrors types.OnlineStoreConfig.
+type OnlineStoreConfig struct {
+	SecurityConfig    *OnlineStoreSecurityConfig `json:"SecurityConfig,omitempty"`
+	TTLDuration       *TTLDuration               `json:"TtlDuration,omitempty"`
+	EnableOnlineStore *bool                      `json:"EnableOnlineStore,omitempty"`
+	StorageType       string                     `json:"StorageType,omitempty"`
+}
+
+// S3StorageConfig mirrors types.S3StorageConfig.
+type S3StorageConfig struct {
+	S3URI               string `json:"S3Uri"`
+	KmsKeyID            string `json:"KmsKeyId,omitempty"`
+	ResolvedOutputS3URI string `json:"ResolvedOutputS3Uri,omitempty"`
+}
+
+// DataCatalogConfig mirrors types.DataCatalogConfig.
+type DataCatalogConfig struct {
+	Catalog   string `json:"Catalog,omitempty"`
+	Database  string `json:"Database,omitempty"`
+	TableName string `json:"TableName,omitempty"`
+}
+
+// OfflineStoreConfig mirrors types.OfflineStoreConfig.
+type OfflineStoreConfig struct {
+	S3StorageConfig          *S3StorageConfig   `json:"S3StorageConfig,omitempty"`
+	DataCatalogConfig        *DataCatalogConfig `json:"DataCatalogConfig,omitempty"`
+	DisableGlueTableCreation *bool              `json:"DisableGlueTableCreation,omitempty"`
+	TableFormat              string             `json:"TableFormat,omitempty"`
+}
+
+// ThroughputConfig mirrors both types.ThroughputConfig (CreateFeatureGroupInput)
+// and types.ThroughputConfigDescription (DescribeFeatureGroupOutput) — the two
+// SDK types have identical fields, so this backend stores/emits one shape for both.
+type ThroughputConfig struct {
+	ProvisionedReadCapacityUnits  *int32 `json:"ProvisionedReadCapacityUnits,omitempty"`
+	ProvisionedWriteCapacityUnits *int32 `json:"ProvisionedWriteCapacityUnits,omitempty"`
+	ThroughputMode                string `json:"ThroughputMode,omitempty"`
+}
+
 // FeatureGroup represents a SageMaker Feature Store feature group.
 type FeatureGroup struct {
 	CreationTime                time.Time           `json:"CreationTime"`
 	Tags                        map[string]string   `json:"Tags,omitempty"`
+	OnlineStoreConfig           *OnlineStoreConfig  `json:"OnlineStoreConfig,omitempty"`
+	OfflineStoreConfig          *OfflineStoreConfig `json:"OfflineStoreConfig,omitempty"`
+	ThroughputConfig            *ThroughputConfig   `json:"ThroughputConfig,omitempty"`
 	FeatureGroupName            string              `json:"FeatureGroupName"`
 	FeatureGroupArn             string              `json:"FeatureGroupArn"`
 	RecordIdentifierFeatureName string              `json:"RecordIdentifierFeatureName,omitempty"`
 	EventTimeFeatureName        string              `json:"EventTimeFeatureName,omitempty"`
 	FeatureGroupStatus          string              `json:"FeatureGroupStatus"`
+	Description                 string              `json:"Description,omitempty"`
+	RoleArn                     string              `json:"RoleArn,omitempty"`
 	FeatureDefinitions          []FeatureDefinition `json:"FeatureDefinitions,omitempty"`
 }
 
@@ -41,42 +96,74 @@ func cloneFeatureGroup(fg *FeatureGroup) *FeatureGroup {
 	cp.FeatureDefinitions = make([]FeatureDefinition, len(fg.FeatureDefinitions))
 	copy(cp.FeatureDefinitions, fg.FeatureDefinitions)
 
+	if fg.OnlineStoreConfig != nil {
+		osc := *fg.OnlineStoreConfig
+		cp.OnlineStoreConfig = &osc
+	}
+
+	if fg.OfflineStoreConfig != nil {
+		ofc := *fg.OfflineStoreConfig
+		cp.OfflineStoreConfig = &ofc
+	}
+
+	if fg.ThroughputConfig != nil {
+		tc := *fg.ThroughputConfig
+		cp.ThroughputConfig = &tc
+	}
+
 	return &cp
+}
+
+// CreateFeatureGroupOptions holds the parameters CreateFeatureGroup accepts.
+type CreateFeatureGroupOptions struct {
+	Tags                        map[string]string
+	OnlineStoreConfig           *OnlineStoreConfig
+	OfflineStoreConfig          *OfflineStoreConfig
+	ThroughputConfig            *ThroughputConfig
+	FeatureGroupName            string
+	RecordIdentifierFeatureName string
+	EventTimeFeatureName        string
+	Description                 string
+	RoleArn                     string
+	FeatureDefinitions          []FeatureDefinition
 }
 
 // CreateFeatureGroup creates a new feature group.
 func (b *InMemoryBackend) CreateFeatureGroup(
 	ctx context.Context,
-	name, recordID, eventTimeFeature string,
-	defs []FeatureDefinition,
-	tags map[string]string,
+	opts CreateFeatureGroupOptions,
 ) (*FeatureGroup, error) {
 	b.mu.Lock("CreateFeatureGroup")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.featureGroupsStore(region).Get(name); ok {
+	if _, ok := b.featureGroupsStore(region).Get(opts.FeatureGroupName); ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %s already exists",
 			ErrFeatureGroupAlreadyExists,
-			name,
+			opts.FeatureGroupName,
 		)
 	}
 
-	fgArn := arn.Build("sagemaker", region, b.accountID, "feature-group/"+name)
-	storedDefs := make([]FeatureDefinition, len(defs))
-	copy(storedDefs, defs)
+	fgArn := arn.Build("sagemaker", region, b.accountID, "feature-group/"+opts.FeatureGroupName)
+	storedDefs := make([]FeatureDefinition, len(opts.FeatureDefinitions))
+	copy(storedDefs, opts.FeatureDefinitions)
 
 	fg := &FeatureGroup{
-		FeatureGroupName:            name,
+		FeatureGroupName:            opts.FeatureGroupName,
 		FeatureGroupArn:             fgArn,
-		RecordIdentifierFeatureName: recordID,
-		EventTimeFeatureName:        eventTimeFeature,
+		RecordIdentifierFeatureName: opts.RecordIdentifierFeatureName,
+		EventTimeFeatureName:        opts.EventTimeFeatureName,
+		Description:                 opts.Description,
+		RoleArn:                     opts.RoleArn,
 		FeatureDefinitions:          storedDefs,
 		FeatureGroupStatus:          "Created",
 		CreationTime:                time.Now(),
-		Tags:                        mergeTags(nil, tags),
+		Tags:                        mergeTags(nil, opts.Tags),
+		OnlineStoreConfig:           opts.OnlineStoreConfig,
+		OfflineStoreConfig:          opts.OfflineStoreConfig,
+		ThroughputConfig:            opts.ThroughputConfig,
 	}
 	b.featureGroupsStore(region).Put(fg)
 

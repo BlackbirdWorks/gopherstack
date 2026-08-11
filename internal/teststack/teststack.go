@@ -871,7 +871,7 @@ func populateNewestHandlers(h *handlers) {
 		cloudcontrolbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.cloudFront = cloudfrontbackend.NewHandler(
-		cloudfrontbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+		cloudfrontbackend.NewInMemoryBackend(context.Background(), config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.codeArtifact = codeartifactbackend.NewHandler(
 		codeartifactbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),

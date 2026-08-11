@@ -34,6 +34,7 @@ type ParityDoc struct {
 	Ops             []OpStatus
 	Families        []FamilyStatus
 	Gaps            []string
+	StructuralGaps  []string
 	Deferred        []string
 }
 

@@ -169,6 +169,54 @@ func TestUpdateFirewallRuleGroupAssociation_MutationProtection(t *testing.T) {
 	}
 }
 
+// TestUpdateFirewallRuleGroupAssociation_RejectedMutationProtectionLeavesStateUnchanged
+// asserts that when MutationProtection fails validation, Name and Priority
+// from the same request are not partially applied. The backend mutates
+// assoc.Name/assoc.Priority in place on the live stored pointer before it
+// validates MutationProtection (firewall_rule_groups.go
+// UpdateFirewallRuleGroupAssociation), so a request that fails validation
+// was still leaving its other field changes committed.
+func TestUpdateFirewallRuleGroupAssociation_RejectedMutationProtectionLeavesStateUnchanged(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "upd-mp-partial-grp"})
+	require.Equal(t, http.StatusOK, grpRec.Code)
+	var grpResp map[string]any
+	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+	groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+	assocRec := doRequest(t, h, "AssociateFirewallRuleGroup", map[string]any{
+		"FirewallRuleGroupId": groupID,
+		"VpcId":               "vpc-upd-mp-partial",
+		"Priority":            100,
+		"Name":                "original-name",
+	})
+	require.Equal(t, http.StatusOK, assocRec.Code)
+	var assocResp map[string]any
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	assocID := assocResp["FirewallRuleGroupAssociation"].(map[string]any)["Id"].(string)
+
+	updateRec := doRequest(t, h, "UpdateFirewallRuleGroupAssociation", map[string]any{
+		"FirewallRuleGroupAssociationId": assocID,
+		"Name":                           "changed-name",
+		"Priority":                       999,
+		"MutationProtection":             "MAYBE",
+	})
+	require.Equal(t, http.StatusBadRequest, updateRec.Code)
+
+	getRec := doRequest(t, h, "GetFirewallRuleGroupAssociation", map[string]any{
+		"FirewallRuleGroupAssociationId": assocID,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	assoc := getResp["FirewallRuleGroupAssociation"].(map[string]any)
+	assert.Equal(t, "original-name", assoc["Name"])
+	assert.InDelta(t, float64(100), assoc["Priority"], 0)
+}
+
 // --- AssociationCount decrements on disassociate ---
 
 func TestFirewallRuleGroupAssociation_CreatorAndTimestamps(t *testing.T) {
@@ -508,6 +556,56 @@ func TestListFirewallRuleGroupAssociations_Pagination(t *testing.T) {
 			} else {
 				assert.Empty(t, out["NextToken"])
 			}
+		})
+	}
+}
+
+// TestListFirewallRuleGroupAssociations_PriorityStatusFilters asserts that
+// Priority and Status (ListFirewallRuleGroupAssociationsRequest members,
+// botocore route53resolver 2018-04-01 service-2.json.gz) actually narrow
+// the result set instead of being silently dropped by the decoder.
+func TestListFirewallRuleGroupAssociations_PriorityStatusFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 2 {
+		grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{
+			"Name": fmt.Sprintf("grp-pf-%d", i),
+		})
+		require.Equal(t, http.StatusOK, grpRec.Code)
+		var grpOut map[string]any
+		require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpOut))
+		grpID := grpOut["FirewallRuleGroup"].(map[string]any)["Id"].(string)
+
+		assocRec := doRequest(t, h, "AssociateFirewallRuleGroup", map[string]any{
+			"FirewallRuleGroupId": grpID,
+			"VpcId":               fmt.Sprintf("vpc-pf-%d", i),
+			"Priority":            int32(200 + i),
+		})
+		require.Equal(t, http.StatusOK, assocRec.Code)
+	}
+
+	tests := []struct {
+		body    map[string]any
+		name    string
+		wantLen int
+	}{
+		{name: "priority_narrows_to_one", body: map[string]any{"Priority": float64(200)}, wantLen: 1},
+		{name: "priority_no_match", body: map[string]any{"Priority": float64(999)}, wantLen: 0},
+		{name: "status_matches_all", body: map[string]any{"Status": "COMPLETE"}, wantLen: 2},
+		{name: "status_no_match", body: map[string]any{"Status": "DELETING"}, wantLen: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			listRec := doRequest(t, h, "ListFirewallRuleGroupAssociations", tt.body)
+			require.Equal(t, http.StatusOK, listRec.Code)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			assocs, _ := out["FirewallRuleGroupAssociations"].([]any)
+			assert.Len(t, assocs, tt.wantLen)
 		})
 	}
 }

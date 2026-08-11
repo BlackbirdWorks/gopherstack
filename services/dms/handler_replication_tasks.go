@@ -279,39 +279,48 @@ func buildTableStatistics(tableMappings string) []tableStatisticJSON {
 }
 
 type describeReplicationTableStatisticsInput struct {
-	ReplicationTaskArn *string `json:"ReplicationTaskArn"`
-	Marker             *string `json:"Marker"`
-	MaxRecords         *int32  `json:"MaxRecords"`
+	ReplicationConfigArn *string `json:"ReplicationConfigArn"`
+	Marker               *string `json:"Marker"`
+	MaxRecords           *int32  `json:"MaxRecords"`
 }
 
 type describeReplicationTableStatisticsOutput struct {
-	ReplicationTaskArn string               `json:"ReplicationTaskArn,omitempty"`
-	Marker             *string              `json:"Marker,omitempty"`
-	TableStatistics    []tableStatisticJSON `json:"TableStatistics"`
+	ReplicationConfigArn       string               `json:"ReplicationConfigArn,omitempty"`
+	Marker                     *string              `json:"Marker,omitempty"`
+	ReplicationTableStatistics []tableStatisticJSON `json:"ReplicationTableStatistics"`
 }
 
+// handleDescribeReplicationTableStatistics reports per-table statistics for a
+// DMS Serverless replication config. ReplicationConfig carries no TableMappings
+// state in this emulation (see models.go), so a config that exists but has no
+// tracked mappings legitimately returns an empty list rather than borrowing
+// data from an unrelated classic replication task.
 func (h *Handler) handleDescribeReplicationTableStatistics(
 	ctx context.Context, in *describeReplicationTableStatisticsInput,
 ) (*describeReplicationTableStatisticsOutput, error) {
-	taskArn := ptrconv.String(in.ReplicationTaskArn)
+	configArn := ptrconv.String(in.ReplicationConfigArn)
 
-	tasks, err := h.Backend.DescribeReplicationTasks(ctx, taskArn)
+	configs, err := h.Backend.DescribeReplicationConfigs(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(tasks) == 0 {
-		return &describeReplicationTableStatisticsOutput{
-			ReplicationTaskArn: taskArn,
-			TableStatistics:    []tableStatisticJSON{},
-		}, nil
+	var found *ReplicationConfig
+	for _, rc := range configs {
+		if rc.ReplicationConfigArn == configArn || rc.ReplicationConfigIdentifier == configArn {
+			found = rc
+
+			break
+		}
 	}
 
-	stats := buildTableStatistics(tasks[0].TableMappings)
+	if found == nil {
+		return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, configArn)
+	}
 
 	return &describeReplicationTableStatisticsOutput{
-		ReplicationTaskArn: taskArn,
-		TableStatistics:    stats,
+		ReplicationConfigArn:       found.ReplicationConfigArn,
+		ReplicationTableStatistics: []tableStatisticJSON{},
 	}, nil
 }
 

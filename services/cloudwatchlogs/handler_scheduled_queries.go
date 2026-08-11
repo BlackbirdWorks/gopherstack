@@ -7,6 +7,7 @@ import (
 
 type createScheduledQueryInput struct {
 	DestinationConfiguration *ScheduledQueryDestinationConfig `json:"destinationConfiguration"`
+	Tags                     map[string]string                `json:"tags"`
 	ScheduleExpression       string                           `json:"scheduleExpression"`
 	QueryLanguage            string                           `json:"queryLanguage"`
 	Name                     string                           `json:"name"`
@@ -126,13 +127,28 @@ func (h *Handler) handleCreateScheduledQuery(
 		return nil, err
 	}
 
-	// createScheduledQueryInput and ScheduledQueryCreateParams share an
-	// identical field set (wire-decoding vs. backend-params structs kept
-	// separate on principle); staticcheck S1016 prefers the direct conversion
-	// over listing every field.
-	queryArn, err := h.Backend.CreateScheduledQuery(ScheduledQueryCreateParams(input))
+	queryArn, err := h.Backend.CreateScheduledQuery(ScheduledQueryCreateParams{
+		DestinationConfiguration: input.DestinationConfiguration,
+		ScheduleExpression:       input.ScheduleExpression,
+		QueryLanguage:            input.QueryLanguage,
+		Name:                     input.Name,
+		ExecutionRoleArn:         input.ExecutionRoleArn,
+		State:                    input.State,
+		Description:              input.Description,
+		Timezone:                 input.Timezone,
+		QueryString:              input.QueryString,
+		LogGroupIdentifiers:      input.LogGroupIdentifiers,
+		EndTimeOffset:            input.EndTimeOffset,
+		StartTimeOffset:          input.StartTimeOffset,
+		ScheduleStartTime:        input.ScheduleStartTime,
+		ScheduleEndTime:          input.ScheduleEndTime,
+	})
 	if err != nil {
 		return nil, err
+	}
+
+	if len(input.Tags) > 0 {
+		h.setTags(queryArn, input.Tags)
 	}
 
 	// The backend defaults an empty state to statusEnabled; reflect the effective value in the response.

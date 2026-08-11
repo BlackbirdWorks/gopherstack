@@ -41,6 +41,11 @@ func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
 		}
 	}
 
+	sdkTags := make([]types.Tag, 0, len(input.Tags))
+	for _, t := range input.Tags {
+		sdkTags = append(sdkTags, types.Tag{Key: aws.String(t.Key), Value: aws.String(t.Value)})
+	}
+
 	return &dynamodb.CreateTableInput{
 		TableName:                 &input.TableName,
 		KeySchema:                 ToSDKKeySchema(input.KeySchema),
@@ -52,6 +57,7 @@ func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
 		DeletionProtectionEnabled: input.DeletionProtectionEnabled,
 		BillingMode:               types.BillingMode(input.BillingMode),
 		TableClass:                types.TableClass(input.TableClass),
+		Tags:                      sdkTags,
 	}
 }
 

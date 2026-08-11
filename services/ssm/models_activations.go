@@ -70,11 +70,12 @@ type Activation struct {
 	Description         string  `json:"Description,omitempty"`
 	DefaultInstanceName string  `json:"DefaultInstanceName,omitempty"`
 	IamRole             string  `json:"IamRole"`
+	Tags                []Tag   `json:"Tags,omitempty"`
+	ExpirationDate      float64 `json:"ExpirationDate"`
+	CreatedDate         float64 `json:"CreatedDate"`
 	RegistrationLimit   int32   `json:"RegistrationLimit"`
 	RegistrationsCount  int32   `json:"RegistrationsCount"`
-	ExpirationDate      float64 `json:"ExpirationDate"`
 	Expired             bool    `json:"Expired"`
-	CreatedDate         float64 `json:"CreatedDate"`
 }
 
 // CreateActivationInput is the request payload for CreateActivation.

@@ -26,18 +26,17 @@ func waitForStackStatus(
 	t.Helper()
 
 	ctx := t.Context()
-	cutoff := time.Now().Add(deadline)
+	var status string
 
-	for {
+	require.Eventually(t, func() bool {
 		descOut, err := client.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{
 			StackName: aws.String(stackName),
 		})
-		require.NoError(t, err)
-		require.NotEmpty(t, descOut.Stacks)
+		if err != nil || len(descOut.Stacks) == 0 {
+			return false
+		}
 
-		status := string(descOut.Stacks[0].StackStatus)
-
-		// Terminal states – stop polling.
+		status = string(descOut.Stacks[0].StackStatus)
 
 		switch types.StackStatus(status) {
 		case types.StackStatusCreateComplete,
@@ -48,19 +47,13 @@ func waitForStackStatus(
 			types.StackStatusUpdateFailed,
 			types.StackStatusDeleteComplete,
 			types.StackStatusDeleteFailed:
-			return status
+			return true
 		default:
-			// In-progress or other transient states — keep polling.
+			return false
 		}
+	}, deadline, 250*time.Millisecond, "timeout waiting for stack %s to reach a terminal state", stackName)
 
-		if time.Now().After(cutoff) {
-			require.Fail(t, "timeout waiting for stack to reach a terminal state", "last status: %s", status)
-
-			return status
-		}
-
-		time.Sleep(250 * time.Millisecond)
-	}
+	return status
 }
 
 func TestIntegration_CloudFormation_DynamicRefs_SSM(t *testing.T) {
@@ -82,7 +75,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SSM(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = ssmClient.DeleteParameter(t.Context(), &ssmsdk.DeleteParameterInput{Name: aws.String(paramName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ssmClient.DeleteParameter(cleanupCtx, &ssmsdk.DeleteParameterInput{Name: aws.String(paramName)})
 	})
 
 	stackName := "cfn-dynref-ssm-" + uuid.NewString()[:8]
@@ -112,7 +108,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SSM(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cfnClient.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 }
 
@@ -165,7 +164,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SSMMissing(t *testing.T) {
 	assert.True(t, failureFound, "expected a CREATE_FAILED event with a status reason")
 
 	t.Cleanup(func() {
-		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cfnClient.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 }
 
@@ -187,7 +189,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SecretsManager(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = smClient.DeleteSecret(t.Context(), &secretsmanagersdk.DeleteSecretInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = smClient.DeleteSecret(cleanupCtx, &secretsmanagersdk.DeleteSecretInput{
 			SecretId:                   aws.String(secretName),
 			ForceDeleteWithoutRecovery: aws.Bool(true),
 		})
@@ -220,7 +225,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SecretsManager(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cfnClient.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 }
 
@@ -255,6 +263,9 @@ func TestIntegration_CloudFormation_DynamicRefs_SecretsManagerMissing(t *testing
 	assert.Equal(t, "CREATE_FAILED", finalStatus)
 
 	t.Cleanup(func() {
-		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cfnClient.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 }

@@ -99,6 +99,48 @@ func TestDataCatalogEncryptionSettings(t *testing.T) {
 	}
 }
 
+// TestDataCatalogExportConfiguration verifies the default-disabled state, an
+// ENABLED transition with encryption config round-tripping, and ExportSetting validation.
+func TestDataCatalogExportConfiguration(t *testing.T) {
+	t.Parallel()
+	h := newGlueHandler(t)
+
+	out := dispatchNewOp(t, h, "GetDataCatalogExportConfiguration", map[string]any{})
+	assert.Equal(t, "DISABLED", out["ExportSetting"])
+	assert.Equal(t, "DISABLED", out["Status"])
+	assert.Nil(t, out["CreatedAt"])
+
+	putOut := dispatchNewOp(t, h, "PutDataCatalogExportConfiguration", map[string]any{
+		"ExportSetting": "ENABLED",
+		"EncryptionConfiguration": map[string]any{
+			"SseAlgorithm": "aws:kms",
+			"KmsKeyArn":    "arn:aws:kms:us-east-1:123456789012:key/test-key",
+		},
+	})
+	assert.Equal(t, "ENABLED", putOut["ExportSetting"])
+	encConf, _ := putOut["EncryptionConfiguration"].(map[string]any)
+	require.NotNil(t, encConf)
+	assert.Equal(t, "aws:kms", encConf["SseAlgorithm"])
+	// Output carries no Status/S3TableBucketArn/timestamps at all.
+	assert.Nil(t, putOut["Status"])
+	assert.Nil(t, putOut["S3TableBucketArn"])
+
+	getOut := dispatchNewOp(t, h, "GetDataCatalogExportConfiguration", map[string]any{})
+	assert.Equal(t, "ENABLED", getOut["ExportSetting"])
+	assert.Equal(t, "ENABLED", getOut["Status"])
+	assert.NotNil(t, getOut["CreatedAt"])
+	assert.NotNil(t, getOut["UpdatedAt"])
+	// S3TableBucketArn has no corresponding input anywhere in this API -- must
+	// never be fabricated (see PARITY.md gaps).
+	assert.Nil(t, getOut["S3TableBucketArn"])
+
+	rr := doGlueOp(t, h, "PutDataCatalogExportConfiguration", map[string]any{
+		"ExportSetting": "MAYBE",
+	})
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "InvalidInputException")
+}
+
 // TestCatalogImport_Lifecycle verifies that ImportCatalogToGlue sets the
 // import state and GetCatalogImportStatus reflects it.
 func TestCatalogImport_Lifecycle(t *testing.T) {

@@ -90,7 +90,10 @@ func TestIntegration_S3_PublicAccessBlock(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 			})
 
 			tt.setup(t, client, bucket)
@@ -135,7 +138,10 @@ func TestIntegration_S3_DeletePublicAccessBlock(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
 
 	_, err = client.PutPublicAccessBlock(ctx, &s3.PutPublicAccessBlockInput{
@@ -226,7 +232,10 @@ func TestIntegration_S3_OwnershipControls(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 			})
 
 			tt.setup(t, client, bucket)
@@ -267,7 +276,10 @@ func TestIntegration_S3_DeleteOwnershipControls(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
 
 	_, err = client.PutBucketOwnershipControls(ctx, &s3.PutBucketOwnershipControlsInput{
@@ -349,7 +361,10 @@ func TestIntegration_S3_BucketLogging(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 			})
 
 			tt.setup(t, client, bucket)
@@ -439,7 +454,10 @@ func TestIntegration_S3_BucketReplication(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 			})
 
 			tt.setup(t, client, bucket)
@@ -480,7 +498,10 @@ func TestIntegration_S3_DeleteBucketReplication(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
 
 	_, err = client.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{

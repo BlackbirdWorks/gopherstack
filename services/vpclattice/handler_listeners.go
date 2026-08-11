@@ -100,8 +100,8 @@ func listenerToJSON(l *Listener) map[string]any {
 		keyName:          l.Name,
 		keyProtocol:      l.Protocol,
 		keyPort:          l.Port,
-		keyCreatedAt:     l.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: l.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     l.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: l.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if l.DefaultAction != nil {
@@ -118,7 +118,7 @@ func listenerSummaryToJSON(l *ListenerSummary) map[string]any {
 		keyName:          l.Name,
 		keyProtocol:      l.Protocol,
 		keyPort:          l.Port,
-		keyCreatedAt:     l.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: l.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     l.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: l.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }

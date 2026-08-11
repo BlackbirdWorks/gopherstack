@@ -47,7 +47,7 @@ func TestExtractOperationAndResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			e := echo.New()
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			c := e.NewContext(req, httptest.NewRecorder())
@@ -158,7 +158,7 @@ func TestNewOperations_ExtractOperation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			e := echo.New()
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			c := e.NewContext(req, httptest.NewRecorder())

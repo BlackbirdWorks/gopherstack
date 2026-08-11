@@ -9,7 +9,57 @@ import (
 
 // matchIoTPath reports whether path belongs to the IoT control-plane.
 func matchIoTPath(path string) bool {
-	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) || matchFinalOpsPath(path)
+	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) ||
+		matchFinalOpsPath(path) || matchTaggableResourcePath(path)
+}
+
+// matchTaggableResourcePath reports whether path belongs to one of the
+// resource families gopherstack-2mwl found entirely missing from this
+// route matcher -- the same previously-undiscovered unreachable-op bug
+// class documented on matchJobAndTemplatePath below, but far larger:
+// RouteMatcher is evaluated before op dispatch, so a real client's request
+// to any of these paths 404'd regardless of resolveOperation/the handler
+// being correct. Critically this included "/tags" itself, making
+// TagResource/UntagResource/ListTagsForResource unreachable for every
+// taggable resource kind, plus the Create path for every tag-accepting
+// resource family not already covered elsewhere in this file (authorizers,
+// billing groups, commands, custom metrics, dimensions, domain
+// configurations, dynamic thing groups, fleet metrics, OTA updates,
+// packages, provisioning templates, role aliases, streams).
+func matchTaggableResourcePath(path string) bool {
+	return matchTaggableResourcePathA(path) || matchTaggableResourcePathB(path)
+}
+
+func matchTaggableResourcePathA(path string) bool {
+	return path == pathTags ||
+		path == "/untag" ||
+		path == "/authorizers" ||
+		strings.HasPrefix(path, "/authorizer/") ||
+		path == "/billing-groups" ||
+		strings.HasPrefix(path, "/billing-groups/") ||
+		path == "/commands" ||
+		strings.HasPrefix(path, "/commands/") ||
+		path == "/custom-metrics" ||
+		strings.HasPrefix(path, "/custom-metric/") ||
+		path == "/dimensions" ||
+		strings.HasPrefix(path, "/dimensions/")
+}
+
+func matchTaggableResourcePathB(path string) bool {
+	return path == "/domainConfigurations" ||
+		strings.HasPrefix(path, "/domainConfigurations/") ||
+		strings.HasPrefix(path, "/dynamic-thing-groups/") ||
+		path == "/fleet-metrics" ||
+		strings.HasPrefix(path, "/fleet-metric/") ||
+		path == "/otaUpdates" ||
+		strings.HasPrefix(path, "/otaUpdates/") ||
+		path == "/packages" ||
+		path == pathProvisioningTemplates ||
+		strings.HasPrefix(path, "/provisioning-templates/") ||
+		path == "/role-aliases" ||
+		strings.HasPrefix(path, "/role-aliases/") ||
+		path == "/streams" ||
+		strings.HasPrefix(path, "/streams/")
 }
 
 // matchBatch4Path reports whether path belongs to the batch-4 routes (bulk
@@ -25,10 +75,30 @@ func matchCoreIoTPath(path string) bool {
 	return matchCoreIoTPathPrimary(path) || matchCoreIoTPathSecondary(path)
 }
 
+// isThingShadowPath reports whether path is iotdataplane's real Get/Update/
+// DeleteThingShadow shape: "/things/{thingName}/shadow", optionally followed
+// by "/name/{shadowName}" (the named-shadow path variant; the query-string
+// variant leaves the path exactly at "/shadow" since URL.Path excludes the
+// query). Mirrors services/iotdataplane's isShadowPath.
+func isThingShadowPath(path string) bool {
+	after, ok := strings.CutPrefix(path, "/things/")
+	if !ok {
+		return false
+	}
+
+	idx := strings.Index(after, "/shadow")
+	if idx <= 0 {
+		return false
+	}
+
+	rest := after[idx+len("/shadow"):]
+
+	return rest == "" || strings.HasPrefix(rest, "/name/")
+}
+
 func matchCoreIoTPathPrimary(path string) bool {
 	return strings.HasPrefix(path, "/things/") ||
 		path == pathThings ||
-		strings.HasPrefix(path, "/api/things/shadow/") ||
 		strings.HasPrefix(path, "/rules/") ||
 		path == "/rules" ||
 		strings.HasPrefix(path, "/target-policies/") ||
@@ -42,39 +112,18 @@ func matchCoreIoTPathPrimary(path string) bool {
 
 // matchCoreIoTPathSecondary covers the job-template, security-profile,
 // audit, and mitigation-action route families. Split out of
-// matchCoreIoTPath to keep that function's cyclomatic complexity down; the
-// two comments below document real, previously-undiscovered route-matcher
-// gaps found this pass (a real SDK client's request never even reached the
-// IoT handler's op dispatch for any of these paths -- see PARITY.md).
+// matchCoreIoTPath to keep that function's cyclomatic complexity down.
+// RouteMatcher is a separate, earlier gate than op dispatch — a path
+// missing here never reaches the handler regardless of whether
+// resolveSecurityProfileOps et al. would handle it correctly, and only a
+// real SDK client round-tripped through service.Router catches the gap
+// (direct h.Handler() calls bypass RouteMatcher entirely).
 func matchCoreIoTPathSecondary(path string) bool {
 	return matchJobAndTemplatePath(path) ||
 		strings.HasPrefix(path, "/security-profiles/") ||
-		// ListSecurityProfiles (GET /security-profiles, no trailing slash)
-		// and ListSecurityProfilesForTarget (GET
-		// /security-profiles-for-target) were both entirely absent from
-		// this route matcher -- op dispatch (resolveSecurityProfileOps)
-		// already handled both paths correctly, but a real client's
-		// request never reached op dispatch at all, because RouteMatcher
-		// is an earlier, separate gate. Same previously-undiscovered
-		// unreachable-op bug class as ListJobs's plain "/jobs" and the
-		// "/job-templates"/"/mitigationactions/" families documented
-		// below; only caught by round-tripping through a real generated
-		// SDK client via the actual service.Router path (see
-		// TestSecurityProfile_RoutingReachability). Fixed this pass.
 		path == "/security-profiles" ||
 		path == "/security-profiles-for-target" ||
 		strings.HasPrefix(path, "/audit/") ||
-		// /mitigationactions/actions[/{actionName}] (CreateMitigationAction/
-		// DescribeMitigationAction/UpdateMitigationAction/
-		// DeleteMitigationAction/ListMitigationActions) was entirely absent
-		// from this route matcher -- found only by round-tripping through a
-		// real generated SDK client via the actual service.Router path
-		// (handler-invocation tests that call h.Handler() directly bypass
-		// RouteMatcher entirely and never would have caught this). Without
-		// this, every MitigationAction management op -- foundational to
-		// StartAuditMitigationActionsTask's whole workflow -- never reached
-		// the IoT handler in a real deployment; the request fell through
-		// with no matching route at all. Fixed this pass.
 		strings.HasPrefix(path, "/mitigationactions/") ||
 		matchDeviceDefenderPath(path)
 }
@@ -219,7 +268,7 @@ func resolveThingsPathOperation(path, method string) string {
 		return opListJobExecutionsForThing
 	// DescribeJobExecution/CancelJobExecution/DeleteJobExecution use
 	// /things/{thingName}/jobs/{jobId}[...] -- confirmed against
-	// aws-sdk-go-v2/service/iot@v1.76.0's serializers.go http bindings
+	// aws-sdk-go-v2/service/iot@v1.77.4's serializers.go http bindings
 	// (SplitURI("/things/{thingName}/jobs/{jobId}[/cancel|/executionNumber/{executionNumber}]")).
 	// Must come before the generic thing routing default below, which would
 	// otherwise silently swallow these as unmatched thing sub-resource paths.

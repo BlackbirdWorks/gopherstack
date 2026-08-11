@@ -54,9 +54,18 @@ func (h *Handler) handleGetAnnotationStore(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListAnnotationStores(c *echo.Context) error {
+	var req struct {
+		Filter *StoreStatusFilter `json:"filter"`
+		IDs    []string           `json:"ids"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
-	stores, next, err := h.Backend.ListAnnotationStores(maxResults, nextToken)
+	stores, next, err := h.Backend.ListAnnotationStores(req.Filter, req.IDs, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -188,10 +197,19 @@ func (h *Handler) handleGetAnnotationStoreVersion(c *echo.Context, name, version
 }
 
 func (h *Handler) handleListAnnotationStoreVersions(c *echo.Context, name string) error {
+	var req struct {
+		Filter *StoreStatusFilter `json:"filter"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
 	versions, next, err := h.Backend.ListAnnotationStoreVersions(
 		name,
+		req.Filter,
 		maxResults,
 		nextToken,
 	)

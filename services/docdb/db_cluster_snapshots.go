@@ -28,6 +28,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
+	snapArn := b.clusterSnapshotARN(region, snapshotID)
 	snap := &DBClusterSnapshot{
 		region:                      region,
 		DBClusterSnapshotIdentifier: snapshotID,
@@ -40,10 +41,10 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		PercentProgress:             snapshotPercentageComplete,
 		SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
 		DBClusterArn:                b.clusterARN(region, clusterID),
+		DBClusterSnapshotArn:        snapArn,
 		Tags:                        copyTags(tags),
 	}
 	b.clusterSnapshotPut(snap)
-	snapArn := b.clusterSnapshotARN(region, snapshotID)
 	if len(tags) > 0 {
 		b.tagsStore(region)[snapArn] = tagsFromMap(tags)
 	}
@@ -148,6 +149,7 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		DBClusterSnapshotIdentifier: targetSnapshotID,
 		DBClusterIdentifier:         src.DBClusterIdentifier,
 		DBClusterArn:                src.DBClusterArn,
+		DBClusterSnapshotArn:        b.clusterSnapshotARN(region, targetSnapshotID),
 		Engine:                      src.Engine,
 		Status:                      statusAvailable,
 		EngineVersion:               src.EngineVersion,

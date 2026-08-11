@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/labstack/echo/v5"
 )
@@ -50,6 +51,11 @@ const (
 	// connectionsSubMessages is the SendDirectMessage sub-resource segment:
 	// POST /connections/{clientId}/messages.
 	connectionsSubMessages = "messages"
+	// iotDataServiceName is the SigV4 signing name for IoT Data Plane. The
+	// real "/connections/{id}" wire path collides with Outposts'
+	// GetConnection (see gopherstack-vpoh); RouteMatcher uses this to
+	// disambiguate via httputils.ScopedPrefixMatch instead of a bare prefix.
+	iotDataServiceName = "iotdata"
 	// defaultPageSize is the default number of items returned per page (AWS default).
 	defaultPageSize = 25
 	// maxPageSize is the maximum number of items returned per page (AWS cap).
@@ -110,7 +116,7 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
-func (h *Handler) ChaosServiceName() string { return "iotdata" }
+func (h *Handler) ChaosServiceName() string { return iotDataServiceName }
 
 // ChaosOperations returns all operations that can be fault-injected.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
@@ -123,15 +129,22 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/topics/") ||
+		if strings.HasPrefix(path, "/topics/") ||
 			isShadowPath(path) ||
 			strings.HasPrefix(path, listNamedShadowsPrefix) ||
 			path == listThingsWithShadowsPath ||
 			path == adminConnectionsPath ||
 			strings.HasPrefix(path, adminConnectionsPathSlash) ||
-			connectionsWireOperation(path, c.Request().Method) != "" ||
 			path == retainedMessagePath ||
-			strings.HasPrefix(path, retainedMessagePathSlash)
+			strings.HasPrefix(path, retainedMessagePathSlash) {
+			return true
+		}
+
+		// connectionsPathSlash ("/connections/") is also Outposts' real
+		// GetConnection wire path -- gate on the SigV4 scope so a
+		// correctly-signed Outposts request isn't swallowed here.
+		return connectionsWireOperation(path, c.Request().Method) != "" &&
+			httputils.ScopedPrefixMatch(c.Request(), path, connectionsPathSlash, iotDataServiceName)
 	}
 }
 
@@ -340,40 +353,91 @@ func parseShadowPath(path string) (string, string) {
 	return parts[0], ""
 }
 
-// handleError maps backend errors to appropriate HTTP status codes.
+// amznErrorTypeHeader carries the modeled exception type for the restjson1
+// protocol. aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go)
+// reads this header before falling back to a body "code"/"__type" field -- it does NOT
+// read the "error" key this package's response bodies use for the type (that key is
+// asserted by existing tests, so it stays; the header is additive), so without it every
+// error here deserialized client-side as a generic UnknownError.
+const amznErrorTypeHeader = "X-Amzn-Errortype"
+
+// handleError maps backend errors to appropriate HTTP status codes. Types
+// are verified per sentinel against this service's own deserializer error
+// lists (iotdataplane@v1.35.4 deserializers.go), which use
+// strings.EqualFold comparisons rather than literal case labels.
+// ErrConnectionExists is the one exception: RegisterConnection is a
+// gopherstack-only admin extension with no real AWS operation (see
+// adminConnectionsPath's doc comment), so "ResourceAlreadyExistsException"
+// isn't verified against any deserializer list -- no real SDK client can
+// reach it.
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrShadowNotFound),
 		errors.Is(err, ErrRetainedMessageNotFound),
 		errors.Is(err, ErrConnectionNotFound):
+		c.Response().Header().Set(amznErrorTypeHeader, "ResourceNotFoundException")
+
 		return c.JSON(http.StatusNotFound, map[string]string{
 			keyError:   "ResourceNotFoundException",
 			keyMessage: err.Error(),
 		})
 	case errors.Is(err, ErrVersionConflict):
+		c.Response().Header().Set(amznErrorTypeHeader, "ConflictException")
+
 		return c.JSON(http.StatusConflict, map[string]any{
 			"code":     http.StatusConflict,
 			keyError:   "ConflictException",
 			keyMessage: err.Error(),
 		})
 	case errors.Is(err, ErrRequestTooLarge):
+		c.Response().Header().Set(amznErrorTypeHeader, "RequestEntityTooLargeException")
+
 		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{
 			keyError:   "RequestEntityTooLargeException",
 			keyMessage: err.Error(),
 		})
 	case errors.Is(err, ErrValidation):
+		c.Response().Header().Set(amznErrorTypeHeader, "InvalidRequestException")
+
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyError:   "InvalidRequestException",
 			keyMessage: err.Error(),
 		})
 	case errors.Is(err, ErrConnectionExists):
+		c.Response().Header().Set(amznErrorTypeHeader, "ResourceAlreadyExistsException")
+
 		return c.JSON(http.StatusConflict, map[string]string{
 			keyError:   "ResourceAlreadyExistsException",
 			keyMessage: err.Error(),
 		})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		c.Response().Header().Set(amznErrorTypeHeader, "InternalFailureException")
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			keyError:   "InternalFailureException",
+			keyMessage: err.Error(),
+		})
 	}
+}
+
+// methodNotAllowedResponse writes the wire-accurate response for a
+// combination of HTTP verb and URI this operation doesn't support.
+// MethodNotAllowedException is modeled on every real iotdataplane operation
+// that reaches this helper (iotdataplane@v1.35.4 deserializers.go).
+func methodNotAllowedResponse(c *echo.Context) error {
+	c.Response().Header().Set(amznErrorTypeHeader, errMethodNotAllowed)
+
+	return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+}
+
+// invalidRequestResponse writes the wire-accurate response for a malformed
+// request that never reaches the backend (so there's no sentinel error to
+// route through handleError). InvalidRequestException is modeled on every
+// real iotdataplane operation that reaches this helper.
+func invalidRequestResponse(c *echo.Context, message string) error {
+	c.Response().Header().Set(amznErrorTypeHeader, "InvalidRequestException")
+
+	return c.JSON(http.StatusBadRequest, map[string]string{keyError: message})
 }
 
 // Handler returns the Echo handler function for IoT Data Plane operations.

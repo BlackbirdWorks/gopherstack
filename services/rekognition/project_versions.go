@@ -44,16 +44,17 @@ func (b *InMemoryBackend) CreateProjectVersion(
 	maps.Copy(tagsCopy, tags)
 
 	v := &storedProjectVersion{
-		CreationTimestamp:       time.Now(),
-		ProjectVersionARN:       arn,
-		ProjectARN:              projectARN,
-		VersionName:             versionName,
-		Status:                  "TRAINING_IN_PROGRESS",
-		Tags:                    tagsCopy,
-		OutputConfigS3Bucket:    params.OutputConfigS3Bucket,
-		OutputConfigS3KeyPrefix: params.OutputConfigS3KeyPrefix,
-		KmsKeyID:                params.KmsKeyID,
-		VersionDescription:      params.VersionDescription,
+		CreationTimestamp:                       time.Now(),
+		ProjectVersionARN:                       arn,
+		ProjectARN:                              projectARN,
+		VersionName:                             versionName,
+		Status:                                  "TRAINING_IN_PROGRESS",
+		Tags:                                    tagsCopy,
+		OutputConfigS3Bucket:                    params.OutputConfigS3Bucket,
+		OutputConfigS3KeyPrefix:                 params.OutputConfigS3KeyPrefix,
+		KmsKeyID:                                params.KmsKeyID,
+		VersionDescription:                      params.VersionDescription,
+		FeatureConfigContentModConfidenceThresh: params.FeatureConfigContentModConfidenceThresh,
 	}
 	b.projectVersions.Put(v)
 
@@ -166,11 +167,12 @@ func (b *InMemoryBackend) CopyProjectVersion(
 	newARN := b.projectVersionARN(destinationProjectARN, name)
 
 	v := &storedProjectVersion{
-		CreationTimestamp: time.Now(),
-		ProjectVersionARN: newARN,
-		ProjectARN:        destinationProjectARN,
-		VersionName:       name,
-		Status:            "COPYING_IN_PROGRESS",
+		CreationTimestamp:       time.Now(),
+		ProjectVersionARN:       newARN,
+		ProjectARN:              destinationProjectARN,
+		VersionName:             name,
+		Status:                  "COPYING_IN_PROGRESS",
+		SourceProjectVersionARN: sourceProjectVersionARN,
 	}
 	b.projectVersions.Put(v)
 
@@ -178,7 +180,9 @@ func (b *InMemoryBackend) CopyProjectVersion(
 }
 
 // StartProjectVersion sets a project version status to RUNNING.
-func (b *InMemoryBackend) StartProjectVersion(projectVersionARN string, minInferenceUnits int32) error {
+func (b *InMemoryBackend) StartProjectVersion(
+	projectVersionARN string, minInferenceUnits, maxInferenceUnits int32,
+) error {
 	b.mu.Lock("StartProjectVersion")
 	defer b.mu.Unlock()
 
@@ -189,6 +193,7 @@ func (b *InMemoryBackend) StartProjectVersion(projectVersionARN string, minInfer
 
 	v.Status = processorRunning
 	v.MinInferenceUnits = minInferenceUnits
+	v.MaxInferenceUnits = maxInferenceUnits
 
 	return nil
 }

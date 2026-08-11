@@ -47,8 +47,17 @@ func (t *unixEpochTime) UnmarshalJSON(b []byte) error {
 
 // EndpointConfiguration describes the endpoint types for a REST API.
 type EndpointConfiguration struct {
+	IPAddressType  string   `json:"ipAddressType,omitempty"`
 	VpcEndpointIDs []string `json:"vpcEndpointIds,omitempty"`
 	Types          []string `json:"types,omitempty"`
+}
+
+// MutualTLSAuthentication configures mutual TLS authentication for a custom
+// domain name (aws-sdk-go-v2/service/apigateway/types.MutualTlsAuthentication).
+type MutualTLSAuthentication struct {
+	TruststoreURI      string   `json:"truststoreUri,omitempty"`
+	TruststoreVersion  string   `json:"truststoreVersion,omitempty"`
+	TruststoreWarnings []string `json:"truststoreWarnings,omitempty"`
 }
 
 // RestAPI represents an API Gateway REST API.
@@ -168,6 +177,7 @@ type MethodSetting struct {
 
 // Stage represents a deployment stage.
 type Stage struct {
+	Tags                *tags.Tags               `json:"tags,omitempty"`
 	CanarySettings      *CanarySettings          `json:"canarySettings,omitempty"`
 	AccessLogSettings   *AccessLogSettings       `json:"accessLogSettings,omitempty"`
 	MethodSettings      map[string]MethodSetting `json:"methodSettings,omitempty"`
@@ -440,18 +450,26 @@ type CreateDocumentationVersionInput struct {
 
 // DomainName represents a custom domain name for an API.
 type DomainName struct {
-	CreatedDate              *unixEpochTime         `json:"createdDate,omitempty"`
-	Tags                     *tags.Tags             `json:"tags,omitempty"`
-	EndpointConfiguration    *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
-	DomainNameValue          string                 `json:"domainName"`
-	CertificateARN           string                 `json:"certificateArn,omitempty"`
-	RegionalCertificateARN   string                 `json:"regionalCertificateArn,omitempty"`
-	DistributionDomainName   string                 `json:"distributionDomainName,omitempty"`
-	DistributionHostedZoneID string                 `json:"distributionHostedZoneId,omitempty"`
-	RegionalDomainName       string                 `json:"regionalDomainName,omitempty"`
-	RegionalHostedZoneID     string                 `json:"regionalHostedZoneId,omitempty"`
-	SecurityPolicy           string                 `json:"securityPolicy,omitempty"`
-	DomainNameStatus         string                 `json:"domainNameStatus,omitempty"`
+	CreatedDate                         *unixEpochTime           `json:"createdDate,omitempty"`
+	Tags                                *tags.Tags               `json:"tags,omitempty"`
+	EndpointConfiguration               *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
+	MutualTLSAuthentication             *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
+	DomainNameValue                     string                   `json:"domainName"`
+	CertificateARN                      string                   `json:"certificateArn,omitempty"`
+	CertificateName                     string                   `json:"certificateName,omitempty"`
+	RegionalCertificateARN              string                   `json:"regionalCertificateArn,omitempty"`
+	RegionalCertificateName             string                   `json:"regionalCertificateName,omitempty"`
+	OwnershipVerificationCertificateARN string                   `json:"ownershipVerificationCertificateArn,omitempty"`
+	ManagementPolicy                    string                   `json:"managementPolicy,omitempty"`
+	Policy                              string                   `json:"policy,omitempty"`
+	RoutingMode                         string                   `json:"routingMode,omitempty"`
+	EndpointAccessMode                  string                   `json:"endpointAccessMode,omitempty"`
+	DistributionDomainName              string                   `json:"distributionDomainName,omitempty"`
+	DistributionHostedZoneID            string                   `json:"distributionHostedZoneId,omitempty"`
+	RegionalDomainName                  string                   `json:"regionalDomainName,omitempty"`
+	RegionalHostedZoneID                string                   `json:"regionalHostedZoneId,omitempty"`
+	SecurityPolicy                      string                   `json:"securityPolicy,omitempty"`
+	DomainNameStatus                    string                   `json:"domainNameStatus,omitempty"`
 }
 
 // CreateDomainNameInput is the input for CreateDomainName.
@@ -500,6 +518,7 @@ type CreateModelInput struct {
 
 // CreateStageInput is the input for the standalone CreateStage operation.
 type CreateStageInput struct {
+	Tags                 map[string]string        `json:"tags,omitempty"`
 	CanarySettings       *CanarySettings          `json:"canarySettings,omitempty"`
 	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
 	MethodSettings       map[string]MethodSetting `json:"methodSettings,omitempty"`
@@ -536,6 +555,7 @@ type UsagePlan struct {
 	ID          string                `json:"id"`
 	Name        string                `json:"name"`
 	Description string                `json:"description,omitempty"`
+	ProductCode string                `json:"productCode,omitempty"`
 	APIStages   []APIStageAssociation `json:"apiStages,omitempty"`
 }
 
@@ -648,10 +668,15 @@ type UpdateDeploymentInput struct {
 	Description string `json:"description,omitempty"`
 }
 
-// UpdateResourceInput is the input for UpdateResource (rename pathPart or set CORS).
+// UpdateResourceInput is the input for UpdateResource (rename pathPart, move to
+// a new parent, or set CORS). ParentID is the flattened result of PATCH
+// "/parentId" (see patch.go's applyResourceEntityPatchOp); InMemoryBackend.
+// UpdateResource validates the new parent and recomputes Path for the
+// resource and its whole subtree.
 type UpdateResourceInput struct {
 	CorsConfiguration *CorsConfiguration `json:"corsConfiguration,omitempty"`
 	PathPart          string             `json:"pathPart,omitempty"`
+	ParentID          string             `json:"parentId,omitempty"`
 }
 
 // TestInvokeMethodInput is the input for TestInvokeMethod.
@@ -674,10 +699,15 @@ type TestInvokeMethodOutput struct {
 	Latency int64             `json:"latency"`
 }
 
-// UpdateUsagePlanInput is the input for UpdateUsagePlan.
+// UpdateUsagePlanInput is the input for UpdateUsagePlan. ProductCode is a
+// *string (rather than plain string) because UpdateUsagePlan's PATCH
+// documents "remove" as supported for "/productCode" (patch-operations.html)
+// — a plain string can't distinguish "explicitly cleared" from "not
+// provided in this PATCH at all".
 type UpdateUsagePlanInput struct {
 	Throttle    *ThrottleSettings     `json:"throttle,omitempty"`
 	Quota       *QuotaSettings        `json:"quota,omitempty"`
+	ProductCode *string               `json:"productCode,omitempty"`
 	Name        string                `json:"name,omitempty"`
 	Description string                `json:"description,omitempty"`
 	UsagePlanID string                `json:"usagePlanId"`
@@ -691,21 +721,45 @@ type APIStageAssociation struct {
 	Stage     string                       `json:"stage,omitempty"`
 }
 
-// UpdateDomainNameInput is the input for UpdateDomainName.
+// UpdateDomainNameInput is the input for UpdateDomainName. CertificateARN,
+// CertificateName, RegionalCertificateARN, RegionalCertificateName, and
+// OwnershipVerificationCertificateARN are *string (rather than plain string)
+// because UpdateDomainName's PATCH documents "remove" as supported for
+// "/certificateArn", "/certificateName", "/regionalCertificateArn",
+// "/regionalCertificateName", and "/ownershipVerificationCertificateArn"
+// (patch-operations.html) — a plain string can't distinguish "explicitly
+// cleared" from "not provided in this PATCH at all". ManagementPolicy,
+// Policy, RoutingMode, and EndpointAccessMode only document "replace"
+// (patch-operations.html), so a bare string is enough, matching RestApi's
+// Policy/EndpointAccessMode fields.
 type UpdateDomainNameInput struct {
-	EndpointConfiguration  *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
-	CertificateARN         string                 `json:"certificateArn,omitempty"`
-	RegionalCertificateARN string                 `json:"regionalCertificateArn,omitempty"`
-	SecurityPolicy         string                 `json:"securityPolicy,omitempty"`
-	DomainName             string                 `json:"domainName"`
+	EndpointConfiguration               *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
+	MutualTLSAuthentication             *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
+	CertificateARN                      *string                  `json:"certificateArn,omitempty"`
+	CertificateName                     *string                  `json:"certificateName,omitempty"`
+	RegionalCertificateARN              *string                  `json:"regionalCertificateArn,omitempty"`
+	RegionalCertificateName             *string                  `json:"regionalCertificateName,omitempty"`
+	OwnershipVerificationCertificateARN *string                  `json:"ownershipVerificationCertificateArn,omitempty"`
+	SecurityPolicy                      string                   `json:"securityPolicy,omitempty"`
+	ManagementPolicy                    string                   `json:"managementPolicy,omitempty"`
+	Policy                              string                   `json:"policy,omitempty"`
+	RoutingMode                         string                   `json:"routingMode,omitempty"`
+	EndpointAccessMode                  string                   `json:"endpointAccessMode,omitempty"`
+	DomainName                          string                   `json:"domainName"`
 }
 
 // UpdateBasePathMappingInput is the input for UpdateBasePathMapping.
+// NewBasePath has no equivalent on the real AWS wire (a real client only ever
+// renames via a "/basepath" or "/basePath" patchOperations entry) — BasePath
+// itself must stay the REQUIRED identity used to find the mapping, since it's
+// populated from the URL by injectJSONFieldAPIGW after patch resolution runs
+// (see applyBasePathMappingPatchOp).
 type UpdateBasePathMappingInput struct {
-	DomainName string `json:"domainName"`
-	BasePath   string `json:"basePath"`
-	RestAPIID  string `json:"restApiId,omitempty"`
-	Stage      string `json:"stage,omitempty"`
+	NewBasePath *string `json:"newBasePath,omitempty"`
+	DomainName  string  `json:"domainName"`
+	BasePath    string  `json:"basePath"`
+	RestAPIID   string  `json:"restApiId,omitempty"`
+	Stage       string  `json:"stage,omitempty"`
 }
 
 // UpdateDocumentationPartInput is the input for UpdateDocumentationPart.
@@ -722,16 +776,23 @@ type UpdateDocumentationVersionInput struct {
 	Description          string `json:"description,omitempty"`
 }
 
-// UpdateMethodInput is the input for UpdateMethod.
+// UpdateMethodInput is the input for UpdateMethod. RequestParameters and
+// RequestModels are the flattened, pre-merged result of PATCH
+// "/requestParameters/{name}" and "/requestModels/{content-type}" (see
+// patch.go's applyMethodRequestParameterPatch/applyMethodRequestModelPatch);
+// InMemoryBackend.UpdateMethod applies them via a "!= nil" (not "len > 0")
+// check so a merge that removes the last entry still takes effect.
 type UpdateMethodInput struct {
-	RequestModels     map[string]string `json:"requestModels,omitempty"`
-	APIKeyRequired    *bool             `json:"apiKeyRequired,omitempty"`
-	RestAPIID         string            `json:"restApiId"`
-	ResourceID        string            `json:"resourceId"`
-	HTTPMethod        string            `json:"httpMethod"`
-	AuthorizationType string            `json:"authorizationType,omitempty"`
-	AuthorizerID      string            `json:"authorizerId,omitempty"`
-	OperationName     string            `json:"operationName,omitempty"`
+	RequestModels      map[string]string `json:"requestModels,omitempty"`
+	RequestParameters  map[string]bool   `json:"requestParameters,omitempty"`
+	APIKeyRequired     *bool             `json:"apiKeyRequired,omitempty"`
+	RestAPIID          string            `json:"restApiId"`
+	ResourceID         string            `json:"resourceId"`
+	HTTPMethod         string            `json:"httpMethod"`
+	AuthorizationType  string            `json:"authorizationType,omitempty"`
+	AuthorizerID       string            `json:"authorizerId,omitempty"`
+	OperationName      string            `json:"operationName,omitempty"`
+	RequestValidatorID string            `json:"requestValidatorId,omitempty"`
 }
 
 // UpdateIntegrationInput is the input for UpdateIntegration.
@@ -780,10 +841,14 @@ type UpdateMethodResponseInput struct {
 // carries only "patchOperations" (see aws-sdk-go-v2 apigateway
 // UpdateAccountInput); handler.go flattens the patch document into these
 // named fields (CloudwatchRoleARN via top-level "/cloudwatchRoleArn",
-// ThrottleSettings via nested "/throttle/{rateLimit,burstLimit}" — see patch.go).
+// ThrottleSettings via nested "/throttle/{rateLimit,burstLimit}", Features via
+// "/features" add/remove — see patch.go). Features is nil-checked rather than
+// len-checked so patching the last entry away actually clears it (see
+// applyAccountFeaturesPatch).
 type UpdateAccountInput struct {
 	ThrottleSettings  *ThrottleSettings `json:"throttleSettings,omitempty"`
 	CloudwatchRoleARN string            `json:"cloudwatchRoleArn,omitempty"`
+	Features          []string          `json:"features,omitempty"`
 }
 
 // TestInvokeAuthorizerInput is the input for TestInvokeAuthorizer.
@@ -829,6 +894,7 @@ type PutGatewayResponseInput struct {
 
 // ClientCertificate represents an API Gateway client certificate.
 type ClientCertificate struct {
+	Tags                  *tags.Tags    `json:"tags,omitempty"`
 	CreatedDate           unixEpochTime `json:"createdDate"`
 	ExpirationDate        unixEpochTime `json:"expirationDate"`
 	PemEncodedCertificate string        `json:"pemEncodedCertificate"`
@@ -868,12 +934,12 @@ type ImportRestAPIInput struct {
 
 // VpcLink represents a VPC Link for private integrations.
 type VpcLink struct {
-	Tags        map[string]string `json:"tags,omitempty"`
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Status      string            `json:"status"`
-	TargetARNs  []string          `json:"targetArns,omitempty"`
+	Tags        *tags.Tags `json:"tags,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
+	Status      string     `json:"status"`
+	TargetARNs  []string   `json:"targetArns,omitempty"`
 }
 
 // CreateVpcLinkInput is the input for CreateVpcLink.

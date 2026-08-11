@@ -25,7 +25,7 @@ type medicalTranscriptionJobOutput struct {
 	Specialty                        string                        `json:"Specialty,omitempty"`
 	Type                             string                        `json:"Type,omitempty"`
 	MediaFormat                      string                        `json:"MediaFormat,omitempty"`
-	MedicalContentIdentificationType string                        `json:"MedicalContentIdentificationType,omitempty"`
+	MedicalContentIdentificationType string                        `json:"ContentIdentificationType,omitempty"`
 	FailureReason                    string                        `json:"FailureReason,omitempty"`
 	Tags                             []transcribeTag               `json:"Tags,omitempty"`
 	MediaSampleRateHertz             int32                         `json:"MediaSampleRateHertz,omitempty"`
@@ -109,7 +109,7 @@ type startMedicalTranscriptionJobInput struct {
 	MediaFormat                      string                        `json:"MediaFormat"`
 	OutputBucketName                 string                        `json:"OutputBucketName"`
 	OutputKey                        string                        `json:"OutputKey"`
-	MedicalContentIdentificationType string                        `json:"MedicalContentIdentificationType"`
+	MedicalContentIdentificationType string                        `json:"ContentIdentificationType"`
 	Tags                             []transcribeTag               `json:"Tags"`
 	MediaSampleRateHertz             int32                         `json:"MediaSampleRateHertz"`
 }

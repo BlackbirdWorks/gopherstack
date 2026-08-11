@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import DaxPage from "./+page.svelte";
+import { DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -43,6 +44,11 @@ describe("DAX Page", () => {
     confirmDestructive.mockReset();
     confirmDestructive.mockResolvedValue(true);
     promptSpy = vi.spyOn(window, "prompt").mockReturnValue(null);
+    // Region defaults to "All" for a fresh user (see region.svelte.ts).
+    // Every test below predates "All" mode and assumes exactly one
+    // DescribeX call per action against a single region, so pin
+    // single-region mode here.
+    setStoredRegion(DEFAULT_REGION);
   });
 
   afterEach(() => {

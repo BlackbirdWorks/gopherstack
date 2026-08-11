@@ -104,6 +104,7 @@ type EcsParameters struct {
 	PlacementStrategy        []PlacementStrategy            `json:"PlacementStrategy,omitempty"`
 	Tags                     []EcsTag                       `json:"Tags,omitempty"`
 	CapacityProviderStrategy []CapacityProviderStrategyItem `json:"CapacityProviderStrategy,omitempty"`
+	TaskCount                int32                          `json:"TaskCount,omitempty"`
 	EnableECSManagedTags     bool                           `json:"EnableECSManagedTags,omitempty"`
 	EnableExecuteCommand     bool                           `json:"EnableExecuteCommand,omitempty"`
 }

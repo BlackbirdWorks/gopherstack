@@ -96,7 +96,9 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	_, err := original.CreateStackSet("test-set", "desc", `{"Resources":{}}`, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
-	opID, err := original.CreateStackInstances(ctx, "test-set", []string{"111111111111"}, []string{"us-east-1"})
+	opID, err := original.CreateStackInstances(
+		ctx, "test-set", []string{"111111111111"}, nil, []string{"us-east-1"},
+	)
 	require.NoError(t, err)
 	require.NotEmpty(t, opID)
 
@@ -133,8 +135,11 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, versions)
 
-	details, err := fresh.BatchDescribeTypeConfigurations([]string{"Acme::Demo::Widget"})
-	require.NoError(t, err)
+	details, errs, unprocessed := fresh.BatchDescribeTypeConfigurations(
+		[]cloudformation.TypeConfigurationIdentifier{{TypeName: "Acme::Demo::Widget"}},
+	)
+	assert.Empty(t, errs)
+	assert.Empty(t, unprocessed)
 	require.Len(t, details, 1)
 	assert.JSONEq(t, `{"key":"value"}`, details[0].Configuration)
 }

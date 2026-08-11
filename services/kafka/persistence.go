@@ -137,12 +137,12 @@ func ensureNonNilClusterPolicies(m map[string]string) map[string]string {
 }
 
 // fixNilTags ensures every restored Cluster/Configuration/Replicator/
-// VpcConnection has a non-nil Tags map. Tags is tagged json:"-" on all four
-// (the AWS wire response never embeds tags in the resource body -- they are
-// fetched separately via ListTagsForResource/GetTags), so it is never
-// populated by the JSON unmarshal that store.Table.Restore performs and
-// always comes back as the zero value (nil) here, exactly as it did before
-// Phase 3.3 when these same structs were unmarshalled directly.
+// VpcConnection/Channel has a non-nil Tags map. The first four are tagged
+// json:"-" (tags are fetched separately via ListTagsForResource/GetTags), so
+// Restore's JSON unmarshal never populates them. Channel's Tags has a normal
+// JSON tag (see the Channel doc comment in models.go) and round-trips fine
+// when non-empty, but still needs this guard for a channel created with zero
+// tags: an empty map marshals as an omitted key under omitempty.
 func fixNilTags(b *InMemoryBackend) {
 	for _, c := range b.clusters.All() {
 		if c.Tags == nil {
@@ -165,6 +165,12 @@ func fixNilTags(b *InMemoryBackend) {
 	for _, v := range b.vpcConnections.All() {
 		if v.Tags == nil {
 			v.Tags = make(map[string]string)
+		}
+	}
+
+	for _, ch := range b.channels.All() {
+		if ch.Tags == nil {
+			ch.Tags = make(map[string]string)
 		}
 	}
 }

@@ -33,6 +33,10 @@ func (b *InMemoryBackend) CreateServerlessCache(
 		return nil, ErrServerlessCacheAlreadyExists
 	}
 
+	if tbl.Len() >= maxServerlessCachesPerRegion {
+		return nil, ErrServerlessCacheQuotaExceeded
+	}
+
 	if engine == "" {
 		engine = engineRedis
 	}
@@ -175,6 +179,11 @@ func (b *InMemoryBackend) AddServerlessCacheSnapshotInternal(snap *ServerlessCac
 	b.serverlessCacheSnapshotsStore(b.region).Put(snap)
 }
 
+// maxServerlessCachesPerRegion is AWS's documented default "Serverless
+// caches per Region" quota (docs.aws.amazon.com/AmazonElastiCache/latest/
+// dg/quota-limits.html).
+const maxServerlessCachesPerRegion = 40
+
 // CreateServerlessCacheFull creates a serverless cache with the full set of options.
 func (b *InMemoryBackend) CreateServerlessCacheFull(
 	ctx context.Context,
@@ -187,6 +196,10 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(
 	tbl := b.serverlessCachesStore(region)
 	if _, exists := tbl.Get(opts.Name); exists {
 		return nil, ErrServerlessCacheAlreadyExists
+	}
+
+	if tbl.Len() >= maxServerlessCachesPerRegion {
+		return nil, ErrServerlessCacheQuotaExceeded
 	}
 
 	engine := opts.Engine

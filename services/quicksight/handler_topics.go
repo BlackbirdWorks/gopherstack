@@ -201,16 +201,25 @@ func (h *Handler) handleUpdateTopic(c *echo.Context) error {
 	})
 }
 
+// DeleteTopicOutput carries an Arn field (api_op_DeleteTopic.go), so this
+// handler describes the topic first to capture its Arn — same pattern as
+// DeleteTopicV2.
 func (h *Handler) handleDeleteTopic(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
 	topicID := seg(segs, segResID)
 
-	if err := h.Backend.DeleteTopic(accountID, topicID); err != nil {
+	t, err := h.Backend.DescribeTopic(accountID, topicID)
+	if err != nil {
 		return httpErr(c, err)
 	}
 
+	if delErr := h.Backend.DeleteTopic(accountID, topicID); delErr != nil {
+		return httpErr(c, delErr)
+	}
+
 	return writeJSON(c, http.StatusOK, map[string]any{
+		keyArn:       t.Arn,
 		keyTopicID:   topicID,
 		keyRequestID: reqIDPlaceholder,
 		keyStatus:    http.StatusOK,
@@ -800,7 +809,10 @@ func (h *Handler) handlePredictQAResults(c *echo.Context) error {
 
 // handleSearchTopics searches the account's topics. Real SearchTopicsOutput
 // returns the matches under TopicSummaryList (distinct from ListTopics'
-// TopicsSummaries key).
+// TopicsSummaries key). Unlike ListTopics (MaxResults/NextToken as query
+// params), SearchTopicsInput carries Filters/MaxResults/NextToken in the
+// JSON body (per awsRestjson1_serializeOpDocumentSearchTopicsInput) —
+// same as SearchTopicsV2.
 func (h *Handler) handleSearchTopics(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
@@ -811,7 +823,7 @@ func (h *Handler) handleSearchTopics(c *echo.Context) error {
 	}
 
 	topics, next, err := h.Backend.SearchTopics(
-		accountID, folderFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
+		accountID, folderFiltersFromBody(body), intField(body, "MaxResults"), strField(body, "NextToken"),
 	)
 	if err != nil {
 		return httpErr(c, err)

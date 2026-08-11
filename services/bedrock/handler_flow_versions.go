@@ -40,7 +40,7 @@ func (h *AgentsHandler) handleCreateFlowVersion(c *echo.Context, flowID string) 
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{respFlowVersion: fv})
+	return c.JSON(http.StatusCreated, fv)
 }
 
 func (h *AgentsHandler) handleGetFlowVersion(
@@ -51,7 +51,7 @@ func (h *AgentsHandler) handleGetFlowVersion(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respFlowVersion: fv})
+	return c.JSON(http.StatusOK, fv)
 }
 
 func (h *AgentsHandler) handleListFlowVersions(c *echo.Context, flowID string) error {
@@ -74,6 +74,6 @@ func (h *AgentsHandler) handleDeleteFlowVersion(
 
 	return c.JSON(
 		http.StatusOK,
-		map[string]any{keyFlowID: flowID, keyVersion: version, keyStatus: statusDeleting},
+		map[string]any{keyID: flowID, keyVersion: version},
 	)
 }

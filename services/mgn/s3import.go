@@ -7,28 +7,42 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// This file backs StartImport's real, wire-reachable SourceServer creation
-// path (exportimport.go's StartImport/scheduleImportLocked call into it).
-// gopherstack-i6oz: the only PUBLIC AWS API that creates a SourceServer is
-// StartImport's bulk CSV load, but AWS does not publish that CSV's column
-// schema anywhere in this SDK module (types.SourceServer/SourceProperties
-// are the wire OUTPUT shape, never an input schema). This package's
-// resolution -- an explicit, documented emulator decision, never presented
-// as derived AWS behavior -- is the column set below: a header row plus one
-// required column ("hostname") and a liberal set of optional columns, each
-// mapped onto a real field this backend's SourceServer/SourceProperties
-// already models (see models.go). One CPU/Disk/NetworkInterface entry per
-// row, not the full multi-value arrays a real per-server inventory tool
-// might report -- CSV's one-row-one-record shape does not naturally carry
-// repeating groups without a much richer, still-unpublished convention, and
-// PARITY.md's own guidance is to pick a defensible simpler shape rather than
-// invent one. See PARITY.md's "CSV import schema (this pass)" section.
+// Backs StartImport's real SourceServer creation path (exportimport.go's
+// StartImport/scheduleImportLocked call into it). The AWS SDK module itself
+// publishes no CSV schema (StartImportInput carries only an S3BucketSource --
+// no format-options field), but AWS's MGN User Guide ("Importing your data
+// inventory", import-main.html) DOES document the parameter set: every column
+// is a "mgn:<resource>:<field>" namespaced key. This file implements the
+// SourceServer-scoped subset of that documented schema -- the identification
+// hints, tag, and user-provided-id parameters -- confirmed by direct read of
+// the published parameter table. It does NOT implement the mgn:app:*/
+// mgn:wave:*/mgn:launch:* parameters (implicit Application/Wave creation and
+// per-row LaunchConfiguration overrides): those are real, doc-confirmed
+// parameters too, but acting on them would mean creating/associating
+// Applications and Waves and persisting a dozen LaunchConfiguration
+// sub-fields (instance profile, per-NIC subnet/security-group/private-IP,
+// placement, licensing, volume type) this backend's LaunchConfiguration type
+// has no fields for at all -- a materially larger feature than "fix the
+// SourceServer schema", left a documented, explicit gap rather than a
+// half-finished multi-resource importer (PARITY.md).
+//
+// mgn:server:hostname/mgn:server:fqdn/mgn:server:aws-instance-id/
+// mgn:server:vmware-uuid/mgn:server:vmpath are NOT in AWS's own published
+// parameter table -- that table has no explicit IP/FQDN identification
+// column at all, despite its own prose stating "Server entries must include
+// either the server IP address, or the FQDN." This is a real, if
+// incompletely documented, requirement: these five column names are this
+// package's best-effort extension of the confirmed "mgn:server:*" naming
+// convention onto the SDK's own real IdentificationHints fields (AwsInstanceID/
+// Fqdn/Hostname/VmPath/VmWareUuid, types.go), each backed by a real wire
+// field, not fabricated. IP-address identification specifically is not
+// modeled: IdentificationHints has no IP field on the real SDK type, so
+// there is nowhere honest to put one.
 
 // maxImportObjectBytes caps how many bytes StartImport reads from the
 // caller's S3 object, matching services/dynamodb's identical import-source
@@ -71,21 +85,27 @@ func (b *InMemoryBackend) s3Backend() S3Accessor {
 // (see parseSourceServerCSV).
 var errImportSourceUnreadable = errors.New("mgn: import source object could not be read")
 
-// errImportCSVEmpty/errImportCSVNoHostnameColumn/errImportRowNoHostname are
-// this file's static sentinel errors (err113: no ad hoc errors.New at the
-// call site) backing parseSourceServerCSV/parseSourceServerRow's own
-// whole-parse and per-row failure messages.
+// errImportCSVEmpty/errImportRowNoIdentification are this file's static
+// sentinel errors (err113: no ad hoc errors.New at the call site) backing
+// parseSourceServerCSV/parseSourceServerRow's own whole-parse and per-row
+// failure messages.
 var (
 	errImportCSVEmpty            = errors.New("parse CSV: source object is empty (no header row)")
-	errImportCSVNoHostnameColumn = errors.New(`parse CSV: required column "hostname" not found in header row`)
-	errImportRowNoHostname       = errors.New(`required column "hostname" is empty`)
+	errImportRowNoIdentification = errors.New(
+		"row has no identification hint (one of " +
+			csvColFqdnForActionFramework + ", " + csvColHostname + ", " + csvColFqdn + ", " +
+			csvColAwsInstanceID + ", " + csvColVMWareUUID + ", " + csvColVMPath + " is required)",
+	)
 )
 
 // importedSourceServer is one successfully-parsed CSV row, ready to become
-// a SourceServer via createSourceServerLocked.
+// (or update, via UserProvidedID dedup) a SourceServer through
+// sourceServerSeed.
 type importedSourceServer struct {
-	sourceProperties *SourceProperties
-	userProvidedID   string
+	sourceProperties       *SourceProperties
+	importTags             map[string]string
+	userProvidedID         string
+	fqdnForActionFramework string
 }
 
 // importCSVResult accumulates every row parseSourceServerCSV actually
@@ -132,36 +152,30 @@ func (b *InMemoryBackend) readImportSourceServers(
 	return result, nil
 }
 
-// importCSVColumn names -- matched case-insensitively with surrounding
-// space trimmed against the object's first (header) row. "hostname" is the
-// only required column; every other column is optional and, if absent or
-// blank on a given row, simply leaves the corresponding SourceProperties
-// field unset on that row's SourceServer.
+// importColumn names -- matched case-insensitively with surrounding space
+// trimmed against the object's first (header) row. See this file's doc
+// comment for which of these are confirmed against AWS's own published
+// parameter table versus this package's own extension of its naming
+// convention. csvColTagPrefix is matched as a prefix; everything after it in
+// the header names the tag key (case preserved).
 const (
-	csvColHostname                = "hostname"
-	csvColFqdn                    = "fqdn"
-	csvColUserProvidedID          = "userprovidedid"
-	csvColOperatingSystem         = "operatingsystem"
-	csvColRecommendedInstanceType = "recommendedinstancetype"
-	csvColCPUCores                = "cpucores"
-	csvColCPUModelName            = "cpumodelname"
-	csvColRAMBytes                = "rambytes"
-	csvColDiskDeviceName          = "diskdevicename"
-	csvColDiskBytes               = "diskbytes"
-	csvColNetworkInterfaceMac     = "networkinterfacemac"
-	csvColNetworkInterfaceIPs     = "networkinterfaceips"
+	csvColUserProvidedID         = "mgn:server:user-provided-id"
+	csvColFqdnForActionFramework = "mgn:server:fqdn-for-action-framework"
+	csvColHostname               = "mgn:server:hostname"
+	csvColFqdn                   = "mgn:server:fqdn"
+	csvColAwsInstanceID          = "mgn:server:aws-instance-id"
+	csvColVMWareUUID             = "mgn:server:vmware-uuid"
+	csvColVMPath                 = "mgn:server:vmpath"
+	csvColTagPrefix              = "mgn:server:tag:"
 )
 
-// parseSourceServerCSV parses data as this package's documented CSV schema
-// (see this file's doc comment and the csvCol* constants above). The first
-// row is always the header (StartImport's Input carries no format-options
-// field to say otherwise -- confirmed by direct read of S3BucketSource, the
-// only input StartImport takes beyond Tags). A missing "hostname" header or
-// an empty/unparseable body fails the entire parse (whole-ImportTask
-// FAILED, via errImportSourceUnreadable) -- anything past that point is a
-// per-row concern: a malformed row is recorded as a real ImportTaskError
-// (never silently dropped, never counted as created), while every other row
-// still creates its SourceServer.
+// parseSourceServerCSV parses data as this package's documented CSV schema (see
+// this file's doc comment and the csvCol* constants above). The first row is
+// always the header (StartImport's S3BucketSource input carries no format-options
+// field to say otherwise). An empty body fails the whole parse (ImportTask
+// FAILED, via errImportSourceUnreadable); past that, a malformed row becomes a
+// real ImportTaskError (never silently dropped) while every other row still
+// creates or updates its SourceServer.
 func parseSourceServerCSV(data []byte) (*importCSVResult, error) {
 	reader := csv.NewReader(bytes.NewReader(data))
 	reader.FieldsPerRecord = -1
@@ -176,15 +190,7 @@ func parseSourceServerCSV(data []byte) (*importCSVResult, error) {
 		return nil, errImportCSVEmpty
 	}
 
-	cols := make(map[string]int, len(rows[0]))
-	for i, h := range rows[0] {
-		cols[strings.ToLower(strings.TrimSpace(h))] = i
-	}
-
-	hostnameIdx, ok := cols[csvColHostname]
-	if !ok {
-		return nil, errImportCSVNoHostnameColumn
-	}
+	cols, tagCols := indexHeader(rows[0])
 
 	res := &importCSVResult{}
 
@@ -193,7 +199,7 @@ func parseSourceServerCSV(data []byte) (*importCSVResult, error) {
 		// convention for ImportErrorData.RowNumber (undocumented by AWS).
 		rowNumber := int64(i + 1)
 
-		server, rowErr := parseSourceServerRow(row, cols, hostnameIdx)
+		server, rowErr := parseSourceServerRow(row, cols, tagCols)
 		if rowErr != nil {
 			res.errors = append(res.errors, &ImportTaskError{
 				ErrorType:     ImportErrorTypeValidation,
@@ -210,10 +216,31 @@ func parseSourceServerCSV(data []byte) (*importCSVResult, error) {
 	return res, nil
 }
 
+// indexHeader maps each header row's fixed mgn:server:* column to its index
+// (case-insensitive) and each mgn:server:tag:* column to its tag key (case
+// preserved after the prefix).
+func indexHeader(header []string) (map[string]int, map[string]int) {
+	cols := make(map[string]int, len(header))
+	tagCols := make(map[string]int)
+
+	for i, h := range header {
+		trimmed := strings.TrimSpace(h)
+		lower := strings.ToLower(trimmed)
+
+		if strings.HasPrefix(lower, csvColTagPrefix) {
+			tagCols[trimmed[len(csvColTagPrefix):]] = i
+
+			continue
+		}
+
+		cols[lower] = i
+	}
+
+	return cols, tagCols
+}
+
 // colValue returns row's trimmed value for the named column, or "" if the
-// column is absent from the header or this row is short that many fields
-// (a short row is not itself an error -- only an empty *required* column
-// is, checked by the row's own caller).
+// column is absent from the header or this row is short that many fields.
 func colValue(row []string, cols map[string]int, name string) string {
 	idx, ok := cols[name]
 	if !ok || idx >= len(row) {
@@ -223,117 +250,39 @@ func colValue(row []string, cols map[string]int, name string) string {
 	return strings.TrimSpace(row[idx])
 }
 
-// parseOptionalInt64 parses s as an int64, treating "" as 0/absent rather
-// than an error -- every numeric CSV column here is optional.
-func parseOptionalInt64(s string) (int64, error) {
-	if s == "" {
-		return 0, nil
+// parseSourceServerRow builds one row's SourceProperties/UserProvidedID/tags.
+// A row identifies its server via at least one IdentificationHints field
+// (real SDK fields -- see this file's doc comment); a row with none of them
+// fails (errImportRowNoIdentification).
+func parseSourceServerRow(row []string, cols, tagCols map[string]int) (*importedSourceServer, error) {
+	hints := &IdentificationHints{
+		Hostname:      colValue(row, cols, csvColHostname),
+		Fqdn:          colValue(row, cols, csvColFqdn),
+		AwsInstanceID: colValue(row, cols, csvColAwsInstanceID),
+		VMWareUUID:    colValue(row, cols, csvColVMWareUUID),
+		VMPath:        colValue(row, cols, csvColVMPath),
+	}
+	fqdnForActionFramework := colValue(row, cols, csvColFqdnForActionFramework)
+
+	if hints.Hostname == "" && hints.Fqdn == "" && hints.AwsInstanceID == "" &&
+		hints.VMWareUUID == "" && hints.VMPath == "" && fqdnForActionFramework == "" {
+		return nil, errImportRowNoIdentification
 	}
 
-	return strconv.ParseInt(s, 10, 64)
-}
+	rowTags := make(map[string]string, len(tagCols))
 
-// parseSourceServerRow builds one row's SourceProperties/UserProvidedID.
-// The only required value is a non-empty hostname; every other parse
-// failure (a non-numeric optional numeric column) also fails the row, since
-// a column present-but-garbled is more likely a real data problem than an
-// intentionally blank field.
-func parseSourceServerRow(row []string, cols map[string]int, hostnameIdx int) (*importedSourceServer, error) {
-	hostname := ""
-	if hostnameIdx < len(row) {
-		hostname = strings.TrimSpace(row[hostnameIdx])
-	}
-
-	if hostname == "" {
-		return nil, errImportRowNoHostname
-	}
-
-	props := &SourceProperties{
-		IdentificationHints:     &IdentificationHints{Hostname: hostname, Fqdn: colValue(row, cols, csvColFqdn)},
-		RecommendedInstanceType: colValue(row, cols, csvColRecommendedInstanceType),
-	}
-
-	if osStr := colValue(row, cols, csvColOperatingSystem); osStr != "" {
-		props.Os = &OS{FullString: osStr}
-	}
-
-	var err error
-
-	if props.Cpus, err = parseCSVCPU(row, cols); err != nil {
-		return nil, err
-	}
-
-	if props.RAMBytes, err = parseOptionalInt64(colValue(row, cols, csvColRAMBytes)); err != nil {
-		return nil, fmt.Errorf("%s: %w", csvColRAMBytes, err)
-	}
-
-	if props.Disks, err = parseCSVDisk(row, cols); err != nil {
-		return nil, err
-	}
-
-	props.NetworkInterfaces = parseCSVNetworkInterface(row, cols)
-
-	return &importedSourceServer{
-		userProvidedID:   colValue(row, cols, csvColUserProvidedID),
-		sourceProperties: props,
-	}, nil
-}
-
-// parseCSVCPU returns a single-entry Cpus slice from the cpuCores/
-// cpuModelName columns, or nil if both are blank on this row.
-func parseCSVCPU(row []string, cols map[string]int) ([]CPU, error) {
-	cores, model := colValue(row, cols, csvColCPUCores), colValue(row, cols, csvColCPUModelName)
-	if cores == "" && model == "" {
-		return nil, nil
-	}
-
-	n, err := parseOptionalInt64(cores)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", csvColCPUCores, err)
-	}
-
-	return []CPU{{ModelName: model, Cores: n}}, nil
-}
-
-// parseCSVDisk returns a single-entry Disks slice from the diskBytes/
-// diskDeviceName columns, or nil if both are blank on this row.
-// DeviceName defaults to "/dev/sda1" (matching createSourceServerLocked's
-// own ReplicatedDisks default) if bytes were given without a name.
-func parseCSVDisk(row []string, cols map[string]int) ([]Disk, error) {
-	bytesStr, device := colValue(row, cols, csvColDiskBytes), colValue(row, cols, csvColDiskDeviceName)
-	if bytesStr == "" && device == "" {
-		return nil, nil
-	}
-
-	n, err := parseOptionalInt64(bytesStr)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", csvColDiskBytes, err)
-	}
-
-	if device == "" {
-		device = "/dev/sda1"
-	}
-
-	return []Disk{{DeviceName: device, Bytes: n}}, nil
-}
-
-// parseCSVNetworkInterface returns a single-entry, IsPrimary=true
-// NetworkInterfaces slice from the networkInterfaceMac/networkInterfaceIPs
-// columns (IPs semicolon-separated, e.g. "10.0.0.5;10.0.0.6"), or nil if no
-// MAC was given.
-func parseCSVNetworkInterface(row []string, cols map[string]int) []NetworkInterface {
-	mac := colValue(row, cols, csvColNetworkInterfaceMac)
-	if mac == "" {
-		return nil
-	}
-
-	var ips []string
-
-	for ip := range strings.SplitSeq(colValue(row, cols, csvColNetworkInterfaceIPs), ";") {
-		if ip = strings.TrimSpace(ip); ip != "" {
-			ips = append(ips, ip)
+	for key, idx := range tagCols {
+		if idx < len(row) {
+			if v := strings.TrimSpace(row[idx]); v != "" {
+				rowTags[key] = v
+			}
 		}
 	}
 
-	return []NetworkInterface{{MacAddress: mac, Ips: ips, IsPrimary: true}}
+	return &importedSourceServer{
+		userProvidedID:         colValue(row, cols, csvColUserProvidedID),
+		fqdnForActionFramework: fqdnForActionFramework,
+		sourceProperties:       &SourceProperties{IdentificationHints: hints},
+		importTags:             rowTags,
+	}, nil
 }

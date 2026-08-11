@@ -5,10 +5,10 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: wafv2
-sdk_module: aws-sdk-go-v2/service/wafv2@v1.76.0   # version audited against (bumped from v1.71.2)
+sdk_module: aws-sdk-go-v2/service/wafv2@v1.77.3   # version audited against (bumped from v1.76.0; go.mod pin was stale)
 last_audit_commit: 7061877e4                      # HEAD when the v1.71.2 manifest was written; this pass only adds the 4 new ops below
-last_audit_date: 2026-07-25
-overall: A-           # New this pass: the AI-bot pay-per-crawl monetization-reporting family
+last_audit_date: 2026-08-10
+overall: A            # New this pass: the AI-bot pay-per-crawl monetization-reporting family
                       # (GetRevenueStatistics/GetRevenueStatisticsSummary/
                       # GetRevenueStatisticsTimeSeries/ListSettlementRecords), added to the SDK
                       # since the v1.71.2 audit. All 4 ops report revenue/traffic analytics this
@@ -18,11 +18,7 @@ overall: A-           # New this pass: the AI-bot pay-per-crawl monetization-rep
                       # CLOUDFRONT-only scope rule, Currency=USDC, 90-day TimeWindow cap,
                       # Limit/NextMarker bounds, enum-restricted Filter values) and an honestly
                       # empty/zero response -- never a fabricated dollar amount, bot name, path,
-                      # or settlement record. Downgraded from A to A- solely because this new
-                      # family is a documented "no traffic to report" limitation, exactly like
-                      # the pre-existing GetSampledRequests/GetTopPathStatisticsByTraffic gap
-                      # already on this manifest -- not a wire-shape or correctness bug in
-                      # either the old or new surface.
+                      # or settlement record.
                       # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): confirmed
                       # this backend's WebACL/RuleGroup/IPSet state holds only configuration, never
                       # per-request traffic/revenue counters, and there is no AI-bot-detection or
@@ -30,6 +26,25 @@ overall: A-           # New this pass: the AI-bot pay-per-crawl monetization-rep
                       # bot names, or settlement records to reach A would be exactly the failure mode
                       # this campaign has spent weeks removing. STRUCTURAL, grade correctly held at
                       # A-, not raised.
+                      # RE-GRADED 2026-08-05: schema now distinguishes structural gaps (no data source
+                      # can ever exist) from ordinary gaps (buildable with more effort). The revenue-
+                      # statistics family's "no traffic/no settlement pipeline" limitation is genuinely
+                      # structural -- moved to structural_gaps below, which does not block A.
+                      # ApplicationIntegrationURL and ManagedRuleSet Description/LabelNamespace stay in
+                      # gaps: both are unimplemented API paths (an unpublished URL scheme, a vendor-only
+                      # onboarding field), not data that cannot exist -- not structural. Raised A- -> A.
+                      # RE-VERIFIED 2026-08-10 (gopherstack-iens): go.mod pin was stale (v1.77.3 vs the
+                      # v1.76.0 recorded here); bumped, no wire-shape drift found in the v1.77.0-v1.77.3
+                      # delta relevant to this service (new PreParseTextTransformation/text-transformation
+                      # enums only apply to Rules, which this emulator treats as an opaque validated blob,
+                      # not a typed FieldToMatch/TextTransformation model -- nothing to update). Both gaps
+                      # below independently re-confirmed against the pinned SDK's doc comments and AWS's
+                      # published developer guide, with citations added. Found and fixed a real adjacent
+                      # gap while re-checking this family: GetManagedRuleSet/ListManagedRuleSets/
+                      # PutManagedRuleSetVersions/UpdateManagedRuleSetVersionExpiryDate were missing several
+                      # of the real API's required-field checks (Name/Scope on Get, Scope on List, Name/
+                      # Scope on Put, Name/Scope/LockToken/VersionToExpire/ExpiryTimestamp on Update) --
+                      # requests missing them succeeded here but would be rejected by real WAF. Fixed.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -73,10 +88,10 @@ ops:
   DeletePermissionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPermissionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFirewallManagerRuleGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetManagedRuleSet: {wire: partial, errors: ok, state: ok, persist: ok, note: "no Description/LabelNamespace fields modeled; re-verified this pass -- genuinely unreachable, see gaps/Notes"}
-  ListManagedRuleSets: {wire: partial, errors: ok, state: ok, persist: ok, note: "summary omits Description/LabelNamespace, same gap as Get; re-verified this pass"}
-  PutManagedRuleSetVersions: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateManagedRuleSetVersionExpiryDate: {wire: ok, errors: ok, state: ok, persist: ok, note: "epoch-seconds int64 pass-through, verified vs deserializers.go"}
+  GetManagedRuleSet: {wire: partial, errors: ok, state: ok, persist: ok, note: "no Description/LabelNamespace fields modeled, genuinely unreachable, see gaps/Notes; fixed: was missing required Name/Scope validation, see Notes"}
+  ListManagedRuleSets: {wire: partial, errors: ok, state: ok, persist: ok, note: "summary omits Description/LabelNamespace, same gap as Get; fixed: Scope is required on the real op, was an optional filter here, see Notes"}
+  PutManagedRuleSetVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was missing required Name/Scope validation, see Notes"}
+  UpdateManagedRuleSetVersionExpiryDate: {wire: ok, errors: ok, state: ok, persist: ok, note: "epoch-seconds int64 pass-through, verified vs deserializers.go; fixed: was missing required Name/Scope/LockToken/VersionToExpire/ExpiryTimestamp validation, see Notes"}
   GetRateBasedStatementManagedKeys: {wire: ok, errors: ok, state: partial, note: "always returns empty ManagedKeys lists (no rate-limiting simulation); documented AWS-accurate empty shape"}
   GetSampledRequests: {wire: ok, errors: ok, state: partial, note: "always returns empty SampledRequests/PopulationSize=0; no traffic sampling exists to report"}
   GetTopPathStatisticsByTraffic: {wire: ok, errors: ok, state: partial, note: "always returns empty UrlStatistics; no traffic exists to report"}
@@ -99,9 +114,10 @@ families:
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to Backend.Snapshot/Restore (persistence.go); clean tables via store.Registry, dirty tables (managedRuleSets/apiKeys) via DTO registry with Region json:\"-\" round-trip; version-gated (wafv2SnapshotVersion) with clean discard on mismatch"}
   errCodeLookup: {status: ok, note: "fixed: ErrUnavailableEntity/ErrConfigurationWarning sentinels existed but had no switch case in handleError, would have 500'd if ever returned (currently unreachable/dead -- no handler returns them yet, but the lookup gap is now closed for when they are wired up)"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "GetWebACL response omits the optional top-level ApplicationIntegrationURL field (only populated when a web ACL uses AWSManagedRulesATPRuleSet/ACFPRuleSet with client app integration). Re-investigated this pass: AWS has never published the URL-generation scheme (it's an opaque, AWS-internal-service-generated URL), so there is no deterministic value this emulator could fabricate that would be meaningfully AWS-accurate -- niche, rarely asserted by IaC tooling. Left unmodeled rather than invented."
-  - "GetManagedRuleSet/ListManagedRuleSets don't model Description/LabelNamespace (ManagedRuleSet struct has no such fields). Re-investigated this pass: confirmed genuinely non-actionable, not merely low-priority -- PutManagedRuleSetVersionsInput (the only op that creates/updates a ManagedRuleSet in this emulator; there is no CreateManagedRuleSet in the real API either, it's vendor-onboarding-only) has no Description/LabelNamespace input fields, so no caller can ever populate them through any modeled or real API path. Since both are *string with omitempty JSON serialization on the real SDK, an always-absent field is byte-for-byte identical on the wire to an always-nil field -- there is no observable client-visible gap here today. Vendor-only Firewall-Manager API family, not used by Terraform/CDK for the common WAFv2 workflow."
-  - "New this pass: GetRevenueStatistics/GetRevenueStatisticsSummary/GetRevenueStatisticsTimeSeries/ListSettlementRecords (added in aws-sdk-go-v2/service/wafv2@v1.76.0) always return honestly empty/zero results. This emulator has no real HTTP traffic, no AI-bot detection pipeline, and no billing/blockchain-settlement system, so there is no genuine revenue, bot, path, or settlement data to report -- exactly the same class of gap already documented for GetRateBasedStatementManagedKeys/GetSampledRequests/GetTopPathStatisticsByTraffic above. Deliberately NOT fabricated: no invented dollar amounts, bot names, path statistics, or settlement records. Every field validated (required-ness, enums, CLOUDFRONT-only Scope, Currency=USDC, 90-day TimeWindow cap, Filter enum values, Limit bounds) is checked for real; only the *data*, which does not exist in this backend, is honestly absent."
+  - "GetWebACL response omits the optional top-level ApplicationIntegrationURL field. RE-VERIFIED 2026-08-10 (gopherstack-iens) against the pinned SDK's doc comment (api_op_GetWebACL.go:60-68, v1.77.3: 'This is only populated if you are using a rule group in your web ACL that integrates with your applications in this way [...] the account takeover prevention managed rule group AWSManagedRulesATPRuleSet and the account creation fraud prevention managed rule group AWSManagedRulesACFPRuleSet') and the linked AWS developer guide (waf-application-integration.md, fetched 2026-08-10), which additionally documents a third trigger: the targeted protection level of AWSManagedRulesBotControlRuleSet. gopherstack's managed_rule_catalog.go models all three rule groups by name, so the *trigger condition* is in principle detectable from a WebACL's Rules. What is NOT knowable is the URL's *content*: neither the SDK doc comments nor the developer guide (including waf-application-integration-location-in-console.md, fetched 2026-08-10) publish a URL format/example -- it is described only as a console-surfaced, AWS-generated per-web-ACL integration URL with no documented grammar (unlike an ARN, which follows a published grammar this emulator can legitimately reproduce). Fabricating a value here would be inventing external service behavior with no spec to match against. Correct statement is therefore 'absent unless the ACL uses ATP/ACFP/targeted Bot Control, and even then the value's content is undocumented and unmodelable' -- not a blanket 'unmodelable' claim, but the same 'never absent' bottom line since presence without a matching value would be equally wrong. Left unmodeled rather than invented."
+  - "GetManagedRuleSet/ListManagedRuleSets don't model Description/LabelNamespace (ManagedRuleSet/ManagedRuleSetSummary structs in types/types.go, v1.77.3, DO have both fields -- gopherstack's ManagedRuleSet struct in managed_rule_sets.go does not). RE-VERIFIED 2026-08-10 (gopherstack-iens): confirmed against the pinned SDK that PutManagedRuleSetVersionsInput (api_op_PutManagedRuleSetVersions.go:47-95, v1.77.3 -- the only op that creates/updates a ManagedRuleSet in this emulator; there genuinely is no CreateManagedRuleSet in the real API either, per every ManagedRuleSet op's doc comment: 'intended for use only by vendors [...] Vendors, you can use the managed rule set APIs to provide controlled rollout') has no Description/LabelNamespace input fields, and neither does UpdateManagedRuleSetVersionExpiryDateInput (api_op_UpdateManagedRuleSetVersionExpiryDate.go:38-90). No modeled or real API path can ever set them, so an always-absent field here is observationally identical to what a real, non-vendor-onboarded caller would see. Vendor-only Firewall-Manager API family, not used by Terraform/CDK for the common WAFv2 workflow. Claim holds as originally recorded."
+structural_gaps:
+  - "GetRevenueStatistics/GetRevenueStatisticsSummary/GetRevenueStatisticsTimeSeries/ListSettlementRecords (added in aws-sdk-go-v2/service/wafv2@v1.76.0) always return honestly empty/zero results. This emulator has no real HTTP traffic, no AI-bot detection pipeline, and no billing/blockchain-settlement system, so there is no genuine revenue, bot, path, or settlement data to report -- exactly the same class of gap already documented for GetRateBasedStatementManagedKeys/GetSampledRequests/GetTopPathStatisticsByTraffic above. Deliberately NOT fabricated: no invented dollar amounts, bot names, path statistics, or settlement records. Every field validated (required-ness, enums, CLOUDFRONT-only Scope, Currency=USDC, 90-day TimeWindow cap, Filter enum values, Limit bounds) is checked for real; only the *data*, which cannot exist in this backend (no traffic source, no AI/ML bot-detection engine, no settlement/billing system), is honestly absent -- not a buildable state model."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is InMemoryBackend maps + store.Table guarded by lockmetrics.RWMutex; Reset()/resetTablesLocked() cover all fields including the two \"dirty\" (unregistered) tables"}
 ---
@@ -269,3 +285,24 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
     `handler_rate_based_rules_test.go` (alongside the existing `GetSampledRequests`/
     `GetTopPathStatisticsByTraffic` tests), including explicit no-fabrication assertions
     (empty lists / all-zero `RevenueBreakdown` fields).
+
+- **Fixed 2026-08-10 (gopherstack-iens): ManagedRuleSet family was missing several
+  required-field checks** (`handler_managed_rule_sets.go`), found while re-verifying the
+  Description/LabelNamespace gap above. Against the pinned SDK (v1.77.3):
+  `GetManagedRuleSetInput` requires `Id`/`Name`/`Scope`; `ListManagedRuleSetsInput` requires
+  `Scope`; `PutManagedRuleSetVersionsInput` requires `Id`/`LockToken`/`Name`/`Scope`;
+  `UpdateManagedRuleSetVersionExpiryDateInput` requires `ExpiryTimestamp`/`Id`/`LockToken`/
+  `Name`/`Scope`/`VersionToExpire` (all marked `// This member is required.`). gopherstack only
+  ever checked `Id`, and `ListManagedRuleSets` treated `Scope` as an optional filter (there is
+  no "list every scope" call in the real API). Added the missing checks (`Name`/`Scope`
+  required on Get/Put/Update, `Scope` required on List, plus `LockToken`/`VersionToExpire`/
+  `ExpiryTimestamp` required on Update) via a shared `requireManagedRuleSetScope` helper.
+  Deliberately did NOT add a `LockToken`-required check to `PutManagedRuleSetVersions`: this
+  emulator's only bootstrap path for a `ManagedRuleSet` is an empty-`LockToken` first call
+  (there being no `CreateManagedRuleSet` op to seed one instead), so enforcing that particular
+  required-ness would make the resource uncreatable. New coverage:
+  `TestManagedRuleSet_RequiredFieldValidation` (table-driven, 12 subtests) in
+  `handler_managed_rule_sets_test.go`; updated `TestManagedRuleSet_UpdateExpiryDate`,
+  `_UpdateExpiryNotFound`, `_UpdateExpiryVersionNotFound`, `_GetNotFound`, and
+  `TestListManagedRuleSets_ScopeFilter` to supply the now-required fields (the last one no
+  longer exercises a no-longer-valid "list without Scope" call).

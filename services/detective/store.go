@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -67,6 +68,7 @@ type InMemoryBackend struct {
 	investigationsByGraph *store.Index[storedInvestigation]
 	tags                  map[string]map[string]string
 	datasources           map[string]map[string]string
+	datasourceChangedAt   map[string]map[string]time.Time
 	orgConfigs            map[string]bool
 	accountID             string
 	region                string
@@ -76,14 +78,15 @@ type InMemoryBackend struct {
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu:          lockmetrics.New("detective"),
-		registry:    store.NewRegistry(),
-		accountID:   accountID,
-		region:      region,
-		tags:        make(map[string]map[string]string),
-		datasources: make(map[string]map[string]string),
-		orgAdmins:   nil,
-		orgConfigs:  make(map[string]bool),
+		mu:                  lockmetrics.New("detective"),
+		registry:            store.NewRegistry(),
+		accountID:           accountID,
+		region:              region,
+		tags:                make(map[string]map[string]string),
+		datasources:         make(map[string]map[string]string),
+		datasourceChangedAt: make(map[string]map[string]time.Time),
+		orgAdmins:           nil,
+		orgConfigs:          make(map[string]bool),
 	}
 
 	registerAllTables(b)
@@ -134,6 +137,7 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 	b.datasources = make(map[string]map[string]string)
+	b.datasourceChangedAt = make(map[string]map[string]time.Time)
 	b.orgAdmins = nil
 	b.orgConfigs = make(map[string]bool)
 }

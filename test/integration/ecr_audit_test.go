@@ -32,7 +32,10 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteRepository(cleanupCtx, &ecr.DeleteRepositoryInput{
 			RepositoryName: aws.String(repoName),
 			Force:          true,
 		})
@@ -70,8 +73,11 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		// Clear replication configuration so other tests are not affected.
-		_, _ = client.PutReplicationConfiguration(ctx, &ecr.PutReplicationConfigurationInput{
+		_, _ = client.PutReplicationConfiguration(cleanupCtx, &ecr.PutReplicationConfigurationInput{
 			ReplicationConfiguration: &types.ReplicationConfiguration{Rules: []types.ReplicationRule{}},
 		})
 	})
@@ -122,7 +128,10 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus_NoConfig(t *testing
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteRepository(cleanupCtx, &ecr.DeleteRepositoryInput{
 			RepositoryName: aws.String(repoName),
 			Force:          true,
 		})
@@ -168,7 +177,10 @@ func TestIntegration_ECRAudit_DescribeImageReplicationStatus_Errors(t *testing.T
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteRepository(cleanupCtx, &ecr.DeleteRepositoryInput{
 			RepositoryName: aws.String(repoName),
 			Force:          true,
 		})
@@ -211,7 +223,10 @@ func TestIntegration_ECRAudit_LifecyclePolicy_ExpiresImages(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteRepository(cleanupCtx, &ecr.DeleteRepositoryInput{
 			RepositoryName: aws.String(repoName),
 			Force:          true,
 		})
@@ -263,12 +278,15 @@ func TestIntegration_ECRAudit_EnhancedScan_DistinctFindings(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteRepository(ctx, &ecr.DeleteRepositoryInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteRepository(cleanupCtx, &ecr.DeleteRepositoryInput{
 			RepositoryName: aws.String(repoName),
 			Force:          true,
 		})
 		// Restore BASIC scanning so other tests are unaffected.
-		_, _ = client.PutRegistryScanningConfiguration(ctx, &ecr.PutRegistryScanningConfigurationInput{
+		_, _ = client.PutRegistryScanningConfiguration(cleanupCtx, &ecr.PutRegistryScanningConfigurationInput{
 			ScanType: types.ScanTypeBasic,
 		})
 	})

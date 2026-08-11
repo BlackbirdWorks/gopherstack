@@ -174,7 +174,7 @@ type StorageBackend interface {
 	SecurityProfileARN(name string) string
 
 	// Batch 2: CACertificate operations.
-	RegisterCACertificate(pem, status string) (*CACertificate, error)
+	RegisterCACertificate(pem, status string, tags map[string]string) (*CACertificate, error)
 	DescribeCACertificate(id string) (*CACertificate, error)
 	ListCACertificates() []*CACertificate
 	UpdateCACertificate(id, status string) error
@@ -192,7 +192,7 @@ type StorageBackend interface {
 	CreateFleetMetric(input *CreateFleetMetricInput) (*FleetMetric, error)
 	DescribeFleetMetric(name string) (*FleetMetric, error)
 	ListFleetMetrics() []*FleetMetric
-	UpdateFleetMetric(name, queryString, description string, period int32) error
+	UpdateFleetMetric(name, queryString, description string, period int32, expectedVersion int64) error
 	DeleteFleetMetric(name string) error
 
 	// Batch 2: CustomMetric operations.
@@ -244,7 +244,9 @@ type StorageBackend interface {
 	ListJobExecutionsForThing(thingName string) []*JobExecution
 
 	// Batch 3: OTA Updates.
-	CreateOTAUpdate(id, description, roleARN string, targets []string, files []any) (*OTAUpdate, error)
+	CreateOTAUpdate(
+		id, description, roleARN string, targets []string, files []any, tags map[string]string,
+	) (*OTAUpdate, error)
 	GetOTAUpdate(id string) (*OTAUpdate, error)
 	DeleteOTAUpdate(id string) error
 	ListOTAUpdates() []*OTAUpdate

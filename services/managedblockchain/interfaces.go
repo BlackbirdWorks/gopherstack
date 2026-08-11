@@ -4,14 +4,14 @@ package managedblockchain
 type StorageBackend interface {
 	CreateNetwork(
 		region, accountID, name, description, framework, frameworkVersion, memberName, memberDescription string,
-		tags map[string]string,
+		tags, memberTags map[string]string,
 		votingPolicy *VotingPolicy,
 		fabricEdition, memberAdminUsername, memberKmsKeyArn string,
 	) (*Network, *Member, error)
 	GetNetwork(networkID string) (*Network, error)
 	ListNetworks(filter ListNetworksFilter) ([]*Network, error)
 	CreateMember(
-		region, accountID, networkID, name, description, adminUsername, kmsKeyArn string,
+		region, accountID, networkID, invitationID, name, description, adminUsername, kmsKeyArn string,
 		tags map[string]string,
 	) (*Member, error)
 	GetMember(networkID, memberID string) (*Member, error)

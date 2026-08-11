@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cognitoidentity
-sdk_module: aws-sdk-go-v2/service/cognitoidentity@v1.33.20
+sdk_module: aws-sdk-go-v2/service/cognitoidentity@v1.36.4
 last_audit_commit: 2d47b51d4
 last_audit_date: 2026-07-29
 overall: A                # error-taxonomy field-diff vs deserializers.go found 3 real gaps, all fixed

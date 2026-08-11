@@ -49,8 +49,11 @@ func TestE2E_DynamoDBPartiQL(t *testing.T) {
 		}
 	}()
 
-	// Navigate to the DynamoDB table detail page.
-	_, err = page.Goto(server.URL + "/dashboard/dynamodb/table/PartiQLTestTable")
+	// Navigate to the DynamoDB table detail page. The detail view is
+	// selected via the ?table= query param, not a path segment -- see
+	// e88712a92, which deleted the orphaned /dynamodb/table/[tableName]
+	// route in favor of it.
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb?table=PartiQLTestTable")
 	require.NoError(t, err)
 	waitForSPA(t, page)
 
@@ -85,8 +88,9 @@ func TestE2E_DynamoDBPartiQL(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Results should appear in the pre tag inside the output div.
-	body, err := page.Locator("#partiql-output pre").TextContent()
+	// Results render as a table (the same shared results view Query/Scan
+	// use), not raw JSON -- the item's id shows up in a cell.
+	body, err := page.Locator("#partiql-output").TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, body, "item-1", "expected item ID in PartiQL results")
 }
@@ -113,7 +117,7 @@ func TestE2E_DynamoDBPartiQL_TabVisible(t *testing.T) {
 		}
 	}()
 
-	_, err = page.Goto(server.URL + "/dashboard/dynamodb/table/TabVisibleTable")
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb?table=TabVisibleTable")
 	require.NoError(t, err)
 	waitForSPA(t, page)
 

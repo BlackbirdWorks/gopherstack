@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -141,6 +142,42 @@ func TestQuickSight_RoleMembershipCRUD(t *testing.T) {
 
 	deleteMissingRec := doRequest(t, h, http.MethodDelete, nsPath("/roles/AUTHOR/members/group1"), nil)
 	assert.Equal(t, http.StatusNotFound, deleteMissingRec.Code)
+}
+
+// Anti-drift: every value the pinned SDK's types.Role enum knows about must
+// be accepted, so a hand-maintained allowlist can't fall behind or invent a
+// nonexistent role.
+func TestQuickSight_RoleMembership_EverySDKRoleAccepted(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, role := range sdktypes.Role("").Values() {
+		t.Run(string(role), func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, http.MethodPost, nsPath(fmt.Sprintf("/roles/%s/members/member-%s", role, role)), nil)
+			assert.Equal(t, http.StatusOK, rec.Code, "SDK Role %s must be accepted", role)
+		})
+	}
+}
+
+// RESTRICTED_AUTHOR/RESTRICTED_READER are not members of types.Role -- a
+// hand-copied allowlist previously invented them and accepted input the real
+// API rejects (the more-permissive-than-AWS class).
+func TestQuickSight_RoleMembership_NonexistentRolesRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, role := range []string{"RESTRICTED_AUTHOR", "RESTRICTED_READER"} {
+		t.Run(role, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, http.MethodPost, nsPath("/roles/"+role+"/members/member1"), nil)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "role %s is not a real SDK enum member", role)
+		})
+	}
 }
 
 // ---- User custom permission errors ----

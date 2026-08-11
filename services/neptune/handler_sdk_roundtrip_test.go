@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	neptunesdk "github.com/aws/aws-sdk-go-v2/service/neptune"
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -165,4 +166,95 @@ func Test_SDKRoundTrip_ModifyDBClusterSnapshotAttribute(t *testing.T) {
 		}
 	}
 	require.True(t, found, "expected a restore attribute in the describe response")
+}
+
+// Test_SDKRoundTrip_DescribeDBClusterEndpoints_ListsEndpoints proves the real
+// SDK client sees DescribeDBClusterEndpoints' top-level list. The handler
+// wrapped each entry in <DBClusterEndpoint>, but the real deserializer
+// (neptune@v1.48.4 deserializers.go:12676) matches <DBClusterEndpointList>
+// for this field -- unrecognized elements are skipped silently, so a real
+// client always saw an empty slice regardless of what was stored.
+func Test_SDKRoundTrip_DescribeDBClusterEndpoints_ListsEndpoints(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-ep-cluster"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDBClusterEndpoint(ctx, &neptunesdk.CreateDBClusterEndpointInput{
+		DBClusterEndpointIdentifier: aws.String("rt-endpoint"),
+		DBClusterIdentifier:         aws.String("rt-ep-cluster"),
+		EndpointType:                aws.String("ANY"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDBClusterEndpoints(ctx, &neptunesdk.DescribeDBClusterEndpointsInput{
+		DBClusterIdentifier: aws.String("rt-ep-cluster"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.DBClusterEndpoints, 1)
+	assert.Equal(t, "rt-endpoint", aws.ToString(out.DBClusterEndpoints[0].DBClusterEndpointIdentifier))
+}
+
+// Test_SDKRoundTrip_EventSubscription_SourceIDs proves the real SDK client
+// sees an event subscription's SourceIds. The handler wrapped each entry in
+// <member>, but the real deserializer (neptune@v1.48.4
+// deserializers.go:22089) matches <SourceId> for this field -- unrecognized
+// elements are skipped silently, so a real client always saw an empty slice.
+func Test_SDKRoundTrip_EventSubscription_SourceIDs(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+
+	out, err := client.CreateEventSubscription(t.Context(), &neptunesdk.CreateEventSubscriptionInput{
+		SubscriptionName: aws.String("rt-sub"),
+		SnsTopicArn:      aws.String("arn:aws:sns:us-east-1:000000000000:rt-topic"),
+		SourceType:       aws.String("db-cluster"),
+		SourceIds:        []string{"rt-source-cluster"},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.EventSubscription.SourceIdsList, 1)
+	assert.Equal(t, "rt-source-cluster", out.EventSubscription.SourceIdsList[0])
+}
+
+// Test_SDKRoundTrip_DescribeGlobalClusters_ListsClusters proves the real SDK
+// client sees DescribeGlobalClusters' top-level list. The handler wrapped
+// each entry in <GlobalCluster>, but the real deserializer (neptune@v1.48.4
+// deserializers.go:18396) matches <GlobalClusterMember> -- unrecognized
+// elements are skipped silently, so a real client always saw an empty slice.
+func Test_SDKRoundTrip_DescribeGlobalClusters_ListsClusters(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-gc-source"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateGlobalCluster(ctx, &neptunesdk.CreateGlobalClusterInput{
+		GlobalClusterIdentifier:   aws.String("rt-gc"),
+		SourceDBClusterIdentifier: aws.String("rt-gc-source"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeGlobalClusters(ctx, &neptunesdk.DescribeGlobalClustersInput{
+		GlobalClusterIdentifier: aws.String("rt-gc"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.GlobalClusters, 1)
+	assert.Equal(t, "rt-gc", aws.ToString(out.GlobalClusters[0].GlobalClusterIdentifier))
 }

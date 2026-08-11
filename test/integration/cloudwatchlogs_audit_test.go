@@ -30,7 +30,10 @@ func TestIntegration_CWLogsAudit_GetLogFields(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteLogGroup(ctx, &cloudwatchlogssdk.DeleteLogGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteLogGroup(cleanupCtx, &cloudwatchlogssdk.DeleteLogGroupInput{
 			LogGroupName: aws.String(groupName),
 		})
 	})

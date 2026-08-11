@@ -1,16 +1,47 @@
 package sagemaker_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
+
+// mockPipelineS3 is a minimal sagemaker.S3Accessor over an in-memory
+// bucket/key map, mirroring services/mgn's identical test-only mockS3 (used
+// there for StartImport's S3 source object).
+type mockPipelineS3 struct {
+	objects map[string][]byte
+}
+
+func newMockPipelineS3() *mockPipelineS3 {
+	return &mockPipelineS3{objects: make(map[string][]byte)}
+}
+
+func (m *mockPipelineS3) put(bucket, key, body string) {
+	m.objects[bucket+"/"+key] = []byte(body)
+}
+
+func (m *mockPipelineS3) GetObject(_ context.Context, in *s3sdk.GetObjectInput) (*s3sdk.GetObjectOutput, error) {
+	data, ok := m.objects[aws.ToString(in.Bucket)+"/"+aws.ToString(in.Key)]
+	if !ok {
+		return nil, &s3types.NoSuchKey{}
+	}
+
+	return &s3sdk.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(data))}, nil
+}
 
 func TestHandler_CreatePipeline_FullFields(t *testing.T) {
 	t.Parallel()
@@ -67,6 +98,155 @@ func TestHandler_UpdatePipeline_FullFields(t *testing.T) {
 	assert.Equal(t, "Updated desc", descResp["PipelineDescription"])
 }
 
+// ---------------------------------------------------------------------------
+// CreatePipeline/UpdatePipeline: PipelineDefinitionS3Location (gopherstack-i359)
+// — CreatePipeline/UpdatePipeline fetch the real object through the backend's
+// wired S3Accessor (s3pipeline.go). With no S3 backend wired (as
+// newTestHandler leaves it) or the object missing, the fetch fails honestly
+// with a ValidationException rather than fabricating a definition or
+// silently dropping the field. Real fetch-and-use is covered by
+// TestHandler_CreatePipeline_S3Location_Fetched below; the cli.go
+// composition-root wiring itself is covered by
+// cli_sagemaker_s3_pipeline_wiring_test.go.
+// ---------------------------------------------------------------------------
+
+func TestHandler_CreatePipeline_S3Location_UnreadableRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreatePipeline", map[string]any{
+		"PipelineName": "s3-def-pipeline",
+		"RoleArn":      "arn:aws:iam::000000000000:role/Role",
+		"PipelineDefinitionS3Location": map[string]any{
+			"Bucket":    "my-bucket",
+			"ObjectKey": "defs/pipeline.json",
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "ValidationException", body["__type"])
+
+	rec = doSageMakerRequest(t, h, "DescribePipeline", map[string]any{"PipelineName": "s3-def-pipeline"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "the pipeline must not have been created")
+}
+
+func TestHandler_UpdatePipeline_S3Location_UnreadableRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreatePipeline", map[string]any{
+		"PipelineName": "s3-def-pipeline-2",
+		"RoleArn":      "arn:aws:iam::000000000000:role/Role",
+	})
+
+	rec := doSageMakerRequest(t, h, "UpdatePipeline", map[string]any{
+		"PipelineName": "s3-def-pipeline-2",
+		"PipelineDefinitionS3Location": map[string]any{
+			"Bucket":    "my-bucket",
+			"ObjectKey": "defs/pipeline.json",
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "ValidationException", body["__type"])
+}
+
+// TestHandler_CreatePipeline_S3Location_UnreadableRejected_RealClient confirms
+// the fetch-and-fail-honestly path fires against the real SDK's wire encoding
+// of PipelineDefinitionS3Location (types/types.go:17313, sagemaker@v1.263.2),
+// not just this test file's own hand-built JSON.
+func TestHandler_CreatePipeline_S3Location_UnreadableRejected_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreatePipeline(t.Context(), &sagemakersdk.CreatePipelineInput{
+		PipelineName: aws.String("s3-def-real"),
+		RoleArn:      aws.String("arn:aws:iam::000000000000:role/Role"),
+		PipelineDefinitionS3Location: &smtypes.PipelineDefinitionS3Location{
+			Bucket:    aws.String("my-bucket"),
+			ObjectKey: aws.String("defs/pipeline.json"),
+		},
+	})
+	require.Error(t, err)
+}
+
+// TestHandler_CreatePipeline_S3Location_Fetched drives CreatePipeline with a
+// PipelineDefinitionS3Location against a wired mock S3 backend and confirms
+// the pipeline is created with the fetched object's body as its
+// PipelineDefinition, real end to end through the SDK client.
+func TestHandler_CreatePipeline_S3Location_Fetched(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	s3 := newMockPipelineS3()
+	s3.put("my-bucket", "defs/pipeline.json", `{"Version":"2020-12-01","Steps":[]}`)
+	h.Backend.SetS3Backend(s3)
+
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreatePipeline(t.Context(), &sagemakersdk.CreatePipelineInput{
+		PipelineName: aws.String("s3-def-fetched"),
+		RoleArn:      aws.String("arn:aws:iam::000000000000:role/Role"),
+		PipelineDefinitionS3Location: &smtypes.PipelineDefinitionS3Location{
+			Bucket:    aws.String("my-bucket"),
+			ObjectKey: aws.String("defs/pipeline.json"),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribePipeline(t.Context(), &sagemakersdk.DescribePipelineInput{
+		PipelineName: aws.String("s3-def-fetched"),
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"Version":"2020-12-01","Steps":[]}`, aws.ToString(out.PipelineDefinition))
+}
+
+// TestHandler_UpdatePipeline_S3Location_Fetched mirrors the create case for
+// UpdatePipeline: the wired S3 object's body replaces the pipeline's stored
+// definition.
+func TestHandler_UpdatePipeline_S3Location_Fetched(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	s3 := newMockPipelineS3()
+	s3.put("my-bucket", "defs/v2.json", `{"Version":"2020-12-01","Steps":[{"Name":"Step1"}]}`)
+	h.Backend.SetS3Backend(s3)
+
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreatePipeline(t.Context(), &sagemakersdk.CreatePipelineInput{
+		PipelineName:       aws.String("s3-def-update"),
+		RoleArn:            aws.String("arn:aws:iam::000000000000:role/Role"),
+		PipelineDefinition: aws.String(`{"Version":"2020-12-01","Steps":[]}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdatePipeline(t.Context(), &sagemakersdk.UpdatePipelineInput{
+		PipelineName: aws.String("s3-def-update"),
+		PipelineDefinitionS3Location: &smtypes.PipelineDefinitionS3Location{
+			Bucket:    aws.String("my-bucket"),
+			ObjectKey: aws.String("defs/v2.json"),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribePipeline(t.Context(), &sagemakersdk.DescribePipelineInput{
+		PipelineName: aws.String("s3-def-update"),
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"Version":"2020-12-01","Steps":[{"Name":"Step1"}]}`, aws.ToString(out.PipelineDefinition))
+}
+
 func TestHandler_StartPipelineExecution_WithParams(t *testing.T) {
 	t.Parallel()
 
@@ -104,6 +284,58 @@ func TestHandler_StartPipelineExecution_WithParams(t *testing.T) {
 	assert.Equal(t, "First run", descResp["PipelineExecutionDescription"])
 	params := descResp["PipelineParameters"].([]any)
 	assert.Len(t, params, 2)
+}
+
+func TestHandler_StartPipelineExecution_ParallelismAndSelectiveExecution(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreatePipeline", map[string]any{
+		"PipelineName": "sel-pipeline",
+		"RoleArn":      "arn:aws:iam::000000000000:role/Role",
+	})
+
+	rec := doSageMakerRequest(t, h, "StartPipelineExecution", map[string]any{
+		"PipelineName": "sel-pipeline",
+		"ParallelismConfiguration": map[string]any{
+			"MaxParallelExecutionSteps": 3,
+		},
+		"SelectiveExecutionConfig": map[string]any{
+			"SourcePipelineExecutionArn": "arn:aws:sagemaker:us-east-1:000000000000:pipeline/sel-pipeline/execution/prior",
+			"SelectedSteps": []any{
+				map[string]any{"StepName": "TrainStep"},
+			},
+		},
+		"PipelineVersionId": 2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var startResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	execArn := startResp["PipelineExecutionArn"]
+	require.NotEmpty(t, execArn)
+
+	rec = doSageMakerRequest(t, h, "DescribePipelineExecution", map[string]any{
+		"PipelineExecutionArn": execArn,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+
+	parallelism, ok := descResp["ParallelismConfiguration"].(map[string]any)
+	require.True(t, ok, "ParallelismConfiguration must be present in DescribePipelineExecution")
+	assert.InEpsilon(t, float64(3), parallelism["MaxParallelExecutionSteps"], 0)
+
+	sec, ok := descResp["SelectiveExecutionConfig"].(map[string]any)
+	require.True(t, ok, "SelectiveExecutionConfig must be present in DescribePipelineExecution")
+	assert.Equal(t,
+		"arn:aws:sagemaker:us-east-1:000000000000:pipeline/sel-pipeline/execution/prior",
+		sec["SourcePipelineExecutionArn"],
+	)
+
+	assert.InEpsilon(t, float64(2), descResp["PipelineVersionId"], 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -300,6 +532,31 @@ func TestHandler_Pipeline_Duplicate(t *testing.T) {
 
 	rec2 := doSageMakerRequest(t, h, "CreatePipeline", body)
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+}
+
+// TestHandler_Pipeline_Duplicate_RealClient asserts the wire error type is
+// ConflictException -- CreatePipeline's documented error (botocore
+// sagemaker/2017-07-24@1.43.56 service-2.json), not the generic
+// ResourceInUse gopherstack-kbxx found this mapped to.
+func TestHandler_Pipeline_Duplicate_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	in := &sagemakersdk.CreatePipelineInput{
+		PipelineName: aws.String("dup-pipeline-real"),
+		RoleArn:      aws.String("arn:aws:iam::000000000000:role/SageMakerRole"),
+	}
+
+	_, err := client.CreatePipeline(t.Context(), in)
+	require.NoError(t, err)
+
+	_, err = client.CreatePipeline(t.Context(), in)
+	require.Error(t, err)
+
+	var conflict *smtypes.ConflictException
+	require.ErrorAs(t, err, &conflict)
 }
 
 // ---------------------------------------------------------------------------

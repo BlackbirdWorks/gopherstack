@@ -404,13 +404,13 @@ func TestInMemoryBackend_RestoreWithNilMaps(t *testing.T) {
 	}{
 		{
 			name: "null_resources_deployments_stages",
-			snapshot: `{"version":1,"tables":{` +
+			snapshot: `{"version":2,"tables":{` +
 				`"restApis":[{"id":"api1","name":"n","createdDate":0}],` +
 				`"resources":null,"deployments":null,"stages":null}}`,
 		},
 		{
 			name: "missing_inner_tables",
-			snapshot: `{"version":1,"tables":{` +
+			snapshot: `{"version":2,"tables":{` +
 				`"restApis":[{"id":"api2","name":"m","createdDate":0}]}}`,
 		},
 	}

@@ -559,7 +559,10 @@ func (b *InMemoryBackend) GetObject(
 	}
 
 	if skipDecompress {
-		return buildGetObjectOutput(decrypted, size, ver, metadata, versionIDStr), nil
+		out := buildGetObjectOutput(decrypted, size, ver, metadata, versionIDStr)
+		out.TagCount = b.objectTagCount(bucketName, key, versionIDStr)
+
+		return out, nil
 	}
 	dataToDecompress = decrypted
 
@@ -568,7 +571,26 @@ func (b *InMemoryBackend) GetObject(
 		return nil, err
 	}
 
-	return buildGetObjectOutput(data, size, ver, metadata, versionIDStr), nil
+	out := buildGetObjectOutput(data, size, ver, metadata, versionIDStr)
+	out.TagCount = b.objectTagCount(bucketName, key, versionIDStr)
+
+	return out, nil
+}
+
+// objectTagCount returns the tag count for x-amz-tagging-count, or nil when
+// the object has no tags (real S3 omits the header rather than sending "0" --
+// confirmed via GetObjectOutput.TagCount's "if any" doc, aws-sdk-go-v2
+// s3@v1.106.5 api_op_GetObject.go:685).
+func (b *InMemoryBackend) objectTagCount(bucket, key, versionID string) *int32 {
+	b.mu.RLock("objectTagCount")
+	defer b.mu.RUnlock()
+
+	n := len(b.tags[fmt.Sprintf("%s/%s/%s", bucket, key, versionID)])
+	if n == 0 {
+		return nil
+	}
+
+	return aws.Int32(int32(n)) //nolint:gosec // G115: n is bounded by S3's 10-tag-per-object limit
 }
 
 // resolveObjectVersion selects the requested (or latest) live version of an
@@ -790,6 +812,7 @@ func (b *InMemoryBackend) HeadObject(
 		SSEKMSKeyId:          ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
 		SSECustomerAlgorithm: ptrconv.NilIfEmpty(ver.SSECAlgorithm),
 		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(ver.SSECKeyMD5),
+		TagCount:             b.objectTagCount(bucketName, key, ver.VersionID),
 	}, nil
 }
 

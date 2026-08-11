@@ -1,11 +1,8 @@
-// Package dynamodb_test covers the three PITR (point-in-time recovery) bugs
-// fixed together:
-//  1. PITR snapshots were stored in an unexported Table field, so encoding/json
-//     silently dropped them on every persistence round-trip.
-//  2. PITR snapshotting shared the 500ms housekeeping ticker, so the ring's
-//     documented ~1-hour coverage window was actually ~30 seconds.
-//  3. An out-of-window RestoreTableToPointInTime silently produced an empty
-//     table instead of the AWS-modeled InvalidRestoreTimeException.
+// Package dynamodb_test covers three PITR guarantees: snapshots must survive a
+// persistence round-trip (Table.PITRSnapshots must be exported for
+// encoding/json), the ring's ~1-hour coverage window must hold at the janitor's
+// PITR ticker cadence, and an out-of-window RestoreTableToPointInTime must
+// return InvalidRestoreTimeException rather than silently produce an empty table.
 package dynamodb_test
 
 import (
@@ -88,15 +85,10 @@ func TestPITR_SnapshotsSurvivePersistenceRoundTrip(t *testing.T) {
 	assert.True(t, restoredTbl.PITREnabled)
 }
 
-// TestPITR_SnapshotCadenceDecoupledFromMainSweep is a regression test for bug 2:
-// PITR snapshotting used to run inside the 500ms housekeeping sweep, so
-// maxPITRSnapshots(60) * 500ms gave only ~30s of real recovery coverage
-// against a documented ~1 hour. It now runs on its own ~1-minute ticker
-// (defaultPITRSnapshotInterval), independent of the housekeeping interval.
-//
-// This drives the housekeeping ticker very fast (2ms) for long enough to fire
-// well over 60 times and asserts no PITR snapshot was taken -- proving
-// snapshotting is no longer piggybacking on that ticker.
+// TestPITR_SnapshotCadenceDecoupledFromMainSweep proves PITR snapshotting runs
+// on its own ~1-minute ticker (defaultPITRSnapshotInterval), independent of the
+// 500ms housekeeping sweep, by driving the housekeeping ticker very fast (2ms)
+// for well over 60 fires and asserting no PITR snapshot was taken.
 func TestPITR_SnapshotCadenceDecoupledFromMainSweep(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -160,16 +152,11 @@ func TestPITR_RestoreOutsideWindow_ReturnsInvalidRestoreTimeException(t *testing
 	earliest := tbl.PITRSnapshots[0].Taken
 
 	// Well before the only available snapshot -- outside the recovery window.
-	//
 	// Sent as a raw JSON number (Unix epoch seconds), not through
-	// models.RestoreTableToPointInTimeInput -- the real AWS SDK's awsjson1_0
-	// protocol serializes RestoreDateTime as a JSON number via
-	// smithytime.FormatEpochSeconds, never a JSON string. Building the request
-	// through our own Go struct would make the test tautological: it would
-	// pass even if RestoreDateTime were (wrongly) typed as a Go string, since
-	// json.Marshal/Unmarshal would round-trip against themselves. Driving the
-	// handler through the actual wire payload is what catches a regression in
-	// the field's wire type.
+	// models.RestoreTableToPointInTimeInput: the real SDK's awsjson1_0 protocol
+	// serializes RestoreDateTime as a JSON number via smithytime.FormatEpochSeconds,
+	// never a string, and building the request through our own Go struct would
+	// make the test tautological against a wrongly-typed field.
 	restoreTime := float64(earliest.Add(-1*time.Hour).UTC().UnixNano()) / float64(time.Second)
 
 	code, resp := doBackupRequest(

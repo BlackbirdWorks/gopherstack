@@ -56,43 +56,81 @@ func newClusterNode(c *Cluster, ig ClusterInstanceGroup) *ClusterNode {
 	}
 }
 
+// CreateClusterOptions holds the parameters CreateCluster accepts.
+type CreateClusterOptions struct {
+	VpcConfig            *VpcConfig
+	AutoScaling          *ClusterAutoScalingConfig
+	Orchestrator         *ClusterOrchestrator
+	TieredStorageConfig  *ClusterTieredStorageConfig
+	Tags                 map[string]string
+	ClusterName          string
+	NodeRecovery         string
+	ClusterRole          string
+	NodeProvisioningMode string
+	InstanceGroups       []ClusterInstanceGroup
+}
+
+// validateClusterOrchestratorLocked enforces the real CreateClusterInput /
+// UpdateClusterInput business rule: "If you specify the Orchestrator field,
+// you must provide exactly one orchestrator configuration: either Eks or
+// Slurm. Specifying both or providing an empty configuration returns a
+// validation error." (api_op_CreateCluster.go:76-78, sagemaker@v1.263.2).
+func validateClusterOrchestratorLocked(o *ClusterOrchestrator) error {
+	if o == nil {
+		return nil
+	}
+
+	if (o.Eks != nil) == (o.Slurm != nil) {
+		return fmt.Errorf("%w: Orchestrator requires exactly one of Eks or Slurm", ErrValidation)
+	}
+
+	return nil
+}
+
 // CreateCluster creates a new SageMaker HyperPod cluster and auto-provisions
 // InstanceCount running nodes for each requested instance group.
 func (b *InMemoryBackend) CreateCluster(
 	ctx context.Context,
-	name string,
-	instanceGroups []ClusterInstanceGroup,
-	nodeRecovery string,
-	tags map[string]string,
+	opts CreateClusterOptions,
 ) (*Cluster, error) {
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	if name == "" {
+	if opts.ClusterName == "" {
 		return nil, fmt.Errorf("%w: ClusterName is required", ErrValidation)
+	}
+
+	if err := validateClusterOrchestratorLocked(opts.Orchestrator); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx, b.region)
 	store := b.clustersStore(region)
 
-	if _, ok := store.Get(name); ok {
-		return nil, fmt.Errorf("%w: cluster %q already exists", ErrClusterAlreadyExists, name)
+	if _, ok := store.Get(opts.ClusterName); ok {
+		return nil, fmt.Errorf("%w: cluster %q already exists", ErrClusterAlreadyExists, opts.ClusterName)
 	}
 
-	clusterARN := arn.Build("sagemaker", region, b.accountID, "cluster/"+name)
+	clusterARN := arn.Build("sagemaker", region, b.accountID, "cluster/"+opts.ClusterName)
 
 	c := &Cluster{
-		ClusterName:    name,
-		ClusterArn:     clusterARN,
-		ClusterStatus:  clusterStatusInService,
-		NodeRecovery:   nodeRecovery,
-		InstanceGroups: append([]ClusterInstanceGroup(nil), instanceGroups...),
-		Tags:           mergeTags(nil, tags),
-		CreationTime:   time.Now(),
-		Nodes:          make(map[string]*ClusterNode),
+		ClusterName:          opts.ClusterName,
+		ClusterArn:           clusterARN,
+		ClusterStatus:        clusterStatusInService,
+		NodeRecovery:         opts.NodeRecovery,
+		ClusterRole:          opts.ClusterRole,
+		NodeProvisioningMode: opts.NodeProvisioningMode,
+		VpcConfig:            opts.VpcConfig,
+		AutoScaling:          opts.AutoScaling,
+		Orchestrator:         opts.Orchestrator,
+		TieredStorageConfig:  opts.TieredStorageConfig,
+		InstanceGroups:       append([]ClusterInstanceGroup(nil), opts.InstanceGroups...),
+		Tags:                 mergeTags(nil, opts.Tags),
+		CreationTime:         time.Now(),
+		Nodes:                make(map[string]*ClusterNode),
 	}
 
-	for i, ig := range instanceGroups {
+	for i, ig := range opts.InstanceGroups {
 		count := ig.InstanceCount
 		if count <= 0 {
 			count = 1
@@ -107,7 +145,7 @@ func (b *InMemoryBackend) CreateCluster(
 	}
 
 	store.Put(c)
-	b.clusterARNIndexStore(region)[clusterARN] = name
+	b.clusterARNIndexStore(region)[clusterARN] = opts.ClusterName
 
 	return cloneCluster(c), nil
 }
@@ -275,32 +313,59 @@ func upsertInstanceGroupLocked(c *Cluster, ig ClusterInstanceGroup) {
 	resizeInstanceGroupNodesLocked(c, ig)
 }
 
+// UpdateClusterOptions holds the parameters UpdateCluster accepts.
+type UpdateClusterOptions struct {
+	AutoScaling            *ClusterAutoScalingConfig
+	Orchestrator           *ClusterOrchestrator
+	TieredStorageConfig    *ClusterTieredStorageConfig
+	NameOrArn              string
+	NodeRecovery           string
+	NodeProvisioningMode   string
+	InstanceGroups         []ClusterInstanceGroup
+	InstanceGroupsToDelete []string
+}
+
 // UpdateCluster updates instance groups (adding, resizing, or removing them)
-// and the node-recovery mode of an existing cluster.
-func (b *InMemoryBackend) UpdateCluster(
-	ctx context.Context,
-	nameOrArn string,
-	instanceGroups []ClusterInstanceGroup,
-	instanceGroupsToDelete []string,
-	nodeRecovery string,
-) (*Cluster, error) {
+// and the node-recovery/autoscaling/orchestrator/tiered-storage configuration
+// of an existing cluster.
+func (b *InMemoryBackend) UpdateCluster(ctx context.Context, opts UpdateClusterOptions) (*Cluster, error) {
 	b.mu.Lock("UpdateCluster")
 	defer b.mu.Unlock()
 
+	if err := validateClusterOrchestratorLocked(opts.Orchestrator); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 
-	c, err := b.resolveClusterLocked(region, nameOrArn)
+	c, err := b.resolveClusterLocked(region, opts.NameOrArn)
 	if err != nil {
 		return nil, err
 	}
 
-	if nodeRecovery != "" {
-		c.NodeRecovery = nodeRecovery
+	if opts.NodeRecovery != "" {
+		c.NodeRecovery = opts.NodeRecovery
 	}
 
-	if len(instanceGroupsToDelete) > 0 {
-		toDelete := make(map[string]bool, len(instanceGroupsToDelete))
-		for _, n := range instanceGroupsToDelete {
+	if opts.NodeProvisioningMode != "" {
+		c.NodeProvisioningMode = opts.NodeProvisioningMode
+	}
+
+	if opts.AutoScaling != nil {
+		c.AutoScaling = opts.AutoScaling
+	}
+
+	if opts.Orchestrator != nil {
+		c.Orchestrator = opts.Orchestrator
+	}
+
+	if opts.TieredStorageConfig != nil {
+		c.TieredStorageConfig = opts.TieredStorageConfig
+	}
+
+	if len(opts.InstanceGroupsToDelete) > 0 {
+		toDelete := make(map[string]bool, len(opts.InstanceGroupsToDelete))
+		for _, n := range opts.InstanceGroupsToDelete {
 			toDelete[n] = true
 		}
 
@@ -319,7 +384,7 @@ func (b *InMemoryBackend) UpdateCluster(
 		c.InstanceGroups = kept
 	}
 
-	for _, ig := range instanceGroups {
+	for _, ig := range opts.InstanceGroups {
 		upsertInstanceGroupLocked(c, ig)
 	}
 

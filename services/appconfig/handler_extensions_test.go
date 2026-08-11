@@ -476,9 +476,12 @@ func TestHandler_Extension_VersionQueryParams(t *testing.T) {
 }
 
 // TestHandler_DeleteExtension_ConflictWhenAssociated verifies DeleteExtension
-// returns 409 Conflict for a version still referenced by an
+// returns 400 Bad Request for a version still referenced by an
 // ExtensionAssociation, matching real AWS's requirement to remove
-// associations before deleting the extension version they use.
+// associations before deleting the extension version they use. DeleteExtension
+// models only BadRequestException, InternalServerException and
+// ResourceNotFoundException (appconfig@v1.48.4 deserializers.go:2369) -- it
+// does not model ConflictException.
 func TestHandler_DeleteExtension_ConflictWhenAssociated(t *testing.T) {
 	t.Parallel()
 
@@ -498,7 +501,7 @@ func TestHandler_DeleteExtension_ConflictWhenAssociated(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	rec = doRequest(t, h, http.MethodDelete, "/extensions/"+ext.ID, nil)
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_ListExtensions_NameFilter(t *testing.T) {

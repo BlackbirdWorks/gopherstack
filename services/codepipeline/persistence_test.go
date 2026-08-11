@@ -126,9 +126,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	westP, err := original.CreatePipeline(ctxWest, westDecl, map[string]string{"env": "west"})
 	require.NoError(t, err)
 
-	// --- custom action types: same category/provider/version, two regions.
-	_, err = original.CreateCustomActionType(
-		ctxEast, &CustomActionType{Category: catCategory, Provider: catProvider, Version: catVersion},
+	// --- custom action types: same category/provider/version, two regions,
+	// tags only on east (mirrors the pipeline tags case above, exercising the
+	// customActionTypesByARN index gopherstack-2mwl added).
+	eastCAT, err := original.CreateCustomActionType(
+		ctxEast, &CustomActionType{
+			Category: catCategory, Provider: catProvider, Version: catVersion,
+			Tags: map[string]string{"env": "east"},
+		},
 	)
 	require.NoError(t, err)
 	_, err = original.CreateCustomActionType(
@@ -136,9 +141,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// --- webhooks: same name, two regions.
+	// --- webhooks: same name, two regions, tags only on east.
 	eastWH, err := original.PutWebhook(ctxEast, &Webhook{
 		Name: sharedWebhook, TargetPipeline: sharedPipeline, TargetAction: stageNameSource,
+		Tags: map[string]string{"env": "east"},
 	})
 	require.NoError(t, err)
 	westWH, err := original.PutWebhook(ctxWest, &Webhook{
@@ -213,11 +219,24 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = fresh.GetActionType(ctxWest, catCategory, keyOwnerCustom, catProvider, catVersion)
 	require.NoError(t, err)
 
+	// customActionTypesByARN index (tags/resolveResourceARN): survives
+	// restore. eastCAT.arn is recomputed in Restore since the real API's
+	// ActionType has no Arn field to carry it across a JSON DTO round trip.
+	catTags, err := fresh.ListTagsForResource(ctxEast, eastCAT.arn)
+	require.NoError(t, err)
+	require.Len(t, catTags, 1)
+	assert.Equal(t, "east", catTags[0].Value)
+
 	// webhooks: both regions kept their own copy, byARN index intact.
 	assert.Equal(t, 2, fresh.WebhookCount())
 	require.Len(t, fresh.ListWebhooks(ctxEast), 1)
 	require.Len(t, fresh.ListWebhooks(ctxWest), 1)
 	assert.NotEqual(t, eastWH.ARN, westWH.ARN)
+
+	whTags, err := fresh.ListTagsForResource(ctxEast, eastWH.ARN)
+	require.NoError(t, err)
+	require.Len(t, whTags, 1)
+	assert.Equal(t, "east", whTags[0].Value)
 
 	// stageTransitions: byPipeline index and region scoping intact.
 	assert.Equal(t, 1, fresh.StageTransitionCount())

@@ -75,7 +75,7 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, b.CreateClassifier(glue.Classifier{GrokClassifier: &glue.GrokClassifier{Name: "clf1"}}))
 	_, err = b.CreateRegistry("reg1", "desc", nil)
 	require.NoError(t, err)
-	_, err = b.CreateSchema("reg1", "schema1", "AVRO", "NONE", "desc", nil)
+	_, _, err = b.CreateSchema("reg1", "schema1", "AVRO", "NONE", "desc", "", nil)
 	require.NoError(t, err)
 	_, err = b.RegisterSchemaVersion(
 		"reg1", "schema1", `{"type":"record","name":"v1","fields":[]}`,
@@ -180,7 +180,7 @@ func verifyFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	assert.Equal(t, "trig1", trig.Name)
 
-	wf, err := b.GetWorkflow("wf1")
+	wf, err := b.GetWorkflow("wf1", false)
 	require.NoError(t, err)
 	assert.Equal(t, "wf1", wf.Name)
 	wfRuns, err := b.GetWorkflowRuns("wf1")

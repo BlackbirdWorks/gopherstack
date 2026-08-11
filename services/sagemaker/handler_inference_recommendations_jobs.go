@@ -12,11 +12,12 @@ import (
 
 func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags           map[string]string `json:"Tags,omitempty"`
-		JobName        string            `json:"JobName"`
-		JobType        string            `json:"JobType,omitempty"`
-		JobDescription string            `json:"JobDescription,omitempty"`
-		RoleArn        string            `json:"RoleArn,omitempty"`
+		Tags           []tagObject     `json:"Tags,omitempty"`
+		JobName        string          `json:"JobName"`
+		JobType        string          `json:"JobType,omitempty"`
+		JobDescription string          `json:"JobDescription,omitempty"`
+		RoleArn        string          `json:"RoleArn,omitempty"`
+		InputConfig    json.RawMessage `json:"InputConfig,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -32,7 +33,8 @@ func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, b
 		JobType:        req.JobType,
 		JobDescription: req.JobDescription,
 		RoleArn:        req.RoleArn,
-		Tags:           req.Tags,
+		InputConfig:    req.InputConfig,
+		Tags:           fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err
@@ -78,6 +80,10 @@ func (h *Handler) handleDescribeInferenceRecommendationsJob(ctx context.Context,
 
 	if j.RoleArn != "" {
 		resp[keyRoleArn] = j.RoleArn
+	}
+
+	if len(j.InputConfig) > 0 {
+		resp["InputConfig"] = j.InputConfig
 	}
 
 	return json.Marshal(resp)

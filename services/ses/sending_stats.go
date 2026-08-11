@@ -58,7 +58,9 @@ func (b *InMemoryBackend) GetSendStatistics() []SendDataPoint {
 	cutoff := time.Now().UTC().Add(-sendStatisticsDays * 24 * time.Hour)
 
 	// Aggregate emails into hourly buckets within the 14-day window.
-	buckets := make(map[time.Time]float64)
+	// Rejects has no simulable AWS SES trigger in this backend (no content/virus
+	// scanning exists) and is deliberately left at zero rather than fabricated.
+	buckets := make(map[time.Time]SendDataPoint)
 
 	for _, e := range b.emails {
 		if e.Timestamp.Before(cutoff) {
@@ -66,16 +68,24 @@ func (b *InMemoryBackend) GetSendStatistics() []SendDataPoint {
 		}
 
 		hour := e.Timestamp.UTC().Truncate(time.Hour)
-		buckets[hour]++
+		p := buckets[hour]
+		p.Timestamp = hour
+		p.DeliveryAttempts++
+
+		if e.Bounced {
+			p.Bounces++
+		}
+
+		if e.Complained {
+			p.Complaints++
+		}
+
+		buckets[hour] = p
 	}
 
 	result := make([]SendDataPoint, 0, len(buckets))
-
-	for ts, count := range buckets {
-		result = append(result, SendDataPoint{
-			Timestamp:        ts,
-			DeliveryAttempts: count,
-		})
+	for _, p := range buckets {
+		result = append(result, p)
 	}
 
 	sort.Slice(result, func(i, j int) bool {

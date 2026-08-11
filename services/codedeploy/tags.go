@@ -135,6 +135,42 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceARN string) (*tags.Tags
 	}
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every CodeDeploy application and deployment group
+// ARN that currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	apps := b.applications.All()
+	dgs := b.deploymentGroups.All()
+	out := make([]TaggedEntry, 0, len(apps)+len(dgs))
+
+	for _, app := range apps {
+		if app.Tags.Len() == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: b.ApplicationARN(app.ApplicationName), Tags: app.Tags.Clone()})
+	}
+
+	for _, dg := range dgs {
+		if dg.Tags.Len() == 0 {
+			continue
+		}
+
+		arn := b.DeploymentGroupARN(dg.ApplicationName, dg.DeploymentGroupName)
+		out = append(out, TaggedEntry{ARN: arn, Tags: dg.Tags.Clone()})
+	}
+
+	return out
+}
+
 // parsedARN holds the parsed components of an AWS ARN relevant to CodeDeploy lookups.
 type parsedARN struct {
 	resourceType string

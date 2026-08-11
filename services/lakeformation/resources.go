@@ -158,6 +158,10 @@ func resourceToKey(r *Resource) string {
 		return "database:" + r.Database.Name
 	case r.Table != nil:
 		return "table:" + r.Table.DatabaseName + "." + r.Table.Name
+	case r.TableWithColumns != nil:
+		// Column-level tags are not tracked separately (no per-column storage
+		// exists); a TableWithColumns resource shares its containing table's key.
+		return "table:" + r.TableWithColumns.DatabaseName + "." + r.TableWithColumns.Name
 	case r.DataCellsFilter != nil:
 		return "datacellsfilter:" + r.DataCellsFilter.TableCatalogID + "|" + r.DataCellsFilter.DatabaseName +
 			"|" + r.DataCellsFilter.TableName + "|" + r.DataCellsFilter.Name

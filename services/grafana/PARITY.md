@@ -5,20 +5,28 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: grafana
-sdk_module: aws-sdk-go-v2/service/grafana@v1.38.3   # real go.mod dependency now (go get run this pass)
-last_audit_commit: 76edcd082d866f9264d5f994ee7414ea1b65da0e   # HEAD at implementation start; diff from here forward
-last_audit_date: 2026-08-01
-# Grade B: this is a from-scratch implementation, not a fix to pre-existing code, so "A =
-# genuine fixes found" does not literally apply -- there was nothing to fix. B ("already-
-# accurate, proven op-by-op") is the closer fit: every one of the 25 operations' wire shapes
-# was read directly from serializers.go/deserializers.go (never assumed from the Go struct
-# field names alone -- two real traps were only visible there: AssociateLicense's
-# GrafanaToken is an HTTP header, not a body/query field, and ListVersions' workspaceId is
-# the query param "workspace-id" with a hyphen, unlike every other operation's "workspaceId").
-# Real SDK round-trip tests (services/grafana/sdk_roundtrip_helper_test.go, following
-# services/databrew's pattern) caught two further wire bugs during this pass before they
-# shipped: AssociateLicense and DisassociateLicense's "not in a valid state" cases were
-# initially modeled as ConflictException, but those two operations' own
+sdk_module: aws-sdk-go-v2/service/grafana@v1.38.4
+last_audit_commit: 3b90d4523   # HEAD at this audit pass; diff from here forward
+last_audit_date: 2026-08-06
+# Grade A: this pass added the integration suite that is the only accepted parity proof
+# (.claude/memories/parity-principles.md rule 3 -- test/integration/grafana_test.go, driving
+# every operation through a real aws-sdk-go-v2 client against a live container) and closed
+# every buildable gap the prior B-grade audit had left open: real per-account quota
+# tracking (ServiceQuotaExceededException on CreateWorkspace), chaos-injectable *_FAILED/
+# DEGRADED transitions, and genuine cross-service validation of WorkspaceRoleArn/
+# VpcConfiguration/WorkspaceOrganizationalUnits/SSO permission grants against this
+# emulator's own IAM/EC2/Organizations/SSO Admin/Identity Store backends. See "Notes" below
+# for the mechanism and what's now confirmed still out of reach.
+#
+# Prior B-grade note, still accurate for the 25 operations' wire shapes: every one was read
+# directly from serializers.go/deserializers.go (never assumed from the Go struct field names
+# alone -- two real traps were only visible there: AssociateLicense's GrafanaToken is an HTTP
+# header, not a body/query field, and ListVersions' workspaceId is the query param
+# "workspace-id" with a hyphen, unlike every other operation's "workspaceId"). Real SDK
+# round-trip tests (services/grafana/sdk_roundtrip_helper_test.go, following
+# services/databrew's pattern) caught two further wire bugs before they shipped:
+# AssociateLicense and DisassociateLicense's "not in a valid state" cases were initially
+# modeled as ConflictException, but those two operations' own
 # deserializeOpErrorAssociateLicense/DisassociateLicense functions do not list
 # ConflictException among the exception shapes they recognize -- a real caller's
 # errors.As(err, &types.ConflictException{}) would silently never match. Fixed: AssociateLicense
@@ -26,26 +34,26 @@ last_audit_date: 2026-08-01
 # "no license to remove" as an idempotent no-op rather than inventing a wire-incompatible
 # error. See "Errors" section below for the full per-operation exception-type table this was
 # built from.
-overall: B
+overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 # All 25 ops are now routed, modeled with real backend state, and persisted via
 # InMemoryBackend.Snapshot/Restore (services/grafana/persistence.go).
 ops:
-  CreateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces; CREATING -> ACTIVE after a 100ms simulated delay (workspaces.go)"}
+  CreateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces; validates WorkspaceRoleArn/VpcConfiguration/WorkspaceOrganizationalUnits against IAM/EC2/Organizations (cross_service.go), enforces the real 5-workspace-per-account quota (ServiceQuotaExceededException), CREATING -> ACTIVE or a chaos-injected CREATION_FAILED after a 100ms simulated delay (workspaces.go)"}
   DescribeWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}"}
-  UpdateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /workspaces/{workspaceId}; merges onto existing state, requires ACTIVE/DEGRADED, UPDATING -> ACTIVE"}
-  DeleteWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /workspaces/{workspaceId}; cascades apiKeys/serviceAccounts/tokens/permissions synchronously (workspace_update.go)"}
+  UpdateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /workspaces/{workspaceId}; same cross-service validation as CreateWorkspace, merges onto existing state, requires ACTIVE/DEGRADED, UPDATING -> ACTIVE or a chaos-injected UPDATE_FAILED/DEGRADED"}
+  DeleteWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /workspaces/{workspaceId}; cascades apiKeys/serviceAccounts/tokens/permissions synchronously (workspace_update.go); a chaos-injected fault reports DELETION_FAILED without deleting instead"}
   ListWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces, paginated via pkgs/page"}
   DescribeWorkspaceAuthentication: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}/authentication"}
   UpdateWorkspaceAuthentication: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces/{workspaceId}/authentication; validates IdpMetadata url-xor-xml and SAML-requires-samlConfiguration"}
   DescribeWorkspaceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}/configuration; opaque JSON blob stored/returned verbatim"}
-  UpdateWorkspaceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /workspaces/{workspaceId}/configuration; grafanaVersion upgrade-only, validated against versions.go's static list"}
-  AssociateLicense: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces/{workspaceId}/licenses/{licenseType}; GrafanaToken read from Grafana-Token HEADER, not body -- see handler_license.go"}
+  UpdateWorkspaceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /workspaces/{workspaceId}/configuration; grafanaVersion upgrade-only, validated against versions.go's static list; VERSION_UPDATING -> ACTIVE or a chaos-injected VERSION_UPDATE_FAILED/DEGRADED"}
+  AssociateLicense: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces/{workspaceId}/licenses/{licenseType}; GrafanaToken read from Grafana-Token HEADER, not body -- see handler_license.go; UPGRADING -> ACTIVE or a chaos-injected UPGRADE_FAILED/DEGRADED"}
   DisassociateLicense: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /workspaces/{workspaceId}/licenses/{licenseType}; idempotent no-op when nothing to remove (no ConflictException on this op's wire)"}
   ListVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /versions; workspaceId query param is \"workspace-id\" (hyphenated), confirmed via serializers.go -- not \"workspaceId\""}
   ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}/permissions, paginated, filterable by groupId/userId/userType"}
-  UpdatePermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /workspaces/{workspaceId}/permissions; real partial-failure batch -- a malformed instruction (empty users) lands in Errors, valid instructions in the same batch still apply"}
+  UpdatePermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /workspaces/{workspaceId}/permissions; real partial-failure batch -- a malformed instruction (empty users) or an ADD referencing an SSO_USER/SSO_GROUP ID absent from the account's IAM Identity Center identity store (cross_service.go) lands in Errors, valid instructions in the same batch still apply"}
   CreateWorkspaceApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces/{workspaceId}/apikeys; SecondsToLive validated 1..2592000 (30 days)"}
   DeleteWorkspaceApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /workspaces/{workspaceId}/apikeys/{keyName}"}
   CreateWorkspaceServiceAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces/{workspaceId}/serviceaccounts; IsDisabled wire-typed as *string (\"true\"/\"false\"), not *bool -- preserved as-is, confirmed via types.go"}
@@ -61,10 +69,10 @@ ops:
 families:
   route-matcher: {status: ok, note: "handler.go's routeRequest dispatch tree; RouteMatcher prefixes on /workspaces, /versions, /tags/; MatchPriority = PriorityPathVersioned"}
 gaps:
-  - "AccessDeniedException, ServiceQuotaExceededException, and ThrottlingException are real, wire-declared SDK error types (types/errors.go) this emulator has no trigger path for: no auth/IAM-policy model and no per-account quota tracking. Documented, not hidden -- see errors.go's apiError doc comment."
-  - "WorkspaceStatus's *_FAILED variants and DEGRADED are wire-accurate constants (models.go) but nothing in this backend ever transitions a workspace into them -- every simulated async transition (CREATING/UPDATING/UPGRADING/VERSION_UPDATING) always resolves to ACTIVE, never a failure state. A future pass could wire chaos-injection (pkgs/chaos) to drive these."
-  - "Cross-service validation (IAM role existence for WorkspaceRoleArn, VPC/subnet/security-group existence for VpcConfiguration, Organizations OU existence for WorkspaceOrganizationalUnits, SSO user/group existence for ListPermissions/UpdatePermissions) is NOT performed -- every such field is accepted as an opaque string, matching the real Grafana API's own wire contract (none of these are validated fields on the Go SDK types either), but a stricter emulator could cross-check services/iam, services/ec2, services/organizations, services/identitystore."
-  - "ListVersions' static version list (8.4/9.4/10.4 in store.go's grafanaVersions) is a reasonable stand-in, not the real AWS-supported set, which is operational data that changes over time and isn't encoded in the Go SDK module at all."
+  - "StatusLicenseRemovalFailed (LICENSE_REMOVAL_FAILED) is never reached: DisassociateLicense is deliberately synchronous (see license.go's own doc comment on why it can't return a wire-accurate ConflictException), so there is no async transition for a chaos rule to intercept the way CreateWorkspace/UpdateWorkspace/AssociateLicense/UpdateWorkspaceConfiguration's are. Making it reachable would mean turning DisassociateLicense into an async op, a larger behavior change than this pass's gap-closing scope justifies."
+  - "SSO user/group cross-service validation (validatePermissionUser in cross_service.go) is implemented and exercised by services/grafana's own unit tests, and by test/integration/grafana_test.go's Permissions subtest against the account's seeded default IAM Identity Center instance, but the integration suite does not additionally cover the case of a *second*, ambiguous SSO instance in the same account -- resolveIdentityStoreID picks the first with a non-empty IdentityStoreID, which is the correct behavior for the common (single-instance) case real AWS itself enforces, but is unverified for the multi-instance edge case."
+structural_gaps:
+  - "ListVersions' static version list (8.4/9.4/10.4 in store.go's grafanaVersions) is a reasonable stand-in, not the real AWS-supported set. Which Grafana versions Amazon Managed Grafana currently supports is operational data AWS changes over time out-of-band -- it is not encoded anywhere in the Go SDK module, and no implementation could derive the true current set from first principles; there is no data source for it to read. (bd: gopherstack-4spv)"
 leaks: {status: clean, note: "Handler.Reset()/Backend.Reset() close every workspace's tags.Tags before clearing; InMemoryBackend.Close() stops the worker.Group backing every scheduled CREATING/UPDATING/etc. transition timer"}
 ---
 
@@ -132,39 +140,101 @@ recognized by**: `AssociateLicense`, `DisassociateLicense`, `DescribeWorkspace`,
 `ListWorkspaces`, `TagResource`, `UntagResource`, `UpdatePermissions` — this emulator never
 raises one from those operations (confirmed by re-reading every error path in this pass).
 `ServiceQuotaExceededException` is recognized only by the five `Create*` operations plus
-`CreateWorkspace` itself (never triggered — no quota model). `DescribeWorkspaceConfiguration`
+`CreateWorkspace` itself; `CreateWorkspace` now genuinely triggers it once an account holds
+5 workspaces (Amazon Managed Grafana's published default "Number of workspaces" quota — see
+`workspaces.go`'s `maxWorkspacesPerAccount`). `DescribeWorkspaceConfiguration`
 uniquely does **not** accept `ValidationException` at all (it takes no body, so there is
 nothing to validate) — this emulator's implementation never attempts to return one there.
 
+## Cross-service validation — mechanism (this pass)
+
+`cross_service.go` gives `InMemoryBackend` a `SetAppConfig(cfg any)` setter, called from
+`provider.go`'s `Provider.Init` with `ctx.Config` (the `*CLI`). It can't resolve sibling
+handlers *at* `Init` time: gopherstack constructs every service provider independently in one
+pass (`cli.go`'s `initIndependentServices`) and only wires each provider's own CLI-struct
+field afterward, once every provider has returned — grafana's `Init` runs inside that first
+pass, before `iamHandler`/`ec2Handler`/etc. exist on the `*CLI`. Storing the `*CLI` pointer
+(matched structurally via a local `siblingServices` interface, so no import of the top-level
+package) and resolving `GetIAMHandler()` et al. *lazily*, on the first real request — well
+after startup has finished — sidesteps the ordering problem without a second, cross-service-
+aware init phase or any change to `cli.go`. The chaos fault store is the one exception: `cli.
+faultStore` is constructed before `initializeServices` runs, so `chaosFaultStore()` could
+resolve it eagerly too, but it shares the same lazy path for consistency.
+
+`CreateWorkspace`/`UpdateWorkspace` validate `WorkspaceRoleArn` against `iam.StorageBackend.
+GetRoleByArn`, `VpcConfiguration`'s subnet/security-group IDs against `ec2.Backend.
+DescribeSubnets`/`DescribeSecurityGroups` (rejecting if the returned set is shorter than the
+requested one), and `WorkspaceOrganizationalUnits` against `organizations.StorageBackend.
+DescribeOrganizationalUnit` — all as `ValidationException`, since a caller-supplied reference
+that doesn't resolve is that class of error across most AWS APIs surveyed for this pass, and
+none of these four are actually validated against another service's exported surface anywhere
+else in this codebase to confirm otherwise. `UpdatePermissions`' `ADD` instructions validate
+`SSO_USER`/`SSO_GROUP` IDs the same way, but two hops deep: `ssoadmin.StorageBackend.
+ListInstances` (always non-empty — `services/ssoadmin` pre-seeds a default instance to mirror
+real AWS accounts) supplies the account's `IdentityStoreId`, then `identitystore.
+InMemoryBackend.DescribeUser`/`DescribeGroup` resolves the grant's `User.Id` against it.
+
+## Chaos-driven failure states — mechanism (this pass)
+
+`pkgs/chaos`'s `Middleware` is wired generically into every service's request path
+(`cli.go`'s `registry.Use(chaos.Middleware(faultStore))`) and already gave `AccessDeniedException`/
+`ThrottlingException` a real trigger path with zero grafana-specific code — a chaos fault rule
+targeting a real operation name (e.g. `CreateWorkspace`) short-circuits the HTTP request before
+this handler ever runs. That mechanism can't reach the `*_FAILED`/`DEGRADED` statuses, though:
+those are decided later, off a timer, with no request in flight for the middleware to
+intercept. `chaos_transitions.go` calls `chaos.FaultStore.Match` directly from
+`scheduleWorkspaceTransition`'s timer callback (and synchronously from `DeleteWorkspace`),
+targeting the pseudo-operation name `WorkspaceTransition` — distinct from every real op name
+this handler routes, so a rule scoped to it can never collide with the HTTP middleware's
+per-request matching. A matched rule steers `CreateWorkspace`'s `CREATING` to
+`CREATION_FAILED`, `UpdateWorkspace`'s `UPDATING` to `UPDATE_FAILED`, `AssociateLicense`'s
+`UPGRADING` to `UPGRADE_FAILED`, and `UpdateWorkspaceConfiguration`'s `VERSION_UPDATING` to
+`VERSION_UPDATE_FAILED` — or, if the rule's injected error code is literally `"DEGRADED"`, to
+`DEGRADED` instead. `DeleteWorkspace` checks the same rule synchronously (it has no async
+transition of its own to hook) and reports `DELETION_FAILED` without actually deleting.
+`LICENSE_REMOVAL_FAILED` remains unreached — see `gaps:`.
+
 ## Deliberately simplified (honest, not hidden)
 
-1. **No fault/failure states.** Every async transition always resolves to ACTIVE; the
-   `*_FAILED`/`DEGRADED` statuses are real wire constants with no trigger path.
-2. **`ListVersions`' version list is static** (`8.4`/`9.4`/`10.4`), not AWS's actual current
-   catalog (which is operational data, not SDK-encoded).
-3. **No cross-service existence validation** for `WorkspaceRoleArn` (IAM), `VpcConfiguration`
-   (EC2), `WorkspaceOrganizationalUnits` (Organizations), or SSO user/group IDs in
-   `ListPermissions`/`UpdatePermissions` — every such field is accepted as an opaque string,
-   which matches the real Grafana API's own wire contract (none of these are described as
-   validated against another service in the SDK's doc comments either).
-4. **Workspace IDs (`g-<10 hex chars>`) and numeric service-account/token IDs** are reasonable
+1. **Workspace IDs (`g-<10 hex chars>`) and numeric service-account/token IDs** are reasonable
    emulations, not confirmed byte-for-byte against a real workspace's ID format (the SDK
    types carry no pattern trait for `WorkspaceId`).
-5. **`UpdatePermissions`'s partial-failure trigger** is deliberately narrow (an instruction
-   with zero `Users` fails; everything else succeeds) — the real API's full validation
-   surface for this operation isn't documented in the Go SDK types alone, so this is a
-   defensible, honest subset rather than a guess at the complete rule set.
+2. **`UpdatePermissions`'s partial-failure trigger** covers a zero-`Users` instruction and an
+   `ADD` referencing an unresolvable `SSO_USER`/`SSO_GROUP` ID — the real API's full
+   validation surface for this operation isn't documented in the Go SDK types alone, so this
+   is a defensible, honest subset rather than a guess at the complete rule set.
+3. **`LICENSE_REMOVAL_FAILED` is unreached** — see `gaps:` for why.
 
 ## Tests
 
-`services/grafana/*_test.go`: `sdk_completeness_test.go` (empty exception list, all 25 ops),
-plus real-`aws-sdk-go-v2`-client round-trip tests for every operation family (workspace
-lifecycle + validation + cascade-on-delete, authentication incl. SAML union validation,
-configuration + version upgrade-only enforcement, license associate/disassociate incl. the
-two wire-shape fixes described above, permissions incl. partial-failure batch semantics, API
-keys, service accounts + tokens incl. cascade, and the ARN-with-embedded-slash tag round
-trip) — following `services/databrew`'s `newRoundTripClient` pattern (a real SDK client
-against an `httptest.Server` wired through the same `pkgs/service` registry/router used in
-production), which is what actually caught the `AssociateLicense`/`DisassociateLicense`
-`ConflictException` wire bugs described above; ad-hoc JSON assertions against
-`h.Handler()(c)` directly would not have.
+**Unit** (`services/grafana/*_test.go`): `sdk_completeness_test.go` (empty exception list, all
+25 ops), plus real-`aws-sdk-go-v2`-client round-trip tests for every operation family
+(workspace lifecycle + validation + cascade-on-delete, authentication incl. SAML union
+validation, configuration + version upgrade-only enforcement, license associate/disassociate
+incl. the two wire-shape fixes described above, permissions incl. partial-failure batch
+semantics, API keys, service accounts + tokens incl. cascade, and the ARN-with-embedded-slash
+tag round trip) — following `services/databrew`'s `newRoundTripClient` pattern (a real SDK
+client against an `httptest.Server` wired through the same `pkgs/service` registry/router used
+in production), which is what actually caught the `AssociateLicense`/`DisassociateLicense`
+`ConflictException` wire bugs described above; ad-hoc JSON assertions against `h.Handler()(c)`
+directly would not have.
+
+**Integration** (`test/integration/grafana_test.go`, the parity proof per
+`.claude/memories/parity-principles.md` rule 3 — a real `aws-sdk-go-v2` client against the
+Dockerized binary, not the in-process router):
+`TestIntegration_Grafana_WorkspaceLifecycle` drives all 25 operations sequentially against one
+workspace (creation and its async transition to `ACTIVE`, describe/list/update, authentication
+incl. a real SAML union round trip, configuration + version upgrade incl. a rejected
+downgrade, licensing, permissions incl. a real IAM Identity Center user via the seeded default
+SSO instance, API keys, service accounts + tokens, tagging, and deletion), asserting real
+`smithy.APIError` codes (`ResourceNotFoundException`, `ValidationException`) alongside the
+happy paths — not just non-nil checks. `TestIntegration_Grafana_ServiceQuota` fills an
+isolated container's account to the real 5-workspace quota and asserts the 6th `CreateWorkspace`
+returns `ServiceQuotaExceededException`. `TestIntegration_Grafana_CrossServiceValidation` (also
+isolated) proves both directions for all three CreateWorkspace-time references: a fabricated
+IAM role ARN / EC2 subnet+security-group pair / Organizations OU is rejected, and a role /
+VPC+subnet+security-group / OU genuinely created via those services' own real SDK clients is
+accepted. `TestIntegration_Grafana_ChaosWorkspaceTransitions` (isolated — chaos fault rules are
+global mutable state) drives a `WorkspaceTransition`-scoped fault rule through
+`CREATION_FAILED`, `DEGRADED`, and a synchronous `DELETION_FAILED` that leaves the workspace
+undeleted.

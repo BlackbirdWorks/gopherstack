@@ -17,6 +17,7 @@ type ScheduledQuery struct {
 	State                   string            `json:"state"`
 	Name                    string            `json:"name"`
 	Arn                     string            `json:"arn"`
+	KmsKeyID                string            `json:"kms_key_id,omitempty"`
 }
 
 // ScheduledQuerySummary is a reduced view used in list responses.

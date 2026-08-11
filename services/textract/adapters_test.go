@@ -2,6 +2,8 @@ package textract_test
 
 import (
 	"context"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,6 +36,53 @@ func TestInMemoryBackend_DeleteAdapter_CascadesVersions(t *testing.T) {
 
 	assert.Equal(t, 0, textract.AdapterCount(b))
 	assert.Equal(t, 0, textract.AdapterVersionCount(b))
+}
+
+// TestInMemoryBackend_CreateAdapterVersion_ConcurrentDeleteDoesNotPanic races gopherstack-0ho6.
+func TestInMemoryBackend_CreateAdapterVersion_ConcurrentDeleteDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	const (
+		attempts     = 300
+		pollAttempts = 100000
+	)
+
+	for range attempts {
+		b := textract.NewInMemoryBackend("123456789012", "us-east-1")
+		textract.SetBackendAsyncDelay(b, 5*time.Millisecond)
+
+		adapter, err := b.CreateAdapter(context.Background(), "race-adapter", "", "DISABLED", []string{"FORMS"}, nil)
+		require.NoError(t, err)
+
+		var wg sync.WaitGroup
+
+		wg.Go(func() {
+			for range pollAttempts {
+				if textract.AdapterVersionCount(b) > 0 {
+					_ = b.DeleteAdapter(context.Background(), adapter.AdapterID)
+
+					return
+				}
+
+				runtime.Gosched()
+			}
+		})
+
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("CreateAdapterVersion panicked: %v", r)
+				}
+			}()
+
+			av, cavErr := b.CreateAdapterVersion(context.Background(), adapter.AdapterID, nil)
+			if cavErr == nil {
+				assert.NotNil(t, av)
+			}
+		}()
+
+		wg.Wait()
+	}
 }
 
 // TestInMemoryBackend_AddAdapterInternal tests the AddAdapterInternal seed helper.

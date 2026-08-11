@@ -13,40 +13,44 @@ import (
 // (no-op) unless SetLifecycleDelay has been configured, preserving the
 // pre-existing instant-available behavior by default.
 type Cluster struct {
-	CreatedAt               time.Time         `json:"createdAt"`
-	AvailableAt             time.Time         `json:"availableAt"`
-	Tags                    map[string]string `json:"tags"`
-	KmsKeyID                string            `json:"kmsKeyID"`
-	SnsTopicArn             string            `json:"snsTopicArn"`
-	SnsTopicStatus          string            `json:"snsTopicStatus"`
-	Description             string            `json:"description"`
-	NodeType                string            `json:"nodeType"`
-	EngineVersion           string            `json:"engineVersion"`
-	ACLName                 string            `json:"aclName"`
-	SubnetGroupName         string            `json:"subnetGroupName"`
-	ParameterGroupName      string            `json:"parameterGroupName"`
-	ParameterGroupStatus    string            `json:"parameterGroupStatus"`
-	MultiRegionClusterName  string            `json:"multiRegionClusterName"`
-	Status                  string            `json:"status"`
-	PendingStatus           string            `json:"pendingStatus"`
-	MaintenanceWindow       string            `json:"maintenanceWindow"`
-	Name                    string            `json:"name"`
-	ARN                     string            `json:"arn"`
-	Region                  string            `json:"region"`
-	SnapshotWindow          string            `json:"snapshotWindow"`
-	Endpoint                string            `json:"endpoint"`
-	AvailabilityMode        string            `json:"availabilityMode"`
-	Engine                  string            `json:"engine"`
-	DataTiering             string            `json:"dataTiering"`
-	NetworkType             string            `json:"networkType"`
-	IPDiscovery             string            `json:"ipDiscovery"`
-	SecurityGroupIDs        []string          `json:"securityGroupIDs"`
-	NumReplicasPerShard     int32             `json:"numReplicasPerShard"`
-	SnapshotRetentionLimit  int32             `json:"snapshotRetentionLimit"`
-	Port                    int32             `json:"port"`
-	NumShards               int32             `json:"numShards"`
-	TLSEnabled              bool              `json:"tlsEnabled"`
-	AutoMinorVersionUpgrade bool              `json:"autoMinorVersionUpgrade"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	AvailableAt time.Time         `json:"availableAt"`
+	Tags        map[string]string `json:"tags"`
+	// AppliedServiceUpdates tracks which service updates BatchUpdateCluster has
+	// applied to this cluster, keyed by ServiceUpdateName. Drives the per-cluster
+	// "complete" vs "available" status DescribeServiceUpdates reports.
+	AppliedServiceUpdates   map[string]bool `json:"appliedServiceUpdates,omitempty"`
+	KmsKeyID                string          `json:"kmsKeyID"`
+	SnsTopicArn             string          `json:"snsTopicArn"`
+	SnsTopicStatus          string          `json:"snsTopicStatus"`
+	Description             string          `json:"description"`
+	NodeType                string          `json:"nodeType"`
+	EngineVersion           string          `json:"engineVersion"`
+	ACLName                 string          `json:"aclName"`
+	SubnetGroupName         string          `json:"subnetGroupName"`
+	ParameterGroupName      string          `json:"parameterGroupName"`
+	ParameterGroupStatus    string          `json:"parameterGroupStatus"`
+	MultiRegionClusterName  string          `json:"multiRegionClusterName"`
+	Status                  string          `json:"status"`
+	PendingStatus           string          `json:"pendingStatus"`
+	MaintenanceWindow       string          `json:"maintenanceWindow"`
+	Name                    string          `json:"name"`
+	ARN                     string          `json:"arn"`
+	Region                  string          `json:"region"`
+	SnapshotWindow          string          `json:"snapshotWindow"`
+	Endpoint                string          `json:"endpoint"`
+	AvailabilityMode        string          `json:"availabilityMode"`
+	Engine                  string          `json:"engine"`
+	DataTiering             string          `json:"dataTiering"`
+	NetworkType             string          `json:"networkType"`
+	IPDiscovery             string          `json:"ipDiscovery"`
+	SecurityGroupIDs        []string        `json:"securityGroupIDs"`
+	NumReplicasPerShard     int32           `json:"numReplicasPerShard"`
+	SnapshotRetentionLimit  int32           `json:"snapshotRetentionLimit"`
+	Port                    int32           `json:"port"`
+	NumShards               int32           `json:"numShards"`
+	TLSEnabled              bool            `json:"tlsEnabled"`
+	AutoMinorVersionUpgrade bool            `json:"autoMinorVersionUpgrade"`
 }
 
 type createClusterRequest struct {

@@ -171,6 +171,10 @@ func seedExtendedConfig(app *Application, cfg SeedConfig) {
 	if cfg.EncryptionConfig != nil {
 		app.EncryptionConfig = cfg.EncryptionConfig
 	}
+
+	if cfg.ZeppelinConfig != nil {
+		app.ZeppelinConfig = cfg.ZeppelinConfig
+	}
 }
 
 // DescribeApplication retrieves an application by name.
@@ -312,6 +316,7 @@ func (b *InMemoryBackend) StartApplication(
 	ctx context.Context,
 	name string,
 	runConfig *RunConfigInput,
+	sqlRunConfigs []SQLRunConfigInput,
 ) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -327,17 +332,58 @@ func (b *InMemoryBackend) StartApplication(
 		return "", ErrAlreadyExists
 	}
 
+	for _, src := range sqlRunConfigs {
+		if findInputIndex(app, src.InputID) < 0 {
+			return "", ErrNotFound
+		}
+	}
+
 	app.ApplicationStatus = ApplicationStatusRunning
 	applyRunConfigInput(app, runConfig)
+	applySQLRunConfigurations(app, sqlRunConfigs)
 
 	return b.recordOperation(region, name, "StartApplication"), nil
 }
 
+// applySQLRunConfigurations stores each SqlRunConfiguration's starting
+// position on the matching InputDescription, echoed back via
+// DescribeApplication -- real AWS's RunConfigurationDescription has no
+// SqlRunConfigurations field (botocore kinesisanalyticsv2/2018-05-23/
+// service-2.json.gz shape "RunConfigurationDescription"), it only surfaces
+// per-input via InputDescription.InputStartingPositionConfiguration. Every
+// InputID was already confirmed to exist by StartApplication's caller loop.
+func applySQLRunConfigurations(app *Application, configs []SQLRunConfigInput) {
+	for _, src := range configs {
+		idx := findInputIndex(app, src.InputID)
+		if idx < 0 {
+			continue
+		}
+
+		app.InputDescriptions[idx].InputStartingPositionConfiguration = src.InputStartingPositionConfiguration
+	}
+}
+
+// runtimeEnvironmentSQL is the real RuntimeEnvironment enum value that
+// identifies a SQL-based application (as opposed to any Flink/Zeppelin
+// family member) -- botocore kinesisanalyticsv2/2018-05-23/service-2.json.gz
+// shape "RuntimeEnvironment".
+const runtimeEnvironmentSQL = "SQL-1_0"
+
 // StopApplication sets the application status to READY and returns the
 // OperationID of the recorded StopApplication operation (see recordOperation).
 // Returns ResourceInUseException if the application is not in RUNNING state,
-// matching real AWS Kinesis Analytics v2 behavior.
-func (b *InMemoryBackend) StopApplication(ctx context.Context, name string) (string, error) {
+// matching real AWS Kinesis Analytics v2 behavior. force mirrors the real
+// StopApplicationInput.Force field: real AWS forbids force-stopping a
+// SQL-based application ("You can only force stop a Managed Service for
+// Apache Flink application" -- api_op_StopApplication.go doc comment,
+// aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4), so that combination
+// returns InvalidArgumentException. Force's other documented effects --
+// permitting stop from STARTING/UPDATING/STOPPING/AUTOSCALING, and skipping
+// the pre-stop snapshot -- have no observable effect here: this backend's
+// ApplicationStatus is only ever READY/RUNNING (synchronous lifecycle, same
+// structural gap as DeleteApplication's unused ApplicationStatusDeleting),
+// and it never auto-snapshots on stop regardless of Force (see PARITY.md).
+func (b *InMemoryBackend) StopApplication(ctx context.Context, name string, force bool) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("StopApplication")
@@ -346,6 +392,10 @@ func (b *InMemoryBackend) StopApplication(ctx context.Context, name string) (str
 	app, ok := b.findApplication(region, name)
 	if !ok {
 		return "", ErrNotFound
+	}
+
+	if force && app.RuntimeEnvironment == runtimeEnvironmentSQL {
+		return "", ErrValidation
 	}
 
 	if app.ApplicationStatus != ApplicationStatusRunning {
@@ -377,18 +427,34 @@ func (b *InMemoryBackend) UpdateApplicationMaintenanceConfiguration(
 	return appCopy(app), nil
 }
 
-// DiscoverInputSchema returns a synthetic discovered schema for a resource ARN.
+// discoveredColumnSQLType is the placeholder RecordColumn.SqlType used by
+// DiscoverInputSchema's synthetic column1/column2/column3 columns.
+const discoveredColumnSQLType = "VARCHAR(64)"
+
+// DiscoverInputSchema returns a synthetic discovered schema for a resource
+// ARN: this backend has no live stream to sample, so RecordColumns/
+// ParsedInputRecords are a fixed placeholder (unchanged from before this
+// pass -- see PARITY.md). serviceExecutionRole is required on the real
+// DiscoverInputSchemaRequest (botocore kinesisanalyticsv2/2018-05-23/
+// service-2.json.gz shape "DiscoverInputSchemaRequest") but was previously
+// accepted under the wrong wire key and never validated (see
+// discoverInputSchemaInput's ServiceExecutionRole fix in handler_applications.go).
 func (b *InMemoryBackend) DiscoverInputSchema(
 	_ context.Context,
-	resourceARN, _ /* roleARN */, _ /* inputStartingPosition */ string,
+	resourceARN, serviceExecutionRole, _ /* inputStartingPosition */ string,
 ) (*DiscoveredSchema, error) {
-	if resourceARN == "" {
+	if resourceARN == "" || serviceExecutionRole == "" {
 		return nil, ErrValidation
 	}
 
 	return &DiscoveredSchema{
 		RecordFormat:   "JSON",
 		RecordEncoding: "UTF-8",
+		RecordColumns: []RecordColumnDesc{
+			{Name: "column1", SQLType: discoveredColumnSQLType},
+			{Name: "column2", SQLType: discoveredColumnSQLType},
+			{Name: "column3", SQLType: discoveredColumnSQLType},
+		},
 		ParsedInputRecords: [][]string{
 			{"column1", "column2", "column3"},
 		},

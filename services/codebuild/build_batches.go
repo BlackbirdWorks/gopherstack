@@ -87,13 +87,16 @@ func (b *InMemoryBackend) StartBuildBatch(projectName string) (*BuildBatch, erro
 }
 
 // DeleteBuildBatch removes a build batch by ID.
+// DeleteBuildBatch removes a build batch by ID. Idempotent: real AWS's
+// DeleteBuildBatch declares no ResourceNotFoundException (botocore
+// codebuild/2016-10-06/service-2.json operations.DeleteBuildBatch.errors:
+// only InvalidInputException), so deleting an already-gone batch is not an
+// error.
 func (b *InMemoryBackend) DeleteBuildBatch(id string) error {
 	b.mu.Lock("DeleteBuildBatch")
 	defer b.mu.Unlock()
 
-	if !b.buildBatches.Delete(id) {
-		return ErrNotFound
-	}
+	b.buildBatches.Delete(id)
 
 	return nil
 }

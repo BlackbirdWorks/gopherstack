@@ -60,11 +60,15 @@ func TestHandler_Name(t *testing.T) {
 	assert.Equal(t, "BedrockRuntime", h.Name())
 }
 
+// TestHandler_ChaosServiceName verifies ChaosServiceName returns "bedrock",
+// matching real Bedrock Runtime's SigV4 signing name (see the doc comment on
+// Handler.ChaosServiceName) -- not "bedrockruntime", which would never match
+// a real client's Authorization header and so could never be fault-injected.
 func TestHandler_ChaosServiceName(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, "bedrockruntime", h.ChaosServiceName())
+	assert.Equal(t, "bedrock", h.ChaosServiceName())
 }
 
 func TestHandler_MatchPriority(t *testing.T) {

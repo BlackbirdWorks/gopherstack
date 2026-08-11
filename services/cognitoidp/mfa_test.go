@@ -302,7 +302,9 @@ func TestJanitor_SweepsExpiredMFASessions(t *testing.T) {
 	err = b.ConfirmSignUp(client.ClientID, "juser", user.ConfirmCode)
 	require.NoError(t, err)
 
-	result, err := b.InitiateAuth(client.ClientID, "USER_SRP_AUTH", "juser", "Pass1234!")
+	srpClient := newSRPTestClient(t)
+
+	result, err := b.InitiateAuthSRP(client.ClientID, "USER_SRP_AUTH", "juser", srpClient.srpA())
 	require.NoError(t, err)
 
 	session := result.MFASession
@@ -311,14 +313,14 @@ func TestJanitor_SweepsExpiredMFASessions(t *testing.T) {
 	b.ExpireMFASessionForTest(session)
 
 	// Before sweep: the session should fail validation.
-	_, err = b.RespondToSRPChallenge(client.ClientID, session)
+	_, err = b.RespondToSRPChallenge(client.ClientID, session, map[string]string{})
 	require.Error(t, err)
 
 	// After sweep: EvictExpiredMFASessions removes the entry (evict manually as janitor would).
 	b.EvictExpiredMFASessions()
 
 	// Trying to use the session again still fails (entry gone).
-	_, err = b.RespondToSRPChallenge(client.ClientID, session)
+	_, err = b.RespondToSRPChallenge(client.ClientID, session, map[string]string{})
 	require.Error(t, err)
 }
 

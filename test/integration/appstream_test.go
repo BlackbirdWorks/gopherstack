@@ -58,7 +58,10 @@ func TestIntegration_AppStream_StackLifecycle(t *testing.T) {
 			assert.Equal(t, tt.stackName, aws.ToString(createOut.Stack.Name))
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteStack(ctx, &appstreamsdk.DeleteStackInput{Name: aws.String(tt.stackName)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteStack(cleanupCtx, &appstreamsdk.DeleteStackInput{Name: aws.String(tt.stackName)})
 			})
 
 			descOut, err := client.DescribeStacks(ctx, &appstreamsdk.DescribeStacksInput{
@@ -108,7 +111,10 @@ func TestIntegration_AppStream_FleetLifecycle(t *testing.T) {
 			assert.Equal(t, tt.fleetName, aws.ToString(createOut.Fleet.Name))
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteFleet(ctx, &appstreamsdk.DeleteFleetInput{Name: aws.String(tt.fleetName)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteFleet(cleanupCtx, &appstreamsdk.DeleteFleetInput{Name: aws.String(tt.fleetName)})
 			})
 
 			descOut, err := client.DescribeFleets(ctx, &appstreamsdk.DescribeFleetsInput{

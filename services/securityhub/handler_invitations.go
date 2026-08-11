@@ -53,7 +53,7 @@ func (h *Handler) handleAcceptAdministratorInvitation(c *echo.Context, body map[
 	invitationID, _ := body["InvitationId"].(string)
 
 	if err := h.Backend.AcceptAdministratorInvitation(administratorID, invitationID); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -64,7 +64,7 @@ func (h *Handler) handleAcceptInvitation(c *echo.Context, body map[string]any) e
 	invitationID, _ := body["InvitationId"].(string)
 
 	if err := h.Backend.AcceptInvitation(masterID, invitationID); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -167,7 +167,7 @@ func (h *Handler) handleListInvitations(c *echo.Context) error {
 func (h *Handler) handleGetAdministratorAccount(c *echo.Context) error {
 	admin, err := h.Backend.GetAdministratorAccount()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	if admin == nil {
@@ -189,7 +189,7 @@ func (h *Handler) handleGetAdministratorAccount(c *echo.Context) error {
 func (h *Handler) handleGetMasterAccount(c *echo.Context) error {
 	master, err := h.Backend.GetMasterAccount()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	if master == nil {
@@ -210,7 +210,7 @@ func (h *Handler) handleGetMasterAccount(c *echo.Context) error {
 
 func (h *Handler) handleDisassociateFromAdministratorAccount(c *echo.Context) error {
 	if err := h.Backend.DisassociateFromAdministratorAccount(); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -218,7 +218,7 @@ func (h *Handler) handleDisassociateFromAdministratorAccount(c *echo.Context) er
 
 func (h *Handler) handleDisassociateFromMasterAccount(c *echo.Context) error {
 	if err := h.Backend.DisassociateFromMasterAccount(); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

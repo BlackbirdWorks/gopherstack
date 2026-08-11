@@ -172,3 +172,6 @@ type ExportedUpdateMultiRegionClusterRequest = updateMultiRegionClusterRequest
 
 // ExportedResetParameterGroupRequest aliases resetParameterGroupRequest for testing.
 type ExportedResetParameterGroupRequest = resetParameterGroupRequest
+
+// ExportedDescribeServiceUpdatesRequest aliases describeServiceUpdatesRequest for testing.
+type ExportedDescribeServiceUpdatesRequest = describeServiceUpdatesRequest

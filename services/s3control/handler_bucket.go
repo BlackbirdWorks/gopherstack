@@ -228,12 +228,7 @@ func (h *Handler) handleCreateBucket(c *echo.Context) error {
 // ---- Outposts Bucket ----
 
 // handleGetBucket. GetBucketOutput's real fields are Bucket, CreationDate,
-// and PublicAccessBlockEnabled -- it has NO BucketArn or OutpostId field at
-// all (confirmed via aws-sdk-go-v2/service/s3control's GetBucketOutput and
-// its deserializer, which only recognizes those three elements). A
-// previous version of this handler fabricated a BucketArn element and
-// mislabeled the internal "Location" value (an HTTP Location-header path
-// fragment, not an Outpost ID -- see CreateBucket/bucket.go) as OutpostId.
+// and PublicAccessBlockEnabled — no BucketArn or OutpostId field at all.
 // CreationDate/PublicAccessBlockEnabled are omitted (GAP, not fabricated):
 // OutpostsBucket in this backend tracks neither (see models.go).
 func (h *Handler) handleGetBucket(c *echo.Context) error {
@@ -254,28 +249,11 @@ func (h *Handler) handleGetBucket(c *echo.Context) error {
 
 // handleDeleteBucket, like the other three Delete* handlers below that
 // return 204 (handleDeleteBucketLifecycleConfiguration/handleDeleteBucketPolicy/
-// handleDeleteBucketTagging), uses c.NoContent, NOT c.String(204, ""). Found
-// while adding the first real end-to-end HTTP test for this handler
-// (TestHTTP_CreateBucket_RealSDKShape_RoundTrip): echo's c.String writes an
-// (empty) body via c.response.Write.
-//
-// CORRECTED (2026-07-31): an earlier version of this comment, and the commit
-// that made this change, claimed this returned http.ErrBodyNotAllowed "on
-// every real call." That is false and was verified wrong against the stdlib
-// source. In net/http's (*response).write (net/http/server.go), the
-// `if lenData == 0 { return 0, nil }` no-op check runs BEFORE the
-// `if !w.bodyAllowed() { return 0, ErrBodyNotAllowed }` check -- so a real
-// net/http server treats an empty Write after a 204 WriteHeader as a
-// harmless no-op, not an error. Only httptest.ResponseRecorder.Write
-// (net/http/httptest/recorder.go) checks bodyAllowedForStatus unconditionally,
-// with no exemption for zero-length writes, so it returns the error the
-// prior comment described -- but only in tests, never against a real server.
-// The actual defect was narrower: it was a test-observability gap. A
-// handler-level test that dispatches through httptest.NewRecorder() and
-// asserts the returned error is nil would spuriously fail against
-// c.String(204, ""), which is exactly why no such test existed for these four
-// ops before now. Switching to c.NoContent is a hygiene/testability change,
-// not a production bug fix -- real SDK clients were never affected.
+// handleDeleteBucketTagging), uses c.NoContent, not c.String(204, ""):
+// httptest.ResponseRecorder.Write (unlike real net/http) rejects an empty
+// write after a 204 WriteHeader, so c.String(204, "") only breaks in tests,
+// never against a real client — a hygiene/testability fix, not a production
+// bug fix.
 func (h *Handler) handleDeleteBucket(c *echo.Context) error {
 	bucketName := strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix)
 
@@ -350,13 +328,13 @@ func (h *Handler) handleGetBucketPolicy(c *echo.Context) error {
 	}{Policy: policy})
 }
 
-// putBucketPolicyRequestXML mirrors the real PutBucketPolicyInput wire shape:
-// root PutBucketPolicyRequest, with the policy JSON document as the text
-// content of a nested Policy element (confirmed against
-// awsRestxml_serializeOpDocumentPutBucketPolicyInput in the installed SDK's
-// serializers.go -- unlike PutBucketLifecycleConfiguration/PutBucketTagging/
-// PutBucketVersioning, Policy is NOT a payload-bound field, so the request
-// body is NOT the bare policy document; it is wrapped in this envelope).
+// putBucketPolicyRequestXML mirrors the real PutBucketPolicyInput wire
+// shape: root PutBucketPolicyRequest, with the policy JSON document as the
+// text content of a nested Policy element
+// (awsRestxml_serializeOpDocumentPutBucketPolicyInput) — unlike
+// PutBucketLifecycleConfiguration/PutBucketTagging/PutBucketVersioning,
+// Policy is not a payload-bound field, so the body is wrapped in this
+// envelope rather than being the bare policy document.
 type putBucketPolicyRequestXML struct {
 	XMLName xml.Name `xml:"PutBucketPolicyRequest"`
 	Policy  string   `xml:"Policy"`
@@ -399,13 +377,10 @@ type bucketTagXML struct {
 }
 
 // getBucketTaggingResponseXML mirrors GetBucketTaggingOutput's real wire
-// shape. TagSet is aws-sdk-go-v2's shared S3TagSet type, whose entries
-// serialize as "<member>", NOT "<Tag>" (confirmed via
-// awsRestxml_serializeDocumentS3TagSet -- the same type job tagging uses,
-// see jobTagSetXML in handler_jobs.go; it is a DIFFERENT type from the
+// shape. TagSet is the shared S3TagSet type, whose entries serialize as
+// "<member>", not "<Tag>" (awsRestxml_serializeDocumentS3TagSet — same type
+// job tagging uses, see jobTagSetXML in handler_jobs.go; different from the
 // "Tag"-named TagList used by generic resource tagging in handler_tags.go).
-// A previous version of this handler used "Tag" here, which would make
-// every tag invisible to a real client's S3TagSet decoder.
 type getBucketTaggingResponseXML struct {
 	XMLName xml.Name       `xml:"GetBucketTaggingResult"`
 	Tags    []bucketTagXML `xml:"TagSet>member"`
@@ -431,16 +406,10 @@ func (h *Handler) handleGetBucketTagging(c *echo.Context) error {
 }
 
 // putBucketTaggingRequestXML mirrors PutBucketTaggingInput's real wire
-// shape. Tagging is a "payload"-bound field in the real SDK, meaning the
-// ENTIRE request body root element is "<Tagging>" -- there is no
-// "<PutBucketTaggingRequest>" wrapper at all (confirmed via
-// awsRestxml_serializeOpPutBucketTaggingRequest, which sets the XML root
-// element to "Tagging" directly). A previous version of this handler
-// expected the payload nested one level deeper, under
-// "<PutBucketTaggingRequest><Tagging>...", which a real aws-sdk-go-v2
-// client's request would never match (root-element mismatch), rejecting
-// every real PutBucketTagging call outright. TagSet's member name is
-// "member", not "Tag" -- see getBucketTaggingResponseXML's doc comment.
+// shape. Tagging is a "payload"-bound field, so the entire request body
+// root element is "<Tagging>" — no "<PutBucketTaggingRequest>" wrapper
+// (awsRestxml_serializeOpPutBucketTaggingRequest). TagSet's member name is
+// "member", not "Tag" — see getBucketTaggingResponseXML's doc comment.
 type putBucketTaggingRequestXML struct {
 	XMLName xml.Name       `xml:"Tagging"`
 	Tags    []bucketTagXML `xml:"TagSet>member"`
@@ -503,17 +472,10 @@ func (h *Handler) handleGetBucketVersioning(c *echo.Context) error {
 }
 
 // putBucketVersioningRequestXML mirrors PutBucketVersioningInput's real
-// wire shape. VersioningConfiguration is a "payload"-bound field, meaning
-// the ENTIRE request body root element is "<VersioningConfiguration>" --
-// there is no "<PutBucketVersioningRequest>" wrapper (confirmed via
-// awsRestxml_serializeOpPutBucketVersioningRequest, which sets the XML
-// root element to "VersioningConfiguration" directly, with Status as its
-// direct child). A previous version of this handler expected the payload
-// nested one level deeper under
-// "<PutBucketVersioningRequest><VersioningConfiguration><Status>...",
-// which a real aws-sdk-go-v2 client's request would never match
-// (root-element mismatch), rejecting every real PutBucketVersioning call
-// outright.
+// wire shape. VersioningConfiguration is a "payload"-bound field, so the
+// entire request body root element is "<VersioningConfiguration>" with
+// Status as its direct child — no "<PutBucketVersioningRequest>" wrapper
+// (awsRestxml_serializeOpPutBucketVersioningRequest).
 type putBucketVersioningRequestXML struct {
 	XMLName xml.Name `xml:"VersioningConfiguration"`
 	Status  string   `xml:"Status"`

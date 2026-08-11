@@ -48,7 +48,7 @@ func newPersistenceTestBackend(t *testing.T) (*vpclattice.InMemoryBackend, persi
 	snsa, err := b.CreateServiceNetworkServiceAssociation(ctx, sn.ID, svc.ID, nil)
 	require.NoError(t, err)
 
-	snva, err := b.CreateServiceNetworkVpcAssociation(ctx, sn.ID, "vpc-1", []string{"sg-1"}, true, nil)
+	snva, err := b.CreateServiceNetworkVpcAssociation(ctx, sn.ID, "vpc-1", []string{"sg-1"}, true, nil, nil)
 	require.NoError(t, err)
 
 	listener, err := b.CreateListener(svc.ID, "listener1", "HTTP", 80, nil, nil)

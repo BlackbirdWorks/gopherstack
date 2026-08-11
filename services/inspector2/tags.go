@@ -113,6 +113,33 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return result, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Inspector2 resource ARN that currently has
+// at least one tag applied via TagResource. In practice this is always a
+// filter ARN: resourceExists only recognizes filters (or an ARN already
+// present in b.tags), and only CreateFilter seeds b.tags at creation time.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for resourceARN, tags := range b.tags {
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceARN, Tags: maps.Clone(tags)})
+	}
+
+	return out
+}
+
 // resourceExists returns true if the ARN corresponds to a known resource.
 // Must be called with at least an RLock held.
 func (b *InMemoryBackend) resourceExists(resourceARN string) bool {

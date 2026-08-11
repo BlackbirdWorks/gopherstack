@@ -33,6 +33,8 @@ const (
 	elasticsearchVersion51         = "5.1"
 	defaultInstanceType            = "t3.small.elasticsearch"
 	largeInstanceType              = "m5.large.elasticsearch"
+	autoTuneStateEnabled           = "ENABLED"
+	autoTuneStateDisabled          = "DISABLED"
 )
 
 // domainNameRe validates Elasticsearch domain names:
@@ -86,14 +88,27 @@ type PackageSource struct {
 	S3Key        string `json:"s3Key"`
 }
 
+// PackageErrorDetails carries the error message/type for a package stuck in
+// COPY_FAILED (types.ErrorDetails). This backend has no COPYING/COPY_FAILED
+// state machine -- packages always transition straight to AVAILABLE -- so
+// this is always nil in practice; the type is still modeled so the field is
+// wire-correct if that ever changes.
+type PackageErrorDetails struct {
+	ErrorMessage string `json:"errorMessage,omitempty"`
+	ErrorType    string `json:"errorType,omitempty"`
+}
+
 // Package represents an Elasticsearch package (e.g., a custom dictionary or synonym file).
 type Package struct {
-	ID            string        `json:"packageID"`
-	Name          string        `json:"packageName"`
-	PackageType   string        `json:"packageType"`
-	Description   string        `json:"packageDescription"`
-	Status        string        `json:"packageStatus"`
-	PackageSource PackageSource `json:"packageSource"`
+	CreatedAt     time.Time            `json:"createdAt,omitzero"`
+	LastUpdatedAt time.Time            `json:"lastUpdatedAt,omitzero"`
+	ErrorDetails  *PackageErrorDetails `json:"errorDetails,omitempty"`
+	ID            string               `json:"packageID"`
+	Name          string               `json:"packageName"`
+	PackageType   string               `json:"packageType"`
+	Description   string               `json:"packageDescription"`
+	Status        string               `json:"packageStatus"`
+	PackageSource PackageSource        `json:"packageSource"`
 	// region is the store.Table composite-key qualifier (see regionKey in
 	// backend.go); it is unexported so it is never marshaled by a plain
 	// json.Marshal(Package) and is instead carried through persistence via
@@ -244,23 +259,74 @@ type LogPublishingOption struct {
 	Enabled                   bool   `json:"enabled"`
 }
 
-// AdvancedSecurityOptions holds fine-grained access control settings
-// (types.AdvancedSecurityOptions on response). Master user credentials
-// (MasterUserOptions on the *Input request shape) and SAML IdP configuration
-// are intentionally not persisted here: real AWS never echoes
-// MasterUserOptions back on any Describe/Create/Update response either, and
-// full SAML modeling is out of scope for this pass (see PARITY.md gaps).
-type AdvancedSecurityOptions struct {
-	Enabled                     bool `json:"enabled"`
-	InternalUserDatabaseEnabled bool `json:"internalUserDatabaseEnabled,omitempty"`
-	AnonymousAuthEnabled        bool `json:"anonymousAuthEnabled,omitempty"`
+// SAMLIdp holds the SAML Identity Provider's entity ID and metadata
+// (types.SAMLIdp). Both members are required by the SDK client whenever Idp
+// is present -- confirmed against validateSAMLIdp in
+// aws-sdk-go-v2/service/elasticsearchservice@v1.45.4's validators.go:1091-1107.
+type SAMLIdp struct {
+	EntityID        string `json:"entityID"`
+	MetadataContent string `json:"metadataContent"`
 }
 
-// AutoTuneOptions holds the Auto-Tune desired state for a domain
-// (types.AutoTuneOptionsInput's DesiredState member). MaintenanceSchedules is
-// not modeled (see PARITY.md gaps).
+// SAMLOptions holds the SAML SSO configuration for Kibana authentication
+// (types.SAMLOptionsInput on request, types.SAMLOptionsOutput on response).
+// MasterUserName/MasterBackendRole are credential-adjacent fields that real
+// AWS never echoes back on any Describe/Create/Update response (types.SAMLOptionsOutput
+// has no MasterUserName/MasterBackendRole members), matching MasterUserOptions's
+// existing treatment in this backend: stored for completeness, excluded by
+// the response builder.
+type SAMLOptions struct {
+	Idp                   *SAMLIdp `json:"idp,omitempty"`
+	MasterBackendRole     string   `json:"masterBackendRole,omitempty"`
+	MasterUserName        string   `json:"masterUserName,omitempty"`
+	RolesKey              string   `json:"rolesKey,omitempty"`
+	SubjectKey            string   `json:"subjectKey,omitempty"`
+	SessionTimeoutMinutes int32    `json:"sessionTimeoutMinutes,omitempty"`
+	Enabled               bool     `json:"enabled"`
+}
+
+// AdvancedSecurityOptions holds fine-grained access control settings
+// (types.AdvancedSecurityOptions on response). Master user credentials
+// (MasterUserOptions on the *Input request shape) are intentionally not
+// persisted here: real AWS never echoes MasterUserOptions back on any
+// Describe/Create/Update response.
+type AdvancedSecurityOptions struct {
+	SAMLOptions                 *SAMLOptions `json:"samlOptions,omitempty"`
+	Enabled                     bool         `json:"enabled"`
+	InternalUserDatabaseEnabled bool         `json:"internalUserDatabaseEnabled,omitempty"`
+	AnonymousAuthEnabled        bool         `json:"anonymousAuthEnabled,omitempty"`
+}
+
+// Duration holds a maintenance-schedule duration (types.Duration). Unit's
+// only valid enum value is "HOURS" -- confirmed against types.TimeUnit in
+// the pinned SDK's types/enums.go:772-786.
+type Duration struct {
+	Unit  string `json:"unit,omitempty"`
+	Value int64  `json:"value,omitempty"`
+}
+
+// AutoTuneMaintenanceSchedule is one recurring Auto-Tune maintenance window
+// (types.AutoTuneMaintenanceSchedule).
+type AutoTuneMaintenanceSchedule struct {
+	StartAt                     time.Time `json:"startAt,omitzero"`
+	Duration                    *Duration `json:"duration,omitempty"`
+	CronExpressionForRecurrence string    `json:"cronExpressionForRecurrence,omitempty"`
+}
+
+// AutoTuneOptions holds the Auto-Tune desired state and maintenance
+// schedules for a domain (types.AutoTuneOptionsInput).
 type AutoTuneOptions struct {
-	DesiredState string `json:"desiredState,omitempty"`
+	DesiredState         string                        `json:"desiredState,omitempty"`
+	MaintenanceSchedules []AutoTuneMaintenanceSchedule `json:"maintenanceSchedules,omitempty"`
+}
+
+// DeploymentStrategyOptions holds the deployment strategy used when applying
+// domain configuration changes (types.DeploymentStrategyOptions). Valid
+// values for DeploymentStrategy are Default and CapacityOptimized --
+// confirmed against types.DeploymentStrategy in the pinned SDK's
+// types/enums.go:130-136.
+type DeploymentStrategyOptions struct {
+	DeploymentStrategy string `json:"deploymentStrategy"`
 }
 
 // Domain represents an Elasticsearch domain.
@@ -274,6 +340,7 @@ type Domain struct {
 	Tags                        *tags.Tags                     `json:"tags,omitempty"`
 	AdvancedSecurityOptions     *AdvancedSecurityOptions       `json:"advancedSecurityOptions,omitempty"`
 	CognitoOptions              *CognitoOptions                `json:"cognitoOptions,omitempty"`
+	DeploymentStrategyOptions   *DeploymentStrategyOptions     `json:"deploymentStrategyOptions,omitempty"`
 	ElasticsearchVersion        string                         `json:"elasticsearchVersion"`
 	AccessPolicies              string                         `json:"accessPolicies,omitempty"`
 	Status                      string                         `json:"status"`
@@ -301,6 +368,7 @@ type CreateDomainInput struct {
 	AdvancedOptions             map[string]string
 	AdvancedSecurityOptions     *AdvancedSecurityOptions
 	CognitoOptions              *CognitoOptions
+	DeploymentStrategyOptions   *DeploymentStrategyOptions
 	AccessPolicies              string
 	TLSSecurityPolicy           string
 	ElasticsearchVersion        string
@@ -323,6 +391,7 @@ type UpdateConfig struct {
 	CognitoOptions              *CognitoOptions
 	AdvancedSecurityOptions     *AdvancedSecurityOptions
 	AutoTuneOptions             *AutoTuneOptions
+	DeploymentStrategyOptions   *DeploymentStrategyOptions
 	LogPublishingOptions        map[string]LogPublishingOption
 	AccessPolicies              *string
 	TLSSecurityPolicy           *string

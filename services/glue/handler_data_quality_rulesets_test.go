@@ -603,6 +603,42 @@ func TestHandlerDataQuality_GetDataQualityRulesetEvaluationRun(t *testing.T) {
 	}
 }
 
+// TestHandlerDataQuality_BatchGetDataQualityRulesetEvaluationRun drives the
+// real wire path for a mix of existing and nonexistent run IDs, verifying
+// the found/RunsNotFound split matches BatchGetCrawlers' shape.
+func TestHandlerDataQuality_BatchGetDataQualityRulesetEvaluationRun(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doGlueRequest(t, h, "CreateDataQualityRuleset", map[string]any{
+		"Name":    "my-ruleset",
+		"Ruleset": "Rules = [ RowCount > 100 ]",
+	})
+
+	startRec := doGlueRequest(t, h, "StartDataQualityRulesetEvaluationRun", map[string]any{
+		"RulesetNames": []string{"my-ruleset"},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+	var startOut map[string]string
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	runID := startOut["RunId"]
+	require.NotEmpty(t, runID)
+
+	rec := doGlueRequest(t, h, "BatchGetDataQualityRulesetEvaluationRun", map[string]any{
+		"RunIds": []string{runID, "no-such-run"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Runs         []map[string]any `json:"Runs"`
+		RunsNotFound []string         `json:"RunsNotFound"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Runs, 1)
+	assert.Equal(t, runID, out.Runs[0]["RunId"])
+	assert.Equal(t, []string{"no-such-run"}, out.RunsNotFound)
+}
+
 func TestHandlerDataQuality_CancelDataQualityRulesetEvaluationRun(t *testing.T) {
 	t.Parallel()
 

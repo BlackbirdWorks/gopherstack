@@ -5,6 +5,25 @@ import (
 	"maps"
 )
 
+// tagsFromInput extracts a Create* request's Tags field (the same
+// []{"Key":..,"Value":..} shape dispatchTagResource parses in handler.go)
+// into a plain map, or nil if the field is absent or empty.
+func tagsFromInput(data map[string]any) map[string]string {
+	tagsInput, ok := data["Tags"].([]any)
+	if !ok || len(tagsInput) == 0 {
+		return nil
+	}
+
+	tags := make(map[string]string, len(tagsInput))
+	for _, tag := range tagsInput {
+		if t, okTag := tag.(map[string]any); okTag {
+			tags[stringValue(t["Key"])] = stringValue(t["Value"])
+		}
+	}
+
+	return tags
+}
+
 // TagResource adds tags to a resource. Real Amazon Forecast returns
 // ResourceNotFoundException when resourceARN does not identify an existing
 // resource -- TagResource does not silently create tag state for ARNs no

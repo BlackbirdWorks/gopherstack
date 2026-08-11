@@ -2,6 +2,7 @@ package acm_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -11,6 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// b64 encodes s the way the real SDK client base64-encodes ImportCertificate's
+// blob fields (Certificate/PrivateKey/CertificateChain) before putting them on
+// the wire (acm@v1.43.4 serializers.go:3284-3301).
+func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 
 func TestACMHandler_ImportCertificate(t *testing.T) {
 	t.Parallel()
@@ -33,8 +39,8 @@ func TestACMHandler_ImportCertificate(t *testing.T) {
 			name: "success",
 			body: func() string {
 				in, _ := json.Marshal(map[string]string{
-					"Certificate": certPEM,
-					"PrivateKey":  keyPEM,
+					"Certificate": b64(certPEM),
+					"PrivateKey":  b64(keyPEM),
 				})
 
 				return string(in)
@@ -50,7 +56,7 @@ func TestACMHandler_ImportCertificate(t *testing.T) {
 		{
 			name: "missing_key",
 			body: func() string {
-				in, _ := json.Marshal(map[string]string{"Certificate": certPEM})
+				in, _ := json.Marshal(map[string]string{"Certificate": b64(certPEM)})
 
 				return string(in)
 			}(),
@@ -238,8 +244,8 @@ func TestACMHandler_ImportCertificate_RealistFields(t *testing.T) {
 	require.NoError(t, err)
 
 	body, _ := json.Marshal(map[string]string{
-		"Certificate": src.CertificateBody,
-		"PrivateKey":  src.PrivateKey,
+		"Certificate": b64(src.CertificateBody),
+		"PrivateKey":  b64(src.PrivateKey),
 	})
 	importRec := postACMJSON(t, h, "ImportCertificate", string(body))
 	require.Equal(t, http.StatusOK, importRec.Code)
@@ -279,8 +285,8 @@ func TestACMHandler_ImportCertificate_ReImport(t *testing.T) {
 
 	// Import first cert
 	body1, _ := json.Marshal(map[string]string{
-		"Certificate": src1.CertificateBody,
-		"PrivateKey":  src1.PrivateKey,
+		"Certificate": b64(src1.CertificateBody),
+		"PrivateKey":  b64(src1.PrivateKey),
 	})
 	importRec := postACMJSON(t, h, "ImportCertificate", string(body1))
 	require.Equal(t, http.StatusOK, importRec.Code)
@@ -294,8 +300,8 @@ func TestACMHandler_ImportCertificate_ReImport(t *testing.T) {
 	// Re-import using the same ARN with new cert material
 	body2, _ := json.Marshal(map[string]string{
 		"CertificateArn": originalARN,
-		"Certificate":    src2.CertificateBody,
-		"PrivateKey":     src2.PrivateKey,
+		"Certificate":    b64(src2.CertificateBody),
+		"PrivateKey":     b64(src2.PrivateKey),
 	})
 	reImportRec := postACMJSON(t, h, "ImportCertificate", string(body2))
 	require.Equal(t, http.StatusOK, reImportRec.Code)
@@ -753,8 +759,8 @@ func TestACMHandler_ImportedCertificate_SerialColonFormat(t *testing.T) {
 	require.NoError(t, err)
 
 	importBody := mustMarshal(t, map[string]string{
-		"Certificate": src.CertificateBody,
-		"PrivateKey":  src.PrivateKey,
+		"Certificate": b64(src.CertificateBody),
+		"PrivateKey":  b64(src.PrivateKey),
 	})
 	importRec := postACMJSON(t, h, "ImportCertificate", importBody)
 	require.Equal(t, http.StatusOK, importRec.Code)

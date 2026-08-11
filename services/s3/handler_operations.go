@@ -98,22 +98,14 @@ func s3CoreOperations() []string {
 	}
 }
 
-// s3ExtendedOperations returns S3 operations that are fully implemented but
-// historically tracked separately from the primary CRUD/config surface in
-// s3CoreOperations (mostly SDK-completeness-only or later-added corners:
-// directory buckets, ABAC, request-payment, torrent, restore, metadata-table
-// journal/inventory updates, WriteGetObjectResponse). Every operation here
-// performs real state mutation/reads against the backend — none of them
-// return a canned/no-op response (verified: RestoreObject, Get/PutBucketAccelerateConfiguration,
-// Get/PutBucketRequestPayment, GetObjectAttributes, ListDirectoryBuckets,
-// PostObject, WriteGetObjectResponse, RenameObject, UpdateObjectEncryption,
-// GetBucketPolicyStatus, Get/PutBucketAbac, and both
-// UpdateBucketMetadata{Inventory,Journal}TableConfiguration all do real state
-// mutation/reads). GetSupportedOperations merges this with s3CoreOperations
-// into a single flat list; the split exists only for readability of this
-// file — this function was previously (and misleadingly) named
-// s3StubOperations, which implied unimplemented/canned handlers; it was
-// renamed because every operation in it is fully implemented.
+// s3ExtendedOperations returns S3 operations tracked separately from the
+// primary CRUD/config surface in s3CoreOperations (mostly SDK-completeness-only
+// or later-added corners: directory buckets, ABAC, request-payment, torrent,
+// restore, metadata-table journal/inventory updates, WriteGetObjectResponse).
+// Every operation here performs real state mutation/reads -- none return a
+// canned/no-op response. GetSupportedOperations merges this with
+// s3CoreOperations into a single flat list; the split exists only for
+// readability of this file.
 func s3ExtendedOperations() []string {
 	return []string{
 		"GetBucketAbac",

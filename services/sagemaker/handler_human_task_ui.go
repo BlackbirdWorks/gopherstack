@@ -12,8 +12,8 @@ import (
 
 func (h *Handler) handleCreateHumanTaskUI(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags            map[string]string `json:"Tags"`
-		HumanTaskUIName string            `json:"HumanTaskUiName"`
+		HumanTaskUIName string      `json:"HumanTaskUiName"`
+		Tags            []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -24,7 +24,7 @@ func (h *Handler) handleCreateHumanTaskUI(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: HumanTaskUiName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateHumanTaskUI(ctx, req.HumanTaskUIName, req.Tags)
+	result, err := h.Backend.CreateHumanTaskUI(ctx, req.HumanTaskUIName, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

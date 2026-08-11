@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -210,7 +211,7 @@ func TestDomainName_UpdateRegionalCert(t *testing.T) {
 
 	updated, err := b.UpdateDomainName(apigateway.UpdateDomainNameInput{
 		DomainName:             "regional.example.com",
-		RegionalCertificateARN: "arn:aws:acm:us-east-1:123456789012:certificate/new",
+		RegionalCertificateARN: ptrconv.NilIfEmpty("arn:aws:acm:us-east-1:123456789012:certificate/new"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:acm:us-east-1:123456789012:certificate/new", updated.RegionalCertificateARN)

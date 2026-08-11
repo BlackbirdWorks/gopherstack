@@ -45,6 +45,7 @@ func replicatorKeyFn(r *Replicator) string              { return r.ReplicatorArn
 func topicKeyFn(t *Topic) string                        { return topicKey(t.ClusterArn, t.TopicName) }
 func vpcConnectionKeyFn(v *VpcConnection) string        { return v.VpcConnectionArn }
 func clusterOperationKeyFn(op *ClusterOperation) string { return op.ClusterOperationArn }
+func channelKeyFn(ch *Channel) string                   { return ch.ChannelArn }
 
 func clusterRegionIndexKeyFn(c *Cluster) string { return regionFromARN(c.ClusterArn, "") }
 
@@ -65,6 +66,8 @@ func vpcConnectionClusterIndexKeyFn(v *VpcConnection) string { return v.TargetCl
 func topicClusterIndexKeyFn(t *Topic) string { return t.ClusterArn }
 
 func clusterOperationClusterIndexKeyFn(op *ClusterOperation) string { return op.ClusterArn }
+
+func channelClusterIndexKeyFn(ch *Channel) string { return ch.ClusterArn }
 
 // registerAllTables constructs and registers every store.Table-backed
 // resource field exactly once, at construction time. It must never run on
@@ -90,4 +93,7 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.clusterOperations = store.Register(b.registry, "clusterOperations", store.New(clusterOperationKeyFn))
 	b.clusterOperationsByCluster = b.clusterOperations.AddIndex("cluster", clusterOperationClusterIndexKeyFn)
+
+	b.channels = store.Register(b.registry, "channels", store.New(channelKeyFn))
+	b.channelsByCluster = b.channels.AddIndex("cluster", channelClusterIndexKeyFn)
 }

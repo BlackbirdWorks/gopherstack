@@ -12,9 +12,16 @@ func (h *Handler) handleCreateDBSubnetGroup(ctx context.Context, vals url.Values
 	description := vals.Get("DBSubnetGroupDescription")
 	vpcID := vals.Get("VpcId")
 	subnetIDs := parseSubnetIDMembers(vals)
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	sg, err := h.Backend.CreateDBSubnetGroup(ctx, name, description, vpcID, subnetIDs)
 	if err != nil {
 		return nil, err
+	}
+	if len(tags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, sg.DBSubnetGroupArn, tags)
 	}
 
 	return &createDBSubnetGroupResponse{

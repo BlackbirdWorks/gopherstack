@@ -1,6 +1,7 @@
 package sesv2_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -28,7 +29,7 @@ func TestCreateEmailTemplate(t *testing.T) {
 		{
 			name: "duplicate",
 			setup: func(b *sesv2.InMemoryBackend) {
-				_, _ = b.CreateEmailTemplate("my-template", nil)
+				_, _ = b.CreateEmailTemplate("my-template", nil, nil)
 			},
 			templateName: "my-template",
 			wantErr:      true,
@@ -49,7 +50,7 @@ func TestCreateEmailTemplate(t *testing.T) {
 			tt.setup(backend)
 
 			content := &sesv2.EmailTemplateContent{Subject: "Hello", Text: "Hello world"}
-			_, err := backend.CreateEmailTemplate(tt.templateName, content)
+			_, err := backend.CreateEmailTemplate(tt.templateName, content, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -85,7 +86,7 @@ func TestCreateEmailTemplateHTTPDuplicate(t *testing.T) {
 	t.Parallel()
 
 	h, backend := newSESv2TestHandler(t)
-	_, err := backend.CreateEmailTemplate("my-template", nil)
+	_, err := backend.CreateEmailTemplate("my-template", nil, nil)
 	require.NoError(t, err)
 
 	body := map[string]any{"TemplateName": "my-template", "TemplateContent": map[string]any{}}
@@ -109,6 +110,41 @@ func TestGetEmailTemplate(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/v2/email/templates/GetTemplate", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestGetEmailTemplate_RendersTags verifies that GetEmailTemplate echoes the
+// Tags supplied at creation, matching the real GetEmailTemplateResponse
+// shape (confirmed via botocore sesv2/2019-09-27: TemplateName,
+// TemplateContent, Tags -- gopherstack-2mwl).
+func TestGetEmailTemplate_RendersTags(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	doRequest(t, h, http.MethodPost, "/v2/email/templates", map[string]any{
+		"TemplateName": "TaggedTemplate",
+		"TemplateContent": map[string]any{
+			"Subject": "Hello",
+			"Html":    "<html>Hello</html>",
+		},
+		"Tags": []map[string]any{
+			{"Key": "team", "Value": "sec"},
+		},
+	})
+
+	rec := doRequest(t, h, http.MethodGet, "/v2/email/templates/TaggedTemplate", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Tags, 1)
+	assert.Equal(t, "team", resp.Tags[0].Key)
+	assert.Equal(t, "sec", resp.Tags[0].Value)
 }
 
 // TestDeleteEmailTemplate tests the DeleteEmailTemplate operation.

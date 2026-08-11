@@ -44,6 +44,17 @@ func customActionTypeKeyFn(v *CustomActionType) string {
 // alone, replacing the old outer map[region] nesting used by ListActionTypes.
 func customActionTypeRegionIndexKeyFn(v *CustomActionType) string { return v.region }
 
+// customActionTypeARNIndexKeyFn groups custom action types by "region|ARN",
+// mirroring pipelineARNIndexKeyFn/webhookARNIndexKeyFn so ListTagsForResource/
+// TagResource/UntagResource can resolve a custom action type's ARN the same
+// way they resolve a pipeline's or webhook's (gopherstack-2mwl: custom action
+// types accept Tags at CreateCustomActionType but had no ARN-reachable path).
+// v.arn is precomputed at creation time (CreateCustomActionType) since the
+// real ActionType response carries no Arn field to derive one from later.
+func customActionTypeARNIndexKeyFn(v *CustomActionType) string {
+	return regionKey(v.region, v.arn)
+}
+
 // jobKeyFn derives the composite primary key for the flat jobs table from the
 // region and the job's own ID.
 func jobKeyFn(v *Job) string { return regionKey(v.region, v.ID) }
@@ -92,6 +103,7 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.customActionTypes = store.Register(b.registry, "customActionTypes", store.New(customActionTypeKeyFn))
 	b.customActionTypesByRegion = b.customActionTypes.AddIndex("byRegion", customActionTypeRegionIndexKeyFn)
+	b.customActionTypesByARN = b.customActionTypes.AddIndex("byARN", customActionTypeARNIndexKeyFn)
 
 	b.jobs = store.Register(b.registry, "jobs", store.New(jobKeyFn))
 	b.jobsByRegion = b.jobs.AddIndex("byRegion", jobRegionIndexKeyFn)

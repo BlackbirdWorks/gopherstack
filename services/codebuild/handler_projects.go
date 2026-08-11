@@ -13,7 +13,7 @@ type projectConfigFields struct {
 	Cache                   *ProjectCache          `json:"cache"`
 	Source                  *ProjectSource         `json:"source"`
 	Artifacts               *ProjectArtifacts      `json:"artifacts"`
-	Tags                    map[string]string      `json:"tags"`
+	Tags                    wireTags               `json:"tags"`
 	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig"`
 	VpcConfig               *VpcConfig             `json:"vpcConfig"`
 	LogsConfig              *LogsConfig            `json:"logsConfig"`

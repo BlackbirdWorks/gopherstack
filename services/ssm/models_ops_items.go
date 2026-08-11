@@ -102,14 +102,14 @@ type UpdateOpsItemInput struct {
 	PlannedEndTime   *float64                    `json:"PlannedEndTime,omitempty"`
 	RelatedOpsItems  []RelatedOpsItemRef         `json:"RelatedOpsItems,omitempty"`
 	// OperationalDataToDelete removes keys from OperationalData. Confirmed
-	// present in aws-sdk-go-v2 v1.71.0's api_op_UpdateOpsItem.go but out of
+	// present in aws-sdk-go-v2 v1.73.4's api_op_UpdateOpsItem.go but out of
 	// scope for this pass (tracked separately, not part of bd gopherstack-iq4m's
 	// field list).
 }
 
 // UpdateOpsMetadataInput is the request payload for UpdateOpsMetadata.
 type UpdateOpsMetadataInput struct {
-	Metadata       map[string]MetadataValue `json:"Metadata,omitempty"`
+	Metadata       map[string]MetadataValue `json:"MetadataToUpdate,omitempty"`
 	OpsMetadataArn string                   `json:"OpsMetadataArn"`
 }
 

@@ -49,3 +49,30 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 	return result, nil
 }
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every DLM policy ARN that currently has at least one tag
+// applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	b.policies.Range(func(p *storedPolicy) bool {
+		if len(p.Tags) > 0 {
+			result := make(map[string]string, len(p.Tags))
+			maps.Copy(result, p.Tags)
+			out = append(out, TaggedEntry{ARN: p.PolicyArn, Tags: result})
+		}
+
+		return true
+	})
+
+	return out
+}

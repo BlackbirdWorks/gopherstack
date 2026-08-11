@@ -25,11 +25,21 @@ const (
 	keyResourceCluster = "cluster"
 
 	// Operation name constants shared across handler files.
-	opCreateUsageLimit      = "CreateUsageLimit"
-	opDeleteUsageLimit      = "DeleteUsageLimit"
-	opCreateScheduledAction = "CreateScheduledAction"
-	opDeleteScheduledAction = "DeleteScheduledAction"
-	opUnknown               = "Unknown"
+	opCreateUsageLimit              = "CreateUsageLimit"
+	opDeleteUsageLimit              = "DeleteUsageLimit"
+	opCreateScheduledAction         = "CreateScheduledAction"
+	opDeleteScheduledAction         = "DeleteScheduledAction"
+	opCreateCustomDomainAssociation = "CreateCustomDomainAssociation"
+	opDeleteCustomDomainAssociation = "DeleteCustomDomainAssociation"
+	opGetResourcePolicy             = "GetResourcePolicy"
+	opPutResourcePolicy             = "PutResourcePolicy"
+	opDeleteResourcePolicy          = "DeleteResourcePolicy"
+	// opCreateEndpointAccess/opDeleteEndpointAccess are shared with
+	// handler_serverless.go: classic Redshift and Redshift Serverless both
+	// define real, distinct operations with these exact names.
+	opCreateEndpointAccess = "CreateEndpointAccess"
+	opDeleteEndpointAccess = "DeleteEndpointAccess"
+	opUnknown              = "Unknown"
 )
 
 const (
@@ -126,7 +136,7 @@ func supportedOpsGroup1() []string {
 		"DeleteClusterSubnetGroup",
 		"DeleteEventSubscription",
 		"DeletePartner",
-		"DeleteResourcePolicy",
+		opDeleteResourcePolicy,
 		"DeleteSnapshotCopyGrant",
 		"DeleteSnapshotSchedule",
 		"DeleteTags",
@@ -177,7 +187,7 @@ func supportedOpsGroup2() []string {
 		"GetClusterCredentialsWithIAM",
 		"GetReservedNodeExchangeConfigurationOptions",
 		"GetReservedNodeExchangeOfferings",
-		"GetResourcePolicy",
+		opGetResourcePolicy,
 		"ModifyAuthenticationProfile",
 		"ModifyCluster",
 		"ModifyClusterIamRoles",
@@ -192,7 +202,7 @@ func supportedOpsGroup2() []string {
 		"ModifyUsageLimit",
 		"PauseCluster",
 		"PurchaseReservedNodeOffering",
-		"PutResourcePolicy",
+		opPutResourcePolicy,
 		"RebootCluster",
 		"RejectDataShare",
 		"ResetClusterParameterGroup",
@@ -205,16 +215,16 @@ func supportedOpsGroup2() []string {
 		"RotateEncryptionKey",
 		"UpdatePartnerStatus",
 		// Completeness pass — previously notImplemented
-		"CreateCustomDomainAssociation",
-		"CreateEndpointAccess",
+		opCreateCustomDomainAssociation,
+		opCreateEndpointAccess,
 		"CreateHsmClientCertificate",
 		"CreateHsmConfiguration",
 		"CreateIntegration",
 		"CreateQev2IdcApplication",
 		"CreateRedshiftIdcApplication",
 		opCreateScheduledAction,
-		"DeleteCustomDomainAssociation",
-		"DeleteEndpointAccess",
+		opDeleteCustomDomainAssociation,
+		opDeleteEndpointAccess,
 		"DeleteHsmClientCertificate",
 		"DeleteHsmConfiguration",
 		"DeleteIntegration",
@@ -373,7 +383,7 @@ func (h *Handler) buildOpsGroup1() map[string]redshiftActionFn {
 		"DeleteClusterSubnetGroup":             h.handleDeleteClusterSubnetGroup,
 		"DeleteEventSubscription":              h.handleDeleteEventSubscription,
 		"DeletePartner":                        h.handleDeletePartner,
-		"DeleteResourcePolicy":                 h.handleDeleteResourcePolicy,
+		opDeleteResourcePolicy:                 h.handleDeleteResourcePolicy,
 		"DeleteSnapshotCopyGrant":              h.handleDeleteSnapshotCopyGrant,
 		"DeleteSnapshotSchedule":               h.handleDeleteSnapshotSchedule,
 		"DeleteTags":                           h.handleDeleteTags,
@@ -424,7 +434,7 @@ func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 		"FailoverPrimaryCompute":                      h.handleFailoverPrimaryCompute,
 		"GetClusterCredentials":                       h.handleGetClusterCredentials,
 		"GetClusterCredentialsWithIAM":                h.handleGetClusterCredentialsWithIAM,
-		"GetResourcePolicy":                           h.handleGetResourcePolicy,
+		opGetResourcePolicy:                           h.handleGetResourcePolicy,
 		"GetReservedNodeExchangeConfigurationOptions": h.handleGetReservedNodeExchangeConfigurationOptions,
 		"GetReservedNodeExchangeOfferings":            h.handleGetReservedNodeExchangeOfferings,
 		"ModifyAuthenticationProfile":                 h.handleModifyAuthenticationProfile,
@@ -441,7 +451,7 @@ func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 		"ModifyUsageLimit":                            h.handleModifyUsageLimit,
 		"PauseCluster":                                h.handlePauseCluster,
 		"PurchaseReservedNodeOffering":                h.handlePurchaseReservedNodeOffering,
-		"PutResourcePolicy":                           h.handlePutResourcePolicy,
+		opPutResourcePolicy:                           h.handlePutResourcePolicy,
 		"RebootCluster":                               h.handleRebootCluster,
 		"RejectDataShare":                             h.handleRejectDataShare,
 		"ResetClusterParameterGroup":                  h.handleResetClusterParameterGroup,
@@ -461,16 +471,16 @@ func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 // applications, scheduled actions, and cluster/namespace informational ops.
 func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 	return map[string]redshiftActionFn{
-		"CreateCustomDomainAssociation":    h.handleCreateCustomDomainAssociation,
-		"CreateEndpointAccess":             h.handleCreateEndpointAccess,
+		opCreateCustomDomainAssociation:    h.handleCreateCustomDomainAssociation,
+		opCreateEndpointAccess:             h.handleCreateEndpointAccess,
 		"CreateHsmClientCertificate":       h.handleCreateHsmClientCertificate,
 		"CreateHsmConfiguration":           h.handleCreateHsmConfiguration,
 		"CreateIntegration":                h.handleCreateIntegration,
 		"CreateQev2IdcApplication":         h.handleCreateQev2IdcApplication,
 		"CreateRedshiftIdcApplication":     h.handleCreateIdcApplication,
 		opCreateScheduledAction:            h.handleCreateScheduledAction,
-		"DeleteCustomDomainAssociation":    h.handleDeleteCustomDomainAssociation,
-		"DeleteEndpointAccess":             h.handleDeleteEndpointAccess,
+		opDeleteCustomDomainAssociation:    h.handleDeleteCustomDomainAssociation,
+		opDeleteEndpointAccess:             h.handleDeleteEndpointAccess,
 		"DeleteHsmClientCertificate":       h.handleDeleteHsmClientCertificate,
 		"DeleteHsmConfiguration":           h.handleDeleteHsmConfiguration,
 		"DeleteIntegration":                h.handleDeleteIntegration,

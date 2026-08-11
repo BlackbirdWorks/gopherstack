@@ -385,7 +385,7 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchMemberOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchMemberOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
@@ -401,7 +401,7 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchMalwareOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchMalwareOps(op, path, query, body); ok {
 		return result, code, err
 	}
 

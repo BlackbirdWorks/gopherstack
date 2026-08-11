@@ -91,13 +91,13 @@ func (h *Handler) handleGetInvestigation(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyCreatedTime:    inv.CreatedTime.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedTime:    inv.CreatedTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		"EntityArn":       inv.EntityARN,
 		"EntityType":      inv.EntityType,
 		keyGraphArn:       inv.GraphARN,
 		"InvestigationId": inv.InvestigationID,
-		"ScopeEndTime":    inv.ScopeEndTime.Format("2006-01-02T15:04:05.000Z"),
-		"ScopeStartTime":  inv.ScopeStartTime.Format("2006-01-02T15:04:05.000Z"),
+		"ScopeEndTime":    inv.ScopeEndTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		"ScopeStartTime":  inv.ScopeStartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		"Severity":        inv.Severity,
 		"State":           inv.State,
 		keyStatusField:    inv.Status,
@@ -132,7 +132,7 @@ func (h *Handler) handleListInvestigations(c *echo.Context) error {
 	details := make([]map[string]any, 0, len(investigations))
 	for _, inv := range investigations {
 		details = append(details, map[string]any{
-			keyCreatedTime:    inv.CreatedTime.Format("2006-01-02T15:04:05.000Z"),
+			keyCreatedTime:    inv.CreatedTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 			"EntityArn":       inv.EntityARN,
 			"EntityType":      inv.EntityType,
 			"InvestigationId": inv.InvestigationID,

@@ -2,6 +2,7 @@ package quicksight
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -9,7 +10,10 @@ import (
 
 // ---- Namespaces ----
 
-func (b *InMemoryBackend) CreateNamespace(accountID, namespace, capacityRegion string) (*Namespace, error) {
+func (b *InMemoryBackend) CreateNamespace(
+	accountID, namespace, capacityRegion string,
+	tags map[string]string,
+) (*Namespace, error) {
 	if namespace == "" {
 		return nil, ErrValidation
 	}
@@ -34,6 +38,10 @@ func (b *InMemoryBackend) CreateNamespace(accountID, namespace, capacityRegion s
 		IdentityStore:  identityStoreQuickSight,
 	}
 	b.namespaces.Put(ns)
+
+	if len(tags) > 0 {
+		b.tags[ns.Arn] = maps.Clone(tags)
+	}
 
 	return ns.toNamespace(), nil
 }

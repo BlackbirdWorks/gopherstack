@@ -1,6 +1,7 @@
 package ses_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"testing"
@@ -21,8 +22,9 @@ func TestHandler_UpdateConfigurationSetEventDestination_Errors(t *testing.T) {
 		wantCode     int
 	}{
 		{
-			name:         "config_set_not_found",
-			body:         "Action=UpdateConfigurationSetEventDestination&Version=2010-12-01&ConfigurationSetName=missing&EventDestination.Name=dest", //nolint:lll // existing issue.
+			name: "config_set_not_found",
+			body: "Action=UpdateConfigurationSetEventDestination&Version=2010-12-01&ConfigurationSetName=missing&" +
+				"EventDestination.Name=dest&EventDestination.MatchingEventTypes.member.1=send",
 			wantCode:     http.StatusBadRequest,
 			wantContains: "ConfigurationSetDoesNotExist",
 		},
@@ -31,7 +33,8 @@ func TestHandler_UpdateConfigurationSetEventDestination_Errors(t *testing.T) {
 			setup: func(h *ses.Handler) {
 				postForm(t, h, "Action=CreateConfigurationSet&Version=2010-12-01&ConfigurationSet.Name=csupd")
 			},
-			body:         "Action=UpdateConfigurationSetEventDestination&Version=2010-12-01&ConfigurationSetName=csupd&EventDestination.Name=nodest", //nolint:lll // existing issue.
+			body: "Action=UpdateConfigurationSetEventDestination&Version=2010-12-01&ConfigurationSetName=csupd&" +
+				"EventDestination.Name=nodest&EventDestination.MatchingEventTypes.member.1=send",
 			wantCode:     http.StatusBadRequest,
 			wantContains: "EventDestinationDoesNotExist",
 		},
@@ -77,6 +80,57 @@ func TestHandler_UpdateConfigurationSetEventDestination_Errors(t *testing.T) {
 	}
 }
 
+func TestCreateConfigurationSetEventDestination_MatchingEventTypesValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantContains string
+		eventTypes   []string
+		wantCode     int
+	}{
+		{name: "valid_lowercase_enum", eventTypes: []string{"send", "bounce"}, wantCode: http.StatusOK},
+		{
+			name: "empty_is_required", eventTypes: nil,
+			wantCode: http.StatusBadRequest, wantContains: "InvalidParameterValue",
+		},
+		{
+			name: "wrong_case_rejected", eventTypes: []string{"Send"},
+			wantCode: http.StatusBadRequest, wantContains: "InvalidParameterValue",
+		},
+		{
+			name: "unknown_value_rejected", eventTypes: []string{"notAnEventType"},
+			wantCode: http.StatusBadRequest, wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			require.NoError(t, h.Backend.CreateConfigurationSet("cs1"))
+
+			vals := url.Values{
+				"Action":                {"CreateConfigurationSetEventDestination"},
+				"Version":               {"2010-12-01"},
+				"ConfigurationSetName":  {"cs1"},
+				"EventDestination.Name": {"ed1"},
+			}
+			for i, et := range tt.eventTypes {
+				vals.Set(fmt.Sprintf("EventDestination.MatchingEventTypes.member.%d", i+1), et)
+			}
+
+			rec := postForm(t, h, vals.Encode())
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContains)
+			}
+		})
+	}
+}
+
 func TestCreateConfigurationSetEventDestination_Handler(t *testing.T) {
 	t.Parallel()
 
@@ -89,8 +143,8 @@ func TestCreateConfigurationSetEventDestination_Handler(t *testing.T) {
 		"ConfigurationSetName":     {"cs1"},
 		"EventDestination.Name":    {"ed1"},
 		"EventDestination.Enabled": {"true"},
-		"EventDestination.MatchingEventTypes.member.1": {"Send"},
-		"EventDestination.MatchingEventTypes.member.2": {"Bounce"},
+		"EventDestination.MatchingEventTypes.member.1": {"send"},
+		"EventDestination.MatchingEventTypes.member.2": {"bounce"},
 		"EventDestination.SNSDestination.TopicARN":     {"arn:aws:sns:us-east-1:123:topic"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -104,7 +158,7 @@ func TestCreateConfigurationSetEventDestination_Duplicate_Error(t *testing.T) {
 	require.NoError(t, h.Backend.CreateConfigurationSet("cs1"))
 	require.NoError(t, h.Backend.CreateConfigurationSetEventDestination("cs1", ses.EventDestination{
 		Name:               "ed1",
-		MatchingEventTypes: []string{"Send"},
+		MatchingEventTypes: []string{"send"},
 	}))
 
 	rec := postForm(t, h, url.Values{
@@ -112,7 +166,7 @@ func TestCreateConfigurationSetEventDestination_Duplicate_Error(t *testing.T) {
 		"Version":               {"2010-12-01"},
 		"ConfigurationSetName":  {"cs1"},
 		"EventDestination.Name": {"ed1"},
-		"EventDestination.MatchingEventTypes.member.1": {"Bounce"},
+		"EventDestination.MatchingEventTypes.member.1": {"bounce"},
 	}.Encode())
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -125,7 +179,7 @@ func TestUpdateConfigurationSetEventDestination_Handler(t *testing.T) {
 	require.NoError(t, h.Backend.CreateConfigurationSetEventDestination("cs1", ses.EventDestination{
 		Name:               "ed1",
 		Enabled:            false,
-		MatchingEventTypes: []string{"Send"},
+		MatchingEventTypes: []string{"send"},
 	}))
 
 	rec := postForm(t, h, url.Values{
@@ -134,8 +188,8 @@ func TestUpdateConfigurationSetEventDestination_Handler(t *testing.T) {
 		"ConfigurationSetName":     {"cs1"},
 		"EventDestination.Name":    {"ed1"},
 		"EventDestination.Enabled": {"true"},
-		"EventDestination.MatchingEventTypes.member.1": {"Send"},
-		"EventDestination.MatchingEventTypes.member.2": {"Bounce"},
+		"EventDestination.MatchingEventTypes.member.1": {"send"},
+		"EventDestination.MatchingEventTypes.member.2": {"bounce"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -152,7 +206,7 @@ func TestDeleteConfigurationSetEventDestination_Handler(t *testing.T) {
 	require.NoError(t, h.Backend.CreateConfigurationSet("cs1"))
 	require.NoError(t, h.Backend.CreateConfigurationSetEventDestination("cs1", ses.EventDestination{
 		Name:               "ed-del",
-		MatchingEventTypes: []string{"Send"},
+		MatchingEventTypes: []string{"send"},
 	}))
 
 	rec := postForm(t, h, url.Values{
@@ -201,6 +255,7 @@ func TestCreateConfigurationSetEventDestination(t *testing.T) {
 				"Version":               {"2010-12-01"},
 				"ConfigurationSetName":  {"nonexistent"},
 				"EventDestination.Name": {"dest"},
+				"EventDestination.MatchingEventTypes.member.1": {"send"},
 			}.Encode(),
 			wantCode:     http.StatusBadRequest,
 			wantContains: "ConfigurationSetDoesNotExist",
@@ -212,12 +267,15 @@ func TestCreateConfigurationSetEventDestination(t *testing.T) {
 				"Version":               {"2010-12-01"},
 				"ConfigurationSetName":  {"cs"},
 				"EventDestination.Name": {"existing-dest"},
+				"EventDestination.MatchingEventTypes.member.1": {"send"},
 			}.Encode(),
 			setup: func(h *ses.Handler) {
 				require.NoError(t, h.Backend.CreateConfigurationSet("cs"))
 				require.NoError(
 					t,
-					h.Backend.CreateConfigurationSetEventDestination("cs", ses.EventDestination{Name: "existing-dest"}),
+					h.Backend.CreateConfigurationSetEventDestination(
+						"cs", ses.EventDestination{Name: "existing-dest", MatchingEventTypes: []string{"send"}},
+					),
 				)
 			},
 			wantCode:     http.StatusBadRequest,
@@ -260,7 +318,9 @@ func TestDeleteConfigurationSetEventDestination(t *testing.T) {
 				require.NoError(t, h.Backend.CreateConfigurationSet("cs"))
 				require.NoError(
 					t,
-					h.Backend.CreateConfigurationSetEventDestination("cs", ses.EventDestination{Name: "dest"}),
+					h.Backend.CreateConfigurationSetEventDestination(
+						"cs", ses.EventDestination{Name: "dest", MatchingEventTypes: []string{"send"}},
+					),
 				)
 			},
 			wantCode:     http.StatusOK,

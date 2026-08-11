@@ -1,0 +1,222 @@
+package redshift_test
+
+import (
+	"net/http/httptest"
+	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	redshiftsdk "github.com/aws/aws-sdk-go-v2/service/redshift"
+	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/redshift"
+)
+
+// newTestRedshiftClient stands up the real aws-sdk-go-v2 Redshift client
+// against an httptest server running this package's Handler, wired through
+// the same pkgs/service registry/router used in production. Round-tripping
+// through the genuine SDK deserializer (rather than string-matching the raw
+// XML body) is what proves a response is wire-compatible: unrecognized list
+// wrapper/element names are skipped silently by the deserializer rather than
+// erroring, so a plausible-looking response can still decode to an empty
+// slice.
+func newTestRedshiftClient(t *testing.T, h *redshift.Handler) *redshiftsdk.Client {
+	t.Helper()
+
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(h))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
+		awscfg.WithRegion(rtTestRegion),
+		awscfg.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err)
+
+	return redshiftsdk.NewFromConfig(cfg, func(o *redshiftsdk.Options) {
+		o.BaseEndpoint = aws.String(srv.URL)
+	})
+}
+
+const rtTestRegion = "us-east-1"
+
+// TestSDKRoundTrip_ListWrapperFixes covers six independent list-decoding
+// bugs found by diffing every gopherstack redshift XML list tag against the
+// pinned SDK's deserializer (redshift@v1.65.4): each handler wrapped list
+// entries in the wrong element name, so a real client always saw an empty
+// slice regardless of what the backend actually stored.
+func TestSDKRoundTrip_ListWrapperFixes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		run  func(t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client)
+		name string
+	}{
+		{testDescribeCustomDomainAssociations, "describe custom domain associations"},
+		{testDescribeSnapshotSchedulesAssociatedClusters, "describe snapshot schedules associated clusters"},
+		{testDescribeAuthenticationProfiles, "describe authentication profiles"},
+		{testDescribeDataShares, "describe data shares"},
+		{testDescribeEndpointAuthorization, "describe endpoint authorization"},
+		{testDescribeUsageLimits, "describe usage limits"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := redshift.NewInMemoryBackend("000000000000", rtTestRegion)
+			h := redshift.NewHandler(backend)
+			client := newTestRedshiftClient(t, h)
+
+			tc.run(t, backend, client)
+		})
+	}
+}
+
+// testDescribeCustomDomainAssociations: the handler wrapped entries in
+// <CustomDomainAssociations><CustomDomainAssociation>, but the real
+// deserializer (redshift@v1.65.4 deserializers.go:49708,23893) names the
+// field Associations and wraps each entry in <Association>.
+func testDescribeCustomDomainAssociations(t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-cd-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	_, err = backend.CreateCustomDomainAssociation(
+		"rt-cd-cluster", "db.example.com", "arn:aws:acm:us-east-1:000000000000:certificate/rt",
+	)
+	require.NoError(t, err)
+
+	out, err := client.DescribeCustomDomainAssociations(ctx, &redshiftsdk.DescribeCustomDomainAssociationsInput{
+		CustomDomainName: aws.String("db.example.com"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Associations, 1)
+	assert.Equal(
+		t,
+		"arn:aws:acm:us-east-1:000000000000:certificate/rt",
+		aws.ToString(out.Associations[0].CustomDomainCertificateArn),
+	)
+}
+
+// testDescribeSnapshotSchedulesAssociatedClusters: the handler wrapped
+// AssociatedClusters entries in <member>, but the real deserializer
+// (redshift@v1.65.4 deserializers.go:23753) wraps each entry in
+// <ClusterAssociatedToSchedule>.
+func testDescribeSnapshotSchedulesAssociatedClusters(
+	t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client,
+) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-sched-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	_, err = backend.CreateSnapshotSchedule("rt-sched", "roundtrip test", []string{"rate(12 hours)"}, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, backend.ModifyClusterSnapshotSchedule("rt-sched-cluster", "rt-sched", false))
+
+	out, err := client.DescribeSnapshotSchedules(ctx, &redshiftsdk.DescribeSnapshotSchedulesInput{
+		ScheduleIdentifier: aws.String("rt-sched"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.SnapshotSchedules, 1)
+	require.Len(t, out.SnapshotSchedules[0].AssociatedClusters, 1)
+	assert.Equal(t, "rt-sched-cluster", aws.ToString(out.SnapshotSchedules[0].AssociatedClusters[0].ClusterIdentifier))
+}
+
+// testDescribeAuthenticationProfiles: the handler wrapped entries in
+// <AuthenticationProfile>, but the real deserializer (redshift@v1.65.4
+// deserializers.go:24257) wraps each entry in <member>.
+func testDescribeAuthenticationProfiles(t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateAuthenticationProfile("rt-profile", `{"AllowedAllVPCs":true}`)
+	require.NoError(t, err)
+
+	out, err := client.DescribeAuthenticationProfiles(ctx, &redshiftsdk.DescribeAuthenticationProfilesInput{
+		AuthenticationProfileName: aws.String("rt-profile"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.AuthenticationProfiles, 1)
+	assert.Equal(t, "rt-profile", aws.ToString(out.AuthenticationProfiles[0].AuthenticationProfileName))
+}
+
+// testDescribeDataShares: the handler wrapped entries in <DataShare>, but
+// the real deserializer (redshift@v1.65.4 deserializers.go:29079) wraps
+// each entry in <member>.
+func testDescribeDataShares(t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client) {
+	t.Helper()
+	ctx := t.Context()
+
+	const dataShareArn = "arn:aws:redshift:us-east-1:000000000000:datashare:rt-namespace/rt-share"
+	backend.AddDataShareInternal(&redshift.DataShare{
+		DataShareArn:  dataShareArn,
+		ProducerArn:   "arn:aws:redshift:us-east-1:000000000000:namespace:rt-namespace",
+		DataShareType: "INTERNAL",
+	})
+
+	out, err := client.DescribeDataShares(ctx, &redshiftsdk.DescribeDataSharesInput{
+		DataShareArn: aws.String(dataShareArn),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.DataShares, 1)
+	assert.Equal(t, dataShareArn, aws.ToString(out.DataShares[0].DataShareArn))
+}
+
+// testDescribeEndpointAuthorization: the handler wrapped entries in
+// <EndpointAuthorization>, but the real deserializer (redshift@v1.65.4
+// deserializers.go:30628) wraps each entry in <member>.
+func testDescribeEndpointAuthorization(t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-epauth-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	_, err = backend.AuthorizeEndpointAccess("rt-epauth-cluster", "111122223333", nil)
+	require.NoError(t, err)
+
+	out, err := client.DescribeEndpointAuthorization(ctx, &redshiftsdk.DescribeEndpointAuthorizationInput{
+		ClusterIdentifier: aws.String("rt-epauth-cluster"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.EndpointAuthorizationList, 1)
+	assert.Equal(t, "111122223333", aws.ToString(out.EndpointAuthorizationList[0].Grantee))
+}
+
+// testDescribeUsageLimits: the handler wrapped entries in <UsageLimit>, but
+// the real deserializer (redshift@v1.65.4 deserializers.go:45683) wraps
+// each entry in <member>.
+func testDescribeUsageLimits(t *testing.T, backend *redshift.InMemoryBackend, client *redshiftsdk.Client) {
+	t.Helper()
+	ctx := t.Context()
+
+	_, err := backend.CreateCluster("rt-ul-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	_, err = backend.CreateUsageLimit("rt-ul-cluster", "concurrency-scaling", "time", "log", 60, nil)
+	require.NoError(t, err)
+
+	out, err := client.DescribeUsageLimits(ctx, &redshiftsdk.DescribeUsageLimitsInput{
+		ClusterIdentifier: aws.String("rt-ul-cluster"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.UsageLimits, 1)
+	assert.Equal(t, "rt-ul-cluster", aws.ToString(out.UsageLimits[0].ClusterIdentifier))
+}

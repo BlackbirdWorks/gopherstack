@@ -1,9 +1,15 @@
 ---
 service: codecommit
-sdk_module: aws-sdk-go-v2/service/codecommit@v1.33.10
-last_audit_commit: aabde46b5
-last_audit_date: 2026-07-23
-overall: A            # 9 genuine bugs + 1 leak fixed this pass (see Notes); backend was already substantial
+sdk_module: aws-sdk-go-v2/service/codecommit@v1.36.4
+last_audit_commit: 1d7169f66
+last_audit_date: 2026-08-07
+overall: A            # this pass: MergeBranchesBySquash/ByThreeWay now real distinct backend
+                      # methods (real parent-count semantics, TargetBranch/CommitMessage/AuthorName/
+                      # Email honored, specifier resolution+validation); GetMergeConflicts validates
+                      # required fields and resolves specifiers instead of echoing them; found and
+                      # fixed an inverted-boolean bug (GetMergeConflicts always reported
+                      # mergeable:false); SameFileContentException now returned by PutFile/CreateCommit.
+                      # See ops table + Notes below. Content-level merge/conflict diffing remains a gap.
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRepository: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -21,10 +27,10 @@ ops:
   GetBranch: {wire: ok, errors: ok, state: ok, persist: ok}
   ListBranches: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateCommit: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "filesAdded[].blobId was hardcoded empty (fixed prior pass); this pass: filesDeleted[].blobId was omitted entirely (now the real removed blob id, matching filesAdded), and ParentCommitIdOutdatedException/ParentCommitIdRequiredException were unreachable (missing from errCodeLookup — see Notes)"}
+  CreateCommit: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "filesAdded[].blobId was hardcoded empty (fixed prior pass); this pass: filesDeleted[].blobId was omitted entirely (now the real removed blob id, matching filesAdded), and ParentCommitIdOutdatedException/ParentCommitIdRequiredException were unreachable (missing from errCodeLookup — see Notes). ALSO this pass: putFiles entries with content identical to what's already at that path now return SameFileContentException instead of silently creating a no-op commit (the sentinel existed but no backend path ever returned it — see gaps' prior note, now partially closed)"}
   GetCommit: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetCommits: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutFile: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "blobId was hardcoded empty (fixed prior pass); this pass: File.CommitSpecifier stored branchName instead of the real commit id, so GetFile's commitId field after a PutFile returned the branch name — now the real commit id. Also never recorded fileHistory, so files written via PutFile (not CreateCommit) were invisible to ListFileCommitHistory — now recorded"}
+  PutFile: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "blobId was hardcoded empty (fixed prior pass); this pass: File.CommitSpecifier stored branchName instead of the real commit id, so GetFile's commitId field after a PutFile returned the branch name — now the real commit id. Also never recorded fileHistory, so files written via PutFile (not CreateCommit) were invisible to ListFileCommitHistory — now recorded. ALSO this pass: writing content identical to what's already at that path now returns SameFileContentException instead of silently creating a no-op commit"}
   GetFile: {wire: ok, errors: fixed, state: ok, persist: ok, note: "not-found now FileDoesNotExistException, was RepositoryDoesNotExistException"}
   GetFolder: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFile: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "deleting a non-existent path silently fabricated a commit before; now FileDoesNotExistException. blobId in response was hardcoded empty; now the removed file's real blob id. This pass: parentCommitId was accepted and silently ignored (documented gap) — now required and validated against the branch tip (ParentCommitIdRequiredException/ParentCommitIdOutdatedException), matching real AWS's DeleteFileInput.ParentCommitId (a required field per the SDK's validators.go). Also never recorded fileHistory — now recorded"}
@@ -61,15 +67,15 @@ ops:
   MergePullRequestByFastForward: {wire: ok, errors: ok, state: ok, persist: ok}
   MergePullRequestBySquash: {wire: ok, errors: ok, state: ok, persist: ok, note: "status transition is real; content-level squash semantics are not modeled (see gaps)"}
   MergePullRequestByThreeWay: {wire: ok, errors: ok, state: ok, persist: ok, note: "status transition is real; content-level 3-way merge semantics are not modeled (see gaps)"}
-  MergeBranchesByFastForward: {wire: ok, errors: ok, state: ok, persist: ok}
-  MergeBranchesBySquash: {wire: partial, errors: ok, state: ok, persist: ok, note: "handler literally calls the fast-forward backend method (see gaps)"}
-  MergeBranchesByThreeWay: {wire: partial, errors: ok, state: ok, persist: ok, note: "handler literally calls the fast-forward backend method (see gaps)"}
+  MergeBranchesByFastForward: {wire: ok, errors: ok, state: ok, persist: ok, note: "OUT-OF-SCOPE FINDING (not fixed this pass, flagging per audit brief): same TargetBranch/source-dest-existence-validation gaps found and fixed in Squash/ThreeWay this pass also apply here — TargetBranch is accepted by the real MergeBranchesByFastForwardInput but never read (always updates destinationCommitSpecifier's literal string as if it were the target branch name), and neither source nor destination specifier is validated to exist before creating a commit and moving a branch. Also creates a brand-new zero-parent commit unconditionally, where real AWS fast-forward semantics would typically just move the branch pointer to the existing source commit without fabricating a new one. This op was graded ok by two prior audits and is outside this pass's assigned scope (codecommit-3bsb was Squash/ThreeWay/GetMergeConflicts specifically); left as-is, not re-graded, but noted for a future pass."}
+  MergeBranchesBySquash: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — was calling the FastForward backend method verbatim; now a real distinct method: resolves+validates both specifiers exist (CommitDoesNotExistException if not, previously unvalidated), creates a commit with exactly ONE parent (the destination tip, matching real squash-merge shape vs. 3-way's two), and honors TargetBranch/CommitMessage/AuthorName/Email request fields that were previously silently dropped. Content-level squash (combining file changes) still not modeled — see gaps."}
+  MergeBranchesByThreeWay: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — same as MergeBranchesBySquash, but the created commit has TWO parents ([destination, source]), a real merge-commit shape FastForward's zero-parent commit and Squash's one-parent commit both lack. Content-level 3-way merge still not modeled — see gaps."}
   CreateUnreferencedMergeCommit: {wire: ok, errors: ok, state: ok, persist: ok}
   GetMergeCommit: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetMergeConflicts: {wire: partial, errors: ok, state: n/a, persist: n/a, note: "always mergeable:true, conflicts:[] — no content-diff engine (see gaps)"}
+  GetMergeConflicts: {wire: fixed, errors: fixed, state: fixed, persist: n/a, note: "FIXED this pass — three bugs: (1) required-field/mergeOption-enum validation was entirely missing (repositoryName/sourceCommitSpecifier/destinationCommitSpecifier/mergeOption all 'This member is required' per the real SDK's validateOpGetMergeConflictsInput); (2) sourceCommitId/destinationCommitId echoed the raw request specifier instead of the resolved commit ID (now resolved via resolveCommitSpecifier, CommitDoesNotExistException if unresolvable); (3) SEVERE — mergeable was hardcoded to `false` (inverted: this emulator never computes real conflicts, so every merge was actually mergeable, but every real client polling this op before merging would have seen mergeable:false and refused to proceed). Now true. conflicts/mergeHunks remain always empty — no content-diff engine (see gaps); this is AWS-correct for FAST_FORWARD_MERGE specifically (doc-guaranteed empty) but a documented gap for SQUASH_MERGE/THREE_WAY_MERGE."}
   GetMergeOptions: {wire: ok, errors: ok, state: n/a, persist: n/a}
   DescribeMergeConflicts: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "was a disguised no-op that echoed the request and never checked the repository existed; now delegates to the same backend logic as BatchDescribeMergeConflicts with full validation"}
-  BatchDescribeMergeConflicts: {wire: ok, errors: ok, state: partial, persist: n/a, note: "validates repo/params correctly; conflicts are always empty since files aren't diffed (see gaps, same root cause as GetMergeConflicts)"}
+  BatchDescribeMergeConflicts: {wire: ok, errors: ok, state: partial, persist: n/a, note: "validates repo/params correctly; conflicts are always empty since files aren't diffed (see gaps, same root cause as GetMergeConflicts). NOT touched this pass — still echoes the raw specifier strings rather than resolving them (unlike GetMergeConflicts, fixed this pass); flagged as a smaller, lower-priority instance of the same pattern for a future pass, out of this pass's scope (issue was GetMergeConflicts specifically)."}
   PostCommentForComparedCommit: {wire: ok, errors: ok, state: ok, persist: ok}
   PostCommentForPullRequest: {wire: ok, errors: ok, state: ok, persist: ok}
   PostCommentReply: {wire: ok, errors: fixed, state: ok, persist: ok, note: "parent-not-found now CommentDoesNotExistException, was RepositoryDoesNotExistException"}
@@ -89,14 +95,75 @@ families:
   pull_request_lifecycle: {status: ok, note: "create/list/get/update/status/events verified"}
   pull_request_approval: {status: ok, note: "rules, states, overrides, evaluation all mutate real backend state; 2 error-code fixes this pass"}
 gaps:
-  - "MergeBranchesBySquash/MergeBranchesByThreeWay handlers call the FastForward backend method verbatim (handler_merges.go handleMergeBranchesBySquash/handleMergeBranchesByThreeWay) — the merge *result* (a new commit + branch tip update) is real, but there's no content-level distinction between the three strategies. Root cause, confirmed this pass by re-reading the file model end to end: File is stored flatly, keyed only by repoName|filePath (fileKey in store_setup.go) — there is no per-branch or per-commit file tree at all, so there is no 'source branch version' vs 'destination branch version' of a file to even diff, let alone merge. Implementing real 3-way/squash merge semantics is not a bug fix but a full data-model rework (branch- or commit-scoped file trees) touching PutFile/DeleteFile/CreateCommit/GetFile/GetFolder/GetDifferences and every other file-reading op; out of scope for this pass. (bd: file follow-up)"
-  - "GetMergeConflicts/BatchDescribeMergeConflicts/DescribeMergeConflicts never report a real conflict: mergeable is always true and conflicts/mergeHunks are always empty. Same root cause as the merge-strategy gap above (no per-branch file state to diff), re-confirmed this pass, not merely 'no content-diff engine' as previously stated — there is nothing to diff even in principle without a data-model change. (bd: file follow-up)"
-  - "SameFileContentException/FilePathConflictsWithSubmodulePathException (ErrSameFileContent/ErrFilePathConflicts in errors.go) are declared and now correctly wired into errCodeLookup (this pass), but no backend path ever returns them — PutFile/CreateCommit never compare new content against the existing blob at a path, and submodules aren't modeled at all. Confirmed via grep: both sentinels are referenced nowhere outside their own declaration. Implementing the same-content check is plausible follow-up work (compare content on PutFile/CreateCommit's putFiles entries); submodule-path conflict detection has no submodule concept to build on. Neither is a currently-documented AWS op family in this file's ops list, so left as a noted gap rather than a fixed op. (bd: file follow-up)"
+  - "MergeBranchesBySquash/MergeBranchesByThreeWay (FIXED this pass to be real, distinct backend methods — see ops table) still do not model content-level squash/3-way merge semantics: the produced commit has the right parent-count shape (one parent for squash, two for three-way) and the right branch-tip update, but there is no second version of any file to actually combine. Root cause, re-confirmed this pass: File is stored flatly, keyed only by repoName|filePath (fileKey in store_setup.go) — there is no per-branch or per-commit file tree at all, so there is no 'source branch version' vs 'destination branch version' of a file to even diff, let alone merge. Implementing real content-level merge semantics is not a bug fix but a full data-model rework (branch- or commit-scoped file trees) touching PutFile/DeleteFile/CreateCommit/GetFile/GetFolder/GetDifferences and every other file-reading op; out of scope for this pass. (bd: gopherstack-3bsb follow-up)"
+  - "GetMergeConflicts (FIXED this pass — see ops table for the mergeable-inversion bug and validation gaps closed)/BatchDescribeMergeConflicts/DescribeMergeConflicts never report a real conflict: conflicts/mergeHunks are always empty. Same root cause as the merge-strategy gap above (no per-branch file state to diff) — there is nothing to diff even in principle without a data-model change. Note: for FAST_FORWARD_MERGE specifically this is not a gap at all — AWS's own GetMergeConflictsOutput.ConflictMetadataList doc comment guarantees an empty list for that strategy, so the behavior is correct by definition there; the gap is genuinely only SQUASH_MERGE/THREE_WAY_MERGE. (bd: gopherstack-3bsb follow-up)"
+  - "FilePathConflictsWithSubmodulePathException (ErrFilePathConflicts in errors.go) is declared and wired into errCodeLookup, but no backend path ever returns it — submodules aren't modeled at all in this backend, so there is no concept to build a conflict check on. SameFileContentException (ErrSameFileContent) was the other half of this gap and is FIXED this pass — PutFile and CreateCommit's putFiles entries now compare new content against the existing blob at that path and reject identical writes (see PutFile/CreateCommit ops rows). Note this is a best-effort approximation, not full parity: because File has no per-branch identity (same root cause as the merge gaps above), the comparison is against the single flat current value at that path repo-wide, not specifically against the destination branch's parent-commit content the way real AWS computes it — for a repo with no branch divergence at a path (the common case) these are identical, but they could theoretically diverge. (bd: gopherstack-3bsb follow-up, partially closed)"
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snapshot/Restore cover all state including the 3 dirty tables (comments, files, prApprovalRules). Fixed this pass: DeleteRepository never cleaned up fileHistory[repoName], and never cascade-deleted comments (compared-commit comments by RepoName, PR comments by PRid) or their commentReactions — both are ghost-row leaks now closed (see Notes); locked by TestHandler_DeleteRepository_Cascade_FileHistory and TestHandler_DeleteRepository_Cascade_Comments."}
 ---
 
 ## Notes
+
+### Bugs fixed this pass (2026-08-07, HEAD 1d7169f66) — gopherstack-3bsb
+
+1. **`MergeBranchesBySquash`/`MergeBranchesByThreeWay` literally called the
+   `MergeBranchesByFastForward` backend method** (`handler_merges.go`) — the
+   response looked plausible (a fresh commit ID + branch update) but there
+   was zero distinction between the three merge strategies at the object
+   level, let alone the content level. Fixed by giving each its own real
+   backend method (`merges.go`): both now resolve and validate their
+   `sourceCommitSpecifier`/`destinationCommitSpecifier` (new
+   `resolveCommitSpecifier` helper — tries a branch name first, then a full
+   commit ID, `CommitDoesNotExistException` if neither resolves; previously
+   *no* validation existed, so a nonexistent branch/commit silently
+   "succeeded"), and produce the correct parent-count shape verified against
+   `aws-sdk-go-v2/service/codecommit@v1.33.10`'s generated
+   `MergeBranchesBySquashInput`/`MergeBranchesByThreeWayInput`: squash
+   creates a commit with exactly one parent (the destination tip — squash
+   discards source history), three-way creates a commit with two parents
+   (`[destination, source]`, standard merge-commit shape). Both now also
+   honor `TargetBranch`/`CommitMessage`/`AuthorName`/`Email` request fields
+   (real, wire-verified members of both inputs) that were previously parsed
+   by neither handler and silently dropped — a field-drop bug of the same
+   class flagged in the audit brief. Content-level squash/3-way merging
+   (actually combining file changes) remains unimplemented — see gaps; the
+   root cause (flat, non-branch-scoped `File` storage) is unchanged.
+
+2. **`GetMergeConflicts` had an inverted boolean — `mergeable` was hardcoded
+   `false`.** This is the sharpest finding of the pass: this backend has no
+   content-diff engine and never computes a real conflict, so every merge
+   this emulator could ever be asked about is, in fact, mergeable — but the
+   handler unconditionally returned `mergeable: false`. A real client that
+   polls `GetMergeConflicts` before attempting a merge (a documented,
+   common pattern) would have concluded every merge was blocked and never
+   proceeded, against a backend that would have happily merged in every
+   case. Fixed: now returns `true`. Also fixed: `sourceCommitId`/
+   `destinationCommitId` in the response echoed the raw request specifier
+   string instead of a resolved commit ID (wrong per
+   `GetMergeConflictsOutput`'s doc: "the commit ID ... used in the merge
+   evaluation"), and the op performed **zero** input validation —
+   `repositoryName`/`sourceCommitSpecifier`/`destinationCommitSpecifier`/
+   `mergeOption` are all `"This member is required"` per the real SDK's
+   `validateOpGetMergeConflictsInput`, none were checked. Both fixed using
+   the same `resolveCommitSpecifier` helper and validation pattern as
+   `BatchDescribeMergeConflicts`'s existing (correct) handler.
+
+3. **`SameFileContentException`/`ErrSameFileContent` was declared and wired
+   into `errCodeLookup` but no backend path ever returned it** (flagged as a
+   gap by the 2026-07-23 pass). Fixed for the buildable half: `PutFile` and
+   `CreateCommit`'s `putFiles` entries now compare new content against the
+   existing blob at that path (`bytes.Equal`) and reject an identical write
+   before mutating any state, matching AWS's documented behavior ("the
+   content of the file you're trying to add is exactly the same as the
+   content of that file ... you specified as the parent commit"). This
+   surfaced and required fixing two existing unit tests
+   (`TestHandler_ListFileCommitHistory_Pagination`/`_TableDriven`) that had
+   been writing byte-identical content across multiple commits to build
+   history — itself a real client-unrepresentative test pattern (a real
+   AWS client doing this would already get `SameFileContentException`),
+   now writes distinct content per commit. `FilePathConflictsWithSubmodulePathException`
+   remains unreturned — no submodule concept exists in this backend to
+   build a conflict check on top of (see gaps).
 
 Protocol: awsjson1.1, single POST endpoint, `X-Amz-Target: CodeCommit_20150413.<Op>`.
 `RouteMatcher` checks the header prefix only (no body sniffing needed since it's a single
@@ -235,14 +302,19 @@ findings from field-diffing the file/commit/merge-conflict/pagination surface ag
 
 ### Traps for the next auditor
 
-- `MergeBranchesBySquash`/`MergeBranchesByThreeWay` and the analogous
-  `MergePullRequestBySquash`/`MergePullRequestByThreeWay` **look like** they implement
-  distinct merge strategies but don't — this is a known, documented gap (see `gaps` above),
-  not something introduced this pass. The root cause is now precisely identified (not just
-  "no diff engine"): `File` has no per-branch or per-commit identity at all (flat
-  `repoName|filePath` key, see `fileKey`), so there is no second version of a file to diff
-  against in the first place. Don't re-flag without also proposing the branch/commit-scoped
-  file-tree rework needed to fix it for real (large feature, not a bug fix).
+- `MergeBranchesBySquash`/`MergeBranchesByThreeWay` (fixed 2026-08-07 to be real, distinct
+  backend methods — see Notes) now have correct object-graph shape (parent count, branch
+  update, honored `TargetBranch`/`CommitMessage`/`AuthorName`/`Email`) but still don't
+  implement content-level squash/3-way merging — this remains a known, documented gap (see
+  `gaps` above), not something newly introduced. The analogous
+  `MergePullRequestBySquash`/`MergePullRequestByThreeWay` were NOT touched (out of this
+  pass's scope; they only flip PR status, no commit/branch mutation at all, so there was no
+  parent-count distinction to fix there). The root cause of the remaining content-level gap
+  is precisely identified (not just "no diff engine"): `File` has no per-branch or
+  per-commit identity at all (flat `repoName|filePath` key, see `fileKey`), so there is no
+  second version of a file to diff against in the first place. Don't re-flag without also
+  proposing the branch/commit-scoped file-tree rework needed to fix it for real (large
+  feature, not a bug fix).
 - `BatchDescribeMergeConflicts`'s own doc comment says "stub implementation" — that refers
   to the fact it never finds real conflicts (no content diffing), not that it's unwired;
   it does validate real backend state (repo existence) and is exercised correctly by both

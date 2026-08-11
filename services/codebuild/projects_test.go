@@ -267,10 +267,14 @@ func TestHandler_DeleteProject(t *testing.T) {
 			exists:     true,
 			wantStatus: http.StatusOK,
 		},
+		// DeleteProject declares no ResourceNotFoundException in its real error
+		// set (botocore codebuild/2016-10-06/service-2.json
+		// operations.DeleteProject.errors: only InvalidInputException), so it
+		// is idempotent.
 		{
-			name:       "not_found",
+			name:       "not_found_is_idempotent",
 			exists:     false,
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 	}
 

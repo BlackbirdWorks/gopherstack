@@ -21,7 +21,7 @@ type serverlessCacheEndpointXML struct {
 // securityGroupIDsXML/subnetIDsXML wrap ServerlessCache.SecurityGroupIds/
 // SubnetIds. Unlike User's UserGroupIds (locationName "member"), the real
 // types.ServerlessCache's list items use dedicated per-list element names --
-// verified against aws-sdk-go-v2/service/elasticache@v1.51.11/deserializers.go's
+// verified against aws-sdk-go-v2/service/elasticache@v1.56.4/deserializers.go's
 // awsAwsquery_deserializeDocumentSecurityGroupIdsList/
 // awsAwsquery_deserializeDocumentSubnetIdsList ("SecurityGroupId"/"SubnetId",
 // not "member").
@@ -35,7 +35,7 @@ type subnetIDsXML struct {
 
 // dataStorageLimitXML/ecpuPerSecondLimitXML/cacheUsageLimitsXML are the wire
 // shape for ServerlessCache.CacheUsageLimits, verified against
-// aws-sdk-go-v2/service/elasticache@v1.51.11's
+// aws-sdk-go-v2/service/elasticache@v1.56.4's
 // awsAwsquery_deserializeDocumentCacheUsageLimits/DataStorage/ECPUPerSecond.
 // Previously entirely unmodeled -- see PARITY.md gaps (fixed this pass).
 type dataStorageLimitXML struct {
@@ -125,7 +125,7 @@ func parseFormInt32(form url.Values, key string) int32 {
 }
 
 // serverlessCacheXML is the wire shape for ServerlessCache, verified against
-// aws-sdk-go-v2/service/elasticache@v1.51.11's
+// aws-sdk-go-v2/service/elasticache@v1.56.4's
 // awsAwsquery_deserializeDocumentServerlessCache. A prior revision of this
 // struct only wired ARN/ServerlessCacheName/Description/Status/Engine/
 // Endpoint/ReaderEndpoint -- CreateTime/DailySnapshotTime/FullEngineVersion/
@@ -244,6 +244,10 @@ func (h *Handler) createServerlessCache(ctx context.Context, c *echo.Context, fo
 			)
 		}
 
+		if errors.Is(err, ErrServerlessCacheQuotaExceeded) {
+			return xmlError(c, http.StatusBadRequest, "ServerlessCacheQuotaForCustomerExceededFault", err.Error())
+		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -345,6 +349,8 @@ func (h *Handler) createServerlessCacheSnapshot(ctx context.Context, c *echo.Con
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
+
+	h.applyCreateTimeTags(ctx, form, snap.ARN)
 
 	type result struct {
 		XMLName                 xml.Name                   `xml:"CreateServerlessCacheSnapshotResponse"`

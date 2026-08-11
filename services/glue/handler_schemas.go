@@ -172,12 +172,13 @@ func (h *Handler) handleCreateRegistry(
 
 // createSchemaInput holds input for CreateSchema.
 type createSchemaInput struct {
-	RegistryID    *registryIDInput  `json:"RegistryId"`
-	Tags          map[string]string `json:"Tags"`
-	SchemaName    string            `json:"SchemaName"`
-	DataFormat    string            `json:"DataFormat"`
-	Compatibility string            `json:"Compatibility"`
-	Description   string            `json:"Description"`
+	RegistryID       *registryIDInput  `json:"RegistryId"`
+	Tags             map[string]string `json:"Tags"`
+	SchemaName       string            `json:"SchemaName"`
+	DataFormat       string            `json:"DataFormat"`
+	Compatibility    string            `json:"Compatibility"`
+	Description      string            `json:"Description"`
+	SchemaDefinition string            `json:"SchemaDefinition"`
 }
 
 // registryIDInput holds registry identification fields.
@@ -186,16 +187,26 @@ type registryIDInput struct {
 	RegistryArn  string `json:"RegistryArn"`
 }
 
-// createSchemaOutput holds the result for CreateSchema.
+// createSchemaOutput holds the result for CreateSchema. LatestSchemaVersion,
+// NextSchemaVersion, SchemaCheckpoint, SchemaVersionId and SchemaVersionStatus
+// mirror the real CreateSchemaOutput (aws-sdk-go-v2/service/glue@v1.152.0
+// api_op_CreateSchema.go:116-166); SchemaVersionId/Status are only populated
+// when SchemaDefinition was supplied, matching AWS's *string/absent-when-unset
+// fields.
 type createSchemaOutput struct {
-	Tags          map[string]string `json:"Tags,omitempty"`
-	RegistryName  string            `json:"RegistryName"`
-	RegistryArn   string            `json:"RegistryArn"`
-	SchemaName    string            `json:"SchemaName"`
-	SchemaArn     string            `json:"SchemaArn"`
-	DataFormat    string            `json:"DataFormat"`
-	Compatibility string            `json:"Compatibility"`
-	SchemaStatus  string            `json:"SchemaStatus"`
+	Tags                map[string]string `json:"Tags,omitempty"`
+	RegistryName        string            `json:"RegistryName"`
+	RegistryArn         string            `json:"RegistryArn"`
+	SchemaName          string            `json:"SchemaName"`
+	SchemaArn           string            `json:"SchemaArn"`
+	DataFormat          string            `json:"DataFormat"`
+	Compatibility       string            `json:"Compatibility"`
+	SchemaStatus        string            `json:"SchemaStatus"`
+	SchemaVersionID     string            `json:"SchemaVersionId,omitempty"`
+	SchemaVersionStatus string            `json:"SchemaVersionStatus,omitempty"`
+	LatestSchemaVersion int64             `json:"LatestSchemaVersion"`
+	NextSchemaVersion   int64             `json:"NextSchemaVersion"`
+	SchemaCheckpoint    int64             `json:"SchemaCheckpoint"`
 }
 
 func (h *Handler) handleCreateSchema(
@@ -207,28 +218,39 @@ func (h *Handler) handleCreateSchema(
 		registryName = in.RegistryID.RegistryName
 	}
 
-	s, err := h.Backend.CreateSchema(
+	s, sv, err := h.Backend.CreateSchema(
 		registryName,
 		in.SchemaName,
 		in.DataFormat,
 		in.Compatibility,
 		in.Description,
+		in.SchemaDefinition,
 		in.Tags,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createSchemaOutput{
-		RegistryName:  s.RegistryName,
-		RegistryArn:   s.RegistryARN,
-		SchemaName:    s.SchemaName,
-		SchemaArn:     s.SchemaARN,
-		DataFormat:    s.DataFormat,
-		Compatibility: s.Compatibility,
-		SchemaStatus:  s.SchemaStatus,
-		Tags:          s.Tags,
-	}, nil
+	out := &createSchemaOutput{
+		RegistryName:        s.RegistryName,
+		RegistryArn:         s.RegistryARN,
+		SchemaName:          s.SchemaName,
+		SchemaArn:           s.SchemaARN,
+		DataFormat:          s.DataFormat,
+		Compatibility:       s.Compatibility,
+		SchemaStatus:        s.SchemaStatus,
+		Tags:                s.Tags,
+		LatestSchemaVersion: s.LatestSchemaVersion,
+		NextSchemaVersion:   s.NextSchemaVersion,
+		SchemaCheckpoint:    s.CheckpointVersion,
+	}
+
+	if sv != nil {
+		out.SchemaVersionID = sv.SchemaVersionID
+		out.SchemaVersionStatus = sv.Status
+	}
+
+	return out, nil
 }
 
 // deleteRegistryInput holds input for DeleteRegistry.

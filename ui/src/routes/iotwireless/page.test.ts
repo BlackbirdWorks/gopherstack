@@ -8,6 +8,11 @@ vi.mock("$lib/aws-client", () => ({
   getIoTWirelessClient: () => ({ send: mockSend }),
 }));
 
+const confirmDestructive = vi.fn().mockResolvedValue(true);
+vi.mock("$lib/confirm-dialog", () => ({
+  confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
+}));
+
 const toastError = vi.fn();
 const toastSuccess = vi.fn();
 vi.mock("svelte-sonner", () => ({
@@ -58,6 +63,8 @@ describe("IoT Wireless Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    confirmDestructive.mockReset();
+    confirmDestructive.mockResolvedValue(true);
   });
 
   it("renders page title", () => {
@@ -152,11 +159,7 @@ describe("IoT Wireless Page", () => {
     expect(mockSend.mock.calls.length).toBe(callsBeforeSubmit);
   });
 
-  it("deletes a wireless device immediately, with no confirmation dialog", async () => {
-    // Confirmed by grepping the page for confirmDestructive / any custom
-    // confirm modal: neither exists anywhere in this file. Every delete
-    // button fires its DeleteXCommand immediately. Test reflects the
-    // actual (no confirmation) behavior.
+  it("deletes a wireless device after confirming", async () => {
     mockMount({ devices: [exampleDevice] });
     render(IotWirelessPage);
     await waitFor(() => screen.getByText("device-1"));
@@ -166,11 +169,28 @@ describe("IoT Wireless Page", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: /Delete/ }));
 
+    expect(confirmDestructive).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("device-1") }),
+    );
     await waitFor(() => screen.getByText("No wireless devices found"));
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ input: { Id: "device-1" } }));
   });
 
-  it("shows a toast with the AWS error message when creating a device fails", async () => {
+  it("does not delete a wireless device when the confirm dialog is declined", async () => {
+    confirmDestructive.mockResolvedValue(false);
+    mockMount({ devices: [exampleDevice] });
+    render(IotWirelessPage);
+    await waitFor(() => screen.getByText("device-1"));
+
+    const callsBefore = mockSend.mock.calls.length;
+    await fireEvent.click(screen.getByRole("button", { name: /Delete/ }));
+
+    expect(confirmDestructive).toHaveBeenCalled();
+    expect(mockSend).toHaveBeenCalledTimes(callsBefore);
+    expect(screen.getByText("device-1")).toBeInTheDocument();
+  });
+
+  it("shows a toast with the AWS error code and message when creating a device fails", async () => {
     mockMount();
     render(IotWirelessPage);
     await waitFor(() => screen.getByText("No wireless devices found"));
@@ -189,7 +209,9 @@ describe("IoT Wireless Page", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith("Failed to create device: Limit exceeded.");
+      expect(toastError).toHaveBeenCalledWith(
+        "Failed to create device: LimitExceededException (HTTP 429): Limit exceeded.",
+      );
     });
   });
 
@@ -229,7 +251,7 @@ describe("IoT Wireless Page", () => {
     );
   });
 
-  it("deletes a gateway immediately", async () => {
+  it("deletes a gateway after confirming", async () => {
     mockMount({ gateways: [exampleGateway] });
     render(IotWirelessPage);
     await waitFor(() => screen.getByText("No wireless devices found"));
@@ -242,6 +264,9 @@ describe("IoT Wireless Page", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: /Delete/ }));
 
+    expect(confirmDestructive).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("gw-1") }),
+    );
     await waitFor(() => screen.getByText("No gateways found"));
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ input: { Id: "gw-1" } }));
   });

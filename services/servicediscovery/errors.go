@@ -31,4 +31,10 @@ var (
 	// ErrTooManyTags is returned when a request would leave a resource with more than
 	// maxTagCount tags.
 	ErrTooManyTags = awserr.New("TooManyTagsException", awserr.ErrInvalidParameter)
+	// ErrServiceAttributesLimitExceeded is returned when a service would end up with
+	// more than maxServiceAttrCount attributes after UpdateServiceAttributes merges.
+	ErrServiceAttributesLimitExceeded = awserr.New(
+		"ServiceAttributesLimitExceededException",
+		awserr.ErrInvalidParameter,
+	)
 )

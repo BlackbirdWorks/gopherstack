@@ -22,6 +22,14 @@ func (b *InMemoryBackend) AttachLoadBalancerToSubnets(
 		return nil, fmt.Errorf("%w: cannot attach subnets to an EC2-Classic load balancer", ErrInvalidConfiguration)
 	}
 
+	if b.ec2Resolver != nil {
+		for _, s := range subnets {
+			if !b.ec2Resolver.SubnetExists(s) {
+				return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, s)
+			}
+		}
+	}
+
 	existing := make(map[string]bool, len(lb.Subnets))
 	for _, s := range lb.Subnets {
 		existing[s] = true

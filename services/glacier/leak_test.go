@@ -78,37 +78,5 @@ func TestListVaults_UsesIndex(t *testing.T) {
 	require.Equal(t, 2, glacier.VaultIndexCount(b, "account-A", "us-east-1"), "index count matches list count")
 }
 
-// TestDeleteVault_CascadeCleansMultipartParts verifies that deleting a vault with
-// in-progress multipart uploads cleans up their (raw map, not a *store.Table)
-// multipartParts rows too, not just the multipartUploads table entry -- regression
-// test for a leak where DeleteVault cascade-deleted the MultipartUpload row but left
-// its uploaded-part rows orphaned in multipartParts forever.
-func TestDeleteVault_CascadeCleansMultipartParts(t *testing.T) {
-	t.Parallel()
-
-	const (
-		accountID = "123456789012"
-		region    = "us-east-1"
-		vaultName = "mpu-vault"
-	)
-
-	b := glacier.NewInMemoryBackend()
-
-	_, err := b.CreateVault(accountID, region, vaultName)
-	require.NoError(t, err)
-
-	up, err := b.InitiateMultipartUpload(accountID, region, vaultName, "desc", 1<<20)
-	require.NoError(t, err)
-
-	err = b.UploadMultipartPart(accountID, region, vaultName, up.MultipartUploadID, "0-1048575", "deadbeef")
-	require.NoError(t, err)
-
-	require.Equal(t, 1, glacier.MultipartPartsRowCount(b), "part row present before delete")
-
-	err = b.DeleteVault(accountID, region, vaultName)
-	require.NoError(t, err)
-
-	require.Equal(t, 0, glacier.MultipartUploadCount(b), "multipart upload table must be empty after delete")
-	require.Equal(t, 0, glacier.MultipartPartsRowCount(b),
-		"multipartParts must be empty after vault delete — no leak")
-}
+// TestDeleteVault_CascadeCleansMultipartParts lives in whitebox_test.go: it
+// needs direct access to the unexported multipartParts map.

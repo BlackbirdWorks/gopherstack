@@ -310,7 +310,7 @@ func TestColumnStatisticsTaskSettings(t *testing.T) {
 	createCSTRec := doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
 		"DatabaseName":   "cstdb",
 		"TableName":      "csttbl",
-		"RoleArn":        "arn:aws:iam::123456789012:role/GlueRole",
+		"Role":           "arn:aws:iam::123456789012:role/GlueRole",
 		"ColumnNameList": []string{"col1", "col2"},
 	})
 	assert.Equal(t, http.StatusOK, createCSTRec.Code)
@@ -318,7 +318,7 @@ func TestColumnStatisticsTaskSettings(t *testing.T) {
 	doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
 		"DatabaseName": "cstdb",
 		"TableName":    "csttbl",
-		"RoleArn":      "arn:aws:iam::123456789012:role/GlueRole",
+		"Role":         "arn:aws:iam::123456789012:role/GlueRole",
 	})
 	getCSTRec := doGlueRequest(t, h, "GetColumnStatisticsTaskSettings", map[string]any{
 		"DatabaseName": "cstdb",
@@ -395,7 +395,7 @@ func TestColumnStatisticsTaskRunSchedule_RequiresExistingSettings(t *testing.T) 
 	doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
 		"DatabaseName": "db",
 		"TableName":    "tbl",
-		"RoleArn":      "arn:aws:iam::123456789012:role/GlueRole",
+		"Role":         "arn:aws:iam::123456789012:role/GlueRole",
 	})
 
 	rec = doGlueRequest(t, h, "StartColumnStatisticsTaskRunSchedule", map[string]any{
@@ -533,14 +533,14 @@ func TestColumnStatisticsTaskSettings_Stateful(t *testing.T) {
 	createRec := doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
 		"DatabaseName": "mydb",
 		"TableName":    "mytable",
-		"RoleArn":      "arn:aws:iam::000000000000:role/GlueRole",
+		"Role":         "arn:aws:iam::000000000000:role/GlueRole",
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	updateRec := doGlueRequest(t, h, "UpdateColumnStatisticsTaskSettings", map[string]any{
 		"DatabaseName": "mydb",
 		"TableName":    "mytable",
-		"RoleArn":      "arn:aws:iam::000000000000:role/NewGlueRole",
+		"Role":         "arn:aws:iam::000000000000:role/NewGlueRole",
 	})
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
@@ -555,4 +555,52 @@ func TestColumnStatisticsTaskSettings_Stateful(t *testing.T) {
 		"TableName":    "mytable",
 	})
 	require.Equal(t, http.StatusOK, deleteRec.Code)
+}
+
+// TestColumnStatisticsTaskSettings_WireRoleName pins the request member name
+// to the botocore model (glue/2017-03-31): Role, not RoleArn.
+func TestColumnStatisticsTaskSettings_WireRoleName(t *testing.T) {
+	t.Parallel()
+
+	const role = "arn:aws:iam::000000000000:role/WireRole"
+
+	tests := []struct {
+		name   string
+		action string
+		seed   bool
+	}{
+		{name: "create", action: "CreateColumnStatisticsTaskSettings"},
+		{name: "update", action: "UpdateColumnStatisticsTaskSettings", seed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			db, tbl := "wiredb-"+tt.name, "wiretbl"
+
+			if tt.seed {
+				seedRec := doGlueRequest(t, h, "CreateColumnStatisticsTaskSettings", map[string]any{
+					"DatabaseName": db,
+					"TableName":    tbl,
+				})
+				require.Equal(t, http.StatusOK, seedRec.Code)
+			}
+
+			rec := doGlueRequest(t, h, tt.action, map[string]any{
+				"DatabaseName": db,
+				"TableName":    tbl,
+				"Role":         role,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			getRec := doGlueRequest(t, h, "GetColumnStatisticsTaskSettings", map[string]any{
+				"DatabaseName": db,
+				"TableName":    tbl,
+			})
+			require.Equal(t, http.StatusOK, getRec.Code)
+			assert.Contains(t, getRec.Body.String(), role)
+		})
+	}
 }

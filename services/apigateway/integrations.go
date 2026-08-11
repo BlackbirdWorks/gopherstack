@@ -222,7 +222,9 @@ func (b *InMemoryBackend) UpdateIntegration(input UpdateIntegrationInput) (*Inte
 
 	applyIntegrationFields(m.MethodIntegration, input)
 
-	return m.MethodIntegration, nil
+	cp := *m.MethodIntegration
+
+	return &cp, nil
 }
 
 func applyIntegrationFields(intg *Integration, input UpdateIntegrationInput) {
@@ -235,13 +237,13 @@ func applyIntegrationFields(intg *Integration, input UpdateIntegrationInput) {
 	if input.IntegrationHTTPMethod != "" {
 		intg.HTTPMethod = input.IntegrationHTTPMethod
 	}
-	if len(input.RequestTemplates) > 0 {
+	if input.RequestTemplates != nil {
 		intg.RequestTemplates = input.RequestTemplates
 	}
-	if len(input.RequestParameters) > 0 {
+	if input.RequestParameters != nil {
 		intg.RequestParameters = input.RequestParameters
 	}
-	if len(input.CacheKeyParameters) > 0 {
+	if input.CacheKeyParameters != nil {
 		intg.CacheKeyParameters = input.CacheKeyParameters
 	}
 	if input.PassthroughBehavior != "" {
@@ -301,11 +303,11 @@ func (b *InMemoryBackend) UpdateIntegrationResponse(
 		ir.SelectionPattern = input.SelectionPattern
 	}
 
-	if len(input.ResponseTemplates) > 0 {
+	if input.ResponseTemplates != nil {
 		ir.ResponseTemplates = input.ResponseTemplates
 	}
 
-	if len(input.ResponseParameters) > 0 {
+	if input.ResponseParameters != nil {
 		ir.ResponseParameters = input.ResponseParameters
 	}
 
@@ -315,5 +317,7 @@ func (b *InMemoryBackend) UpdateIntegrationResponse(
 
 	m.MethodIntegration.IntegrationResponses[input.StatusCode] = ir
 
-	return ir, nil
+	cp := *ir
+
+	return &cp, nil
 }

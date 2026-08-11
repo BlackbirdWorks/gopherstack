@@ -1,10 +1,10 @@
 ---
 service: codebuild
-sdk_module: aws-sdk-go-v2/service/codebuild@v1.68.11   # version audited against
+sdk_module: aws-sdk-go-v2/service/codebuild@v1.72.4   # version audited against
 last_audit_commit: 0627d5d3                             # HEAD when the PRIOR manifest was written;
                                                           # this pass ran under the "no git" constraint
                                                           # and could not read/update this hash
-last_audit_date: 2026-07-25
+last_audit_date: 2026-08-11
 overall: A                # 2026-07-23 pass: deleted 3 invented ops, implemented pagination,
                            # sourceVersion, extended Webhook fields (see below). 2026-07-25 pass #1:
                            # field-diffed Fleet against real types.Fleet -- found+fixed a real gap
@@ -18,12 +18,31 @@ overall: A                # 2026-07-23 pass: deleted 3 invented ops, implemented
                            # GetReportGroupTrend's empty report-content data remains a genuinely
                            # out-of-scope items_still_open entry (not a gaps: blocker -- see below),
                            # so this reaches A.
+                           # 2026-08-11 pass (gopherstack-3y6x follow-up): field-diffed
+                           # DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend's
+                           # error sets against botocore -- confirmed the empty-content verdict
+                           # is still correct (no report-execution pipeline exists to source real
+                           # numbers from) but found the *validation* half was two more bugs:
+                           # DescribeTestCases/GetReportGroupTrend accepted a nonexistent
+                           # reportArn/reportGroupArn and returned success (real AWS declares
+                           # ResourceNotFoundException for both; DescribeCodeCoverages correctly
+                           # does not); GetReportGroupTrend's trendField was parsed and never
+                           # validated against its 9-value enum. Also field-diffed
+                           # CodeCoverage/TestCase against real types -- both had invented field
+                           # names. Swept Delete* ops repo-wide for the same existence-check
+                           # pattern and found the inverse bug in 5 places: DeleteProject/
+                           # DeleteBuildBatch/DeleteReport/DeleteReportGroup/DeleteFleet all
+                           # rejected a nonexistent resource with ResourceNotFoundException, but
+                           # real AWS declares no such exception for any of the five (idempotent
+                           # delete) -- fixed all five. ListReportsForReportGroup was missing the
+                           # same reportGroupArn existence check as GetReportGroupTrend/
+                           # DescribeTestCases -- fixed.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateProject:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: now threads top-level sourceVersion, see gaps fixed below"}
   UpdateProject:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass, same as CreateProject"}
-  DeleteProject:   {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades build deletion via buildsByProject index"}
+  DeleteProject:   {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades build deletion via buildsByProject index. FIXED this pass: now idempotent on a nonexistent name -- real AWS declares no ResourceNotFoundException for this op, gopherstack previously invented one"}
   BatchGetProjects: {wire: ok, errors: ok, state: ok, persist: ok, note: "includes webhook and sourceVersion fields"}
   ListProjects:    {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortBy(NAME|CREATED_TIME|LAST_MODIFIED_TIME)/sortOrder all implemented via ListProjectsSortedBy + paginateIDs, 100-item default page matching real AWS"}
   StartBuild:      {wire: ok, errors: ok, state: ok, persist: ok, note: "env var override uses correct AWS replace-by-name-else-append merge semantics"}
@@ -37,24 +56,24 @@ ops:
   StopBuildBatch:  {wire: ok, errors: ok, state: ok, persist: ok}
   RetryBuildBatch: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetBuildBatches: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteBuildBatch: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteBuildBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: now idempotent on a nonexistent id, same real-AWS error-contract fix as DeleteProject"}
   ListBuildBatches: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: filter.status/nextToken/sortOrder/maxResults implemented, and the op is now documented here (it was already routed/tested pre-pass, just missing from this manifest)"}
   ListBuildBatchesForProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass, same as ListBuildBatches; also newly documented here"}
   CreateReportGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateReportGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteReportGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteReportGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: now idempotent on a nonexistent arn, same real-AWS error-contract fix as DeleteProject"}
   BatchGetReportGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "accepts ARN or bare name"}
   ListReportGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortBy(NAME|CREATED_TIME|LAST_MODIFIED_TIME)/sortOrder/maxResults via ListReportGroupsSortedBy + paginateIDs"}
   BatchGetReports: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteReport:    {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteReport:    {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: now idempotent on a nonexistent arn, same real-AWS error-contract fix as DeleteProject"}
   ListReports:     {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: filter.status/nextToken/sortOrder/maxResults implemented"}
-  ListReportsForReportGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass, same as ListReports"}
-  GetReportGroupTrend: {wire: partial, errors: ok, state: ok, persist: n/a, note: "returns empty stats map (no report-execution data modeled), acceptable stub-free no-op since no reports carry numeric stats; see items_still_open"}
-  DescribeCodeCoverages: {wire: partial, errors: ok, state: ok, persist: n/a, note: "always empty list — no coverage data modeled; see items_still_open"}
-  DescribeTestCases: {wire: partial, errors: ok, state: ok, persist: n/a, note: "always empty list — no test-case data modeled; see items_still_open"}
+  ListReportsForReportGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: pagination (as before), plus a real gap found this audit -- a nonexistent reportGroupArn returned an empty list instead of ResourceNotFoundException (real AWS declares that exception for this op, unlike ListReports/ListReportGroups)"}
+  GetReportGroupTrend: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass: reportGroupArn existence and trendField enum (9 real values) are now validated (both were previously accepted-then-ignored -- ResourceNotFoundException/InvalidInputException respectively); rawData (a real response field, previously missing entirely) is now present as an empty list. Content itself (stats map) remains empty -- no report-execution data is modeled, and none can be fabricated; see items_still_open"}
+  DescribeCodeCoverages: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass: reportArn is now required (was unchecked); CodeCoverage's field names were fixed to match the real type (id/reportARN/lineCoveragePercentage/branchCoveragePercentage/linesCovered/linesMissed/branchesCovered/branchesMissed/expired -- previously invented filePath/branchCoverage/lineCoverage). Confirmed (not changed) that a nonexistent reportArn correctly still returns an empty list rather than ResourceNotFoundException -- real AWS declares no such exception for this op, unlike DescribeTestCases/GetReportGroupTrend. Content itself remains empty; see items_still_open"}
+  DescribeTestCases: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass: reportArn is now required and validated to exist (real AWS declares ResourceNotFoundException for this op; previously accepted any ARN and returned an empty list); TestCase's field names were fixed to match the real type (reportArn/testRawDataPath/prefix/name/status/durationInNanoSeconds/message/testSuiteName/expired -- previously invented duration). Content itself remains empty; see items_still_open"}
   CreateFleet:     {wire: ok, errors: ok, state: ok, persist: ok, note: "id (Fleet had no separate id field at all -- now uuid-generated), overflowBehavior, imageId, fleetServiceRole fixed in the earlier 2026-07-25 pass. Second 2026-07-25 pass: computeConfiguration/proxyConfiguration/vpcConfig/scalingConfiguration now also accepted, stored, and echoed back (scalingConfiguration's desiredCapacity is populated from baseCapacity, matching AWS's no-scaling-event-yet behavior -- see fleets.go's outputScalingConfiguration doc comment)"}
   UpdateFleet:     {wire: ok, errors: ok, state: ok, persist: ok, note: "computeType/environmentType/overflowBehavior/imageId/fleetServiceRole fixed in the earlier 2026-07-25 pass. Second 2026-07-25 pass: computeConfiguration/proxyConfiguration/vpcConfig/scalingConfiguration now also updatable (nil pointer leaves the existing value unchanged, non-nil overwrites -- matches real UpdateFleetInput's partial-update semantics)"}
-  DeleteFleet:     {wire: ok, errors: ok, state: ok, persist: ok, note: "accepts ARN or bare name"}
+  DeleteFleet:     {wire: ok, errors: ok, state: ok, persist: ok, note: "accepts ARN or bare name. FIXED this pass: now idempotent on a nonexistent name/arn, same real-AWS error-contract fix as DeleteProject"}
   BatchGetFleets:  {wire: ok, errors: ok, state: ok, persist: ok}
   ListFleets:      {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortBy(NAME|CREATED_TIME|LAST_MODIFIED_TIME)/sortOrder/maxResults via ListFleetsSortedBy + paginateIDs; also fixed default ordering to be NAME-ascending (was ARN-string-ascending, an internal artifact with no real-AWS basis)"}
   CreateWebhook:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: adds manualCreation/scopeConfiguration/pullRequestBuildPolicy request fields and status/secret/lastModifiedSecret/statusMessage response fields, see gaps fixed below"}
@@ -86,7 +105,7 @@ families:
   janitor: {status: ok, note: "janitor.tick runs sweepCompletedBuilds (TTL eviction) then advanceInProgressBuilds (status advancement) every tick"}
   tags: {status: ok, note: "REMOVED this pass: TagResource/UntagResource/ListTagsForResource were gopherstack-invented operations with no counterpart on the real aws-sdk-go-v2/service/codebuild Client (verified: the SDK module has no api_op_TagResource.go/api_op_UntagResource.go/api_op_ListTagsForResource.go, and Client's exported method set — grepped directly from api_op_*.go — has no such methods). Real AWS CodeBuild only supports tagging inline via the `tags` field on CreateProject/CreateReportGroup/CreateFleet/UpdateProject (already implemented and unaffected). Deleted services/codebuild/tags.go, handler_tags.go, tags_test.go; removed the 3 ops from GetSupportedOperations()/dispatchTable(); TestHandler_GetSupportedOperations now asserts their absence."}
 items_still_open:            # genuinely unfinished — do not mark ok
-  - "DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend always return empty results because no report actually populates coverage/test-case/trend data anywhere in the backend (reports are seed-only via the AddReportInternal test helper — there is no real CodeBuild API to push test-case/coverage content; on real AWS it's ingested by the managed build agent parsing buildspec `reports` sections and artifact files, which this emulator's build execution does not model). Implementing this for real would require modeling report-content ingestion from build artifacts, which is out of scope for this pass."
+  - "DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend always return empty content (codeCoverages/testCases/stats) because no report actually populates coverage/test-case/trend data anywhere in the backend (reports are seed-only via the AddReportInternal test helper — there is no real CodeBuild API to push test-case/coverage content; on real AWS it's ingested by the managed build agent parsing buildspec `reports` sections and artifact files, which this emulator's build execution does not model). This remains genuinely correct to leave empty rather than fabricate numbers a client cannot distinguish from real data. Implementing this for real would require modeling report-content ingestion from build artifacts, which is out of scope for this pass. NOTE: as of the 2026-08-11 pass, this is now *only* a content gap -- the request validation these three ops perform (required fields, ARN existence where real AWS declares it, trendField enum) is complete and correct; see ops: above."
 gaps: []                  # known divergences NOT fixed — link bd issue ids. Fleet's
                            # ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration
                            # (found genuinely unmodeled in the first 2026-07-25 pass) were
@@ -272,3 +291,92 @@ cases: `create_computeConfiguration`, `create_proxyConfiguration`, `create_vpcCo
 `create_scalingConfiguration_desiredCapacityMatchesBase`,
 `update_overwrites_nested_configuration`,
 `update_without_nested_configuration_leaves_it_unchanged`).
+
+### 2026-08-11 pass: report-content follow-up (gopherstack-3y6x)
+
+Re-examined the `items_still_open` premise that `DescribeCodeCoverages`/`DescribeTestCases`/
+`GetReportGroupTrend` "always return empty, blamed on no report-content ingestion pipeline."
+Confirmed the content verdict is still correct (no build-artifact/report-content pipeline
+exists to source real numbers from, and fabricating them would be worse than an empty
+response per `parity-principles.md`) -- but the *validation* half of each op was checked
+against `aws-sdk-go-v2/service/codebuild@v1.72.4`'s botocore source
+(`codebuild/2016-10-06/service-2.json`'s per-operation `errors` list, which is the
+authoritative declared-exception contract each op's real deserializer is generated from)
+and two of the three had a real bug:
+
+- **`DescribeTestCases`/`GetReportGroupTrend` accepted a nonexistent `reportArn`/
+  `reportGroupArn` and returned 200 with empty content.** Real AWS declares
+  `ResourceNotFoundException` for both ops. Fixed: both now look up the resource first and
+  return `ErrNotFound` if absent (`reports.go`'s `DescribeTestCases`/`GetReportGroupTrend`).
+  **`DescribeCodeCoverages` does *not* declare `ResourceNotFoundException`** (only
+  `InvalidInputException`) -- confirmed by reading the same errors list -- so its identical
+  "accept anything, return empty" behavior was already correct and was left unchanged; a new
+  test (`describe_code_coverages_nonexistent_report_still_returns_empty`) documents this
+  asymmetry so a future pass doesn't "fix" it into a regression.
+- **`GetReportGroupTrend`'s `trendField` was parsed and never validated.** Real AWS's
+  `ReportGroupTrendFieldType` is a 9-value enum (`types/enums.go:895-926`); any string,
+  including garbage, was silently accepted. Fixed: `handler_reports.go` now checks
+  `trendField` against the real enum via `slices.Contains`, rejecting with
+  `InvalidInputException` otherwise.
+- **`reportArn`/`reportGroupArn` were never checked for presence** on any of the three ops
+  (nor was `GetReportGroupTrend`'s `reportGroupArn`) -- all are `required` members on the real
+  input shapes. Fixed: added the standard `in.X == ""` → `errInvalidRequest` check already
+  used throughout this file (see `handleDeleteReport` etc.) to all three.
+- **`GetReportGroupTrend`'s response was missing `rawData`**, a real member of
+  `GetReportGroupTrendOutput` (`api_op_GetReportGroupTrend.go`) — the handler only ever
+  returned `stats`. Fixed: `rawData` is now present as an empty list (structurally correct,
+  not fabricated — there is no report data to populate it with).
+- **`CodeCoverage`/`TestCase` had invented field names**, not matching
+  `aws-sdk-go-v2/service/codebuild@v1.72.4/types.CodeCoverage`/`types.TestCase` (verified via
+  `deserializers.go`'s `awsAwsjson11_deserializeDocumentCodeCoverage`). `CodeCoverage` had
+  only `filePath`/`branchCoverage`/`lineCoverage`; real AWS has 10 fields including
+  `id`/`reportARN`/`lineCoveragePercentage`/`branchCoveragePercentage`/`linesCovered`/
+  `linesMissed`/`branchesCovered`/`branchesMissed`/`expired`. `TestCase` had only
+  `name`/`status`/`duration`; real AWS has 9 fields including `reportArn`/`testRawDataPath`/
+  `prefix`/`durationInNanoSeconds`/`message`/`testSuiteName`/`expired` (no `duration` field
+  exists on the real type at all). Fixed both models to match; `handler_reports.go` now
+  marshals the real slices directly instead of hand-building `map[string]any` with the wrong
+  keys. Since both lists remain always-empty (per the content verdict above), this has no
+  observable effect today, but is now correct for whenever report-content ingestion is
+  eventually implemented.
+
+**Deliberately not implemented**: `DescribeCodeCoverages`'s `sortBy`/`sortOrder`/`maxResults`/
+`nextToken`/`minLineCoveragePercentage`/`maxLineCoveragePercentage` and `DescribeTestCases`'s
+`filter`/`maxResults`/`nextToken` request fields. Unlike the pagination/filter parameters
+fixed on `ListReports`/`ListBuildBatches`/etc in the 2026-07-23 pass (which silently returned
+wrong results against *real, non-empty* data), these parameters would have zero observable
+effect: the result set they'd sort/filter/paginate is provably always empty (see above), so
+accepting-and-ignoring them is behaviorally identical to not accepting them at all. Revisit
+this decision if/when report-content ingestion is ever implemented.
+
+**Swept the rest of the service for the same two bug classes** (nonexistent-resource
+accepted; hand-written checks vs the real error contract) and found:
+
+- **The inverse bug in five `Delete*` ops.** `DeleteProject`/`DeleteBuildBatch`/`DeleteReport`/
+  `DeleteReportGroup`/`DeleteFleet` all rejected a nonexistent resource with
+  `ResourceNotFoundException` (400) — but real AWS declares no such exception for *any* of the
+  five (`DeleteProject.errors`/`DeleteBuildBatch.errors`/`DeleteReport.errors`/
+  `DeleteReportGroup.errors`/`DeleteFleet.errors`: all just `["InvalidInputException"]`),
+  meaning all five are idempotent deletes on real AWS. This matches the precedent already
+  established (and already correctly implemented) by `DeleteResourcePolicy`
+  ("idempotent, matches AWS" in `ops:` above). Fixed all five to no-op on a missing resource
+  instead of erroring. Cross-checked the two `Delete*` ops that legitimately keep erroring —
+  `DeleteWebhook`/`DeleteSourceCredentials` — both *do* declare `ResourceNotFoundException`
+  for real, so they were correctly left unchanged.
+- **`ListReportsForReportGroup` had the same missing-existence-check bug** as
+  `DescribeTestCases`/`GetReportGroupTrend` above: a nonexistent `reportGroupArn` returned an
+  empty list instead of `ResourceNotFoundException` (real AWS declares it for this op,
+  confirmed via the same botocore errors list — unlike `ListReports`/`ListReportGroups`, which
+  correctly don't and were correctly left alone). Fixed the same way: existence check before
+  listing, `ListReportsForReportGroup`'s backend signature gained an `error` return (no
+  external call sites outside `services/codebuild`, confirmed by repo-wide grep; `go vet .`
+  clean at the repository root).
+
+New/updated tests: `reports_test.go` (`TestCodeBuild_ReportExtras`,
+`TestCodeBuild_Reports`, `TestCodeBuild_ReportGroups`), `fleets_test.go`
+(`delete_missing_fleet_is_idempotent`), `build_batches_test.go`
+(`delete_missing_is_idempotent`), `projects_test.go` (`not_found_is_idempotent`),
+`handler_test.go` (`TestHandler_ErrorTypeMapping`'s `delete_project_missing_is_idempotent`/
+`delete_fleet_missing_is_idempotent`), `pagination_test.go`/`persistence_test.go` (updated to
+create real report groups instead of hand-constructing ARNs that were never registered, which
+the new `ListReportsForReportGroup` existence check would otherwise correctly reject).

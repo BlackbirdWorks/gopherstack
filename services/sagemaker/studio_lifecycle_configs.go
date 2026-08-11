@@ -26,6 +26,7 @@ type StudioLifecycleConfig struct {
 	StudioLifecycleConfigName    string            `json:"StudioLifecycleConfigName"`
 	StudioLifecycleConfigArn     string            `json:"StudioLifecycleConfigArn"`
 	StudioLifecycleConfigAppType string            `json:"StudioLifecycleConfigAppType,omitempty"`
+	StudioLifecycleConfigContent string            `json:"StudioLifecycleConfigContent,omitempty"`
 }
 
 func cloneStudioLifecycleConfig(s *StudioLifecycleConfig) *StudioLifecycleConfig {
@@ -76,7 +77,7 @@ func (s *StudioLifecycleConfig) UnmarshalJSON(data []byte) error {
 // CreateStudioLifecycleConfig creates a Studio lifecycle configuration.
 func (b *InMemoryBackend) CreateStudioLifecycleConfig(
 	ctx context.Context,
-	name, appType string,
+	name, appType, content string,
 	tags map[string]string,
 ) (*StudioLifecycleConfig, error) {
 	region := getRegion(ctx, b.region)
@@ -86,6 +87,10 @@ func (b *InMemoryBackend) CreateStudioLifecycleConfig(
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: StudioLifecycleConfigName is required", ErrValidation)
+	}
+
+	if content == "" {
+		return nil, fmt.Errorf("%w: StudioLifecycleConfigContent is required", ErrValidation)
 	}
 
 	store := b.studioLifecycleConfigsStore(region)
@@ -101,6 +106,7 @@ func (b *InMemoryBackend) CreateStudioLifecycleConfig(
 		StudioLifecycleConfigName:    name,
 		StudioLifecycleConfigArn:     configARN,
 		StudioLifecycleConfigAppType: appType,
+		StudioLifecycleConfigContent: content,
 		Tags:                         mergeTags(nil, tags),
 		CreationTime:                 now,
 		LastModifiedTime:             now,

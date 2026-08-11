@@ -203,7 +203,7 @@ func TestSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	backend := sesv2.NewInMemoryBackend()
-	_, err := backend.CreateContactList("my-list", "desc")
+	_, err := backend.CreateContactList("my-list", "desc", nil)
 	require.NoError(t, err)
 
 	snap := backend.Snapshot(t.Context())
@@ -226,13 +226,13 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	_, err := backend.CreateEmailIdentity("snap@example.com", "", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateContactList("snap-list", "desc")
+	_, err = backend.CreateContactList("snap-list", "desc", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateDedicatedIPPool("snap-pool", "STANDARD")
+	_, err = backend.CreateDedicatedIPPool("snap-pool", "STANDARD", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateEmailTemplate("snap-tmpl", &sesv2.EmailTemplateContent{Subject: "hi"})
+	_, err = backend.CreateEmailTemplate("snap-tmpl", &sesv2.EmailTemplateContent{Subject: "hi"}, nil)
 	require.NoError(t, err)
 
 	backend.AddExportJobInternal("snap-job", "CREATED")
@@ -324,7 +324,7 @@ func TestListConfigurationSetsSorted(t *testing.T) {
 	backend := sesv2.NewInMemoryBackend()
 
 	for _, name := range []string{"z-set", "a-set", "m-set"} {
-		_, err := backend.CreateConfigurationSet(name)
+		_, err := backend.CreateConfigurationSet(name, nil)
 		require.NoError(t, err)
 	}
 

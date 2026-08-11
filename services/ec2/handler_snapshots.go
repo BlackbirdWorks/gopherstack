@@ -135,7 +135,7 @@ func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, err
 			Description: snap.Description,
 			State:       snap.State,
 			Progress:    snap.Progress,
-			StartTime:   snap.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			StartTime:   snap.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 			OwnerID:     snap.OwnerID,
 			TagSet:      tagItemsFromMap(tags),
 			VolumeSize:  snap.VolumeSize,
@@ -291,11 +291,11 @@ func (h *Handler) handleDescribeLockedSnapshots(vals url.Values, reqID string) (
 		item := snapshotLockItem{
 			SnapshotID:       l.SnapshotID,
 			LockState:        l.LockState,
-			LockCreatedOn:    l.LockCreatedOn.Format("2006-01-02T15:04:05.000Z"),
+			LockCreatedOn:    l.LockCreatedOn.UTC().Format("2006-01-02T15:04:05.000Z"),
 			LockDurationDays: l.LockDurationDays,
 		}
 		if !l.LockExpiresOn.IsZero() {
-			item.LockExpiresOn = l.LockExpiresOn.Format("2006-01-02T15:04:05.000Z")
+			item.LockExpiresOn = l.LockExpiresOn.UTC().Format("2006-01-02T15:04:05.000Z")
 		}
 		resp.SnapshotSet.Items = append(resp.SnapshotSet.Items, item)
 	}
@@ -482,7 +482,7 @@ func (h *Handler) handleCreateSnapshot(vals url.Values, reqID string) (any, erro
 		Progress:    snap.Progress,
 		Description: snap.Description,
 		VolumeSize:  snap.VolumeSize,
-		StartTime:   snap.StartTime.Format("2006-01-02T15:04:05.000Z"),
+		StartTime:   snap.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		KmsKeyID:    snap.KmsKeyID,
 		OwnerID:     snap.OwnerID,
 		TagSet:      tagItemsFromMap(tags),
@@ -534,7 +534,7 @@ func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, e
 			Progress:    s.Progress,
 			Description: s.Description,
 			VolumeSize:  s.VolumeSize,
-			StartTime:   s.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			StartTime:   s.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 			KmsKeyID:    s.KmsKeyID,
 			OwnerID:     s.OwnerID,
 			TagSet:      tagItemsFromMap(h.Backend.TagsForResource(s.SnapshotID)),

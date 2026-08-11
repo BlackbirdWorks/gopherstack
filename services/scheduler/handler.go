@@ -593,11 +593,25 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	// scheduler@v1.20.4 deserializers.go models ValidationException and
+	// InternalServerException on every one of its 12 operations (verified by
+	// scanning every awsRestjson1_deserializeOpError* switch), so both are safe
+	// blanket fallbacks regardless of which operation reached this path.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ValidationException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InternalServerException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/lambda"
@@ -301,19 +302,21 @@ func TestLambda_AccumulateSQSBatch(t *testing.T) {
 	t.Run("window elapsed flushes partial batch", func(t *testing.T) {
 		t.Parallel()
 
-		p := lambda.NewEventSourcePoller(nil, &fakeKinesisReader{})
-		m := &lambda.EventSourceMapping{UUID: "u3", MaximumBatchingWindowInSeconds: 0, BatchSize: 10}
-		// A zero window with buffering disabled flushes immediately; emulate an
-		// elapsed window by using a tiny window and sleeping.
-		m.MaximumBatchingWindowInSeconds = 1
-		_, flush := lambda.AccumulateSQSBatch(p, m, []*lambda.SQSMessage{{MessageID: "1"}})
-		assert.False(t, flush)
+		synctest.Test(t, func(t *testing.T) {
+			p := lambda.NewEventSourcePoller(nil, &fakeKinesisReader{})
+			m := &lambda.EventSourceMapping{UUID: "u3", MaximumBatchingWindowInSeconds: 0, BatchSize: 10}
+			// A zero window with buffering disabled flushes immediately; emulate an
+			// elapsed window by using a tiny window and sleeping.
+			m.MaximumBatchingWindowInSeconds = 1
+			_, flush := lambda.AccumulateSQSBatch(p, m, []*lambda.SQSMessage{{MessageID: "1"}})
+			assert.False(t, flush)
 
-		time.Sleep(1100 * time.Millisecond)
+			time.Sleep(1100 * time.Millisecond)
 
-		batch, flush := lambda.AccumulateSQSBatch(p, m, nil)
-		assert.True(t, flush)
-		assert.Len(t, batch, 1)
+			batch, flush := lambda.AccumulateSQSBatch(p, m, nil)
+			assert.True(t, flush)
+			assert.Len(t, batch, 1)
+		})
 	})
 }
 

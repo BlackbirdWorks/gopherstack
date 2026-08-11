@@ -66,9 +66,40 @@ func TestHandler_ImportKeyMaterial_ExpirationValidation_ViaHTTP(t *testing.T) {
 	matB64 := encodeBase64(mat)
 
 	// KEY_MATERIAL_EXPIRES without ValidTo should fail
-	body := fmt.Sprintf(`{"KeyId":"%s","KeyMaterial":"%s","ExpirationModel":"KEY_MATERIAL_EXPIRES"}`, keyID, matB64)
+	body := fmt.Sprintf(
+		`{"KeyId":"%s","EncryptedKeyMaterial":"%s","ExpirationModel":"KEY_MATERIAL_EXPIRES"}`, keyID, matB64,
+	)
 	rec := b2postKMSOp(t, h, "ImportKeyMaterial", body)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHandler_ImportKeyMaterial_WireFieldName_ViaHTTP sends the real AWS wire
+// field name (EncryptedKeyMaterial, not KeyMaterial) and asserts the import
+// actually takes effect.
+func TestHandler_ImportKeyMaterial_WireFieldName_ViaHTTP(t *testing.T) {
+	t.Parallel()
+	h := b2newHandler(t)
+	b := h.Backend.(*kms.InMemoryBackend)
+
+	keyID := b2mustCreateExternalKey(t, b)
+
+	mat := make([]byte, 32)
+	for i := range mat {
+		mat[i] = byte(i + 1)
+	}
+	matB64 := encodeBase64(mat)
+
+	body := fmt.Sprintf(`{"KeyId":"%s","EncryptedKeyMaterial":"%s"}`, keyID, matB64)
+	rec := b2postKMSOp(t, h, "ImportKeyMaterial", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	descBody := fmt.Sprintf(`{"KeyId":"%s"}`, keyID)
+	descRec := b2postKMSOp(t, h, "DescribeKey", descBody)
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut kms.DescribeKeyOutput
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	assert.Equal(t, kms.KeyStateEnabled, descOut.KeyMetadata.KeyState)
 }
 
 // TestKMSHandlerImportKeyMaterial verifies ImportKeyMaterial and DeleteImportedKeyMaterial

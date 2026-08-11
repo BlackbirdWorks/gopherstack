@@ -19,7 +19,7 @@ type GatewayTask struct {
 
 // GatewayTaskDefinition represents a wireless gateway task definition.
 type GatewayTaskDefinition struct {
-	Update          map[string]any
+	Update          *UpdateWirelessGatewayTaskCreate
 	ID              string
 	ARN             string
 	Name            string
@@ -72,11 +72,20 @@ func (b *InMemoryBackend) DeleteWirelessGatewayTask(gatewayID string) error {
 	return nil
 }
 
+// copyGatewayTaskDefinition returns a shallow copy of def with an
+// independent Update, or nil for nil input.
+func copyGatewayTaskDefinition(def *GatewayTaskDefinition) *GatewayTaskDefinition {
+	cp := *def
+	cp.Update = copyUpdateWirelessGatewayTaskCreate(def.Update)
+
+	return &cp
+}
+
 // CreateWirelessGatewayTaskDefinition creates a new gateway task definition.
 func (b *InMemoryBackend) CreateWirelessGatewayTaskDefinition(
 	accountID, region, name string,
 	autoCreateTasks bool,
-	update map[string]any,
+	update *UpdateWirelessGatewayTaskCreate,
 ) (*GatewayTaskDefinition, error) {
 	b.mu.Lock("CreateWirelessGatewayTaskDefinition")
 	defer b.mu.Unlock()
@@ -94,7 +103,7 @@ func (b *InMemoryBackend) CreateWirelessGatewayTaskDefinition(
 
 	b.gatewayTaskDefs.Put(def)
 
-	return def, nil
+	return copyGatewayTaskDefinition(def), nil
 }
 
 // GetWirelessGatewayTaskDefinition returns a gateway task definition by ID.
@@ -109,9 +118,7 @@ func (b *InMemoryBackend) GetWirelessGatewayTaskDefinition(
 		return nil, ErrGatewayTaskDefNotFound
 	}
 
-	cp := *def
-
-	return &cp, nil
+	return copyGatewayTaskDefinition(def), nil
 }
 
 // ListWirelessGatewayTaskDefinitions returns all gateway task definitions.
@@ -123,8 +130,7 @@ func (b *InMemoryBackend) ListWirelessGatewayTaskDefinitions() []*GatewayTaskDef
 	result := make([]*GatewayTaskDefinition, 0, len(all))
 
 	for _, def := range all {
-		cp := *def
-		result = append(result, &cp)
+		result = append(result, copyGatewayTaskDefinition(def))
 	}
 
 	return result

@@ -18,7 +18,7 @@ import (
 const durableExecutionRootOperationID = "execution"
 
 // DurableExecutionStatus mirrors types.ExecutionStatus
-// (aws-sdk-go-v2/service/lambda@v1.97.0/types/enums.go).
+// (aws-sdk-go-v2/service/lambda@v1.101.2/types/enums.go).
 type DurableExecutionStatus string
 
 // Enum values for DurableExecutionStatus — field-verified against
@@ -275,7 +275,7 @@ type CheckpointDurableExecutionOutput struct {
 
 // GetDurableExecutionOutput mirrors api_op_GetDurableExecution.go's
 // GetDurableExecutionOutput field-for-field (verified against
-// aws-sdk-go-v2/service/lambda@v1.97.0/deserializers.go). Previously
+// aws-sdk-go-v2/service/lambda@v1.101.2/deserializers.go). Previously
 // gopherstack emitted a single merged "ExecutionArn" field and ISO8601
 // StartTime/StopTime strings; the real shape splits DurableExecutionArn from
 // DurableExecutionName and uses Unix-epoch StartTimestamp/EndTimestamp.
@@ -605,7 +605,7 @@ func reverseEventsInPlace(events []DurableExecutionEvent) {
 // DurableConfig/InputPayload/Version are only ever populated when a caller
 // threads them through explicitly (there is currently no such caller); every
 // RESPONSE FIELD SHAPE below is nonetheless field-verified against
-// aws-sdk-go-v2/service/lambda@v1.97.0's deserializers.go, so they round-trip
+// aws-sdk-go-v2/service/lambda@v1.101.2's deserializers.go, so they round-trip
 // correctly through the real SDK client the moment they ARE populated.
 //
 // Locking: every exported read/write method builds its full wire-response

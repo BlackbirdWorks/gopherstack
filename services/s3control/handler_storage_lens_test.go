@@ -542,16 +542,10 @@ func TestListStorageLensConfigurations(t *testing.T) {
 			}
 			assert.Equal(t, len(tt.configs), s3control.StorageLensConfigCount(b))
 
-			// ListStorageLensConfigurationsOutput's list is FLATTENED in
-			// the real SDK -- repeated "<StorageLensConfiguration>"
-			// elements directly under the result, no wrapping
-			// "<StorageLensConfigurationList>" element (see
-			// awsRestxml_deserializeDocumentStorageLensConfigurationListUnwrapped).
-			// Assert the literal nested envelope, not a substring: a
-			// wrapper-based decode target would silently see zero items
-			// against the real (flattened) response, so round-tripping
-			// into a flattened decode target is the only shape that
-			// proves the fix.
+			// ListStorageLensConfigurationsOutput's list is flattened in
+			// the real SDK, no wrapping "<StorageLensConfigurationList>"
+			// element (awsRestxml_deserializeDocumentStorageLensConfigurationListUnwrapped).
+			// Assert the literal nested envelope, not a substring.
 			assert.NotContains(t, body, "StorageLensConfigurationList")
 			var out struct {
 				XMLName xml.Name `xml:"ListStorageLensConfigurationsResult"`
@@ -793,14 +787,11 @@ func TestStorageLensGroup_ListShowsFilter(t *testing.T) {
 			}
 			assert.Equal(t, tt.wantLen, s3control.StorageLensGroupCount(b))
 
-			// ListStorageLensGroupsOutput's list is FLATTENED in the real
-			// SDK (repeated "<StorageLensGroup>" elements directly under
-			// the result, no wrapping "<StorageLensGroupList>" element --
-			// see awsRestxml_deserializeDocumentStorageLensGroupListUnwrapped)
-			// and its entries (ListStorageLensGroupEntry) carry no
-			// CreatedAt or Filter field. Assert the literal nested
-			// envelope and the absence of fabricated fields, not
-			// substrings.
+			// ListStorageLensGroupsOutput's list is flattened, no wrapping
+			// "<StorageLensGroupList>" element
+			// (awsRestxml_deserializeDocumentStorageLensGroupListUnwrapped),
+			// and entries (ListStorageLensGroupEntry) carry no CreatedAt
+			// or Filter field.
 			assert.NotContains(t, body, "StorageLensGroupList")
 			assert.NotContains(t, body, "CreatedAt")
 			var out struct {

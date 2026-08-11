@@ -87,6 +87,29 @@ func TestHandler_CreateIdcApplication(t *testing.T) {
 	}
 }
 
+// TestHandler_CreateIdcApplication_ApplicationType locks in that ApplicationType
+// (real "None"/"Lakehouse" enum, confirmed against
+// awsAwsquery_serializeOpDocumentCreateRedshiftIdcApplicationInput in
+// aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go) round-trips on create,
+// and is immutable on modify -- real ModifyRedshiftIdcApplicationInput has no
+// field for it.
+func TestHandler_CreateIdcApplication_ApplicationType(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+
+	rec := postRedshiftForm(t, h, "Action=CreateRedshiftIdcApplication&Version=2012-12-01"+
+		"&RedshiftIdcApplicationName=lakehouse-app&IdcInstanceArn=arn:idc&ApplicationType=Lakehouse")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "<ApplicationType>Lakehouse</ApplicationType>")
+
+	rec = postRedshiftForm(t, h, "Action=ModifyRedshiftIdcApplication&Version=2012-12-01"+
+		"&RedshiftIdcApplicationArn=arn:aws:redshift:us-east-1:000000000000:redshiftidcapplication/lakehouse-app"+
+		"&IdcDisplayName=Renamed")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "<ApplicationType>Lakehouse</ApplicationType>")
+}
+
 // ---- DeleteIdcApplication ----
 
 func TestHandler_DeleteIdcApplication(t *testing.T) {

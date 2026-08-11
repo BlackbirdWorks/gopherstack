@@ -111,9 +111,43 @@ func (b *InMemoryBackend) tagsForRef(region string, ref resourceRef) map[string]
 		if s, ok := tableGet(b.snapshots[region], ref.Name); ok {
 			src = s.Tags
 		}
+	case resourceKindMultiRegionCluster:
+		if mrc, ok := b.multiRegionClusters.Get(ref.Name); ok {
+			src = mrc.Tags
+		}
 	}
 
 	return maps.Clone(src)
+}
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingMemoryDB).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every MemoryDB resource ARN (clusters, ACLs,
+// subnet groups, users, parameter groups, snapshots, multi-region clusters), across all regions,
+// that currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.arnToResource))
+
+	for region, arns := range b.arnToResource {
+		for resourceArn, ref := range arns {
+			t := b.tagsForRef(region, ref)
+			if len(t) == 0 {
+				continue
+			}
+
+			out = append(out, TaggedEntry{ARN: resourceArn, Tags: t})
+		}
+	}
+
+	return out
 }
 
 // mergeTags ensures dst is initialized then copies all src entries into it.
@@ -150,6 +184,10 @@ func (b *InMemoryBackend) applyTags(region string, ref resourceRef, tags map[str
 	case resourceKindSnapshot:
 		if s, ok := tableGet(b.snapshots[region], ref.Name); ok {
 			mergeTags(&s.Tags, tags)
+		}
+	case resourceKindMultiRegionCluster:
+		if mrc, ok := b.multiRegionClusters.Get(ref.Name); ok {
+			mergeTags(&mrc.Tags, tags)
 		}
 	}
 }
@@ -192,6 +230,10 @@ func (b *InMemoryBackend) tagsMapForRef(region string, ref resourceRef) map[stri
 	case resourceKindSnapshot:
 		if s, ok := tableGet(b.snapshots[region], ref.Name); ok {
 			return s.Tags
+		}
+	case resourceKindMultiRegionCluster:
+		if mrc, ok := b.multiRegionClusters.Get(ref.Name); ok {
+			return mrc.Tags
 		}
 	}
 

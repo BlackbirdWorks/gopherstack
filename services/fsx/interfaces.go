@@ -272,7 +272,7 @@ type FileCache struct {
 	Lifecycle          string    `json:"Lifecycle"`
 	ResourceARN        string    `json:"ResourceARN"`
 	Tags               []Tag     `json:"Tags,omitempty"`
-	StorageCapacityGiB int32     `json:"StorageCapacityGiB,omitempty"`
+	StorageCapacityGiB int32     `json:"StorageCapacity,omitempty"`
 }
 
 // Snapshot represents an FSx ONTAP or OpenZFS snapshot.

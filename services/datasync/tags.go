@@ -117,6 +117,31 @@ func (b *InMemoryBackend) ListTagsForResource(
 	return result, pg.Next, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every DataSync resource ARN that currently has at
+// least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for resourceArn, tags := range b.tags {
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+	}
+
+	return out
+}
+
 // isKnownResource returns true if the ARN corresponds to a known agent, location, or task.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) isKnownResource(a string) bool {

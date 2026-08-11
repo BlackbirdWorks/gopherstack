@@ -64,7 +64,10 @@ func TestIntegration_AppConfig_ApplicationLifecycle(t *testing.T) {
 			appID := aws.ToString(createOut.Id)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteApplication(ctx, &appconfigsdk.DeleteApplicationInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteApplication(cleanupCtx, &appconfigsdk.DeleteApplicationInput{
 					ApplicationId: aws.String(appID),
 				})
 			})
@@ -139,7 +142,10 @@ func TestIntegration_AppConfig_EnvironmentLifecycle(t *testing.T) {
 			appID := aws.ToString(appOut.Id)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteApplication(ctx, &appconfigsdk.DeleteApplicationInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteApplication(cleanupCtx, &appconfigsdk.DeleteApplicationInput{
 					ApplicationId: aws.String(appID),
 				})
 			})

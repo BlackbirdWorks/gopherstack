@@ -311,21 +311,48 @@ func (b *InMemoryBackend) DeleteRegistry(name string) error {
 	return nil
 }
 
-// CreateSchema creates a new schema in the given registry.
+// isValidCompatibilityMode reports whether mode is one of the schema
+// Compatibility enum values AWS defines (aws-sdk-go-v2/service/glue@v1.152.0
+// types/enums.go:328-337).
+func isValidCompatibilityMode(mode string) bool {
+	switch strings.ToUpper(mode) {
+	case "NONE", "DISABLED", "BACKWARD", "BACKWARD_ALL", "FORWARD", "FORWARD_ALL", "FULL", "FULL_ALL":
+		return true
+	default:
+		return false
+	}
+}
+
+// CreateSchema creates a new schema in the given registry. When
+// schemaDefinition is non-empty, AWS creates the schema and its first
+// version atomically (aws-sdk-go-v2/service/glue@v1.152.0
+// api_op_CreateSchema.go:105-106: "The schema definition using the
+// DataFormat setting for SchemaName") -- the returned *SchemaVersion is nil
+// when no definition was supplied.
 func (b *InMemoryBackend) CreateSchema(
-	registryName, schemaName, dataFormat, compatibility, description string,
+	registryName, schemaName, dataFormat, compatibility, description, schemaDefinition string,
 	tags map[string]string,
-) (*Schema, error) {
+) (*Schema, *SchemaVersion, error) {
 	b.mu.Lock("CreateSchema")
 	defer b.mu.Unlock()
 
 	if schemaName == "" {
-		return nil, ErrValidation
+		return nil, nil, ErrValidation
+	}
+
+	if compatibility != "" && !isValidCompatibilityMode(compatibility) {
+		return nil, nil, fmt.Errorf("%w: invalid Compatibility %q", ErrValidation, compatibility)
 	}
 
 	key := schemaKey(registryName, schemaName)
 	if b.schemas.Has(key) {
-		return nil, ErrAlreadyExists
+		return nil, nil, ErrAlreadyExists
+	}
+
+	if schemaDefinition != "" {
+		if valid, errMsg := validateSchemaDefinition(dataFormat, schemaDefinition); !valid {
+			return nil, nil, fmt.Errorf("%w: %s", ErrValidation, errMsg)
+		}
 	}
 
 	schARN := b.schemaARN(registryName, schemaName)
@@ -347,13 +374,43 @@ func (b *InMemoryBackend) CreateSchema(
 		CheckpointVersion:   1,
 	}
 
+	var sv *SchemaVersion
+	if schemaDefinition != "" {
+		sv = &SchemaVersion{
+			SchemaVersionID:  uuid.New().String(),
+			SchemaARN:        schARN,
+			SchemaDefinition: schemaDefinition,
+			Status:           stateAvailable,
+			DataFormat:       dataFormat,
+			VersionNumber:    1,
+			CreatedTime:      float64(time.Now().Unix()),
+		}
+		// The DISABLED interaction: RegisterSchemaVersion refuses a second
+		// version once LatestSchemaVersion > 0, so seeding version 1 here
+		// closes the door on further versions exactly like DISABLED requires.
+		s.LatestSchemaVersion = 1
+		s.NextSchemaVersion = 2
+	}
+
 	b.schemas.Put(s)
-	b.schemaVersions[schemaVersionListKey(schARN)] = nil // init empty version list
+
+	listKey := schemaVersionListKey(schARN)
+	b.schemaVersions[listKey] = nil // init empty version list
+
+	if sv != nil {
+		b.schemaVersions[listKey] = append(b.schemaVersions[listKey], sv)
+	}
 
 	cp := *s
 	cp.Tags = maps.Clone(s.Tags)
 
-	return &cp, nil
+	var svCopy *SchemaVersion
+	if sv != nil {
+		c := *sv
+		svCopy = &c
+	}
+
+	return &cp, svCopy, nil
 }
 
 // DescribeSchema retrieves a schema by registry and schema name.
@@ -407,6 +464,10 @@ func (b *InMemoryBackend) UpdateSchema(
 	}
 
 	if compatibility != "" {
+		if !isValidCompatibilityMode(compatibility) {
+			return fmt.Errorf("%w: invalid Compatibility %q", ErrValidation, compatibility)
+		}
+
 		s.Compatibility = compatibility
 	}
 
@@ -447,6 +508,14 @@ func (b *InMemoryBackend) RegisterSchemaVersion(
 	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	// DISABLED locks a schema to its first version (aws-sdk-go-v2/service/glue@v1.152.0
+	// api_op_CreateSchema.go:14-18: "restricts any additional schema versions from
+	// being added after the first schema version"); the first version is always
+	// accepted regardless of mode (api_op_RegisterSchemaVersion.go:17-18).
+	if strings.EqualFold(s.Compatibility, "DISABLED") && s.LatestSchemaVersion > 0 {
+		return nil, fmt.Errorf("%w: schema compatibility is DISABLED, no additional versions permitted", ErrValidation)
 	}
 
 	// RegisterSchemaVersion must reject a malformed definition the same way

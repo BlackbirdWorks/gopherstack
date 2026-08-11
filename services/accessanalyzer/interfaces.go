@@ -64,7 +64,9 @@ type StorageBackend interface {
 	StartResourceScan(analyzerARN, resourceARN string) error
 
 	// Policy generation
-	StartPolicyGeneration(principalArn string) (*PolicyGeneration, error)
+	StartPolicyGeneration(
+		principalArn string, cloudTrailDetails *PolicyGenerationCloudTrailDetails,
+	) (*PolicyGeneration, error)
 	GetPolicyGeneration(jobID string) (*PolicyGeneration, error)
 	CancelPolicyGeneration(jobID string) error
 	ListPolicyGenerations(principalArn string) ([]*PolicyGeneration, error)

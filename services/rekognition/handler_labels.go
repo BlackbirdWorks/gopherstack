@@ -25,9 +25,9 @@ type labelEntry struct {
 	Confidence float64 `json:"Confidence"`
 }
 
-type detectLabelsResp struct { //nolint:govet // existing issue.
-	Labels                []labelEntry `json:"Labels"`
+type detectLabelsResp struct {
 	OrientationCorrection string       `json:"OrientationCorrection"`
+	Labels                []labelEntry `json:"Labels"`
 }
 
 func (h *Handler) handleDetectLabels(_ context.Context, req *detectLabelsReq) (*detectLabelsResp, error) {
@@ -88,9 +88,17 @@ type startLabelDetectionReq struct {
 }
 
 func (h *Handler) handleStartLabelDetection(
-	_ context.Context, _ *startLabelDetectionReq,
+	_ context.Context, req *startLabelDetectionReq,
 ) (*startJobResp, error) {
-	jobID, err := h.Backend.StartAsyncJob("label_detection", "")
+	bucket, name, version := videoRefS3(req.Video)
+
+	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
+		JobType:        "label_detection",
+		JobTag:         req.JobTag,
+		VideoS3Bucket:  bucket,
+		VideoS3Name:    name,
+		VideoS3Version: version,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -98,15 +106,28 @@ func (h *Handler) handleStartLabelDetection(
 	return &startJobResp{JobId: jobID}, nil
 }
 
-type getLabelDetectionResp struct {
-	getJobBaseResp
-	Labels []struct{} `json:"Labels"`
+type getLabelDetectionReq struct {
+	JobId       string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+	NextToken   string `json:"NextToken"`
+	AggregateBy string `json:"AggregateBy"`
+	SortBy      string `json:"SortBy"`
+	MaxResults  int32  `json:"MaxResults"`
 }
 
+type getLabelDetectionResp struct {
+	getJobBaseResp
+	GetRequestMetadata *getRequestMetadataWire `json:"GetRequestMetadata,omitempty"`
+	Labels             []struct{}              `json:"Labels"`
+}
+
+// labelDetectionSortByDefault is GetLabelDetectionInput.SortBy's documented
+// default ("The default sort is by TIMESTAMP.", api_op_GetLabelDetection.go).
+const labelDetectionSortByDefault = "TIMESTAMP"
+
 func (h *Handler) handleGetLabelDetection(
-	_ context.Context, req *getJobReq,
+	_ context.Context, req *getLabelDetectionReq,
 ) (*getLabelDetectionResp, error) {
-	base, err := h.getJobBase(req.JobId)
+	base, _, err := h.getJobBase(req.JobId)
 	if err != nil {
 		return nil, err
 	}
@@ -114,5 +135,9 @@ func (h *Handler) handleGetLabelDetection(
 	return &getLabelDetectionResp{
 		getJobBaseResp: *base,
 		Labels:         []struct{}{},
+		GetRequestMetadata: &getRequestMetadataWire{
+			AggregateBy: req.AggregateBy,
+			SortBy:      orDefault(req.SortBy, labelDetectionSortByDefault),
+		},
 	}, nil
 }

@@ -372,8 +372,10 @@ func TestElasticsearchHandler_UpdateDomainConfig_SecurityFields(t *testing.T) {
 	as := cfg["AdvancedSecurityOptions"].(map[string]any)["Options"].(map[string]any)
 	assert.Equal(t, true, as["Enabled"])
 
-	at := cfg["AutoTuneOptions"].(map[string]any)["Options"].(map[string]any)
-	assert.Equal(t, "DISABLED", at["State"])
+	atField := cfg["AutoTuneOptions"].(map[string]any)
+	at := atField["Options"].(map[string]any)
+	assert.Equal(t, "DISABLED", at["DesiredState"])
+	assert.Equal(t, "DISABLED", atField["Status"].(map[string]any)["State"])
 
 	logOpts := cfg["LogPublishingOptions"].(map[string]any)["Options"].(map[string]any)
 	slowLogs := logOpts["SEARCH_SLOW_LOGS"].(map[string]any)
@@ -404,4 +406,169 @@ func TestElasticsearchBackend_CreateDomain_InvalidAutoTuneDesiredState(t *testin
 	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", decoded)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// TestElasticsearchHandler_CreateDomain_SAMLOptions verifies
+// AdvancedSecurityOptions.SAMLOptions round-trips on the DomainStatus
+// response (Idp/RolesKey/SubjectKey/SessionTimeoutMinutes) while
+// credential-adjacent MasterUserName/MasterBackendRole are never echoed,
+// matching real AWS's SAMLOptionsOutput shape.
+func TestElasticsearchHandler_CreateDomain_SAMLOptions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+		"DomainName": "saml-domain",
+		"AdvancedSecurityOptions": map[string]any{
+			"Enabled": true,
+			"SAMLOptions": map[string]any{
+				"Enabled": true,
+				"Idp": map[string]any{
+					"EntityId":        "https://idp.example.com/saml",
+					"MetadataContent": "<EntityDescriptor/>",
+				},
+				"RolesKey":              "Role",
+				"SubjectKey":            "Subject",
+				"SessionTimeoutMinutes": 120,
+				"MasterUserName":        "saml-admin",
+				"MasterBackendRole":     "admin-role",
+			},
+		},
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	out := readJSONBody(t, resp)
+	status := out["DomainStatus"].(map[string]any)
+	as := status["AdvancedSecurityOptions"].(map[string]any)
+	saml := as["SAMLOptions"].(map[string]any)
+	assert.Equal(t, true, saml["Enabled"])
+	assert.Equal(t, "Role", saml["RolesKey"])
+	assert.Equal(t, "Subject", saml["SubjectKey"])
+	assert.InEpsilon(t, float64(120), saml["SessionTimeoutMinutes"], 0)
+	idp := saml["Idp"].(map[string]any)
+	assert.Equal(t, "https://idp.example.com/saml", idp["EntityId"])
+	assert.NotContains(t, saml, "MasterUserName")
+	assert.NotContains(t, saml, "MasterBackendRole")
+}
+
+// TestElasticsearchHandler_CreateDomain_SAMLOptionsValidation verifies
+// request-time validation of SAMLOptions, mirroring the SDK client's own
+// validateSAMLIdp check plus this backend's Enabled-requires-Idp rule.
+func TestElasticsearchHandler_CreateDomain_SAMLOptionsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		samlOptions map[string]any
+		name        string
+	}{
+		{
+			name:        "enabled_without_idp",
+			samlOptions: map[string]any{"Enabled": true},
+		},
+		{
+			name: "idp_missing_metadata_content",
+			samlOptions: map[string]any{
+				"Enabled": true,
+				"Idp":     map[string]any{"EntityId": "https://idp.example.com/saml"},
+			},
+		},
+		{
+			name: "idp_missing_entity_id",
+			samlOptions: map[string]any{
+				"Enabled": true,
+				"Idp":     map[string]any{"MetadataContent": "<EntityDescriptor/>"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+				"DomainName": "saml-invalid-domain",
+				"AdvancedSecurityOptions": map[string]any{
+					"Enabled":     true,
+					"SAMLOptions": tt.samlOptions,
+				},
+			})
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		})
+	}
+}
+
+// TestElasticsearchHandler_DomainConfig_AutoTuneMaintenanceSchedules verifies
+// AutoTuneOptions.MaintenanceSchedules round-trips through
+// DescribeElasticsearchDomainConfig's DomainConfig.AutoTuneOptions.Options
+// (types.AutoTuneOptions -- DesiredState/MaintenanceSchedules), which is a
+// different shape from the DomainStatus response's AutoTuneOptions (see the
+// AutoTune converter's doc comment in handler_domain_config.go). Status.State
+// must use the AutoTuneState enum (ENABLED/DISABLED), not OptionState's
+// Active.
+func TestElasticsearchHandler_DomainConfig_AutoTuneMaintenanceSchedules(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	name := createTestDomainName(t, h, "autotune-schedule-domain")
+
+	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain/"+name+"/config", map[string]any{
+		"AutoTuneOptions": map[string]any{
+			"DesiredState": "ENABLED",
+			"MaintenanceSchedules": []map[string]any{
+				{
+					"CronExpressionForRecurrence": "cron(0 2 ? * SUN *)",
+					"Duration":                    map[string]any{"Unit": "HOURS", "Value": 2},
+					"StartAt":                     1700000000,
+				},
+			},
+		},
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	out := readJSONBody(t, resp)
+	cfg := out["DomainConfig"].(map[string]any)
+	atField := cfg["AutoTuneOptions"].(map[string]any)
+
+	opts := atField["Options"].(map[string]any)
+	assert.Equal(t, "ENABLED", opts["DesiredState"])
+	schedules := opts["MaintenanceSchedules"].([]any)
+	require.Len(t, schedules, 1)
+	sched := schedules[0].(map[string]any)
+	assert.Equal(t, "cron(0 2 ? * SUN *)", sched["CronExpressionForRecurrence"])
+	duration := sched["Duration"].(map[string]any)
+	assert.Equal(t, "HOURS", duration["Unit"])
+	assert.InEpsilon(t, float64(2), duration["Value"], 0)
+
+	assert.Equal(t, "ENABLED", atField["Status"].(map[string]any)["State"])
+}
+
+// TestElasticsearchHandler_CreateDomain_DeploymentStrategyOptions verifies
+// DeploymentStrategyOptions round-trips on the DomainStatus response and
+// that an invalid DeploymentStrategy value is rejected.
+func TestElasticsearchHandler_CreateDomain_DeploymentStrategyOptions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+		"DomainName":                "deploy-strategy-domain",
+		"DeploymentStrategyOptions": map[string]any{"DeploymentStrategy": "CapacityOptimized"},
+	})
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	out := readJSONBody(t, resp)
+	status := out["DomainStatus"].(map[string]any)
+	dso := status["DeploymentStrategyOptions"].(map[string]any)
+	assert.Equal(t, "CapacityOptimized", dso["DeploymentStrategy"])
+
+	badResp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
+		"DomainName":                "deploy-strategy-bad-domain",
+		"DeploymentStrategyOptions": map[string]any{"DeploymentStrategy": "Bogus"},
+	})
+	defer badResp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, badResp.StatusCode)
 }

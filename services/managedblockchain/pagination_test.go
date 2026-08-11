@@ -86,12 +86,14 @@ type listNetworksPage struct {
 func TestHandler_ListMembers_Pagination(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	h, b := newTestHandlerWithBackend(t)
 
 	networkID, _ := createTestNetwork(t, h)
 
 	for i := range 3 {
+		invitationID := createTestInvitation(t, b, networkID, "test-net")
 		rec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members", map[string]any{
+			"InvitationId":        invitationID,
 			"MemberConfiguration": testMemberConfiguration(fmt.Sprintf("member-%d", i)),
 		})
 		require.Equal(t, http.StatusOK, rec.Code)

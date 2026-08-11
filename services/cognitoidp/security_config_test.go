@@ -386,3 +386,50 @@ func TestLogDelivery(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestSetLogDeliveryConfiguration_LogConfigurationsPersistAndEcho(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, _ := setupHandlerPoolAndClient(t, h, "log-delivery-configs-pool")
+
+	logConfigs := []any{map[string]any{
+		"LogLevel":    "ERROR",
+		"EventSource": "userNotification",
+		"CloudWatchLogsConfiguration": map[string]any{
+			"LogGroupArn": "arn:aws:logs:us-east-1:000000000000:log-group:/cognito/test",
+		},
+	}}
+
+	setRec := doCognitoRequest(t, h, "SetLogDeliveryConfiguration", map[string]any{
+		"UserPoolId":        poolID,
+		"LogConfigurations": logConfigs,
+	})
+	require.Equal(t, http.StatusOK, setRec.Code, setRec.Body.String())
+
+	var setOut struct {
+		LogDeliveryConfiguration struct {
+			UserPoolID        string           `json:"UserPoolId,omitempty"`
+			LogConfigurations []map[string]any `json:"LogConfigurations,omitempty"`
+		} `json:"LogDeliveryConfiguration"`
+	}
+	require.NoError(t, json.Unmarshal(setRec.Body.Bytes(), &setOut))
+	require.Len(t, setOut.LogDeliveryConfiguration.LogConfigurations, 1,
+		"LogConfigurations is a required accepted field and must not be silently dropped",
+	)
+	assert.Equal(t, "ERROR", setOut.LogDeliveryConfiguration.LogConfigurations[0]["LogLevel"])
+
+	getRec := doCognitoRequest(t, h, "GetLogDeliveryConfiguration", map[string]any{"UserPoolId": poolID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut struct {
+		LogDeliveryConfiguration struct {
+			LogConfigurations []map[string]any `json:"LogConfigurations,omitempty"`
+		} `json:"LogDeliveryConfiguration"`
+	}
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.Len(t,
+		getOut.LogDeliveryConfiguration.LogConfigurations, 1, "Set must actually persist for Get to read back",
+	)
+	assert.Equal(t, "ERROR", getOut.LogDeliveryConfiguration.LogConfigurations[0]["LogLevel"])
+}

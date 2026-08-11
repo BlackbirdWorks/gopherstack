@@ -10,6 +10,7 @@ func (b *InMemoryBackend) PutInlinePolicyToPermissionSet(instanceArn, permission
 		return ErrPermissionSetNotFound
 	}
 	ps.InlinePolicy = inlinePolicy
+	bumpModified(ps)
 
 	return nil
 }
@@ -37,6 +38,7 @@ func (b *InMemoryBackend) DeleteInlinePolicyFromPermissionSet(instanceArn, permi
 		return ErrPermissionSetNotFound
 	}
 	ps.InlinePolicy = ""
+	bumpModified(ps)
 
 	return nil
 }

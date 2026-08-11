@@ -3,6 +3,7 @@ package eks_test
 import (
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -264,20 +265,22 @@ func TestAddonTransitionsToActive(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend(t)
-			_, err := b.CreateCluster(
-				"cl", "1.32", "arn:aws:iam::123456789012:role/role", nil, nil, nil,
-			)
-			require.NoError(t, err)
+			synctest.Test(t, func(t *testing.T) {
+				b := newBackend(t)
+				_, err := b.CreateCluster(
+					"cl", "1.32", "arn:aws:iam::123456789012:role/role", nil, nil, nil,
+				)
+				require.NoError(t, err)
 
-			_, err = b.CreateAddon("cl", "vpc-cni", "", "", "", "", nil)
-			require.NoError(t, err)
+				_, err = b.CreateAddon("cl", "vpc-cni", "", "", "", "", nil)
+				require.NoError(t, err)
 
-			time.Sleep(300 * time.Millisecond)
+				time.Sleep(300 * time.Millisecond)
 
-			addon, err := b.DescribeAddon("cl", "vpc-cni")
-			require.NoError(t, err)
-			assert.Equal(t, "ACTIVE", addon.Status, tc.name)
+				addon, err := b.DescribeAddon("cl", "vpc-cni")
+				require.NoError(t, err)
+				assert.Equal(t, "ACTIVE", addon.Status, tc.name)
+			})
 		})
 	}
 }

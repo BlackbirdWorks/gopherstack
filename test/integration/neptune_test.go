@@ -38,7 +38,10 @@ func TestIntegration_Neptune_ClusterAndInstanceLifecycle(t *testing.T) {
 	assert.Equal(t, clusterID, aws.ToString(createOut.DBCluster.DBClusterIdentifier))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteDBCluster(ctx, &neptunesdk.DeleteDBClusterInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteDBCluster(cleanupCtx, &neptunesdk.DeleteDBClusterInput{
 			DBClusterIdentifier: aws.String(clusterID),
 			SkipFinalSnapshot:   aws.Bool(true),
 		})
@@ -80,7 +83,10 @@ func TestIntegration_Neptune_ClusterAndInstanceLifecycle(t *testing.T) {
 	assert.Equal(t, instanceID, aws.ToString(createInstOut.DBInstance.DBInstanceIdentifier))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteDBInstance(ctx, &neptunesdk.DeleteDBInstanceInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteDBInstance(cleanupCtx, &neptunesdk.DeleteDBInstanceInput{
 			DBInstanceIdentifier: aws.String(instanceID),
 			SkipFinalSnapshot:    aws.Bool(true),
 		})

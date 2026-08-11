@@ -279,7 +279,10 @@ func TestIntegration_APIGatewayV2_AuthorizerJWT(t *testing.T) {
 	apiID := *createOut.ApiId
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 	})
 
 	// Create a JWT authorizer
@@ -352,7 +355,10 @@ func TestIntegration_APIGatewayV2_WebSocketAPI(t *testing.T) {
 	assert.Equal(t, "$request.body.action", aws.ToString(createOut.RouteSelectionExpression))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 	})
 
 	// Create the $connect route
@@ -435,7 +441,10 @@ func TestIntegration_APIGatewayV2_DomainNameAndMapping(t *testing.T) {
 	apiID := *createOut.ApiId
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 	})
 
 	_, err = client.CreateStage(ctx, &apigwv2sdk.CreateStageInput{
@@ -528,7 +537,10 @@ func TestIntegration_APIGatewayV2_Tags(t *testing.T) {
 	assert.Equal(t, "test", createOut.Tags["env"])
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 	})
 
 	// GetTags
@@ -569,7 +581,10 @@ func TestIntegration_APIGatewayV2_StageVariablesAndAccessLog(t *testing.T) {
 	apiID := *createOut.ApiId
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 	})
 
 	// Create stage with variables and access log settings
@@ -640,7 +655,10 @@ func TestIntegration_APIGatewayV2_RequiredFieldValidation(t *testing.T) {
 	apiID := *createOut.ApiId
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 	})
 
 	_, err = client.CreateAuthorizer(ctx, &apigwv2sdk.CreateAuthorizerInput{
@@ -687,7 +705,10 @@ func TestIntegration_APIGatewayV2_CascadeDelete(t *testing.T) {
 			require.NoError(t, err)
 			apiID := *apiOut.ApiId
 			t.Cleanup(func() {
-				_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 			})
 
 			routeOut, err := client.CreateRoute(ctx, &apigwv2sdk.CreateRouteInput{
@@ -725,7 +746,10 @@ func TestIntegration_APIGatewayV2_ModelValidation(t *testing.T) {
 	require.NoError(t, err)
 	apiID := *apiOut.ApiId
 	t.Cleanup(func() {
-		_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 	})
 
 	tests := []struct {
@@ -816,7 +840,10 @@ func TestIntegration_APIGatewayV2_VpcLinkValidation(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				t.Cleanup(func() {
-					_, _ = client.DeleteVpcLink(t.Context(), &apigwv2sdk.DeleteVpcLinkInput{VpcLinkId: out.VpcLinkId})
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, _ = client.DeleteVpcLink(cleanupCtx, &apigwv2sdk.DeleteVpcLinkInput{VpcLinkId: out.VpcLinkId})
 				})
 			}
 		})
@@ -847,7 +874,10 @@ func TestIntegration_APIGatewayV2_RouteKeyUniqueness(t *testing.T) {
 			require.NoError(t, err)
 			apiID := *apiOut.ApiId
 			t.Cleanup(func() {
-				_, _ = client.DeleteApi(t.Context(), &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 			})
 
 			_, err = client.CreateRoute(ctx, &apigwv2sdk.CreateRouteInput{

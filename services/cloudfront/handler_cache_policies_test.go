@@ -57,7 +57,7 @@ func TestCachePolicyParams(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 			rec := doReq(t, h, http.MethodPost, "/2020-05-31/cache-policy", tt.body)
 			assert.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -83,7 +83,7 @@ func TestCachePolicyMaxTTL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 
 			body := fmt.Sprintf(`<CachePolicyConfig>
@@ -151,7 +151,7 @@ func TestCreateCachePolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/cache-policy", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			tt.check(t, rec)
@@ -163,7 +163,7 @@ func TestCreateCachePolicy(t *testing.T) {
 func TestCachePolicyUniqueness(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	body := []byte(
 		`<CachePolicyConfig><Name>my-unique-policy</Name>` +
 			`<DefaultTTL>86400</DefaultTTL><MaxTTL>31536000</MaxTTL><MinTTL>0</MinTTL>` +
@@ -229,7 +229,7 @@ func TestCachePolicyTTLValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/cache-policy", []byte(tt.body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -425,7 +425,7 @@ func TestCachePolicyCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 
 			if tt.setup != nil {
@@ -566,7 +566,7 @@ func TestCachePolicyETagValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path, hdrs := tt.setup(t, h)
 
 			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
@@ -586,7 +586,7 @@ func TestCachePolicyETagValidation(t *testing.T) {
 func TestCachePolicyWhitelistItems_WireRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	body := []byte(`<CachePolicyConfig><Name>wire-cp</Name>` +
 		`<DefaultTTL>1</DefaultTTL><MaxTTL>2</MaxTTL><MinTTL>0</MinTTL>` +

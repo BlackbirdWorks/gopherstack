@@ -617,7 +617,7 @@ func TestPassThroughOperationsSmoke(t *testing.T) {
 		{body: map[string]any{}, action: "DescribeRecommendations"},
 		{body: map[string]any{}, action: "DescribeRefreshSchemasStatus"},
 		{body: map[string]any{"ReplicationInstanceArn": "ri-arn"}, action: "DescribeReplicationInstanceTaskLogs"},
-		{body: map[string]any{"ReplicationTaskArn": "rt-arn"}, action: "DescribeReplicationTableStatistics"},
+		{body: map[string]any{"ReplicationConfigArn": "rc-arn"}, action: "DescribeReplicationTableStatistics"},
 		{body: map[string]any{}, action: "DescribeReplicationTaskAssessmentResults"},
 		{body: map[string]any{}, action: "DescribeReplicationTaskAssessmentRuns"},
 		{body: map[string]any{}, action: "DescribeReplicationTaskIndividualAssessments"},

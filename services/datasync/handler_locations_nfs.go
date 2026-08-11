@@ -77,7 +77,7 @@ type nfsOnPremConfigOutput struct {
 
 // describeLocationNfsOutput intentionally has no ServerHostname or
 // Subdirectory field: the real DescribeLocationNfsOutput has neither --
-// confirmed against aws-sdk-go-v2 v1.59.2: CreationTime, LocationArn,
+// confirmed against aws-sdk-go-v2 v1.61.4: CreationTime, LocationArn,
 // LocationUri, MountOptions, OnPremConfig only (host and path are folded
 // into LocationUri).
 type describeLocationNfsOutput struct {

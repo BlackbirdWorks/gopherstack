@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/codecommit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -233,28 +234,135 @@ func TestHandler_MergeBranchesBySquash(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "sq-merge-repo"})
+	setupRepoAndBranch(t, h, "sq-merge-repo")
+	createBranchFromMain(t, h, "sq-merge-repo", "feature")
 
 	rec := doRequest(t, h, "MergeBranchesBySquash", map[string]any{
 		"repositoryName":             "sq-merge-repo",
 		"sourceCommitSpecifier":      "feature",
 		"destinationCommitSpecifier": "main",
+		"commitMessage":              "squash it",
+		"authorName":                 "squasher",
+		"email":                      "squasher@example.com",
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	commitID, _ := resp["commitId"].(string)
+	require.NotEmpty(t, commitID)
+
+	getRec := doRequest(t, h, "GetCommit", map[string]any{
+		"repositoryName": "sq-merge-repo",
+		"commitId":       commitID,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	commit, ok := getResp["commit"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "squash it", commit["message"])
+	author, ok := commit["author"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "squasher", author["name"])
+	parents, ok := commit["parents"].([]any)
+	require.True(t, ok)
+	assert.Len(t, parents, 1, "squash merge commit has exactly one parent (the destination tip)")
 }
 
 func TestHandler_MergeBranchesByThreeWay(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "3w-merge-repo"})
+	setupRepoAndBranch(t, h, "3w-merge-repo")
+	createBranchFromMain(t, h, "3w-merge-repo", "feature")
 
 	rec := doRequest(t, h, "MergeBranchesByThreeWay", map[string]any{
 		"repositoryName":             "3w-merge-repo",
 		"sourceCommitSpecifier":      "feature",
 		"destinationCommitSpecifier": "main",
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	commitID, _ := resp["commitId"].(string)
+	require.NotEmpty(t, commitID)
+
+	getRec := doRequest(t, h, "GetCommit", map[string]any{
+		"repositoryName": "3w-merge-repo",
+		"commitId":       commitID,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	commit, ok := getResp["commit"].(map[string]any)
+	require.True(t, ok)
+	parents, ok := commit["parents"].([]any)
+	require.True(t, ok)
+	assert.Len(t, parents, 2, "three-way merge commit has two parents (destination then source)")
+}
+
+func TestHandler_MergeBranchesBySquash_TargetBranch(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupRepoAndBranch(t, h, "sq-target-repo")
+	createBranchFromMain(t, h, "sq-target-repo", "feature")
+	doRequest(t, h, "CreateBranch", map[string]any{
+		"repositoryName": "sq-target-repo",
+		"branchName":     "release",
+		"commitId":       mustBranchTip(t, h, "sq-target-repo", "main"),
+	})
+
+	rec := doRequest(t, h, "MergeBranchesBySquash", map[string]any{
+		"repositoryName":             "sq-target-repo",
+		"sourceCommitSpecifier":      "feature",
+		"destinationCommitSpecifier": "main",
+		"targetBranch":               "release",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	commitID, _ := resp["commitId"].(string)
+
+	assert.Equal(t, commitID, mustBranchTip(t, h, "sq-target-repo", "release"),
+		"targetBranch, not the destination branch, must be advanced")
+	assert.NotEqual(t, commitID, mustBranchTip(t, h, "sq-target-repo", "main"),
+		"destination branch itself must be untouched when targetBranch differs")
+}
+
+func TestHandler_MergeBranchesByThreeWay_UnresolvableSource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupRepoAndBranch(t, h, "3w-missing-repo")
+
+	rec := doRequest(t, h, "MergeBranchesByThreeWay", map[string]any{
+		"repositoryName":             "3w-missing-repo",
+		"sourceCommitSpecifier":      "no-such-branch",
+		"destinationCommitSpecifier": "main",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func mustBranchTip(t *testing.T, h *codecommit.Handler, repoName, branchName string) string {
+	t.Helper()
+
+	rec := doRequest(t, h, "GetBranch", map[string]any{"repositoryName": repoName, "branchName": branchName})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	branch, ok := resp["branch"].(map[string]any)
+	require.True(t, ok)
+	commitID, _ := branch["commitId"].(string)
+	require.NotEmpty(t, commitID)
+
+	return commitID
 }
 
 func TestHandler_MergeBranches_AllStrategies(t *testing.T) {
@@ -271,10 +379,12 @@ func TestHandler_MergeBranches_AllStrategies(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+			repoName := "repo-" + strategy
+			setupRepoAndBranch(t, h, repoName)
+			createBranchFromMain(t, h, repoName, "feature")
 
 			rec := doRequest(t, h, strategy, map[string]any{
-				"repositoryName":             "repo",
+				"repositoryName":             repoName,
 				"sourceCommitSpecifier":      "feature",
 				"destinationCommitSpecifier": "main",
 			})
@@ -500,26 +610,32 @@ func TestHandler_GetMergeConflicts(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "conflicts-repo"})
+	setupRepoAndBranch(t, h, "conflicts-repo")
+	createBranchFromMain(t, h, "conflicts-repo", "feature")
 
 	rec := doRequest(t, h, "GetMergeConflicts", map[string]any{
 		"repositoryName":             "conflicts-repo",
-		"sourceCommitSpecifier":      "abc",
-		"destinationCommitSpecifier": "def",
+		"sourceCommitSpecifier":      "feature",
+		"destinationCommitSpecifier": "main",
 		"mergeOption":                "FAST_FORWARD_MERGE",
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, false, resp["mergeable"])
+	// No content-diff engine backs this emulator, so a merge between two
+	// resolvable specifiers is always reported mergeable (see PARITY.md gaps).
+	assert.Equal(t, true, resp["mergeable"])
+	assert.NotEmpty(t, resp["sourceCommitId"])
+	assert.NotEmpty(t, resp["destinationCommitId"])
 }
 
 func TestHandler_GetMergeConflicts_NoConflicts(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+	setupRepoAndBranch(t, h, "repo")
+	createBranchFromMain(t, h, "repo", "feat")
 
 	rec := doRequest(t, h, "GetMergeConflicts", map[string]any{
 		"repositoryName":             "repo",
@@ -531,8 +647,77 @@ func TestHandler_GetMergeConflicts_NoConflicts(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	// Always no conflicts in emulation.
-	assert.Equal(t, false, resp["mergeable"])
+	assert.Equal(t, true, resp["mergeable"])
+}
+
+func TestHandler_GetMergeConflicts_UnresolvableSpecifier(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupRepoAndBranch(t, h, "conflicts-missing-repo")
+
+	rec := doRequest(t, h, "GetMergeConflicts", map[string]any{
+		"repositoryName":             "conflicts-missing-repo",
+		"sourceCommitSpecifier":      "no-such-branch",
+		"destinationCommitSpecifier": "main",
+		"mergeOption":                "FAST_FORWARD_MERGE",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_GetMergeConflicts_MissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input map[string]any
+		name  string
+	}{
+		{
+			name: "missing_source",
+			input: map[string]any{
+				"repositoryName":             "repo",
+				"destinationCommitSpecifier": "main",
+				"mergeOption":                "FAST_FORWARD_MERGE",
+			},
+		},
+		{
+			name: "missing_destination",
+			input: map[string]any{
+				"repositoryName":        "repo",
+				"sourceCommitSpecifier": "feature",
+				"mergeOption":           "FAST_FORWARD_MERGE",
+			},
+		},
+		{
+			name: "missing_merge_option",
+			input: map[string]any{
+				"repositoryName":             "repo",
+				"sourceCommitSpecifier":      "feature",
+				"destinationCommitSpecifier": "main",
+			},
+		},
+		{
+			name: "invalid_merge_option",
+			input: map[string]any{
+				"repositoryName":             "repo",
+				"sourceCommitSpecifier":      "feature",
+				"destinationCommitSpecifier": "main",
+				"mergeOption":                "BOGUS",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "repo"})
+
+			rec := doRequest(t, h, "GetMergeConflicts", tt.input)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
 }
 
 func TestHandler_DescribeMergeConflicts(t *testing.T) {

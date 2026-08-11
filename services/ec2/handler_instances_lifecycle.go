@@ -513,7 +513,8 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		StateTransitionReason: inst.StateTransitionReason,
 		VPCID:                 inst.VPCID,
 		SubnetID:              inst.SubnetID,
-		LaunchTime:            inst.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+		LaunchTime:            inst.LaunchTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		OutpostArn:            inst.OutpostArn,
 		PrivateIPAddress:      inst.PrivateIP,
 		PublicIPAddress:       inst.PublicIPAddress,
 		PublicDNSName:         inst.PublicDNSName,
@@ -602,17 +603,20 @@ type instanceItem struct {
 	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
 	StateReasonItem           *stateReasonItem                       `xml:"stateReason,omitempty"`
 	Placement                 instancePlacementItem                  `xml:"placement"`
-	PublicDNSName             string                                 `xml:"dnsName,omitempty"`
-	SubnetID                  string                                 `xml:"subnetId,omitempty"`
-	PrivateIPAddress          string                                 `xml:"privateIpAddress,omitempty"`
-	PublicIPAddress           string                                 `xml:"ipAddress,omitempty"`
-	LaunchTime                string                                 `xml:"launchTime"`
-	KeyName                   string                                 `xml:"keyName,omitempty"`
-	VPCID                     string                                 `xml:"vpcId,omitempty"`
-	InstanceType              string                                 `xml:"instanceType"`
-	ImageID                   string                                 `xml:"imageId"`
-	InstanceID                string                                 `xml:"instanceId"`
-	StateItem                 stateItem                              `xml:"instanceState"`
+	// OutpostArn is a top-level field, sibling to Placement -- see
+	// store.go's Instance.OutpostArn doc comment for the SDK confirmation.
+	OutpostArn       string    `xml:"outpostArn,omitempty"`
+	PublicDNSName    string    `xml:"dnsName,omitempty"`
+	SubnetID         string    `xml:"subnetId,omitempty"`
+	PrivateIPAddress string    `xml:"privateIpAddress,omitempty"`
+	PublicIPAddress  string    `xml:"ipAddress,omitempty"`
+	LaunchTime       string    `xml:"launchTime"`
+	KeyName          string    `xml:"keyName,omitempty"`
+	VPCID            string    `xml:"vpcId,omitempty"`
+	InstanceType     string    `xml:"instanceType"`
+	ImageID          string    `xml:"imageId"`
+	InstanceID       string    `xml:"instanceId"`
+	StateItem        stateItem `xml:"instanceState"`
 	// StateTransitionReason is AWS's legacy free-text reason string, distinct
 	// from the structured StateReasonItem above.
 	StateTransitionReason string             `xml:"reason,omitempty"`

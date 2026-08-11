@@ -17,10 +17,11 @@ import (
 const mqUsersDefaultPageSize = 20
 
 type createUserBody struct {
-	Username string   `json:"username"`
-	Password string   `json:"password"`
-	Groups   []string `json:"groups"`
-	Console  bool     `json:"consoleAccess"`
+	Username        string   `json:"username"`
+	Password        string   `json:"password"`
+	Groups          []string `json:"groups"`
+	Console         bool     `json:"consoleAccess"`
+	ReplicationUser bool     `json:"replicationUser"`
 }
 
 func (h *Handler) handleCreateUser(c *echo.Context, brokerID, username string, body []byte) error {
@@ -29,7 +30,9 @@ func (h *Handler) handleCreateUser(c *echo.Context, brokerID, username string, b
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	if err := h.Backend.CreateUser(brokerID, username, in.Password, in.Groups, in.Console); err != nil {
+	if err := h.Backend.CreateUser(
+		brokerID, username, in.Password, in.Groups, in.Console, in.ReplicationUser,
+	); err != nil {
 		return h.writeError(c, err)
 	}
 
@@ -48,10 +51,11 @@ func (h *Handler) handleDescribeUser(c *echo.Context, brokerID, username string)
 	}
 
 	resp := map[string]any{
-		keyBrokerID:     brokerID,
-		"username":      u.Username,
-		"consoleAccess": u.Console,
-		"groups":        groups,
+		keyBrokerID:       brokerID,
+		"username":        u.Username,
+		"consoleAccess":   u.Console,
+		"groups":          groups,
+		"replicationUser": u.ReplicationUser,
 	}
 
 	if u.Pending != nil {
@@ -70,9 +74,10 @@ func (h *Handler) handleDeleteUser(c *echo.Context, brokerID, username string) e
 }
 
 type updateUserBody struct {
-	Console  *bool    `json:"consoleAccess"`
-	Password string   `json:"password"`
-	Groups   []string `json:"groups"`
+	Console         *bool    `json:"consoleAccess"`
+	ReplicationUser *bool    `json:"replicationUser"`
+	Password        string   `json:"password"`
+	Groups          []string `json:"groups"`
 }
 
 func (h *Handler) handleUpdateUser(c *echo.Context, brokerID, username string, body []byte) error {
@@ -81,7 +86,9 @@ func (h *Handler) handleUpdateUser(c *echo.Context, brokerID, username string, b
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	if err := h.Backend.UpdateUser(brokerID, username, in.Password, in.Groups, in.Console); err != nil {
+	if err := h.Backend.UpdateUser(
+		brokerID, username, in.Password, in.Groups, in.Console, in.ReplicationUser,
+	); err != nil {
 		return h.writeError(c, err)
 	}
 

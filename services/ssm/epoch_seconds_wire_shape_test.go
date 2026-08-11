@@ -1,7 +1,7 @@
 package ssm_test
 
 // Locks in a systemic wire-shape fix: SSM speaks the awsjson1.1 protocol,
-// and every DateTime-shaped field in aws-sdk-go-v2/service/ssm@v1.71.0's
+// and every DateTime-shaped field in aws-sdk-go-v2/service/ssm@v1.73.4's
 // deserializers.go is a JSON *number* (Unix epoch seconds, parsed via
 // smithytime.ParseEpochSeconds) -- never an RFC3339 string. Several structs
 // in this package previously declared these fields as raw time.Time (or

@@ -90,15 +90,12 @@ func (db *InMemoryDB) executeTransactWrite(
 		return nil, lockErr
 	}
 
-	// released guards against double-unlocking: the table locks are released
-	// explicitly (see below) as soon as every table.mu-protected read/write is
-	// done, strictly BEFORE db.mu is ever acquired for the token commit — this
-	// backend's lock order is always db.mu -> table.mu, and inverting it here
-	// (table.mu held while acquiring db.mu) is a real ABBA deadlock against
-	// any db.mu-then-table.mu reader such as TaggedTables/ListContributorInsights
-	// (store.go/extra_ops.go hold db.mu.RLock for their whole body while
-	// nested-RLocking each table.mu). The deferred call remains as a safety
-	// net so an early return (or a future panic) still releases the locks.
+	// released guards against double-unlocking: table locks are released
+	// explicitly, strictly BEFORE db.mu is ever acquired for the token commit --
+	// this backend's lock order is always db.mu -> table.mu, and inverting it
+	// here is a real ABBA deadlock against any db.mu-then-table.mu reader (e.g.
+	// TaggedTables/ListContributorInsights). The deferred call remains as a
+	// safety net so an early return or panic still releases the locks.
 	released := false
 	releaseTables := func() {
 		if released {

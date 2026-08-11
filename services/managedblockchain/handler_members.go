@@ -22,17 +22,22 @@ func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []b
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", errResp.Error())
 	}
 
+	if req.InvitationID == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingInvitationID.Error())
+	}
+
 	adminUsername := req.MemberConfiguration.FrameworkConfiguration.Fabric.AdminUsername
 
 	member, err := h.Backend.CreateMember(
 		h.DefaultRegion,
 		h.AccountID,
 		networkID,
+		req.InvitationID,
 		req.MemberConfiguration.Name,
 		req.MemberConfiguration.Description,
 		adminUsername,
 		req.MemberConfiguration.KmsKeyArn,
-		req.Tags,
+		req.MemberConfiguration.Tags,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)

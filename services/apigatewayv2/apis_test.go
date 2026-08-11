@@ -298,8 +298,58 @@ func TestCreateAPIEndpointAndARNsUseCtxbagRegion(t *testing.T) {
 
 	rule, err := b.CreateRoutingRule(ctx, "api.example.com", apigatewayv2.CreateRoutingRuleInput{Priority: 1})
 	require.NoError(t, err)
-	assert.Equal(t, "arn:aws:apigateway:ap-southeast-2::/domainnames/api.example.com/routingrules/"+rule.RoutingRuleID,
-		rule.RoutingRuleARN)
+
+	wantARN := "arn:aws:apigateway:ap-southeast-2:555566667777:/domainnames/api.example.com/routingrules/" +
+		rule.RoutingRuleID
+	assert.Equal(t, wantARN, rule.RoutingRuleARN)
+}
+
+// TestRoutingRuleARNIncludesAccountID pins the RoutingRule ARN shape against
+// the documented AWS format, not gopherstack's own output: RoutingRule (and
+// DomainNameAccessAssociation) carry an account ID even though the DomainName
+// they nest under does not.
+// arn:{partition}:apigateway:{region}:{account-id}:/domainnames/{domain-name}/routingrules/{routing-rule-id}
+// https://docs.aws.amazon.com/apigateway/latest/developerguide/arn-format-reference.html#apigateway-domain-name-arns
+func TestRoutingRuleARNIncludesAccountID(t *testing.T) {
+	t.Parallel()
+
+	ctx := awsmeta.Set(context.Background(), &awsmeta.Metadata{
+		Account:   "555566667777",
+		Region:    "ap-southeast-2",
+		Partition: "aws",
+	})
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	_, err := b.CreateDomainName(ctx, apigatewayv2.CreateDomainNameInput{DomainNameValue: "api.example.com"})
+	require.NoError(t, err)
+
+	rule, err := b.CreateRoutingRule(ctx, "api.example.com", apigatewayv2.CreateRoutingRuleInput{Priority: 1})
+	require.NoError(t, err)
+
+	want := "arn:aws:apigateway:ap-southeast-2:555566667777:/domainnames/api.example.com/routingrules/" +
+		rule.RoutingRuleID
+	assert.Equal(t, want, rule.RoutingRuleARN)
+}
+
+// TestCreateDomainNameARNHasNoAccountID pins DomainName's own ARN, which real
+// AWS documents WITHOUT an account ID (a domain name is a shared resource
+// across REST and HTTP/WebSocket APIs), unlike RoutingRule underneath it.
+// arn:{partition}:apigateway:{region}::/domainnames/{domain-name}
+func TestCreateDomainNameARNHasNoAccountID(t *testing.T) {
+	t.Parallel()
+
+	ctx := awsmeta.Set(context.Background(), &awsmeta.Metadata{
+		Account:   "555566667777",
+		Region:    "ap-southeast-2",
+		Partition: "aws",
+	})
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	dn, err := b.CreateDomainName(ctx, apigatewayv2.CreateDomainNameInput{DomainNameValue: "api.example.com"})
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:apigateway:ap-southeast-2::/domainnames/api.example.com", dn.DomainNameArn)
 }
 
 func TestCreateAPIEndpointFallsBackToDefaultRegion(t *testing.T) {
@@ -528,6 +578,46 @@ func Test_UpdateAPI_QuickCreate_NoExistingQuickCreate(t *testing.T) {
 
 	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{Target: "https://example.com"})
 	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+}
+
+// Test_UpdateAPI_RejectedUpdateDoesNotMutateOtherFields proves a rejected
+// UpdateApi call (invalid ipAddressType) never leaves earlier-applied fields
+// in the input (name) partially committed.
+func Test_UpdateAPI_RejectedUpdateDoesNotMutateOtherFields(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "original", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{Name: "renamed", IPAddressType: "bogus"})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+	got, err := b.GetAPI(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "original", got.Name, "rejected update must not leave a partially-applied name")
+}
+
+// Test_UpdateAPI_QuickCreate_RejectedTargetDoesNotMutateName proves that
+// when routeKey/target validation fails, name/description etc. from the same
+// UpdateApi call are not applied either.
+func Test_UpdateAPI_QuickCreate_RejectedTargetDoesNotMutateName(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name: "original", ProtocolType: "HTTP", RouteKey: "GET /", Target: "https://example.com/backend",
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{Name: "renamed", RouteKey: "not a valid key"})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+	got, err := b.GetAPI(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "original", got.Name, "rejected update must not leave a partially-applied name")
 }
 
 // Test_CreateAPI_IPAddressType covers API.IPAddressType, which the real AWS

@@ -42,6 +42,8 @@ func TestEcsClusters(t *testing.T) {
 				c := clusters[0].(map[string]any)
 				assert.Equal(t, testClusterArn, c["EcsClusterArn"])
 				assert.Equal(t, "my-cluster", c["EcsClusterName"])
+				// real types.EcsCluster has no Status member (SDK v1.31.0 types.go)
+				assert.NotContains(t, c, "Status")
 			},
 		},
 		{
@@ -71,6 +73,38 @@ func TestEcsClusters(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 			tt.check(t, h)
+		})
+	}
+}
+
+// TestRegisterEcsClusterValidation verifies RegisterEcsCluster rejects a
+// missing StackId with ValidationException rather than falling through to
+// the stack-lookup's ResourceNotFoundException. EcsClusterArn and StackId
+// are both "This member is required" on the real RegisterEcsClusterInput
+// (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_RegisterEcsCluster.go).
+func TestRegisterEcsClusterValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "missing StackId",
+			body: map[string]any{"EcsClusterArn": "arn:aws:ecs:us-east-1:000000000000:cluster/c"},
+		},
+		{name: "missing EcsClusterArn", body: map[string]any{"StackId": "some-stack"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTarget(t, h, "RegisterEcsCluster", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ValidationException")
 		})
 	}
 }

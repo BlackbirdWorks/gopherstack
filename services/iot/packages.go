@@ -73,6 +73,7 @@ func (b *InMemoryBackend) CreateIoTPackage(name, description string, tags map[st
 	}
 	maps.Copy(p.Tags, tags)
 	b.iotPackages.Put(p)
+	b.putResourceTagsLocked(p.PackageARN, p.Tags)
 
 	return cloneIoTPackage(p), nil
 }
@@ -186,6 +187,7 @@ func (b *InMemoryBackend) CreateIoTPackageVersion(
 	}
 	maps.Copy(v.Tags, tags)
 	b.packageVersions2[packageName][versionName] = v
+	b.putResourceTagsLocked(v.PackageVersionARN, v.Tags)
 
 	return cloneIoTPackageVersion(v), nil
 }

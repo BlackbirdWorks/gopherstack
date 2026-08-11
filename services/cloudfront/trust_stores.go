@@ -33,7 +33,7 @@ func (b *InMemoryBackend) copyTrustStore(ts *TrustStore) *TrustStore {
 
 // CreateTrustStore creates a new trust store. Name must be unique among existing trust stores.
 func (b *InMemoryBackend) CreateTrustStore(
-	name, comment string, bundle TrustStoreCertificateBundle,
+	name, comment string, bundle TrustStoreCertificateBundle, tags map[string]string,
 ) (*TrustStore, error) {
 	b.mu.Lock("CreateTrustStore")
 	defer b.mu.Unlock()
@@ -56,8 +56,9 @@ func (b *InMemoryBackend) CreateTrustStore(
 		ETag:                                   uuid.NewString(),
 		LastModifiedTime:                       time.Now().UTC().Format(time.RFC3339),
 		CertificateAuthorityCertificatesBundle: bundle,
-		Tags:                                   make(map[string]string),
+		Tags:                                   make(map[string]string, len(tags)),
 	}
+	maps.Copy(ts.Tags, tags)
 	b.trustStores.Put(ts)
 	b.trustStoreARNs[ts.ARN] = id
 	b.trustStoreByName[name] = id

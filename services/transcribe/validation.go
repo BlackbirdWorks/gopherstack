@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/transcribe/types"
 )
 
 // jobNameRe validates TranscriptionJobName per AWS: alphanumeric, dots, underscores, hyphens, 1-200 chars.
@@ -25,15 +27,17 @@ const minLanguageOptions = 2
 // ("Map Entries: Maximum number of 5 items.").
 const maxLanguageIDSettings = 5
 
-// supportedLanguageCodes returns the set of language codes supported by Amazon Transcribe.
+// supportedLanguageCodes derives the set of language codes Amazon Transcribe accepts
+// from the pinned SDK's types.LanguageCode enum, so it can't drift from a hand-copied list again.
 func supportedLanguageCodes() []string {
-	return []string{
-		"af-ZA", "ar-AE", "ar-SA", "da-DK", "de-CH", "de-DE", "en-AB", "en-AU", "en-GB",
-		"en-IE", "en-IN", "en-NZ", "en-US", "en-WL", "en-ZA", "es-ES", "es-US", "eu-ES",
-		"fa-IR", "fi-FI", "fr-CA", "fr-FR", "he-IL", "hi-IN", "id-ID", "it-IT", "ja-JP",
-		"ko-KR", "ms-MY", "nl-NL", "pt-BR", "pt-PT", "ru-RU", "sv-SE", "ta-IN", "te-IN",
-		"th-TH", "tr-TR", "uk-UA", "vi-VN", "zh-CN", "zh-TW",
+	values := sdktypes.LanguageCode("").Values()
+	codes := make([]string, len(values))
+
+	for i, v := range values {
+		codes[i] = string(v)
 	}
+
+	return codes
 }
 
 // supportedMediaFormats returns the set of media formats accepted by Amazon Transcribe.

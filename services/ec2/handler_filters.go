@@ -217,11 +217,17 @@ func keyPairMatchesFilter(kp *KeyPair, filterName string, values []string, b Bac
 	switch filterName {
 	case "key-name":
 		return anyEqual(kp.Name, values)
+	case "key-pair-id":
+		return anyEqual(kp.KeyPairID, values)
 	case "fingerprint":
 		return anyEqual(kp.Fingerprint, values)
 	default:
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
-			return tagMatch("keypair-"+kp.Name, tagKey, values, b)
+			// Tags are stored under the key pair's Name (its only real,
+			// stable identifier in this backend — see resourceExistsCoreLocked);
+			// this previously looked up "keypair-"+Name, a key nothing ever
+			// wrote to, so the filter silently never matched.
+			return tagMatch(kp.Name, tagKey, values, b)
 		}
 	}
 
@@ -663,6 +669,12 @@ func parseInt32Value(s string) int32 {
 	return int32(n)
 }
 
+// maxRunInstancesCount bounds MinCount/MaxCount so a client-supplied value can
+// never drive an unbounded slice allocation in RunInstances (CodeQL
+// go/uncontrolled-allocation-size, alert #253); real AWS similarly rejects
+// requests above account instance quotas long before launch.
+const maxRunInstancesCount = 1000
+
 // parseRunInstancesCounts validates and returns MinCount and MaxCount from RunInstances params.
 // MinCount defaults to 1 when absent. MaxCount defaults to MinCount when absent.
 func parseRunInstancesCounts(vals url.Values) (int, int, error) {
@@ -671,6 +683,10 @@ func parseRunInstancesCounts(vals url.Values) (int, int, error) {
 		if _, scanErr := fmt.Sscan(v, &minCnt); scanErr != nil || minCnt < 1 {
 			return 0, 0, fmt.Errorf("%w: MinCount must be a positive integer", ErrInvalidParameter)
 		}
+	}
+
+	if minCnt > maxRunInstancesCount {
+		return 0, 0, fmt.Errorf("%w: MinCount must not exceed %d", ErrInvalidParameter, maxRunInstancesCount)
 	}
 
 	maxCnt := minCnt
@@ -682,6 +698,10 @@ func parseRunInstancesCounts(vals url.Values) (int, int, error) {
 
 	if maxCnt < minCnt {
 		return 0, 0, fmt.Errorf("%w: MaxCount must be greater than or equal to MinCount", ErrInvalidParameter)
+	}
+
+	if maxCnt > maxRunInstancesCount {
+		return 0, 0, fmt.Errorf("%w: MaxCount must not exceed %d", ErrInvalidParameter, maxRunInstancesCount)
 	}
 
 	return minCnt, maxCnt, nil
@@ -738,31 +758,9 @@ func parseEC2Filters(vals url.Values) map[string][]string {
 	return filters
 }
 
-// applyInstanceFilters returns only instances matching all filters (AND across filters,
-// OR within each filter's values). Supports the following filter names:
-//
-//   - instance-state-name (already handled by backend but re-applied for multi-value)
-//   - image-id
-//   - vpc-id
-//   - subnet-id
-//   - instance-type
-//   - key-name
-//   - private-ip-address
-//   - ip-address (public IP)
-//   - tag:<key>
-
-// applyInstanceFilters returns only instances matching all filters (AND across filters,
-// OR within each filter's values). Supports the following filter names:
-//
-//   - instance-state-name (already handled by backend but re-applied for multi-value)
-//   - image-id
-//   - vpc-id
-//   - subnet-id
-//   - instance-type
-//   - key-name
-//   - private-ip-address
-//   - ip-address (public IP)
-//   - tag:<key>
+// applyInstanceFilters ANDs across filter names, ORs within each filter's values.
+// Supports instance-state-name, image-id, vpc-id, subnet-id, instance-type, key-name,
+// private-ip-address, ip-address, and tag:<key>.
 func applyInstanceFilters(instances []*Instance, filters map[string][]string, b Backend) []*Instance {
 	if len(filters) == 0 {
 		return instances

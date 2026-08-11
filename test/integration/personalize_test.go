@@ -57,7 +57,10 @@ func TestIntegration_Personalize_DatasetGroupLifecycle(t *testing.T) {
 			require.NotEmpty(t, arn, "dataset group ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteDatasetGroup(ctx, &personalizesdk.DeleteDatasetGroupInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteDatasetGroup(cleanupCtx, &personalizesdk.DeleteDatasetGroupInput{
 					DatasetGroupArn: aws.String(arn),
 				})
 			})

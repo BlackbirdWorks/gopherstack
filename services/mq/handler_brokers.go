@@ -52,10 +52,11 @@ func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 	users := make([]*User, 0, len(in.Users))
 	for _, u := range in.Users {
 		users = append(users, &User{
-			Username: u.Username,
-			Password: u.Password,
-			Groups:   u.Groups,
-			Console:  u.Console,
+			Username:        u.Username,
+			Password:        u.Password,
+			Groups:          u.Groups,
+			Console:         u.Console,
+			ReplicationUser: u.ReplicationUser,
 		})
 	}
 

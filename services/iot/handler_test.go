@@ -279,7 +279,10 @@ func TestTags(t *testing.T) {
 	// Tag
 	iotOK(t, h, http.MethodPost, "/tags", map[string]any{
 		"resourceArn": arn,
-		"tags":        map[string]any{"env": "test", "owner": "alice"},
+		"tags": []map[string]string{
+			{"Key": "env", "Value": "test"},
+			{"Key": "owner", "Value": "alice"},
+		},
 	})
 
 	// List

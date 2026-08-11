@@ -16,7 +16,11 @@ func TestBackend_FeatureStore_Direct(t *testing.T) {
 	b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create feature group with an identifier field.
-	_, err := b.CreateFeatureGroup(context.Background(), "direct-fg", "id", "event_time", nil, nil)
+	_, err := b.CreateFeatureGroup(context.Background(), sagemaker.CreateFeatureGroupOptions{
+		FeatureGroupName:            "direct-fg",
+		RecordIdentifierFeatureName: "id",
+		EventTimeFeatureName:        "event_time",
+	})
 	require.NoError(t, err)
 
 	// PutRecord.

@@ -98,7 +98,7 @@ func (h *Handler) handleListOrganizationAdminAccounts(c *echo.Context) error {
 	for _, a := range admins {
 		adminList = append(adminList, map[string]any{
 			keyAccountID:     a.AccountID,
-			"DelegationTime": a.DelegationTime.Format("2006-01-02T15:04:05.000Z"),
+			"DelegationTime": a.DelegationTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 			keyGraphArn:      a.GraphARN,
 		})
 	}

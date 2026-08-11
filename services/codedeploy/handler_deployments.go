@@ -133,7 +133,6 @@ func (h *Handler) handleCreateDeployment(
 		FileExistsBehavior:            in.FileExistsBehavior,
 		UpdateOutdatedInstancesOnly:   in.UpdateOutdatedInstancesOnly,
 		IgnoreApplicationStopFailures: in.IgnoreApplicationStopFailures,
-		Creator:                       "user",
 		Revision:                      revisionFromWire(in.Revision),
 	}
 
@@ -342,6 +341,14 @@ func (h *Handler) handleContinueDeployment(
 ) (*continueDeploymentOutput, error) {
 	if in.DeploymentID == "" {
 		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+	}
+
+	if in.DeploymentWaitType != "" &&
+		in.DeploymentWaitType != waitTypeReadyWait &&
+		in.DeploymentWaitType != waitTypeTerminationWait {
+		return nil, fmt.Errorf(
+			"%w: deploymentWaitType must be READY_WAIT or TERMINATION_WAIT", ErrInvalidDeploymentWaitType,
+		)
 	}
 
 	if err := h.Backend.ContinueDeployment(in.DeploymentID); err != nil {

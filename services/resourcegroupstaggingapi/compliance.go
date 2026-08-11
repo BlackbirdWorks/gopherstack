@@ -2,7 +2,11 @@ package resourcegroupstaggingapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // defaultComplianceSummaryMaxResults is the default MaxResults for GetComplianceSummary.
@@ -146,8 +150,119 @@ type ListRequiredTagsOutput struct {
 	RequiredTags []RequiredTag `json:"RequiredTags"`
 }
 
-// ListRequiredTags returns required tags for supported resource types.
-// The in-memory backend always returns an empty list.
-func (b *InMemoryBackend) ListRequiredTags(_ context.Context, _ *ListRequiredTagsInput) *ListRequiredTagsOutput {
-	return &ListRequiredTagsOutput{RequiredTags: []RequiredTag{}}
+// defaultRequiredTagsPerPage is the page size ListRequiredTags uses when MaxResults
+// is unset. AWS does not document a MaxResults range for this newer operation the way
+// it does for GetComplianceSummary (no min/max ValidationException shape found in any
+// vendored API model), so no explicit range is enforced -- only a sane default.
+const defaultRequiredTagsPerPage = 50
+
+// tagPolicyDocument is the real AWS Organizations tag-policy JSON schema (the
+// "@@assign" operator syntax every tag policy statement uses), verified against
+// AWS's "Report tagging compliance" documentation
+// (orgs_manage_policies_tag-policies-report-tagging-compliance.html):
+//
+//	{"tags": {"CostCenter": {"tag_key": {"@@assign": "CostCenter"},
+//	  "report_required_tag_for": {"@@assign": ["ec2:ALL_SUPPORTED"]}}}}
+type tagPolicyDocument struct {
+	Tags map[string]tagPolicyRule `json:"tags"`
+}
+
+type tagPolicyRule struct {
+	ReportRequiredTagFor *tagPolicyStringListAssign `json:"report_required_tag_for,omitempty"`
+}
+
+type tagPolicyStringListAssign struct {
+	Assign []string `json:"@@assign,omitempty"`
+}
+
+// requiredTagsFromPolicy parses an effective TAG_POLICY document and derives the
+// ListRequiredTags rows from its report_required_tag_for blocks: one row per distinct
+// resource-type identifier named in any tag's report_required_tag_for list, listing
+// every tag key that names it.
+//
+// KNOWN LIMITATION: real AWS's CloudFormationResourceTypes field documents "the
+// CloudFormation resource type[s] assigned the required tag keys" -- e.g. it may
+// expand a policy identifier like "ec2:ALL_SUPPORTED" into the full list of that
+// service's actual "AWS::EC2::*" CloudFormation type names. No such expansion table
+// is available to verify against, so this returns the resource-type identifier from
+// the policy verbatim in both ResourceType and CloudFormationResourceTypes rather than
+// fabricate an unverified mapping.
+func requiredTagsFromPolicy(policyJSON string) []RequiredTag {
+	var doc tagPolicyDocument
+	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+		return nil
+	}
+
+	byResourceType := map[string][]string{}
+
+	for tagKey, rule := range doc.Tags {
+		if rule.ReportRequiredTagFor == nil {
+			continue
+		}
+
+		for _, resourceType := range rule.ReportRequiredTagFor.Assign {
+			byResourceType[resourceType] = append(byResourceType[resourceType], tagKey)
+		}
+	}
+
+	resourceTypes := make([]string, 0, len(byResourceType))
+	for rt := range byResourceType {
+		resourceTypes = append(resourceTypes, rt)
+	}
+
+	sort.Strings(resourceTypes)
+
+	required := make([]RequiredTag, 0, len(resourceTypes))
+
+	for _, rt := range resourceTypes {
+		keys := byResourceType[rt]
+		sort.Strings(keys)
+
+		rtCopy := rt
+		required = append(required, RequiredTag{
+			ResourceType:                &rtCopy,
+			CloudFormationResourceTypes: []string{rt},
+			ReportingTagKeys:            keys,
+		})
+	}
+
+	return required
+}
+
+// ListRequiredTags returns the required tags for supported resource types, derived
+// from the account's effective tag policy (see RegisterTagPolicyProvider). With no
+// provider registered, or no TAG_POLICY attached, this accurately returns an empty
+// list -- the real AWS behavior for an account with no required-tag reporting
+// configured, not a stub.
+func (b *InMemoryBackend) ListRequiredTags(_ context.Context, input *ListRequiredTagsInput) *ListRequiredTagsOutput {
+	b.mu.RLock("ListRequiredTags")
+	provider := b.tagPolicyProvider
+	b.mu.RUnlock()
+
+	var all []RequiredTag
+
+	if provider != nil {
+		if content, ok := provider(); ok {
+			all = requiredTagsFromPolicy(content)
+		}
+	}
+
+	var token string
+	if input.NextToken != nil {
+		token = *input.NextToken
+	}
+
+	var limit int32
+	if input.MaxResults != nil {
+		limit = *input.MaxResults
+	}
+
+	pg := page.New(all, token, int(limit), defaultRequiredTagsPerPage)
+
+	out := &ListRequiredTagsOutput{RequiredTags: pg.Data}
+	if pg.Next != "" {
+		out.NextToken = &pg.Next
+	}
+
+	return out
 }

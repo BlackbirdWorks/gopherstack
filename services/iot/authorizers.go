@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func (b *InMemoryBackend) SetDefaultAuthorizer(authorizerName string) error {
@@ -63,14 +64,15 @@ func (b *InMemoryBackend) authorizerARN(name string) string {
 
 // CreateAuthorizerInput holds input for CreateAuthorizer.
 type CreateAuthorizerInput struct {
-	Tags                   map[string]string `json:"tags,omitempty"`
 	TokenSigningPublicKeys map[string]string `json:"tokenSigningPublicKeys,omitempty"`
 	AuthorizerName         string            `json:"authorizerName"`
 	AuthorizerFunctionARN  string            `json:"authorizerFunctionArn,omitempty"`
 	TokenKeyName           string            `json:"tokenKeyName,omitempty"`
 	Status                 string            `json:"status,omitempty"`
-	SigningDisabled        bool              `json:"signingDisabled"`
-	EnableCachingForHTTP   bool              `json:"enableCachingForHttp"`
+	// []types.Tag on the wire, not a map (serializers.go:1651, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags                 []tags.KV `json:"tags,omitempty"`
+	SigningDisabled      bool      `json:"signingDisabled"`
+	EnableCachingForHTTP bool      `json:"enableCachingForHttp"`
 }
 
 func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Authorizer, error) {
@@ -94,7 +96,7 @@ func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Autho
 		EnableCachingForHTTP:   input.EnableCachingForHTTP,
 		TokenSigningPublicKeys: input.TokenSigningPublicKeys,
 		Status:                 input.Status,
-		Tags:                   input.Tags,
+		Tags:                   tags.MapFromKV(input.Tags),
 		CreationDate:           now,
 		LastModifiedDate:       now,
 	}
@@ -102,6 +104,7 @@ func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Autho
 		a.Status = "ACTIVE"
 	}
 	b.authorizers.Put(a)
+	b.putResourceTagsLocked(a.AuthorizerARN, a.Tags)
 
 	return cloneAuthorizer(a), nil
 }

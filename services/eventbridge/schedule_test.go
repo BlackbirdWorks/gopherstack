@@ -100,6 +100,117 @@ func TestSchedule_CronNextFire(t *testing.T) {
 	assert.Equal(t, time.Date(2024, 1, 16, 12, 0, 0, 0, time.UTC), nextAfter)
 }
 
+// TestSchedule_CronRangeStep proves a combined range+step token like
+// "0-30/10" (valid AWS cron for "every 10th minute from 0 through 30") is
+// evaluated as a step, not misrouted to the plain range matcher (which would
+// fail to parse "30/10" as an integer and match nothing, forever).
+func TestSchedule_CronRangeStep(t *testing.T) {
+	t.Parallel()
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		want time.Time
+		name string
+		expr string
+	}{
+		{
+			name: "range with step matches every 10th minute from 0 through 30",
+			expr: "cron(0-30/10 0 1 1 ? 2024)",
+			want: time.Date(2024, 1, 1, 0, 10, 0, 0, time.UTC),
+		},
+		{
+			name: "range with step honors a non-zero range start",
+			expr: "cron(5-25/10 0 1 1 ? 2024)",
+			want: time.Date(2024, 1, 1, 0, 5, 0, 0, time.UTC),
+		},
+		{
+			name: "malformed step denominator never matches",
+			expr: "cron(0-30/x 0 1 1 ? 2024)",
+			want: time.Time{},
+		},
+		{
+			name: "zero step never matches",
+			expr: "cron(0-30/0 0 1 1 ? 2024)",
+			want: time.Time{},
+		},
+		{
+			name: "inverted range bounds never match",
+			expr: "cron(30-5/10 0 1 1 ? 2024)",
+			want: time.Time{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sched, err := eventbridge.ParseScheduleExpressionForTest(tt.expr)
+			require.NoError(t, err)
+
+			got := sched.NextAfterForTest(after)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestSchedule_CronNoMatchReturnsZero proves an expression that can never
+// match within the scan window yields the zero Time rather than a fabricated
+// far-future timestamp, since callers use IsZero() to mean "never fires".
+func TestSchedule_CronNoMatchReturnsZero(t *testing.T) {
+	t.Parallel()
+
+	after := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{name: "year already in the past", expr: "cron(0 0 1 1 ? 1970)"},
+		{name: "day of month never exists", expr: "cron(0 0 31 2 ? *)"},
+		{name: "L last-day-of-month is unsupported syntax", expr: "cron(0 0 L * ? *)"},
+		{name: "W nearest-weekday is unsupported syntax", expr: "cron(0 0 1W * ? *)"},
+		{name: "hash nth-weekday is unsupported syntax", expr: "cron(0 0 ? * 1#3 *)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sched, err := eventbridge.ParseScheduleExpressionForTest(tt.expr)
+			require.NoError(t, err)
+
+			got := sched.NextAfterForTest(after)
+			assert.True(t, got.IsZero(), "expected zero time for no match, got %v", got)
+		})
+	}
+}
+
+func TestSchedule_CronMonthRollover(t *testing.T) {
+	t.Parallel()
+
+	sched, err := eventbridge.ParseScheduleExpressionForTest("cron(0 0 31 * ? *)")
+	require.NoError(t, err)
+
+	// February has no 31st: the next match after Feb 1 must skip straight to
+	// March 31, not fabricate a rolled-over date.
+	after := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)
+	got := sched.NextAfterForTest(after)
+	assert.Equal(t, time.Date(2024, 3, 31, 0, 0, 0, 0, time.UTC), got)
+}
+
+func TestSchedule_CronLeapYear(t *testing.T) {
+	t.Parallel()
+
+	sched, err := eventbridge.ParseScheduleExpressionForTest("cron(0 0 29 2 ? *)")
+	require.NoError(t, err)
+
+	// 2028 is the next leap year reachable within the 2-year scan window.
+	after := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
+	got := sched.NextAfterForTest(after)
+	assert.Equal(t, time.Date(2028, 2, 29, 0, 0, 0, 0, time.UTC), got)
+}
+
 func TestSchedule_UnsupportedExpression(t *testing.T) {
 	t.Parallel()
 

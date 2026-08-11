@@ -36,15 +36,18 @@ func validPolicyTypes() []string {
 	}
 }
 
-// Maximum policy document sizes (characters) per the Organizations quotas
-// reference (docs.aws.amazon.com/organizations/latest/userguide/orgs_reference_limits.html).
-// SCP/RCP default to 5,120 (extensible via a service-quota increase, not
-// modeled here). CHATBOT_POLICY/SECURITYHUB_POLICY aren't documented in that
-// reference table; they're given the same 10,000 character ceiling as the
-// other newer policy types (BACKUP_POLICY, TAG_POLICY, DECLARATIVE_POLICY_EC2)
-// as a best-effort default pending independent verification.
+// Maximum policy document sizes (characters), the account-level DEFAULT quota
+// only -- not the quota-increase path (no service-quota-increase API is
+// emulated here). Verified against the "Maximum size of a policy document"
+// row of docs.aws.amazon.com/organizations/latest/userguide/orgs_reference_limits.html
+// (fetched live; the PolicyContent shape in botocore's organizations model has
+// no `max`, i.e. this limit is account-quota state, not a static shape
+// constraint). CHATBOT_POLICY ("Chat applications policies") and
+// SECURITYHUB_POLICY both independently confirmed at 10,000 on that same
+// page -- no longer an unverified guess.
 const (
-	policyContentLimitSCP      = 5120
+	policyContentLimitSCP      = 10240
+	policyContentLimitRCP      = 5120
 	policyContentLimitTag      = 10000
 	policyContentLimitBackup   = 10000
 	policyContentLimitAIOptOut = 2500
@@ -57,8 +60,10 @@ const (
 // whether policyType is a recognized type with a modeled limit.
 func policyContentMaxSize(policyType string) (int, bool) {
 	switch policyType {
-	case policyTypeSCP, policyTypeRCP:
+	case policyTypeSCP:
 		return policyContentLimitSCP, true
+	case policyTypeRCP:
+		return policyContentLimitRCP, true
 	case policyTypeTag:
 		return policyContentLimitTag, true
 	case policyTypeBackup:
@@ -246,6 +251,10 @@ func (b *InMemoryBackend) EnablePolicyType(rootID, policyType string) (*Root, er
 		return nil, ErrInvalidInput
 	}
 
+	if !slices.Contains(validPolicyTypes(), policyType) {
+		return nil, ErrInvalidInput
+	}
+
 	for _, pt := range b.root.PolicyTypes {
 		if pt.Type == policyType && pt.Status == policyStatusEnabled {
 			return nil, ErrPolicyTypeAlreadyEnabled
@@ -270,6 +279,10 @@ func (b *InMemoryBackend) DisablePolicyType(rootID, policyType string) (*Root, e
 	}
 
 	if b.root == nil || b.root.ID != rootID {
+		return nil, ErrInvalidInput
+	}
+
+	if !slices.Contains(validPolicyTypes(), policyType) {
 		return nil, ErrInvalidInput
 	}
 

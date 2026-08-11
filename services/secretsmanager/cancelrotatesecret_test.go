@@ -60,7 +60,10 @@ func TestCancelRotateSecret_SetsRotationDisabled(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "cancel-enabled"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "cancel-enabled",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 
 	_, err = b.CancelRotateSecret(
@@ -109,7 +112,10 @@ func TestCancelRotateSecret_HTTP(t *testing.T) {
 				)
 				require.NoError(t, err)
 				// Rotate to create a pending version.
-				_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "cancel-rot"})
+				_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+					SecretID:          "cancel-rot",
+					RotationLambdaARN: testLambdaARN,
+				})
 				require.NoError(t, err)
 			},
 			body:           `{"SecretId":"cancel-rot"}`,
@@ -189,7 +195,10 @@ func TestCancelRotateSecret_RotationConfigPreserved(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(ctx, &secretsmanager.RotateSecretInput{SecretID: "cancel-rot-config"})
+	_, err = b.RotateSecret(ctx, &secretsmanager.RotateSecretInput{
+		SecretID:          "cancel-rot-config",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 
 	_, err = b.CancelRotateSecret(ctx, &secretsmanager.CancelRotateSecretInput{SecretID: "cancel-rot-config"})
@@ -239,7 +248,10 @@ func TestCancelRotateSecret_BackendEdgeCases(t *testing.T) {
 			&secretsmanager.CreateSecretInput{Name: "rot-cancel", SecretString: "v"},
 		)
 		require.NoError(t, err)
-		_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "rot-cancel"})
+		_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+			SecretID:          "rot-cancel",
+			RotationLambdaARN: testLambdaARN,
+		})
 		require.NoError(t, err)
 
 		out, err := b.CancelRotateSecret(

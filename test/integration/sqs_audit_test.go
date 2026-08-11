@@ -31,7 +31,10 @@ func TestIntegration_SQSAudit_TagUntagListQueueTags(t *testing.T) {
 	require.NotNil(t, createOut.QueueUrl)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: createOut.QueueUrl})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: createOut.QueueUrl})
 	})
 
 	// TagQueue.
@@ -82,7 +85,10 @@ func TestIntegration_SQSAudit_ListDeadLetterSourceQueues(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: dlqOut.QueueUrl})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: dlqOut.QueueUrl})
 	})
 
 	dlqAttrs, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
@@ -110,7 +116,10 @@ func TestIntegration_SQSAudit_ListDeadLetterSourceQueues(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: srcOut.QueueUrl})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: srcOut.QueueUrl})
 	})
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
@@ -140,7 +149,10 @@ func TestIntegration_SQSAudit_MessageMoveTaskLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: dlqOut.QueueUrl})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: dlqOut.QueueUrl})
 	})
 
 	destOut, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
@@ -148,7 +160,10 @@ func TestIntegration_SQSAudit_MessageMoveTaskLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: destOut.QueueUrl})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: destOut.QueueUrl})
 	})
 
 	dlqAttrs, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{

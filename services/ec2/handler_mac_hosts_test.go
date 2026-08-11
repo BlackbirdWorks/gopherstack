@@ -86,14 +86,9 @@ func TestHandler_CreateDelegateMacVolumeOwnershipTask(t *testing.T) {
 	assert.Contains(t, body, "<taskType>volume-ownership-delegation</taskType>")
 }
 
-// TestHandler_MacModificationTask_TagDualWritePathVisibility proves that
-// mac_hosts.go's MacModificationTask consolidated onto the shared tag store:
-// a tag supplied at create time (TagSpecification) and a tag added
-// afterwards via CreateTags are BOTH visible through
-// DescribeMacModificationTasks AND through the generic DescribeTags call.
-// Before the fix, the task carried its own embedded Tags field that was
-// never even rendered on the wire (TagSet was entirely absent from the
-// response shape), so neither write path was visible.
+// TestHandler_MacModificationTask_TagDualWritePathVisibility proves a
+// create-time tag and one added later via CreateTags are BOTH visible through
+// DescribeMacModificationTasks and DescribeTags.
 func TestHandler_MacModificationTask_TagDualWritePathVisibility(t *testing.T) {
 	t.Parallel()
 

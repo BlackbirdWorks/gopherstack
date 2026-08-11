@@ -84,9 +84,29 @@ func (b *InMemoryBackend) GetShare(shareID string) (*Share, error) {
 	return &result, nil
 }
 
-// ListShares lists shares by resource owner.
+// shareResourceType derives the real AWS ShareResourceType (VARIANT_STORE/
+// ANNOTATION_STORE/WORKFLOW) from a share's resource ARN, whose resource
+// segment is built by arn.Build as "variantStore/…", "annotationStore/…", or
+// "workflow/…" (see CreateVariantStore/CreateAnnotationStore/CreateWorkflow).
+func shareResourceType(resourceARN string) string {
+	switch {
+	case strings.Contains(resourceARN, ":variantStore/"):
+		return "VARIANT_STORE"
+	case strings.Contains(resourceARN, ":annotationStore/"):
+		return "ANNOTATION_STORE"
+	case strings.Contains(resourceARN, ":workflow/"):
+		return "WORKFLOW"
+	default:
+		return ""
+	}
+}
+
+// ListShares lists shares by resource owner, optionally filtered by
+// resourceArns/status/type (real AWS ListSharesInput body "filter",
+// omics@v1.49.5 types/types.go:678).
 func (b *InMemoryBackend) ListShares(
 	resourceOwner string,
+	filter *ShareFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*Share, string, error) {
@@ -102,16 +122,20 @@ func (b *InMemoryBackend) ListShares(
 
 		switch resourceOwner {
 		case "SELF":
-			if isSelf {
-				ids = append(ids, s.ShareID)
+			if !isSelf {
+				continue
 			}
 		case "OTHER":
-			if !isSelf {
-				ids = append(ids, s.ShareID)
+			if isSelf {
+				continue
 			}
-		default:
-			ids = append(ids, s.ShareID)
 		}
+
+		if !shareMatchesFilter(s.ResourceARN, s.Status, shareResourceType(s.ResourceARN), filter) {
+			continue
+		}
+
+		ids = append(ids, s.ShareID)
 	}
 
 	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.shares.Get)

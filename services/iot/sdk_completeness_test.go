@@ -20,15 +20,10 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := iot.NewInMemoryBackend()
 	h := iot.NewHandler(backend, nil)
 
-	// deviceShadowOps are the IoT device-shadow operations. AWS models these
-	// on the separate IoT Data Plane SDK client (iotdataplane.Client), not
-	// the IoT control-plane client (iotsdk.Client) checked below.
-	// gopherstack's Handler implements the shadow REST routes directly
-	// (alongside the separate services/iotdataplane package, which covers
-	// the rest of that client's surface: Publish, connections, retained
-	// messages) and reports them from the same GetSupportedOperations() as
-	// the control-plane ops, so this test splits them before checking each
-	// half against the SDK client that actually owns it.
+	// deviceShadowOps are modeled on the separate IoT Data Plane SDK client
+	// (iotdataplane.Client), not the control-plane client (iotsdk.Client)
+	// checked below, so this test splits them before checking each half
+	// against the SDK client that actually owns it.
 	deviceShadowOps := map[string]bool{
 		"DeleteThingShadow":        true,
 		"GetThingShadow":           true,

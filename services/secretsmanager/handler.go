@@ -270,7 +270,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "PublicPolicyException"
 	case errors.Is(reqErr, ErrSecretAlreadyExists):
 		errorType = "ResourceExistsException"
-	case errors.Is(reqErr, ErrSecretDeleted):
+	case errors.Is(reqErr, ErrSecretDeleted), errors.Is(reqErr, ErrRotationStrategyRequired):
 		errorType = "InvalidRequestException"
 	case errors.Is(reqErr, ErrSecretValueTooLarge),
 		errors.Is(reqErr, ErrInvalidPasswordParameters),

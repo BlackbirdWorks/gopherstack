@@ -12,12 +12,46 @@ const (
 	sessionStateBusy        = "BUSY"
 	sessionStateTerminating = "TERMINATING"
 	sessionStateTerminated  = "TERMINATED"
+	sessionStateDegraded    = "DEGRADED"
 	sessionStateFailed      = "FAILED"
+
+	executorStateCreating    = "CREATING"
+	executorStateCreated     = "CREATED"
+	executorStateRegistered  = "REGISTERED"
+	executorStateTerminating = "TERMINATING"
+	executorStateTerminated  = "TERMINATED"
+	executorStateFailed      = "FAILED"
 
 	notebookEndpointBase = "https://athena.%s.amazonaws.com/sessions/"
 
 	defaultDPU = 1
 )
+
+// isValidSessionState reports whether state is one of the eight SessionState
+// enum values Athena defines (aws-sdk-go-v2/service/athena@v1.60.4
+// types/enums.go:380-392).
+func isValidSessionState(state string) bool {
+	switch state {
+	case sessionStateCreating, sessionStateCreated, sessionStateIdle, sessionStateBusy,
+		sessionStateTerminating, sessionStateTerminated, sessionStateDegraded, sessionStateFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidExecutorState reports whether state is one of the six ExecutorState
+// enum values Athena defines (aws-sdk-go-v2/service/athena@v1.60.4
+// types/enums.go:254-264).
+func isValidExecutorState(state string) bool {
+	switch state {
+	case executorStateCreating, executorStateCreated, executorStateRegistered,
+		executorStateTerminating, executorStateTerminated, executorStateFailed:
+		return true
+	default:
+		return false
+	}
+}
 
 // Engine versions available to a workgroup / session.
 const (
@@ -138,6 +172,10 @@ func (b *InMemoryBackend) TerminateSession(id string) (string, error) {
 
 // ListSessions returns sessions for a workgroup, optionally filtered by state.
 func (b *InMemoryBackend) ListSessions(workGroup, stateFilter string) ([]SessionSummary, error) {
+	if stateFilter != "" && !isValidSessionState(stateFilter) {
+		return nil, fmt.Errorf("%w: StateFilter %q is invalid", ErrValidation, stateFilter)
+	}
+
 	b.mu.RLock("ListSessions")
 	defer b.mu.RUnlock()
 
@@ -204,6 +242,10 @@ func (b *InMemoryBackend) ListExecutors(sessionID, stateFilter string) ([]Execut
 		return nil, fmt.Errorf("%w: SessionId is required", ErrValidation)
 	}
 
+	if stateFilter != "" && !isValidExecutorState(stateFilter) {
+		return nil, fmt.Errorf("%w: ExecutorStateFilter %q is invalid", ErrValidation, stateFilter)
+	}
+
 	b.mu.RLock("ListExecutors")
 	defer b.mu.RUnlock()
 
@@ -221,7 +263,7 @@ func (b *InMemoryBackend) ListExecutors(sessionID, stateFilter string) ([]Execut
 	executor := Executor{
 		ExecutorID:    "executor-" + sessionID,
 		ExecutorType:  "GATEWAY",
-		ExecutorState: "REGISTERED",
+		ExecutorState: executorStateRegistered,
 		StartDateTime: s.Status.StartDateTime,
 		ExecutorSize:  int64(s.EngineConfiguration.DefaultExecutorDpuSize),
 	}

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ce
-sdk_module: aws-sdk-go-v2/service/costexplorer@v1.67.0   # version actually pinned in go.mod; corrected stale v1.63.8 reference
+sdk_module: aws-sdk-go-v2/service/costexplorer@v1.67.4   # version actually pinned in go.mod; corrected stale v1.63.8 reference
 last_audit_commit: f848e87f1bce2856351a650dbbdba31bb6bbbd49
 last_audit_date: 2026-07-29
 overall: A            # closed the required-field-validation gap and the ValidationError wire-type unknown from the prior pass; field-diffed and fixed 6 further wire-shape bugs (2 invented field names, 1 wrong JSON type, 1 missing field, 1 over-validation bug, 1 wrong-shaped comparison op) across GetCostAndUsage/GetCostAndUsageWithResources/GetCostAndUsageComparisons/GetApproximateUsageRecords/ListCostCategoryResourceAssociations/GetSavingsPlanPurchaseRecommendationDetails/Start+ListSavingsPlansPurchaseRecommendationGeneration/UpdateAnomalyMonitor. This pass: GetCostAndUsage's TimePeriod/Metrics required-field validation gap (documented since the prior pass) is now closed.

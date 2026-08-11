@@ -38,7 +38,10 @@ type StorageBackend interface {
 	) ([]*ReferenceImportJob, string, error)
 
 	// SequenceStore
-	CreateSequenceStore(name, description string, tags map[string]string) (*SequenceStore, error)
+	CreateSequenceStore(
+		name, description, eTagAlgorithmFamily, accessLogLocation string,
+		tags map[string]string,
+	) (*SequenceStore, error)
 	DeleteSequenceStore(id string) error
 	GetSequenceStore(id string) (*SequenceStore, error)
 	ListSequenceStores(
@@ -166,7 +169,12 @@ type StorageBackend interface {
 	) (*AnnotationStore, error)
 	DeleteAnnotationStore(name string) (*AnnotationStore, error)
 	GetAnnotationStore(name string) (*AnnotationStore, error)
-	ListAnnotationStores(maxResults int, nextToken string) ([]*AnnotationStore, string, error)
+	ListAnnotationStores(
+		filter *StoreStatusFilter,
+		ids []string,
+		maxResults int,
+		nextToken string,
+	) ([]*AnnotationStore, string, error)
 	UpdateAnnotationStore(name, description string) (*AnnotationStore, error)
 	StartAnnotationImportJob(
 		destinationName, roleARN string,
@@ -190,6 +198,7 @@ type StorageBackend interface {
 	GetAnnotationStoreVersion(name, versionName string) (*AnnotationStoreVersion, error)
 	ListAnnotationStoreVersions(
 		name string,
+		filter *StoreStatusFilter,
 		maxResults int,
 		nextToken string,
 	) ([]*AnnotationStoreVersion, string, error)
@@ -201,7 +210,12 @@ type StorageBackend interface {
 	CreateVariantStore(name string, reference map[string]any, tags map[string]string) (*VariantStore, error)
 	DeleteVariantStore(name string) (*VariantStore, error)
 	GetVariantStore(name string) (*VariantStore, error)
-	ListVariantStores(maxResults int, nextToken string) ([]*VariantStore, string, error)
+	ListVariantStores(
+		filter *StoreStatusFilter,
+		ids []string,
+		maxResults int,
+		nextToken string,
+	) ([]*VariantStore, string, error)
 	UpdateVariantStore(name, description string) (*VariantStore, error)
 	StartVariantImportJob(
 		destinationName, roleARN string,
@@ -221,7 +235,12 @@ type StorageBackend interface {
 	AcceptShare(shareID string) (*Share, error)
 	DeleteShare(shareID string) (*Share, error)
 	GetShare(shareID string) (*Share, error)
-	ListShares(resourceOwner string, maxResults int, nextToken string) ([]*Share, string, error)
+	ListShares(
+		resourceOwner string,
+		filter *ShareFilter,
+		maxResults int,
+		nextToken string,
+	) ([]*Share, string, error)
 
 	// RunCache
 	CreateRunCache(name, cacheS3Location string, tags map[string]string) (*RunCache, error)
@@ -231,10 +250,13 @@ type StorageBackend interface {
 	UpdateRunCache(id, name, description string) error
 
 	// RunBatch
-	StartRunBatch(workflowID, roleARN, name string) (*RunBatch, error)
+	StartRunBatch(
+		batchName string, def DefaultRunSetting, inlineSettings []InlineRunSetting, tags map[string]string,
+	) (*RunBatch, error)
 	CancelRunBatch(id string) error
 	DeleteRunBatch(id string) error
 	GetRunBatch(id string) (*RunBatch, error)
+	GetRunBatchSummary(id string) (RunBatchSummary, error)
 	ListRunBatches(filter *RunBatchFilter, maxResults int, nextToken string) ([]*RunBatch, string, error)
 	DeleteRunsInBatch(batchID string) error
 	ListRunsInBatch(

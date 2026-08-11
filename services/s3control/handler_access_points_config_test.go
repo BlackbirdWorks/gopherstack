@@ -107,13 +107,11 @@ func TestAccessPointPublicAccessBlock_MissingAP(t *testing.T) {
 }
 
 // TestHandler_GetAccessPoint_IncludesPublicAccessBlockConfiguration locks in
-// the real wire shape: aws-sdk-go-v2's GetAccessPointOutput carries
-// PublicAccessBlockConfiguration inline (there is no standalone
-// GetAccessPointPublicAccessBlock operation -- see the doc comment on
-// dispatchAccessPointSubResourceOps in handler_access_points.go for the
-// fabricated three-operation family this replaced). A client that creates an
-// access point with a PublicAccessBlockConfiguration must see it echoed back
-// on GetAccessPoint.
+// the real wire shape: GetAccessPointOutput carries
+// PublicAccessBlockConfiguration inline, no standalone operation (see
+// dispatchAccessPointSubResourceOps in handler_access_points.go). A client
+// that creates an access point with a PublicAccessBlockConfiguration must
+// see it echoed back on GetAccessPoint.
 func TestHandler_GetAccessPoint_IncludesPublicAccessBlockConfiguration(t *testing.T) {
 	t.Parallel()
 

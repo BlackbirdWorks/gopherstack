@@ -301,6 +301,7 @@ type NotebookLifecycleHook struct {
 type NotebookInstanceLifecycleConfig struct {
 	CreationTime     time.Time               `json:"CreationTime"`
 	LastModifiedTime time.Time               `json:"LastModifiedTime"`
+	Tags             map[string]string       `json:"Tags,omitempty"`
 	Name             string                  `json:"NotebookInstanceLifecycleConfigName"`
 	ARN              string                  `json:"NotebookInstanceLifecycleConfigArn"`
 	OnCreate         []NotebookLifecycleHook `json:"OnCreate,omitempty"`
@@ -316,6 +317,7 @@ func cloneNotebookLifecycleConfig(
 	copy(cp.OnCreate, lc.OnCreate)
 	cp.OnStart = make([]NotebookLifecycleHook, len(lc.OnStart))
 	copy(cp.OnStart, lc.OnStart)
+	cp.Tags = maps.Clone(lc.Tags)
 
 	return &cp
 }
@@ -325,6 +327,7 @@ func (b *InMemoryBackend) CreateNotebookInstanceLifecycleConfig(
 	ctx context.Context,
 	name string,
 	onCreate, onStart []NotebookLifecycleHook,
+	tags map[string]string,
 ) (*NotebookInstanceLifecycleConfig, error) {
 	b.mu.Lock("CreateNotebookInstanceLifecycleConfig")
 	defer b.mu.Unlock()
@@ -353,6 +356,7 @@ func (b *InMemoryBackend) CreateNotebookInstanceLifecycleConfig(
 		OnStart:          onStart,
 		CreationTime:     now,
 		LastModifiedTime: now,
+		Tags:             mergeTags(nil, tags),
 	}
 	b.notebookLifecycleConfigsStore(region).Put(lc)
 

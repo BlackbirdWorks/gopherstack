@@ -6,7 +6,8 @@ import (
 
 // batchGetWorkflowsInput holds input for BatchGetWorkflows.
 type batchGetWorkflowsInput struct {
-	Names []string `json:"Names"`
+	Names        []string `json:"Names"`
+	IncludeGraph bool     `json:"IncludeGraph,omitempty"`
 }
 
 // batchGetWorkflowsOutput holds the result for BatchGetWorkflows.
@@ -19,7 +20,7 @@ func (h *Handler) handleBatchGetWorkflows(
 	_ context.Context,
 	in *batchGetWorkflowsInput,
 ) (*batchGetWorkflowsOutput, error) {
-	found, missing := h.Backend.BatchGetWorkflows(in.Names)
+	found, missing := h.Backend.BatchGetWorkflows(in.Names, in.IncludeGraph)
 
 	return &batchGetWorkflowsOutput{Workflows: found, MissingWorkflows: missing}, nil
 }
@@ -80,7 +81,8 @@ func (h *Handler) handleDeleteWorkflow(
 
 // getWorkflowInput holds input for GetWorkflow.
 type getWorkflowInput struct {
-	Name string `json:"Name"`
+	Name         string `json:"Name"`
+	IncludeGraph bool   `json:"IncludeGraph,omitempty"`
 }
 
 // getWorkflowOutput holds the result for GetWorkflow.
@@ -92,7 +94,7 @@ func (h *Handler) handleGetWorkflow(
 	_ context.Context,
 	in *getWorkflowInput,
 ) (*getWorkflowOutput, error) {
-	w, err := h.Backend.GetWorkflow(in.Name)
+	w, err := h.Backend.GetWorkflow(in.Name, in.IncludeGraph)
 	if err != nil {
 		return nil, err
 	}

@@ -22,6 +22,7 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	protocols []string,
 	outpostArn, preferredInstanceType, creatorRequestID string,
 	rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled bool,
+	dns64Enabled, ipv6InternetAccessEnabled bool,
 ) (*ResolverEndpoint, error) {
 	b.mu.Lock("CreateResolverEndpoint")
 	defer b.mu.Unlock()
@@ -101,6 +102,8 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 		ModificationTime:               now,
 		RniEnhancedMetricsEnabled:      rniEnhancedMetricsEnabled,
 		TargetNameServerMetricsEnabled: targetNameServerMetricsEnabled,
+		DNS64Enabled:                   dns64Enabled,
+		Ipv6InternetAccessEnabled:      ipv6InternetAccessEnabled,
 	}
 	b.endpoints.Put(ep)
 
@@ -269,6 +272,8 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 	id, name, resolverEndpointType string,
 	protocols []string,
 	rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled *bool,
+	dns64Enabled, ipv6InternetAccessEnabled *bool,
+	updateIPAddresses []UpdateIPAddress,
 ) (*ResolverEndpoint, error) {
 	b.mu.Lock("UpdateResolverEndpoint")
 	defer b.mu.Unlock()
@@ -278,19 +283,22 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
 	}
+	switch resolverEndpointType {
+	case "", endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
+	default:
+		return nil, fmt.Errorf(
+			"%w: ResolverEndpointType must be IPV4, IPV6, or DUALSTACK",
+			ErrValidation,
+		)
+	}
+	if err := validateUpdateIPAddresses(ep.IPAddresses, updateIPAddresses); err != nil {
+		return nil, err
+	}
 	if name != "" {
 		ep.Name = name
 	}
 	if resolverEndpointType != "" {
-		switch resolverEndpointType {
-		case endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
-			ep.ResolverEndpointType = resolverEndpointType
-		default:
-			return nil, fmt.Errorf(
-				"%w: ResolverEndpointType must be IPV4, IPV6, or DUALSTACK",
-				ErrValidation,
-			)
-		}
+		ep.ResolverEndpointType = resolverEndpointType
 	}
 	if len(protocols) > 0 {
 		protocolsCopy := make([]string, len(protocols))
@@ -303,9 +311,61 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 	if targetNameServerMetricsEnabled != nil {
 		ep.TargetNameServerMetricsEnabled = *targetNameServerMetricsEnabled
 	}
+	if dns64Enabled != nil {
+		ep.DNS64Enabled = *dns64Enabled
+	}
+	if ipv6InternetAccessEnabled != nil {
+		ep.Ipv6InternetAccessEnabled = *ipv6InternetAccessEnabled
+	}
+	applyUpdateIPAddresses(ep.IPAddresses, updateIPAddresses)
 	ep.ModificationTime = currentTime()
 
 	return cloneEndpoint(ep), nil
+}
+
+// UpdateIPAddress carries a per-IP IPv6 assignment from
+// UpdateResolverEndpointInput.UpdateIpAddresses -- verified against
+// api_op_UpdateResolverEndpoint.go: "Specifies the IPv6 address when you
+// update the Resolver endpoint from IPv4 to dual-stack." Each entry
+// identifies an existing IP by IpId (the id returned by
+// ListResolverEndpointIpAddresses) and supplies its new Ipv6 value.
+type UpdateIPAddress struct {
+	IPID string
+	Ipv6 string
+}
+
+// validateUpdateIPAddresses rejects an UpdateIpAddresses entry that names an
+// IpId not present on the endpoint, before any field is mutated -- same
+// validate-before-mutate discipline as ResolverEndpointType (see
+// TestUpdateResolverEndpoint_RejectedTypeLeavesNameUnchanged).
+func validateUpdateIPAddresses(existing []IPAddress, updates []UpdateIPAddress) error {
+	for _, u := range updates {
+		found := false
+		for _, ip := range existing {
+			if ip.IPID == u.IPID {
+				found = true
+
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("%w: IP address %s not found on endpoint", ErrNotFound, u.IPID)
+		}
+	}
+
+	return nil
+}
+
+func applyUpdateIPAddresses(existing []IPAddress, updates []UpdateIPAddress) {
+	for _, u := range updates {
+		for i := range existing {
+			if existing[i].IPID == u.IPID {
+				existing[i].Ipv6 = u.Ipv6
+
+				break
+			}
+		}
+	}
 }
 
 // DisassociateResolverEndpointIPAddress removes an IP address from a resolver endpoint.

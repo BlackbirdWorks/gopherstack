@@ -12,9 +12,9 @@ import (
 
 func (h *Handler) handleCreateFlowDefinition(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags               map[string]string `json:"Tags"`
-		FlowDefinitionName string            `json:"FlowDefinitionName"`
-		RoleArn            string            `json:"RoleArn"`
+		FlowDefinitionName string      `json:"FlowDefinitionName"`
+		RoleArn            string      `json:"RoleArn"`
+		Tags               []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -25,7 +25,7 @@ func (h *Handler) handleCreateFlowDefinition(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: FlowDefinitionName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateFlowDefinition(ctx, req.FlowDefinitionName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateFlowDefinition(ctx, req.FlowDefinitionName, req.RoleArn, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

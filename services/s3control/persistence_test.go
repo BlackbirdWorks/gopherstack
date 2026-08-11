@@ -338,14 +338,10 @@ func TestPersistence_SnapshotRestoreDeepCopy(t *testing.T) {
 	assert.Equal(t, 1, s3control.AccessBlockCount(b2))
 }
 
-// TestPersistence_Batch1Maps_SnapshotRestore locks in the version-1-to-2
-// persistence-gap fix: accessPointScopes, objectLambdaAPPolicies,
-// objectLambdaAPConfigs, bucketPolicies, bucketTagging, bucketLifecycle,
-// bucketVersioning, mrapRoutes, accessGrantsInstancePolicies, and jobTags
-// were declared on InMemoryBackend but never wired into backendSnapshot, so
-// a Snapshot/Restore cycle silently dropped every one of them even though
-// the owning resource survived. Each subtest seeds one such field and
-// asserts it round-trips.
+// TestPersistence_Batch1Maps_SnapshotRestore covers the version-1-to-2
+// persistence fix (persistence.go's s3controlSnapshotVersion doc): each
+// subtest seeds one of the ten previously-unwired fields and asserts it
+// round-trips through Snapshot/Restore.
 func TestPersistence_Batch1Maps_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 

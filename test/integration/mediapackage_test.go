@@ -57,7 +57,13 @@ func TestIntegration_MediaPackage_ChannelLifecycle(t *testing.T) {
 			assert.NotEmpty(t, aws.ToString(createOut.Arn), "channel ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteChannel(ctx, &mediapackagesdk.DeleteChannelInput{Id: aws.String(tt.channelID)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteChannel(
+					cleanupCtx,
+					&mediapackagesdk.DeleteChannelInput{Id: aws.String(tt.channelID)},
+				)
 			})
 
 			descOut, err := client.DescribeChannel(

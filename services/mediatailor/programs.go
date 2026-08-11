@@ -156,11 +156,27 @@ func (b *InMemoryBackend) CreateProgram(
 		)
 	}
 
+	if sourceLocationName == "" {
+		return nil, fmt.Errorf("%w: SourceLocationName required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateProgram")
 	defer b.mu.Unlock()
 
 	if !b.channels.Has(channelName) {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
+	}
+
+	if !b.sourceLocations.Has(sourceLocationName) {
+		return nil, fmt.Errorf("%w: source location %s not found", ErrNotFound, sourceLocationName)
+	}
+
+	if vodSourceName != "" && !b.vodSources.Has(vodSourceKey(sourceLocationName, vodSourceName)) {
+		return nil, fmt.Errorf("%w: vod source %s not found", ErrNotFound, vodSourceName)
+	}
+
+	if liveSourceName != "" && !b.liveSources.Has(liveSourceKey(sourceLocationName, liveSourceName)) {
+		return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
 	}
 
 	key := programKey(channelName, programName)
@@ -193,6 +209,7 @@ func (b *InMemoryBackend) CreateProgram(
 		AudienceMedia:      cloneAudienceMedia(audienceMedia),
 	}
 	b.programs.Put(prog)
+	b.tags[progARN] = copyTags(tags)
 
 	return prog, nil
 }
@@ -207,7 +224,10 @@ func (b *InMemoryBackend) DescribeProgram(channelName, programName string) (*Pro
 		return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
 	}
 
-	return prog, nil
+	out := *prog
+	out.Tags = copyTags(b.tags[prog.ARN])
+
+	return &out, nil
 }
 
 // UpdateProgram updates a program's schedule configuration, ad breaks, and
@@ -254,7 +274,10 @@ func (b *InMemoryBackend) UpdateProgram(
 		prog.AudienceMedia = cloneAudienceMedia(audienceMedia)
 	}
 
-	return prog, nil
+	out := *prog
+	out.Tags = copyTags(b.tags[prog.ARN])
+
+	return &out, nil
 }
 
 // DeleteProgram deletes a program.
@@ -263,10 +286,13 @@ func (b *InMemoryBackend) DeleteProgram(channelName, programName string) error {
 	defer b.mu.Unlock()
 
 	key := programKey(channelName, programName)
-	if !b.programs.Has(key) {
+
+	prog, ok := b.programs.Get(key)
+	if !ok {
 		return fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
 	}
 
+	delete(b.tags, prog.ARN)
 	b.programs.Delete(key)
 
 	return nil

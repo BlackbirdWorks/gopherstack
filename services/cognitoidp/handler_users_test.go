@@ -14,33 +14,38 @@ func TestHandler_UserSRPAuth_ViaHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	_, clientID := setupHandlerPoolAndClient(t, h, "srp-http-pool")
+	poolID, clientID := setupHandlerPoolAndClient(t, h, "srp-http-pool")
 
 	signUpAndConfirmViaHandler(t, h, clientID, "srp-user")
+
+	srpClient := newSRPTestClient(t)
 
 	initRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
 		"AuthFlow": "USER_SRP_AUTH",
 		"ClientId": clientID,
 		"AuthParameters": map[string]string{
 			"USERNAME": "srp-user",
-			"PASSWORD": "Pass1234!",
+			"SRP_A":    srpClient.srpA(),
 		},
 	})
 	require.Equal(t, http.StatusOK, initRec.Code)
 
 	var initResp struct {
-		ChallengeName *string `json:"ChallengeName,omitempty"`
-		Session       *string `json:"Session,omitempty"`
+		ChallengeName       *string           `json:"ChallengeName,omitempty"`
+		Session             *string           `json:"Session,omitempty"`
+		ChallengeParameters map[string]string `json:"ChallengeParameters,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp))
 	require.NotNil(t, initResp.ChallengeName)
 	assert.Equal(t, "PASSWORD_VERIFIER", *initResp.ChallengeName)
 
+	responses := srpClient.challengeResponses(t, poolID, "Pass1234!", initResp.ChallengeParameters)
+
 	respRec := doCognitoRequest(t, h, "RespondToAuthChallenge", map[string]any{
 		"ClientId":           clientID,
 		"ChallengeName":      "PASSWORD_VERIFIER",
 		"Session":            *initResp.Session,
-		"ChallengeResponses": map[string]string{},
+		"ChallengeResponses": responses,
 	})
 	require.Equal(t, http.StatusOK, respRec.Code)
 

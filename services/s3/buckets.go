@@ -57,6 +57,7 @@ func (b *InMemoryBackend) CreateBucket(
 		// Detect this at creation time so ListBuckets and ListDirectoryBuckets can
 		// correctly partition general-purpose vs. directory buckets.
 		IsDirectoryBucket: strings.HasSuffix(bucketName, "--x-s3"),
+		ObjectLockEnabled: aws.ToBool(input.ObjectLockEnabledForBucket),
 	})
 
 	return &s3.CreateBucketOutput{
@@ -147,26 +148,15 @@ func (b *InMemoryBackend) ListBuckets(
 			buckets = append(buckets, types.Bucket{
 				Name:         aws.String(bucket.Name),
 				CreationDate: aws.Time(bucket.CreationDate),
-				// Real S3 only echoes BucketRegion when the request carries at
-				// least one of bucket-region/prefix/continuation-token/max-buckets
-				// (see the ListBuckets docs: the unpaginated example omits it,
-				// every paginated example includes it). This backend doesn't
-				// implement ListBuckets pagination/filtering (input is passed
-				// empty above), so there is no "paginated request" case to gate
-				// on -- and the whole point of this field is dashboard
-				// visibility into a bucket's real region (ListBuckets is
-				// account-global; the region selector only governs what a
-				// request is signed for), so it is always populated rather than
-				// tied to an AWS request-shape nuance nobody would notice was
-				// missing.
+				// Real S3 only echoes BucketRegion on a paginated ListBuckets
+				// request; this backend implements no pagination/filtering, so it's
+				// always populated, matching the whole point of the field: dashboard
+				// visibility into a bucket's real region.
 				//
-				// Unlike GetBucketLocation's LocationConstraint (which AWS
-				// returns EMPTY for us-east-1, a legacy quirk predating
-				// LocationConstraint itself), BucketRegion here reports the
-				// literal region string, "us-east-1" included -- confirmed
-				// against the real ListBuckets doc's paginated examples, which
-				// show <BucketRegion>us-east-1</BucketRegion> explicitly. So no
-				// empty-string special-casing here.
+				// Unlike GetBucketLocation's LocationConstraint (EMPTY for
+				// us-east-1, a legacy quirk), BucketRegion reports the literal
+				// region string, "us-east-1" included -- confirmed against the real
+				// ListBuckets doc's paginated examples. No empty-string special-casing.
 				BucketRegion: aws.String(bucket.Region),
 			})
 		}

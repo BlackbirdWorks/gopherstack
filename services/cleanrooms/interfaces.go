@@ -261,7 +261,7 @@ type StorageBackend interface {
 	// CollaborationChangeRequest operations.
 	CreateCollaborationChangeRequest(
 		collaborationID string,
-		changes []map[string]any,
+		changes []Change,
 	) (*CollaborationChangeRequest, error)
 	GetCollaborationChangeRequest(
 		collaborationID, changeRequestID string,

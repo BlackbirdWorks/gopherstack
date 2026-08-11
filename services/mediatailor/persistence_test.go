@@ -42,7 +42,13 @@ func newPersistenceTestBackend(t *testing.T) (*mediatailor.InMemoryBackend, pers
 	ch, err := b.CreateChannel("ch1", "LOOP", "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	sl, err := b.CreateSourceLocation("sl1", "https://origin.example.com", nil)
+	sl, err := b.CreateSourceLocation(
+		"sl1", "https://origin.example.com",
+		&mediatailor.AccessConfiguration{AccessType: "S3_SIGV4"},
+		&mediatailor.DefaultSegmentDeliveryConfiguration{BaseURL: "https://cdn.example.com"},
+		[]mediatailor.SegmentDeliveryConfiguration{{Name: "primary", BaseURL: "https://cdn2.example.com"}},
+		nil,
+	)
 	require.NoError(t, err)
 
 	vs, err := b.CreateVodSource("sl1", "vs1", nil, nil)
@@ -57,7 +63,7 @@ func newPersistenceTestBackend(t *testing.T) (*mediatailor.InMemoryBackend, pers
 	prog, err := b.CreateProgram("ch1", "prog1", "sl1", "vs1", "", testScheduleConfig(1_700_000_000_000), nil, nil, nil)
 	require.NoError(t, err)
 
-	fn, err := b.PutFunction("fn1", "AD_DECISION_SERVER_URL", "test function", nil)
+	fn, err := b.PutFunction("fn1", "HTTP_REQUEST", "test function", nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagResource(cfg.PlaybackConfigurationARN, map[string]string{"team": "mediatailor"}))
@@ -106,6 +112,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	sl, err := fresh.DescribeSourceLocation(ids.sourceLocationName)
 	require.NoError(t, err)
 	assert.Equal(t, ids.sourceLocationName, sl.Name)
+	require.NotNil(t, sl.AccessConfiguration)
+	assert.Equal(t, "S3_SIGV4", sl.AccessConfiguration.AccessType)
+	require.NotNil(t, sl.DefaultSegmentDeliveryConfiguration)
+	assert.Equal(t, "https://cdn.example.com", sl.DefaultSegmentDeliveryConfiguration.BaseURL)
+	require.Len(t, sl.SegmentDeliveryConfigurations, 1)
+	assert.Equal(t, "primary", sl.SegmentDeliveryConfigurations[0].Name)
 
 	// vodSources table + vodSourcesByLocation index.
 	vs, err := fresh.DescribeVodSource(ids.sourceLocationName, ids.vodSourceName)
@@ -252,7 +264,7 @@ func TestSnapshotRestore_LiveSourcesPrefetchSchedulesPrograms(t *testing.T) {
 
 	b1 := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b1.CreateSourceLocation("sl1", "https://example.com", nil)
+	_, err := b1.CreateSourceLocation("sl1", "https://example.com", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b1.CreateLiveSource("sl1", "ls1", nil, nil)

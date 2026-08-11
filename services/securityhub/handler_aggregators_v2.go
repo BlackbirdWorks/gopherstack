@@ -28,36 +28,54 @@ func classifyAggregatorV2Path(method, path string) (string, string) {
 
 func (h *Handler) handleCreateAggregatorV2(c *echo.Context, body map[string]any) error {
 	regionLinkingMode, _ := body["RegionLinkingMode"].(string)
+	regions := stringListFromBody(body, "LinkedRegions")
 
-	var regions []string
+	agg, err := h.Backend.CreateAggregatorV2(regionLinkingMode, regions)
+	if err != nil {
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+	}
 
-	if raw, ok := body["Regions"].([]any); ok {
+	if tags, ok := body["Tags"].(map[string]any); ok {
+		strTags := make(map[string]string, len(tags))
+		for k, v := range tags {
+			if s, isStr := v.(string); isStr {
+				strTags[k] = s
+			}
+		}
+
+		_ = h.Backend.TagResource(agg.AggregatorV2Arn, strTags)
+	}
+
+	return c.JSON(http.StatusOK, aggregatorV2ToResponse(agg))
+}
+
+// stringListFromBody extracts a []string from a JSON-decoded request body's
+// []any field, skipping non-string entries.
+func stringListFromBody(body map[string]any, field string) []string {
+	var out []string
+
+	if raw, ok := body[field].([]any); ok {
 		for _, v := range raw {
-			if s, ok := v.(string); ok { //nolint:govet // existing issue.
-				regions = append(regions, s)
+			if s, isStr := v.(string); isStr {
+				out = append(out, s)
 			}
 		}
 	}
 
-	agg, err := h.Backend.CreateAggregatorV2(regionLinkingMode, regions)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
-	}
-
-	return c.JSON(http.StatusOK, aggregatorV2ToResponse(agg))
+	return out
 }
 
 func (h *Handler) handleGetAggregatorV2(c *echo.Context, arn string) error {
 	agg, err := h.Backend.GetAggregatorV2(arn)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{keyMessage: "Aggregator V2 not found"}, //nolint:goconst // existing issue.
+			return typedErrorResponse(
+				c, http.StatusNotFound, "ResourceNotFoundException",
+				"Aggregator V2 not found",
 			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, aggregatorV2ToResponse(agg))
@@ -94,24 +112,15 @@ func (h *Handler) handleListAggregatorsV2(c *echo.Context) error {
 
 func (h *Handler) handleUpdateAggregatorV2(c *echo.Context, arn string, body map[string]any) error {
 	regionLinkingMode, _ := body["RegionLinkingMode"].(string)
-
-	var regions []string
-
-	if raw, ok := body["Regions"].([]any); ok {
-		for _, v := range raw {
-			if s, ok := v.(string); ok { //nolint:govet // existing issue.
-				regions = append(regions, s)
-			}
-		}
-	}
+	regions := stringListFromBody(body, "LinkedRegions")
 
 	agg, err := h.Backend.UpdateAggregatorV2(arn, regionLinkingMode, regions)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Aggregator V2 not found"})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Aggregator V2 not found")
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, aggregatorV2ToResponse(agg))
@@ -120,21 +129,25 @@ func (h *Handler) handleUpdateAggregatorV2(c *echo.Context, arn string, body map
 func (h *Handler) handleDeleteAggregatorV2(c *echo.Context, arn string) error {
 	if err := h.Backend.DeleteAggregatorV2(arn); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Aggregator V2 not found"})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Aggregator V2 not found")
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// aggregatorV2ToResponse renders the wire fields for CreateAggregatorV2Output/
+// GetAggregatorV2Output/UpdateAggregatorV2Output. The region list's wire name
+// is "LinkedRegions" (confirmed against aws-sdk-go-v2 securityhub@v1.75.4
+// api_op_CreateAggregatorV2.go:39 and deserializers.go:9258), not "Regions".
 func aggregatorV2ToResponse(agg *AggregatorV2) map[string]any {
 	return map[string]any{
 		"AggregatorV2Arn":   agg.AggregatorV2Arn,
 		"AggregationRegion": agg.AggregationRegion,
 		"RegionLinkingMode": agg.RegionLinkingMode, //nolint:goconst // existing issue.
-		"Regions":           agg.Regions,           //nolint:goconst // existing issue.
+		"LinkedRegions":     agg.Regions,
 		keyCreatedAt:        agg.CreatedAt,
 		keyUpdatedAt:        agg.UpdatedAt,
 	}

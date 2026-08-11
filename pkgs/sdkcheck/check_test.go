@@ -1,21 +1,15 @@
-package sdkcheck_test
+package sdkcheck
 
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 )
 
-// ---- fake AWS SDK-like client types used in tests ----
-
-// fakeClient simulates an AWS SDK v2 Client with a minimal method set.
-// All methods have pointer receivers to match the real SDK convention.
+// fakeClient simulates an AWS SDK v2 Client; pointer receivers match SDK convention.
 type fakeClient struct{}
 
 func (*fakeClient) GetItem()    {}
@@ -23,12 +17,10 @@ func (*fakeClient) PutItem()    {}
 func (*fakeClient) DeleteItem() {}
 func (*fakeClient) Options()    {} // must be excluded by BuildSDKMethodSet
 
-// fakeClientEmpty has only the Options method, so the resulting method set is empty.
+// fakeClientEmpty has only Options, so its method set is empty.
 type fakeClientEmpty struct{}
 
 func (*fakeClientEmpty) Options() {}
-
-// ---- BuildSDKMethodSet tests ----
 
 func TestBuildSDKMethodSet(t *testing.T) {
 	t.Parallel()
@@ -54,13 +46,11 @@ func TestBuildSDKMethodSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := sdkcheck.BuildSDKMethodSet(tt.input)
+			got := buildSDKMethodSet(tt.input)
 			assert.Equal(t, tt.want, got)
 		})
 	}
 }
-
-// ---- BuildSet tests ----
 
 func TestBuildSet(t *testing.T) {
 	t.Parallel()
@@ -101,14 +91,12 @@ func TestBuildSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotSet, gotDups := sdkcheck.BuildSet(tt.input)
+			gotSet, gotDups := buildSet(tt.input)
 			assert.Equal(t, tt.wantSet, gotSet)
 			assert.Equal(t, tt.wantDups, gotDups)
 		})
 	}
 }
-
-// ---- FindStale tests ----
 
 func TestFindStale(t *testing.T) {
 	t.Parallel()
@@ -149,13 +137,11 @@ func TestFindStale(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := sdkcheck.FindStale(tt.notImpl, tt.sdkMethod)
+			got := findStale(tt.notImpl, tt.sdkMethod)
 			assert.Equal(t, tt.want, got)
 		})
 	}
 }
-
-// ---- FindOverlapping tests ----
 
 func TestFindOverlapping(t *testing.T) {
 	t.Parallel()
@@ -196,13 +182,11 @@ func TestFindOverlapping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := sdkcheck.FindOverlapping(tt.a, tt.b)
+			got := findOverlapping(tt.a, tt.b)
 			assert.Equal(t, tt.want, got)
 		})
 	}
 }
-
-// ---- FindUnaccounted tests ----
 
 func TestFindUnaccounted(t *testing.T) {
 	t.Parallel()
@@ -248,13 +232,11 @@ func TestFindUnaccounted(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := sdkcheck.FindUnaccounted(tt.sdkMethods, tt.supportedSet, tt.notImplSet)
+			got := findUnaccounted(tt.sdkMethods, tt.supportedSet, tt.notImplSet)
 			assert.Equal(t, tt.want, got)
 		})
 	}
 }
-
-// ---- CheckCompleteness happy-path integration tests ----
 
 func TestCheckCompleteness_Pass(t *testing.T) {
 	t.Parallel()
@@ -295,59 +277,47 @@ func TestCheckCompleteness_Pass(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// CheckCompleteness must not cause a test failure for valid inputs.
-			sdkcheck.CheckCompleteness(t, tt.sdkClientPtr, tt.supportedOps, tt.notImplemented)
+			CheckCompleteness(t, tt.sdkClientPtr, tt.supportedOps, tt.notImplemented)
 		})
 	}
 }
 
-// TestCheckCompleteness_FailureOnNil verifies that a nil sdkClientPtr causes an
-// immediate test failure with a clear message rather than a confusing panic.
+// TestCheckCompleteness_FailureOnNil verifies a nil sdkClientPtr fails cleanly.
 func TestCheckCompleteness_FailureOnNil(t *testing.T) {
 	t.Parallel()
 
 	spy := newSpyT(t)
-	sdkcheck.CheckCompleteness(spy, nil, nil, nil)
+	CheckCompleteness(spy, nil, nil, nil)
 	require.True(t, spy.Failed(), "CheckCompleteness should report failure when sdkClientPtr is nil")
 }
 
-// TestCheckCompleteness_FailureOnNonPointer verifies that a non-pointer sdkClientPtr
-// is rejected with a clear message.
+// TestCheckCompleteness_FailureOnNonPointer verifies a non-pointer sdkClientPtr is rejected.
 func TestCheckCompleteness_FailureOnNonPointer(t *testing.T) {
 	t.Parallel()
 
 	spy := newSpyT(t)
-	sdkcheck.CheckCompleteness(spy, fakeClient{}, nil, nil) // value, not pointer
+	CheckCompleteness(spy, fakeClient{}, nil, nil) // value, not pointer
 	require.True(t, spy.Failed(), "CheckCompleteness should report failure when sdkClientPtr is not a pointer")
 }
 
-// TestCheckCompleteness_ReportsPhantomOpNonFatally verifies that
-// CheckCompleteness catches the reverse defect — a supportedOps entry that
-// does not correspond to any real method on the SDK client (a "phantom"
-// operation) — and reports it via Logf, without failing the test. This
-// mirrors the real-world EMR bug where GetSupportedOperations() listed
-// ListTagsForResource even though no such operation exists on the AWS SDK's
-// emr client. The check is currently non-fatal (see the rollout note in
-// check.go): a repo-wide sweep found phantom entries across a meaningful
-// fraction of services on first run, so this is reporting-only until each
-// service's findings are triaged.
-func TestCheckCompleteness_ReportsPhantomOpNonFatally(t *testing.T) {
+// TestCheckCompleteness_FailsOnUnallowlistedPhantomOp verifies a supportedOps
+// entry with no matching SDK method fails unless allowlisted (mirrors the
+// real-world EMR bug: GetSupportedOperations() listed a nonexistent op).
+func TestCheckCompleteness_FailsOnUnallowlistedPhantomOp(t *testing.T) {
 	t.Parallel()
 
 	spy := newSpyT(t)
-	sdkcheck.CheckCompleteness(
+	CheckCompleteness(
 		spy, &fakeClient{},
 		[]string{"GetItem", "PutItem", "DeleteItem", "ListTagsForResource"},
 		nil,
 	)
-	require.False(t, spy.Failed(),
-		"CheckCompleteness should not fail the test for a phantom op — it is reporting-only for now")
-	require.True(t, spy.loggedContains("ListTagsForResource"),
-		"CheckCompleteness should log the phantom op name so it's discoverable in verbose test output")
+	require.True(t, spy.Failed(),
+		"CheckCompleteness should fail the test for a phantom op that is not in phantomAllowlist")
 }
 
 // spyT wraps a [testing.TB] to intercept failure calls so we can test that
-// [sdkcheck.CheckCompleteness] correctly reports errors for bad inputs, without
+// [CheckCompleteness] correctly reports errors for bad inputs, without
 // propagating the failures to the parent test.
 type spyT struct {
 	testing.TB
@@ -360,17 +330,6 @@ func newSpyT(tb testing.TB) *spyT {
 	tb.Helper()
 
 	return &spyT{TB: tb}
-}
-
-// loggedContains reports whether any captured Logf/Log call contains substr.
-func (s *spyT) loggedContains(substr string) bool {
-	for _, l := range s.logs {
-		if strings.Contains(l, substr) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func (s *spyT) Helper()                   {}

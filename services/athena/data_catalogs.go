@@ -37,7 +37,7 @@ func (b *InMemoryBackend) CreateDataCatalog(
 	}
 
 	status := "CREATE_COMPLETE"
-	if catalogType == "FEDERATED" {
+	if catalogType == dataCatalogTypeFederated {
 		status = "CREATE_IN_PROGRESS"
 	}
 
@@ -156,7 +156,12 @@ func (b *InMemoryBackend) UpdateDataCatalog(
 // DeleteDataCatalogOutput carries an optional DataCatalog field with the
 // deleted catalog; the handler wires the returned pointer straight into that
 // response field. The built-in AwsDataCatalog cannot be deleted.
-func (b *InMemoryBackend) DeleteDataCatalog(name string) (*DataCatalog, error) {
+//
+// deleteCatalogOnly is only valid for FEDERATED catalogs (real AWS tears
+// down the CFN stack, Lambda connector, and Glue connection behind a
+// FEDERATED catalog unless it's set; gopherstack models none of those, so
+// once validated the flag has nothing left to control).
+func (b *InMemoryBackend) DeleteDataCatalog(name string, deleteCatalogOnly bool) (*DataCatalog, error) {
 	if name == awsDataCatalog {
 		return nil, fmt.Errorf(
 			"%w: cannot delete the built-in data catalog %s",
@@ -173,8 +178,18 @@ func (b *InMemoryBackend) DeleteDataCatalog(name string) (*DataCatalog, error) {
 		return nil, fmt.Errorf("%w: data catalog %q not found", ErrNotFound, name)
 	}
 
+	if deleteCatalogOnly && dc.Type != dataCatalogTypeFederated {
+		return nil, fmt.Errorf(
+			"%w: DeleteCatalogOnly can only be used with FEDERATED data catalogs",
+			ErrValidation,
+		)
+	}
+
 	cp := *dc
 	cp.Parameters = maps.Clone(dc.Parameters)
+	if dc.Type == dataCatalogTypeFederated {
+		cp.Status = "DELETE_COMPLETE"
+	}
 
 	b.dataCatalogs.Delete(name)
 	delete(b.resourceTags, b.dataCatalogARN(name))

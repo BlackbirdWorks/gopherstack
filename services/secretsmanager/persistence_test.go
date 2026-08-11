@@ -112,6 +112,46 @@ func TestSnapshotRestore_ExtendedFields(t *testing.T) {
 	assert.NotNil(t, desc.LastRotatedDate)
 }
 
+// TestSnapshotRestore_ManagedExternalSecretFields verifies that Type (set via
+// CreateSecret) and ExternalSecretRotationRoleArn/ExternalSecretRotationMetadata
+// (set via RotateSecret) survive a Snapshot/Restore round trip, since these are
+// new additive (omitempty) fields on the Secret/secretSnapshot DTO (gopherstack-9wuh).
+func TestSnapshotRestore_ManagedExternalSecretFields(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "snap-mes",
+		SecretString: "v",
+		Type:         "SomePartner",
+	})
+	require.NoError(t, err)
+
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:                      "snap-mes",
+		RotationLambdaARN:             "arn:aws:lambda:us-east-1:123:function:rotator",
+		ExternalSecretRotationRoleArn: "arn:aws:iam::123:role/mes-rotator",
+		ExternalSecretRotationMetadata: []secretsmanager.ExternalSecretRotationMetadataItem{
+			{Key: "k", Value: "v"},
+		},
+	})
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := secretsmanager.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	desc, err := b2.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "snap-mes"})
+	require.NoError(t, err)
+	assert.Equal(t, "SomePartner", desc.Type)
+	assert.Equal(t, "arn:aws:iam::123:role/mes-rotator", desc.ExternalSecretRotationRoleArn)
+	require.Len(t, desc.ExternalSecretRotationMetadata, 1)
+	assert.Equal(t, "k", desc.ExternalSecretRotationMetadata[0].Key)
+	assert.Equal(t, "v", desc.ExternalSecretRotationMetadata[0].Value)
+}
+
 func TestSecretsManagerHandler_Persistence(t *testing.T) {
 	t.Parallel()
 

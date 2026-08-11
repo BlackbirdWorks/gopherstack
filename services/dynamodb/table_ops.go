@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -269,6 +270,13 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 		}
 	}
 
+	if len(input.Tags) > 0 {
+		t.Tags = tags.New("dynamodb.table." + tableName + ".tags")
+		for _, tag := range input.Tags {
+			t.Tags.Set(aws.ToString(tag.Key), aws.ToString(tag.Value))
+		}
+	}
+
 	t.initializeIndexes()
 
 	return t
@@ -375,6 +383,7 @@ func buildCreateTableOutput(
 
 	td := &types.TableDescription{
 		TableName:              input.TableName,
+		TableArn:               aws.String(t.TableArn),
 		TableStatus:            tableStatus,
 		KeySchema:              keySchema,
 		AttributeDefinitions:   attrDefs,
@@ -472,14 +481,11 @@ func (db *InMemoryDB) DeleteTable(
 		db.streamARNIndex.Delete(table.StreamARN)
 	}
 
-	// Capture state for return. The table has already been unlinked from
-	// db.tables above, but PutItem/BatchWriteItem/UpdateTable etc. resolve a
-	// *Table once via getTable and then mutate table.Items/
-	// table.GlobalSecondaryIndexes under table.mu WITHOUT re-checking db.tables,
-	// so a caller that grabbed this same *Table just before this delete can
-	// still be actively writing to it concurrently. Reading those fields here
-	// without table.mu is a real data race (caught by -race); take a read lock
-	// for the snapshot, consistent with this backend's db.mu -> table.mu order.
+	// The table is already unlinked from db.tables, but a caller that grabbed
+	// this same *Table just before this delete can still be actively writing to
+	// it under table.mu without re-checking db.tables -- reading these fields
+	// here without table.mu would be a real data race, so take a read lock for
+	// the snapshot, consistent with this backend's db.mu -> table.mu order.
 	gsis, keySchema, attrDefs, itemCountSnapshot := snapshotTableForDeleteOutputRLocked(table)
 
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsis))
@@ -513,6 +519,7 @@ func (db *InMemoryDB) DeleteTable(
 	return &dynamodb.DeleteTableOutput{
 		TableDescription: &types.TableDescription{
 			TableName:              input.TableName,
+			TableArn:               aws.String(table.TableArn),
 			TableStatus:            types.TableStatusDeleting,
 			KeySchema:              sdkKeySchema,
 			AttributeDefinitions:   sdkAttrDefs,
@@ -1519,6 +1526,7 @@ func buildUpdateTableOutput(
 	return &dynamodb.UpdateTableOutput{
 		TableDescription: &types.TableDescription{
 			TableName:              input.TableName,
+			TableArn:               aws.String(table.TableArn),
 			TableStatus:            types.TableStatusActive,
 			KeySchema:              models.ToSDKKeySchema(table.KeySchema),
 			AttributeDefinitions:   models.ToSDKAttributeDefinitions(table.AttributeDefinitions),

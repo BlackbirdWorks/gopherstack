@@ -52,6 +52,8 @@ const (
 	kindPipeline = "pipeline"
 	// kindWebhook is the resource kind string for webhooks.
 	kindWebhook = "webhook"
+	// kindActionType is the resource kind string for custom action types.
+	kindActionType = "actiontype"
 
 	// keyPipelineExecutionID and keyStatus are JSON keys shared across the
 	// execution-detail response maps.
@@ -123,6 +125,7 @@ type InMemoryBackend struct {
 	pipelinesByARN             *store.Index[Pipeline]
 	customActionTypes          *store.Table[CustomActionType]
 	customActionTypesByRegion  *store.Index[CustomActionType]
+	customActionTypesByARN     *store.Index[CustomActionType]
 	jobs                       *store.Table[Job]
 	jobsByRegion               *store.Index[Job]
 	webhooks                   *store.Table[Webhook]
@@ -255,4 +258,20 @@ func (b *InMemoryBackend) buildPipelineARN(region, name string) string {
 
 func (b *InMemoryBackend) buildWebhookARN(region, name string) string {
 	return arn.Build("codepipeline", region, b.accountID, "webhook:"+name)
+}
+
+// buildActionTypeARN builds a custom action type's ARN:
+// arn:aws:codepipeline:{region}:{account}:actiontype:{owner}/{category}/{provider}/{version}.
+// CreateCustomActionTypeOutput carries no ARN field (real ActionType has
+// none), so a real caller constructs it from this documented pattern -- same
+// as ListTagsForResource must, since custom action types aren't in a
+// caller-visible index otherwise.
+func (b *InMemoryBackend) buildActionTypeARN(region string, cat *CustomActionType) string {
+	owner := cat.Owner
+	if owner == "" {
+		owner = keyOwnerCustom
+	}
+
+	return arn.Build("codepipeline", region, b.accountID,
+		"actiontype:"+owner+"/"+cat.Category+"/"+cat.Provider+"/"+cat.Version)
 }

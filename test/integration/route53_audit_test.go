@@ -35,7 +35,10 @@ func TestIntegration_Route53Audit_GetAccountLimit(t *testing.T) {
 
 		zoneID := aws.ToString(out.HostedZone.Id)
 		t.Cleanup(func() {
-			_, _ = client.DeleteHostedZone(ctx, &route53sdk.DeleteHostedZoneInput{Id: aws.String(zoneID)})
+			cleanupCtx, cancel := cleanupContext(t)
+			defer cancel()
+
+			_, _ = client.DeleteHostedZone(cleanupCtx, &route53sdk.DeleteHostedZoneInput{Id: aws.String(zoneID)})
 		})
 	}
 
@@ -72,7 +75,10 @@ func TestIntegration_Route53Audit_GetHostedZoneLimit(t *testing.T) {
 
 	zoneID := aws.ToString(createOut.HostedZone.Id)
 	t.Cleanup(func() {
-		_, _ = client.DeleteHostedZone(ctx, &route53sdk.DeleteHostedZoneInput{Id: aws.String(zoneID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteHostedZone(cleanupCtx, &route53sdk.DeleteHostedZoneInput{Id: aws.String(zoneID)})
 	})
 
 	// Baseline RRSet count (a new zone has its default SOA + NS records).

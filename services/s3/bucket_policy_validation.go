@@ -5,35 +5,20 @@ import (
 	"encoding/json"
 )
 
-// validateBucketPolicyDocument checks a PutBucketPolicy request body against
-// the IAM/S3 resource-policy JSON grammar documented at
-// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_grammar.html:
+// validateBucketPolicyDocument checks a PutBucketPolicy request body against the
+// IAM/S3 resource-policy JSON grammar (Version, optional Id, Statement[] of
+// {Sid?, Principal?, Effect, Action, Resource, Condition?}) documented at
+// https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_grammar.html.
 //
-//	policy     = { <version_block?>, <id_block?>, <statement_block> }
-//	<version_block>   = "Version" : ("2008-10-17" | "2012-10-17")
-//	<statement_block> = "Statement" : [ <statement>, ... ]   // a single object is also valid
-//	<statement> = { <sid_block?>, <principal_block?>, <effect_block>,
-//	                <action_block>, <resource_block>, <condition_block?> }
-//	<effect_block>    = "Effect" : ("Allow" | "Deny")
-//	<principal_block> = ("Principal" | "NotPrincipal") : ...
-//	<action_block>    = ("Action" | "NotAction") : ...
-//	<resource_block>  = ("Resource" | "NotResource") : ...
+// Bucket policies are resource-based, so unlike identity-based IAM policies the
+// principal block is REQUIRED on every statement -- real S3 rejects a statement
+// with neither Principal nor NotPrincipal with "MalformedPolicy: Missing required
+// field Principal cannot be empty!".
 //
-// Bucket policies are resource-based policies, so (unlike identity-based IAM
-// policies) the principal_block is REQUIRED on every statement — real S3
-// rejects a statement with no Principal/NotPrincipal with
-// "MalformedPolicy: Missing required field Principal cannot be empty!"
-// (a well-documented real-world PutBucketPolicy error; see e.g.
-// https://github.com/cn-terraform/terraform-aws-logs-s3-bucket/issues/4).
-//
-// This performs shape validation only (presence/type of the required
-// elements) — it does not resolve/validate ARN syntax inside Resource, IAM
-// principal identifiers, or action-name namespaces, which real S3 checks via
-// deeper policy-engine logic outside the scope of shape validation.
-//
-// Returns nil if the document is well-formed; otherwise a *ErrorResponse
-// with Code "MalformedPolicy" and a message describing the first shape
-// violation found (matching real S3's fail-fast-on-first-error behavior).
+// Shape validation only: presence/type of required elements, not ARN syntax,
+// principal identifiers, or action-name namespaces. Returns nil if well-formed,
+// else *ErrorResponse{Code: "MalformedPolicy"} describing the first violation
+// (real S3's fail-fast behavior).
 func validateBucketPolicyDocument(body []byte) *ErrorResponse {
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(body, &top); err != nil {

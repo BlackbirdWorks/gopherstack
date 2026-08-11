@@ -79,7 +79,7 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // cwlLatestOps returns CloudWatch Logs operations added in the parity-4 SDK
-// bump (aws-sdk-go-v2/service/cloudwatchlogs v1.80.0): lookup tables, syslog
+// bump (aws-sdk-go-v2/service/cloudwatchlogs v1.81.1): lookup tables, syslog
 // configurations, and the account-level storage tier policy.
 func cwlLatestOps() []string {
 	return []string{

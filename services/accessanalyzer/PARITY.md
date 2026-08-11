@@ -5,9 +5,9 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: accessanalyzer
-sdk_module: aws-sdk-go-v2/service/accessanalyzer@v1.48.0
+sdk_module: aws-sdk-go-v2/service/accessanalyzer@v1.51.4
 last_audit_commit: 19eea66b2
-last_audit_date: 2026-07-23
+last_audit_date: 2026-08-10
 overall: A            # multiple real wire-shape bugs found and fixed; two gaps closed for real; dead route deleted
 ops:
   CreateAnalyzer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: now accepts+persists the AnalyzerConfiguration union (\"configuration\") and the inline \"archiveRules\" array (each creates a real ArchiveRule via CreateArchiveRule, including its auto-archive-existing-findings side effect), neither of which was previously read from the request body at all."}
@@ -30,12 +30,12 @@ ops:
   ListFindingsV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: findingType now \"ExternalAccess\" (FindingSummaryV2 has no findingDetails member at all, unlike GetFindingV2Output, so nothing else to add here)."}
   GetFindingsStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire-shape bug, not just a gap): types.ExternalAccessFindingsStatistics serializes its three counters as flat integers totalActiveFindings/totalArchivedFindings/totalResolvedFindings (confirmed against awsRestjson1_deserializeDocumentExternalAccessFindingsStatistics in the SDK's deserializers.go) -- gopherstack was emitting a nested {\"activeFindings\":{\"total\":N}} shape that no real deserializer recognizes; a real SDK client would have silently gotten zero counts back. Also added the missing analyzerArn-required validation (matches GetFindingsStatisticsInput's required field, same pattern as ListFindings)."}
   GenerateFindingRecommendation: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetFindingRecommendation: {wire: partial, errors: ok, state: ok, persist: ok, note: "recommendedSteps always []; RecommendationType/Status are real fields backed by state. Not touched this pass -- recommendedSteps content generation is a genuinely separate feature (IAM Access Analyzer's unused-permission-removal recommendation engine) with no state in this backend to derive it from."}
+  GetFindingRecommendation: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire bugs, kept as gap otherwise): resourceArn and startedAt (both required GetFindingRecommendationOutput members) and completedAt were entirely missing from the response; now populated from the finding record and the recommendation job's own timestamps. recommendationType's wire value was \"UNUSED_PERMISSION\", which does not match the real types.RecommendationType enum's only value, \"UnusedPermissionRecommendation\" (enums.go:579) -- fixed. Also fixed a silent-accept bug: GenerateFindingRecommendation previously created a recommendation record for ANY finding ID, including nonexistent ones, without checking it existed; it now 404s (ResourceNotFoundException) like GetFindingRecommendation already did, and captures the finding's real resourceArn while doing so. recommendedSteps remains always [] -- content generation is still a genuinely separate feature (IAM Access Analyzer's unused-permission-removal recommendation engine) with no state in this backend to derive it from; Status is always SUCCEEDED (synchronous), matching the StartPolicyGeneration convention elsewhere in this service."}
   GetAnalyzedResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire-shape bug): resourceOwnerAccount is a required types.AnalyzedResource member and was entirely missing from the response; now defaults to the backend's own AccountID(), the same convention findingToJSON already used for Finding.resourceOwnerAccount."}
   ListAnalyzedResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: same resourceOwnerAccount fix as GetAnalyzedResource -- it's also required on types.AnalyzedResourceSummary and was missing from every list item."}
   StartResourceScan: {wire: ok, errors: ok, state: ok, persist: n/a, note: "verifies analyzer exists by ARN; no actual resource scanning to simulate (matches other AA scan endpoints elsewhere in gopherstack)"}
-  StartPolicyGeneration: {wire: ok, errors: ok, state: ok, persist: ok, note: "completes synchronously (SUCCEEDED immediately) rather than modeling async IN_PROGRESS -- acceptable since it still reaches a real terminal state and GetGeneratedPolicy/ListPolicyGenerations reflect it; not a stuck-forever no-op"}
-  GetGeneratedPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire-shape bug): jobDetails wrongly included \"principalArn\" -- the real types.JobDetails (GetGeneratedPolicyOutput.jobDetails) has NO principalArn member; that value only exists under generatedPolicyResult.properties.principalArn (types.GeneratedPolicyProperties), which was already correct. Split the shared serializer into jobDetailsToJSON (no principalArn) vs policyGenerationToJSON (has principalArn, used by ListPolicyGenerations' types.PolicyGeneration, which DOES carry it) so the two real, differently-shaped types stop being conflated. generatedPolicies still always []."}
+  StartPolicyGeneration: {wire: ok, errors: ok, state: ok, persist: ok, note: "completes synchronously (SUCCEEDED immediately) rather than modeling async IN_PROGRESS -- acceptable since it still reaches a real terminal state and GetGeneratedPolicy/ListPolicyGenerations reflect it; not a stuck-forever no-op. FIXED THIS PASS (silent drop): the optional cloudTrailDetails member (types.CloudTrailDetails) was parsed from the request but entirely discarded; now stored and echoed back (see GetGeneratedPolicy)."}
+  GetGeneratedPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire-shape bug): jobDetails wrongly included \"principalArn\" -- the real types.JobDetails (GetGeneratedPolicyOutput.jobDetails) has NO principalArn member; that value only exists under generatedPolicyResult.properties.principalArn (types.GeneratedPolicyProperties), which was already correct. Split the shared serializer into jobDetailsToJSON (no principalArn) vs policyGenerationToJSON (has principalArn, used by ListPolicyGenerations' types.PolicyGeneration, which DOES carry it) so the two real, differently-shaped types stop being conflated. FIXED THIS PASS: properties.cloudTrailProperties (types.CloudTrailProperties) is now populated from the cloudTrailDetails supplied to StartPolicyGeneration, when present -- previously silently dropped on the floor despite being real, client-supplied, already-available data (same pattern as Analyzer.Configuration from a prior pass). generatedPolicies still always [] -- IAM policy statement synthesis from CloudTrail activity remains a distinct, unimplemented analysis engine with no backing data in this backend."}
   CancelPolicyGeneration: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPolicyGenerations: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAccessPreview: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -52,8 +52,8 @@ ops:
 families:
   route_matcher: {status: ok, note: "FIXED THIS PASS: deleted pathAnalyzedResource (\"analyzedResource\", no hyphen) dead legacy routing -- RouteMatcher claimed it but no parser ever resolved an op for it (always 404'd; no real SDK client sends this path, only the real hyphenated \"/analyzed-resource\" via pathAnalyzedResourceHyph). Removed the RouteMatcher prefix entry and the dead parseRESTPath case; updated TestAccessAnalyzerHandler_RouteMatcher accordingly (now asserts /analyzedResource is NOT claimed and /analyzed-resource IS). All other families re-verified unchanged against aws-sdk-go-v2 serializers.go this pass (archive-rule PUT/GET/DELETE paths+methods, tags GET/POST/DELETE, policy-generation PUT/GET paths, access-preview PUT/GET/POST) -- no further routing bugs found."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "GetFindingRecommendation.recommendedSteps is always [] -- IAM Access Analyzer's actual unused-permission-removal recommendation content generation is a distinct feature with no backing state in InMemoryBackend to derive concrete steps from (RecommendationType/Status ARE real, state-backed fields). Not attempted this pass; would need a genuine recommendation-generation model, not a fabricated placeholder. No bd issue filed yet."
-  - "GetGeneratedPolicy.generatedPolicyResult.generatedPolicies is always [] -- actual IAM policy generation from CloudTrail activity is a distinct, large feature (statement synthesis from simulated CloudTrail events) with no backing data in this backend. properties/jobDetails ARE real, state-backed. No bd issue filed yet."
+  - "GetFindingRecommendation.recommendedSteps is always [] -- IAM Access Analyzer's actual unused-permission-removal recommendation content generation is a distinct feature with no backing state in InMemoryBackend to derive concrete steps from (RecommendationType/ResourceArn/Status/StartedAt/CompletedAt are ALL real, state-backed, and correctly wire-shaped as of gopherstack-kwht). Not attempted this pass; would need a genuine recommendation-generation model, not a fabricated placeholder. Tracked as bd issue gopherstack-kwht."
+  - "GetGeneratedPolicy.generatedPolicyResult.generatedPolicies is always [] -- actual IAM policy generation from CloudTrail activity is a distinct, large feature (statement synthesis from simulated CloudTrail events) with no backing data in this backend. properties (including cloudTrailProperties as of gopherstack-kwht)/jobDetails ARE real, state-backed. Tracked as bd issue gopherstack-kwht."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "store.go/store_setup.go/persistence.go internal locking and Table[T]/Index[T] generic implementation (pkgs/store) not re-audited line-by-line this pass beyond the DeleteAnalyzer cascade fix and the Configuration field addition to the Analyzer table's JSON shape (verified generically compatible with store.Table's JSON-marshal-based Snapshot/Restore, no special-casing needed); no correctness issues observed."
 leaks: {status: clean, note: "FIXED THIS PASS: DeleteAnalyzer previously left ghost rows in tags/findingRecommendations/analyzedResources/accessPreviews (see DeleteAnalyzer note above) -- these are now cascade-deleted. No goroutines/janitors in this service; all state is synchronous map/store access under lockmetrics.RWMutex, and every lock acquisition uses defer Unlock/RUnlock (re-verified this pass)."}
@@ -127,6 +127,33 @@ modeling genuinely separate content-generation features (unused-permission-remov
 recommendations; CloudTrail-activity-derived policy statement synthesis) with no
 backing state anywhere in this service to derive real content from. Left as explicit
 gaps rather than fabricated per parity-principles #1.
+
+**gopherstack-kwht follow-up (this pass)**: re-audited both "always empty" gaps against
+their *surrounding* fields rather than accepting the label at face value. Both were
+still genuine gaps (no fabricated content added), but each had a real, separately
+fixable bug next to it:
+- `GetFindingRecommendation` was missing two **required** response members entirely
+  (`resourceArn`, `startedAt`) plus the optional `completedAt`, and its
+  `recommendationType` wire value (`"UNUSED_PERMISSION"`) didn't match the real
+  `types.RecommendationType` enum's only value, `"UnusedPermissionRecommendation"`
+  (SDK `types/enums.go:579`, v1.51.4) -- a real client would never recognize the type it
+  received. Also: `GenerateFindingRecommendation` created a recommendation record for
+  *any* finding ID, including nonexistent ones, with no existence check at all; it now
+  resolves the real finding (capturing its `resourceArn`) and 404s
+  (`ResourceNotFoundException`) like `GetFindingRecommendation` already did.
+- `StartPolicyGeneration` accepted `cloudTrailDetails` (`types.CloudTrailDetails`) from
+  the request and silently discarded it -- a client-supplied-and-dropped bug, not a
+  missing-analysis-engine one. It's now stored and echoed back by `GetGeneratedPolicy`
+  as `properties.cloudTrailProperties` (`types.CloudTrailProperties`,
+  `types/types.go:2375`), matching the pattern already established for
+  `Analyzer.Configuration`.
+- Also fixed in passing: `PolicyGenerationStatusRunning` was declared as `"RUNNING"`,
+  which doesn't match the real `types.JobStatus` enum's `"IN_PROGRESS"`
+  (`types/enums.go:394`). Currently unassigned (StartPolicyGeneration completes
+  synchronously), so not a live bug, but wrong if ever used.
+- `sdk_module` pin was stale (`v1.48.0` recorded vs. `v1.51.4` actually pinned in
+  `go.mod`); corrected. All wire claims in this file re-checked against v1.51.4 sources
+  during this pass; no other drift found.
 
 **Wire-shape trap for future auditors**: `Finding`/`FindingSummary` (used by
 GetFinding/ListFindings/GetFindingV2/ListFindingsV2) serialize the resource under the

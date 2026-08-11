@@ -220,7 +220,13 @@ func TestCollaborationChangeRequest_Lifecycle(t *testing.T) {
 	createRec := doRequest(t, e, "POST", "/collaborations/"+collabID+"/changeRequests", map[string]any{
 		"changes": []any{map[string]any{
 			"specificationType": "MEMBER",
-			"specification":     map[string]any{"member": map[string]any{}},
+			"types":             []any{"ADD_MEMBER"},
+			"specification": map[string]any{
+				"member": map[string]any{
+					"accountId":       "222222222222",
+					"memberAbilities": []any{"CAN_QUERY"},
+				},
+			},
 		}},
 	})
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
@@ -248,6 +254,21 @@ func TestCollaborationChangeRequest_Lifecycle(t *testing.T) {
 	var commitResp map[string]any
 	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp))
 	assert.Equal(t, "COMMITTED", commitResp["collaborationChangeRequest"].(map[string]any)["status"])
+
+	// COMMIT applies the change's real semantic effect: the ADD_MEMBER change
+	// must actually add the member to the collaboration, not just flip status.
+	getRec := doRequest(t, e, "GET", "/collaborations/"+collabID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	members, _ := getResp["collaboration"].(map[string]any)["members"].([]any)
+	var found bool
+	for _, m := range members {
+		if m.(map[string]any)["accountId"] == "222222222222" {
+			found = true
+		}
+	}
+	assert.True(t, found, "expected ADD_MEMBER change to add the new member on commit")
 
 	// A COMMITTED request is terminal -- re-approving it must fail.
 	conflictRec := doRequest(

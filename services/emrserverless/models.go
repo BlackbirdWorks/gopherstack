@@ -51,6 +51,13 @@ const JobRunStateCancelling = "CANCELLING"
 // JobRunStateCancelled is the state when a job run has been cancelled.
 const JobRunStateCancelled = "CANCELLED"
 
+// JobRunStateQueued is the state when a job run is queued awaiting capacity
+// (types.JobRunState in aws-sdk-go-v2/service/emrserverless@v1.44.4,
+// types/enums.go:84). This backend's job runs never contend for capacity, so
+// nothing ever enters this state; the constant exists so a job run this
+// backend did not create (e.g. seeded directly) can still round-trip it.
+const JobRunStateQueued = "QUEUED"
+
 // Application represents an EMR Serverless application.
 type Application struct {
 	Tags map[string]string `json:"tags,omitempty"`

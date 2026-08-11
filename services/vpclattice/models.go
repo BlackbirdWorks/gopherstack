@@ -151,6 +151,7 @@ type storedSNVA struct {
 	CreatedAt          time.Time         `json:"createdAt"`
 	LastUpdatedAt      time.Time         `json:"lastUpdatedAt"`
 	Tags               map[string]string `json:"tags"`
+	DNSOptions         *DNSOptions       `json:"dnsOptions"`
 	ServiceNetworkName string            `json:"serviceNetworkName"`
 	ARN                string            `json:"arn"`
 	ID                 string            `json:"id"`
@@ -179,6 +180,7 @@ func (s *storedSNVA) toAssociation() *ServiceNetworkVpcAssociation {
 		Status:             s.Status,
 		CreatedBy:          s.CreatedBy,
 		PrivateDNSEnabled:  s.PrivateDNSEnabled,
+		DNSOptions:         s.DNSOptions,
 		CreatedAt:          s.CreatedAt,
 		LastUpdatedAt:      s.LastUpdatedAt,
 	}
@@ -194,6 +196,7 @@ func (s *storedSNVA) toSummary() *ServiceNetworkVpcAssociationSummary {
 		ServiceNetworkName: s.ServiceNetworkName,
 		Status:             s.Status,
 		PrivateDNSEnabled:  s.PrivateDNSEnabled,
+		DNSOptions:         s.DNSOptions,
 		CreatedAt:          s.CreatedAt,
 	}
 }
@@ -380,5 +383,203 @@ func (a *storedALS) toSummary() *AccessLogSubscriptionSummary {
 		DestinationARN: a.DestinationARN,
 		CreatedAt:      a.CreatedAt,
 		LastUpdatedAt:  a.LastUpdatedAt,
+	}
+}
+
+// storedResourceGateway holds a resource gateway.
+type storedResourceGateway struct {
+	CreatedAt                   time.Time         `json:"createdAt"`
+	LastUpdatedAt               time.Time         `json:"lastUpdatedAt"`
+	Tags                        map[string]string `json:"tags"`
+	ARN                         string            `json:"arn"`
+	ID                          string            `json:"id"`
+	Name                        string            `json:"name"`
+	VpcID                       string            `json:"vpcId"`
+	IPAddressType               string            `json:"ipAddressType"`
+	ResourceConfigDNSResolution string            `json:"resourceConfigDnsResolution"`
+	Status                      string            `json:"status"`
+	Region                      string            `json:"region"`
+	SecurityGroupIDs            []string          `json:"securityGroupIds"`
+	SubnetIDs                   []string          `json:"subnetIds"`
+	Ipv4AddressesPerEni         int32             `json:"ipv4AddressesPerEni"`
+}
+
+func (g *storedResourceGateway) toResourceGateway() *ResourceGateway {
+	return &ResourceGateway{
+		ARN:                         g.ARN,
+		ID:                          g.ID,
+		Name:                        g.Name,
+		VpcID:                       g.VpcID,
+		IPAddressType:               g.IPAddressType,
+		ResourceConfigDNSResolution: g.ResourceConfigDNSResolution,
+		Status:                      g.Status,
+		SecurityGroupIDs:            append([]string(nil), g.SecurityGroupIDs...),
+		SubnetIDs:                   append([]string(nil), g.SubnetIDs...),
+		Ipv4AddressesPerEni:         g.Ipv4AddressesPerEni,
+		CreatedAt:                   g.CreatedAt,
+		LastUpdatedAt:               g.LastUpdatedAt,
+	}
+}
+
+func (g *storedResourceGateway) toSummary() *ResourceGatewaySummary {
+	return &ResourceGatewaySummary{
+		ARN:                         g.ARN,
+		ID:                          g.ID,
+		Name:                        g.Name,
+		VpcID:                       g.VpcID,
+		IPAddressType:               g.IPAddressType,
+		ResourceConfigDNSResolution: g.ResourceConfigDNSResolution,
+		Status:                      g.Status,
+		SecurityGroupIDs:            append([]string(nil), g.SecurityGroupIDs...),
+		SubnetIDs:                   append([]string(nil), g.SubnetIDs...),
+		Ipv4AddressesPerEni:         g.Ipv4AddressesPerEni,
+		CreatedAt:                   g.CreatedAt,
+		LastUpdatedAt:               g.LastUpdatedAt,
+	}
+}
+
+// storedResourceConfiguration holds a resource configuration.
+type storedResourceConfiguration struct {
+	CreatedAt                    time.Time                        `json:"createdAt"`
+	LastUpdatedAt                time.Time                        `json:"lastUpdatedAt"`
+	Tags                         map[string]string                `json:"tags"`
+	Definition                   *ResourceConfigurationDefinition `json:"definition"`
+	ARN                          string                           `json:"arn"`
+	ID                           string                           `json:"id"`
+	Name                         string                           `json:"name"`
+	Type                         string                           `json:"type"`
+	Status                       string                           `json:"status"`
+	Region                       string                           `json:"region"`
+	Protocol                     string                           `json:"protocol"`
+	ResourceGatewayID            string                           `json:"resourceGatewayId"`
+	ResourceConfigurationGroupID string                           `json:"resourceConfigurationGroupId"`
+	CustomDomainName             string                           `json:"customDomainName"`
+	GroupDomain                  string                           `json:"groupDomain"`
+	DomainVerificationID         string                           `json:"domainVerificationId"`
+	PortRanges                   []string                         `json:"portRanges"`
+	AllowShareableAssoc          bool                             `json:"allowAssociationToShareableServiceNetwork"`
+}
+
+func (c *storedResourceConfiguration) toResourceConfiguration() *ResourceConfiguration {
+	return &ResourceConfiguration{
+		ARN:                          c.ARN,
+		ID:                           c.ID,
+		Name:                         c.Name,
+		Type:                         c.Type,
+		Status:                       c.Status,
+		Protocol:                     c.Protocol,
+		ResourceGatewayID:            c.ResourceGatewayID,
+		ResourceConfigurationGroupID: c.ResourceConfigurationGroupID,
+		CustomDomainName:             c.CustomDomainName,
+		GroupDomain:                  c.GroupDomain,
+		DomainVerificationID:         c.DomainVerificationID,
+		PortRanges:                   append([]string(nil), c.PortRanges...),
+		Definition:                   c.Definition,
+		AllowShareableAssoc:          c.AllowShareableAssoc,
+		CreatedAt:                    c.CreatedAt,
+		LastUpdatedAt:                c.LastUpdatedAt,
+	}
+}
+
+func (c *storedResourceConfiguration) toSummary() *ResourceConfigurationSummary {
+	return &ResourceConfigurationSummary{
+		ARN:               c.ARN,
+		ID:                c.ID,
+		Name:              c.Name,
+		Type:              c.Type,
+		Status:            c.Status,
+		ResourceGatewayID: c.ResourceGatewayID,
+		CreatedAt:         c.CreatedAt,
+		LastUpdatedAt:     c.LastUpdatedAt,
+	}
+}
+
+// storedSNRA holds a service network resource association.
+type storedSNRA struct {
+	CreatedAt                 time.Time         `json:"createdAt"`
+	LastUpdatedAt             time.Time         `json:"lastUpdatedAt"`
+	Tags                      map[string]string `json:"tags"`
+	ARN                       string            `json:"arn"`
+	ID                        string            `json:"id"`
+	ResourceConfigurationARN  string            `json:"resourceConfigurationArn"`
+	ResourceConfigurationID   string            `json:"resourceConfigurationId"`
+	ResourceConfigurationName string            `json:"resourceConfigurationName"`
+	ServiceNetworkARN         string            `json:"serviceNetworkArn"`
+	ServiceNetworkID          string            `json:"serviceNetworkId"`
+	ServiceNetworkName        string            `json:"serviceNetworkName"`
+	Status                    string            `json:"status"`
+	CreatedBy                 string            `json:"createdBy"`
+	Region                    string            `json:"region"`
+	PrivateDNSEnabled         bool              `json:"privateDnsEnabled"`
+}
+
+func (s *storedSNRA) toAssociation() *ServiceNetworkResourceAssociation {
+	return &ServiceNetworkResourceAssociation{
+		ARN:                       s.ARN,
+		ID:                        s.ID,
+		ResourceConfigurationARN:  s.ResourceConfigurationARN,
+		ResourceConfigurationID:   s.ResourceConfigurationID,
+		ResourceConfigurationName: s.ResourceConfigurationName,
+		ServiceNetworkARN:         s.ServiceNetworkARN,
+		ServiceNetworkID:          s.ServiceNetworkID,
+		ServiceNetworkName:        s.ServiceNetworkName,
+		Status:                    s.Status,
+		CreatedBy:                 s.CreatedBy,
+		PrivateDNSEnabled:         s.PrivateDNSEnabled,
+		CreatedAt:                 s.CreatedAt,
+		LastUpdatedAt:             s.LastUpdatedAt,
+	}
+}
+
+func (s *storedSNRA) toSummary() *ServiceNetworkResourceAssociationSummary {
+	return &ServiceNetworkResourceAssociationSummary{
+		ARN:                       s.ARN,
+		ID:                        s.ID,
+		ResourceConfigurationARN:  s.ResourceConfigurationARN,
+		ResourceConfigurationID:   s.ResourceConfigurationID,
+		ResourceConfigurationName: s.ResourceConfigurationName,
+		ServiceNetworkARN:         s.ServiceNetworkARN,
+		ServiceNetworkID:          s.ServiceNetworkID,
+		ServiceNetworkName:        s.ServiceNetworkName,
+		Status:                    s.Status,
+		CreatedAt:                 s.CreatedAt,
+	}
+}
+
+// storedDomainVerification holds a domain verification. Real AWS verifies
+// ownership by having the caller provision a public DNS TXT record and
+// polling for it; this backend has no DNS to observe, so every domain
+// verification it creates stays PENDING forever -- an honest reflection of
+// "can't verify", not a fabricated VERIFIED. See domain_verifications.go.
+type storedDomainVerification struct {
+	CreatedAt        time.Time         `json:"createdAt"`
+	LastVerifiedTime *time.Time        `json:"lastVerifiedTime,omitempty"`
+	Tags             map[string]string `json:"tags"`
+	ARN              string            `json:"arn"`
+	ID               string            `json:"id"`
+	DomainName       string            `json:"domainName"`
+	Status           string            `json:"status"`
+	Region           string            `json:"region"`
+}
+
+func (d *storedDomainVerification) toDomainVerification() *DomainVerification {
+	return &DomainVerification{
+		ARN:              d.ARN,
+		ID:               d.ID,
+		DomainName:       d.DomainName,
+		Status:           d.Status,
+		LastVerifiedTime: d.LastVerifiedTime,
+		CreatedAt:        d.CreatedAt,
+	}
+}
+
+func (d *storedDomainVerification) toSummary() *DomainVerificationSummary {
+	return &DomainVerificationSummary{
+		ARN:              d.ARN,
+		ID:               d.ID,
+		DomainName:       d.DomainName,
+		Status:           d.Status,
+		LastVerifiedTime: d.LastVerifiedTime,
+		CreatedAt:        d.CreatedAt,
 	}
 }

@@ -174,6 +174,7 @@ type StorageBackend interface {
 	ListDataQualityRulesets() []*DataQualityRuleset
 	StartDataQualityRulesetEvaluationRun(rulesetNames []string) (*DataQualityEvaluationRun, error)
 	GetDataQualityRulesetEvaluationRun(runID string) (*DataQualityEvaluationRun, error)
+	BatchGetDataQualityRulesetEvaluationRun(runIDs []string) ([]*DataQualityEvaluationRun, []string)
 	CancelDataQualityRulesetEvaluationRun(runID string) error
 
 	// Seed helpers for new types.
@@ -193,9 +194,9 @@ type StorageBackend interface {
 
 	// Workflow operations.
 	CreateWorkflow(w Workflow, tags map[string]string) (*Workflow, error)
-	GetWorkflow(name string) (*Workflow, error)
+	GetWorkflow(name string, includeGraph bool) (*Workflow, error)
 	GetWorkflows() []string
-	BatchGetWorkflows(names []string) ([]*Workflow, []string)
+	BatchGetWorkflows(names []string, includeGraph bool) ([]*Workflow, []string)
 	UpdateWorkflow(name string, update Workflow) error
 	DeleteWorkflow(name string) error
 	StartWorkflowRun(name string) (*WorkflowRun, error)
@@ -224,9 +225,9 @@ type StorageBackend interface {
 
 	// Schema operations.
 	CreateSchema(
-		registryName, schemaName, dataFormat, compatibility, description string,
+		registryName, schemaName, dataFormat, compatibility, description, schemaDefinition string,
 		tags map[string]string,
-	) (*Schema, error)
+	) (*Schema, *SchemaVersion, error)
 	DescribeSchema(registryName, schemaName string) (*Schema, error)
 	ListSchemas(registryName string) []*Schema
 	UpdateSchema(registryName, schemaName, compatibility, description string) error
@@ -363,6 +364,10 @@ type StorageBackend interface {
 	// Data catalog encryption settings.
 	PutDataCatalogEncryptionSettings(catalogID string, settings DataCatalogEncryptionSettings) error
 	GetDataCatalogEncryptionSettings(catalogID string) (*DataCatalogEncryptionSettings, error)
+
+	// Data catalog export configuration (S3 Tables metadata export).
+	PutDataCatalogExportConfiguration(settings DataCatalogExportConfiguration) (*DataCatalogExportConfiguration, error)
+	GetDataCatalogExportConfiguration() (*DataCatalogExportConfiguration, error)
 
 	// Blueprint CRUD (batch 2).
 	CreateBlueprint(name, blueprintLocation, description string, tags map[string]string) (*Blueprint, error)

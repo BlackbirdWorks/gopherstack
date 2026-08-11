@@ -15,6 +15,10 @@ type StorageBackend interface {
 
 	// SetConfiguration stores or updates configuration content for a profile.
 	SetConfiguration(app, env, profile, content, contentType string) error
+	// PublishConfiguration stores deployment-originated configuration content,
+	// stamping deploymentID onto the new version (the appconfig -> appconfigdata
+	// bridge, bd gopherstack-uiyi).
+	PublishConfiguration(applicationID, environmentID, profileID, content, contentType, deploymentID string) error
 	// StartSession creates a new retrieval session and returns the initial token.
 	StartSession(app, env, profile string, pollIntervalInSeconds int) (string, error)
 	// GetLatestConfiguration retrieves configuration for the token.

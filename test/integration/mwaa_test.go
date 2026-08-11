@@ -75,7 +75,10 @@ func TestIntegration_MWAA_EnvironmentLifecycle(t *testing.T) {
 			envARN := aws.ToString(createOut.Arn)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteEnvironment(ctx, &mwaaSDK.DeleteEnvironmentInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteEnvironment(cleanupCtx, &mwaaSDK.DeleteEnvironmentInput{
 					Name: aws.String(uniqueName),
 				})
 			})
@@ -183,7 +186,10 @@ func TestIntegration_MWAA_InvokeRestApi(t *testing.T) {
 				require.NoError(t, err, "CreateEnvironment should succeed")
 
 				t.Cleanup(func() {
-					_, _ = client.DeleteEnvironment(ctx, &mwaaSDK.DeleteEnvironmentInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, _ = client.DeleteEnvironment(cleanupCtx, &mwaaSDK.DeleteEnvironmentInput{
 						Name: aws.String(uniqueName),
 					})
 				})
@@ -262,7 +268,10 @@ func TestIntegration_MWAA_PublishMetrics(t *testing.T) {
 				require.NoError(t, err, "CreateEnvironment should succeed")
 
 				t.Cleanup(func() {
-					_, _ = client.DeleteEnvironment(ctx, &mwaaSDK.DeleteEnvironmentInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, _ = client.DeleteEnvironment(cleanupCtx, &mwaaSDK.DeleteEnvironmentInput{
 						Name: aws.String(uniqueName),
 					})
 				})

@@ -3,7 +3,7 @@ service: iotanalytics
 sdk_module: aws-sdk-go-v2/service/iotanalytics@v1.32.0
 last_audit_commit: be69d5ece
 last_audit_date: 2026-07-24
-overall: A            # RunPipelineActivity real per-activity transforms, ListDatasetContents schedule filters, CreateDatasetContent versionId, DatastorePartitions validation
+overall: A            # RunPipelineActivity real per-activity transforms, ListDatasetContents schedule filters, CreateDatasetContent versionId, DatastorePartitions validation, lambda/deviceRegistryEnrich/deviceShadowEnrich cross-service wiring, math functions
 ops:
   CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags (key/value charset, aws: prefix, max 50) before create, matching TagResource"}
   DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -35,7 +35,7 @@ ops:
   DeleteDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: omitted versionId previously deleted ALL content versions; AWS defaults to $LATEST_SUCCEEDED (exactly one version). Now also honors explicit $LATEST / $LATEST_SUCCEEDED"}
   DescribeLoggingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutLoggingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
-  RunPipelineActivity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED: addAttributes/removeAttributes/selectAttributes/filter/math now perform real per-activity transforms (see Notes and pipeline_expr.go); channel/datastore remain pass-through (correct: real source/sink activities); lambda/deviceRegistryEnrich/deviceShadowEnrich remain pass-through -- see items_still_open"}
+  RunPipelineActivity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED: addAttributes/removeAttributes/selectAttributes/filter/math now perform real per-activity transforms (see Notes and pipeline_expr.go); channel/datastore remain pass-through (correct: real source/sink activities); lambda/deviceRegistryEnrich/deviceShadowEnrich now invoke the real Lambda/IoT backends when cli.go's wireIoTAnalyticsCrossService has wired them (see Notes); math now supports the documented math-operators-functions.html function library; filter's LIKE/IN/BETWEEN remain unimplemented -- see items_still_open"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -44,8 +44,8 @@ families:
   timestamps: {status: ok, note: "creationTime/lastUpdateTime/lastMessageArrivalTime/completionTime/startTime/endTime/scheduleTime all epoch-seconds JSON numbers (awstime-equivalent; models.go epochSeconds), matches smithytime.ParseEpochSeconds/FormatEpochSeconds in the real deserializers/serializers"}
 gaps:
   - "GetDatasetContent always returns an empty entries array (no S3-backed data URIs) since this backend has no S3 delivery integration -- consistent with CreateDatasetContent's synchronous SUCCEEDED simulation, not tracked as a bug."
-  - "items_still_open: RunPipelineActivity lambda/deviceRegistryEnrich/deviceShadowEnrich activities remain pass-through, not real invocations. Reason: real AWS invokes a Lambda function / looks up AWS IoT Device Registry or Device Shadow data for these, which requires cross-service calls this backend has no wiring for -- iotanalytics's Provider.Init (provider.go) receives only a *service.AppContext (JanitorCtx/Logger/PortAlloc), not a shared backend registry like cloudformation's ResourceCreator (which threads rc.backends.Lambda through at a higher app-assembly layer this task was explicitly barred from touching, i.e. cli.go). Wiring that through would be a cross-cutting architecture change outside a single-service parity pass."
-  - "items_still_open: RunPipelineActivity filter/math expression language (pipeline_expr.go) implements literals, message-attribute identifiers, arithmetic (+ - * / %), comparison (= != <> < <= > >=), logical (AND/OR/NOT), and parentheses -- covering AWS's documented examples (e.g. \"temp > 50\", \"(temp - 32) / 1.8\"). It does NOT implement SQL function calls (TRIM/SUBSTR/date functions/etc.), LIKE, IN, or BETWEEN. Reason: AWS's real filter/math grammar is an undocumented open SQL-like superset with no published formal grammar; the implemented subset is a real, tested evaluator (not a stub) covering the operators AWS's own docs demonstrate, but a full function library is unbounded scope this pass did not attempt rather than risk an incorrect partial implementation of unspecified semantics."
+  - "items_still_open: RunPipelineActivity's lambda/deviceRegistryEnrich/deviceShadowEnrich now invoke the real Lambda/IoT backends (cli.go's wireIoTAnalyticsCrossService -> InMemoryBackend.SetLambdaBackend/SetThingRegistry/SetThingShadowStore, following the same LambdaInvoker pattern SNS/Firehose/SecretsManager already use). lambda batches payloads by BatchSize and round-trips a JSON object array through InvokeFunction, matching the documented contract (docs.aws.amazon.com/iotanalytics/latest/userguide/pipeline-activities-lambda.html: \"the Lambda function must receive and return a JSON object array\"); deviceRegistryEnrich/deviceShadowEnrich call iot:DescribeThing/iot:GetThingShadow and store the result under Attribute (CloudFormation docs for AWS::IoTAnalytics::Pipeline DeviceRegistryEnrich/DeviceShadowEnrich). A missing Thing/shadow or a Lambda invoke error fails the RunPipelineActivity call (ErrPipelineActivityFailed) rather than silently passing the message through, since these AWS calls genuinely fail when their target doesn't exist. Only remaining gap: when no Lambda/IoT backend is registered in a given deployment (SetLambdaBackend/SetThingRegistry/SetThingShadowStore never called), these activities still pass through unchanged -- there is nothing to invoke."
+  - "items_still_open: RunPipelineActivity's math expression language (pipeline_expr.go) now additionally implements AWS's documented function library (docs.aws.amazon.com/iotanalytics/latest/userguide/math-operators-functions.html: abs/acos/asin/atan/atan2/ceil/cos/cosh/exp/ln/log/mod/power/round/sign/sin/sinh/sqrt/tan/tanh/trunc). filter/math still do NOT implement LIKE, IN, or BETWEEN. Reason: unlike the math function library, no citable AWS documentation for filter's operators beyond '=, !=, <, <=, >, >=, AND, OR, NOT' was found (docs.aws.amazon.com/iotanalytics/latest/APIReference/API_RunPipelineActivity.html and the userguide's pipeline-activities-filter.html describe it only as \"an expression that looks like an SQL WHERE clause\", with no operator/function reference page equivalent to math's) -- extending the grammar with LIKE/IN/BETWEEN would be inventing behavior against an unpublished spec, not closing a documented gap."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcCtx is only used to seed test helpers (AddChannelInternal etc.). pipeline_expr.go's tokenizer/parser/evaluator is pure, synchronous, and per-call -- no new goroutines, tickers, or shared mutable state introduced."}
 ---
@@ -112,9 +112,45 @@ leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcC
   mismatch) is a soft failure -- the payload is left unchanged (transforms/math) or dropped
   (filter) rather than failing the whole `RunPipelineActivity` call, matching a single bad
   message failing only its own activity step. `channel`/`datastore` remain pass-through
-  (correct: real source/sink activities); `lambda`/`deviceRegistryEnrich`/
-  `deviceShadowEnrich` remain pass-through for an architectural reason, not an oversight --
-  see `items_still_open`.
+  (correct: real source/sink activities).
+- **`RunPipelineActivity` lambda/deviceRegistryEnrich/deviceShadowEnrich cross-service wiring
+  (fixed):** these three activities were pass-through with a note claiming this backend "has
+  no wiring" for cross-service calls -- the same stale claim this parity campaign found and
+  fixed for sagemaker's S3 read, ELB's EC2/ACM/IAM checks, and glacier's S3 write-back. The
+  wiring pattern already exists (SNS/Firehose/SecretsManager's `LambdaInvoker` +
+  `SetLambdaBackend`, IoT's `DescribeThing`/`GetThingShadow` used elsewhere in `cli.go`) and
+  applies here unchanged. `services/iotanalytics/interfaces.go` adds `LambdaInvoker`,
+  `ThingRegistry`, `ThingShadowStore`; `cli.go`'s `wireIoTAnalyticsCrossService` (called from
+  `wireStorageAndSecretsIntegrations`) wires the real Lambda backend directly (it already
+  satisfies `LambdaInvoker`) and adapts the IoT backend's `DescribeThing`/`GetThingShadow`
+  (`iotAnalyticsThingRegistryAdapter`/`iotAnalyticsThingShadowAdapter`) into the map-shaped
+  interfaces `pipelines.go` uses. `RunPipelineActivity` now takes a `ctx` parameter to thread
+  through to `InvokeFunction`. Per-activity behavior: `lambda` batches payloads by
+  `BatchSize` and round-trips a JSON object array through `InvokeFunction("RequestResponse")`
+  per AWS's documented contract; `deviceRegistryEnrich`/`deviceShadowEnrich` call
+  `DescribeThing`/`GetThingShadow` once per activity call (the target `ThingName` is a fixed
+  activity field, not per-message) and store the result under `Attribute` on every payload.
+  Unlike the per-message soft-failure convention above, a missing Thing/shadow or a Lambda
+  invoke/response error fails the whole call (`ErrPipelineActivityFailed`) rather than passing
+  the message through unchanged -- a real AWS `iot:DescribeThing`/`iot:GetThingShadow`/Lambda
+  invoke against a nonexistent target genuinely fails, and silently returning the original
+  message would be the same silent-drop bug class this campaign has been hunting. When no
+  Lambda/IoT backend is registered at all (`SetLambdaBackend`/`SetThingRegistry`/
+  `SetThingShadowStore` never called), these three activities still pass through unchanged --
+  there's nothing to invoke, which is an environment characteristic, not a bug. Proven by
+  `cli_iotanalytics_lambda_iot_wiring_test.go`, which drives `initializeServices` (the actual
+  `cli.go` composition root) rather than calling the wiring helper directly.
+- **`RunPipelineActivity` math function library (fixed):** `math` only implemented arithmetic
+  (`+ - * / %`); AWS documents a real function library at
+  `math-operators-functions.html` (`abs/acos/asin/atan/atan2/ceil/cos/cosh/exp/ln/log/mod/
+  power/round/sign/sin/sinh/sqrt/tan/tanh/trunc`, each `func(Decimal[, Decimal])` per that
+  page's exact signatures -- `trunc` takes a second `int` argument, `atan2`/`mod`/`power` take
+  two `Decimal`s, the rest take one). This was previously mischaracterized as part of an
+  "undocumented AWS superset" alongside filter's `LIKE`/`IN`/`BETWEEN`; the math function list
+  specifically is real, citable, and now implemented in `pipeline_expr.go`
+  (`mathFuncs1`/`mathFuncs2`, `funcCallNode`). `filter`'s grammar beyond comparisons/logical
+  operators remains genuinely undocumented (no equivalent operator/function reference page
+  exists for filter) and is intentionally not extended -- see `items_still_open`.
 - **`CreateDatasetContent` explicit `versionId` (fixed):** `CreateDatasetContentInput` has a
   real `versionId` body field the old handler never read (the handler didn't even parse a
   request body). Now `handleCreateDatasetContent` parses `createDatasetContentRequest` and

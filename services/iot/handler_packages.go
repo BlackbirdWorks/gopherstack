@@ -145,7 +145,9 @@ func (h *Handler) handleCreatePackage(c *echo.Context) error {
 		Tags        map[string]string `json:"tags"`
 		Description string            `json:"description"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	p, err := h.Backend.CreateIoTPackage(name, req.Description, req.Tags)
 	if err != nil {
 		return respondErr(c, err)
@@ -170,7 +172,9 @@ func (h *Handler) handleUpdatePackage(c *echo.Context) error {
 		Description        string `json:"description"`
 		DefaultVersionName string `json:"defaultVersionName"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	if err := h.Backend.UpdateIoTPackage(name, req.Description, req.DefaultVersionName); err != nil {
 		return respondErr(c, err)
 	}
@@ -210,7 +214,9 @@ func (h *Handler) handleCreatePackageVersion(c *echo.Context) error {
 		Tags        map[string]string `json:"tags"`
 		Description string            `json:"description"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	v, err := h.Backend.CreateIoTPackageVersion(pkgName, versionName, req.Description, req.Tags)
 	if err != nil {
 		return respondErr(c, err)
@@ -235,7 +241,9 @@ func (h *Handler) handleUpdatePackageVersion(c *echo.Context) error {
 		Description string `json:"description"`
 		Status      string `json:"status"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	if err := h.Backend.UpdateIoTPackageVersion(pkgName, versionName, req.Description, req.Status); err != nil {
 		return respondErr(c, err)
 	}
@@ -271,7 +279,9 @@ func (h *Handler) handleUpdatePackageConfiguration(c *echo.Context) error {
 	var req struct {
 		VersionUpdateByJobsConfig map[string]any `json:"versionUpdateByJobsConfig"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	if err := h.Backend.UpdatePackageConfiguration(req.VersionUpdateByJobsConfig); err != nil {
 		return respondErr(c, err)
 	}

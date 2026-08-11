@@ -225,12 +225,12 @@ func resolveErrorType(err error) (string, int) {
 
 	var syntaxErr *json.SyntaxError
 	if errors.As(err, &syntaxErr) {
-		return "InvalidParameterException", http.StatusBadRequest
+		return ErrInvalidParameter.Error(), http.StatusBadRequest
 	}
 
 	var typeErr *json.UnmarshalTypeError
 	if errors.As(err, &typeErr) {
-		return "InvalidParameterException", http.StatusBadRequest
+		return ErrInvalidParameter.Error(), http.StatusBadRequest
 	}
 
 	// InternalErrorException is cognitoidentity's modeled generic-server-error wire type

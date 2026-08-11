@@ -41,15 +41,18 @@ func (h *Handler) handleUpdateSourceServer(_ context.Context, _ *http.Request, b
 		return nil, err
 	}
 
-	var action *SourceServerConnectorAction
+	update := SourceServerUpdate{
+		FqdnForActionFramework: req.FqdnForActionFramework,
+		UserProvidedID:         req.UserProvidedID,
+	}
 	if req.ConnectorAction != nil {
-		action = &SourceServerConnectorAction{
+		update.ConnectorAction = &SourceServerConnectorAction{
 			ConnectorArn:         req.ConnectorAction.ConnectorArn,
 			CredentialsSecretArn: req.ConnectorAction.CredentialsSecretArn,
 		}
 	}
 
-	s, err := h.Backend.UpdateSourceServer(req.SourceServerID, action)
+	s, err := h.Backend.UpdateSourceServer(req.SourceServerID, update)
 	if err != nil {
 		return nil, err
 	}

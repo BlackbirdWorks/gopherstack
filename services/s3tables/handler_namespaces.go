@@ -65,7 +65,7 @@ func (h *Handler) handleGetNamespace(ctx context.Context, r *http.Request, _ []b
 	return json.Marshal(map[string]any{
 		keyNamespace:      ns.Namespace,
 		keyTableBucketARN: ns.TableBucketARN,
-		keyCreatedAt:      ns.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+		keyCreatedAt:      ns.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 		keyCreatedBy:      ns.CreatedBy,
 		keyOwnerAccountID: ns.OwnerAccountID,
 	})
@@ -114,7 +114,7 @@ func (h *Handler) handleListNamespaces(ctx context.Context, r *http.Request, _ [
 		summaries = append(summaries, map[string]any{
 			keyNamespace:      ns.Namespace,
 			keyTableBucketARN: ns.TableBucketARN,
-			keyCreatedAt:      ns.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+			keyCreatedAt:      ns.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 			keyCreatedBy:      ns.CreatedBy,
 			keyOwnerAccountID: ns.OwnerAccountID,
 		})

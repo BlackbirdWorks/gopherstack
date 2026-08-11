@@ -21,7 +21,7 @@ func TestPromptVersionCRUD(t *testing.T) {
 
 	var pb map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pb))
-	promptID := pb["prompt"].(map[string]any)["promptId"].(string)
+	promptID, _ := pb["id"].(string)
 
 	// Create version
 	rec = doAgentRequest(t, h, http.MethodPost,
@@ -63,7 +63,7 @@ func TestAccuracy_Prompt_ListVersionsReturnsCreatedVersions(t *testing.T) {
 
 	var createBody map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createBody))
-	promptID := createBody["prompt"].(map[string]any)["promptId"].(string)
+	promptID, _ := createBody["id"].(string)
 
 	for range 3 {
 		vRec := doAgentRequest(t, h, http.MethodPost, "/prompts/"+promptID+"/versions", nil)

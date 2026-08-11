@@ -90,6 +90,8 @@ func (h *Handler) createUser(ctx context.Context, c *echo.Context, form url.Valu
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreateTimeTags(ctx, form, u.ARN)
+
 	// The SDK deserializer reads the user fields directly from CreateUserResult (not under a User element).
 	type result struct {
 		XMLName      xml.Name          `xml:"CreateUserResponse"`

@@ -37,18 +37,10 @@ func (h *Handler) handleDetachSecurityProfile(c *echo.Context) error {
 }
 
 // handleListTargetsForSecurityProfile handles GET
-// /security-profiles/{name}/targets.
-//
-// Field-diffed against types.ListTargetsForSecurityProfileOutput/
-// types.SecurityProfileTarget (v1.76.0): the previous response shape used
-// an invented "securityProfileTargetArn" key per entry; real AWS's
-// securityProfileTargets is []SecurityProfileTarget{arn} (confirmed
-// against awsRestjson1_deserializeDocumentSecurityProfileTarget) -- a real
-// client's deserializer would never have found "securityProfileTargetArn"
-// and left every target's Arn permanently nil. Fixed to the real "arn"
-// key. Also now paginates via maxResults/nextToken (previously always
-// returned every target in one page), matching the other List* ops in this
-// service.
+// /security-profiles/{name}/targets. securityProfileTargets is
+// []SecurityProfileTarget{arn} — key is "arn", not "securityProfileTargetArn"
+// (types.SecurityProfileTarget, awsRestjson1_deserializeDocumentSecurityProfileTarget,
+// v1.77.4). Paginates via maxResults/nextToken.
 func (h *Handler) handleListTargetsForSecurityProfile(c *echo.Context) error {
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/security-profiles/")
 	profileName := strings.TrimSuffix(trimmed, "/targets")
@@ -70,18 +62,11 @@ func (h *Handler) handleListTargetsForSecurityProfile(c *echo.Context) error {
 }
 
 // handleListSecurityProfilesForTarget handles GET
-// /security-profiles-for-target.
-//
-// Field-diffed against types.ListSecurityProfilesForTargetOutput/
-// types.SecurityProfileTargetMapping (v1.76.0): the previous response
-// shape nested only {"securityProfileIdentifier":{"name":...}} per entry,
-// missing both the identifier's "arn" and the sibling top-level "target"
-// object entirely; real AWS's securityProfileTargetMappings is
+// /security-profiles-for-target. securityProfileTargetMappings is
 // []SecurityProfileTargetMapping{securityProfileIdentifier:{name,arn},
-// target:{arn}} (confirmed against
-// awsRestjson1_deserializeDocumentSecurityProfileTargetMapping) -- a real
-// client's deserializer would have left every mapping's identifier.Arn and
-// target entirely nil. Fixed. Also now paginates via maxResults/nextToken.
+// target:{arn}} (types.SecurityProfileTargetMapping,
+// awsRestjson1_deserializeDocumentSecurityProfileTargetMapping, v1.77.4).
+// Paginates via maxResults/nextToken.
 func (h *Handler) handleListSecurityProfilesForTarget(c *echo.Context) error {
 	targetARN := c.Request().URL.Query().Get("securityProfileTargetArn")
 	profiles := h.Backend.ListSecurityProfilesForTarget(targetARN)
@@ -178,16 +163,11 @@ func (h *Handler) handleDescribeSecurityProfile(c *echo.Context) error {
 }
 
 // handleListSecurityProfiles handles GET /security-profiles.
-//
-// Field-diffed against types.ListSecurityProfilesOutput/
-// types.SecurityProfileIdentifier (v1.76.0): the previous response shape
-// used the full "securityProfileName"/"securityProfileArn" keys per entry;
-// real AWS's securityProfileIdentifiers is []SecurityProfileIdentifier{
-// name, arn} -- the SHORTENED key names, confirmed against
-// awsRestjson1_deserializeDocumentSecurityProfileIdentifier -- a real
-// client's deserializer would never have found either key and left every
-// profile's Name/Arn permanently nil. Fixed. Also now paginates via
-// maxResults/nextToken.
+// securityProfileIdentifiers is []SecurityProfileIdentifier{name, arn} —
+// the shortened key names, not "securityProfileName"/"securityProfileArn"
+// (types.SecurityProfileIdentifier,
+// awsRestjson1_deserializeDocumentSecurityProfileIdentifier, v1.77.4).
+// Paginates via maxResults/nextToken.
 func (h *Handler) handleListSecurityProfiles(c *echo.Context) error {
 	profiles := h.Backend.ListSecurityProfiles()
 	summaries := make([]map[string]any, len(profiles))
@@ -210,16 +190,11 @@ func (h *Handler) handleListSecurityProfiles(c *echo.Context) error {
 }
 
 // handleUpdateSecurityProfile handles PATCH /security-profiles/{name}.
-//
-// Field-diffed against types.UpdateSecurityProfileInput (v1.76.0): the
-// request body previously parsed only securityProfileDescription; now
-// parses the full real field set (behaviors/alertTargets/
-// additionalMetricsToRetain(V2)/metricsExportConfig/delete* flags), and
-// expectedVersion (a QUERY parameter on real AWS, confirmed against
-// awsRestjson1_serializeOpHttpBindingsUpdateSecurityProfileInput -- not a
-// body field). The response now returns the full updated SecurityProfile,
-// matching real UpdateSecurityProfileOutput's field set (previously only
-// name/arn/version were returned).
+// Parses the full types.UpdateSecurityProfileInput field set
+// (behaviors/alertTargets/additionalMetricsToRetain(V2)/metricsExportConfig/delete*
+// flags, v1.77.4); expectedVersion is a QUERY parameter, not a body field
+// (awsRestjson1_serializeOpHttpBindingsUpdateSecurityProfileInput). Returns
+// the full updated SecurityProfile, matching UpdateSecurityProfileOutput.
 func (h *Handler) handleUpdateSecurityProfile(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/security-profiles/")
 

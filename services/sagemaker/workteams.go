@@ -109,6 +109,7 @@ func (b *InMemoryBackend) CreateWorkteam(ctx context.Context, opts CreateWorktea
 		LastUpdatedDate:   now,
 	}
 	b.workteamsStore(region).Put(w)
+	b.workteamARNIndexStore(region)[workteamARN] = opts.Name
 
 	return cloneWorkteam(w), nil
 }
@@ -167,12 +168,14 @@ func (b *InMemoryBackend) DeleteWorkteam(ctx context.Context, name string) error
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.workteamsStore(region).Get(name); !ok {
+	w, ok := b.workteamsStore(region).Get(name)
+	if !ok {
 		return fmt.Errorf("%w: workteam %q not found", ErrWorkteamNotFound, name)
 	}
 
 	store := b.workteamsStore(region)
 	store.Delete(name)
+	delete(b.workteamARNIndexStore(region), w.WorkteamArn)
 
 	return nil
 }

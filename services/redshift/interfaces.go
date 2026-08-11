@@ -247,7 +247,7 @@ type StorageBackend interface {
 
 	// IDC application operations
 	CreateIdcApplication(
-		appName, idcInstanceArn, idcDisplayName, iamRoleArn string,
+		appName, idcInstanceArn, idcDisplayName, iamRoleArn, applicationType string,
 	) (*IdcApplication, error)
 	DeleteIdcApplication(appArn string) error
 	DescribeIdcApplications(appArn string) ([]IdcApplication, error)

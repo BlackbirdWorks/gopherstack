@@ -26,7 +26,9 @@ func (b *InMemoryBackend) GetGatewayResponse(restAPIID, responseType string) (*G
 		}, nil
 	}
 
-	return gr, nil
+	cp := *gr
+
+	return &cp, nil
 }
 
 // gatewayResponseDefaultStatus returns the default HTTP status for a gateway response type.
@@ -113,7 +115,9 @@ func (b *InMemoryBackend) PutGatewayResponse(input PutGatewayResponseInput) (*Ga
 
 	b.gatewayResponses.Put(gr)
 
-	return gr, nil
+	cp := *gr
+
+	return &cp, nil
 }
 
 // UpdateGatewayResponse applies a partial (PATCH) update to a gateway response,

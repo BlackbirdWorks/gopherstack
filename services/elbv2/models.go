@@ -224,13 +224,41 @@ type Listener struct {
 
 // Rule represents an ELBv2 listener rule.
 type Rule struct {
-	Tags        *tags.Tags  `json:"tags,omitempty"`
-	RuleArn     string      `json:"ruleArn"`
-	ListenerArn string      `json:"listenerArn"`
-	Priority    string      `json:"priority"`
-	Actions     []Action    `json:"actions"`
-	Conditions  []Condition `json:"conditions,omitempty"`
-	IsDefault   bool        `json:"isDefault"`
+	Tags        *tags.Tags      `json:"tags,omitempty"`
+	RuleArn     string          `json:"ruleArn"`
+	ListenerArn string          `json:"listenerArn"`
+	Priority    string          `json:"priority"`
+	Actions     []Action        `json:"actions"`
+	Conditions  []Condition     `json:"conditions,omitempty"`
+	Transforms  []RuleTransform `json:"transforms,omitempty"`
+	IsDefault   bool            `json:"isDefault"`
+}
+
+// RewriteConfig holds a regex/replace pair applied by a host-header-rewrite or
+// url-rewrite transform. Both Regex and Replace are required on the real wire
+// (types.RewriteConfig).
+type RewriteConfig struct {
+	Regex   string `json:"regex"`
+	Replace string `json:"replace"`
+}
+
+// HostHeaderRewriteConfig holds the rewrite rules for a host-header-rewrite transform.
+type HostHeaderRewriteConfig struct {
+	Rewrites []RewriteConfig `json:"rewrites,omitempty"`
+}
+
+// URLRewriteConfig holds the rewrite rules for a url-rewrite transform.
+type URLRewriteConfig struct {
+	Rewrites []RewriteConfig `json:"rewrites,omitempty"`
+}
+
+// RuleTransform represents a single request transform applied before forwarding to
+// targets. Type is one of "host-header-rewrite"/"url-rewrite" (types.TransformTypeEnum);
+// exactly one of HostHeaderRewriteConfig/URLRewriteConfig is set, matching Type.
+type RuleTransform struct {
+	HostHeaderRewriteConfig *HostHeaderRewriteConfig `json:"hostHeaderRewriteConfig,omitempty"`
+	URLRewriteConfig        *URLRewriteConfig        `json:"urlRewriteConfig,omitempty"`
+	Type                    string                   `json:"type"`
 }
 
 // TrustStoreRevocation represents a single revocation entry stored in a trust store.
@@ -342,6 +370,7 @@ type CreateRuleInput struct {
 	Priority    string
 	Actions     []Action
 	Conditions  []Condition
+	Transforms  []RuleTransform
 	Tags        []tags.KV
 }
 

@@ -122,6 +122,8 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreateTimeTags(ctx, form, cluster.ARN)
+
 	type result struct {
 		XMLName      xml.Name        `xml:"CreateCacheClusterResponse"`
 		Xmlns        string          `xml:"xmlns,attr"`

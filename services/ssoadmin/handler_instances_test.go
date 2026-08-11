@@ -228,6 +228,27 @@ func TestDescribeInstanceWireShape(t *testing.T) {
 	assert.Equal(t, "test", tagEntry["Value"])
 }
 
+// TestDescribeInstance_EncryptionConfigurationDetails verifies the real
+// DescribeInstanceOutput.EncryptionConfigurationDetails member is populated
+// with the one true default state for an instance whose encryption
+// configuration was never (and, via this SDK version's op set, can never be)
+// switched to a customer-managed KMS key.
+func TestDescribeInstance_EncryptionConfigurationDetails(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "encryption-details-inst")
+
+	rec := doRequest(t, h, "DescribeInstance", map[string]any{"InstanceArn": instanceArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResponse(t, rec)
+	details, ok := resp["EncryptionConfigurationDetails"].(map[string]any)
+	require.True(t, ok, "EncryptionConfigurationDetails must be present")
+	assert.Equal(t, "ENABLED", details["EncryptionStatus"])
+	assert.Equal(t, "AWS_OWNED_KMS_KEY", details["KeyType"])
+}
+
 // TestListInstancesSortedByBackend verifies that ListInstances (via handler)
 // returns instances sorted by ARN, relying on backend sort rather than handler
 // sort (the previous implementation sorted in the handler layer on each call).

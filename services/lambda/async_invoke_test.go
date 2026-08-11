@@ -38,7 +38,7 @@ func startAsyncTestServer(t *testing.T, port int) *lambda.ExportedRuntimeServer 
 	require.NoError(t, srv.Start(t.Context()))
 
 	t.Cleanup(func() {
-		stopCtx, stopCancel := context.WithTimeout(t.Context(), time.Second)
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
 		defer stopCancel()
 		srv.Stop(stopCtx)
 	})

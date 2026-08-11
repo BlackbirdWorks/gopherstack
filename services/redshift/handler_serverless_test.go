@@ -19,10 +19,14 @@ func newServerlessHandler() *redshift.ServerlessHandler {
 	return redshift.NewServerlessHandler(redshift.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
-func doServerlessRequest(
+// doServerlessOp drives a request the way a real aws-sdk-go-v2 client for
+// redshiftserverless does: POST "/" with an X-Amz-Target: RedshiftServerless.<op>
+// header and the operation's parameters (including any resource identifier)
+// in the JSON body -- there is no REST path/verb routing on the wire.
+func doServerlessOp(
 	t *testing.T,
 	h *redshift.ServerlessHandler,
-	method, path string,
+	op string,
 	body any,
 ) *httptest.ResponseRecorder {
 	t.Helper()
@@ -37,11 +41,9 @@ func doServerlessRequest(
 		bodyReader = bytes.NewReader(nil)
 	}
 
-	req := httptest.NewRequest(method, path, bodyReader)
-
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
+	req := httptest.NewRequest(http.MethodPost, "/", bodyReader)
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "RedshiftServerless."+op)
 
 	rec := httptest.NewRecorder()
 	e := echo.New()
@@ -52,6 +54,44 @@ func doServerlessRequest(
 	return rec
 }
 
+func TestServerless_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	h := newServerlessHandler()
+
+	t.Run("matches real X-Amz-Target header", func(t *testing.T) {
+		t.Parallel()
+
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("X-Amz-Target", "RedshiftServerless.CreateNamespace")
+		e := echo.New()
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		assert.True(t, h.RouteMatcher()(c))
+	})
+
+	t.Run("does not match the old REST-style path with no header", func(t *testing.T) {
+		t.Parallel()
+
+		req := httptest.NewRequest(http.MethodPost, "/redshift-serverless/namespaces", nil)
+		e := echo.New()
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		assert.False(t, h.RouteMatcher()(c), "a real SDK client never sends this path")
+	})
+
+	t.Run("does not match an unrelated target prefix", func(t *testing.T) {
+		t.Parallel()
+
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("X-Amz-Target", "RedshiftData.ExecuteStatement")
+		e := echo.New()
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		assert.False(t, h.RouteMatcher()(c))
+	})
+}
+
 // TestServerless_NamespaceCRUD covers CreateNamespace, GetNamespace, ListNamespaces,
 // UpdateNamespace, DeleteNamespace.
 func TestServerless_NamespaceCRUD(t *testing.T) {
@@ -59,40 +99,66 @@ func TestServerless_NamespaceCRUD(t *testing.T) {
 
 	h := newServerlessHandler()
 
-	// CreateNamespace.
-	rec := doServerlessRequest(t, h, http.MethodPost, "/redshift-serverless/namespaces",
-		map[string]any{
-			"namespaceName": "test-namespace",
-			"dbName":        "testdb",
-			"adminUsername": "admin",
-		})
+	rec := doServerlessOp(t, h, "CreateNamespace", map[string]any{
+		"namespaceName":     "test-namespace",
+		"dbName":            "testdb",
+		"adminUsername":     "admin",
+		"defaultIamRoleArn": "arn:aws:iam::000000000000:role/default",
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
 	nsData, _ := createResp["namespace"].(map[string]any)
 	require.NotNil(t, nsData)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/default", nsData["defaultIamRoleArn"])
 
-	// ListNamespaces.
-	rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/namespaces", nil)
+	rec = doServerlessOp(t, h, "ListNamespaces", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// GetNamespace.
-	rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/namespaces/test-namespace", nil)
+	rec = doServerlessOp(t, h, "GetNamespace", map[string]any{"namespaceName": "test-namespace"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// UpdateNamespace.
-	rec = doServerlessRequest(t, h, http.MethodPatch, "/redshift-serverless/namespaces/test-namespace",
-		map[string]any{"dbName": "updateddb"})
+	rec = doServerlessOp(t, h, "UpdateNamespace", map[string]any{
+		"namespaceName": "test-namespace",
+		"dbName":        "updateddb",
+	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// DeleteNamespace.
-	rec = doServerlessRequest(t, h, http.MethodDelete, "/redshift-serverless/namespaces/test-namespace", nil)
+	rec = doServerlessOp(t, h, "DeleteNamespace", map[string]any{"namespaceName": "test-namespace"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// GetNamespace not found.
-	rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/namespaces/test-namespace", nil)
-	assert.NotEqual(t, http.StatusOK, rec.Code)
+	rec = doServerlessOp(t, h, "GetNamespace", map[string]any{"namespaceName": "test-namespace"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
+}
+
+func TestServerless_DeleteNamespace_WithFinalSnapshot(t *testing.T) {
+	t.Parallel()
+
+	h := newServerlessHandler()
+
+	rec := doServerlessOp(t, h, "CreateNamespace", map[string]any{"namespaceName": "fs-ns"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doServerlessOp(t, h, "DeleteNamespace", map[string]any{
+		"namespaceName":                "fs-ns",
+		"finalSnapshotName":            "fs-ns-final",
+		"finalSnapshotRetentionPeriod": 14,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doServerlessOp(t, h, "GetSnapshot", map[string]any{"snapshotName": "fs-ns-final"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	snap, _ := resp["snapshot"].(map[string]any)
+	require.NotNil(t, snap)
+	assert.InEpsilon(t, float64(14), snap["snapshotRetentionPeriod"], 0)
 }
 
 // TestServerless_WorkgroupCRUD covers CreateWorkgroup, GetWorkgroup, ListWorkgroups,
@@ -102,38 +168,52 @@ func TestServerless_WorkgroupCRUD(t *testing.T) {
 
 	h := newServerlessHandler()
 
-	// CreateNamespace first (workgroup needs one).
-	rec := doServerlessRequest(t, h, http.MethodPost, "/redshift-serverless/namespaces",
-		map[string]any{"namespaceName": "wg-ns"})
+	rec := doServerlessOp(t, h, "CreateNamespace", map[string]any{"namespaceName": "wg-ns"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// CreateWorkgroup.
-	rec = doServerlessRequest(t, h, http.MethodPost, "/redshift-serverless/workgroups",
-		map[string]any{
-			"workgroupName": "test-workgroup",
-			"namespaceName": "wg-ns",
-		})
+	rec = doServerlessOp(t, h, "CreateWorkgroup", map[string]any{
+		"workgroupName": "test-workgroup",
+		"namespaceName": "wg-ns",
+		"maxCapacity":   64,
+		"configParameters": []map[string]any{
+			{"parameterKey": "max_query_execution_time", "parameterValue": "100"},
+		},
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// ListWorkgroups.
-	rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/workgroups", nil)
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	wgData, _ := createResp["workgroup"].(map[string]any)
+	require.NotNil(t, wgData)
+	assert.InEpsilon(t, float64(64), wgData["maxCapacity"], 0)
+
+	rec = doServerlessOp(t, h, "ListWorkgroups", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// GetWorkgroup.
-	rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/workgroups/test-workgroup", nil)
+	rec = doServerlessOp(t, h, "GetWorkgroup", map[string]any{"workgroupName": "test-workgroup"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// GetCredentials.
-	rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/workgroups/test-workgroup/credentials", nil)
+	rec = doServerlessOp(t, h, "GetCredentials", map[string]any{
+		"workgroupName":   "test-workgroup",
+		"durationSeconds": 1800,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var credResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&credResp))
+	// Expiration is wire-encoded as a JSON number (epoch seconds), not an
+	// RFC3339 string -- see the wire-shape audit note in handler_serverless.go.
+	_, isNumber := credResp["expiration"].(float64)
+	assert.True(t, isNumber, "expiration should decode as a JSON number, got %T", credResp["expiration"])
+	assert.Contains(t, credResp, "nextRefreshTime")
+
+	rec = doServerlessOp(t, h, "UpdateWorkgroup", map[string]any{
+		"workgroupName": "test-workgroup",
+		"baseCapacity":  16,
+	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// UpdateWorkgroup.
-	rec = doServerlessRequest(t, h, http.MethodPatch, "/redshift-serverless/workgroups/test-workgroup",
-		map[string]any{"baseCapacity": 16})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// DeleteWorkgroup.
-	rec = doServerlessRequest(t, h, http.MethodDelete, "/redshift-serverless/workgroups/test-workgroup", nil)
+	rec = doServerlessOp(t, h, "DeleteWorkgroup", map[string]any{"workgroupName": "test-workgroup"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -144,29 +224,23 @@ func TestServerless_SnapshotCRUD(t *testing.T) {
 
 	h := newServerlessHandler()
 
-	// CreateNamespace.
-	rec := doServerlessRequest(t, h, http.MethodPost, "/redshift-serverless/namespaces",
-		map[string]any{"namespaceName": "snap-ns"})
+	rec := doServerlessOp(t, h, "CreateNamespace", map[string]any{"namespaceName": "snap-ns"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// CreateSnapshot.
-	rec = doServerlessRequest(t, h, http.MethodPost, "/redshift-serverless/snapshots",
-		map[string]any{
-			"snapshotName":  "test-snapshot",
-			"namespaceName": "snap-ns",
-		})
+	rec = doServerlessOp(t, h, "CreateSnapshot", map[string]any{
+		"snapshotName":    "test-snapshot",
+		"namespaceName":   "snap-ns",
+		"retentionPeriod": 7,
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// ListSnapshots.
-	rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/snapshots", nil)
+	rec = doServerlessOp(t, h, "ListSnapshots", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// GetSnapshot.
-	rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/snapshots/test-snapshot", nil)
+	rec = doServerlessOp(t, h, "GetSnapshot", map[string]any{"snapshotName": "test-snapshot"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// DeleteSnapshot.
-	rec = doServerlessRequest(t, h, http.MethodDelete, "/redshift-serverless/snapshots/test-snapshot", nil)
+	rec = doServerlessOp(t, h, "DeleteSnapshot", map[string]any{"snapshotName": "test-snapshot"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -177,20 +251,15 @@ func TestServerless_UsageLimitsCRUD(t *testing.T) {
 
 	h := newServerlessHandler()
 
-	// CreateNamespace and workgroup for usage limits.
-	doServerlessRequest(t, h, http.MethodPost, "/redshift-serverless/namespaces",
-		map[string]any{"namespaceName": "ul-ns"})
-	doServerlessRequest(t, h, http.MethodPost, "/redshift-serverless/workgroups",
-		map[string]any{"workgroupName": "ul-wg", "namespaceName": "ul-ns"})
+	doServerlessOp(t, h, "CreateNamespace", map[string]any{"namespaceName": "ul-ns"})
+	doServerlessOp(t, h, "CreateWorkgroup", map[string]any{"workgroupName": "ul-wg", "namespaceName": "ul-ns"})
 
-	// CreateUsageLimit.
-	rec := doServerlessRequest(t, h, http.MethodPost, "/redshift-serverless/usagelimits",
-		map[string]any{
-			"resourceArn":  "arn:aws:redshift-serverless:us-east-1:000000000000:workgroup/ul-wg",
-			"usageType":    "serverless-compute",
-			"amount":       100,
-			"breachAction": "log",
-		})
+	rec := doServerlessOp(t, h, "CreateUsageLimit", map[string]any{
+		"resourceArn":  "arn:aws:redshift-serverless:us-east-1:000000000000:workgroup/ul-wg",
+		"usageType":    "serverless-compute",
+		"amount":       100,
+		"breachAction": "log",
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
@@ -202,39 +271,110 @@ func TestServerless_UsageLimitsCRUD(t *testing.T) {
 		ulID, _ = ulData["usageLimitId"].(string)
 	}
 
-	// ListUsageLimits.
-	rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/usagelimits", nil)
+	rec = doServerlessOp(t, h, "ListUsageLimits", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	if ulID != "" {
-		// GetUsageLimit.
-		rec = doServerlessRequest(t, h, http.MethodGet, "/redshift-serverless/usagelimits/"+ulID, nil)
-		assert.Equal(t, http.StatusOK, rec.Code)
+	require.NotEmpty(t, ulID)
 
-		// UpdateUsageLimit.
-		rec = doServerlessRequest(t, h, http.MethodPatch, "/redshift-serverless/usagelimits/"+ulID,
-			map[string]any{"amount": 200})
-		assert.Equal(t, http.StatusOK, rec.Code)
+	rec = doServerlessOp(t, h, "GetUsageLimit", map[string]any{"usageLimitId": ulID})
+	assert.Equal(t, http.StatusOK, rec.Code)
 
-		// DeleteUsageLimit.
-		rec = doServerlessRequest(t, h, http.MethodDelete, "/redshift-serverless/usagelimits/"+ulID, nil)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	}
+	rec = doServerlessOp(t, h, "UpdateUsageLimit", map[string]any{"usageLimitId": ulID, "amount": 200})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doServerlessOp(t, h, "DeleteUsageLimit", map[string]any{"usageLimitId": ulID})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestServerless_ScheduledActionCRUD covers CreateScheduledAction, GetScheduledAction,
+// ListScheduledActions, UpdateScheduledAction, DeleteScheduledAction, including the
+// wire-shape fixes: schedule/targetAction are nested objects (not strings), and
+// startTime/endTime/state use the real epoch-seconds/"state" wire shape.
+func TestServerless_ScheduledActionCRUD(t *testing.T) {
+	t.Parallel()
+
+	h := newServerlessHandler()
+
+	rec := doServerlessOp(t, h, "CreateNamespace", map[string]any{"namespaceName": "sa-ns"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doServerlessOp(t, h, "CreateScheduledAction", map[string]any{
+		"scheduledActionName": "test-action",
+		"namespaceName":       "sa-ns",
+		"roleArn":             "arn:aws:iam::000000000000:role/scheduler",
+		"schedule":            map[string]any{"cron": "0 10 ? * MON *"},
+		"targetAction": map[string]any{
+			"createSnapshot": map[string]any{"namespaceName": "sa-ns", "snapshotName": "scheduled-snap"},
+		},
+		"enabled": false,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	saData, _ := createResp["scheduledAction"].(map[string]any)
+	require.NotNil(t, saData)
+	assert.Equal(t, "DISABLED", saData["state"], "state (not status) is the real wire key")
+	assert.NotContains(t, saData, "status", "status is not a real ScheduledActionResponse field")
+
+	sched, _ := saData["schedule"].(map[string]any)
+	require.NotNil(t, sched, "schedule must be a nested object, not a string")
+	assert.Equal(t, "0 10 ? * MON *", sched["cron"])
+
+	target, _ := saData["targetAction"].(map[string]any)
+	require.NotNil(t, target, "targetAction must be a nested object, not a string")
+	assert.Contains(t, target, "createSnapshot")
+
+	assert.NotEmpty(t, saData["scheduledActionUuid"])
+
+	rec = doServerlessOp(t, h, "GetScheduledAction", map[string]any{"scheduledActionName": "test-action"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doServerlessOp(t, h, "ListScheduledActions", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doServerlessOp(t, h, "UpdateScheduledAction", map[string]any{
+		"scheduledActionName": "test-action",
+		"enabled":             true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var updateResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updateResp))
+	updated, _ := updateResp["scheduledAction"].(map[string]any)
+	require.NotNil(t, updated)
+	assert.Equal(t, "ACTIVE", updated["state"])
+
+	rec = doServerlessOp(t, h, "DeleteScheduledAction", map[string]any{"scheduledActionName": "test-action"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestServerless_CreateScheduledAction_RequiresRoleArn(t *testing.T) {
+	t.Parallel()
+
+	h := newServerlessHandler()
+
+	doServerlessOp(t, h, "CreateNamespace", map[string]any{"namespaceName": "sa-ns2"})
+
+	rec := doServerlessOp(t, h, "CreateScheduledAction", map[string]any{
+		"scheduledActionName": "no-role",
+		"namespaceName":       "sa-ns2",
+		"schedule":            map[string]any{"cron": "0 10 ? * MON *"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "roleArn is required by the real CreateScheduledActionInput")
 }
 
 // TestServerless_ModifyUsageLimit covers ModifyUsageLimit in backend_refinement3.go
-// via the HTTP handler.
+// via the HTTP handler. This is classic (query-protocol) Redshift, not Serverless.
 func TestServerless_ModifyUsageLimit(t *testing.T) {
 	t.Parallel()
 
 	h := newRedshiftHandler()
 
-	// Create a cluster via handler.
 	rec := postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01"+
 		"&ClusterIdentifier=mul-cluster&NodeType=dc2.large&DBName=db&MasterUsername=admin")
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Create usage limit.
 	rec = postRedshiftForm(t, h, "Action=CreateUsageLimit&Version=2012-12-01"+
 		"&ClusterIdentifier=mul-cluster&FeatureType=spectrum&LimitType=time&Amount=100&BreachAction=log")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -242,7 +382,6 @@ func TestServerless_ModifyUsageLimit(t *testing.T) {
 	ulID := extractXMLVal(body, "UsageLimitId")
 	require.NotEmpty(t, ulID)
 
-	// ModifyUsageLimit.
 	rec = postRedshiftForm(t, h, "Action=ModifyUsageLimit&Version=2012-12-01"+
 		"&UsageLimitId="+ulID+"&Amount=200&BreachAction=emit-metric")
 	assert.Equal(t, http.StatusOK, rec.Code)

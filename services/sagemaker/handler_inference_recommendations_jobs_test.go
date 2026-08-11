@@ -74,6 +74,37 @@ func TestHandler_InferenceRecommendationsJobLifecycle(t *testing.T) {
 	assert.Equal(t, "STOPPING", descResp["Status"])
 }
 
+func TestHandler_CreateInferenceRecommendationsJob_InputConfigRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateInferenceRecommendationsJob", map[string]any{
+		"JobName": "rec-job-input-config",
+		"JobType": "Default",
+		"RoleArn": "arn:aws:iam::000000000000:role/TestRole",
+		"InputConfig": map[string]any{
+			"ModelName": "my-model",
+			"Endpoints": []any{
+				map[string]any{"EndpointName": "my-endpoint"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeInferenceRecommendationsJob", map[string]any{
+		"JobName": "rec-job-input-config",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+
+	inputConfig, ok := descResp["InputConfig"].(map[string]any)
+	require.True(t, ok, "DescribeInferenceRecommendationsJob must return the accepted InputConfig")
+	assert.Equal(t, "my-model", inputConfig["ModelName"])
+}
+
 func TestHandler_InferenceRecommendationsJob_NotFound(t *testing.T) {
 	t.Parallel()
 

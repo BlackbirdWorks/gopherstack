@@ -219,6 +219,170 @@ func TestCreateSchedule_ScheduleExpression_Validation(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 			wantType: "ValidationException",
 		},
+		{
+			name:     "rate_missing_unit_rejected",
+			expr:     "rate(5)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "rate_zero_value_rejected",
+			expr:     "rate(0 minutes)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "rate_unknown_unit_rejected",
+			expr:     "rate(5 fortnights)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "rate_negative_value_rejected",
+			expr:     "rate(-5 minutes)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "at_bad_format_rejected",
+			expr:     "at(2024-01-01)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_garbage_field_rejected",
+			expr:     "cron(0 12 * * ? GARBAGE)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_minute_out_of_range_rejected",
+			expr:     "cron(60 12 * * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_hour_out_of_range_rejected",
+			expr:     "cron(0 24 * * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_day_of_month_zero_rejected",
+			expr:     "cron(0 12 0 * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_month_out_of_range_rejected",
+			expr:     "cron(0 12 1 13 ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_day_of_week_out_of_range_rejected",
+			expr:     "cron(0 12 ? * 8 *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_year_before_1970_rejected",
+			expr:     "cron(0 12 1 1 ? 1969)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_year_after_2199_rejected",
+			expr:     "cron(0 12 1 1 ? 2200)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_question_mark_in_minutes_rejected",
+			expr:     "cron(? 12 * * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_question_mark_in_month_rejected",
+			expr:     "cron(0 12 ? ? ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_both_day_fields_wildcard_rejected",
+			expr:     "cron(0 12 * * * *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_hash_combined_with_comma_rejected",
+			expr:     "cron(0 12 ? * 3#1,6#3 *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_slash_in_day_of_week_rejected",
+			expr:     "cron(0 12 ? * 1-5/2 *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_valid_range_and_step_accepted",
+			expr:     "cron(0-5 */15 * * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_month_and_dow_names_accepted",
+			expr:     "cron(0 10 ? * MON-FRI *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_last_friday_of_month_accepted",
+			expr:     "cron(15 10 ? * 6L 2026-2027)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_nth_weekday_accepted",
+			expr:     "cron(0 12 ? * 3#2 *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_nearest_weekday_accepted",
+			expr:     "cron(0 12 3W * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_last_day_of_month_accepted",
+			expr:     "cron(0 12 L * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_last_day_offset_accepted",
+			expr:     "cron(30 23 L-2 * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_last_weekday_of_month_accepted",
+			expr:     "cron(0 12 LW * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_day_of_week_last_offset_accepted",
+			expr:     "cron(0 12 ? * L-1 *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_list_containing_last_day_accepted",
+			expr:     "cron(0 12 L,15 * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_last_day_offset_non_numeric_rejected",
+			expr:     "cron(0 12 L-abc * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1315,6 +1479,55 @@ func TestUpdateSchedule_RequiredFieldValidation(t *testing.T) {
 				require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
 				assert.Equal(t, "ValidationException", errResp["__type"])
 			}
+		})
+	}
+}
+
+// TestUpdateSchedule_ScheduleExpression_SemanticValidation asserts UpdateSchedule
+// rejects a structurally-valid but semantically-invalid ScheduleExpression, the
+// same class of bug fixed for CreateSchedule (gopherstack-8cg7): a schedule that
+// passes shape checks but never fires must be rejected, not silently accepted.
+func TestUpdateSchedule_ScheduleExpression_SemanticValidation(t *testing.T) {
+	t.Parallel()
+
+	validBody := map[string]any{
+		"Name":               "test-sched",
+		"ScheduleExpression": "rate(5 minutes)",
+		"Target":             map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
+		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+	}
+
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{name: "rate_missing_unit_rejected", expr: "rate(5)"},
+		{name: "rate_unknown_unit_rejected", expr: "rate(5 fortnights)"},
+		{name: "at_bad_format_rejected", expr: "at(2024-01-01)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSchedulerHandler(t)
+
+			createRec := doSchedulerRequest(t, h, "CreateSchedule", validBody)
+			require.Equal(t, http.StatusOK, createRec.Code, "failed to create seed schedule")
+
+			body := map[string]any{
+				"Name":               "test-sched",
+				"ScheduleExpression": tt.expr,
+				"Target":             map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
+				"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+			}
+
+			rec := doSchedulerRequest(t, h, "UpdateSchedule", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errResp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			assert.Equal(t, "ValidationException", errResp["__type"])
 		})
 	}
 }

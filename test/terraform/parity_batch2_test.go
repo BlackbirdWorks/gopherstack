@@ -89,7 +89,10 @@ func TestTerraformImport_NetworkMonitor(t *testing.T) {
 				require.NoError(t, err, "CreateMonitor should succeed")
 
 				t.Cleanup(func() {
-					_, _ = client.DeleteMonitor(ctx, &networkmonitorsvc.DeleteMonitorInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, _ = client.DeleteMonitor(cleanupCtx, &networkmonitorsvc.DeleteMonitorInput{
 						MonitorName: aws.String(monitorName),
 					})
 				})
@@ -188,7 +191,10 @@ func TestTerraformImport_VPCLattice(t *testing.T) {
 
 				networkID := aws.ToString(out.Id)
 				t.Cleanup(func() {
-					_, _ = client.DeleteServiceNetwork(ctx, &vpclatticesvc.DeleteServiceNetworkInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, _ = client.DeleteServiceNetwork(cleanupCtx, &vpclatticesvc.DeleteServiceNetworkInput{
 						ServiceNetworkIdentifier: aws.String(networkID),
 					})
 				})

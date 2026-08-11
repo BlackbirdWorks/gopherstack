@@ -1,8 +1,10 @@
 package appsync_test
 
 import (
+	"fmt"
 	"testing"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -105,6 +107,45 @@ func TestInMemoryBackend_CreateAPICache_Validation(t *testing.T) {
 			}
 
 			require.NoError(t, cacheErr)
+		})
+	}
+}
+
+// Anti-drift: every value the pinned SDK's types.ApiCacheType and
+// types.ApiCachingBehavior enums know about must be accepted. Catches a
+// hand-maintained allowlist falling behind or inventing a nonexistent value.
+func TestCreateAPICache_EverySDKEnumValueAccepted(t *testing.T) {
+	t.Parallel()
+
+	for _, ct := range sdktypes.ApiCacheType("").Values() {
+		t.Run("cache_type_"+string(ct), func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+			require.NoError(t, err)
+
+			_, err = b.CreateAPICache(api.APIID, &appsync.APICache{
+				TTL: 60, Type: string(ct), APICachingBehavior: "FULL_REQUEST_CACHING",
+			})
+			require.NoError(t, err, "expected SDK ApiCacheType %s to be accepted", ct)
+		})
+	}
+
+	for i, behavior := range sdktypes.ApiCachingBehavior("").Values() {
+		t.Run("caching_behavior_"+string(behavior), func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, err := b.CreateGraphqlAPI(
+				fmt.Sprintf("TestAPI%d", i), appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil,
+			)
+			require.NoError(t, err)
+
+			_, err = b.CreateAPICache(api.APIID, &appsync.APICache{
+				TTL: 60, Type: "SMALL", APICachingBehavior: string(behavior),
+			})
+			require.NoError(t, err, "expected SDK ApiCachingBehavior %s to be accepted", behavior)
 		})
 	}
 }

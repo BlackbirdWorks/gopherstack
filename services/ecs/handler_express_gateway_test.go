@@ -397,14 +397,10 @@ func TestExpressGatewayService_DeepCopy_Tags(t *testing.T) {
 	}
 }
 
-// TestExpressGatewayService_TagResource_VisibleOnDescribe proves that a
-// TagResource call on an Express service ARN is reflected on a subsequent
-// DescribeExpressGatewayService(include=[TAGS]) call. Previously
-// svc.Tags (echoed on Create/Describe/Update) and the resourceTags side map
-// (updated by TagResource/UntagResource, read by ListTagsForResource) were
-// two independent, never-synchronized copies: TagResource "succeeded" but
-// was invisible on Describe, and creation-time tags were invisible to
-// ListTagsForResource.
+// TestExpressGatewayService_TagResource_VisibleOnDescribe proves a TagResource
+// call on an Express service ARN is reflected on a subsequent
+// DescribeExpressGatewayService(include=[TAGS]) call -- svc.Tags and the
+// resourceTags side map (read by ListTagsForResource) must stay synchronized.
 func TestExpressGatewayService_TagResource_VisibleOnDescribe(t *testing.T) {
 	t.Parallel()
 
@@ -464,16 +460,11 @@ func TestExpressGatewayService_TagResource_VisibleOnDescribe(t *testing.T) {
 }
 
 // TestExpressGatewayService_RevisionConfiguration_SDKRoundTrip proves, through
-// the real aws-sdk-go-v2 ECS client (not ad-hoc map[string]any assertions),
-// that CreateExpressGatewayService/UpdateExpressGatewayService now carry the
-// Cpu/Memory/HealthCheckPath/NetworkConfiguration/PrimaryContainer/
-// ScalingTarget/TaskRoleArn fields into a real ActiveConfigurations service
-// revision, and that CurrentDeployment/UpdatedAt/Status are populated.
-// Previously ExpressGatewayService had none of these: Create/Update/Describe
-// only round-tripped ServiceArn/ServiceName/Cluster/Status/ExecutionRoleArn/
-// InfrastructureRoleArn/Tags, so a real client reading
-// service.ActiveConfigurations[0].Cpu (or any other revision field) got a
-// zero value no matter what the caller submitted.
+// the real aws-sdk-go-v2 ECS client, that CreateExpressGatewayService/
+// UpdateExpressGatewayService carry the Cpu/Memory/HealthCheckPath/
+// NetworkConfiguration/PrimaryContainer/ScalingTarget/TaskRoleArn fields into a
+// real ActiveConfigurations service revision, and that
+// CurrentDeployment/UpdatedAt/Status are populated.
 func TestExpressGatewayService_RevisionConfiguration_SDKRoundTrip(t *testing.T) {
 	t.Parallel()
 

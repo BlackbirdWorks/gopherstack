@@ -42,16 +42,18 @@ func TestInMemoryBackend_MemberLifecycle(t *testing.T) {
 				"",
 				"initial",
 				"",
-				nil,
+				nil, nil,
 				nil,
 				"",
 				"admin",
-				"",
-			)
+				"")
 			require.NoError(t, err)
 
+			inv := b.AddInvitationInternal(testRegion, testAccountID, network.ID, "lifecycle-net")
+
 			// CreateMember
-			member, err := b.CreateMember(testRegion, testAccountID, network.ID, tt.memberName, "", "admin", "", nil)
+			member, err := b.CreateMember(
+				testRegion, testAccountID, network.ID, inv.InvitationID, tt.memberName, "", "admin", "", nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, member.ID)
 			assert.Equal(t, tt.memberName, member.Name)
@@ -94,7 +96,7 @@ func TestInMemoryBackend_CreateMember_NetworkNotFound(t *testing.T) {
 
 			b := newBackend()
 
-			_, err := b.CreateMember(testRegion, testAccountID, "nonexistent-id", "m1", "", "admin", "", nil)
+			_, err := b.CreateMember(testRegion, testAccountID, "nonexistent-id", "inv1", "m1", "", "admin", "", nil)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, awserr.ErrNotFound)
 		})
@@ -114,7 +116,7 @@ func TestHandler_MemberLifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, b := newTestHandlerWithBackend(t)
 
 			// Create network
 			rec := doRequest(t, h, http.MethodPost, "/networks",
@@ -126,8 +128,12 @@ func TestHandler_MemberLifecycle(t *testing.T) {
 			networkID := createNetResp["NetworkId"].(string)
 
 			// Create member
+			invitationID := createTestInvitation(t, b, networkID, "net1")
 			rec = doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members",
-				map[string]any{"MemberConfiguration": testMemberConfiguration("new-member")})
+				map[string]any{
+					"InvitationId":        invitationID,
+					"MemberConfiguration": testMemberConfiguration("new-member"),
+				})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createMemResp map[string]any
@@ -204,7 +210,10 @@ func TestHandler_MemberErrors(t *testing.T) {
 					map[string]any{"MemberConfiguration": map[string]any{}})
 			case "create_bad_network":
 				rec = doRequest(t, h, http.MethodPost, "/networks/nonexistent/members",
-					map[string]any{"MemberConfiguration": testMemberConfiguration("m1")})
+					map[string]any{
+						"InvitationId":        "some-invitation-id",
+						"MemberConfiguration": testMemberConfiguration("m1"),
+					})
 			case "list_bad_network":
 				rec = doRequest(t, h, http.MethodGet, "/networks/nonexistent/members", nil)
 			case "delete_bad_network":
@@ -214,6 +223,143 @@ func TestHandler_MemberErrors(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+// TestHandler_CreateMember_InvitationId verifies CreateMember validates
+// InvitationId the way the real API requires it: the real aws-sdk-go-v2
+// client-side validator (validateOpCreateMemberInput, validators.go:805-806,
+// v1.34.4) marks InvitationId required, and Invitation.Status's doc comment
+// (types/enums.go:110-114) documents PENDING as the only status an
+// invitation can be consumed from -- ACCEPTED/REJECTED/EXPIRED cannot be
+// reused. gopherstack-u84u: CreateMember previously parsed InvitationId off
+// the request body and then never read it again.
+func TestHandler_CreateMember_InvitationId(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *managedblockchain.InMemoryBackend, networkID string) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "missing invitation id is rejected",
+			setup: func(*testing.T, *managedblockchain.InMemoryBackend, string) string {
+				return ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "unknown invitation id is rejected",
+			setup: func(*testing.T, *managedblockchain.InMemoryBackend, string) string {
+				return "no-such-invitation"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "invitation for a different network is rejected",
+			setup: func(t *testing.T, b *managedblockchain.InMemoryBackend, _ string) string {
+				t.Helper()
+
+				other := b.AddNetworkInternal(testRegion, testAccountID, "other-net")
+
+				return createTestInvitation(t, b, other.ID, "other-net")
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "already-rejected invitation is rejected",
+			setup: func(t *testing.T, b *managedblockchain.InMemoryBackend, networkID string) string {
+				t.Helper()
+
+				invitationID := createTestInvitation(t, b, networkID, "invite-net")
+				require.NoError(t, b.RejectInvitation(invitationID))
+
+				return invitationID
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "already-accepted invitation cannot be reused",
+			setup: func(t *testing.T, b *managedblockchain.InMemoryBackend, networkID string) string {
+				t.Helper()
+
+				invitationID := createTestInvitation(t, b, networkID, "invite-net")
+				_, err := b.CreateMember(
+					testRegion, testAccountID, networkID, invitationID, "first", "", "admin", "", nil)
+				require.NoError(t, err)
+
+				return invitationID
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "pending invitation for this network is accepted",
+			setup: func(t *testing.T, b *managedblockchain.InMemoryBackend, networkID string) string {
+				t.Helper()
+
+				return createTestInvitation(t, b, networkID, "invite-net")
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := managedblockchain.NewInMemoryBackend()
+			n := b.AddNetworkInternal(testRegion, testAccountID, "invite-net")
+			h := managedblockchain.NewHandler(b)
+			h.AccountID = testAccountID
+			h.DefaultRegion = testRegion
+
+			invitationID := tt.setup(t, b, n.ID)
+
+			rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members",
+				map[string]any{
+					"InvitationId":        invitationID,
+					"MemberConfiguration": testMemberConfiguration("m1"),
+				})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestHandler_CreateMember_ConsumesInvitation verifies a successful
+// CreateMember transitions its invitation from PENDING to ACCEPTED (real
+// AWS's Invitation.Status doc: "ACCEPTED - The invitee created a member and
+// joined the network using the InvitationId", types/enums.go:111,
+// aws-sdk-go-v2 managedblockchain@v1.34.4) so it cannot be replayed.
+func TestHandler_CreateMember_ConsumesInvitation(t *testing.T) {
+	t.Parallel()
+
+	b := managedblockchain.NewInMemoryBackend()
+	n := b.AddNetworkInternal(testRegion, testAccountID, "invite-net")
+	h := managedblockchain.NewHandler(b)
+	h.AccountID = testAccountID
+	h.DefaultRegion = testRegion
+
+	invitationID := createTestInvitation(t, b, n.ID, "invite-net")
+
+	rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members",
+		map[string]any{
+			"InvitationId":        invitationID,
+			"MemberConfiguration": testMemberConfiguration("m1"),
+		})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	invitations, err := b.ListInvitations()
+	require.NoError(t, err)
+	require.Len(t, invitations, 1)
+	assert.Equal(t, "ACCEPTED", invitations[0].Status)
+
+	// Replaying the same invitation must now fail: it is no longer PENDING.
+	rec = doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members",
+		map[string]any{
+			"InvitationId":        invitationID,
+			"MemberConfiguration": testMemberConfiguration("m2"),
+		})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestHandler_ListMembersFilters verifies query param filtering for ListMembers.
@@ -525,7 +671,11 @@ func TestHandler_UpdateMember(t *testing.T) {
 	}
 }
 
-// TestHandler_CreateMemberWithTags verifies tags are persisted on CreateMember.
+// TestHandler_CreateMemberWithTags verifies tags supplied via
+// MemberConfiguration.Tags -- the real CreateMemberInput's only Tags field
+// (confirmed against aws-sdk-go-v2 managedblockchain@v1.34.4
+// api_op_CreateMember.go, which has no top-level Tags at all) -- are
+// persisted on CreateMember (gopherstack-2mwl).
 func TestHandler_CreateMemberWithTags(t *testing.T) {
 	t.Parallel()
 
@@ -535,9 +685,14 @@ func TestHandler_CreateMemberWithTags(t *testing.T) {
 	h.AccountID = testAccountID
 	h.DefaultRegion = testRegion
 
+	memberConfig := testMemberConfiguration("tagged-member")
+	memberConfig["Tags"] = map[string]string{"role": "validator"}
+
+	invitationID := createTestInvitation(t, b, n.ID, "net1")
+
 	rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members", map[string]any{
-		"MemberConfiguration": testMemberConfiguration("tagged-member"),
-		"Tags":                map[string]string{"role": "validator"},
+		"InvitationId":        invitationID,
+		"MemberConfiguration": memberConfig,
 	})
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -558,6 +713,16 @@ func TestHandler_CreateMemberWithTags(t *testing.T) {
 	member := memResp["Member"].(map[string]any)
 	tags := member["Tags"].(map[string]any)
 	assert.Equal(t, "validator", tags["role"])
+
+	// ListTagsForResource must see the same tags (gopherstack-2mwl: creation
+	// tags reaching the resource's own struct is not sufficient -- they must
+	// also reach the shared tag store).
+	memberArn, _ := member["Arn"].(string)
+	require.NotEmpty(t, memberArn)
+
+	listedTags, err := b.ListTagsForResource(memberArn)
+	require.NoError(t, err)
+	assert.Equal(t, "validator", listedTags["role"])
 }
 
 // TestHandler_DeleteMemberCascadeNodes verifies nodes are deleted with the member.

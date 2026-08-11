@@ -97,6 +97,64 @@ func TestListTagsForResource(t *testing.T) {
 	}
 }
 
+// TestListTagsForResource_Pagination verifies MaxResults/NextToken --
+// verified against api_op_ListTagsForResource.go, which carries both on
+// the request and the response ("If you have more than MaxResults tags,
+// you can submit another ListTagsForResource request ... specify the
+// value of NextToken from the previous response"). The wire struct
+// previously had neither field, so every call returned the full unpaged
+// list regardless of MaxResults.
+func TestListTagsForResource_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "paginated-tags-ep",
+		"Direction": "INBOUND",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	epARN := createResp["ResolverEndpoint"].(map[string]any)["Arn"].(string)
+
+	tagRec := doRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": epARN,
+		"Tags": []map[string]string{
+			{"Key": "a", "Value": "1"},
+			{"Key": "b", "Value": "2"},
+			{"Key": "c", "Value": "3"},
+		},
+	})
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	page1Rec := doRequest(t, h, "ListTagsForResource", map[string]any{
+		"ResourceArn": epARN,
+		"MaxResults":  2,
+	})
+	require.Equal(t, http.StatusOK, page1Rec.Code)
+	var page1 map[string]any
+	require.NoError(t, json.Unmarshal(page1Rec.Body.Bytes(), &page1))
+	page1Tags := page1["Tags"].([]any)
+	assert.Len(t, page1Tags, 2)
+	nextToken, ok := page1["NextToken"].(string)
+	require.True(t, ok, "a partial page must carry a NextToken")
+	require.NotEmpty(t, nextToken)
+
+	page2Rec := doRequest(t, h, "ListTagsForResource", map[string]any{
+		"ResourceArn": epARN,
+		"MaxResults":  2,
+		"NextToken":   nextToken,
+	})
+	require.Equal(t, http.StatusOK, page2Rec.Code)
+	var page2 map[string]any
+	require.NoError(t, json.Unmarshal(page2Rec.Body.Bytes(), &page2))
+	page2Tags := page2["Tags"].([]any)
+	assert.Len(t, page2Tags, 1)
+	_, hasNext := page2["NextToken"]
+	assert.False(t, hasNext, "the final page must not carry a NextToken")
+}
+
 func TestUntagResource(t *testing.T) {
 	t.Parallel()
 

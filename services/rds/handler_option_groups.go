@@ -16,6 +16,8 @@ func (h *Handler) handleCreateOptionGroup(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, og.OptionGroupArn)
+
 	return &createOptionGroupResponse{
 		Xmlns:       rdsXMLNS,
 		OptionGroup: toXMLOptionGroup(og),
@@ -100,6 +102,7 @@ func toXMLOptionGroup(og *OptionGroup) xmlOptionGroup {
 	return xmlOptionGroup{
 		OptionGroupName:        og.OptionGroupName,
 		OptionGroupDescription: og.OptionGroupDescription,
+		OptionGroupArn:         og.OptionGroupArn,
 		EngineName:             og.EngineName,
 		MajorEngineVersion:     og.MajorEngineVersion,
 		Options:                xmlOptionGroupOptionList{Members: opts},
@@ -118,6 +121,7 @@ type xmlOptionGroupOptionList struct {
 type xmlOptionGroup struct {
 	OptionGroupName        string                   `xml:"OptionGroupName"`
 	OptionGroupDescription string                   `xml:"OptionGroupDescription"`
+	OptionGroupArn         string                   `xml:"OptionGroupArn,omitempty"`
 	EngineName             string                   `xml:"EngineName"`
 	MajorEngineVersion     string                   `xml:"MajorEngineVersion"`
 	Options                xmlOptionGroupOptionList `xml:"Options"`

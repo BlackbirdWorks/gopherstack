@@ -6,6 +6,8 @@ import { currentRegion } from '$lib/region.svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { urlState } from '$lib/url-state.svelte';
 import LiveDot from '$lib/components/LiveDot.svelte';
+import RegionChip from '$lib/components/RegionChip.svelte';
+import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 import {
 ListBucketsCommand,
 CreateBucketCommand,
@@ -516,7 +518,10 @@ try {
 const res = await s3().send(new GetObjectCommand({ Bucket: selectedBucket, Key: key }));
 const bytes = await res.Body?.transformToByteArray();
 if (!bytes) return;
-const url = URL.createObjectURL(new Blob([bytes]));
+// The SDK's Uint8Array is always backed by a real ArrayBuffer, never a
+// SharedArrayBuffer -- @types/node's global Uint8Array<ArrayBufferLike>
+// default otherwise makes this look incompatible with DOM's BlobPart.
+const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>]));
 const a = document.createElement('a');
 a.href = url;
 a.download = key.split('/').pop() ?? 'download';
@@ -569,7 +574,8 @@ try {
 	const bytes = await res.Body?.transformToByteArray();
 	if (bytes) {
 		if (type === 'image') {
-			const blob = new Blob([bytes], { type: res.ContentType ?? 'image/*' });
+			// See the downloadObject() comment above on Uint8Array<ArrayBuffer>.
+			const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: res.ContentType ?? 'image/*' });
 			previewObjectUrl = URL.createObjectURL(blob);
 		} else if (type === 'json') {
 			const text = new TextDecoder().decode(bytes);
@@ -2254,7 +2260,7 @@ S3 Buckets
 </h1>
 <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Manage your Object Storage buckets.</p>
 </div>
-<div class="flex gap-2 flex-wrap">
+<div class="flex gap-2 flex-wrap items-center">
 <button
 onclick={loadBuckets}
 class="text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700"
@@ -2275,6 +2281,7 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
 >
 + Create Bucket
 </button>
+<WriteRegionHint />
 </div>
 </div>
 
@@ -2344,7 +2351,12 @@ Created: {formatDate(bucket.CreationDate)}
   Size: {formatSize(bucketSizes.get(bucket.Name ?? '') ?? 0)}
 </p>
 <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
-  Region: {bucket.BucketRegion ?? 'unknown'}
+  Region:
+  {#if bucket.BucketRegion}
+    <RegionChip region={bucket.BucketRegion} />
+  {:else}
+    unknown
+  {/if}
   {#if crossRegion}
     <span
       class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"

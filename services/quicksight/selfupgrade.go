@@ -32,6 +32,7 @@ type storedSelfUpgradeRequest struct {
 	RequestStatus           string    `json:"requestStatus"`
 	RequestedRole           string    `json:"requestedRole"`
 	UpgradeRequestID        string    `json:"upgradeRequestId"`
+	UserName                string    `json:"userName,omitempty"`
 	// Namespace is not part of the real SelfUpgradeRequestDetail API shape
 	// (namespace is a request path parameter, not response data); it is
 	// carried here purely as this backend's store.Table key material, since
@@ -51,6 +52,7 @@ func (r *storedSelfUpgradeRequest) toSelfUpgradeRequestDetail() *SelfUpgradeRequ
 		RequestStatus:           r.RequestStatus,
 		RequestedRole:           r.RequestedRole,
 		UpgradeRequestID:        r.UpgradeRequestID,
+		UserName:                r.UserName,
 	}
 }
 
@@ -92,6 +94,7 @@ func (b *InMemoryBackend) seedSelfUpgradeRequest(_, namespace string, r *SelfUpg
 		RequestStatus:           r.RequestStatus,
 		RequestedRole:           r.RequestedRole,
 		UpgradeRequestID:        r.UpgradeRequestID,
+		UserName:                r.UserName,
 		Namespace:               namespace,
 	})
 }

@@ -1,6 +1,9 @@
 package swf
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // SignalWorkflowExecution sends a signal to a workflow execution, recording it in history.
 func (b *InMemoryBackend) SignalWorkflowExecution(
@@ -9,18 +12,11 @@ func (b *InMemoryBackend) SignalWorkflowExecution(
 	b.mu.Lock("SignalWorkflowExecution")
 	defer b.mu.Unlock()
 
-	key := domain + ":" + workflowID
-	exec, ok := b.executions.Get(key)
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
+	exec, ok := b.resolveExecutionLocked(domain, workflowID, runID)
 	if !ok {
 		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
-	}
-	if runID != "" && exec.RunID != runID {
-		return fmt.Errorf(
-			"%w: runId %s does not match current run %s",
-			ErrNotFound,
-			runID,
-			exec.RunID,
-		)
 	}
 	// Real AWS: "If the specified workflow execution isn't open, this method
 	// fails with UnknownResource." (see SignalWorkflowExecution doc) -- not
@@ -36,10 +32,10 @@ func (b *InMemoryBackend) SignalWorkflowExecution(
 			attrInput:      input,
 		},
 	}
-	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionSignaled", attrs)
+	b.appendHistoryEventLocked(domain, workflowID, exec.RunID, "WorkflowExecutionSignaled", attrs)
 
 	// Enqueue a decision task so the workflow decider can react.
-	b.enqueueDecisionTaskLocked(domain, workflowID)
+	b.enqueueDecisionTaskLocked(domain, workflowID, exec.RunID)
 
 	return nil
 }

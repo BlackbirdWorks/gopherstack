@@ -92,6 +92,13 @@ var (
 	// value falls outside what the account is allowed to provision
 	// (UpdateProvisionedLimit) -- mirrors AWS Cognito's ServiceQuotaExceededException.
 	ErrServiceQuotaExceeded = awserr.New("ServiceQuotaExceededException", awserr.ErrConflict)
+
+	// ErrTermsNotFound is returned when the requested terms documents do not exist.
+	ErrTermsNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+
+	// ErrTermsExists is returned when a terms document with the same TermsName
+	// already exists for the given app client.
+	ErrTermsExists = awserr.New("TermsExistsException", awserr.ErrAlreadyExists)
 )
 
 // ErrJWTKeyNotFound is returned when a JWT key ID is not found for a known issuer.

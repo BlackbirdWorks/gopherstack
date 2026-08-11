@@ -367,25 +367,6 @@ func (db *InMemoryDB) StreamShards(tableName string) []StreamShard {
 	return out
 }
 
-// SetStreamShardsForTest overwrites the shard genealogy for the named table's
-// stream. Used to exercise DescribeStream's CHILD_SHARDS ShardFilter and
-// pagination against a deterministic multi-shard layout without forcing a
-// real split (which requires writing maxStreamRecords+1 items).
-func (db *InMemoryDB) SetStreamShardsForTest(tableName string, shards []StreamShard) {
-	db.mu.RLock("SetStreamShardsForTest")
-	tbl, _ := db.tables.Get(tableKey(db.defaultRegion, tableName))
-	db.mu.RUnlock()
-
-	if tbl == nil {
-		return
-	}
-
-	tbl.mu.Lock("SetStreamShardsForTest.table")
-	defer tbl.mu.Unlock()
-
-	tbl.streamShards = shards
-}
-
 // StreamTrimSeq returns the current trim horizon (oldest seq still in buffer) for the named table.
 func (db *InMemoryDB) StreamTrimSeq(tableName string) int64 {
 	db.mu.RLock("StreamTrimSeq")
@@ -423,14 +404,6 @@ func (db *InMemoryDB) InjectExpiredShardIteratorForTest(tableName string) string
 // IteratorStoreExpireAllForTest backdates every iterator to be expired.
 func (db *InMemoryDB) IteratorStoreExpireAllForTest() {
 	db.iteratorStore.ExpireAllShardIteratorsForTest()
-}
-
-// SetIteratorClockForTest overrides the backend's shard-iterator store clock,
-// letting tests simulate the 15-minute ExpiredIteratorException TTL (via
-// GetShardIterator -> advance clock -> GetRecords/GetShardIterator) without a
-// real sleep.
-func (db *InMemoryDB) SetIteratorClockForTest(clock func() time.Time) {
-	db.iteratorStore.SetClock(clock)
 }
 
 // ParseSeqNum exposes parseSeqNum for tests.

@@ -13,6 +13,10 @@ func (h *Handler) iamSAMLProviderDispatchTable() map[string]iamActionFn {
 				return nil, err
 			}
 
+			if tags := parseIAMTags(vals); len(tags) > 0 {
+				h.setTags("saml:"+p.Arn, tags)
+			}
+
 			return &CreateSAMLProviderResponse{
 				Xmlns:                    iamXMLNS,
 				CreateSAMLProviderResult: CreateSAMLProviderResult{SAMLProviderArn: p.Arn},
@@ -103,6 +107,10 @@ func (h *Handler) iamOIDCProviderDispatchTable() map[string]iamActionFn {
 			p, err := h.Backend.CreateOpenIDConnectProvider(vals.Get("Url"), clientIDs, thumbprints)
 			if err != nil {
 				return nil, err
+			}
+
+			if tags := parseIAMTags(vals); len(tags) > 0 {
+				h.setTags("oidc:"+p.Arn, tags)
 			}
 
 			return &CreateOpenIDConnectProviderResponse{

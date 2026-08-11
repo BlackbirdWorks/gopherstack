@@ -126,7 +126,7 @@ func TestEventConfigurations(t *testing.T) {
 //
 // Real AWS IoT's ListAuditFindings is POST /audit/findings (its filter
 // fields are carried in a JSON body), not GET -- confirmed against
-// aws-sdk-go-v2/service/iot@v1.76.0's serializers.go http bindings. A
+// aws-sdk-go-v2/service/iot@v1.77.4's serializers.go http bindings. A
 // previous version of this test (and gopherstack's routing) used GET, which
 // no real client ever sends.
 func TestAuditFinding(t *testing.T) {

@@ -104,6 +104,7 @@ type createUserPoolWithOptsInput struct {
 	EmailConfiguration     map[string]any         `json:"EmailConfiguration,omitempty"`
 	AccountRecoverySetting map[string]any         `json:"AccountRecoverySetting,omitempty"`
 	Policies               *userPoolPoliciesInput `json:"Policies,omitempty"`
+	UserPoolTags           map[string]string      `json:"UserPoolTags,omitempty"`
 	PoolName               string                 `json:"PoolName,omitempty"`
 	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
 	DeletionProtection     string                 `json:"DeletionProtection,omitempty"`

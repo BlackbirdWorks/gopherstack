@@ -53,7 +53,10 @@ func TestIntegration_IoT_IndexingConfiguration(t *testing.T) {
 	require.NoError(t, err, "UpdateIndexingConfiguration should succeed")
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateIndexingConfiguration(ctx, &iotsdk.UpdateIndexingConfigurationInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateIndexingConfiguration(cleanupCtx, &iotsdk.UpdateIndexingConfigurationInput{
 			ThingIndexingConfiguration: &iottypes.ThingIndexingConfiguration{
 				ThingIndexingMode: iottypes.ThingIndexingModeOff,
 			},
@@ -91,7 +94,10 @@ func TestIntegration_IoT_SearchIndexFindsCreatedThings(t *testing.T) {
 	require.NoError(t, err, "enabling registry indexing should succeed")
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateIndexingConfiguration(ctx, &iotsdk.UpdateIndexingConfigurationInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateIndexingConfiguration(cleanupCtx, &iotsdk.UpdateIndexingConfigurationInput{
 			ThingIndexingConfiguration: &iottypes.ThingIndexingConfiguration{
 				ThingIndexingMode: iottypes.ThingIndexingModeOff,
 			},
@@ -110,15 +116,17 @@ func TestIntegration_IoT_SearchIndexFindsCreatedThings(t *testing.T) {
 	require.NoError(t, err, "CreateThing should succeed")
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteThing(ctx, &iotsdk.DeleteThingInput{ThingName: aws.String(thingName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteThing(cleanupCtx, &iotsdk.DeleteThingInput{ThingName: aws.String(thingName)})
 	})
 
 	// SearchIndex is eventually-consistent against the real service; the emulator should
 	// reflect the newly created thing on the very next call, but poll briefly for robustness.
 	var found bool
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		searchOut, searchErr := client.SearchIndex(ctx, &iotsdk.SearchIndexInput{
 			QueryString: aws.String("thingName:" + thingName),
 		})
@@ -131,14 +139,8 @@ func TestIntegration_IoT_SearchIndexFindsCreatedThings(t *testing.T) {
 			}
 		}
 
-		if found {
-			break
-		}
-
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	assert.True(t, found, "SearchIndex should find the newly created thing")
+		return found
+	}, 5*time.Second, 200*time.Millisecond, "SearchIndex should find the newly created thing")
 }
 
 // TestIntegration_IoT_ThingRegistrationTaskLifecycle drives StartThingRegistrationTask followed
@@ -194,7 +196,10 @@ func TestIntegration_IoT_TestAuthorization(t *testing.T) {
 	require.NoError(t, err, "CreatePolicy should succeed")
 
 	t.Cleanup(func() {
-		_, _ = client.DeletePolicy(ctx, &iotsdk.DeletePolicyInput{PolicyName: aws.String(policyName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeletePolicy(cleanupCtx, &iotsdk.DeletePolicyInput{PolicyName: aws.String(policyName)})
 	})
 
 	out, err := client.TestAuthorization(ctx, &iotsdk.TestAuthorizationInput{

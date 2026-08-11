@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import EC2Page from "./+page.svelte";
 import { setMockPageUrl } from "$lib/mock-page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -12,6 +13,17 @@ vi.mock("$lib/aws-client", () => ({
 vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
+
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
 
 const mockInstance = {
   InstanceId: "i-1234567890abcdef0",
@@ -37,6 +49,7 @@ describe("EC2 Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -365,5 +378,95 @@ describe("EC2 Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  describe("All regions mode", () => {
+    it("fans DescribeInstances out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+      mockSend.mockResolvedValueOnce({
+        Reservations: [
+          {
+            Instances: [
+              {
+                ...mockInstance,
+                InstanceId: "i-eu-1",
+                Tags: [{ Key: "Name", Value: "eu-server" }],
+              },
+            ],
+          },
+        ],
+      });
+
+      render(EC2Page);
+
+      await waitFor(() => expect(screen.getByText("my-server")).toBeInTheDocument());
+      expect(screen.getByText("eu-server")).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one DescribeInstances call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+      render(EC2Page);
+      await waitFor(() => expect(screen.getByText("my-server")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the same instance id from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+      mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+
+      render(EC2Page);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("my-server");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) =>
+          within(r.closest(".rounded-lg") as HTMLElement).getByTestId("region-chip").textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("stops the row's own region, not the picker's, when two regions share an instance id", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+      mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+
+      render(EC2Page);
+      await waitFor(() => expect(screen.getAllByText("my-server")).toHaveLength(2));
+
+      mockSend.mockResolvedValueOnce({});
+      mockSend.mockResolvedValueOnce({ Reservations: [{ Instances: [mockInstance] }] });
+      mockSend.mockResolvedValueOnce({
+        Reservations: [{ Instances: [{ ...mockInstance, State: { Name: "stopping" } }] }],
+      });
+
+      const rows = screen.getAllByText("my-server");
+      const euRow = rows
+        .map((r) => r.closest(".rounded-lg") as HTMLElement)
+        .find((r) => within(r).getByTestId("region-chip").textContent === "eu-west-1")!;
+      await fireEvent.click(within(euRow).getByRole("button", { name: /stop/i }));
+
+      await waitFor(() => {
+        const remaining = screen.getAllByText("my-server");
+        const stillEu = remaining
+          .map((r) => r.closest(".rounded-lg") as HTMLElement)
+          .find((r) => within(r).getByTestId("region-chip").textContent === "eu-west-1")!;
+        expect(within(stillEu).getByText("stopping")).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
+    });
   });
 });

@@ -87,8 +87,27 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 						},
 						AdvancedSecurityOptions: &elasticsearch.AdvancedSecurityOptions{
 							Enabled: true,
+							SAMLOptions: &elasticsearch.SAMLOptions{
+								Enabled: true,
+								Idp: &elasticsearch.SAMLIdp{
+									EntityID:        "https://idp.example.com/saml",
+									MetadataContent: "<EntityDescriptor/>",
+								},
+								RolesKey: "Role",
+							},
 						},
-						AutoTuneOptions: &elasticsearch.AutoTuneOptions{DesiredState: "ENABLED"},
+						AutoTuneOptions: &elasticsearch.AutoTuneOptions{
+							DesiredState: "ENABLED",
+							MaintenanceSchedules: []elasticsearch.AutoTuneMaintenanceSchedule{
+								{
+									CronExpressionForRecurrence: "cron(0 2 ? * SUN *)",
+									Duration:                    &elasticsearch.Duration{Unit: "HOURS", Value: 2},
+								},
+							},
+						},
+						DeploymentStrategyOptions: &elasticsearch.DeploymentStrategyOptions{
+							DeploymentStrategy: "CapacityOptimized",
+						},
 						LogPublishingOptions: map[string]elasticsearch.LogPublishingOption{
 							"AUDIT_LOGS": {
 								Enabled:                   true,
@@ -111,8 +130,18 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 				assert.Equal(t, "pool-1", d.CognitoOptions.UserPoolID)
 				require.NotNil(t, d.AdvancedSecurityOptions)
 				assert.True(t, d.AdvancedSecurityOptions.Enabled)
+				require.NotNil(t, d.AdvancedSecurityOptions.SAMLOptions)
+				require.NotNil(t, d.AdvancedSecurityOptions.SAMLOptions.Idp)
+				assert.Equal(t, "https://idp.example.com/saml", d.AdvancedSecurityOptions.SAMLOptions.Idp.EntityID)
 				require.NotNil(t, d.AutoTuneOptions)
 				assert.Equal(t, "ENABLED", d.AutoTuneOptions.DesiredState)
+				require.Len(t, d.AutoTuneOptions.MaintenanceSchedules, 1)
+				sched := d.AutoTuneOptions.MaintenanceSchedules[0]
+				assert.Equal(t, "cron(0 2 ? * SUN *)", sched.CronExpressionForRecurrence)
+				require.NotNil(t, sched.Duration)
+				assert.Equal(t, int64(2), sched.Duration.Value)
+				require.NotNil(t, d.DeploymentStrategyOptions)
+				assert.Equal(t, "CapacityOptimized", d.DeploymentStrategyOptions.DeploymentStrategy)
 				require.Contains(t, d.LogPublishingOptions, "AUDIT_LOGS")
 				assert.True(t, d.LogPublishingOptions["AUDIT_LOGS"].Enabled)
 				assert.Equal(t, 1, d.ConfigVersion)
@@ -174,6 +203,8 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 				pkgs := b.DescribePackages(ctx, nil)
 				require.Len(t, pkgs, 1)
 				assert.Equal(t, "my-dict", pkgs[0].Name)
+				assert.False(t, pkgs[0].CreatedAt.IsZero())
+				assert.False(t, pkgs[0].LastUpdatedAt.IsZero())
 
 				// packagesByName (raw map) must be preserved: creating the same
 				// name again must still fail as already-existing.

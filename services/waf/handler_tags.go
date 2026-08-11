@@ -57,9 +57,14 @@ func (h *Handler) opListTagsForResource(body []byte) (any, error) {
 		"ResourceARN": in.ResourceARN,
 		"TagList":     page,
 	}
+
+	out := map[string]any{"TagInfoForResource": tagInfo}
 	if next != "" {
-		tagInfo["NextMarker"] = next
+		// NextMarker is a sibling of TagInfoForResource on
+		// ListTagsForResourceOutput, not nested inside it -- verified:
+		// waf@v1.33.4 api_op_ListTagsForResource.go:62.
+		out["NextMarker"] = next
 	}
 
-	return map[string]any{"TagInfoForResource": tagInfo}, nil
+	return out, nil
 }

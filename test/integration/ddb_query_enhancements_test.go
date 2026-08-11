@@ -3,7 +3,6 @@ package integration_test
 import (
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -39,12 +38,15 @@ func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Cleanup(func() {
+			cleanupCtx, cancel := cleanupContext(t)
+			defer cancel()
+
 			client.DeleteTable(
-				t.Context(),
+				cleanupCtx,
 				&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
 			)
 		})
-		time.Sleep(10 * time.Millisecond)
+		waitForDDBTableActive(t, client, tableName)
 
 		for i := 1; i <= count; i++ {
 			_, pErr := client.PutItem(t.Context(), &dynamodb.PutItemInput{

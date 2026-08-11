@@ -19,6 +19,10 @@ func (b *InMemoryBackend) CreateLocationS3(
 	b.mu.Lock("CreateLocationS3")
 	defer b.mu.Unlock()
 
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return nil, err
+	}
+
 	id := newID()
 	locationArn := b.locationARN(id)
 	now := time.Now().UTC()

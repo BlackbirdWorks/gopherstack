@@ -1,11 +1,8 @@
 package sns_test
 
 import (
-	"fmt"
-	"net/url"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/sns"
@@ -76,75 +73,10 @@ func TestSetSubscriptionAttributes_FilterPolicyKeyLimit(t *testing.T) {
 // TestSubscribe_FilterPolicyLimitExceeded_PerTopic verifies that Subscribe returns
 // FilterPolicyLimitExceeded (not InvalidParameter) once a topic already has
 // maxFilterPoliciesPerTopic (200) subscriptions carrying a non-empty FilterPolicy.
-func TestSubscribe_FilterPolicyLimitExceeded_PerTopic(t *testing.T) {
-	t.Parallel()
-
-	b := sns.NewInMemoryBackend()
-	topic, err := b.CreateTopic("filter-policy-topic-quota", nil)
-	require.NoError(t, err)
-
-	for i := range sns.ExportedMaxFilterPoliciesPerTopic {
-		endpoint := fmt.Sprintf("arn:aws:sqs:us-east-1:000000000000:q%d", i)
-		_, subErr := b.Subscribe(topic.TopicArn, "sqs", endpoint, `{"k":["v"]}`)
-		require.NoError(t, subErr)
-	}
-
-	_, err = b.Subscribe(topic.TopicArn, "sqs",
-		"arn:aws:sqs:us-east-1:000000000000:one-too-many", `{"k":["v"]}`)
-	require.ErrorIs(t, err, sns.ErrFilterPolicyLimitExceeded)
-
-	// A subscription with NO filter policy is unaffected by the quota.
-	_, err = b.Subscribe(topic.TopicArn, "sqs",
-		"arn:aws:sqs:us-east-1:000000000000:no-filter", "")
-	require.NoError(t, err)
-}
-
-// TestSubscribe_SubscriptionLimitExceeded verifies that Subscribe returns
-// SubscriptionLimitExceeded once a topic's subscription count reaches the
-// (test-lowered) per-topic limit, and that the dedup path (re-subscribing the
-// same protocol+endpoint) is unaffected since it never creates a new row.
-func TestSubscribe_SubscriptionLimitExceeded(t *testing.T) {
-	t.Parallel()
-
-	b := sns.NewInMemoryBackend()
-	sns.SetSubscriptionLimitPerTopicForTest(b, 2)
-
-	topic, err := b.CreateTopic("sub-limit-topic", nil)
-	require.NoError(t, err)
-
-	_, err = b.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:q1", "")
-	require.NoError(t, err)
-	_, err = b.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:q2", "")
-	require.NoError(t, err)
-
-	_, err = b.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:q3", "")
-	require.ErrorIs(t, err, sns.ErrSubscriptionLimitExceeded)
-}
-
-// TestSubscribe_SubscriptionLimitExceededHandler verifies the HTTP wire shape: a
-// SubscriptionLimitExceeded backend error surfaces as HTTP 403 with the exact
-// AWS error code string in the XML error body.
-func TestSubscribe_SubscriptionLimitExceededHandler(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler(t)
-	sns.SetSubscriptionLimitPerTopicForTest(b, 1)
-	topicArn := mustCreateTopic(t, b, "sub-limit-handler-topic")
-	mustSubscribe(t, b, topicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:q1")
-
-	form := url.Values{
-		"Action":   {"Subscribe"},
-		"Version":  {"2010-03-31"},
-		"TopicArn": {topicArn},
-		"Protocol": {"sqs"},
-		"Endpoint": {"arn:aws:sqs:us-east-1:000000000000:q2"},
-	}
-
-	rec := snsPost(t, h, form)
-
-	assert.Equal(t, 403, rec.Code)
-	assert.Contains(t, rec.Body.String(), "SubscriptionLimitExceeded")
-}
+// TestSubscribe_FilterPolicyLimitExceeded_PerTopic, TestSubscribe_SubscriptionLimitExceeded,
+// and TestSubscribe_SubscriptionLimitExceededHandler live in whitebox_test.go: they need
+// direct access to the unexported maxFilterPoliciesPerTopic constant and
+// subscriptionLimitPerTopic override.
 
 // TestSetSubscriptionAttributes_FilterPolicyLimitExceededHandler verifies the HTTP
 // wire shape for the account-wide FilterPolicyLimitExceeded quota via

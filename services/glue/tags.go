@@ -2,6 +2,7 @@ package glue
 
 import (
 	"maps"
+	"strings"
 )
 
 // TagResource adds tags to a resource by ARN.
@@ -70,6 +71,30 @@ func (b *InMemoryBackend) tagResource(
 		return nil
 	}
 
+	if bp := b.findBlueprintByARN(resourceARN); bp != nil {
+		mergeTags(&bp.Tags, tags)
+
+		return nil
+	}
+
+	if dep := b.findDevEndpointByARN(resourceARN); dep != nil {
+		mergeTags(&dep.Tags, tags)
+
+		return nil
+	}
+
+	if m := b.findMLTransformByARN(resourceARN); m != nil {
+		mergeTags(&m.Tags, tags)
+
+		return nil
+	}
+
+	if u := b.findUDFByARN(resourceARN); u != nil {
+		mergeTags(&u.Tags, tags)
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -129,6 +154,30 @@ func (b *InMemoryBackend) UntagResource(
 		return nil
 	}
 
+	if bp := b.findBlueprintByARN(resourceARN); bp != nil {
+		deleteTags(bp.Tags, tagKeys)
+
+		return nil
+	}
+
+	if dep := b.findDevEndpointByARN(resourceARN); dep != nil {
+		deleteTags(dep.Tags, tagKeys)
+
+		return nil
+	}
+
+	if m := b.findMLTransformByARN(resourceARN); m != nil {
+		deleteTags(m.Tags, tagKeys)
+
+		return nil
+	}
+
+	if u := b.findUDFByARN(resourceARN); u != nil {
+		deleteTags(u.Tags, tagKeys)
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -165,6 +214,22 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 		return maps.Clone(w.Tags), nil
 	}
 
+	if bp := b.findBlueprintByARN(resourceARN); bp != nil {
+		return maps.Clone(bp.Tags), nil
+	}
+
+	if dep := b.findDevEndpointByARN(resourceARN); dep != nil {
+		return maps.Clone(dep.Tags), nil
+	}
+
+	if m := b.findMLTransformByARN(resourceARN); m != nil {
+		return maps.Clone(m.Tags), nil
+	}
+
+	if u := b.findUDFByARN(resourceARN); u != nil {
+		return maps.Clone(u.Tags), nil
+	}
+
 	return nil, ErrNotFound
 }
 
@@ -177,10 +242,11 @@ type TaggedEntry struct {
 
 // TaggedResources returns every Glue resource ARN that currently has at least
 // one tag, across every taggable Glue resource kind (databases, crawlers,
-// jobs, data quality rulesets, connections, triggers, workflows). Unlike
-// ECS/Athena/ECR, Glue keeps tags inline on each typed resource (Database.Tags,
-// Crawler.Tags, ...) rather than in a side map keyed by ARN, so this walks
-// each store.Table directly instead of a single flat map.
+// jobs, data quality rulesets, connections, triggers, workflows, blueprints,
+// dev endpoints, ML transforms, user-defined functions). Unlike ECS/Athena/ECR,
+// Glue keeps tags inline on each typed resource (Database.Tags, Crawler.Tags,
+// ...) rather than in a side map keyed by ARN, so this walks each store.Table
+// directly instead of a single flat map.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
@@ -213,6 +279,22 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 
 	for _, w := range b.workflows.All() {
 		out = appendTaggedEntry(out, w.ARN, w.Tags)
+	}
+
+	for _, bp := range b.blueprints.All() {
+		out = appendTaggedEntry(out, b.blueprintARN(bp.Name), bp.Tags)
+	}
+
+	for _, dep := range b.devEndpoints.All() {
+		out = appendTaggedEntry(out, dep.ARN, dep.Tags)
+	}
+
+	for _, m := range b.mlTransforms.All() {
+		out = appendTaggedEntry(out, b.mlTransformARN(m.TransformID), m.Tags)
+	}
+
+	for _, u := range b.udfs.All() {
+		out = appendTaggedEntry(out, u.FunctionARN, u.Tags)
 	}
 
 	return out
@@ -324,4 +406,68 @@ func (b *InMemoryBackend) findWorkflowByARN(resourceARN string) *Workflow {
 	}
 
 	return w
+}
+
+func (b *InMemoryBackend) findBlueprintByARN(resourceARN string) *Blueprint {
+	name := glueResourceName(resourceARN, "blueprint")
+	if name == "" {
+		return nil
+	}
+
+	bp, ok := b.blueprints.Get(name)
+	if !ok {
+		return nil
+	}
+
+	return bp
+}
+
+func (b *InMemoryBackend) findDevEndpointByARN(resourceARN string) *DevEndpoint {
+	name := glueResourceName(resourceARN, "devEndpoint")
+	if name == "" {
+		return nil
+	}
+
+	dep, ok := b.devEndpoints.Get(name)
+	if !ok {
+		return nil
+	}
+
+	return dep
+}
+
+func (b *InMemoryBackend) findMLTransformByARN(resourceARN string) *MLTransform {
+	id := glueResourceName(resourceARN, "mlTransform")
+	if id == "" {
+		return nil
+	}
+
+	m, ok := b.mlTransforms.Get(id)
+	if !ok {
+		return nil
+	}
+
+	return m
+}
+
+// findUDFByARN resolves a userDefinedFunction/<db>/<name> resource ARN. Unlike
+// every other Glue taggable resource, a UDF's identity is two-level
+// (database-scoped), so its ARN resource segment has an extra "/".
+func (b *InMemoryBackend) findUDFByARN(resourceARN string) *UserDefinedFunction {
+	rest := glueResourceName(resourceARN, "userDefinedFunction")
+	if rest == "" {
+		return nil
+	}
+
+	dbName, name, ok := strings.Cut(rest, "/")
+	if !ok {
+		return nil
+	}
+
+	u, ok := b.udfs.Get(b.udfKey(dbName, name))
+	if !ok {
+		return nil
+	}
+
+	return u
 }

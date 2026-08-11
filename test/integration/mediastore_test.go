@@ -69,7 +69,10 @@ func TestIntegration_MediaStore_ContainerLifecycle(t *testing.T) {
 			containerARN := aws.ToString(createOut.Container.ARN)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteContainer(ctx, &mediastoreSDK.DeleteContainerInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteContainer(cleanupCtx, &mediastoreSDK.DeleteContainerInput{
 					ContainerName: aws.String(containerName),
 				})
 			})

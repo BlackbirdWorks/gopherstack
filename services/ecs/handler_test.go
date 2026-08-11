@@ -85,13 +85,10 @@ func fakeInstanceIdentityDocument(instanceID string) string {
 // newTestECSClient stands up the real aws-sdk-go-v2 ECS client against an
 // httptest server running this package's Handler, wired through the same
 // pkgs/service registry/router used in production. Round-tripping through the
-// genuine SDK serializer/deserializer (rather than decoding the raw JSON body
-// with ad-hoc map[string]any assertions, as most other tests in this package
-// do) is what actually proves a response is wire-compatible: a handler that
-// silently drops a field, nests it at the wrong path, or uses the wrong JSON
-// key decodes to a zero value through the real client rather than failing
-// outright, so only a real client round-trip catches it (see the codedeploy
-// and databrew packages' handler_sdk_roundtrip_test.go for the same pattern).
+// genuine SDK serializer/deserializer, rather than decoding raw JSON with ad-hoc
+// map[string]any assertions, is what proves wire-compatibility: a handler that
+// drops a field, nests it wrong, or uses the wrong JSON key decodes to a zero
+// value through the real client instead of failing outright.
 func newTestECSClient(t *testing.T, h *ecs.Handler) *ecssdk.Client {
 	t.Helper()
 

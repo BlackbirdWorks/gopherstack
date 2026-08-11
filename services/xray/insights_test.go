@@ -41,6 +41,42 @@ func TestInsightDetection_FaultRateTriggers(t *testing.T) {
 	assert.Equal(t, "ACTIVE", summaries[0].State)
 }
 
+// TestInsightDetection_PopulatesCategoriesAndImpactStatistics verifies that an
+// auto-detected insight carries the real Insight.Categories/
+// ClientRequestImpactStatistics fields derived from the detection window,
+// rather than leaving them unset.
+func TestInsightDetection_PopulatesCategoriesAndImpactStatistics(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+
+	const traceID = "1-fault-trace-0000000000000002"
+	const svcName = "impact-service"
+
+	segs := make([]string, 0, 20)
+	for range 15 {
+		segs = append(segs, buildFaultSegmentJSON(t, traceID, svcName, true))
+	}
+	for range 5 {
+		segs = append(segs, buildFaultSegmentJSON(t, traceID, svcName, false))
+	}
+
+	unprocessed := b.PutTraceSegments(segs)
+	require.Empty(t, unprocessed)
+
+	summaries, err := b.GetInsightSummaries([]string{"ACTIVE"})
+	require.NoError(t, err)
+	require.NotEmpty(t, summaries)
+
+	ins := summaries[0]
+	assert.Equal(t, []string{"FAULT"}, ins.Categories)
+
+	require.NotNil(t, ins.ClientRequestImpactStatistics)
+	assert.EqualValues(t, 20, ins.ClientRequestImpactStatistics.TotalCount)
+	assert.EqualValues(t, 15, ins.ClientRequestImpactStatistics.FaultCount)
+	assert.EqualValues(t, 5, ins.ClientRequestImpactStatistics.OkCount)
+}
+
 // TestInsightDetection_NoInsightBelowThreshold verifies that no insight is
 // created when the fault rate is below the threshold.
 func TestInsightDetection_NoInsightBelowThreshold(t *testing.T) {

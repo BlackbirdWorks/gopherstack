@@ -82,7 +82,7 @@ type GetPatchBaselineInput struct {
 // PatchGroups (the patch groups currently registered with this baseline) is
 // unique to GetPatchBaselineOutput -- confirmed absent from
 // UpdatePatchBaselineOutput/CreatePatchBaselineOutput in
-// aws-sdk-go-v2/service/ssm@v1.71.0's api_op_UpdatePatchBaseline.go -- so it
+// aws-sdk-go-v2/service/ssm@v1.73.4's api_op_UpdatePatchBaseline.go -- so it
 // lives here rather than on the shared embedded PatchBaseline struct.
 type GetPatchBaselineOutput struct {
 	PatchGroups []string `json:"PatchGroups,omitempty"`

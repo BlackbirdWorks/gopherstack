@@ -56,19 +56,60 @@ func validateTagsMap(tags map[string]string) error {
 	return nil
 }
 
-// ListTags returns tags for a resource ARN.
-func (b *InMemoryBackend) ListTags(resourceARN string) map[string]string {
+// resourceExistsLocked reports whether resourceARN names a real broker or
+// configuration. Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) resourceExistsLocked(resourceARN string) bool {
+	exists := false
+
+	b.brokers.Range(func(br *Broker) bool {
+		if br.BrokerArn == resourceARN {
+			exists = true
+
+			return false
+		}
+
+		return true
+	})
+
+	if exists {
+		return true
+	}
+
+	b.configurations.Range(func(c *Configuration) bool {
+		if c.Arn == resourceARN {
+			exists = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return exists
+}
+
+// ListTags returns tags for a resource ARN. Real Amazon MQ returns
+// NotFoundException for an ARN that names no broker or configuration
+// (confirmed from the pinned SDK: ListTags's error list in
+// aws-sdk-go-v2/service/mq/deserializers.go includes NotFoundException).
+func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
+
+	if !b.resourceExistsLocked(resourceARN) {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	}
 
 	t := b.tags[resourceARN]
 	cp := make(map[string]string, len(t))
 	maps.Copy(cp, t)
 
-	return cp
+	return cp, nil
 }
 
-// CreateTags adds or updates tags for a resource ARN.
+// CreateTags adds or updates tags for a resource ARN. Real Amazon MQ returns
+// NotFoundException for an ARN that names no broker or configuration (same
+// SDK error-list evidence as ListTags).
 // Note: b.tags[arn] and the corresponding broker/config Tags field share
 // the same map pointer, so a single write here updates both automatically.
 func (b *InMemoryBackend) CreateTags(resourceARN string, tags map[string]string) error {
@@ -78,6 +119,10 @@ func (b *InMemoryBackend) CreateTags(resourceARN string, tags map[string]string)
 
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
+
+	if !b.resourceExistsLocked(resourceARN) {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	}
 
 	existing := b.tags[resourceARN]
 	if existing == nil {
@@ -105,16 +150,24 @@ func (b *InMemoryBackend) CreateTags(resourceARN string, tags map[string]string)
 	return nil
 }
 
-// DeleteTags removes the specified tag keys from a resource ARN.
+// DeleteTags removes the specified tag keys from a resource ARN. Real Amazon
+// MQ returns NotFoundException for an ARN that names no broker or
+// configuration (same SDK error-list evidence as ListTags).
 // Note: b.tags[arn] and the corresponding broker/config Tags field share
 // the same map pointer, so a single delete here updates both automatically.
-func (b *InMemoryBackend) DeleteTags(resourceARN string, tagKeys []string) {
+func (b *InMemoryBackend) DeleteTags(resourceARN string, tagKeys []string) error {
 	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
+
+	if !b.resourceExistsLocked(resourceARN) {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	}
 
 	for _, k := range tagKeys {
 		delete(b.tags[resourceARN], k)
 	}
+
+	return nil
 }
 
 // TaggedEntry pairs a resource ARN with its tag map, for cross-service tag

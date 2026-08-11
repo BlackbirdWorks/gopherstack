@@ -122,3 +122,41 @@ func TestQuickSight_DataSetRefreshPropertiesCRUD(t *testing.T) {
 	noDataSetRec := doRequest(t, h, http.MethodGet, accountPath("/data-sets/notexist/refresh-properties"), nil)
 	assert.Equal(t, http.StatusNotFound, noDataSetRec.Code)
 }
+
+// ---- StartAfterDateTime wire format: real AWS's unixTimestamp protocol
+// sends/expects seconds-since-epoch as a JSON number, not a string. ----
+
+func TestQuickSight_RefreshSchedule_StartAfterDateTime(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createDataSetRec := doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
+		"DataSetId": "ds1", "Name": "DataSet1", "ImportMode": "SPICE",
+	})
+	require.Equal(t, http.StatusCreated, createDataSetRec.Code)
+
+	const epochSeconds = 1735689600 // 2025-01-01T00:00:00Z
+
+	createRec := doRequest(
+		t, h, http.MethodPost, accountPath("/data-sets/ds1/refresh-schedules"),
+		map[string]any{"Schedule": map[string]any{
+			"ScheduleId": "s1", "RefreshType": "FULL_REFRESH", "StartAfterDateTime": epochSeconds,
+		}},
+	)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	describeRec := doRequest(t, h, http.MethodGet, accountPath("/data-sets/ds1/refresh-schedules/s1"), nil)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	body := parseBody(t, describeRec)
+
+	// DescribeRefreshScheduleOutput carries a top-level Arn in addition to the
+	// nested RefreshSchedule.Arn.
+	sched := body["RefreshSchedule"].(map[string]any)
+	require.NotEmpty(t, body["Arn"])
+	assert.Equal(t, body["Arn"], sched["Arn"])
+
+	got, ok := sched["StartAfterDateTime"].(float64)
+	require.True(t, ok, "StartAfterDateTime must round-trip as a JSON number, not a string")
+	assert.InDelta(t, epochSeconds, got, 0.001)
+}

@@ -20,6 +20,7 @@ type createNotebookLifecycleConfigRequest struct {
 	NotebookInstanceLifecycleConfigName string                 `json:"NotebookInstanceLifecycleConfigName"`
 	OnCreate                            []lifecycleHookRequest `json:"OnCreate,omitempty"`
 	OnStart                             []lifecycleHookRequest `json:"OnStart,omitempty"`
+	Tags                                []tagObject            `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handleCreateNotebookInstanceLifecycleConfig(
@@ -52,6 +53,7 @@ func (h *Handler) handleCreateNotebookInstanceLifecycleConfig(
 		req.NotebookInstanceLifecycleConfigName,
 		onCreate,
 		onStart,
+		fromTagObjects(req.Tags),
 	)
 	if err != nil {
 		return nil, err

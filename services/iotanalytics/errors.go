@@ -24,6 +24,10 @@ var (
 	ErrAlreadyExists = errors.New("resource already exists")
 	// ErrValidation is returned when request input fails validation.
 	ErrValidation = errors.New("validation error")
+	// ErrPipelineActivityFailed is returned when a RunPipelineActivity lambda/
+	// deviceRegistryEnrich/deviceShadowEnrich activity's cross-service call fails
+	// (Lambda invoke error, or IoT Thing/shadow not found).
+	ErrPipelineActivityFailed = errors.New("pipeline activity failed")
 )
 
 // notFoundError represents a resource-not-found error.

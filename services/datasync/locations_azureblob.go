@@ -14,9 +14,14 @@ func (b *InMemoryBackend) CreateLocationAzureBlob(
 	sasConfig *SasConfiguration,
 	agentArns []string,
 	tags map[string]string,
+	secretConfig SecretConfig,
 ) (*Location, error) {
 	b.mu.Lock("CreateLocationAzureBlob")
 	defer b.mu.Unlock()
+
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return nil, err
+	}
 
 	id := newID()
 	locationArn := b.locationARN(id)
@@ -34,6 +39,8 @@ func (b *InMemoryBackend) CreateLocationAzureBlob(
 		AccessTier:         accessTier,
 		AuthenticationType: authenticationType,
 		AgentArns:          agentArns,
+		CmkSecretConfig:    toStoredCmkSecretConfig(secretConfig.Cmk),
+		CustomSecretConfig: toStoredCustomSecretConfig(secretConfig.Custom),
 	}
 	if sasConfig != nil {
 		cfg.SasToken = sasConfig.Token
@@ -86,6 +93,9 @@ func (b *InMemoryBackend) DescribeLocationAzureBlob(locationArn string) (*Locati
 		if l.AzureBlob.SasToken != "" {
 			out.SasConfiguration = &SasConfiguration{Token: l.AzureBlob.SasToken}
 		}
+
+		out.CmkSecretConfig = fromStoredCmkSecretConfig(l.AzureBlob.CmkSecretConfig)
+		out.CustomSecretConfig = fromStoredCustomSecretConfig(l.AzureBlob.CustomSecretConfig)
 	}
 
 	return out, nil
@@ -95,6 +105,7 @@ func (b *InMemoryBackend) UpdateLocationAzureBlob(
 	locationArn, containerURL, subdirectory, blobType, accessTier, authenticationType string,
 	sasConfig *SasConfiguration,
 	agentArns []string,
+	secretConfig SecretConfig,
 ) error {
 	b.mu.Lock("UpdateLocationAzureBlob")
 	defer b.mu.Unlock()
@@ -102,6 +113,10 @@ func (b *InMemoryBackend) UpdateLocationAzureBlob(
 	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeAzureBlob {
 		return ErrNotFound
+	}
+
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return err
 	}
 
 	if containerURL != "" {
@@ -129,6 +144,14 @@ func (b *InMemoryBackend) UpdateLocationAzureBlob(
 
 	if sasConfig != nil {
 		l.AzureBlob.SasToken = sasConfig.Token
+	}
+
+	if secretConfig.Cmk != nil {
+		l.AzureBlob.CmkSecretConfig = toStoredCmkSecretConfig(secretConfig.Cmk)
+	}
+
+	if secretConfig.Custom != nil {
+		l.AzureBlob.CustomSecretConfig = toStoredCustomSecretConfig(secretConfig.Custom)
 	}
 
 	if agentArns != nil {

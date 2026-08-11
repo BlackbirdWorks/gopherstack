@@ -20,7 +20,7 @@ func copyMulticastGroup(mg *MulticastGroup) *MulticastGroup {
 	cp := *mg
 	cp.Tags = make(map[string]string, len(mg.Tags))
 	maps.Copy(cp.Tags, mg.Tags)
-	cp.LoRaWAN = copyAnyMap(mg.LoRaWAN)
+	cp.LoRaWAN = copyLoRaWANMulticast(mg.LoRaWAN)
 
 	return &cp
 }
@@ -28,7 +28,7 @@ func copyMulticastGroup(mg *MulticastGroup) *MulticastGroup {
 // CreateMulticastGroup creates a new multicast group.
 func (b *InMemoryBackend) CreateMulticastGroup(
 	accountID, region, name, description string,
-	loRaWAN map[string]any,
+	loRaWAN *LoRaWANMulticast,
 	tags map[string]string,
 ) (*MulticastGroup, error) {
 	b.mu.Lock("CreateMulticastGroup")
@@ -117,8 +117,15 @@ func (b *InMemoryBackend) DeleteMulticastGroup(accountID, region, id string) err
 	return nil
 }
 
-// UpdateMulticastGroup updates mutable fields on an existing multicast group.
-func (b *InMemoryBackend) UpdateMulticastGroup(accountID, region, id, name, description string) error {
+// UpdateMulticastGroup updates mutable fields on an existing multicast
+// group. UpdateMulticastGroupInput.LoRaWAN is the same LoRaWANMulticast
+// shape as CreateMulticastGroup's (api_op_UpdateMulticastGroup.go:39), so a
+// non-nil value replaces the stored LoRaWAN wholesale rather than merging
+// field by field.
+func (b *InMemoryBackend) UpdateMulticastGroup(
+	accountID, region, id, name, description string,
+	loRaWAN *LoRaWANMulticast,
+) error {
 	b.mu.Lock("UpdateMulticastGroup")
 	defer b.mu.Unlock()
 
@@ -132,6 +139,10 @@ func (b *InMemoryBackend) UpdateMulticastGroup(accountID, region, id, name, desc
 	}
 
 	mg.Description = description
+
+	if loRaWAN != nil {
+		mg.LoRaWAN = loRaWAN
+	}
 
 	return nil
 }

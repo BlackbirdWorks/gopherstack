@@ -85,3 +85,41 @@ func (b *InMemoryBackend) ListTagsForResource(apiID string) (map[string]string, 
 
 	return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 }
+
+// TaggedEntry pairs a resource ARN with its tag set, for the Resource Groups
+// Tagging API's GetResources (see cli.go's wireTaggingAppSync).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every GraphQL API (v1) and Event API (v2) that
+// carries at least one tag, keyed by ARN -- the two resource kinds taggable
+// through the generic TagResource/UntagResource/ListTagsForResource ops (see
+// TagResource's doc comment).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	apis := b.apis.All()
+	eventAPIs := b.eventAPIs.All()
+	b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(apis)+len(eventAPIs))
+
+	for _, api := range apis {
+		if api.Tags == nil || api.Tags.Len() == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: api.ARN, Tags: api.Tags.Clone()})
+	}
+
+	for _, eventAPI := range eventAPIs {
+		if len(eventAPI.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: eventAPI.ARN, Tags: maps.Clone(eventAPI.Tags)})
+	}
+
+	return out
+}

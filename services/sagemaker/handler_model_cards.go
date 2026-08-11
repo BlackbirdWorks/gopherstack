@@ -12,9 +12,9 @@ import (
 
 func (h *Handler) handleCreateModelCard(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags          map[string]string `json:"Tags"`
-		ModelCardName string            `json:"ModelCardName"`
-		Content       string            `json:"Content"`
+		ModelCardName string      `json:"ModelCardName"`
+		Content       string      `json:"Content"`
+		Tags          []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -25,7 +25,7 @@ func (h *Handler) handleCreateModelCard(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: ModelCardName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateModelCard(ctx, req.ModelCardName, req.Content, req.Tags)
+	result, err := h.Backend.CreateModelCard(ctx, req.ModelCardName, req.Content, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

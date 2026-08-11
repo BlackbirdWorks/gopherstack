@@ -10,6 +10,8 @@
 		DeleteAppCommand,
 		ListAppsCommand,
 		ListAppVersionsCommand,
+		DescribeAppVersionCommand,
+		UpdateAppVersionCommand,
 		PublishAppVersionCommand,
 		DescribeAppVersionTemplateCommand,
 		PutDraftAppVersionTemplateCommand,
@@ -652,6 +654,7 @@
 	let appDetailArn = $state('');
 	let appTags = $state<Record<string, string>>({});
 	let appVersions = $state<AppVersionSummary[]>([]);
+	let draftAdditionalInfo = $state<Record<string, string[]>>({});
 
 	async function openAppDetail(a: AppSummary): Promise<void> {
 		if (!a.appArn) return;
@@ -660,12 +663,13 @@
 		appDetailError = null;
 		appTags = {};
 		appVersions = [];
+		draftAdditionalInfo = {};
 		appDetailModal?.open();
 		appDetailLoading = true;
 		try {
 			const resp = await client().send(new DescribeAppCommand({ appArn: a.appArn }));
 			viewedApp = resp.app ?? null;
-			await Promise.all([refreshAppTags(), refreshAppVersions()]);
+			await Promise.all([refreshAppTags(), refreshAppVersions(), refreshDraftAdditionalInfo()]);
 		} catch (e) {
 			appDetailError = describeError(e);
 		} finally {
@@ -691,6 +695,57 @@
 		} catch (e) {
 			toast.error(describeError(e));
 		}
+	}
+
+	// DescribeAppVersion/UpdateAppVersion's AdditionalInfo is the one field
+	// on the draft version App/AppSummary/AppVersionSummary never carry --
+	// everything else those two ops return is already shown elsewhere in
+	// this modal (status, compliance, versions, template).
+	async function refreshDraftAdditionalInfo(): Promise<void> {
+		if (!appDetailArn) return;
+		try {
+			const resp = await client().send(
+				new DescribeAppVersionCommand({ appArn: appDetailArn, appVersion: DRAFT_VERSION })
+			);
+			draftAdditionalInfo = resp.additionalInfo ?? {};
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	let addInfoKey = $state('');
+	let addInfoValue = $state('');
+
+	async function submitAdditionalInfo(next: Record<string, string[]>): Promise<void> {
+		if (!appDetailArn) return;
+		try {
+			const resp = await client().send(
+				new UpdateAppVersionCommand({ appArn: appDetailArn, additionalInfo: next })
+			);
+			draftAdditionalInfo = resp.additionalInfo ?? {};
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	async function submitAddAdditionalInfo(): Promise<void> {
+		const key = addInfoKey.trim();
+		if (!key) return;
+		const values = addInfoValue
+			.split(',')
+			.map((v) => v.trim())
+			.filter((v) => v.length > 0);
+		await submitAdditionalInfo({ ...draftAdditionalInfo, [key]: values });
+		addInfoKey = '';
+		addInfoValue = '';
+		toast.success('Additional info updated');
+	}
+
+	async function removeAdditionalInfo(key: string): Promise<void> {
+		const next = { ...draftAdditionalInfo };
+		delete next[key];
+		await submitAdditionalInfo(next);
+		toast.success('Additional info entry removed');
 	}
 
 	let addAppTagKey = $state('');
@@ -2458,6 +2513,43 @@
 							disabled={publishingVersion}
 							class="px-3 py-1 text-sm rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
 							>{publishingVersion ? 'Publishing...' : 'Publish draft'}</button
+						>
+					</div>
+				</div>
+
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+					<h3 class="text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
+						Additional Info (draft)
+					</h3>
+					<ul class="space-y-1">
+						{#each Object.entries(draftAdditionalInfo) as [k, v] (k)}
+							<li class="flex items-center justify-between text-sm">
+								<span>{k} = {v.join(', ')}</span>
+								<button
+									onclick={() => removeAdditionalInfo(k)}
+									aria-label="Remove additional info {k}"
+									class="text-gray-400 hover:text-red-500"><Trash2 class="w-3.5 h-3.5" /></button
+								>
+							</li>
+						{/each}
+					</ul>
+					<div class="flex items-center gap-2 mt-2">
+						<input
+							bind:value={addInfoKey}
+							placeholder="Key"
+							aria-label="New additional info key"
+							class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-1/3"
+						/>
+						<input
+							bind:value={addInfoValue}
+							placeholder="Values (comma-separated)"
+							aria-label="New additional info values"
+							class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-1/3"
+						/>
+						<button
+							onclick={submitAddAdditionalInfo}
+							class="px-3 py-1 text-sm rounded-lg bg-teal-600 text-white hover:bg-teal-700"
+							>Add info</button
 						>
 					</div>
 				</div>

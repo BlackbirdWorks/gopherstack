@@ -82,6 +82,9 @@ type InMemoryBackend struct {
 	modelPackageARNIndex         map[string]map[string]string // region → ARN → model package ARN
 	processingJobARNIndex        map[string]map[string]string // region → ARN → job name
 	transformJobARNIndex         map[string]map[string]string // region → ARN → job name
+	modelPackageGroupARNIndex    map[string]map[string]string // region → ARN → model package group name
+	workteamARNIndex             map[string]map[string]string // region → ARN → workteam name
+	workforceARNIndex            map[string]map[string]string // region → ARN → workforce name
 	domains                      map[string]*store.Table[Domain]
 	userProfiles                 map[string]*store.Table[UserProfile]
 	apps                         map[string]*store.Table[App]
@@ -132,9 +135,14 @@ type InMemoryBackend struct {
 	lifecycleCtx    context.Context
 	lifecycleCancel context.CancelFunc
 	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
-	wg              sync.WaitGroup
+	// s3 is the wired S3 backend CreatePipeline/UpdatePipeline read a
+	// PipelineDefinitionS3Location's object from (see SetS3Backend). Not part
+	// of persisted state -- it's a cross-service dependency wired at startup,
+	// not resource data.
+	s3        S3Accessor
+	accountID string
+	region    string
+	wg        sync.WaitGroup
 }
 
 // ---------------------------------------------------------------------------

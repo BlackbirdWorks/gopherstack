@@ -35,9 +35,12 @@ func (b *InMemoryBackend) CreateHost(
 	b.mu.Lock("CreateHost")
 	defer b.mu.Unlock()
 
-	if len(b.hostsByName.Get(regionKey(region, name))) > 0 {
-		return nil, fmt.Errorf("%w: host %q already exists", ErrAlreadyExists, name)
-	}
+	// A duplicate Name is NOT rejected: CreateHost's real error list is
+	// exactly [LimitExceededException] (aws-sdk-go-v2/service/
+	// codeconnections@v1.13.4 deserializers.go's
+	// awsAwsjson10_deserializeOpErrorCreateHost switch) -- no
+	// ResourceAlreadyExistsException -- so a real client's second create for
+	// the same name gets a distinct ARN, not an error.
 
 	id := uuid.NewString()
 	hostArn := arn.Build("codeconnections", region, b.accountID, "host/"+id)
@@ -171,8 +174,8 @@ func (b *InMemoryBackend) UpdateHost(ctx context.Context, hostArn, providerEndpo
 	}
 
 	// ProviderEndpoint is not part of any index key (hosts is keyed by
-	// HostArn; byRegion/byName derive from HostArn/Name), so mutating the
-	// stored *Host in place is safe -- no Delete+Put needed.
+	// HostArn; byRegion derives from HostArn), so mutating the stored *Host
+	// in place is safe -- no Delete+Put needed.
 	if providerEndpoint != "" {
 		host.ProviderEndpoint = providerEndpoint
 	}

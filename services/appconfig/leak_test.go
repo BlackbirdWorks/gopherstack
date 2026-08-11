@@ -2,9 +2,7 @@ package appconfig_test
 
 import (
 	"testing"
-	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
@@ -144,53 +142,5 @@ func TestDeleteDeploymentStrategy_NameIndexBounded(t *testing.T) {
 	}
 }
 
-// TestDeploymentTimers_DrainToZero verifies that the background
-// progression goroutine (scheduleDeploymentReconcilerLocked in
-// deployments.go) does not leak: every in-flight deployment's timer entry
-// is removed once the deployment reaches a terminal state, and the
-// goroutine itself is self-terminating (it exits once the map is empty) --
-// so a caller never needs to context-parent or explicitly drain it.
-func TestDeploymentTimers_DrainToZero(t *testing.T) {
-	t.Parallel()
-
-	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-
-	app, err := b.CreateApplication("timer-leak-app", "", nil)
-	require.NoError(t, err)
-
-	env, err := b.CreateEnvironment(app.ID, "timer-leak-env", "", nil, nil)
-	require.NoError(t, err)
-
-	profile, err := b.CreateConfigurationProfile(
-		app.ID, "timer-leak-profile", "", "hosted", "AWS.Freeform", "", nil,
-		nil,
-	)
-	require.NoError(t, err)
-
-	_, err = b.CreateHostedConfigurationVersion(
-		app.ID, profile.ID, "application/json", "", "", []byte(`{}`), nil,
-	)
-	require.NoError(t, err)
-
-	// A non-zero duration and bake time forces real DEPLOYING -> BAKING
-	// progression (registers a timer), rather than the synchronous
-	// zero-duration path (which never touches deploymentTimers at all).
-	strategy, err := b.CreateDeploymentStrategy("timer-leak-strat", "", 10, 5, 25, "LINEAR", "NONE", nil)
-	require.NoError(t, err)
-
-	const deployments = 5
-
-	for range deployments {
-		_, startErr := b.StartDeployment(app.ID, env.ID, profile.ID, strategy.ID, "1", "")
-		require.NoError(t, startErr)
-	}
-
-	assert.Positive(t, b.DeploymentTimerCount(), "sanity: progression must actually register timers")
-
-	deadline := time.Now().Add(2 * time.Second)
-	for b.DeploymentTimerCount() > 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-
-	assert.Equal(t, 0, b.DeploymentTimerCount(), "every deployment timer must drain once its deployment completes")
-}
+// TestDeploymentTimers_DrainToZero lives in whitebox_test.go: it needs direct
+// access to the unexported deploymentTimers map.

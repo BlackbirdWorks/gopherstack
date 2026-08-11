@@ -153,6 +153,7 @@ type createStorageLensGroupStorageLensGroupXML struct {
 type createStorageLensGroupRequestXML struct {
 	XMLName          xml.Name                                  `xml:"CreateStorageLensGroupRequest"`
 	StorageLensGroup createStorageLensGroupStorageLensGroupXML `xml:"StorageLensGroup"`
+	Tags             []resourceTagXML                          `xml:"Tags>Tag"`
 }
 
 func (h *Handler) handleCreateStorageLensGroup(c *echo.Context) error {
@@ -169,34 +170,29 @@ func (h *Handler) handleCreateStorageLensGroup(c *echo.Context) error {
 		_ = h.Backend.UpdateStorageLensGroupFilter(accountID, grp.Name, body.StorageLensGroup.Filter.Raw)
 	}
 
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(grp.StorageLensGroupArn, tags)
+	}
+
 	return c.NoContent(http.StatusCreated)
 }
 
 // ---- Storage Lens Configuration ----
 
-// storageLensConfigurationXML mirrors aws-sdk-go-v2's StorageLensConfiguration
-// type (AccountLevel/AwsOrg/DataExport/Exclude/Id/Include/IsEnabled/
-// PrefixDelimiter/StorageLensArn -- see
-// awsRestxml_deserializeDocumentStorageLensConfiguration). This backend
-// stores each configuration as an opaque raw XML blob (storageLensConfigs),
-// so the real nested fields are captured/replayed as raw inner XML
-// (RawFields) rather than individually modeled -- a real client's
-// AccountLevel/IsEnabled/etc. content round-trips intact through Put then
-// Get instead of being dropped. Id is always the canonical value from the
-// request path (never fabricated: it is the same value a real client's body
-// Id is required to match).
-//
-// A previous version of this handler expected/emitted a "<Config>" child
-// element instead, which does not exist anywhere on the real type: on the
-// response side, a real client's StorageLensConfiguration decoder would
-// never see stored data (only Id, if even that) since it only recognizes
-// the real field names; on the request side, a real aws-sdk-go-v2 client's
-// PUT body nests the whole configuration directly under
-// "<StorageLensConfiguration>" (confirmed via
-// awsRestxml_serializeOpDocumentPutStorageLensConfigurationInput), so
-// decoding for "<Config>" never matched anything a real client sends --
-// PutStorageLensConfiguration silently stored an empty configuration for
-// every real caller.
+// storageLensConfigurationXML mirrors types.StorageLensConfiguration
+// (AccountLevel/AwsOrg/DataExport/Exclude/Id/Include/IsEnabled/
+// PrefixDelimiter/StorageLensArn — awsRestxml_deserializeDocumentStorageLensConfiguration).
+// This backend stores each configuration as an opaque raw XML blob
+// (storageLensConfigs), captured/replayed as raw inner XML (RawFields)
+// rather than individually modeled. Id is always the canonical value from
+// the request path (never fabricated). The whole configuration nests
+// directly under "<StorageLensConfiguration>", not a "<Config>" child
+// element (awsRestxml_serializeOpDocumentPutStorageLensConfigurationInput).
 type storageLensConfigurationXML struct {
 	XMLName   xml.Name `xml:"StorageLensConfiguration"`
 	ID        string   `xml:"Id"`
@@ -335,30 +331,21 @@ func (h *Handler) handleDeleteStorageLensConfigurationTagging(c *echo.Context) e
 
 // ---- List Storage Lens Configurations ----
 
-// listStorageLensConfigItemXML mirrors aws-sdk-go-v2's
-// ListStorageLensConfigurationEntry. HomeRegion/IsEnabled/StorageLensArn
-// have no backing data in this backend -- storageLensConfigs stores each
-// configuration as an opaque raw XML blob, not parsed fields (GAP, not
-// fabricated).
+// listStorageLensConfigItemXML mirrors types.ListStorageLensConfigurationEntry.
+// HomeRegion/IsEnabled/StorageLensArn have no backing data in this backend —
+// storageLensConfigs stores each configuration as an opaque raw XML blob,
+// not parsed fields (GAP, not fabricated).
 type listStorageLensConfigItemXML struct {
 	ID string `xml:"Id"`
 }
 
 // listStorageLensConfigurationsResultXML mirrors
 // ListStorageLensConfigurationsOutput's real wire shape: the list is
-// FLATTENED (repeated "<StorageLensConfiguration>" elements directly under
-// the result, no wrapping "<StorageLensConfigurationList>" element) --
-// confirmed via
-// awsRestxml_deserializeOpDocumentListStorageLensConfigurationsOutput,
-// which delegates straight to
-// awsRestxml_deserializeDocumentStorageLensConfigurationListUnwrapped (the
-// "Unwrapped" suffix is smithy-go's marker for a flattened list with no
-// wrapper). A previous version of this handler wrapped the list under
-// "StorageLensConfigurationList", which a real client's field-matching
-// loop would treat as an unrecognized element and skip entirely --
-// yielding an empty list on every real ListStorageLensConfigurations call
-// (same wrong-envelope bug class as ListCallerAccessGrants'
-// "AccessGrantsList" and ListStorageLensGroups below).
+// flattened (repeated "<StorageLensConfiguration>" elements directly under
+// the result, no wrapping "<StorageLensConfigurationList>" element) —
+// awsRestxml_deserializeOpDocumentListStorageLensConfigurationsOutput
+// delegates to awsRestxml_deserializeDocumentStorageLensConfigurationListUnwrapped
+// ("Unwrapped" is smithy-go's marker for a flattened, wrapper-less list).
 type listStorageLensConfigurationsResultXML struct {
 	XMLName   xml.Name                       `xml:"ListStorageLensConfigurationsResult"`
 	NextToken string                         `xml:"NextToken,omitempty"`
@@ -491,16 +478,11 @@ func (h *Handler) handleDeleteStorageLensGroup(c *echo.Context) error {
 }
 
 // listStorageLensGroupsResultXML mirrors ListStorageLensGroupsOutput's real
-// wire shape: the list is FLATTENED (repeated "<StorageLensGroup>"
-// elements directly under the result, no wrapping
-// "<StorageLensGroupList>" element) -- confirmed via
-// awsRestxml_deserializeOpDocumentListStorageLensGroupsOutput, which
-// delegates to awsRestxml_deserializeDocumentStorageLensGroupListUnwrapped.
-// A previous version of this handler wrapped the list under
-// "StorageLensGroupList", which a real client would silently skip as an
-// unrecognized element, yielding an empty list on every real
-// ListStorageLensGroups call (same bug class as
-// ListStorageLensConfigurations above).
+// wire shape: the list is flattened (repeated "<StorageLensGroup>" elements
+// directly under the result, no wrapping "<StorageLensGroupList>" element) —
+// same pattern as ListStorageLensConfigurations above
+// (awsRestxml_deserializeOpDocumentListStorageLensGroupsOutput delegates to
+// awsRestxml_deserializeDocumentStorageLensGroupListUnwrapped).
 type listStorageLensGroupsResultXML struct {
 	XMLName   xml.Name                      `xml:"ListStorageLensGroupsResult"`
 	NextToken string                        `xml:"NextToken,omitempty"`

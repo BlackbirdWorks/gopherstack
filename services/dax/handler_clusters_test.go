@@ -88,6 +88,28 @@ func TestHandlerCreateCluster(t *testing.T) {
 	}
 }
 
+// TestHandlerClusterResponseHasNoTagsField verifies that the Cluster wire object never carries
+// a "Tags" key -- botocore's dax service-2.json (2017-04-19) Cluster shape has no Tags member
+// (tags are only ever readable via ListTags); the real deserializer
+// (awsAwsjson11_deserializeDocumentCluster) has no "Tags" case and silently discards it, so
+// a fabricated key here is invisible to a real client but still not what AWS returns.
+func TestHandlerClusterResponseHasNoTagsField(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+
+	body := validClusterBody("no-tags-on-wire")
+	body["Tags"] = []map[string]string{{"Key": "env", "Value": "prod"}}
+
+	rec := daxRequest(t, h, "CreateCluster", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	cluster := resp["Cluster"].(map[string]any)
+	_, hasTags := cluster["Tags"]
+	assert.False(t, hasTags, "Cluster response must not include a Tags field")
+}
+
 func TestHandlerCreateCluster_Duplicate(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()

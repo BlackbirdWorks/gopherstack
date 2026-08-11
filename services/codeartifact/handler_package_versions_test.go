@@ -396,7 +396,7 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	pubRec := doRawRequest(
 		t,
 		h,
-		"/v1/package/versions/publish?domain=lifecycle-domain"+
+		"/v1/package/version/publish?domain=lifecycle-domain"+
 			"&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0&asset=mylib-1.0.0.tgz",
 		[]byte("mylib-asset-content"),
 	)

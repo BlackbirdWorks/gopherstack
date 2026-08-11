@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
@@ -64,14 +65,17 @@ func TestIntegration_CloudFront_DistributionLifecycle(t *testing.T) {
 	assert.Equal(t, "Deployed", aws.ToString(createOut.Distribution.Status))
 
 	t.Cleanup(func() {
-		getOut, gErr := client.GetDistribution(ctx, &cloudfront.GetDistributionInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		getOut, gErr := client.GetDistribution(cleanupCtx, &cloudfront.GetDistributionInput{
 			Id: aws.String(distID),
 		})
 		if gErr != nil {
 			return
 		}
 
-		_, _ = client.DeleteDistribution(ctx, &cloudfront.DeleteDistributionInput{
+		_, _ = client.DeleteDistribution(cleanupCtx, &cloudfront.DeleteDistributionInput{
 			Id:      aws.String(distID),
 			IfMatch: getOut.ETag,
 		})
@@ -135,6 +139,63 @@ func TestIntegration_CloudFront_DistributionLifecycle(t *testing.T) {
 			"deleted distribution should not appear in list",
 		)
 	}
+}
+
+// TestIntegration_CloudFront_DistributionStatusTransition proves
+// UpdateDistribution's InProgress -> Deployed async transition
+// (services/cloudfront/distributions.go's scheduleDistributionDeployed) is
+// observable through the real SDK: UpdateDistribution's own response
+// reports the real intermediate InProgress status, and a client polling
+// GetDistribution afterward sees it settle back to Deployed on its own,
+// with no further API call needed to drive it.
+func TestIntegration_CloudFront_DistributionStatusTransition(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createCloudFrontClient(t)
+	ctx := t.Context()
+
+	callerRef := "ref-" + uuid.NewString()[:8]
+
+	createOut, err := client.CreateDistribution(ctx, &cloudfront.CreateDistributionInput{
+		DistributionConfig: minimalCFDistributionConfig(callerRef, "status-transition"),
+	})
+	require.NoError(t, err)
+	distID := aws.ToString(createOut.Distribution.Id)
+	require.Equal(t, "Deployed", aws.ToString(createOut.Distribution.Status))
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		getOut, gErr := client.GetDistribution(cleanupCtx, &cloudfront.GetDistributionInput{Id: aws.String(distID)})
+		if gErr != nil {
+			return
+		}
+
+		_, _ = client.DeleteDistribution(cleanupCtx, &cloudfront.DeleteDistributionInput{
+			Id: aws.String(distID), IfMatch: getOut.ETag,
+		})
+	})
+
+	getOut, err := client.GetDistribution(ctx, &cloudfront.GetDistributionInput{Id: aws.String(distID)})
+	require.NoError(t, err)
+
+	updatedConfig := getOut.Distribution.DistributionConfig
+	updatedConfig.Comment = aws.String("updated-" + uuid.NewString()[:8])
+
+	updOut, err := client.UpdateDistribution(ctx, &cloudfront.UpdateDistributionInput{
+		Id: aws.String(distID), IfMatch: getOut.ETag, DistributionConfig: updatedConfig,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "InProgress", aws.ToString(updOut.Distribution.Status),
+		"UpdateDistribution should return the real intermediate InProgress status")
+
+	require.Eventually(t, func() bool {
+		out, gErr := client.GetDistribution(ctx, &cloudfront.GetDistributionInput{Id: aws.String(distID)})
+
+		return gErr == nil && aws.ToString(out.Distribution.Status) == "Deployed"
+	}, 5*time.Second, 50*time.Millisecond, "distribution should transition back to Deployed on its own")
 }
 
 func TestIntegration_CloudFront_GetDistributionNotFound(t *testing.T) {

@@ -380,3 +380,69 @@ func TestHandler_UserGroup_ReplicationGroupsWireShape(t *testing.T) {
 	require.Len(t, out.UserGroups, 1)
 	assert.Equal(t, []string{"rg-links-to-group"}, out.UserGroups[0].ReplicationGroups)
 }
+
+// TestHandler_UserGroup_ServerlessCachesWireShape locks the UserGroup
+// response's ServerlessCaches field (types.UserGroup.ServerlessCaches) --
+// the reverse of a ServerlessCache's UserGroupId. This association was
+// previously never computed (gopherstack-nojq): ServerlessCache.UserGroupID
+// already existed on the domain model, but nothing read it back out onto
+// UserGroup's response, so the field was always empty even when a real
+// association existed. Field-diffed against aws-sdk-go-v2's deserializer
+// for the UserGroup document (element name "ServerlessCaches", unlabeled
+// <member> list, same wrapper as ReplicationGroups/UserIds).
+func TestHandler_UserGroup_ServerlessCachesWireShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		associate     bool
+		wantAssociate bool
+	}{
+		{
+			name:          "no association stays empty",
+			associate:     false,
+			wantAssociate: false,
+		},
+		{
+			name:          "associated cache is echoed back",
+			associate:     true,
+			wantAssociate: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			groupID := "sc-linked-group-" + tt.name
+			_, err := client.CreateUserGroup(t.Context(), &elasticachesdk.CreateUserGroupInput{
+				UserGroupId: aws.String(groupID),
+				Engine:      aws.String("redis"),
+			})
+			require.NoError(t, err)
+
+			if tt.associate {
+				_, err = client.CreateServerlessCache(t.Context(), &elasticachesdk.CreateServerlessCacheInput{
+					ServerlessCacheName: aws.String("sc-links-to-" + groupID),
+					Engine:              aws.String("redis"),
+					UserGroupId:         aws.String(groupID),
+				})
+				require.NoError(t, err)
+			}
+
+			out, err := client.DescribeUserGroups(t.Context(), &elasticachesdk.DescribeUserGroupsInput{
+				UserGroupId: aws.String(groupID),
+			})
+			require.NoError(t, err)
+			require.Len(t, out.UserGroups, 1)
+
+			if tt.wantAssociate {
+				assert.Equal(t, []string{"sc-links-to-" + groupID}, out.UserGroups[0].ServerlessCaches)
+			} else {
+				assert.Empty(t, out.UserGroups[0].ServerlessCaches)
+			}
+		})
+	}
+}

@@ -3,10 +3,11 @@ package codebuild
 import (
 	"context"
 	"fmt"
+	"slices"
 )
 
 type createReportGroupInput struct {
-	Tags         map[string]string  `json:"tags"`
+	Tags         wireTags           `json:"tags"`
 	ExportConfig ReportExportConfig `json:"exportConfig"`
 	Name         string             `json:"name"`
 	Type         string             `json:"type"`
@@ -123,28 +124,23 @@ type describeCodeCoveragesInput struct {
 }
 
 type describeCodeCoveragesOutput struct {
-	CodeCoverages []map[string]any `json:"codeCoverages"`
+	CodeCoverages []CodeCoverage `json:"codeCoverages"`
 }
 
 func (h *Handler) handleDescribeCodeCoverages(
 	_ context.Context,
 	in *describeCodeCoveragesInput,
 ) (*describeCodeCoveragesOutput, error) {
+	if in.ReportArn == "" {
+		return nil, fmt.Errorf("%w: reportArn is required", errInvalidRequest)
+	}
+
 	coverages, err := h.Backend.DescribeCodeCoverages(in.ReportArn)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]map[string]any, 0, len(coverages))
-	for _, c := range coverages {
-		result = append(result, map[string]any{
-			"filePath":       c.FilePath,
-			"branchCoverage": c.BranchCoverage,
-			"lineCoverage":   c.LineCoverage,
-		})
-	}
-
-	return &describeCodeCoveragesOutput{CodeCoverages: result}, nil
+	return &describeCodeCoveragesOutput{CodeCoverages: coverages}, nil
 }
 
 type describeTestCasesInput struct {
@@ -152,28 +148,23 @@ type describeTestCasesInput struct {
 }
 
 type describeTestCasesOutput struct {
-	TestCases []map[string]any `json:"testCases"`
+	TestCases []TestCase `json:"testCases"`
 }
 
 func (h *Handler) handleDescribeTestCases(
 	_ context.Context,
 	in *describeTestCasesInput,
 ) (*describeTestCasesOutput, error) {
+	if in.ReportArn == "" {
+		return nil, fmt.Errorf("%w: reportArn is required", errInvalidRequest)
+	}
+
 	cases, err := h.Backend.DescribeTestCases(in.ReportArn)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]map[string]any, 0, len(cases))
-	for _, tc := range cases {
-		result = append(result, map[string]any{
-			"name":     tc.Name,
-			"status":   tc.Status,
-			"duration": tc.Duration,
-		})
-	}
-
-	return &describeTestCasesOutput{TestCases: result}, nil
+	return &describeTestCasesOutput{TestCases: cases}, nil
 }
 
 type getReportGroupTrendInput struct {
@@ -182,19 +173,36 @@ type getReportGroupTrendInput struct {
 }
 
 type getReportGroupTrendOutput struct {
-	Stats map[string]any `json:"stats"`
+	Stats   map[string]any   `json:"stats"`
+	RawData []map[string]any `json:"rawData"`
+}
+
+// reportGroupTrendFields is the ReportGroupTrendFieldType enum
+// (aws-sdk-go-v2/service/codebuild@v1.72.4/types/enums.go:895-926).
+var reportGroupTrendFields = []string{ //nolint:gochecknoglobals // package-level lookup table
+	"PASS_RATE", "DURATION", "TOTAL",
+	"LINE_COVERAGE", "LINES_COVERED", "LINES_MISSED",
+	"BRANCH_COVERAGE", "BRANCHES_COVERED", "BRANCHES_MISSED",
 }
 
 func (h *Handler) handleGetReportGroupTrend(
 	_ context.Context,
 	in *getReportGroupTrendInput,
 ) (*getReportGroupTrendOutput, error) {
+	if in.ReportGroupArn == "" {
+		return nil, fmt.Errorf("%w: reportGroupArn is required", errInvalidRequest)
+	}
+
+	if !slices.Contains(reportGroupTrendFields, in.TrendField) {
+		return nil, fmt.Errorf("%w: trendField must be one of %v", errInvalidRequest, reportGroupTrendFields)
+	}
+
 	stats, err := h.Backend.GetReportGroupTrend(in.ReportGroupArn)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getReportGroupTrendOutput{Stats: stats}, nil
+	return &getReportGroupTrendOutput{Stats: stats, RawData: []map[string]any{}}, nil
 }
 
 type listReportGroupsInput struct {
@@ -274,12 +282,19 @@ func (h *Handler) handleListReportsForReportGroup(
 	_ context.Context,
 	in *listReportsForReportGroupInput,
 ) (*listReportsForReportGroupOutput, error) {
+	if in.ReportGroupArn == "" {
+		return nil, fmt.Errorf("%w: reportGroupArn is required", errInvalidRequest)
+	}
+
 	var status string
 	if in.Filter != nil {
 		status = in.Filter.Status
 	}
 
-	arns := h.Backend.ListReportsForReportGroup(in.ReportGroupArn, status)
+	arns, err := h.Backend.ListReportsForReportGroup(in.ReportGroupArn, status)
+	if err != nil {
+		return nil, err
+	}
 
 	pg, err := paginateIDs(arns, in.NextToken, in.SortOrder, in.MaxResults)
 	if err != nil {
@@ -304,6 +319,7 @@ func (h *Handler) handleListSharedReportGroups(
 
 type updateReportGroupInput struct {
 	ExportConfig *ReportExportConfig `json:"exportConfig,omitempty"`
+	Tags         wireTags            `json:"tags,omitempty"`
 	Arn          string              `json:"arn"`
 }
 
@@ -319,7 +335,7 @@ func (h *Handler) handleUpdateReportGroup(
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
 	}
 
-	rg, err := h.Backend.UpdateReportGroup(in.Arn, in.ExportConfig)
+	rg, err := h.Backend.UpdateReportGroup(in.Arn, in.ExportConfig, in.Tags)
 	if err != nil {
 		return nil, err
 	}

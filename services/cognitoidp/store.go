@@ -99,8 +99,10 @@ type InMemoryBackend struct {
 	managedLoginBrandings *store.Table[ManagedLoginBranding]
 	// managedLoginBrandingsByPool is a secondary index on managedLoginBrandings keyed by UserPoolID.
 	managedLoginBrandingsByPool *store.Index[ManagedLoginBranding]
-	// terms maps poolID → Terms
+	// terms is keyed by TermsID (client-scoped, per real Cognito).
 	terms *store.Table[Terms]
+	// termsByPool is a secondary index on terms keyed by UserPoolID, for ListTerms.
+	termsByPool *store.Index[Terms]
 	// userImportJobs is keyed by the composite userImportJobKey(poolID, jobID).
 	userImportJobs *store.Table[UserImportJob]
 	// userImportJobsByPool is a secondary index on userImportJobs keyed by UserPoolID.

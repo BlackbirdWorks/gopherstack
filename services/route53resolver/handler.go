@@ -189,14 +189,25 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	// route53resolver@v1.48.4 splits its bad-request vocabulary by resource
+	// family: the singular Resolver* ops model InvalidRequestException (see
+	// ErrValidation) while the Firewall/Outpost ops and the three Batch*
+	// FirewallRule ops model ValidationException (see ErrBatchValidation) --
+	// left untyped rather than guessing which family reached this path.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	default:
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		// InternalServiceErrorException is modeled on all 72 operations
+		// (verified by scanning every awsAwsjson11_deserializeOpError* switch),
+		// so it is a safe blanket fallback regardless of which operation reached
+		// this path.
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InternalServiceErrorException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}
 }
 

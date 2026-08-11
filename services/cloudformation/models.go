@@ -132,6 +132,7 @@ type ChangeSet struct {
 	Parameters            []Parameter            `xml:"-"                               json:"parameters,omitempty"`
 	Changes               []Change               `xml:"-"                               json:"changes,omitempty"`
 	Capabilities          []string               `xml:"-"                               json:"capabilities,omitempty"`
+	Tags                  []Tag                  `xml:"-"                               json:"tags,omitempty"`
 }
 
 // ChangeSetSummary is a brief summary of a change set.
@@ -287,6 +288,9 @@ type StackInstance struct {
 	StatusReason    string `xml:"StatusReason,omitempty"    json:"statusReason,omitempty"`
 	DriftStatus     string `xml:"DriftStatus,omitempty"     json:"driftStatus,omitempty"`
 	LastOperationID string `xml:"LastOperationId,omitempty" json:"lastOperationID,omitempty"`
+	// OrganizationalUnitID is set only for SERVICE_MANAGED instances created
+	// via a DeploymentTargets OU expansion (types.go:1836+ OrganizationalUnitId).
+	OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty" json:"organizationalUnitID,omitempty"`
 }
 
 // GeneratedTemplate holds a CloudFormation generated template.
@@ -352,10 +356,25 @@ type Publisher struct {
 
 // StackRefactor holds info about a stack refactor operation.
 type StackRefactor struct {
-	RefactorID       string
-	Description      string
-	Status           string // CREATE_IN_PROGRESS / CREATE_COMPLETE / EXECUTE_IN_PROGRESS / EXECUTE_COMPLETE
-	StackDefinitions []string
+	RefactorID          string
+	Description         string
+	Status              string // CREATE_IN_PROGRESS / CREATE_COMPLETE / EXECUTE_IN_PROGRESS / EXECUTE_COMPLETE
+	ResourceMappings    []ResourceMapping
+	EnableStackCreation bool
+}
+
+// ResourceLocation identifies a resource by stack and logical ID
+// (aws-sdk-go-v2 cloudformation/types.ResourceLocation, types.go:1178).
+type ResourceLocation struct {
+	StackName         string
+	LogicalResourceID string
+}
+
+// ResourceMapping is the source/destination pair ExecuteStackRefactor moves a
+// resource along (types.ResourceMapping, types.go:1195).
+type ResourceMapping struct {
+	Source      ResourceLocation
+	Destination ResourceLocation
 }
 
 // HookResult holds the result of a CloudFormation hook invocation.
@@ -467,4 +486,22 @@ type TypeConfigurationDetail struct {
 	Alias                  string `xml:"Alias,omitempty"`
 	Configuration          string `xml:"Configuration,omitempty"`
 	IsDefaultConfiguration bool   `xml:"IsDefaultConfiguration,omitempty"`
+}
+
+// TypeConfigurationIdentifier identifies a type configuration in a
+// BatchDescribeTypeConfigurations request or response (types.go:3360).
+type TypeConfigurationIdentifier struct {
+	Type                   string `xml:"Type,omitempty"`
+	TypeArn                string `xml:"TypeArn,omitempty"`
+	TypeConfigurationAlias string `xml:"TypeConfigurationAlias,omitempty"`
+	TypeConfigurationArn   string `xml:"TypeConfigurationArn,omitempty"`
+	TypeName               string `xml:"TypeName,omitempty"`
+}
+
+// BatchDescribeTypeConfigurationsError reports a per-identifier failure
+// (types.go:147).
+type BatchDescribeTypeConfigurationsError struct {
+	TypeConfigurationIdentifier *TypeConfigurationIdentifier `xml:"TypeConfigurationIdentifier,omitempty"`
+	ErrorCode                   string                       `xml:"ErrorCode,omitempty"`
+	ErrorMessage                string                       `xml:"ErrorMessage,omitempty"`
 }

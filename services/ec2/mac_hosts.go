@@ -8,15 +8,10 @@ import (
 	"time"
 )
 
-// mac_hosts.go implements the EC2 Mac Dedicated Host and Mac
-// modification task family: DescribeMacHosts, CreateMacSystemIntegrityProtectionModificationTask,
-// CreateDelegateMacVolumeOwnershipTask, and DescribeMacModificationTasks.
-//
-// EC2 Mac Dedicated Hosts have no separate creation API: a Mac Dedicated Host
-// is a regular Dedicated Host (see accept_ops.go's AllocateHosts)
-// allocated with a mac1/mac2/mac-m* instance type. DescribeMacHosts therefore
-// derives its results from the existing b.dedicatedHosts state rather than
-// maintaining a second, parallel resource map.
+// mac_hosts.go: a Mac Dedicated Host has no separate creation API -- it's a
+// regular Dedicated Host (accept_ops.go's AllocateHosts) allocated with a
+// mac1/mac2/mac-m* instance type, so DescribeMacHosts derives results from
+// b.dedicatedHosts rather than a second, parallel resource map.
 
 // ErrMacInstanceRequired is returned when a Mac-only operation targets an
 // instance that is not a Mac (mac1/mac2/mac-m*) instance type.

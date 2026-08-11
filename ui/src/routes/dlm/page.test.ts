@@ -107,6 +107,111 @@ describe("DLM Page", () => {
     expect(mockSend).toHaveBeenCalledTimes(3);
   });
 
+  it("creates a lifecycle policy with structured PolicyDetails (target tag + schedule)", async () => {
+    mockSend.mockResolvedValueOnce({ Policies: [] });
+    render(DLMPage);
+    await waitFor(() => screen.getByText("No lifecycle policies found"));
+
+    await fireEvent.click(screen.getByText("Create policy"));
+
+    await fireEvent.input(within(openDialog()).getByLabelText("Description"), {
+      target: { value: "Daily EBS snapshots" },
+    });
+    await fireEvent.input(within(openDialog()).getByLabelText("Execution role ARN"), {
+      target: { value: "arn:aws:iam::123456789012:role/DLM-Role" },
+    });
+
+    await fireEvent.change(within(openDialog()).getByLabelText("Policy type"), {
+      target: { value: "EBS_SNAPSHOT_MANAGEMENT" },
+    });
+
+    await fireEvent.click(within(openDialog()).getByLabelText("Add target tag"));
+    await fireEvent.input(within(openDialog()).getByLabelText("Target tag key"), {
+      target: { value: "env" },
+    });
+    await fireEvent.input(within(openDialog()).getByLabelText("Target tag value"), {
+      target: { value: "prod" },
+    });
+
+    await fireEvent.click(within(openDialog()).getByText("Add schedule"));
+    await fireEvent.input(within(openDialog()).getByLabelText("Create rule interval"), {
+      target: { value: "12" },
+    });
+    await fireEvent.input(within(openDialog()).getByLabelText("Retain rule count"), {
+      target: { value: "3" },
+    });
+
+    mockSend.mockResolvedValueOnce({ PolicyId: examplePolicy.PolicyId });
+    mockSend.mockResolvedValueOnce({ Policies: [examplePolicy] });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenCalledTimes(3);
+    });
+
+    const createCall = mockSend.mock.calls[1][0] as {
+      input: {
+        PolicyDetails?: {
+          PolicyType?: string;
+          TargetTags?: { Key?: string; Value?: string }[];
+          Schedules?: { CreateRule?: { Interval?: number }; RetainRule?: { Count?: number } }[];
+        };
+      };
+    };
+    const details = createCall.input.PolicyDetails;
+    expect(details?.PolicyType).toBe("EBS_SNAPSHOT_MANAGEMENT");
+    expect(details?.TargetTags).toEqual([{ Key: "env", Value: "prod" }]);
+    expect(details?.Schedules).toEqual([
+      { CreateRule: { Interval: 12 }, RetainRule: { Count: 3 } },
+    ]);
+  });
+
+  it("preserves advanced (uncovered) PolicyDetails fields and merges structured edits on update", async () => {
+    const policyWithAdvancedFields = {
+      ...exampleFullPolicy,
+      PolicyDetails: {
+        PolicyType: "EBS_SNAPSHOT_MANAGEMENT",
+        Parameters: { NoReboot: true },
+      },
+    };
+
+    mockSend.mockResolvedValueOnce({ Policies: [examplePolicy] });
+    render(DLMPage);
+    await waitFor(() => screen.getByText(examplePolicy.PolicyId));
+
+    mockSend.mockResolvedValueOnce({ Policy: policyWithAdvancedFields });
+    await fireEvent.click(screen.getByTitle("View"));
+    await waitFor(() => screen.getByText(exampleFullPolicy.PolicyArn));
+
+    await fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const advancedJSON = within(openDialog()).getByLabelText(
+      /Advanced \(JSON\)/,
+    ) as HTMLTextAreaElement;
+    expect(JSON.parse(advancedJSON.value)).toEqual({ Parameters: { NoReboot: true } });
+
+    await fireEvent.change(within(openDialog()).getByLabelText("Policy type"), {
+      target: { value: "IMAGE_MANAGEMENT" },
+    });
+
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({ Policies: [examplePolicy] });
+    mockSend.mockResolvedValueOnce({ Policy: policyWithAdvancedFields });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenCalledTimes(5);
+    });
+
+    const updateCall = mockSend.mock.calls[2][0] as {
+      input: { PolicyDetails?: { PolicyType?: string; Parameters?: { NoReboot?: boolean } } };
+    };
+    expect(updateCall.input.PolicyDetails?.PolicyType).toBe("IMAGE_MANAGEMENT");
+    expect(updateCall.input.PolicyDetails?.Parameters).toEqual({ NoReboot: true });
+  });
+
   it("deletes a lifecycle policy after confirming", async () => {
     mockSend.mockResolvedValueOnce({ Policies: [examplePolicy] });
     render(DLMPage);

@@ -3,9 +3,78 @@ package route53resolver
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+const (
+	filterFieldError                    = "Error"
+	filterFieldResolverQueryLogConfigID = "ResolverQueryLogConfigId"
+	filterFieldResourceID               = "ResourceId"
+)
+
+// queryLogConfigAssociationFilterAliases canonicalizes Filter.Name for
+// ListResolverQueryLogConfigAssociations (types.Filter doc, aws-sdk-go-v2/
+// service/route53resolver@v1.48.4 types/types.go): CreationTime, Error, Id,
+// ResolverQueryLogConfigId, ResourceId, Status -- see
+// resolverEndpointFilterAliases's doc comment for the two-forms rule.
+//
+//nolint:gochecknoglobals // immutable lookup table, same pattern as other services' dispatch/alias tables
+var queryLogConfigAssociationFilterAliases = map[string]string{
+	filterFieldCreationTime:             filterFieldCreationTime,
+	"CREATION_TIME":                     filterFieldCreationTime,
+	filterFieldError:                    filterFieldError,
+	"ERROR":                             filterFieldError,
+	filterFieldID:                       filterFieldID,
+	"ID":                                filterFieldID,
+	filterFieldResolverQueryLogConfigID: filterFieldResolverQueryLogConfigID,
+	"RESOLVER_QUERY_LOG_CONFIG_ID":      filterFieldResolverQueryLogConfigID,
+	filterFieldResourceID:               filterFieldResourceID,
+	"RESOURCE_ID":                       filterFieldResourceID,
+	filterFieldStatus:                   filterFieldStatus,
+	legacyFilterStatus:                  filterFieldStatus,
+}
+
+// queryLogConfigAssociationSortLess canonicalizes SortBy for
+// ListResolverQueryLogConfigAssociations (aws-sdk-go-v2/service/route53resolver@
+// v1.48.4 api_op_ListResolverQueryLogConfigAssociations.go SortBy doc):
+// CreationTime/Error/Id/ResolverQueryLogConfigId/ResourceId/Status -- a
+// different, association-specific set from queryLogConfigSortLess (e.g. no
+// Arn/OwnerId/ShareStatus here, but Error is unique to this operation).
+//
+//nolint:gochecknoglobals // immutable lookup table, same pattern as queryLogConfigAssociationFilterAliases
+var queryLogConfigAssociationSortLess = sortLess[*ResolverQueryLogConfigAssociation]{
+	filterFieldCreationTime: func(a, b *ResolverQueryLogConfigAssociation) bool {
+		return a.CreationTime < b.CreationTime
+	},
+	filterFieldError: func(a, b *ResolverQueryLogConfigAssociation) bool { return a.Error < b.Error },
+	filterFieldID:    func(a, b *ResolverQueryLogConfigAssociation) bool { return a.ID < b.ID },
+	filterFieldResolverQueryLogConfigID: func(a, b *ResolverQueryLogConfigAssociation) bool {
+		return a.ResolverQueryLogConfigID < b.ResolverQueryLogConfigID
+	},
+	filterFieldResourceID: func(a, b *ResolverQueryLogConfigAssociation) bool { return a.ResourceID < b.ResourceID },
+	filterFieldStatus:     func(a, b *ResolverQueryLogConfigAssociation) bool { return a.Status < b.Status },
+}
+
+func matchQueryLogConfigAssociationFilter(a *ResolverQueryLogConfigAssociation, name string, values []string) bool {
+	switch name {
+	case filterFieldCreationTime:
+		return slices.Contains(values, a.CreationTime)
+	case filterFieldError:
+		return slices.Contains(values, a.Error)
+	case filterFieldID:
+		return slices.Contains(values, a.ID)
+	case filterFieldResolverQueryLogConfigID:
+		return slices.Contains(values, a.ResolverQueryLogConfigID)
+	case filterFieldResourceID:
+		return slices.Contains(values, a.ResourceID)
+	case filterFieldStatus:
+		return slices.Contains(values, a.Status)
+	default:
+		return false
+	}
+}
 
 // resolverQueryLogConfigAssociationOutput is the JSON representation of a ResolverQueryLogConfigAssociation.
 type resolverQueryLogConfigAssociationOutput struct {
@@ -139,8 +208,11 @@ func (h *Handler) handleDisassociateResolverQueryLogConfig(
 // --- ListResolverQueryLogConfigAssociations ---
 
 type listResolverQueryLogConfigAssociationsInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken  string       `json:"NextToken"`
+	SortBy     string       `json:"SortBy"`
+	SortOrder  string       `json:"SortOrder"`
+	Filters    []wireFilter `json:"Filters"`
+	MaxResults int32        `json:"MaxResults"`
 }
 
 type queryLogAssocOutputSlice = []resolverQueryLogConfigAssociationOutput
@@ -155,6 +227,19 @@ func (h *Handler) handleListResolverQueryLogConfigAssociations(
 	in *listResolverQueryLogConfigAssociationsInput,
 ) (*listResolverQueryLogConfigAssociationsOutput, error) {
 	assocs := h.Backend.ListResolverQueryLogConfigAssociations(ctx)
+	assocs, err := applyFilters(
+		assocs,
+		in.Filters,
+		queryLogConfigAssociationFilterAliases,
+		matchQueryLogConfigAssociationFilter,
+	)
+	if err != nil {
+		return nil, err
+	}
+	assocs, err = applySort(assocs, in.SortBy, in.SortOrder, queryLogConfigAssociationSortLess)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]resolverQueryLogConfigAssociationOutput, 0, len(assocs))
 	for _, a := range assocs {
 		items = append(items, queryLogConfigAssociationToOutput(a))

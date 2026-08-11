@@ -56,6 +56,104 @@ func TestEndpointPassword_StoredButNeverOnWire(t *testing.T) {
 	assert.Equal(t, "n3wpass", list2[0].Password, "ModifyEndpoint must persist the new Password")
 }
 
+// TestEndpoint_EngineSettingsRejected locks gopherstack-z79q: CreateEndpoint/
+// ModifyEndpoint accept ~19 heterogeneous engine-specific settings blocks
+// (MySQLSettings, S3Settings, OracleSettings, ...) that this emulator does
+// not model. Rather than silently drop them (the pre-fix behavior --
+// encoding/json ignores unknown fields), sending any of them must be
+// rejected with a 400 ValidationException naming the field, not accepted
+// as if honored.
+func TestEndpoint_EngineSettingsRejected(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		field string
+	}{
+		{name: "mysql", field: "MySQLSettings"},
+		{name: "postgresql", field: "PostgreSQLSettings"},
+		{name: "s3", field: "S3Settings"},
+		{name: "oracle", field: "OracleSettings"},
+		{name: "mongodb", field: "MongoDbSettings"},
+		{name: "kafka", field: "KafkaSettings"},
+		{name: "kinesis", field: "KinesisSettings"},
+		{name: "redshift", field: "RedshiftSettings"},
+		{name: "dynamodb", field: "DynamoDbSettings"},
+		{name: "elasticsearch", field: "ElasticsearchSettings"},
+		{name: "neptune", field: "NeptuneSettings"},
+		{name: "docdb", field: "DocDbSettings"},
+		{name: "ibmdb2", field: "IBMDb2Settings"},
+		{name: "sqlserver", field: "MicrosoftSQLServerSettings"},
+		{name: "sybase", field: "SybaseSettings"},
+		{name: "dmstransfer", field: "DmsTransferSettings"},
+		{name: "gcpmysql", field: "GcpMySQLSettings"},
+		{name: "redis", field: "RedisSettings"},
+		{name: "timestream", field: "TimestreamSettings"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+
+			createRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+				"EndpointIdentifier": "settings-ep-" + tc.name,
+				"EndpointType":       "source",
+				"EngineName":         "mysql",
+				tc.field:             map[string]any{"Username": "ignored"},
+			})
+			require.Equal(t, http.StatusBadRequest, createRec.Code)
+			createBody := parseJSON(t, createRec)
+			assert.Equal(t, "ValidationException", createBody["__type"])
+			msg, _ := createBody["message"].(string)
+			assert.Contains(t, msg, tc.field)
+
+			// The endpoint must not have been created.
+			list, err := h.Backend.DescribeEndpoints(t.Context(), "settings-ep-"+tc.name)
+			require.NoError(t, err)
+			assert.Empty(t, list)
+
+			// ModifyEndpoint rejects the same field on an existing endpoint.
+			h.Backend.AddEndpointInternal("existing-"+tc.name, "source", "mysql")
+			descRec := doDMS(t, h, "DescribeEndpoints", map[string]any{
+				"Filters": []map[string]any{{"Name": "endpoint-id", "Values": []string{"existing-" + tc.name}}},
+			})
+			require.Equal(t, http.StatusOK, descRec.Code)
+			eps := parseJSON(t, descRec)["Endpoints"].([]any)
+			require.Len(t, eps, 1)
+			epArn := eps[0].(map[string]any)["EndpointArn"].(string)
+
+			modRec := doDMS(t, h, "ModifyEndpoint", map[string]any{
+				"EndpointArn": epArn,
+				tc.field:      map[string]any{"Username": "ignored"},
+			})
+			require.Equal(t, http.StatusBadRequest, modRec.Code)
+			modBody := parseJSON(t, modRec)
+			assert.Equal(t, "ValidationException", modBody["__type"])
+			modMsg, _ := modBody["message"].(string)
+			assert.Contains(t, modMsg, tc.field)
+		})
+	}
+}
+
+// TestEndpoint_EngineSettingsNullAccepted asserts an explicit JSON null for an
+// engine settings field is treated as absent, matching real SDK clients that
+// may serialize an unset pointer field as null rather than omitting it.
+func TestEndpoint_EngineSettingsNullAccepted(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "null-settings-ep",
+		"EndpointType":       "source",
+		"EngineName":         "mysql",
+		"MySQLSettings":      nil,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestModifyEndpoint(t *testing.T) {
 	t.Parallel()
 

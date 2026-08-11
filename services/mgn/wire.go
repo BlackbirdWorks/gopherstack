@@ -1,18 +1,11 @@
 package mgn
 
-// Wire request/response shapes for the restjson1 protocol. Field names use
-// EXACT lowerCamelCase JSON keys read directly from
-// aws-sdk-go-v2/service/mgn@v1.48.3's serializers.go/deserializers.go (every
-// member name is the Go SDK's own exported field name with only its first
-// rune lowercased -- confirmed individually for a representative sample per
-// family via `grep -oE '"[a-zA-Z]+"' serializers.go|deserializers.go`, e.g.
-// "applicationID", "sourceServerIDs", "networkMigrationExecutionID" all keep
-// their embedded ID/IDs acronym capitalized -- see PARITY.md). Every
-// *string field the SDK types as a "DateTime"-suffixed member is wire-coded
-// as a bare JSON string (RFC3339 by this package's own convention -- see
-// models.go); every real smithy *time.Time field (the Network Migration
-// family's CreatedAt/UpdatedAt/EndedAt) is epoch-seconds via
-// pkgs/awstime.Epoch.
+// Wire request/response shapes for the restjson1 protocol. Field names are the
+// Go SDK's own exported field name with only its first rune lowercased (e.g.
+// "applicationID" keeps ID capitalized), per aws-sdk-go-v2/service/mgn@v1.48.4's
+// serializers.go/deserializers.go -- see PARITY.md. *string "DateTime"-suffixed
+// members wire as bare RFC3339 strings; real smithy *time.Time fields (Network
+// Migration's CreatedAt/UpdatedAt/EndedAt) are epoch-seconds via pkgs/awstime.Epoch.
 
 // ---- shared nested shapes ----
 
@@ -247,10 +240,17 @@ type sourceServerIDRequest struct {
 	AccountID      string `json:"accountID,omitempty"`
 }
 
+// Platform (real wire field: "platform") is deliberately not modeled here --
+// see SourceServerUpdate's doc comment (sourceservers.go) for why: JSON
+// unmarshal silently ignores unknown keys, so a caller-sent "platform" is
+// accepted and dropped, matching the real SDK's own SourceServer output
+// shape, which has no Platform field to read it back from either.
 type updateSourceServerRequest struct {
-	ConnectorAction *connectorActionWire `json:"connectorAction,omitempty"`
-	SourceServerID  string               `json:"sourceServerID"`
-	AccountID       string               `json:"accountID,omitempty"`
+	ConnectorAction        *connectorActionWire `json:"connectorAction,omitempty"`
+	FqdnForActionFramework *string              `json:"fqdnForActionFramework,omitempty"`
+	UserProvidedID         *string              `json:"userProvidedID,omitempty"`
+	SourceServerID         string               `json:"sourceServerID"`
+	AccountID              string               `json:"accountID,omitempty"`
 }
 
 type updateSourceServerReplicationTypeRequest struct {

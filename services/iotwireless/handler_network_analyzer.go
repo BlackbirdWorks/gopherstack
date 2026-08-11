@@ -15,13 +15,13 @@ type createNetworkAnalyzerConfigurationResponse struct {
 }
 
 type getNetworkAnalyzerConfigurationResponse struct {
-	TraceContent     map[string]any `json:"TraceContent,omitempty"`
-	Arn              string         `json:"Arn"`
-	Name             string         `json:"Name"`
-	Description      string         `json:"Description"`
-	WirelessDevices  []string       `json:"WirelessDevices"`
-	WirelessGateways []string       `json:"WirelessGateways"`
-	MulticastGroups  []string       `json:"MulticastGroups"`
+	TraceContent     *TraceContent `json:"TraceContent,omitempty"`
+	Arn              string        `json:"Arn"`
+	Name             string        `json:"Name"`
+	Description      string        `json:"Description"`
+	WirelessDevices  []string      `json:"WirelessDevices"`
+	WirelessGateways []string      `json:"WirelessGateways"`
+	MulticastGroups  []string      `json:"MulticastGroups"`
 }
 
 type networkAnalyzerConfigListEntry struct {
@@ -36,13 +36,13 @@ type listNetworkAnalyzerConfigurationsResponse struct {
 
 func (h *Handler) createNetworkAnalyzerConfiguration(c *echo.Context) error {
 	var req struct {
-		TraceContent     map[string]any `json:"TraceContent,omitempty"`
-		Description      string         `json:"Description"`
-		Name             string         `json:"Name"`
-		WirelessDevices  []string       `json:"WirelessDevices"`
-		WirelessGateways []string       `json:"WirelessGateways"`
-		MulticastGroups  []string       `json:"MulticastGroups"`
-		Tags             []tags.KV      `json:"Tags"`
+		TraceContent     *TraceContent `json:"TraceContent,omitempty"`
+		Description      string        `json:"Description"`
+		Name             string        `json:"Name"`
+		WirelessDevices  []string      `json:"WirelessDevices"`
+		WirelessGateways []string      `json:"WirelessGateways"`
+		MulticastGroups  []string      `json:"MulticastGroups"`
+		Tags             []tags.KV     `json:"Tags"`
 	}
 
 	body := readStubBody(c)
@@ -110,10 +110,10 @@ func (h *Handler) deleteNetworkAnalyzerConfiguration(c *echo.Context, name strin
 
 func (h *Handler) updateNetworkAnalyzerConfiguration(c *echo.Context, name string) error {
 	var req struct {
-		TraceContent     map[string]any `json:"TraceContent,omitempty"`
-		Description      string         `json:"Description"`
-		WirelessDevices  []string       `json:"WirelessDevices"`
-		WirelessGateways []string       `json:"WirelessGateways"`
+		TraceContent     *TraceContent `json:"TraceContent,omitempty"`
+		Description      string        `json:"Description"`
+		WirelessDevices  []string      `json:"WirelessDevices"`
+		WirelessGateways []string      `json:"WirelessGateways"`
 	}
 
 	body := readStubBody(c)

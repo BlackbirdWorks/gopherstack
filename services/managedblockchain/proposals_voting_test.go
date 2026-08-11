@@ -227,7 +227,7 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, b := newTestHandlerWithBackend(t)
 
 			// Create network with voting policy
 			var votingPolicy map[string]any
@@ -264,7 +264,9 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 			extraMemberIDs := make([]string, 0, tt.totalMembers-1)
 
 			for i := 1; i < tt.totalMembers; i++ {
+				invitationID := createTestInvitation(t, b, networkID, "vote-net")
 				memRec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members", map[string]any{
+					"InvitationId":        invitationID,
 					"MemberConfiguration": testMemberConfiguration(fmt.Sprintf("m%d", i)),
 				})
 				require.Equal(t, http.StatusOK, memRec.Code)
@@ -389,7 +391,7 @@ func TestHandler_VoteOnProposalAlreadyCompleted(t *testing.T) {
 func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	h, b := newTestHandlerWithBackend(t)
 
 	// 3 members, GREATER_THAN 33%: 1/3 YES = 33.33% > 33 with float (but 33 > 33 = false with integer).
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
@@ -412,8 +414,9 @@ func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 	ownerMemberID := netResp["MemberId"].(string)
 
 	addMem := func(name string) {
+		invitationID := createTestInvitation(t, b, netID, "float-precision-net")
 		rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/members",
-			map[string]any{"MemberConfiguration": testMemberConfiguration(name)})
+			map[string]any{"InvitationId": invitationID, "MemberConfiguration": testMemberConfiguration(name)})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
@@ -531,7 +534,7 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 	// 4 members, GREATER_THAN 50%: need >50% YES = 3 votes minimum.
 	// After 2 NO votes: maxPossibleYes = 4 - 2 = 2 < 3 → REJECTED.
 	// Old wrong logic: rejectionThreshold = 100 - 50 = 50%, needed >50% NO = 3 NO votes.
-	h := newTestHandler(t)
+	h, b := newTestHandlerWithBackend(t)
 
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "reject-net",
@@ -553,8 +556,9 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 	m0ID := netResp["MemberId"].(string)
 
 	addMem := func(name string) string {
+		invitationID := createTestInvitation(t, b, netID, "reject-net")
 		rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/members",
-			map[string]any{"MemberConfiguration": testMemberConfiguration(name)})
+			map[string]any{"InvitationId": invitationID, "MemberConfiguration": testMemberConfiguration(name)})
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var r map[string]any

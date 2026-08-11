@@ -515,14 +515,37 @@ type listCoreNetworkPolicyVersionsResponse struct {
 	CoreNetworkPolicyVersions []coreNetworkPolicyVersionWire `json:"CoreNetworkPolicyVersions"`
 }
 
+type coreNetworkChangeValuesWire struct {
+	SegmentName              string `json:"SegmentName,omitempty"`
+	NetworkFunctionGroupName string `json:"NetworkFunctionGroupName,omitempty"`
+}
+
+type coreNetworkChangeWire struct {
+	NewValues      *coreNetworkChangeValuesWire `json:"NewValues,omitempty"`
+	PreviousValues *coreNetworkChangeValuesWire `json:"PreviousValues,omitempty"`
+	Action         string                       `json:"Action,omitempty"`
+	Identifier     string                       `json:"Identifier,omitempty"`
+	IdentifierPath string                       `json:"IdentifierPath,omitempty"`
+	Type           string                       `json:"Type,omitempty"`
+}
+
 type getCoreNetworkChangeSetResponse struct {
-	NextToken          string     `json:"NextToken,omitempty"`
-	CoreNetworkChanges []struct{} `json:"CoreNetworkChanges"`
+	NextToken          string                  `json:"NextToken,omitempty"`
+	CoreNetworkChanges []coreNetworkChangeWire `json:"CoreNetworkChanges"`
+}
+
+type coreNetworkChangeEventWire struct {
+	Values         *coreNetworkChangeValuesWire `json:"Values,omitempty"`
+	EventTime      *float64                     `json:"EventTime,omitempty"`
+	Action         string                       `json:"Action,omitempty"`
+	IdentifierPath string                       `json:"IdentifierPath,omitempty"`
+	Status         string                       `json:"Status,omitempty"`
+	Type           string                       `json:"Type,omitempty"`
 }
 
 type getCoreNetworkChangeEventsResponse struct {
-	NextToken               string     `json:"NextToken,omitempty"`
-	CoreNetworkChangeEvents []struct{} `json:"CoreNetworkChangeEvents"`
+	NextToken               string                       `json:"NextToken,omitempty"`
+	CoreNetworkChangeEvents []coreNetworkChangeEventWire `json:"CoreNetworkChangeEvents"`
 }
 
 // ---- Core Network Prefix List Association ----
@@ -813,7 +836,22 @@ type routeAnalysisCompletionWire struct {
 
 type routeAnalysisPathWire struct {
 	CompletionStatus *routeAnalysisCompletionWire `json:"CompletionStatus,omitempty"`
-	Path             []struct{}                   `json:"Path,omitempty"`
+	Path             []pathComponentWire          `json:"Path,omitempty"`
+}
+
+type networkResourceSummaryWire struct {
+	Definition           string `json:"Definition,omitempty"`
+	NameTag              string `json:"NameTag,omitempty"`
+	RegisteredGatewayArn string `json:"RegisteredGatewayArn,omitempty"`
+	ResourceArn          string `json:"ResourceArn,omitempty"`
+	ResourceType         string `json:"ResourceType,omitempty"`
+	IsMiddlebox          bool   `json:"IsMiddlebox,omitempty"`
+}
+
+type pathComponentWire struct {
+	Resource             *networkResourceSummaryWire `json:"Resource,omitempty"`
+	DestinationCidrBlock string                      `json:"DestinationCidrBlock,omitempty"`
+	Sequence             int32                       `json:"Sequence,omitempty"`
 }
 
 type routeAnalysisWire struct {

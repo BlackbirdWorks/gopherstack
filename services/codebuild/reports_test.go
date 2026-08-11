@@ -251,41 +251,51 @@ func TestCodeBuild_Reports(t *testing.T) {
 		assert.Empty(t, out.Reports)
 	})
 
-	t.Run("delete_report_not_found", func(t *testing.T) {
+	// DeleteReport declares no ResourceNotFoundException in its real error set
+	// (botocore codebuild/2016-10-06/service-2.json operations.DeleteReport.errors:
+	// only InvalidInputException), so it is idempotent.
+	t.Run("delete_report_not_found_is_idempotent", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
 		rec := doRequest(t, h, "DeleteReport", map[string]any{
 			"arn": "arn:aws:codebuild:us-east-1:000000000000:report/rg1:ghost",
 		})
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, http.StatusOK, rec.Code)
 	})
 
 	t.Run("list_reports_for_report_group", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
-		rgArn := "arn:aws:codebuild:us-east-1:000000000000:report-group/my-rg"
+		rg, err := h.Backend.CreateReportGroup(
+			"my-rg", "TEST", codebuild.ReportExportConfig{ExportConfigType: "NO_EXPORT"}, nil,
+		)
+		require.NoError(t, err)
+		otherRg, err := h.Backend.CreateReportGroup(
+			"other-rg", "TEST", codebuild.ReportExportConfig{ExportConfigType: "NO_EXPORT"}, nil,
+		)
+		require.NoError(t, err)
 
 		h.Backend.AddReportInternal(&codebuild.Report{
 			Arn:            "arn:aws:codebuild:us-east-1:000000000000:report/my-rg:r1",
-			ReportGroupArn: rgArn,
+			ReportGroupArn: rg.Arn,
 			Status:         "SUCCEEDED",
 		})
 		h.Backend.AddReportInternal(&codebuild.Report{
 			Arn:            "arn:aws:codebuild:us-east-1:000000000000:report/my-rg:r2",
-			ReportGroupArn: rgArn,
+			ReportGroupArn: rg.Arn,
 			Status:         "FAILED",
 		})
 		// Different group.
 		h.Backend.AddReportInternal(&codebuild.Report{
 			Arn:            "arn:aws:codebuild:us-east-1:000000000000:report/other-rg:r1",
-			ReportGroupArn: "arn:aws:codebuild:us-east-1:000000000000:report-group/other-rg",
+			ReportGroupArn: otherRg.Arn,
 			Status:         "SUCCEEDED",
 		})
 
 		rec := doRequest(t, h, "ListReportsForReportGroup", map[string]any{
-			"reportGroupArn": rgArn,
+			"reportGroupArn": rg.Arn,
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
@@ -297,6 +307,20 @@ func TestCodeBuild_Reports(t *testing.T) {
 		for _, r := range out.Reports {
 			assert.Contains(t, r, "my-rg")
 		}
+	})
+
+	// ListReportsForReportGroup declares ResourceNotFoundException in its real
+	// error set (botocore codebuild/2016-10-06/service-2.json
+	// operations.ListReportsForReportGroup.errors), unlike ListReports/
+	// ListReportGroups, so a nonexistent reportGroupArn must be rejected.
+	t.Run("list_reports_for_report_group_nonexistent_group_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, "ListReportsForReportGroup", map[string]any{
+			"reportGroupArn": "arn:aws:codebuild:us-east-1:000000000000:report-group/no-such-group",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
 
@@ -336,14 +360,16 @@ func TestCodeBuild_ReportGroups(t *testing.T) {
 		assert.Len(t, batchOut.ReportGroupsNotFound, 1)
 	})
 
-	t.Run("delete_report_group_not_found", func(t *testing.T) {
+	// DeleteReportGroup declares no ResourceNotFoundException in its real error
+	// set (same botocore evidence as DeleteReport above), so it is idempotent.
+	t.Run("delete_report_group_not_found_is_idempotent", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
 		rec := doRequest(t, h, "DeleteReportGroup", map[string]any{
 			"arn": "arn:aws:codebuild:us-east-1:000000000000:report-group/ghost",
 		})
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, http.StatusOK, rec.Code)
 	})
 
 	t.Run("update_report_group", func(t *testing.T) {
@@ -402,7 +428,11 @@ func TestCodeBuild_ReportGroups(t *testing.T) {
 func TestCodeBuild_ReportExtras(t *testing.T) {
 	t.Parallel()
 
-	t.Run("describe_code_coverages_returns_empty", func(t *testing.T) {
+	// DescribeCodeCoverages declares no ResourceNotFoundException in its real
+	// error set (botocore codebuild/2016-10-06/service-2.json, "errors": only
+	// InvalidInputException), unlike DescribeTestCases/GetReportGroupTrend below
+	// -- so a nonexistent report ARN is correctly *not* rejected here.
+	t.Run("describe_code_coverages_nonexistent_report_still_returns_empty", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
@@ -418,12 +448,22 @@ func TestCodeBuild_ReportExtras(t *testing.T) {
 		assert.Empty(t, out.CodeCoverages)
 	})
 
-	t.Run("describe_test_cases_returns_empty", func(t *testing.T) {
+	t.Run("describe_test_cases_returns_empty_for_existing_report", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
+		rg, err := h.Backend.CreateReportGroup(
+			"rg-testcases", "TEST", codebuild.ReportExportConfig{ExportConfigType: "NO_EXPORT"}, nil,
+		)
+		require.NoError(t, err)
+		h.Backend.AddReportInternal(&codebuild.Report{
+			Arn:            "arn:aws:codebuild:us-east-1:000000000000:report/rg-testcases:r1",
+			ReportGroupArn: rg.Arn,
+			Status:         "SUCCEEDED",
+		})
+
 		rec := doRequest(t, h, "DescribeTestCases", map[string]any{
-			"reportArn": "arn:aws:codebuild:us-east-1:000000000000:report/rg:r1",
+			"reportArn": "arn:aws:codebuild:us-east-1:000000000000:report/rg-testcases:r1",
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
@@ -434,12 +474,27 @@ func TestCodeBuild_ReportExtras(t *testing.T) {
 		assert.Empty(t, out.TestCases)
 	})
 
-	t.Run("get_report_group_trend_returns_empty_stats", func(t *testing.T) {
+	t.Run("describe_test_cases_nonexistent_report_rejected", func(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
+		rec := doRequest(t, h, "DescribeTestCases", map[string]any{
+			"reportArn": "arn:aws:codebuild:us-east-1:000000000000:report/rg:no-such-report",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("get_report_group_trend_returns_empty_stats_for_existing_group", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rg, err := h.Backend.CreateReportGroup(
+			"rg-trend", "TEST", codebuild.ReportExportConfig{ExportConfigType: "NO_EXPORT"}, nil,
+		)
+		require.NoError(t, err)
+
 		rec := doRequest(t, h, "GetReportGroupTrend", map[string]any{
-			"reportGroupArn": "arn:aws:codebuild:us-east-1:000000000000:report-group/rg",
+			"reportGroupArn": rg.Arn,
 			"trendField":     "PASS_RATE",
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -449,6 +504,33 @@ func TestCodeBuild_ReportExtras(t *testing.T) {
 		}
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 		assert.NotNil(t, out.Stats)
+	})
+
+	t.Run("get_report_group_trend_nonexistent_group_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, "GetReportGroupTrend", map[string]any{
+			"reportGroupArn": "arn:aws:codebuild:us-east-1:000000000000:report-group/no-such-group",
+			"trendField":     "PASS_RATE",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("get_report_group_trend_invalid_trend_field_rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rg, err := h.Backend.CreateReportGroup(
+			"rg-trend-invalid", "TEST", codebuild.ReportExportConfig{ExportConfigType: "NO_EXPORT"}, nil,
+		)
+		require.NoError(t, err)
+
+		rec := doRequest(t, h, "GetReportGroupTrend", map[string]any{
+			"reportGroupArn": rg.Arn,
+			"trendField":     "NOT_A_REAL_FIELD",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
 	t.Run("list_shared_report_groups_returns_empty", func(t *testing.T) {

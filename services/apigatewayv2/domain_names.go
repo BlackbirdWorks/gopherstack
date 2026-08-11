@@ -6,6 +6,9 @@ import (
 	"maps"
 	"slices"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func applyDomainNameDefaults(
@@ -120,12 +123,105 @@ func (b *InMemoryBackend) CreateDomainName(
 	return &cp, nil
 }
 
+const (
+	routingRulePriorityMin = 1
+	routingRulePriorityMax = 1000000
+)
+
+// validateRoutingRulePriority enforces RoutingRulePriority's modeled range
+// (min 1, max 1000000; botocore apigatewayv2/2018-11-29/service-2.json.gz,
+// shape RoutingRulePriority).
+func validateRoutingRulePriority(priority int32) error {
+	if priority < routingRulePriorityMin || priority > routingRulePriorityMax {
+		return fmt.Errorf(
+			"%w: priority must be between %d and %d", ErrBadRequest, routingRulePriorityMin, routingRulePriorityMax,
+		)
+	}
+
+	return nil
+}
+
+// validateRoutingRuleActions enforces the structural required fields on each
+// action AWS models (types.go:1280-1301): RoutingRuleAction.InvokeApi is
+// required, and RoutingRuleActionInvokeApi.ApiId/Stage are both required.
+func validateRoutingRuleActions(actions []RoutingRuleAction) error {
+	for _, a := range actions {
+		if a.InvokeAPI == nil {
+			return fmt.Errorf("%w: action invokeApi is required", ErrBadRequest)
+		}
+
+		if a.InvokeAPI.APIID == "" || a.InvokeAPI.Stage == "" {
+			return fmt.Errorf("%w: action invokeApi requires apiId and stage", ErrBadRequest)
+		}
+	}
+
+	return nil
+}
+
+// validateRoutingRuleConditions enforces the structural required fields on
+// each condition AWS models (types.go:1310-1353): a set MatchBasePaths or
+// MatchHeaders requires a non-empty AnyOf, and each MatchHeaderValue requires
+// both header and valueGlob.
+func validateRoutingRuleConditions(conditions []RoutingRuleCondition) error {
+	for _, c := range conditions {
+		if c.MatchBasePaths != nil && len(c.MatchBasePaths.AnyOf) == 0 {
+			return fmt.Errorf("%w: matchBasePaths requires a non-empty anyOf", ErrBadRequest)
+		}
+
+		if c.MatchHeaders == nil {
+			continue
+		}
+
+		if len(c.MatchHeaders.AnyOf) == 0 {
+			return fmt.Errorf("%w: matchHeaders requires a non-empty anyOf", ErrBadRequest)
+		}
+
+		for _, h := range c.MatchHeaders.AnyOf {
+			if h.Header == "" || h.ValueGlob == "" {
+				return fmt.Errorf("%w: matchHeaders anyOf entries require header and valueGlob", ErrBadRequest)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateRoutingRuleActionTargetsLocked checks that each action's InvokeApi
+// targets an API/stage that actually exists, matching the FK-validation
+// pattern used elsewhere in this file (e.g. UpdateAPIMapping). Callers must
+// already hold b.mu.
+func (b *InMemoryBackend) validateRoutingRuleActionTargetsLocked(actions []RoutingRuleAction) error {
+	for _, a := range actions {
+		if !b.apis.Has(a.InvokeAPI.APIID) {
+			return ErrAPINotFound
+		}
+
+		if !b.stages.Has(stageKey(a.InvokeAPI.APIID, a.InvokeAPI.Stage)) {
+			return ErrStageNotFound
+		}
+	}
+
+	return nil
+}
+
 // CreateRoutingRule creates a routing rule under a domain name.
 func (b *InMemoryBackend) CreateRoutingRule(
 	ctx context.Context,
 	domainName string,
 	input CreateRoutingRuleInput,
 ) (*RoutingRule, error) {
+	if err := validateRoutingRulePriority(input.Priority); err != nil {
+		return nil, err
+	}
+
+	if err := validateRoutingRuleActions(input.Actions); err != nil {
+		return nil, err
+	}
+
+	if err := validateRoutingRuleConditions(input.Conditions); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateRoutingRule")
 	defer b.mu.Unlock()
 
@@ -133,11 +229,18 @@ func (b *InMemoryBackend) CreateRoutingRule(
 		return nil, ErrDomainNameNotFound
 	}
 
+	if err := b.validateRoutingRuleActionTargetsLocked(input.Actions); err != nil {
+		return nil, err
+	}
+
 	id := randomID()
+	// RoutingRule ARNs carry an account ID, unlike the DomainName ARN they
+	// nest under (arn-format-reference.html#apigateway-domain-name-arns):
+	// arn:{partition}:apigateway:{region}:{account-id}:/domainnames/{domain}/routingrules/{id}
 	rule := &RoutingRule{
 		RoutingRuleID: id,
-		RoutingRuleARN: "arn:aws:apigateway:" + regionFromCtx(ctx) +
-			"::/domainnames/" + domainName + "/routingrules/" + id,
+		RoutingRuleARN: arn.Build("apigateway", regionFromCtx(ctx), awsmeta.Account(ctx),
+			"/domainnames/"+domainName+"/routingrules/"+id),
 		DomainName: domainName,
 		Priority:   input.Priority,
 		Actions:    input.Actions,
@@ -194,6 +297,18 @@ func (b *InMemoryBackend) PutRoutingRule(
 	domainName, routingRuleID string,
 	input PutRoutingRuleInput,
 ) (*RoutingRule, error) {
+	if err := validateRoutingRulePriority(input.Priority); err != nil {
+		return nil, err
+	}
+
+	if err := validateRoutingRuleActions(input.Actions); err != nil {
+		return nil, err
+	}
+
+	if err := validateRoutingRuleConditions(input.Conditions); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("PutRoutingRule")
 	defer b.mu.Unlock()
 
@@ -205,6 +320,11 @@ func (b *InMemoryBackend) PutRoutingRule(
 	if !ok {
 		return nil, ErrRoutingRuleNotFound
 	}
+
+	if err := b.validateRoutingRuleActionTargetsLocked(input.Actions); err != nil {
+		return nil, err
+	}
+
 	rule.Priority = input.Priority
 	rule.Actions = input.Actions
 	rule.Conditions = input.Conditions
@@ -284,7 +404,9 @@ func (b *InMemoryBackend) DeleteDomainName(domainName string) error {
 	return nil
 }
 
-// UpdateDomainName updates fields on an existing domain name.
+// UpdateDomainName updates fields on an existing domain name. All of input
+// is validated before any field of dn is mutated, so a rejected update never
+// leaves the domain name in a partially-applied state.
 func (b *InMemoryBackend) UpdateDomainName(domainName string, input UpdateDomainNameInput) (*DomainName, error) {
 	b.mu.Lock("UpdateDomainName")
 	defer b.mu.Unlock()
@@ -292,6 +414,12 @@ func (b *InMemoryBackend) UpdateDomainName(domainName string, input UpdateDomain
 	dn, ok := b.domainNames.Get(domainName)
 	if !ok {
 		return nil, ErrDomainNameNotFound
+	}
+
+	if input.RoutingMode != "" {
+		if err := validateRoutingMode(input.RoutingMode); err != nil {
+			return nil, err
+		}
 	}
 
 	if input.Tags != nil {
@@ -312,10 +440,6 @@ func (b *InMemoryBackend) UpdateDomainName(domainName string, input UpdateDomain
 	}
 
 	if input.RoutingMode != "" {
-		if err := validateRoutingMode(input.RoutingMode); err != nil {
-			return nil, err
-		}
-
 		dn.RoutingMode = input.RoutingMode
 	}
 

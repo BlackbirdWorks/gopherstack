@@ -69,9 +69,11 @@ func (b *InMemoryBackend) StartWebAuthnRegistration(accessToken string) (map[str
 	}, nil
 }
 
-// CompleteWebAuthnRegistration stores a WebAuthn credential for the authenticated user.
+// CompleteWebAuthnRegistration stores a WebAuthn credential for the authenticated
+// user. transports is the browser-reported AuthenticatorAttestationResponse
+// transports list (credential.response.transports), if the client included one.
 func (b *InMemoryBackend) CompleteWebAuthnRegistration(
-	accessToken, credentialID, authenticatorAttachment string,
+	accessToken, credentialID, authenticatorAttachment string, transports []string,
 ) (*WebAuthnCredential, error) {
 	b.mu.Lock("CompleteWebAuthnRegistration")
 	defer b.mu.Unlock()
@@ -90,11 +92,16 @@ func (b *InMemoryBackend) CompleteWebAuthnRegistration(
 		b.webauthnCredentials[key] = make(map[string]*WebAuthnCredential)
 	}
 
+	if transports == nil {
+		transports = []string{}
+	}
+
 	cred := &WebAuthnCredential{
 		CredentialID:            credentialID,
 		FriendlyName:            fmt.Sprintf("Passkey %d", len(b.webauthnCredentials[key])+1),
 		RelyingPartyID:          webauthnRelyingPartyID,
 		AuthenticatorAttachment: authenticatorAttachment,
+		AuthenticatorTransports: transports,
 		CreatedAt:               time.Now(),
 	}
 	b.webauthnCredentials[key][credentialID] = cred

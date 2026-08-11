@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import { isAllRegions, currentRegion } from '$lib/region.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getCognitoIDPClient } from '$lib/aws-client';
 	import {
 		ListUserPoolsCommand,
@@ -111,11 +115,20 @@
 	// child tab is strictly scoped to the selected pool.
 	const poolScopedTabs: TabId[] = ['users', 'groups', 'clients', 'identityProviders', 'resourceServers'];
 
+	// Pool IDs are already region-prefixed by construction (e.g.
+	// "us-east-1_AbCdEfG"), but every child tab still needs to know WHICH
+	// region to send its List/Admin* calls to -- `client()` (the page's
+	// shared regional client) tracks the picker's region, not the selected
+	// pool's, so a pool selected from a fanned-out list under All mode would
+	// otherwise route child calls to the wrong region.
+	type Regioned<T> = T & { region: string };
+
 	let activeTab = $state<TabId>('pools');
 	let searchQuery = $state('');
 	let selectedPoolId = $state('');
+	let selectedPoolRegion = $state('');
 
-	let pools = $state<UserPoolDescriptionType[]>([]);
+	let pools = $state<Regioned<UserPoolDescriptionType>[]>([]);
 	let poolsNextToken = $state<string | undefined>();
 	let loadingMorePools = $state(false);
 
@@ -145,17 +158,38 @@
 	// parameter. 60 is the real, documented AWS maximum for this operation.
 	const LIST_USER_POOLS_MAX_RESULTS = 60;
 
+	// In All mode, fans ListUserPools out across every region with data and
+	// tags each row; pagination (NextToken) is inherently single-region, so
+	// "Load More" only appends within the currently selected region.
 	async function fetchPools(reset: boolean): Promise<void> {
-		const resp = await client().send(
-			new ListUserPoolsCommand({
-				MaxResults: LIST_USER_POOLS_MAX_RESULTS,
-				NextToken: reset ? undefined : poolsNextToken
-			})
-		);
-		pools = reset ? (resp.UserPools ?? []) : [...pools, ...(resp.UserPools ?? [])];
-		poolsNextToken = resp.NextToken;
+		if (reset && isAllRegions()) {
+			const result = await multiRegionList(
+				(region) =>
+					getCognitoIDPClient(region).send(
+						new ListUserPoolsCommand({ MaxResults: LIST_USER_POOLS_MAX_RESULTS })
+					),
+				(r) => r.UserPools ?? []
+			);
+			pools = result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<UserPoolDescriptionType>);
+			poolsNextToken = undefined;
+			if (result.errors.length > 0) {
+				toast.error(`Failed to load user pools from ${result.errors.length} region(s)`);
+			}
+		} else {
+			const resp = await client().send(
+				new ListUserPoolsCommand({
+					MaxResults: LIST_USER_POOLS_MAX_RESULTS,
+					NextToken: reset ? undefined : poolsNextToken
+				})
+			);
+			const region = currentRegion();
+			const tagged = (resp.UserPools ?? []).map((p) => ({ ...p, region }) as Regioned<UserPoolDescriptionType>);
+			pools = reset ? tagged : [...pools, ...tagged];
+			poolsNextToken = resp.NextToken;
+		}
 		if (!selectedPoolId && pools.length > 0) {
 			selectedPoolId = pools[0].Id ?? '';
+			selectedPoolRegion = pools[0].region;
 		}
 	}
 
@@ -169,7 +203,7 @@
 			usersPaginationToken = undefined;
 			return;
 		}
-		const resp = await client().send(
+		const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 			new ListUsersCommand({
 				UserPoolId: selectedPoolId,
 				PaginationToken: reset ? undefined : usersPaginationToken
@@ -185,7 +219,7 @@
 			groupsNextToken = undefined;
 			return;
 		}
-		const resp = await client().send(
+		const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 			new ListGroupsCommand({
 				UserPoolId: selectedPoolId,
 				NextToken: reset ? undefined : groupsNextToken
@@ -201,7 +235,7 @@
 			clientsNextToken = undefined;
 			return;
 		}
-		const resp = await client().send(
+		const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 			new ListUserPoolClientsCommand({
 				UserPoolId: selectedPoolId,
 				NextToken: reset ? undefined : clientsNextToken
@@ -217,7 +251,7 @@
 			idpsNextToken = undefined;
 			return;
 		}
-		const resp = await client().send(
+		const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 			new ListIdentityProvidersCommand({
 				UserPoolId: selectedPoolId,
 				NextToken: reset ? undefined : idpsNextToken
@@ -233,7 +267,7 @@
 			resourceServersNextToken = undefined;
 			return;
 		}
-		const resp = await client().send(
+		const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 			new ListResourceServersCommand({
 				UserPoolId: selectedPoolId,
 				NextToken: reset ? undefined : resourceServersNextToken
@@ -266,6 +300,7 @@
 
 	function onPoolSelect(id: string): void {
 		selectedPoolId = id;
+		selectedPoolRegion = pools.find((p) => p.Id === id)?.region ?? currentRegion();
 		if (poolScopedTabs.includes(activeTab)) {
 			tabLoader.refresh(activeTab);
 		}
@@ -277,6 +312,7 @@
 	// the new region) before reloading whichever tab is active.
 	onRegionChange(() => {
 		selectedPoolId = '';
+		selectedPoolRegion = '';
 		pools = [];
 		poolsNextToken = undefined;
 		void tabLoader.refresh('pools').then(() => {
@@ -414,7 +450,7 @@
 		}
 	}
 
-	async function handleDeletePool(p: UserPoolDescriptionType): Promise<void> {
+	async function handleDeletePool(p: Regioned<UserPoolDescriptionType>): Promise<void> {
 		if (!p.Id) return;
 		const confirmed = await confirmDestructive({
 			title: 'Delete user pool',
@@ -422,10 +458,11 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(new DeleteUserPoolCommand({ UserPoolId: p.Id }));
+			await getCognitoIDPClient(p.region).send(new DeleteUserPoolCommand({ UserPoolId: p.Id }));
 			toast.success('User pool deleted');
 			if (selectedPoolId === p.Id) {
 				selectedPoolId = '';
+				selectedPoolRegion = '';
 			}
 			await tabLoader.refresh('pools');
 		} catch (e) {
@@ -441,18 +478,18 @@
 	let updatingPool = $state(false);
 	let updatePoolLoading = $state(false);
 	let updatePoolError = $state<string | null>(null);
-	let updatePoolTarget = $state<UserPoolDescriptionType | null>(null);
+	let updatePoolTarget = $state<Regioned<UserPoolDescriptionType> | null>(null);
 	let updatePoolMfa = $state<'OFF' | 'OPTIONAL' | 'ON'>('OFF');
 	let updatePoolDeletionProtection = $state(false);
 
-	async function openUpdatePoolModal(p: UserPoolDescriptionType): Promise<void> {
+	async function openUpdatePoolModal(p: Regioned<UserPoolDescriptionType>): Promise<void> {
 		if (!p.Id) return;
 		updatePoolTarget = p;
 		updatePoolError = null;
 		updatePoolLoading = true;
 		updatePoolModal?.open();
 		try {
-			const resp = await client().send(new DescribeUserPoolCommand({ UserPoolId: p.Id }));
+			const resp = await getCognitoIDPClient(p.region).send(new DescribeUserPoolCommand({ UserPoolId: p.Id }));
 			updatePoolMfa = (resp.UserPool?.MfaConfiguration as 'OFF' | 'OPTIONAL' | 'ON' | undefined) ?? 'OFF';
 			updatePoolDeletionProtection = resp.UserPool?.DeletionProtection === 'ACTIVE';
 		} catch (e) {
@@ -467,7 +504,7 @@
 		updatingPool = true;
 		updatePoolError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(updatePoolTarget.region).send(
 				new UpdateUserPoolCommand({
 					UserPoolId: updatePoolTarget.Id,
 					MfaConfiguration: updatePoolMfa,
@@ -491,14 +528,14 @@
 	let poolDetailError = $state<string | null>(null);
 	let viewedPool = $state<UserPoolType | null>(null);
 
-	async function openPoolDetail(p: UserPoolDescriptionType): Promise<void> {
+	async function openPoolDetail(p: Regioned<UserPoolDescriptionType>): Promise<void> {
 		if (!p.Id) return;
 		viewedPool = null;
 		poolDetailError = null;
 		poolDetailLoading = true;
 		poolDetailModal?.open();
 		try {
-			const resp = await client().send(new DescribeUserPoolCommand({ UserPoolId: p.Id }));
+			const resp = await getCognitoIDPClient(p.region).send(new DescribeUserPoolCommand({ UserPoolId: p.Id }));
 			viewedPool = resp.UserPool ?? null;
 		} catch (e) {
 			poolDetailError = describeError(e);
@@ -546,7 +583,7 @@
 		creatingUser = true;
 		createUserError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new AdminCreateUserCommand({
 					UserPoolId: selectedPoolId,
 					Username: newUsername,
@@ -575,7 +612,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(new AdminDeleteUserCommand({ UserPoolId: selectedPoolId, Username: u.Username }));
+			await getCognitoIDPClient(selectedPoolRegion).send(new AdminDeleteUserCommand({ UserPoolId: selectedPoolId, Username: u.Username }));
 			toast.success('User deleted');
 			await tabLoader.refresh('users');
 		} catch (e) {
@@ -587,9 +624,9 @@
 		if (!selectedPoolId || !u.Username) return;
 		try {
 			if (u.Enabled) {
-				await client().send(new AdminDisableUserCommand({ UserPoolId: selectedPoolId, Username: u.Username }));
+				await getCognitoIDPClient(selectedPoolRegion).send(new AdminDisableUserCommand({ UserPoolId: selectedPoolId, Username: u.Username }));
 			} else {
-				await client().send(new AdminEnableUserCommand({ UserPoolId: selectedPoolId, Username: u.Username }));
+				await getCognitoIDPClient(selectedPoolRegion).send(new AdminEnableUserCommand({ UserPoolId: selectedPoolId, Username: u.Username }));
 			}
 			await tabLoader.refresh('users');
 		} catch (e) {
@@ -634,7 +671,7 @@
 		updatingUser = true;
 		updateUserError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new AdminUpdateUserAttributesCommand({
 					UserPoolId: selectedPoolId,
 					Username: updateUserTarget.Username,
@@ -665,7 +702,7 @@
 		userDetailLoading = true;
 		userDetailModal?.open();
 		try {
-			const resp = await client().send(
+			const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 				new AdminGetUserCommand({ UserPoolId: selectedPoolId, Username: u.Username })
 			);
 			viewedUser = resp;
@@ -707,7 +744,7 @@
 		creatingGroup = true;
 		createGroupError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new CreateGroupCommand({
 					UserPoolId: selectedPoolId,
 					GroupName: newGroupName,
@@ -736,7 +773,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(new DeleteGroupCommand({ UserPoolId: selectedPoolId, GroupName: g.GroupName }));
+			await getCognitoIDPClient(selectedPoolRegion).send(new DeleteGroupCommand({ UserPoolId: selectedPoolId, GroupName: g.GroupName }));
 			toast.success('Group deleted');
 			await tabLoader.refresh('groups');
 		} catch (e) {
@@ -766,7 +803,7 @@
 		updatingGroup = true;
 		updateGroupError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new UpdateGroupCommand({
 					UserPoolId: selectedPoolId,
 					GroupName: updateGroupTarget.GroupName,
@@ -807,8 +844,8 @@
 		groupDetailModal?.open();
 		try {
 			const [groupResp, membersResp] = await Promise.all([
-				client().send(new GetGroupCommand({ UserPoolId: selectedPoolId, GroupName: g.GroupName })),
-				client().send(new ListUsersInGroupCommand({ UserPoolId: selectedPoolId, GroupName: g.GroupName }))
+				getCognitoIDPClient(selectedPoolRegion).send(new GetGroupCommand({ UserPoolId: selectedPoolId, GroupName: g.GroupName })),
+				getCognitoIDPClient(selectedPoolRegion).send(new ListUsersInGroupCommand({ UserPoolId: selectedPoolId, GroupName: g.GroupName }))
 			]);
 			viewedGroup = groupResp.Group ?? null;
 			viewedGroupMembers = membersResp.Users ?? [];
@@ -847,7 +884,7 @@
 		creatingClient = true;
 		createClientError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new CreateUserPoolClientCommand({
 					UserPoolId: selectedPoolId,
 					ClientName: newClientName,
@@ -874,7 +911,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(new DeleteUserPoolClientCommand({ UserPoolId: selectedPoolId, ClientId: c.ClientId }));
+			await getCognitoIDPClient(selectedPoolRegion).send(new DeleteUserPoolClientCommand({ UserPoolId: selectedPoolId, ClientId: c.ClientId }));
 			toast.success('App client deleted');
 			await tabLoader.refresh('clients');
 		} catch (e) {
@@ -903,7 +940,7 @@
 		updateClientLoading = true;
 		updateClientModal?.open();
 		try {
-			const resp = await client().send(
+			const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 				new DescribeUserPoolClientCommand({ UserPoolId: selectedPoolId, ClientId: c.ClientId })
 			);
 			updateClientName = resp.UserPoolClient?.ClientName ?? updateClientName;
@@ -925,7 +962,7 @@
 		updatingClient = true;
 		updateClientError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new UpdateUserPoolClientCommand({
 					UserPoolId: selectedPoolId,
 					ClientId: updateClientTarget.ClientId,
@@ -959,7 +996,7 @@
 		clientDetailLoading = true;
 		clientDetailModal?.open();
 		try {
-			const resp = await client().send(
+			const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 				new DescribeUserPoolClientCommand({ UserPoolId: selectedPoolId, ClientId: c.ClientId })
 			);
 			viewedClient = resp.UserPoolClient ?? null;
@@ -1037,7 +1074,7 @@
 		creatingIdp = true;
 		createIdpError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new CreateIdentityProviderCommand({
 					UserPoolId: selectedPoolId,
 					ProviderName: newIdpName,
@@ -1072,7 +1109,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new DeleteIdentityProviderCommand({ UserPoolId: selectedPoolId, ProviderName: p.ProviderName })
 			);
 			toast.success('Identity provider deleted');
@@ -1107,7 +1144,7 @@
 		updateIdpLoading = true;
 		updateIdpModal?.open();
 		try {
-			const resp = await client().send(
+			const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 				new DescribeIdentityProviderCommand({ UserPoolId: selectedPoolId, ProviderName: p.ProviderName })
 			);
 			const details = resp.IdentityProvider?.ProviderDetails ?? {};
@@ -1128,7 +1165,7 @@
 		updatingIdp = true;
 		updateIdpError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new UpdateIdentityProviderCommand({
 					UserPoolId: selectedPoolId,
 					ProviderName: updateIdpTarget.ProviderName,
@@ -1166,7 +1203,7 @@
 		idpDetailLoading = true;
 		idpDetailModal?.open();
 		try {
-			const resp = await client().send(
+			const resp = await getCognitoIDPClient(selectedPoolRegion).send(
 				new DescribeIdentityProviderCommand({ UserPoolId: selectedPoolId, ProviderName: p.ProviderName })
 			);
 			viewedIdp = resp.IdentityProvider ?? null;
@@ -1226,7 +1263,7 @@
 		creatingResourceServer = true;
 		createResourceServerError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new CreateResourceServerCommand({
 					UserPoolId: selectedPoolId,
 					Identifier: newRsIdentifier,
@@ -1254,7 +1291,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new DeleteResourceServerCommand({ UserPoolId: selectedPoolId, Identifier: r.Identifier })
 			);
 			toast.success('Resource server deleted');
@@ -1299,7 +1336,7 @@
 		updatingResourceServer = true;
 		updateResourceServerError = null;
 		try {
-			await client().send(
+			await getCognitoIDPClient(selectedPoolRegion).send(
 				new UpdateResourceServerCommand({
 					UserPoolId: selectedPoolId,
 					Identifier: updateRsTarget.Identifier,
@@ -1338,6 +1375,7 @@
 	>
 		{#snippet actions()}
 			{#if activeTab === 'pools'}
+				<WriteRegionHint />
 				<button
 					onclick={openCreatePoolModal}
 					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"
@@ -1402,10 +1440,13 @@
 						{#if pools.length === 0}
 							<option value="">No user pools</option>
 						{/if}
-						{#each pools as p (p.Id)}
-							<option value={p.Id}>{p.Name} ({p.Id})</option>
+						{#each pools as p (p.region + '::' + p.Id)}
+							<option value={p.Id}>{p.Name} ({p.Id}) — {p.region}</option>
 						{/each}
 					</select>
+					{#if selectedPoolRegion}
+						<RegionChip region={selectedPoolRegion} />
+					{/if}
 				</div>
 			{/if}
 
@@ -1420,29 +1461,33 @@
 			{/if}
 
 			{#if activeTab === 'pools'}
-				{#snippet poolStatusCell(p: UserPoolDescriptionType)}
+				{#snippet poolRegionCell(p: Regioned<UserPoolDescriptionType>)}
+					<RegionChip region={p.region} />
+				{/snippet}
+				{#snippet poolStatusCell(p: Regioned<UserPoolDescriptionType>)}
 					<span class="text-xs px-2 py-1 rounded-full {statusClass(p.Status === 'Enabled')}">{p.Status ?? '—'}</span>
 				{/snippet}
-				{#snippet poolCreatedCell(p: UserPoolDescriptionType)}
+				{#snippet poolCreatedCell(p: Regioned<UserPoolDescriptionType>)}
 					{formatDate(p.CreationDate)}
 				{/snippet}
-				{#snippet poolActionsCell(p: UserPoolDescriptionType)}
+				{#snippet poolActionsCell(p: Regioned<UserPoolDescriptionType>)}
 					<div class="flex items-center gap-2 justify-end">
 						<button onclick={() => openPoolDetail(p)} title="View" aria-label="View pool {p.Name}" class="text-gray-400 hover:text-indigo-500"><Eye class="w-4 h-4" /></button>
 						<button onclick={() => openUpdatePoolModal(p)} title="Update" aria-label="Update pool {p.Name}" class="text-gray-400 hover:text-indigo-500"><Pencil class="w-4 h-4" /></button>
 						<button onclick={() => handleDeletePool(p)} title="Delete" aria-label="Delete pool {p.Name}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const poolColumns = defineColumns<UserPoolDescriptionType>([
+				{@const poolColumns = defineColumns<Regioned<UserPoolDescriptionType>>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'Id', label: 'Pool ID' },
+					{ key: 'region', label: 'Region', render: poolRegionCell },
 					{ key: 'Status', label: 'Status', render: poolStatusCell },
 					{ key: 'CreationDate', label: 'Created', render: poolCreatedCell },
 					{ key: 'actions', label: '', render: poolActionsCell }
 				])}
 				<DataTable
 					rows={filteredPools}
-					rowKey={(p) => p.Id ?? ''}
+					rowKey={(p) => p.region + '::' + (p.Id ?? '')}
 					columns={poolColumns}
 					loading={tabLoader.isLoading('pools')}
 					emptyMessage="No user pools found"

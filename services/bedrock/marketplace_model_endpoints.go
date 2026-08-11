@@ -96,9 +96,12 @@ func (b *InMemoryBackend) GetMarketplaceModelEndpoint(
 	return &cp, nil
 }
 
-// ListMarketplaceModelEndpoints returns all marketplace endpoints with optional pagination.
+// ListMarketplaceModelEndpoints returns marketplace endpoints matching
+// modelSourceEquals (real query param "modelSourceIdentifier", aws-sdk-go-v2
+// serializers.go:6822-6824), with optional pagination. An empty
+// modelSourceEquals matches every endpoint.
 func (b *InMemoryBackend) ListMarketplaceModelEndpoints(
-	nextToken string,
+	nextToken, modelSourceEquals string,
 ) ([]*MarketplaceModelEndpoint, string) {
 	b.mu.RLock("ListMarketplaceModelEndpoints")
 	defer b.mu.RUnlock()
@@ -106,6 +109,10 @@ func (b *InMemoryBackend) ListMarketplaceModelEndpoints(
 	list := make([]*MarketplaceModelEndpoint, 0, b.marketplaceEndpoints.Len())
 
 	for _, ep := range b.marketplaceEndpoints.All() {
+		if modelSourceEquals != "" && ep.ModelSourceID != modelSourceEquals {
+			continue
+		}
+
 		cp := *ep
 		cp.Tags = copyTags(ep.Tags)
 		cp.EndpointConfig = copySageMakerEndpointConfig(ep.EndpointConfig)
@@ -174,20 +181,34 @@ func copySageMakerEndpointConfig(src *SageMakerEndpointConfig) *SageMakerEndpoin
 	return &cp
 }
 
-// RegisterMarketplaceModelEndpoint transitions endpoint status to Active.
-func (b *InMemoryBackend) RegisterMarketplaceModelEndpoint(idOrARN string) error {
+// RegisterMarketplaceModelEndpoint transitions endpoint status to Active and stores
+// the required modelSourceIdentifier from the request
+// (aws-sdk-go-v2 api_op_RegisterMarketplaceModelEndpoint.go:37).
+func (b *InMemoryBackend) RegisterMarketplaceModelEndpoint(
+	idOrARN, modelSourceIdentifier string,
+) (*MarketplaceModelEndpoint, error) {
 	b.mu.Lock("RegisterMarketplaceModelEndpoint")
 	defer b.mu.Unlock()
 
 	epARN, ok := b.findMarketplaceEndpointARN(idOrARN)
 	if !ok {
-		return fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
+		return nil, fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
+	}
+
+	if modelSourceIdentifier == "" {
+		return nil, fmt.Errorf("%w: modelSourceIdentifier is required", ErrValidation)
 	}
 
 	ep, _ := b.marketplaceEndpoints.Get(epARN)
-	ep.Status = "Active"
+	ep.ModelSourceID = modelSourceIdentifier
+	ep.Status = statusActive
+	ep.UpdatedAt = time.Now().UTC()
 
-	return nil
+	cp := *ep
+	cp.Tags = copyTags(ep.Tags)
+	cp.EndpointConfig = copySageMakerEndpointConfig(ep.EndpointConfig)
+
+	return &cp, nil
 }
 
 // DeregisterMarketplaceModelEndpoint transitions endpoint status to Deregistered.

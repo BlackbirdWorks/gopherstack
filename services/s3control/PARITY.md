@@ -1,8 +1,28 @@
 service: s3control
-sdk_module: aws-sdk-go-v2/service/s3control@v1.73.0
+sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
 last_audit_commit: HEAD
-last_audit_date: 2026-08-01
-overall: A            # 2026-08-01 (gopherstack-tir4 close-out): three follow-up items closed.
+last_audit_date: 2026-08-07
+overall: A            # 2026-08-07 (gopherstack-tir4 follow-up): independently re-verified this
+                       # file's two "closed" claims by reading code directly rather than trusting
+                       # the prior pass's narrative -- DeleteAccessGrantsInstance's precondition
+                       # enforcement (errAccessGrantsInstanceNotEmpty, 3 checks) and the sync
+                       # DELETE /mrap/instances route removal both held up. Spot-checked
+                       # GetBucketTagging/PutBucketTagging wire shape against s3control@v1.73.4's
+                       # serializers.go/deserializers.go directly (CLEAN, matches prior claim). Did
+                       # NOT re-do the full ~55-op field-by-field diff this pass (out of scope for
+                       # the time available) but while checking CreateAccessPoint's request shape
+                       # found and FIXED a new bug the prior "all ops diffed" pass missed: real
+                       # CreateAccessPointInput accepts inline Scope and Tags (confirmed via
+                       # awsRestxml_serializeOpDocumentCreateAccessPointInput), neither of which
+                       # createAccessPointRequestXML had fields for -- both silently dropped on
+                       # every real call. See the CreateAccessPoint ops row below for the fix and
+                       # new regression test. Verified sibling ops (CreateAccessPointForObjectLambda,
+                       # CreateMultiRegionAccessPoint) do not share the gap. Kept at A: real bug
+                       # found and fixed with a locking regression test, consistent with how this
+                       # file already treats other found-and-fixed-same-pass bugs.
+                       #
+                       # --- prior (2026-08-01, gopherstack-tir4 close-out) history, kept for context ---
+                       # three follow-up items closed.
                        # (1) DeleteAccessGrantsInstance's precondition enforcement was extended
                        # from grants/locations-only to also cover the doc comment's third,
                        # previously-missed precondition -- rejecting delete while an IAM Identity
@@ -118,7 +138,7 @@ ops:
   ListAccessGrantsLocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same singular-vs-plural bug as ListAccessGrants ('/location' vs real '/locations'). UNREACHABLE via real SDK. Added pathAccessGrantsLocationsList const, fixed."}
   UpdateJobPriority: {wire: ok, errors: ok, state: ok, persist: ok, note: "route required http.MethodPut; real SDK sends POST for this op (it's not a pure REST-semantic PUT). UNREACHABLE via real SDK. Fixed method check to MethodPost in both extract+dispatch. THIS PASS: also fixed GetJob/UpdateJobDetails/UpdateJobPriority/UpdateJobStatus returning the wrong AWS error code (generic ErrNotFound == \"NoSuchPublicAccessBlockConfiguration\") on a missing job -- now errJobNotFound (\"NoSuchJob\"). See jobs.go."}
   UpdateJobStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "same PUT-vs-POST bug as UpdateJobPriority. UNREACHABLE via real SDK. Fixed. See UpdateJobPriority note for the error-code fix in this pass."}
-  CreateAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-07 (gopherstack-tir4 follow-up audit): real CreateAccessPointInput (confirmed via awsRestxml_serializeOpDocumentCreateAccessPointInput, s3control@v1.73.4) also accepts inline Scope and Tags fields, neither of which createAccessPointRequestXML had a struct field for at all -- both were silently read off the wire and dropped, requiring a caller to know to make a separate PutAccessPointScope/TagResource call the real API does not require. Fixed: Scope captured as raw inner XML (createJobXMLCapture, same pattern PutAccessPointScope already uses) and stored via the existing PutAccessPointScope backend method; Tags parsed with the same resourceTagXML/<Tag> shape ListTagsForResource/TagResource already use and stored via TagResource(ap.AccessPointArn, ...). Verified CreateAccessPointForObjectLambda and CreateMultiRegionAccessPoint do NOT have the same gap (their real request bodies have no Tags/Scope members at all, confirmed via the same serializers.go read) -- this was not a wider pattern. New test TestCreateAccessPoint_InlineScopeAndTags locks in the round-trip (create with inline Scope+Tags, then GetAccessPointScope/ListTagsForResource confirm both landed)."}
   GetAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS: real bug -- GetAccessPointOutput carries PublicAccessBlockConfiguration inline per aws-sdk-go-v2 (there is no standalone Get/Put/DeleteAccessPointPublicAccessBlock op; see families.access-point-crud), but the response never included it even though CreateAccessPoint already stored it. Fixed: handleGetAccessPoint now reads the per-AP PAB and includes PublicAccessBlockConfiguration when set. Also fixed: wrong error code on missing AP (generic ErrNotFound == \"NoSuchPublicAccessBlockConfiguration\") -- now errAccessPointNotFound (\"NoSuchAccessPoint\")."}
   DeleteAccessPoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS: fixed wrong error code on missing AP (see GetAccessPoint), and fixed a ghost-map-row leak -- delete only cleaned accessPointPolicies, leaving scope/per-AP-PAB/generic-resource-tags behind forever. Now cascade-cleans all four."}
   ListAccessPoints: {wire: ok, errors: ok, state: ok, persist: ok}

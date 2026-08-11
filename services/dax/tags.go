@@ -138,6 +138,32 @@ func (b *InMemoryBackend) ListTags(
 	return result, outToken, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingDAX).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every DAX cluster ARN that currently has at least
+// one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for arnStr, t := range b.tags {
+		if len(t) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: arnStr, Tags: maps.Clone(t)})
+	}
+
+	return out
+}
+
 // arnExists returns true if the ARN corresponds to an existing DAX resource.
 // Real DAX only assigns ARNs to clusters -- ParameterGroup and SubnetGroup have
 // no Arn field in the SDK types (types.ParameterGroup / types.SubnetGroup), so

@@ -76,16 +76,19 @@ func (b *InMemoryBackend) CreateTenant(tenantName string, tags map[string]string
 		return nil, fmt.Errorf("%w: Tenant %s already exists", ErrAlreadyExists, tenantName)
 	}
 
+	resourceARN := b.tenantARN(tenantName)
+
 	t := map[string]any{
 		keyTenantName:       tenantName,
 		keyTenantID:         "tenant-" + uuid.New().String(),
-		keyTenantARN:        b.tenantARN(tenantName),
+		keyTenantARN:        resourceARN,
 		keySendingStatus:    sendingStatusEnabled,
 		keyCreatedTimestamp: awstime.Epoch(time.Now()),
 	}
 
 	if len(tags) > 0 {
 		t[keyTags] = tagsToEntries(tags)
+		b.putResourceTagsLocked(resourceARN, tags)
 	}
 
 	b.tenants[tenantName] = t

@@ -60,7 +60,10 @@ func TestIntegration_AppMesh_MeshLifecycle(t *testing.T) {
 			assert.Equal(t, tt.meshName, aws.ToString(createOut.Mesh.MeshName))
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteMesh(ctx, &appmeshsdk.DeleteMeshInput{MeshName: aws.String(tt.meshName)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteMesh(cleanupCtx, &appmeshsdk.DeleteMeshInput{MeshName: aws.String(tt.meshName)})
 			})
 
 			descOut, err := client.DescribeMesh(ctx, &appmeshsdk.DescribeMeshInput{MeshName: aws.String(tt.meshName)})
@@ -112,7 +115,10 @@ func TestIntegration_AppMesh_VirtualNodeLifecycle(t *testing.T) {
 			require.NoError(t, err, "CreateMesh should succeed")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteMesh(ctx, &appmeshsdk.DeleteMeshInput{MeshName: aws.String(tt.meshName)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteMesh(cleanupCtx, &appmeshsdk.DeleteMeshInput{MeshName: aws.String(tt.meshName)})
 			})
 
 			_, err = client.CreateVirtualNode(ctx, &appmeshsdk.CreateVirtualNodeInput{
@@ -132,7 +138,10 @@ func TestIntegration_AppMesh_VirtualNodeLifecycle(t *testing.T) {
 			require.NoError(t, err, "CreateVirtualNode should succeed")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteVirtualNode(ctx, &appmeshsdk.DeleteVirtualNodeInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteVirtualNode(cleanupCtx, &appmeshsdk.DeleteVirtualNodeInput{
 					MeshName:        aws.String(tt.meshName),
 					VirtualNodeName: aws.String(tt.nodeName),
 				})

@@ -3,6 +3,7 @@ package iotwireless_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +52,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *iotwireless.InMemoryBackend, _ string) {
 				t.Helper()
 
-				assert.Empty(t, b.ListWirelessDevices(testAccountID, testRegion))
+				assert.Empty(
+					t,
+					b.ListWirelessDevices(testAccountID, testRegion, iotwireless.ListWirelessDevicesFilter{}),
+				)
 			},
 		},
 	}
@@ -743,4 +747,90 @@ func TestInMemoryBackend_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ft.Name, gotFT.Name)
 	assert.Equal(t, "desc", gotFT.Description)
+}
+
+// TestInMemoryBackend_PersistenceRoundTrip_LoRaWANSidewalk verifies the
+// typed LoRaWAN/Sidewalk sub-fields on ServiceProfile/DeviceProfile/
+// FuotaTask/MulticastGroup survive a Snapshot->Restore cycle, including a
+// nested sub-struct field (LoRaWANMulticast.DefaultSessionParameters). Each
+// *Record DTO in persistence.go embeds the live struct by pointer rather
+// than hand-copying its fields, so this mainly guards against that DTO
+// wrapping being replaced with a hand-maintained field list in the future
+// (the exact class of bug found in sagemaker's snapshot DTO, which silently
+// dropped fields the live struct had).
+func TestInMemoryBackend_PersistenceRoundTrip_LoRaWANSidewalk(t *testing.T) {
+	t.Parallel()
+
+	b := iotwireless.NewInMemoryBackend()
+	drMax := int32(15)
+	macVersion := "1.0.3"
+	dlDr := int32(5)
+
+	sp, err := b.CreateServiceProfile(
+		testAccountID, testRegion, "sp-lorawan",
+		&iotwireless.LoRaWANServiceProfile{DrMax: &drMax, AddGwMetadata: true},
+		nil,
+	)
+	require.NoError(t, err)
+
+	dp, err := b.CreateDeviceProfile(
+		testAccountID, testRegion, "dp-lorawan",
+		&iotwireless.LoRaWANDeviceProfile{MacVersion: &macVersion},
+		&iotwireless.SidewalkCreateDeviceProfile{},
+		nil,
+	)
+	require.NoError(t, err)
+
+	ft, err := b.CreateFuotaTask(
+		testAccountID, testRegion, "ft-lorawan", "", "s3://img", "role", "",
+		0, 0, 0,
+		&iotwireless.LoRaWANFuotaTask{RfRegion: "US915"},
+		nil,
+	)
+	require.NoError(t, err)
+
+	startTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, b.StartFuotaTask(testAccountID, testRegion, ft.ID, &startTime))
+
+	mg, err := b.CreateMulticastGroup(
+		testAccountID, testRegion, "mg-lorawan", "",
+		&iotwireless.LoRaWANMulticast{
+			RfRegion:                 "EU868",
+			DefaultSessionParameters: &iotwireless.DefaultSessionParametersMulticast{DlDr: &dlDr},
+		},
+		nil,
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	restored := iotwireless.NewInMemoryBackend()
+	require.NoError(t, restored.Restore(t.Context(), snap))
+
+	gotSP, err := restored.GetServiceProfile(testAccountID, testRegion, sp.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotSP.LoRaWAN)
+	assert.Equal(t, int32(15), *gotSP.LoRaWAN.DrMax)
+	assert.True(t, gotSP.LoRaWAN.AddGwMetadata)
+
+	gotDP, err := restored.GetDeviceProfile(testAccountID, testRegion, dp.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotDP.LoRaWAN)
+	assert.Equal(t, "1.0.3", *gotDP.LoRaWAN.MacVersion)
+	assert.NotNil(t, gotDP.Sidewalk, "Sidewalk presence must survive restore")
+
+	gotFT, err := restored.GetFuotaTask(testAccountID, testRegion, ft.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotFT.LoRaWAN)
+	assert.Equal(t, "US915", gotFT.LoRaWAN.RfRegion)
+	require.NotNil(t, gotFT.StartTime, "StartFuotaTask's StartTime must survive restore")
+	assert.True(t, startTime.Equal(*gotFT.StartTime))
+
+	gotMG, err := restored.GetMulticastGroup(testAccountID, testRegion, mg.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotMG.LoRaWAN)
+	assert.Equal(t, "EU868", gotMG.LoRaWAN.RfRegion)
+	require.NotNil(t, gotMG.LoRaWAN.DefaultSessionParameters)
+	assert.Equal(t, int32(5), *gotMG.LoRaWAN.DefaultSessionParameters.DlDr)
 }

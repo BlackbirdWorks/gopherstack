@@ -771,7 +771,7 @@ func TestDomain_EnableSoftwareUpdateOptions_Create(t *testing.T) {
 	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
 		map[string]any{
 			"DomainName": "sw-update-domain",
-			"EnableSoftwareUpdateOptions": map[string]any{
+			"SoftwareUpdateOptions": map[string]any{
 				"AutoSoftwareUpdateEnabled": true,
 			},
 		})
@@ -782,8 +782,8 @@ func TestDomain_EnableSoftwareUpdateOptions_Create(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	st := out["DomainStatus"].(map[string]any)
 
-	swOpts, ok := st["EnableSoftwareUpdateOptions"].(map[string]any)
-	require.True(t, ok, "EnableSoftwareUpdateOptions missing")
+	swOpts, ok := st["SoftwareUpdateOptions"].(map[string]any)
+	require.True(t, ok, "SoftwareUpdateOptions missing")
 	assert.Equal(t, true, swOpts["AutoSoftwareUpdateEnabled"])
 }
 

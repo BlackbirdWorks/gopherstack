@@ -24,3 +24,17 @@ func (b *InMemoryBackend) resolveSiteLocked(idOrARN string) (*Site, bool) {
 
 	return b.sites.Get(idOrARN)
 }
+
+// resolveQuoteLocked resolves idOrARN (a Quote ID, or an
+// "arn:...:quote/<id>"-shaped identifier) to its Quote. Quote itself has no
+// QuoteArn output field, but GetQuote/UpdateQuote/DeleteQuote's
+// QuoteIdentifier and CreateOrder's QuoteIdentifier both document (and their
+// Pattern regexes confirm) an optional ARN-shaped input form -- see
+// store.go's newQuoteID doc comment. Callers must hold b.mu.
+func (b *InMemoryBackend) resolveQuoteLocked(idOrARN string) (*Quote, bool) {
+	if id, ok := resourceIDFromARN(idOrARN, ":quote/"); ok {
+		return b.quotes.Get(id)
+	}
+
+	return b.quotes.Get(idOrARN)
+}

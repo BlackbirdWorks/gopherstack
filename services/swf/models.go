@@ -59,6 +59,14 @@ const (
 	attrWorkflowExec    = "workflowExecution"
 	causeOpNotPermitted = "OPERATION_NOT_PERMITTED"
 
+	// attrTimeoutType/timeoutTypeStartToClose back
+	// WorkflowExecutionTimedOutEventAttributes.timeoutType (timeout_sweep.go)
+	// -- confirmed against aws-sdk-go-v2/service/swf@v1.37.4's
+	// WorkflowExecutionTimeoutType enum, whose only defined value is
+	// START_TO_CLOSE.
+	attrTimeoutType         = "timeoutType"
+	timeoutTypeStartToClose = "START_TO_CLOSE"
+
 	// Child policy values, shared by StartWorkflowExecution/registration
 	// defaulting (store.go, workflow_types.go) and the TerminateWorkflowExecution
 	// child-policy cascade (workflow_executions.go).

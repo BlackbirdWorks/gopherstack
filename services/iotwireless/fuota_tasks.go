@@ -17,12 +17,12 @@ func fuotaTaskARN(region, accountID, id string) string {
 }
 
 // copyFuotaTask returns a shallow copy of ft with independent Tags and
-// LoRaWAN maps.
+// LoRaWAN.
 func copyFuotaTask(ft *FuotaTask) *FuotaTask {
 	cp := *ft
 	cp.Tags = make(map[string]string, len(ft.Tags))
 	maps.Copy(cp.Tags, ft.Tags)
-	cp.LoRaWAN = copyAnyMap(ft.LoRaWAN)
+	cp.LoRaWAN = copyLoRaWANFuotaTask(ft.LoRaWAN)
 
 	return &cp
 }
@@ -31,7 +31,7 @@ func copyFuotaTask(ft *FuotaTask) *FuotaTask {
 func (b *InMemoryBackend) CreateFuotaTask(
 	accountID, region, name, description, firmwareUpdateImage, firmwareUpdateRole, descriptor string,
 	fragmentIntervalMS, fragmentSizeBytes, redundancyPercent int32,
-	loRaWAN map[string]any,
+	loRaWAN *LoRaWANFuotaTask,
 	tags map[string]string,
 ) (*FuotaTask, error) {
 	b.mu.Lock("CreateFuotaTask")
@@ -121,7 +121,18 @@ func (b *InMemoryBackend) DeleteFuotaTask(accountID, region, id string) error {
 }
 
 // UpdateFuotaTask updates mutable fields on an existing FUOTA task.
-func (b *InMemoryBackend) UpdateFuotaTask(accountID, region, id, name, description string) error {
+// UpdateFuotaTaskInput.LoRaWAN is the same LoRaWANFuotaTask shape as
+// CreateFuotaTask's (api_op_UpdateFuotaTask.go:64), so a non-nil value
+// replaces the stored LoRaWAN wholesale rather than merging field by field.
+// descriptor, firmwareUpdateImage and firmwareUpdateRole only apply when
+// non-empty, and fragmentIntervalMS/fragmentSizeBytes/redundancyPercent only
+// apply when non-zero, matching the name != "" convention already used for
+// Name -- see UpdateWirelessDevice/UpdateMulticastGroup for the same pattern.
+func (b *InMemoryBackend) UpdateFuotaTask(
+	accountID, region, id, name, description, descriptor, firmwareUpdateImage, firmwareUpdateRole string,
+	fragmentIntervalMS, fragmentSizeBytes, redundancyPercent int32,
+	loRaWAN *LoRaWANFuotaTask,
+) error {
 	b.mu.Lock("UpdateFuotaTask")
 	defer b.mu.Unlock()
 
@@ -135,6 +146,34 @@ func (b *InMemoryBackend) UpdateFuotaTask(accountID, region, id, name, descripti
 	}
 
 	ft.Description = description
+
+	if descriptor != "" {
+		ft.Descriptor = descriptor
+	}
+
+	if firmwareUpdateImage != "" {
+		ft.FirmwareUpdateImage = firmwareUpdateImage
+	}
+
+	if firmwareUpdateRole != "" {
+		ft.FirmwareUpdateRole = firmwareUpdateRole
+	}
+
+	if fragmentIntervalMS != 0 {
+		ft.FragmentIntervalMS = fragmentIntervalMS
+	}
+
+	if fragmentSizeBytes != 0 {
+		ft.FragmentSizeBytes = fragmentSizeBytes
+	}
+
+	if redundancyPercent != 0 {
+		ft.RedundancyPercent = redundancyPercent
+	}
+
+	if loRaWAN != nil {
+		ft.LoRaWAN = loRaWAN
+	}
 
 	return nil
 }
@@ -210,7 +249,10 @@ func (b *InMemoryBackend) AddFuotaTaskInternal(accountID, region string, ft *Fuo
 // real AWS's lifecycle for a task moved out of "Pending" by StartFuotaTask.
 // Previously this corrupted FirmwareUpdateRole by overwriting it with a
 // fabricated status string instead of tracking status as its own field.
-func (b *InMemoryBackend) StartFuotaTask(accountID, region, id string) error {
+// startTime, when non-nil, is StartFuotaTaskInput.LoRaWAN.StartTime
+// (types.LoRaWANStartFuotaTask, types.go:1202); a nil value leaves any
+// previously recorded start time untouched rather than clearing it.
+func (b *InMemoryBackend) StartFuotaTask(accountID, region, id string, startTime *time.Time) error {
 	b.mu.Lock("StartFuotaTask")
 	defer b.mu.Unlock()
 
@@ -220,6 +262,10 @@ func (b *InMemoryBackend) StartFuotaTask(accountID, region, id string) error {
 	}
 
 	ft.Status = "FuotaSession_Waiting"
+
+	if startTime != nil {
+		ft.StartTime = startTime
+	}
 
 	return nil
 }

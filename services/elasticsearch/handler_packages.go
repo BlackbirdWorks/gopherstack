@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -24,13 +25,27 @@ type createPackageRequest struct {
 	PackageDescription string             `json:"PackageDescription"`
 }
 
-// packageJSON is the JSON representation of an Elasticsearch package.
+// packageErrorDetailsJSON mirrors types.ErrorDetails.
+type packageErrorDetailsJSON struct {
+	ErrorMessage string `json:"ErrorMessage,omitempty"`
+	ErrorType    string `json:"ErrorType,omitempty"`
+}
+
+// packageJSON is the JSON representation of an Elasticsearch package
+// (types.PackageDetails). CreatedAt/LastUpdatedAt are epoch-seconds,
+// matching restjson1's unixTimestamp wire format. ErrorDetails is always
+// omitted: this backend has no COPYING/COPY_FAILED state machine (packages
+// always transition straight to AVAILABLE), and real AWS only populates
+// ErrorDetails when a package is in COPY_FAILED.
 type packageJSON struct {
-	PackageID          string `json:"PackageID"`
-	PackageName        string `json:"PackageName"`
-	PackageType        string `json:"PackageType"`
-	PackageDescription string `json:"PackageDescription"`
-	PackageStatus      string `json:"PackageStatus"`
+	ErrorDetails       *packageErrorDetailsJSON `json:"ErrorDetails,omitempty"`
+	PackageID          string                   `json:"PackageID"`
+	PackageName        string                   `json:"PackageName"`
+	PackageType        string                   `json:"PackageType"`
+	PackageDescription string                   `json:"PackageDescription"`
+	PackageStatus      string                   `json:"PackageStatus"`
+	CreatedAt          float64                  `json:"CreatedAt,omitempty"`
+	LastUpdatedAt      float64                  `json:"LastUpdatedAt,omitempty"`
 }
 
 // createPackageOutput is the response for CreatePackage.
@@ -75,13 +90,24 @@ func (h *Handler) handleCreatePackage(w http.ResponseWriter, r *http.Request) {
 }
 
 func toPackageJSON(p *Package) packageJSON {
-	return packageJSON{
+	out := packageJSON{
 		PackageID:          p.ID,
 		PackageName:        p.Name,
 		PackageType:        p.PackageType,
 		PackageDescription: p.Description,
 		PackageStatus:      p.Status,
+		CreatedAt:          awstime.Epoch(p.CreatedAt),
+		LastUpdatedAt:      awstime.Epoch(p.LastUpdatedAt),
 	}
+
+	if p.ErrorDetails != nil {
+		out.ErrorDetails = &packageErrorDetailsJSON{
+			ErrorMessage: p.ErrorDetails.ErrorMessage,
+			ErrorType:    p.ErrorDetails.ErrorType,
+		}
+	}
+
+	return out
 }
 
 // associatePackageOutput is the response for AssociatePackage.

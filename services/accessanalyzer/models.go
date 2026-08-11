@@ -97,22 +97,47 @@ type Finding struct {
 }
 
 // PolicyGenerationStatus represents the status of a policy generation job.
+// Values match types.JobStatus (aws-sdk-go-v2/service/accessanalyzer
+// types/enums.go:390-397, v1.51.4) -- StartPolicyGeneration completes
+// synchronously here, so Running is declared for completeness but never
+// currently assigned.
 type PolicyGenerationStatus string
 
 const (
-	PolicyGenerationStatusRunning   PolicyGenerationStatus = "RUNNING"
+	PolicyGenerationStatusRunning   PolicyGenerationStatus = "IN_PROGRESS"
 	PolicyGenerationStatusSucceeded PolicyGenerationStatus = "SUCCEEDED"
 	PolicyGenerationStatusFailed    PolicyGenerationStatus = "FAILED"
 	PolicyGenerationStatusCanceled  PolicyGenerationStatus = "CANCELED"
 )
 
+// PolicyGenerationTrail mirrors types.Trail (request side) and
+// types.TrailProperties (response side) -- the two are field-identical
+// (types/types.go:2357 and :2376, v1.51.4), so gopherstack models them once.
+type PolicyGenerationTrail struct {
+	AllRegions    *bool
+	CloudTrailArn string
+	Regions       []string
+}
+
+// PolicyGenerationCloudTrailDetails is the request-supplied
+// types.CloudTrailDetails (types/types.go:493), stored so GetGeneratedPolicy
+// can echo it back as types.CloudTrailProperties (types/types.go:2375) --
+// same fields minus AccessRole, which has no response-side counterpart.
+type PolicyGenerationCloudTrailDetails struct {
+	StartTime  time.Time
+	EndTime    time.Time
+	AccessRole string
+	Trails     []PolicyGenerationTrail
+}
+
 // PolicyGeneration represents a policy generation job.
 type PolicyGeneration struct {
-	CompletedOn  *time.Time
-	StartedOn    time.Time
-	JobID        string
-	PrincipalArn string
-	Status       PolicyGenerationStatus
+	CompletedOn       *time.Time
+	CloudTrailDetails *PolicyGenerationCloudTrailDetails
+	StartedOn         time.Time
+	JobID             string
+	PrincipalArn      string
+	Status            PolicyGenerationStatus
 }
 
 // AccessPreviewStatus represents the status of an access preview.
@@ -143,12 +168,17 @@ type AnalyzedResource struct {
 	IsPublic     bool
 }
 
+// RecommendationTypeUnusedPermission is the sole known types.RecommendationType
+// value (aws-sdk-go-v2/service/accessanalyzer types/enums.go:579, v1.51.4).
+const RecommendationTypeUnusedPermission = "UnusedPermissionRecommendation"
+
 // FindingRecommendation represents a recommendation record for a finding.
 type FindingRecommendation struct {
 	CompletedAt        *time.Time
 	StartedAt          time.Time
 	ID                 string
 	AnalyzerArn        string
+	ResourceArn        string
 	RecommendationType string
 	Status             string
 }
@@ -209,6 +239,12 @@ func copyPolicyGeneration(pg *PolicyGeneration) *PolicyGeneration {
 	if pg.CompletedOn != nil {
 		t := *pg.CompletedOn
 		cp.CompletedOn = &t
+	}
+
+	if pg.CloudTrailDetails != nil {
+		ctd := *pg.CloudTrailDetails
+		ctd.Trails = append([]PolicyGenerationTrail(nil), pg.CloudTrailDetails.Trails...)
+		cp.CloudTrailDetails = &ctd
 	}
 
 	return &cp

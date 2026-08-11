@@ -20,17 +20,17 @@ type recognizeCelebritiesReq struct {
 	Image imageRef `json:"Image"`
 }
 
-type celebrityEntry struct { //nolint:govet // existing issue.
+type celebrityEntry struct {
 	Id              string   `json:"Id"` //nolint:revive,staticcheck // existing issue.
 	Name            string   `json:"Name"`
-	MatchConfidence float32  `json:"MatchConfidence"`
 	Urls            []string `json:"Urls"`
+	MatchConfidence float32  `json:"MatchConfidence"`
 }
 
-type recognizeCelebritiesResp struct { //nolint:govet // existing issue.
+type recognizeCelebritiesResp struct {
+	OrientationCorrection string           `json:"OrientationCorrection"`
 	CelebrityFaces        []celebrityEntry `json:"CelebrityFaces"`
 	UnrecognizedFaces     []struct{}       `json:"UnrecognizedFaces"`
-	OrientationCorrection string           `json:"OrientationCorrection"`
 }
 
 func (h *Handler) handleRecognizeCelebrities(
@@ -81,9 +81,17 @@ type startCelebrityRecognitionReq struct {
 }
 
 func (h *Handler) handleStartCelebrityRecognition(
-	_ context.Context, _ *startCelebrityRecognitionReq,
+	_ context.Context, req *startCelebrityRecognitionReq,
 ) (*startJobResp, error) {
-	jobID, err := h.Backend.StartAsyncJob("celebrity_recognition", "")
+	bucket, name, version := videoRefS3(req.Video)
+
+	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
+		JobType:        "celebrity_recognition",
+		JobTag:         req.JobTag,
+		VideoS3Bucket:  bucket,
+		VideoS3Name:    name,
+		VideoS3Version: version,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +107,7 @@ type getCelebrityRecognitionResp struct {
 func (h *Handler) handleGetCelebrityRecognition(
 	_ context.Context, req *getJobReq,
 ) (*getCelebrityRecognitionResp, error) {
-	base, err := h.getJobBase(req.JobId)
+	base, _, err := h.getJobBase(req.JobId)
 	if err != nil {
 		return nil, err
 	}

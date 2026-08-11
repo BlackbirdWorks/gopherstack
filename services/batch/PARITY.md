@@ -1,6 +1,6 @@
 ---
 service: batch
-sdk_module: aws-sdk-go-v2/service/batch@v1.68.0
+sdk_module: aws-sdk-go-v2/service/batch@v1.68.4
 last_audit_commit: aad420594dea89bf7e3b745492889fee00ca2eb6
 last_audit_date: 2026-07-25
 overall: A            # SDK bump (v1.61.1 -> v1.68.0) added 6 new ops (QuotaShare CRUD+List, UpdateServiceJob); all 6 implemented for real this pass, no regressions in previously-audited ops

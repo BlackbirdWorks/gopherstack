@@ -50,6 +50,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 		t.Context(),
 		"drift-instance-ss",
 		[]string{"111111111111"},
+		nil,
 		[]string{"us-east-1"},
 	)
 	require.NoError(t, err)
@@ -108,6 +109,7 @@ func TestStackSetOperationList(t *testing.T) {
 		t.Context(),
 		"op-list-ss",
 		[]string{"111"},
+		nil,
 		[]string{"us-east-1"},
 	)
 	require.NoError(t, err)
@@ -248,9 +250,13 @@ func TestTypeManagement_Configuration(t *testing.T) {
 	err = b.SetTypeConfiguration("My::Test::Type", config)
 	require.NoError(t, err)
 
-	result, err := b.BatchDescribeTypeConfigurations([]string{"My::Test::Type"})
-	require.NoError(t, err)
-	assert.NotNil(t, result)
+	result, errs, unprocessed := b.BatchDescribeTypeConfigurations(
+		[]cloudformation.TypeConfigurationIdentifier{{TypeName: "My::Test::Type"}},
+	)
+	assert.Empty(t, errs)
+	assert.Empty(t, unprocessed)
+	require.Len(t, result, 1)
+	assert.JSONEq(t, config, result[0].Configuration)
 }
 
 // ---- Backend: Publisher -------------------------------------------------------
@@ -404,7 +410,7 @@ func TestStackRefactor_CRUD(t *testing.T) {
 
 	b := newBackend()
 
-	refactorID, err := b.CreateStackRefactor("my refactor", []string{"stack-a", "stack-b"})
+	refactorID, err := b.CreateStackRefactor("my refactor", nil, false)
 	require.NoError(t, err)
 	assert.NotEmpty(t, refactorID)
 
@@ -642,6 +648,7 @@ func TestChangeSet_ExecuteOnNewStack(t *testing.T) {
 		"init",
 		nil,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "brand-new", cs.StackName)
@@ -788,6 +795,7 @@ func TestChangeSet_ChangesContainAdd(t *testing.T) {
 		"my-changes",
 		newTmpl,
 		"add queue",
+		nil,
 		nil,
 		nil,
 	)

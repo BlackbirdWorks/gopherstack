@@ -1,6 +1,6 @@
 ---
 service: securityhub
-sdk_module: aws-sdk-go-v2/service/securityhub@v1.75.0
+sdk_module: aws-sdk-go-v2/service/securityhub@v1.75.4
 last_audit_commit: 1659d616
 last_audit_date: 2026-07-25
 overall: A            # parity-4: 7 new SDK ops (CSPM Connectors CRUD+List, SecurityHub V2 opt-in

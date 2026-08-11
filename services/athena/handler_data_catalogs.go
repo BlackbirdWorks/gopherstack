@@ -34,7 +34,8 @@ type updateDataCatalogInput struct {
 }
 
 type deleteDataCatalogInput struct {
-	Name string `json:"Name"`
+	Name              string `json:"Name"`
+	DeleteCatalogOnly bool   `json:"DeleteCatalogOnly"`
 }
 
 func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
@@ -106,7 +107,7 @@ func (h *Handler) dataCatalogOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			dc, err := h.Backend.DeleteDataCatalog(input.Name)
+			dc, err := h.Backend.DeleteDataCatalog(input.Name, input.DeleteCatalogOnly)
 			if err != nil {
 				return nil, err
 			}

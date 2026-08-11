@@ -5,14 +5,77 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// GetAccountAuthorizationDetails returns a full dump of all IAM entities and their policies.
-func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationDetails {
+// AWS EntityType values accepted by GetAccountAuthorizationDetails' Filter parameter.
+const (
+	entityTypeUser               = "User"
+	entityTypeGroup              = "Group"
+	entityTypeRole               = "Role"
+	entityTypeLocalManagedPolicy = "LocalManagedPolicy"
+	entityTypeAWSManagedPolicy   = "AWSManagedPolicy"
+)
+
+// GetAccountAuthorizationDetails returns a page of IAM entities and their
+// policies. filter restricts which entity categories are populated (AWS
+// EntityType values: User, Role, Group, LocalManagedPolicy,
+// AWSManagedPolicy); an empty filter includes every category. This mock
+// tracks only customer-managed policies, so LocalManagedPolicy matches every
+// policy and AWSManagedPolicy always yields none (no AWS-managed policy
+// catalog is emulated). marker/maxItems paginate over the combined
+// Users+Groups+Roles+Policies sequence in that order (matching the XML field
+// order), mirroring AWS's single Marker/MaxItems pair spanning all four
+// lists. Returns the next marker ("" when not truncated).
+func (b *InMemoryBackend) GetAccountAuthorizationDetails(
+	marker string, maxItems int, filter []string,
+) (AccountAuthorizationDetails, string) {
 	b.mu.RLock("GetAccountAuthorizationDetails")
 	defer b.mu.RUnlock()
 
-	// Build reverse group-membership map: userName → []groupName.
+	includeUsers, includeGroups, includeRoles, includePolicies := authDetailsFilterSets(filter)
+
+	users := b.buildUserDetails()
+	groups := b.buildGroupDetails()
+	roles := b.buildRoleDetails()
+	policies := b.buildPolicyDetails()
+
+	if !includeUsers {
+		users = nil
+	}
+
+	if !includeGroups {
+		groups = nil
+	}
+
+	if !includeRoles {
+		roles = nil
+	}
+
+	if !includePolicies {
+		policies = nil
+	}
+
+	if maxItems <= 0 {
+		maxItems = iamDefaultMaxItems
+	}
+
+	users, groups, roles, policies, nextMarker := paginateAuthDetails(
+		users, groups, roles, policies, page.DecodeToken(marker), maxItems,
+	)
+
+	return AccountAuthorizationDetails{
+		Users:    users,
+		Groups:   groups,
+		Roles:    roles,
+		Policies: policies,
+	}, nextMarker
+}
+
+// buildUserGroupMap builds the reverse group-membership map: userName → []groupName.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) buildUserGroupMap() map[string][]string {
 	userGroupMap := make(map[string][]string, b.users.Len())
 	for groupName, members := range b.groupMembers {
 		for _, member := range members {
@@ -20,9 +83,14 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 		}
 	}
 
-	// Build reverse instance-profile map: roleName → []InstanceProfile, mirroring
-	// ListInstanceProfilesForRole (same real backend now feeds both), so
-	// RoleDetail.InstanceProfileList is populated instead of always empty.
+	return userGroupMap
+}
+
+// buildRoleInstanceProfiles builds the reverse instance-profile map:
+// roleName → []InstanceProfile, mirroring ListInstanceProfilesForRole (same
+// real backend now feeds both), so RoleDetail.InstanceProfiles is populated
+// instead of always empty. Caller must hold b.mu.
+func (b *InMemoryBackend) buildRoleInstanceProfiles() map[string][]InstanceProfile {
 	roleInstanceProfiles := make(map[string][]InstanceProfile)
 	for _, ip := range b.instanceProfiles.All() {
 		for _, roleName := range ip.Roles {
@@ -37,7 +105,13 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 		roleInstanceProfiles[roleName] = profiles
 	}
 
-	// Build user details.
+	return roleInstanceProfiles
+}
+
+// buildUserDetails builds the sorted UserDetail list. Caller must hold b.mu.
+func (b *InMemoryBackend) buildUserDetails() []UserDetail {
+	userGroupMap := b.buildUserGroupMap()
+
 	users := make([]UserDetail, 0, b.users.Len())
 	for _, u := range b.users.All() {
 		user := *u
@@ -53,7 +127,11 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 
 	sort.Slice(users, func(i, j int) bool { return users[i].UserName < users[j].UserName })
 
-	// Build group details.
+	return users
+}
+
+// buildGroupDetails builds the sorted GroupDetail list. Caller must hold b.mu.
+func (b *InMemoryBackend) buildGroupDetails() []GroupDetail {
 	groups := make([]GroupDetail, 0, b.groups.Len())
 	for _, g := range b.groups.All() {
 		group := *g
@@ -67,7 +145,13 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 
 	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
 
-	// Build role details.
+	return groups
+}
+
+// buildRoleDetails builds the sorted RoleDetail list. Caller must hold b.mu.
+func (b *InMemoryBackend) buildRoleDetails() []RoleDetail {
+	roleInstanceProfiles := b.buildRoleInstanceProfiles()
+
 	roles := make([]RoleDetail, 0, b.roles.Len())
 	for _, r := range b.roles.All() {
 		role := *r
@@ -82,7 +166,11 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 
 	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
 
-	// Build managed policy list.
+	return roles
+}
+
+// buildPolicyDetails builds the sorted managed-policy list. Caller must hold b.mu.
+func (b *InMemoryBackend) buildPolicyDetails() []Policy {
 	policies := make([]Policy, 0, b.policies.Len())
 	for _, p := range b.policies.All() {
 		policies = append(policies, *p)
@@ -93,12 +181,81 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 		func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName },
 	)
 
-	return AccountAuthorizationDetails{
-		Users:    users,
-		Groups:   groups,
-		Roles:    roles,
-		Policies: policies,
+	return policies
+}
+
+// authDetailsFilterSets translates GetAccountAuthorizationDetails' Filter
+// (AWS EntityType values) into per-category inclusion flags. An empty filter
+// includes every category, matching AWS's "no filter means everything" default.
+func authDetailsFilterSets(filter []string) (bool, bool, bool, bool) {
+	if len(filter) == 0 {
+		return true, true, true, true
 	}
+
+	var users, groups, roles, policies bool
+
+	for _, f := range filter {
+		switch f {
+		case entityTypeUser:
+			users = true
+		case entityTypeGroup:
+			groups = true
+		case entityTypeRole:
+			roles = true
+		case entityTypeLocalManagedPolicy:
+			policies = true
+		case entityTypeAWSManagedPolicy:
+			// No AWS-managed policy catalog is emulated; matches nothing.
+		}
+	}
+
+	return users, groups, roles, policies
+}
+
+// paginateAuthDetails slices the four already-filtered detail lists as one
+// combined virtual sequence (Users, Groups, Roles, Policies, in that order --
+// matching AWS's single Marker/MaxItems pair spanning all four
+// GetAccountAuthorizationDetails lists). Returns the next marker ("" once the
+// combined sequence is exhausted).
+func paginateAuthDetails(
+	users []UserDetail, groups []GroupDetail, roles []RoleDetail, policies []Policy,
+	start, limit int,
+) ([]UserDetail, []GroupDetail, []RoleDetail, []Policy, string) {
+	total := len(users) + len(groups) + len(roles) + len(policies)
+	if start >= total {
+		return nil, nil, nil, nil, ""
+	}
+
+	end := start + limit
+	truncated := end < total
+
+	if !truncated {
+		end = total
+	}
+
+	outUsers := windowSlice(users, 0, start, end)
+	outGroups := windowSlice(groups, len(users), start, end)
+	outRoles := windowSlice(roles, len(users)+len(groups), start, end)
+	outPolicies := windowSlice(policies, len(users)+len(groups)+len(roles), start, end)
+
+	if !truncated {
+		return outUsers, outGroups, outRoles, outPolicies, ""
+	}
+
+	return outUsers, outGroups, outRoles, outPolicies, page.EncodeToken(end)
+}
+
+// windowSlice returns the portion of items -- whose combined-sequence offset
+// range starts at base -- that overlaps [start, end).
+func windowSlice[T any](items []T, base, start, end int) []T {
+	lo := max(start-base, 0)
+	hi := min(end-base, len(items))
+
+	if lo >= hi {
+		return nil
+	}
+
+	return items[lo:hi]
 }
 
 // attachedFromARNs converts a slice of policy ARNs to AttachedPolicy entries.

@@ -107,6 +107,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.instanceRefreshes = make(map[string][]*InstanceRefresh)
 		b.notificationConfigs = make(map[string][]*NotificationConfiguration)
 		b.instanceIndex = make(map[string]string)
+		b.nextHookSeq = 0
 
 		return nil
 	}
@@ -114,6 +115,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	if err := b.registry.RestoreAll(snap.Tables); err != nil {
 		return fmt.Errorf("autoscaling: restore snapshot tables: %w", err)
 	}
+
+	// nextHookSeq is not itself persisted; recompute it from the restored hooks
+	// so any hook registered post-restore chains after all of them.
+	b.recomputeNextHookSeqLocked()
 
 	if snap.Activities != nil {
 		b.activities = snap.Activities

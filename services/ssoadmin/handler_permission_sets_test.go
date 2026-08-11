@@ -347,6 +347,134 @@ func TestListPermissionSetsProvisionedToAccount(t *testing.T) {
 	assert.Equal(t, psArn, psets[0].(string))
 }
 
+// TestListPermissionSetsProvisionedToAccount_ProvisioningStatusFilter verifies
+// the ProvisioningStatus filter (LATEST_PERMISSION_SET_PROVISIONED /
+// LATEST_PERMISSION_SET_NOT_PROVISIONED): CreateAccountAssignment provisions
+// implicitly, editing the permission set makes the account's copy stale, and
+// re-provisioning brings it current again.
+func TestListPermissionSetsProvisionedToAccount_ProvisioningStatusFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "pspta-filter-inst")
+	psArn := createPermissionSet(t, h, instanceArn, "pspta-filter-ps")
+	accountID := "222222222222"
+
+	listWith := func(status string) []any {
+		t.Helper()
+
+		rec := doRequest(t, h, "ListPermissionSetsProvisionedToAccount", map[string]any{
+			"InstanceArn":        instanceArn,
+			"AccountId":          accountID,
+			"ProvisioningStatus": status,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseResponse(t, rec)
+		psets, _ := resp["PermissionSets"].([]any)
+
+		return psets
+	}
+
+	// No assignment yet: not provisioned under either filter value.
+	assert.Empty(t, listWith("LATEST_PERMISSION_SET_PROVISIONED"))
+
+	doRequest(t, h, "CreateAccountAssignment", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"TargetId":         accountID,
+		"TargetType":       "AWS_ACCOUNT",
+		"PrincipalType":    "USER",
+		"PrincipalId":      "user-xyz",
+	})
+
+	// CreateAccountAssignment provisions implicitly.
+	assert.Equal(t, []any{psArn}, listWith("LATEST_PERMISSION_SET_PROVISIONED"))
+	assert.Empty(t, listWith("LATEST_PERMISSION_SET_NOT_PROVISIONED"))
+
+	// Editing the permission set makes the account's copy stale.
+	updRec := doRequest(t, h, "UpdatePermissionSet", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"Description":      "edited",
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	assert.Empty(t, listWith("LATEST_PERMISSION_SET_PROVISIONED"))
+	assert.Equal(t, []any{psArn}, listWith("LATEST_PERMISSION_SET_NOT_PROVISIONED"))
+
+	// Re-provisioning brings it current again.
+	provRec := doRequest(t, h, "ProvisionPermissionSet", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"TargetId":         accountID,
+		"TargetType":       "AWS_ACCOUNT",
+	})
+	require.Equal(t, http.StatusOK, provRec.Code)
+
+	assert.Equal(t, []any{psArn}, listWith("LATEST_PERMISSION_SET_PROVISIONED"))
+	assert.Empty(t, listWith("LATEST_PERMISSION_SET_NOT_PROVISIONED"))
+}
+
+// TestListAccountsForProvisionedPermissionSet_ProvisioningStatusFilter is the
+// ListAccountsForProvisionedPermissionSet analog of the test above.
+func TestListAccountsForProvisionedPermissionSet_ProvisioningStatusFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "lapps-filter-inst")
+	psArn := createPermissionSet(t, h, instanceArn, "lapps-filter-ps")
+	accountID := "333333333333"
+
+	listWith := func(status string) []any {
+		t.Helper()
+
+		rec := doRequest(t, h, "ListAccountsForProvisionedPermissionSet", map[string]any{
+			"InstanceArn":        instanceArn,
+			"PermissionSetArn":   psArn,
+			"ProvisioningStatus": status,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseResponse(t, rec)
+		accounts, _ := resp["AccountIds"].([]any)
+
+		return accounts
+	}
+
+	doRequest(t, h, "CreateAccountAssignment", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"TargetId":         accountID,
+		"TargetType":       "AWS_ACCOUNT",
+		"PrincipalType":    "GROUP",
+		"PrincipalId":      "group-xyz",
+	})
+	assert.Equal(t, []any{accountID}, listWith("LATEST_PERMISSION_SET_PROVISIONED"))
+
+	doRequest(t, h, "AttachManagedPolicyToPermissionSet", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"ManagedPolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
+	})
+	assert.Empty(t, listWith("LATEST_PERMISSION_SET_PROVISIONED"))
+	assert.Equal(t, []any{accountID}, listWith("LATEST_PERMISSION_SET_NOT_PROVISIONED"))
+}
+
+// TestListPermissionSetsProvisionedToAccount_InvalidProvisioningStatus verifies
+// an unrecognized ProvisioningStatus value is rejected, not silently ignored.
+func TestListPermissionSetsProvisionedToAccount_InvalidProvisioningStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "pspta-badfilter-inst")
+
+	rec := doRequest(t, h, "ListPermissionSetsProvisionedToAccount", map[string]any{
+		"InstanceArn":        instanceArn,
+		"AccountId":          "444444444444",
+		"ProvisioningStatus": "BOGUS",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 // TestListPermissionSetsProvisionedToAccountMissing verifies required fields.
 func TestListPermissionSetsProvisionedToAccountMissing(t *testing.T) {
 	t.Parallel()
@@ -493,9 +621,24 @@ func TestPermissionSetProvisioningStatusWireShape(t *testing.T) {
 
 	assert.Equal(t, "333333333333", status["AccountId"], "wire field must be AccountId")
 	assert.Equal(t, psArn, status["PermissionSetArn"])
-	assert.NotContains(t, status, "TargetId", "PermissionSetProvisioningStatus has no TargetId member")
-	assert.NotContains(t, status, "TargetType", "PermissionSetProvisioningStatus has no TargetType member")
-	assert.NotContains(t, status, "PrincipalId", "PermissionSetProvisioningStatus has no PrincipalId member")
+	assert.NotContains(
+		t,
+		status,
+		"TargetId",
+		"PermissionSetProvisioningStatus has no TargetId member",
+	)
+	assert.NotContains(
+		t,
+		status,
+		"TargetType",
+		"PermissionSetProvisioningStatus has no TargetType member",
+	)
+	assert.NotContains(
+		t,
+		status,
+		"PrincipalId",
+		"PermissionSetProvisioningStatus has no PrincipalId member",
+	)
 	assert.Contains(t, status, "RequestId")
 	assert.Contains(t, status, "CreatedDate")
 
@@ -518,7 +661,12 @@ func TestPermissionSetProvisioningStatusWireShape(t *testing.T) {
 		require.True(t, itemOK)
 
 		assert.NotContains(t, item, "AccountId", "list metadata shape has no AccountId member")
-		assert.NotContains(t, item, "PermissionSetArn", "list metadata shape has no PermissionSetArn member")
+		assert.NotContains(
+			t,
+			item,
+			"PermissionSetArn",
+			"list metadata shape has no PermissionSetArn member",
+		)
 		assert.Contains(t, item, "RequestId")
 		assert.Contains(t, item, "Status")
 
@@ -580,7 +728,12 @@ func TestListPermissionSetProvisioningStatusPagination(t *testing.T) {
 		nextToken, _ = resp["NextToken"].(string)
 	}
 
-	assert.Equal(t, totalProvisions, seen, "pagination must eventually surface every status entry exactly once")
+	assert.Equal(
+		t,
+		totalProvisions,
+		seen,
+		"pagination must eventually surface every status entry exactly once",
+	)
 }
 
 // TestCreatePermissionSetNameTooLong verifies name length validation.

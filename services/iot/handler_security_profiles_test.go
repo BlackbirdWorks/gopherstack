@@ -114,7 +114,7 @@ func TestSecurityProfile(t *testing.T) {
 // security_profiles gap closure: CreateSecurityProfile previously silently
 // dropped Behaviors/AlertTargets/AdditionalMetricsToRetain(V2)/
 // MetricsExportConfig entirely (types.CreateSecurityProfileInput field-diff,
-// v1.76.0). Also covers UpdateSecurityProfile's ExpectedVersion optimistic
+// v1.77.4). Also covers UpdateSecurityProfile's ExpectedVersion optimistic
 // lock and DeleteX-flag-vs-field mutual exclusion, both previously
 // unmodeled (UpdateSecurityProfile only ever accepted a description).
 func TestSecurityProfile_FullFieldsAndUpdateSemantics(t *testing.T) {
@@ -302,38 +302,18 @@ func TestValidateSecurityProfileBehaviors(t *testing.T) {
 }
 
 // TestSecurityProfile_RoutingWireShapesAndBehaviorCriteriaType_SDKRoundTrip
-// is a table-driven test, asserted through a real generated AWS SDK v2 IoT
-// client driven through the actual service.Router path (newIoTSDKClient),
-// not h.Handler() directly -- the only way to prove reachability through
-// RouteMatcher, the gate three prior passes on this service each found real
-// bugs in.
+// drives a real generated AWS SDK v2 IoT client through the actual
+// service.Router path (newIoTSDKClient), not h.Handler() directly — the
+// only way to prove reachability through RouteMatcher.
 //
 // One case per real types.BehaviorCriteriaType value (STATIC/STATISTICAL/
-// MACHINE_LEARNING). Each case proves, in one round trip:
-//
-//  1. ListSecurityProfiles is reachable at all (GET /security-profiles, no
-//     trailing slash, was entirely absent from the RouteMatcher whitelist --
-//     the same unreachable-op bug class as ListJobs's plain "/jobs" and the
-//     "/job-templates"/"/mitigationactions/" families fixed in prior
-//     passes -- op dispatch itself was already correct, so no handler-level
-//     test would ever have caught this) and its response uses the real
-//     "name"/"arn" SecurityProfileIdentifier keys, not the previous
-//     "securityProfileName"/"securityProfileArn" (confirmed against
-//     awsRestjson1_deserializeDocumentSecurityProfileIdentifier -- a real
-//     client's deserializer would have left every profile's Name/Arn nil).
-//  2. ListSecurityProfilesForTarget is likewise reachable (GET
-//     /security-profiles-for-target, also absent from the whitelist) and its
-//     response nests the real securityProfileIdentifier{name,arn}+target{arn}
-//     shape, not the previous {securityProfileIdentifier:{name}} with no arn
-//     and no target object at all.
-//  3. ListTargetsForSecurityProfile's response uses the real "arn" key, not
-//     the previous invented "securityProfileTargetArn".
-//  4. The behaviorCriteriaType filter on ListActiveViolations -- the gap
-//     this whole security_profiles family was opened to close, previously
-//     unimplementable because CreateSecurityProfile never persisted any
-//     Behaviors at all -- now correctly resolves each violation's
-//     BehaviorCriteriaType from the owning security profile's real, stored
-//     Behavior and filters on it.
+// MACHINE_LEARNING). Each case proves, in one round trip: (1) ListSecurityProfiles
+// is reachable and uses the real "name"/"arn" SecurityProfileIdentifier keys;
+// (2) ListSecurityProfilesForTarget is reachable and nests
+// securityProfileIdentifier{name,arn}+target{arn}; (3) ListTargetsForSecurityProfile
+// uses the real "arn" key; (4) the behaviorCriteriaType filter on
+// ListActiveViolations resolves each violation's BehaviorCriteriaType from
+// the owning security profile's stored Behavior.
 func TestSecurityProfile_RoutingWireShapesAndBehaviorCriteriaType_SDKRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -472,20 +452,11 @@ func TestSecurityProfile_RoutingWireShapesAndBehaviorCriteriaType_SDKRoundTrip(t
 	}
 }
 
-// TestSecurityProfile_DetachNotFoundAndDeleteCascade is a table-driven test,
-// asserted through a real generated AWS SDK v2 IoT client, covering two
-// backend bugs found while verifying every security-profile op is reachable
-// and correctly behaved end to end:
-//
-//   - DetachSecurityProfile silently no-op'd for an unknown security profile
-//     name instead of returning ResourceNotFoundException -- the same class
-//     of gap AttachSecurityProfile had before it was fixed (gopherstack-ep0r),
-//     just never fixed on the Detach side.
-//   - DeleteSecurityProfile never cleaned up the profile's target
-//     attachments, leaving a ghost row in the backend's
-//     securityProfileTargets map keyed by the deleted profile's name -- a
-//     profile re-created with the same name would immediately (and
-//     incorrectly) appear attached to the prior profile's old targets.
+// TestSecurityProfile_DetachNotFoundAndDeleteCascade covers: DetachSecurityProfile
+// returns ResourceNotFoundException for an unknown profile name instead of
+// silently no-op'ing; DeleteSecurityProfile cleans up the profile's target
+// attachments so a re-created profile with the same name doesn't inherit
+// the old ghost row in securityProfileTargets.
 func TestSecurityProfile_DetachNotFoundAndDeleteCascade(t *testing.T) {
 	t.Parallel()
 

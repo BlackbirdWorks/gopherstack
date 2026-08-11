@@ -6,14 +6,11 @@ import (
 	"time"
 )
 
-// agent.go implements the ECS-agent-facing state-submission
-// operations (SubmitTaskStateChange, SubmitContainerStateChange,
-// SubmitAttachmentStateChanges). These operations are used exclusively by the
-// real Amazon ECS agent to report task/container/attachment lifecycle events
-// back to the control plane; AWS documents them as "only used by the Amazon
-// ECS agent, and not intended for use outside of the agent." Consistent with
-// that eventually-consistent, agent-internal contract, unknown cluster/task/
-// container references are tolerated as no-ops rather than surfaced as errors.
+// agent.go: ECS-agent-facing state-submission operations. AWS documents these
+// as "only used by the Amazon ECS agent, and not intended for use outside of the
+// agent" -- consistent with that eventually-consistent, agent-internal contract,
+// unknown cluster/task/container references are tolerated as no-ops rather than
+// surfaced as errors.
 
 // AttachmentStateChange reports a status transition for a single task attachment
 // (e.g. an ENI), identified by the attachment ARN previously handed out by ECS.

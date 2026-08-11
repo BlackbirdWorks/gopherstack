@@ -7,7 +7,7 @@ import (
 )
 
 // handleListSessions handles ListSessions. Field names verified against
-// aws-sdk-go-v2/service/redshiftdata@v1.43.0's
+// aws-sdk-go-v2/service/redshiftdata@v1.43.4's
 // awsAwsjson11_serializeOpDocumentListSessionsInput (serializers.go) and
 // awsAwsjson11_deserializeDocumentSessionData (deserializers.go).
 func (h *Handler) handleListSessions(ctx context.Context, body []byte) ([]byte, error) {

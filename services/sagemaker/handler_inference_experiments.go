@@ -12,10 +12,10 @@ import (
 
 func (h *Handler) handleCreateInferenceExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags    map[string]string `json:"Tags"`
-		Name    string            `json:"Name"`
-		Type    string            `json:"Type"`
-		RoleArn string            `json:"RoleArn"`
+		Name    string      `json:"Name"`
+		Type    string      `json:"Type"`
+		RoleArn string      `json:"RoleArn"`
+		Tags    []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -26,7 +26,7 @@ func (h *Handler) handleCreateInferenceExperiment(ctx context.Context, body []by
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateInferenceExperiment(ctx, req.Name, req.Type, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateInferenceExperiment(ctx, req.Name, req.Type, req.RoleArn, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

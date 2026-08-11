@@ -14,12 +14,39 @@ func (h *Handler) handleCompleteWebAuthnRegistration(
 ) (*completeWebAuthnRegistrationOutput, error) {
 	credentialID, _ := in.Credential["id"].(string)
 	attachment, _ := in.Credential["authenticatorAttachment"].(string)
+	transports := credentialTransports(in.Credential)
 
-	if _, err := h.Backend.CompleteWebAuthnRegistration(in.AccessToken, credentialID, attachment); err != nil {
+	_, err := h.Backend.CompleteWebAuthnRegistration(in.AccessToken, credentialID, attachment, transports)
+	if err != nil {
 		return nil, err
 	}
 
 	return &completeWebAuthnRegistrationOutput{}, nil
+}
+
+// credentialTransports extracts response.transports from a WebAuthn
+// PublicKeyCredential.toJSON() payload (AuthenticatorAttestationResponse.getTransports()),
+// if the browser included one.
+func credentialTransports(credential map[string]any) []string {
+	response, ok := credential["response"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	raw, ok := response["transports"].([]any)
+	if !ok {
+		return nil
+	}
+
+	out := make([]string, 0, len(raw))
+
+	for _, v := range raw {
+		if s, sOK := v.(string); sOK {
+			out = append(out, s)
+		}
+	}
+
+	return out
 }
 
 func (h *Handler) handleDeleteWebAuthnCredential(
@@ -49,11 +76,17 @@ func (h *Handler) handleListWebAuthnCredentials(
 
 	out := make([]webAuthnCredentialDescriptionType, 0, len(creds))
 	for _, c := range creds {
+		transports := c.AuthenticatorTransports
+		if transports == nil {
+			transports = []string{}
+		}
+
 		out = append(out, webAuthnCredentialDescriptionType{
 			CredentialID:            c.CredentialID,
-			FriendlyName:            c.FriendlyName,
+			FriendlyCredentialName:  c.FriendlyName,
 			RelyingPartyID:          c.RelyingPartyID,
 			AuthenticatorAttachment: c.AuthenticatorAttachment,
+			AuthenticatorTransports: transports,
 			CreatedAt:               float64(c.CreatedAt.Unix()),
 		})
 	}

@@ -106,7 +106,7 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 
 	var result *ExpenseJob
 	var done bool
-	var key string
+	var key, jobID string
 
 	func() {
 		b.mu.Lock("StartExpenseAnalysis")
@@ -124,7 +124,7 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 			}
 		}
 
-		jobID := uuid.NewString()
+		jobID = uuid.NewString()
 		job := &ExpenseJob{
 			Region:              region,
 			JobID:               jobID,
@@ -171,9 +171,14 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 		b.mu.RLock("StartExpenseAnalysis-read")
 		defer b.mu.RUnlock()
 
-		stored, _ := b.expenseJobs.Get(key)
-		result = cloneExpenseJob(stored)
+		if stored, ok := b.expenseJobs.Get(key); ok {
+			result = cloneExpenseJob(stored)
+		}
 	}()
+
+	if result == nil {
+		return nil, fmt.Errorf("%w: expense job %s not found", ErrJobNotFound, jobID)
+	}
 
 	return result, nil
 }

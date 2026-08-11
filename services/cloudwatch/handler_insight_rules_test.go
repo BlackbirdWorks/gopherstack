@@ -21,10 +21,10 @@ func TestHandler_InsightRule_Lifecycle(t *testing.T) {
 	rec := postForm(t, h, url.Values{
 		"Action":         []string{"PutInsightRule"},
 		"RuleName":       []string{"rule1"},
-		"RuleDefinition": []string{`{"Schema":1}`},
+		"RuleDefinition": []string{validInsightRuleDefinition},
 		"RuleState":      []string{"ENABLED"},
 	}.Encode())
-	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, 200, rec.Code, rec.Body.String())
 
 	rec = postForm(t, h, url.Values{
 		"Action": []string{"DescribeInsightRules"},
@@ -162,9 +162,10 @@ func TestListManagedInsightRules_FiltersByManagedFlag(t *testing.T) {
 				rec := postForm(
 					t,
 					h,
-					"Action=PutInsightRule&RuleName="+name+"&RuleDefinition=%7B%7D&RuleState=ENABLED",
+					"Action=PutInsightRule&RuleName="+name+"&RuleDefinition="+
+						url.QueryEscape(validInsightRuleDefinition)+"&RuleState=ENABLED",
 				)
-				require.Equal(t, http.StatusOK, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 			}
 			for _, name := range tc.managedRules {
 				rec := postForm(t, h, "Action=PutManagedInsightRules"+
@@ -207,7 +208,7 @@ func TestCloudWatchHandler_InsightRules(t *testing.T) {
 		{
 			name: "PutInsightRule/success",
 			body: "Action=PutInsightRule&RuleName=rule-created&RuleState=ENABLED" +
-				"&RuleDefinition=%7B%22Schema%22%3A%22CloudWatchLogRule%22%7D",
+				"&RuleDefinition=" + url.QueryEscape(validInsightRuleDefinition),
 			wantCode:     http.StatusOK,
 			wantContains: []string{"PutInsightRuleResponse"},
 		},
@@ -228,7 +229,7 @@ func TestCloudWatchHandler_InsightRules(t *testing.T) {
 				})
 			},
 			body: "Action=PutInsightRule&RuleName=rule-update&RuleState=DISABLED" +
-				"&RuleDefinition=%7B%7D",
+				"&RuleDefinition=" + url.QueryEscape(validInsightRuleDefinition),
 			wantCode:     http.StatusOK,
 			wantContains: []string{"PutInsightRuleResponse"},
 		},

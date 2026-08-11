@@ -15,7 +15,8 @@ const (
 
 	taskModeBasic = "BASIC"
 
-	smbAuthTypeNTLM = "NTLM"
+	smbAuthTypeNTLM     = "NTLM"
+	smbAuthTypeKerberos = "KERBEROS"
 
 	internalExceptionType = "InternalException"
 

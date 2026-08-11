@@ -1,6 +1,6 @@
 ---
 service: autoscaling
-sdk_module: aws-sdk-go-v2/service/autoscaling@v1.64.2
+sdk_module: aws-sdk-go-v2/service/autoscaling@v1.70.4
 last_audit_commit: 1c4ee34e
 last_audit_date: 2026-07-23
 overall: A            # parity-3 sweep. No aws-sdk-go-v2/service/autoscaling version bump
@@ -33,9 +33,9 @@ overall: A            # parity-3 sweep. No aws-sdk-go-v2/service/autoscaling ver
                        # is ctx-parented and Shutdown-drained via pkgs/worker.SingleRun
                        # (see families below).
 ops:
-  CreateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy, LifecycleHookSpecificationList, TrafficSources were parsed as no-ops (silently dropped) - now parsed, validated, and registered atomically with the group; initial instances are gated by any launch hook just registered. This pass: wired 7 previously-unparsed fields (AvailabilityZoneDistribution, AvailabilityZoneImpairmentPolicy, CapacityReservationSpecification, DeletionProtection, InstanceLifecyclePolicy, InstanceMaintenancePolicy, SkipZonalShiftValidation) - parsed, validated (DeletionProtection enum), stored, and (all but SkipZonalShiftValidation, which real AWS itself never echoes back - verified against types.AutoScalingGroup) projected on Describe"}
-  DescribeAutoScalingGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "added MixedInstancesPolicy to the XML projection (was entirely absent from xmlAutoScalingGroup even though the backend model carried it)"}
-  UpdateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request. Prior pass: scale-in path (via applyDesiredCapacityChange) now also gates on a terminating lifecycle hook (bd gopherstack-9wo; re-verified present in code this pass, the bd issue itself was just stale-open). This pass: wired the same 7 fields as CreateAutoScalingGroup (see above); each pointer-struct field replaces the group's existing value wholesale when present in the request (matches AWS's opaque-nested-object semantics - there is no partial-field patch for e.g. InstanceMaintenancePolicy)"}
+  CreateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy, LifecycleHookSpecificationList, TrafficSources were parsed as no-ops (silently dropped) - now parsed, validated, and registered atomically with the group; initial instances are gated by any launch hook just registered. Prior pass: wired 7 previously-unparsed fields (AvailabilityZoneDistribution, AvailabilityZoneImpairmentPolicy, CapacityReservationSpecification, DeletionProtection, InstanceLifecyclePolicy, InstanceMaintenancePolicy, SkipZonalShiftValidation) - parsed, validated (DeletionProtection enum), stored, and (all but SkipZonalShiftValidation, which real AWS itself never echoes back - verified against types.AutoScalingGroup) projected on Describe. bd gopherstack-2uti: MixedInstancesPolicy.LaunchTemplate.Overrides.member.N.InstanceRequirements (attribute-based instance-type selection, 24 of 25 sub-fields) is now parsed; also fixed a real loop-termination bug in parseLaunchTemplateOverrides - an override carrying only InstanceRequirements (no InstanceType/WeightedCapacity/LaunchTemplateSpecification, the common real-world shape) was indistinguishable from 'no more members', silently truncating every override after it too. bd gopherstack-02ue (this pass): the 25th and last InstanceRequirements field, BaselinePerformanceFactors, is now modelled too - see Notes for its wire-shape outlier (singular 'Reference' key, 'item'-wrapped list)"}
+  DescribeAutoScalingGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "added MixedInstancesPolicy to the XML projection (was entirely absent from xmlAutoScalingGroup even though the backend model carried it). bd gopherstack-2uti: projects InstanceRequirements on each override (see CreateAutoScalingGroup). bd gopherstack-02ue (this pass): projects BaselinePerformanceFactors too"}
+  UpdateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request. Prior passes: scale-in path (via applyDesiredCapacityChange) now also gates on a terminating lifecycle hook (bd gopherstack-9wo; re-verified present in code this pass, the bd issue itself was just stale-open); wired the same 7 fields as CreateAutoScalingGroup (see above); each pointer-struct field replaces the group's existing value wholesale when present in the request (matches AWS's opaque-nested-object semantics - there is no partial-field patch for e.g. InstanceMaintenancePolicy). bd gopherstack-2uti / bd gopherstack-02ue: inherits the InstanceRequirements (incl. BaselinePerformanceFactors) parsing fix via the shared parseMixedInstancesPolicy/parseLaunchTemplateOverrides helpers"}
   DeleteAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: DeletionProtection is now a real gate, not just a stored/echoed value - prevent-all-deletion rejects every delete, prevent-force-deletion rejects only ForceDelete=true, matching real AWS's ResourceInUse (ErrorCode) fault. Previously the field didn't exist on the model at all"}
   CreateLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLaunchConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -48,7 +48,7 @@ ops:
   BatchDeleteScheduledAction: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchPutScheduledUpdateGroupAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: StartTime/EndTime were parsed nowhere and silently dropped; now parsed and stored"}
   CancelInstanceRefresh: {wire: ok, errors: ok, state: ok, persist: ok}
-  CompleteLifecycleAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix: previously only stopped a timer that was never created anywhere (dead code) and had zero effect on instance state. Now resolves a real pending lifecycle wait (Pending:Wait/Terminating:Wait -> actual transition), looked up by token OR by (group,hook,instance)"}
+  CompleteLifecycleAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix: previously only stopped a timer that was never created anywhere (dead code) and had zero effect on instance state. Now resolves a real pending lifecycle wait (Pending:Wait/Terminating:Wait -> actual transition), looked up by token OR by (group,hook,instance). This pass (bd gopherstack-2uti): ABANDON on a launching hook now terminates AND relaunches a replacement to restore DesiredCapacity (see Notes) - previously it terminated with no replacement, silently leaving the group under capacity"}
   CreateOrUpdateTags: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLifecycleHook: {wire: ok, errors: ok, state: ok, persist: ok}
   SetDesiredCapacity: {wire: ok, errors: ok, state: ok, persist: ok, note: "scale-out path gates new instances through an active launch hook. This pass: scale-in path now also gates removed instances through an active terminating hook (was previously immediate regardless of hooks; closes bd gopherstack-9wo) via the new applyScaleIn/terminationCapacityPreset machinery - see Notes"}
@@ -72,7 +72,7 @@ ops:
   DescribeLoadBalancers: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMetricCollectionTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeNotificationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribePolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MinAdjustmentStep and MetricAggregationType were never returned"}
+  DescribePolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MinAdjustmentStep and MetricAggregationType were never returned. bd gopherstack-2uti: now echoes back PredictiveScalingConfiguration (see PutScalingPolicy). bd gopherstack-02ue (this pass): now echoes back TargetTrackingConfiguration.CustomizedMetricSpecification and the three predictive-scaling Customized*MetricSpecification variants"}
   DescribeScalingProcessTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeTerminationPolicyTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeTrafficSources: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -89,7 +89,7 @@ ops:
   GetPredictiveScalingForecast: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: response was missing the required UpdateTime field and returned a wrong-shaped, entirely empty LoadForecast; now returns UpdateTime and a real (though intentionally naive - see Notes) Timestamps/Values series"}
   LaunchInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 3 bugs: (1) handler read the wrong query param (DesiredCapacity instead of the real RequestedCapacity, so every call silently launched only 1 instance regardless of the requested count); (2) response used the DescribeAutoScalingGroups per-instance shape instead of the real LaunchInstancesOutput InstanceCollection (grouped by AZ/InstanceType with InstanceIds) shape; (3) the backend never added launched instances to instanceIndex, so they could never be found by TerminateInstanceInAutoScalingGroup"}
   PutNotificationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MetricAggregationType was accepted nowhere on input or output"}
+  PutScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MetricAggregationType was accepted nowhere on input or output. bd gopherstack-2uti: PredictiveScalingConfiguration rode along entirely unparsed - accepted with 200 OK, silently discarded. Now parses the top-level scalar fields (MaxCapacityBreachBehavior/MaxCapacityBuffer/Mode/SchedulingBufferTime) and MetricSpecifications' three predefined-metric variants. bd gopherstack-02ue (this pass): the four Customized*MetricSpecification variants (TargetTrackingConfiguration.CustomizedMetricSpecification, and PredictiveScalingMetricSpecification's Customized{Load,Scaling,Capacity}MetricSpecification) were the same silent-discard gap - TargetTrackingConfiguration.CustomizedMetricSpecification was worse: a dead ScalingPolicy.CustomizedMetricSpecification string field existed but was never even parsed from the wire. All four now modelled in full, including the shared CloudWatch MetricDataQuery/MetricStat/Metric/Dimensions nesting - see Notes"}
   PutScheduledUpdateGroupAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: StartTime/EndTime were parsed nowhere and silently dropped despite the backend model and DescribeScheduledActions XML projection already supporting them"}
   PutWarmPool: {wire: ok, errors: ok, state: ok, persist: ok}
   RecordLifecycleActionHeartbeat: {wire: ok, errors: ok, state: ok, persist: ok, note: "was re-arming a timer that called a no-op (expireHookAction just deleted the map entry); now re-arms to re-resolve with the hook's DefaultResult, and supports lookup by instance ID (not just token)"}
@@ -107,13 +107,10 @@ families:
   ec2-provisioning (ASG->EC2 real instance launch/terminate via EC2Launcher): {status: ok, note: "was gap bd gopherstack-8sk, marked NOT-fixed by the prior ledger; independently field-diffed this pass and found ALREADY fixed by an undocumented earlier pass - services/autoscaling/ec2_launch.go defines EC2Launcher (LaunchInstances/TerminateInstances), auto_scaling_groups.go/instances.go route scale-out/in through it when wired (SetEC2Launcher), bd gopherstack-8sk is closed. Ledger corrected to reflect reality"}
   elbv2-target-registration (ASG->ELBv2 real target register/deregister via ELBv2TargetRegistrar): {status: ok, note: "was gap bd gopherstack-18k, marked NOT-fixed by the prior ledger; independently field-diffed this pass and found ALREADY fixed by the same undocumented earlier pass - services/autoscaling/elbv2_targets.go defines ELBv2TargetRegistrar (RegisterTargets/DeregisterTargets), wired into attach/detach/scale-in paths, bd gopherstack-18k is closed. Ledger corrected to reflect reality"}
   scheduled-action-scheduler (background execution of Put/BatchPutScheduledUpdateGroupAction): {status: ok, note: "NEW this pass, closing bd gopherstack-6ys. Prior passes correctly parsed/persisted StartTime/EndTime/Recurrence but nothing ever evaluated them against wall-clock time - DescribeScheduledActions reflected what was requested, but no action ever fired. Added scheduled_action_cron.go (5-field Unix-cron parser matching AWS's documented Recurrence format: minute hour day-of-month month day-of-week - distinct from EventBridge's 6-field cron() with a year field) and scheduled_action_scheduler.go (ScheduledActionScheduler, a service.BackgroundWorker: 1-minute ticker, wired via pkgs/worker.SingleRun in handler.go's StartWorker/Shutdown so it is ctx-parented and Shutdown-drained like every other service's background worker in this codebase). Each tick applies any due action's MinSize/MaxSize/DesiredCapacity through the same validated capacity path (applyUpdateCapacityLocked) UpdateAutoScalingGroup uses, so it inherits identical validation/error behavior. Covers one-time actions (Recurrence empty, fires once at/after StartTime) and recurring actions (bounded by StartTime/EndTime when set); a new ScheduledAction.LastExecutedTime field (internal bookkeeping, not on the wire - AWS's real ScheduledUpdateGroupAction response type has no equivalent field) prevents re-firing the same occurrence and prevents an invalid action from busy-looping every tick"}
+  lifecycle-hook-chaining (multiple hooks on one transition): {status: ok, note: "FIXED this pass (bd gopherstack-9tqg, deferred from bd gopherstack-2uti/b7d3a8485). Registering a second+ hook on the same transition previously armed nothing - see dated Notes section below for the ordering rule, the chain data model, and how it composes with ABANDON's terminate-and-replace"}
 gaps:
-  - Multiple lifecycle hooks of the *same* transition on one group: this simulation gates on a single (deterministic, lowest-named) hook per transition per group, matching the common case; AWS supports N hooks per transition each independently gating the same instance. Documented simplification, see Notes
-  - ABANDON on a launch hook terminates the pending instance but does not attempt an automatic relaunch to restore DesiredCapacity (real AWS does retry); documented simplification, see Notes
   - GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
-deferred:
-  - InstanceRequirements-based MixedInstancesPolicy overrides (attribute-based instance selection) - only InstanceType-based overrides are parsed/returned. Re-confirmed this pass: types.InstanceRequirements has 25 fields (VCpuCount, MemoryMiB, CpuManufacturers, AcceleratorCount/Manufacturers/Names/TotalMemoryMiB/Types, BareMetal, BaselineEbsBandwidthMbps, BaselinePerformanceFactors, BurstablePerformance, ExcludedInstanceTypes, InstanceGenerations, LocalStorage/LocalStorageTypes, MaxSpotPriceAsPercentageOfOptimalOnDemandPrice, MemoryGiBPerVCpu, NetworkBandwidthGbps, NetworkInterfaceCount, OnDemandMaxPricePercentageOverLowestPrice, RequireHibernateSupport, SpotMaxPricePercentageOverLowestPrice, TotalLocalStorageGB) - a genuinely large, separate feature (attribute-based instance-type selection), not a quick wire fix; deliberately not attempted this pass. No bd id filed yet.
-  - PredictiveScalingConfiguration (Put/Describe are not in GetSupportedOperations at all - predictive scaling policy *configuration* management, as opposed to GetPredictiveScalingForecast, was out of scope for this pass; confirmed the SDK op list has no separate op for this, it rides inside PutScalingPolicy's PolicyType=PredictiveScaling with a nested config this handler does not parse)
+deferred: []
 leaks: {status: clean, note: "go test -race passes (verified this pass). The pendingHookTokens timer machinery (the CRITICAL item flagged in a prior sweep) remains real (armed on every gated launch/terminate), Close() stops all of them, DeleteAutoScalingGroup/DeleteLifecycleHook/Purge call cleanupHookTimers, and Restore() re-arms timers for any instance left in a *:Wait state. NEW this pass: the ScheduledActionScheduler's 1-minute ticker goroutine is started via pkgs/worker.SingleRun.Start in Handler.StartWorker and stopped (cancelled + waited-on) via pkgs/worker.SingleRun.Stop in Handler.Shutdown - the exact same ctx-parented/Shutdown-drained shape every other backgroundWorker service in this codebase uses (e.g. secretsmanager's rotation scheduler). TestScheduledActionScheduler_RunFiresAndStopsCleanly explicitly starts the real ticker, waits for it to fire, cancels its context, and asserts Run() returns within 2s. testleak.VerifyTestMain (leak_main_test.go) additionally guards the whole package: any test that started a worker without stopping it would fail the suite."}
 ---
 
@@ -122,6 +119,262 @@ leaks: {status: clean, note: "go test -race passes (verified this pass). The pen
 Protocol: EC2 Auto Scaling uses the `query` (form-urlencoded request, XML response)
 protocol, `Version=2011-01-01`. Verified against the awsquery serializers/deserializers
 in `aws-sdk-go-v2/service/autoscaling@v1.64.2`.
+
+### bd gopherstack-2uti (2026-08-08): PredictiveScalingConfiguration, InstanceRequirements, ABANDON auto-relaunch
+
+Three specific, previously-documented gaps (see prior `gaps`/`deferred` entries this
+section replaces), addressed in priority order (worst failure mode first, per the
+issue's own priority note - a config accepted and silently discarded is worse than a
+missing feature or a documented simplification):
+
+1. **`PutScalingPolicy`/`DescribePolicies`: `PredictiveScalingConfiguration`.**
+   Verified the exact query-protocol flattening against
+   `aws-sdk-go-v2/service/autoscaling@v1.70.4`'s `serializers.go:5967`
+   (`awsAwsquery_serializeDocumentPredictiveScalingConfiguration`) and
+   `deserializers.go:16133` before writing any parsing code, rather than inferring it
+   from field names: `PredictiveScalingConfiguration.{MaxCapacityBreachBehavior,
+   MaxCapacityBuffer,Mode,SchedulingBufferTime}` are flat scalars;
+   `MetricSpecifications` is a standard `.member.N.`-flattened list (confirmed against
+   `aws-sdk-go-v2@v1.43.4`'s `aws/protocol/query/array.go` - non-flat arrays are
+   `<prefix>.<memberName>.<n>`, memberName is always `"member"` for this protocol,
+   matching every other list in this handler); each element has an independent
+   `TargetValue` plus one of three `{PredefinedMetricType,ResourceLabel}`-shaped
+   predefined-metric objects (`PredefinedMetricPairSpecification`/
+   `PredefinedLoadMetricSpecification`/`PredefinedScalingMetricSpecification`,
+   `types.go:2743/2778/2821`). Added `PredictiveScalingConfiguration`/
+   `PredictiveScalingMetricSpecification`/`PredefinedMetricRef` to `models.go` and
+   wired parse/echo into `handler_scaling_policies.go`. The `Customized*` metric
+   variants (CloudWatch `MetricDataQuery` math expressions) are deliberately not
+   modelled - see `deferred`.
+
+2. **`MixedInstancesPolicy.LaunchTemplate.Overrides[].InstanceRequirements`**
+   (attribute-based instance-type selection, `types.go:1267`, 25 fields). Modelled 24
+   of 25 as `IntRangeRequest`/`FloatRangeRequest` `{Min,Max}` pairs (6 int, 3 float),
+   8 `.member.N`-flattened string lists, 3 plain string enums, 3 `*int32` scalars, and
+   1 `*bool`; `BaselinePerformanceFactors` (nests a CPU-instance-family reference list
+   with no analogue elsewhere in this handler) is the one field deferred - see
+   `deferred`. Verified the flattening the same way as (1), directly against
+   `serializers.go:5230` (`awsAwsquery_serializeDocumentInstanceRequirements`) and its
+   sub-message serializers, and `deserializers.go:12592` for the response side.
+   Fixing this also surfaced and fixed a real, independent bug: `parseLaunchTemplateOverrides`'s
+   loop-continuation check only looked at
+   `InstanceType`/`WeightedCapacity`/`LaunchTemplateSpecification` presence - an
+   override carrying only `InstanceRequirements` (no `InstanceType`, the whole point
+   of attribute-based selection, and the shape Terraform emits for
+   `instance_requirements` blocks) was indistinguishable from "end of list", silently
+   truncating every override after it in the same request too. Covered by
+   `TestAutoscalingHandler_MixedInstancesPolicyInstanceRequirementsRoundTrip`, which
+   asserts a *second* override with a plain `InstanceType` survives past a first,
+   `InstanceRequirements`-only override - verified this fails pre-fix (empty
+   `<Overrides>`, both members dropped).
+
+3. **ABANDON on a launching lifecycle hook now relaunches a replacement.** AWS's
+   lifecycle-hooks docs (`docs.aws.amazon.com/autoscaling/ec2/userguide/lifecycle-hooks.html`,
+   "Considerations and limitations", fetched this pass) state: "If an instance is
+   launching, continue indicates that your actions were successful, and that Amazon
+   EC2 Auto Scaling can put the instance into service. Otherwise, abandon indicates
+   that your custom actions were unsuccessful, and that **we can terminate and replace
+   the instance**." (emphasis added). The prior implementation terminated the failed
+   instance but never replaced it, silently leaving the group permanently under
+   `DesiredCapacity` until some unrelated event (a scaling policy, a manual
+   `SetDesiredCapacity` call) happened to top it back up. Fixed in
+   `applyLifecycleResult`'s launching/ABANDON branch by reusing the exact same
+   top-up-to-`DesiredCapacity` pattern `finishTermination`'s `terminationReplace`
+   disposition already used for the analogous terminating-hook case
+   (`adjustInstances` + `instanceIndex` registration + `gateNewLaunchInstances`, so
+   the replacement is itself gated by the same launch hook, matching real AWS - a
+   replacement for an abandoned instance is a normal launch, not a bypass). Required
+   updating one existing test
+   (`TestAutoscalingHandler_LifecycleHookGatesLaunch`/"abandon...") whose assertion
+   (`assert.Empty(t, gotInstances, ...)`) encoded the old, AWS-incorrect behavior;
+   verified the updated test fails against the pre-fix code (group stuck at 0
+   instances despite `DesiredCapacity=1`) and passes after.
+
+   The same docs page also answers the *multiple-hooks-on-one-transition* ordering
+   question this issue asked about, for the *terminating* case specifically: "If an
+   instance is terminating, both abandon and continue allow the instance to
+   terminate. However, **abandon stops any remaining actions, such as other lifecycle
+   hooks, and continue allows any other lifecycle hooks to complete**." This confirms
+   AWS's model is an ordered chain with a short-circuit-on-abandon semantic, not
+   documented true concurrency, and there is no `order`/`priority` field anywhere in
+   `PutLifecycleHookInput`/`LifecycleHookSpecification` to determine the chain order -
+   the SDK does not determine it, and neither does this doc page. Implementing the
+   chain (arm one hook at a time per instance+transition, advance to the next on
+   CONTINUE, short-circuit on ABANDON, across all 4 `armLifecycleWait` call sites plus
+   the Restore-time `rearmPendingWaits` path) is a materially larger, riskier change
+   than (1) and (2) above and was deliberately left as a documented gap rather than
+   rushed - see `gaps`.
+
+### bd gopherstack-9tqg (2026-08-08): lifecycle-hook chaining
+
+Implemented the chain deferred by bd `gopherstack-2uti`/b7d3a8485 above: registering a
+second (or third, ...) hook on the same transition now actually arms it, instead of
+silently doing nothing.
+
+**Ordering rule.** Neither `PutLifecycleHookInput` nor `LifecycleHookSpecification`
+(`aws-sdk-go-v2/service/autoscaling@v1.70.4` `api_op_PutLifecycleHook.go:70-140`,
+`types.go:1973-2020`) carries an order/priority field, and `DescribeLifecycleHooksOutput`
+(`api_op_DescribeLifecycleHooks.go:42-51`) is a plain `[]types.LifecycleHook` with no
+ordering metadata either - the SDK does not determine chain order, and the pending-hook
+wait itself is not observable to a client beyond the instance's coarse
+`LifecycleState` (`Pending:Wait`/`Terminating:Wait`; there is no per-hook field on
+`AutoScalingInstanceDetails`). Chose **registration order** as the defensible default
+and documented it here and in `lifecycleHookChain`'s doc comment
+(`lifecycle_hooks.go`): each `LifecycleHook` gets an internal-only `Sequence` field,
+assigned once from a backend counter (`nextHookSeq`) the first time a hook of that name
+is registered (`putLifecycleHookLocked`) and preserved across updates to the same hook.
+`Sequence` is never sent or accepted on the wire - `handleDescribeLifecycleHooks` builds
+`xmlLifecycleHook` field-by-field rather than by converting `LifecycleHook` directly, so
+adding it couldn't leak onto the response the way a straight type conversion would have.
+
+**Mechanics.** `armLifecycleWait` now also records the armed hook's name on the
+instance (`Instance.LifecycleHookName`). `applyLifecycleResult`, on CONTINUE, looks up
+the next hook in `lifecycleHookChain` after the one that just resolved and re-arms the
+same instance on it instead of applying the transition's terminal effect; only once the
+chain is exhausted does it fall through to `InService`/`finishTermination`. ABANDON
+never consults the chain - it goes straight to the terminal effect at whatever position
+it occurred, i.e. short-circuits.
+
+**Composing with b7d3a8485's terminate-and-replace.** ABANDON on a launching hook,
+at any chain position, still reuses the exact same terminate-and-replace branch
+(`removeInstanceByID` + `adjustInstances` + `gateNewLaunchInstances`) that existed
+before this pass - chaining only changes *which* hook's resolution can reach that
+branch, not the branch itself. The replacement instance is a brand-new `Instance`, so
+`gateNewLaunchInstances` arms it via `firstHookInChain`, restarting the launch chain
+from hook 1 rather than continuing wherever the abandoned instance's chain position
+was. Verified with a three-hook launching test
+(`launchChainAbandonShortCircuits`): hook-1 CONTINUE advances to hook-2 (proving the
+chain-advance code path actually ran, not merely that a single-hook flow still works),
+hook-2 ABANDON terminates-and-replaces without hook-3 ever being armed, and the
+replacement is confirmed back at hook-1 (completing hook-3 on it is a no-op; completing
+hook-1 is not).
+
+**Restore mid-chain.** The hardest part: `pendingHookTokens` (in-flight timers/action
+state, including which hook is currently gating an instance) is deliberately never
+persisted, but which hook an instance is paused on cannot be recovered from
+`lifecycleHookChain` alone once the group's earlier hooks have already resolved. Added
+`Instance.LifecycleHookName` (internal-only, rides along transparently in the existing
+`AutoScalingGroup`/`store.Table[AutoScalingGroup]` JSON snapshot - additive field, no
+`autoscalingSnapshotVersion` bump needed, same precedent as b7d3a8485's
+`PredictiveScalingConfiguration` addition) so `rearmPendingWaits` can look the specific
+hook back up by name after `Restore()`, falling back to `firstHookInChain` only when
+that hook is empty (pre-chain-tracking snapshot) or gone (deleted while persisted).
+`nextHookSeq` itself is not persisted (it is not observable through any AWS API, so
+there is nothing to keep byte-identical across a restore); `Restore()` recomputes it as
+the max `Sequence` across restored hooks, so hooks registered post-restore chain after
+all of them rather than colliding. Verified with a dedicated round-trip test
+(`TestAutoscalingHandler_LifecycleHookChainResumesAfterRestore`): a two-hook launch
+chain is advanced past hook-1 (now waiting on hook-2), snapshotted, restored into a
+fresh backend, and completing hook-1 again post-restore is asserted to be a no-op
+(proving the chain did not restart) while completing hook-2 is what actually resolves
+it (proving it correctly resumed there) - confirmed failing pre-fix (hook-1 alone
+finishes the transition, since pre-fix `rearmPendingWaits` always re-armed the chain's
+first hook).
+
+**Data-model change, stated explicitly**: this required two new fields -
+`LifecycleHook.Sequence` (chain ordering) and `Instance.LifecycleHookName` (chain
+position, for restore) - neither of which exists on AWS's wire types; both are
+internal bookkeeping only.
+
+### bd gopherstack-02ue (2026-08-09): Customized\*MetricSpecification, InstanceRequirements.BaselinePerformanceFactors
+
+Closed the two items `gopherstack-2uti` deferred, plus a third, related gap found
+while auditing the first: all four `Customized*MetricSpecification` variants this
+service accepts were either unparsed or (in `TargetTrackingConfiguration.
+CustomizedMetricSpecification`'s case) not even wired to a form key at all - a dead
+`ScalingPolicy.CustomizedMetricSpecification string` field existed but nothing ever
+set it from `vals`. All verified against `aws-sdk-go-v2/service/autoscaling@v1.70.4`'s
+`serializers.go`/`deserializers.go` before writing any parsing code, per the
+`parsePredictiveScalingConfiguration` precedent from `gopherstack-2uti`.
+
+**The four variants and their shared math-expression sub-language.**
+`TargetTrackingConfiguration.CustomizedMetricSpecification`
+(`types.CustomizedMetricSpecification`, `types.go:587`) and the three predictive-scaling
+variants - `PredictiveScalingMetricSpecification.Customized{Load,Scaling,Capacity}
+MetricSpecification` (`types.PredictiveScalingCustomized{Load,Scaling,Capacity}Metric`,
+`types.go:2625/2638/2651`, each just `{MetricDataQueries []MetricDataQuery}`) - all
+bottom out in the same CloudWatch metric-data-query shape, duplicated by smithy-codegen
+under two Go type names for what is structurally one shape:
+`types.MetricDataQuery`/`types.MetricStat` (`types.go:2268`/`2345`, no `Period`) for the
+predictive-scaling variants, and `types.TargetTrackingMetricDataQuery`/
+`types.TargetTrackingMetricStat` (`types.go:3400`/`3459`, has `Period`) for the
+target-tracking variant. Both nest `types.Metric` (`types.go:2182`:
+`MetricName`/`Namespace`/`Dimensions []MetricDimension`) and `types.MetricDimension`
+(`types.go:2314`: `Name`/`Value`). This bottoms out cleanly - `Expression` is a plain
+string referencing other queries' `Id`s, not another nested structure - so it was
+modelled to full depth rather than partially, per the "worse than absent" rule: models
+`MetricDataQuery`, `MetricDataStat`, `MetricRef`, `MetricDimension`,
+`CustomizedMetricSpecification` (the legacy pre-metric-math shape - `MetricName`/
+`Namespace`/`Dimensions`/`Statistic`/`Unit`/`Period` - and the newer `Metrics`
+metric-data-query list, both accepted since AWS's mutual-exclusivity rule is its own
+validation, not the parser's), and `CustomMetricQueries` (the `{MetricDataQueries}`
+wrapper shared structurally by all three predictive-scaling variants).
+
+**Exact query-protocol flattening**, confirmed against `serializers.go`, not guessed:
+
+- `TargetTrackingConfiguration.CustomizedMetricSpecification.{MetricName,Namespace,
+  Statistic,Unit,Period}` are flat scalars (`serializers.go:4985`
+  `awsAwsquery_serializeDocumentCustomizedMetricSpecification`).
+- `...CustomizedMetricSpecification.Dimensions.member.N.{Name,Value}` - standard
+  `.member.`-flattened list (`serializers.go:5767`).
+- `...CustomizedMetricSpecification.Metrics.member.N.{Id,Expression,Label,Period,
+  ReturnData}` - standard `.member.`-flattened list (`serializers.go:6508`); this is
+  the exact key path the issue's prompt named as the worked example
+  (`...Metrics.member.1.Id`), confirmed correct.
+- `...Metrics.member.N.MetricStat.{Stat,Period,Unit}` plus
+  `...MetricStat.Metric.{MetricName,Namespace}` and
+  `...MetricStat.Metric.Dimensions.member.M.{Name,Value}` (`serializers.go:6559`,
+  `5680`, `5750`).
+- `PredictiveScalingConfiguration.MetricSpecifications.member.N.Customized
+  {Load,Scaling,Capacity}MetricSpecification.MetricDataQueries.member.M.*` follows the
+  identical shape one level down (no `Period` on this variant's `MetricDataQuery`/
+  `MetricStat` - `serializers.go:5704/5716/5789`, confirmed by their absence in those
+  serializer bodies, not by omission from mine).
+
+**`InstanceRequirements.BaselinePerformanceFactors`** (`types.
+BaselinePerformanceFactorsRequest`, referenced `types.go:1267`/`2582`) nests
+`CpuPerformanceFactorRequest.References []PerformanceFactorReferenceRequest`
+(`types.go:550`/`2468`) - small and fully bounded, modelled in full. Its wire shape is
+a genuine outlier worth flagging for the next person: `References` serializes under the
+**singular** key `Reference`, not `References`
+(`serializers.go:4971` `awsAwsquery_serializeDocumentCpuPerformanceFactorRequest`), and
+that list is wrapped in `item`, not `member`
+(`serializers.go:5918` `awsAwsquery_serializeDocumentPerformanceFactorReferenceSetRequest`)
+- every other list in this handler uses `member`. Confirmed the same on the response
+(deserializer) side (`deserializers.go:10587`/`16003`). Full flattened key:
+`MixedInstancesPolicy.LaunchTemplate.Overrides.member.N.InstanceRequirements.
+BaselinePerformanceFactors.Cpu.Reference.item.M.InstanceFamily`.
+
+**Operations checked, one by one** (grepped every `api_op_*.go` for
+`TargetTrackingConfiguration`/`PredictiveScalingConfiguration`/`MixedInstancesPolicy`/
+`InstanceRequirements` rather than assuming): `PutScalingPolicy` and `DescribePolicies`
+are the only operations carrying `TargetTrackingConfiguration`/
+`PredictiveScalingConfiguration` (fixed, both directions).
+`CreateAutoScalingGroup`/`UpdateAutoScalingGroup` and `DescribeAutoScalingGroups` are
+the only operations reaching `InstanceRequirements` (via `MixedInstancesPolicy.
+LaunchTemplate.Overrides`; fixed, both directions). `PutWarmPool` does **not** carry
+`InstanceRequirements` - warm pools have no launch-template-override mechanism of their
+own, confirmed by its absence from `api_op_PutWarmPool.go`.
+
+**Verification.** `handler_customized_metrics_test.go` drives all four Customized
+variants plus `BaselinePerformanceFactors` through a real `aws-sdk-go-v2` client against
+an `httptest` server (not hand-built form bodies - the campaign's own "27 such tests
+found" warning is precisely about a test that can't see this bug class because it
+shares the handler's wrong parse). Each of the four new round-trip tests was run first
+against a pristine pre-fix worktree and confirmed to fail (nested body silently
+dropped, top-level 200 OK); all four pass against the fix. `persistence_test.go` gained
+two more `TestInMemoryBackend_Persistence` cases (`CustomizedMetricSpecification` and
+`BaselinePerformanceFactors` survive `Snapshot`/`Restore`) - both structs are stored
+directly by `store.Table`'s JSON-marshal-the-real-struct path (no hand-maintained DTO
+in `persistence.go`), so the new `omitempty` fields round-trip automatically; the tests
+exist to prove that, not to work around a gap. No `autoscalingSnapshotVersion` bump -
+purely additive fields.
+
+**Not touched.** `ScalingPolicy.CustomMetricSpec` (`models.go`, a second, entirely
+unrelated dead `string` field sitting next to the one this pass fixed) is still
+unreferenced anywhere in the handler. Flagged here rather than removed or wired up -
+outside this issue's scope and its intended shape is unclear (unlike
+`CustomizedMetricSpecification`, there's no AWS field it obviously maps to).
 
 ### Parity-3 sweep (2026-07-23): scheduler, 7 CreateASG/UpdateASG fields, ledger correction
 
@@ -318,29 +571,31 @@ group's effective capacity accounting consistent for concurrent
 single-instance case and was judged too risky to rush. Filed as a known, explicit gap
 above rather than silently left broken.
 
-**ABANDON semantics simplification**: for a *launching* hook, ABANDON terminates the
-pending instance (matches AWS - a failed launch is torn down) but does not attempt an
-automatic relaunch to restore `DesiredCapacity` (AWS does retry via its own internal
-worker). For a *terminating* hook, both CONTINUE and ABANDON proceed with the
-termination once resolved (AWS lets ABANDON/CONTINUE only affect hook-chaining
-metadata for termination, not whether the instance is actually terminated - you cannot
-veto a termination via a terminating lifecycle hook).
+**ABANDON semantics** (launching case fixed bd `gopherstack-2uti`/b7d3a8485; chaining
+fixed bd `gopherstack-9tqg` - see dated section below): for a *launching* hook, ABANDON
+terminates the pending instance and relaunches a replacement to restore
+`DesiredCapacity`, gated by the same launch chain from its first hook. ABANDON at any
+position in either chain now also short-circuits every hook still to come, matching
+AWS's documented "abandon stops any remaining actions, such as other lifecycle hooks".
+For a *terminating* hook, both CONTINUE and ABANDON eventually let the instance
+terminate (you cannot veto a termination via a terminating lifecycle hook) - CONTINUE
+differs from ABANDON only in whether the next chained hook, if any, gets to run first.
 
-**Multiple-hooks-per-transition simplification**: `findHookForTransition` returns a
-single, deterministically-chosen (lowest hook name) hook per transition per group.
-Real AWS supports registering several hooks on the same transition, each
-independently gating the instance in sequence. The overwhelming majority of
-real-world ASG configs register at most one hook per transition; documented here so
-the next auditor doesn't mistake this for an oversight.
+**Multiple-hooks-per-transition chaining** (fixed bd `gopherstack-9tqg`, deferred from
+bd `gopherstack-2uti`/b7d3a8485 - see dated section below for the full writeup):
+hooks on the same transition now form AWS's documented ordered chain instead of only
+the first ever being armed.
 
 **Restore/persistence**: `pendingHookTokens` (in-flight timers) are intentionally not
-part of `backendSnapshot` - a `*time.Timer` can't be serialized, and this predates
-this pass's changes. What's new this pass: `Restore()` now sweeps every instance left
-in `Pending:Wait`/`Terminating:Wait` by a restored snapshot and re-arms a timer for it
-(using the still-registered hook's HeartbeatTimeout/DefaultResult, or the AWS default
-if the hook itself is gone). Without this, an instance restored mid-wait would be
-stuck in that state forever, since nothing would ever call
-`CompleteLifecycleAction`/hit a timeout for it.
+part of `backendSnapshot` - a `*time.Timer` can't be serialized. `Restore()` sweeps
+every instance left in `Pending:Wait`/`Terminating:Wait` by a restored snapshot and
+re-arms a timer for it. Without this, an instance restored mid-wait would be stuck in
+that state forever, since nothing would ever call `CompleteLifecycleAction`/hit a
+timeout for it. Since bd `gopherstack-9tqg` (see dated section below), the re-armed
+hook is the one the instance was *actually* waiting on
+(`Instance.LifecycleHookName`, itself part of the persisted group so it survives the
+round-trip) rather than always the chain's first hook, so a group restored mid-chain
+resumes at the right position instead of restarting or getting stuck.
 
 ### Other wire-shape bugs fixed this pass
 

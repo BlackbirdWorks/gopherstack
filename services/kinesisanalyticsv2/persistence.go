@@ -53,23 +53,28 @@ type persistedApplication struct {
 	RollbackEnabled                   *bool                            `json:"RollbackEnabled,omitempty"`
 	SnapshotsEnabled                  *bool                            `json:"SnapshotsEnabled,omitempty"`
 	FlinkConfig                       *FlinkApplicationConfigDesc      `json:"FlinkConfig,omitempty"`
-	RuntimeEnvironment                string                           `json:"RuntimeEnvironment"`
-	ApplicationName                   string                           `json:"ApplicationName"`
-	Region                            string                           `json:"region"`
-	ApplicationARN                    string                           `json:"ApplicationARN"`
-	ApplicationStatus                 string                           `json:"ApplicationStatus"`
-	ServiceExecutionRole              string                           `json:"ServiceExecutionRole,omitempty"`
-	ApplicationDescription            string                           `json:"ApplicationDescription,omitempty"`
-	ApplicationMode                   string                           `json:"ApplicationMode,omitempty"`
-	MaintenanceWindowStartTime        string                           `json:"MaintenanceWindowStartTime,omitempty"`
-	Tags                              []Tag                            `json:"Tags"`
-	EnvironmentPropertyGroups         []PropertyGroup                  `json:"EnvironmentPropertyGroups,omitempty"`
-	VpcConfigurationDescriptions      []VpcConfigurationDescription    `json:"VpcConfigurationDescriptions"`
-	ReferenceDataSourceDescriptions   []ReferenceDataSourceDescription `json:"ReferenceDataSourceDescriptions"`
-	CloudWatchLoggingOptionDescs      []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptionDescs"`
-	OutputDescriptions                []OutputDescription              `json:"OutputDescriptions"`
-	InputDescriptions                 []InputDescription               `json:"InputDescriptions"`
-	ApplicationVersionID              int64                            `json:"ApplicationVersionId"`
+	// ZeppelinConfig kept in its own alignment group: its long type name
+	// would otherwise force gofmt to pad every sibling field's tag column
+	// past the 120-char lll limit.
+	ZeppelinConfig *ZeppelinApplicationConfigDescription `json:"ZeppelinConfig,omitempty"`
+
+	RuntimeEnvironment              string                           `json:"RuntimeEnvironment"`
+	ApplicationName                 string                           `json:"ApplicationName"`
+	Region                          string                           `json:"region"`
+	ApplicationARN                  string                           `json:"ApplicationARN"`
+	ApplicationStatus               string                           `json:"ApplicationStatus"`
+	ServiceExecutionRole            string                           `json:"ServiceExecutionRole,omitempty"`
+	ApplicationDescription          string                           `json:"ApplicationDescription,omitempty"`
+	ApplicationMode                 string                           `json:"ApplicationMode,omitempty"`
+	MaintenanceWindowStartTime      string                           `json:"MaintenanceWindowStartTime,omitempty"`
+	Tags                            []Tag                            `json:"Tags"`
+	EnvironmentPropertyGroups       []PropertyGroup                  `json:"EnvironmentPropertyGroups,omitempty"`
+	VpcConfigurationDescriptions    []VpcConfigurationDescription    `json:"VpcConfigurationDescriptions"`
+	ReferenceDataSourceDescriptions []ReferenceDataSourceDescription `json:"ReferenceDataSourceDescriptions"`
+	CloudWatchLoggingOptionDescs    []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptionDescs"`
+	OutputDescriptions              []OutputDescription              `json:"OutputDescriptions"`
+	InputDescriptions               []InputDescription               `json:"InputDescriptions"`
+	ApplicationVersionID            int64                            `json:"ApplicationVersionId"`
 }
 
 // persistedApplicationKey is the [store.Table] key function used for the
@@ -139,6 +144,7 @@ func toPersistedApp(app *Application) *persistedApplication {
 		EnvironmentPropertyGroups:        copyPropertyGroups(app.EnvironmentPropertyGroups),
 		CodeConfig:                       app.CodeConfig,
 		FlinkConfig:                      app.FlinkConfig,
+		ZeppelinConfig:                   app.ZeppelinConfig,
 		SnapshotsEnabled:                 app.SnapshotsEnabled,
 		RollbackEnabled:                  app.RollbackEnabled,
 		EncryptionConfig:                 app.EncryptionConfig,
@@ -183,6 +189,7 @@ func fromPersistedApp(p *persistedApplication) *Application {
 		EnvironmentPropertyGroups:         ensureNonNil(p.EnvironmentPropertyGroups),
 		CodeConfig:                        p.CodeConfig,
 		FlinkConfig:                       p.FlinkConfig,
+		ZeppelinConfig:                    p.ZeppelinConfig,
 		SnapshotsEnabled:                  p.SnapshotsEnabled,
 		RollbackEnabled:                   p.RollbackEnabled,
 		EncryptionConfig:                  p.EncryptionConfig,

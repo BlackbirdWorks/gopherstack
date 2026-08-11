@@ -31,7 +31,10 @@ func TestIntegration_Route53_ResourceRecordSetsChangedWaiter(t *testing.T) {
 	zoneID := aws.ToString(createZoneOut.HostedZone.Id)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteHostedZone(ctx, &route53sdk.DeleteHostedZoneInput{Id: aws.String(zoneID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteHostedZone(cleanupCtx, &route53sdk.DeleteHostedZoneInput{Id: aws.String(zoneID)})
 	})
 
 	// Apply a record change

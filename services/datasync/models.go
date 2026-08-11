@@ -56,15 +56,61 @@ type storedS3Config struct {
 	AgentArns           []string `json:"agentArns,omitempty"`
 }
 
+// storedCmkSecretConfig mirrors CmkSecretConfig for JSON persistence.
+type storedCmkSecretConfig struct {
+	SecretArn string `json:"secretArn,omitempty"`
+	KmsKeyArn string `json:"kmsKeyArn,omitempty"`
+}
+
+// storedCustomSecretConfig mirrors CustomSecretConfig for JSON persistence.
+type storedCustomSecretConfig struct {
+	SecretArn           string `json:"secretArn,omitempty"`
+	SecretAccessRoleArn string `json:"secretAccessRoleArn,omitempty"`
+}
+
+func toStoredCmkSecretConfig(c *CmkSecretConfig) *storedCmkSecretConfig {
+	if c == nil {
+		return nil
+	}
+
+	return &storedCmkSecretConfig{SecretArn: c.SecretArn, KmsKeyArn: c.KmsKeyArn}
+}
+
+func fromStoredCmkSecretConfig(c *storedCmkSecretConfig) *CmkSecretConfig {
+	if c == nil {
+		return nil
+	}
+
+	return &CmkSecretConfig{SecretArn: c.SecretArn, KmsKeyArn: c.KmsKeyArn}
+}
+
+func toStoredCustomSecretConfig(c *CustomSecretConfig) *storedCustomSecretConfig {
+	if c == nil {
+		return nil
+	}
+
+	return &storedCustomSecretConfig{SecretArn: c.SecretArn, SecretAccessRoleArn: c.SecretAccessRoleArn}
+}
+
+func fromStoredCustomSecretConfig(c *storedCustomSecretConfig) *CustomSecretConfig {
+	if c == nil {
+		return nil
+	}
+
+	return &CustomSecretConfig{SecretArn: c.SecretArn, SecretAccessRoleArn: c.SecretAccessRoleArn}
+}
+
 // --- Type-specific location config stored types ---
 
 type storedAzureBlobConfig struct {
-	SasToken           string   `json:"sasToken,omitempty"`
-	ContainerURL       string   `json:"containerUrl"`
-	BlobType           string   `json:"blobType,omitempty"`
-	AccessTier         string   `json:"accessTier,omitempty"`
-	AuthenticationType string   `json:"authenticationType,omitempty"`
-	AgentArns          []string `json:"agentArns,omitempty"`
+	CmkSecretConfig    *storedCmkSecretConfig    `json:"cmkSecretConfig,omitempty"`
+	CustomSecretConfig *storedCustomSecretConfig `json:"customSecretConfig,omitempty"`
+	SasToken           string                    `json:"sasToken,omitempty"`
+	ContainerURL       string                    `json:"containerUrl"`
+	BlobType           string                    `json:"blobType,omitempty"`
+	AccessTier         string                    `json:"accessTier,omitempty"`
+	AuthenticationType string                    `json:"authenticationType,omitempty"`
+	AgentArns          []string                  `json:"agentArns,omitempty"`
 }
 
 type storedEfsEc2Config struct {
@@ -119,11 +165,13 @@ type storedFsxOpenZfsConfig struct {
 }
 
 type storedFsxWindowsConfig struct {
-	FsxFilesystemArn  string   `json:"fsxFilesystemArn"`
-	Domain            string   `json:"domain,omitempty"`
-	User              string   `json:"user,omitempty"`
-	Password          string   `json:"password,omitempty"`
-	SecurityGroupArns []string `json:"securityGroupArns,omitempty"`
+	CmkSecretConfig    *storedCmkSecretConfig    `json:"cmkSecretConfig,omitempty"`
+	CustomSecretConfig *storedCustomSecretConfig `json:"customSecretConfig,omitempty"`
+	FsxFilesystemArn   string                    `json:"fsxFilesystemArn"`
+	Domain             string                    `json:"domain,omitempty"`
+	User               string                    `json:"user,omitempty"`
+	Password           string                    `json:"password,omitempty"`
+	SecurityGroupArns  []string                  `json:"securityGroupArns,omitempty"`
 }
 
 type storedHdfsNameNode struct {
@@ -137,17 +185,19 @@ type storedQopConfig struct {
 }
 
 type storedHdfsConfig struct {
-	QopConfiguration   *storedQopConfig     `json:"qopConfiguration,omitempty"`
-	KerberosPrincipal  string               `json:"kerberosPrincipal,omitempty"`
-	KerberosKeytab     string               `json:"kerberosKeytab,omitempty"`
-	KerberosKrb5Conf   string               `json:"kerberosKrb5Conf,omitempty"`
-	KmsKeyProviderURI  string               `json:"kmsKeyProviderUri,omitempty"`
-	AuthenticationType string               `json:"authenticationType,omitempty"`
-	SimpleUser         string               `json:"simpleUser,omitempty"`
-	NameNodes          []storedHdfsNameNode `json:"nameNodes"`
-	AgentArns          []string             `json:"agentArns,omitempty"`
-	BlockSize          int64                `json:"blockSize,omitempty"`
-	ReplicationFactor  int32                `json:"replicationFactor,omitempty"`
+	QopConfiguration   *storedQopConfig          `json:"qopConfiguration,omitempty"`
+	CmkSecretConfig    *storedCmkSecretConfig    `json:"cmkSecretConfig,omitempty"`
+	CustomSecretConfig *storedCustomSecretConfig `json:"customSecretConfig,omitempty"`
+	KerberosPrincipal  string                    `json:"kerberosPrincipal,omitempty"`
+	KerberosKeytab     string                    `json:"kerberosKeytab,omitempty"`
+	KerberosKrb5Conf   string                    `json:"kerberosKrb5Conf,omitempty"`
+	KmsKeyProviderURI  string                    `json:"kmsKeyProviderUri,omitempty"`
+	AuthenticationType string                    `json:"authenticationType,omitempty"`
+	SimpleUser         string                    `json:"simpleUser,omitempty"`
+	NameNodes          []storedHdfsNameNode      `json:"nameNodes"`
+	AgentArns          []string                  `json:"agentArns,omitempty"`
+	BlockSize          int64                     `json:"blockSize,omitempty"`
+	ReplicationFactor  int32                     `json:"replicationFactor,omitempty"`
 }
 
 type storedMountOptions struct {
@@ -161,23 +211,31 @@ type storedNfsConfig struct {
 }
 
 type storedObjectStorageConfig struct {
-	ServerHostname string   `json:"serverHostname"`
-	BucketName     string   `json:"bucketName"`
-	AccessKey      string   `json:"accessKey,omitempty"`
-	SecretKey      string   `json:"secretKey,omitempty"`
-	ServerProtocol string   `json:"serverProtocol,omitempty"`
-	AgentArns      []string `json:"agentArns,omitempty"`
-	ServerPort     int32    `json:"serverPort,omitempty"`
+	CmkSecretConfig    *storedCmkSecretConfig    `json:"cmkSecretConfig,omitempty"`
+	CustomSecretConfig *storedCustomSecretConfig `json:"customSecretConfig,omitempty"`
+	ServerHostname     string                    `json:"serverHostname"`
+	BucketName         string                    `json:"bucketName"`
+	AccessKey          string                    `json:"accessKey,omitempty"`
+	SecretKey          string                    `json:"secretKey,omitempty"`
+	ServerProtocol     string                    `json:"serverProtocol,omitempty"`
+	AgentArns          []string                  `json:"agentArns,omitempty"`
+	ServerPort         int32                     `json:"serverPort,omitempty"`
 }
 
 type storedSmbConfig struct {
-	MountOptions       *storedMountOptions `json:"mountOptions,omitempty"`
-	ServerHostname     string              `json:"serverHostname"`
-	Domain             string              `json:"domain,omitempty"`
-	User               string              `json:"user,omitempty"`
-	Password           string              `json:"password,omitempty"`
-	AuthenticationType string              `json:"authenticationType,omitempty"`
-	AgentArns          []string            `json:"agentArns,omitempty"`
+	MountOptions       *storedMountOptions       `json:"mountOptions,omitempty"`
+	CmkSecretConfig    *storedCmkSecretConfig    `json:"cmkSecretConfig,omitempty"`
+	CustomSecretConfig *storedCustomSecretConfig `json:"customSecretConfig,omitempty"`
+	ServerHostname     string                    `json:"serverHostname"`
+	Domain             string                    `json:"domain,omitempty"`
+	User               string                    `json:"user,omitempty"`
+	Password           string                    `json:"password,omitempty"`
+	AuthenticationType string                    `json:"authenticationType,omitempty"`
+	KerberosPrincipal  string                    `json:"kerberosPrincipal,omitempty"`
+	KerberosKeytab     string                    `json:"kerberosKeytab,omitempty"`
+	KerberosKrb5Conf   string                    `json:"kerberosKrb5Conf,omitempty"`
+	AgentArns          []string                  `json:"agentArns,omitempty"`
+	DNSIPAddresses     []string                  `json:"dnsIpAddresses,omitempty"`
 }
 
 func (l *storedLocation) toLocation() Location {

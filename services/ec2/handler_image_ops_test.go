@@ -315,15 +315,9 @@ func TestHandler_ImageWatermark(t *testing.T) {
 	}
 }
 
-// TestHandler_RestoreImageFromRecycleBin verifies the real
-// RestoreImageFromRecycleBinResponse wire shape ({Return: true/false} boolean
-// field, confirmed against the installed SDK's RestoreImageFromRecycleBinOutput)
-// and that the op reports InvalidAMIID.NotFound for an image genuinely absent
-// from the recycle bin, rather than a silent no-op success -- gopherstack does
-// not model a Recycle Bin (rbin) retention-rule service, so the bin is honestly
-// always empty (DeregisterImage always deletes permanently, matching real AWS
-// with no retention rule in force); this is the only externally observable
-// behavior of the op given that constraint.
+// TestHandler_RestoreImageFromRecycleBin verifies the {Return: bool} wire shape
+// (per SDK RestoreImageFromRecycleBinOutput) and InvalidAMIID.NotFound for an
+// image absent from the (always-empty, unmodeled) recycle bin.
 func TestHandler_RestoreImageFromRecycleBin(t *testing.T) {
 	t.Parallel()
 

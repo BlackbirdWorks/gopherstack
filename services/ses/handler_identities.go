@@ -2,6 +2,7 @@ package ses
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -33,7 +34,7 @@ func (h *Handler) handleDeleteIdentity(vals url.Values, reqID string) any {
 	}
 }
 
-func (h *Handler) handleListIdentities(vals url.Values, reqID string) any {
+func (h *Handler) handleListIdentities(vals url.Values, reqID string) (any, error) {
 	nextToken := vals.Get("NextToken")
 	maxItems := 0
 	if s := vals.Get("MaxItems"); s != "" {
@@ -42,7 +43,12 @@ func (h *Handler) handleListIdentities(vals url.Values, reqID string) any {
 		}
 	}
 
-	p := h.Backend.ListIdentities(nextToken, maxItems)
+	identityType := vals.Get("IdentityType")
+	if identityType != "" && identityType != identityTypeEmailAddress && identityType != identityTypeDomain {
+		return nil, fmt.Errorf("%w: IdentityType must be EmailAddress or Domain", ErrValidation)
+	}
+
+	p := h.Backend.ListIdentities(nextToken, maxItems, identityType)
 	members := make([]xmlMember, 0, len(p.Data))
 
 	for _, id := range p.Data {
@@ -56,7 +62,7 @@ func (h *Handler) handleListIdentities(vals url.Values, reqID string) any {
 			NextToken:  p.Next,
 		},
 		RequestID: reqID,
-	}
+	}, nil
 }
 
 func (h *Handler) handleGetIdentityVerificationAttributes(vals url.Values, reqID string) any {

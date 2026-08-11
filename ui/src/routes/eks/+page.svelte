@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getEKSClient } from '$lib/aws-client';
 	import {
 		ListClustersCommand,
@@ -39,10 +42,16 @@
 
 	const eks = regionalClient(getEKSClient);
 
+	// Every cluster row carries the region its ListClusters call was made
+	// against. Detail/action calls must use THIS region, not the page's
+	// shared `eks()` -- in All mode the same cluster name can legitimately
+	// exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	let loading = $state(false);
-	let clusters = $state<string[]>([]);
+	let clusters = $state<{ name: string; region: string }[]>([]);
 	let searchQuery = $state('');
-	let selectedCluster = $state<Cluster | null>(null);
+	let selectedCluster = $state<Regioned<Cluster> | null>(null);
 	let loadingCluster = $state(false);
 	let nodeGroups = $state<string[]>([]);
 	let nodeGroupDetails = $state<Nodegroup[]>([]);
@@ -111,7 +120,7 @@
 	];
 
 	const filteredClusters = $derived(
-		clusters.filter((c) => c.toLowerCase().includes(searchQuery.toLowerCase()))
+		clusters.filter((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
 	);
 
 	function statusColor(status: string | undefined): string {
@@ -124,8 +133,12 @@
 	async function loadClusters() {
 		loading = true;
 		try {
-			const res = await eks().send(new ListClustersCommand({}));
-			clusters = res.clusters ?? [];
+			const result = await multiRegionList(
+				(region) => getEKSClient(region).send(new ListClustersCommand({})),
+				(r) => r.clusters ?? []
+			);
+			clusters = result.items.map(({ region, item }) => ({ name: item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load clusters from ${result.errors.length} region(s)`);
 		} catch (err: unknown) {
 			toast.error(`Failed to load clusters: ${(err as Error).message}`);
 		} finally {
@@ -133,7 +146,7 @@
 		}
 	}
 
-	async function selectCluster(name: string) {
+	async function selectCluster(cluster: { name: string; region: string }) {
 		loadingCluster = true;
 		detailTab = 'overview';
 		nodeGroups = [];
@@ -146,9 +159,9 @@
 		accessEntryArns = [];
 		accessEntryDetails = [];
 		try {
-			const res = await eks().send(new DescribeClusterCommand({ name }));
-			selectedCluster = res.cluster ?? null;
-			await loadNodeGroups(name);
+			const res = await getEKSClient(cluster.region).send(new DescribeClusterCommand({ name: cluster.name }));
+			selectedCluster = res.cluster ? { ...res.cluster, region: cluster.region } : null;
+			await loadNodeGroups(cluster.name, cluster.region);
 		} catch (err: unknown) {
 			toast.error(`Failed to describe cluster: ${(err as Error).message}`);
 		} finally {
@@ -156,14 +169,14 @@
 		}
 	}
 
-	async function loadNodeGroups(clusterName: string) {
+	async function loadNodeGroups(clusterName: string, region: string) {
 		loadingNodeGroups = true;
 		try {
-			const res = await eks().send(new ListNodegroupsCommand({ clusterName }));
+			const res = await getEKSClient(region).send(new ListNodegroupsCommand({ clusterName }));
 			nodeGroups = res.nodegroups ?? [];
 			const details = await Promise.all(
 				nodeGroups.slice(0, 10).map(async (ng) => {
-					const d = await eks().send(new DescribeNodegroupCommand({ clusterName, nodegroupName: ng }));
+					const d = await getEKSClient(region).send(new DescribeNodegroupCommand({ clusterName, nodegroupName: ng }));
 					return d.nodegroup!;
 				})
 			);
@@ -175,14 +188,14 @@
 		}
 	}
 
-	async function loadAddons(clusterName: string) {
+	async function loadAddons(clusterName: string, region: string) {
 		loadingAddons = true;
 		try {
-			const res = await eks().send(new ListAddonsCommand({ clusterName }));
+			const res = await getEKSClient(region).send(new ListAddonsCommand({ clusterName }));
 			addonNames = res.addons ?? [];
 			const details = await Promise.all(
 				addonNames.slice(0, 20).map(async (name) => {
-					const d = await eks().send(new DescribeAddonCommand({ clusterName, addonName: name }));
+					const d = await getEKSClient(region).send(new DescribeAddonCommand({ clusterName, addonName: name }));
 					return d.addon!;
 				})
 			);
@@ -194,14 +207,14 @@
 		}
 	}
 
-	async function loadFargateProfiles(clusterName: string) {
+	async function loadFargateProfiles(clusterName: string, region: string) {
 		loadingFargate = true;
 		try {
-			const res = await eks().send(new ListFargateProfilesCommand({ clusterName }));
+			const res = await getEKSClient(region).send(new ListFargateProfilesCommand({ clusterName }));
 			fargateNames = res.fargateProfileNames ?? [];
 			const details = await Promise.all(
 				fargateNames.slice(0, 20).map(async (name) => {
-					const d = await eks().send(new DescribeFargateProfileCommand({ clusterName, fargateProfileName: name }));
+					const d = await getEKSClient(region).send(new DescribeFargateProfileCommand({ clusterName, fargateProfileName: name }));
 					return d.fargateProfile!;
 				})
 			);
@@ -213,10 +226,10 @@
 		}
 	}
 
-	async function loadPodIdentities(clusterName: string) {
+	async function loadPodIdentities(clusterName: string, region: string) {
 		loadingPodIdentity = true;
 		try {
-			const res = await eks().send(new ListPodIdentityAssociationsCommand({ clusterName }));
+			const res = await getEKSClient(region).send(new ListPodIdentityAssociationsCommand({ clusterName }));
 			podIdentities = res.associations ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load pod identities: ${(err as Error).message}`);
@@ -225,14 +238,14 @@
 		}
 	}
 
-	async function loadAccessEntries(clusterName: string) {
+	async function loadAccessEntries(clusterName: string, region: string) {
 		loadingAccessEntries = true;
 		try {
-			const res = await eks().send(new ListAccessEntriesCommand({ clusterName }));
+			const res = await getEKSClient(region).send(new ListAccessEntriesCommand({ clusterName }));
 			accessEntryArns = res.accessEntries ?? [];
 			const details = await Promise.all(
 				accessEntryArns.slice(0, 20).map(async (arn) => {
-					const d = await eks().send(new DescribeAccessEntryCommand({ clusterName, principalArn: arn }));
+					const d = await getEKSClient(region).send(new DescribeAccessEntryCommand({ clusterName, principalArn: arn }));
 					return d.accessEntry!;
 				})
 			);
@@ -266,12 +279,12 @@
 		}
 	}
 
-	async function deleteCluster(name: string) {
-		if (!await confirmDestructive({ title: 'Delete EKS Cluster', message: `Delete cluster "${name}"? All node groups and workloads will be terminated.` })) return;
+	async function deleteCluster(cluster: { name: string; region: string }) {
+		if (!await confirmDestructive({ title: 'Delete EKS Cluster', message: `Delete cluster "${cluster.name}"? All node groups and workloads will be terminated.` })) return;
 		try {
-			await eks().send(new DeleteClusterCommand({ name }));
-			toast.success(`Cluster "${name}" deleting`);
-			if (selectedCluster?.name === name) selectedCluster = null;
+			await getEKSClient(cluster.region).send(new DeleteClusterCommand({ name: cluster.name }));
+			toast.success(`Cluster "${cluster.name}" deleting`);
+			if (selectedCluster && selectedCluster.name === cluster.name && selectedCluster.region === cluster.region) selectedCluster = null;
 			await loadClusters();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
@@ -282,7 +295,7 @@
 		if (!selectedCluster?.name || !newNGName.trim()) return;
 		creatingNG = true;
 		try {
-			await eks().send(new CreateNodegroupCommand({
+			await getEKSClient(selectedCluster.region).send(new CreateNodegroupCommand({
 				clusterName: selectedCluster.name,
 				nodegroupName: newNGName.trim(),
 				instanceTypes: [newNGInstanceType],
@@ -294,7 +307,7 @@
 			toast.success(`Node group "${newNGName.trim()}" creating`);
 			showCreateNG = false;
 			newNGName = '';
-			await loadNodeGroups(selectedCluster.name);
+			await loadNodeGroups(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Create node group failed: ${(err as Error).message}`);
 		} finally {
@@ -305,9 +318,9 @@
 	async function deleteNodeGroup(ngName: string) {
 		if (!selectedCluster?.name || !await confirmDestructive({ title: 'Delete Node Group', message: `Delete node group "${ngName}"? All nodes will be drained and terminated.` })) return;
 		try {
-			await eks().send(new DeleteNodegroupCommand({ clusterName: selectedCluster.name, nodegroupName: ngName }));
+			await getEKSClient(selectedCluster.region).send(new DeleteNodegroupCommand({ clusterName: selectedCluster.name, nodegroupName: ngName }));
 			toast.success(`Node group "${ngName}" deleting`);
-			await loadNodeGroups(selectedCluster.name);
+			await loadNodeGroups(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
@@ -317,10 +330,10 @@
 		if (!selectedCluster?.name) return;
 		creatingAddon = true;
 		try {
-			await eks().send(new CreateAddonCommand({ clusterName: selectedCluster.name, addonName: newAddonName }));
+			await getEKSClient(selectedCluster.region).send(new CreateAddonCommand({ clusterName: selectedCluster.name, addonName: newAddonName }));
 			toast.success(`Addon "${newAddonName}" installing`);
 			showCreateAddon = false;
-			await loadAddons(selectedCluster.name);
+			await loadAddons(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Create addon failed: ${(err as Error).message}`);
 		} finally {
@@ -331,9 +344,9 @@
 	async function deleteAddon(addonName: string) {
 		if (!selectedCluster?.name || !await confirmDestructive({ title: 'Delete Addon', message: `Remove addon "${addonName}" from the cluster?` })) return;
 		try {
-			await eks().send(new DeleteAddonCommand({ clusterName: selectedCluster.name, addonName }));
+			await getEKSClient(selectedCluster.region).send(new DeleteAddonCommand({ clusterName: selectedCluster.name, addonName }));
 			toast.success(`Addon "${addonName}" removing`);
-			await loadAddons(selectedCluster.name);
+			await loadAddons(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Delete addon failed: ${(err as Error).message}`);
 		}
@@ -343,7 +356,7 @@
 		if (!selectedCluster?.name || !newFargateName.trim()) return;
 		creatingFargate = true;
 		try {
-			await eks().send(new CreateFargateProfileCommand({
+			await getEKSClient(selectedCluster.region).send(new CreateFargateProfileCommand({
 				clusterName: selectedCluster.name,
 				fargateProfileName: newFargateName.trim(),
 				podExecutionRoleArn: 'arn:aws:iam::123456789012:role/FargatePodRole',
@@ -352,7 +365,7 @@
 			toast.success(`Fargate profile "${newFargateName.trim()}" creating`);
 			showCreateFargate = false;
 			newFargateName = '';
-			await loadFargateProfiles(selectedCluster.name);
+			await loadFargateProfiles(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Create Fargate profile failed: ${(err as Error).message}`);
 		} finally {
@@ -363,9 +376,9 @@
 	async function deleteFargateProfile(profileName: string) {
 		if (!selectedCluster?.name || !await confirmDestructive({ title: 'Delete Fargate Profile', message: `Delete Fargate profile "${profileName}"?` })) return;
 		try {
-			await eks().send(new DeleteFargateProfileCommand({ clusterName: selectedCluster.name, fargateProfileName: profileName }));
+			await getEKSClient(selectedCluster.region).send(new DeleteFargateProfileCommand({ clusterName: selectedCluster.name, fargateProfileName: profileName }));
 			toast.success(`Fargate profile "${profileName}" deleting`);
-			await loadFargateProfiles(selectedCluster.name);
+			await loadFargateProfiles(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
@@ -375,7 +388,7 @@
 		if (!selectedCluster?.name || !newPodIdServiceAccount.trim() || !newPodIdRoleArn.trim()) return;
 		creatingPodIdentity = true;
 		try {
-			await eks().send(new CreatePodIdentityAssociationCommand({
+			await getEKSClient(selectedCluster.region).send(new CreatePodIdentityAssociationCommand({
 				clusterName: selectedCluster.name,
 				namespace: newPodIdNamespace,
 				serviceAccount: newPodIdServiceAccount.trim(),
@@ -385,7 +398,7 @@
 			showCreatePodIdentity = false;
 			newPodIdServiceAccount = '';
 			newPodIdRoleArn = '';
-			await loadPodIdentities(selectedCluster.name);
+			await loadPodIdentities(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Create failed: ${(err as Error).message}`);
 		} finally {
@@ -396,9 +409,9 @@
 	async function deletePodIdentity(assocId: string) {
 		if (!selectedCluster?.name || !await confirmDestructive({ title: 'Delete Pod Identity', message: 'Delete this pod identity association?' })) return;
 		try {
-			await eks().send(new DeletePodIdentityAssociationCommand({ clusterName: selectedCluster.name, associationId: assocId }));
+			await getEKSClient(selectedCluster.region).send(new DeletePodIdentityAssociationCommand({ clusterName: selectedCluster.name, associationId: assocId }));
 			toast.success('Pod identity deleted');
-			await loadPodIdentities(selectedCluster.name);
+			await loadPodIdentities(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
@@ -408,7 +421,7 @@
 		if (!selectedCluster?.name || !newAccessPrincipalArn.trim()) return;
 		creatingAccessEntry = true;
 		try {
-			await eks().send(new CreateAccessEntryCommand({
+			await getEKSClient(selectedCluster.region).send(new CreateAccessEntryCommand({
 				clusterName: selectedCluster.name,
 				principalArn: newAccessPrincipalArn.trim(),
 				type: newAccessType
@@ -416,7 +429,7 @@
 			toast.success('Access entry created');
 			showCreateAccessEntry = false;
 			newAccessPrincipalArn = '';
-			await loadAccessEntries(selectedCluster.name);
+			await loadAccessEntries(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Create failed: ${(err as Error).message}`);
 		} finally {
@@ -427,9 +440,9 @@
 	async function deleteAccessEntry(principalArn: string) {
 		if (!selectedCluster?.name || !await confirmDestructive({ title: 'Delete Access Entry', message: `Delete access entry for "${principalArn}"?` })) return;
 		try {
-			await eks().send(new DeleteAccessEntryCommand({ clusterName: selectedCluster.name, principalArn }));
+			await getEKSClient(selectedCluster.region).send(new DeleteAccessEntryCommand({ clusterName: selectedCluster.name, principalArn }));
 			toast.success('Access entry deleted');
-			await loadAccessEntries(selectedCluster.name);
+			await loadAccessEntries(selectedCluster.name, selectedCluster.region);
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
@@ -438,10 +451,11 @@
 	function onTabSwitch(tab: string) {
 		detailTab = tab as typeof detailTab;
 		if (!selectedCluster?.name) return;
-		if (tab === 'addons' && addonDetails.length === 0 && !loadingAddons) loadAddons(selectedCluster.name);
-		if (tab === 'fargate' && fargateDetails.length === 0 && !loadingFargate) loadFargateProfiles(selectedCluster.name);
-		if (tab === 'podidentity' && podIdentities.length === 0 && !loadingPodIdentity) loadPodIdentities(selectedCluster.name);
-		if (tab === 'access' && accessEntryDetails.length === 0 && !loadingAccessEntries) loadAccessEntries(selectedCluster.name);
+		const { name, region } = selectedCluster;
+		if (tab === 'addons' && addonDetails.length === 0 && !loadingAddons) loadAddons(name, region);
+		if (tab === 'fargate' && fargateDetails.length === 0 && !loadingFargate) loadFargateProfiles(name, region);
+		if (tab === 'podidentity' && podIdentities.length === 0 && !loadingPodIdentity) loadPodIdentities(name, region);
+		if (tab === 'access' && accessEntryDetails.length === 0 && !loadingAccessEntries) loadAccessEntries(name, region);
 	}
 
 	// A cluster name is only unique within a region, so a cluster selected
@@ -477,6 +491,7 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
+			<WriteRegionHint />
 			<button onclick={() => loadClusters()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 			</button>
@@ -506,12 +521,13 @@
 						tabindex="0"
 						onclick={() => selectCluster(cluster)}
 						onkeydown={(e) => { if (e.key === 'Enter') selectCluster(cluster); }}
-						class="w-full text-left p-4 rounded-lg border transition-all cursor-pointer {selectedCluster?.name === cluster ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300'}"
+						class="w-full text-left p-4 rounded-lg border transition-all cursor-pointer {selectedCluster && selectedCluster.name === cluster.name && selectedCluster.region === cluster.region ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300'}"
 					>
 						<div class="flex items-center justify-between">
 							<div class="flex items-center gap-3">
 								<Server class="w-5 h-5 text-slate-400" />
-								<span class="font-medium text-slate-900 dark:text-white">{cluster}</span>
+								<span class="font-medium text-slate-900 dark:text-white">{cluster.name}</span>
+								<RegionChip region={cluster.region} />
 							</div>
 							<button onclick={(e) => { e.stopPropagation(); deleteCluster(cluster); }} class="p-1 text-slate-400 hover:text-red-500">
 								<Trash2 class="w-4 h-4" />
@@ -530,6 +546,7 @@
 						<div class="flex items-center justify-between">
 							<div class="flex items-center gap-3">
 								<h2 class="text-xl font-bold text-slate-900 dark:text-white">{selectedCluster.name}</h2>
+								<RegionChip region={selectedCluster.region} />
 								<span class="px-2 py-0.5 text-xs rounded-full {statusColor(selectedCluster.status)}">{selectedCluster.status}</span>
 							</div>
 						</div>

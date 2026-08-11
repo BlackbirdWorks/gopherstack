@@ -1073,3 +1073,31 @@ func TestBackend_AddOUInternal(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteOrganizationalUnit_CleansPolicyTargets verifies that deleting an
+// OU which still has a policy attached removes the OU from that policy's
+// target list too -- otherwise ListTargetsForPolicy keeps reporting the
+// deleted OU as a live, attached target.
+func TestDeleteOrganizationalUnit_CleansPolicyTargets(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	createOrgOn(t, b)
+
+	roots, err := b.ListRoots()
+	require.NoError(t, err)
+
+	ou, err := b.CreateOrganizationalUnit(roots[0].ID, "leaf-ou", nil)
+	require.NoError(t, err)
+
+	p, err := b.CreatePolicy("scp", "", `{"Version":"2012-10-17"}`, "SERVICE_CONTROL_POLICY", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.AttachPolicy(p.PolicySummary.ID, ou.ID))
+
+	require.NoError(t, b.DeleteOrganizationalUnit(ou.ID))
+
+	targets, err := b.ListTargetsForPolicy(p.PolicySummary.ID)
+	require.NoError(t, err)
+	assert.Empty(t, targets, "deleted OU must not linger as an attached policy target")
+}

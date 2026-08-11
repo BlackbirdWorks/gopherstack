@@ -43,7 +43,10 @@ func wmCreateOrg(t *testing.T, client *workmailsdk.Client, alias string) string 
 	require.NotEmpty(t, orgID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteOrganization(t.Context(), &workmailsdk.DeleteOrganizationInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteOrganization(cleanupCtx, &workmailsdk.DeleteOrganizationInput{
 			OrganizationId:  aws.String(orgID),
 			DeleteDirectory: true,
 		})

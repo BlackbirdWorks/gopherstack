@@ -22,11 +22,15 @@ func (b *InMemoryBackend) routeARN(meshName, vrName, routeName string) string {
 
 // ─── VirtualRouter ───
 
+//nolint:dupl // create pattern (incl. spec validation call) is structurally identical across resource types
 func (b *InMemoryBackend) CreateVirtualRouter(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualRouter, error) {
 	b.mu.Lock("CreateVirtualRouter")
 	defer b.mu.Unlock()
+	if err := validateVirtualRouterSpec(spec); err != nil {
+		return nil, err
+	}
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
@@ -67,6 +71,9 @@ func (b *InMemoryBackend) DescribeVirtualRouter(meshName, name string) (*Virtual
 func (b *InMemoryBackend) UpdateVirtualRouter(meshName, name string, spec json.RawMessage) (*VirtualRouter, error) {
 	b.mu.Lock("UpdateVirtualRouter")
 	defer b.mu.Unlock()
+	if err := validateVirtualRouterSpec(spec); err != nil {
+		return nil, err
+	}
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
@@ -97,6 +104,7 @@ func (b *InMemoryBackend) DeleteVirtualRouter(meshName, name string) (*VirtualRo
 	}
 	b.virtualRouters.Delete(key)
 	delete(b.tags, vr.Meta.Arn)
+	vr.Status = statusDeleted
 
 	return vr, nil
 }
@@ -225,10 +233,12 @@ func (b *InMemoryBackend) DeleteRoute(meshName, virtualRouterName, routeName str
 	}
 	b.routes.Delete(key)
 	delete(b.tags, r.Meta.Arn)
+	r.Status = statusDeleted
 
 	return r, nil
 }
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) ListRoutes(
 	meshName, virtualRouterName string, maxResults int32, nextToken string,
 ) ([]*RouteSummary, string, error) {

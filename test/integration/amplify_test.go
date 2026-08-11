@@ -41,7 +41,10 @@ func TestIntegration_Amplify_AppAndBranchLifecycle(t *testing.T) {
 	assert.Equal(t, appName, aws.ToString(createOut.App.Name))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApp(ctx, &amplifysdk.DeleteAppInput{AppId: aws.String(appID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApp(cleanupCtx, &amplifysdk.DeleteAppInput{AppId: aws.String(appID)})
 	})
 
 	// GetApp.
@@ -79,7 +82,10 @@ func TestIntegration_Amplify_AppAndBranchLifecycle(t *testing.T) {
 	assert.Equal(t, branchName, aws.ToString(createBranchOut.Branch.BranchName))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteBranch(ctx, &amplifysdk.DeleteBranchInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteBranch(cleanupCtx, &amplifysdk.DeleteBranchInput{
 			AppId:      aws.String(appID),
 			BranchName: aws.String(branchName),
 		})

@@ -27,15 +27,18 @@ func TestIntegration_S3_LifecycleEnforcement(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		out, _ := client.ListObjects(t.Context(), &s3.ListObjectsInput{Bucket: aws.String(bucket)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		out, _ := client.ListObjects(cleanupCtx, &s3.ListObjectsInput{Bucket: aws.String(bucket)})
 		if out != nil {
 			for _, obj := range out.Contents {
-				_, _ = client.DeleteObject(t.Context(), &s3.DeleteObjectInput{
+				_, _ = client.DeleteObject(cleanupCtx, &s3.DeleteObjectInput{
 					Bucket: aws.String(bucket), Key: obj.Key,
 				})
 			}
 		}
-		_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
 
 	// Put objects under the logs/ prefix — these should be expired by lifecycle.

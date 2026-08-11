@@ -7,6 +7,7 @@ import (
 
 type xmlTenantDatabase struct {
 	TenantDatabaseName   string `xml:"TenantDatabaseName"`
+	TenantDatabaseARN    string `xml:"TenantDatabaseARN,omitempty"`
 	DBInstanceIdentifier string `xml:"DBInstanceIdentifier,omitempty"`
 	Status               string `xml:"Status,omitempty"`
 }
@@ -69,10 +70,13 @@ func (h *Handler) handleCreateTenantDatabase(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, tdb.TenantDatabaseARN)
+
 	return &createTenantDatabaseResponse{
 		Xmlns: rdsXMLNS,
 		TenantDatabase: xmlTenantDatabase{
 			TenantDatabaseName:   tdb.TenantDBName,
+			TenantDatabaseARN:    tdb.TenantDatabaseARN,
 			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
 			Status:               tdb.Status,
 		},
@@ -92,6 +96,7 @@ func (h *Handler) handleDeleteTenantDatabase(vals url.Values) (any, error) {
 		Xmlns: rdsXMLNS,
 		TenantDatabase: xmlTenantDatabase{
 			TenantDatabaseName:   tdb.TenantDBName,
+			TenantDatabaseARN:    tdb.TenantDatabaseARN,
 			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
 			Status:               tdb.Status,
 		},
@@ -147,6 +152,7 @@ func (h *Handler) handleModifyTenantDatabase(vals url.Values) (any, error) {
 		Xmlns: rdsXMLNS,
 		TenantDatabase: xmlTenantDatabase{
 			TenantDatabaseName:   tdb.TenantDBName,
+			TenantDatabaseARN:    tdb.TenantDatabaseARN,
 			DBInstanceIdentifier: tdb.DBInstanceIdentifier,
 			Status:               tdb.Status,
 		},

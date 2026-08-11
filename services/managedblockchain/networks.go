@@ -64,7 +64,7 @@ func buildNetworkFrameworkAttributes(networkID, region, edition string) *Network
 // CreateNetwork creates a new Managed Blockchain network and its first member.
 func (b *InMemoryBackend) CreateNetwork(
 	region, accountID, name, description, framework, frameworkVersion, memberName, memberDescription string,
-	tags map[string]string,
+	tags, memberTags map[string]string,
 	votingPolicy *VotingPolicy,
 	fabricEdition, memberAdminUsername, memberKmsKeyArn string,
 ) (*Network, *Member, error) {
@@ -112,6 +112,9 @@ func (b *InMemoryBackend) CreateNetwork(
 	b.networks.Put(network)
 	b.arnToResource[network.Arn] = network
 
+	mt := make(map[string]string)
+	maps.Copy(mt, memberTags)
+
 	member := &Member{
 		ID:                  memberID,
 		Arn:                 memberARN(region, accountID, memberID),
@@ -120,7 +123,7 @@ func (b *InMemoryBackend) CreateNetwork(
 		NetworkID:           networkID,
 		Status:              memberStatusAvailable,
 		CreationDate:        &now,
-		Tags:                make(map[string]string),
+		Tags:                mt,
 		IsOwned:             true,
 		KmsKeyArn:           resolveMemberKmsKeyArn(memberKmsKeyArn),
 		FrameworkAttributes: buildMemberFrameworkAttributes(memberID, networkID, region, memberAdminUsername),

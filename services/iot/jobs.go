@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // AssociateTargetsWithJob associates new targets with a continuous job. Real
@@ -200,16 +201,13 @@ type JobProcessDetails struct {
 
 // Job represents an IoT job.
 //
-// Tags, Document, and DocumentSource are internal-only (json:"-"): real AWS
-// IoT's Job shape (aws-sdk-go-v2/service/iot/types.Job, verified against
-// awsRestjson1_deserializeDocumentJob in v1.76.0) has none of these three
-// fields -- tags are a separate ListTagsForResource concept, the job
-// document is only returned via GetJobDocument, and documentSource is a
-// top-level DescribeJobOutput field, not part of the nested Job object. They
-// stay on this struct purely as backend storage (Document for
-// GetJobDocument, DocumentSource for the DescribeJobOutput top-level field,
-// Tags for future TagResource wiring) but must never leak into a JSON
-// response that embeds the whole Job struct.
+// Tags, Document, and DocumentSource are internal-only (json:"-"): real
+// AWS IoT's Job shape (types.Job, awsRestjson1_deserializeDocumentJob,
+// v1.77.4) has none of these three — tags are a separate ListTagsForResource
+// concept, the job document is only returned via GetJobDocument, and
+// documentSource is a top-level DescribeJobOutput field. They're kept here
+// purely as backend storage and must never leak into a JSON response that
+// embeds the whole Job struct.
 type Job struct {
 	Tags                       map[string]string           `json:"-"`
 	DocumentParameters         map[string]string           `json:"documentParameters,omitempty"`
@@ -249,14 +247,11 @@ type JobExecutionStatusDetails struct {
 // JobExecution represents a single job execution on a thing.
 //
 // ThingName is internal-only storage used for lookups (jobExecKey,
-// ListJobExecutionsForThing) -- real AWS's JobExecution wire shape has no
-// "thingName" field, only "thingArn" (confirmed against
-// awsRestjson1_deserializeDocumentJobExecution in
-// aws-sdk-go-v2/service/iot@v1.76.0, which has no "thingName" case at all).
-// Wire-response builders (handler_jobs.go) must compute ThingArn from
-// ThingName via [InMemoryBackend.ThingARN] rather than ever serializing this
-// struct directly, since ThingName still needs a normal json tag for
-// Snapshot/Restore persistence to round-trip it.
+// ListJobExecutionsForThing) — real AWS's JobExecution wire shape has only
+// "thingArn" (awsRestjson1_deserializeDocumentJobExecution, v1.77.4). Wire
+// builders (handler_jobs.go) must compute ThingArn via
+// [InMemoryBackend.ThingARN] rather than serializing this struct directly;
+// ThingName keeps a normal json tag so Snapshot/Restore still round-trips it.
 type JobExecution struct {
 	StatusDetails                    *JobExecutionStatusDetails `json:"statusDetails,omitempty"`
 	JobID                            string                     `json:"jobId"`
@@ -309,7 +304,8 @@ func (b *InMemoryBackend) ThingARN(thingName string) string {
 
 // CreateJobInput holds input for CreateJob.
 type CreateJobInput struct {
-	Tags                       map[string]string           `json:"tags,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:2862, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags                       []tags.KV                   `json:"tags,omitempty"`
 	DocumentParameters         map[string]string           `json:"documentParameters,omitempty"`
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
@@ -351,13 +347,14 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 		PresignedURLConfig:         input.PresignedURLConfig,
 		SchedulingConfig:           cloneSchedulingConfig(input.SchedulingConfig),
 		DestinationPackageVersions: append([]string(nil), input.DestinationPackageVersions...),
-		Tags:                       input.Tags,
+		Tags:                       tags.MapFromKV(input.Tags),
 		DocumentParameters:         input.DocumentParameters,
 		Status:                     JobStatusInProgress,
 		CreatedAt:                  now,
 		LastUpdatedAt:              now,
 	}
 	b.jobs.Put(j)
+	b.putResourceTagsLocked(j.JobARN, j.Tags)
 
 	// Real AWS IoT creates a QUEUED JobExecution row for every thing the job
 	// targets (directly, or as a member of a targeted thing group) at
@@ -626,23 +623,17 @@ type CancelJobExecutionOptions struct {
 // CancelJobExecution cancels a job execution. Real AWS IoT rejects
 // canceling an IN_PROGRESS execution unless force=true
 // (InvalidStateTransitionException), and rejects a mismatched
-// expectedVersion (VersionConflictException) -- both verified against
-// api_op_CancelJobExecution.go's doc comments and the real error-deserializer
-// switch (awsRestjson1_deserializeOpErrorCancelJobExecution recognizes
-// exactly InvalidRequestException/InvalidStateTransitionException/
-// ResourceNotFoundException/VersionConflictException).
+// expectedVersion (VersionConflictException) —
+// awsRestjson1_deserializeOpErrorCancelJobExecution recognizes exactly
+// those plus InvalidRequestException/ResourceNotFoundException.
 //
-// CreateJob/AssociateTargetsWithJob now fan a real QUEUED JobExecution out to
-// every resolved target thing (see fanOutJobExecutionsLocked), so the
-// (jobID, thingName) pair normally already exists by the time a real client
-// calls CancelJobExecution. The one remaining case where it might not is a
-// target that was a thing-group ARN with no members at CreateJob time (real
-// AWS IoT lazily starts an execution the first time such a thing later joins
-// the group and receives the job for a CONTINUOUS job -- something this
-// emulator does not simulate on AddThingToThingGroup): for that edge case, an
-// execution is still created directly in CANCELED state as a defensive
-// fallback rather than returning ResourceNotFoundException for a
-// combination a real, fully-simulated backend would consider valid.
+// CreateJob/AssociateTargetsWithJob fan a QUEUED JobExecution out to every
+// resolved target (fanOutJobExecutionsLocked), so the (jobID, thingName)
+// pair normally already exists. The exception is a thing-group target with
+// no members at CreateJob time (a thing joining later would lazily start an
+// execution on real AWS, which this emulator doesn't simulate on
+// AddThingToThingGroup) — there, an execution is created directly in
+// CANCELED state as a defensive fallback.
 func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -758,20 +749,14 @@ func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string, force bool
 
 // JobTemplate represents an IoT job template.
 //
-// Tags is internal-only (json:"-"): DescribeJobTemplateOutput (verified
-// against awsRestjson1_deserializeOpDocumentDescribeJobTemplateOutput in
-// aws-sdk-go-v2/service/iot@v1.76.0) has no "tags" field -- tags are a
-// separate ListTagsForResource concept.
+// Tags is internal-only (json:"-"): DescribeJobTemplateOutput
+// (awsRestjson1_deserializeOpDocumentDescribeJobTemplateOutput, v1.77.4)
+// has no "tags" field — tags are a separate ListTagsForResource concept.
 //
-// JobExecutionsRetryConfig/PresignedURLConfig/DestinationPackageVersions/
-// MaintenanceWindows were field-diffed against the same
-// DescribeJobTemplateOutput and found entirely missing (this struct
-// previously modeled none of Job's advanced fields on the template side
-// either). Note MaintenanceWindows is a TOP-LEVEL field here, unlike Job's
-// own SchedulingConfig.MaintenanceWindows nesting -- real AWS is genuinely
-// inconsistent between the two shapes (JobTemplate has no SchedulingConfig
-// wrapper at all; confirmed against both DescribeJobTemplateOutput and
-// CreateJobTemplateInput, neither of which has a schedulingConfig field).
+// MaintenanceWindows is a TOP-LEVEL field here, unlike Job's
+// SchedulingConfig.MaintenanceWindows nesting: JobTemplate has no
+// SchedulingConfig wrapper at all (neither DescribeJobTemplateOutput nor
+// CreateJobTemplateInput has a schedulingConfig field).
 type JobTemplate struct {
 	Tags                       map[string]string           `json:"-"`
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
@@ -808,7 +793,8 @@ func (b *InMemoryBackend) jobTemplateARN(id string) string {
 
 // CreateJobTemplateInput holds input for CreateJobTemplate.
 type CreateJobTemplateInput struct {
-	Tags                       map[string]string           `json:"tags,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:3051, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags                       []tags.KV                   `json:"tags,omitempty"`
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
 	TimeoutConfig              *TimeoutConfig              `json:"timeoutConfig,omitempty"`
@@ -847,10 +833,11 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 		PresignedURLConfig:         input.PresignedURLConfig,
 		DestinationPackageVersions: append([]string(nil), input.DestinationPackageVersions...),
 		MaintenanceWindows:         append([]MaintenanceWindow(nil), input.MaintenanceWindows...),
-		Tags:                       input.Tags,
+		Tags:                       tags.MapFromKV(input.Tags),
 		CreatedAt:                  float64(time.Now().Unix()),
 	}
 	b.jobTemplates.Put(jt)
+	b.putResourceTagsLocked(jt.JobTemplateARN, jt.Tags)
 
 	return cloneJobTemplate(jt), nil
 }

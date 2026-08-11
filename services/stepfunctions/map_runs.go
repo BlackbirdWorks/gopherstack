@@ -53,8 +53,8 @@ func (s *syncMapRunNotifier) OnMapRunStart(
 	return s.backend.storeMapRun(executionARN, stateName, s.smARN, maxConcurrency, itemCount)
 }
 
-func (s *syncMapRunNotifier) OnMapRunEnd(mapRunARN, status string, succeeded, failed, total int) {
-	s.backend.OnMapRunEnd(mapRunARN, status, succeeded, failed, total)
+func (s *syncMapRunNotifier) OnMapRunEnd(mapRunARN, status string, succeeded, failed, total, resultsWritten int) {
+	s.backend.OnMapRunEnd(mapRunARN, status, succeeded, failed, total, resultsWritten)
 }
 
 // storeMapRun creates and persists a MapRun record. smARN may be empty if not known.
@@ -102,8 +102,10 @@ func (b *InMemoryBackend) OnMapRunStart(
 	return b.storeMapRun(executionARN, stateName, smARN, maxConcurrency, itemCount)
 }
 
-// OnMapRunEnd implements asl.MapRunNotifier.
-func (b *InMemoryBackend) OnMapRunEnd(mapRunARN, status string, succeeded, failed, total int) {
+// OnMapRunEnd implements asl.MapRunNotifier. resultsWritten is 0 unless the
+// Map state's ResultWriter actually exported results to S3 -- DescribeMapRun
+// ItemCounts.ResultsWritten counts items ResultWriter wrote, not successes.
+func (b *InMemoryBackend) OnMapRunEnd(mapRunARN, status string, succeeded, failed, total, resultsWritten int) {
 	const millisPerSecond = 1000.0
 	now := float64(time.Now().UnixMilli()) / millisPerSecond
 
@@ -122,7 +124,7 @@ func (b *InMemoryBackend) OnMapRunEnd(mapRunARN, status string, succeeded, faile
 	mr.ItemCounts.Total = total
 	mr.ItemCounts.Pending = 0
 	mr.ItemCounts.Running = 0
-	mr.ItemCounts.ResultsWritten = succeeded
+	mr.ItemCounts.ResultsWritten = resultsWritten
 }
 
 // DescribeMapRun returns details for a Map Run.

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: support
-sdk_module: aws-sdk-go-v2/service/support@v1.31.23   # version audited against
+sdk_module: aws-sdk-go-v2/service/support@v1.34.4   # version audited against
 last_audit_commit: 5400868b3                         # HEAD when this manifest was written
 last_audit_date: 2026-07-24
 overall: A                # 1 severe wire bug (missing __type on every error) + several missing modeled exceptions fixed

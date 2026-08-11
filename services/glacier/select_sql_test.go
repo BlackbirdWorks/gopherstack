@@ -1,18 +1,16 @@
-package glacier_test
+package glacier
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
 // TestParseSelectExpression_Valid verifies that the Glacier Select SQL subset
 // (see services/glacier/select.go's package doc for the grammar) accepts every
 // documented construct: SELECT *, column lists, aliasing, qualified column
 // references, WHERE with AND/OR and every comparison operator, quoted string
-// literals (including escaped quotes), numeric literals, and LIMIT.
+// literals (including escaped quotes), and numeric literals.
 func TestParseSelectExpression_Valid(t *testing.T) {
 	t.Parallel()
 
@@ -44,23 +42,25 @@ func TestParseSelectExpression_Valid(t *testing.T) {
 			expr: "SELECT * FROM archive WHERE _1 = 'a' AND _2 > 1 OR _1 = 'b' AND _2 > 2",
 		},
 		{name: "where_lowercase_keywords", expr: "SELECT * FROM archive where _1 = 'a' and _2 > 1"},
-		{name: "limit", expr: "SELECT * FROM archive LIMIT 10"},
-		{name: "where_and_limit", expr: "SELECT * FROM archive WHERE _1 = 'a' LIMIT 5"},
-		{name: "limit_zero", expr: "SELECT * FROM archive LIMIT 0"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := glacier.ParseSelectExpression(tt.expr)
+			_, err := parseSelectQuery(tt.expr)
 			assert.NoError(t, err, "expression: %s", tt.expr)
 		})
 	}
 }
 
 // TestParseSelectExpression_Invalid verifies that malformed expressions are rejected
-// with a parse error rather than panicking or silently misparsing.
+// with a parse error rather than panicking or silently misparsing. This also covers
+// LIMIT: real S3 Glacier Select's SELECT command documents LIMIT as "(Amazon S3
+// Select only)" ("S3 Glacier Select does not support the LIMIT clause" --
+// doc_source/s3-glacier-select-sql-reference-select.md,
+// awsdocs/amazon-glacier-developer-guide), so any LIMIT clause is a rejected
+// construct here, not merely an out-of-range value.
 func TestParseSelectExpression_Invalid(t *testing.T) {
 	t.Parallel()
 
@@ -79,6 +79,9 @@ func TestParseSelectExpression_Invalid(t *testing.T) {
 		{name: "missing_literal", expr: "SELECT * FROM archive WHERE _1 ="},
 		{name: "missing_where_predicate", expr: "SELECT * FROM archive WHERE"},
 		{name: "trailing_garbage", expr: "SELECT * FROM archive EXTRA TOKENS"},
+		{name: "limit", expr: "SELECT * FROM archive LIMIT 10"},
+		{name: "where_and_limit", expr: "SELECT * FROM archive WHERE _1 = 'a' LIMIT 5"},
+		{name: "limit_zero", expr: "SELECT * FROM archive LIMIT 0"},
 		{name: "limit_not_a_number", expr: "SELECT * FROM archive LIMIT abc"},
 		{name: "limit_negative", expr: "SELECT * FROM archive LIMIT -1"},
 		{name: "dangling_comma", expr: "SELECT _1, FROM archive"},
@@ -90,7 +93,7 @@ func TestParseSelectExpression_Invalid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := glacier.ParseSelectExpression(tt.expr)
+			_, err := parseSelectQuery(tt.expr)
 			assert.Error(t, err, "expression: %s", tt.expr)
 		})
 	}

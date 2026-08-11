@@ -218,6 +218,77 @@ func TestParseKafkaPathScramReplicatorTopicVpcOps(t *testing.T) {
 	}
 }
 
+func TestParseKafkaPathChannelOps(t *testing.T) {
+	t.Parallel()
+
+	const clusterArn = "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1"
+
+	const channelArn = "arn:aws:kafka:us-east-1:000000000000:channel/test/uuid-1/my-channel"
+
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		wantOp       string
+		wantResource string
+	}{
+		{
+			name:         "create_channel",
+			method:       http.MethodPost,
+			path:         "/v1/clusters/" + clusterArn + "/channels",
+			wantOp:       "CreateChannel",
+			wantResource: clusterArn,
+		},
+		{
+			name:         "list_channels",
+			method:       http.MethodGet,
+			path:         "/v1/clusters/" + clusterArn + "/channels",
+			wantOp:       "ListChannels",
+			wantResource: clusterArn,
+		},
+		{
+			name:         "describe_channel",
+			method:       http.MethodGet,
+			path:         "/v1/clusters/" + clusterArn + "/channels/" + channelArn,
+			wantOp:       "DescribeChannel",
+			wantResource: clusterArn + "|" + channelArn,
+		},
+		{
+			name:         "update_channel",
+			method:       http.MethodPut,
+			path:         "/v1/clusters/" + clusterArn + "/channels/" + channelArn,
+			wantOp:       "UpdateChannel",
+			wantResource: clusterArn + "|" + channelArn,
+		},
+		{
+			name:         "delete_channel",
+			method:       http.MethodDelete,
+			path:         "/v1/clusters/" + clusterArn + "/channels/" + channelArn,
+			wantOp:       "DeleteChannel",
+			wantResource: clusterArn + "|" + channelArn,
+		},
+		{
+			// Channel and Topic sub-resources are siblings under the same
+			// cluster; confirm one doesn't shadow the other.
+			name:         "topic_sub_path_not_shadowed_by_channels",
+			method:       http.MethodGet,
+			path:         "/v1/clusters/" + clusterArn + "/topics/my-topic",
+			wantOp:       "DescribeTopic",
+			wantResource: clusterArn + "|my-topic",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			op, resource := kafka.ParseKafkaPathForTest(tt.method, tt.path)
+			assert.Equal(t, tt.wantOp, op)
+			assert.Equal(t, tt.wantResource, resource)
+		})
+	}
+}
+
 // ----------------------------------------
 // Additional tests to improve coverage
 // ----------------------------------------

@@ -50,7 +50,7 @@ func TestOAICanonicalUserID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			tt.run(t, b)
 		})
 	}
@@ -259,7 +259,7 @@ func TestOAICRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -284,7 +284,7 @@ func TestOAICRUD(t *testing.T) {
 func TestCreateCloudFrontOriginAccessIdentity(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/2020-05-31/origin-access-identity/cloudfront", nil)
 	c := e.NewContext(req, httptest.NewRecorder())
@@ -480,7 +480,7 @@ func TestOriginAccessControlCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 
 			if tt.setup != nil {

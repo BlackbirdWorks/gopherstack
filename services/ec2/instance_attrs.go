@@ -8,14 +8,9 @@ import (
 	"time"
 )
 
-// instance_attrs.go implements the instance-attribute misc operation
-// cluster: ModifyAvailabilityZoneGroup, ModifyHosts, ModifyInstanceCapacityReservationAttributes,
-// ModifyInstanceCpuOptions, ModifyInstanceEventStartTime, ModifyInstanceMaintenanceOptions,
-// ModifyInstanceNetworkPerformanceOptions, ModifyInstancePlacement, ModifyPrivateDnsNameOptions,
-// ModifyPublicIpDnsNameOptions, AssociateInstanceEventWindow, DisassociateInstanceEventWindow,
-// GetInstanceTpmEkPub, and GetInstanceUefiData. Each Modify* mutates real fields on the
-// existing Instance/Host/InstanceEventWindow state; Get* returns deterministic,
-// instance-keyed generated blobs of the correct (base64) shape.
+// instance_attrs.go: Get* returns deterministic, instance-keyed generated blobs
+// of the correct (base64) shape; Modify* mutates real Instance/Host/
+// InstanceEventWindow fields.
 
 // CPUOptions holds the per-instance CPU configuration set via ModifyInstanceCpuOptions.
 type CPUOptions struct {

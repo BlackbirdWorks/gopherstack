@@ -802,6 +802,7 @@ func TestChangeSet_CreateExecuteDelete(t *testing.T) {
 		"test changeset",
 		nil,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "cs-base", cs.StackName)
@@ -839,7 +840,7 @@ func TestChangeSet_Delete(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateChangeSet(t.Context(), "cs-del", "del-cs", simpleTemplate, "", nil, nil)
+	_, err = b.CreateChangeSet(t.Context(), "cs-del", "del-cs", simpleTemplate, "", nil, nil, nil)
 	require.NoError(t, err)
 
 	err = b.DeleteChangeSet("cs-del", "del-cs")
@@ -869,7 +870,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	// Create instances.
 	accounts := []string{"111111111111", "222222222222"}
 	regions := []string{"us-east-1", "us-west-2"}
-	_, err = b.CreateStackInstances(t.Context(), "my-ss", accounts, regions)
+	_, err = b.CreateStackInstances(t.Context(), "my-ss", accounts, nil, regions)
 	require.NoError(t, err)
 
 	instances, err := b.ListStackInstances("my-ss", "")
@@ -887,7 +888,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	assert.Equal(t, "ACTIVE", updated.Status)
 
 	// Delete instances.
-	_, err = b.DeleteStackInstances(t.Context(), "my-ss", accounts, regions)
+	_, err = b.DeleteStackInstances(t.Context(), "my-ss", accounts, nil, regions)
 	require.NoError(t, err)
 
 	remaining, err := b.ListStackInstances("my-ss", "")

@@ -19,7 +19,7 @@ type InMemoryBackend struct {
 	membersByNetwork        *store.Index[Member]
 	nodes                   *store.Table[Node]
 	nodesByMember           *store.Index[Node]
-	arnToResource           map[string]any // ARN → *Network, *Member, *Node, or *Accessor
+	arnToResource           map[string]any // ARN → *Network, *Member, *Node, *Accessor, or *Proposal
 	accessors               *store.Table[Accessor]
 	proposals               *store.Table[Proposal]
 	proposalsByNetwork      *store.Index[Proposal]

@@ -92,6 +92,7 @@ type InMemoryBackend struct {
 	glueIntegration asl.GlueIntegration
 	ebIntegration   asl.EventBridgeIntegration
 	s3Reader        asl.S3Reader
+	s3ResultWriter  asl.S3Writer
 	svcCtx          context.Context
 	// tasksByToken maps task token → task entry for SendTaskSuccess/Failure.
 	// Left as a plain map (not a store.Table): activityTaskEntry carries
@@ -323,6 +324,14 @@ func (b *InMemoryBackend) SetS3Reader(s3Reader asl.S3Reader) {
 	b.mu.Lock("SetS3Reader")
 	defer b.mu.Unlock()
 	b.s3Reader = s3Reader
+}
+
+// SetS3ResultWriter configures the S3 writer used to export Distributed Map
+// ResultWriter results and manifest.
+func (b *InMemoryBackend) SetS3ResultWriter(w asl.S3Writer) {
+	b.mu.Lock("SetS3ResultWriter")
+	defer b.mu.Unlock()
+	b.s3ResultWriter = w
 }
 
 func (b *InMemoryBackend) smARN(region, name string) string {

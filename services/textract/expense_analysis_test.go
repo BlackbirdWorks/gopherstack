@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -23,6 +24,42 @@ func TestInMemoryBackend_ExpenseJobHistoryCap(t *testing.T) {
 
 	assert.Equal(t, 3, textract.ExpenseJobCount(b),
 		"expense jobs map should be capped at 3 once over the cap")
+}
+
+// TestInMemoryBackend_StartExpenseAnalysisWithOptions_TrimmedBeforeReadback covers gopherstack-0ho6.
+func TestInMemoryBackend_StartExpenseAnalysisWithOptions_TrimmedBeforeReadback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		maxJobs int
+		wantErr bool
+	}{
+		{name: "zero_cap", maxJobs: 0, wantErr: true},
+		{name: "normal_cap", maxJobs: 5, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := textract.NewInMemoryBackendWithCap(tt.maxJobs)
+
+			job, err := b.StartExpenseAnalysisWithOptions(
+				context.Background(), "s3://bucket/receipt.pdf", nil, nil, "", "",
+			)
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, awserr.ErrNotFound)
+				assert.Nil(t, job)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, job.JobID)
+		})
+	}
 }
 
 func TestInMemoryBackend_StartExpenseAnalysisWithOptions_ClientRequestTokenIdempotency(t *testing.T) {

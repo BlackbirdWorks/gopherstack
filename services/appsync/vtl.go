@@ -11,6 +11,9 @@ import (
 // Supported patterns:
 //   - $context.arguments.key / $ctx.args.key → argument values
 //   - $context.result / $ctx.result / $context.result.key → resolver result
+//   - $context.prev.result / $ctx.prev.result / $context.prev.result.key → the
+//     previous pipeline function's result (PIPELINE resolvers only; see
+//     renderVTLWithPrev)
 //   - $util.toJson(expr) → JSON-encode the expression
 //   - #return(expr) → shorthand return with expression
 //   - $util.dynamodb.toDynamoDBJson($ctx.args.key) → wrap in DynamoDB format
@@ -18,6 +21,14 @@ import (
 //
 // Unsupported constructs are passed through unchanged.
 func renderVTL(tmpl string, args map[string]any, result any) (string, error) {
+	return renderVTLWithPrev(tmpl, args, result, nil)
+}
+
+// renderVTLWithPrev is renderVTL plus prev, the previous pipeline function's
+// result (types.AppSyncRuntime's $ctx.prev.result) -- used only by a
+// PIPELINE resolver/function's RequestMappingTemplate. See
+// graphql.go's evalRequestMapping.
+func renderVTLWithPrev(tmpl string, args map[string]any, result, prev any) (string, error) {
 	if tmpl == "" {
 		if result != nil {
 			b, err := json.Marshal(result)
@@ -31,7 +42,7 @@ func renderVTL(tmpl string, args map[string]any, result any) (string, error) {
 		return "{}", nil
 	}
 
-	vc := &vtlContext{args: args, result: result}
+	vc := &vtlContext{args: args, result: result, prev: prev}
 
 	return vc.render(tmpl)
 }
@@ -39,6 +50,7 @@ func renderVTL(tmpl string, args map[string]any, result any) (string, error) {
 type vtlContext struct {
 	args   map[string]any
 	result any
+	prev   any
 }
 
 const (
@@ -61,18 +73,58 @@ var (
 	reContextResultDot = regexp.MustCompile(`\$(?:context\.result|ctx\.result)\.(\w+)`)
 	// reContextResult matches $context.result or $ctx.result (bare).
 	reContextResult = regexp.MustCompile(`\$(?:context\.result|ctx\.result)\b`)
+	// reContextPrevResultDot matches $context.prev.result.key or $ctx.prev.result.key.
+	reContextPrevResultDot = regexp.MustCompile(`\$(?:context\.prev\.result|ctx\.prev\.result)\.(\w+)`)
+	// reContextPrevResult matches $context.prev.result or $ctx.prev.result (bare).
+	reContextPrevResult = regexp.MustCompile(`\$(?:context\.prev\.result|ctx\.prev\.result)\b`)
 )
 
 func (vc *vtlContext) render(tmpl string) (string, error) {
 	tmpl = vc.expandReturn(tmpl)
 	tmpl = vc.expandUtilToJSON(tmpl)
 	tmpl = vc.expandDynamoDBJSON(tmpl)
+	tmpl = vc.expandContextPrevResultDot(tmpl)
+	tmpl = vc.expandContextPrevResult(tmpl)
 	tmpl = vc.expandContextResultDot(tmpl)
 	tmpl = vc.expandContextResult(tmpl)
 	tmpl = vc.expandContextArgsDot(tmpl)
 	tmpl = vc.expandContextArgs(tmpl)
 
 	return strings.TrimSpace(tmpl), nil
+}
+
+// expandContextPrevResultDot expands $context.prev.result.key / $ctx.prev.result.key.
+func (vc *vtlContext) expandContextPrevResultDot(tmpl string) string {
+	return reContextPrevResultDot.ReplaceAllStringFunc(tmpl, func(match string) string {
+		sub := reContextPrevResultDot.FindStringSubmatch(match)
+		if len(sub) < minSubmatch {
+			return match
+		}
+
+		if m, ok := vc.prev.(map[string]any); ok {
+			if v, exists := m[sub[1]]; exists {
+				return fmt.Sprintf("%v", v)
+			}
+		}
+
+		return vtlNull
+	})
+}
+
+// expandContextPrevResult expands bare $context.prev.result / $ctx.prev.result.
+func (vc *vtlContext) expandContextPrevResult(tmpl string) string {
+	return reContextPrevResult.ReplaceAllStringFunc(tmpl, func(_ string) string {
+		if vc.prev == nil {
+			return vtlNull
+		}
+
+		b, err := json.Marshal(vc.prev)
+		if err != nil {
+			return vtlNull
+		}
+
+		return string(b)
+	})
 }
 
 // expandReturn handles #return(expr) lines — replaces with just the expression.
@@ -191,6 +243,9 @@ func (vc *vtlContext) resolveExpr(expr string) any {
 	switch {
 	case expr == "$context.result" || expr == "$ctx.result":
 		return vc.result
+
+	case expr == "$context.prev.result" || expr == "$ctx.prev.result":
+		return vc.prev
 
 	case strings.HasPrefix(expr, "$context.arguments.") || strings.HasPrefix(expr, "$ctx.args."):
 		var key string

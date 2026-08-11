@@ -11,6 +11,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
+var (
+	errContentTooLarge = errors.New("configuration content exceeds maximum size of 1 MiB")
+	errReadRequestBody = errors.New("failed to read request body")
+)
+
 func (h *Handler) handleCreateHostedConfigurationVersion(
 	c *echo.Context,
 	applicationID, profileID string,
@@ -38,16 +43,10 @@ func (h *Handler) handleCreateHostedConfigurationVersion(
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			return c.JSON(
-				http.StatusRequestEntityTooLarge,
-				map[string]string{keyMessageField: "configuration content exceeds maximum size of 1 MiB"},
-			)
+			return payloadTooLargeResponse(c, errContentTooLarge)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: "failed to read request body"},
-		)
+		return internalServerErrorResponse(c, errReadRequestBody)
 	}
 
 	v, err := h.Backend.CreateHostedConfigurationVersion(
@@ -64,18 +63,24 @@ func (h *Handler) handleCreateHostedConfigurationVersion(
 			return notFoundResponse(c, err)
 		}
 
+		// CreateHostedConfigurationVersion models ConflictException for a
+		// duplicate version label / stale Latest-Version-Number, and
+		// PayloadTooLargeException as a distinct code from BadRequestException
+		// (appconfig@v1.48.4 deserializers.go:1683) -- check the more specific
+		// PayloadTooLargeException sentinel before the general ErrInvalidParameter case.
 		if errors.Is(err, awserr.ErrAlreadyExists) {
 			return conflictResponse(c, err)
+		}
+
+		if errors.Is(err, ErrPayloadTooLarge) {
+			return payloadTooLargeResponse(c, err)
 		}
 
 		if errors.Is(err, awserr.ErrInvalidParameter) {
 			return badRequestResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	setHostedConfigurationVersionHeaders(c, v)
@@ -125,10 +130,7 @@ func (h *Handler) handleGetHostedConfigurationVersion(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	setHostedConfigurationVersionHeaders(c, v)
@@ -154,10 +156,7 @@ func (h *Handler) handleListHostedConfigurationVersions(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	resp := map[string]any{keyItems: versions}
@@ -178,10 +177,7 @@ func (h *Handler) handleDeleteHostedConfigurationVersion(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

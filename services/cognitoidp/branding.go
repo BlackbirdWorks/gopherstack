@@ -94,8 +94,13 @@ func (b *InMemoryBackend) GetUICustomization(poolID, clientID string) (*UICustom
 	return &cp, nil
 }
 
-// CreateManagedLoginBranding creates a managed login branding record.
-func (b *InMemoryBackend) CreateManagedLoginBranding(userPoolID, clientID string) (*ManagedLoginBranding, error) {
+// CreateManagedLoginBranding creates a managed login branding record. settings and
+// assets are stored as the raw client-supplied documents, un-transformed -- the same
+// pattern UserPool.LambdaConfig uses -- since Settings is an arbitrary Cognito-defined
+// JSON document (Document type) this backend has no reason to model field-by-field.
+func (b *InMemoryBackend) CreateManagedLoginBranding(
+	userPoolID, clientID string, settings map[string]any, assets []map[string]any, useCognitoProvidedValues bool,
+) (*ManagedLoginBranding, error) {
 	b.mu.Lock("CreateManagedLoginBranding")
 	defer b.mu.Unlock()
 
@@ -106,11 +111,14 @@ func (b *InMemoryBackend) CreateManagedLoginBranding(userPoolID, clientID string
 	id := "mlb-" + randomAlphanumeric(managedLoginBrandingIDLen)
 	now := time.Now()
 	mlb := &ManagedLoginBranding{
-		ManagedLoginBrandingID: id,
-		UserPoolID:             userPoolID,
-		ClientID:               clientID,
-		CreatedAt:              now,
-		LastModifiedAt:         now,
+		ManagedLoginBrandingID:   id,
+		UserPoolID:               userPoolID,
+		ClientID:                 clientID,
+		CreatedAt:                now,
+		LastModifiedAt:           now,
+		Settings:                 settings,
+		Assets:                   assets,
+		UseCognitoProvidedValues: useCognitoProvidedValues,
 	}
 	b.managedLoginBrandings.Put(mlb)
 
@@ -161,8 +169,12 @@ func (b *InMemoryBackend) DescribeManagedLoginBrandingByClient(
 	return &ManagedLoginBranding{UserPoolID: userPoolID, ClientID: clientID}, nil
 }
 
-// UpdateManagedLoginBranding updates a managed login branding record.
-func (b *InMemoryBackend) UpdateManagedLoginBranding(userPoolID, brandingID string) (*ManagedLoginBranding, error) {
+// UpdateManagedLoginBranding updates a managed login branding record. A nil settings
+// or assets leaves that field unchanged (the caller omitted it); useCognitoProvidedValues
+// is always applied, matching AWS's non-optional boolean request field.
+func (b *InMemoryBackend) UpdateManagedLoginBranding(
+	userPoolID, brandingID string, settings map[string]any, assets []map[string]any, useCognitoProvidedValues bool,
+) (*ManagedLoginBranding, error) {
 	b.mu.Lock("UpdateManagedLoginBranding")
 	defer b.mu.Unlock()
 
@@ -176,6 +188,15 @@ func (b *InMemoryBackend) UpdateManagedLoginBranding(userPoolID, brandingID stri
 			ErrUserPoolNotFound, brandingID, userPoolID)
 	}
 
+	if settings != nil {
+		mlb.Settings = settings
+	}
+
+	if assets != nil {
+		mlb.Assets = assets
+	}
+
+	mlb.UseCognitoProvidedValues = useCognitoProvidedValues
 	mlb.LastModifiedAt = time.Now()
 	cp := *mlb
 

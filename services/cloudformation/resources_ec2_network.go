@@ -405,9 +405,9 @@ func (rc *ResourceCreator) createEC2KeyPair(
 	publicKeyMaterial := strProp(props, "PublicKeyMaterial", params, physicalIDs)
 	var err error
 	if publicKeyMaterial != "" {
-		_, err = rc.backends.EC2.Backend.ImportKeyPair(keyName, publicKeyMaterial)
+		_, err = rc.backends.EC2.Backend.ImportKeyPair(keyName, publicKeyMaterial, nil)
 	} else {
-		_, err = rc.backends.EC2.Backend.CreateKeyPair(keyName)
+		_, err = rc.backends.EC2.Backend.CreateKeyPair(keyName, nil)
 	}
 	if err != nil {
 		return "", fmt.Errorf("create EC2 key pair %s: %w", keyName, err)

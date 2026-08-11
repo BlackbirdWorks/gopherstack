@@ -71,7 +71,10 @@ func TestIntegration_SageMaker_ModelLifecycle(t *testing.T) {
 			require.NoError(t, err, "CreateModel should succeed")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteModel(ctx, &sagemakersdk.DeleteModelInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteModel(cleanupCtx, &sagemakersdk.DeleteModelInput{
 					ModelName: aws.String(tt.modelName),
 				})
 			})

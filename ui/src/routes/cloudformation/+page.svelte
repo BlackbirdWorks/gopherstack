@@ -2,6 +2,9 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getCloudFormationClient } from '$lib/aws-client';
 	import {
 		DescribeStacksCommand,
@@ -51,12 +54,18 @@
 
 	const cfn = regionalClient(getCloudFormationClient);
 
+	// Every row carries the region its Describe/List call was made against.
+	// Detail/action calls must build a client for THAT region -- in All mode
+	// the same stack/StackSet name can legitimately exist in two different
+	// regions.
+	type Regioned<T> = T & { region: string };
+
 	// Main view: 'stacks' | 'stacksets'
 	let mainView = $state<'stacks' | 'stacksets'>('stacks');
 
 	let loading = $state(false);
-	let stacks = $state<Stack[]>([]);
-	let selectedStack = $state<Stack | null>(null);
+	let stacks = $state<Regioned<Stack>[]>([]);
+	let selectedStack = $state<Regioned<Stack> | null>(null);
 	let activeTab = $state<'overview' | 'resources' | 'events' | 'template' | 'changesets' | 'drift' | 'policy'>(
 		'overview'
 	);
@@ -96,7 +105,7 @@
 	let loadingDrift = $state(false);
 
 	// StackSets
-	let stackSets = $state<StackSetSummary[]>([]);
+	let stackSets = $state<Regioned<StackSetSummary>[]>([]);
 	let loadingStackSets = $state(false);
 	let showCreateStackSet = $state(false);
 	let newStackSetName = $state('');
@@ -154,8 +163,12 @@
 	async function loadStacks() {
 		loading = true;
 		try {
-			const resp = await cfn().send(new DescribeStacksCommand({}));
-			stacks = resp.Stacks ?? [];
+			const result = await multiRegionList(
+				(region) => getCloudFormationClient(region).send(new DescribeStacksCommand({})),
+				(r) => r.Stacks ?? []
+			);
+			stacks = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load stacks from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load stacks: ' + String(e));
 		} finally {
@@ -166,8 +179,12 @@
 	async function loadStackSets() {
 		loadingStackSets = true;
 		try {
-			const resp = await cfn().send(new ListStackSetsCommand({}));
-			stackSets = resp.Summaries ?? [];
+			const result = await multiRegionList(
+				(region) => getCloudFormationClient(region).send(new ListStackSetsCommand({})),
+				(r) => r.Summaries ?? []
+			);
+			stackSets = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load stack sets from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load stack sets: ' + String(e));
 		} finally {
@@ -175,16 +192,16 @@
 		}
 	}
 
-	async function selectStack(stack: Stack) {
+	async function selectStack(stack: Regioned<Stack>) {
 		selectedStack = stack;
 		activeTab = 'overview';
-		await loadResources(stack.StackName ?? '');
+		await loadResources(stack.StackName ?? '', stack.region);
 	}
 
-	async function loadResources(stackName: string) {
+	async function loadResources(stackName: string, region: string) {
 		loadingResources = true;
 		try {
-			const resp = await cfn().send(new ListStackResourcesCommand({ StackName: stackName }));
+			const resp = await getCloudFormationClient(region).send(new ListStackResourcesCommand({ StackName: stackName }));
 			resources = resp.StackResourceSummaries ?? [];
 		} catch (e) {
 			toast.error('Failed to load resources: ' + String(e));
@@ -193,10 +210,10 @@
 		}
 	}
 
-	async function loadEvents(stackName: string) {
+	async function loadEvents(stackName: string, region: string) {
 		loadingEvents = true;
 		try {
-			const resp = await cfn().send(new DescribeStackEventsCommand({ StackName: stackName }));
+			const resp = await getCloudFormationClient(region).send(new DescribeStackEventsCommand({ StackName: stackName }));
 			events = resp.StackEvents ?? [];
 		} catch (e) {
 			toast.error('Failed to load events: ' + String(e));
@@ -205,10 +222,10 @@
 		}
 	}
 
-	async function loadTemplate(stackName: string) {
+	async function loadTemplate(stackName: string, region: string) {
 		loadingTemplate = true;
 		try {
-			const resp = await cfn().send(new GetTemplateCommand({ StackName: stackName }));
+			const resp = await getCloudFormationClient(region).send(new GetTemplateCommand({ StackName: stackName }));
 			template = resp.TemplateBody ?? '';
 		} catch (e) {
 			toast.error('Failed to load template: ' + String(e));
@@ -217,10 +234,10 @@
 		}
 	}
 
-	async function loadChangeSets(stackName: string) {
+	async function loadChangeSets(stackName: string, region: string) {
 		loadingChangeSets = true;
 		try {
-			const resp = await cfn().send(new ListChangeSetsCommand({ StackName: stackName }));
+			const resp = await getCloudFormationClient(region).send(new ListChangeSetsCommand({ StackName: stackName }));
 			changeSets = resp.Summaries ?? [];
 		} catch (e) {
 			toast.error('Failed to load change sets: ' + String(e));
@@ -232,7 +249,7 @@
 	async function selectChangeSet(changeSetName: string) {
 		if (!selectedStack) return;
 		try {
-			const resp = await cfn().send(
+			const resp = await getCloudFormationClient(selectedStack.region).send(
 				new DescribeChangeSetCommand({
 					StackName: selectedStack.StackName ?? '',
 					ChangeSetName: changeSetName
@@ -255,7 +272,7 @@
 		)
 			return;
 		try {
-			await cfn().send(
+			await getCloudFormationClient(selectedStack.region).send(
 				new ExecuteChangeSetCommand({
 					StackName: selectedStack.StackName ?? '',
 					ChangeSetName: changeSetName
@@ -263,7 +280,7 @@
 			);
 			toast.success('Change set execution initiated');
 			selectedChangeSet = null;
-			await loadChangeSets(selectedStack.StackName ?? '');
+			await loadChangeSets(selectedStack.StackName ?? '', selectedStack.region);
 			await loadStacks();
 		} catch (e) {
 			toast.error('Failed to execute change set: ' + String(e));
@@ -273,7 +290,7 @@
 	async function deleteChangeSet(changeSetName: string) {
 		if (!selectedStack) return;
 		try {
-			await cfn().send(
+			await getCloudFormationClient(selectedStack.region).send(
 				new DeleteChangeSetCommand({
 					StackName: selectedStack.StackName ?? '',
 					ChangeSetName: changeSetName
@@ -281,7 +298,7 @@
 			);
 			toast.success(`Change set "${changeSetName}" deleted`);
 			if (selectedChangeSet?.ChangeSetName === changeSetName) selectedChangeSet = null;
-			await loadChangeSets(selectedStack.StackName ?? '');
+			await loadChangeSets(selectedStack.StackName ?? '', selectedStack.region);
 		} catch (e) {
 			toast.error('Failed to delete change set: ' + String(e));
 		}
@@ -291,7 +308,7 @@
 		if (!selectedStack || !newChangeSetName.trim() || !newChangeSetTemplate.trim()) return;
 		creatingChangeSet = true;
 		try {
-			await cfn().send(
+			await getCloudFormationClient(selectedStack.region).send(
 				new CreateChangeSetCommand({
 					StackName: selectedStack.StackName ?? '',
 					ChangeSetName: newChangeSetName.trim(),
@@ -302,7 +319,7 @@
 			showCreateChangeSet = false;
 			newChangeSetName = '';
 			newChangeSetTemplate = '';
-			await loadChangeSets(selectedStack.StackName ?? '');
+			await loadChangeSets(selectedStack.StackName ?? '', selectedStack.region);
 		} catch (e) {
 			toast.error('Failed to create change set: ' + String(e));
 		} finally {
@@ -316,7 +333,8 @@
 		driftStatus = '';
 		driftResourceDrifts = [];
 		try {
-			const resp = await cfn().send(
+			const client = getCloudFormationClient(selectedStack.region);
+			const resp = await client.send(
 				new DetectStackDriftCommand({ StackName: selectedStack.StackName ?? '' })
 			);
 			driftDetectionID = resp.StackDriftDetectionId ?? '';
@@ -324,7 +342,7 @@
 			let attempts = 0;
 			const poll = async () => {
 				attempts++;
-				const statusResp = await cfn().send(
+				const statusResp = await client.send(
 					new DescribeStackDriftDetectionStatusCommand({
 						StackDriftDetectionId: driftDetectionID
 					})
@@ -352,7 +370,7 @@
 		if (!selectedStack) return;
 		loadingDrift = true;
 		try {
-			const resp = await cfn().send(
+			const resp = await getCloudFormationClient(selectedStack.region).send(
 				new DescribeStackResourceDriftsCommand({ StackName: selectedStack.StackName ?? '' })
 			);
 			driftResourceDrifts = resp.StackResourceDrifts ?? [];
@@ -369,18 +387,19 @@
 		activeTab = tab;
 		if (!selectedStack) return;
 		const name = selectedStack.StackName ?? '';
-		if (tab === 'events' && events.length === 0) await loadEvents(name);
-		if (tab === 'template' && !template) await loadTemplate(name);
-		if (tab === 'changesets') await loadChangeSets(name);
+		const region = selectedStack.region;
+		if (tab === 'events' && events.length === 0) await loadEvents(name, region);
+		if (tab === 'template' && !template) await loadTemplate(name, region);
+		if (tab === 'changesets') await loadChangeSets(name, region);
 		if (tab === 'drift') await loadDriftResults();
-		if (tab === 'policy') await loadStackPolicy(name);
+		if (tab === 'policy') await loadStackPolicy(name, region);
 	}
 
-	async function loadStackPolicy(stackName: string) {
+	async function loadStackPolicy(stackName: string, region: string) {
 		loadingPolicy = true;
 		stackPolicy = '';
 		try {
-			const resp = await cfn().send(new GetStackPolicyCommand({ StackName: stackName }));
+			const resp = await getCloudFormationClient(region).send(new GetStackPolicyCommand({ StackName: stackName }));
 			if (resp.StackPolicyBody) {
 				try {
 					stackPolicy = JSON.stringify(JSON.parse(resp.StackPolicyBody), null, 2);
@@ -406,7 +425,7 @@
 		}
 		savingPolicy = true;
 		try {
-			await cfn().send(new SetStackPolicyCommand({ StackName: selectedStack.StackName ?? '', StackPolicyBody: body }));
+			await getCloudFormationClient(selectedStack.region).send(new SetStackPolicyCommand({ StackName: selectedStack.StackName ?? '', StackPolicyBody: body }));
 			toast.success('Stack policy saved');
 		} catch (e) {
 			toast.error('Failed to save stack policy: ' + String(e));
@@ -448,7 +467,7 @@
 		if (!selectedStack || !updateTemplateBody.trim()) return;
 		updatingStack = true;
 		try {
-			await cfn().send(
+			await getCloudFormationClient(selectedStack.region).send(
 				new UpdateStackCommand({
 					StackName: selectedStack.StackName ?? '',
 					TemplateBody: updateTemplateBody.trim()
@@ -465,8 +484,10 @@
 		}
 	}
 
-	async function deleteStack(name: string) {
+	async function deleteStack(stack: Regioned<Stack> | null) {
+		const name = stack?.StackName;
 		if (
+			!name ||
 			!await confirmDestructive({
 				title: 'Delete Stack',
 				message: `Delete stack "${name}"? All provisioned resources will be destroyed.`
@@ -475,9 +496,9 @@
 			return;
 		deletingStack = name;
 		try {
-			await cfn().send(new DeleteStackCommand({ StackName: name }));
+			await getCloudFormationClient(stack.region).send(new DeleteStackCommand({ StackName: name }));
 			toast.success(`Stack "${name}" deletion initiated`);
-			if (selectedStack?.StackName === name) selectedStack = null;
+			if (selectedStack && selectedStack.StackName === name && selectedStack.region === stack.region) selectedStack = null;
 			await loadStacks();
 		} catch (e) {
 			toast.error('Failed to delete stack: ' + String(e));
@@ -508,7 +529,8 @@
 		}
 	}
 
-	async function deleteStackSet(name: string) {
+	async function deleteStackSet(stackSet: Regioned<StackSetSummary>) {
+		const name = stackSet.StackSetName;
 		if (
 			!await confirmDestructive({
 				title: 'Delete StackSet',
@@ -517,7 +539,7 @@
 		)
 			return;
 		try {
-			await cfn().send(new DeleteStackSetCommand({ StackSetName: name }));
+			await getCloudFormationClient(stackSet.region).send(new DeleteStackSetCommand({ StackSetName: name }));
 			toast.success(`StackSet "${name}" deleted`);
 			await loadStackSets();
 		} catch (e) {
@@ -598,6 +620,7 @@
 					<Server class="w-4 h-4" /> StackSets
 				</button>
 			</div>
+			<WriteRegionHint />
 			{#if mainView === 'stacks'}
 				<button onclick={loadStacks} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
 					<RefreshCw class="w-4 h-4" /> Refresh
@@ -632,6 +655,7 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
 						<tr>
 							<th class="px-4 py-3 text-left">StackSet Name</th>
+							<th class="px-4 py-3 text-left">Region</th>
 							<th class="px-4 py-3 text-left">Status</th>
 							<th class="px-4 py-3 text-left">Description</th>
 							<th class="px-4 py-3 text-left">Actions</th>
@@ -641,6 +665,7 @@
 						{#each stackSets as ss}
 							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 								<td class="px-4 py-3 font-medium">{ss.StackSetName}</td>
+								<td class="px-4 py-3"><RegionChip region={ss.region} /></td>
 								<td class="px-4 py-3">
 									<span class={`px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(ss.Status)}-100 text-${statusColor(ss.Status)}-700`}>
 										{ss.Status ?? '-'}
@@ -648,7 +673,7 @@
 								</td>
 								<td class="px-4 py-3 text-gray-500 text-xs">{ss.Description ?? '-'}</td>
 								<td class="px-4 py-3">
-									<button onclick={() => deleteStackSet(ss.StackSetName ?? '')} class="text-red-500 hover:text-red-700 p-1">
+									<button onclick={() => deleteStackSet(ss)} class="text-red-500 hover:text-red-700 p-1">
 										<Trash2 class="w-4 h-4" />
 									</button>
 								</td>
@@ -666,6 +691,7 @@
 			<button onclick={() => { selectedStack = null; resources = []; events = []; template = ''; changeSets = []; driftResourceDrifts = []; }} class="text-orange-600 hover:underline">Stacks</button>
 			<ChevronRight class="w-4 h-4 text-gray-400" />
 			<span class="text-gray-600 dark:text-gray-300 font-medium">{selectedStack.StackName}</span>
+			<RegionChip region={selectedStack.region} />
 			<span class={`ml-2 px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(selectedStack.StackStatus)}-100 dark:bg-${statusColor(selectedStack.StackStatus)}-900/30 text-${statusColor(selectedStack.StackStatus)}-700 dark:text-${statusColor(selectedStack.StackStatus)}-400`}>
 				{selectedStack.StackStatus}
 			</span>
@@ -684,7 +710,7 @@
 				</button>
 			{/each}
 			<button onclick={() => { showUpdateStack = true; updateTemplateBody = template; }} class="ml-auto px-4 py-2 text-sm text-orange-600 hover:underline">Update Stack</button>
-			<button onclick={() => deleteStack(selectedStack?.StackName ?? '')} class="px-4 py-2 text-sm text-red-500 hover:underline">Delete</button>
+			<button onclick={() => deleteStack(selectedStack)} class="px-4 py-2 text-sm text-red-500 hover:underline">Delete</button>
 		</div>
 
 		{#if activeTab === 'overview'}
@@ -985,6 +1011,7 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
 						<tr>
 							<th class="px-4 py-3 text-left">Stack Name</th>
+							<th class="px-4 py-3 text-left">Region</th>
 							<th class="px-4 py-3 text-left">Status</th>
 							<th class="px-4 py-3 text-left">Description</th>
 							<th class="px-4 py-3 text-left">Created</th>
@@ -997,6 +1024,7 @@
 								<td class="px-4 py-3">
 									<button onclick={() => selectStack(stack)} class="text-orange-600 dark:text-orange-400 hover:underline font-medium">{stack.StackName}</button>
 								</td>
+								<td class="px-4 py-3"><RegionChip region={stack.region} /></td>
 								<td class="px-4 py-3">
 									<span class={`px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(stack.StackStatus)}-100 dark:bg-${statusColor(stack.StackStatus)}-900/30 text-${statusColor(stack.StackStatus)}-700 dark:text-${statusColor(stack.StackStatus)}-400`}>
 										{stack.StackStatus}
@@ -1005,7 +1033,7 @@
 								<td class="px-4 py-3 text-gray-500 text-xs truncate max-w-xs">{stack.Description ?? '-'}</td>
 								<td class="px-4 py-3 text-gray-500 text-xs">{formatDate(stack.CreationTime)}</td>
 								<td class="px-4 py-3">
-									<button onclick={() => deleteStack(stack.StackName ?? '')} disabled={deletingStack === stack.StackName} class="text-red-500 hover:text-red-700 p-1">
+									<button onclick={() => deleteStack(stack)} disabled={deletingStack === stack.StackName} class="text-red-500 hover:text-red-700 p-1">
 										<Trash2 class="w-4 h-4" />
 									</button>
 								</td>

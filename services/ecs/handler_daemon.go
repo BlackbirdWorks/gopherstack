@@ -1,13 +1,7 @@
 package ecs
 
-// handler_daemon.go implements the real ECS Managed Daemon operations:
-// CreateDaemon, DeleteDaemon, DescribeDaemon, UpdateDaemon, ListDaemons,
-// DescribeDaemonDeployments, ListDaemonDeployments, DescribeDaemonRevisions,
-// RegisterDaemonTaskDefinition, DescribeDaemonTaskDefinition,
-// DeleteDaemonTaskDefinition, and ListDaemonTaskDefinitions.
-//
-// These back onto real, typed backend state (see daemon.go) rather
-// than returning fixed placeholder values.
+// handler_daemon.go: ECS Managed Daemon operations, backed by real, typed
+// backend state (see daemon.go), not fixed placeholder values.
 
 import (
 	"context"

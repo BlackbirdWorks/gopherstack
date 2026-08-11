@@ -250,13 +250,15 @@ func TestUpdateHost(t *testing.T) {
 	}
 }
 
-// TestBackendCreateHostNameUniqueness verifies duplicate host names fail.
-func TestBackendCreateHostNameUniqueness(t *testing.T) {
+// TestBackendCreateHostNameNotUnique verifies duplicate host names succeed
+// (see TestCreateHostNameNotUnique for why: CreateHost has no
+// ResourceAlreadyExistsException in its real error list).
+func TestBackendCreateHostNameNotUnique(t *testing.T) {
 	t.Parallel()
 
 	b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateHost(
+	host1, err := b.CreateHost(
 		context.Background(),
 		"unique-host-x",
 		"GitHubEnterpriseServer",
@@ -265,14 +267,15 @@ func TestBackendCreateHostNameUniqueness(t *testing.T) {
 	)
 	require.NoError(t, err, "first create should succeed")
 
-	_, err = b.CreateHost(
+	host2, err := b.CreateHost(
 		context.Background(),
 		"unique-host-x",
 		"GitHubEnterpriseServer",
 		"https://b.example.com",
 		nil,
 	)
-	require.Error(t, err, "duplicate host name must fail")
+	require.NoError(t, err, "duplicate host name must succeed")
+	assert.NotEqual(t, host1.HostArn, host2.HostArn)
 }
 
 // TestBackendHostsByNameDeleteRestores verifies delete releases the name for reuse.
@@ -314,14 +317,17 @@ func TestBackendHostsByNameDeleteRestores(t *testing.T) {
 	}
 }
 
-// TestBackendAddHostInternalUpdatesNameIndex verifies the name index is populated.
-func TestBackendAddHostInternalUpdatesNameIndex(t *testing.T) {
+// TestBackendAddHostInternalThenCreateSameName verifies AddHostInternal does
+// not block a later CreateHost call for the same Name -- CreateHost has no
+// ResourceAlreadyExistsException in its real error list (see
+// TestCreateHostNameNotUnique), so duplicate names must never be rejected.
+func TestBackendAddHostInternalThenCreateSameName(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
 	}{
-		{name: "internal_add_blocks_duplicate"},
+		{name: "internal_add_does_not_block_duplicate"},
 	}
 
 	for _, tt := range tests {
@@ -345,45 +351,7 @@ func TestBackendAddHostInternalUpdatesNameIndex(t *testing.T) {
 				"https://other.example.com",
 				nil,
 			)
-			require.Error(t, err, "AddHostInternal must populate name index")
-		})
-	}
-}
-
-// TestBackendErrAlreadyExistsHostDuplicate verifies the correct error type.
-func TestBackendErrAlreadyExistsHostDuplicate(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-	}{
-		{name: "duplicate_host_returns_already_exists_error"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
-			_, err := b.CreateHost(
-				context.Background(),
-				"dup-h",
-				"GitHubEnterpriseServer",
-				"https://a.example.com",
-				nil,
-			)
 			require.NoError(t, err)
-
-			_, err = b.CreateHost(
-				context.Background(),
-				"dup-h",
-				"GitHubEnterpriseServer",
-				"https://b.example.com",
-				nil,
-			)
-			require.Error(t, err)
-			// The error should wrap ErrAlreadyExists.
-			assert.ErrorIs(t, err, codeconnections.ErrAlreadyExists)
 		})
 	}
 }

@@ -2,8 +2,12 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onDestroy, untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import { isAllRegions, currentRegion } from '$lib/region.svelte';
 	import { urlState } from '$lib/url-state.svelte';
 	import LiveDot from '$lib/components/LiveDot.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getCloudWatchLogsClient } from '$lib/aws-client';
 	import {
 		DescribeLogGroupsCommand,
@@ -65,6 +69,12 @@
 
 	const cwl = regionalClient(getCloudWatchLogsClient);
 
+	// Every log group row carries the region its DescribeLogGroups call was
+	// made against. Selecting a group drills into streams/events scoped to
+	// THIS region (not the page's shared `cwl()` client) -- in All mode the
+	// same log group name can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	// ─── Top-level page tabs ──────────────────────────────────────────────────
 	type PageTab = 'groups' | 'insights' | 'metric-filters' | 'subscription-filters' | 'export-tasks';
 	// URL-backed (?tab=...); see url-state.svelte.ts. Read via untrack() inside
@@ -86,9 +96,9 @@
 	let searchQuery = $derived(searchQueryParam.get());
 
 	// Log Groups
-	let logGroups = $state<LogGroup[]>([]);
+	let logGroups = $state<Regioned<LogGroup>[]>([]);
 	let loading = $state(false);
-	let selectedGroup = $state<LogGroup | null>(null);
+	let selectedGroup = $state<Regioned<LogGroup> | null>(null);
 	let showCreateGroup = $state(false);
 	let creatingGroup = $state(false);
 	let newGroupName = $state('');
@@ -274,19 +284,30 @@
 	}
 
 	// ─── Log Groups ───────────────────────────────────────────────────────────
+	// In All mode, fans DescribeLogGroups out across every region with data
+	// and tags each row; pagination (nextToken) is inherently single-region,
+	// so "Load More" is only offered outside All mode.
 	async function loadLogGroups(append = false) {
 		loading = true;
 		try {
-			const resp = await cwl().send(new DescribeLogGroupsCommand({
-				limit: 50,
-				nextToken: append ? groupNextToken : undefined
-			}));
-			if (append) {
-				logGroups = [...logGroups, ...(resp.logGroups ?? [])];
+			if (isAllRegions()) {
+				const result = await multiRegionList(
+					(region) => getCloudWatchLogsClient(region).send(new DescribeLogGroupsCommand({ limit: 50 })),
+					(r) => r.logGroups ?? []
+				);
+				logGroups = result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<LogGroup>);
+				groupNextToken = undefined;
+				if (result.errors.length > 0) toast.error(`Failed to load log groups from ${result.errors.length} region(s)`);
 			} else {
-				logGroups = resp.logGroups ?? [];
+				const resp = await cwl().send(new DescribeLogGroupsCommand({
+					limit: 50,
+					nextToken: append ? groupNextToken : undefined
+				}));
+				const region = currentRegion();
+				const tagged = (resp.logGroups ?? []).map((g) => ({ ...g, region }) as Regioned<LogGroup>);
+				logGroups = append ? [...logGroups, ...tagged] : tagged;
+				groupNextToken = resp.nextToken;
 			}
-			groupNextToken = resp.nextToken;
 		} catch (e) {
 			toast.error('Failed to load log groups: ' + String(e));
 		} finally {
@@ -294,18 +315,18 @@
 		}
 	}
 
-	async function selectGroup(group: LogGroup) {
+	async function selectGroup(group: Regioned<LogGroup>) {
 		selectedGroup = group;
 		selectedStream = null;
 		activeView = 'streams';
 		searchQuery = '';
-		await loadStreams(group.logGroupName ?? '');
+		await loadStreams(group.logGroupName ?? '', group.region);
 	}
 
-	async function loadStreams(groupName: string) {
+	async function loadStreams(groupName: string, region: string) {
 		loadingStreams = true;
 		try {
-			const resp = await cwl().send(new DescribeLogStreamsCommand({
+			const resp = await getCloudWatchLogsClient(region).send(new DescribeLogStreamsCommand({
 				logGroupName: groupName,
 				orderBy: streamSortField === 'lastEventTime' ? 'LastEventTime' : 'LogStreamName',
 				descending: streamSortDesc,
@@ -342,7 +363,7 @@
 			if (filterPattern) params.filterPattern = filterPattern;
 			if (startTime) params.startTime = new Date(startTime).getTime();
 			if (endTime) params.endTime = new Date(endTime).getTime();
-			const resp = await cwl().send(new FilterLogEventsCommand(params));
+			const resp = await getCloudWatchLogsClient(selectedGroup.region).send(new FilterLogEventsCommand(params));
 			logEvents = resp.events ?? [];
 		} catch (e) {
 			toast.error('Failed to load events: ' + String(e));
@@ -394,13 +415,13 @@
 		}
 	}
 
-	async function deleteLogGroup(name: string) {
+	async function deleteLogGroup(name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Log Group', message: `Delete log group "${name}"? All log streams and retained data will be permanently removed.` })) return;
 		deletingGroup = name;
 		try {
-			await cwl().send(new DeleteLogGroupCommand({ logGroupName: name }));
+			await getCloudWatchLogsClient(region).send(new DeleteLogGroupCommand({ logGroupName: name }));
 			toast.success(`Log group "${name}" deleted`);
-			if (selectedGroup?.logGroupName === name) {
+			if (selectedGroup?.logGroupName === name && selectedGroup.region === region) {
 				selectedGroup = null;
 				activeView = 'groups';
 			}
@@ -412,12 +433,12 @@
 		}
 	}
 
-	async function updateRetention(groupName: string, days: number) {
+	async function updateRetention(groupName: string, days: number, region: string) {
 		try {
 			if (days === 0) {
-				await cwl().send(new DeleteRetentionPolicyCommand({ logGroupName: groupName }));
+				await getCloudWatchLogsClient(region).send(new DeleteRetentionPolicyCommand({ logGroupName: groupName }));
 			} else {
-				await cwl().send(new PutRetentionPolicyCommand({ logGroupName: groupName, retentionInDays: days }));
+				await getCloudWatchLogsClient(region).send(new PutRetentionPolicyCommand({ logGroupName: groupName, retentionInDays: days }));
 			}
 			toast.success('Retention policy updated');
 			await loadLogGroups();
@@ -431,14 +452,14 @@
 		if (!newStreamName.trim() || !selectedGroup) return;
 		creatingStream = true;
 		try {
-			await cwl().send(new CreateLogStreamCommand({
+			await getCloudWatchLogsClient(selectedGroup.region).send(new CreateLogStreamCommand({
 				logGroupName: selectedGroup.logGroupName ?? '',
 				logStreamName: newStreamName.trim()
 			}));
 			toast.success(`Log stream "${newStreamName}" created`);
 			showCreateStream = false;
 			newStreamName = '';
-			await loadStreams(selectedGroup.logGroupName ?? '');
+			await loadStreams(selectedGroup.logGroupName ?? '', selectedGroup.region);
 		} catch (e) {
 			toast.error('Failed to create log stream: ' + String(e));
 		} finally {
@@ -451,7 +472,7 @@
 		if (!await confirmDestructive({ title: 'Delete Log Stream', message: `Delete stream "${streamName}"? All retained log events will be removed.` })) return;
 		deletingStream = streamName;
 		try {
-			await cwl().send(new DeleteLogStreamCommand({
+			await getCloudWatchLogsClient(selectedGroup.region).send(new DeleteLogStreamCommand({
 				logGroupName: selectedGroup.logGroupName ?? '',
 				logStreamName: streamName
 			}));
@@ -460,7 +481,7 @@
 				selectedStream = null;
 				activeView = 'streams';
 			}
-			await loadStreams(selectedGroup.logGroupName ?? '');
+			await loadStreams(selectedGroup.logGroupName ?? '', selectedGroup.region);
 		} catch (e) {
 			toast.error('Failed to delete stream: ' + String(e));
 		} finally {
@@ -476,7 +497,7 @@
 			streamSortDesc = field === 'lastEventTime';
 		}
 		if (selectedGroup) {
-			await loadStreams(selectedGroup.logGroupName ?? '');
+			await loadStreams(selectedGroup.logGroupName ?? '', selectedGroup.region);
 		}
 	}
 
@@ -892,6 +913,7 @@
 				{#if selectedGroup}
 					<ChevronRight class="w-4 h-4 text-gray-400" />
 					<button onclick={() => { activeView = 'streams'; selectedStream = null; searchQuery = ''; }} class="text-indigo-600 hover:underline truncate max-w-xs">{selectedGroup.logGroupName}</button>
+					<RegionChip region={selectedGroup.region} />
 				{/if}
 				{#if selectedStream && activeView === 'events'}
 					<ChevronRight class="w-4 h-4 text-gray-400" />
@@ -908,6 +930,7 @@
 					<input value={searchQuery} oninput={(e) => searchQueryParam.set(e.currentTarget.value)} type="text" placeholder="Search log groups..."
 						class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white" />
 				</div>
+				<WriteRegionHint />
 				<button onclick={() => (showCreateGroup = true)}
 					class="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium">
 					<Plus class="w-4 h-4" /> Create Log Group
@@ -948,12 +971,13 @@
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-							{#each filteredGroups() as group}
+							{#each filteredGroups() as group (group.region + '::' + group.logGroupName)}
 								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 									<td class="px-4 py-3">
 										<div class="flex items-center gap-2">
 											<button onclick={() => selectGroup(group)}
 												class="text-indigo-600 dark:text-indigo-400 hover:underline font-mono text-xs">{group.logGroupName}</button>
+											<RegionChip region={group.region} />
 											<button onclick={() => copyToClipboard(group.arn ?? '')} title="Copy ARN"
 												class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
 												<Copy class="w-3 h-3" />
@@ -962,7 +986,7 @@
 									</td>
 									<td class="px-4 py-3">
 										<select value={group.retentionInDays ?? 0}
-											onchange={(e) => updateRetention(group.logGroupName ?? '', parseInt((e.target as HTMLSelectElement).value, 10))}
+											onchange={(e) => updateRetention(group.logGroupName ?? '', parseInt((e.target as HTMLSelectElement).value, 10), group.region)}
 											class="text-xs border border-gray-200 dark:border-gray-700 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300">
 											{#each retentionOptions as opt}
 												<option value={opt.value}>{opt.label}</option>
@@ -979,7 +1003,7 @@
 									</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{formatTimestamp(group.creationTime)}</td>
 									<td class="px-4 py-3">
-										<button onclick={() => deleteLogGroup(group.logGroupName ?? '')} disabled={deletingGroup === group.logGroupName}
+										<button onclick={() => deleteLogGroup(group.logGroupName ?? '', group.region)} disabled={deletingGroup === group.logGroupName}
 											class="text-red-500 hover:text-red-700 p-1 disabled:opacity-40">
 											<Trash2 class="w-4 h-4" />
 										</button>

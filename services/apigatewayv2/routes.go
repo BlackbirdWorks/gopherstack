@@ -37,7 +37,8 @@ func validateHTTPRouteKey(key string) error {
 
 	const maxParts = 2
 	parts := strings.SplitN(key, " ", maxParts)
-	if len(parts) != maxParts || !isValidHTTPRouteKeyMethod(parts[0]) || !strings.HasPrefix(parts[1], "/") {
+	if len(parts) != maxParts || !isValidHTTPRouteKeyMethod(parts[0]) ||
+		!strings.HasPrefix(parts[1], "/") {
 		return fmt.Errorf(
 			"%w: routeKey must be $default or start with a valid HTTP method and a forward slash, e.g. GET /items",
 			ErrBadRequest,
@@ -69,7 +70,11 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 
 	for _, existing := range b.routesByAPI.Get(apiID) {
 		if existing.RouteKey == input.RouteKey {
-			return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
+			return nil, fmt.Errorf(
+				"%w: route key %q already exists",
+				ErrAlreadyExists,
+				input.RouteKey,
+			)
 		}
 	}
 
@@ -84,8 +89,13 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		)
 	}
 
-	if (authType == authorizerTypeJWT || authType == authorizationTypeCustom) && input.AuthorizerID == "" {
-		return nil, fmt.Errorf("%w: authorizerId is required for %s authorization", ErrBadRequest, authType)
+	if (authType == authorizerTypeJWT || authType == authorizationTypeCustom) &&
+		input.AuthorizerID == "" {
+		return nil, fmt.Errorf(
+			"%w: authorizerId is required for %s authorization",
+			ErrBadRequest,
+			authType,
+		)
 	}
 
 	authScopes := input.AuthorizationScopes
@@ -181,9 +191,10 @@ func (b *InMemoryBackend) DeleteRoute(apiID, routeID string) error {
 	return nil
 }
 
-// setRouteKey validates newKey for protocolType and ensures it is not a duplicate
-// among routes (excluding the route being updated), then sets r.RouteKey.
-func setRouteKey(r *Route, routes []*Route, routeID, newKey, protocolType string) error {
+// validateRouteKeyUpdate checks that newKey is valid for protocolType and is
+// not a duplicate among routes (excluding the route being updated). It does
+// not mutate r.
+func validateRouteKeyUpdate(routes []*Route, routeID, newKey, protocolType string) error {
 	if protocolType == protocolTypeHTTP {
 		if err := validateHTTPRouteKey(newKey); err != nil {
 			return err
@@ -196,21 +207,26 @@ func setRouteKey(r *Route, routes []*Route, routeID, newKey, protocolType string
 		}
 	}
 
-	r.RouteKey = newKey
+	return nil
+}
+
+// validateRouteAuthUpdate checks AuthorizationType against the AWS enum. It
+// does not mutate r.
+func validateRouteAuthUpdate(input UpdateRouteInput) error {
+	if input.AuthorizationType != "" && !validRouteAuthorizationType(input.AuthorizationType) {
+		return fmt.Errorf(
+			"%w: authorizationType must be one of NONE, AWS_IAM, JWT, CUSTOM",
+			ErrBadRequest,
+		)
+	}
 
 	return nil
 }
 
 // applyRouteAuthUpdate applies AuthorizationType/AuthorizerID changes from a
-// route update, validating the authorization type against the AWS enum.
-func applyRouteAuthUpdate(r *Route, input UpdateRouteInput) error {
+// route update. Callers must validate first (validateRouteAuthUpdate).
+func applyRouteAuthUpdate(r *Route, input UpdateRouteInput) {
 	if input.AuthorizationType != "" {
-		if !validRouteAuthorizationType(input.AuthorizationType) {
-			return fmt.Errorf(
-				"%w: authorizationType must be one of NONE, AWS_IAM, JWT, CUSTOM", ErrBadRequest,
-			)
-		}
-
 		r.AuthorizationType = input.AuthorizationType
 		if input.AuthorizationType == authorizationTypeNone {
 			r.AuthorizerID = ""
@@ -220,38 +236,44 @@ func applyRouteAuthUpdate(r *Route, input UpdateRouteInput) error {
 	if input.AuthorizerID != "" {
 		r.AuthorizerID = input.AuthorizerID
 	}
-
-	return nil
 }
 
-// UpdateRoute updates fields on an existing route.
-func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteInput) (*Route, error) {
-	b.mu.Lock("UpdateRoute")
-	defer b.mu.Unlock()
-
-	api, ok := b.apis.Get(apiID)
-	if !ok {
-		return nil, ErrAPINotFound
+// validateManagedRouteKeyUpdate rejects a route-key change on a quick-create
+// managed route ("If you created an API using quick create, the $default
+// route is managed by API Gateway. You can't modify the $default route key."
+// -- service-2.json, Route.ApiGatewayManaged doc), otherwise validates the
+// new key via validateRouteKeyUpdate. It does not mutate r.
+func validateManagedRouteKeyUpdate(
+	r *Route,
+	routes []*Route,
+	routeID, newKey, protocolType string,
+) error {
+	if newKey == "" || newKey == r.RouteKey {
+		return nil
 	}
 
-	r, ok := b.routes.Get(routeKey(apiID, routeID))
-	if !ok {
-		return nil, ErrRouteNotFound
+	if r.APIGatewayManaged {
+		return fmt.Errorf(
+			"%w: the route key of a quick-create managed route can't be modified",
+			ErrBadRequest,
+		)
 	}
 
+	return validateRouteKeyUpdate(routes, routeID, newKey, protocolType)
+}
+
+// applyRouteUpdate mutates r with input's fields. Callers must validate
+// first (validateManagedRouteKeyUpdate, validateRouteAuthUpdate).
+func applyRouteUpdate(r *Route, input UpdateRouteInput) {
 	if input.RouteKey != "" {
-		if err := setRouteKey(r, b.routesByAPI.Get(apiID), routeID, input.RouteKey, api.ProtocolType); err != nil {
-			return nil, err
-		}
+		r.RouteKey = input.RouteKey
 	}
 
 	if input.Target != "" {
 		r.Target = input.Target
 	}
 
-	if err := applyRouteAuthUpdate(r, input); err != nil {
-		return nil, err
-	}
+	applyRouteAuthUpdate(r, input)
 
 	if input.OperationName != "" {
 		r.OperationName = input.OperationName
@@ -276,6 +298,39 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 	if input.APIKeyRequired != nil {
 		r.APIKeyRequired = *input.APIKeyRequired
 	}
+}
+
+// UpdateRoute updates fields on an existing route. All of input is validated
+// before any field of r is mutated, so a rejected update never leaves the
+// route in a partially-applied state.
+func (b *InMemoryBackend) UpdateRoute(
+	apiID, routeID string,
+	input UpdateRouteInput,
+) (*Route, error) {
+	b.mu.Lock("UpdateRoute")
+	defer b.mu.Unlock()
+
+	api, ok := b.apis.Get(apiID)
+	if !ok {
+		return nil, ErrAPINotFound
+	}
+
+	r, ok := b.routes.Get(routeKey(apiID, routeID))
+	if !ok {
+		return nil, ErrRouteNotFound
+	}
+
+	if err := validateManagedRouteKeyUpdate(
+		r, b.routesByAPI.Get(apiID), routeID, input.RouteKey, api.ProtocolType,
+	); err != nil {
+		return nil, err
+	}
+
+	if err := validateRouteAuthUpdate(input); err != nil {
+		return nil, err
+	}
+
+	applyRouteUpdate(r, input)
 
 	b.autoDeployLocked(apiID)
 
@@ -285,7 +340,9 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 }
 
 // DeleteRouteRequestParameter removes a specific request parameter from a route.
-func (b *InMemoryBackend) DeleteRouteRequestParameter(apiID, routeID, requestParameterKey string) error {
+func (b *InMemoryBackend) DeleteRouteRequestParameter(
+	apiID, routeID, requestParameterKey string,
+) error {
 	b.mu.Lock("DeleteRouteRequestParameter")
 	defer b.mu.Unlock()
 

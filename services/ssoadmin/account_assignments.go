@@ -41,11 +41,12 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 	b.assignments[key] = append(b.assignments[key], assignment)
 
 	requestID := uuid.NewString()
+	now := time.Now().UTC()
 	pruneOldestStatus(b.creationStatuses)
 	b.creationStatuses.Put(&ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
-		CreatedDate:      time.Now().UTC(),
+		CreatedDate:      now,
 		AccountID:        accountID,
 		PermissionSetArn: permissionSetArn,
 		PrincipalID:      principalID,
@@ -53,6 +54,12 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 		TargetType:       targetTypeAWSAccount,
 	})
 	b.assignmentCreationIDs[idempotencyKey] = requestID
+
+	// CreateAccountAssignment provisions the permission set to the account as
+	// a side effect, same as an explicit ProvisionPermissionSet call -- real
+	// AWS documents this ("this operation also provisions the permission set
+	// to the account if it isn't already provisioned").
+	b.provisionedAt[provisionedAtKey(instanceArn, permissionSetArn, accountID)] = now
 
 	return requestID, nil
 }
@@ -142,6 +149,25 @@ func (b *InMemoryBackend) DeleteAccountAssignment(
 		return "", ErrAssignmentNotFound
 	}
 	b.assignments[key] = remaining
+
+	// Once no assignment for this account+permission-set pair remains, the
+	// account is no longer provisioned with it (real AWS's DeleteAccountAssignment
+	// deprovisions when the last assignment is removed) -- drop the ghost
+	// provisionedAt row so a future re-CreateAccountAssignment starts clean
+	// rather than inheriting a stale timestamp.
+	stillAssigned := false
+
+	for _, a := range remaining {
+		if a.AccountID == accountID {
+			stillAssigned = true
+
+			break
+		}
+	}
+
+	if !stillAssigned {
+		delete(b.provisionedAt, provisionedAtKey(instanceArn, permissionSetArn, accountID))
+	}
 
 	// Remove the idempotency index entry and associated creation status to prevent unbounded growth.
 	idempotencyKey := key + "|" + accountID + "|" + principalType + "|" + principalID

@@ -43,7 +43,10 @@ func TestIntegration_DDB_VersionControl(t *testing.T) {
 	require.NoError(t, createErr)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTable(cleanupCtx, &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})

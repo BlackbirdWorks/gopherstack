@@ -60,8 +60,11 @@ func TestIntegration_Forecast_DatasetGroupLifecycle(t *testing.T) {
 			require.NotEmpty(t, arn, "dataset group ARN must be returned")
 
 			t.Cleanup(func() {
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
 				_, _ = client.DeleteDatasetGroup(
-					ctx,
+					cleanupCtx,
 					&forecastsdk.DeleteDatasetGroupInput{DatasetGroupArn: aws.String(arn)},
 				)
 			})

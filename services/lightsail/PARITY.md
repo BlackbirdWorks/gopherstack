@@ -10,10 +10,12 @@
 # build`/`go vet`/`go test -race`/`golangci-lint` against the already-committed tree, plus direct
 # reading of services/lightsail/*.go and the relevant cli.go wiring lines, never modifying either).
 service: lightsail
-sdk_module: aws-sdk-go-v2/service/lightsail@v1.58.3   # confirmed unchanged in go.mod this pass;
-# still the version the original audit resolved (`go get .../lightsail@latest` in a throwaway
-# scratch module) and the version sdk_completeness_test.go's real *lightsailsdk.Client{} type-checks
-# against.
+sdk_module: aws-sdk-go-v2/service/lightsail@v1.58.4   # gopherstack-u8my: was recorded v1.58.3 but
+# go.mod actually pinned v1.58.4 -- the "confirmed unchanged" claim below was wrong. Diffed v1.58.3
+# vs v1.58.4: types/{types,enums,errors}.go, serializers.go, deserializers.go, validators.go are all
+# byte-identical; only client middleware plumbing differs. No wire-shape claim in this file rested
+# on the wrong pin. Originally resolved via `go get .../lightsail@latest` in a throwaway scratch
+# module, and the version sdk_completeness_test.go's real *lightsailsdk.Client{} type-checks against.
 last_audit_commit: c397a0243   # the commit that actually implemented all 161 ops, registered the
 # handler, and wired cli.go. A follow-up pass on top of that HEAD (same day) closed the
 # CreateCloudFormationStack wiring gap below; see "cli.go wiring" section for the cli.go diff, which

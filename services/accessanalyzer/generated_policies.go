@@ -7,8 +7,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// StartPolicyGeneration creates a new policy generation job.
-func (b *InMemoryBackend) StartPolicyGeneration(principalArn string) (*PolicyGeneration, error) {
+// StartPolicyGeneration creates a new policy generation job. cloudTrailDetails,
+// when supplied, is stored and echoed back opaquely by GetGeneratedPolicy --
+// this backend does not synthesize policy statements from it.
+func (b *InMemoryBackend) StartPolicyGeneration(
+	principalArn string, cloudTrailDetails *PolicyGenerationCloudTrailDetails,
+) (*PolicyGeneration, error) {
 	b.mu.Lock("StartPolicyGeneration")
 	defer b.mu.Unlock()
 
@@ -16,11 +20,12 @@ func (b *InMemoryBackend) StartPolicyGeneration(principalArn string) (*PolicyGen
 	completed := now
 
 	pg := &PolicyGeneration{
-		JobID:        uuid.NewString(),
-		PrincipalArn: principalArn,
-		Status:       PolicyGenerationStatusSucceeded,
-		StartedOn:    now,
-		CompletedOn:  &completed,
+		JobID:             uuid.NewString(),
+		PrincipalArn:      principalArn,
+		Status:            PolicyGenerationStatusSucceeded,
+		StartedOn:         now,
+		CompletedOn:       &completed,
+		CloudTrailDetails: cloudTrailDetails,
 	}
 
 	b.policyGenerations.Put(pg)

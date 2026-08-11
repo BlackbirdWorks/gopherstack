@@ -328,10 +328,32 @@ func TestBackend_BatchUpdateCluster(t *testing.T) {
 			_, err = b.CreateCluster(context.Background(), req2)
 			require.NoError(t, err)
 
-			found := b.BatchUpdateCluster(context.Background(), tt.clusterNames)
+			found, err := b.BatchUpdateCluster(context.Background(), tt.clusterNames, "")
+			require.NoError(t, err)
 			assert.Len(t, found, tt.wantFoundCount)
 		})
 	}
+}
+
+// TestBackend_BatchUpdateCluster_UnknownServiceUpdate proves BatchUpdateCluster
+// rejects a ServiceUpdateNameToApply that doesn't match any known service
+// update, instead of silently succeeding (real AWS fault: ServiceUpdateNotFoundFault).
+func TestBackend_BatchUpdateCluster_UnknownServiceUpdate(t *testing.T) {
+	t.Parallel()
+
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+
+	req := &memorydb.ExportedCreateClusterRequest{
+		ClusterName: "su-cluster",
+		NodeType:    "db.r6g.large",
+		ACLName:     "open-access",
+	}
+	_, err := b.CreateCluster(context.Background(), req)
+	require.NoError(t, err)
+
+	found, err := b.BatchUpdateCluster(context.Background(), []string{"su-cluster"}, "no-such-service-update")
+	require.ErrorIs(t, err, memorydb.ErrServiceUpdateNotFound)
+	assert.Nil(t, found)
 }
 
 func TestListClusters_NoMutation(t *testing.T) {

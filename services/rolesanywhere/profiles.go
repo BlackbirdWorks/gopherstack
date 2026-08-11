@@ -22,6 +22,10 @@ func (b *InMemoryBackend) profileARN(region, id string) string {
 // (CreateProfile only models ValidationException/AccessDeniedException --
 // there is no ConflictException shape anywhere in the service), so duplicate
 // names are accepted, matching the real API.
+//
+// roleArns must be non-nil (CreateProfileInput.RoleArns is "This member is
+// required" and validateOpCreateProfileInput rejects nil); an explicitly
+// empty slice is accepted since the RoleArnList shape itself declares min:0.
 func (b *InMemoryBackend) CreateProfile(
 	ctx context.Context,
 	name string,
@@ -34,7 +38,7 @@ func (b *InMemoryBackend) CreateProfile(
 	enabled *bool,
 	acceptRoleSessionName *bool,
 ) (*Profile, error) {
-	if name == "" {
+	if name == "" || roleArns == nil {
 		return nil, ErrValidation
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
@@ -855,6 +856,170 @@ func TestHandler_ServiceAttributes(t *testing.T) {
 				getRec := doSDRequest(t, h, "GetServiceAttributes", map[string]any{"ServiceId": svcID})
 				assert.Equal(t, tt.wantCode, getRec.Code)
 			}
+		})
+	}
+}
+
+// TestHandler_UpdateServiceAttributesQuota verifies the shape constraints from
+// the botocore model (servicediscovery/2017-03-14/service-2.json): shape
+// ServiceAttributesMap{max:30,min:1}, ServiceAttributeKey{max:255},
+// ServiceAttributeValue{max:1024}.
+func TestHandler_UpdateServiceAttributesQuota(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attrs    map[string]string
+		name     string
+		wantType string
+		presetTo int
+		wantCode int
+	}{
+		{
+			name:     "within_limit_accepted",
+			attrs:    map[string]string{"env": "prod"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "empty_map_rejected",
+			attrs:    map[string]string{},
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidInput",
+		},
+		{
+			name:     "key_too_long_rejected",
+			attrs:    map[string]string{strings.Repeat("k", 256): "v"},
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidInput",
+		},
+		{
+			name:     "value_too_long_rejected",
+			attrs:    map[string]string{"k": strings.Repeat("v", 1025)},
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidInput",
+		},
+		{
+			name:     "count_at_limit_accepted",
+			presetTo: 29,
+			attrs:    map[string]string{"new-attr": "v"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "count_over_limit_rejected",
+			presetTo: 30,
+			attrs:    map[string]string{"one-too-many": "v"},
+			wantCode: http.StatusBadRequest,
+			wantType: "ServiceAttributesLimitExceededException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "quota-svc"})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			svcARN := createResp["Service"].(map[string]any)["Arn"].(string)
+
+			if tt.presetTo > 0 {
+				preset := make(map[string]string, tt.presetTo)
+				for i := range tt.presetTo {
+					preset[fmt.Sprintf("preset-%d", i)] = "v"
+				}
+
+				presetRec := doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
+					"ServiceArn": svcARN,
+					"Attributes": preset,
+				})
+				require.Equal(t, http.StatusOK, presetRec.Code, presetRec.Body.String())
+			}
+
+			rec := doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
+				"ServiceArn": svcARN,
+				"Attributes": tt.attrs,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+
+			if tt.wantType != "" {
+				var errResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Equal(t, tt.wantType, errResp["__type"])
+			}
+		})
+	}
+}
+
+// TestHandler_CreateServiceInvalidEnums verifies that CreateService rejects
+// RoutingPolicy/DnsRecords[].Type/HealthCheckConfig.Type values outside the
+// closed enums documented in the botocore model (shapes RoutingPolicy{enum:
+// [MULTIVALUE,WEIGHTED]}, RecordType{enum:[SRV,A,AAAA,CNAME]}, HealthCheckType
+// {enum:[HTTP,HTTPS,TCP]}), matching aws-sdk-go-v2's closed string enums
+// (types/enums.go).
+func TestHandler_CreateServiceInvalidEnums(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "valid_routing_policy_and_record_type_accepted",
+			body: map[string]any{
+				"Name": "svc-valid-enum",
+				"DnsConfig": map[string]any{
+					"RoutingPolicy": "WEIGHTED",
+					"DnsRecords":    []map[string]any{{"Type": "A", "TTL": 60}},
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "invalid_routing_policy_rejected",
+			body: map[string]any{
+				"Name": "svc-bad-routing",
+				"DnsConfig": map[string]any{
+					"RoutingPolicy": "BOGUS",
+					"DnsRecords":    []map[string]any{{"Type": "A", "TTL": 60}},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_dns_record_type_rejected",
+			body: map[string]any{
+				"Name": "svc-bad-record-type",
+				"DnsConfig": map[string]any{
+					"RoutingPolicy": "WEIGHTED",
+					"DnsRecords":    []map[string]any{{"Type": "BOGUS", "TTL": 60}},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_health_check_type_rejected",
+			body: map[string]any{
+				"Name": "svc-bad-health-check",
+				"HealthCheckConfig": map[string]any{
+					"Type": "BOGUS",
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doSDRequest(t, h, "CreateService", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
 		})
 	}
 }

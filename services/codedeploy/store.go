@@ -13,9 +13,17 @@ const (
 	statusSucceeded       = "Succeeded"
 	statusStopped         = "Stopped"
 	statusFailed          = "Failed"
+	statusReady           = "Ready"
 	computePlatformServer = "Server"
 	computePlatformLambda = "Lambda"
 	computePlatformECS    = "ECS"
+)
+
+// DeploymentWaitType enum values accepted by ContinueDeployment. types.DeploymentWaitType
+// Values(), aws-sdk-go-v2/service/codedeploy@v1.38.4/types/enums.go:247-251.
+const (
+	waitTypeReadyWait       = "READY_WAIT"
+	waitTypeTerminationWait = "TERMINATION_WAIT"
 )
 
 // Deployment target/instance type discriminators shared between the backend
@@ -61,6 +69,7 @@ type InMemoryBackend struct {
 	applicationRevisionsByApp *store.Index[ApplicationRevision]
 	githubTokens              map[string]struct{}
 	mu                        *lockmetrics.RWMutex
+	appConfig                 any
 	accountID                 string
 	region                    string
 }
@@ -141,5 +150,26 @@ func validComputePlatforms() map[string]struct{} {
 		computePlatformServer: {},
 		computePlatformLambda: {},
 		computePlatformECS:    {},
+	}
+}
+
+// fileExistsBehavior enum values. types.FileExistsBehavior Values(),
+// aws-sdk-go-v2/service/codedeploy@v1.38.4/types/enums.go:362-364.
+const (
+	fileExistsBehaviorDisallow  = "DISALLOW"
+	fileExistsBehaviorOverwrite = "OVERWRITE"
+	fileExistsBehaviorRetain    = "RETAIN"
+)
+
+// validateFileExistsBehavior returns an error if behavior is set to a value
+// other than the empty string (real AWS default) or a real FileExistsBehavior
+// enum value.
+func validateFileExistsBehavior(behavior string) error {
+	switch behavior {
+	case "", fileExistsBehaviorDisallow, fileExistsBehaviorOverwrite, fileExistsBehaviorRetain:
+		return nil
+	default:
+		return fmt.Errorf("%w: invalid fileExistsBehavior %q, must be DISALLOW, OVERWRITE, or RETAIN",
+			ErrInvalidFileExistsBehavior, behavior)
 	}
 }

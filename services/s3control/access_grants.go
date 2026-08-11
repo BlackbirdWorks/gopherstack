@@ -134,40 +134,21 @@ func (b *InMemoryBackend) GetAccessGrantsInstance(accountID string) (*AccessGran
 }
 
 // errAccessGrantsInstanceNotEmpty is returned when DeleteAccessGrantsInstance
-// is called while the instance still has grants or locations attached, or
-// still has an IAM Identity Center instance associated. The real API's own
-// doc comment on DeleteAccessGrantsInstance (verified against
-// aws-sdk-go-v2/service/s3control@v1.73.0's
-// api_op_DeleteAccessGrantsInstance.go, generated from AWS's own Smithy
-// model) requires the caller to clear those first: "You must first delete
-// the access grants and locations before S3 Access Grants can delete the
-// instance. ... If you have associated an IAM Identity Center instance with
-// your S3 Access Grants instance, you must first dissassociate the Identity
-// Center instance from the S3 Access Grants instance before you can delete
-// the S3 Access Grants instance." S3 Control has no typed exception
-// specific to either conflict (verified against aws-sdk-go-v2/service/
-// s3control/types/errors.go's full list -- BadRequestException,
-// BucketAlreadyExists, BucketAlreadyOwnedByYou, IdempotencyException,
-// InternalServiceException, InvalidNextTokenException,
-// InvalidRequestException, JobStatusException,
-// NoSuchPublicAccessBlockConfiguration, NotFoundException,
-// TooManyRequestsException, TooManyTagsException -- none named for either
-// case), so this reuses the same generic "BadRequestException" sentinel
-// (ErrValidation) this codebase already uses for other S3 Access Grants
-// validation failures (e.g. CreateAccessGrant's missing-Permission check),
-// rather than inventing an unverified specific code.
+// is called while the instance still has grants or locations attached, or a
+// live IAM Identity Center association — both required-clear-first per
+// DeleteAccessGrantsInstance's doc comment (api_op_DeleteAccessGrantsInstance.go,
+// aws-sdk-go-v2/service/s3control@v1.73.0). No typed exception exists for
+// either conflict (types/errors.go's full list has none), so this reuses
+// the generic "BadRequestException" sentinel (ErrValidation) already used
+// elsewhere for S3 Access Grants validation failures.
 var errAccessGrantsInstanceNotEmpty = ErrValidation
 
 // DeleteAccessGrantsInstance removes the Access Grants instance and
-// cascade-cleans its resource policy and generic resource tags. Per the real
-// API's documented behavior, this does NOT cascade-delete AccessGrants or
-// AccessGrantsLocations -- AWS requires those to be deleted individually
-// first, and it also requires any associated IAM Identity Center instance to
-// be dissociated first (see errAccessGrantsInstanceNotEmpty for the exact
-// doc text). All three preconditions are enforced here: deleting an
-// instance that still has any grant, any location, or a live Identity
-// Center association is rejected with errAccessGrantsInstanceNotEmpty
-// instead of silently succeeding.
+// cascade-cleans its resource policy and generic resource tags. It does NOT
+// cascade-delete AccessGrants or AccessGrantsLocations — those, plus any
+// Identity Center association, must be cleared first (see
+// errAccessGrantsInstanceNotEmpty); any of the three still present rejects
+// the delete instead of silently succeeding.
 func (b *InMemoryBackend) DeleteAccessGrantsInstance(accountID string) error {
 	b.mu.Lock("DeleteAccessGrantsInstance")
 	defer b.mu.Unlock()

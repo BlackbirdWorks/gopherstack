@@ -9,10 +9,7 @@ import (
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string) error {
 	tags, err := h.Backend.ListTagsForResource(resourceArn)
 	if err != nil {
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Tags": tags})
@@ -30,10 +27,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceArn string) error {
 	}
 
 	if err := h.Backend.TagResource(resourceArn, req.Tags); err != nil {
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -43,10 +37,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error
 	keysToRemove := c.Request().URL.Query()["tagKeys"]
 
 	if err := h.Backend.UntagResource(resourceArn, keysToRemove); err != nil {
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

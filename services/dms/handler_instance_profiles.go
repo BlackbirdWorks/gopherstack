@@ -70,7 +70,7 @@ func ipToJSON(ip *InstanceProfile) instanceProfileJSON {
 }
 
 type deleteInstanceProfileInput struct {
-	InstanceProfileArn *string `json:"InstanceProfileArn"`
+	InstanceProfileIdentifier *string `json:"InstanceProfileIdentifier"`
 }
 
 type deleteInstanceProfileOutput struct {
@@ -81,7 +81,7 @@ func (h *Handler) handleDeleteInstanceProfile(
 	ctx context.Context, in *deleteInstanceProfileInput,
 ) (*deleteInstanceProfileOutput, error) {
 	// We need to get the profile before deleting it for the response.
-	arnOrName := ptrconv.String(in.InstanceProfileArn)
+	arnOrName := ptrconv.String(in.InstanceProfileIdentifier)
 
 	profiles, _ := h.Backend.DescribeInstanceProfiles(ctx)
 	var found *InstanceProfile
@@ -138,10 +138,10 @@ func (h *Handler) handleDescribeInstanceProfiles(
 }
 
 type modifyInstanceProfileInput struct {
-	InstanceProfileArn *string `json:"InstanceProfileArn"`
-	AvailabilityZone   *string `json:"AvailabilityZone"`
-	Description        *string `json:"Description"`
-	NetworkType        *string `json:"NetworkType"`
+	InstanceProfileIdentifier *string `json:"InstanceProfileIdentifier"`
+	AvailabilityZone          *string `json:"AvailabilityZone"`
+	Description               *string `json:"Description"`
+	NetworkType               *string `json:"NetworkType"`
 }
 
 type modifyInstanceProfileOutput struct {
@@ -153,7 +153,7 @@ func (h *Handler) handleModifyInstanceProfile(
 ) (*modifyInstanceProfileOutput, error) {
 	ip, err := h.Backend.ModifyInstanceProfile(
 		ctx,
-		ptrconv.String(in.InstanceProfileArn),
+		ptrconv.String(in.InstanceProfileIdentifier),
 		ptrconv.String(in.AvailabilityZone),
 		ptrconv.String(in.Description),
 		ptrconv.String(in.NetworkType),

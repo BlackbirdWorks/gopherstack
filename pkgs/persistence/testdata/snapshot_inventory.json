@@ -1,0 +1,1882 @@
+{
+  "accessanalyzer": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "account": {
+    "fields": [
+      "AccountCreatedDate time.Time `json:\"accountCreatedDate\"`",
+      "AccountID string `json:\"accountID\"`",
+      "AccountName string `json:\"accountName\"`",
+      "ContactInfo *ContactInformation `json:\"contactInfo,omitempty\"`",
+      "PendingEmail string `json:\"pendingEmail\"`",
+      "PendingOTP string `json:\"pendingOTP\"`",
+      "PrimaryEmail string `json:\"primaryEmail\"`",
+      "PrimaryEmailUpdateAt time.Time `json:\"primaryEmailUpdateAt\"`",
+      "PrimaryEmailUpdateStatus PrimaryEmailUpdateStatus `json:\"primaryEmailUpdateStatus,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "Regions []*Region `json:\"regions\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "acm": {
+    "fields": [
+      "AccountConfig map[string]AccountConfig `json:\"accountConfig\"`",
+      "AccountID string `json:\"accountID\"`",
+      "AccountIdempotency map[string]map[string]accountIdempotencyEntry `json:\"accountIdempotency,omitempty\"`",
+      "DomainValidationIdempotency map[string]map[string]acmeIdempotencyEntry `json:\"domainValidationIdempotency,omitempty\"`",
+      "EABIdempotency map[string]map[string]acmeIdempotencyEntry `json:\"eabIdempotency,omitempty\"`",
+      "EndpointIdempotency map[string]map[string]acmeIdempotencyEntry `json:\"endpointIdempotency,omitempty\"`",
+      "IdempotencyMap map[string]map[string]certIdempotencyEntry `json:\"idempotencyMap,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "acmpca": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Policies map[string]map[string]string `json:\"policies\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "amplify": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "apigateway": {
+    "fields": [
+      "Account *Account `json:\"account,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "UsageOverrides map[string]map[string]int64 `json:\"usageOverrides,omitempty\"`"
+    ],
+    "version": 1
+  },
+  "apigatewaymanagementapi": {
+    "fields": [
+      "Connections map[string]persistedConn `json:\"connections\"`",
+      "Stats Stats `json:\"stats\"`"
+    ],
+    "version": 1
+  },
+  "apigatewayv2": {
+    "fields": [
+      "PortalProductSharingPolicies map[string]string `json:\"portalProductSharingPolicies,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "appconfig": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AccountSettings AccountSettings `json:\"accountSettings\"`",
+      "DeployedConfigs map[string]string `json:\"deployedConfigs\"`",
+      "DeploymentCounters map[string]map[string]int32 `json:\"deploymentCounters\"`",
+      "ExperimentRunCounters map[string]int32 `json:\"experimentRunCounters\"`",
+      "ExperimentRunEvents map[string][]ExperimentRunEvent `json:\"experimentRunEvents\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TagsByArn map[string]map[string]string `json:\"tagsByArn\"`",
+      "VersionCounters map[string]map[string]int32 `json:\"versionCounters\"`"
+    ],
+    "version": 1
+  },
+  "appconfigdata": {
+    "fields": [
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "applicationautoscaling": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "appmesh": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "apprunner": {
+    "fields": [
+      "CustomDomains map[string][]*storedCustomDomain `json:\"customDomains\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "appstream": {
+    "fields": [
+      "AppBlockBuilderAssoc map[string]map[string]bool `json:\"appBlockBuilderAssoc\"`",
+      "AppFleetAssoc map[string]map[string]bool `json:\"appFleetAssoc\"`",
+      "Associations map[string]map[string]bool `json:\"associations\"`",
+      "EntitlementApps map[string]map[string]bool `json:\"entitlementApps\"`",
+      "ExportTaskSeq int `json:\"exportTaskSeq\"`",
+      "SessionSeq int `json:\"sessionSeq\"`",
+      "SoftwareAssoc map[string]map[string]bool `json:\"softwareAssoc\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`",
+      "UsageReport *storedUsageReportSubscription `json:\"usageReport\"`",
+      "UserStackAssoc map[string]map[string]bool `json:\"userStackAssoc\"`"
+    ],
+    "version": 1
+  },
+  "appsync": {
+    "fields": [
+      "APIKeys map[string]map[string]*APIKey `json:\"apiKeys,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "athena": {
+    "fields": [
+      "QueryResults map[string]*sqlResultSnapshot `json:\"queryResults,omitempty\"`",
+      "ResourceTags map[string]map[string]string `json:\"resourceTags,omitempty\"`",
+      "TableData map[string][]map[string]any `json:\"tableData,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "autoscaling": {
+    "fields": [
+      "Activities map[string][]ScalingActivity `json:\"activities\"`",
+      "InstanceRefreshes map[string][]*InstanceRefresh `json:\"instanceRefreshes\"`",
+      "NotificationConfigs map[string][]*NotificationConfiguration `json:\"notificationConfigs\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "awsconfig": {
+    "fields": [
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 3
+  },
+  "backup": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "GlobalSettings map[string]string `json:\"globalSettings,omitempty\"`",
+      "GlobalSettingsLastUpdate time.Time `json:\"globalSettingsLastUpdate,omitzero\"`",
+      "MpaApprovals map[string]string `json:\"mpaApprovals,omitempty\"`",
+      "RecoveryPointIndexStatus map[string]string `json:\"recoveryPointIndexStatus,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "RegionSettings *RegionSettings `json:\"regionSettings,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "batch": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "JobDefRevisions map[string]map[string]int32 `json:\"jobDefRevisions\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "bedrock": {
+    "fields": [
+      "ARPAnnotations map[string][]any `json:\"arpAnnotations\"`",
+      "ARPByName map[string]string `json:\"arpByName\"`",
+      "ARPCounter int `json:\"arpCounter\"`",
+      "ARPTestCaseCounter int `json:\"arpTestCaseCounter\"`",
+      "ARPVersionCountByPolicy map[string]int `json:\"arpVersionCountByPolicy\"`",
+      "ARPWorkflowCounter int `json:\"arpWorkflowCounter\"`",
+      "AccountDataRetention *AccountDataRetention `json:\"accountDataRetention,omitempty\"`",
+      "AccountID string `json:\"accountID\"`",
+      "ActionGroupCounter int `json:\"actionGroupCounter\"`",
+      "AdvancedPromptOptJobCounter int `json:\"advancedPromptOptJobCounter\"`",
+      "AgentAliasCounter int `json:\"agentAliasCounter\"`",
+      "AgentCollabCounter int `json:\"agentCollabCounter\"`",
+      "AgentCounter int `json:\"agentCounter\"`",
+      "AgentMemory map[string][]any `json:\"agentMemory\"`",
+      "AgentPreparationDueAt map[string]time.Time `json:\"agentPreparationDueAt\"`",
+      "AgentTags map[string]map[string]string `json:\"agentTags\"`",
+      "AgentVersionCounters map[string]int `json:\"agentVersionCounters\"`",
+      "AgentsByName map[string]string `json:\"agentsByName\"`",
+      "CopyJobCounter int `json:\"copyJobCounter\"`",
+      "CustomModelCounter int `json:\"customModelCounter\"`",
+      "CustomModelDeployByName map[string]string `json:\"customModelDeployByName\"`",
+      "CustomModelDeployCounter int `json:\"customModelDeployCounter\"`",
+      "CustomModelsByName map[string]string `json:\"customModelsByName\"`",
+      "CustomizationJobCounter int `json:\"customizationJobCounter\"`",
+      "CustomizationJobsByName map[string]string `json:\"customizationJobsByName\"`",
+      "DataSourceCounter int `json:\"dataSourceCounter\"`",
+      "EnforcedGuardrailConfigCounter int `json:\"enforcedGuardrailConfigCounter\"`",
+      "EvaluationJobCounter int `json:\"evaluationJobCounter\"`",
+      "EvaluationJobsByName map[string]string `json:\"evaluationJobsByName\"`",
+      "FlowAliasCounter int `json:\"flowAliasCounter\"`",
+      "FlowCounter int `json:\"flowCounter\"`",
+      "FlowVersionCounters map[string]int `json:\"flowVersionCounters\"`",
+      "FlowsByName map[string]string `json:\"flowsByName\"`",
+      "GuardrailCounter int `json:\"guardrailCounter\"`",
+      "GuardrailVersionCounter int `json:\"guardrailVersionCounter\"`",
+      "GuardrailVersionCounters map[string]int `json:\"guardrailVersionCounters\"`",
+      "GuardrailsByARN map[string]string `json:\"guardrailsByARN\"`",
+      "GuardrailsByName map[string]string `json:\"guardrailsByName\"`",
+      "ImportJobCounter int `json:\"importJobCounter\"`",
+      "InferenceProfileCounter int `json:\"inferenceProfileCounter\"`",
+      "InferenceProfilesByName map[string]string `json:\"inferenceProfilesByName\"`",
+      "IngestionJobCompletionDueAt map[string]time.Time `json:\"ingestionJobCompletionDueAt\"`",
+      "IngestionJobCounter int `json:\"ingestionJobCounter\"`",
+      "KBByName map[string]string `json:\"kbByName\"`",
+      "KBCounter int `json:\"kbCounter\"`",
+      "LoggingConfig *ModelInvocationLoggingConfiguration `json:\"loggingConfig,omitempty\"`",
+      "MarketplaceEndpointCounter int `json:\"marketplaceEndpointCounter\"`",
+      "MarketplaceEndpointsByName map[string]string `json:\"marketplaceEndpointsByName\"`",
+      "ModelInvocationJobCounter int `json:\"modelInvocationJobCounter\"`",
+      "PMTsByName map[string]string `json:\"pmtsByName\"`",
+      "PromptCounter int `json:\"promptCounter\"`",
+      "PromptRouterCounter int `json:\"promptRouterCounter\"`",
+      "PromptRoutersByName map[string]string `json:\"promptRoutersByName\"`",
+      "PromptVersionCounters map[string]int `json:\"promptVersionCounters\"`",
+      "PromptsByName map[string]string `json:\"promptsByName\"`",
+      "ProvisionedCounter int `json:\"provisionedCounter\"`",
+      "Region string `json:\"region\"`",
+      "ResourcePolicyRevisionCounter int `json:\"resourcePolicyRevisionCounter\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "UseCaseFormData []byte `json:\"useCaseFormData,omitempty\"`"
+    ],
+    "version": 1
+  },
+  "bedrockagent": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ActionGroupCounter int `json:\"actionGroupCounter\"`",
+      "AgentCounter int `json:\"agentCounter\"`",
+      "AgentVersionCtrs map[string]int `json:\"agentVersionCtrs\"`",
+      "AgentsByName map[string]string `json:\"agentsByName\"`",
+      "AliasCounter int `json:\"aliasCounter\"`",
+      "CollabCounter int `json:\"collabCounter\"`",
+      "DSCounter int `json:\"dsCounter\"`",
+      "DefaultRegion string `json:\"defaultRegion\"`",
+      "FlowAliasCounter int `json:\"flowAliasCounter\"`",
+      "FlowCounter int `json:\"flowCounter\"`",
+      "FlowVersionCtrs map[string]int `json:\"flowVersionCtrs\"`",
+      "FlowsByName map[string]string `json:\"flowsByName\"`",
+      "JobCounter int `json:\"jobCounter\"`",
+      "KBCounter int `json:\"kbCounter\"`",
+      "KBsByName map[string]string `json:\"kbsByName\"`",
+      "PromptCounter int `json:\"promptCounter\"`",
+      "PromptVersionCtrs map[string]int `json:\"promptVersionCtrs\"`",
+      "PromptsByName map[string]string `json:\"promptsByName\"`",
+      "ResourcePolicyCounter int `json:\"resourcePolicyCounter\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 2
+  },
+  "bedrockruntime": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AsyncInvokeCounter int `json:\"asyncInvokeCounter\"`",
+      "Invocations []*Invocation `json:\"invocations\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TokenIndex map[string]string `json:\"tokenIndex\"`"
+    ],
+    "version": 1
+  },
+  "ce": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AnomalyTTL time.Duration `json:\"anomalyTTL\"`",
+      "BackfillJobs []*BackfillJob `json:\"backfillJobs\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "cleanrooms": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TagsByArn map[string]map[string]string `json:\"tagsByArn\"`"
+    ],
+    "version": 1
+  },
+  "cloudcontrol": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ClientTokens map[string]clientTokenEntry `json:\"clientTokens\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "cloudformation": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ChangeSets map[string]map[string]*ChangeSet `json:\"changeSets\"`",
+      "Events map[string][]StackEvent `json:\"events\"`",
+      "HandlerProgress map[string]string `json:\"handlerProgress\"`",
+      "Region string `json:\"region\"`",
+      "ResourceDriftDetail map[string]map[string]StackResourceDrift `json:\"resourceDriftDetail\"`",
+      "ResourceDriftStatus map[string]map[string]string `json:\"resourceDriftStatus\"`",
+      "ResourceScanItems map[string][]ScannedResource `json:\"resourceScanItems\"`",
+      "Resources map[string]map[string]*StackResource `json:\"resources\"`",
+      "Signals map[string][]SignalRecord `json:\"signals\"`",
+      "StackInstances map[string][]StackInstance `json:\"stackInstances\"`",
+      "StackPolicies map[string]string `json:\"stackPolicies\"`",
+      "StackSetOpResults map[string]map[string][]StackSetOperationResult `json:\"stackSetOpResults\"`",
+      "StackSetOperations map[string]map[string]*StackSetOperation `json:\"stackSetOperations\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TypeConfigs map[string]string `json:\"typeConfigs\"`",
+      "TypeVersions map[string][]*RegisteredTypeVersion `json:\"typeVersions\"`"
+    ],
+    "version": 1
+  },
+  "cloudfront": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "DistributionAliases map[string][]string `json:\"distributionAliases,omitempty\"`",
+      "DistributionCachePolicies map[string]string `json:\"distributionCachePolicies,omitempty\"`",
+      "DistributionFunctionAssociations map[string][]FunctionAssociation `json:\"distributionFunctionAssociations,omitempty\"`",
+      "DistributionOriginRequestPolicies map[string]string `json:\"distributionOriginRequestPolicies,omitempty\"`",
+      "DistributionRealtimeLogConfigs map[string]string `json:\"distributionRealtimeLogConfigs,omitempty\"`",
+      "DistributionResponseHeadersPolicies map[string]string `json:\"distributionResponseHeadersPolicies,omitempty\"`",
+      "DistributionTenantWebACLs map[string]string `json:\"distributionTenantWebACLs,omitempty\"`",
+      "DistributionWebACLs map[string]string `json:\"distributionWebACLs,omitempty\"`",
+      "ManagedCertificates map[string]*ManagedCertificateDetails `json:\"managedCertificates,omitempty\"`",
+      "MonitoringSubscriptions map[string]*MonitoringSubscription `json:\"monitoringSubscriptions,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "ResourcePolicies map[string]*resourcePolicyEntry `json:\"resourcePolicies,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "cloudtrail": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ChannelCounter int `json:\"channelCounter\"`",
+      "DashboardCounter int `json:\"dashboardCounter\"`",
+      "EDSCounter int `json:\"edsCounter\"`",
+      "EventConfigs map[string]*EventConfiguration `json:\"eventConfigs,omitempty\"`",
+      "Events []Event `json:\"events,omitempty\"`",
+      "ImportCounter int `json:\"importCounter\"`",
+      "QueryCounter int `json:\"queryCounter\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "cloudwatch": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AlarmHistory map[string][]AlarmHistoryItem `json:\"alarmHistory\"`",
+      "Metrics map[string]map[string]*metricRecord `json:\"metrics\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TotalMetrics int `json:\"totalMetrics\"`"
+    ],
+    "version": 1
+  },
+  "cloudwatchlogs": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "codeartifact": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ExternalConnections map[string]map[string][]ExternalConnection `json:\"externalConnections\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "codebuild": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "ResourcePolicies map[string]string `json:\"resourcePolicies\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "codecommit": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "CommentReactions map[string][]Reaction `json:\"commentReactions\"`",
+      "FileHistory map[string]map[string][]FileHistoryEntry `json:\"fileHistory\"`",
+      "NextPRCounter int `json:\"nextPrCounter\"`",
+      "PRApprovals map[string]map[string]string `json:\"prApprovals\"`",
+      "PREvents map[string][]PullRequestEvent `json:\"prEvents\"`",
+      "PROverriders map[string]string `json:\"prOverriders\"`",
+      "PROverrides map[string]bool `json:\"prOverrides\"`",
+      "Region string `json:\"region\"`",
+      "RepoTemplateAssoc map[string]map[string]struct{} `json:\"repoTemplateAssoc\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Triggers map[string][]RepositoryTrigger `json:\"triggers\"`"
+    ],
+    "version": 2
+  },
+  "codeconnections": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "codedeploy": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "GitHubTokens []string `json:\"githubTokens,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "codepipeline": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ActionExecutions []actionExecutionEntry `json:\"actionExecutions\"`",
+      "ActionRevisions []actionRevisionEntry `json:\"actionRevisions\"`",
+      "Executions []executionEntry `json:\"executions\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "codestarconnections": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "cognitoidentity": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "cognitoidp": {
+    "fields": [
+      "AccountID string `json:\"accountId,omitempty\"`",
+      "AuthEvents map[string]map[string]*AuthEvent `json:\"authEvents,omitempty\"`",
+      "Devices map[string]map[string]*Device `json:\"devices,omitempty\"`",
+      "Endpoint string `json:\"endpoint,omitempty\"`",
+      "GroupMembers map[string]map[string]map[string]struct{} `json:\"groupMembers,omitempty\"`",
+      "LogDeliveryConfigs map[string]*LogDeliveryConfig `json:\"logDeliveryConfigs,omitempty\"`",
+      "PoolMfaConfigs map[string]*UserPoolMfaFullConfig `json:\"poolMfaConfigs,omitempty\"`",
+      "ProvisionedLimits map[string]int32 `json:\"provisionedLimits,omitempty\"`",
+      "RefreshTokens map[string]*refreshTokenEntry `json:\"refreshTokens,omitempty\"`",
+      "Region string `json:\"region,omitempty\"`",
+      "ResourceTags map[string]map[string]string `json:\"resourceTags,omitempty\"`",
+      "RiskConfigurations map[string]*RiskConfiguration `json:\"riskConfigurations,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables,omitempty\"`",
+      "TokenRevokedBefore map[string]time.Time `json:\"tokenRevokedBefore,omitempty\"`",
+      "WebAuthnCredentials map[string]map[string]*WebAuthnCredential `json:\"webauthnCredentials,omitempty\"`"
+    ],
+    "version": 1
+  },
+  "comprehend": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Policies map[string]string `json:\"policies\"`",
+      "PolicyRevisions map[string]string `json:\"policyRevisions\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "databrew": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "JobRuns map[string]map[string][]*JobRun `json:\"jobRuns\"`",
+      "RecipeVersions map[string]map[string][]*Recipe `json:\"recipeVersions\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "datasync": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "dax": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Events []*Event `json:\"events\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "detective": {
+    "fields": [
+      "DatasourceChangedAt map[string]map[string]time.Time `json:\"datasourceChangedAt,omitempty\"`",
+      "Datasources map[string]map[string]string `json:\"datasources\"`",
+      "OrgAdmins []*storedOrgAdmin `json:\"orgAdmins\"`",
+      "OrgConfigs map[string]bool `json:\"orgConfigs\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "directconnect": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "NextASN int64 `json:\"nextAmazonSideAsn\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "directoryservice": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Aliases map[string]map[string]string `json:\"aliases\"`",
+      "CAEnrollment map[string]map[string]bool `json:\"caEnrollment\"`",
+      "DirDataAccess map[string]map[string]bool `json:\"dirDataAccess\"`",
+      "DirSettings map[string]map[string][]*storedDirectorySetting `json:\"dirSettings\"`",
+      "IPRoutes map[string]map[string][]storedIpRoute `json:\"ipRoutes\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "UpdateInfoEntries map[string]map[string][]*storedUpdateInfo `json:\"updateInfoEntries\"`"
+    ],
+    "version": 1
+  },
+  "dlm": {
+    "fields": [
+      "Counter int `json:\"counter\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "dms": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "docdb": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "EventsLog map[string][]Event `json:\"eventsLog\"`",
+      "PendingMaintenanceActions map[string]map[string]PendingMaintenanceAction `json:\"pendingMaintenanceActions\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string][]Tag `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "dynamodb": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Backups []*Backup `json:\"backups,omitempty\"`",
+      "DefaultRegion string `json:\"defaultRegion\"`",
+      "GlobalTables []*StoredGlobalTable `json:\"globalTables,omitempty\"`",
+      "Tables []*Table `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "ec2": {
+    "fields": [
+      "AccountID string `json:\"accountID,omitempty\"`",
+      "AccountVpcEncryptionControl *AccountVpcEncryptionControl `json:\"acctVpcEncCtrl,omitempty\"`",
+      "AddressTransfers map[string]*AddressTransfer `json:\"addressTransfers\"`",
+      "AllowedImagesSettings *AllowedImagesSettings `json:\"allowedImagesSettings,omitempty\"`",
+      "AvailabilityZoneGroupOptIns map[string]string `json:\"azGroupOptIns,omitempty\"`",
+      "CapacityManagerState *CapacityManagerState `json:\"cmState,omitempty\"`",
+      "EbsEncryptionByDefault bool `json:\"ebsEncryptionByDefault\"`",
+      "EnclaveCertIamRoles map[string][]*EnclaveCertIamRoleAssociation `json:\"enclaveCertIamRoles,omitempty\"`",
+      "FastLaunchImages map[string]bool `json:\"fastLaunchImages\"`",
+      "FastSnapshotRestores map[string]bool `json:\"fastSnapshotRestores\"`",
+      "FreePrivateIPs []string `json:\"freePrivateIPs\"`",
+      "IDFormatSettings map[string]bool `json:\"idFormatSettings\"`",
+      "ImageAttributes map[string]map[string]string `json:\"imageAttributes\"`",
+      "ImageDeprecated map[string]string `json:\"imageDeprecated\"`",
+      "ImageDeregistrationProtection map[string]bool `json:\"imageDeregProtect\"`",
+      "ImageDisabled map[string]bool `json:\"imageDisabled,omitempty\"`",
+      "ImageWatermarks map[string][]string `json:\"imageWatermarks,omitempty\"`",
+      "InstanceCreditSpecs map[string]string `json:\"instanceCreditSpecs\"`",
+      "InstanceEventNotifAttrs *InstanceEventNotificationAttributes `json:\"instanceEventNotifAttrs\"`",
+      "InstanceIMDSOptions map[string]*IMDSOptions `json:\"instanceIMDSOptions\"`",
+      "InstanceMetadataDefaults *InstanceMetadataDefaults `json:\"instanceMetadataDefaults\"`",
+      "InstanceMonitoring map[string]string `json:\"instanceMonitoring\"`",
+      "InstanceProductCodes map[string][]string `json:\"instanceProductCodes,omitempty\"`",
+      "IpamOrgAdminAccountID string `json:\"ipamOrgAdminAcct,omitempty\"`",
+      "IpamPolicyEnabledTargets map[string]string `json:\"ipamPolicyEnabled,omitempty\"`",
+      "IpamPoolCidrs map[string][]*IpamPoolCidr `json:\"ipamPoolCidrs,omitempty\"`",
+      "IpamPrefixListResolverVersions map[string][]int64 `json:\"ipamPLRVersions,omitempty\"`",
+      "ManagedResourceVisibility string `json:\"mgdResourceVisibility,omitempty\"`",
+      "NextElasticIPIndex int `json:\"nextElasticIPIndex\"`",
+      "NextPrivateIPIndex int `json:\"nextPrivateIPIndex\"`",
+      "NiIPv6Addresses map[string][]string `json:\"niIPv6Addresses\"`",
+      "ReachabilityAnalyzerOrgSharing bool `json:\"reachabilityAnalyzerOrgSharing,omitempty\"`",
+      "Region string `json:\"region,omitempty\"`",
+      "SQLHaHistory map[string][]*RegisteredSQLHaInstance `json:\"sqlHaHistory,omitempty\"`",
+      "ScheduledInstanceLaunched map[string]int32 `json:\"schedInstLaunched,omitempty\"`",
+      "SerialConsoleAccess bool `json:\"serialConsoleAccess\"`",
+      "SgVpcAssociations map[string]map[string]string `json:\"sgVpcAssociations\"`",
+      "SnapshotAttributes map[string]map[string]string `json:\"snapshotAttributes\"`",
+      "SnapshotTiers map[string]string `json:\"snapshotTiers,omitempty\"`",
+      "SpotDatafeed *SpotDatafeed `json:\"spotDatafeed,omitempty\"`",
+      "SpotFleetHistory map[string][]SpotFleetHistoryRecord `json:\"spotFleetHistory\"`",
+      "SubnetCIDRAssociations map[string][]*SubnetCIDRAssociation `json:\"subnetCIDRAssociations\"`",
+      "SubnetCIDRReservations map[string][]*SubnetCIDRReservation `json:\"subnetCIDRReservations\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags,omitempty\"`",
+      "TgwRTPropagations map[string]map[string]*snapTGWRTProp `json:\"tgwRTPropagations,omitempty\"`",
+      "UsageReportEntries map[string][]*UsageReportEntry `json:\"usageReportEntries,omitempty\"`",
+      "VerifiedAccessEndpointPolicies map[string]*VerifiedAccessPolicy `json:\"vaEndpointPolicies,omitempty\"`",
+      "VerifiedAccessGroupPolicies map[string]*VerifiedAccessPolicy `json:\"vaGroupPolicies,omitempty\"`",
+      "VgwRoutePropagation map[string]bool `json:\"vgwRoutePropagation\"`",
+      "VpcBlockPublicAccessOptions *VpcBlockPublicAccessOptions `json:\"vpcBpaOptions,omitempty\"`",
+      "VpcCidrAssociations map[string]*VpcCidrBlockAssociation `json:\"vpcCidrAssociations\"`",
+      "VpcEndpointServicePermissions map[string][]string `json:\"vpcEpSvcPerms\"`",
+      "VpcPeeringOptions map[string]*PeeringConnectionOptions `json:\"vpcPeeringOptions\"`",
+      "VpcTenancy map[string]string `json:\"vpcTenancy,omitempty\"`"
+    ],
+    "version": 1
+  },
+  "ecr": {
+    "fields": [
+      "RegistryPolicy string `json:\"registryPolicy\"`",
+      "RegistryScanningConfig *RegistryScanningSettings `json:\"registryScanningConfig,omitempty\"`",
+      "ReplicationConfig *ReplicationConfig `json:\"replicationConfig,omitempty\"`",
+      "RepoTags map[string]map[string]string `json:\"repoTags,omitempty\"`",
+      "SigningConfig *SigningSettings `json:\"signingConfig,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "UploadedLayers map[string]map[string]int64 `json:\"uploadedLayers,omitempty\"`"
+    ],
+    "version": 1
+  },
+  "ecs": {
+    "fields": [
+      "Attributes map[string]map[string]*Attribute `json:\"attributes\"`",
+      "DaemonTaskDefinitions map[string][]*DaemonTaskDefinition `json:\"daemonTaskDefinitions\"`",
+      "ResourceTags map[string][]Tag `json:\"resourceTags\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TaskDefinitions map[string][]*TaskDefinition `json:\"taskDefinitions\"`"
+    ],
+    "version": 1
+  },
+  "efs": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "BackupPolicies map[string]map[string]string `json:\"backupPolicies\"`",
+      "FileSystemPolicies map[string]map[string]string `json:\"fileSystemPolicies\"`",
+      "LifecyclePolicies map[string]map[string][]LifecyclePolicy `json:\"lifecyclePolicies\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "eks": {
+    "fields": [
+      "AccessPolicies map[string]map[string][]*AccessPolicyAssociation `json:\"accessPolicies,omitempty\"`",
+      "AccountID string `json:\"accountId\"`",
+      "EncryptionConfigs map[string][]EncryptionConfig `json:\"encryptionConfigs,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "elasticache": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "CacheSecurityGroupIngress map[string]map[string][]EC2SecurityGroupMembership `json:\"cacheSecurityGroupIngress,omitempty\"`",
+      "CacheSecurityGroups map[string][]*CacheSecurityGroup `json:\"cacheSecurityGroups,omitempty\"`",
+      "Clusters map[string][]*clusterSnapshot `json:\"clusters\"`",
+      "EngineMode string `json:\"engineMode\"`",
+      "Events []CacheEvent `json:\"events,omitempty\"`",
+      "ParameterGroups map[string][]*CacheParameterGroup `json:\"parameterGroups\"`",
+      "Region string `json:\"region\"`",
+      "ReplicationGroups map[string][]*ReplicationGroup `json:\"replicationGroups\"`",
+      "ReservedCacheNodes map[string][]*ReservedCacheNode `json:\"reservedCacheNodes,omitempty\"`",
+      "ServerlessCacheSnapshots map[string][]*ServerlessCacheSnapshot `json:\"serverlessCacheSnapshots,omitempty\"`",
+      "ServerlessCaches map[string][]*ServerlessCache `json:\"serverlessCaches,omitempty\"`",
+      "Snapshots map[string][]*CacheSnapshot `json:\"snapshots\"`",
+      "SubnetGroups map[string][]*CacheSubnetGroup `json:\"subnetGroups\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "UserGroups map[string][]*UserGroup `json:\"userGroups,omitempty\"`",
+      "Users map[string][]*User `json:\"users,omitempty\"`"
+    ],
+    "version": 1
+  },
+  "elasticbeanstalk": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "EnvCounters map[string]int `json:\"envCounters,omitempty\"`",
+      "Events map[string][]*EventRecord `json:\"events,omitempty\"`",
+      "ManagedActionHistory map[string]map[string][]*ManagedActionHistory `json:\"managedActionHistory,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "elasticsearch": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "NextID int `json:\"nextID\"`",
+      "PackageAssociations map[string]map[string][]string `json:\"packageAssociations\"`",
+      "PackagesByName map[string]map[string]string `json:\"packagesByName\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "VpcAccess map[string]map[string][]string `json:\"vpcAccess\"`"
+    ],
+    "version": 1
+  },
+  "elb": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "LoadBalancers []*lbSnapshot `json:\"loadBalancers\"`",
+      "Policies []*LoadBalancerPolicy `json:\"policies\"`",
+      "Region string `json:\"region\"`"
+    ],
+    "version": 4
+  },
+  "elbv2": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "ResourcePolicies map[string]string `json:\"resourcePolicies\"`",
+      "RevocationIDCounter int64 `json:\"revocationIdCounter\"`",
+      "RuleCounter int `json:\"ruleCounter\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TargetDrainingUntil map[string]map[string]time.Time `json:\"targetDrainingUntil\"`",
+      "TargetReadyAt map[string]map[string]time.Time `json:\"targetReadyAt\"`"
+    ],
+    "version": 2
+  },
+  "emr": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ArnIndex map[string]map[string]string `json:\"arnIndex\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "emrserverless": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ApplicationTokens map[string]string `json:\"applicationTokens\"`",
+      "JobRunTokens map[string]map[string]string `json:\"jobRunTokens\"`",
+      "Region string `json:\"region\"`",
+      "SessionTokens map[string]map[string]string `json:\"sessionTokens\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "eventbridge": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "BusPolicies map[string]map[string]*EventBusPolicy `json:\"busPolicies,omitempty\"`",
+      "EventLog []EventLogEntry `json:\"eventLog\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "firehose": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "fis": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "SafetyLever *SafetyLever `json:\"safetyLever\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "forecast": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Evaluations map[string][]MonitorEvaluation `json:\"evaluations\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "fsx": {
+    "fields": [
+      "Aliases map[string][]string `json:\"aliases\"`",
+      "CreateFileSystemTokens map[string]fsCreateTokenEntry `json:\"createFileSystemTokens\"`",
+      "SharedVpcEnabled string `json:\"sharedVpcEnabled\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 2
+  },
+  "glacier": {
+    "fields": [
+      "DataRetrievalPolicies map[string]string `json:\"dataRetrievalPolicies,omitempty\"`",
+      "MultipartParts []multipartPartSnapshot `json:\"multipartParts\"`",
+      "ProvisionedCapacity []provisionedCapacitySnapshot `json:\"provisionedCapacity\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "glue": {
+    "fields": [
+      "CatalogEncryptionSettings map[string]*DataCatalogEncryptionSettings `json:\"catalogEncryptionSettings\"`",
+      "CatalogImports map[string]*CatalogImportStatus `json:\"catalogImports\"`",
+      "CrawlHistory map[string][]*CrawlHistoryEntry `json:\"crawlHistory\"`",
+      "DataCatalogExportConfig *DataCatalogExportConfiguration `json:\"dataCatalogExportConfig,omitempty\"`",
+      "GlueIdentityCenterConfig *IdentityCenterConfig `json:\"glueIdentityCenterConfig,omitempty\"`",
+      "IterableFormItems iterableFormItemsMap `json:\"iterableFormItems\"`",
+      "JobRuns map[string][]*JobRun `json:\"jobRuns\"`",
+      "PartitionColumnStats map[string]*ColumnStatistics `json:\"partitionColumnStats\"`",
+      "PartitionIndexes map[string]*PartitionIndex `json:\"partitionIndexes\"`",
+      "ResourcePolicies map[string]*resourcePolicyEntry `json:\"resourcePolicies\"`",
+      "SchemaVersionMetadata map[string]map[string]string `json:\"schemaVersionMetadata\"`",
+      "SchemaVersions map[string][]*SchemaVersion `json:\"schemaVersions\"`",
+      "SessionStatements map[string][]*Statement `json:\"sessionStatements\"`",
+      "TableColumnStats map[string]*ColumnStatistics `json:\"tableColumnStats\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "WorkflowRuns map[string][]*WorkflowRun `json:\"workflowRuns\"`"
+    ],
+    "version": 1
+  },
+  "grafana": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "NextServiceAccountID uint64 `json:\"nextServiceAccountId\"`",
+      "NextTokenID uint64 `json:\"nextTokenId\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "guardduty": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "MemberSeq int64 `json:\"memberSeq\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "iam": {
+    "fields": [
+      "AccountAliases []string `json:\"accountAliases,omitempty\"`",
+      "AccountID string `json:\"accountID,omitempty\"`",
+      "Comprehensive *comprehensiveSnapshot `json:\"comprehensive,omitempty\"`",
+      "DeletedV1Policies map[string]bool `json:\"deletedV1Policies,omitempty\"`",
+      "GroupInlinePolicies map[string]map[string]string `json:\"groupInlinePolicies,omitempty\"`",
+      "GroupMembers map[string][]string `json:\"groupMembers,omitempty\"`",
+      "GroupPolicies map[string][]string `json:\"groupPolicies,omitempty\"`",
+      "OutboundFederationEnabled *bool `json:\"outboundFederationEnabled,omitempty\"`",
+      "PasswordPolicy *PasswordPolicy `json:\"passwordPolicy,omitempty\"`",
+      "PolicyAttachments map[string]policyAttachmentRefs `json:\"policyAttachments,omitempty\"`",
+      "PolicyByARN map[string]string `json:\"policyByARN,omitempty\"`",
+      "PolicyVersionCounters map[string]int `json:\"policyVersionCounters,omitempty\"`",
+      "PolicyVersions map[string][]StoredPolicyVersion `json:\"policyVersions,omitempty\"`",
+      "RoleByARN map[string]string `json:\"roleByARN,omitempty\"`",
+      "RoleInlinePolicies map[string]map[string]string `json:\"roleInlinePolicies,omitempty\"`",
+      "RolePolicies map[string][]string `json:\"rolePolicies,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "UserInlinePolicies map[string]map[string]string `json:\"userInlinePolicies,omitempty\"`",
+      "UserPolicies map[string][]string `json:\"userPolicies,omitempty\"`"
+    ],
+    "version": 1
+  },
+  "identitystore": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Counter int `json:\"counter\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "inspector2": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "CodeSecurityScans map[string]map[string]any `json:\"codeSecurityScans\"`",
+      "Config Configuration `json:\"config\"`",
+      "Ec2DeepConfig Ec2DeepInspectionConfig `json:\"ec2DeepConfig\"`",
+      "EnabledTypes map[string]bool `json:\"enabledTypes\"`",
+      "OrgConfig OrgConfiguration `json:\"orgConfig\"`",
+      "OrgEc2Config OrgEc2DeepInspectionConfig `json:\"orgEc2Config\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "iot": {
+    "fields": [
+      "AccountEncryptionConfig *AccountEncryptionConfiguration `json:\"accountEncryptionConfig\"`",
+      "AuditConfiguration *AccountAuditConfiguration `json:\"auditConfiguration\"`",
+      "AuditMitigationExecutions map[string][]*AuditMitigationActionExecution `json:\"auditMitigationExecutions\"`",
+      "AuditMitigationTasks map[string]string `json:\"auditMitigationTasks\"`",
+      "AuditTasks map[string]string `json:\"auditTasks\"`",
+      "BehaviorTrainingSummaries map[string][]*BehaviorModelTrainingSummary `json:\"behaviorTrainingSummaries\"`",
+      "CertificateTransfers map[string]string `json:\"certificateTransfers\"`",
+      "CommandExecutions map[string]*IoTCommandExecution `json:\"commandExecutions\"`",
+      "DefaultAuthorizer string `json:\"defaultAuthorizer\"`",
+      "DetectMitigationExecutions map[string][]*DetectMitigationActionExecution `json:\"detectMitigationExecutions\"`",
+      "EventConfigurations *EventConfigurations `json:\"eventConfigurations\"`",
+      "JobTargets map[string][]string `json:\"jobTargets\"`",
+      "LoggingOptions *LoggingOptions `json:\"loggingOptions\"`",
+      "MetricValues map[string][]*MetricDatapoint `json:\"metricValues\"`",
+      "PackageConfig *PackageConfiguration `json:\"packageConfig\"`",
+      "PackageVersionSboms map[string]*SbomDocument `json:\"packageVersionSboms\"`",
+      "PackageVersions2 map[string]map[string]*IoTPackageVersion `json:\"packageVersions2\"`",
+      "PolicyTargets map[string][]string `json:\"policyTargets\"`",
+      "PolicyVersions map[string][]*PolicyVersion `json:\"policyVersions\"`",
+      "ProvTemplateVersions map[string][]*ProvisioningTemplateVersion `json:\"provTemplateVersions\"`",
+      "RegistrationCode string `json:\"registrationCode\"`",
+      "ResourceTags map[string]map[string]string `json:\"resourceTags\"`",
+      "SbomValidationResults map[string][]*SbomValidationResult `json:\"sbomValidationResults\"`",
+      "SecurityProfileTargets map[string][]string `json:\"securityProfileTargets\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "ThingBillingGroups map[string]string `json:\"thingBillingGroups\"`",
+      "ThingConnectivity map[string]*ThingConnectivityData `json:\"thingConnectivity\"`",
+      "ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration `json:\"thingGroupIndexingConfiguration\"`",
+      "ThingGroupMembers map[string][]string `json:\"thingGroupMembers\"`",
+      "ThingIndexingConfiguration *ThingIndexingConfiguration `json:\"thingIndexingConfiguration\"`",
+      "ThingPrincipals map[string][]string `json:\"thingPrincipals\"`",
+      "ThingThingGroups map[string][]string `json:\"thingThingGroups\"`",
+      "V2LoggingOptions *V2LoggingOptions `json:\"v2LoggingOptions\"`",
+      "ViolationEvents []*ViolationEvent `json:\"violationEvents\"`"
+    ],
+    "version": 1
+  },
+  "iotanalytics": {
+    "fields": [
+      "ChannelMessages map[string][][]byte `json:\"channelMessages\"`",
+      "DatasetContents map[string][]*DatasetContent `json:\"datasetContents\"`",
+      "LoggingOptions *LoggingOptions `json:\"loggingOptions\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "iotdataplane": {
+    "fields": [
+      "Deleted bool `json:\"deleted,omitempty\"`",
+      "Desired map[string]json.RawMessage `json:\"desired,omitempty\"`",
+      "MetaDesired map[string]int64 `json:\"metaDesired,omitempty\"`",
+      "MetaReported map[string]int64 `json:\"metaReported,omitempty\"`",
+      "Reported map[string]json.RawMessage `json:\"reported,omitempty\"`",
+      "ShadowName string `json:\"shadowName\"`",
+      "ThingName string `json:\"thingName\"`",
+      "UpdatedAt time.Time `json:\"updatedAt\"`"
+    ],
+    "version": 1
+  },
+  "iotwireless": {
+    "fields": [
+      "EventConfigDefault *EventConfigDoc `json:\"eventConfigDefault,omitempty\"`",
+      "FuotaTaskDevices map[string]map[string]bool `json:\"fuotaTaskDevices,omitempty\"`",
+      "FuotaTaskMulticast map[string]map[string]bool `json:\"fuotaTaskMulticast,omitempty\"`",
+      "LogLevelsConfig *LogLevelsConfig `json:\"logLevelsConfig,omitempty\"`",
+      "MetricConfigStatus string `json:\"metricConfigStatus,omitempty\"`",
+      "MulticastGroupDevices map[string]map[string]bool `json:\"multicastGroupDevices,omitempty\"`",
+      "MulticastGroupSessionStart map[string]time.Time `json:\"multicastGroupSessionStart,omitempty\"`",
+      "MulticastGroupSessions map[string]bool `json:\"multicastGroupSessions,omitempty\"`",
+      "PartnerAccounts map[string]string `json:\"partnerAccounts,omitempty\"`",
+      "Positions map[string]map[string]any `json:\"positions,omitempty\"`",
+      "QueuedMessages map[string][]QueuedMessage `json:\"queuedMessages,omitempty\"`",
+      "ResourceLogLevels map[string]string `json:\"resourceLogLevels,omitempty\"`",
+      "ResourceTags map[string]map[string]string `json:\"resourceTags,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "WirelessDeviceThings map[string]string `json:\"wirelessDeviceThings,omitempty\"`",
+      "WirelessGatewayCerts map[string]string `json:\"wirelessGatewayCerts,omitempty\"`",
+      "WirelessGatewayThings map[string]string `json:\"wirelessGatewayThings,omitempty\"`"
+    ],
+    "version": 2
+  },
+  "kafka": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ClusterPolicies map[string]string `json:\"clusterPolicies\"`",
+      "Region string `json:\"region\"`",
+      "ScramSecrets map[string][]string `json:\"scramSecrets\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "kinesis": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "OnDemandStreamCountLimit int `json:\"onDemandStreamCountLimit,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "ResourcePolicies map[string]map[string]string `json:\"resourcePolicies,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "kinesisanalytics": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "NextID int64 `json:\"next_id\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "kinesisanalyticsv2": {
+    "fields": [
+      "NextID int64 `json:\"next_id\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "kms": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "KeyMaterialHistory map[string]map[string][]serializedKeyMaterial `json:\"key_material_history,omitempty\"`",
+      "KeyMaterials map[string]map[string]serializedKeyMaterial `json:\"key_materials,omitempty\"`",
+      "Policies map[string]map[string]string `json:\"policies\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "lakeformation": {
+    "fields": [
+      "DataLakeSettings *DataLakeSettings `json:\"dataLakeSettings\"`",
+      "LakeFormationOptIns []*LFOptIn `json:\"lakeFormationOptIns\"`",
+      "Permissions []*PermissionEntry `json:\"permissions\"`",
+      "Queries map[string]string `json:\"queries,omitempty\"`",
+      "ResourceLFTags map[string][]LFTagPair `json:\"resourceLFTags\"`",
+      "TableStorageOptimizers map[string][]StorageOptimizer `json:\"tableStorageOptimizers,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "lambda": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "EventInvokeConfigs map[string]*FunctionEventInvokeConfig `json:\"eventInvokeConfigs\"`",
+      "FunctionConcurrencies map[string]int `json:\"functionConcurrencies\"`",
+      "LayerPolicies map[string]map[int64]map[string]*LayerVersionStatement `json:\"layerPolicies\"`",
+      "LayerVersionCounters map[string]int64 `json:\"layerVersionCounters\"`",
+      "Layers map[string][]*LayerVersion `json:\"layers\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "VersionCounters map[string]int `json:\"versionCounters\"`",
+      "Versions map[string][]*FunctionVersion `json:\"versions\"`"
+    ],
+    "version": 1
+  },
+  "lightsail": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "DefaultKeyPair *KeyPair `json:\"defaultKeyPair,omitempty\"`",
+      "NextAccessKeySeq int `json:\"nextAccessKeySeq\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "VpcPeered bool `json:\"vpcPeered\"`"
+    ],
+    "version": 1
+  },
+  "macie2": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "Administrator *AdministratorAccount `json:\"administrator,omitempty\"`",
+      "AutoDiscoveryConfig *AutoDiscoveryConfig `json:\"autoDiscoveryConfig,omitempty\"`",
+      "ClassExportConfig *ClassificationExportConfig `json:\"classExportConfig,omitempty\"`",
+      "FindingsPubConfig *FindingsPublicationConfig `json:\"findingsPubConfig,omitempty\"`",
+      "OrgConfig *OrgConfig `json:\"orgConfig,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "ResourceDetections map[string][]ResourceProfileDetection `json:\"resourceDetections\"`",
+      "RevealConfig *RevealConfiguration `json:\"revealConfig,omitempty\"`",
+      "Session *Session `json:\"session,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "managedblockchain": {
+    "fields": [
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "mediaconvert": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Certificates map[string]struct{} `json:\"certificates\"`",
+      "Policy *Policy `json:\"policy,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "medialive": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "AccountKmsKeyID string `json:\"accountKmsKeyId\"`",
+      "Region string `json:\"region\"`",
+      "ScheduleActions map[string][]*storedScheduleAction `json:\"scheduleActions\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "mediapackage": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "mediastore": {
+    "fields": [
+      "Containers map[string][]*Container `json:\"containers\"`"
+    ],
+    "version": 1
+  },
+  "mediastoredata": {
+    "fields": [
+      "States map[string][]*Object `json:\"states\"`"
+    ],
+    "version": 1
+  },
+  "mediatailor": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "memorydb": {
+    "fields": [
+      "ACLs map[string][]*ACL `json:\"acls\"`",
+      "ARNToResource map[string]map[string]resourceRef `json:\"arnToResource\"`",
+      "AccountID string `json:\"accountID\"`",
+      "Clusters map[string][]*Cluster `json:\"clusters\"`",
+      "DefaultRegion string `json:\"defaultRegion\"`",
+      "Events map[string][]*Event `json:\"events\"`",
+      "ParameterGroups map[string][]*ParameterGroup `json:\"parameterGroups\"`",
+      "ReservedNodes map[string][]*ReservedNode `json:\"reservedNodes\"`",
+      "Snapshots map[string][]*Snapshot `json:\"snapshots\"`",
+      "SubnetGroups map[string][]*SubnetGroup `json:\"subnetGroups\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Users map[string][]*User `json:\"users\"`"
+    ],
+    "version": 1
+  },
+  "mgn": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "Region string `json:\"region\"`",
+      "ServiceInitialized bool `json:\"serviceInitialized\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "mq": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "mwaa": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Metrics map[string]map[string][]MetricDatum `json:\"metrics\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "neptune": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ClusterParameterOverrides map[string]map[string]ParameterValue `json:\"clusterParameterOverrides\"`",
+      "ClusterRoles map[string]map[string][]string `json:\"clusterRoles\"`",
+      "EventsLog map[string][]Event `json:\"eventsLog\"`",
+      "ParameterOverrides map[string]map[string]ParameterValue `json:\"parameterOverrides\"`",
+      "PendingMaintenanceActions map[string]map[string]PendingMaintenanceAction `json:\"pendingMaintenanceActions\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string][]Tag `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "networkmanager": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "OrgStatus *organizationStatus `json:\"orgStatus\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "networkmonitor": {
+    "fields": [
+      "NextProbeSeq int64 `json:\"next_probe_seq\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "omics": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ReadSetBytes map[string]map[string][]byte `json:\"readSetBytes\"`",
+      "ReferenceBytes map[string]map[string][]byte `json:\"referenceBytes\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`",
+      "UploadPartData map[string]map[string]map[string]map[int][]byte `json:\"uploadPartData\"`",
+      "UploadParts map[string]map[string][]*ReadSetUploadPart `json:\"uploadParts\"`"
+    ],
+    "version": 1
+  },
+  "opensearch": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AppIDCounter int `json:\"appIDCounter\"`",
+      "ConnCounter int `json:\"connCounter\"`",
+      "DefaultApplicationArn string `json:\"defaultApplicationArn\"`",
+      "DomainMaintenances map[string][]*DomainMaintenance `json:\"domainMaintenances\"`",
+      "MaintenanceCounter int `json:\"maintenanceCounter\"`",
+      "PackageAssociations map[string]map[string]bool `json:\"packageAssociations\"`",
+      "PackageCounter int `json:\"packageCounter\"`",
+      "Region string `json:\"region\"`",
+      "ReservedCounter int `json:\"reservedCounter\"`",
+      "ScheduledActions map[string][]*ScheduledAction `json:\"scheduledActions\"`",
+      "SlCollCounter int `json:\"slCollCounter\"`",
+      "SlSecConfigCounter int `json:\"slSecConfigCounter\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "UpgradeHistory map[string][]*UpgradeHistory `json:\"upgradeHistory\"`",
+      "VpcAuthorizations map[string][]AuthorizedPrincipal `json:\"vpcAuthorizations\"`",
+      "VpcEndpointCounter int `json:\"vpcEndpointCounter\"`",
+      "WorkspaceCounter int `json:\"workspaceCounter\"`"
+    ],
+    "version": 3
+  },
+  "opsworks": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "organizations": {
+    "fields": [
+      "AccountCounter int `json:\"accountCounter\"`",
+      "AccountID string `json:\"accountID\"`",
+      "AccountParent map[string]string `json:\"accountParent\"`",
+      "EmailToAccountID map[string]string `json:\"emailToAccountID\"`",
+      "OUParent map[string]string `json:\"ouParent\"`",
+      "Org *Organization `json:\"org\"`",
+      "PolicyTargets map[string][]string `json:\"policyTargets\"`",
+      "Region string `json:\"region\"`",
+      "ResourcePolicy *ResourcePolicy `json:\"resourcePolicy,omitempty\"`",
+      "Root *Root `json:\"root\"`",
+      "StatusCounter int `json:\"statusCounter\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`",
+      "TargetPolicies map[string][]string `json:\"targetPolicies\"`"
+    ],
+    "version": 1
+  },
+  "outposts": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "personalize": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "pinpoint": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AppEvents map[string][]storedPinpointEvent `json:\"appEvents\"`",
+      "AppSettings map[string]*storedAppSettings `json:\"appSettings\"`",
+      "CampaignActivities map[string][]campaignActivity `json:\"campaignActivities\"`",
+      "CampaignVersions map[string][]*Campaign `json:\"campaignVersions\"`",
+      "JourneyRuns map[string][]*journeyRun `json:\"journeyRuns\"`",
+      "OtpCodes map[string]string `json:\"otpCodes\"`",
+      "Region string `json:\"region\"`",
+      "SegmentVersions map[string][]*Segment `json:\"segmentVersions\"`",
+      "SentMessages map[string]int `json:\"sentMessages\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TemplateVersionHistory map[string][]templateVersionItem `json:\"templateVersionHistory\"`"
+    ],
+    "version": 2
+  },
+  "pipes": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "polly": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "ram": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Associations []*ResourceShareAssociation `json:\"associations\"`",
+      "Region string `json:\"region\"`",
+      "SharePermissions map[string]map[string]int32 `json:\"sharePermissions\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "rds": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AutomatedBackups map[string]*DBInstanceAutomatedBackup `json:\"automatedBackups\"`",
+      "ClusterReadyAt map[string]time.Time `json:\"clusterReadyAt\"`",
+      "ClusterRoles map[string][]string `json:\"clusterRoles\"`",
+      "DefaultCACertificateID string `json:\"defaultCACertificateID\"`",
+      "InstanceLogContent map[string]map[string]string `json:\"instanceLogContent\"`",
+      "InstanceLogFiles map[string][]DBLogFile `json:\"instanceLogFiles\"`",
+      "InstanceReadyAt map[string]time.Time `json:\"instanceReadyAt\"`",
+      "InstanceRoles map[string][]string `json:\"instanceRoles\"`",
+      "ProxyTargets map[string][]DBProxyTarget `json:\"proxyTargets\"`",
+      "Region string `json:\"region\"`",
+      "SnapshotTenantDatabases map[string][]*DBSnapshotTenantDatabase `json:\"snapshotTenantDatabases\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string][]Tag `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "rdsdata": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ExecutedStatements map[string][]ExecutedStatement `json:\"executedStatements\"`",
+      "Region string `json:\"region\"`",
+      "Transactions map[string][]*Transaction `json:\"transactions\"`",
+      "TxCounter map[string]int `json:\"txCounter\"`"
+    ],
+    "version": 1
+  },
+  "redshift": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ActiveResizes map[string]*ResizeProgress `json:\"activeResizes\"`",
+      "LoggingStatuses map[string]*LoggingStatus `json:\"loggingStatuses\"`",
+      "Region string `json:\"region\"`",
+      "SnapshotCopyConfigs map[string]*SnapshotCopyConfig `json:\"snapshotCopyConfigs\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "redshiftdata": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Stores map[string]*regionSnapshot `json:\"stores\"`"
+    ],
+    "version": 1
+  },
+  "rekognition": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "DatasetEntries map[string][]string `json:\"datasetEntries\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "resiliencehub": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "resourcegroups": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AccountSettings AccountSettings `json:\"accountSettings\"`",
+      "GroupConfigurations map[string]map[string][]GroupConfigurationItem `json:\"groupConfigurations\"`",
+      "GroupResources map[string]map[string][]string `json:\"groupResources\"`",
+      "GroupingStatuses map[string]map[string][]GroupingStatusItem `json:\"groupingStatuses\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "resourcegroupstaggingapi": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "rolesanywhere": {
+    "fields": [
+      "AttributeMappings map[string]map[string][]AttributeMapping `json:\"attributeMappings\"`",
+      "NotificationSettings map[string]map[string][]NotificationSetting `json:\"notificationSettings\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string][]TagEntry `json:\"tags\"`"
+    ],
+    "version": 2
+  },
+  "route53": {
+    "fields": [
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]*svcTags.Tags `json:\"tags,omitempty\"`",
+      "TrafficPolicies map[string][]*TrafficPolicy `json:\"trafficPolicies,omitempty\"`",
+      "VPCAssocAuthorizations map[string][]VPCAssociationAuthorization `json:\"vpcAssocAuthorizations,omitempty\"`",
+      "VPCAssociations map[string][]vpcAssociation `json:\"vpcAssociations,omitempty\"`"
+    ],
+    "version": 1
+  },
+  "route53resolver": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "FirewallRuleGroupPolicies map[string]map[string]string `json:\"firewallRuleGroupPolicies\"`",
+      "QueryLogConfigPolicies map[string]map[string]string `json:\"queryLogConfigPolicies\"`",
+      "Region string `json:\"region\"`",
+      "ResolverRulePolicies map[string]map[string]string `json:\"resolverRulePolicies\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string][]svcTags.KV `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "s3": {
+    "fields": [
+      "DefaultRegion string `json:\"defaultRegion\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string][]types.Tag `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "s3control": {
+    "fields": [
+      "AccessGrantsInstancePolicies map[string]string `json:\"accessGrantsInstancePolicies\"`",
+      "AccessPointPolicies map[string]string `json:\"accessPointPolicies\"`",
+      "AccessPointScopes map[string]string `json:\"accessPointScopes\"`",
+      "BucketLifecycle map[string]string `json:\"bucketLifecycle\"`",
+      "BucketPolicies map[string]string `json:\"bucketPolicies\"`",
+      "BucketReplication map[string]string `json:\"bucketReplication\"`",
+      "BucketTagging map[string]TagSet `json:\"bucketTagging\"`",
+      "BucketVersioning map[string]string `json:\"bucketVersioning\"`",
+      "JobTags map[string]TagSet `json:\"jobTags\"`",
+      "MRAPRoutes map[string]string `json:\"mrapRoutes\"`",
+      "NextID int64 `json:\"nextID\"`",
+      "ObjectLambdaAPConfigs map[string]string `json:\"objectLambdaAPConfigs\"`",
+      "ObjectLambdaAPPolicies map[string]string `json:\"objectLambdaAPPolicies\"`",
+      "ResourceTags map[string]map[string]string `json:\"resourceTags\"`",
+      "StorageLensConfigTags map[string]TagSet `json:\"storageLensConfigTags\"`",
+      "StorageLensConfigs map[string]string `json:\"storageLensConfigs\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "s3tables": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 2
+  },
+  "sagemaker": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ImageVersionCounts map[string]map[string]int `json:\"imageVersionCounts,omitempty\"`",
+      "ImageVersions map[string]map[string]map[int]*ImageVersion `json:\"imageVersions,omitempty\"`",
+      "MonitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry `json:\"monitoringAlertHistory,omitempty\"`",
+      "PipelineVersions map[string]map[string][]*PipelineVersion `json:\"pipelineVersions,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "SCPortfolioEnabled map[string]bool `json:\"servicecatalogPortfolioEnabled,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "sagemakerruntime": {
+    "fields": [
+      "Invocations []*Invocation `json:\"invocations\"`",
+      "NextID uint64 `json:\"nextId\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "scheduler": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "secretsmanager": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "ReplicationConfigs map[string]map[string][]ReplicationStatusType `json:\"replicationConfigs,omitempty\"`",
+      "ResourcePolicies map[string]map[string]string `json:\"resourcePolicies,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "serverlessrepo": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AppDependencies map[string]map[string][]*ApplicationDependency `json:\"appDependencies\"`",
+      "AppPolicies map[string][]*ApplicationPolicyStatement `json:\"appPolicies\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "servicediscovery": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "InstanceHealthStatuses map[string]string `json:\"instanceHealthStatuses\"`",
+      "InstanceRevision int64 `json:\"instanceRevision\"`",
+      "NsCounter int `json:\"nsCounter\"`",
+      "OpCounter int `json:\"opCounter\"`",
+      "Region string `json:\"region\"`",
+      "ServiceAttributes map[string]map[string]string `json:\"serviceAttributes\"`",
+      "SvcCounter int `json:\"svcCounter\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "ses": {
+    "fields": [
+      "AccountID string `json:\"accountID,omitempty\"`",
+      "AccountSendingEnabled bool `json:\"accountSendingEnabled\"`",
+      "ActiveRuleSet string `json:\"activeRuleSet,omitempty\"`",
+      "Emails []Email `json:\"emails\"`",
+      "Policies map[string]map[string]string `json:\"policies,omitempty\"`",
+      "Region string `json:\"region,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "sesv2": {
+    "fields": [
+      "AccountDetails *AccountDetails `json:\"accountDetails,omitempty\"`",
+      "AccountID string `json:\"accountID\"`",
+      "DeliverabilityDashboardDomains []map[string]any `json:\"deliverabilityDashboardDomains,omitempty\"`",
+      "DeliverabilityDashboardEnabled bool `json:\"deliverabilityDashboardEnabled\"`",
+      "EmailIdentityPolicies map[string]map[string]string `json:\"emailIdentityPolicies\"`",
+      "Emails []Email `json:\"emails\"`",
+      "MultiRegionEndpoints map[string]map[string]any `json:\"multiRegionEndpoints\"`",
+      "Region string `json:\"region\"`",
+      "ResourceTags map[string]map[string]string `json:\"resourceTags\"`",
+      "ResourceTenants map[string][]string `json:\"resourceTenants\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TenantResources map[string][]string `json:\"tenantResources\"`",
+      "Tenants map[string]map[string]any `json:\"tenants\"`"
+    ],
+    "version": 1
+  },
+  "shield": {
+    "fields": [
+      "ALARConfigs []alarConfigDTO `json:\"alarConfigs,omitempty\"`",
+      "AccountID string `json:\"accountID\"`",
+      "DRTAccess *DRTAccess `json:\"drtAccess,omitempty\"`",
+      "EmergencyContacts []EmergencyContact `json:\"emergencyContacts,omitempty\"`",
+      "ProactiveEngagementStatus string `json:\"proactiveEngagementStatus,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "Subscription *Subscription `json:\"subscription,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "sns": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "OptedOutPhoneNumbers map[string]bool `json:\"optedOutPhoneNumbers,omitempty\"`",
+      "OriginationNumbers map[string][]XMLOriginationPhone `json:\"originationNumbers,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "SMSAttributes map[string]string `json:\"smsAttributes,omitempty\"`",
+      "SMSSandboxEnabled *bool `json:\"smsSandboxEnabled,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TopicMessageArchive map[string][]*ArchivedMessage `json:\"topicMessageArchive,omitempty\"`",
+      "TopicTags map[string]*svcTags.Tags `json:\"topicTags\"`"
+    ],
+    "version": 1
+  },
+  "sqs": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "RecentlyDeleted map[string]int64 `json:\"recentlyDeleted,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "ssm": {
+    "fields": [
+      "AssociationExecTargets map[string]map[string][]AssociationExecutionTarget `json:\"association_exec_targets\"`",
+      "AssociationExecutions map[string]map[string][]AssociationExecution `json:\"association_executions\"`",
+      "AvailablePatches map[string][]Patch `json:\"available_patches\"`",
+      "CommandInvocations map[string]map[string][]CommandInvocation `json:\"command_invocations\"`",
+      "Compliance map[string]map[string][]ComplianceItem `json:\"compliance\"`",
+      "DocumentPermissions map[string]map[string][]string `json:\"document_permissions\"`",
+      "DocumentVersions map[string]map[string][]DocumentVersion `json:\"document_versions\"`",
+      "History map[string]map[string][]ParameterHistory `json:\"history\"`",
+      "InstancePatches map[string]map[string][]PatchComplianceData `json:\"instance_patches\"`",
+      "Inventory map[string]map[string][]InventoryItem `json:\"inventory\"`",
+      "InventoryDeletions map[string][]InventoryDeletion `json:\"inventory_deletions\"`",
+      "MiscResourceTags map[string]map[string]map[string]string `json:\"misc_resource_tags\"`",
+      "NotifiedParameterPolicies map[string]map[string]map[string]struct{} `json:\"notified_parameter_policies\"`",
+      "OpsItemEvents map[string][]OpsItemEventSummary `json:\"ops_item_events\"`",
+      "OpsItemRelatedItems map[string]map[string][]OpsItemRelatedItem `json:\"ops_item_related_items\"`",
+      "ParameterLabels map[string]map[string]map[int64][]string `json:\"parameter_labels\"`",
+      "PatchGroupToBaseline map[string]map[string]string `json:\"patch_group_to_baseline\"`",
+      "ResourceIDToOpsMetadataArn map[string]map[string]string `json:\"resource_id_to_ops_metadata_arn\"`",
+      "ResourcePolicies map[string]map[string][]*ResourcePolicy `json:\"resource_policies\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]*tags.Tags `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "ssoadmin": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "ApplicationAssignConfig map[string]bool `json:\"applicationAssignConfig\"`",
+      "ApplicationAssignments map[string][]*ApplicationAssignment `json:\"applicationAssignments\"`",
+      "ApplicationAuthMethods map[string]map[string]json.RawMessage `json:\"applicationAuthMethods\"`",
+      "ApplicationGrants map[string]map[string]json.RawMessage `json:\"applicationGrants\"`",
+      "ApplicationScopes map[string]map[string][]string `json:\"applicationScopes\"`",
+      "ApplicationSessions map[string]string `json:\"applicationSessions\"`",
+      "AssignmentCreationIDs map[string]string `json:\"assignmentCreationIDs\"`",
+      "Assignments map[string][]*AccountAssignment `json:\"assignments\"`",
+      "CustomerManagedPolicies map[string][]CustomerManagedPolicyReference `json:\"customerManagedPolicies\"`",
+      "InstanceRegions map[string][]RegionMetadata `json:\"instanceRegions\"`",
+      "ProvisionedAt map[string]time.Time `json:\"provisionedAt\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "stepfunctions": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "support": {
+    "fields": [
+      "Communications map[string][]Communication `json:\"communications\"`",
+      "NextDisplayID uint64 `json:\"nextDisplayId\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "swf": {
+    "fields": [
+      "ExecutionOrder []string `json:\"executionOrder\"`",
+      "History map[string][]HistoryEvent `json:\"history,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags,omitempty\"`"
+    ],
+    "version": 1
+  },
+  "textract": {
+    "fields": [
+      "AdapterClientTokenToID map[string]map[string]string `json:\"adapterClientTokenToId,omitempty\"`",
+      "ClientTokenToJobID map[string]map[string]string `json:\"clientTokenToJobId,omitempty\"`",
+      "ExpenseClientTokenToJobID map[string]map[string]string `json:\"expenseClientTokenToJobId,omitempty\"`",
+      "LendingClientTokenToJobID map[string]map[string]string `json:\"lendingClientTokenToJobId,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 2
+  },
+  "timestreamquery": {
+    "fields": [
+      "AccountSettings map[string]accountSettingsSnapshot `json:\"account_settings\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "timestreamwrite": {
+    "fields": [
+      "NextTaskID int `json:\"next_task_id\"`",
+      "Records map[string]map[string][]Record `json:\"records\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "transcribe": {
+    "fields": [
+      "ResourceTags map[string]map[string]string `json:\"resourceTags\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "transfer": {
+    "fields": [
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "TagsStore map[string]map[string]string `json:\"tags_store\"`"
+    ],
+    "version": 1
+  },
+  "translate": {
+    "fields": [
+      "AccountID string `json:\"accountId\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "verifiedpermissions": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Region string `json:\"region\"`",
+      "ResourceTags map[string]map[string]string `json:\"resourceTags,omitempty\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "vpclattice": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "AuthPolicies map[string]string `json:\"authPolicies\"`",
+      "Region string `json:\"region\"`",
+      "ResourcePolicies map[string]string `json:\"resourcePolicies\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`",
+      "Targets map[string][]*storedTarget `json:\"targets\"`"
+    ],
+    "version": 1
+  },
+  "waf": {
+    "fields": [
+      "ChangeTokens map[string]string `json:\"changeTokens\"`",
+      "PermissionPolicies map[string]string `json:\"permissionPolicies\"`",
+      "RuleGroupRules map[string][]ActivatedRule `json:\"ruleGroupRules\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "wafv2": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Associations map[string]map[string]string `json:\"associations,omitempty\"`",
+      "LoggingConfigs map[string]map[string]json.RawMessage `json:\"loggingConfigs,omitempty\"`",
+      "PermissionPolicies map[string]map[string]string `json:\"permissionPolicies,omitempty\"`",
+      "Region string `json:\"region\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`"
+    ],
+    "version": 1
+  },
+  "workmail": {
+    "fields": [
+      "AccountID string `json:\"accountID\"`",
+      "Aliases map[string]map[string][]string `json:\"aliases\"`",
+      "Delegates map[string]map[string]map[string]bool `json:\"delegates\"`",
+      "GroupMembers map[string]map[string]map[string]bool `json:\"groupMembers\"`",
+      "GroupsByEmail map[string]map[string]string `json:\"groupsByEmail\"`",
+      "IdentityCenterApps map[string]string `json:\"identityCenterApps\"`",
+      "InboundDmarc map[string]bool `json:\"inboundDmarc\"`",
+      "MailboxQuotas map[string]map[string]int32 `json:\"mailboxQuotas\"`",
+      "OrgsByAlias map[string]string `json:\"orgsByAlias\"`",
+      "Region string `json:\"region\"`",
+      "ResourcesByEmail map[string]map[string]string `json:\"resourcesByEmail\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string][]Tag `json:\"tags\"`",
+      "UsersByEmail map[string]map[string]string `json:\"usersByEmail\"`"
+    ],
+    "version": 1
+  },
+  "workspaces": {
+    "fields": [
+      "AccountConfig storedAccountConfig `json:\"accountConfig\"`",
+      "AccountModifications []AccountModification `json:\"accountModifications\"`",
+      "DirectoryIpGroups map[string]map[string]struct{} `json:\"directoryIpGroups\"`",
+      "Tables map[string]json.RawMessage `json:\"tables\"`",
+      "Tags map[string]map[string]string `json:\"tags\"`"
+    ],
+    "version": 1
+  },
+  "xray": {
+    "fields": [
+      "EncryptionConfig *EncryptionConfig `json:\"encryptionConfig,omitempty\"`",
+      "Groups []*Group `json:\"groups\"`",
+      "IndexingRules []*IndexingRule `json:\"indexingRules,omitempty\"`",
+      "InsightEvents map[string][]*InsightEvent `json:\"insightEvents\"`",
+      "Insights []*Insight `json:\"insights\"`",
+      "LastRuleModification time.Time `json:\"lastRuleModification\"`",
+      "ResourcePolicies []*ResourcePolicy `json:\"resourcePolicies\"`",
+      "ResourceTags map[string]map[string]string `json:\"resourceTags,omitempty\"`",
+      "RetrievedTraces map[string][]*Trace `json:\"retrievedTraces,omitempty\"`",
+      "SamplingRules []*SamplingRule `json:\"samplingRules\"`",
+      "SamplingStats []*SamplingStatisticSummary `json:\"samplingStats,omitempty\"`",
+      "TraceRetrievals []*TraceRetrieval `json:\"traceRetrievals\"`",
+      "TraceSegmentDest string `json:\"traceSegmentDest,omitempty\"`",
+      "Traces []*Trace `json:\"traces\"`"
+    ],
+    "version": 1
+  }
+}

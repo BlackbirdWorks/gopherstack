@@ -24,6 +24,21 @@
 		StartPolicyGenerationCommand,
 		GetGeneratedPolicyCommand,
 		CancelPolicyGenerationCommand,
+		CreateServiceLinkedAnalyzerCommand,
+		DeleteServiceLinkedAnalyzerCommand,
+		ApplyArchiveRuleCommand,
+		GetFindingsStatisticsCommand,
+		GenerateFindingRecommendationCommand,
+		GetFindingRecommendationCommand,
+		StartResourceScanCommand,
+		CheckAccessNotGrantedCommand,
+		CheckNoNewAccessCommand,
+		CheckNoPublicAccessCommand,
+		ValidatePolicyCommand,
+		AccessCheckResourceType,
+		TagResourceCommand,
+		UntagResourceCommand,
+		ListTagsForResourceCommand,
 		type AnalyzerSummary,
 		type ArchiveRuleSummary,
 		type FindingSummaryV2,
@@ -36,7 +51,11 @@
 		type AccessPreview,
 		type Criterion,
 		type Configuration,
-		type AnalyzerConfiguration
+		type AnalyzerConfiguration,
+		type Access,
+		type RecommendedStep,
+		type ValidatePolicyFinding,
+		type ReasonSummary
 	} from '@aws-sdk/client-accessanalyzer';
 	import { toast } from 'svelte-sonner';
 	import { confirmDestructive } from '$lib/confirm-dialog';
@@ -50,9 +69,26 @@
 	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
-	import { ShieldCheck, Plus, Trash2, Eye, Pencil, Archive, ArchiveRestore, Ban } from 'lucide-svelte';
+	import {
+		ShieldCheck,
+		Plus,
+		Trash2,
+		Eye,
+		Pencil,
+		Archive,
+		ArchiveRestore,
+		Ban,
+		Play,
+		RefreshCw
+	} from 'lucide-svelte';
 
 	const client = regionalClient(getAccessAnalyzerClient);
+
+	// Service-linked analyzers (created via CreateServiceLinkedAnalyzer for
+	// AWS services like RAM) use this generated name prefix and must be
+	// deleted via DeleteServiceLinkedAnalyzer, not DeleteAnalyzer -- see
+	// services/accessanalyzer/analyzers.go CreateServiceLinkedAnalyzer.
+	const serviceLinkedPrefix = '_AccessAnalyzerForInternalUse-';
 
 	type TabId =
 		| 'analyzers'
@@ -60,7 +96,8 @@
 		| 'findings'
 		| 'analyzedResources'
 		| 'accessPreviews'
-		| 'policyGenerations';
+		| 'policyGenerations'
+		| 'policyChecks';
 
 	const tabs: TabDef[] = [
 		{ id: 'analyzers', label: 'Analyzers' },
@@ -68,7 +105,8 @@
 		{ id: 'findings', label: 'Findings' },
 		{ id: 'analyzedResources', label: 'Analyzed Resources' },
 		{ id: 'accessPreviews', label: 'Access Previews' },
-		{ id: 'policyGenerations', label: 'Policy Generations' }
+		{ id: 'policyGenerations', label: 'Policy Generations' },
+		{ id: 'policyChecks', label: 'Policy Checks' }
 	];
 
 	// The SDK puts the AWS error code on err.name and status on
@@ -114,6 +152,7 @@
 	let findings = $state<FindingSummaryV2[]>([]);
 	let findingsNextToken = $state<string | undefined>();
 	let loadingMoreFindings = $state(false);
+	let findingsStats = $state<{ active: number; archived: number; resolved: number } | null>(null);
 
 	let analyzedResources = $state<AnalyzedResourceSummary[]>([]);
 	let analyzedResourcesNextToken = $state<string | undefined>();
@@ -158,6 +197,7 @@
 		if (!selectedAnalyzerArn) {
 			findings = [];
 			findingsNextToken = undefined;
+			findingsStats = null;
 			return;
 		}
 		const resp = await client().send(
@@ -168,6 +208,30 @@
 		);
 		findings = reset ? (resp.findings ?? []) : [...findings, ...(resp.findings ?? [])];
 		findingsNextToken = resp.nextToken;
+		if (reset) {
+			await loadFindingsStats();
+		}
+	}
+
+	async function loadFindingsStats(): Promise<void> {
+		if (!selectedAnalyzerArn) {
+			findingsStats = null;
+			return;
+		}
+		try {
+			const resp = await client().send(
+				new GetFindingsStatisticsCommand({ analyzerArn: selectedAnalyzerArn })
+			);
+			const external = resp.findingsStatistics?.find((s) => s.externalAccessFindingsStatistics)
+				?.externalAccessFindingsStatistics;
+			findingsStats = {
+				active: external?.totalActiveFindings ?? 0,
+				archived: external?.totalArchivedFindings ?? 0,
+				resolved: external?.totalResolvedFindings ?? 0
+			};
+		} catch {
+			findingsStats = null;
+		}
 	}
 
 	async function fetchAnalyzedResources(reset: boolean): Promise<void> {
@@ -224,7 +288,11 @@
 		findings: () => fetchFindings(true).catch(rethrowDescribed),
 		analyzedResources: () => fetchAnalyzedResources(true).catch(rethrowDescribed),
 		accessPreviews: () => fetchAccessPreviews(true).catch(rethrowDescribed),
-		policyGenerations: () => fetchPolicyGenerations(true).catch(rethrowDescribed)
+		policyGenerations: () => fetchPolicyGenerations(true).catch(rethrowDescribed),
+		// Policy Checks is a stateless tool tab (CheckAccessNotGranted/
+		// CheckNoNewAccess/CheckNoPublicAccess/ValidatePolicy) -- nothing to
+		// list on tab switch.
+		policyChecks: () => Promise.resolve()
 	});
 
 	function switchTab(id: string): void {
@@ -434,7 +502,11 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(new DeleteAnalyzerCommand({ analyzerName: a.name }));
+			if (a.name.startsWith(serviceLinkedPrefix)) {
+				await client().send(new DeleteServiceLinkedAnalyzerCommand({ analyzerName: a.name }));
+			} else {
+				await client().send(new DeleteAnalyzerCommand({ analyzerName: a.name }));
+			}
 			toast.success('Analyzer deleted');
 			if (selectedAnalyzerArn === a.arn) {
 				selectedAnalyzerArn = '';
@@ -445,24 +517,117 @@
 		}
 	}
 
+	// --- Analyzers: create a service-linked analyzer (used internally by AWS
+	// services such as RAM). The name is generated by the backend, so this
+	// modal only collects a type -- see CreateServiceLinkedAnalyzer above. ---
+
+	let createServiceLinkedAnalyzerModal = $state<Modal | null>(null);
+	let creatingServiceLinkedAnalyzer = $state(false);
+	let createServiceLinkedAnalyzerError = $state<string | null>(null);
+	let newServiceLinkedAnalyzerType = $state<
+		'ACCOUNT' | 'ORGANIZATION' | 'ACCOUNT_UNUSED_ACCESS' | 'ORGANIZATION_UNUSED_ACCESS'
+	>('ACCOUNT');
+
+	function openCreateServiceLinkedAnalyzerModal(): void {
+		createServiceLinkedAnalyzerError = null;
+		newServiceLinkedAnalyzerType = 'ACCOUNT';
+		createServiceLinkedAnalyzerModal?.open();
+	}
+
+	async function submitCreateServiceLinkedAnalyzer(): Promise<void> {
+		creatingServiceLinkedAnalyzer = true;
+		createServiceLinkedAnalyzerError = null;
+		try {
+			await client().send(
+				new CreateServiceLinkedAnalyzerCommand({ type: newServiceLinkedAnalyzerType })
+			);
+			toast.success('Service-linked analyzer created');
+			createServiceLinkedAnalyzerModal?.close();
+			await tabLoader.refresh('analyzers');
+		} catch (e) {
+			const msg = describeError(e);
+			createServiceLinkedAnalyzerError = msg;
+			toast.error(msg);
+		} finally {
+			creatingServiceLinkedAnalyzer = false;
+		}
+	}
+
 	let analyzerDetailModal = $state<Modal | null>(null);
 	let viewedAnalyzer = $state<AnalyzerSummary | null>(null);
 	let analyzerDetailLoading = $state(false);
 	let analyzerDetailError = $state<string | null>(null);
+	let analyzerTags = $state<Record<string, string>>({});
+	let analyzerTagsError = $state<string | null>(null);
+	let newAnalyzerTagKey = $state('');
+	let newAnalyzerTagValue = $state('');
 
 	async function openAnalyzerDetail(a: AnalyzerSummary): Promise<void> {
 		viewedAnalyzer = a;
 		analyzerDetailError = null;
+		analyzerTags = {};
+		analyzerTagsError = null;
+		newAnalyzerTagKey = '';
+		newAnalyzerTagValue = '';
 		analyzerDetailModal?.open();
 		if (!a.name) return;
 		analyzerDetailLoading = true;
 		try {
 			const resp = await client().send(new GetAnalyzerCommand({ analyzerName: a.name }));
 			viewedAnalyzer = resp.analyzer ?? a;
+			if (viewedAnalyzer.arn) {
+				await loadAnalyzerTags(viewedAnalyzer.arn);
+			}
 		} catch (e) {
 			analyzerDetailError = describeError(e);
 		} finally {
 			analyzerDetailLoading = false;
+		}
+	}
+
+	async function loadAnalyzerTags(analyzerArn: string): Promise<void> {
+		try {
+			const resp = await client().send(new ListTagsForResourceCommand({ resourceArn: analyzerArn }));
+			analyzerTags = resp.tags ?? {};
+		} catch (e) {
+			analyzerTagsError = describeError(e);
+		}
+	}
+
+	async function addAnalyzerTag(): Promise<void> {
+		if (!viewedAnalyzer?.arn || !newAnalyzerTagKey) return;
+		analyzerTagsError = null;
+		try {
+			await client().send(
+				new TagResourceCommand({
+					resourceArn: viewedAnalyzer.arn,
+					tags: { [newAnalyzerTagKey]: newAnalyzerTagValue }
+				})
+			);
+			newAnalyzerTagKey = '';
+			newAnalyzerTagValue = '';
+			toast.success('Tag added');
+			await loadAnalyzerTags(viewedAnalyzer.arn);
+		} catch (e) {
+			const msg = describeError(e);
+			analyzerTagsError = msg;
+			toast.error(msg);
+		}
+	}
+
+	async function removeAnalyzerTag(key: string): Promise<void> {
+		if (!viewedAnalyzer?.arn) return;
+		analyzerTagsError = null;
+		try {
+			await client().send(
+				new UntagResourceCommand({ resourceArn: viewedAnalyzer.arn, tagKeys: [key] })
+			);
+			toast.success('Tag removed');
+			await loadAnalyzerTags(viewedAnalyzer.arn);
+		} catch (e) {
+			const msg = describeError(e);
+			analyzerTagsError = msg;
+			toast.error(msg);
 		}
 	}
 
@@ -606,6 +771,21 @@
 		}
 	}
 
+	async function handleApplyArchiveRule(r: ArchiveRuleSummary): Promise<void> {
+		if (!r.ruleName || !selectedAnalyzerArn) return;
+		try {
+			await client().send(
+				new ApplyArchiveRuleCommand({ analyzerArn: selectedAnalyzerArn, ruleName: r.ruleName })
+			);
+			toast.success('Archive rule applied to existing findings');
+			if (activeTab === 'findings') {
+				await tabLoader.refresh('findings');
+			}
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
 	let archiveRuleDetailModal = $state<Modal | null>(null);
 	let viewedArchiveRule = $state<ArchiveRuleSummary | null>(null);
 
@@ -693,10 +873,17 @@
 	let viewedFinding = $state<FindingSummaryV2 | null>(null);
 	let findingDetailLoading = $state(false);
 	let findingDetailError = $state<string | null>(null);
+	let findingRecommendationStatus = $state<string | null>(null);
+	let findingRecommendationSteps = $state<RecommendedStep[]>([]);
+	let generatingRecommendation = $state(false);
+	let findingRecommendationError = $state<string | null>(null);
 
 	async function openFindingDetail(f: FindingSummaryV2): Promise<void> {
 		viewedFinding = f;
 		findingDetailError = null;
+		findingRecommendationStatus = null;
+		findingRecommendationSteps = [];
+		findingRecommendationError = null;
 		findingDetailModal?.open();
 		if (!f.id || !selectedAnalyzerArn) return;
 		findingDetailLoading = true;
@@ -712,8 +899,37 @@
 		}
 	}
 
+	async function handleGenerateRecommendation(): Promise<void> {
+		if (!viewedFinding?.id || !selectedAnalyzerArn) return;
+		generatingRecommendation = true;
+		findingRecommendationError = null;
+		try {
+			await client().send(
+				new GenerateFindingRecommendationCommand({
+					analyzerArn: selectedAnalyzerArn,
+					id: viewedFinding.id
+				})
+			);
+			const resp = await client().send(
+				new GetFindingRecommendationCommand({
+					analyzerArn: selectedAnalyzerArn,
+					id: viewedFinding.id
+				})
+			);
+			findingRecommendationStatus = resp.status ?? null;
+			findingRecommendationSteps = resp.recommendedSteps ?? [];
+			toast.success('Finding recommendation generated');
+		} catch (e) {
+			const msg = describeError(e);
+			findingRecommendationError = msg;
+			toast.error(msg);
+		} finally {
+			generatingRecommendation = false;
+		}
+	}
+
 	// --- Analyzed Resources: detail (read-only; discovered by the analyzer,
-	// not user-created or user-deletable) ---
+	// not user-created or user-deletable) / rescan ---
 
 	let analyzedResourceDetailModal = $state<Modal | null>(null);
 	let viewedAnalyzedResource = $state<AnalyzedResource | AnalyzedResourceSummary | null>(null);
@@ -738,6 +954,22 @@
 			analyzedResourceDetailError = describeError(e);
 		} finally {
 			analyzedResourceDetailLoading = false;
+		}
+	}
+
+	async function handleRescanResource(r: AnalyzedResourceSummary): Promise<void> {
+		if (!r.resourceArn || !selectedAnalyzerArn) return;
+		try {
+			await client().send(
+				new StartResourceScanCommand({
+					analyzerArn: selectedAnalyzerArn,
+					resourceArn: r.resourceArn
+				})
+			);
+			toast.success('Resource rescan started');
+			await tabLoader.refresh('analyzedResources');
+		} catch (e) {
+			toast.error(describeError(e));
 		}
 	}
 
@@ -904,6 +1136,119 @@
 			policyGenerationDetailLoading = false;
 		}
 	}
+
+	// --- Policy Checks: stateless policy-analysis tools (no list, no
+	// create/delete -- each check just runs against the pasted-in
+	// documents) ---
+
+	type PolicyCheckKind = 'accessNotGranted' | 'noNewAccess' | 'noPublicAccess' | 'validatePolicy';
+
+	let policyCheckKind = $state<PolicyCheckKind>('accessNotGranted');
+	let checkPolicyDocument = $state(
+		'{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Effect": "Allow",\n      "Action": "s3:GetObject",\n      "Resource": "*"\n    }\n  ]\n}'
+	);
+	let checkExistingPolicyDocument = $state('{\n  "Version": "2012-10-17",\n  "Statement": []\n}');
+	let checkAccessJson = $state('[\n  { "actions": ["s3:GetObject"] }\n]');
+	let checkPolicyType = $state<'IDENTITY_POLICY' | 'RESOURCE_POLICY' | 'SERVICE_CONTROL_POLICY'>(
+		'IDENTITY_POLICY'
+	);
+	let checkResourceType = $state<AccessCheckResourceType>(AccessCheckResourceType.S3_BUCKET);
+	let runningPolicyCheck = $state(false);
+	let policyCheckError = $state<string | null>(null);
+	let policyCheckResult = $state<string | null>(null);
+	let policyCheckMessage = $state<string | null>(null);
+	let policyCheckReasons = $state<ReasonSummary[]>([]);
+	let policyCheckFindings = $state<ValidatePolicyFinding[]>([]);
+
+	function resetPolicyCheckResult(): void {
+		policyCheckError = null;
+		policyCheckResult = null;
+		policyCheckMessage = null;
+		policyCheckReasons = [];
+		policyCheckFindings = [];
+	}
+
+	async function runAccessNotGranted(): Promise<void> {
+		let access: Access[];
+		try {
+			access = JSON.parse(checkAccessJson);
+		} catch {
+			policyCheckError = 'Access must be valid JSON.';
+			return;
+		}
+		const resp = await client().send(
+			new CheckAccessNotGrantedCommand({
+				policyDocument: checkPolicyDocument,
+				access,
+				policyType: checkPolicyType === 'RESOURCE_POLICY' ? 'RESOURCE_POLICY' : 'IDENTITY_POLICY'
+			})
+		);
+		policyCheckResult = resp.result ?? null;
+		policyCheckMessage = resp.message ?? null;
+		policyCheckReasons = resp.reasons ?? [];
+	}
+
+	async function runNoNewAccess(): Promise<void> {
+		const resp = await client().send(
+			new CheckNoNewAccessCommand({
+				newPolicyDocument: checkPolicyDocument,
+				existingPolicyDocument: checkExistingPolicyDocument,
+				policyType: checkPolicyType === 'RESOURCE_POLICY' ? 'RESOURCE_POLICY' : 'IDENTITY_POLICY'
+			})
+		);
+		policyCheckResult = resp.result ?? null;
+		policyCheckMessage = resp.message ?? null;
+		policyCheckReasons = resp.reasons ?? [];
+	}
+
+	async function runNoPublicAccess(): Promise<void> {
+		const resp = await client().send(
+			new CheckNoPublicAccessCommand({
+				policyDocument: checkPolicyDocument,
+				resourceType: checkResourceType
+			})
+		);
+		policyCheckResult = resp.result ?? null;
+		policyCheckMessage = resp.message ?? null;
+		policyCheckReasons = resp.reasons ?? [];
+	}
+
+	async function runValidatePolicy(): Promise<void> {
+		const resp = await client().send(
+			new ValidatePolicyCommand({
+				policyDocument: checkPolicyDocument,
+				policyType: checkPolicyType
+			})
+		);
+		policyCheckFindings = resp.findings ?? [];
+	}
+
+	async function submitPolicyCheck(): Promise<void> {
+		runningPolicyCheck = true;
+		resetPolicyCheckResult();
+		try {
+			switch (policyCheckKind) {
+				case 'accessNotGranted':
+					await runAccessNotGranted();
+					break;
+				case 'noNewAccess':
+					await runNoNewAccess();
+					break;
+				case 'noPublicAccess':
+					await runNoPublicAccess();
+					break;
+				case 'validatePolicy':
+					await runValidatePolicy();
+					break;
+			}
+		} catch (e) {
+			const msg = describeError(e);
+			policyCheckError = msg;
+			toast.error(msg);
+		} finally {
+			runningPolicyCheck = false;
+		}
+	}
 </script>
 
 <div class="p-6 space-y-6">
@@ -921,6 +1266,12 @@
 					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm"
 				>
 					<Plus class="w-4 h-4" /> Create analyzer
+				</button>
+				<button
+					onclick={openCreateServiceLinkedAnalyzerModal}
+					class="flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-600 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-sm"
+				>
+					<Plus class="w-4 h-4" /> Create service-linked analyzer
 				</button>
 			{:else if activeTab === 'archiveRules'}
 				<button
@@ -1057,6 +1408,12 @@
 							class="text-gray-400 hover:text-emerald-500"><Pencil class="w-4 h-4" /></button
 						>
 						<button
+							onclick={() => handleApplyArchiveRule(r)}
+							title="Apply to existing findings"
+							aria-label="Apply archive rule {r.ruleName} to existing findings"
+							class="text-gray-400 hover:text-emerald-500"><Play class="w-4 h-4" /></button
+						>
+						<button
 							onclick={() => handleDeleteArchiveRule(r)}
 							title="Delete"
 							aria-label="Delete archive rule {r.ruleName}"
@@ -1085,6 +1442,19 @@
 					onLoadMore={loadMoreArchiveRules}
 				/>
 			{:else if activeTab === 'findings'}
+				{#if findingsStats}
+					<div class="flex items-center gap-2 flex-wrap text-xs">
+						<span class="px-2 py-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+							>Active: {findingsStats.active}</span
+						>
+						<span class="px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
+							>Archived: {findingsStats.archived}</span
+						>
+						<span class="px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
+							>Resolved: {findingsStats.resolved}</span
+						>
+					</div>
+				{/if}
 				{#snippet findingStatusCell(f: FindingSummaryV2)}
 					<span class="text-xs px-2 py-1 rounded-full {statusClass(f.status === 'ACTIVE')}"
 						>{f.status ?? '—'}</span
@@ -1144,12 +1514,18 @@
 					>
 				{/snippet}
 				{#snippet resourceActionsCell(r: AnalyzedResourceSummary)}
-					<div class="flex items-center justify-end">
+					<div class="flex items-center gap-2 justify-end">
 						<button
 							onclick={() => openAnalyzedResourceDetail(r)}
 							title="View"
 							aria-label="View resource {r.resourceArn}"
 							class="text-gray-400 hover:text-emerald-500"><Eye class="w-4 h-4" /></button
+						>
+						<button
+							onclick={() => handleRescanResource(r)}
+							title="Rescan"
+							aria-label="Rescan resource {r.resourceArn}"
+							class="text-gray-400 hover:text-emerald-500"><RefreshCw class="w-4 h-4" /></button
 						>
 					</div>
 				{/snippet}
@@ -1258,6 +1634,155 @@
 					loading={loadingMorePolicyGenerations}
 					onLoadMore={loadMorePolicyGenerations}
 				/>
+			{:else if activeTab === 'policyChecks'}
+				<div class="space-y-4">
+					<p class="text-sm text-slate-600 dark:text-slate-300">
+						Run a policy-analysis check without creating an analyzer resource: CheckAccessNotGranted,
+						CheckNoNewAccess, CheckNoPublicAccess, and ValidatePolicy.
+					</p>
+					<div>
+						<label for="policy-check-kind" class="text-sm text-slate-600 dark:text-slate-300">Check</label
+						>
+						<select
+							id="policy-check-kind"
+							bind:value={policyCheckKind}
+							class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+						>
+							<option value="accessNotGranted">Check Access Not Granted</option>
+							<option value="noNewAccess">Check No New Access</option>
+							<option value="noPublicAccess">Check No Public Access</option>
+							<option value="validatePolicy">Validate Policy</option>
+						</select>
+					</div>
+
+					{#if policyCheckKind === 'noNewAccess'}
+						<div>
+							<label for="check-existing-policy" class="text-sm text-slate-600 dark:text-slate-300"
+								>Existing policy document (JSON)</label
+							>
+							<textarea
+								id="check-existing-policy"
+								bind:value={checkExistingPolicyDocument}
+								rows="5"
+								class="mt-1 w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							></textarea>
+						</div>
+						<div>
+							<label for="check-policy-document" class="text-sm text-slate-600 dark:text-slate-300"
+								>New policy document (JSON)</label
+							>
+							<textarea
+								id="check-policy-document"
+								bind:value={checkPolicyDocument}
+								rows="5"
+								class="mt-1 w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							></textarea>
+						</div>
+					{:else}
+						<div>
+							<label for="check-policy-document" class="text-sm text-slate-600 dark:text-slate-300"
+								>Policy document (JSON)</label
+							>
+							<textarea
+								id="check-policy-document"
+								bind:value={checkPolicyDocument}
+								rows="6"
+								class="mt-1 w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							></textarea>
+						</div>
+					{/if}
+
+					{#if policyCheckKind === 'accessNotGranted'}
+						<div>
+							<label for="check-access" class="text-sm text-slate-600 dark:text-slate-300"
+								>Access to check for (JSON array of {'{ actions, resources }'})</label
+							>
+							<textarea
+								id="check-access"
+								bind:value={checkAccessJson}
+								rows="4"
+								class="mt-1 w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							></textarea>
+						</div>
+					{/if}
+
+					{#if policyCheckKind === 'noPublicAccess'}
+						<div>
+							<label for="check-resource-type" class="text-sm text-slate-600 dark:text-slate-300"
+								>Resource type</label
+							>
+							<select
+								id="check-resource-type"
+								bind:value={checkResourceType}
+								class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							>
+								{#each Object.entries(AccessCheckResourceType) as [name, value] (value)}
+									<option {value}>{name}</option>
+								{/each}
+							</select>
+						</div>
+					{:else}
+						<div>
+							<label for="check-policy-type" class="text-sm text-slate-600 dark:text-slate-300"
+								>Policy type</label
+							>
+							<select
+								id="check-policy-type"
+								bind:value={checkPolicyType}
+								class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							>
+								<option value="IDENTITY_POLICY">Identity policy</option>
+								<option value="RESOURCE_POLICY">Resource policy</option>
+								{#if policyCheckKind === 'validatePolicy'}
+									<option value="SERVICE_CONTROL_POLICY">Service control policy</option>
+								{/if}
+							</select>
+						</div>
+					{/if}
+
+					<button
+						type="button"
+						onclick={submitPolicyCheck}
+						disabled={runningPolicyCheck}
+						class="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm disabled:opacity-50"
+					>
+						{runningPolicyCheck ? 'Running…' : 'Run check'}
+					</button>
+
+					{#if policyCheckError}
+						<p class="text-sm text-red-600 dark:text-red-400">{policyCheckError}</p>
+					{/if}
+
+					{#if policyCheckResult}
+						<div class="rounded-lg border border-slate-200 dark:border-slate-700 p-3 text-sm space-y-2">
+							<p>
+								<span
+									class="text-xs px-2 py-1 rounded-full {statusClass(policyCheckResult === 'PASS')}"
+									>{policyCheckResult}</span
+								>
+								{policyCheckMessage ?? ''}
+							</p>
+							{#if policyCheckReasons.length > 0}
+								<ul class="space-y-1">
+									{#each policyCheckReasons as reason, index (index)}
+										<li class="text-slate-700 dark:text-slate-300">{reason.description ?? '—'}</li>
+									{/each}
+								</ul>
+							{/if}
+						</div>
+					{/if}
+
+					{#if policyCheckKind === 'validatePolicy' && policyCheckFindings.length > 0}
+						<ul class="space-y-1 text-sm">
+							{#each policyCheckFindings as finding, index (index)}
+								<li class="text-slate-700 dark:text-slate-300">
+									<span class="font-medium">{finding.findingType ?? 'UNKNOWN'}</span>
+									({finding.issueCode ?? '—'}): {finding.findingDetails ?? '—'}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -1312,6 +1837,51 @@
 	{/snippet}
 </Modal>
 
+<Modal bind:this={createServiceLinkedAnalyzerModal} title="Create Service-Linked Analyzer">
+	{#snippet children()}
+		<div class="space-y-3">
+			<p class="text-sm text-slate-600 dark:text-slate-300">
+				Creates an analyzer with a generated, service-linked name -- used internally by AWS services
+				such as Resource Access Manager. Delete it later with DeleteServiceLinkedAnalyzer, not
+				DeleteAnalyzer.
+			</p>
+			<div>
+				<label for="service-linked-analyzer-type" class="text-sm text-slate-600 dark:text-slate-300"
+					>Type</label
+				>
+				<select
+					id="service-linked-analyzer-type"
+					bind:value={newServiceLinkedAnalyzerType}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				>
+					<option value="ACCOUNT">Account</option>
+					<option value="ORGANIZATION">Organization</option>
+					<option value="ACCOUNT_UNUSED_ACCESS">Account (Unused Access)</option>
+					<option value="ORGANIZATION_UNUSED_ACCESS">Organization (Unused Access)</option>
+				</select>
+			</div>
+			{#if createServiceLinkedAnalyzerError}
+				<p class="text-sm text-red-600 dark:text-red-400">{createServiceLinkedAnalyzerError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => createServiceLinkedAnalyzerModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitCreateServiceLinkedAnalyzer}
+			disabled={creatingServiceLinkedAnalyzer}
+			class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+			>{creatingServiceLinkedAnalyzer ? 'Creating…' : 'Create'}</button
+		>
+	{/snippet}
+</Modal>
+
 <Modal bind:this={analyzerDetailModal} title="Analyzer">
 	{#snippet children()}
 		{#if analyzerDetailLoading}
@@ -1350,6 +1920,52 @@
 						>
 					</div>
 				{/if}
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Tags</dt>
+					<dd class="text-slate-900 dark:text-white">
+						{#if Object.keys(analyzerTags).length === 0}
+							<span class="text-slate-500 dark:text-slate-400">No tags</span>
+						{:else}
+							<ul class="space-y-1">
+								{#each Object.entries(analyzerTags) as [key, value] (key)}
+									<li class="flex items-center gap-2">
+										<span class="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700 text-xs"
+											>{key} = {value}</span
+										>
+										<button
+											onclick={() => removeAnalyzerTag(key)}
+											aria-label="Remove tag {key}"
+											class="text-gray-400 hover:text-red-500"><Trash2 class="w-3 h-3" /></button
+										>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								bind:value={newAnalyzerTagKey}
+								placeholder="Key"
+								aria-label="New tag key"
+								class="w-1/3 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							/>
+							<input
+								bind:value={newAnalyzerTagValue}
+								placeholder="Value"
+								aria-label="New tag value"
+								class="w-1/3 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							/>
+							<button
+								type="button"
+								onclick={addAnalyzerTag}
+								class="px-2 py-1 text-xs rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+								>Add</button
+							>
+						</div>
+						{#if analyzerTagsError}
+							<p class="mt-1 text-sm text-red-600 dark:text-red-400">{analyzerTagsError}</p>
+						{/if}
+					</dd>
+				</div>
 			</dl>
 			{#if analyzerDetailError}
 				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{analyzerDetailError}</p>
@@ -1567,6 +2183,36 @@
 			{#if findingDetailError}
 				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{findingDetailError}</p>
 			{/if}
+			<div class="mt-4">
+				<div class="flex items-center justify-between">
+					<h3 class="text-sm font-semibold text-slate-900 dark:text-white">Recommendation</h3>
+					<button
+						type="button"
+						onclick={handleGenerateRecommendation}
+						disabled={generatingRecommendation}
+						class="px-2 py-1 text-xs rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+						>{generatingRecommendation ? 'Generating…' : 'Generate recommendation'}</button
+					>
+				</div>
+				{#if findingRecommendationError}
+					<p class="mt-1 text-sm text-red-600 dark:text-red-400">{findingRecommendationError}</p>
+				{:else if findingRecommendationStatus}
+					<p class="mt-1 text-sm text-slate-700 dark:text-slate-300">
+						Status: {findingRecommendationStatus}
+					</p>
+					{#if findingRecommendationSteps.length === 0}
+						<p class="text-sm text-slate-500 dark:text-slate-400">No recommended steps.</p>
+					{:else}
+						<ul class="mt-2 space-y-1 text-sm">
+							{#each findingRecommendationSteps as step, index (index)}
+								<li class="text-slate-700 dark:text-slate-300">
+									{step.unusedPermissionsRecommendedStep?.recommendedAction ?? '—'}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				{/if}
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}

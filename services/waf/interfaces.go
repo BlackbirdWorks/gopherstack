@@ -120,7 +120,7 @@ type StorageBackend interface {
 	ListTagsForResource(arn string) ([]Tag, error)
 
 	// Sampled requests (stub)
-	GetSampledRequests(webACLID, ruleID string, maxItems int64) []SampledHTTPRequest
+	GetSampledRequests(webACLID, ruleID string, maxItems int64) ([]SampledHTTPRequest, error)
 
 	AccountID() string
 	Region() string

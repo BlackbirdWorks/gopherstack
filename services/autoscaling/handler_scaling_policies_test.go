@@ -168,3 +168,137 @@ func TestAutoscalingHandler_PutScalingPolicyMetricAggregationType(t *testing.T) 
 	assert.Contains(t, body, "<MetricAggregationType>Average</MetricAggregationType>",
 		"MetricAggregationType must round-trip; got: %s", body)
 }
+
+// TestAutoscalingHandler_PutScalingPolicyPredictiveScalingRoundTrip verifies that
+// PredictiveScalingConfiguration (previously accepted by PutScalingPolicy and
+// silently dropped) is parsed from the flattened query form and returned by
+// DescribePolicies.
+func TestAutoscalingHandler_PutScalingPolicyPredictiveScalingRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("predefined metric pair", func(t *testing.T) {
+		t.Parallel()
+
+		h := newAutoscalingHandler()
+		asgName := "predictive-asg-pair"
+
+		code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+			"AutoScalingGroupName":       {asgName},
+			"MinSize":                    {"1"},
+			"MaxSize":                    {"10"},
+			"AvailabilityZones.member.1": {"us-east-1a"},
+		})
+		require.Equal(t, 200, code, body)
+
+		code, body = doAS(t, h, "PutScalingPolicy", url.Values{
+			"AutoScalingGroupName": {asgName},
+			"PolicyName":           {"predictive-policy"},
+			"PolicyType":           {"PredictiveScaling"},
+			"PredictiveScalingConfiguration.MaxCapacityBreachBehavior":                 {"IncreaseMaxCapacity"},
+			"PredictiveScalingConfiguration.MaxCapacityBuffer":                         {"10"},
+			"PredictiveScalingConfiguration.Mode":                                      {"ForecastAndScale"},
+			"PredictiveScalingConfiguration.SchedulingBufferTime":                      {"300"},
+			"PredictiveScalingConfiguration.MetricSpecifications.member.1.TargetValue": {"40"},
+			"PredictiveScalingConfiguration.MetricSpecifications.member.1." +
+				"PredefinedMetricPairSpecification.PredefinedMetricType": {"ASGCPUUtilization"},
+			"PredictiveScalingConfiguration.MetricSpecifications.member.1." +
+				"PredefinedMetricPairSpecification.ResourceLabel": {"app/my-alb/abc/targetgroup/my-tg/def"},
+		})
+		require.Equal(t, 200, code, body)
+
+		code, body = doAS(t, h, "DescribePolicies", url.Values{
+			"AutoScalingGroupName": {asgName},
+			"PolicyNames.member.1": {"predictive-policy"},
+		})
+		require.Equal(t, 200, code, body)
+
+		assert.Contains(t, body,
+			"<MaxCapacityBreachBehavior>IncreaseMaxCapacity</MaxCapacityBreachBehavior>",
+			"MaxCapacityBreachBehavior must round-trip; got: %s", body)
+		assert.Contains(t, body, "<MaxCapacityBuffer>10</MaxCapacityBuffer>",
+			"MaxCapacityBuffer must round-trip; got: %s", body)
+		assert.Contains(t, body, "<Mode>ForecastAndScale</Mode>",
+			"Mode must round-trip; got: %s", body)
+		assert.Contains(t, body, "<SchedulingBufferTime>300</SchedulingBufferTime>",
+			"SchedulingBufferTime must round-trip; got: %s", body)
+		assert.Contains(t, body, "<TargetValue>40</TargetValue>",
+			"metric specification TargetValue must round-trip; got: %s", body)
+		assert.Contains(t, body, "<PredefinedMetricType>ASGCPUUtilization</PredefinedMetricType>",
+			"PredefinedMetricPairSpecification.PredefinedMetricType must round-trip; got: %s", body)
+		assert.Contains(t, body, "<ResourceLabel>app/my-alb/abc/targetgroup/my-tg/def</ResourceLabel>",
+			"PredefinedMetricPairSpecification.ResourceLabel must round-trip; got: %s", body)
+	})
+
+	t.Run("predefined load and scaling metrics", func(t *testing.T) {
+		t.Parallel()
+
+		h := newAutoscalingHandler()
+		asgName := "predictive-asg-load-scaling"
+
+		code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+			"AutoScalingGroupName":       {asgName},
+			"MinSize":                    {"1"},
+			"MaxSize":                    {"10"},
+			"AvailabilityZones.member.1": {"us-east-1a"},
+		})
+		require.Equal(t, 200, code, body)
+
+		code, body = doAS(t, h, "PutScalingPolicy", url.Values{
+			"AutoScalingGroupName": {asgName},
+			"PolicyName":           {"predictive-policy-2"},
+			"PolicyType":           {"PredictiveScaling"},
+			"PredictiveScalingConfiguration.MetricSpecifications.member.1.TargetValue": {"55"},
+			"PredictiveScalingConfiguration.MetricSpecifications.member.1." +
+				"PredefinedLoadMetricSpecification.PredefinedMetricType": {"ASGTotalCPUUtilization"},
+			"PredictiveScalingConfiguration.MetricSpecifications.member.1." +
+				"PredefinedScalingMetricSpecification.PredefinedMetricType": {"ASGAverageCPUUtilization"},
+		})
+		require.Equal(t, 200, code, body)
+
+		code, body = doAS(t, h, "DescribePolicies", url.Values{
+			"AutoScalingGroupName": {asgName},
+			"PolicyNames.member.1": {"predictive-policy-2"},
+		})
+		require.Equal(t, 200, code, body)
+
+		assert.Contains(t, body, "<PredefinedMetricType>ASGTotalCPUUtilization</PredefinedMetricType>",
+			"PredefinedLoadMetricSpecification.PredefinedMetricType must round-trip; got: %s", body)
+		assert.Contains(t, body, "<PredefinedMetricType>ASGAverageCPUUtilization</PredefinedMetricType>",
+			"PredefinedScalingMetricSpecification.PredefinedMetricType must round-trip; got: %s", body)
+		assert.Contains(t, body, "<TargetValue>55</TargetValue>",
+			"metric specification TargetValue must round-trip; got: %s", body)
+	})
+
+	t.Run("absent when not a predictive policy", func(t *testing.T) {
+		t.Parallel()
+
+		h := newAutoscalingHandler()
+		asgName := "predictive-asg-absent"
+
+		code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+			"AutoScalingGroupName":       {asgName},
+			"MinSize":                    {"1"},
+			"MaxSize":                    {"10"},
+			"AvailabilityZones.member.1": {"us-east-1a"},
+		})
+		require.Equal(t, 200, code, body)
+
+		code, body = doAS(t, h, "PutScalingPolicy", url.Values{
+			"AutoScalingGroupName": {asgName},
+			"PolicyName":           {"simple-policy"},
+			"PolicyType":           {"SimpleScaling"},
+			"AdjustmentType":       {"ChangeInCapacity"},
+			"ScalingAdjustment":    {"1"},
+		})
+		require.Equal(t, 200, code, body)
+
+		code, body = doAS(t, h, "DescribePolicies", url.Values{
+			"AutoScalingGroupName": {asgName},
+			"PolicyNames.member.1": {"simple-policy"},
+		})
+		require.Equal(t, 200, code, body)
+
+		assert.NotContains(t, body, "PredictiveScalingConfiguration",
+			"PredictiveScalingConfiguration must be absent for a non-predictive policy; got: %s", body)
+	})
+}

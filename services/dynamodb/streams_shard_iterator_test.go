@@ -373,45 +373,9 @@ func TestShardIteratorStore_SetClock_SweepEvictsPastTTL(t *testing.T) {
 	assert.Nil(t, store.Get(token), "entry must be evicted by Sweep once TTL elapses")
 }
 
-// TestStreams_GetRecords_ExpiredIteratorException locks the previously
-// untestable ExpiredIteratorException path end-to-end: obtain a real shard
-// iterator via GetShardIterator, advance the backend's injected clock past
-// the 15-minute TTL, then confirm GetRecords rejects the now-expired token
-// with ExpiredIteratorException (not a generic ValidationException).
-func TestStreams_GetRecords_ExpiredIteratorException(t *testing.T) {
-	t.Parallel()
-
-	db := newStreamsTestDB(t)
-	ctx := t.Context()
-
-	fakeNow := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	db.SetIteratorClockForTest(func() time.Time { return fakeNow })
-
-	require.NoError(t, db.EnableStream(ctx, "StreamsTestTable", "NEW_AND_OLD_IMAGES"))
-
-	table, ok := db.GetTable("StreamsTestTable")
-	require.True(t, ok)
-
-	iterOut, err := db.GetShardIterator(ctx, &dynamodbstreams.GetShardIteratorInput{
-		StreamArn:         aws.String(table.StreamARN),
-		ShardId:           aws.String(ddb.StreamShardID),
-		ShardIteratorType: streamstypes.ShardIteratorTypeTrimHorizon,
-	})
-	require.NoError(t, err)
-
-	// Advance the fake clock past the 15-minute shard-iterator TTL.
-	fakeNow = fakeNow.Add(15*time.Minute + time.Second)
-
-	_, err = db.GetRecords(ctx, &dynamodbstreams.GetRecordsInput{
-		ShardIterator: iterOut.ShardIterator,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "expired")
-
-	var apiErr *ddb.Error
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "com.amazonaws.dynamodb.v20120810#ExpiredIteratorException", apiErr.Type)
-}
+// TestStreams_GetRecords_ExpiredIteratorException lives in whitebox_test.go:
+// it needs direct access to the unexported iteratorStore clock to advance
+// time past the TTL without a real sleep.
 
 func TestShardIteratorStore_Delete(t *testing.T) {
 	t.Parallel()

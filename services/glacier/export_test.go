@@ -40,15 +40,6 @@ func IsValidMultipartRange(rangeHeader string) bool {
 	return isValidMultipartRange(rangeHeader)
 }
 
-// ParseSelectExpression exposes select-expression syntax parsing for testing: it
-// returns a non-nil error iff expr fails to parse as a supported Glacier Select SQL
-// statement (see select.go's package doc for the exact grammar).
-func ParseSelectExpression(expr string) error {
-	_, err := parseSelectQuery(expr)
-
-	return err
-}
-
 // GetVaultLastInventoryDate returns the LastInventoryDate for the named vault.
 func GetVaultLastInventoryDate(b *InMemoryBackend, accountID, region, vaultName string) string {
 	b.mu.RLock()
@@ -115,17 +106,6 @@ func MultipartUploadCount(b *InMemoryBackend) int {
 	defer b.mu.RUnlock()
 
 	return b.multipartUploads.Len()
-}
-
-// MultipartPartsRowCount returns the number of entries in the (raw, not a
-// *store.Table -- see store_setup.go) multipartParts map, for leak tests: it must
-// return to 0 after every multipart upload it was populated for has been
-// aborted/completed/cascade-deleted (for testing only).
-func MultipartPartsRowCount(b *InMemoryBackend) int {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	return len(b.multipartParts)
 }
 
 // ProvisionedCapacityCount returns the total number of provisioned capacity units (for testing only).

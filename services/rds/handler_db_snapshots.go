@@ -15,6 +15,8 @@ func (h *Handler) handleCreateDBSnapshot(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, snap.DBSnapshotArn)
+
 	return &createDBSnapshotResponse{
 		Xmlns:      rdsXMLNS,
 		DBSnapshot: toXMLSnapshot(snap),
@@ -73,6 +75,7 @@ func toXMLSnapshot(snap *DBSnapshot) xmlDBSnapshot {
 
 	return xmlDBSnapshot{
 		DBSnapshotIdentifier: snap.DBSnapshotIdentifier,
+		DBSnapshotArn:        snap.DBSnapshotArn,
 		DBInstanceIdentifier: snap.DBInstanceIdentifier,
 		DbiResourceID:        snap.DbiResourceID,
 		Engine:               snap.Engine,
@@ -94,6 +97,7 @@ func toXMLSnapshot(snap *DBSnapshot) xmlDBSnapshot {
 
 type xmlDBSnapshot struct {
 	DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"`
+	DBSnapshotArn        string `xml:"DBSnapshotArn,omitempty"`
 	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
 	DbiResourceID        string `xml:"DbiResourceId,omitempty"`
 	Engine               string `xml:"Engine"`

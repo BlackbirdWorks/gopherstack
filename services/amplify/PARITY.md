@@ -1,6 +1,6 @@
 ---
 service: amplify
-sdk_module: aws-sdk-go-v2/service/amplify@v1.40.0
+sdk_module: aws-sdk-go-v2/service/amplify@v1.41.4
 last_audit_commit: c807b481
 last_audit_date: 2026-07-23
 overall: A            # this sweep: full App/Branch field parity, Stage enum fix, commitTime,

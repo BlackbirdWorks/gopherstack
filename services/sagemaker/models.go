@@ -328,6 +328,36 @@ func cloneCluster(c *Cluster) *Cluster {
 	copy(cp.InstanceGroups, c.InstanceGroups)
 	cp.Tags = maps.Clone(c.Tags)
 
+	if c.VpcConfig != nil {
+		vc := *c.VpcConfig
+		vc.SecurityGroupIDs = append([]string(nil), c.VpcConfig.SecurityGroupIDs...)
+		vc.Subnets = append([]string(nil), c.VpcConfig.Subnets...)
+		cp.VpcConfig = &vc
+	}
+
+	if c.AutoScaling != nil {
+		as := *c.AutoScaling
+		cp.AutoScaling = &as
+	}
+
+	if c.Orchestrator != nil {
+		o := *c.Orchestrator
+		if c.Orchestrator.Eks != nil {
+			eks := *c.Orchestrator.Eks
+			o.Eks = &eks
+		}
+		if c.Orchestrator.Slurm != nil {
+			slurm := *c.Orchestrator.Slurm
+			o.Slurm = &slurm
+		}
+		cp.Orchestrator = &o
+	}
+
+	if c.TieredStorageConfig != nil {
+		tsc := *c.TieredStorageConfig
+		cp.TieredStorageConfig = &tsc
+	}
+
 	return &cp
 }
 
@@ -356,16 +386,64 @@ type ClusterInstanceGroup struct {
 	InstanceCount     int32  `json:"InstanceCount,omitempty"`
 }
 
+// ClusterAutoScalingConfig mirrors types.ClusterAutoScalingConfig
+// (api_op_CreateCluster.go:41-43, types/types.go:4492, sagemaker@v1.263.2).
+// Status is not stored: it is synthesized as InService on read, the same
+// convention this service already uses for instance-group status
+// (instanceGroupStatusInService), since this emulator does not model
+// asynchronous autoscaler provisioning.
+type ClusterAutoScalingConfig struct {
+	Mode           string `json:"Mode"`
+	AutoScalerType string `json:"AutoScalerType,omitempty"`
+}
+
+// ClusterOrchestratorEksConfig mirrors types.ClusterOrchestratorEksConfig
+// (types/types.go:5470, sagemaker@v1.263.2).
+type ClusterOrchestratorEksConfig struct {
+	ClusterArn string `json:"ClusterArn"`
+}
+
+// ClusterOrchestratorSlurmConfig mirrors types.ClusterOrchestratorSlurmConfig
+// (types/types.go:5483, sagemaker@v1.263.2).
+type ClusterOrchestratorSlurmConfig struct {
+	SlurmConfigStrategy string `json:"SlurmConfigStrategy,omitempty"`
+}
+
+// ClusterOrchestrator mirrors types.ClusterOrchestrator (types/types.go:5456,
+// sagemaker@v1.263.2). Despite AWS's docs stating "you must provide exactly
+// one orchestrator configuration: either Eks or Slurm", botocore's
+// sagemaker/2017-07-24 service-2.json models ClusterOrchestrator as a plain
+// "structure" (not "union"), and serializers.go:27593-27612 emit Eks/Slurm as
+// two independent optional keys — so this is a struct with a
+// runtime-validated business rule, not a discriminated wire union.
+type ClusterOrchestrator struct {
+	Eks   *ClusterOrchestratorEksConfig   `json:"Eks,omitempty"`
+	Slurm *ClusterOrchestratorSlurmConfig `json:"Slurm,omitempty"`
+}
+
+// ClusterTieredStorageConfig mirrors types.ClusterTieredStorageConfig
+// (types/types.go:5847, sagemaker@v1.263.2).
+type ClusterTieredStorageConfig struct {
+	Mode                               string `json:"Mode"`
+	InstanceMemoryAllocationPercentage int32  `json:"InstanceMemoryAllocationPercentage,omitempty"`
+}
+
 // Cluster represents a SageMaker HyperPod cluster.
 type Cluster struct {
-	CreationTime   time.Time               `json:"CreationTime"`
-	Nodes          map[string]*ClusterNode `json:"-"`
-	Tags           map[string]string       `json:"Tags,omitempty"`
-	ClusterArn     string                  `json:"ClusterArn"`
-	ClusterName    string                  `json:"ClusterName"`
-	ClusterStatus  string                  `json:"ClusterStatus"`
-	NodeRecovery   string                  `json:"NodeRecovery,omitempty"`
-	InstanceGroups []ClusterInstanceGroup  `json:"InstanceGroups,omitempty"`
+	CreationTime         time.Time                   `json:"CreationTime"`
+	Nodes                map[string]*ClusterNode     `json:"-"`
+	Tags                 map[string]string           `json:"Tags,omitempty"`
+	VpcConfig            *VpcConfig                  `json:"VpcConfig,omitempty"`
+	AutoScaling          *ClusterAutoScalingConfig   `json:"AutoScaling,omitempty"`
+	Orchestrator         *ClusterOrchestrator        `json:"Orchestrator,omitempty"`
+	TieredStorageConfig  *ClusterTieredStorageConfig `json:"TieredStorageConfig,omitempty"`
+	ClusterArn           string                      `json:"ClusterArn"`
+	ClusterName          string                      `json:"ClusterName"`
+	ClusterStatus        string                      `json:"ClusterStatus"`
+	NodeRecovery         string                      `json:"NodeRecovery,omitempty"`
+	ClusterRole          string                      `json:"ClusterRole,omitempty"`
+	NodeProvisioningMode string                      `json:"NodeProvisioningMode,omitempty"`
+	InstanceGroups       []ClusterInstanceGroup      `json:"InstanceGroups,omitempty"`
 }
 
 // ModelPackageStatusItem mirrors AWS's ModelPackageStatusItem: the outcome of

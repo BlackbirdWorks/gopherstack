@@ -59,8 +59,11 @@ func TestIntegration_Macie2_CustomDataIdentifierLifecycle(t *testing.T) {
 			require.NotEmpty(t, id, "custom data identifier id must be returned")
 
 			t.Cleanup(func() {
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
 				_, _ = client.DeleteCustomDataIdentifier(
-					ctx,
+					cleanupCtx,
 					&macie2sdk.DeleteCustomDataIdentifierInput{Id: aws.String(id)},
 				)
 			})

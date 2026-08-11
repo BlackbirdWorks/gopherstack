@@ -1,6 +1,7 @@
 package codecommit_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -39,7 +40,12 @@ func TestHandler_PutFile_GetFile(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "hello.txt", resp["filePath"])
-	assert.Equal(t, putBlobID, resp["blobId"], "GetFile's blobId must match the blobId PutFile returned")
+	assert.Equal(
+		t,
+		putBlobID,
+		resp["blobId"],
+		"GetFile's blobId must match the blobId PutFile returned",
+	)
 
 	// AWS's GetFileOutput.CommitId is "the full commit ID of the commit that
 	// contains the content" — it must be the commit PutFile created, not the
@@ -47,7 +53,12 @@ func TestHandler_PutFile_GetFile(t *testing.T) {
 	putCommitID, _ := putResp["commitId"].(string)
 	require.NotEmpty(t, putCommitID)
 	assert.NotEqual(t, "main", resp["commitId"], "GetFile's commitId must not be the branch name")
-	assert.Equal(t, putCommitID, resp["commitId"], "GetFile's commitId must be the commit PutFile created")
+	assert.Equal(
+		t,
+		putCommitID,
+		resp["commitId"],
+		"GetFile's commitId must be the commit PutFile created",
+	)
 
 	// The blob ID PutFile returns must be usable with GetBlob (round trip).
 	rec = doRequest(t, h, "GetBlob", map[string]any{
@@ -59,6 +70,42 @@ func TestHandler_PutFile_GetFile(t *testing.T) {
 	var blobResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &blobResp))
 	assert.Equal(t, "aGVsbG8=", blobResp["content"])
+}
+
+// TestHandler_PutFile_SameFileContent verifies PutFile rejects a write whose
+// content byte-for-byte matches what's already at that path, matching AWS's
+// SameFileContentException (previously declared but never returned by any
+// backend path).
+func TestHandler_PutFile_SameFileContent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "same-content-repo"})
+
+	putReq := map[string]any{
+		"repositoryName": "same-content-repo",
+		"branchName":     "main",
+		"filePath":       "hello.txt",
+		"fileContent":    "aGVsbG8=", // base64 "hello"
+	}
+	rec := doRequest(t, h, "PutFile", putReq)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "PutFile", putReq)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "SameFileContentException", errResp["__type"])
+
+	// Different content at the same path must still succeed.
+	rec = doRequest(t, h, "PutFile", map[string]any{
+		"repositoryName": "same-content-repo",
+		"branchName":     "main",
+		"filePath":       "hello.txt",
+		"fileContent":    "d29ybGQ=", // base64 "world"
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestHandler_GetFolder(t *testing.T) {
@@ -380,7 +427,12 @@ func TestHandler_ListFileCommitHistory_Pagination(t *testing.T) {
 			"branchName":     "main",
 			"commitMessage":  fmt.Sprintf("commit %d", i),
 			"putFiles": []map[string]any{
-				{"filePath": "main.go", "fileContent": "dmVyc2lvbg=="},
+				{
+					"filePath": "main.go",
+					"fileContent": base64.StdEncoding.EncodeToString(
+						fmt.Appendf(nil, "version %d", i),
+					),
+				},
 			},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -431,7 +483,12 @@ func TestHandler_ListFileCommitHistory_Pagination(t *testing.T) {
 		nextToken = next
 	}
 
-	assert.Len(t, seen, len(commitIDs), "pagination must eventually surface every commit exactly once")
+	assert.Len(
+		t,
+		seen,
+		len(commitIDs),
+		"pagination must eventually surface every commit exactly once",
+	)
 }
 
 func TestHandler_ListFileCommitHistory_TableDriven(t *testing.T) {
@@ -463,8 +520,10 @@ func TestHandler_ListFileCommitHistory_TableDriven(t *testing.T) {
 					"commitMessage":  fmt.Sprintf("commit %d", i),
 					"putFiles": []map[string]any{
 						{
-							"filePath":    "main.go",
-							"fileContent": "cGFja2FnZSBtYWlu", // "package main" base64
+							"filePath": "main.go",
+							"fileContent": base64.StdEncoding.EncodeToString(
+								fmt.Appendf(nil, "package main // v%d", i),
+							),
 						},
 					},
 				})
@@ -511,7 +570,11 @@ func TestHandler_FileLifecycle(t *testing.T) {
 	assert.Equal(t, "src/main.go", resp["filePath"])
 	assert.NotEmpty(t, resp["blobId"])
 	putCommitID, _ := resp["commitId"].(string)
-	require.NotEmpty(t, putCommitID, "GetFile's commitId must be the real commit ID PutFile created")
+	require.NotEmpty(
+		t,
+		putCommitID,
+		"GetFile's commitId must be the real commit ID PutFile created",
+	)
 
 	// Get folder.
 	rec = doRequest(t, h, "GetFolder", map[string]any{

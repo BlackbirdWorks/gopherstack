@@ -595,10 +595,11 @@ func TestOpsMetadata_FullCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "production")
 
-	// Update.
+	// Update. Real clients send MetadataToUpdate, not Metadata
+	// (ssm/2014-11-06 UpdateOpsMetadataRequest).
 	body, _ = json.Marshal(map[string]any{
 		"OpsMetadataArn": meta.OpsMetadataArn,
-		"Metadata": map[string]any{
+		"MetadataToUpdate": map[string]any{
 			"version": map[string]any{"Value": "2"},
 		},
 	})

@@ -744,6 +744,61 @@ func TestHandler_GetInstancesHealthStatusServiceNotFound(t *testing.T) {
 	assert.Equal(t, 400, rec.Code)
 }
 
+// TestHandler_GetInstancesHealthStatusUnknownInstanceID verifies that explicitly
+// requesting an instance ID not registered to the service fails with
+// InstanceNotFound instead of silently omitting it from the response. Real AWS:
+// InstanceNotFound's doc comment is "No instance exists with the specified ID,
+// or the instance was recently registered..." (servicediscovery/2017-03-14/
+// service-2.json, shape InstanceNotFound); GetInstancesHealthStatus lists
+// InstanceNotFound as one of its three documented errors.
+func TestHandler_GetInstancesHealthStatusUnknownInstanceID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		instances []string
+		wantCode  int
+	}{
+		{name: "known_instance_only", instances: []string{"a"}, wantCode: http.StatusOK},
+		{name: "unknown_instance_only", instances: []string{"no-such-instance"}, wantCode: http.StatusBadRequest},
+		{
+			name:      "mixed_known_and_unknown",
+			instances: []string{"a", "no-such-instance"},
+			wantCode:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-unknown-inst"})
+			var svcResp map[string]any
+			require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+			svcID := svcResp["Service"].(map[string]any)["Id"].(string)
+
+			registerRec := doSDRequest(t, h, "RegisterInstance", map[string]any{
+				"ServiceId": svcID, "InstanceId": "a", "Attributes": map[string]string{},
+			})
+			require.Equal(t, http.StatusOK, registerRec.Code)
+
+			rec := doSDRequest(t, h, "GetInstancesHealthStatus", map[string]any{
+				"ServiceId": svcID,
+				"Instances": tt.instances,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+
+			if tt.wantCode == http.StatusBadRequest {
+				var errResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Equal(t, "InstanceNotFound", errResp["__type"])
+			}
+		})
+	}
+}
+
 // TestListInstances_Pagination verifies NextToken/MaxResults pagination on ListInstances.
 func TestListInstances_Pagination(t *testing.T) {
 	t.Parallel()

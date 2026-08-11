@@ -2,12 +2,13 @@ package vpclattice
 
 // ------- Resource Policy operations -------
 
-// PutResourcePolicy sets a resource policy.
+// PutResourcePolicy sets a resource policy. resourceArn accepts an ID or ARN
+// (see resolvePolicyResourceARN in auth_policy.go for why it's normalized).
 func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy string) error {
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
-	b.resourcePolicies[resourceArn] = policy
+	b.resourcePolicies[b.resolvePolicyResourceARN(resourceArn)] = policy
 
 	return nil
 }
@@ -17,7 +18,7 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, error) 
 	b.mu.RLock("GetResourcePolicy")
 	defer b.mu.RUnlock()
 
-	policy, ok := b.resourcePolicies[resourceArn]
+	policy, ok := b.resourcePolicies[b.resolvePolicyResourceARN(resourceArn)]
 	if !ok {
 		return "", ErrNotFound
 	}
@@ -30,11 +31,13 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceArn string) error {
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resourcePolicies[resourceArn]; !ok {
+	key := b.resolvePolicyResourceARN(resourceArn)
+
+	if _, ok := b.resourcePolicies[key]; !ok {
 		return ErrNotFound
 	}
 
-	delete(b.resourcePolicies, resourceArn)
+	delete(b.resourcePolicies, key)
 
 	return nil
 }

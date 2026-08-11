@@ -19,7 +19,7 @@ func TestConfigSetTrackingOptions(t *testing.T) {
 
 	h, backend := newSESv2TestHandler(t)
 
-	_, err := backend.CreateConfigurationSet("track-cs")
+	_, err := backend.CreateConfigurationSet("track-cs", nil)
 	require.NoError(t, err)
 
 	rec := doReq(t, h, http.MethodPut, "/v2/email/configuration-sets/track-cs/tracking-options",
@@ -59,7 +59,7 @@ func TestConfigSetDeliveryOptions(t *testing.T) {
 
 	h, backend := newSESv2TestHandler(t)
 
-	_, err := backend.CreateConfigurationSet("delivery-cs")
+	_, err := backend.CreateConfigurationSet("delivery-cs", nil)
 	require.NoError(t, err)
 
 	rec := doReq(t, h, http.MethodPut,
@@ -100,7 +100,7 @@ func TestConfigSetSendingOptions(t *testing.T) {
 
 	h, backend := newSESv2TestHandler(t)
 
-	_, err := backend.CreateConfigurationSet("send-cs")
+	_, err := backend.CreateConfigurationSet("send-cs", nil)
 	require.NoError(t, err)
 
 	// Disable sending.
@@ -138,7 +138,7 @@ func TestConfigSetReputationOptions(t *testing.T) {
 
 	h, backend := newSESv2TestHandler(t)
 
-	_, err := backend.CreateConfigurationSet("rep-cs")
+	_, err := backend.CreateConfigurationSet("rep-cs", nil)
 	require.NoError(t, err)
 
 	rec := doReq(t, h, http.MethodPut,
@@ -175,7 +175,7 @@ func TestConfigSetSuppressionOptions(t *testing.T) {
 
 	h, backend := newSESv2TestHandler(t)
 
-	_, err := backend.CreateConfigurationSet("supp-cs")
+	_, err := backend.CreateConfigurationSet("supp-cs", nil)
 	require.NoError(t, err)
 
 	rec := doReq(t, h, http.MethodPut,
@@ -227,7 +227,7 @@ func TestGetConfigurationSetDefaultSendingEnabled(t *testing.T) {
 
 	h, backend := newSESv2TestHandler(t)
 
-	_, err := backend.CreateConfigurationSet("default-cs")
+	_, err := backend.CreateConfigurationSet("default-cs", nil)
 	require.NoError(t, err)
 
 	rec := doReq(t, h, http.MethodGet, "/v2/email/configuration-sets/default-cs", nil)
@@ -247,7 +247,7 @@ func TestConfigSetMultipleOptions(t *testing.T) {
 
 	h, backend := newSESv2TestHandler(t)
 
-	_, err := backend.CreateConfigurationSet("multi-cs")
+	_, err := backend.CreateConfigurationSet("multi-cs", nil)
 	require.NoError(t, err)
 
 	doReq(t, h, http.MethodPut, "/v2/email/configuration-sets/multi-cs/tracking-options",
@@ -283,7 +283,7 @@ func TestBackendPutConfigSetTrackingOptions(t *testing.T) {
 
 	backend := sesv2.NewInMemoryBackend()
 
-	_, err := backend.CreateConfigurationSet("track-test")
+	_, err := backend.CreateConfigurationSet("track-test", nil)
 	require.NoError(t, err)
 
 	err = backend.PutConfigurationSetTrackingOptions("track-test", "click.example.com", "REQUIRE")
@@ -311,7 +311,7 @@ func TestBackendPutConfigSetDeliveryOptions(t *testing.T) {
 
 	backend := sesv2.NewInMemoryBackend()
 
-	_, err := backend.CreateConfigurationSet("delivery-test")
+	_, err := backend.CreateConfigurationSet("delivery-test", nil)
 	require.NoError(t, err)
 
 	err = backend.PutConfigurationSetDeliveryOptions("delivery-test", "REQUIRE", "my-pool")
@@ -329,7 +329,7 @@ func TestBackendPutConfigSetSendingOptions(t *testing.T) {
 
 	backend := sesv2.NewInMemoryBackend()
 
-	_, err := backend.CreateConfigurationSet("send-test")
+	_, err := backend.CreateConfigurationSet("send-test", nil)
 	require.NoError(t, err)
 
 	// Default is true; disable.
@@ -347,7 +347,7 @@ func TestBackendPutConfigSetReputationOptions(t *testing.T) {
 
 	backend := sesv2.NewInMemoryBackend()
 
-	_, err := backend.CreateConfigurationSet("rep-test")
+	_, err := backend.CreateConfigurationSet("rep-test", nil)
 	require.NoError(t, err)
 
 	err = backend.PutConfigurationSetReputationOptions("rep-test", true)
@@ -364,7 +364,7 @@ func TestBackendPutConfigSetSuppressionOptions(t *testing.T) {
 
 	backend := sesv2.NewInMemoryBackend()
 
-	_, err := backend.CreateConfigurationSet("supp-test")
+	_, err := backend.CreateConfigurationSet("supp-test", nil)
 	require.NoError(t, err)
 
 	err = backend.PutConfigurationSetSuppressionOptions("supp-test", []string{"BOUNCE", "COMPLAINT"})
@@ -381,7 +381,7 @@ func TestBackendConfigSetDefaultSendingEnabled(t *testing.T) {
 
 	backend := sesv2.NewInMemoryBackend()
 
-	cs, err := backend.CreateConfigurationSet("default-send")
+	cs, err := backend.CreateConfigurationSet("default-send", nil)
 	require.NoError(t, err)
 	assert.True(t, cs.SendingEnabled, "SendingEnabled should default to true")
 }
@@ -403,7 +403,7 @@ func TestConfigSetCount(t *testing.T) {
 	backend := sesv2.NewInMemoryBackend()
 	assert.Equal(t, 0, sesv2.ConfigSetCount(backend))
 
-	_, err := backend.CreateConfigurationSet("set-1")
+	_, err := backend.CreateConfigurationSet("set-1", nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, sesv2.ConfigSetCount(backend))
 }
@@ -413,7 +413,7 @@ func TestGetConfigurationSetDeepCopy(t *testing.T) {
 	t.Parallel()
 
 	backend := sesv2.NewInMemoryBackend()
-	_, err := backend.CreateConfigurationSet("copy-set")
+	_, err := backend.CreateConfigurationSet("copy-set", nil)
 	require.NoError(t, err)
 
 	cs, err := backend.GetConfigurationSet("copy-set")
@@ -430,7 +430,7 @@ func TestDeleteConfigurationSetCascade(t *testing.T) {
 	t.Parallel()
 
 	backend := sesv2.NewInMemoryBackend()
-	_, err := backend.CreateConfigurationSet("my-set")
+	_, err := backend.CreateConfigurationSet("my-set", nil)
 	require.NoError(t, err)
 
 	_, err = backend.CreateConfigurationSetEventDestination("my-set", "dest-1", true, nil)

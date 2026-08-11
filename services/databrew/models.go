@@ -10,9 +10,30 @@ package databrew
 // field, so a dataset created with JSON format options would appear to have
 // none on describe/list.
 type DatasetFormatOptions struct {
-	Csv   map[string]any `json:"Csv,omitempty"`
-	Excel map[string]any `json:"Excel,omitempty"`
-	JSON  map[string]any `json:"Json,omitempty"`
+	Csv   *CsvOptions   `json:"Csv,omitempty"`
+	Excel *ExcelOptions `json:"Excel,omitempty"`
+	JSON  *JSONOptions  `json:"Json,omitempty"`
+}
+
+// CsvOptions defines how DataBrew reads a CSV dataset input
+// (aws-sdk-go-v2/service/databrew/types.CsvOptions).
+type CsvOptions struct {
+	HeaderRow *bool  `json:"HeaderRow,omitempty"`
+	Delimiter string `json:"Delimiter,omitempty"`
+}
+
+// ExcelOptions defines how DataBrew reads an Excel dataset input
+// (aws-sdk-go-v2/service/databrew/types.ExcelOptions).
+type ExcelOptions struct {
+	HeaderRow    *bool    `json:"HeaderRow,omitempty"`
+	SheetIndexes []int32  `json:"SheetIndexes,omitempty"`
+	SheetNames   []string `json:"SheetNames,omitempty"`
+}
+
+// JSONOptions defines how DataBrew reads a JSON dataset input
+// (aws-sdk-go-v2/service/databrew/types.JSONOptions).
+type JSONOptions struct {
+	MultiLine bool `json:"MultiLine,omitempty"`
 }
 
 // DatasetInput holds the data source for a dataset.
@@ -65,8 +86,9 @@ type DatetimeOptions struct {
 
 // S3Location references an S3 path.
 type S3Location struct {
-	Bucket string `json:"Bucket"`
-	Key    string `json:"Key,omitempty"`
+	Bucket      string `json:"Bucket"`
+	Key         string `json:"Key,omitempty"`
+	BucketOwner string `json:"BucketOwner,omitempty"`
 }
 
 // DataCatalogInput references a Glue Data Catalog table.
@@ -174,37 +196,83 @@ type RecipeRef struct {
 	RecipeVersion string `json:"RecipeVersion,omitempty"`
 }
 
+// DatabaseTableOutputOptions specifies how and where a recipe job writes
+// database output (aws-sdk-go-v2/service/databrew/types.DatabaseTableOutputOptions).
+type DatabaseTableOutputOptions struct {
+	TempDirectory *S3Location `json:"TempDirectory,omitempty"`
+	TableName     string      `json:"TableName"`
+}
+
+// S3TableOutputOptions specifies the S3 location for a recipe job's Glue Data
+// Catalog output (aws-sdk-go-v2/service/databrew/types.S3TableOutputOptions).
+type S3TableOutputOptions struct {
+	Location S3Location `json:"Location,omitzero"`
+}
+
+// DataCatalogOutput represents where a recipe job writes Glue Data Catalog
+// output (aws-sdk-go-v2/service/databrew/types.DataCatalogOutput).
+type DataCatalogOutput struct {
+	DatabaseOptions *DatabaseTableOutputOptions `json:"DatabaseOptions,omitempty"`
+	S3Options       *S3TableOutputOptions       `json:"S3Options,omitempty"`
+	DatabaseName    string                      `json:"DatabaseName"`
+	TableName       string                      `json:"TableName"`
+	CatalogID       string                      `json:"CatalogId,omitempty"`
+	Overwrite       bool                        `json:"Overwrite,omitempty"`
+}
+
+// DatabaseOutput represents a JDBC database output destination for a recipe
+// job (aws-sdk-go-v2/service/databrew/types.DatabaseOutput).
+type DatabaseOutput struct {
+	DatabaseOptions    *DatabaseTableOutputOptions `json:"DatabaseOptions"`
+	GlueConnectionName string                      `json:"GlueConnectionName"`
+	DatabaseOutputMode string                      `json:"DatabaseOutputMode,omitempty"`
+}
+
+// JobSample determines how many rows a profile job processes
+// (aws-sdk-go-v2/service/databrew/types.JobSample).
+type JobSample struct {
+	Mode string `json:"Mode,omitempty"`
+	Size int64  `json:"Size,omitempty"`
+}
+
 // Job represents a DataBrew job. AccountID mirrors
 // aws-sdk-go-v2/service/databrew/types.Job's AccountId member -- see
 // Dataset's AccountID doc comment for why it's safe to include on Describe
 // responses too.
 type Job struct {
-	ProfileConfiguration     map[string]any    `json:"ProfileConfiguration,omitempty"`
-	JobSample                map[string]any    `json:"JobSample,omitempty"`
-	Tags                     map[string]string `json:"Tags,omitempty"`
-	RecipeReference          *RecipeRef        `json:"RecipeReference,omitempty"`
-	EncryptionMode           string            `json:"EncryptionMode,omitempty"`
-	EncryptionKeyArn         string            `json:"EncryptionKeyArn,omitempty"`
-	DatasetName              string            `json:"DatasetName,omitempty"`
-	ProjectName              string            `json:"ProjectName,omitempty"`
-	Name                     string            `json:"Name"`
-	CreatedBy                string            `json:"CreatedBy,omitempty"`
-	AccountID                string            `json:"AccountId,omitempty"`
-	RecipeName               string            `json:"-"`
-	RoleArn                  string            `json:"RoleArn,omitempty"`
-	LogSubscription          string            `json:"LogSubscription,omitempty"`
-	Type                     string            `json:"Type,omitempty"`
-	LastModifiedBy           string            `json:"LastModifiedBy,omitempty"`
-	Arn                      string            `json:"ResourceArn"`
-	ValidationConfigurations []map[string]any  `json:"ValidationConfigurations,omitempty"`
-	DataCatalogOutputs       []map[string]any  `json:"DataCatalogOutputs,omitempty"`
-	DatabaseOutputs          []map[string]any  `json:"DatabaseOutputs,omitempty"`
-	Outputs                  []Output          `json:"Outputs,omitempty"`
-	Timeout                  int               `json:"Timeout,omitempty"`
-	MaxRetries               int               `json:"MaxRetries,omitempty"`
-	MaxCapacity              int               `json:"MaxCapacity,omitempty"`
-	LastModifiedDate         float64           `json:"LastModifiedDate,omitempty"`
-	CreateDate               float64           `json:"CreateDate,omitempty"`
+	// ProfileConfiguration is left untyped: it nests 4 levels deep
+	// (ProfileConfiguration -> ColumnStatisticsConfigurations ->
+	// Statistics(StatisticsConfiguration) -> Overrides([]StatisticOverride)),
+	// spans 6 distinct struct shapes, and carries two independent
+	// list-of-struct branches (column overrides and entity-detector
+	// AllowedStatistics) -- deep enough that a partial model risks silently
+	// dropping fields a client can't tell were never implemented.
+	ProfileConfiguration     map[string]any      `json:"ProfileConfiguration,omitempty"`
+	JobSample                *JobSample          `json:"JobSample,omitempty"`
+	Tags                     map[string]string   `json:"Tags,omitempty"`
+	RecipeReference          *RecipeRef          `json:"RecipeReference,omitempty"`
+	EncryptionMode           string              `json:"EncryptionMode,omitempty"`
+	EncryptionKeyArn         string              `json:"EncryptionKeyArn,omitempty"`
+	DatasetName              string              `json:"DatasetName,omitempty"`
+	ProjectName              string              `json:"ProjectName,omitempty"`
+	Name                     string              `json:"Name"`
+	CreatedBy                string              `json:"CreatedBy,omitempty"`
+	AccountID                string              `json:"AccountId,omitempty"`
+	RecipeName               string              `json:"-"`
+	RoleArn                  string              `json:"RoleArn,omitempty"`
+	LogSubscription          string              `json:"LogSubscription,omitempty"`
+	Type                     string              `json:"Type,omitempty"`
+	LastModifiedBy           string              `json:"LastModifiedBy,omitempty"`
+	Arn                      string              `json:"ResourceArn"`
+	ValidationConfigurations []map[string]any    `json:"ValidationConfigurations,omitempty"`
+	DataCatalogOutputs       []DataCatalogOutput `json:"DataCatalogOutputs,omitempty"`
+	DatabaseOutputs          []DatabaseOutput    `json:"DatabaseOutputs,omitempty"`
+	Outputs                  []Output            `json:"Outputs,omitempty"`
+	Timeout                  int                 `json:"Timeout,omitempty"`
+	MaxRetries               int                 `json:"MaxRetries,omitempty"`
+	MaxCapacity              int                 `json:"MaxCapacity,omitempty"`
+	LastModifiedDate         float64             `json:"LastModifiedDate,omitempty"`
+	CreateDate               float64             `json:"CreateDate,omitempty"`
 }
 
 // JobExtras bundles the optional job fields that are specific to one of the
@@ -220,13 +288,15 @@ type Job struct {
 // CreateProfileJobInput/CreateRecipeJobInput both accept all three but the
 // pre-existing CreateJob signature silently dropped them.
 type JobExtras struct {
+	// ProfileConfiguration stays untyped -- see Job.ProfileConfiguration's
+	// doc comment.
 	ProfileConfiguration     map[string]any
-	JobSample                map[string]any
+	JobSample                *JobSample
 	EncryptionMode           string
 	EncryptionKeyArn         string
 	LogSubscription          string
-	DataCatalogOutputs       []map[string]any
-	DatabaseOutputs          []map[string]any
+	DataCatalogOutputs       []DataCatalogOutput
+	DatabaseOutputs          []DatabaseOutput
 	ValidationConfigurations []map[string]any
 	MaxCapacity              int
 	MaxRetries               int

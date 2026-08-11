@@ -146,12 +146,19 @@ func TestIntegration_S3_PresignedURLs(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				// Wait for expiry.
-				time.Sleep(2 * time.Second)
+				// Poll until the presigned URL's 1-second expiry has passed.
+				var resp *http.Response
+				require.Eventually(t, func() bool {
+					var getErr error
+					resp, getErr = http.Get(presigned.URL)
 
-				resp, err := http.Get(presigned.URL)
-				require.NoError(t, err)
-				defer resp.Body.Close()
+					if getErr != nil {
+						return false
+					}
+					defer resp.Body.Close()
+
+					return resp.StatusCode == http.StatusForbidden
+				}, 5*time.Second, 100*time.Millisecond)
 
 				assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 			},

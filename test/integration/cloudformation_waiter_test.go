@@ -38,7 +38,10 @@ func TestIntegration_CloudFormation_StackCreateCompleteWaiter(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteStack(ctx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 
 	waiter := cloudformationsdk.NewStackCreateCompleteWaiter(client)
@@ -67,7 +70,10 @@ func TestIntegration_CloudFormation_StackUpdateCompleteWaiter(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteStack(ctx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 
 	// Update the stack

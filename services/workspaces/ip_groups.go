@@ -13,13 +13,15 @@ func (b *InMemoryBackend) CreateIpGroup( //nolint:revive,staticcheck // existing
 	rules := make([]ipRuleItem, len(userRules))
 	copy(rules, userRules)
 
+	stored := cloneTags(tags)
 	b.ipGroups.Put(&storedIpGroup{
 		GroupID:   id,
 		GroupName: groupName,
 		GroupDesc: groupDesc,
 		UserRules: rules,
-		Tags:      cloneTags(tags),
+		Tags:      stored,
 	})
+	b.tags[id] = stored
 
 	return id, nil
 }

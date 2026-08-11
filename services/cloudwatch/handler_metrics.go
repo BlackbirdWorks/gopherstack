@@ -416,8 +416,12 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 		Code  string `xml:"Code"`
 		Value string `xml:"Value"`
 	}
+	// resultEntry has no XMLName override: one previously set to "member" won for
+	// the repeating element name over the parent field's own tag (Go's
+	// encoding/xml gives a child XMLName tag priority), which silently dropped
+	// the <MetricDataResults> wrapping level a real client needs
+	// (schemas.go: GetMetricDataOutput_MetricDataResults = AddMember("MetricDataResults", ...)).
 	type resultEntry struct {
-		XMLName    xml.Name     `xml:"member"`
 		ID         string       `xml:"Id"`
 		Label      string       `xml:"Label,omitempty"`
 		StatusCode string       `xml:"StatusCode"`
@@ -431,7 +435,7 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 		Xmlns             string        `xml:"xmlns,attr"`
 		RequestID         string        `xml:"ResponseMetadata>RequestId"`
 		NextToken         string        `xml:"GetMetricDataResult>NextToken,omitempty"`
-		MetricDataResults []resultEntry `xml:"GetMetricDataResult>MetricDataResults"`
+		MetricDataResults []resultEntry `xml:"GetMetricDataResult>MetricDataResults>member"`
 		Messages          []messageXML  `xml:"GetMetricDataResult>Messages>member,omitempty"`
 	}
 

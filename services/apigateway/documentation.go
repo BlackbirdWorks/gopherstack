@@ -185,7 +185,9 @@ func (b *InMemoryBackend) UpdateDocumentationPart(input UpdateDocumentationPartI
 		part.Properties = input.Properties
 	}
 
-	return part, nil
+	cp := *part
+
+	return &cp, nil
 }
 
 // UpdateDocumentationVersion updates a documentation version's description.
@@ -208,5 +210,7 @@ func (b *InMemoryBackend) UpdateDocumentationVersion(
 		ver.Description = input.Description
 	}
 
-	return ver, nil
+	cp := *ver
+
+	return &cp, nil
 }

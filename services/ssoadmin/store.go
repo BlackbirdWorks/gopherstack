@@ -16,7 +16,14 @@ type InMemoryBackend struct {
 	permissionSetsByInstance *store.Index[PermissionSet]
 	assignments              map[string][]*AccountAssignment
 	// assignmentCreationIDs maps assignmentKey|accountID|principalType|principalID → requestID for idempotency.
-	assignmentCreationIDs   map[string]string
+	assignmentCreationIDs map[string]string
+	// provisionedAt maps provisionedAtKey(instanceArn, permissionSetArn, accountID) →
+	// the last time that permission set was (re-)provisioned to that account,
+	// via CreateAccountAssignment (implicit) or ProvisionPermissionSet
+	// (explicit). Compared against PermissionSet.ModifiedDate to answer the
+	// ProvisioningStatus filter on ListPermissionSetsProvisionedToAccount/
+	// ListAccountsForProvisionedPermissionSet.
+	provisionedAt           map[string]time.Time
 	creationStatuses        *store.Table[ProvisioningStatus]
 	deletionStatuses        *store.Table[ProvisioningStatus]
 	provisioningStatuses    *store.Table[ProvisioningStatus]
@@ -69,6 +76,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		registry:                store.NewRegistry(),
 		assignments:             make(map[string][]*AccountAssignment),
 		assignmentCreationIDs:   make(map[string]string),
+		provisionedAt:           make(map[string]time.Time),
 		instanceRegions:         make(map[string][]RegionMetadata),
 		customerManagedPolicies: make(map[string][]CustomerManagedPolicyReference),
 		applicationAssignments:  make(map[string][]*ApplicationAssignment),
@@ -103,6 +111,7 @@ func (b *InMemoryBackend) Reset() {
 	b.assignments = make(map[string][]*AccountAssignment)
 	b.instanceRegions = make(map[string][]RegionMetadata)
 	b.assignmentCreationIDs = make(map[string]string)
+	b.provisionedAt = make(map[string]time.Time)
 	b.customerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
 	b.applicationAssignments = make(map[string][]*ApplicationAssignment)
 	b.applicationScopes = make(map[string]map[string][]string)

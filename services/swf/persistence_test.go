@@ -240,14 +240,14 @@ func verifyActivityTypeRestored(t *testing.T, b *swf.InMemoryBackend, domainName
 func verifyExecutionAndHistoryRestored(t *testing.T, b *swf.InMemoryBackend, domainName, workflowID, runID string) {
 	t.Helper()
 
-	gotExec, err := b.DescribeWorkflowExecution(domainName, workflowID)
+	gotExec, err := b.DescribeWorkflowExecution(domainName, workflowID, "")
 	require.NoError(t, err)
 	assert.Equal(t, runID, gotExec.RunID)
 
 	execs := b.ListOpenWorkflowExecutions(domainName, swf.ExecutionFilter{})
 	assert.Len(t, execs, 1)
 
-	events, _ := b.GetWorkflowExecutionHistory(domainName, workflowID, 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory(domainName, workflowID, "", 0, "", false)
 	require.NotEmpty(t, events)
 	assert.Equal(t, "WorkflowExecutionStarted", events[0].EventType)
 }
@@ -359,7 +359,7 @@ func TestSnapshotRestore_ChildLinkAndOpenTimers(t *testing.T) {
 	b2 := swf.NewInMemoryBackend()
 	require.NoError(t, b2.Restore(t.Context(), data))
 
-	child, err := b2.DescribeWorkflowExecution("dom", "child-1")
+	child, err := b2.DescribeWorkflowExecution("dom", "child-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", child.Status)
 
@@ -400,7 +400,7 @@ func TestSnapshotRestore_ChildLinkAndOpenTimers(t *testing.T) {
 		DecisionType:                   "CompleteWorkflowExecution",
 		CompleteWorkflowExecutionAttrs: &swf.CompleteWorkflowExecutionDecisionAttrs{Result: "done"},
 	}}))
-	events, _ := b2.GetWorkflowExecutionHistory("dom", "parent-1", 0, "", false)
+	events, _ := b2.GetWorkflowExecutionHistory("dom", "parent-1", "", 0, "", false)
 	var sawChildCompleted bool
 	for i := range events {
 		if events[i].EventType == "ChildWorkflowExecutionCompleted" {

@@ -275,7 +275,7 @@ func TestPersistence_DeviceWebAuthnAndUserSettingsSurviveSnapshot(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, b.UpdateDeviceStatus(accessToken, deviceKey, "remembered"))
 
-	_, err = b.CompleteWebAuthnRegistration(accessToken, "persist-cred", "platform")
+	_, err = b.CompleteWebAuthnRegistration(accessToken, "persist-cred", "platform", nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.SetUserSettings(accessToken, []cognitoidp.MFAOptionType{

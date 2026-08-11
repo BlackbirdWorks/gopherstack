@@ -2,8 +2,10 @@ package efs_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/efs"
@@ -40,8 +42,10 @@ func TestLifecyclePolicyValidation(t *testing.T) {
 			wantErrIs: efs.ErrValidation,
 		},
 		{
-			name:   "all_none_valid",
-			policy: efs.LifecyclePolicy{TransitionToIA: "NONE"},
+			name:      "none_not_a_real_enum_member_rejected",
+			policy:    efs.LifecyclePolicy{TransitionToIA: "NONE"},
+			wantErr:   true,
+			wantErrIs: efs.ErrValidation,
 		},
 		{
 			name:   "empty_policy_valid",
@@ -68,6 +72,47 @@ func TestLifecyclePolicyValidation(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+// Anti-drift: every value the pinned SDK's types.TransitionToIARules and
+// types.TransitionToArchiveRules enums know about must be accepted, so a
+// hand-maintained allowlist can't fall behind again.
+func TestLifecyclePolicy_EverySDKEnumValueAccepted(t *testing.T) {
+	t.Parallel()
+
+	for i, v := range sdktypes.TransitionToIARules("").Values() {
+		t.Run("transition_to_ia_"+string(v), func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestEFSBackend()
+			fs, err := b.CreateFileSystem(context.Background(), fsReq(fmt.Sprintf("tok-ia-%d", i)))
+			require.NoError(t, err)
+
+			_, err = b.PutLifecycleConfiguration(
+				context.Background(),
+				fs.FileSystemID,
+				[]efs.LifecyclePolicy{{TransitionToIA: string(v)}},
+			)
+			require.NoError(t, err, "expected SDK TransitionToIARules %s to be accepted", v)
+		})
+	}
+
+	for i, v := range sdktypes.TransitionToArchiveRules("").Values() {
+		t.Run("transition_to_archive_"+string(v), func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestEFSBackend()
+			fs, err := b.CreateFileSystem(context.Background(), fsReq(fmt.Sprintf("tok-archive-%d", i)))
+			require.NoError(t, err)
+
+			_, err = b.PutLifecycleConfiguration(
+				context.Background(),
+				fs.FileSystemID,
+				[]efs.LifecyclePolicy{{TransitionToArchive: string(v)}},
+			)
+			require.NoError(t, err, "expected SDK TransitionToArchiveRules %s to be accepted", v)
 		})
 	}
 }

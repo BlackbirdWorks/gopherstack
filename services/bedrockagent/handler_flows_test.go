@@ -68,7 +68,9 @@ func TestHandlerFlowCRUD(t *testing.T) {
 		_ = json.Unmarshal(r.Body.Bytes(), &resp)
 		id := resp["id"].(string)
 
-		rec2 := doRequest(t, h2, e2, http.MethodPost, "/flows/"+id+"/prepare", nil)
+		// Real PrepareFlow POSTs to "/flows/{flowIdentifier}/" -- no
+		// "/prepare" suffix (botocore bedrock-agent 2023-06-05).
+		rec2 := doRequest(t, h2, e2, http.MethodPost, "/flows/"+id, nil)
 		if rec2.Code != http.StatusAccepted {
 			t.Errorf("got %d want 202", rec2.Code)
 		}

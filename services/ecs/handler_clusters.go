@@ -311,11 +311,10 @@ func (h *Handler) handleUpdateClusterSettings(
 
 // ----- UpdateCluster -----
 //
-// The real UpdateClusterRequest has only cluster, settings, configuration,
-// and serviceConnectDefaults -- no capacityProviders or
-// defaultCapacityProviderStrategy. Capacity-provider association is managed
-// exclusively via the separate PutClusterCapacityProviders operation (see
-// handlePutClusterCapacityProviders above). configuration and
+// The real UpdateClusterRequest has only cluster, settings, configuration, and
+// serviceConnectDefaults -- no capacityProviders or
+// defaultCapacityProviderStrategy, which are managed exclusively via the
+// separate PutClusterCapacityProviders operation. configuration and
 // serviceConnectDefaults are not modeled by this backend.
 
 type updateClusterInput struct {

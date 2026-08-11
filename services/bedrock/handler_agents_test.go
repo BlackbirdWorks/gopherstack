@@ -455,7 +455,7 @@ func TestAgentResourceTags(t *testing.T) {
 
 	h, _ := newTestAgentsHandler(t)
 
-	resourceArn := "arn:aws:bedrock-agent:us-east-1:000000000000:flow/flow-00000001"
+	resourceArn := "arn:aws:bedrock:us-east-1:000000000000:flow/flow-00000001"
 
 	// Tag
 	rec := doAgentRequest(t, h, http.MethodPost, "/tags/"+resourceArn, map[string]any{

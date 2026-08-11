@@ -317,7 +317,7 @@ func seedAuditAndSecurity(t *testing.T, b *iot.InMemoryBackend) {
 func seedCertsStreamsMetrics(t *testing.T, b *iot.InMemoryBackend) string {
 	t.Helper()
 
-	caCert, err := b.RegisterCACertificate("fake-ca-pem", "ACTIVE")
+	caCert, err := b.RegisterCACertificate("fake-ca-pem", "ACTIVE", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateStream(&iot.CreateStreamInput{
@@ -353,7 +353,7 @@ func seedPackagesAndCommands(t *testing.T, b *iot.InMemoryBackend) {
 
 	_, err := b.CreateOTAUpdate(
 		"gap-ota-update", "gap ota", "arn:aws:iam::123456789012:role/gap-role",
-		[]string{"arn:aws:iot:us-east-1:123456789012:thing/gap-thing"}, nil,
+		[]string{"arn:aws:iot:us-east-1:123456789012:thing/gap-thing"}, nil, nil,
 	)
 	require.NoError(t, err)
 

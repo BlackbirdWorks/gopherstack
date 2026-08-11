@@ -41,18 +41,15 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 			return notFoundResponse(c, err)
 		}
 
-		if errors.Is(err, awserr.ErrAlreadyExists) {
-			return conflictResponse(c, err)
-		}
-
-		if errors.Is(err, awserr.ErrInvalidParameter) {
+		// CreateConfigurationProfile models only BadRequestException,
+		// InternalServerException, ResourceNotFoundException and
+		// ServiceQuotaExceededException (appconfig@v1.48.4 deserializers.go:267) --
+		// no ConflictException, so a name collision maps to BadRequestException here.
+		if errors.Is(err, awserr.ErrAlreadyExists) || errors.Is(err, awserr.ErrInvalidParameter) {
 			return badRequestResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, profile)
@@ -68,10 +65,7 @@ func (h *Handler) handleGetConfigurationProfile(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, profile)
@@ -89,10 +83,7 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	resp := map[string]any{keyItems: profiles}
@@ -133,10 +124,7 @@ func (h *Handler) handleUpdateConfigurationProfile(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, profile)
@@ -151,10 +139,7 @@ func (h *Handler) handleDeleteConfigurationProfile(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

@@ -153,7 +153,7 @@ func TestCreateDistributionWithTags_InvalidTagging(t *testing.T) {
 					<CallerReference>cr-aws-pfx</CallerReference>
 					<Enabled>true</Enabled>
 				</DistributionConfig>
-				<Tags><Tag><Key>aws:reserved</Key><Value>v</Value></Tag></Tags>
+				<Tags><Items><Tag><Key>aws:reserved</Key><Value>v</Value></Tag></Items></Tags>
 			</DistributionConfigWithTags>`,
 			wantCode: http.StatusBadRequest,
 			wantErr:  "InvalidTagging",
@@ -163,8 +163,8 @@ func TestCreateDistributionWithTags_InvalidTagging(t *testing.T) {
 			body: `<DistributionConfigWithTags>` +
 				`<DistributionConfig><CallerReference>cr-long-key</CallerReference>` +
 				`<Enabled>true</Enabled></DistributionConfig>` +
-				`<Tags><Tag><Key>` + strings.Repeat("k", 129) +
-				`</Key><Value>v</Value></Tag></Tags></DistributionConfigWithTags>`,
+				`<Tags><Items><Tag><Key>` + strings.Repeat("k", 129) +
+				`</Key><Value>v</Value></Tag></Items></Tags></DistributionConfigWithTags>`,
 			wantCode: http.StatusBadRequest,
 			wantErr:  "InvalidTagging",
 		},
@@ -175,7 +175,7 @@ func TestCreateDistributionWithTags_InvalidTagging(t *testing.T) {
 					<CallerReference>cr-valid-tags</CallerReference>
 					<Enabled>true</Enabled>
 				</DistributionConfig>
-				<Tags><Tag><Key>env</Key><Value>prod</Value></Tag></Tags>
+				<Tags><Items><Tag><Key>env</Key><Value>prod</Value></Tag></Items></Tags>
 			</DistributionConfigWithTags>`,
 			wantCode: http.StatusCreated,
 		},
@@ -436,7 +436,9 @@ func TestCreateDistributionWithTags(t *testing.T) {
 			<Enabled>true</Enabled>
 		</DistributionConfig>
 		<Tags>
-			<Tag><Key>env</Key><Value>prod</Value></Tag>
+			<Items>
+				<Tag><Key>env</Key><Value>prod</Value></Tag>
+			</Items>
 		</Tags>
 	</DistributionConfigWithTags>`
 	resp := cfOK(t, h, http.MethodPost, prefix+"distribution?Resource=WithTags", body)
@@ -452,6 +454,15 @@ func TestCreateDistributionWithTags(t *testing.T) {
 	getResp := cfOK(t, h, http.MethodGet, prefix+"distribution/"+distID, "")
 	if !strings.Contains(getResp, distID) {
 		t.Errorf("get did not return distribution: %s", getResp)
+	}
+
+	// The Tags sent at creation must actually have been parsed (Tags>Items>Tag
+	// on the wire, not Tags>Tag; see distributionConfigWithTagsXML), not just
+	// silently dropped while the create still reports success.
+	arn := fmt.Sprintf("arn:aws:cloudfront::123456789012:distribution/%s", distID)
+	tagsResp := cfOK(t, h, http.MethodGet, prefix+"tagging?Resource="+arn, "")
+	if !strings.Contains(tagsResp, "<Key>env</Key>") || !strings.Contains(tagsResp, "<Value>prod</Value>") {
+		t.Errorf("expected tag applied at creation to be retrievable, got: %s", tagsResp)
 	}
 }
 
@@ -557,7 +568,7 @@ func TestDistributionCreatesAsDeployed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			d, err := b.CreateDistribution(tc.callerRef, "test", true, nil)
 			require.NoError(t, err)
 			assert.Equal(t, "Deployed", d.Status)
@@ -578,7 +589,7 @@ func TestDistributionHasLastModifiedTime(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			d, err := b.CreateDistribution("ref-lmt", "test", true, nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, d.LastModifiedTime, tc.name)
@@ -599,7 +610,7 @@ func TestUpdateDistributionSetsInProgress(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			d, err := b.CreateDistribution("ref-upd", "initial", true, nil)
 			require.NoError(t, err)
 
@@ -624,7 +635,7 @@ func TestCopyDistributionCreatesAsDeployed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			src, err := b.CreateDistribution("ref-src", "source", true, nil)
 			require.NoError(t, err)
 
@@ -649,7 +660,7 @@ func TestDistributionResponseHasLastModifiedTime(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
 				minimalDistConfig("ref-lmt-h", "test", true))
 			require.Equal(t, http.StatusCreated, rec.Code, tc.name)
@@ -699,7 +710,7 @@ func TestListDistributionsPagination(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			for i := range tc.numDists {
 				rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
 					minimalDistConfig(fmt.Sprintf("ref-pg-%d", i), "test", true))

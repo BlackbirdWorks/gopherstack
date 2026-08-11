@@ -71,6 +71,9 @@ type Runner struct {
 	sageMaker   SageMakerPipelineStarter
 	ecsRunner   ECSTaskRunner
 	lastFiredAt map[string]time.Time
+	// invalidExprWarned tracks schedule keys that have already logged an unparseable
+	// expression, so a bad stored expression warns once instead of every poll.
+	invalidExprWarned map[string]struct{}
 	// cronCache caches parsed cron fields keyed by expression string to avoid re-parsing on every poll.
 	cronCache map[string]*cronFields
 	// locCache caches resolved *time.Location values keyed by IANA timezone name (as
@@ -84,10 +87,11 @@ type Runner struct {
 // NewRunner creates a new Runner for the given scheduler backend.
 func NewRunner(backend StorageBackend) *Runner {
 	return &Runner{
-		backend:     backend,
-		lastFiredAt: make(map[string]time.Time),
-		cronCache:   make(map[string]*cronFields),
-		locCache:    make(map[string]*time.Location),
+		backend:           backend,
+		lastFiredAt:       make(map[string]time.Time),
+		invalidExprWarned: make(map[string]struct{}),
+		cronCache:         make(map[string]*cronFields),
+		locCache:          make(map[string]*time.Location),
 	}
 }
 
@@ -158,7 +162,7 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 			continue
 		}
 
-		if r.isDue(s, now) {
+		if r.isDue(ctx, s, now) {
 			r.mu.Lock()
 			r.lastFiredAt[key] = now
 			r.mu.Unlock()
@@ -167,11 +171,18 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 		}
 	}
 
-	// Sweep lastFiredAt entries for schedules that no longer exist to prevent unbounded growth.
+	// Sweep lastFiredAt/invalidExprWarned entries for schedules that no longer exist
+	// to prevent unbounded growth.
 	r.mu.Lock()
 	for key := range r.lastFiredAt {
 		if _, ok := activeKeys[key]; !ok {
 			delete(r.lastFiredAt, key)
+		}
+	}
+
+	for key := range r.invalidExprWarned {
+		if _, ok := activeKeys[key]; !ok {
+			delete(r.invalidExprWarned, key)
 		}
 	}
 	r.mu.Unlock()
@@ -198,7 +209,7 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 // StartDate/EndDate gate recurring (cron/rate) schedules but are ignored for
 // one-time (at()) schedules -- both match AWS's documented behaviour ("EventBridge
 // Scheduler ignores StartDate/EndDate for one-time schedules").
-func (r *Runner) isDue(s *Schedule, now time.Time) bool {
+func (r *Runner) isDue(ctx context.Context, s *Schedule, now time.Time) bool {
 	expr := strings.TrimSpace(s.ScheduleExpression)
 	key := scheduleKey(s.GroupName, s.Name)
 
@@ -208,18 +219,37 @@ func (r *Runner) isDue(s *Schedule, now time.Time) bool {
 			return false
 		}
 
-		return r.isDueRate(key, expr, now)
+		return r.isDueRate(ctx, key, expr, now)
 	case strings.HasPrefix(expr, "cron("):
 		if !withinScheduleWindow(s, now) {
 			return false
 		}
 
-		return r.isDueCron(key, expr, now, r.cachedLocation(s.ScheduleExpressionTimezone))
+		return r.isDueCron(ctx, key, expr, now, r.cachedLocation(s.ScheduleExpressionTimezone))
 	case strings.HasPrefix(expr, "at("):
-		return r.isDueAt(key, expr, now, r.cachedLocation(s.ScheduleExpressionTimezone))
+		return r.isDueAt(ctx, key, expr, now, r.cachedLocation(s.ScheduleExpressionTimezone))
 	}
 
 	return false
+}
+
+// warnInvalidExpression logs once per schedule key when a stored expression fails to
+// parse. Unreachable for schedules created after gopherstack-8cg7 (Create/UpdateSchedule
+// now reject invalid expressions at write time) but a snapshot taken before that fix can
+// still hold one; swallowing keeps the poll loop from crashing while this still surfaces
+// the otherwise-invisible "never fires" failure, once, instead of every poll forever.
+func (r *Runner) warnInvalidExpression(ctx context.Context, key, expr string, err error) {
+	r.mu.Lock()
+	_, alreadyWarned := r.invalidExprWarned[key]
+	r.invalidExprWarned[key] = struct{}{}
+	r.mu.Unlock()
+
+	if alreadyWarned {
+		return
+	}
+
+	logger.Load(ctx).WarnContext(ctx, "scheduler: schedule has an unparseable expression and will never fire",
+		"schedule", key, "expression", expr, "error", err)
 }
 
 // withinScheduleWindow reports whether now falls within the schedule's optional
@@ -267,9 +297,11 @@ func (r *Runner) cachedLocation(name string) *time.Location {
 }
 
 // isDueRate returns true when the rate interval has elapsed since the last firing.
-func (r *Runner) isDueRate(key, expr string, now time.Time) bool {
+func (r *Runner) isDueRate(ctx context.Context, key, expr string, now time.Time) bool {
 	interval, err := parseRateExpression(expr)
 	if err != nil || interval <= 0 {
+		r.warnInvalidExpression(ctx, key, expr, err)
+
 		return false
 	}
 
@@ -308,9 +340,11 @@ func (r *Runner) cachedParseCron(expr string) (*cronFields, error) {
 
 // isDueCron returns true when now (evaluated in loc, per the schedule's
 // ScheduleExpressionTimezone) matches all fields of the cron expression.
-func (r *Runner) isDueCron(key, expr string, now time.Time, loc *time.Location) bool {
+func (r *Runner) isDueCron(ctx context.Context, key, expr string, now time.Time, loc *time.Location) bool {
 	fields, err := r.cachedParseCron(expr)
 	if err != nil {
+		r.warnInvalidExpression(ctx, key, expr, err)
+
 		return false
 	}
 
@@ -343,9 +377,11 @@ func (r *Runner) isDueCron(key, expr string, now time.Time, loc *time.Location) 
 // ScheduleExpressionTimezone). Because at() schedules invoke their target exactly
 // once, a schedule that has already fired (present in lastFiredAt) never fires
 // again, even if the caller's ActionAfterCompletion left it in place (NONE).
-func (r *Runner) isDueAt(key, expr string, now time.Time, loc *time.Location) bool {
+func (r *Runner) isDueAt(ctx context.Context, key, expr string, now time.Time, loc *time.Location) bool {
 	target, err := parseAtExpression(expr, loc)
 	if err != nil {
+		r.warnInvalidExpression(ctx, key, expr, err)
+
 		return false
 	}
 

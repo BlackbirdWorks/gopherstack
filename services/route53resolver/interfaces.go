@@ -22,6 +22,7 @@ type StorageBackend interface {
 		protocols []string,
 		outpostArn, preferredInstanceType, creatorRequestID string,
 		rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled bool,
+		dns64Enabled, ipv6InternetAccessEnabled bool,
 	) (*ResolverEndpoint, error)
 	GetResolverEndpoint(ctx context.Context, id string) (*ResolverEndpoint, error)
 	ListResolverEndpoints(ctx context.Context) []*ResolverEndpoint
@@ -36,13 +37,15 @@ type StorageBackend interface {
 		id, name, resolverEndpointType string,
 		protocols []string,
 		rniEnhancedMetricsEnabled, targetNameServerMetricsEnabled *bool,
+		dns64Enabled, ipv6InternetAccessEnabled *bool,
+		updateIPAddresses []UpdateIPAddress,
 	) (*ResolverEndpoint, error)
 	DisassociateResolverEndpointIPAddress(ctx context.Context, endpointID, ipID string) (*ResolverEndpoint, error)
 
 	// Rule operations
 	CreateResolverRule(
 		ctx context.Context,
-		name, domainName, ruleType, endpointID, creatorRequestID string,
+		name, domainName, ruleType, endpointID, creatorRequestID, delegationRecord string,
 		targetIps []TargetIP,
 	) (*ResolverRule, error)
 	GetResolverRule(ctx context.Context, id string) (*ResolverRule, error)
@@ -100,7 +103,7 @@ type StorageBackend interface {
 	CreateFirewallRule(ctx context.Context, p CreateFirewallRuleParams) (*FirewallRule, error)
 	DeleteFirewallRule(
 		ctx context.Context,
-		firewallRuleGroupID, firewallDomainListID, firewallThreatProtectionID string,
+		firewallRuleGroupID, firewallDomainListID, firewallThreatProtectionID, qtype string,
 	) (*FirewallRule, error)
 	UpdateFirewallRule(ctx context.Context, p UpdateFirewallRuleParams) (*FirewallRule, error)
 	ListFirewallRules(ctx context.Context, firewallRuleGroupID string) []*FirewallRule

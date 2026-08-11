@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"io"
@@ -200,9 +201,11 @@ func TestIntegration_ACM_ImportCertificate(t *testing.T) {
 	// Generate a real self-signed cert+key pair to import.
 	certPEM, keyPEM := acmGenerateSelfSignedCert(t, "import-test.example.com")
 
+	// ImportCertificate's Certificate/PrivateKey are wire blob fields; the real
+	// SDK base64-encodes them before sending (acm@v1.43.4 serializers.go:3284-3301).
 	importResp := acmPost(t, "ImportCertificate", map[string]any{
-		"Certificate": certPEM,
-		"PrivateKey":  keyPEM,
+		"Certificate": base64.StdEncoding.EncodeToString([]byte(certPEM)),
+		"PrivateKey":  base64.StdEncoding.EncodeToString([]byte(keyPEM)),
 	})
 	importBody := acmReadBody(t, importResp)
 

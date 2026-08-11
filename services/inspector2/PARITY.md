@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: inspector2
-sdk_module: aws-sdk-go-v2/service/inspector2@v1.53.0   # version audited against
+sdk_module: aws-sdk-go-v2/service/inspector2@v1.54.1   # version audited against
 last_audit_commit: 9e3baacb5                            # HEAD when this manifest was written
 last_audit_date: 2026-07-29
 overall: A            # gopherstack-zj76 remainder pass: CIS/code-security name length+charset constraints now enforced (fetched live from AWS API Reference -- the Go SDK module has no length/pattern doc prose for these 4 fields), CoverageFilterCriteria's scanStatusCode/scanStatusReason/scanMode/lastScannedAt facets fixed from accepted-but-silently-ignored to genuinely narrowing (real bug, not just an omission), FindingDetail.Ttps added; authorizationUrl gap and the 7 remaining Cvss/Epss/Evidence-class nested struct types re-confirmed as genuine, deliberately-scoped-out gaps (not oversights) -- no prior family regressed
@@ -65,6 +65,19 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all resour
 ---
 
 ## Notes
+
+**2026-08-07 (fixed by a concurrent account-service pass, gopherstack-303i)**: `RouteMatcher`
+matched `pathEnable`/`pathDisable` (`"/enable"`/`"/disable"`) as raw path *prefixes* with no
+SigV4-service-name gate, so `strings.HasPrefix("/enableRegion", "/enable")` wrongly claimed
+`services/account`'s `POST /enableRegion`/`/disableRegion` before Account's own (correctly
+service-gated) `RouteMatcher` ever ran -- confirmed live via `test/integration/account_test.go`
+(501 NotImplementedException from Inspector2, not the expected Account response). Per this
+package's own `{method, path}` dispatch table, `/enable`/`/disable` are exact fixed paths with
+no children (real Inspector2 has no `/enableFoo` sub-resource), so prefix matching was never
+correct for these two entries regardless of Account. Fixed: `/enable`/`/disable` now require
+exact path equality in `RouteMatcher`, checked before the (unchanged) prefix loop that still
+serves every genuine directory-style prefix (`/filters/`, `/status/`, ...). All existing
+Inspector2 tests still pass unmodified.
 
 Protocol: restjson1. All request/response bodies are JSON; most ops are POST with
 an explicit action path (e.g. `/findings/list`), a handful use GET/PUT/DELETE

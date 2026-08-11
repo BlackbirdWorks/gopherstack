@@ -18,6 +18,42 @@ const maxRecipientsPerMessage = 50
 // Oldest emails are evicted when the limit is exceeded.
 const maxRetainedEmails = 10000
 
+// AWS SES mailbox simulator addresses: the documented, deterministic way to
+// trigger a bounce or complaint outcome without a real receiving mailbox.
+// https://docs.aws.amazon.com/ses/latest/dg/send-an-email-from-console.html#send-email-simulator
+const (
+	simulatorBounceAddress       = "bounce@simulator.amazonses.com"
+	simulatorSuppressionListAddr = "suppressionlist@simulator.amazonses.com"
+	simulatorComplaintAddress    = "complaint@simulator.amazonses.com"
+)
+
+// classifySimulatedRecipients reports whether recipients contains one of the
+// SES mailbox simulator's bounce/suppression-list or complaint addresses.
+func classifySimulatedRecipients(recipients []string) (bool, bool) {
+	var bounced, complained bool
+
+	for _, r := range recipients {
+		switch {
+		case strings.EqualFold(r, simulatorBounceAddress), strings.EqualFold(r, simulatorSuppressionListAddr):
+			bounced = true
+		case strings.EqualFold(r, simulatorComplaintAddress):
+			complained = true
+		}
+	}
+
+	return bounced, complained
+}
+
+// allRecipients concatenates To, Cc, and Bcc into a single slice.
+func allRecipients(to, cc, bcc []string) []string {
+	out := make([]string, 0, len(to)+len(cc)+len(bcc))
+	out = append(out, to...)
+	out = append(out, cc...)
+	out = append(out, bcc...)
+
+	return out
+}
+
 // checkSendingAllowedLocked validates the account-level, quota, and
 // configuration-set preconditions shared by every send operation (SendEmail,
 // SendRawEmail via SendEmail, SendTemplatedEmail, SendBulkTemplatedEmail):
@@ -111,6 +147,7 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 	}
 
 	msgID := "ses-" + uuid.New().String()
+	bounced, complained := classifySimulatedRecipients(allRecipients(in.To, in.Cc, in.Bcc))
 
 	b.appendEmailLocked(Email{
 		MessageID:            msgID,
@@ -128,6 +165,8 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 		ReturnPathArn:        in.ReturnPathArn,
 		SourceArn:            in.SourceArn,
 		Timestamp:            time.Now(),
+		Bounced:              bounced,
+		Complained:           complained,
 	})
 
 	return msgID, nil
@@ -175,6 +214,7 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 	}
 
 	msgID := "ses-" + uuid.New().String()
+	bounced, complained := classifySimulatedRecipients(allRecipients(in.To, in.Cc, in.Bcc))
 
 	b.appendEmailLocked(Email{
 		MessageID:            msgID,
@@ -192,6 +232,8 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 		ReturnPathArn:        in.ReturnPathArn,
 		SourceArn:            in.SourceArn,
 		Timestamp:            time.Now(),
+		Bounced:              bounced,
+		Complained:           complained,
 	})
 
 	return msgID, nil

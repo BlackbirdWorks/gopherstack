@@ -1,5 +1,5 @@
 service: applicationautoscaling
-sdk_module: aws-sdk-go-v2/service/applicationautoscaling@v1.41.12
+sdk_module: aws-sdk-go-v2/service/applicationautoscaling@v1.45.4
 last_audit_commit: 2d47b51d4
 last_audit_date: 2026-07-29
 overall: A            # real, wire-breaking bugs found and fixed

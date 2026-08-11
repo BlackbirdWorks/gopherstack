@@ -18,6 +18,14 @@ families:
   <family>: {status: ok, note: <what was verified / what changed>}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - <description> (bd: gopherstack-xxx)
+structural_gaps:          # divergences that CAN'T be fixed, ever: the underlying data source
+                           # cannot exist in an emulator (no real traffic, no ML/AI engine, no
+                           # billing/settlement system, no physical hardware). Does NOT block an
+                           # A grade — but must be recorded here with justification, not left in
+                           # gaps. NOT an escape hatch: if more implementation effort COULD
+                           # produce real data, however hard, it stays in gaps and still blocks
+                           # nothing — only relabel here when the data source itself is impossible.
+  - <description + why no data source can ever exist> (bd: gopherstack-xxx)
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - <family/op>
 leaks: {status: clean|found, note: <goroutine/janitor/map/ctx findings>}

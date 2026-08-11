@@ -112,11 +112,45 @@ type CloudWatchLoggingOptionUpdate struct {
 	LogStreamARNUpdate        string
 }
 
+// ZeppelinMonitoringConfigUpdate describes an update to a Studio notebook's
+// CloudWatch logging verbosity.
+type ZeppelinMonitoringConfigUpdate struct {
+	LogLevelUpdate string
+}
+
+// CatalogConfigUpdate describes an update to a Studio notebook's Glue Data
+// Catalog database.
+type CatalogConfigUpdate struct {
+	DatabaseARNUpdate string
+}
+
+// DeployAsApplicationConfigUpdate describes an update to a Studio notebook's
+// deploy-as-application S3 base location.
+type DeployAsApplicationConfigUpdate struct {
+	BucketARNUpdate string
+	BasePathUpdate  string
+}
+
+// ZeppelinApplicationConfigUpdate bundles
+// ZeppelinApplicationConfigurationUpdate's four sub-updates.
+type ZeppelinApplicationConfigUpdate struct {
+	MonitoringConfigurationUpdate          *ZeppelinMonitoringConfigUpdate
+	CatalogConfigurationUpdate             *CatalogConfigUpdate
+	DeployAsApplicationConfigurationUpdate *DeployAsApplicationConfigUpdate
+	CustomArtifactsConfigurationUpdate     []CustomArtifactConfigDescription
+	// HasCustomArtifactsConfigurationUpdate distinguishes "no
+	// CustomArtifactsConfigurationUpdate in the request" from "...Update with
+	// zero entries" (which real AWS treats as clearing every custom artifact --
+	// same rationale as HasEnvironmentPropertyUpdates).
+	HasCustomArtifactsConfigurationUpdate bool
+}
+
 // ApplicationConfigurationUpdate bundles every optional delta accepted by
 // UpdateApplication's ApplicationConfigurationUpdate request field.
 type ApplicationConfigurationUpdate struct {
 	ApplicationCodeConfigurationUpdate           *ApplicationCodeConfigUpdate
 	FlinkApplicationConfigurationUpdate          *FlinkApplicationConfigUpdate
+	ZeppelinApplicationConfigurationUpdate       *ZeppelinApplicationConfigUpdate
 	ApplicationSnapshotConfigurationUpdate       *bool
 	ApplicationSystemRollbackConfigurationUpdate *bool
 	ApplicationEncryptionConfigurationUpdate     *ApplicationEncryptionConfigDesc
@@ -157,6 +191,7 @@ type UpdateApplicationParams struct {
 type SeedConfig struct {
 	CodeConfig                *ApplicationCodeConfigDesc
 	FlinkConfig               *FlinkApplicationConfigDesc
+	ZeppelinConfig            *ZeppelinApplicationConfigDescription
 	SnapshotsEnabled          *bool
 	RollbackEnabled           *bool
 	EncryptionConfig          *ApplicationEncryptionConfigDesc
@@ -176,5 +211,6 @@ func (cfg SeedConfig) IsEmpty() bool {
 	return len(cfg.Inputs) == 0 && len(cfg.Outputs) == 0 && len(cfg.ReferenceDataSources) == 0 &&
 		len(cfg.VpcConfigs) == 0 && len(cfg.CWLOptions) == 0 &&
 		cfg.CodeConfig == nil && cfg.FlinkConfig == nil && len(cfg.EnvironmentPropertyGroups) == 0 &&
-		cfg.SnapshotsEnabled == nil && cfg.RollbackEnabled == nil && cfg.EncryptionConfig == nil
+		cfg.SnapshotsEnabled == nil && cfg.RollbackEnabled == nil && cfg.EncryptionConfig == nil &&
+		cfg.ZeppelinConfig == nil
 }

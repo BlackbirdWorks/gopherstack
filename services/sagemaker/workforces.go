@@ -157,6 +157,7 @@ func (b *InMemoryBackend) CreateWorkforce(ctx context.Context, opts CreateWorkfo
 	}
 
 	store.Put(w)
+	b.workforceARNIndexStore(region)[workforceARN] = opts.Name
 
 	return cloneWorkforce(w), nil
 }
@@ -237,6 +238,7 @@ func (b *InMemoryBackend) DeleteWorkforce(ctx context.Context, name string) erro
 	}
 
 	b.workforcesStore(region).Delete(name)
+	delete(b.workforceARNIndexStore(region), w.WorkforceArn)
 
 	return nil
 }

@@ -15,7 +15,8 @@ func TestListStoredQueriesMetadata(t *testing.T) {
 
 	h := newTestAWSConfigHandler(t)
 	b := h.Backend
-	require.NoError(t, b.PutStoredQuery("my-query"))
+	_, err := b.PutStoredQuery("my-query", "", "", nil)
+	require.NoError(t, err)
 
 	rec := doAWSConfigRequest(t, h, "ListStoredQueries", nil)
 	require.Equal(t, http.StatusOK, rec.Code)

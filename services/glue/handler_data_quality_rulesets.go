@@ -156,6 +156,28 @@ func (h *Handler) handleGetDataQualityRulesetEvaluationRun(
 	return &getDataQualityRulesetEvaluationRunOutput{DataQualityEvaluationRun: run}, nil
 }
 
+// batchGetDataQualityRulesetEvaluationRunInput holds input for
+// BatchGetDataQualityRulesetEvaluationRun.
+type batchGetDataQualityRulesetEvaluationRunInput struct {
+	RunIDs []string `json:"RunIds"`
+}
+
+// batchGetDataQualityRulesetEvaluationRunOutput holds the result for
+// BatchGetDataQualityRulesetEvaluationRun.
+type batchGetDataQualityRulesetEvaluationRunOutput struct {
+	Runs         []*DataQualityEvaluationRun `json:"Runs"`
+	RunsNotFound []string                    `json:"RunsNotFound"`
+}
+
+func (h *Handler) handleBatchGetDataQualityRulesetEvaluationRun(
+	_ context.Context,
+	in *batchGetDataQualityRulesetEvaluationRunInput,
+) (*batchGetDataQualityRulesetEvaluationRunOutput, error) {
+	found, missing := h.Backend.BatchGetDataQualityRulesetEvaluationRun(in.RunIDs)
+
+	return &batchGetDataQualityRulesetEvaluationRunOutput{Runs: found, RunsNotFound: missing}, nil
+}
+
 type cancelDataQualityRulesetEvaluationRunInput struct {
 	RunID string `json:"RunId"`
 }

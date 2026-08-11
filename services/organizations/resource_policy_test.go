@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/organizations"
@@ -374,6 +375,44 @@ func TestPutResourcePolicy_Happy(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
 			assert.NotNil(t, resp["ResourcePolicy"])
+		})
+	}
+}
+
+// TestPutResourcePolicy_ContentSizeLimit verifies PutResourcePolicy enforces
+// the ResourcePolicyContent shape's 40,000-character max.
+func TestPutResourcePolicy_ContentSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		length  int
+		wantErr bool
+	}{
+		{name: "over_limit_rejected", length: 40001, wantErr: true},
+		{name: "at_limit_accepted", length: 40000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			createOrgOn(t, b)
+
+			content := `{"k":"` + strings.Repeat("a", tt.length-8) + `"}`
+			require.Len(t, content, tt.length)
+
+			_, err := b.PutResourcePolicy(content)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "ConstraintViolationException")
+
+				return
+			}
+
+			require.NoError(t, err)
 		})
 	}
 }

@@ -239,7 +239,7 @@ type fleetExtendedFields struct {
 // previously-unflagged gap: CreateFleet accepted (or should have accepted)
 // overflowBehavior/imageId/fleetServiceRole but silently dropped them, and
 // Fleet had no "id" field at all despite the real Fleet shape having one
-// (verified against aws-sdk-go-v2/service/codebuild@v1.68.11's
+// (verified against aws-sdk-go-v2/service/codebuild@v1.72.4's
 // awsAwsjson11_deserializeDocumentFleet, which has cases for "id",
 // "overflowBehavior", "imageId", and "fleetServiceRole").
 func TestHandler_CreateFleet_ExtendedFields(t *testing.T) {
@@ -304,7 +304,7 @@ func TestHandler_UpdateFleet_ExtendedFields(t *testing.T) {
 // fleetNestedConfig decodes the nested Fleet configuration objects
 // (ComputeConfiguration/ProxyConfiguration/VpcConfig/ScalingConfiguration)
 // added by this pass's field-diff against
-// aws-sdk-go-v2/service/codebuild@v1.68.11's types.Fleet -- see PARITY.md gaps.
+// aws-sdk-go-v2/service/codebuild@v1.72.4's types.Fleet -- see PARITY.md gaps.
 type fleetNestedConfig struct {
 	Fleet struct {
 		ComputeConfiguration *struct {
@@ -343,7 +343,7 @@ type fleetNestedConfig struct {
 // TestHandler_Fleet_NestedConfiguration is a table-driven regression test for
 // this pass's field-diff of Fleet's nested config objects (ComputeConfiguration/
 // ProxyConfiguration/VpcConfig/ScalingConfiguration) against real
-// aws-sdk-go-v2/service/codebuild@v1.68.11 types.Fleet/CreateFleetInput/
+// aws-sdk-go-v2/service/codebuild@v1.72.4 types.Fleet/CreateFleetInput/
 // UpdateFleetInput -- previously entirely unmodeled (PARITY.md gap), now wired
 // end to end through CreateFleet, UpdateFleet, and the response shape.
 func TestHandler_Fleet_NestedConfiguration(t *testing.T) {
@@ -535,10 +535,13 @@ func TestHandler_DeleteFleet_RemovesFleet(t *testing.T) {
 			wantDelete: http.StatusOK,
 			wantList:   0,
 		},
+		// DeleteFleet declares no ResourceNotFoundException in its real error set
+		// (botocore codebuild/2016-10-06/service-2.json operations.DeleteFleet.errors:
+		// only InvalidInputException), so it is idempotent.
 		{
-			name:       "delete_missing_fleet_returns_404",
+			name:       "delete_missing_fleet_is_idempotent",
 			deleteArn:  "arn:aws:codebuild:us-east-1:000000000000:fleet/ghost-fleet",
-			wantDelete: http.StatusBadRequest,
+			wantDelete: http.StatusOK,
 		},
 	}
 

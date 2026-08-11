@@ -16,11 +16,12 @@ var ErrNilAppContext = errors.New("AppContext is required")
 //
 // errQuotaExceeded backs ServiceQuotaExceededException, a real, wire-accurate
 // error type declared on CreateOutpost/CreateSite/CreateOrder's own error
-// sets -- this backend has no account-level resource-count quota model (no
-// AWS-published default quota values are available to enforce without
-// fabricating a number), so this sentinel is declared but this emulator has
-// no trigger path for it today, matching services/grafana's identical
-// treatment of AccessDeniedException. See PARITY.md.
+// sets. CreateSite/CreateOutpost enforce it against AWS's own published
+// default quotas (docs.aws.amazon.com/outposts/latest/userguide/outposts-limits.html:
+// 100 sites/Region, 10 Outposts/site -- see consts.go). CreateOrder has no
+// published per-account order quota to enforce without fabricating a number,
+// matching services/grafana's identical treatment of AccessDeniedException --
+// see PARITY.md.
 var (
 	errNotFoundSentinel   = errors.New("resource not found")
 	errConflictSentinel   = errors.New("conflict")
@@ -76,4 +77,9 @@ func conflictErrorWithResource(wireResourceType, resourceID, msg string) error {
 // validationError builds a ValidationException-shaped error.
 func validationError(msg string) error {
 	return &apiError{cause: errValidationSentinel, message: msg}
+}
+
+// quotaExceededError builds a ServiceQuotaExceededException-shaped error.
+func quotaExceededError(msg string) error {
+	return &apiError{cause: errQuotaExceeded, message: msg}
 }

@@ -399,7 +399,7 @@ func TestBackend_DeleteApplication_CleansOperations(t *testing.T) {
 	// Populate a real operations-map entry (StartApplication records one via
 	// recordOperation) so this test actually exercises cleanup of non-empty
 	// state, not just a no-op delete against an already-empty map.
-	_, err = b.StartApplication(ctx, "cleanup-ops-app", nil)
+	_, err = b.StartApplication(ctx, "cleanup-ops-app", nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, kinesisanalyticsv2.OperationsMapKeyCount(b, "us-east-1"))
 
@@ -445,11 +445,11 @@ func TestBackend_StartStopApplication(t *testing.T) {
 			var opID string
 
 			if tt.op == "start" {
-				opID, err = b.StartApplication(ctx, "app-lifecycle", nil)
+				opID, err = b.StartApplication(ctx, "app-lifecycle", nil, nil)
 			} else {
-				_, err = b.StartApplication(ctx, "app-lifecycle", nil)
+				_, err = b.StartApplication(ctx, "app-lifecycle", nil, nil)
 				require.NoError(t, err)
-				opID, err = b.StopApplication(ctx, "app-lifecycle")
+				opID, err = b.StopApplication(ctx, "app-lifecycle", false)
 			}
 
 			if tt.wantErr {

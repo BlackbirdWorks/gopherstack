@@ -35,15 +35,12 @@ func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string)
 	return &u, nil
 }
 
-// userComprehensiveDeps reports whether userName has an SSH public key and/or
-// a linked MFA device, per the comprehensiveBackend state (guarded by its own
-// mutex c.mu — see comp()). Split out of DeleteUser to keep it below the
-// cognitive-complexity threshold and because c.mu must never be acquired
-// while holding b.mu.
-func (b *InMemoryBackend) userComprehensiveDeps(userName string) (bool, bool) {
+// userComprehensiveDepsLocked reports whether userName has an SSH public key
+// and/or a linked MFA device, per the comprehensiveBackend state. Split out of
+// DeleteUser to keep it below the cognitive-complexity threshold. Caller must
+// hold b.mu (comprehensiveBackend's fields are guarded by the same lock).
+func (b *InMemoryBackend) userComprehensiveDepsLocked(userName string) (bool, bool) {
 	c := b.comp()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	hasSSHKey := false
 
@@ -128,11 +125,6 @@ func (b *InMemoryBackend) deleteUserConflictLocked(userName string, hasSSHKey, h
 // DeleteConflictException. See
 // https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html.
 func (b *InMemoryBackend) DeleteUser(userName string) error {
-	// SSH public keys and MFA device links live in comprehensiveBackend,
-	// which is guarded by its own mutex (c.mu) that must never be acquired
-	// while holding b.mu (see comp()). Check them first, before taking b.mu.
-	hasSSHKey, hasMFADevice := b.userComprehensiveDeps(userName)
-
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
@@ -140,6 +132,7 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	hasSSHKey, hasMFADevice := b.userComprehensiveDepsLocked(userName)
 	if err := b.deleteUserConflictLocked(userName, hasSSHKey, hasMFADevice); err != nil {
 		return err
 	}

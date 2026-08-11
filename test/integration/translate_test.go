@@ -97,8 +97,11 @@ func TestIntegration_Translate_TerminologyLifecycle(t *testing.T) {
 			require.NoError(t, err, "ImportTerminology should succeed")
 
 			t.Cleanup(func() {
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
 				_, _ = client.DeleteTerminology(
-					ctx,
+					cleanupCtx,
 					&translatesdk.DeleteTerminologyInput{Name: aws.String(tt.termName)},
 				)
 			})

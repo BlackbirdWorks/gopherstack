@@ -84,7 +84,7 @@ func (h *AgentsHandler) handleCreatePrompt(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, agentErrResp("ValidationException", err.Error()))
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{respPrompt: p})
+	return c.JSON(http.StatusCreated, p)
 }
 
 func (h *AgentsHandler) handleGetPrompt(c *echo.Context, promptID string) error {
@@ -93,7 +93,7 @@ func (h *AgentsHandler) handleGetPrompt(c *echo.Context, promptID string) error 
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respPrompt: p})
+	return c.JSON(http.StatusOK, p)
 }
 
 func (h *AgentsHandler) handleListPrompts(c *echo.Context) error {
@@ -127,7 +127,7 @@ func (h *AgentsHandler) handleUpdatePrompt(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respPrompt: p})
+	return c.JSON(http.StatusOK, p)
 }
 
 func (h *AgentsHandler) handleDeletePrompt(c *echo.Context, promptID string) error {
@@ -135,5 +135,5 @@ func (h *AgentsHandler) handleDeletePrompt(c *echo.Context, promptID string) err
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyPromptID: promptID, keyStatus: statusDeleting})
+	return c.JSON(http.StatusOK, map[string]any{keyID: promptID})
 }

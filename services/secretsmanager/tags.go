@@ -23,6 +23,28 @@ func validateTagCount(existing int, adding int) error {
 	return nil
 }
 
+// tagsToSlice converts the internal tags.Tags store into the []Tag shape the
+// real DescribeSecret/ListSecrets responses use (secretsmanager@v1.44.4
+// types/types.go:265, SecretListEntry.Tags []Tag) -- not the map shape
+// tags.Tags itself marshals to.
+func tagsToSlice(t *tags.Tags) []Tag {
+	if t == nil {
+		return nil
+	}
+
+	kvs := tags.MapToKV(t.Clone())
+	if len(kvs) == 0 {
+		return nil
+	}
+
+	out := make([]Tag, 0, len(kvs))
+	for _, kv := range kvs {
+		out = append(out, Tag{Key: kv.Key, Value: kv.Value})
+	}
+
+	return out
+}
+
 // TaggedSecretInfo contains a secret's ARN and tag snapshot.
 // Used by the Resource Groups Tagging API cross-service listing.
 type TaggedSecretInfo struct {

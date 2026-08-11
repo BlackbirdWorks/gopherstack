@@ -12,7 +12,8 @@ func (b *InMemoryBackend) CreateFlowVersion(flowID string) (*FlowVersion, error)
 	b.mu.Lock("CreateFlowVersion")
 	defer b.mu.Unlock()
 
-	if _, ok := b.flows.Get(flowID); !ok {
+	f, ok := b.flows.Get(flowID)
+	if !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
@@ -22,6 +23,7 @@ func (b *InMemoryBackend) CreateFlowVersion(flowID string) (*FlowVersion, error)
 	fv := &FlowVersion{
 		CreatedAt: time.Now(),
 		FlowID:    flowID,
+		FlowArn:   f.FlowArn,
 		Version:   ver,
 		Status:    flowStatusPrepared,
 	}

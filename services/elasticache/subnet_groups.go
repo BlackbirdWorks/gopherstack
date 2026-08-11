@@ -8,6 +8,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// maxCacheSubnetGroupsPerRegion and maxSubnetsPerCacheSubnetGroup are AWS's
+// documented default quotas ("Subnet groups per Region" / "Subnets per
+// subnet group", docs.aws.amazon.com/AmazonElastiCache/latest/dg/
+// quota-limits.html).
+const (
+	maxCacheSubnetGroupsPerRegion = 300
+	maxSubnetsPerCacheSubnetGroup = 20
+)
+
 func (b *InMemoryBackend) subnetGroupARN(region, name string) string {
 	return arn.Build("elasticache", region, b.accountID, "subnetgroup:"+name)
 }
@@ -25,6 +34,14 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 	tbl := b.subnetGroupsStore(region)
 	if _, exists := tbl.Get(name); exists {
 		return nil, ErrSubnetGroupAlreadyExists
+	}
+
+	if len(subnetIDs) > maxSubnetsPerCacheSubnetGroup {
+		return nil, ErrCacheSubnetQuotaExceeded
+	}
+
+	if tbl.Len() >= maxCacheSubnetGroupsPerRegion {
+		return nil, ErrCacheSubnetGroupQuotaExceeded
 	}
 
 	sg := &CacheSubnetGroup{
@@ -92,6 +109,10 @@ func (b *InMemoryBackend) ModifySubnetGroup(
 	}
 
 	if len(subnetIDs) > 0 {
+		if len(subnetIDs) > maxSubnetsPerCacheSubnetGroup {
+			return nil, ErrCacheSubnetQuotaExceeded
+		}
+
 		sg.SubnetIDs = subnetIDs
 	}
 
@@ -113,6 +134,14 @@ func (b *InMemoryBackend) CreateSubnetGroupFull(
 	tbl := b.subnetGroupsStore(region)
 	if _, exists := tbl.Get(name); exists {
 		return nil, ErrSubnetGroupAlreadyExists
+	}
+
+	if len(subnetIDs) > maxSubnetsPerCacheSubnetGroup {
+		return nil, ErrCacheSubnetQuotaExceeded
+	}
+
+	if tbl.Len() >= maxCacheSubnetGroupsPerRegion {
+		return nil, ErrCacheSubnetGroupQuotaExceeded
 	}
 
 	sg := &CacheSubnetGroup{

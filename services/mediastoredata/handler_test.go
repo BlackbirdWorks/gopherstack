@@ -612,6 +612,46 @@ func TestMediaStoreData_StorageClassValidation(t *testing.T) {
 	}
 }
 
+func TestMediaStoreData_UploadAvailabilityValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		uploadAvailability string
+		wantType           string // __type on the wire; empty means "don't check" (2xx cases).
+		wantStatus         int
+	}{
+		{name: "standard_valid", uploadAvailability: "STANDARD", wantStatus: http.StatusOK},
+		{name: "streaming_valid", uploadAvailability: "STREAMING", wantStatus: http.StatusOK},
+		{name: "empty_defaults_to_standard", uploadAvailability: "", wantStatus: http.StatusOK},
+		{
+			name: "unknown_rejected", uploadAvailability: "BOGUS",
+			wantStatus: http.StatusBadRequest, wantType: "ValidationException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			headers := map[string]string{}
+			if tt.uploadAvailability != "" {
+				headers["X-Amz-Upload-Availability"] = tt.uploadAvailability
+			}
+
+			rec := doRequest(t, h, http.MethodPut, "/avail/file.bin", []byte("data"), headers)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantType != "" {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantType, resp["__type"])
+			}
+		})
+	}
+}
+
 func TestMediaStoreData_ConditionalGet(t *testing.T) {
 	t.Parallel()
 

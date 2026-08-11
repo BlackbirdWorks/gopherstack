@@ -26,6 +26,7 @@ const (
 	keySourceEntityArn        = "SourceEntityArn"
 	keyDefinition             = "Definition"
 	keyDescription            = "Description"
+	keyVersionDescription     = "VersionDescription"
 	keyResourceStatus         = "ResourceStatus"
 
 	queryParamVersionNumber = "version-number"
@@ -100,6 +101,7 @@ func (h *Handler) handleCreateTemplate(c *echo.Context) error {
 		templateID,
 		strField(body, keyName),
 		sourceEntityArnFromBody(body),
+		strField(body, keyVersionDescription),
 		mapField(body, keyDefinition),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
@@ -183,6 +185,7 @@ func (h *Handler) handleUpdateTemplate(c *echo.Context) error {
 		templateID,
 		strField(body, keyName),
 		sourceEntityArnFromBody(body),
+		strField(body, keyVersionDescription),
 		mapField(body, keyDefinition),
 	)
 	if err != nil {

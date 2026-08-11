@@ -146,6 +146,19 @@ func (b *InMemoryBackend) CreateDocument(
 		},
 	}
 
+	if len(input.Tags) > 0 {
+		if b.miscResourceTags[region] == nil {
+			b.miscResourceTags[region] = make(map[string]map[string]string)
+		}
+		miscTags := b.miscResourceTagsStore(region)
+		if miscTags[input.Name] == nil {
+			miscTags[input.Name] = make(map[string]string)
+		}
+		for _, t := range input.Tags {
+			miscTags[input.Name][t.Key] = t.Value
+		}
+	}
+
 	return &CreateDocumentOutput{DocumentDescription: doc.asDocumentDescription()}, nil
 }
 

@@ -28,9 +28,17 @@ type startPersonTrackingReq struct {
 }
 
 func (h *Handler) handleStartPersonTracking(
-	_ context.Context, _ *startPersonTrackingReq,
+	_ context.Context, req *startPersonTrackingReq,
 ) (*startJobResp, error) {
-	jobID, err := h.Backend.StartAsyncJob("person_tracking", "")
+	bucket, name, version := videoRefS3(req.Video)
+
+	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
+		JobType:        "person_tracking",
+		JobTag:         req.JobTag,
+		VideoS3Bucket:  bucket,
+		VideoS3Name:    name,
+		VideoS3Version: version,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +54,7 @@ type getPersonTrackingResp struct {
 func (h *Handler) handleGetPersonTracking(
 	_ context.Context, req *getJobReq,
 ) (*getPersonTrackingResp, error) {
-	base, err := h.getJobBase(req.JobId)
+	base, _, err := h.getJobBase(req.JobId)
 	if err != nil {
 		return nil, err
 	}
@@ -65,9 +73,18 @@ type startSegmentDetectionReq struct {
 }
 
 func (h *Handler) handleStartSegmentDetection(
-	_ context.Context, _ *startSegmentDetectionReq,
+	_ context.Context, req *startSegmentDetectionReq,
 ) (*startJobResp, error) {
-	jobID, err := h.Backend.StartAsyncJob("segment_detection", "")
+	bucket, name, version := videoRefS3(req.Video)
+
+	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
+		JobType:        "segment_detection",
+		JobTag:         req.JobTag,
+		VideoS3Bucket:  bucket,
+		VideoS3Name:    name,
+		VideoS3Version: version,
+		SegmentTypes:   req.SegmentTypes,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -75,24 +92,39 @@ func (h *Handler) handleStartSegmentDetection(
 	return &startJobResp{JobId: jobID}, nil
 }
 
+// segmentTypeInfoWire mirrors types.SegmentTypeInfo (types.go): Type is the
+// segment type requested via StartSegmentDetection's SegmentTypes, echoed
+// back verbatim. ModelVersion is deliberately omitted -- it names the
+// internal Rekognition segment-detection model build and this backend has no
+// legitimate source for that string (fabricating one would violate the
+// no-invented-data rule).
+type segmentTypeInfoWire struct {
+	Type string `json:"Type"`
+}
+
 type getSegmentDetectionResp struct {
 	getJobBaseResp
-	Segments             []struct{} `json:"Segments"`
-	SelectedSegmentTypes []struct{} `json:"SelectedSegmentTypes"`
+	Segments             []struct{}            `json:"Segments"`
+	SelectedSegmentTypes []segmentTypeInfoWire `json:"SelectedSegmentTypes"`
 }
 
 func (h *Handler) handleGetSegmentDetection(
 	_ context.Context, req *getJobReq,
 ) (*getSegmentDetectionResp, error) {
-	base, err := h.getJobBase(req.JobId)
+	base, job, err := h.getJobBase(req.JobId)
 	if err != nil {
 		return nil, err
+	}
+
+	selected := make([]segmentTypeInfoWire, 0, len(job.SegmentTypes))
+	for _, t := range job.SegmentTypes {
+		selected = append(selected, segmentTypeInfoWire{Type: t})
 	}
 
 	return &getSegmentDetectionResp{
 		getJobBaseResp:       *base,
 		Segments:             []struct{}{},
-		SelectedSegmentTypes: []struct{}{},
+		SelectedSegmentTypes: selected,
 	}, nil
 }
 

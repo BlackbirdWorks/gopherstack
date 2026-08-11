@@ -101,18 +101,27 @@ func (b *InMemoryBackend) GetAnnotationStore(name string) (*AnnotationStore, err
 	return &result, nil
 }
 
-// ListAnnotationStores lists annotation stores.
+// ListAnnotationStores lists annotation stores, optionally filtered by status
+// and/or a specific set of store ids (real AWS ListAnnotationStoresInput body
+// "filter"/"ids", omics@v1.49.5 serializers.go:5497).
 func (b *InMemoryBackend) ListAnnotationStores(
+	filter *StoreStatusFilter,
+	ids0 []string,
 	maxResults int,
 	nextToken string,
 ) ([]*AnnotationStore, string, error) {
 	b.mu.RLock("ListAnnotationStores")
 	defer b.mu.RUnlock()
 
+	idSet := stringSet(ids0)
 	all := b.annotationStores.All()
 	names := make([]string, 0, len(all))
 
 	for _, as := range all {
+		if !storeMatchesFilter(as.Status, as.ID, filter, idSet) {
+			continue
+		}
+
 		names = append(names, as.Name)
 	}
 
@@ -342,9 +351,12 @@ func (b *InMemoryBackend) GetAnnotationStoreVersion(
 	return &result, nil
 }
 
-// ListAnnotationStoreVersions lists versions of an annotation store.
+// ListAnnotationStoreVersions lists versions of an annotation store,
+// optionally filtered by status (real AWS ListAnnotationStoreVersionsInput
+// body "filter", omics@v1.49.5 serializers.go:5608).
 func (b *InMemoryBackend) ListAnnotationStoreVersions(
 	name string,
+	filter *StoreStatusFilter,
 	maxResults int,
 	nextToken string,
 ) ([]*AnnotationStoreVersion, string, error) {
@@ -359,6 +371,10 @@ func (b *InMemoryBackend) ListAnnotationStoreVersions(
 	names := make([]string, 0, len(group))
 
 	for _, v := range group {
+		if !storeMatchesFilter(v.Status, "", filter, nil) {
+			continue
+		}
+
 		names = append(names, v.VersionName)
 	}
 

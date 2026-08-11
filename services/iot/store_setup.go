@@ -1,14 +1,9 @@
 package iot
 
-// Code in this file supports Phase 3.3 of the datalayer refactor: every
-// map[string]*T resource field on InMemoryBackend whose key is a pure
+// Every map[string]*T resource field on InMemoryBackend whose key is a pure
 // function of the value's own fields is registered exactly once, here, as a
-// *store.Table[T] on b.registry. See pkgs/store's package doc and the
-// services/ec2 (commit 12e611a4) / services/sqs (commit 0f09d77c) pilots for
-// the pattern this follows.
-//
-// A number of fields are deliberately NOT registered here and remain plain
-// maps -- see the comment above registerAllTables for the full list and why.
+// *store.Table[T] on b.registry (see pkgs/store's package doc). Fields that
+// don't fit that model remain plain maps — see registerAllTables below.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func thingsKeyFn(v *Thing) string                               { return v.ThingName }
@@ -50,44 +45,23 @@ func fleetMetricsKeyFn(v *FleetMetric) string                       { return v.M
 func customMetricsKeyFn(v *CustomMetric) string                     { return v.MetricName }
 
 // registerAllTables registers every converted resource map on b.registry
-// exactly once. It must be called during construction only (immediately
-// after b.registry is created), never on every Reset() -- store.Register
-// panics on a duplicate name, so runtime resets go through
-// registry.ResetAll() instead (see InMemoryBackend.Reset in store.go).
+// exactly once. Call only during construction (immediately after b.registry
+// is created), never on every Reset() — store.Register panics on a
+// duplicate name, so runtime resets go through registry.ResetAll() instead
+// (see InMemoryBackend.Reset in store.go).
 //
-// The following resource fields are deliberately left as plain maps (not
-// registered here) because they don't fit store.Table's "key is a pure
-// function of the value" model:
-//   - shadows: keyed by the composite struct shadowKey{thingName,
-//     shadowName}, and ThingShadow itself carries neither field, so there is
-//     no pure keyFn without changing ThingShadow's shape. Reset() also has a
-//     pre-existing quirk where it never clears b.shadows (unlike every other
-//     map); folding shadows into the shared registry's ResetAll() would
-//     silently fix that quirk, which the mechanical-swap/no-quirk-fixing rule
-//     forbids. Left exactly as-is: a raw map[shadowKey]*ThingShadow untouched
-//     by Reset(), matching current behavior byte-for-byte.
-//   - packageVersionSboms: value type SbomDocument carries no
-//     package/version identity fields of its own (only S3Location); the
-//     packageVersionKey(packageName, versionName) composite is not
-//     recoverable from the stored value.
-//   - commandExecutions: value type IoTCommandExecution carries CommandARN
-//     but not the raw commandID used in the key (commandID+"/"+executionID);
-//     the ARN does not losslessly round-trip back to commandID without
-//     parsing, so the key is not a pure function of the value's own fields.
-//   - thingConnectivity: value type ThingConnectivityData carries no
-//     ThingName/identity field of its own; it is keyed purely externally.
-//   - resourceTags, certificateTransfers, thingBillingGroups,
-//     thingThingGroups, thingGroupMembers, jobTargets, policyTargets,
-//     securityProfileTargets, thingPrincipals, auditMitigationTasks,
-//     auditTasks: value type is not map[string]*T (string, []string, or
-//     map[string]string values), so store.Table (which stores *V pointers)
-//     does not apply.
-//   - policyVersions, provTemplateVersions, auditMitigationExecutions,
-//     detectMitigationExecutions, sbomValidationResults, metricValues,
-//     behaviorTrainingSummaries: slice-valued (map[string][]*T) -- store.Table
-//     holds one *V per key, not a growable list per key.
-//   - packageVersions2: nested map[string]map[string]*IoTPackageVersion; the
-//     value type at the outer key is itself a map, not *T.
+// Fields left as plain maps: shadows (keyed by composite shadowKey{thingName,
+// shadowName}, no pure keyFn without changing ThingShadow's shape — also
+// Reset() never clears it, a pre-existing quirk kept byte-for-byte);
+// packageVersionSboms/commandExecutions/thingConnectivity (value carries no
+// recoverable identity field for its key); resourceTags, certificateTransfers,
+// thingBillingGroups, thingThingGroups, thingGroupMembers, jobTargets,
+// policyTargets, securityProfileTargets, thingPrincipals,
+// auditMitigationTasks, auditTasks (value isn't map[string]*T);
+// policyVersions, provTemplateVersions, auditMitigationExecutions,
+// detectMitigationExecutions, sbomValidationResults, metricValues,
+// behaviorTrainingSummaries (slice-valued, store.Table holds one *V per key);
+// packageVersions2 (nested map, value at the outer key is itself a map).
 func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)

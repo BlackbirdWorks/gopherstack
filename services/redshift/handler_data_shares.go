@@ -101,8 +101,10 @@ func (h *Handler) handleAuthorizeDataShare(vals url.Values) (any, error) {
 
 // ---- DescribeDataShares ----
 
+// redshift@v1.65.4 deserializers.go:29079 wraps each entry in <member>,
+// not <DataShare>.
 type xmlDataShareList struct {
-	Members []xmlDataShare `xml:"DataShare"`
+	Members []xmlDataShare `xml:"member"`
 }
 
 type describeDataSharesResponse struct {

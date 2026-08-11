@@ -78,7 +78,7 @@ func (h *Handler) handleModifyVolume(vals url.Values, reqID string) (any, error)
 			OrigVolumeType:    mod.OrigVolumeType,
 			OrigSize:          mod.OrigSize,
 			Progress:          mod.Progress,
-			StartTime:         mod.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			StartTime:         mod.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		},
 	}, nil
 }
@@ -116,7 +116,7 @@ func (h *Handler) handleDescribeVolumesModifications(vals url.Values, reqID stri
 			OrigVolumeType:    mod.OrigVolumeType,
 			OrigSize:          mod.OrigSize,
 			Progress:          mod.Progress,
-			StartTime:         mod.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			StartTime:         mod.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 
@@ -290,11 +290,11 @@ func (h *Handler) handleCreateReplaceRootVolumeTask(vals url.Values, reqID strin
 		ReplaceRootVolumeTaskID: task.ReplaceRootVolumeTaskID,
 		InstanceID:              task.InstanceID,
 		TaskState:               task.TaskState,
-		StartTime:               task.StartTime.Format("2006-01-02T15:04:05.000Z"),
+		StartTime:               task.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		SnapshotID:              task.SnapshotID,
 	}
 	if !task.CompleteTime.IsZero() {
-		item.CompleteTime = task.CompleteTime.Format("2006-01-02T15:04:05.000Z")
+		item.CompleteTime = task.CompleteTime.UTC().Format("2006-01-02T15:04:05.000Z")
 	}
 
 	return &createReplaceRootVolumeTaskResponse{RequestID: reqID, ReplaceRootVolumeTask: item}, nil
@@ -310,11 +310,11 @@ func (h *Handler) handleDescribeReplaceRootVolumeTasks(vals url.Values, reqID st
 			ReplaceRootVolumeTaskID: task.ReplaceRootVolumeTaskID,
 			InstanceID:              task.InstanceID,
 			TaskState:               task.TaskState,
-			StartTime:               task.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			StartTime:               task.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 			SnapshotID:              task.SnapshotID,
 		}
 		if !task.CompleteTime.IsZero() {
-			item.CompleteTime = task.CompleteTime.Format("2006-01-02T15:04:05.000Z")
+			item.CompleteTime = task.CompleteTime.UTC().Format("2006-01-02T15:04:05.000Z")
 		}
 		resp.ReplaceRootVolumeTaskSet.Items = append(resp.ReplaceRootVolumeTaskSet.Items, item)
 	}
@@ -442,6 +442,7 @@ type volumeItem struct {
 	CreateTime string          `xml:"createTime"`
 	KmsKeyID   string          `xml:"kmsKeyId,omitempty"`
 	SnapshotID string          `xml:"snapshotId,omitempty"`
+	TagSet     []simpleTagItem `xml:"tagSet>item"`
 	Size       int             `xml:"size"`
 	Iops       int             `xml:"iops,omitempty"`
 	Throughput int             `xml:"throughput,omitempty"`
@@ -468,20 +469,21 @@ type describeVolumesResponse struct {
 }
 
 type createVolumeResponse struct {
-	XMLName    xml.Name `xml:"CreateVolumeResponse"`
-	Xmlns      string   `xml:"xmlns,attr"`
-	RequestID  string   `xml:"requestId"`
-	VolumeID   string   `xml:"volumeId"`
-	AZ         string   `xml:"availabilityZone"`
-	VolumeType string   `xml:"volumeType"`
-	State      string   `xml:"status"`
-	CreateTime string   `xml:"createTime"`
-	KmsKeyID   string   `xml:"kmsKeyId,omitempty"`
-	SnapshotID string   `xml:"snapshotId,omitempty"`
-	Size       int      `xml:"size"`
-	Iops       int      `xml:"iops,omitempty"`
-	Throughput int      `xml:"throughput,omitempty"`
-	Encrypted  bool     `xml:"encrypted"`
+	XMLName    xml.Name        `xml:"CreateVolumeResponse"`
+	Xmlns      string          `xml:"xmlns,attr"`
+	RequestID  string          `xml:"requestId"`
+	VolumeID   string          `xml:"volumeId"`
+	AZ         string          `xml:"availabilityZone"`
+	VolumeType string          `xml:"volumeType"`
+	State      string          `xml:"status"`
+	CreateTime string          `xml:"createTime"`
+	KmsKeyID   string          `xml:"kmsKeyId,omitempty"`
+	SnapshotID string          `xml:"snapshotId,omitempty"`
+	TagSet     []simpleTagItem `xml:"tagSet>item"`
+	Size       int             `xml:"size"`
+	Iops       int             `xml:"iops,omitempty"`
+	Throughput int             `xml:"throughput,omitempty"`
+	Encrypted  bool            `xml:"encrypted"`
 }
 
 type deleteVolumeResponse struct {
@@ -512,19 +514,20 @@ type detachVolumeResponse struct {
 	State      string   `xml:"status"`
 }
 
-func toVolumeItem(vol *Volume) volumeItem {
+func toVolumeItem(vol *Volume, tags map[string]string) volumeItem {
 	item := volumeItem{
 		VolumeID:   vol.ID,
 		Size:       vol.Size,
 		AZ:         vol.AZ,
 		VolumeType: vol.VolumeType,
 		State:      vol.State,
-		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		CreateTime: vol.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
 		KmsKeyID:   vol.KmsKeyID,
 		SnapshotID: vol.SnapshotID,
 		Iops:       vol.Iops,
 		Throughput: vol.Throughput,
+		TagSet:     tagItemsFromMap(tags),
 	}
 
 	if vol.Attachment != nil {
@@ -533,7 +536,7 @@ func toVolumeItem(vol *Volume) volumeItem {
 			InstanceID: vol.Attachment.InstanceID,
 			Device:     vol.Attachment.Device,
 			State:      vol.Attachment.State,
-			AttachTime: vol.Attachment.AttachTime.Format("2006-01-02T15:04:05.000Z"),
+			AttachTime: vol.Attachment.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		}
 	}
 
@@ -682,6 +685,12 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "volume"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{vol.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	// Apply encryption if requested (gap 13).
 	if encryptedStr == ec2BooleanTrue {
 		if encErr := h.Backend.SetVolumeEncryption(vol.ID, true, kmsKeyID); encErr != nil {
@@ -713,12 +722,13 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		AZ:         vol.AZ,
 		VolumeType: vol.VolumeType,
 		State:      vol.State,
-		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		CreateTime: vol.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
 		KmsKeyID:   vol.KmsKeyID,
 		SnapshotID: vol.SnapshotID,
 		Iops:       vol.Iops,
 		Throughput: vol.Throughput,
+		TagSet:     tagItemsFromMap(h.Backend.TagsForResource(vol.ID)),
 	}, nil
 }
 
@@ -731,7 +741,7 @@ func (h *Handler) handleDescribeVolumes(vals url.Values, reqID string) (any, err
 
 	items := make([]volumeItem, 0, len(vols))
 	for _, vol := range vols {
-		items = append(items, toVolumeItem(vol))
+		items = append(items, toVolumeItem(vol, h.Backend.TagsForResource(vol.ID)))
 	}
 
 	return &describeVolumesResponse{
@@ -779,7 +789,7 @@ func (h *Handler) handleAttachVolume(vals url.Values, reqID string) (any, error)
 		InstanceID: att.InstanceID,
 		Device:     att.Device,
 		State:      att.State,
-		AttachTime: att.AttachTime.Format("2006-01-02T15:04:05.000Z"),
+		AttachTime: att.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}, nil
 }
 

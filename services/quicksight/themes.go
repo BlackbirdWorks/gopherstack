@@ -80,7 +80,7 @@ func (t *storedTheme) toTheme(versionNumber int64) (*Theme, bool) {
 // ---- Themes ----
 
 func (b *InMemoryBackend) CreateTheme(
-	accountID, themeID, name, baseThemeID string,
+	accountID, themeID, name, baseThemeID, versionDescription string,
 	configuration map[string]any,
 	permissions []ResourcePermission,
 	tags map[string]string,
@@ -113,6 +113,7 @@ func (b *InMemoryBackend) CreateTheme(
 				Status:        statusCreationSuccessful,
 				BaseThemeID:   baseThemeID,
 				Configuration: configuration,
+				Description:   versionDescription,
 			},
 		},
 		LatestVersion: 1,
@@ -148,7 +149,7 @@ func (b *InMemoryBackend) DescribeTheme(accountID, themeID string, versionNumber
 }
 
 func (b *InMemoryBackend) UpdateTheme(
-	accountID, themeID, name, baseThemeID string,
+	accountID, themeID, name, baseThemeID, versionDescription string,
 	configuration map[string]any,
 ) (*Theme, error) {
 	b.mu.Lock("UpdateTheme")
@@ -180,6 +181,7 @@ func (b *InMemoryBackend) UpdateTheme(
 		Status:        statusCreationSuccessful,
 		BaseThemeID:   baseThemeID,
 		Configuration: configuration,
+		Description:   versionDescription,
 	}
 	t.LatestVersion = nextVersion
 	t.Aliases[themeAliasLatest] = nextVersion

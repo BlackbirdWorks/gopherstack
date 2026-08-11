@@ -1,6 +1,7 @@
 package redshift_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"testing"
@@ -11,6 +12,17 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/redshift"
 )
+
+func createTestNamespace(t *testing.T, b *redshift.InMemoryBackend, name string) {
+	t.Helper()
+
+	_, err := b.CreateNamespace(redshift.CreateNamespaceParams{
+		NamespaceName: name,
+		AdminUsername: "admin",
+		DBName:        "dev",
+	})
+	require.NoError(t, err)
+}
 
 // TestServerlessNamespaceIndex_OrderedAndConsistent verifies that ListNamespaces
 // returns names in sorted order regardless of insertion order, and that the
@@ -23,8 +35,7 @@ func TestServerlessNamespaceIndex_OrderedAndConsistent(t *testing.T) {
 	// Insert out of order.
 	inserted := []string{"delta", "alpha", "charlie", "bravo", "echo"}
 	for _, name := range inserted {
-		_, err := b.CreateNamespace(name, "admin", "dev", "", nil, nil)
-		require.NoError(t, err)
+		createTestNamespace(t, b, name)
 	}
 
 	require.Equal(t, len(inserted), redshift.ServerlessIndexLen(b, "namespace"))
@@ -34,7 +45,7 @@ func TestServerlessNamespaceIndex_OrderedAndConsistent(t *testing.T) {
 	assert.Equal(t, []string{"alpha", "bravo", "charlie", "delta", "echo"}, got)
 
 	// Delete a middle element; order and index stay consistent.
-	_, err := b.DeleteNamespace("charlie")
+	_, err := b.DeleteNamespace("charlie", "", 0)
 	require.NoError(t, err)
 
 	require.Equal(t, len(inserted)-1, redshift.ServerlessIndexLen(b, "namespace"))
@@ -52,8 +63,7 @@ func TestServerlessNamespaceIndex_Pagination(t *testing.T) {
 
 	const total = 25
 	for i := range total {
-		_, err := b.CreateNamespace(fmt.Sprintf("ns-%02d", i), "admin", "dev", "", nil, nil)
-		require.NoError(t, err)
+		createTestNamespace(t, b, fmt.Sprintf("ns-%02d", i))
 	}
 
 	var (
@@ -84,9 +94,8 @@ func TestServerlessIndex_Reset(t *testing.T) {
 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateNamespace("ns", "admin", "dev", "", nil, nil)
-	require.NoError(t, err)
-	_, err = b.CreateWorkgroup("wg", "ns", 32, nil, nil)
+	createTestNamespace(t, b, "ns")
+	_, err := b.CreateWorkgroup("wg", "ns", redshift.WorkgroupParams{BaseCapacity: 32}, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, redshift.ServerlessIndexLen(b, "namespace"))
@@ -105,8 +114,7 @@ func TestServerlessIndex_RebuiltOnRestore(t *testing.T) {
 
 	src := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 	for _, name := range []string{"zeta", "alpha", "mike"} {
-		_, err := src.CreateNamespace(name, "admin", "dev", "", nil, nil)
-		require.NoError(t, err)
+		createTestNamespace(t, src, name)
 	}
 
 	ctx := t.Context()
@@ -129,10 +137,8 @@ func TestServerlessSnapshotIndex_OrderedWithFilter(t *testing.T) {
 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateNamespace("ns-a", "admin", "dev", "", nil, nil)
-	require.NoError(t, err)
-	_, err = b.CreateNamespace("ns-b", "admin", "dev", "", nil, nil)
-	require.NoError(t, err)
+	createTestNamespace(t, b, "ns-a")
+	createTestNamespace(t, b, "ns-b")
 
 	// Create snapshots out of order across two namespaces.
 	seed := []struct{ snap, ns string }{
@@ -142,7 +148,7 @@ func TestServerlessSnapshotIndex_OrderedWithFilter(t *testing.T) {
 		{"snap-0", "ns-b"},
 	}
 	for _, s := range seed {
-		_, cerr := b.CreateServerlessSnapshot(s.snap, s.ns)
+		_, cerr := b.CreateServerlessSnapshot(s.snap, s.ns, 0, nil)
 		require.NoError(t, cerr)
 	}
 
@@ -167,7 +173,7 @@ func TestServerlessSnapshotIndex_OrderedWithFilter(t *testing.T) {
 	assert.Equal(t, []string{"snap-2", "snap-3"}, nsANames)
 
 	// Delete keeps index consistent.
-	_, err = b.DeleteServerlessSnapshot("snap-2")
+	_, err := b.DeleteServerlessSnapshot("snap-2")
 	require.NoError(t, err)
 	assert.Equal(t, len(seed)-1, redshift.ServerlessIndexLen(b, "snapshot"))
 }
@@ -226,7 +232,17 @@ func TestServerlessScheduledActionIndex_OrderedWithFilter(t *testing.T) {
 		{"act-b", "ns-1"},
 	}
 	for _, s := range seed {
-		_, err := b.CreateServerlessScheduledAction(s.name, s.ns, "rate(1 hour)", "pause", start, end)
+		_, err := b.CreateServerlessScheduledAction(redshift.CreateScheduledActionParams{
+			ScheduledActionName: s.name,
+			NamespaceName:       s.ns,
+			RoleArn:             "arn:aws:iam::000000000000:role/scheduler",
+			Schedule:            json.RawMessage(`{"cron":"0 10 ? * MON *"}`),
+			TargetAction: json.RawMessage(
+				`{"createSnapshot":{"namespaceName":"` + s.ns + `","snapshotName":"snap"}}`,
+			),
+			StartTime: start,
+			EndTime:   end,
+		})
 		require.NoError(t, err)
 	}
 

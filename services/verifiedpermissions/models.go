@@ -243,3 +243,10 @@ const (
 	arnKindPolicyTemplate    = "policyTemplate"
 	arnKindIdentitySource    = "identitySource"
 )
+
+// OIDCTokenSelection.TokenType values (real SDK: the identityTokenOnly /
+// accessTokenOnly union members of OpenIdConnectTokenSelection).
+const (
+	tokenTypeIdentity = "IDENTITY"
+	tokenTypeAccess   = "ACCESS"
+)

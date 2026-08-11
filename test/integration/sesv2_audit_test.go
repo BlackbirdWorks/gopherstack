@@ -52,7 +52,10 @@ func TestIntegration_SESv2Audit_ConfigurationSetArchivingOptions(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteConfigurationSet(ctx, &sesv2.DeleteConfigurationSetInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteConfigurationSet(cleanupCtx, &sesv2.DeleteConfigurationSetInput{
 			ConfigurationSetName: aws.String(csName),
 		})
 	})
@@ -92,7 +95,10 @@ func TestIntegration_SESv2Audit_ConfigurationSetVdmOptions(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteConfigurationSet(ctx, &sesv2.DeleteConfigurationSetInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteConfigurationSet(cleanupCtx, &sesv2.DeleteConfigurationSetInput{
 			ConfigurationSetName: aws.String(csName),
 		})
 	})
@@ -148,7 +154,10 @@ func TestIntegration_SESv2Audit_DedicatedIPInPool(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteDedicatedIpPool(ctx, &sesv2.DeleteDedicatedIpPoolInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteDedicatedIpPool(cleanupCtx, &sesv2.DeleteDedicatedIpPoolInput{
 			PoolName: aws.String(poolName),
 		})
 	})

@@ -2,47 +2,64 @@ package opensearch
 
 import (
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// ListTags returns tags for the domain identified by ARN.
-func (b *InMemoryBackend) ListTags(domainARN string) (map[string]string, error) {
-	b.mu.RLock("ListTags")
-	defer b.mu.RUnlock()
-
-	d := b.findDomainByARN(domainARN)
-	if d == nil {
-		return nil, fmt.Errorf("%w: domain not found for ARN %s", ErrDomainNotFound, domainARN)
+// findTaggableByARN resolves the *tags.Tags of the domain or application
+// identified by resourceARN. Real OpenSearch ListTags/AddTags/RemoveTags
+// accept both domain and application ARNs.
+func (b *InMemoryBackend) findTaggableByARN(resourceARN string) *tags.Tags {
+	if d := b.findDomainByARN(resourceARN); d != nil {
+		return d.Tags
 	}
 
-	return d.Tags.Clone(), nil
-}
-
-// AddTags adds or updates tags on the domain identified by ARN.
-func (b *InMemoryBackend) AddTags(domainARN string, kv map[string]string) error {
-	b.mu.Lock("AddTags")
-	defer b.mu.Unlock()
-
-	d := b.findDomainByARN(domainARN)
-	if d == nil {
-		return fmt.Errorf("%w: domain not found for ARN %s", ErrDomainNotFound, domainARN)
+	if matches := b.applicationsByARN.Get(resourceARN); len(matches) > 0 {
+		return matches[0].Tags
 	}
-
-	d.Tags.Merge(kv)
 
 	return nil
 }
 
-// RemoveTags removes tag keys from the domain identified by ARN.
-func (b *InMemoryBackend) RemoveTags(domainARN string, keys []string) error {
+// ListTags returns tags for the domain or application identified by ARN.
+func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("ListTags")
+	defer b.mu.RUnlock()
+
+	t := b.findTaggableByARN(resourceARN)
+	if t == nil {
+		return nil, fmt.Errorf("%w: resource not found for ARN %s", ErrDomainNotFound, resourceARN)
+	}
+
+	return t.Clone(), nil
+}
+
+// AddTags adds or updates tags on the domain or application identified by ARN.
+func (b *InMemoryBackend) AddTags(resourceARN string, kv map[string]string) error {
+	b.mu.Lock("AddTags")
+	defer b.mu.Unlock()
+
+	t := b.findTaggableByARN(resourceARN)
+	if t == nil {
+		return fmt.Errorf("%w: resource not found for ARN %s", ErrDomainNotFound, resourceARN)
+	}
+
+	t.Merge(kv)
+
+	return nil
+}
+
+// RemoveTags removes tag keys from the domain or application identified by ARN.
+func (b *InMemoryBackend) RemoveTags(resourceARN string, keys []string) error {
 	b.mu.Lock("RemoveTags")
 	defer b.mu.Unlock()
 
-	d := b.findDomainByARN(domainARN)
-	if d == nil {
-		return fmt.Errorf("%w: domain not found for ARN %s", ErrDomainNotFound, domainARN)
+	t := b.findTaggableByARN(resourceARN)
+	if t == nil {
+		return fmt.Errorf("%w: resource not found for ARN %s", ErrDomainNotFound, resourceARN)
 	}
 
-	d.Tags.DeleteKeys(keys)
+	t.DeleteKeys(keys)
 
 	return nil
 }

@@ -40,6 +40,9 @@ func TestWebAuthn_CRUD(t *testing.T) {
 		"Credential": map[string]any{
 			"id":                      "cred-id-1",
 			"authenticatorAttachment": "platform",
+			"response": map[string]any{
+				"transports": []any{"internal", "hybrid"},
+			},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -50,16 +53,22 @@ func TestWebAuthn_CRUD(t *testing.T) {
 
 	var listResp struct {
 		Credentials []struct {
-			CredentialID            string `json:"CredentialId,omitempty"`
-			FriendlyName            string `json:"FriendlyName,omitempty"`
-			AuthenticatorAttachment string `json:"AuthenticatorAttachment,omitempty"`
+			CredentialID            string   `json:"CredentialId,omitempty"`
+			FriendlyCredentialName  string   `json:"FriendlyCredentialName,omitempty"`
+			AuthenticatorAttachment string   `json:"AuthenticatorAttachment,omitempty"`
+			AuthenticatorTransports []string `json:"AuthenticatorTransports"`
 		} `json:"Credentials,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	require.Len(t, listResp.Credentials, 1)
 	assert.Equal(t, "cred-id-1", listResp.Credentials[0].CredentialID)
 	assert.Equal(t, "platform", listResp.Credentials[0].AuthenticatorAttachment)
-	assert.NotEmpty(t, listResp.Credentials[0].FriendlyName)
+	assert.NotEmpty(t, listResp.Credentials[0].FriendlyCredentialName,
+		"the wire key is FriendlyCredentialName, not FriendlyName -- a real SDK client reads this field",
+	)
+	assert.Equal(t, []string{"internal", "hybrid"}, listResp.Credentials[0].AuthenticatorTransports,
+		"transports from the browser's credential.response.transports must be threaded through",
+	)
 
 	// DeleteWebAuthnCredential
 	rec = doCognitoRequest(t, h, "DeleteWebAuthnCredential", map[string]any{

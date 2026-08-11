@@ -604,7 +604,7 @@ type GetPublicKeyOutput struct {
 type ImportKeyMaterialInput struct {
 	KeyID           string  `json:"KeyId"`
 	ExpirationModel string  `json:"ExpirationModel,omitempty"`
-	KeyMaterial     []byte  `json:"KeyMaterial"`
+	KeyMaterial     []byte  `json:"EncryptedKeyMaterial"`
 	ValidTo         float64 `json:"ValidTo,omitempty"`
 }
 

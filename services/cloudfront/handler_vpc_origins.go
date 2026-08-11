@@ -8,21 +8,41 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// vpcOriginResponseXML matches the real VpcOrigin shape (cloudfront@v1.67.4
+// types.VpcOrigin): Id/Arn are siblings of VpcOriginEndpointConfig, not
+// nested inside it -- a real client reading Arn from inside
+// VpcOriginEndpointConfig (as this previously did) always got nil.
 func vpcOriginResponseXML(origin *VpcOrigin) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<VpcOrigin xmlns="%s">`+
-		`<VpcOriginEndpointConfig>`+
 		`<Id>%s</Id>`+
-		`<ARN>%s</ARN>`+
+		`<Arn>%s</Arn>`+
+		`<VpcOriginEndpointConfig>`+
 		`<Name>%s</Name>`+
 		`</VpcOriginEndpointConfig>`+
 		`</VpcOrigin>`,
 		cfNS, origin.ID, origin.ARN, origin.Name)
 }
 
-type vpcOriginRequestXML struct {
-	XMLName xml.Name `xml:"VpcOriginRequest"`
-	Name    string   `xml:"VpcOriginEndpointConfig>Name"`
+// vpcOriginRequestFields is shared by Create and Update, whose real request
+// shapes carry identical fields but different root element names
+// (CreateVpcOriginRequest vs UpdateVpcOriginRequest; cloudfront@v1.67.4
+// serializers.go). A prior single struct fixed the root to
+// "VpcOriginRequest", which matched neither real root name, so
+// xml.Unmarshal silently failed on every field for any real client.
+type vpcOriginRequestFields struct {
+	Name string  `xml:"VpcOriginEndpointConfig>Name"`
+	Tags tagsXML `xml:"Tags"`
+}
+
+type createVpcOriginRequestXML struct {
+	XMLName xml.Name `xml:"CreateVpcOriginRequest"`
+	vpcOriginRequestFields
+}
+
+type updateVpcOriginRequestXML struct {
+	XMLName xml.Name `xml:"UpdateVpcOriginRequest"`
+	vpcOriginRequestFields
 }
 
 func (h *Handler) handleCreateVpcOrigin(c *echo.Context) error {
@@ -35,7 +55,7 @@ func (h *Handler) handleCreateVpcOrigin(c *echo.Context) error {
 		return h.handleError(c, qErr)
 	}
 
-	var req vpcOriginRequestXML
+	var req createVpcOriginRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
@@ -44,7 +64,7 @@ func (h *Handler) handleCreateVpcOrigin(c *echo.Context) error {
 		req.Name = generateID()
 	}
 
-	origin, createErr := h.Backend.CreateVpcOrigin(req.Name)
+	origin, createErr := h.Backend.CreateVpcOrigin(req.Name, tagsXMLToMap(req.Tags))
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -111,7 +131,7 @@ func (h *Handler) handleUpdateVpcOrigin(c *echo.Context, id string) error {
 		return h.handleError(c, qErr)
 	}
 
-	var req vpcOriginRequestXML
+	var req updateVpcOriginRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}

@@ -10,9 +10,16 @@ func (h *Handler) handleCreateDBClusterEndpoint(ctx context.Context, vals url.Va
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
 	endpointType := vals.Get("EndpointType")
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	ep, err := h.Backend.CreateDBClusterEndpoint(ctx, endpointID, clusterID, endpointType)
 	if err != nil {
 		return nil, err
+	}
+	if len(tags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, ep.DBClusterEndpointArn, tags)
 	}
 
 	return &createDBClusterEndpointResponse{
@@ -122,8 +129,10 @@ type createDBClusterEndpointResponse struct {
 
 // New XML types for the additional operations.
 
+// neptune@v1.48.4 deserializers.go:12676 wraps each entry in
+// <DBClusterEndpointList>, not <DBClusterEndpoint>.
 type xmlDBClusterEndpointList struct {
-	Members []xmlDBClusterEndpoint `xml:"DBClusterEndpoint"`
+	Members []xmlDBClusterEndpoint `xml:"DBClusterEndpointList"`
 }
 
 type describeDBClusterEndpointsResult struct {

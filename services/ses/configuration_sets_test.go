@@ -770,7 +770,9 @@ func TestBackend_DeleteConfigurationSet_Cascade(t *testing.T) {
 
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.CreateConfigurationSet("cs"))
-	require.NoError(t, b.CreateConfigurationSetEventDestination("cs", ses.EventDestination{Name: "dest"}))
+	require.NoError(t, b.CreateConfigurationSetEventDestination(
+		"cs", ses.EventDestination{Name: "dest", MatchingEventTypes: []string{"send"}},
+	))
 	require.NoError(t, b.CreateConfigurationSetTrackingOptions("cs", "track.example.com"))
 
 	assert.Equal(t, 1, b.EventDestinationCount())
@@ -788,7 +790,9 @@ func TestHandler_DeleteConfigurationSet_Cascade(t *testing.T) {
 
 	h := newHandler()
 	require.NoError(t, h.Backend.CreateConfigurationSet("cs"))
-	require.NoError(t, h.Backend.CreateConfigurationSetEventDestination("cs", ses.EventDestination{Name: "dest"}))
+	require.NoError(t, h.Backend.CreateConfigurationSetEventDestination(
+		"cs", ses.EventDestination{Name: "dest", MatchingEventTypes: []string{"send"}},
+	))
 	require.NoError(t, h.Backend.CreateConfigurationSetTrackingOptions("cs", "track.example.com"))
 
 	body := url.Values{

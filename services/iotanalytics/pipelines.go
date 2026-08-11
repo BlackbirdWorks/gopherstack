@@ -257,17 +257,22 @@ func (b *InMemoryBackend) CancelPipelineReprocessing(pipelineName, reprocessingI
 //   - math: evaluates the math expression and stores the result under Attribute.
 //   - channel/datastore: legitimately pass-through in real AWS too (they are the pipeline's
 //     source/sink activities, not transforms).
-//   - lambda/deviceRegistryEnrich/deviceShadowEnrich: real AWS invokes Lambda / looks up IoT
-//     Device Registry or Device Shadow data for these. This backend has no cross-service
-//     wiring to reach the lambda/iot backends from iotanalytics's Provider.Init (no shared
-//     backend registry is threaded through, unlike e.g. cloudformation's ResourceCreator),
-//     so these remain pass-through -- a documented gap, not a silent stub (see PARITY.md).
+//   - lambda: invokes the wired Lambda backend (see applyLambdaActivity) when
+//     SetLambdaBackend has been called (cli.go's wireIoTAnalyticsCrossService); otherwise
+//     pass-through, since there is nothing to invoke.
+//   - deviceRegistryEnrich/deviceShadowEnrich: look up the wired IoT backend (see
+//     applyDeviceRegistryEnrichActivity/applyDeviceShadowEnrichActivity) when
+//     SetThingRegistry/SetThingShadowStore have been called; otherwise pass-through.
 //
 // A payload that fails to parse as JSON, or a message missing a referenced attribute, is a
 // soft per-message failure: it is left unchanged (addAttributes/removeAttributes/
 // selectAttributes/math) or dropped (filter), matching a single bad message failing its own
-// pipeline activity step rather than the entire batch call.
-func (b *InMemoryBackend) RunPipelineActivity(activity PipelineActivity, payloads [][]byte) ([][]byte, error) {
+// pipeline activity step rather than the entire batch call. lambda/deviceRegistryEnrich/
+// deviceShadowEnrich are not per-message: a Lambda invoke error or a missing Thing fails the
+// whole call (ErrPipelineActivityFailed), matching a real activity that cannot be evaluated.
+func (b *InMemoryBackend) RunPipelineActivity(
+	ctx context.Context, activity PipelineActivity, payloads [][]byte,
+) ([][]byte, error) {
 	switch {
 	case activity.AddAttributes != nil:
 		return applyAddAttributes(activity.AddAttributes, payloads), nil
@@ -279,12 +284,165 @@ func (b *InMemoryBackend) RunPipelineActivity(activity PipelineActivity, payload
 		return applyFilter(activity.Filter, payloads), nil
 	case activity.Math != nil:
 		return applyMath(activity.Math, payloads), nil
+	case activity.Lambda != nil:
+		return b.applyLambdaActivity(ctx, activity.Lambda, payloads)
+	case activity.DeviceRegistryEnrich != nil:
+		return b.applyDeviceRegistryEnrichActivity(activity.DeviceRegistryEnrich, payloads)
+	case activity.DeviceShadowEnrich != nil:
+		return b.applyDeviceShadowEnrichActivity(activity.DeviceShadowEnrich, payloads)
 	default:
 		result := make([][]byte, len(payloads))
 		copy(result, payloads)
 
 		return result, nil
 	}
+}
+
+// applyLambdaActivity invokes the wired Lambda backend on payloads in batches of
+// a.BatchSize, matching AWS's documented contract: "the Lambda function must receive and
+// return a JSON object array" (docs.aws.amazon.com/iotanalytics/latest/userguide/
+// pipeline-activities-lambda.html). Falls back to pass-through when no Lambda backend is
+// wired (e.g. Lambda isn't registered in this deployment).
+func (b *InMemoryBackend) applyLambdaActivity(
+	ctx context.Context, a *PipelineLambdaActivity, payloads [][]byte,
+) ([][]byte, error) {
+	if b.lambda == nil {
+		result := make([][]byte, len(payloads))
+		copy(result, payloads)
+
+		return result, nil
+	}
+
+	batchSize := a.BatchSize
+	if batchSize <= 0 {
+		batchSize = len(payloads)
+	}
+
+	out := make([][]byte, len(payloads))
+	copy(out, payloads)
+
+	for start := 0; start < len(payloads); start += batchSize {
+		end := min(start+batchSize, len(payloads))
+		if err := b.invokeLambdaBatch(ctx, a.LambdaName, payloads[start:end], out[start:end]); err != nil {
+			return nil, err
+		}
+	}
+
+	return out, nil
+}
+
+// invokeLambdaBatch decodes the JSON-object payloads in src, invokes lambdaName
+// synchronously with them as a single JSON array, and splices the returned objects back
+// into dst at their original positions. Payloads that aren't JSON objects are excluded from
+// the invoked array and left unchanged in dst, per the soft-per-message-failure convention
+// this file uses elsewhere.
+func (b *InMemoryBackend) invokeLambdaBatch(ctx context.Context, lambdaName string, src, dst [][]byte) error {
+	var msgs []map[string]any
+
+	var idx []int
+
+	for i, p := range src {
+		msg, ok := decodeMessage(p)
+		if !ok {
+			continue
+		}
+
+		msgs = append(msgs, msg)
+		idx = append(idx, i)
+	}
+
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	reqBody, err := json.Marshal(msgs)
+	if err != nil {
+		return fmt.Errorf("%w: marshal lambda batch for %q: %w", ErrPipelineActivityFailed, lambdaName, err)
+	}
+
+	respBody, _, err := b.lambda.InvokeFunction(ctx, lambdaName, "RequestResponse", reqBody)
+	if err != nil {
+		return fmt.Errorf("%w: invoke lambda activity %q: %w", ErrPipelineActivityFailed, lambdaName, err)
+	}
+
+	var results []map[string]any
+	if jsonErr := json.Unmarshal(respBody, &results); jsonErr != nil || len(results) != len(msgs) {
+		return fmt.Errorf(
+			"%w: lambda activity %q did not return a JSON object array of the same length",
+			ErrPipelineActivityFailed, lambdaName,
+		)
+	}
+
+	for j, origIdx := range idx {
+		dst[origIdx] = encodeMessage(results[j], src[origIdx])
+	}
+
+	return nil
+}
+
+// applyDeviceRegistryEnrichActivity adds AWS IoT device registry data (iot:DescribeThing)
+// under a.Attribute for every payload, per the CloudFormation docs for
+// AWS::IoTAnalytics::Pipeline DeviceRegistryEnrich ("adds data from the AWS IoT device
+// registry to your message"). The lookup is per-activity call (one ThingName), not
+// per-message. Falls back to pass-through when no IoT backend is wired.
+func (b *InMemoryBackend) applyDeviceRegistryEnrichActivity(
+	a *PipelineDeviceRegistryEnrichActivity, payloads [][]byte,
+) ([][]byte, error) {
+	if b.thingRegistry == nil {
+		result := make([][]byte, len(payloads))
+		copy(result, payloads)
+
+		return result, nil
+	}
+
+	data, err := b.thingRegistry.DescribeThing(a.ThingName)
+	if err != nil {
+		return nil, fmt.Errorf("%w: deviceRegistryEnrich thing %q: %w", ErrPipelineActivityFailed, a.ThingName, err)
+	}
+
+	return enrichPayloads(a.Attribute, data, payloads), nil
+}
+
+// applyDeviceShadowEnrichActivity adds the AWS IoT classic device shadow (iot:GetThingShadow)
+// under a.Attribute for every payload, per the CloudFormation docs for
+// AWS::IoTAnalytics::Pipeline DeviceShadowEnrich ("adds information from the AWS IoT Device
+// Shadows service to a message"). Falls back to pass-through when no IoT backend is wired.
+func (b *InMemoryBackend) applyDeviceShadowEnrichActivity(
+	a *PipelineDeviceShadowEnrichActivity, payloads [][]byte,
+) ([][]byte, error) {
+	if b.thingShadows == nil {
+		result := make([][]byte, len(payloads))
+		copy(result, payloads)
+
+		return result, nil
+	}
+
+	data, err := b.thingShadows.GetThingShadow(a.ThingName)
+	if err != nil {
+		return nil, fmt.Errorf("%w: deviceShadowEnrich thing %q: %w", ErrPipelineActivityFailed, a.ThingName, err)
+	}
+
+	return enrichPayloads(a.Attribute, data, payloads), nil
+}
+
+// enrichPayloads sets attribute to data on every payload that parses as a JSON object,
+// matching applyAddAttributes' soft-failure convention for unparsable payloads.
+func enrichPayloads(attribute string, data map[string]any, payloads [][]byte) [][]byte {
+	out := make([][]byte, len(payloads))
+
+	for i, p := range payloads {
+		msg, ok := decodeMessage(p)
+		if !ok {
+			out[i] = p
+
+			continue
+		}
+
+		msg[attribute] = data
+		out[i] = encodeMessage(msg, p)
+	}
+
+	return out
 }
 
 // decodeMessage attempts to unmarshal a message payload as a JSON object.

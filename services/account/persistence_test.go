@@ -110,6 +110,31 @@ type seedState struct {
 	accountCreatedDate string
 }
 
+// TestInMemoryBackend_SnapshotRestore_PrimaryEmailUpdateStatus verifies
+// primaryEmailUpdateStatus/primaryEmailUpdateAt round-trip through
+// Snapshot/Restore.
+func TestInMemoryBackend_SnapshotRestore_PrimaryEmailUpdateStatus(t *testing.T) {
+	t.Parallel()
+
+	original := account.NewInMemoryBackend("111122223333", "us-west-2")
+	_, err := original.StartPrimaryEmailUpdate("new@example.com")
+	require.NoError(t, err)
+
+	wantStatus, wantAt, err := original.GetPrimaryEmailUpdateStatus()
+	require.NoError(t, err)
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := account.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	gotStatus, gotAt, err := fresh.GetPrimaryEmailUpdateStatus()
+	require.NoError(t, err)
+	assert.Equal(t, wantStatus, gotStatus)
+	assert.True(t, wantAt.Equal(gotAt))
+}
+
 // seedFullState populates the alternateContacts store.Table, the raw
 // contactInfo pointer, the raw regions slice (via EnableRegion/DisableRegion
 // mutation), accountName, and a pending primary-email update, so

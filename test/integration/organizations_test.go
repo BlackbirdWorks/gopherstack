@@ -70,7 +70,10 @@ func TestIntegration_Organizations_OrgLifecycle(t *testing.T) {
 			ensureOrg(t, client)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteOrganization(ctx, &organizationsSDK.DeleteOrganizationInput{})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteOrganization(cleanupCtx, &organizationsSDK.DeleteOrganizationInput{})
 			})
 
 			// DescribeOrganization.

@@ -303,6 +303,7 @@ func domainCopy(d *Domain) *Domain {
 	cp.CognitoOptions = cloneCognitoOptions(d.CognitoOptions)
 	cp.AdvancedSecurityOptions = cloneAdvancedSecurityOptions(d.AdvancedSecurityOptions)
 	cp.AutoTuneOptions = cloneAutoTuneOptions(d.AutoTuneOptions)
+	cp.DeploymentStrategyOptions = cloneDeploymentStrategyOptions(d.DeploymentStrategyOptions)
 	cp.LogPublishingOptions = cloneLogPublishingOptions(d.LogPublishingOptions)
 
 	return &cp
@@ -334,21 +335,70 @@ func cloneCognitoOptions(v *CognitoOptions) *CognitoOptions {
 	return &cp
 }
 
-// cloneAdvancedSecurityOptions returns a shallow copy of v (all fields are
-// scalar), or nil if v is nil.
+// cloneAdvancedSecurityOptions returns a deep copy of v (including its
+// SAMLOptions/Idp pointer chain), or nil if v is nil.
 func cloneAdvancedSecurityOptions(v *AdvancedSecurityOptions) *AdvancedSecurityOptions {
 	if v == nil {
 		return nil
 	}
 
 	cp := *v
+	cp.SAMLOptions = cloneSAMLOptions(v.SAMLOptions)
 
 	return &cp
 }
 
-// cloneAutoTuneOptions returns a shallow copy of v (all fields are scalar),
-// or nil if v is nil.
+// cloneSAMLOptions returns a deep copy of v (including its Idp pointer), or
+// nil if v is nil.
+func cloneSAMLOptions(v *SAMLOptions) *SAMLOptions {
+	if v == nil {
+		return nil
+	}
+
+	cp := *v
+	if v.Idp != nil {
+		idp := *v.Idp
+		cp.Idp = &idp
+	}
+
+	return &cp
+}
+
+// cloneAutoTuneOptions returns a deep copy of v (including its
+// MaintenanceSchedules slice and their Duration pointers), or nil if v is nil.
 func cloneAutoTuneOptions(v *AutoTuneOptions) *AutoTuneOptions {
+	if v == nil {
+		return nil
+	}
+
+	cp := *v
+	cp.MaintenanceSchedules = cloneAutoTuneMaintenanceSchedules(v.MaintenanceSchedules)
+
+	return &cp
+}
+
+// cloneAutoTuneMaintenanceSchedules returns a deep copy of v (including each
+// element's Duration pointer), or nil if v is nil.
+func cloneAutoTuneMaintenanceSchedules(v []AutoTuneMaintenanceSchedule) []AutoTuneMaintenanceSchedule {
+	if v == nil {
+		return nil
+	}
+
+	cp := make([]AutoTuneMaintenanceSchedule, len(v))
+	for i, s := range v {
+		cp[i] = s
+		if s.Duration != nil {
+			d := *s.Duration
+			cp[i].Duration = &d
+		}
+	}
+
+	return cp
+}
+
+// cloneDeploymentStrategyOptions returns a shallow copy of v (all fields are
+// scalar), or nil if v is nil.
+func cloneDeploymentStrategyOptions(v *DeploymentStrategyOptions) *DeploymentStrategyOptions {
 	if v == nil {
 		return nil
 	}

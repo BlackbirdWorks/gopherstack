@@ -152,7 +152,7 @@ func TestListFunctions_WithItems(t *testing.T) {
 	for i := range 2 {
 		name := "fn-" + string(rune('a'+i))
 		doRequest(t, h, http.MethodPut, "/function/"+name, map[string]any{
-			"FunctionType": "CHANNEL_ASSEMBLY",
+			"FunctionType": "HTTP_REQUEST",
 			"Description":  "test fn",
 		})
 	}

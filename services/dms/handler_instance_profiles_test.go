@@ -16,13 +16,13 @@ func TestDeleteInstanceProfile(t *testing.T) {
 	h.Backend.AddInstanceProfileInternal("del-ip")
 
 	rec := doDMS(t, h, "DeleteInstanceProfile", map[string]any{
-		"InstanceProfileArn": "del-ip",
+		"InstanceProfileIdentifier": "del-ip",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 0, h.Backend.InstanceProfileCount())
 
 	rec2 := doDMS(t, h, "DeleteInstanceProfile", map[string]any{
-		"InstanceProfileArn": "del-ip",
+		"InstanceProfileIdentifier": "del-ip",
 	})
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
@@ -40,13 +40,13 @@ func TestModifyInstanceProfile(t *testing.T) {
 	ipArn := profiles[0].(map[string]any)["InstanceProfileArn"].(string)
 
 	rec := doDMS(t, h, "ModifyInstanceProfile", map[string]any{
-		"InstanceProfileArn": ipArn,
-		"Description":        "updated description",
+		"InstanceProfileIdentifier": ipArn,
+		"Description":               "updated description",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doDMS(t, h, "ModifyInstanceProfile", map[string]any{
-		"InstanceProfileArn": "nonexistent",
+		"InstanceProfileIdentifier": "nonexistent",
 	})
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }

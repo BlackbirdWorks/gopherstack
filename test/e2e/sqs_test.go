@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/require"
@@ -59,9 +58,6 @@ func TestSQSDashboard(t *testing.T) {
 	err = page.Click("button[type='submit']")
 	require.NoError(t, err)
 
-	// Wait for redirect back to queue list
-	time.Sleep(500 * time.Millisecond)
-
 	// Verify the new queue appears in the list and select the actual clickable card
 	queueCard := page.Locator("div[role='button']:has-text('test-sqs-queue')").First()
 	err = queueCard.WaitFor(playwright.LocatorWaitForOptions{
@@ -90,8 +86,6 @@ func TestSQSDashboard(t *testing.T) {
 	err = confirmDialog.Locator("button:has-text('Purge')").Click()
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
-
 	// Queue should still exist after purge
 	err = queueCard.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
@@ -110,8 +104,6 @@ func TestSQSDashboard(t *testing.T) {
 	require.NoError(t, err)
 	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
-
-	time.Sleep(500 * time.Millisecond)
 
 	// Verify the empty state text is rendered
 	err = page.Locator("text=No queues found").First().WaitFor(playwright.LocatorWaitForOptions{

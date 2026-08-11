@@ -80,6 +80,7 @@ func (b *InMemoryBackend) CreateEmailIdentity(
 	}
 
 	b.identities.Put(ei)
+	b.putResourceTagsLocked(b.identityARN(identity), tags)
 
 	cp := *ei
 

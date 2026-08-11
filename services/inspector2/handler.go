@@ -106,11 +106,17 @@ func (h *Handler) GetSupportedOperations() []string {
 // long ||-chain) so RouteMatcher itself stays a simple loop instead of
 // tripping cyclomatic-complexity lint thresholds.
 //
+// pathEnable/pathDisable are deliberately NOT in this list: real Inspector2
+// only has the exact fixed paths POST /enable and POST /disable (confirmed
+// by the {method, path} dispatch table below, which has no children under
+// either). As a prefix, "/enable"/"/disable" wrongly swallow any other
+// service's operation-named path starting with those letters (e.g. Account
+// Management's POST /enableRegion, /disableRegion) -- see RouteMatcher's
+// exact-match check for these two.
+//
 //nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
 var onceRouteMatchPrefixes = sync.OnceValue(func() []string {
 	return []string{
-		pathEnable,
-		pathDisable,
 		"/status/",
 		"/filters/",
 		"/findings/",
@@ -143,6 +149,10 @@ var onceRouteMatchPrefixes = sync.OnceValue(func() []string {
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
+		if path == pathEnable || path == pathDisable {
+			return true
+		}
 
 		for _, prefix := range onceRouteMatchPrefixes() {
 			if strings.HasPrefix(path, prefix) {

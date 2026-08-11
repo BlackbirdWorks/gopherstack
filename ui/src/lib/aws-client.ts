@@ -51,6 +51,7 @@ import { FisClient } from "@aws-sdk/client-fis";
 import { ACMPCAClient } from "@aws-sdk/client-acm-pca";
 import { AmplifyClient } from "@aws-sdk/client-amplify";
 import { AppConfigClient } from "@aws-sdk/client-appconfig";
+import { AppConfigDataClient } from "@aws-sdk/client-appconfigdata";
 import { CodeBuildClient } from "@aws-sdk/client-codebuild";
 import { CodePipelineClient } from "@aws-sdk/client-codepipeline";
 import { GlobalAcceleratorClient } from "@aws-sdk/client-global-accelerator";
@@ -160,6 +161,10 @@ export function getAmplifyClient(region?: string): AmplifyClient {
 
 export function getAppConfigClient(region?: string): AppConfigClient {
   return new AppConfigClient(clientConfig(region));
+}
+
+export function getAppConfigDataClient(region?: string): AppConfigDataClient {
+  return new AppConfigDataClient(clientConfig(region));
 }
 
 export function getACMPCAClient(region?: string): ACMPCAClient {

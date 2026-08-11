@@ -101,13 +101,15 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 		return h.runRotationTestProbe(ctx, input, out)
 	}
 
-	if input.RotationLambdaARN == "" || h.lambdaInvoker == nil {
-		// No Lambda ARN, or no invoker wired — backend already promoted to AWSCURRENT.
+	lambdaARN := h.resolveRotationLambdaARN(ctx, input)
+	if lambdaARN == "" || h.lambdaInvoker == nil {
+		// No Lambda ARN configured (on this request or already stored on the
+		// secret), or no invoker wired — backend already promoted to AWSCURRENT.
 		return out, nil
 	}
 
 	// Lambda ARN + invoker: backend created AWSPENDING; invoke steps and promote.
-	if err = h.invokeLambdaRotationSteps(ctx, input, out); err != nil {
+	if err = h.invokeLambdaRotationSteps(ctx, input, lambdaARN, out); err != nil {
 		return nil, err
 	}
 
@@ -119,6 +121,26 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 	}
 
 	return out, nil
+}
+
+// resolveRotationLambdaARN returns the Lambda ARN that governs this rotation:
+// the request's own RotationLambdaARN if set, otherwise the ARN already
+// stored on the secret from a prior EnableRotation/RotateSecret call. Real
+// AWS callers normally configure the ARN once and omit it on every
+// subsequent RotateSecret call, so falling back to the stored value (rather
+// than treating an omitted request field as "no Lambda configured") is
+// required to ever actually invoke it.
+func (h *Handler) resolveRotationLambdaARN(ctx context.Context, input *RotateSecretInput) string {
+	if input.RotationLambdaARN != "" {
+		return input.RotationLambdaARN
+	}
+
+	desc, err := h.Backend.DescribeSecret(ctx, &DescribeSecretInput{SecretID: input.SecretID})
+	if err != nil {
+		return ""
+	}
+
+	return desc.RotationLambdaARN
 }
 
 // runRotationTestProbe implements RotateSecret's RotateImmediately=false path: if a
@@ -135,14 +157,7 @@ func (h *Handler) runRotationTestProbe(
 		return out, nil
 	}
 
-	lambdaARN := input.RotationLambdaARN
-	if lambdaARN == "" {
-		desc, descErr := h.Backend.DescribeSecret(ctx, &DescribeSecretInput{SecretID: input.SecretID})
-		if descErr == nil {
-			lambdaARN = desc.RotationLambdaARN
-		}
-	}
-
+	lambdaARN := h.resolveRotationLambdaARN(ctx, input)
 	if lambdaARN == "" {
 		return out, nil
 	}
@@ -185,6 +200,7 @@ func (h *Handler) runRotationTestProbe(
 func (h *Handler) invokeLambdaRotationSteps(
 	ctx context.Context,
 	input *RotateSecretInput,
+	lambdaARN string,
 	out *RotateSecretOutput,
 ) error {
 	token := input.ClientRequestToken
@@ -192,7 +208,7 @@ func (h *Handler) invokeLambdaRotationSteps(
 		token = out.VersionID
 	}
 
-	functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
+	functionName := extractFunctionNameFromARN(lambdaARN)
 
 	for _, step := range rotationSteps {
 		event, marshalErr := buildRotationStepEvent(input.SecretID, token, step)

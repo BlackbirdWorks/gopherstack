@@ -329,14 +329,27 @@ type MetricStream struct {
 	ExcludeFilters []MetricStreamFilter `json:"ExcludeFilters,omitempty"`
 }
 
-// AlarmMuteRule represents a CloudWatch alarm mute rule.
+// AlarmMuteRuleSchedule is cloudwatch types.Schedule: the cron/at expression
+// union plus duration (aws-sdk-go-v2 cloudwatch@v1.66.3 types/types.go:3408).
+type AlarmMuteRuleSchedule struct {
+	Expression string `json:"Expression"`
+	Duration   string `json:"Duration"`
+	Timezone   string `json:"Timezone,omitempty"`
+}
+
+// AlarmMuteRule represents a CloudWatch alarm mute rule: types.Rule (a
+// Schedule) plus types.MuteTargets, flattened (aws-sdk-go-v2
+// cloudwatch@v1.66.3 api_op_PutAlarmMuteRule.go:63).
 type AlarmMuteRule struct {
-	CreationTime  time.Time `json:"CreationTime"`
-	MuteStartTime time.Time `json:"MuteStartTime"`
-	MuteName      string    `json:"MuteName"`
-	Description   string    `json:"Description,omitempty"`
-	AlarmNames    []string  `json:"AlarmNames,omitempty"`
-	MuteDuration  int32     `json:"MuteDuration"`
+	CreationTime         time.Time             `json:"CreationTime"`
+	LastUpdatedTimestamp time.Time             `json:"LastUpdatedTimestamp"`
+	ExpireDate           time.Time             `json:"ExpireDate,omitzero"`
+	StartDate            time.Time             `json:"StartDate,omitzero"`
+	Name                 string                `json:"Name"`
+	Arn                  string                `json:"Arn"`
+	Description          string                `json:"Description,omitempty"`
+	Schedule             AlarmMuteRuleSchedule `json:"Schedule"`
+	AlarmNames           []string              `json:"AlarmNames,omitempty"`
 }
 
 // AlarmContributor represents a single contributor returned by DescribeAlarmContributors.

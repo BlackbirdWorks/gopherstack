@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import SFNPage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -15,10 +16,25 @@ vi.mock("svelte-sonner", () => ({
   },
 }));
 
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
+
 describe("Step Functions Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    // Every test below predates "All" mode and assumes exactly one
+    // ListStateMachines call against a single region, so pin single-region
+    // mode here; the "All regions mode" describe block below opts back in.
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -133,5 +149,77 @@ describe("Step Functions Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  describe("All regions mode", () => {
+    it("fans ListStateMachines out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({
+        stateMachines: [{ stateMachineArn: "arn:us:1", name: "us-workflow", type: "STANDARD" }],
+      });
+      mockSend.mockResolvedValueOnce({
+        stateMachines: [{ stateMachineArn: "arn:eu:1", name: "eu-workflow", type: "STANDARD" }],
+      });
+
+      render(SFNPage);
+
+      await waitFor(() => expect(screen.getByText("us-workflow")).toBeInTheDocument());
+      expect(screen.getByText("eu-workflow")).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("falls back to just the default region when no region has data", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData([]);
+      mockSend.mockResolvedValueOnce({
+        stateMachines: [{ stateMachineArn: "arn:1", name: "solo-workflow", type: "STANDARD" }],
+      });
+
+      render(SFNPage);
+
+      await waitFor(() => expect(screen.getByText("solo-workflow")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one ListStateMachines call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({
+        stateMachines: [{ stateMachineArn: "arn:1", name: "solo-workflow", type: "STANDARD" }],
+      });
+      render(SFNPage);
+      await waitFor(() => expect(screen.getByText("solo-workflow")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the same workflow name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({
+        stateMachines: [{ stateMachineArn: "arn:us:1", name: "shared-workflow", type: "STANDARD" }],
+      });
+      mockSend.mockResolvedValueOnce({
+        stateMachines: [{ stateMachineArn: "arn:eu:1", name: "shared-workflow", type: "STANDARD" }],
+      });
+
+      render(SFNPage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("shared-workflow");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) =>
+          within(r.closest('[role="button"]') as HTMLElement).getByTestId("region-chip")
+            .textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
   });
 });

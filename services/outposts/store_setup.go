@@ -26,6 +26,10 @@ func assetOutpostIndexKeyFn(v *Asset) string { return v.OutpostID }
 
 func connectionKeyFn(v *Connection) string { return v.ID }
 
+func runningInstanceKeyFn(v *runningInstance) string { return v.InstanceID }
+
+func runningInstanceOutpostIndexKeyFn(v *runningInstance) string { return v.OutpostID }
+
 // registerAllTables registers every resource collection exactly once. Must
 // be called during construction only -- see services/s3tables/store_setup.go's
 // doc comment for why (store.Register panics on a duplicate name).
@@ -47,4 +51,7 @@ func registerAllTables(b *InMemoryBackend) {
 	b.assetsByOutpost = b.assets.AddIndex("byOutpost", assetOutpostIndexKeyFn)
 
 	b.connections = store.Register(b.registry, "connections", store.New(connectionKeyFn))
+
+	b.runningInstances = store.Register(b.registry, "runningInstances", store.New(runningInstanceKeyFn))
+	b.runningInstancesByOutpost = b.runningInstances.AddIndex("byOutpost", runningInstanceOutpostIndexKeyFn)
 }

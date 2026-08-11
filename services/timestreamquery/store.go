@@ -45,8 +45,29 @@ type InMemoryBackend struct {
 	clientTokens             *clientTokenCache            // Query ClientToken -> QueryID
 	scheduledQueryTokens     *clientTokenCache            // CreateScheduledQuery ClientToken -> Arn
 	pageStore                *nextTokenStore
+	tagWriteBackend          TagWriteBackend
 	accountID                string
 	defaultRegion            string
+}
+
+// TagWriteBackend is the seam into the Timestream Write backend, which
+// serves TagResource/UntagResource/ListTagsForResource for scheduled-query
+// ARNs too (handler.go's writeServiceTagOps: real Timestream exposes one
+// shared tag store across both API surfaces). Without this wired,
+// CreateScheduledQuery's Tags never reach the store those reads consult.
+type TagWriteBackend interface {
+	TagResource(arn string, tags map[string]string) error
+}
+
+// SetTagWriteBackend wires the Timestream Write backend that owns the shared
+// tag store. Left unwired, CreateScheduledQuery still records tags on the
+// ScheduledQuery itself (this package's own TagResource/ListTagsForResource
+// still serve them) -- only cross-service reads via TimestreamWrite are
+// affected, matching how other cross-service seams in this repo degrade.
+func (b *InMemoryBackend) SetTagWriteBackend(wb TagWriteBackend) {
+	b.mu.Lock("SetTagWriteBackend")
+	defer b.mu.Unlock()
+	b.tagWriteBackend = wb
 }
 
 // NewInMemoryBackend creates a new in-memory Timestream Query backend.

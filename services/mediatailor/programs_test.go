@@ -21,7 +21,7 @@ func TestGetChannelSchedule_Paginates(t *testing.T) {
 	_, err := b.CreateChannel("ch1", "LOOP", "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateSourceLocation("sl1", "https://example.com", nil)
+	_, err = b.CreateSourceLocation("sl1", "https://example.com", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateVodSource("sl1", "vs1", nil, nil)
@@ -99,6 +99,12 @@ func TestCreateProgram_RelativeTransition(t *testing.T) {
 	_, err := b.CreateChannel("ch1", "LOOP", "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
+	_, err = b.CreateSourceLocation("sl1", "https://example.com", nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateVodSource("sl1", "vs1", nil, nil)
+	require.NoError(t, err)
+
 	first, err := b.CreateProgram(
 		"ch1", "prog1", "sl1", "vs1", "",
 		&mediatailor.ScheduleConfiguration{
@@ -167,6 +173,12 @@ func TestUpdateProgram_RequiresScheduleConfiguration(t *testing.T) {
 	_, err := b.CreateChannel("ch1", "LOOP", "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
+	_, err = b.CreateSourceLocation("sl1", "https://example.com", nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateVodSource("sl1", "vs1", nil, nil)
+	require.NoError(t, err)
+
 	_, err = b.CreateProgram("ch1", "prog1", "sl1", "vs1", "", testScheduleConfig(1_700_000_000_000), nil, nil, nil)
 	require.NoError(t, err)
 
@@ -183,6 +195,12 @@ func TestUpdateProgram_PartialUpdate(t *testing.T) {
 
 	b := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
 	_, err := b.CreateChannel("ch1", "LOOP", "", nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateSourceLocation("sl1", "https://example.com", nil, nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateVodSource("sl1", "vs1", nil, nil)
 	require.NoError(t, err)
 
 	created, err := b.CreateProgram(

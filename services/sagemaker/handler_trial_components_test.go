@@ -123,7 +123,7 @@ func TestHandler_UpdateTrialComponent(t *testing.T) {
 	rec := doSageMakerRequest(t, h, "UpdateTrialComponent", map[string]any{
 		"TrialComponentName": "my-tc",
 		"DisplayName":        "TC Display",
-		"Status":             "InProgress",
+		"Status":             map[string]any{"PrimaryStatus": "InProgress"},
 		"Parameters": map[string]any{
 			"lr": map[string]any{"NumberValue": 0.001},
 		},
@@ -147,8 +147,53 @@ func TestHandler_UpdateTrialComponent(t *testing.T) {
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	assert.Equal(t, "TC Display", descResp["DisplayName"])
-	assert.Equal(t, "InProgress", descResp["Status"])
+	assert.Equal(t, "InProgress", descResp["Status"].(map[string]any)["PrimaryStatus"])
 	assert.NotNil(t, descResp["Parameters"])
 	assert.NotNil(t, descResp["InputArtifacts"])
 	assert.NotNil(t, descResp["OutputArtifacts"])
+}
+
+func TestHandler_CreateTrialComponent_FullFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateTrialComponent", map[string]any{
+		"TrialComponentName": "tc-full",
+		"DisplayName":        "Training Run 1",
+		"StartTime":          1700000000,
+		"EndTime":            1700003600,
+		"Status":             map[string]any{"PrimaryStatus": "Completed"},
+		"Parameters": map[string]any{
+			"lr": map[string]any{"NumberValue": 0.01},
+		},
+		"InputArtifacts": map[string]any{
+			"train": map[string]any{"Value": "s3://bucket/train", "MediaType": "text/csv"},
+		},
+		"OutputArtifacts": map[string]any{
+			"model": map[string]any{"Value": "s3://bucket/model.tar.gz"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeTrialComponent", map[string]any{
+		"TrialComponentName": "tc-full",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "Training Run 1", descResp["DisplayName"])
+	assert.InEpsilon(t, float64(1700000000), descResp["StartTime"], 0)
+	assert.InEpsilon(t, float64(1700003600), descResp["EndTime"], 0)
+
+	status, ok := descResp["Status"].(map[string]any)
+	require.True(t, ok, "Status must be a {PrimaryStatus,Message} object, not a bare string")
+	assert.Equal(t, "Completed", status["PrimaryStatus"])
+
+	params, ok := descResp["Parameters"].(map[string]any)
+	require.True(t, ok)
+	lr, ok := params["lr"].(map[string]any)
+	require.True(t, ok)
+	assert.InEpsilon(t, 0.01, lr["NumberValue"], 0)
 }

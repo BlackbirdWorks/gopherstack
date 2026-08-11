@@ -224,34 +224,38 @@ func TestAddStatementInternal(t *testing.T) {
 	assert.True(t, stmt.HasResultSet)
 }
 
-// TestExecuteStatement_DatabaseRequired verifies Database is required.
-func TestExecuteStatement_DatabaseRequired(t *testing.T) {
+// TestExecuteStatement_DatabaseOptional verifies Database is NOT required on
+// ExecuteStatement: unlike ListDatabases/ListSchemas/ListTables/DescribeTable
+// (whose Database is a hard @required member, enforced client-side in
+// validateOpListDatabasesInput et al.), ExecuteStatementInput.Database's doc
+// comment states it is only "required when authenticating using either
+// Secrets Manager or temporary credentials," and
+// validateOpExecuteStatementInput (aws-sdk-go-v2/service/redshiftdata@
+// v1.43.4's validators.go) has no Database check at all. Previously this
+// package rejected every Database-less request with ValidationException,
+// which was stricter than real AWS.
+func TestExecuteStatement_DatabaseOptional(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "ExecuteStatement", map[string]any{
 		"Sql": "SELECT 1",
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "ValidationException", resp["__type"])
+	assert.Equal(t, http.StatusOK, rec.Code, "Database is conditionally, not unconditionally, required")
 }
 
-// TestBatchExecuteStatement_DatabaseRequired verifies Database is required.
-func TestBatchExecuteStatement_DatabaseRequired(t *testing.T) {
+// TestBatchExecuteStatement_DatabaseOptional mirrors
+// TestExecuteStatement_DatabaseOptional for BatchExecuteStatement, whose
+// Database member carries the identical conditional doc comment and lacks a
+// validator entry too.
+func TestBatchExecuteStatement_DatabaseOptional(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "BatchExecuteStatement", map[string]any{
 		"Sqls": []string{"SELECT 1", "SELECT 2"},
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "ValidationException", resp["__type"])
+	assert.Equal(t, http.StatusOK, rec.Code, "Database is conditionally, not unconditionally, required")
 }
 
 // TestGetStatementResult_NoResultSet verifies that GetStatementResult

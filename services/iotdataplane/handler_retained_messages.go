@@ -10,12 +10,12 @@ import (
 // handleGetRetainedMessage processes GET /retainedMessage/{topic} requests.
 func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 
 	topic := strings.TrimPrefix(c.Request().URL.Path, retainedMessagePathSlash)
 	if topic == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "topic is required"})
+		return invalidRequestResponse(c, "topic is required")
 	}
 
 	msg, err := h.Backend.GetRetainedMessage(topic)
@@ -43,12 +43,12 @@ func (h *Handler) handleGetRetainedMessage(c *echo.Context) error {
 // AWS RetainedMessageSummary does NOT include qos.
 func (h *Handler) handleListRetainedMessages(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 
 	msgs, err := h.Backend.ListRetainedMessages()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	q := c.Request().URL.Query()

@@ -786,14 +786,12 @@ func TestListJobs_JobStatusesFilter(t *testing.T) {
 	}
 }
 
-// TestListJobs_ItemFields locks in a gopherstack-tir4 finding: ListJobs'
-// JobListDescriptor items previously only carried JobId/Status/Priority,
-// omitting Description/Operation/CreationTime/TerminationDate despite the
-// backend having real data for all four (Operation is derived from the raw
-// <Operation> inner XML's root element name, e.g. "LambdaInvoke" -- see
-// jobOperationName in handler_jobs.go -- matching the real
-// JobListDescriptor.Operation OperationName enum, not the full nested
-// operation config JobDescriptor.Operation carries).
+// TestListJobs_ItemFields covers ListJobs' JobListDescriptor items:
+// JobId/Status/Priority plus Description/Operation/CreationTime/TerminationDate.
+// Operation is derived from the raw <Operation> inner XML's root element
+// name (e.g. "LambdaInvoke" — jobOperationName in handler_jobs.go),
+// matching JobListDescriptor.Operation's OperationName enum, not the full
+// nested config JobDescriptor.Operation carries.
 func TestListJobs_ItemFields(t *testing.T) {
 	t.Parallel()
 
@@ -841,14 +839,9 @@ func TestListJobs_ItemFields(t *testing.T) {
 }
 
 // TestJobTagging_WireShape asserts the literal nested envelope for job
-// tagging: S3TagSet wraps each entry as "<member>", not "<Tag>" (confirmed
-// against aws-sdk-go-v2/service/s3control's
-// awsRestxml_serializeDocumentS3TagSet, which every S3Tag list in this
-// service shares). A previous version of jobTagSetXML used "<Tag>", which
-// would have made GetJobTagging's response invisible to a real client's
-// S3TagSet decoder AND made PutJobTagging silently drop every tag a real
-// aws-sdk-go-v2 client sends (since decodeXML's field-name match is
-// case-sensitive on the Go side, unlike the real server's EqualFold match).
+// tagging: S3TagSet wraps each entry as "<member>", not "<Tag>"
+// (awsRestxml_serializeDocumentS3TagSet, shared by every S3Tag list in this
+// service).
 func TestJobTagging_WireShape(t *testing.T) {
 	t.Parallel()
 

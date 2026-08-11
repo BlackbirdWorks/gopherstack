@@ -642,7 +642,7 @@ func (b *InMemoryBackend) recordLastUsage(region, canonicalKeyID, operation stri
 // GetKeyLastUsage returns the last successful cryptographic operation performed with the specified key.
 //
 // Unlike almost every other KeyId-accepting KMS operation, the real
-// aws-sdk-go-v2/service/kms@v1.54.0 GetKeyLastUsageInput doc comment is
+// aws-sdk-go-v2/service/kms@v1.55.4 GetKeyLastUsageInput doc comment is
 // explicit that "Alias names are not supported" here -- a key ID or key ARN
 // only. Rejected before taking any lock, matching validKeyPolicyDoc-style
 // input validation elsewhere in this file.

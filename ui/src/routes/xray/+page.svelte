@@ -453,15 +453,11 @@
 	// -- there is no separate GetSamplingRule op in real X-Ray (confirmed absent from
 	// the SDK's command list), so list rows double as detail data.
 	//
-	// WIRE-SHAPE GAP found while building this form: the real SDK's SamplingRuleUpdate
-	// type (used by UpdateSamplingRule) has an Attributes field (confirmed in the
-	// installed model), but services/xray/handler_sampling_rules.go's
-	// samplingRuleUpdateInput struct has no Attributes field at all -- so a real
-	// client's UpdateSamplingRule Attributes value is silently dropped by
-	// json.Unmarshal (the target struct simply has nowhere to put it), even though
-	// Attributes is correctly stored and returned on CreateSamplingRule. The update
-	// form below deliberately shows Attributes as read-only for this reason, instead
-	// of building an editable field the backend would silently ignore.
+	// Attributes on the update form: fixed 2026-08-07 (gopherstack-6iwu).
+	// samplingRuleUpdateInput previously had no Attributes field, so a real
+	// client's UpdateSamplingRule Attributes value was silently dropped by
+	// json.Unmarshal; the backend now threads it through like every other
+	// SamplingRuleUpdate field.
 
 	let samplingRules = $state<SamplingRuleRecord[]>([]);
 	let samplingRulesNextToken = $state<string | undefined>();
@@ -610,6 +606,7 @@
 					Host: srHost.trim() || '*',
 					HTTPMethod: srHTTPMethod.trim() || '*',
 					URLPath: srURLPath.trim() || '*',
+					Attributes: parseKeyValueList(srAttributes),
 					SamplingRateBoost: boost
 				}
 			})
@@ -978,17 +975,10 @@
 					<input id="sr-url-path" bind:value={srURLPath} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono" />
 				</div>
 			</div>
-			{#if srFormMode === 'create'}
-				<div>
-					<label for="sr-attributes" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attributes (key=value, comma-separated)</label>
-					<input id="sr-attributes" bind:value={srAttributes} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" placeholder="env=prod" />
-				</div>
-			{:else}
-				<div>
-					<span class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attributes (not editable via UpdateSamplingRule)</span>
-					<p class="text-xs font-mono text-gray-500 dark:text-gray-400">{srAttributes || '—'}</p>
-				</div>
-			{/if}
+			<div>
+				<label for="sr-attributes" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Attributes (key=value, comma-separated)</label>
+				<input id="sr-attributes" bind:value={srAttributes} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" placeholder="env=prod" />
+			</div>
 			<div class="border-t border-gray-100 dark:border-gray-800 pt-3">
 				<div class="flex items-center gap-2 mb-2">
 					<input id="sr-boost-enabled" type="checkbox" bind:checked={srBoostEnabled} class="rounded border-gray-300" />

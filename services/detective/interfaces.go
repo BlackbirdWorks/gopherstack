@@ -213,10 +213,13 @@ type DatasourcePackageIngestDetail struct {
 }
 
 // MembershipDatasources holds datasource package info for a member or graph.
+// IngestHistory mirrors the real SDK's DatasourcePackageIngestHistory: package
+// name -> ingest state -> the time that state began (aws-sdk-go-v2's
+// map[string]map[string]TimestampForCollection), not a flat current-state map.
 type MembershipDatasources struct {
-	DatasourcePackageIngestStates map[string]string
-	AccountID                     string
-	GraphARN                      string
+	IngestHistory map[string]map[string]time.Time
+	AccountID     string
+	GraphARN      string
 }
 
 // OrgAdmin represents a Detective organization administrator account.

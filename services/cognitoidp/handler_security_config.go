@@ -281,11 +281,21 @@ func (h *Handler) handleSetLogDeliveryConfiguration(
 	_ context.Context,
 	in *setLogDeliveryConfigurationInput,
 ) (*setLogDeliveryConfigurationOutput, error) {
-	if err := h.Backend.SetLogDeliveryConfiguration(in.UserPoolID, nil); err != nil {
+	logConfigs := in.LogConfigurations
+	if logConfigs == nil {
+		logConfigs = []map[string]any{}
+	}
+
+	raw := map[string]any{
+		"UserPoolId":        in.UserPoolID,
+		"LogConfigurations": logConfigs,
+	}
+
+	if err := h.Backend.SetLogDeliveryConfiguration(in.UserPoolID, raw); err != nil {
 		return nil, err
 	}
 
-	return &setLogDeliveryConfigurationOutput{LogDeliveryConfiguration: map[string]any{}}, nil
+	return &setLogDeliveryConfigurationOutput{LogDeliveryConfiguration: raw}, nil
 }
 
 func (h *Handler) securityConfigOpsA() map[string]service.JSONOpFunc {

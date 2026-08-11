@@ -83,7 +83,6 @@ type clusterResponse struct {
 	NetworkType                   string                  `json:"NetworkType,omitempty"`
 	Nodes                         []nodeResponse          `json:"Nodes,omitempty"`
 	SecurityGroups                []securityGroupResp     `json:"SecurityGroups,omitempty"`
-	Tags                          []tagItem               `json:"Tags,omitempty"`
 	NodeIDsToRemove               []string                `json:"NodeIdsToRemove,omitempty"`
 	TotalNodes                    int                     `json:"TotalNodes"`
 	ActiveNodes                   int                     `json:"ActiveNodes"`
@@ -196,10 +195,6 @@ func toClusterResponse(c *Cluster) clusterResponse {
 		}
 
 		resp.Nodes = append(resp.Nodes, nr)
-	}
-
-	for k, v := range c.Tags {
-		resp.Tags = append(resp.Tags, tagItem{Key: k, Value: v})
 	}
 
 	return resp

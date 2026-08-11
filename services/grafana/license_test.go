@@ -2,7 +2,6 @@ package grafana_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	grafanasdk "github.com/aws/aws-sdk-go-v2/service/grafana"
@@ -27,11 +26,7 @@ func TestAssociateAndDisassociateLicense(t *testing.T) {
 	require.NotNil(t, assoc.Workspace.LicenseExpiration)
 	require.Equal(t, "glabs-token-123", aws.ToString(assoc.Workspace.GrafanaToken))
 
-	time.Sleep(workspaceTransitionWait)
-
-	desc, err := client.DescribeWorkspace(t.Context(), &grafanasdk.DescribeWorkspaceInput{WorkspaceId: aws.String(id)})
-	require.NoError(t, err)
-	require.Equal(t, types.WorkspaceStatusActive, desc.Workspace.Status)
+	desc := waitForWorkspaceActive(t, client, id)
 	require.Equal(t, types.LicenseTypeEnterprise, desc.Workspace.LicenseType)
 
 	disassoc, err := client.DisassociateLicense(t.Context(), &grafanasdk.DisassociateLicenseInput{

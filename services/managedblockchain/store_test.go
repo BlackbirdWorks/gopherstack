@@ -180,6 +180,16 @@ func testMemberConfiguration(name string) map[string]any {
 	}
 }
 
+// createTestInvitation seeds a PENDING invitation for networkID and returns its
+// InvitationId, satisfying CreateMember's real-API-required InvitationId field
+// (aws-sdk-go-v2 managedblockchain validators.go:805-806, v1.34.4). Shared across the
+// managedblockchain_test package's family test files.
+func createTestInvitation(t *testing.T, b *managedblockchain.InMemoryBackend, networkID, networkName string) string {
+	t.Helper()
+
+	return b.AddInvitationInternal(testRegion, testAccountID, networkID, networkName).InvitationID
+}
+
 // createTestNetwork creates a network with one member and returns their IDs.
 // Shared across the managedblockchain_test package's family test files.
 func createTestNetwork(t *testing.T, h *managedblockchain.Handler) (string, string) {
@@ -339,8 +349,10 @@ func TestInMemoryBackend_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 1, managedblockchain.AccessorCount(b))
 	assert.Equal(t, 1, managedblockchain.ProposalCount(b))
 	assert.Equal(t, 1, managedblockchain.InvitationCount(b))
-	// ARN index: network + member + node + accessor = 4
-	assert.Equal(t, 4, managedblockchain.ARNIndexSize(b))
+	// ARN index: network + member + node + accessor + proposal = 5
+	// (proposal included since CreateProposal accepts Tags on the real API,
+	// gopherstack-2mwl).
+	assert.Equal(t, 5, managedblockchain.ARNIndexSize(b))
 }
 
 // TestErrValidationMapping verifies ErrValidation wraps ErrInvalidParameter.

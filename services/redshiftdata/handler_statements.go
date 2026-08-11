@@ -9,13 +9,15 @@ import (
 
 // handleExecuteStatement handles ExecuteStatement.
 //
-// ClientToken and SessionKeepAliveSeconds are accepted on the wire for
-// request-shape parity (the real ExecuteStatementInput carries both) but are
-// not used to change backend behavior: ClientToken idempotency and session
-// keep-alive/expiry both require modeling request retries and time-bounded
+// SessionKeepAliveSeconds is accepted on the wire for request-shape parity
+// (the real ExecuteStatementInput carries it) but is not used to change
+// backend behavior: session keep-alive/expiry requires modeling time-bounded
 // session lifetimes this in-memory mock does not have, and there is no clean
 // way to verify the exact undocumented AWS semantics without a live cluster
-// (same reasoning as rdsdata's typeHint gap).
+// (same reasoning as rdsdata's typeHint gap). ClientToken IS behaviorally
+// significant -- see clientTokenKey/lookupIdempotentStatement in
+// idempotency.go: a retried call with the same token replays the original
+// statement instead of creating a new one.
 func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		StatementName           string         `json:"StatementName"`
@@ -37,6 +39,14 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	tokenKey := clientTokenKey("ExecuteStatement", getRegion(ctx, h.Backend.Region()), req.ClientToken)
+
+	if id, ok := h.lookupIdempotentStatement(tokenKey); ok {
+		if stmt, err := h.Backend.DescribeStatement(ctx, id); err == nil {
+			return json.Marshal(statementCreateResponse(stmt))
+		}
+	}
+
 	stmt, err := h.Backend.ExecuteStatement(
 		ctx,
 		req.SQL, req.ClusterIdentifier, req.WorkgroupName,
@@ -48,26 +58,14 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	resp := map[string]any{
-		"Id":                stmt.ID,
-		"ClusterIdentifier": stmt.ClusterIdentifier,
-		"WorkgroupName":     stmt.WorkgroupName,
-		"Database":          stmt.Database,
-		"DbUser":            stmt.DBUser,
-		"SecretArn":         stmt.SecretARN,
-		keyCreatedAt:        epochSeconds(stmt.CreatedAt),
-	}
+	h.storeIdempotentStatement(tokenKey, stmt.ID)
 
-	if stmt.SessionID != "" {
-		resp["SessionId"] = stmt.SessionID
-	}
-
-	return json.Marshal(resp)
+	return json.Marshal(statementCreateResponse(stmt))
 }
 
 // handleBatchExecuteStatement handles BatchExecuteStatement. See
-// handleExecuteStatement for why ClientToken/SessionKeepAliveSeconds are
-// accepted on the wire but not behaviorally significant.
+// handleExecuteStatement for why SessionKeepAliveSeconds is accepted on the
+// wire but not behaviorally significant, and why ClientToken is.
 func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResultFormat            string         `json:"ResultFormat"`
@@ -89,6 +87,14 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	tokenKey := clientTokenKey("BatchExecuteStatement", getRegion(ctx, h.Backend.Region()), req.ClientToken)
+
+	if id, ok := h.lookupIdempotentStatement(tokenKey); ok {
+		if stmt, err := h.Backend.DescribeStatement(ctx, id); err == nil {
+			return json.Marshal(statementCreateResponse(stmt))
+		}
+	}
+
 	stmt, err := h.Backend.BatchExecuteStatement(
 		ctx,
 		req.Sqls, req.ClusterIdentifier, req.WorkgroupName,
@@ -100,6 +106,15 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		return nil, err
 	}
 
+	h.storeIdempotentStatement(tokenKey, stmt.ID)
+
+	return json.Marshal(statementCreateResponse(stmt))
+}
+
+// statementCreateResponse builds the shared ExecuteStatementOutput/
+// BatchExecuteStatementOutput response shape (both carry the same member
+// set) used by both a fresh execution and a ClientToken cache-hit replay.
+func statementCreateResponse(stmt *Statement) map[string]any {
 	resp := map[string]any{
 		"Id":                stmt.ID,
 		"ClusterIdentifier": stmt.ClusterIdentifier,
@@ -114,7 +129,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		resp["SessionId"] = stmt.SessionID
 	}
 
-	return json.Marshal(resp)
+	return resp
 }
 
 func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]byte, error) {

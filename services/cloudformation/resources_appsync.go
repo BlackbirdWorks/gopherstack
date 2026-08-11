@@ -98,7 +98,7 @@ func (rc *ResourceCreator) createAppSyncDataSource(
 		name = logicalID
 	}
 	if dsType == "" {
-		dsType = "NONE"
+		dsType = valueNone
 	}
 
 	ds, err := rc.backends.AppSync.Backend.CreateDataSource(apiID, &appsyncbackend.DataSource{

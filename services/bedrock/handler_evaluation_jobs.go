@@ -58,7 +58,8 @@ type createEvaluationJobInput struct {
 	JobName         string                     `json:"jobName"`
 	JobDescription  string                     `json:"jobDescription,omitempty"`
 	RoleArn         string                     `json:"roleArn,omitempty"`
-	Tags            []Tag                      `json:"tags,omitempty"`
+	ApplicationType string                     `json:"applicationType,omitempty"`
+	Tags            []Tag                      `json:"jobTags,omitempty"`
 	EvaluatorConfig *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
 	InferenceConfig *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
 	EvalConfig      []EvaluationTaskConfig     `json:"evaluationConfig,omitempty"`
@@ -80,6 +81,7 @@ func (h *Handler) handleCreateEvaluationJob(c *echo.Context, body []byte) error 
 	opts := &CreateEvaluationJobInput{
 		JobDescription:  in.JobDescription,
 		RoleArn:         in.RoleArn,
+		ApplicationType: in.ApplicationType,
 		EvaluatorConfig: in.EvaluatorConfig,
 		InferenceConfig: in.InferenceConfig,
 		EvalConfig:      in.EvalConfig,
@@ -135,6 +137,9 @@ func (h *Handler) handleGetEvaluationJob(c *echo.Context, jobARN string) error {
 		keyCreationTime:     job.CreationTime.Format(time.RFC3339),
 		keyLastModifiedTime: job.LastModifiedTime.Format(time.RFC3339),
 	}
+	if job.ApplicationType != "" {
+		resp["applicationType"] = job.ApplicationType
+	}
 	if job.JobDescription != "" {
 		resp["jobDescription"] = job.JobDescription
 	}
@@ -156,19 +161,18 @@ func (h *Handler) handleGetEvaluationJob(c *echo.Context, jobARN string) error {
 
 // parseListEvaluationJobsQuery builds the backend filter/sort/pagination input
 // from the real ListEvaluationJobs query-string bindings (nameContains,
-// statusEquals, creationTimeAfter/Before, sortBy, sortOrder, nextToken).
-// Previously ListEvaluationJobs took no params at all and returned the full
-// unbounded table on every call -- no pagination, and every filter silently
-// ignored.
+// statusEquals, applicationTypeEquals, creationTimeAfter/Before, sortBy,
+// sortOrder, nextToken).
 func parseListEvaluationJobsQuery(c *echo.Context) *ListEvaluationJobsInput {
 	q := c.Request().URL.Query()
 
 	in := &ListEvaluationJobsInput{
-		StatusEquals: q.Get("statusEquals"),
-		NameContains: q.Get("nameContains"),
-		SortBy:       q.Get("sortBy"),
-		SortOrder:    q.Get("sortOrder"),
-		NextToken:    q.Get("nextToken"),
+		StatusEquals:          q.Get("statusEquals"),
+		ApplicationTypeEquals: q.Get("applicationTypeEquals"),
+		NameContains:          q.Get("nameContains"),
+		SortBy:                q.Get("sortBy"),
+		SortOrder:             q.Get("sortOrder"),
+		NextToken:             q.Get("nextToken"),
 	}
 
 	if v := q.Get("creationTimeAfter"); v != "" {
@@ -191,13 +195,18 @@ func (h *Handler) handleListEvaluationJobs(c *echo.Context) error {
 	summaries := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
-		summaries = append(summaries, map[string]any{
+		summary := map[string]any{
 			keyJobArn:           j.JobArn,
 			keyJobName:          j.JobName,
 			keyStatus:           j.Status,
 			keyCreationTime:     j.CreationTime.Format(time.RFC3339),
 			keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
-		})
+		}
+		if j.ApplicationType != "" {
+			summary["applicationType"] = j.ApplicationType
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	resp := map[string]any{"jobSummaries": summaries}

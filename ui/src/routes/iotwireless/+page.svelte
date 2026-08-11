@@ -28,9 +28,24 @@
 		type FuotaTask
 	} from '@aws-sdk/client-iot-wireless';
 	import { toast } from 'svelte-sonner';
+	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { Wifi, Radio, RefreshCw, Plus, Trash2, Search, Server, BookOpen, Layers } from 'lucide-svelte';
 
 	const client = regionalClient(getIoTWirelessClient);
+
+	// The SDK puts the AWS error code on err.name and status on
+	// err.$metadata.httpStatusCode; err.message alone is usually just the
+	// human-readable text. Combine them so the toast shows the actual code.
+	function describeError(e: unknown): string {
+		if (e && typeof e === 'object') {
+			const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+			const name = rec.name ? String(rec.name) : 'Error';
+			const message = rec.message ? String(rec.message) : String(e);
+			const status = rec.$metadata?.httpStatusCode;
+			return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+		}
+		return String(e);
+	}
 
 	type Tab = 'devices' | 'gateways' | 'service-profiles' | 'destinations' | 'device-profiles' | 'fuota-tasks';
 	let activeTab = $state<Tab>('devices');
@@ -125,7 +140,7 @@
 			const out = await client().send(new ListWirelessDevicesCommand({}));
 			devices = out.WirelessDeviceList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load devices: ${(err as Error).message}`);
+			toast.error(`Failed to load devices: ${describeError(err)}`);
 		} finally {
 			loadingDevices = false;
 		}
@@ -137,7 +152,7 @@
 			const out = await client().send(new ListWirelessGatewaysCommand({}));
 			gateways = out.WirelessGatewayList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load gateways: ${(err as Error).message}`);
+			toast.error(`Failed to load gateways: ${describeError(err)}`);
 		} finally {
 			loadingGateways = false;
 		}
@@ -149,7 +164,7 @@
 			const out = await client().send(new ListServiceProfilesCommand({}));
 			serviceProfiles = out.ServiceProfileList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load service profiles: ${(err as Error).message}`);
+			toast.error(`Failed to load service profiles: ${describeError(err)}`);
 		} finally {
 			loadingServiceProfiles = false;
 		}
@@ -161,7 +176,7 @@
 			const out = await client().send(new ListDestinationsCommand({}));
 			destinations = out.DestinationList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load destinations: ${(err as Error).message}`);
+			toast.error(`Failed to load destinations: ${describeError(err)}`);
 		} finally {
 			loadingDestinations = false;
 		}
@@ -173,7 +188,7 @@
 			const out = await client().send(new ListDeviceProfilesCommand({}));
 			deviceProfiles = out.DeviceProfileList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load device profiles: ${(err as Error).message}`);
+			toast.error(`Failed to load device profiles: ${describeError(err)}`);
 		} finally {
 			loadingDeviceProfiles = false;
 		}
@@ -185,7 +200,7 @@
 			const out = await client().send(new ListFuotaTasksCommand({}));
 			fuotaTasks = out.FuotaTaskList ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load FUOTA tasks: ${(err as Error).message}`);
+			toast.error(`Failed to load FUOTA tasks: ${describeError(err)}`);
 		} finally {
 			loadingFuotaTasks = false;
 		}
@@ -213,19 +228,20 @@
 			await loadDevices();
 			toast.success('Wireless device created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create device: ${(err as Error).message}`);
+			toast.error(`Failed to create device: ${describeError(err)}`);
 		} finally {
 			creatingDevice = false;
 		}
 	}
 
 	async function deleteDevice(id: string) {
+		if (!(await confirmDestructive({ title: 'Delete Wireless Device', message: `Delete wireless device "${id}"? This cannot be undone.` }))) return;
 		try {
 			await client().send(new DeleteWirelessDeviceCommand({ Id: id }));
 			await loadDevices();
 			toast.success('Device deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete device: ${(err as Error).message}`);
+			toast.error(`Failed to delete device: ${describeError(err)}`);
 		}
 	}
 
@@ -249,19 +265,20 @@
 			await loadGateways();
 			toast.success('Wireless gateway created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create gateway: ${(err as Error).message}`);
+			toast.error(`Failed to create gateway: ${describeError(err)}`);
 		} finally {
 			creatingGateway = false;
 		}
 	}
 
 	async function deleteGateway(id: string) {
+		if (!(await confirmDestructive({ title: 'Delete Wireless Gateway', message: `Delete wireless gateway "${id}"? This cannot be undone.` }))) return;
 		try {
 			await client().send(new DeleteWirelessGatewayCommand({ Id: id }));
 			await loadGateways();
 			toast.success('Gateway deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete gateway: ${(err as Error).message}`);
+			toast.error(`Failed to delete gateway: ${describeError(err)}`);
 		}
 	}
 
@@ -280,19 +297,20 @@
 			await loadServiceProfiles();
 			toast.success('Service profile created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create service profile: ${(err as Error).message}`);
+			toast.error(`Failed to create service profile: ${describeError(err)}`);
 		} finally {
 			creatingServiceProfile = false;
 		}
 	}
 
 	async function deleteServiceProfile(id: string) {
+		if (!(await confirmDestructive({ title: 'Delete Service Profile', message: `Delete service profile "${id}"? This cannot be undone.` }))) return;
 		try {
 			await client().send(new DeleteServiceProfileCommand({ Id: id }));
 			await loadServiceProfiles();
 			toast.success('Service profile deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete service profile: ${(err as Error).message}`);
+			toast.error(`Failed to delete service profile: ${describeError(err)}`);
 		}
 	}
 
@@ -318,19 +336,20 @@
 			await loadDestinations();
 			toast.success('Destination created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create destination: ${(err as Error).message}`);
+			toast.error(`Failed to create destination: ${describeError(err)}`);
 		} finally {
 			creatingDestination = false;
 		}
 	}
 
 	async function deleteDestination(name: string) {
+		if (!(await confirmDestructive({ title: 'Delete Destination', message: `Delete destination "${name}"? This cannot be undone.` }))) return;
 		try {
 			await client().send(new DeleteDestinationCommand({ Name: name }));
 			await loadDestinations();
 			toast.success('Destination deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete destination: ${(err as Error).message}`);
+			toast.error(`Failed to delete destination: ${describeError(err)}`);
 		}
 	}
 
@@ -349,19 +368,20 @@
 			await loadDeviceProfiles();
 			toast.success('Device profile created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create device profile: ${(err as Error).message}`);
+			toast.error(`Failed to create device profile: ${describeError(err)}`);
 		} finally {
 			creatingDeviceProfile = false;
 		}
 	}
 
 	async function deleteDeviceProfile(id: string) {
+		if (!(await confirmDestructive({ title: 'Delete Device Profile', message: `Delete device profile "${id}"? This cannot be undone.` }))) return;
 		try {
 			await client().send(new DeleteDeviceProfileCommand({ Id: id }));
 			await loadDeviceProfiles();
 			toast.success('Device profile deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete device profile: ${(err as Error).message}`);
+			toast.error(`Failed to delete device profile: ${describeError(err)}`);
 		}
 	}
 
@@ -387,19 +407,20 @@
 			await loadFuotaTasks();
 			toast.success('FUOTA task created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create FUOTA task: ${(err as Error).message}`);
+			toast.error(`Failed to create FUOTA task: ${describeError(err)}`);
 		} finally {
 			creatingFuotaTask = false;
 		}
 	}
 
 	async function deleteFuotaTask(id: string) {
+		if (!(await confirmDestructive({ title: 'Delete FUOTA Task', message: `Delete FUOTA task "${id}"? This cannot be undone.` }))) return;
 		try {
 			await client().send(new DeleteFuotaTaskCommand({ Id: id }));
 			await loadFuotaTasks();
 			toast.success('FUOTA task deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete FUOTA task: ${(err as Error).message}`);
+			toast.error(`Failed to delete FUOTA task: ${describeError(err)}`);
 		}
 	}
 

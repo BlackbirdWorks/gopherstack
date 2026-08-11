@@ -120,8 +120,8 @@ type listInferenceProfilesOutput struct {
 }
 
 func (h *Handler) handleListInferenceProfiles(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	profiles, outToken := h.Backend.ListInferenceProfiles(nextToken)
+	q := c.Request().URL.Query()
+	profiles, outToken := h.Backend.ListInferenceProfiles(q.Get("nextToken"), q.Get("type"))
 	summaries := make([]inferenceProfileOutput, 0, len(profiles))
 
 	for _, p := range profiles {

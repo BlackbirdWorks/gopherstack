@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -188,10 +189,61 @@ type batchIsAuthorizedWithTokenInput struct {
 	Requests      []batchIsAuthorizedWithTokenRequestItem `json:"requests"`
 }
 
+// batchIsAuthorizedWithTokenRequestEchoJSON mirrors the real SDK's
+// BatchIsAuthorizedWithTokenInputItem echoed back in each output item's
+// "request" field: unlike BatchIsAuthorizedInputItem (used by plain
+// BatchIsAuthorized), it has no principal member -- the principal for every
+// item comes from the token, and is echoed once at the top level instead
+// (see batchIsAuthorizedWithTokenOutput.Principal).
+type batchIsAuthorizedWithTokenRequestEchoJSON struct {
+	Action   *actionIdentifierJSON `json:"action,omitempty"`
+	Resource *entityIdentifierJSON `json:"resource,omitempty"`
+}
+
+type batchIsAuthorizedWithTokenDecision struct {
+	Request             batchIsAuthorizedWithTokenRequestEchoJSON `json:"request"`
+	Decision            string                                    `json:"decision"`
+	DeterminingPolicies []determiningPolicyItemJSON               `json:"determiningPolicies"`
+	Errors              []evaluationErrorItemJSON                 `json:"errors"`
+}
+
+type batchIsAuthorizedWithTokenOutput struct {
+	Principal *entityIdentifierJSON                `json:"principal,omitempty"`
+	Results   []batchIsAuthorizedWithTokenDecision `json:"results"`
+}
+
+func toBatchWithTokenDecisions(decisions []AuthDecision) []batchIsAuthorizedWithTokenDecision {
+	out := make([]batchIsAuthorizedWithTokenDecision, 0, len(decisions))
+
+	for _, d := range decisions {
+		echo := batchIsAuthorizedWithTokenRequestEchoJSON{}
+
+		if d.Request.ActionType != "" {
+			echo.Action = &actionIdentifierJSON{ActionType: d.Request.ActionType, ActionID: d.Request.ActionID}
+		}
+
+		if d.Request.ResourceEntityType != "" {
+			echo.Resource = &entityIdentifierJSON{
+				EntityType: d.Request.ResourceEntityType,
+				EntityID:   d.Request.ResourceEntityID,
+			}
+		}
+
+		out = append(out, batchIsAuthorizedWithTokenDecision{
+			Request:             echo,
+			Decision:            d.Decision,
+			DeterminingPolicies: toDeterminingPolicyItems(d.DeterminingPolicies),
+			Errors:              toEvaluationErrorItems(d.Errors),
+		})
+	}
+
+	return out
+}
+
 func (h *Handler) handleBatchIsAuthorizedWithToken(
 	_ context.Context,
 	in *batchIsAuthorizedWithTokenInput,
-) (*batchIsAuthorizedOutput, error) {
+) (*batchIsAuthorizedWithTokenOutput, error) {
 	if in.PolicyStoreID == "" {
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
@@ -212,12 +264,14 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 		return nil, err
 	}
 
+	isAccessToken := in.AccessToken != ""
+
 	token := in.AccessToken
 	if token == "" {
 		token = in.IdentityToken
 	}
 
-	principalType, principalID := h.principalFromToken(resolvedID, token)
+	principalType, principalID := h.principalFromToken(resolvedID, isAccessToken, token)
 
 	requests := make([]AuthorizationRequest, 0, len(in.Requests))
 
@@ -245,7 +299,12 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 		return nil, err
 	}
 
-	return &batchIsAuthorizedOutput{Results: toBatchDecisions(decisions)}, nil
+	out := &batchIsAuthorizedWithTokenOutput{Results: toBatchWithTokenDecisions(decisions)}
+	if principalType != "" {
+		out.Principal = &entityIdentifierJSON{EntityType: principalType, EntityID: principalID}
+	}
+
+	return out, nil
 }
 
 type isAuthorizedInput struct {
@@ -328,8 +387,14 @@ func parseJWTClaims(token string) (map[string]any, error) {
 // a JWT token, using the identity source in the policy store whose issuer
 // matches the token's "iss" claim (falling back to the first identity source
 // when no "iss" claim is present or none match, since a policy store
-// typically has exactly one identity source anyway).
-func (h *Handler) principalFromToken(policyStoreID, token string) (string, string) {
+// typically has exactly one identity source anyway), then validating the
+// token's aud/client_id claim against that source's configured client
+// IDs/audiences (see matchesConfiguredAudience). isAccessToken selects which
+// claim real AWS checks: "client_id"/"aud" for access tokens vs "aud" for ID
+// tokens. Returns ("", "") when no principal can be resolved -- the caller's
+// response omits the (optional, per the real SDK) principal field and the
+// request evaluates with no principal, i.e. fails closed to DENY.
+func (h *Handler) principalFromToken(policyStoreID string, isAccessToken bool, token string) (string, string) {
 	sources, _, err := h.Backend.ListIdentitySources(policyStoreID, "", 0, nil)
 	if err != nil || len(sources) == 0 {
 		return "", ""
@@ -341,7 +406,12 @@ func (h *Handler) principalFromToken(policyStoreID, token string) (string, strin
 	}
 
 	iss, _ := claims["iss"].(string)
-	is := matchIdentitySourceByIssuer(sources, iss)
+
+	is, ok := matchIdentitySource(sources, iss, claims, isAccessToken)
+	if !ok {
+		return "", ""
+	}
+
 	claimName := "sub"
 
 	if is.OIDCTokenSelection != nil && is.OIDCTokenSelection.PrincipalIDClaim != "" {
@@ -353,27 +423,112 @@ func (h *Handler) principalFromToken(policyStoreID, token string) (string, strin
 	return is.PrincipalEntityType, claimVal
 }
 
-// matchIdentitySourceByIssuer returns the identity source in sources whose
-// OIDC issuer (its own OpenIDIssuer, or the issuer AWS derives from a
-// Cognito user pool's ARN) matches issuer. Falls back to the first identity
-// source when issuer is empty or no source matches -- this remains a
-// documented simplification of AWS's real identity-source-selection
-// algorithm, which also matches the token's "aud"/"client_id" claim against
-// the source's configured client IDs/audiences; gopherstack matches on
-// issuer only.
-func matchIdentitySourceByIssuer(sources []IdentitySource, issuer string) IdentitySource {
+// matchIdentitySource returns the identity source in sources whose OIDC
+// issuer (its own OpenIDIssuer, or the issuer AWS derives from a Cognito
+// user pool's ARN) matches issuer, falling back to the first identity source
+// when issuer is empty or no source matches (a policy store typically has
+// exactly one identity source). ok is false when the matched source has a
+// configured client ID/audience restriction that the token's claims don't
+// satisfy -- see matchesConfiguredAudience.
+func matchIdentitySource(
+	sources []IdentitySource,
+	issuer string,
+	claims map[string]any,
+	isAccessToken bool,
+) (IdentitySource, bool) {
 	if issuer != "" {
 		for _, is := range sources {
 			switch {
 			case is.UserPoolArn != "" && cognitoIssuerFromUserPoolArn(is.UserPoolArn) == issuer:
-				return is
+				return is, matchesConfiguredAudience(is, claims, isAccessToken)
 			case is.OpenIDIssuer != "" && is.OpenIDIssuer == issuer:
-				return is
+				return is, matchesConfiguredAudience(is, claims, isAccessToken)
 			}
 		}
 	}
 
-	return sources[0]
+	is := sources[0]
+
+	return is, matchesConfiguredAudience(is, claims, isAccessToken)
+}
+
+// matchesConfiguredAudience reports whether claims satisfies is's configured
+// client-id/audience restriction, per real AWS's documented client and
+// audience validation:
+//
+//   - Cognito (docs.aws.amazon.com/verifiedpermissions/latest/userguide/cognito-validation.html):
+//     "Verified Permissions compares this list of app client IDs to the ID
+//     token aud claim or the access token client_id claim."
+//   - OIDC (docs.aws.amazon.com/verifiedpermissions/latest/userguide/oidc-validation.html):
+//     ID tokens are checked via "aud"; access tokens are checked via "aud",
+//     falling back to "cid"/"client_id" when "aud" is absent.
+//
+// A source with no client IDs/audiences configured has no restriction
+// ("when you enter one or more values for Client application validation")
+// and always matches.
+func matchesConfiguredAudience(is IdentitySource, claims map[string]any, isAccessToken bool) bool {
+	claimNames, configured := audienceClaimNames(is, isAccessToken)
+	if len(configured) == 0 {
+		return true
+	}
+
+	for _, name := range claimNames {
+		v, present := claims[name]
+		if !present {
+			continue
+		}
+
+		return audienceClaimMatches(v, configured)
+	}
+
+	return false
+}
+
+// JWT claim names checked by matchesConfiguredAudience.
+const (
+	claimAud      = "aud"
+	claimCid      = "cid"
+	claimClientID = "client_id"
+)
+
+// audienceClaimNames returns the ordered JWT claim names to check (first
+// present one wins) and the configured client IDs/audiences for is, per the
+// docs cited on matchesConfiguredAudience.
+func audienceClaimNames(is IdentitySource, isAccessToken bool) ([]string, []string) {
+	switch {
+	case is.UserPoolArn != "":
+		if isAccessToken {
+			return []string{claimClientID}, is.ClientIDs
+		}
+
+		return []string{claimAud}, is.ClientIDs
+	case is.OIDCTokenSelection != nil:
+		if is.OIDCTokenSelection.TokenType == tokenTypeAccess {
+			return []string{claimAud, claimCid, claimClientID}, is.OIDCTokenSelection.Audiences
+		}
+
+		return []string{claimAud}, is.OIDCTokenSelection.Audiences
+	default:
+		return nil, nil
+	}
+}
+
+// audienceClaimMatches reports whether v (a JWT claim value, either a single
+// string or a JSON array of strings per the JWT spec's "aud" claim) contains
+// any of the configured client IDs/audiences.
+func audienceClaimMatches(v any, configured []string) bool {
+	switch vv := v.(type) {
+	case string:
+		return slices.Contains(configured, vv)
+	case []any:
+		for _, item := range vv {
+			if s, ok := item.(string); ok && slices.Contains(configured, s) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 type isAuthorizedWithTokenInput struct {
@@ -384,10 +539,21 @@ type isAuthorizedWithTokenInput struct {
 	IdentityToken string                `json:"identityToken,omitempty"`
 }
 
+// isAuthorizedWithTokenOutput mirrors the real SDK's
+// IsAuthorizedWithTokenOutput: unlike plain IsAuthorized, it also echoes the
+// principal resolved from the token (optional -- omitted when no principal
+// could be resolved).
+type isAuthorizedWithTokenOutput struct {
+	Principal           *entityIdentifierJSON       `json:"principal,omitempty"`
+	Decision            string                      `json:"decision"`
+	DeterminingPolicies []determiningPolicyItemJSON `json:"determiningPolicies"`
+	Errors              []evaluationErrorItemJSON   `json:"errors"`
+}
+
 func (h *Handler) handleIsAuthorizedWithToken(
 	_ context.Context,
 	in *isAuthorizedWithTokenInput,
-) (*isAuthorizedOutput, error) {
+) (*isAuthorizedWithTokenOutput, error) {
 	if in.PolicyStoreID == "" {
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
@@ -400,6 +566,8 @@ func (h *Handler) handleIsAuthorizedWithToken(
 	if err != nil {
 		return nil, err
 	}
+
+	isAccessToken := in.AccessToken != ""
 
 	token := in.AccessToken
 	if token == "" {
@@ -418,16 +586,21 @@ func (h *Handler) handleIsAuthorizedWithToken(
 		req.ResourceEntityID = in.Resource.EntityID
 	}
 
-	req.PrincipalEntityType, req.PrincipalEntityID = h.principalFromToken(resolvedID, token)
+	req.PrincipalEntityType, req.PrincipalEntityID = h.principalFromToken(resolvedID, isAccessToken, token)
 
 	decision, err := h.Backend.IsAuthorizedWithToken(resolvedID, req)
 	if err != nil {
 		return nil, err
 	}
 
-	return &isAuthorizedOutput{
+	out := &isAuthorizedWithTokenOutput{
 		Decision:            decision.Decision,
 		DeterminingPolicies: toDeterminingPolicyItems(decision.DeterminingPolicies),
 		Errors:              toEvaluationErrorItems(decision.Errors),
-	}, nil
+	}
+	if req.PrincipalEntityType != "" {
+		out.Principal = &entityIdentifierJSON{EntityType: req.PrincipalEntityType, EntityID: req.PrincipalEntityID}
+	}
+
+	return out, nil
 }

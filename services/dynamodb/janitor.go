@@ -16,25 +16,15 @@ const (
 	defaultDDBJanitorInterval  = 500 * time.Millisecond
 	defaultDDBTTLSweepInterval = 5 * time.Second
 	// defaultPITRSnapshotInterval is the cadence at which the janitor takes a new
-	// PITR (point-in-time recovery) snapshot of every PITR-enabled table. It runs on
-	// its own ticker, independent of the 500ms housekeeping sweep
-	// (defaultDDBJanitorInterval): pairing PITR snapshotting with the 500ms sweep
-	// previously gave only maxPITRSnapshots(60) * 500ms = 30s of real recovery
-	// coverage, while the ring's own doc comment (store.go) promised ~1 hour. This
-	// constant is what makes maxPITRSnapshots(60) * defaultPITRSnapshotInterval
-	// actually equal ~1 hour, as documented.
+	// PITR snapshot of every PITR-enabled table, on its own ticker independent of
+	// the 500ms housekeeping sweep. maxPITRSnapshots(60) * this interval must equal
+	// the ~1 hour of recovery coverage store.go's ring doc comment promises -- at
+	// the housekeeping sweep's 500ms cadence the same 60-slot ring would only cover
+	// 30s.
 	//
-	// Memory trade-off: each snapshot is a full deep-copy of every item in a
-	// PITR-enabled table. Retaining maxPITRSnapshots (60) of them means a
-	// PITR-enabled table's persisted snapshot footprint can grow up to ~61x its live
-	// item size (60 historical copies plus the live Items slice). The slower
-	// 1-minute cadence -- versus the old 500ms -- is what keeps that acceptable; at
-	// 500ms the same 60-slot ring would churn through its coverage in 30 seconds
-	// instead of an hour, forcing a choice between more memory or less coverage.
-	// Persisting the ring at all (rather than dropping it, e.g. on PITR
-	// disable/re-enable) is still correct: the alternative is exactly the bug this
-	// cadence fix accompanies -- Table.PITRSnapshots being unexported and silently
-	// discarded by encoding/json across a restart (see persistence.go).
+	// Memory trade-off: each snapshot deep-copies every item in the table, so
+	// retaining 60 of them can grow a PITR-enabled table's footprint up to ~61x its
+	// live item size. The 1-minute cadence is what keeps that acceptable.
 	defaultPITRSnapshotInterval = time.Minute
 	// defaultTTLSweepBatchSize is the maximum number of items checked per lock acquisition
 	// in sweepTableTTL. Smaller values reduce lock hold time at the cost of more
@@ -340,12 +330,10 @@ func ttlSweepMetaRLocked(table *Table) (string, string, string) {
 
 // sweepTTLBatchLocked scans and evicts up to j.ttlSweepBatchSize expired items
 // starting at index i (scanning backwards), under a single defer-protected
-// table.mu.Lock. Extracted from sweepTableTTL so that each batch's lock is
-// released via defer as soon as this call returns -- i.e. the lock is held
-// only for one batch, not for the whole multi-batch sweep loop, exactly as
-// before this refactor, while still guaranteeing that a panic partway through
-// a batch (e.g. from ParseNumeric or deleteItemAtIndex) can never leave
-// table.mu locked forever.
+// table.mu.Lock -- released as soon as this call returns, so the lock is held
+// only for one batch, not the whole multi-batch sweep loop, while still
+// guaranteeing a panic partway through a batch can never leave table.mu locked
+// forever.
 func (j *Janitor) sweepTTLBatchLocked(
 	db *InMemoryDB,
 	table *Table,

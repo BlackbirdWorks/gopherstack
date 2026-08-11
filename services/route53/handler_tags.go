@@ -30,7 +30,7 @@ func (h *Handler) routeTags(c *echo.Context, path, method string) error {
 	// rest is always non-empty here.)
 	rest := strings.TrimPrefix(path, route53TagsPrefix)
 	if method == http.MethodPost && !strings.Contains(rest, "/") {
-		return h.listTagsForResources(c)
+		return h.listTagsForResources(c, rest)
 	}
 
 	switch method {
@@ -162,13 +162,18 @@ type xmlResourceTagSet struct {
 	Tags         []r53Tag `xml:"Tags>Tag,omitempty"`
 }
 
+// listTagsReq's ResourceType is unused: real ListTagsForResourcesInput binds
+// ResourceType as a URI path segment (httpLabel), not a body field
+// (route53@v1.65.6 serializers.go: awsRestxml_serializeOpHttpBindingsListTagsForResourcesInput
+// sets it via encoder.SetURI, while awsRestxml_serializeOpDocumentListTagsForResourcesInput
+// only ever writes ResourceIds) -- resourceType comes from the path instead,
+// see routeTags's rest segment.
 type listTagsReq struct {
-	XMLName      xml.Name `xml:"ListTagsForResourcesRequest"`
-	ResourceType string   `xml:"ResourceType"`
-	ResourceIDs  []string `xml:"ResourceIds>ResourceId"`
+	XMLName     xml.Name `xml:"ListTagsForResourcesRequest"`
+	ResourceIDs []string `xml:"ResourceIds>ResourceId"`
 }
 
-func (h *Handler) listTagsForResources(c *echo.Context) error {
+func (h *Handler) listTagsForResources(c *echo.Context, resourceType string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
@@ -179,7 +184,7 @@ func (h *Handler) listTagsForResources(c *echo.Context) error {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
 	}
 
-	tagsMap, err := h.Backend.ListTagsForResources(req.ResourceType, req.ResourceIDs)
+	tagsMap, err := h.Backend.ListTagsForResources(resourceType, req.ResourceIDs)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -191,13 +196,11 @@ func (h *Handler) listTagsForResources(c *echo.Context) error {
 		for k, v := range tags {
 			tagList = append(tagList, r53Tag{Key: k, Value: v})
 		}
-		// Route53 XML list expects tags to be present, even if empty array, wait, omitempty might drop it.
-		// Usually if tags are absent, the array is empty.
 		if len(tagList) == 0 {
 			tagList = nil
 		}
 		resourceTagSets = append(resourceTagSets, xmlResourceTagSet{
-			ResourceType: req.ResourceType,
+			ResourceType: resourceType,
 			ResourceID:   id,
 			Tags:         tagList,
 		})

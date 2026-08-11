@@ -226,17 +226,12 @@ func (b *InMemoryBackend) ListAccessPointsForDirectoryBuckets(accountID string) 
 	return out
 }
 
-// ---- Per-AccessPoint PublicAccessBlock ----
-//
-// These three methods are internal storage plumbing, NOT separate AWS
-// operations -- aws-sdk-go-v2/service/s3control has no
-// Get/Put/DeleteAccessPointPublicAccessBlock ops (PublicAccessBlockConfiguration
+// Per-AccessPoint PublicAccessBlock: internal storage plumbing, NOT
+// separate AWS operations — aws-sdk-go-v2/service/s3control has no
+// Get/Put/DeleteAccessPointPublicAccessBlock ops. PublicAccessBlockConfiguration
 // is account-level only via Get/Put/DeletePublicAccessBlock, except for the
-// inline PublicAccessBlockConfiguration field the real CreateAccessPoint
-// request and GetAccessPoint response carry directly). A prior pass had
-// wired these up as three standalone fake REST operations; that routing was
-// removed (see handler_access_points.go), but the storage methods survive
-// to back the inline field.
+// inline field the real CreateAccessPoint request and GetAccessPoint
+// response carry directly, which these methods back.
 
 // GetAccessPointPublicAccessBlock returns the public access block configuration for an access point.
 func (b *InMemoryBackend) GetAccessPointPublicAccessBlock(accountID, name string) (*PublicAccessBlock, error) {

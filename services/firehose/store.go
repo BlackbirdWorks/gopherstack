@@ -15,6 +15,7 @@ type InMemoryBackend struct {
 	s3             S3Storer
 	lambda         LambdaInvoker
 	kinesisBackend KinesisReader
+	redshiftData   RedshiftDataExecutor
 	registry       *store.Registry
 	// streams is a single flat table of every delivery stream, composite-keyed by
 	// "region|name" (see regionKey/deliveryStreamKeyFn in store_setup.go) so that
@@ -136,6 +137,12 @@ func (b *InMemoryBackend) SetLambdaBackend(lambda LambdaInvoker) {
 // SetKinesisBackend wires the Kinesis backend for polling KinesisStreamAsSource streams.
 func (b *InMemoryBackend) SetKinesisBackend(k KinesisReader) {
 	b.kinesisBackend = k
+}
+
+// SetRedshiftDataBackend wires the Redshift Data API executor used to issue the COPY
+// command after S3 staging for Redshift destinations.
+func (b *InMemoryBackend) SetRedshiftDataBackend(rd RedshiftDataExecutor) {
+	b.redshiftData = rd
 }
 
 // Reset clears all delivery streams, closing their tag registries to prevent leaks.

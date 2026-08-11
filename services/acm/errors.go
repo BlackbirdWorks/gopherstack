@@ -38,6 +38,12 @@ var (
 	// distinct identity so acme_*.go call sites read clearly and do not imply
 	// a certificate was involved.
 	ErrAcmeResourceNotFound = errors.New("ResourceNotFoundException")
+	// ErrInvalidArgs is ListCertificates' own invalid-input error.
+	// ListCertificates' deserializer recognizes exactly two errors --
+	// InvalidArgsException and ValidationException (deserializers.go:2735-2739,
+	// aws-sdk-go-v2/service/acm@v1.43.4) -- unlike every other op in this
+	// package, which uses ValidationException/InvalidParameterException alone.
+	ErrInvalidArgs = errors.New("InvalidArgsException")
 )
 
 var errWeakKey = errors.New("RSA_1024 is not supported due to weak security")

@@ -25,6 +25,12 @@ const maxTagKeyLength = 128
 // maxTagValueLength is the maximum length of a tag value.
 const maxTagValueLength = 256
 
+// maxResourceARNLength is the real API's ResourceARN shape max length (botocore
+// resourcegroupstaggingapi/2017-01-26/service-2.json: max 1011, min 1; pattern
+// `[\s\S]*`, i.e. unconstrained format). Shared by TagResources, UntagResources, and
+// GetResources, which all reuse this shape for their ARN-list members.
+const maxResourceARNLength = 1011
+
 // TagResourcesInput is the request payload for TagResources.
 type TagResourcesInput struct {
 	Tags            map[string]string `json:"Tags"`
@@ -105,9 +111,22 @@ func validateARNList(arns []string) error {
 			return fmt.Errorf("%w: ARN must not be empty", ErrValidation)
 		}
 
+		if err := validateResourceARNLength(arn); err != nil {
+			return err
+		}
+
 		if _, err := awsarn.Parse(arn); err != nil {
 			return fmt.Errorf("%w: invalid ARN %q: %s", ErrValidation, arn, err.Error())
 		}
+	}
+
+	return nil
+}
+
+// validateResourceARNLength enforces the real API's ResourceARN shape length ceiling.
+func validateResourceARNLength(arn string) error {
+	if len(arn) > maxResourceARNLength {
+		return fmt.Errorf("%w: ARN exceeds maximum length of %d", ErrValidation, maxResourceARNLength)
 	}
 
 	return nil

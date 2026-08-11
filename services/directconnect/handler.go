@@ -99,6 +99,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeVirtualInterfaces",
 		"DisassociateConnectionFromLag",
 		"DisassociateMacSecKey",
+		"ListVirtualInterfaceRoutes",
 		"ListVirtualInterfaceTestHistory",
 		"StartBgpFailoverTest",
 		"StopBgpFailoverTest",

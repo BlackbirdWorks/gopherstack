@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { currentRegion, isAllRegions } from '$lib/region.svelte';
+	import { multiRegionList } from '$lib/multi-region';
 	import { urlState } from '$lib/url-state.svelte';
 	import LiveDot from '$lib/components/LiveDot.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getLambdaClient } from '$lib/aws-client';
 	import {
 		ListFunctionsCommand,
@@ -34,6 +38,16 @@
 
 	const lambda = regionalClient(getLambdaClient);
 
+	// Every function/layer row carries the region its List*Command call was
+	// made against. Row and detail actions must use THIS region, not the
+	// page's shared `lambda()` client -- in All mode the same function name
+	// can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
+	function detailClient() {
+		return getLambdaClient(selectedFunction?.region);
+	}
+
 	// State
 	let loading = $state(false);
 	// URL-backed (?q=..., ?runtime=...); see url-state.svelte.ts. Neither is
@@ -43,8 +57,8 @@
 	let searchQuery = $derived(searchQueryParam.get());
 	const runtimeFilterParam = urlState<string>('runtime', '');
 	let runtimeFilter = $derived(runtimeFilterParam.get());
-	let functions = $state<FunctionConfiguration[]>([]);
-	let selectedFunction = $state<FunctionConfiguration | null>(null);
+	let functions = $state<Regioned<FunctionConfiguration>[]>([]);
+	let selectedFunction = $state<Regioned<FunctionConfiguration> | null>(null);
 	let nextMarker = $state('');
 	let hasNextPage = $state(false);
 	let currentMarker = $state('');
@@ -96,7 +110,7 @@
 	let updateCodeMode = $state<'image' | 'zip'>('image');
 
 	// Layer Management
-	let layers = $state<LayersListItem[]>([]);
+	let layers = $state<Regioned<LayersListItem>[]>([]);
 	let layersLoading = $state(false);
 	let showLayerTab = $state(false);
 
@@ -137,11 +151,27 @@
 	};
 
 	// Actions
+	// In All mode, fans ListFunctions out across every region with data and
+	// tags each row -- pagination markers are per-region and don't compose
+	// across a fan-out, so paging (marker) only applies in single-region
+	// mode; All mode always shows each region's first page.
 	async function loadFunctions(marker = '') {
 		loading = true;
 		try {
+			if (isAllRegions()) {
+				const result = await multiRegionList(
+					(region) => getLambdaClient(region).send(new ListFunctionsCommand({})),
+					(r) => r.Functions ?? []
+				);
+				functions = result.items.map(({ region, item }) => ({ ...item, region }));
+				nextMarker = '';
+				hasNextPage = false;
+				currentMarker = '';
+				if (result.errors.length > 0) toast.error(`Failed to load functions from ${result.errors.length} region(s)`);
+				return;
+			}
 			const res = await lambda().send(new ListFunctionsCommand({ Marker: marker || undefined }));
-			functions = res.Functions ?? [];
+			functions = (res.Functions ?? []).map((f) => ({ ...f, region: currentRegion() }));
 			nextMarker = res.NextMarker ?? '';
 			hasNextPage = !!res.NextMarker;
 			currentMarker = marker;
@@ -152,10 +182,10 @@
 		}
 	}
 
-	async function deleteFunction(name: string) {
+	async function deleteFunction(name: string, region?: string) {
 		if (!await confirmDestructive({ title: 'Delete Function', message: `Delete function "${name}"? All versions, aliases, and event source mappings will be removed.` })) return;
 		try {
-			await lambda().send(new DeleteFunctionCommand({ FunctionName: name }));
+			await getLambdaClient(region).send(new DeleteFunctionCommand({ FunctionName: name }));
 			toast.success(`Function "${name}" deleted`);
 			if (selectedFunction?.FunctionName === name) selectedFunction = null;
 			await loadFunctions();
@@ -170,7 +200,7 @@
 		invokeResponse = null;
 		try {
 			const payload = new TextEncoder().encode(invokePayload);
-			const res = await lambda().send(new InvokeCommand({
+			const res = await detailClient().send(new InvokeCommand({
 				FunctionName: selectedFunction.FunctionName,
 				InvocationType: invokeType,
 				LogType: 'Tail',
@@ -253,7 +283,7 @@
 	async function loadVersions(fnName: string) {
 		versionsLoading = true;
 		try {
-			const res = await lambda().send(new ListVersionsByFunctionCommand({ FunctionName: fnName }));
+			const res = await detailClient().send(new ListVersionsByFunctionCommand({ FunctionName: fnName }));
 			fnVersions = res.Versions ?? [];
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to load versions');
@@ -266,7 +296,7 @@
 		if (!selectedFunction?.FunctionName) return;
 		publishing = true;
 		try {
-			await lambda().send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName, Description: publishDesc || undefined }));
+			await detailClient().send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName, Description: publishDesc || undefined }));
 			toast.success('Version published');
 			publishDesc = '';
 			await loadVersions(selectedFunction.FunctionName);
@@ -280,7 +310,7 @@
 	async function loadAliases(fnName: string) {
 		aliasesLoading = true;
 		try {
-			const res = await lambda().send(new ListAliasesCommand({ FunctionName: fnName }));
+			const res = await detailClient().send(new ListAliasesCommand({ FunctionName: fnName }));
 			fnAliases = res.Aliases ?? [];
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to load aliases');
@@ -293,7 +323,7 @@
 		if (!selectedFunction?.FunctionName || !newAliasName.trim()) return;
 		creatingAlias = true;
 		try {
-			await lambda().send(new CreateAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: newAliasName.trim(), FunctionVersion: newAliasFnVersion }));
+			await detailClient().send(new CreateAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: newAliasName.trim(), FunctionVersion: newAliasFnVersion }));
 			toast.success(`Alias "${newAliasName.trim()}" created`);
 			newAliasName = '';
 			await loadAliases(selectedFunction.FunctionName);
@@ -307,7 +337,7 @@
 	async function deleteAlias(name: string) {
 		if (!selectedFunction?.FunctionName || !await confirmDestructive({ title: 'Delete Alias', message: `Delete alias "${name}"?`, confirmLabel: 'Delete' })) return;
 		try {
-			await lambda().send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
+			await detailClient().send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
 			toast.success('Alias deleted');
 			await loadAliases(selectedFunction.FunctionName);
 		} catch (e) {
@@ -318,7 +348,7 @@
 	async function loadEsms(fnName: string) {
 		esmsLoading = true;
 		try {
-			const res = await lambda().send(new ListEventSourceMappingsCommand({ FunctionName: fnName }));
+			const res = await detailClient().send(new ListEventSourceMappingsCommand({ FunctionName: fnName }));
 			fnEsms = res.EventSourceMappings ?? [];
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to load event sources');
@@ -331,7 +361,7 @@
 		if (!selectedFunction?.FunctionArn || !newEsmEventArn.trim()) return;
 		creatingEsm = true;
 		try {
-			await lambda().send(new CreateEventSourceMappingCommand({ FunctionName: selectedFunction.FunctionArn, EventSourceArn: newEsmEventArn.trim(), BatchSize: newEsmBatchSize, Enabled: true }));
+			await detailClient().send(new CreateEventSourceMappingCommand({ FunctionName: selectedFunction.FunctionArn, EventSourceArn: newEsmEventArn.trim(), BatchSize: newEsmBatchSize, Enabled: true }));
 			toast.success('Event source mapping created');
 			newEsmEventArn = '';
 			await loadEsms(selectedFunction.FunctionName!);
@@ -345,7 +375,7 @@
 	async function deleteEsm(uuid: string) {
 		if (!await confirmDestructive({ title: 'Delete Trigger', message: 'Remove this event source mapping?', confirmLabel: 'Remove' })) return;
 		try {
-			await lambda().send(new DeleteEventSourceMappingCommand({ UUID: uuid }));
+			await detailClient().send(new DeleteEventSourceMappingCommand({ UUID: uuid }));
 			toast.success('Event source mapping removed');
 			if (selectedFunction?.FunctionName) await loadEsms(selectedFunction.FunctionName);
 		} catch (e) {
@@ -360,10 +390,10 @@
 		updatingCode = true;
 		try {
 			if (updateCodeMode === 'image') {
-				await lambda().send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ImageUri: updateCodeImageUri.trim() }));
+				await detailClient().send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ImageUri: updateCodeImageUri.trim() }));
 			} else {
 				const buf = await updateCodeZipFile!.arrayBuffer();
-				await lambda().send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ZipFile: new Uint8Array(buf) }));
+				await detailClient().send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ZipFile: new Uint8Array(buf) }));
 			}
 			toast.success('Function code updated');
 			updateCodeImageUri = '';
@@ -379,8 +409,12 @@
 	async function loadLayers() {
 		layersLoading = true;
 		try {
-			const res = await lambda().send(new ListLayersCommand({}));
-			layers = res.Layers ?? [];
+			const result = await multiRegionList(
+				(region) => getLambdaClient(region).send(new ListLayersCommand({})),
+				(r) => r.Layers ?? []
+			);
+			layers = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load layers from ${result.errors.length} region(s)`);
 		} catch (err: unknown) {
 			toast.error(`Failed to load layers: ${(err as Error).message}`);
 		} finally {
@@ -397,7 +431,7 @@
 		if (!selectedFunction) return;
 		savingEnvVars = true;
 		try {
-			await lambda().send(new UpdateFunctionConfigurationCommand({
+			await detailClient().send(new UpdateFunctionConfigurationCommand({
 				FunctionName: selectedFunction.FunctionName,
 				Environment: { Variables: envVarDraft }
 			}));
@@ -455,7 +489,8 @@
 			>
 				<RefreshCw class="w-5 h-5 text-slate-600 dark:text-slate-300 {loading ? 'animate-spin' : ''}" />
 			</button>
-			<button 
+			<WriteRegionHint />
+			<button
 				onclick={() => showCreateModal = true}
 				class="flex items-center gap-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-medium shadow-lg shadow-orange-600/20 transition-all active:scale-95"
 			>
@@ -556,6 +591,7 @@
 																{func.State}
 															</span>
 														{/if}
+														<RegionChip region={func.region} />
 													</div>
 													<div class="text-[10px] text-slate-400 font-mono truncate max-w-[200px]">{func.FunctionArn}</div>
 												</div>
@@ -583,8 +619,8 @@
 												>
 													<Play class="w-4 h-4" />
 												</button>
-												<button 
-													onclick={(e) => { e.stopPropagation(); deleteFunction(func.FunctionName!); }}
+												<button
+													onclick={(e) => { e.stopPropagation(); deleteFunction(func.FunctionName!, func.region); }}
 													class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors" 
 													title="Delete"
 												>
@@ -649,7 +685,10 @@
 			{#if selectedFunction}
 				<div class="bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl overflow-hidden">
 					<div class="p-6 border-b border-slate-200 dark:border-slate-700/50 bg-gradient-to-br from-orange-500/5 to-amber-500/5">
-						<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-1">{selectedFunction.FunctionName}</h2>
+						<div class="flex items-center gap-2 mb-1">
+							<h2 class="text-xl font-bold text-slate-900 dark:text-white">{selectedFunction.FunctionName}</h2>
+							<RegionChip region={selectedFunction.region} />
+						</div>
 						<p class="text-xs text-slate-500 dark:text-slate-400 font-mono break-all">{selectedFunction.FunctionArn}</p>
 					</div>
 
@@ -904,7 +943,10 @@
 					{#each layers as layer}
 						<div class="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-700/50">
 							<div class="flex items-center justify-between">
-								<span class="text-sm font-medium text-slate-900 dark:text-white">{layer.LayerName}</span>
+								<div class="flex items-center gap-2">
+									<span class="text-sm font-medium text-slate-900 dark:text-white">{layer.LayerName}</span>
+									<RegionChip region={layer.region} />
+								</div>
 								<span class="text-xs text-slate-400">v{layer.LatestMatchingVersion?.Version}</span>
 							</div>
 							{#if layer.LatestMatchingVersion?.Description}

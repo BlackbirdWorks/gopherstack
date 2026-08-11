@@ -31,7 +31,12 @@ func (h *Handler) handleCreatePermissionSet(c *echo.Context, body []byte) error 
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"ValidationException",
+			"InstanceArn is required",
+		)
 	}
 	if req.Name == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "Name is required")
@@ -52,7 +57,12 @@ func (h *Handler) handleCreatePermissionSet(c *echo.Context, body []byte) error 
 	)
 	if err != nil {
 		if errors.Is(err, ErrPermissionSetAlreadyExists) {
-			return writeError(c, http.StatusBadRequest, "ConflictException", "permission set already exists: "+req.Name)
+			return writeError(
+				c,
+				http.StatusBadRequest,
+				"ConflictException",
+				"permission set already exists: "+req.Name,
+			)
 		}
 
 		return handleBackendError(c, err, "failed to create permission set: "+req.Name)
@@ -135,8 +145,12 @@ func (h *Handler) handleDeletePermissionSet(c *echo.Context, body []byte) error 
 
 	if err := h.Backend.DeletePermissionSet(req.InstanceArn, req.PermissionSetArn); err != nil {
 		if errors.Is(err, ErrPermissionSetHasAssignments) {
-			return writeError(c, http.StatusBadRequest, "ConflictException",
-				"permission set is still associated with one or more accounts: "+req.PermissionSetArn)
+			return writeError(
+				c,
+				http.StatusBadRequest,
+				"ConflictException",
+				"permission set is still associated with one or more accounts: "+req.PermissionSetArn,
+			)
 		}
 
 		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
@@ -181,15 +195,26 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"ValidationException",
+			"InstanceArn is required",
+		)
 	}
 	if req.PermissionSetArn == "" {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"ValidationException",
+			"PermissionSetArn is required",
+		)
 	}
 	if req.TargetType == "" {
 		req.TargetType = targetTypeAllProvisionedAccounts
 	}
-	if req.TargetType != targetTypeAWSAccount && req.TargetType != targetTypeAllProvisionedAccounts {
+	if req.TargetType != targetTypeAWSAccount &&
+		req.TargetType != targetTypeAllProvisionedAccounts {
 		return writeError(c, http.StatusBadRequest, "ValidationException",
 			"TargetType must be AWS_ACCOUNT or ALL_PROVISIONED_ACCOUNTS")
 	}
@@ -215,7 +240,10 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 	})
 }
 
-func (h *Handler) handleDescribePermissionSetProvisioningStatus(c *echo.Context, body []byte) error {
+func (h *Handler) handleDescribePermissionSetProvisioningStatus(
+	c *echo.Context,
+	body []byte,
+) error {
 	var req struct {
 		InstanceArn                     string `json:"InstanceArn"`
 		ProvisionPermissionSetRequestID string `json:"ProvisionPermissionSetRequestId"`
@@ -247,24 +275,49 @@ func (h *Handler) handleListPermissionSetProvisioningStatus(c *echo.Context, bod
 	)
 }
 
+// validProvisioningStatusFilter reports whether status is empty (no filter
+// requested) or one of the real ProvisioningStatus enum values.
+func validProvisioningStatusFilter(status string) bool {
+	return status == "" || status == provisioningStatusLatestProvisioned ||
+		status == provisioningStatusLatestNotProvisioned
+}
+
 func (h *Handler) handleListPermissionSetsProvisionedToAccount(c *echo.Context, body []byte) error {
 	var req struct {
-		InstanceArn string `json:"InstanceArn"`
-		AccountID   string `json:"AccountId"`
-		NextToken   string `json:"NextToken"`
-		MaxResults  int    `json:"MaxResults"`
+		InstanceArn        string `json:"InstanceArn"`
+		AccountID          string `json:"AccountId"`
+		ProvisioningStatus string `json:"ProvisioningStatus"`
+		NextToken          string `json:"NextToken"`
+		MaxResults         int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"ValidationException",
+			"InstanceArn is required",
+		)
 	}
 	if req.AccountID == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "AccountId is required")
 	}
+	if !validProvisioningStatusFilter(req.ProvisioningStatus) {
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"ValidationException",
+			"ProvisioningStatus must be LATEST_PERMISSION_SET_PROVISIONED or LATEST_PERMISSION_SET_NOT_PROVISIONED",
+		)
+	}
 
-	arns := h.Backend.ListPermissionSetsProvisionedToAccount(req.InstanceArn, req.AccountID)
+	arns := h.Backend.ListPermissionSetsProvisionedToAccount(
+		req.InstanceArn,
+		req.AccountID,
+		req.ProvisioningStatus,
+	)
 
 	page, next := paginateStrings(arns, req.MaxResults, req.NextToken)
 
@@ -274,24 +327,48 @@ func (h *Handler) handleListPermissionSetsProvisionedToAccount(c *echo.Context, 
 	})
 }
 
-func (h *Handler) handleListAccountsForProvisionedPermissionSet(c *echo.Context, body []byte) error {
+func (h *Handler) handleListAccountsForProvisionedPermissionSet(
+	c *echo.Context,
+	body []byte,
+) error {
 	var req struct {
-		InstanceArn      string `json:"InstanceArn"`
-		PermissionSetArn string `json:"PermissionSetArn"`
-		NextToken        string `json:"NextToken"`
-		MaxResults       int    `json:"MaxResults"`
+		InstanceArn        string `json:"InstanceArn"`
+		PermissionSetArn   string `json:"PermissionSetArn"`
+		ProvisioningStatus string `json:"ProvisioningStatus"`
+		NextToken          string `json:"NextToken"`
+		MaxResults         int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"ValidationException",
+			"InstanceArn is required",
+		)
 	}
 	if req.PermissionSetArn == "" {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "PermissionSetArn is required")
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"ValidationException",
+			"PermissionSetArn is required",
+		)
+	}
+	if !validProvisioningStatusFilter(req.ProvisioningStatus) {
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"ValidationException",
+			"ProvisioningStatus must be LATEST_PERMISSION_SET_PROVISIONED or LATEST_PERMISSION_SET_NOT_PROVISIONED",
+		)
 	}
 
-	accounts, err := h.Backend.ListAccountsForProvisionedPermissionSet(req.InstanceArn, req.PermissionSetArn)
+	accounts, err := h.Backend.ListAccountsForProvisionedPermissionSet(
+		req.InstanceArn, req.PermissionSetArn, req.ProvisioningStatus,
+	)
 	if err != nil {
 		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}

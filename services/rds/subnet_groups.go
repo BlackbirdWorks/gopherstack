@@ -24,6 +24,7 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 	sg := &DBSubnetGroup{
 		DBSubnetGroupName:        name,
 		DBSubnetGroupDescription: description,
+		DBSubnetGroupArn:         b.rdsARN("subgrp", name),
 		VpcID:                    vpcID,
 		SubnetIDs:                ids,
 		Status:                   "Complete",

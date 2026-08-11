@@ -1,11 +1,13 @@
 package cloudfront
 
 import (
+	"context"
 	"math/rand/v2"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -32,6 +34,11 @@ const (
 	maxSamplingRate = 100
 	// minPublicKeyBits is the minimum RSA key size accepted by CloudFront.
 	minPublicKeyBits = 2048
+	// distributionDeployDelay is the simulated delay before a distribution's
+	// async InProgress -> Deployed transition, mirroring
+	// services/grafana's workspaceTransitionDelay and
+	// services/outposts's orderTransitionDelay.
+	distributionDeployDelay = 100 * time.Millisecond
 )
 
 const (
@@ -156,13 +163,23 @@ type InMemoryBackend struct {
 	invalidationReadyAt       map[string]map[string]time.Time // distributionID → invID → readyAt
 	tenantInvalidationReadyAt map[string]map[string]time.Time // tenantID → invID → readyAt
 	stopCh                    chan struct{}
-	accountID                 string
-	region                    string
+	// work schedules each distribution's async InProgress -> Deployed
+	// transition (distributions.go), the same pkgs/worker idiom
+	// services/mgn/exportimport.go and services/outposts's order lifecycle
+	// use -- distinct from the older stopCh-based invalidation reconciler
+	// above.
+	work      *worker.Group
+	accountID string
+	region    string
 }
 
-// NewInMemoryBackend creates a new in-memory CloudFront backend.
-func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+// NewInMemoryBackend creates a new in-memory CloudFront backend. ctx roots
+// the lifetime of its background distribution-deployment timers (see
+// distributions.go); it is normally service.AppContext.JanitorCtx, never
+// context.Background() in production wiring.
+func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
+		work:                                worker.NewGroup(ctx, "cloudfront"),
 		distributionARNs:                    make(map[string]string),
 		distributionCallerRefs:              make(map[string]string),
 		distributionAliases:                 make(map[string][]string),
@@ -221,13 +238,16 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return b
 }
 
-// Close stops the background reconciler goroutine.
+// Close stops the background reconciler goroutine and every scheduled
+// distribution-deployment timer.
 func (b *InMemoryBackend) Close() {
 	select {
 	case <-b.stopCh:
 	default:
 		close(b.stopCh)
 	}
+
+	b.work.Stop()
 }
 
 // runInvalidationReconciler transitions InProgress invalidations to Completed.

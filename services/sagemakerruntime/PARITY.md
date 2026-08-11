@@ -1,6 +1,6 @@
 ---
 service: sagemakerruntime
-sdk_module: aws-sdk-go-v2/service/sagemakerruntime@v1.39.3
+sdk_module: aws-sdk-go-v2/service/sagemakerruntime@v1.43.4
 last_audit_commit: 95ab0584
 last_audit_date: 2026-07-24
 overall: A            # genuine fixes found this pass (3): EndpointName existence/InService validation wired cross-service, NewSessionId Expires= wire-format bug, ClosedSessionId/session-expiry enforcement
@@ -12,7 +12,8 @@ families:
   sessions: {status: ok, note: "NEW_SESSION creation, FIFO eviction (maxSessions=1000), TouchSession on subsequent calls, ExpiresAt now enforced (session past its ExpiresAt is evicted and reported via ClosedSessionId on InvokeEndpoint; see SessionTouchOutcome) -- all covered."}
   invocation_history: {status: ok, note: "bounded FIFO (maxInvocationHistory=1000), persisted."}
   endpoint_validation: {status: ok, note: "EndpointLookup (endpoint_lookup.go) is a minimal interface satisfied directly by *sagemaker.InMemoryBackend's exported DescribeEndpoint method; wired at Provider.Init via wireEndpointLookup (provider.go), following the services/cloudwatchlogs/provider.go s3HandlerProvider precedent -- no change to services/sagemaker was needed, since DescribeEndpoint was already an exported, lock-safe read accessor. Unknown EndpointName and known-but-not-InService both surface real AWS's 'Endpoint <name> of account <account> not found.' ValidationError message (confirmed against real-world AWS error reports: an endpoint still Creating is reported as not-found from InvokeEndpoint's perspective too, since the runtime routing table only serves InService endpoints). When no lookup is wired (bare NewInMemoryBackend, e.g. every pre-existing test in this package), validation is a no-op, preserving standalone behaviour."}
-gaps: []
+gaps:
+  - "NEW since v1.39.3 (found by gopherstack-u8my's pin-correction pass, not fixed): InvokeEndpointAsyncInput gained an inline Body []byte httpPayload member as an alternative to the S3-URI InputLocation header (real API: 'Body and InputLocation are mutually exclusive. Provide exactly one of them' -- InputLocation is consequently no longer a required member). gopherstack's handleInvokeEndpointAsync already reads the raw HTTP request body unconditionally and never required an InputLocation header, so it already accepts both real usages without change -- but it also does not enforce the mutual-exclusivity/exactly-one-of rule (a request with neither, or with both a body and an InputLocation header, is silently accepted rather than rejected). Not a regression from this SDK bump, just newly-visible now that the field is real. (needs bd issue)"
 deferred: []
 leaks: {status: clean, note: "sessions/asyncInvocations/invocations are all FIFO-capped (maxSessions/maxAsyncInvocations/maxInvocationHistory=1000); no goroutines, no janitor (Shutdown is a documented no-op). New endpointLookup field is a plain interface reference (no goroutine, no owned resource); SetEndpointLookup/validateEndpoint both take/release the backend's own lock before calling out to the (separately-locked) sagemaker backend, so no lock is held across the cross-service call and no lock-ordering cycle is introduced."}
 ---

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/sqs"
@@ -16,69 +17,81 @@ import (
 func TestMoveTaskRateLimitingCompletesSuccessfully(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend(t)
+	synctest.Test(t, func(t *testing.T) {
+		b := newBackend(t)
 
-	srcOut, err := b.CreateQueue(&sqs.CreateQueueInput{
-		QueueName: "dlq-src",
-		Endpoint:  testEndpoint,
-	})
-	require.NoError(t, err)
-
-	dstOut, err := b.CreateQueue(&sqs.CreateQueueInput{
-		QueueName: "dlq-dst",
-		Endpoint:  testEndpoint,
-	})
-	require.NoError(t, err)
-
-	// Put 3 messages in source.
-	for i := range 3 {
-		_, err = b.SendMessage(&sqs.SendMessageInput{
-			QueueURL:    srcOut.QueueURL,
-			MessageBody: fmt.Sprintf("msg%d", i),
+		srcOut, err := b.CreateQueue(&sqs.CreateQueueInput{
+			QueueName: "dlq-src",
+			Endpoint:  testEndpoint,
 		})
 		require.NoError(t, err)
-	}
 
-	srcAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
-		QueueURL:       srcOut.QueueURL,
-		AttributeNames: []string{"QueueArn"},
-	})
-	require.NoError(t, err)
-	dstAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
-		QueueURL:       dstOut.QueueURL,
-		AttributeNames: []string{"QueueArn"},
-	})
-	require.NoError(t, err)
+		dstOut, err := b.CreateQueue(&sqs.CreateQueueInput{
+			QueueName: "dlq-dst",
+			Endpoint:  testEndpoint,
+		})
+		require.NoError(t, err)
 
-	taskOut, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
-		SourceArn:                    srcAttrs.Attributes["QueueArn"],
-		DestinationArn:               dstAttrs.Attributes["QueueArn"],
-		MaxNumberOfMessagesPerSecond: 100, // 100 msg/s
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, taskOut.TaskHandle)
+		// Put 3 messages in source.
+		for i := range 3 {
+			_, err = b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:    srcOut.QueueURL,
+				MessageBody: fmt.Sprintf("msg%d", i),
+			})
+			require.NoError(t, err)
+		}
 
-	// Wait for completion.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+		srcAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+			QueueURL:       srcOut.QueueURL,
+			AttributeNames: []string{"QueueArn"},
+		})
+		require.NoError(t, err)
+		dstAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+			QueueURL:       dstOut.QueueURL,
+			AttributeNames: []string{"QueueArn"},
+		})
+		require.NoError(t, err)
+
+		taskOut, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
+			SourceArn:                    srcAttrs.Attributes["QueueArn"],
+			DestinationArn:               dstAttrs.Attributes["QueueArn"],
+			MaxNumberOfMessagesPerSecond: 100, // 100 msg/s
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, taskOut.TaskHandle)
+
+		// Poll for completion. The move task's rate-limit ticker durably blocks
+		// between messages, so synctest.Wait alone would freeze the fake clock
+		// mid-drain; sleeping between polls lets it keep advancing.
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			tasks, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+				SourceArn:  srcAttrs.Attributes["QueueArn"],
+				MaxResults: 1,
+			})
+			require.NoError(t, listErr)
+			if len(tasks.Results) > 0 && tasks.Results[0].Status == sqs.MoveTaskStatusCompleted {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+
 		tasks, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
 			SourceArn:  srcAttrs.Attributes["QueueArn"],
 			MaxResults: 1,
 		})
 		require.NoError(t, listErr)
-		if len(tasks.Results) > 0 && tasks.Results[0].Status == sqs.MoveTaskStatusCompleted {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+		require.NotEmpty(t, tasks.Results)
+		require.Equal(t, sqs.MoveTaskStatusCompleted, tasks.Results[0].Status)
 
-	// Destination should have the messages.
-	dstMsgs, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:            dstOut.QueueURL,
-		MaxNumberOfMessages: 10,
+		// Destination should have the messages.
+		dstMsgs, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+			QueueURL:            dstOut.QueueURL,
+			MaxNumberOfMessages: 10,
+		})
+		require.NoError(t, err)
+		assert.Len(t, dstMsgs.Messages, 3)
 	})
-	require.NoError(t, err)
-	assert.Len(t, dstMsgs.Messages, 3)
 }
 
 // TestListMessageMoveTasks_DefaultMaxResults_ReturnsOne verifies that

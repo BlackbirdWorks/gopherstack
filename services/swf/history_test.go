@@ -25,16 +25,16 @@ func TestGetWorkflowExecutionHistory_Pagination(t *testing.T) {
 	}
 
 	// Total events: 1 (started) + 5 (signaled) = 6
-	all, tok := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	all, tok := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 	assert.Len(t, all, 6)
 	assert.Empty(t, tok)
 
 	// Page of 3
-	page1, tok1 := b.GetWorkflowExecutionHistory("dom", "wf-1", 3, "", false)
+	page1, tok1 := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 3, "", false)
 	assert.Len(t, page1, 3)
 	assert.NotEmpty(t, tok1)
 
-	page2, tok2 := b.GetWorkflowExecutionHistory("dom", "wf-1", 3, tok1, false)
+	page2, tok2 := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 3, tok1, false)
 	assert.Len(t, page2, 3)
 	assert.Empty(t, tok2)
 }
@@ -51,7 +51,7 @@ func TestGetWorkflowExecutionHistory_ReverseOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, b.SignalWorkflowExecution("dom", "wf-1", "", "sig", ""))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", true)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", true)
 	require.Len(t, events, 2)
 	assert.Equal(t, "WorkflowExecutionSignaled", events[0].EventType)
 	assert.Equal(t, "WorkflowExecutionStarted", events[1].EventType)
@@ -73,7 +73,7 @@ func TestHistoryEvent_AttributesMarshal(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 	require.NotEmpty(t, events)
 	e := events[0]
 	assert.Equal(t, "WorkflowExecutionStarted", e.EventType)

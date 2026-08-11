@@ -214,51 +214,115 @@ type videoRef struct {
 	} `json:"S3Object"`
 }
 
+// videoRefS3 extracts v's S3 reference fields, or three empty strings if v
+// carries none (Video is optional on every async video Start* request).
+func videoRefS3(v videoRef) (string, string, string) {
+	if v.S3Object == nil {
+		return "", "", ""
+	}
+
+	return v.S3Object.Bucket, v.S3Object.Name, v.S3Object.Version
+}
+
+// s3RefWire mirrors types.S3Object (types.go:2211).
+type s3RefWire struct {
+	Bucket  string `json:"Bucket,omitempty"`
+	Name    string `json:"Name,omitempty"`
+	Version string `json:"Version,omitempty"`
+}
+
+// videoS3Wire mirrors types.Video{S3Object *types.S3Object} (types.go:2909),
+// the S3 reference every Get<Family> response echoes back from the matching
+// Start* request's Video field.
+type videoS3Wire struct {
+	S3Object *s3RefWire `json:"S3Object,omitempty"`
+}
+
+// videoWireFromRef renders v as the Get*Output "Video" wire shape, or nil if
+// the Start* request never supplied an S3Object (the field is optional on
+// every GetXxxOutput).
+func videoWireFromRef(bucket, name, version string) *videoS3Wire {
+	if bucket == "" && name == "" && version == "" {
+		return nil
+	}
+
+	return &videoS3Wire{S3Object: &s3RefWire{Bucket: bucket, Name: name, Version: version}}
+}
+
 type startJobResp struct {
 	JobId string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
 }
 
-type getJobReq struct { //nolint:govet // existing issue.
-	JobId      string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
-	MaxResults int32  `json:"MaxResults"`
-	NextToken  string `json:"NextToken"`
+// getRequestMetadataWire mirrors types.GetLabelDetectionRequestMetadata /
+// types.GetContentModerationRequestMetadata (types.go): both share the same
+// two-field AggregateBy/SortBy shape, echoing the values that governed the
+// current Get* call (not the Start* call).
+type getRequestMetadataWire struct {
+	AggregateBy string `json:"AggregateBy,omitempty"`
+	SortBy      string `json:"SortBy,omitempty"`
 }
 
-type videoMetadata struct { //nolint:govet // existing issue.
+// orDefault returns v, or def if v is empty.
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+
+	return v
+}
+
+type getJobReq struct {
+	JobId      string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
+}
+
+type videoMetadata struct {
 	Codec          string  `json:"Codec"`
-	DurationMillis int64   `json:"DurationMillis"`
 	Format         string  `json:"Format"`
+	DurationMillis int64   `json:"DurationMillis"`
 	FrameRate      float32 `json:"FrameRate"`
 }
 
-type getJobBaseResp struct { //nolint:govet // existing issue.
+type getJobBaseResp struct {
+	VideoMetadata *videoMetadata `json:"VideoMetadata"`
+	Video         *videoS3Wire   `json:"Video,omitempty"`
 	JobId         string         `json:"JobId"` //nolint:revive,staticcheck // existing issue.
 	JobStatus     string         `json:"JobStatus"`
+	JobTag        string         `json:"JobTag,omitempty"`
 	NextToken     string         `json:"NextToken,omitempty"`
 	StatusMessage string         `json:"StatusMessage,omitempty"`
-	VideoMetadata *videoMetadata `json:"VideoMetadata"`
 }
 
 // getJobBase fetches the common async-video-job fields shared by every
-// Get<Family>Detection/Recognition/Search/Tracking/Moderation response.
-func (h *Handler) getJobBase(jobID string) (*getJobBaseResp, error) {
+// Get<Family>Detection/Recognition/Search/Tracking/Moderation response, and
+// returns the underlying AsyncJob too (e.g. GetSegmentDetection needs its
+// SegmentTypes) -- callers that don't need it discard the second value; they
+// must NOT call GetAsyncJob again themselves, since each call advances the
+// job's IN_PROGRESS->SUCCEEDED poll-count state machine (see GetAsyncJob).
+// JobTag and Video are echoed back exactly as given to the matching Start*
+// request (both are real GetXxxOutput members -- e.g.
+// api_op_GetLabelDetection.go's JobId/JobTag/Video fields -- not fabricated).
+func (h *Handler) getJobBase(jobID string) (*getJobBaseResp, *AsyncJob, error) {
 	if jobID == "" {
-		return nil, fmt.Errorf("%w: JobId is required", ErrValidation)
+		return nil, nil, fmt.Errorf("%w: JobId is required", ErrValidation)
 	}
 
 	job, err := h.Backend.GetAsyncJob(jobID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return &getJobBaseResp{
 		JobId:     job.JobID,
 		JobStatus: job.JobStatus,
+		JobTag:    job.JobTag,
+		Video:     videoWireFromRef(job.VideoS3Bucket, job.VideoS3Name, job.VideoS3Version),
 		VideoMetadata: &videoMetadata{
 			Codec:          "H264",
 			DurationMillis: 0,
 			Format:         "QuickTime / MOV",
 			FrameRate:      30, //nolint:mnd // existing issue.
 		},
-	}, nil
+	}, job, nil
 }

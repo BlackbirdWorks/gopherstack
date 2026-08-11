@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import S3Page from "./+page.svelte";
 import { setMockPageUrl } from "$lib/mock-page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -30,6 +31,7 @@ describe("S3 Page", () => {
     mockSend.mockReset();
     confirmDestructive.mockReset();
     confirmDestructive.mockResolvedValue(true);
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title and create button", () => {
@@ -790,7 +792,7 @@ describe("S3 Page", () => {
     const card = await waitFor(
       () => screen.getByText("same-region-bucket").closest('[id^="bucket-"]') as HTMLElement,
     );
-    expect(within(card).getByText(/Region:\s*us-east-1/)).toBeInTheDocument();
+    expect(within(card).getByTestId("region-chip").textContent).toBe("us-east-1");
     expect(within(card).queryByText("different region")).not.toBeInTheDocument();
   });
 
@@ -810,9 +812,50 @@ describe("S3 Page", () => {
     // The selector defaults to us-east-1 (no setStoredRegion call in this
     // test), so a bucket actually stored in ap-southeast-1 must show both
     // its real region and the cross-region marker.
-    expect(within(card).getByText(/Region:\s*ap-southeast-1/)).toBeInTheDocument();
+    expect(within(card).getByTestId("region-chip").textContent).toBe("ap-southeast-1");
     const marker = within(card).getByText("different region");
     expect(marker).toBeInTheDocument();
     expect(marker.getAttribute("title")).toContain("ap-southeast-1");
+  });
+
+  describe("All regions mode", () => {
+    it("issues exactly one ListBuckets call regardless of region mode -- the bucket namespace is account-wide, so there is nothing to fan out", async () => {
+      setStoredRegion(ALL_REGIONS);
+      mockSend.mockResolvedValueOnce({
+        Buckets: [
+          { Name: "bucket-a", CreationDate: new Date(), BucketRegion: "us-east-1" },
+          { Name: "bucket-b", CreationDate: new Date(), BucketRegion: "eu-west-1" },
+        ],
+      });
+      mockSend.mockResolvedValue({ Contents: [], IsTruncated: false });
+
+      render(S3Page);
+
+      await waitFor(() => expect(screen.getByText("bucket-a")).toBeInTheDocument());
+      expect(screen.getByText("bucket-b")).toBeInTheDocument();
+      // One ListBuckets call plus one loadBucketSizes ListObjectsV2 call per
+      // bucket -- never a per-region ListBuckets call, since there is only
+      // ever one account-wide bucket namespace to list.
+      expect(mockSend).toHaveBeenCalledTimes(3);
+    });
+
+    it("shows the write-region hint beside Create Bucket only when All is selected", async () => {
+      setStoredRegion(ALL_REGIONS);
+      mockSend.mockResolvedValueOnce({ Buckets: [] });
+
+      render(S3Page);
+
+      await waitFor(() => expect(screen.getByTestId("write-region-hint")).toBeInTheDocument());
+    });
+
+    it("hides the write-region hint when a specific region is selected", async () => {
+      setStoredRegion(DEFAULT_REGION);
+      mockSend.mockResolvedValueOnce({ Buckets: [] });
+
+      render(S3Page);
+
+      await waitFor(() => expect(screen.getByText("S3 Buckets")).toBeInTheDocument());
+      expect(screen.queryByTestId("write-region-hint")).not.toBeInTheDocument();
+    });
   });
 });

@@ -61,6 +61,50 @@ func TestHandlerTagResource(t *testing.T) {
 	}
 }
 
+// TestHandlerTagResourceRequiresTags verifies that omitting the @required Tags field
+// (validators.go:603, validateOpTagResourceInput) is rejected rather than silently treated as
+// a successful no-op tag operation.
+func TestHandlerTagResourceRequiresTags(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+
+	createRec := daxRequest(t, h, "CreateCluster", validClusterBody("tags-required"))
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	arn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
+
+	rec := daxRequest(t, h, "TagResource", map[string]any{"ResourceName": arn})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "InvalidParameterValueException", errResp["__type"])
+}
+
+// TestHandlerUntagResourceRequiresTagKeys verifies that omitting the @required TagKeys field
+// (validators.go:621, validateOpUntagResourceInput) is rejected rather than silently treated as
+// a successful no-op untag operation.
+func TestHandlerUntagResourceRequiresTagKeys(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+
+	createRec := daxRequest(t, h, "CreateCluster", validClusterBody("tagkeys-required"))
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	arn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
+
+	rec := daxRequest(t, h, "UntagResource", map[string]any{"ResourceName": arn})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "InvalidParameterValueException", errResp["__type"])
+}
+
 func TestHandlerListTags(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
@@ -162,8 +206,17 @@ func TestHandlerCreateClusterTagsAsArray(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				cluster := resp["Cluster"].(map[string]any)
-				// Verify tags are present on the returned cluster
-				rawTags := cluster["Tags"].([]any)
+
+				// The Cluster response carries no Tags field (real AWS has none on
+				// this shape); verify storage via ListTags instead.
+				listRec := daxRequest(t, h, "ListTags", map[string]any{
+					"ResourceName": cluster["ClusterArn"].(string),
+				})
+				require.Equal(t, http.StatusOK, listRec.Code)
+
+				var listResp map[string]any
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+				rawTags := listResp["Tags"].([]any)
 				found := false
 				for _, rt := range rawTags {
 					tag := rt.(map[string]any)
@@ -172,7 +225,7 @@ func TestHandlerCreateClusterTagsAsArray(t *testing.T) {
 						found = true
 					}
 				}
-				assert.True(t, found, "tag %q not found in cluster response", tt.checkTag)
+				assert.True(t, found, "tag %q not found via ListTags", tt.checkTag)
 			}
 		})
 	}

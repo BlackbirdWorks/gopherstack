@@ -1,6 +1,7 @@
 package cleanrooms
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
@@ -214,15 +215,77 @@ func (b *InMemoryBackend) DeleteMember(collaborationID, accountID string) error 
 	return ErrNotFound
 }
 
+// validChangeSpecificationTypes are the real ChangeSpecificationType enum
+// values (types.ChangeSpecificationTypeMember/-Collaboration).
+func validChangeSpecificationTypes() map[string]bool {
+	return map[string]bool{changeSpecTypeMember: true, changeSpecTypeCollaboration: true}
+}
+
+// validChangeTypes are the real ChangeType enum values (types/enums.go).
+func validChangeTypes() map[string]bool {
+	return map[string]bool{
+		"ADD_MEMBER":                          true,
+		"GRANT_RECEIVE_RESULTS_ABILITY":       true,
+		"REVOKE_RECEIVE_RESULTS_ABILITY":      true,
+		"EDIT_AUTO_APPROVED_CHANGE_TYPES":     true,
+		"ADD_PAYER_CANDIDATE":                 true,
+		"REMOVE_PAYER_CANDIDATE":              true,
+		"GRANT_CAN_RECEIVE_MODEL_OUTPUT":      true,
+		"GRANT_CAN_RECEIVE_INFERENCE_OUTPUT":  true,
+		"REVOKE_CAN_RECEIVE_MODEL_OUTPUT":     true,
+		"REVOKE_CAN_RECEIVE_INFERENCE_OUTPUT": true,
+	}
+}
+
+// validateChange checks a single Change against the typed union's real
+// required-field/enum constraints (ChangeInput/Change/ChangeSpecification/
+// MemberChangeSpecification/CollaborationChangeSpecification -- all "This
+// member is required" fields verified against the SDK doc comments).
+func validateChange(c Change) error {
+	if !validChangeSpecificationTypes()[c.SpecificationType] {
+		return fmt.Errorf("%w: invalid specificationType %q", ErrValidation, c.SpecificationType)
+	}
+
+	if len(c.Types) == 0 {
+		return fmt.Errorf("%w: types is required", ErrValidation)
+	}
+
+	for _, t := range c.Types {
+		if !validChangeTypes()[t] {
+			return fmt.Errorf("%w: invalid change type %q", ErrValidation, t)
+		}
+	}
+
+	switch c.SpecificationType {
+	case changeSpecTypeMember:
+		if c.Specification.Member == nil || c.Specification.Member.AccountID == "" {
+			return fmt.Errorf("%w: specification.member.accountId is required", ErrValidation)
+		}
+	case changeSpecTypeCollaboration:
+		if c.Specification.Collaboration == nil {
+			return fmt.Errorf("%w: specification.collaboration is required", ErrValidation)
+		}
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) CreateCollaborationChangeRequest(
 	collaborationID string,
-	changes []map[string]any,
+	changes []Change,
 ) (*CollaborationChangeRequest, error) {
 	b.mu.Lock("CreateCollaborationChangeRequest")
 	defer b.mu.Unlock()
 	if len(changes) == 0 {
 		return nil, ErrValidation
 	}
+
+	for _, c := range changes {
+		if err := validateChange(c); err != nil {
+			return nil, err
+		}
+	}
+
 	collab, ok := b.collaborations.Get(collaborationID)
 	if !ok {
 		return nil, ErrNotFound
@@ -297,6 +360,106 @@ func changeRequestNextStatus(action, current string) (string, bool) {
 	return next, ok
 }
 
+// applyMemberChangeLocked applies a single MEMBER-specification change to
+// collab. ADD_MEMBER appends a new invited MemberSummary, matching the
+// non-creator member shape CreateCollaboration already produces (status
+// INVITED, no membershipArn/Id -- this backend only ever materializes a real
+// Membership object for its own account's membership, never for other
+// simulated members, see CreateCollaboration). GRANT/REVOKE_RECEIVE_RESULTS_
+// ABILITY toggle CAN_RECEIVE_RESULTS on the matching member's abilities, and
+// on its Membership.MemberAbilities too when that member has one (i.e. is the
+// collaboration's own account). Other MEMBER change types (payer-candidate,
+// ML output abilities) touch fields this backend does not model (see
+// PARITY.md) and are left as a documented no-op rather than fabricated.
+func (b *InMemoryBackend) applyMemberChangeLocked(collab *Collaboration, c Change) {
+	spec := c.Specification.Member
+	if spec == nil {
+		return
+	}
+
+	if contains(c.Types, "ADD_MEMBER") {
+		b.applyAddMemberLocked(collab, spec)
+
+		return
+	}
+
+	grant := contains(c.Types, "GRANT_RECEIVE_RESULTS_ABILITY")
+	revoke := contains(c.Types, "REVOKE_RECEIVE_RESULTS_ABILITY")
+	if grant || revoke {
+		b.applyReceiveResultsAbilityChangeLocked(collab, spec.AccountID, grant)
+	}
+}
+
+// applyAddMemberLocked appends a new invited MemberSummary for spec, matching
+// the non-creator member shape CreateCollaboration already produces (status
+// INVITED, no membershipArn/Id -- this backend only ever materializes a real
+// Membership object for its own account's membership, never for other
+// simulated members, see CreateCollaboration). A no-op if the account is
+// already a member.
+func (b *InMemoryBackend) applyAddMemberLocked(collab *Collaboration, spec *MemberChangeSpecification) {
+	for _, m := range collab.Members {
+		if m.AccountID == spec.AccountID {
+			return
+		}
+	}
+
+	ts := b.now()
+	collab.Members = append(collab.Members, &MemberSummary{
+		AccountID:     spec.AccountID,
+		DisplayName:   spec.DisplayName,
+		Abilities:     spec.MemberAbilities,
+		Status:        "INVITED",
+		PaymentConfig: defaultPaymentConfig(spec.MemberAbilities, nil),
+		CreateTime:    ts,
+		UpdateTime:    ts,
+	})
+}
+
+// applyReceiveResultsAbilityChangeLocked toggles CAN_RECEIVE_RESULTS on the
+// member matching accountID, and on its Membership.MemberAbilities too when
+// that member has one (i.e. is the collaboration's own account).
+func (b *InMemoryBackend) applyReceiveResultsAbilityChangeLocked(collab *Collaboration, accountID string, grant bool) {
+	for _, m := range collab.Members {
+		if m.AccountID != accountID {
+			continue
+		}
+
+		if grant && !contains(m.Abilities, "CAN_RECEIVE_RESULTS") {
+			m.Abilities = append(m.Abilities, "CAN_RECEIVE_RESULTS")
+		} else if !grant {
+			m.Abilities = slices.DeleteFunc(m.Abilities, func(a string) bool { return a == "CAN_RECEIVE_RESULTS" })
+		}
+
+		ts := b.now()
+		m.UpdateTime = ts
+
+		if m.MembershipID != "" {
+			if mem, found := b.memberships.Get(m.MembershipID); found {
+				mem.MemberAbilities = m.Abilities
+				mem.UpdateTime = ts
+			}
+		}
+
+		return
+	}
+}
+
+// applyChangeRequestEffectsLocked applies each committed Change's real
+// semantic effect to the parent collaboration. Caller must hold b.mu (write).
+func (b *InMemoryBackend) applyChangeRequestEffectsLocked(collab *Collaboration, req *CollaborationChangeRequest) {
+	for _, c := range req.Changes {
+		switch c.SpecificationType {
+		case changeSpecTypeMember:
+			b.applyMemberChangeLocked(collab, c)
+		case changeSpecTypeCollaboration:
+			if c.Specification.Collaboration != nil && contains(c.Types, "EDIT_AUTO_APPROVED_CHANGE_TYPES") {
+				collab.AutoApprovedChangeTypes = c.Specification.Collaboration.AutoApprovedChangeTypes
+				collab.UpdateTime = b.now()
+			}
+		}
+	}
+}
+
 func (b *InMemoryBackend) UpdateCollaborationChangeRequest(
 	collaborationID, changeRequestID, action string,
 ) (*CollaborationChangeRequest, error) {
@@ -317,6 +480,12 @@ func (b *InMemoryBackend) UpdateCollaborationChangeRequest(
 	}
 	req.Status = next
 	req.UpdateTime = b.now()
+
+	if next == "COMMITTED" {
+		if collab, found := b.collaborations.Get(collaborationID); found {
+			b.applyChangeRequestEffectsLocked(collab, req)
+		}
+	}
 
 	return req, nil
 }

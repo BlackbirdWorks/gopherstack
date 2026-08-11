@@ -42,7 +42,10 @@ func TestIntegration_ELBClassic_Lifecycle(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(createOut.DNSName))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteLoadBalancer(ctx, &elbsdk.DeleteLoadBalancerInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteLoadBalancer(cleanupCtx, &elbsdk.DeleteLoadBalancerInput{
 			LoadBalancerName: aws.String(lbName),
 		})
 	})

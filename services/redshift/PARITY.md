@@ -5,9 +5,9 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: redshift
-sdk_module: aws-sdk-go-v2/service/redshift@v1.65.0
-last_audit_commit: 081b4f8ca
-last_audit_date: 2026-07-25
+sdk_module: aws-sdk-go-v2/service/redshift@v1.65.4
+last_audit_commit: 0fe7aaf4d
+last_audit_date: 2026-08-08
 overall: A            # RESTORED FROM A- (2026-07-25 follow-up pass, bd gopherstack-0eyk): the
                        # Create/ModifyRedshiftIdcApplicationResult missing-inner-<RedshiftIdcApplication>
                        # -wrapper bug that caused the prior A- downgrade is now fixed (see
@@ -31,32 +31,32 @@ families:
   Cluster: {status: ok, note: "CreateCluster/DeleteCluster/DescribeClusters/RebootCluster/PauseCluster/ResumeCluster/RotateEncryptionKey/ModifyClusterIamRoles/ModifyClusterMaintenance verified. FIXED THIS PASS: xmlCluster never embedded Tags inline (real Cluster.Tags []Tag) -- every cluster response silently omitted tags a real client would expect on the object itself, not just via DescribeTags. Also added SnapshotScheduleIdentifier/SnapshotScheduleState (see SnapshotSchedule below)."}
   Tags: {status: ok, note: "CreateTags/DeleteTags/DescribeTags verified. See Cluster row for the inline-Tags wire gap fixed this pass."}
   ClusterParameterGroup: {status: ok, note: "no changes needed"}
-  ClusterSubnetGroup: {status: ok, note: "no changes needed this pass -- note VpcId is a fabricated CreateClusterSubnetGroupInput param not present in the real SDK (real VPC is derived from the subnets), left untouched as pre-existing/out-of-scope, see items_still_open"}
+  ClusterSubnetGroup: {status: ok, note: "FIXED 2026-08-08 (bd gopherstack-emho): CreateClusterSubnetGroup previously accepted a fabricated 'VpcId' request param not present in the real CreateClusterSubnetGroupInput (confirmed against awsAwsquery_serializeOpDocumentCreateClusterSubnetGroupInput in aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go -- real fields are only ClusterSubnetGroupName/Description/SubnetIds/Tags). Handler no longer reads it. The response's VpcId field IS real on ClusterSubnetGroup (types.ClusterSubnetGroup.VpcId), normally derived by AWS from the subnets' own VPC, but this backend has no EC2 cross-reference to derive it from (Provider.Init does not wire an EC2 backend into Redshift, and Subnet only tracks SubnetIdentifier/SubnetStatus, no VPC linkage) -- left honestly empty rather than fabricated, matching the EndpointAccess precedent below. AddSubnetGroupInternal (test-seeding only, not wire-reachable) can still set it directly."}
   ClusterSecurityGroup: {status: ok, note: "no changes needed"}
   Snapshot/ClusterSnapshot: {status: ok, note: "no changes needed this pass"}
   ClusterCredentials: {status: ok}
   Resize: {status: ok, note: "FIXED THIS PASS, see ResizeCluster op row"}
   DataShare: {status: ok, note: "Associate/Authorize/Deauthorize/Reject/Disassociate/DescribeDataShares* field-diffed against types.DataShare. FIXED: DataShareType was completely absent from the model/wire (real Cluster... err DataShare.DataShareType, defaults to INTERNAL, the only enum value); now serialized. All mutation ops confirmed to mutate the store.Table-returned pointer in place (not stubs)."}
   EventSubscription/Events: {status: ok, note: "field-diffed against types.EventSubscription/Event. FIXED: EventSubscription.SubscriptionCreationTime was computed (SubscriptionCreated) but never serialized into any response; now emitted as RFC3339. DescribeEventCategories/DescribeEvents verified against SDK shapes, no other gaps found."}
-  ScheduledAction: {status: ok, note: "FIXED THIS PASS (major): TargetAction was parsed as a single flat top-level string param and never serialized in ANY response -- real CreateScheduledActionInput.TargetAction is a nested ScheduledActionType{PauseCluster|ResumeCluster|ResizeCluster} struct sent as TargetAction.ResizeCluster.ClusterIdentifier=... etc (query-protocol nested member convention), and the object is meaningless without it. Rebuilt as a real tagged-union type (ScheduledActionTarget) with correct nested request parsing (parseTargetAction) and response serialization (targetActionToXML), verified symmetric against both serializers.go and deserializers.go. Also fixed: Enable request param was completely ignored (State was hardcoded ACTIVE forever); now a real tri-state *bool driving ACTIVE/DISABLED. NextInvocations/StartTime/EndTime intentionally left unmodeled -- see items_still_open."}
-  UsageLimit: {status: ok, note: "Create/Delete/Describe/Modify field-diffed, real state mutation confirmed. Tags accepted on create and stored but not yet echoed back on the wire (SDK has Tags []Tag) -- see items_still_open."}
-  SnapshotCopyGrant: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. Tags accepted and stored but not echoed on the wire -- see items_still_open."}
+  ScheduledAction: {status: ok, note: "FIXED THIS PASS (major): TargetAction was parsed as a single flat top-level string param and never serialized in ANY response -- real CreateScheduledActionInput.TargetAction is a nested ScheduledActionType{PauseCluster|ResumeCluster|ResizeCluster} struct sent as TargetAction.ResizeCluster.ClusterIdentifier=... etc (query-protocol nested member convention), and the object is meaningless without it. Rebuilt as a real tagged-union type (ScheduledActionTarget) with correct nested request parsing (parseTargetAction) and response serialization (targetActionToXML), verified symmetric against both serializers.go and deserializers.go. Also fixed: Enable request param was completely ignored (State was hardcoded ACTIVE forever); now a real tri-state *bool driving ACTIVE/DISABLED. FIXED 2026-08-08 (bd gopherstack-emho): NextInvocations was previously unmodeled; this backend's Schedule field already carries a real at()/cron() expression, so a real evaluator (schedule.go) now computes it instead of leaving it fabricated or perpetually empty -- unparseable/unsupported expressions (e.g. rate(), which real Redshift does not accept here) still yield an honest empty list. StartTime/EndTime remain unmodeled -- see items_still_open."}
+  UsageLimit: {status: ok, note: "Create/Delete/Describe/Modify field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Tags were accepted and stored on create but never echoed on the wire -- xmlUsageLimit now includes Tags>Tag via the existing tagMapToKVList/parseRedshiftTags shared helpers (same convention as Integration/Qev2IdcApplication), verified against awsAwsquery_deserializeDocumentUsageLimit's Tags case in deserializers.go."}
+  SnapshotCopyGrant: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Tags now echoed on the wire (Tags>Tag), same fix pattern and SDK verification as UsageLimit above (awsAwsquery_deserializeDocumentSnapshotCopyGrant)."}
   SnapshotSchedule: {status: ok, note: "FIXED THIS PASS (real no-op found): ModifyClusterSnapshotSchedule validated ClusterIdentifier/ScheduleIdentifier existence but never recorded the association anywhere -- a textbook no-stub violation (looked like it worked, did nothing). Now sets/clears Cluster.SnapshotScheduleIdentifier/SnapshotScheduleState (real Cluster wire fields, confirmed against types.Cluster), and SnapshotSchedule.AssociatedClusters/AssociatedClusterCount are derived live by scanning clusters for a match and serialized correctly (AssociatedClusters>member>ClusterIdentifier/ScheduleAssociationState). Round-trip verified with a dedicated test."}
   SnapshotCopy: {status: ok, note: "Enable/Disable/ModifySnapshotCopyRetentionPeriod field-diffed, real state mutation confirmed, no changes needed"}
   AuthenticationProfile: {status: ok, note: "field-diffed against types.AuthenticationProfile (no Tags field on this type in the real SDK, confirmed), no changes needed"}
   ResourcePolicy: {status: ok, note: "FIXED THIS PASS: error code ErrResourcePolicyNotFound was a fabricated 'ResourcePolicyNotFound' string -- real GetResourcePolicy/PutResourcePolicy/DeleteResourcePolicy return ResourceNotFoundFault for a missing policy (confirmed against the op error-dispatch table in deserializers.go), now fixed."}
-  HsmClientCertificate/HsmConfiguration: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. Tags accepted (CreateHsmClientCertificate/CreateHsmConfiguration handlers pass nil unconditionally, never parsing Tags.Tag.N.* from the request) and not echoed on the wire -- see items_still_open."}
+  HsmClientCertificate/HsmConfiguration: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Create handlers previously passed nil for tags unconditionally (never parsing Tags.Tag.N.* from the request) and the wire never echoed them; both now parse via parseRedshiftTags and serialize via tagMapToKVList, verified against awsAwsquery_deserializeDocumentHsmClientCertificate/HsmConfiguration's Tags case. Also found and fixed while verifying: CreateHsmConfiguration read the IP address request param as 'HsmIPAddress' but the real wire param is case-different 'HsmIpAddress' (confirmed against awsAwsquery_serializeOpDocumentCreateHsmConfigurationInput) -- url.Values lookups are case-sensitive, so a real SDK client's HsmIpAddress was silently dropped on every call; fixed."}
   CustomDomainAssociation: {status: ok, note: "field-diffed, no changes needed to Create/Delete/Describe/Modify wire shapes. FIXED: ErrCustomDomainAlreadyExists was a fabricated 'CustomDomainAssociationAlreadyExistsFault' code -- no such fault exists in the real SDK; the real conflict fault for CreateCustomDomainAssociation is CustomCnameAssociationFault (confirmed against the op's error-dispatch table), now fixed."}
-  EndpointAccess: {status: ok, note: "FIXED THIS PASS (major param-shape bug): CreateEndpointAccess/ModifyEndpointAccess read/wrote a fabricated 'VpcId' parameter that does not exist anywhere in CreateEndpointAccessInput/ModifyEndpointAccessInput -- real requests carry SubnetGroupName/ResourceOwner/VpcSecurityGroupIds (Create) and VpcSecurityGroupIds only (Modify); VpcId on the response is *derived* from the subnet group, not settable directly. Rebuilt CreateEndpointAccess/ModifyEndpointAccess signatures and wire parsing/serialization around the real fields (SubnetGroupName, ResourceOwner, VpcSecurityGroupIds -> VpcSecurityGroups>VpcSecurityGroup list on the response), with VpcID derived via a ClusterSubnetGroup lookup when SubnetGroupName is known. VpcEndpoint (network interfaces) intentionally left unmodeled -- see items_still_open."}
+  EndpointAccess: {status: ok, note: "FIXED THIS PASS (major param-shape bug): CreateEndpointAccess/ModifyEndpointAccess read/wrote a fabricated 'VpcId' parameter that does not exist anywhere in CreateEndpointAccessInput/ModifyEndpointAccessInput -- real requests carry SubnetGroupName/ResourceOwner/VpcSecurityGroupIds (Create) and VpcSecurityGroupIds only (Modify); VpcId on the response is *derived* from the subnet group, not settable directly. Rebuilt CreateEndpointAccess/ModifyEndpointAccess signatures and wire parsing/serialization around the real fields (SubnetGroupName, ResourceOwner, VpcSecurityGroupIds -> VpcSecurityGroups>VpcSecurityGroup list on the response), with VpcID derived via a ClusterSubnetGroup lookup when SubnetGroupName is known. VpcEndpoint (network interfaces) intentionally left unmodeled -- reconfirmed 2026-08-08: real types.VpcEndpoint.NetworkInterfaces needs AvailabilityZone/PrivateIpAddress/NetworkInterfaceId/SubnetId per ENI, none of which this backend's Subnet type carries (no CIDR/AZ data at all), and VpcEndpointId would have to be a fabricated ID with no real ENI allocation behind it -- left absent rather than invented, see items_still_open."}
   EndpointAuthorization: {status: ok, note: "AuthorizeEndpointAccess/RevokeEndpointAccess/DescribeEndpointAuthorization field-diffed against types.EndpointAuthorization, no changes needed"}
   Integration: {status: ok, note: "FIXED THIS PASS: (1) CreateIntegration read 'KmsKeyId' but the real wire param is case-different 'KMSKeyId' (confirmed against the query-protocol serializer) -- url.Values lookups are case-sensitive, so this silently dropped the KMS key for every real client call; (2) tags use 'TagList' not 'Tags' on this op specifically (unlike every other Create* op in this service) and were not parsed at all -- added parseTagListPrefixed and wired it in, response now includes Tags; (3) CreateTime was never serialized -- added; (4) ModifyIntegration was missing IntegrationName (real ModifyIntegrationInput supports renaming), added with existing-name-conflict handling."}
-  IdcApplication: {status: ok, note: "FIXED THIS PASS (bd gopherstack-0eyk): CreateRedshiftIdcApplicationResult/ModifyRedshiftIdcApplicationResult were serializing redshiftIdcAppXML's fields directly under the Result element; the real deserializer (awsAwsquery_deserializeOpDocumentCreateRedshiftIdcApplicationOutput/...Modify... in aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go, confirmed by reading it directly) requires them nested one level deeper under an inner <RedshiftIdcApplication> element -- a real SDK client parsing either response previously got every field as zero-value. Both response structs' xml tags fixed to `...Result>RedshiftIdcApplication`, matching the sibling Qev2IdcApplication family's pattern. DescribeRedshiftIdcApplications's <member> list wrapping and DeleteRedshiftIdcApplication (no response body) were re-checked against the same deserializers.go and confirmed already correct -- no changes needed there. Tests strengthened: Create/Modify success cases now assert the literal nested envelope string, not just substring presence of field values, so this class of bug is caught going forward; Describe's list_all case likewise now asserts the <member> wrapping explicitly."}
+  IdcApplication: {status: ok, note: "FIXED THIS PASS (bd gopherstack-0eyk): CreateRedshiftIdcApplicationResult/ModifyRedshiftIdcApplicationResult were serializing redshiftIdcAppXML's fields directly under the Result element; the real deserializer (awsAwsquery_deserializeOpDocumentCreateRedshiftIdcApplicationOutput/...Modify... in aws-sdk-go-v2/service/redshift@v1.65.0/deserializers.go, confirmed by reading it directly) requires them nested one level deeper under an inner <RedshiftIdcApplication> element -- a real SDK client parsing either response previously got every field as zero-value. Both response structs' xml tags fixed to `...Result>RedshiftIdcApplication`, matching the sibling Qev2IdcApplication family's pattern. DescribeRedshiftIdcApplications's <member> list wrapping and DeleteRedshiftIdcApplication (no response body) were re-checked against the same deserializers.go and confirmed already correct -- no changes needed there. Tests strengthened: Create/Modify success cases now assert the literal nested envelope string, not just substring presence of field values, so this class of bug is caught going forward; Describe's list_all case likewise now asserts the <member> wrapping explicitly. FIXED 2026-08-08 (bd gopherstack-emho): ApplicationType ('None'/'Lakehouse' enum) was unmodeled -- CreateIdcApplication now accepts and stores it (confirmed real request field via awsAwsquery_serializeOpDocumentCreateRedshiftIdcApplicationInput), echoed on Create/Describe/Modify responses; it is create-only, matching real ModifyRedshiftIdcApplicationInput which has no field for it (confirmed against awsAwsquery_serializeOpDocumentModifyRedshiftIdcApplicationInput). ServiceIntegrations deliberately left unmodeled -- it is a 3-level-deep tagged union (ServiceIntegrationsUnion -> {LakeFormation,Redshift,S3AccessGrants} -> per-family scope unions), disproportionate to this pass's scope; see items_still_open. AuthorizedTokenIssuerList/SsoTagKeys/IdcManagedApplicationArn/IdcOnboardStatus/IdentityNamespace remain unmodeled too."}
   Qev2IdcApplication: {status: ok, note: "NEW FAMILY THIS PASS (2026-07-25, SDK v1.62.3 -> v1.65.0 added CreateQev2IdcApplication/DeleteQev2IdcApplication/DescribeQev2IdcApplications/ModifyQev2IdcApplication). Confirmed via aws-sdk-go-v2/service/redshift@v1.65.0/types.Qev2IdcApplication and the Create/Delete/Describe/Modify Input/Output shapes that this is a DISTINCT resource from RedshiftIdcApplication, not a sub-resource -- no shared ID space, no cross-reference field either direction, and Qev2IdcApplication has no IamRoleArn (RedshiftIdcApplication's federated-auth role) at all. Implemented as its own store.Table/model/handler file pair. Wire-diffed field-by-field against serializers.go/deserializers.go: Create/Modify responses correctly nest the inner <Qev2IdcApplication> element (the bug found in the sibling family above, avoided here); Describe response uses real Marker/MaxRecords pagination (this op IS paginated in the real API, unlike DescribeRedshiftIdcApplications which this backend never paginates) implemented via the exact same sorted-snapshot/marker-cutoff convention as DescribeClusters; list items use <member> wrapping (confirmed against awsAwsquery_deserializeDocumentQev2IdcApplicationList); Tags round-trip via Tags.Tag.N.Key/Value on create and Tags>Tag on responses, matching this package's tagMapToKVList/parseRedshiftTags helpers exactly (real field name is 'Tags', not 'TagList' as CreateIntegration idiosyncratically uses). Cardinality: name-keyed uniqueness -> Qev2IdcApplicationAlreadyExists (real fault code, confirmed against types/errors.go; no separate quota fault exists for this family, unlike RedshiftIdcApplicationQuotaExceededFault). Modify only accepts IdcDisplayName (real ModifyQev2IdcApplicationInput has no other mutable field) -- IdcInstanceArn/Qev2IdcApplicationName verified immutable post-creation and covered by a regression test."}
-  ReservedNode: {status: ok, note: "AcceptReservedNodeExchange/PurchaseReservedNodeOffering/Describe*/GetReservedNodeExchange* field-diffed, real state mutation confirmed. RecurringCharges/ReservedNodeOfferingType intentionally left unmodeled -- see items_still_open."}
+  ReservedNode: {status: ok, note: "AcceptReservedNodeExchange/PurchaseReservedNodeOffering/Describe*/GetReservedNodeExchange* field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): RecurringCharges is now derived from the node's own UsagePrice (this backend's real per-offering pricing model, see defaultReservedNodeOfferings) -- a No Upfront offering's nonzero UsagePrice produces one RecurringCharges>RecurringCharge{Hourly} entry, an All Upfront offering's zero UsagePrice produces none, verified against awsAwsquery_deserializeDocumentRecurringChargeList's RecurringCharges>RecurringCharge wrapper. ReservedNodeOfferingType remains unmodeled -- see items_still_open."}
   TableRestoreStatus/RestoreTableFromClusterSnapshot: {status: ok, note: "FIXED THIS PASS: SnapshotIdentifier was parsed from the request and then explicitly discarded (bound to `_`), never stored -- now stored and serialized. RequestTime was computed but never serialized on ANY response (RestoreTableFromClusterSnapshotResult only echoed TableRestoreRequestId+Status) -- now serialized as RFC3339 on both RestoreTableFromClusterSnapshot and DescribeTableRestoreStatus. Also fixed the response's TargetTableName wire tag to the real 'NewTableName' (TableRestoreStatus has no TargetTableName field in the real SDK). SourceSchemaName/TargetSchemaName/ProgressInMegaBytes/TotalDataInMegaBytes/EnableCaseSensitiveIdentifier intentionally left unmodeled -- see items_still_open."}
   Partner: {status: ok, note: "FIXED THIS PASS (severe, systemic): AddPartner/DeletePartner/DescribePartners/UpdatePartnerStatus all read/wrote a fabricated 'PartnerIntegrationId' parameter/wire-field name -- no such name exists anywhere in the real SDK (AddPartnerInput/Output, DeletePartnerInput/Output, UpdatePartnerStatusInput/Output, and PartnerIntegrationInfo all use 'PartnerName', confirmed against every relevant api_op_*.go and the DescribePartners deserializer). Every real client's PartnerName value was silently dropped on every request, and every response field a real client tried to read came back empty. Fixed across all 4 ops plus the internal error message text. Regression test locks in the exact wire element name."}
   Descriptive/static ops: {status: ok, note: "DescribeAccountAttributes, DescribeClusterVersions, DescribeClusterTracks, DescribeOrderableClusterOptions, DescribeStorage, DescribeNodeConfigurationOptions, DescribeClusterDbRevisions, ListRecommendations, ModifyAquaConfiguration, ModifyClusterDbRevision, ModifyLakehouseConfiguration, GetIdentityCenterAuthToken, RegisterNamespace/DeregisterNamespace spot-checked: real state mutation/derivation confirmed (e.g. ListRecommendations derives from live cluster state, not canned), no-stub scan (grep for notImplemented/TODO/stub) clean. NOT exhaustively field-diffed element-by-element this pass -- see items_still_open."}
-  Redshift Serverless: {status: deferred, note: "ServerlessHandler in handler_serverless.go (Namespace/Workgroup/Snapshot/UsageLimit/ScheduledAction/Credentials) is a separate JSON-protocol API surface (different AWS service ID: redshift-serverless), not touched this pass -- see items_still_open."}
+  Redshift Serverless: {status: ok, note: "AUDITED AND PARTLY FIXED 2026-08-08 (bd gopherstack-hsfm). aws-sdk-go-v2/service/redshiftserverless was still not a go.mod dependency; fetched via `go get ...@v1.38.5` to populate GOMODCACHE for field-diffing serializers.go/deserializers.go/types directly (not from memory/docs), then `go mod tidy` dropped it again afterward since the fix (like the rest of this repo) hand-rolls JSON wire structs rather than importing SDK types at runtime -- no persistent new dependency. SEVERE FINDING: this whole 25-op surface used REST-style path/verb routing (/redshift-serverless/namespaces, GET/POST/PATCH/DELETE) that NO real client ever sends -- confirmed every awsAwsjson11_serializeOp* in serializers.go POSTs to \"/\" with an X-Amz-Target header and puts all fields (including resource identifiers) in the JSON body. RouteMatcher required the REST path prefix, so a real SDK client's request never matched at all: all 25 ops were unroutable, the same unreachable-service bug class found in opsworks (gopherstack-vjj2) but total instead of partial. FIXED: RouteMatcher/ExtractOperation rewritten to X-Amz-Target dispatch (PriorityHeaderExact, matching redshiftdata.Handler's existing pattern in this package); every handler decodes resource identifiers from the body instead of the URL. Also fixed while rewriting (all confirmed against deserializers.go before fixing): ServerlessScheduledAction's status field used wire key \"status\" but the real ScheduledActionResponse field is \"state\" (types.State, ACTIVE/DISABLED) -- ScheduledActionResponse has no \"status\" field at all; StartTime/EndTime and GetCredentialsOutput's Expiration/NextRefreshTime were RFC3339 strings but the real wire format is epoch-seconds JSON numbers (awstime.Epoch, same bug class as the QuickSight/IoT precedent in parity-principles.md); Schedule/TargetAction were flat strings but the real shapes are tagged-union JSON objects ({\"cron\":...}/{\"at\":...} and {\"createSnapshot\":{...}}) -- now passed through as json.RawMessage (accurate shape, no fabricated execution semantics); CreateScheduledActionInput.RoleArn (a REQUIRED real field) was completely absent from the request struct, so every real client's roleArn was silently dropped and unrecoverable -- now required and stored; Enabled/ScheduledActionDescription were also dropped, now threaded through; ScheduledActionUUID and the fabricated scheduledActionArn field (not a real ScheduledActionResponse member) were fixed to match the real shape. Also fixed accepted-then-dropped (a) fields: Namespace.DefaultIamRoleArn, ManageAdminPassword/AdminPasswordSecretKmsKeyId (with a fabricated-but-consistent secretsmanager ARN, same convention as this backend's other resource ARNs); DeleteNamespace's FinalSnapshotName/FinalSnapshotRetentionPeriod now actually create a final snapshot; CreateSnapshot's retentionPeriod; Workgroup's ConfigParameters/MaxCapacity/Port/IpAddressType/TrackName/PricePerformanceTarget/EnhancedVpcRouting/ExtraComputeForAutomaticOptimization/PubliclyAccessible; GetCredentials' DurationSeconds and the previously entirely-absent NextRefreshTime response field; List*'s MaxResults, which was hardcoded to 0 and silently ignored on every List call regardless of protocol. Error envelope switched from ad hoc 404/409 status codes to the real awsJson1.1 convention (HTTP 400 for every client-fault exception, confirmed by the absence of any per-exception status override in types/errors.go). Deliberately left unfixed, each independently verified absent from all reachable output: Tags on Create* (defers to the excluded Tagging family below), AdminUserPassword (real API never echoes it either), Namespace.RedshiftIdcApplicationArn (accepted by the real API but not a field on types.Namespace -- no observable output surface exists for it among these 25 ops), ScheduledActionResponse.NextInvocations (this service's cron format is unwrapped, unlike classic Redshift's cron(...)/at(...) strings that schedule.go already evaluates -- adapting that evaluator is a reasonable follow-up, not done this pass), Snapshot's backup-progress/size/cross-account-restore-access fields (this backend creates snapshots instantaneously, so progress fields have no real driving state; restore-access fields are populated via the excluded ResourcePolicy family), GetCredentials' CustomDomainName lookup (depends on the excluded CustomDomainAssociation family). Full field-by-field audit table with file:line citations recorded in bd gopherstack-hsfm's close reason. Whole missing resource families (EndpointAccess, CustomDomainAssociation, ResourcePolicy, RecoveryPoint, SnapshotCopyConfiguration, TableRestoreStatus, Tagging, ListManagedWorkgroups, restore-from-snapshot) still have zero code -- see items_still_open. TAGGING AND CUSTOMDOMAINASSOCIATION BUILT 2026-08-09 (bd gopherstack-w8g2): TagResource/UntagResource/ListTagsForResource and Create/Get/List/Update/DeleteCustomDomainAssociation implemented against the pinned botocore redshift-serverless/2021-04-21/service-2.json model (json protocol, confirmed via metadata.protocol), not the aws-sdk-go-v2 module (kept out of go.mod per this issue's constraint -- verified via TagList's Tag{key,value} shape, not a JSON map). Confirmed only Namespace/Workgroup/Snapshot accept a create-time \"tags\" list (CreateUsageLimitRequest/CreateScheduledActionRequest have none) and that none of Namespace/Workgroup/Snapshot echo a \"tags\" field on their own GET/response shape -- tags are stored in a new resourceArn-keyed store.Table (slResourceTags) reachable only via ListTagsForResource, proven with a handler-level round trip (TestServerless_TagResource_RoundTrip) plus a persistence Snapshot/Restore round trip. CustomDomainAssociation modeled per Association{customDomainCertificateArn,customDomainCertificateExpiryTime,customDomainName,workgroupName} (Create/Get/Update responses are flat, NOT wrapped in an envelope key, unlike every other serverless resource -- confirmed against the Response shapes directly; Delete has zero response members); customDomainCertificateExpiryTime uses SyntheticTimestamp_date_time (ISO8601 string), NOT the epoch-seconds Timestamp shape GetCredentials' Expiration/NextRefreshTime use -- confirmed as a genuine per-field wire-format difference, not an inconsistency to \"fix\". Real Workgroup also carries customDomainName/customDomainCertificateArn/customDomainCertificateExpiryTime directly (added to the Workgroup struct, mirrored on associate/update/delete). GetCredentials now resolves workgroupName via customDomainName per GetCredentialsRequest's documented either-or requirement. EndpointAccess/ResourcePolicy/RecoveryPoint/SnapshotCopyConfiguration/TableRestoreStatus/ListManagedWorkgroups/restore ops deliberately NOT attempted this pass -- see items_still_open. RESOURCEPOLICY AND SNAPSHOTCOPYCONFIGURATION BUILT 2026-08-10 (bd gopherstack-w8g2): Get/Put/DeleteResourcePolicy implemented as a new resourceArn-keyed store.Table[ServerlessResourcePolicy] (slResourcePolicies), distinct from classic Redshift's own resourcePolicies table/methods (same op names, different protocol and sentinel error, disambiguated with an SL suffix on the backend methods). Envelope convention (`{\"resourcePolicy\": {...}}`) and DeleteResourcePolicyResponse's zero members both confirmed against service-2.json -- the flat-response oddity found in CustomDomainAssociation does NOT generalize here. Create/Update/Delete/ListSnapshotCopyConfiguration implemented as a new store.Table[ServerlessSnapshotCopyConfiguration] (slSnapshotCopyConfig) plus a sortedStringIndex for List's deterministic pagination; CreateSnapshotCopyConfiguration validates namespaceName against the existing namespace store (ResourceNotFoundException on a miss). This backend does not simulate real cross-region replication, consistent with how Namespace/Workgroup/Snapshot are already handled -- only the configuration object itself is tracked. One business rule was deliberately NOT invented: service-2.json documents no one-configuration-per-namespace constraint, so none is enforced (unlike classic Redshift's EnableSnapshotCopy, which this backend does gate one-per-cluster, but that is a different family entirely). EndpointAccess/RecoveryPoint/TableRestoreStatus/ListManagedWorkgroups/restore ops remain unbuilt -- see items_still_open. RECOVERYPOINT AND TABLERESTORESTATUS BUILT 2026-08-10 (bd gopherstack-w8g2, entangled group): Get/ListRecoveryPoints, RestoreFromRecoveryPoint, RestoreTableFromSnapshot, RestoreTableFromRecoveryPoint, Get/ListTableRestoreStatus implemented. RecoveryPoint has NO create operation anywhere in service-2.json (\"Recovery points are created every 30 minutes and kept for 24 hours\", confirmed on the RecoveryPoint shape's own documentation) -- this backend generates exactly one recovery point per workgroup at CreateWorkgroup time instead of running a real 30-minute scheduler (generateRecoveryPointLocked, serverless_recovery.go), matching this service's existing instant-apply convention (e.g. snapshots created instantaneously); an AddRecoveryPointInternal test-seed method exists for tests that need more than one, not wired to any wire-reachable op, same convention as AddSnapshotInternal etc. RestoreFromSnapshot (namespace-level restore from a Snapshot, no recovery point involved) was deliberately NOT built this pass -- it does not depend on RecoveryPoint and was excluded from this entangled group by design; still open, see items_still_open. Timestamp formats verified to genuinely differ within this one family: RecoveryPoint.recoveryPointCreateTime is SyntheticTimestamp_date_time (ISO8601 string, confirmed against both service-2.json and awsAwsjson11_deserializeDocumentRecoveryPoint's smithytime.ParseDateTime call), while TableRestoreStatus.requestTime is the bare Timestamp shape (epoch-seconds JSON number, confirmed against awsAwsjson11_deserializeDocumentTableRestoreStatus's smithytime.ParseEpochSeconds call) -- two timestamp fields in the same entangled group, two different wire formats, both re-verified rather than assumed from the nearer-looking sibling. RestoreFromRecoveryPointSL additionally validates that the given workgroupName belongs to the given namespaceName (the same Namespace-Workgroup FK relationship CreateWorkgroup already enforces) -- not a fabricated recovery-point-specific rule, just this backend's existing invariant applied here too. ServerlessTableRestoreStatus.Status is set to SUCCEEDED immediately (this backend applies every restore synchronously, consistent with the rest of this service) rather than left IN_PROGRESS forever the way classic Redshift's own TableRestoreStatus is (a pre-existing, out-of-scope quirk in table_restore.go, not touched); ProgressInMegaBytes/TotalDataInMegaBytes are honestly left at zero/omitted rather than fabricated, since this backend has no real data to move. EndpointAccess and ListManagedWorkgroups remain unbuilt -- see items_still_open. ENDPOINTACCESS, LISTMANAGEDWORKGROUPS, RESTOREFROMSNAPSHOT AND CONVERTRECOVERYPOINTTOSNAPSHOT BUILT 2026-08-10 (bd gopherstack-w8g2, final pass -- closes the issue): Create/Get/List/Update/DeleteEndpointAccess implemented as a new endpointName-keyed store.Table[ServerlessEndpointAccess] (slEndpointAccesses), distinct from classic Redshift's own cluster-keyed EndpointAccess (endpoint_access.go) -- real CreateEndpointAccessRequest requires workgroupName/subnetIds (individual subnet IDs), not clusterIdentifier/subnetGroupName, confirmed against CreateEndpointAccessRequest/UpdateEndpointAccessRequest/EndpointAccess in service-2.json and cross-checked against types.EndpointAccess in aws-sdk-go-v2/service/redshiftserverless@v1.38.5/types/types.go. Per this issue's explicit instruction to check how classic Redshift's own EndpointAccess handled the same judgment call: confirmed families.EndpointAccess above left the entire nested VpcEndpoint object (network interfaces) absent rather than invented, and the identical problem exists here in a slightly different shape -- real types.VpcEndpoint carries vpcEndpointId/vpcId/networkInterfaces (each NetworkInterface needing availabilityZone/privateIpAddress/networkInterfaceId/subnetId, confirmed against types.NetworkInterface), none of which this backend tracks anywhere (no EC2 cross-reference wired into Redshift at all, same finding as families.ClusterSubnetGroup). Followed the same precedent exactly: vpcEndpoint is left absent from every response rather than partially fabricated (e.g. a real-looking vpcEndpointId with no ENI behind it). VpcSecurityGroups IS modeled (unlike VpcEndpoint) since it only echoes client-supplied IDs, the same shape as classic's own VpcSecurityGroupMembership, reusing its \"active\" status convention (endpointStatusActive) since both are the identical real shape. ListEndpointAccessRequest's vpcId filter is deliberately not accepted for the same reason -- nothing honest to filter against. DeleteEndpointAccessResponse echoes the deleted object (confirmed against service-2.json: it carries a real \"endpoint\" member, unlike DeleteResourcePolicy/DeleteCustomDomainAssociation's zero-member responses). LISTMANAGEDWORKGROUPS: per this issue's instruction to check whether the \"thin, no real backing state\" judgment holds -- it does. ListManagedWorkgroupsRequest.sourceArn is documented and pattern-constrained as a Glue Data Catalog database/catalog ARN (`^arn:aws[a-z-]*:glue:...`, confirmed in the SourceArn shape), meaning ManagedWorkgroupListItem represents a workgroup Glue/Lake Formation auto-provisions when federated queries run against shared data -- confirmed by grep that this package has zero Glue Data Catalog or Lake Formation integration anywhere (AssociateDataShareConsumer is classic Redshift's unrelated data-sharing feature, not this). Implemented as an honest, correctly-shaped, always-empty response (ListManagedWorkgroupsSL) rather than inventing entries -- no store.Table needed since there is no create path, real or otherwise, that could ever populate one. RESTOREFROMSNAPSHOT: RestoreFromSnapshotRequest requires namespaceName/workgroupName (confirmed against service-2.json) with the identical \"name of the namespace to restore ... to/into\" wording convention and required-field shape RestoreFromRecoveryPointRequest already uses -- by that symmetry, both are treated as pre-existing resources here too (same design RestoreFromRecoveryPointSL established in the prior pass), validated via the same Namespace-Workgroup FK check. Resolves snapshotName or snapshotArn (either, mutually exclusive per the real request) via the same ARN-suffix-stripping convention GetServerlessSnapshot already uses. manageAdminPassword/adminPasswordSecretKmsKeyId are threaded through onto the namespace (a real, easy-to-honor field, not left as an inert accepted-then-dropped parameter) but only in the true direction -- false does not clear existing Secrets-Manager fields, since real AWS's documented false-branch behavior (\"uses the admin credentials the namespace or cluster had at the time the snapshot was taken\") is data this backend cannot reconstruct, so it is left untouched rather than fabricated. Real AWS restores a namespace's storage layer in place; this backend does not simulate real data content, so once the lookup/FK checks pass, the existing Namespace is returned unchanged, same as RestoreFromRecoveryPointSL. CONVERTRECOVERYPOINTTOSNAPSHOT: recoveryPointId/snapshotName both required (confirmed against service-2.json); implemented by writing a new ServerlessSnapshot from the recovery point's namespace linkage (NamespaceName/NamespaceArn) plus the target namespace's AdminUsername when resolvable, reusing the exact same snapshotName-conflict check and arn.Build/store/index-insert/putServerlessTagsLocked sequence CreateServerlessSnapshot already uses. All four verified to genuinely fail beforehand: temporarily removed their slDispatchTable entries (file copy, not git stash) and reran the new tests -- every one flipped from real behavior to \"unknown operation\" ValidationException/400, confirmed, then the entries were restored. go.mod/go.sum confirmed unmodified (git status clean before and after fetching aws-sdk-go-v2/service/redshiftserverless@v1.38.5 and aws-sdk-go-v2/service/redshift@v1.65.4 into GOMODCACHE via `go get` then reverting) and `go mod tidy` produced no diff. This closes bd gopherstack-w8g2: all nine originally-missing serverless families now have real code."}
 gaps: []          # bd gopherstack-0eyk (IdcApplication missing inner <RedshiftIdcApplication>
                    # wrapper) FIXED this pass -- see families.IdcApplication above for detail.
 deferred: []      # all 17 prior deferred families field-diffed in the 2026-07-22 pass, see families above
@@ -64,6 +64,413 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 ---
 
 ## Notes
+
+### 2026-08-10 pass: Redshift Serverless EndpointAccess, ListManagedWorkgroups, RestoreFromSnapshot, ConvertRecoveryPointToSnapshot (bd gopherstack-w8g2, final pass)
+
+Eighth/ninth of the nine originally-missing serverless families, plus the two
+restore/convert ops left aside earlier -- this closes bd gopherstack-w8g2.
+Confirmed against the pinned `botocore` `redshift-serverless/2021-04-21/
+service-2.json.gz` (protocol `json` 1.1, botocore 1.43.56) and cross-checked
+against `aws-sdk-go-v2/service/redshiftserverless@v1.38.5`'s serializers.go/
+deserializers.go/types (pulled into GOMODCACHE via `go get` for this pass,
+confirmed `git status --porcelain go.mod go.sum` clean before and after, and
+`go mod tidy` a no-op).
+
+**EndpointAccess** was explicitly flagged as needing "the same
+no-per-ENI-AZ/IP-data judgement call classic Redshift's EndpointAccess
+already made." Re-read `endpoint_access.go`/`handler_endpoint_access.go`
+first: classic leaves the entire nested `VpcEndpoint`/network-interface
+object absent from every response rather than fabricating a `vpcEndpointId`
+with no real ENI allocation behind it (see `families.EndpointAccess`'s
+addendum). The serverless `EndpointAccess` shape has the identical problem
+in a different nesting: real `types.VpcEndpoint.NetworkInterfaces` needs
+`AvailabilityZone`/`PrivateIpAddress`/`NetworkInterfaceId`/`SubnetId` per
+ENI (confirmed against `types.NetworkInterface`), and this backend tracks
+none of it anywhere (no EC2 cross-reference wired into Redshift at all,
+same finding `families.ClusterSubnetGroup` already recorded). Followed the
+classic precedent exactly: `vpcEndpoint` is omitted from every response,
+not partially invented. What IS modeled: `address`/`endpointArn`/
+`endpointCreateTime`/`endpointName`/`endpointStatus`/`port`/`subnetIds`/
+`workgroupName`/`vpcSecurityGroups` -- all real, all backed by state this
+backend actually holds. `vpcSecurityGroups` reuses classic's own
+`VpcSecurityGroupMembership`-equivalent shape and its `"active"` status
+convention (`endpointStatusActive`), since it is the identical real type.
+`ListEndpointAccessRequest`'s `vpcId` filter is deliberately not accepted,
+for the same no-vpcId-data reason. `DeleteEndpointAccessResponse` echoes
+the deleted object (confirmed against service-2.json: unlike
+`DeleteResourcePolicy`/`DeleteCustomDomainAssociation`'s zero-member
+responses, this one carries a real `endpoint` member).
+
+**ListManagedWorkgroups** was called "thin, with no real backing state
+without data-sharing consumer modeling." Checked rather than assumed: it
+holds. `ListManagedWorkgroupsRequest.sourceArn` is pattern-constrained to a
+Glue Data Catalog database/catalog ARN in service-2.json, meaning
+`ManagedWorkgroupListItem` represents a workgroup Glue/Lake Formation
+auto-provisions for federated queries against shared data -- confirmed by
+grepping this package for any Glue Data Catalog or Lake Formation
+integration (none; `AssociateDataShareConsumer` is classic Redshift's
+unrelated data-sharing feature). Implemented as an honest,
+correctly-shaped, always-empty response (`ListManagedWorkgroupsSL`) -- no
+`store.Table` added, since nothing in this backend could ever populate one.
+
+**RestoreFromSnapshot** requires `namespaceName`/`workgroupName`, with the
+identical "name of the namespace to restore ... to/into" wording and
+required-field shape `RestoreFromRecoveryPointRequest` already uses; by
+that symmetry it reuses the same already-reviewed design
+`RestoreFromRecoveryPointSL` established in the prior pass (both resources
+must pre-exist, FK-checked, no real data movement simulated -- the existing
+`Namespace` is returned unchanged). `snapshotName`/`snapshotArn` resolve via
+the same ARN-suffix-stripping convention `GetServerlessSnapshot` already
+uses. `manageAdminPassword`/`adminPasswordSecretKmsKeyId` are threaded onto
+the namespace in the true direction only -- the documented false-branch
+behavior ("uses the admin credentials the namespace or cluster had at the
+time the snapshot was taken") is data this backend cannot reconstruct, so
+it is left untouched rather than fabricated.
+
+**ConvertRecoveryPointToSnapshot** requires `recoveryPointId`/
+`snapshotName`; writes a new `ServerlessSnapshot` from the recovery point's
+own namespace linkage, reusing `CreateServerlessSnapshot`'s exact
+conflict-check/arn.Build/store/index/tag sequence.
+
+All four verified to genuinely fail beforehand: their `slDispatchTable`
+entries were removed in a file copy (not `git stash`), the new tests
+rerun, and every one flipped from real behavior to `"unknown operation"`
+`ValidationException`/400 -- confirmed, then the entries were restored and
+the diff checked identical to before.
+
+One new `store.Table` registered this pass (`slEndpointAccesses`) plus its
+`sortedStringIndex` -- no snapshot version bump, same additive convention
+every prior family in this issue used. `ListManagedWorkgroupsSL` needed no
+new table at all, since it has no backing state to hold.
+
+
+
+Fifth/sixth/seventh of the nine originally-missing serverless families, taken
+together deliberately as the "entangled group" the prior two passes flagged
+and left for last: `RecoveryPoint`, `TableRestoreStatus`, and the two
+restore operations that consume a recovery point
+(`RestoreFromRecoveryPoint`, `RestoreTableFromRecoveryPoint`), plus
+`RestoreTableFromSnapshot` (grouped with `TableRestoreStatus` since both
+table-level restores write into the same result store). Confirmed against
+the pinned `botocore` `redshift-serverless/2021-04-21/service-2.json.gz`
+(protocol `json` 1.1, botocore 1.43.56) and cross-checked against
+`aws-sdk-go-v2/service/redshiftserverless@v1.38.5`'s serializers.go/
+deserializers.go already sitting in GOMODCACHE from prior passes (not
+re-added to go.mod, confirmed via `git status --porcelain go.mod go.sum`
+before and after, and `go mod tidy` producing no diff):
+
+- **Where recovery points come from**: real AWS creates them automatically,
+  "every 30 minutes ... kept for 24 hours" (the `RecoveryPoint` shape's own
+  documentation in service-2.json) -- there is no `CreateRecoveryPoint`
+  operation anywhere in this API's operation list, confirmed by enumerating
+  every operation name. No wire-reachable create op was added (that would
+  have been exactly the fabricated-API mistake this issue's instructions
+  warned against). Instead, `generateRecoveryPointLocked`
+  (`serverless_recovery.go`) creates exactly one recovery point per
+  namespace+workgroup pair at `CreateWorkgroup` time, inline under the same
+  lock `CreateWorkgroup` already holds (same pattern `DeleteNamespace`
+  already uses for its final-snapshot write) -- a workgroup is required to
+  exist before recovery points make sense at all (`RecoveryPoint.workgroupName`
+  is a real field), and this backend has no real 30-minute scheduler
+  infrastructure to run, consistent with its existing instant-apply
+  simplifications elsewhere (snapshots created instantaneously, resizes
+  applied synchronously). `AddRecoveryPointInternal` is a test-only seed
+  helper (not wired to any op), matching the existing
+  `AddSnapshotInternal`/`AddReservedNodeInternal` convention in this package.
+- `GetRecoveryPointRequest` keys on `recoveryPointId`; `ListRecoveryPointsRequest`
+  optionally filters by `namespaceArn`/`namespaceName` (both accepted; this
+  backend does not filter by the request's `startTime`/`endTime` window --
+  see items_still_open) and paginates via the existing shared
+  `maxResults`/`nextToken` convention. Both response envelopes
+  (`{"recoveryPoint": ...}` / `{"recoveryPoints": [...]}`) confirmed against
+  `awsAwsjson11_deserializeOpDocumentGetRecoveryPointOutput`/
+  `...ListRecoveryPointsOutput`.
+- **Timestamp formats genuinely differ within this one entangled group**:
+  `RecoveryPoint.recoveryPointCreateTime` is shape `SyntheticTimestamp_date_time`
+  (ISO8601 string; confirmed both in service-2.json and via
+  `awsAwsjson11_deserializeDocumentRecoveryPoint`'s `smithytime.ParseDateTime`
+  call in deserializers.go), while `TableRestoreStatus.requestTime` is the
+  bare `Timestamp` shape (epoch-seconds JSON number; confirmed via
+  `awsAwsjson11_deserializeDocumentTableRestoreStatus`'s
+  `smithytime.ParseEpochSeconds` call) -- re-verified per field rather than
+  assumed from the nearer-looking sibling, same discipline the
+  Tagging/CustomDomainAssociation pass applied to
+  `customDomainCertificateExpiryTime` vs `GetCredentials`' `expiration`.
+- `RestoreFromRecoveryPointRequest` requires `namespaceName`/`recoveryPointId`/
+  `workgroupName` (all three required, confirmed in service-2.json);
+  response is `{"namespace": {...}, "recoveryPointId": "..."}` (confirmed via
+  `awsAwsjson11_deserializeOpDocumentRestoreFromRecoveryPointOutput`). This
+  backend does not simulate real data movement (consistent with
+  `CreateSnapshotCopyConfiguration`'s cross-region copy also not simulating
+  real replication), so once FK checks pass -- namespace exists, workgroup
+  exists, workgroup belongs to that namespace (this backend's existing
+  Namespace-Workgroup invariant, not a fabricated recovery-point-specific
+  rule), recovery point exists -- the existing `Namespace` is returned
+  unchanged. `RestoreFromSnapshot` (namespace-level restore from a
+  `Snapshot`, no recovery point involved at all) was deliberately **not**
+  built this pass: it does not depend on `RecoveryPoint` and was excluded
+  from this entangled group by design, matching the original issue's
+  own framing ("split per family ... they are independent") -- still open,
+  see items_still_open.
+- `RestoreTableFromSnapshotRequest`/`RestoreTableFromRecoveryPointRequest`
+  both require `namespaceName`/`newTableName`/`sourceDatabaseName`/
+  `sourceTableName`/`workgroupName` plus their respective
+  `snapshotName`/`recoveryPointId` (confirmed in service-2.json); both
+  responses envelope under `tableRestoreStatus`
+  (`awsAwsjson11_deserializeOpDocumentRestoreTableFrom{Snapshot,RecoveryPoint}Output`).
+  Modeled as `ServerlessTableRestoreStatus` (`serverless.go`), distinct from
+  classic Redshift's cluster-keyed `TableRestoreStatus` in `models.go` (same
+  concept, different protocol, different resource keys -- disambiguated the
+  same way `ServerlessResourcePolicy` was kept distinct from classic
+  Redshift's `ResourcePolicy`). `Status` is set to `SUCCEEDED` immediately
+  (this backend restores synchronously, consistent with the rest of this
+  service) rather than left `IN_PROGRESS` forever the way classic Redshift's
+  own `TableRestoreStatus` currently is (a pre-existing quirk in
+  `table_restore.go`, out of this pass's scope, not touched).
+  `ProgressInMegaBytes`/`TotalDataInMegaBytes` are honestly left at
+  zero/omitted (`omitempty`) rather than fabricated -- this backend has no
+  real data to move, same reasoning classic Redshift's own
+  `items_still_open` entry already gives for the identical fields.
+  `GetTableRestoreStatusRequest` keys on `tableRestoreRequestId`;
+  `ListTableRestoreStatusRequest` optionally filters by
+  `namespaceName`/`workgroupName`.
+
+Proven with a persistence round trip extending
+`TestInMemoryBackend_FullStateRoundTrip`: the `rt-workgroup` seed already in
+that test auto-generates a recovery point (no new seed call needed for
+that part), and a `RestoreTableFromSnapshotSL` call was added to seed a
+`ServerlessTableRestoreStatus`. Verified the round trip has teeth two ways,
+both reverted immediately after confirming the intended failure: (1)
+temporarily renamed the two new tables' `store.Register` name strings so
+the two failure modes could not be conflated, which -- as expected, since
+Snapshot and Restore ran within the same process against the same renamed
+keys -- did NOT reproduce data loss (a useful negative result, not just a
+placeholder check); (2) temporarily commented out the two new
+`rebuildFromKeys` calls in `rebuildServerlessIndexes`, which DID make
+`TestInMemoryBackend_FullStateRoundTrip` fail with `"[]" should have 1
+item(s), but has 0` on the new `ListRecoveryPointsSL`/`ListTableRestoreStatusSL`
+assertions -- proving those two lines are load-bearing, not decorative.
+Also verified the two new handler test files
+(`handler_serverless_recovery_test.go`,
+`handler_serverless_table_restore_test.go`) fail against the pre-pass
+codebase: copied them into a `git worktree add --detach HEAD` checkout (not
+`git stash`) with none of this pass's backend/handler files present, and
+every new test failed there -- `unknown operation` `ValidationException`
+(400) where the current tree returns 200/`ResourceNotFoundException`, since
+none of these operations existed in `slDispatchTable` before this pass.
+
+Two new `store.Table`s (`slRecoveryPoints`, `slTableRestoreStatuses`) plus
+two new `sortedStringIndex`es (`slRecoveryPointIdx`,
+`slTableRestoreStatusIdx`) registered/wired the same way every prior
+serverless table is -- no snapshot version bump, `Registry.Tables` stays an
+additive `map[string]json.RawMessage`.
+
+Deliberately not modeled: `ListRecoveryPointsRequest`'s `startTime`/`endTime`
+filter window (accepted nowhere -- not parsed at all, rather than parsed and
+silently ignored, since this backend's single auto-generated recovery point
+per workgroup has no meaningful creation-time range to filter against
+without inventing one); `ConvertRecoveryPointToSnapshot` (a real op that
+converts a recovery point into a `Snapshot` -- not part of this issue's
+named restore-op list and not required for `RestoreFromRecoveryPoint`/
+`RestoreTableFrom{Snapshot,RecoveryPoint}` to work, left for a future pass);
+`RestoreFromSnapshot` (namespace-level restore from a `Snapshot`, no
+recovery point dependency -- deliberately excluded from this entangled
+group, see above); `TooManyTagsException`/`ServiceQuotaExceededException`
+preconditions on the restore ops, consistent with this service's existing
+unsimulated-quota precedent. EndpointAccess and ListManagedWorkgroups
+remain unbuilt -- see items_still_open.
+
+### 2026-08-10 pass: Redshift Serverless ResourcePolicy + SnapshotCopyConfiguration (bd gopherstack-w8g2)
+
+Third and fourth of the nine originally-missing serverless families (two of
+nine already done in the 2026-08-09 pass below); picked as the most
+self-contained of the remaining seven -- neither depends on any other unbuilt
+family (RecoveryPoint, TableRestoreStatus and the restore ops are entangled
+with each other; EndpointAccess additionally needs the same
+no-per-ENI-AZ/IP-data judgment call `families.EndpointAccess` already made for
+classic Redshift; ListManagedWorkgroups has no real backing state in this
+backend without data-sharing consumer modeling). Confirmed against the pinned
+`botocore` `redshift-serverless/2021-04-21/service-2.json.gz` (protocol `json`
+1.1) via `python3 -c "import gzip, json; ..."` against the installed botocore
+1.43.56 package, cross-checked against
+`aws-sdk-go-v2/service/redshiftserverless@v1.38.5`'s serializers.go/
+deserializers.go already sitting in GOMODCACHE from the prior passes (not
+re-added to go.mod):
+
+- `GetResourcePolicyRequest`/`PutResourcePolicyRequest`/
+  `DeleteResourcePolicyRequest` all key on `resourceArn`; `PutResourcePolicyRequest`
+  additionally requires `policy` (a JSON string, opaque to this backend).
+  `ResourcePolicy` (the response shape) is just `{policy, resourceArn}` --
+  confirmed via `awsAwsjson11_deserializeDocumentResourcePolicy` in
+  deserializers.go and the `ResourcePolicy` shape in service-2.json.
+  `GetResourcePolicy`/`PutResourcePolicy` both envelope the object under
+  `resourcePolicy` (NOT flat -- the CustomDomainAssociation flat-response
+  oddity does not generalize to every serverless family, confirmed by reading
+  `awsAwsjson11_deserializeOpDocumentGetResourcePolicyOutput` directly rather
+  than assuming either convention). `DeleteResourcePolicyResponse` has zero
+  members, same convention as `DeleteCustomDomainAssociationResponse`.
+  Real errors are `GetResourcePolicy`/`DeleteResourcePolicy`:
+  `ResourceNotFoundException` on a missing policy; `PutResourcePolicy` also
+  lists `ConflictException`/`ServiceQuotaExceededException` in its error set,
+  but the precondition that trips them is undocumented and not simulated
+  (`PutResourcePolicy` is a create-or-replace upsert here, same as the real
+  API's stated behavior).
+- `SnapshotCopyConfiguration` mirrors `CreateSnapshotCopyConfigurationInput`'s
+  required `namespaceName`/`destinationRegion` plus optional
+  `destinationKmsKeyId`/`snapshotRetentionPeriod`, and an
+  id/arn pair generated the same way every other serverless resource's is
+  (`randomHex`/`arn.Build`). `UpdateSnapshotCopyConfigurationInput` only
+  mutates `snapshotRetentionPeriod` (confirmed against
+  `awsAwsjson11_serializeOpDocumentUpdateSnapshotCopyConfigurationInput`).
+  `DeleteSnapshotCopyConfigurationResponse` DOES echo the deleted object under
+  `snapshotCopyConfiguration` (`"required": ["snapshotCopyConfiguration"]` in
+  service-2.json) -- the opposite convention from
+  `DeleteResourcePolicy`/`DeleteCustomDomainAssociation`, worth flagging since
+  it would be easy to assume Delete responses are uniformly empty across this
+  service. `ListSnapshotCopyConfigurationsResponse` envelopes under the
+  plural `snapshotCopyConfigurations`, with `namespaceName` as an optional
+  server-side filter and `maxResults`/`nextToken` on the existing shared
+  pagination convention.
+
+Both proven with a persistence round trip in
+`TestInMemoryBackend_FullStateRoundTrip`: verified the round trip actually
+catches data loss (not just green-by-construction) by temporarily
+de-registering both new `store.Table`s from `store_setup.go` in a scratch copy
+and confirming the test fails with `no resource policy for ...`, then
+restoring the real registration. Two new `store.Table`s (`slResourcePolicies`,
+`slSnapshotCopyConfig`) plus one new `sortedStringIndex`
+(`slSnapshotCopyConfigIdx`) registered/wired the same way every prior
+serverless table is -- no snapshot version bump.
+
+Deliberately not modeled: a one-configuration-per-namespace constraint for
+`CreateSnapshotCopyConfiguration` -- service-2.json documents no such rule for
+this family (unlike classic Redshift's `EnableSnapshotCopy`, which this same
+backend does gate one-per-cluster), so none was invented.
+`TooManyTagsException`/`ServiceQuotaExceededException`/`ConflictException`
+preconditions remain unsimulated, consistent with this service's existing
+`TooManyTagsException` precedent. EndpointAccess, RecoveryPoint,
+TableRestoreStatus, ListManagedWorkgroups, and the restore-from-snapshot/
+recovery-point ops remain unbuilt -- see items_still_open.
+
+### 2026-08-09 pass: Redshift Serverless Tagging + CustomDomainAssociation (bd gopherstack-w8g2)
+
+Split out of bd gopherstack-hsfm's "nine resource families do not exist" list
+per that issue's own instruction to pick two at a time; these two were named
+because Tagging is what creation-time `Tags` on the other Create ops defer to,
+and CustomDomainAssociation is what `GetCredentials.CustomDomainName` depends
+on. Built both, full account in the `Redshift Serverless` family row's
+addendum above. Confirmed via the pinned `botocore`
+`redshift-serverless/2021-04-21/service-2.json.gz` model (not
+`aws-sdk-go-v2/service/redshiftserverless`, which stayed out of `go.mod` per
+this issue's constraint -- fetched into `/tmp` only, diffed, discarded):
+
+- `TagResourceRequest`/`ListTagsForResourceRequest`'s `tags` member is a
+  `TagList` of `{key, value}` structs, not a JSON map -- a different shape
+  than this package's classic-Redshift XML `Tags>Tag` convention.
+- Only `CreateNamespaceRequest`/`CreateWorkgroupRequest`/`CreateSnapshotRequest`
+  have a `tags` member; `CreateUsageLimitRequest`/`CreateScheduledActionRequest`
+  do not, and neither `UpdateNamespaceRequest` nor `UpdateWorkgroupRequest` do.
+- `Namespace`/`Workgroup`/`Snapshot` (the response shapes) have NO `tags`
+  field at all -- confirmed by listing every member of each shape. Tags are
+  therefore write-only through Create*/TagResource and read-only through
+  ListTagsForResource; there is no "echo tags on the resource itself" wire
+  gap to fix here, unlike the classic-Redshift `Cluster.Tags` bug this same
+  file's 2026-07-22 pass found. Implemented as a new resourceArn-keyed
+  `store.Table[slResourceTagSet]` (`serverless_tags.go`), not attached to any
+  existing resource struct.
+- `Create/Get/UpdateCustomDomainAssociationResponse` serialize the
+  association's fields directly at the top level -- NOT wrapped in an
+  envelope key the way every other serverless resource response is (e.g.
+  `{"namespace": {...}}`). `DeleteCustomDomainAssociationResponse` has zero
+  members. Both confirmed by reading the shapes directly, not assumed from
+  the sibling ops' pattern.
+- `Association.customDomainCertificateExpiryTime` uses shape
+  `SyntheticTimestamp_date_time` (`timestampFormat: iso8601`), while
+  `GetCredentialsResponse.expiration`/`nextRefreshTime` use the bare
+  `Timestamp` shape (epoch-seconds JSON number, no explicit format) --
+  genuinely different wire formats for two timestamp fields in the same
+  service, both re-confirmed by reading the shape definitions rather than
+  copying the nearer-looking convention.
+- Real `Workgroup` carries `customDomainName`/`customDomainCertificateArn`/
+  `customDomainCertificateExpiryTime` directly (added to the `Workgroup`
+  struct), so `CreateCustomDomainAssociationSL`/`UpdateCustomDomainAssociationSL`/
+  `DeleteCustomDomainAssociationSL` mirror the association onto its workgroup,
+  not just into the separate association store.
+- `GetCredentialsRequest.customDomainName` is a real, documented alternative
+  to `workgroupName` ("The custom domain name or the workgroup name must be
+  included in the request") -- `handleGetCredentials` now resolves it via the
+  new association store before falling through to the existing
+  workgroup-keyed credential logic.
+
+Proven with a round trip at both layers: `TestServerless_TagResource_RoundTrip`
+(HTTP-level Create-with-tags -> ListTagsForResource) and
+`TestInMemoryBackend_FullStateRoundTrip` (Snapshot/Restore preserves both the
+new tag store and a custom domain association). Two new `store.Table`s
+(`slResourceTags`, `slCustomDomainsSL`) registered the same way every other
+table in this package is -- no snapshot version bump, since `Registry.Tables`
+is an additive `map[string]json.RawMessage` and `RestoreAll` already resets
+any table absent from an older snapshot to empty.
+
+Deliberately not modeled: `TooManyTagsException` (no tag-count cap enforced),
+`AccessDeniedException` on the custom-domain ops (no IAM simulation in this
+backend, consistent with the rest of this service). EndpointAccess,
+ResourcePolicy, RecoveryPoint, SnapshotCopyConfiguration, TableRestoreStatus,
+ListManagedWorkgroups, and the restore-from-snapshot/recovery-point ops were
+not attempted this pass -- each still needs its own follow-up issue per
+gopherstack-hsfm's original sizing note.
+
+### 2026-08-08 pass: Redshift Serverless audit + wire-shape fixes (bd gopherstack-hsfm)
+
+See the `Redshift Serverless` family row above for the full account. Short
+version: the entire 25-op surface used invented REST routing that no real
+`aws-sdk-go-v2` client could ever reach (real protocol is awsJson1.1: POST "/"
+with an `X-Amz-Target` header, all fields in the body) -- fixed by switching to
+the same `X-Amz-Target` dispatch pattern `redshiftdata.Handler` already uses.
+Also fixed while rewriting: `ScheduledActionResponse`'s wire key is `state`,
+not `status` (which doesn't exist on that type); `StartTime`/`EndTime` and
+`GetCredentialsOutput.Expiration`/`NextRefreshTime` are epoch-seconds numbers,
+not RFC3339 strings; `Schedule`/`TargetAction` are tagged-union JSON objects,
+not flat strings; `CreateScheduledActionInput.RoleArn` (a required real field)
+was entirely unmodeled. Several accepted-then-dropped fields threaded through
+(`Namespace.DefaultIamRoleArn`, `DeleteNamespace`'s final-snapshot params,
+`Workgroup`'s advanced-config fields, `List*`'s `MaxResults` which was
+hardcoded to 0 on every call). SDK obtained via `go get
+github.com/aws/aws-sdk-go-v2/service/redshiftserverless@v1.38.5` to field-diff
+serializers.go/deserializers.go directly; `go mod tidy` dropped it again
+afterward since nothing in the fix imports the SDK package at runtime (this
+repo hand-rolls wire structs everywhere), so no persistent new go.mod
+dependency was added. Whole resource families this backend has zero code for
+(EndpointAccess, CustomDomainAssociation, ResourcePolicy, RecoveryPoint,
+SnapshotCopyConfiguration, TableRestoreStatus, Tagging, ListManagedWorkgroups,
+restore-from-snapshot) remain unbuilt -- each needs its own follow-up issue,
+not a shared one, given the size this family already proved to be.
+
+### 2026-08-08 pass: remaining-fields sweep (bd gopherstack-emho)
+
+Modeled the 8 fields tracked by bd gopherstack-emho, each verified against
+`aws-sdk-go-v2/service/redshift@v1.65.4`'s serializers.go/deserializers.go before
+writing: `UsageLimit`/`SnapshotCopyGrant`/`HsmClientCertificate`/`HsmConfiguration`
+`Tags` (all use the existing shared `Tags>Tag` wire convention via
+`tagMapToKVList`/`parseRedshiftTags` -- no new tag mechanism added),
+`IdcApplication.ApplicationType`, `ReservedNode.RecurringCharges` (derived from
+the node's own real `UsagePrice`, not fabricated), `ScheduledAction.NextInvocations`
+(a real `at()`/`cron()` evaluator, `schedule.go`, since `Schedule` already carries a
+real expression), and `ClusterSubnetGroup.VpcId` (removed the fabricated
+`CreateClusterSubnetGroupInput.VpcId` request param real clients never send; the
+response field is left honestly empty absent EC2 cross-reference data). Also found
+and fixed while verifying HSM: `CreateHsmConfiguration` read the request's IP
+address as `HsmIPAddress`, but the real wire param is `HsmIpAddress` (case-different)
+-- silently dropped for every real SDK client.
+
+Deliberately left unmodeled, with reasoning recorded per-field: `IdcApplication.
+ServiceIntegrations` (3-level-deep tagged union, disproportionate), `EndpointAccess.
+VpcEndpoint` (no per-ENI AZ/IP/subnet data in this backend to derive it from).
+
+Assessed the Redshift Serverless surface (`handler_serverless.go` + `serverless*.go`,
+25 ops, JSON protocol) per this issue's instruction to size before starting: LARGE,
+not started this pass. Picked up and audited in the 2026-08-08 gopherstack-hsfm
+pass above -- see that section and the `Redshift Serverless` family row for what
+was found and fixed.
 
 Protocol: query/XML (`Version=2012-12-01`), same envelope convention as EC2 -- see
 `redshiftXMLNS`/`marshalXML` in handler.go. Timestamps are wire-formatted as RFC3339
@@ -263,21 +670,51 @@ open rather than silently fixed because each would require non-trivial new
 modeling (nested nested nested types, nested list-of-object shapes, nested
 nested response subtrees) disproportionate to the traffic these fields see:
 
-- `UsageLimit`/`SnapshotCopyGrant`/`HsmClientCertificate`/`HsmConfiguration`:
-  `Tags []Tag` accepted/stored on Create but never echoed back in the response
-  (HSM Create handlers don't even parse `Tags.Tag.N.*` from the request yet).
-- `IdcApplication`: `ApplicationType`, `AuthorizedTokenIssuerList`,
-  `ServiceIntegrations`, `SsoTagKeys`, `IdcManagedApplicationArn`,
-  `IdcOnboardStatus`, `IdentityNamespace` not modeled.
-- `ReservedNode`: `RecurringCharges`, `ReservedNodeOfferingType` not modeled.
+- `IdcApplication`: `AuthorizedTokenIssuerList`, `ServiceIntegrations` (3-level
+  nested tagged union -- see families.IdcApplication), `SsoTagKeys`,
+  `IdcManagedApplicationArn`, `IdcOnboardStatus`, `IdentityNamespace` not
+  modeled. (`ApplicationType` FIXED 2026-08-08, see families.IdcApplication.)
+- `ReservedNode`: `ReservedNodeOfferingType` not modeled.
+  (`RecurringCharges` FIXED 2026-08-08, see families.ReservedNode.)
 - `TableRestoreStatus`: `SourceSchemaName`, `TargetSchemaName`,
   `ProgressInMegaBytes`, `TotalDataInMegaBytes`, `EnableCaseSensitiveIdentifier`
   not modeled (this backend's restores complete instantly, so Progress/Total are
   always 0 in practice even if added).
-- `EndpointAccess`: `VpcEndpoint` (nested network-interface list) not modeled.
+- `EndpointAccess`: `VpcEndpoint` (nested network-interface list) not modeled --
+  no per-ENI AZ/IP/subnet data exists in this backend to derive it honestly from
+  (see families.EndpointAccess).
+- `ScheduledAction`: `StartTime`/`EndTime` not modeled (`NextInvocations` FIXED
+  2026-08-08, see families.ScheduledAction).
+- `ClusterSubnetGroup`/`EndpointAccess` `VpcId`: honestly empty by default --
+  this backend has no EC2 cross-reference to derive a real VPC from subnet IDs
+  (see families.ClusterSubnetGroup, FIXED 2026-08-08: the fabricated
+  CreateClusterSubnetGroupInput.VpcId request param that used to seed this is
+  now removed).
 - Descriptive/static ops family: spot-checked (no-stub, real derivation
   confirmed) but not exhaustively field-diffed element-by-element this pass.
 - Redshift Serverless (`handler_serverless.go`): separate JSON-protocol API
-  surface (`redshift-serverless` service ID), entirely out of scope for this
-  query-XML-focused pass — needs its own audit pass against
-  `aws-sdk-go-v2/service/redshiftserverless`.
+  surface (`redshift-serverless` service ID). AUDITED 2026-08-08 (bd
+  gopherstack-hsfm, see the family row and Notes section above) -- routing and
+  several field-level wire bugs fixed. Tagging and CustomDomainAssociation
+  FIXED 2026-08-09, ResourcePolicy and SnapshotCopyConfiguration FIXED
+  2026-08-10 (bd gopherstack-w8g2, see the family row's addenda) --
+  `GetCredentials.CustomDomainName` lookup is no longer open. RecoveryPoint,
+  TableRestoreStatus, `RestoreFromRecoveryPoint`, `RestoreTableFromSnapshot`
+  and `RestoreTableFromRecoveryPoint` FIXED 2026-08-10 (bd gopherstack-w8g2,
+  the entangled group -- see the family row's addendum). Still open within
+  the audited ops: `Namespace.AdminUserPassword`/`RedshiftIdcApplicationArn`,
+  `Snapshot.backup-progress-and-size` fields/cross-account restore-access
+  lists, `ScheduledActionResponse.NextInvocations` (needs schedule.go's cron
+  evaluator adapted to serverless's unwrapped cron string format),
+  `ListRecoveryPointsRequest`'s `startTime`/`endTime` filter window (not
+  parsed at all) -- each independently verified as either legitimately
+  un-derivable by this backend or deferred to an excluded resource family
+  (see the family row for per-field reasoning). EndpointAccess,
+  ListManagedWorkgroups, `RestoreFromSnapshot` and
+  `ConvertRecoveryPointToSnapshot` FIXED 2026-08-10 (bd gopherstack-w8g2,
+  final pass -- see the family row's addendum). This closes gopherstack-w8g2:
+  all nine originally-missing serverless families now have real code.
+  `EndpointAccess.VpcEndpoint` (nested `vpcEndpointId`/`vpcId`/
+  `networkInterfaces`) remains unmodeled -- the same no-per-ENI-AZ/IP-data
+  judgment call `families.EndpointAccess` already made for classic Redshift,
+  confirmed to apply identically here (see the family row's addendum).

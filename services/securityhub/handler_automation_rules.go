@@ -239,7 +239,7 @@ func (h *Handler) handleCreateAutomationRuleV2(c *echo.Context, body map[string]
 		tags,
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, automationRuleV2ToResponse(rule))
@@ -249,13 +249,13 @@ func (h *Handler) handleGetAutomationRuleV2(c *echo.Context, identifier string) 
 	rule, err := h.Backend.GetAutomationRuleV2(identifier)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{keyMessage: "Automation rule V2 not found"}, //nolint:goconst // existing issue.
+			return typedErrorResponse(
+				c, http.StatusNotFound, "ResourceNotFoundException",
+				"Automation rule V2 not found",
 			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, automationRuleV2ToResponse(rule))
@@ -294,10 +294,15 @@ func (h *Handler) handleUpdateAutomationRuleV2(c *echo.Context, identifier strin
 	rule, err := h.Backend.UpdateAutomationRuleV2(identifier, body)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Automation rule V2 not found"})
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Automation rule V2 not found",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, automationRuleV2ToResponse(rule))
@@ -306,10 +311,15 @@ func (h *Handler) handleUpdateAutomationRuleV2(c *echo.Context, identifier strin
 func (h *Handler) handleDeleteAutomationRuleV2(c *echo.Context, identifier string) error {
 	if err := h.Backend.DeleteAutomationRuleV2(identifier); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Automation rule V2 not found"})
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Automation rule V2 not found",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

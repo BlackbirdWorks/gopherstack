@@ -192,10 +192,12 @@ func TestGetResources_ResourceTypeFilter(t *testing.T) {
 			wantLen:     2,
 		},
 		{
-			// Matching is case-sensitive; uppercase service prefix is also invalid format.
-			name:        "uppercase_service_invalid_format",
+			// Matching is case-sensitive, so an uppercase filter matches nothing; the real
+			// API's AmazonResourceType shape has no format restriction (pattern `[\s\S]*`),
+			// so this is not a validation error.
+			name:        "uppercase_service_no_match",
 			typeFilters: []string{"SQS:Queue"},
-			wantErr:     true,
+			wantLen:     0,
 		},
 		{
 			// Service-only form: matches all resources in the given service.
@@ -227,6 +229,10 @@ func TestGetResources_ResourceTypeFilter(t *testing.T) {
 	}
 }
 
+// TestResourceTypeFilter_Validation proves ResourceTypeFilters validation matches the
+// real API's AmazonResourceType shape: pattern `[\s\S]*` (unconstrained -- any
+// character, including none) with only a 256-character length ceiling. See
+// get_resources.go's maxResourceTypeFilterLen doc comment for the cited SDK/model source.
 func TestResourceTypeFilter_Validation(t *testing.T) {
 	t.Parallel()
 
@@ -241,11 +247,13 @@ func TestResourceTypeFilter_Validation(t *testing.T) {
 		{name: "valid_mixed_case_resource", filter: "s3:bucket"},
 		{name: "valid_hyphen_in_service", filter: "elastic-load-balancing:loadbalancer"},
 		{name: "valid_slash_in_resource", filter: "iam:role/path"},
-		{name: "uppercase_service_invalid", filter: "SQS:queue", wantErr: true},
-		{name: "all_uppercase_invalid", filter: "SQS:Queue", wantErr: true},
-		{name: "leading_colon_invalid", filter: ":instance", wantErr: true},
-		{name: "empty_resource_after_colon_invalid", filter: "ec2:", wantErr: true},
-		{name: "space_invalid", filter: "ec2 instance", wantErr: true},
+		{name: "uppercase_service_allowed", filter: "SQS:queue"},
+		{name: "all_uppercase_allowed", filter: "SQS:Queue"},
+		{name: "leading_colon_allowed", filter: ":instance"},
+		{name: "empty_resource_after_colon_allowed", filter: "ec2:"},
+		{name: "space_allowed", filter: "ec2 instance"},
+		{name: "at_max_length_allowed", filter: strings.Repeat("a", 256)},
+		{name: "over_max_length_invalid", filter: strings.Repeat("a", 257), wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -928,6 +936,38 @@ func TestGetResources_ResourceARNList_CountLimit(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.NotNil(t, out)
+	})
+}
+
+// TestGetResources_ResourceARNList_LengthLimit verifies the real API's ResourceARN
+// shape length ceiling (max: 1011; see botocore
+// resourcegroupstaggingapi/2017-01-26/service-2.json) applies to GetResources'
+// ResourceARNList entries too, not just TagResources/UntagResources'.
+func TestGetResources_ResourceARNList_LengthLimit(t *testing.T) {
+	t.Parallel()
+
+	t.Run("arn_at_max_length", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		out, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
+			ResourceARNList: []string{arnOfLength(t, 1011)},
+		})
+
+		require.NoError(t, err)
+		assert.NotNil(t, out)
+	})
+
+	t.Run("arn_over_max_length", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		_, err := b.GetResources(context.Background(), &resourcegroupstaggingapi.GetResourcesInput{
+			ResourceARNList: []string{arnOfLength(t, 1012)},
+		})
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, resourcegroupstaggingapi.ErrValidation)
 	})
 }
 

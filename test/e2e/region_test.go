@@ -81,18 +81,16 @@ func (c *requestCapture) snapshot() []signedRequest {
 func waitForRequestCount(t *testing.T, c *requestCapture, n int, what string) []signedRequest {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		got := c.snapshot()
-		if len(got) >= n {
-			return got
-		}
-		if time.Now().After(deadline) {
-			require.FailNowf(t, "timed out waiting for signed requests",
-				"%s: wanted at least %d signed %s request(s), saw %d", what, n, c.service, len(got))
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	var got []signedRequest
+
+	require.Eventually(t, func() bool {
+		got = c.snapshot()
+
+		return len(got) >= n
+	}, 10*time.Second, 50*time.Millisecond,
+		"%s: wanted at least %d signed %s request(s)", what, n, c.service)
+
+	return got
 }
 
 // waitForRedshiftPage waits for the Redshift dashboard page to finish

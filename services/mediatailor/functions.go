@@ -8,6 +8,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+const (
+	functionTypeHTTPRequest        = "HTTP_REQUEST"
+	functionTypeCustomOutput       = "CUSTOM_OUTPUT"
+	functionTypeSequentialExecutor = "SEQUENTIAL_EXECUTOR"
+)
+
 // --- Function operations ---
 
 // PutFunction creates or updates a function.
@@ -15,8 +21,15 @@ func (b *InMemoryBackend) PutFunction(
 	functionID, functionType, description string,
 	tags map[string]string,
 ) (*Function, error) {
-	if functionType == "" {
+	switch functionType {
+	case "":
 		return nil, fmt.Errorf("%w: FunctionType is required", ErrInvalidParameter)
+	case functionTypeHTTPRequest, functionTypeCustomOutput, functionTypeSequentialExecutor:
+	default:
+		return nil, fmt.Errorf(
+			"%w: FunctionType must be %s, %s, or %s",
+			ErrInvalidParameter, functionTypeHTTPRequest, functionTypeCustomOutput, functionTypeSequentialExecutor,
+		)
 	}
 
 	b.mu.Lock("PutFunction")
@@ -31,6 +44,7 @@ func (b *InMemoryBackend) PutFunction(
 		Description:  description,
 	}
 	b.functions.Put(fn)
+	b.tags[arnStr] = copyTags(tags)
 
 	return fn, nil
 }
@@ -45,7 +59,10 @@ func (b *InMemoryBackend) GetFunction(functionID string) (*Function, error) {
 		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
 	}
 
-	return fn, nil
+	out := *fn
+	out.Tags = copyTags(b.tags[fn.ARN])
+
+	return &out, nil
 }
 
 // DeleteFunction deletes a function.
@@ -53,10 +70,12 @@ func (b *InMemoryBackend) DeleteFunction(functionID string) error {
 	b.mu.Lock("DeleteFunction")
 	defer b.mu.Unlock()
 
-	if !b.functions.Has(functionID) {
+	fn, ok := b.functions.Get(functionID)
+	if !ok {
 		return fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
 	}
 
+	delete(b.tags, fn.ARN)
 	b.functions.Delete(functionID)
 
 	return nil
@@ -79,7 +98,7 @@ func (b *InMemoryBackend) ListFunctions(maxResults int, nextToken string) ([]*Fu
 			FunctionID:   fn.FunctionID,
 			FunctionType: fn.FunctionType,
 			ARN:          fn.ARN,
-			Tags:         copyTags(fn.Tags),
+			Tags:         copyTags(b.tags[fn.ARN]),
 		})
 	}
 

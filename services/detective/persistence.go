@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -33,9 +34,15 @@ type backendSnapshot struct {
 	Tables      map[string]json.RawMessage   `json:"tables"`
 	Tags        map[string]map[string]string `json:"tags"`
 	Datasources map[string]map[string]string `json:"datasources"`
-	OrgConfigs  map[string]bool              `json:"orgConfigs"`
-	OrgAdmins   []*storedOrgAdmin            `json:"orgAdmins"`
-	Version     int                          `json:"version"`
+	// DatasourceChangedAt is additive (gopherstack-c902): graphARN -> package
+	// -> the time UpdateDatasourcePackages last set that package's ingest
+	// state, sourcing MembershipDatasources.IngestHistory's per-state
+	// timestamp. omitempty keeps older snapshots (pre this field) decoding
+	// fine as a nil map -- no version bump needed for an additive field.
+	DatasourceChangedAt map[string]map[string]time.Time `json:"datasourceChangedAt,omitempty"`
+	OrgConfigs          map[string]bool                 `json:"orgConfigs"`
+	OrgAdmins           []*storedOrgAdmin               `json:"orgAdmins"`
+	Version             int                             `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON.
@@ -51,12 +58,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:     detectiveSnapshotVersion,
-		Tables:      tables,
-		Tags:        b.tags,
-		Datasources: b.datasources,
-		OrgConfigs:  b.orgConfigs,
-		OrgAdmins:   b.orgAdmins,
+		Version:             detectiveSnapshotVersion,
+		Tables:              tables,
+		Tags:                b.tags,
+		Datasources:         b.datasources,
+		DatasourceChangedAt: b.datasourceChangedAt,
+		OrgConfigs:          b.orgConfigs,
+		OrgAdmins:           b.orgAdmins,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "detective", snap)
@@ -86,6 +94,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.tags = make(map[string]map[string]string)
 		b.datasources = make(map[string]map[string]string)
+		b.datasourceChangedAt = make(map[string]map[string]time.Time)
 		b.orgConfigs = make(map[string]bool)
 		b.orgAdmins = nil
 
@@ -104,12 +113,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.Datasources = make(map[string]map[string]string)
 	}
 
+	if snap.DatasourceChangedAt == nil {
+		snap.DatasourceChangedAt = make(map[string]map[string]time.Time)
+	}
+
 	if snap.OrgConfigs == nil {
 		snap.OrgConfigs = make(map[string]bool)
 	}
 
 	b.tags = snap.Tags
 	b.datasources = snap.Datasources
+	b.datasourceChangedAt = snap.DatasourceChangedAt
 	b.orgConfigs = snap.OrgConfigs
 	b.orgAdmins = snap.OrgAdmins
 

@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
 // TestCreateSchedule_ClientToken_ReplaysOnRetry verifies that retrying a
@@ -133,26 +131,5 @@ func TestCreateScheduleGroup_ClientToken_ReplaysOnRetry(t *testing.T) {
 	assert.Equal(t, out1["ScheduleGroupArn"], out2["ScheduleGroupArn"])
 }
 
-// TestSchedulerHandler_Reset_ClearsIdempotencyCache verifies Reset wipes cached
-// ClientToken results along with backend state, matching its "wipe everything"
-// semantics -- otherwise a stale cache entry could replay an ARN for a resource
-// that Reset just deleted.
-func TestSchedulerHandler_Reset_ClearsIdempotencyCache(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "reset-sched",
-		"ScheduleExpression": "rate(1 hour)",
-		"Target":             map[string]string{"Arn": "arn:aws:sqs:us-east-1:0:q", "RoleArn": "arn:aws:iam::0:role/r"},
-		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
-		"ClientToken":        "reset-token",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, 1, scheduler.IdempotencyCacheLen(h))
-
-	h.Reset()
-
-	assert.Equal(t, 0, scheduler.IdempotencyCacheLen(h))
-}
+// TestSchedulerHandler_Reset_ClearsIdempotencyCache lives in whitebox_test.go:
+// it needs direct access to the unexported idempotency cache.

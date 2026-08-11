@@ -1,6 +1,7 @@
 package lakeformation
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -14,7 +15,7 @@ func (b *InMemoryBackend) AddPermissionInternal(entry *PermissionEntry) {
 	b.mu.Lock("AddPermissionInternal")
 	defer b.mu.Unlock()
 
-	_ = b.grantPermissionsLocked(entry)
+	_ = b.grantPermissionsLocked(entry, "")
 }
 
 // permissionKey returns a unique string for a principal and resource.
@@ -26,7 +27,11 @@ func permissionKey(entry *PermissionEntry) string {
 	return principalID(entry.Principal) + "|" + resourceToKey(entry.Resource)
 }
 
-func (b *InMemoryBackend) grantPermissionsLocked(entry *PermissionEntry) error {
+// grantPermissionsLocked stores entry. lastUpdatedBy, when non-empty, stamps
+// PermissionEntry.LastUpdatedBy on the new or merged entry; callers that seed
+// state directly (AddPermissionInternal) pass "" to leave any caller-supplied
+// value alone. Caller must hold b.mu for writing.
+func (b *InMemoryBackend) grantPermissionsLocked(entry *PermissionEntry, lastUpdatedBy string) error {
 	if entry == nil || entry.Principal == nil || entry.Resource == nil {
 		return fmt.Errorf("invalid entry: %w", ErrValidation)
 	}
@@ -48,11 +53,19 @@ func (b *InMemoryBackend) grantPermissionsLocked(entry *PermissionEntry) error {
 	now := time.Now()
 	entry.LastUpdated = &now
 
+	if lastUpdatedBy != "" {
+		entry.LastUpdatedBy = lastUpdatedBy
+	}
+
 	key := permissionKey(entry)
 	if existing, ok := b.permissionsMap.Get(key); ok {
 		mergeStringSlice(&existing.Permissions, entry.Permissions)
 		mergeStringSlice(&existing.PermissionsWithGrantOption, entry.PermissionsWithGrantOption)
 		existing.LastUpdated = &now
+
+		if lastUpdatedBy != "" {
+			existing.LastUpdatedBy = lastUpdatedBy
+		}
 
 		if entry.Condition != nil {
 			existing.Condition = entry.Condition
@@ -75,24 +88,29 @@ func (b *InMemoryBackend) grantPermissionsLocked(entry *PermissionEntry) error {
 	return nil
 }
 
-// GrantPermissions adds a permission entry.
-func (b *InMemoryBackend) GrantPermissions(entry *PermissionEntry) error {
+// GrantPermissions adds a permission entry, stamping LastUpdatedBy with the
+// caller identity derived from ctx (see callerPrincipalARN).
+func (b *InMemoryBackend) GrantPermissions(ctx context.Context, entry *PermissionEntry) error {
 	b.mu.Lock("GrantPermissions")
 	defer b.mu.Unlock()
 
-	return b.grantPermissionsLocked(entry)
+	return b.grantPermissionsLocked(entry, callerPrincipalARN(ctx))
 }
 
 // RevokePermissions removes specific permissions from a matching entry.
 // If all permissions are revoked, the entry is deleted.
-func (b *InMemoryBackend) RevokePermissions(entry *PermissionEntry) error {
+func (b *InMemoryBackend) RevokePermissions(ctx context.Context, entry *PermissionEntry) error {
 	b.mu.Lock("RevokePermissions")
 	defer b.mu.Unlock()
 
-	return b.revokePermissionsLocked(entry)
+	return b.revokePermissionsLocked(entry, callerPrincipalARN(ctx))
 }
 
-func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry) error {
+// revokePermissionsLocked removes permissions from a matching entry. On a
+// partial revoke (some permissions remain), lastUpdatedBy stamps
+// PermissionEntry.LastUpdatedBy on the surviving entry. Caller must hold b.mu
+// for writing.
+func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry, lastUpdatedBy string) error {
 	if entry == nil || entry.Principal == nil || entry.Resource == nil {
 		return fmt.Errorf("invalid entry: %w", ErrValidation)
 	}
@@ -111,6 +129,10 @@ func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry) error 
 		p.Permissions = remaining
 		now := time.Now()
 		p.LastUpdated = &now
+
+		if lastUpdatedBy != "" {
+			p.LastUpdatedBy = lastUpdatedBy
+		}
 
 		return nil
 	}
@@ -180,14 +202,18 @@ func toPermissionEntry(e *BatchPermissionsRequestEntry) *PermissionEntry {
 }
 
 // BatchGrantPermissions grants permissions for multiple entries.
-func (b *InMemoryBackend) BatchGrantPermissions(entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry {
+func (b *InMemoryBackend) BatchGrantPermissions(
+	ctx context.Context, entries []*BatchPermissionsRequestEntry,
+) []*BatchFailureEntry {
 	var failures []*BatchFailureEntry
+
+	actor := callerPrincipalARN(ctx)
 
 	b.mu.Lock("BatchGrantPermissions")
 	defer b.mu.Unlock()
 
 	for _, e := range entries {
-		if err := b.grantPermissionsLocked(toPermissionEntry(e)); err != nil {
+		if err := b.grantPermissionsLocked(toPermissionEntry(e), actor); err != nil {
 			errCode := "InternalServiceException"
 			if errors.Is(err, ErrValidation) {
 				errCode = errCodeInvalidInput
@@ -207,14 +233,18 @@ func (b *InMemoryBackend) BatchGrantPermissions(entries []*BatchPermissionsReque
 }
 
 // BatchRevokePermissions revokes permissions for multiple entries.
-func (b *InMemoryBackend) BatchRevokePermissions(entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry {
+func (b *InMemoryBackend) BatchRevokePermissions(
+	ctx context.Context, entries []*BatchPermissionsRequestEntry,
+) []*BatchFailureEntry {
 	var failures []*BatchFailureEntry
+
+	actor := callerPrincipalARN(ctx)
 
 	b.mu.Lock("BatchRevokePermissions")
 	defer b.mu.Unlock()
 
 	for _, e := range entries {
-		if err := b.revokePermissionsLocked(toPermissionEntry(e)); err != nil {
+		if err := b.revokePermissionsLocked(toPermissionEntry(e), actor); err != nil {
 			errCode := "InternalServiceException"
 			if errors.Is(err, ErrValidation) {
 				errCode = errCodeInvalidInput
@@ -434,6 +464,14 @@ func validatePermissions(perms []string) error {
 	return nil
 }
 
+// lfTagPolicyResourceTypeDatabase and lfTagPolicyResourceTypeTable are the
+// two valid LFTagPolicyResource.ResourceType values ("Valid Values: DATABASE
+// | TABLE", https://docs.aws.amazon.com/lake-formation/latest/APIReference/API_LFTagPolicyResource.html).
+const (
+	lfTagPolicyResourceTypeDatabase = "DATABASE"
+	lfTagPolicyResourceTypeTable    = "TABLE"
+)
+
 // permissionMatchesResourceType checks whether a permission entry's resource
 // matches the given resource type string (e.g. "DATABASE", "TABLE", "DATA_LOCATION").
 func permissionMatchesResourceType(p *PermissionEntry, resourceType string) bool {
@@ -442,9 +480,9 @@ func permissionMatchesResourceType(p *PermissionEntry, resourceType string) bool
 	}
 
 	switch strings.ToUpper(resourceType) {
-	case "DATABASE":
+	case lfTagPolicyResourceTypeDatabase:
 		return p.Resource.Database != nil
-	case "TABLE":
+	case lfTagPolicyResourceTypeTable:
 		return p.Resource.Table != nil || p.Resource.TableWithColumns != nil
 	case "DATA_LOCATION":
 		return p.Resource.DataLocation != nil
@@ -455,9 +493,9 @@ func permissionMatchesResourceType(p *PermissionEntry, resourceType string) bool
 	case "LF_TAG_POLICY":
 		return p.Resource.LFTagPolicy != nil
 	case "LF_TAG_POLICY_DATABASE":
-		return p.Resource.LFTagPolicy != nil && p.Resource.LFTagPolicy.ResourceType == "DATABASE"
+		return p.Resource.LFTagPolicy != nil && p.Resource.LFTagPolicy.ResourceType == lfTagPolicyResourceTypeDatabase
 	case "LF_TAG_POLICY_TABLE":
-		return p.Resource.LFTagPolicy != nil && p.Resource.LFTagPolicy.ResourceType == "TABLE"
+		return p.Resource.LFTagPolicy != nil && p.Resource.LFTagPolicy.ResourceType == lfTagPolicyResourceTypeTable
 	case "LF_NAMED_TAG_EXPRESSION":
 		return p.Resource.LFTagExpression != nil
 	default:
@@ -516,10 +554,147 @@ func deepCopyPermissionEntry(e *PermissionEntry) *PermissionEntry {
 	return cp
 }
 
+// resourceFromARN parses a Glue-style database/table ARN
+// (arn:...:database/db or arn:...:table/db/tbl) into the corresponding
+// Resource, so its assigned LF-tags can be looked up for LFTagPolicy grant
+// expansion. Returns nil for ARNs that aren't a Glue database/table ARN (e.g.
+// S3 data locations), since LF-Tag policies only target DATABASE/TABLE
+// (LFTagPolicyResource.ResourceType, "Valid Values: DATABASE | TABLE",
+// https://docs.aws.amazon.com/lake-formation/latest/APIReference/API_LFTagPolicyResource.html).
+func resourceFromARN(resourceArn string) *Resource {
+	if _, rest, isTable := strings.Cut(resourceArn, ":table/"); isTable {
+		if db, tbl, ok := strings.Cut(rest, "/"); ok {
+			return &Resource{Table: &TableResource{DatabaseName: db, Name: tbl}}
+		}
+
+		return nil
+	}
+
+	if _, name, ok := strings.Cut(resourceArn, ":database/"); ok {
+		return &Resource{Database: &DatabaseResource{Name: name}}
+	}
+
+	return nil
+}
+
+// lfTagPolicyExpressionMatches reports whether tags (a resource's actually
+// assigned LF-tags) satisfies expression. AWS documents expression evaluation
+// as AND across distinct tag keys and OR across the values listed for one key
+// (https://docs.aws.amazon.com/lake-formation/latest/dg/managing-tag-expressions.html):
+// "the tag keys are combined using the AND operation, while the values are
+// combined using the OR operation".
+func lfTagPolicyExpressionMatches(expression []LFTag, tags []LFTagPair) bool {
+	if len(expression) == 0 {
+		return false
+	}
+
+	for _, want := range expression {
+		matched := false
+
+		for _, tag := range tags {
+			if tag.TagKey != want.TagKey {
+				continue
+			}
+
+			for _, v := range tag.TagValues {
+				if slices.Contains(want.TagValues, v) {
+					matched = true
+
+					break
+				}
+			}
+
+			if matched {
+				break
+			}
+		}
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
+}
+
+// resolveLFTagPolicyExpressionLocked returns p's tag expression, resolving
+// ExpressionName against a saved LFTagExpression when Expression itself is
+// empty (types.LFTagPolicyResource supports either -- "If provided,
+// permissions are granted to the Data Catalog resources whose assigned
+// LF-Tags match the expression body of the saved expression under the
+// provided ExpressionName", types/types.go:583-585). Caller must hold b.mu
+// for reading.
+func (b *InMemoryBackend) resolveLFTagPolicyExpressionLocked(p *LFTagPolicyResource) []LFTag {
+	if len(p.Expression) > 0 {
+		return p.Expression
+	}
+	if p.ExpressionName == "" {
+		return nil
+	}
+	expr, ok := b.lfTagExpressions.Get(lfTagExpressionKeyStr(p.CatalogID, p.ExpressionName))
+	if !ok {
+		return nil
+	}
+
+	return expr.Expression
+}
+
+// expandLFTagPolicyGrantsLocked returns synthetic PermissionEntry copies
+// (Resource replaced by the concrete database/table resourceArn identifies)
+// for every LFTagPolicy grant whose expression is satisfied by that
+// resource's actual assigned LF-tags. ListPermissions intentionally does NOT
+// do this (AWS's own semantics: LF-Tag-based grants are not visible when
+// listing permissions filtered by a concrete resource -- they must be
+// queried by their own LFTagPolicy/LF_TAG_POLICY_* resource type instead).
+// GetEffectivePermissionsForPath's whole purpose is computing *effective*
+// permissions for a path, so tag-derived grants must be resolved here to be
+// visible at all. Caller must hold b.mu for reading.
+func (b *InMemoryBackend) expandLFTagPolicyGrantsLocked(resourceArn string) []*PermissionEntry {
+	target := resourceFromARN(resourceArn)
+	if target == nil {
+		return nil
+	}
+
+	wantType := lfTagPolicyResourceTypeTable
+	if target.Database != nil {
+		wantType = lfTagPolicyResourceTypeDatabase
+	}
+
+	tags := b.resourceLFTags[resourceToKey(target)]
+	if len(tags) == 0 {
+		return nil
+	}
+
+	var out []*PermissionEntry
+
+	for _, p := range b.permissionsList {
+		if p.Resource == nil || p.Resource.LFTagPolicy == nil {
+			continue
+		}
+		if p.Resource.LFTagPolicy.ResourceType != wantType {
+			continue
+		}
+
+		expr := b.resolveLFTagPolicyExpressionLocked(p.Resource.LFTagPolicy)
+		if !lfTagPolicyExpressionMatches(expr, tags) {
+			continue
+		}
+
+		cp := deepCopyPermissionEntry(p)
+		cp.Resource = copyResource(target)
+		out = append(out, cp)
+	}
+
+	return out
+}
+
 // GetEffectivePermissionsForPath returns effective permissions for a resource
 // path. Unlike ListPermissions, the real GetEffectivePermissionsForPathInput
 // filters by a flat ResourceArn string, so this uses permissionMatchesARN
-// directly rather than ListPermissions' Resource-shaped filter.
+// directly rather than ListPermissions' Resource-shaped filter. Also expands
+// LFTagPolicy grants matching the resource's LF-tags (see
+// expandLFTagPolicyGrantsLocked) since those carry no Database/Table field to
+// match against resourceArn directly.
 func (b *InMemoryBackend) GetEffectivePermissionsForPath(
 	resourceArn string, maxResults int, nextToken string,
 ) ([]*PermissionEntry, string) {
@@ -534,6 +709,10 @@ func (b *InMemoryBackend) GetEffectivePermissionsForPath(
 		}
 
 		filtered = append(filtered, deepCopyPermissionEntry(p))
+	}
+
+	if resourceArn != "" {
+		filtered = append(filtered, b.expandLFTagPolicyGrantsLocked(resourceArn)...)
 	}
 
 	return paginate(filtered, maxResults, nextToken, defaultMaxResults)

@@ -85,7 +85,10 @@ func TestIntegration_DDB_TableExistsWaiter(t *testing.T) {
 	assert.Equal(t, types.TableStatusActive, createOut.TableDescription.TableStatus)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTable(cleanupCtx, &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
 	})
 
 	// Use TableExistsWaiter — the table should already be ACTIVE so this completes immediately

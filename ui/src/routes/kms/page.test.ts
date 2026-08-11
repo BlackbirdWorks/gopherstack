@@ -1,10 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import KMSPage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 vi.mock("$lib/aws-client", () => ({ getKMSClient: () => ({ send: mockSend }) }));
 vi.mock("svelte-sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
 
 const mockKey = { KeyId: "aaaa-bbbb-cccc", KeyArn: "arn:aws:kms:us-east-1:123:key/aaaa-bbbb-cccc" };
 const mockKeyMeta = {
@@ -19,6 +31,7 @@ describe("KMS Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -135,5 +148,103 @@ describe("KMS Page", () => {
     const btnTexts = buttons.map((b) => b.textContent?.trim());
     expect(btnTexts.some((t) => t?.includes("Keys"))).toBe(true);
     expect(btnTexts.some((t) => t?.includes("Aliases"))).toBe(true);
+  });
+
+  describe("All regions mode", () => {
+    it("fans ListKeys out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      // multiRegionList fires every region's ListKeys concurrently, so both
+      // ListKeys calls resolve before either region's DescribeKey call --
+      // mock responses must be queued in that interleaved order, not
+      // per-region: us-east-1 ListKeys, eu-west-1 ListKeys, us-east-1
+      // DescribeKey, eu-west-1 DescribeKey.
+      mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
+      mockSend.mockResolvedValueOnce({ Keys: [{ ...mockKey, KeyId: "eu-key" }] });
+      mockSend.mockResolvedValueOnce({ KeyMetadata: mockKeyMeta });
+      mockSend.mockResolvedValueOnce({
+        KeyMetadata: { ...mockKeyMeta, KeyId: "eu-key", Description: "EU key" },
+      });
+
+      render(KMSPage);
+
+      await waitFor(() => expect(screen.getByText("My key")).toBeInTheDocument());
+      expect(screen.getByText("EU key")).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledTimes(4);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one ListKeys call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
+      mockSend.mockResolvedValueOnce({ KeyMetadata: mockKeyMeta });
+      render(KMSPage);
+      await waitFor(() => expect(screen.getByText("My key")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(2);
+    });
+
+    it("renders the same key id from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      // Interleaved order: us-east-1 ListKeys, eu-west-1 ListKeys, us-east-1
+      // DescribeKey, eu-west-1 DescribeKey.
+      mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
+      mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
+      mockSend.mockResolvedValueOnce({ KeyMetadata: mockKeyMeta });
+      mockSend.mockResolvedValueOnce({ KeyMetadata: mockKeyMeta });
+
+      render(KMSPage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("My key");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) =>
+          within(r.closest(".rounded-xl") as HTMLElement).getByTestId("region-chip").textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("disables the row's own region, not the picker's, when two regions share a key id", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      // Interleaved order: us-east-1 ListKeys, eu-west-1 ListKeys, us-east-1
+      // DescribeKey, eu-west-1 DescribeKey.
+      mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
+      mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
+      mockSend.mockResolvedValueOnce({ KeyMetadata: mockKeyMeta });
+      mockSend.mockResolvedValueOnce({ KeyMetadata: mockKeyMeta });
+
+      render(KMSPage);
+      await waitFor(() => expect(screen.getAllByText("My key")).toHaveLength(2));
+
+      // DisableKey, then the same interleaved reload order as above, with
+      // eu-west-1's DescribeKey now reporting Disabled.
+      mockSend.mockResolvedValueOnce({});
+      mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
+      mockSend.mockResolvedValueOnce({ Keys: [mockKey] });
+      mockSend.mockResolvedValueOnce({ KeyMetadata: mockKeyMeta });
+      mockSend.mockResolvedValueOnce({ KeyMetadata: { ...mockKeyMeta, KeyState: "Disabled" } });
+
+      const rows = screen.getAllByText("My key");
+      const euRow = rows
+        .map((r) => r.closest(".rounded-xl") as HTMLElement)
+        .find((r) => within(r).getByTestId("region-chip").textContent === "eu-west-1")!;
+      await fireEvent.click(within(euRow).getByRole("button", { name: /disable/i }));
+
+      await waitFor(() => {
+        const remaining = screen.getAllByText("My key");
+        const stillEu = remaining
+          .map((r) => r.closest(".rounded-xl") as HTMLElement)
+          .find((r) => within(r).getByTestId("region-chip").textContent === "eu-west-1")!;
+        expect(within(stillEu).getByText("Disabled")).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
+    });
   });
 });

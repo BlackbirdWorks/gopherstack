@@ -64,15 +64,9 @@ func TestTransitGatewayRoutePropagation(t *testing.T) {
 	require.ErrorIs(t, err, ec2.ErrTGWAttachmentNotFound)
 }
 
-// TestTransitGatewayRouteTableOps_ClientVpnAttachment proves the
-// transitGatewayAttachmentExistsLocked existence check (shared by
-// EnableTransitGatewayRouteTablePropagation, GetTransitGatewayAttachmentPropagations,
-// and now AssociateTransitGatewayRouteTable/DisassociateTransitGatewayRouteTable)
-// recognizes a real Client VPN TGW attachment. Before this pass, that helper
-// only checked the VPC/peering/Connect attachment maps -- added when TGW
-// Client VPN attachments were introduced, it was never wired in, so a real,
-// existing Client VPN attachment ID was wrongly reported as
-// ErrTGWAttachmentNotFound (gopherstack-8pce).
+// TestTransitGatewayRouteTableOps_ClientVpnAttachment proves
+// transitGatewayAttachmentExistsLocked recognizes a real Client VPN TGW
+// attachment, not just VPC/peering/Connect attachments.
 func TestTransitGatewayRouteTableOps_ClientVpnAttachment(t *testing.T) {
 	t.Parallel()
 

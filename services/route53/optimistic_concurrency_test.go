@@ -150,13 +150,13 @@ func changeCidrCollectionXML(version, action string) string {
 <ChangeCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   %s
   <Changes>
-    <Change>
+    <member>
       <LocationName>office</LocationName>
       <Action>%s</Action>
       <CidrList>
         <Cidr>192.168.1.0/24</Cidr>
       </CidrList>
-    </Change>
+    </member>
   </Changes>
 </ChangeCidrCollectionRequest>`, versionElem, action)
 }

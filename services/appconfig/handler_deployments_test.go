@@ -137,7 +137,7 @@ func seedExperimentRunHTTP(t *testing.T, h *appconfig.Handler) (string, appconfi
 // GetExperimentRun/ListExperimentRuns/UpdateExperimentRun/
 // StopExperimentRun/ListExperimentRunEvents through the real router path,
 // asserting the REST-JSON wire shapes and HTTP methods field-diffed against
-// aws-sdk-go-v2/service/appconfig@v1.48.0's serializers.go (POST .../
+// aws-sdk-go-v2/service/appconfig@v1.48.4's serializers.go (POST .../
 // experimentruns, PATCH .../stop, PATCH .../update, GET .../events).
 func TestHandler_ExperimentRun_Lifecycle(t *testing.T) {
 	t.Parallel()

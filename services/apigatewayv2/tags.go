@@ -6,10 +6,12 @@ import (
 )
 
 const (
-	arnResourceTypeAPIs        = "apis"
-	arnResourceTypeVpcLinks    = "vpclinks"
-	arnResourceTypeDomainNames = "domainnames"
-	arnResourceTypeStages      = "stages"
+	arnResourceTypeAPIs           = "apis"
+	arnResourceTypeVpcLinks       = "vpclinks"
+	arnResourceTypeDomainNames    = "domainnames"
+	arnResourceTypeStages         = "stages"
+	arnResourceTypePortals        = "portals"
+	arnResourceTypePortalProducts = "portalproducts"
 
 	// arnMinPartsWithResourceType is the minimum number of slash-separated
 	// parts in an ARN that carries an explicit resource type segment.
@@ -68,9 +70,89 @@ func arnResourceType(arn string) (string, string) {
 	return arnResourceTypeAPIs, arn
 }
 
+// tagAPILocked adds tags to an API. Callers must hold b.mu.
+func (b *InMemoryBackend) tagAPILocked(id string, tagMap map[string]string) error {
+	api, ok := b.apis.Get(id)
+	if !ok {
+		return ErrAPINotFound
+	}
+
+	if api.Tags == nil {
+		api.Tags = make(map[string]string)
+	}
+
+	maps.Copy(api.Tags, tagMap)
+
+	return nil
+}
+
+// tagVpcLinkLocked adds tags to a VPC link. Callers must hold b.mu.
+func (b *InMemoryBackend) tagVpcLinkLocked(id string, tagMap map[string]string) error {
+	v, ok := b.vpcLinks.Get(id)
+	if !ok {
+		return ErrVpcLinkNotFound
+	}
+
+	if v.Tags == nil {
+		v.Tags = make(map[string]string)
+	}
+
+	maps.Copy(v.Tags, tagMap)
+
+	return nil
+}
+
+// tagDomainNameLocked adds tags to a domain name. Callers must hold b.mu.
+func (b *InMemoryBackend) tagDomainNameLocked(id string, tagMap map[string]string) error {
+	dn, ok := b.domainNames.Get(id)
+	if !ok {
+		return ErrDomainNameNotFound
+	}
+
+	if dn.Tags == nil {
+		dn.Tags = make(map[string]string)
+	}
+
+	maps.Copy(dn.Tags, tagMap)
+
+	return nil
+}
+
+// tagPortalLocked adds tags to a portal. Callers must hold b.mu.
+func (b *InMemoryBackend) tagPortalLocked(id string, tagMap map[string]string) error {
+	p, ok := b.portals.Get(id)
+	if !ok {
+		return ErrPortalNotFound
+	}
+
+	if p.Tags == nil {
+		p.Tags = make(map[string]string)
+	}
+
+	maps.Copy(p.Tags, tagMap)
+
+	return nil
+}
+
+// tagPortalProductLocked adds tags to a portal product. Callers must hold b.mu.
+func (b *InMemoryBackend) tagPortalProductLocked(id string, tagMap map[string]string) error {
+	pp, ok := b.portalProducts.Get(id)
+	if !ok {
+		return ErrPortalProductNotFound
+	}
+
+	if pp.Tags == nil {
+		pp.Tags = make(map[string]string)
+	}
+
+	maps.Copy(pp.Tags, tagMap)
+
+	return nil
+}
+
 // TagResource adds tags to a resource identified by ARN.
-// Supports APIs, stages, VPC links, and domain names.
-func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+// Supports APIs, stages, VPC links, domain names, portals, and portal products.
+func (b *InMemoryBackend) TagResource(resourceARN string, tagMap map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
@@ -84,7 +166,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 			s.Tags = make(map[string]string)
 		}
 
-		maps.Copy(s.Tags, tags)
+		maps.Copy(s.Tags, tagMap)
 
 		return nil
 	}
@@ -93,47 +175,92 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 	switch resourceType {
 	case arnResourceTypeAPIs:
-		api, ok := b.apis.Get(resourceID)
-		if !ok {
-			return ErrAPINotFound
-		}
-
-		if api.Tags == nil {
-			api.Tags = make(map[string]string)
-		}
-
-		maps.Copy(api.Tags, tags)
+		return b.tagAPILocked(resourceID, tagMap)
 	case arnResourceTypeVpcLinks:
-		v, ok := b.vpcLinks.Get(resourceID)
-		if !ok {
-			return ErrVpcLinkNotFound
-		}
-
-		if v.Tags == nil {
-			v.Tags = make(map[string]string)
-		}
-
-		maps.Copy(v.Tags, tags)
+		return b.tagVpcLinkLocked(resourceID, tagMap)
 	case arnResourceTypeDomainNames:
-		dn, ok := b.domainNames.Get(resourceID)
-		if !ok {
-			return ErrDomainNameNotFound
-		}
-
-		if dn.Tags == nil {
-			dn.Tags = make(map[string]string)
-		}
-
-		maps.Copy(dn.Tags, tags)
+		return b.tagDomainNameLocked(resourceID, tagMap)
+	case arnResourceTypePortals:
+		return b.tagPortalLocked(resourceID, tagMap)
+	case arnResourceTypePortalProducts:
+		return b.tagPortalProductLocked(resourceID, tagMap)
 	default:
 		return ErrAPINotFound
+	}
+}
+
+// untagAPILocked removes tag keys from an API. Callers must hold b.mu.
+func (b *InMemoryBackend) untagAPILocked(id string, tagKeys []string) error {
+	api, ok := b.apis.Get(id)
+	if !ok {
+		return ErrAPINotFound
+	}
+
+	for _, k := range tagKeys {
+		delete(api.Tags, k)
+	}
+
+	return nil
+}
+
+// untagVpcLinkLocked removes tag keys from a VPC link. Callers must hold b.mu.
+func (b *InMemoryBackend) untagVpcLinkLocked(id string, tagKeys []string) error {
+	v, ok := b.vpcLinks.Get(id)
+	if !ok {
+		return ErrVpcLinkNotFound
+	}
+
+	for _, k := range tagKeys {
+		delete(v.Tags, k)
+	}
+
+	return nil
+}
+
+// untagDomainNameLocked removes tag keys from a domain name. Callers must hold b.mu.
+func (b *InMemoryBackend) untagDomainNameLocked(id string, tagKeys []string) error {
+	dn, ok := b.domainNames.Get(id)
+	if !ok {
+		return ErrDomainNameNotFound
+	}
+
+	for _, k := range tagKeys {
+		delete(dn.Tags, k)
+	}
+
+	return nil
+}
+
+// untagPortalLocked removes tag keys from a portal. Callers must hold b.mu.
+func (b *InMemoryBackend) untagPortalLocked(id string, tagKeys []string) error {
+	p, ok := b.portals.Get(id)
+	if !ok {
+		return ErrPortalNotFound
+	}
+
+	for _, k := range tagKeys {
+		delete(p.Tags, k)
+	}
+
+	return nil
+}
+
+// untagPortalProductLocked removes tag keys from a portal product. Callers must hold b.mu.
+func (b *InMemoryBackend) untagPortalProductLocked(id string, tagKeys []string) error {
+	pp, ok := b.portalProducts.Get(id)
+	if !ok {
+		return ErrPortalProductNotFound
+	}
+
+	for _, k := range tagKeys {
+		delete(pp.Tags, k)
 	}
 
 	return nil
 }
 
 // UntagResource removes tag keys from a resource identified by ARN.
-// Supports APIs, stages, VPC links, and domain names.
+// Supports APIs, stages, VPC links, domain names, portals, and portal products.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
@@ -155,41 +282,22 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	switch resourceType {
 	case arnResourceTypeAPIs:
-		api, ok := b.apis.Get(resourceID)
-		if !ok {
-			return ErrAPINotFound
-		}
-
-		for _, k := range tagKeys {
-			delete(api.Tags, k)
-		}
+		return b.untagAPILocked(resourceID, tagKeys)
 	case arnResourceTypeVpcLinks:
-		v, ok := b.vpcLinks.Get(resourceID)
-		if !ok {
-			return ErrVpcLinkNotFound
-		}
-
-		for _, k := range tagKeys {
-			delete(v.Tags, k)
-		}
+		return b.untagVpcLinkLocked(resourceID, tagKeys)
 	case arnResourceTypeDomainNames:
-		dn, ok := b.domainNames.Get(resourceID)
-		if !ok {
-			return ErrDomainNameNotFound
-		}
-
-		for _, k := range tagKeys {
-			delete(dn.Tags, k)
-		}
+		return b.untagDomainNameLocked(resourceID, tagKeys)
+	case arnResourceTypePortals:
+		return b.untagPortalLocked(resourceID, tagKeys)
+	case arnResourceTypePortalProducts:
+		return b.untagPortalProductLocked(resourceID, tagKeys)
 	default:
 		return ErrAPINotFound
 	}
-
-	return nil
 }
 
 // GetTags retrieves all tags for a resource identified by ARN.
-// Supports APIs, stages, VPC links, and domain names.
+// Supports APIs, stages, VPC links, domain names, portals, and portal products.
 func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("GetTags")
 	defer b.mu.RUnlock()
@@ -227,6 +335,20 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 		}
 
 		return copyTags(dn.Tags), nil
+	case arnResourceTypePortals:
+		p, ok := b.portals.Get(resourceID)
+		if !ok {
+			return nil, ErrPortalNotFound
+		}
+
+		return copyTags(p.Tags), nil
+	case arnResourceTypePortalProducts:
+		pp, ok := b.portalProducts.Get(resourceID)
+		if !ok {
+			return nil, ErrPortalProductNotFound
+		}
+
+		return copyTags(pp.Tags), nil
 	default:
 		return nil, ErrAPINotFound
 	}

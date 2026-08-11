@@ -27,6 +27,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 
 	gc := &GlobalCluster{
 		GlobalClusterIdentifier: id,
+		GlobalClusterArn:        b.rdsARN("global-cluster", id),
 		Engine:                  engine,
 		EngineVersion:           engineVersion,
 		Status:                  instanceStatusAvailable,

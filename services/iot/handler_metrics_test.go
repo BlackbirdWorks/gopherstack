@@ -47,6 +47,38 @@ func TestFleetMetric(t *testing.T) {
 	iotExpectError(t, h, "/fleet-metric/my-metric")
 }
 
+func TestUpdateFleetMetricExpectedVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		expectedVer int
+		wantStatus  int
+	}{
+		{"matching_version_succeeds", 1, http.StatusOK},
+		{"stale_version_conflicts", 99, http.StatusConflict},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newIoTHandler(t)
+			iotOK(t, h, http.MethodPut, "/fleet-metric/my-metric", map[string]any{
+				"queryString": "SELECT * FROM 'iot/+/data'",
+				"period":      300,
+			})
+
+			rec := iotRequest(t, h, http.MethodPatch, "/fleet-metric/my-metric", map[string]any{
+				"description":     "updated",
+				"expectedVersion": tt.expectedVer,
+			})
+
+			require.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
 // TestBatch2_CustomMetric tests custom metric lifecycle.
 func TestCustomMetric(t *testing.T) {
 	t.Parallel()

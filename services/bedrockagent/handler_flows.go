@@ -279,7 +279,10 @@ func classifyFlowPath(method, path string) string {
 		return opUpdateFlow
 	case len(segs) == 1 && method == http.MethodDelete:
 		return opDeleteFlow
-	case len(segs) == 2 && segs[1] == "prepare":
+	// Real PrepareFlow POSTs to "/flows/{flowIdentifier}/" -- no "/prepare"
+	// suffix (botocore bedrock-agent 2023-06-05) -- so it's a single
+	// segment, same as Get/Update/Delete, disambiguated by method alone.
+	case len(segs) == 1 && method == http.MethodPost:
 		return opPrepareFlow
 	case containsSeg(segs, "versions"):
 		return classifyFlowVersionPath(method, segs)

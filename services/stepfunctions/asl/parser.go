@@ -19,7 +19,16 @@ type StateMachine struct {
 }
 
 // ItemBatcher configures batching for a Map state's Distributed Map.
+// MaxItemsPerBatch/MaxInputBytesPerBatch are mutually exclusive with their
+// *Path siblings, which are reference paths resolved against the Map
+// state's pre-Parameters input -- same resolution as ToleratedFailureCountPath
+// (AWS docs: input-output-itembatcher.html).
 type ItemBatcher struct {
+	MaxItemsPerBatchPath      string `json:"MaxItemsPerBatchPath,omitempty"`
+	MaxInputBytesPerBatchPath string `json:"MaxInputBytesPerBatchPath,omitempty"`
+	// BatchInput is fixed JSON merged into every batch's iteration input
+	// alongside Items (AWS docs: input-output-itembatcher.html, "Batch input").
+	BatchInput json.RawMessage `json:"BatchInput,omitempty"`
 	// MaxItemsPerBatch is the maximum number of items per batch. Zero means no limit.
 	MaxItemsPerBatch int `json:"MaxItemsPerBatch,omitempty"`
 	// MaxInputBytesPerBatch is the max total JSON bytes per batch. Zero means no limit.
@@ -38,11 +47,34 @@ type ItemReader struct {
 // CSVHeaderLocation: "FIRST_ROW" or "GIVEN".
 // CSVHeaders: explicit headers when CSVHeaderLocation == "GIVEN".
 // MaxItems: optional cap on number of items returned (0 = unlimited).
+// MaxItemsPath is MaxItems' reference-path sibling, mutually exclusive with
+// it and resolved against the Map state's pre-Parameters input (AWS docs:
+// input-output-itemreader.html).
 type ReaderConfig struct {
 	InputType         string   `json:"InputType,omitempty"`
 	CSVHeaderLocation string   `json:"CSVHeaderLocation,omitempty"`
+	MaxItemsPath      string   `json:"MaxItemsPath,omitempty"`
 	CSVHeaders        []string `json:"CSVHeaders,omitempty"`
 	MaxItems          int      `json:"MaxItems,omitempty"`
+}
+
+// ResultWriter configures exporting a Distributed Map state's per-item
+// results to S3 instead of returning them inline as the state's output
+// (AWS docs: input-output-resultwriter.html). Only the Resource+Parameters
+// (S3 export) combination is applied; WriterConfig is parsed but not
+// honored -- see Executor.exportMapResults.
+type ResultWriter struct {
+	Parameters   map[string]any      `json:"Parameters,omitempty"`
+	WriterConfig *ResultWriterConfig `json:"WriterConfig,omitempty"`
+	Resource     string              `json:"Resource,omitempty"`
+}
+
+// ResultWriterConfig is ResultWriter.WriterConfig: Transformation
+// ("NONE"|"COMPACT"|"FLATTEN") and OutputType ("JSON"|"JSONL"). Parsed for
+// forward compatibility but not currently applied.
+type ResultWriterConfig struct {
+	Transformation string `json:"Transformation,omitempty"`
+	OutputType     string `json:"OutputType,omitempty"`
 }
 
 // State represents a single state in the state machine.
@@ -51,6 +83,7 @@ type State struct {
 	ItemProcessor *StateMachine   `json:"ItemProcessor,omitempty"`
 	ItemBatcher   *ItemBatcher    `json:"ItemBatcher,omitempty"`
 	ItemReader    *ItemReader     `json:"ItemReader,omitempty"`
+	ResultWriter  *ResultWriter   `json:"ResultWriter,omitempty"`
 	ItemSelector  json.RawMessage `json:"ItemSelector,omitempty"`
 	SecondsPath   string          `json:"SecondsPath,omitempty"`
 	TimestampPath string          `json:"TimestampPath,omitempty"`
@@ -61,33 +94,44 @@ type State struct {
 	// Distributed Map, but the emulator applies them uniformly since Map
 	// processing mode is not otherwise distinguished. When both a count and a
 	// percentage are set, the Map fails when EITHER threshold is crossed.
-	ToleratedFailureCountPath      string          `json:"ToleratedFailureCountPath,omitempty"`
-	ToleratedFailurePercentagePath string          `json:"ToleratedFailurePercentagePath,omitempty"`
-	ToleratedFailureCount          *int            `json:"ToleratedFailureCount,omitempty"`
-	ToleratedFailurePercentage     *float64        `json:"ToleratedFailurePercentage,omitempty"`
-	InputPath                      string          `json:"InputPath,omitempty"`
-	OutputPath                     string          `json:"OutputPath,omitempty"`
-	ResultPath                     string          `json:"ResultPath,omitempty"`
-	Type                           string          `json:"Type"`
-	Error                          string          `json:"Error,omitempty"`
-	Cause                          string          `json:"Cause,omitempty"`
-	Comment                        string          `json:"Comment,omitempty"`
-	Next                           string          `json:"Next,omitempty"`
-	Default                        string          `json:"Default,omitempty"`
-	Timestamp                      string          `json:"Timestamp,omitempty"`
-	Resource                       string          `json:"Resource,omitempty"`
-	Retry                          []Retrier       `json:"Retry,omitempty"`
-	Catch                          []Catcher       `json:"Catch,omitempty"`
-	Choices                        []ChoiceRule    `json:"Choices,omitempty"`
-	Result                         json.RawMessage `json:"Result,omitempty"`
-	Branches                       []Branch        `json:"Branches,omitempty"`
-	Parameters                     json.RawMessage `json:"Parameters,omitempty"`
-	ResultSelector                 json.RawMessage `json:"ResultSelector,omitempty"`
-	TimeoutSeconds                 int             `json:"TimeoutSeconds,omitempty"`
-	HeartbeatSeconds               int             `json:"HeartbeatSeconds,omitempty"`
-	Seconds                        int             `json:"Seconds,omitempty"`
-	MaxConcurrency                 int             `json:"MaxConcurrency,omitempty"`
-	End                            bool            `json:"End,omitempty"`
+	ToleratedFailureCountPath      string   `json:"ToleratedFailureCountPath,omitempty"`
+	ToleratedFailurePercentagePath string   `json:"ToleratedFailurePercentagePath,omitempty"`
+	ToleratedFailureCount          *int     `json:"ToleratedFailureCount,omitempty"`
+	ToleratedFailurePercentage     *float64 `json:"ToleratedFailurePercentage,omitempty"`
+	// MaxConcurrencyPath is MaxConcurrency's reference-path sibling, resolved
+	// against the Map state's pre-Parameters input the same way as
+	// ToleratedFailureCountPath (AWS docs:
+	// state-map-distributed.html#map-state-distributed-additional-fields).
+	MaxConcurrencyPath string `json:"MaxConcurrencyPath,omitempty"`
+	InputPath          string `json:"InputPath,omitempty"`
+	OutputPath         string `json:"OutputPath,omitempty"`
+	ResultPath         string `json:"ResultPath,omitempty"`
+	Type               string `json:"Type"`
+	Error              string `json:"Error,omitempty"`
+	Cause              string `json:"Cause,omitempty"`
+	Comment            string `json:"Comment,omitempty"`
+	Next               string `json:"Next,omitempty"`
+	Default            string `json:"Default,omitempty"`
+	Timestamp          string `json:"Timestamp,omitempty"`
+	Resource           string `json:"Resource,omitempty"`
+	// TimeoutSecondsPath/HeartbeatSecondsPath are TimeoutSeconds/HeartbeatSeconds's
+	// reference-path siblings, mutually exclusive with them and resolved against
+	// the Task state's pre-Parameters input (AWS docs:
+	// amazon-states-language-task-state.html, GlueJobTask example).
+	TimeoutSecondsPath   string          `json:"TimeoutSecondsPath,omitempty"`
+	HeartbeatSecondsPath string          `json:"HeartbeatSecondsPath,omitempty"`
+	Retry                []Retrier       `json:"Retry,omitempty"`
+	Catch                []Catcher       `json:"Catch,omitempty"`
+	Choices              []ChoiceRule    `json:"Choices,omitempty"`
+	Result               json.RawMessage `json:"Result,omitempty"`
+	Branches             []Branch        `json:"Branches,omitempty"`
+	Parameters           json.RawMessage `json:"Parameters,omitempty"`
+	ResultSelector       json.RawMessage `json:"ResultSelector,omitempty"`
+	TimeoutSeconds       int             `json:"TimeoutSeconds,omitempty"`
+	HeartbeatSeconds     int             `json:"HeartbeatSeconds,omitempty"`
+	Seconds              int             `json:"Seconds,omitempty"`
+	MaxConcurrency       int             `json:"MaxConcurrency,omitempty"`
+	End                  bool            `json:"End,omitempty"`
 }
 
 // Retrier defines retry behavior for a Task state on error.

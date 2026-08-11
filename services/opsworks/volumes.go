@@ -6,8 +6,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// RegisterVolume registers an EBS volume with a stack.
+// RegisterVolume registers an EBS volume with a stack. StackId is "This
+// member is required" on the real RegisterVolumeInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_RegisterVolume.go);
+// Ec2VolumeId is not.
 func (b *InMemoryBackend) RegisterVolume(ec2VolumeID, stackID string) (string, error) {
+	if stackID == "" {
+		return "", ErrValidation
+	}
+
 	b.mu.Lock("RegisterVolume")
 	defer b.mu.Unlock()
 

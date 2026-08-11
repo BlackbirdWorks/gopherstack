@@ -2,6 +2,9 @@
 import { confirmDestructive } from '$lib/confirm-dialog';
 import { untrack } from 'svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { multiRegionList } from '$lib/multi-region';
+import RegionChip from '$lib/components/RegionChip.svelte';
+import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 import { getSNSClient } from '$lib/aws-client';
 import {
 ListTopicsCommand,
@@ -35,14 +38,19 @@ Settings
 
 const sns = regionalClient(getSNSClient);
 
+// Every topic/platform-app row carries the region its List call was made
+// against. Detail/action calls must build a client for THAT region -- in
+// All mode the same name can legitimately exist in two different regions.
+type Regioned<T> = T & { region: string };
+
 // ─── Page tabs ───────────────────────────────────────────────────────────────
 let pageTab = $state<'topics' | 'platform-apps'>('topics');
 
 // ─── Topics ──────────────────────────────────────────────────────────────────
 let loading = $state(false);
-let topics = $state<Array<Topic & { Attributes?: Record<string, string> }>>([]);
+let topics = $state<Array<Regioned<Topic & { Attributes?: Record<string, string> }>>>([]);
 let searchQuery = $state('');
-let selectedTopic = $state<(Topic & { Attributes?: Record<string, string> }) | null>(null);
+let selectedTopic = $state<Regioned<Topic & { Attributes?: Record<string, string> }> | null>(null);
 let activeTab = $state<'subscriptions' | 'attributes' | 'tags' | 'metrics' | 'docs'>('subscriptions');
 
 // Subscriptions
@@ -102,7 +110,7 @@ let pubDeduplicationId = $state('');
 let pubGroupId = $state('');
 
 // ─── Platform Applications ────────────────────────────────────────────────────
-let platformApps = $state<PlatformApplication[]>([]);
+let platformApps = $state<Regioned<PlatformApplication>[]>([]);
 let loadingApps = $state(false);
 let showCreateAppModal = $state(false);
 let creatingApp = $state(false);
@@ -147,21 +155,28 @@ toast.success(`${label} copied`);
 }
 
 // ─── Load Topics ─────────────────────────────────────────────────────────────
-async function loadTopics() {
-loading = true;
-try {
-const res = await sns().send(new ListTopicsCommand({}));
+async function listTopicsInRegion(region: string): Promise<Array<Regioned<Topic & { Attributes?: Record<string, string> }>>> {
+const client = getSNSClient(region);
+const res = await client.send(new ListTopicsCommand({}));
 const raw = res.Topics ?? [];
-topics = await Promise.all(
+return Promise.all(
 raw.slice(0, 50).map(async (t) => {
 try {
-const attrs = await sns().send(new GetTopicAttributesCommand({ TopicArn: t.TopicArn }));
-return { ...t, Attributes: attrs.Attributes ?? {} };
+const attrs = await client.send(new GetTopicAttributesCommand({ TopicArn: t.TopicArn }));
+return { ...t, Attributes: attrs.Attributes ?? {}, region };
 } catch {
-return { ...t, Attributes: {} };
+return { ...t, Attributes: {}, region };
 }
 })
 );
+}
+
+async function loadTopics() {
+loading = true;
+try {
+const result = await multiRegionList(listTopicsInRegion, (items) => items);
+topics = result.items.map(({ item }) => item);
+if (result.errors.length > 0) toast.error(`Failed to load topics from ${result.errors.length} region(s)`);
 } catch (err: unknown) {
 toast.error(`Failed to load topics: ${(err as Error).message}`);
 } finally {
@@ -200,16 +215,17 @@ creating = false;
 }
 
 // ─── Delete Topic ─────────────────────────────────────────────────────────────
-async function deleteTopic(arn: string) {
+async function deleteTopic(topic: Regioned<Topic>) {
+const arn = topic.TopicArn ?? '';
 const name = topicName(arn);
 if (!await confirmDestructive({
 title: 'Delete Topic',
 message: `Delete topic "${name}"? All subscriptions will be removed.`
 })) return;
 try {
-await sns().send(new DeleteTopicCommand({ TopicArn: arn }));
+await getSNSClient(topic.region).send(new DeleteTopicCommand({ TopicArn: arn }));
 toast.success(`Topic "${name}" deleted`);
-if (selectedTopic?.TopicArn === arn) selectedTopic = null;
+if (selectedTopic && selectedTopic.TopicArn === arn && selectedTopic.region === topic.region) selectedTopic = null;
 await loadTopics();
 } catch (err: unknown) {
 toast.error(`Delete failed: ${(err as Error).message}`);
@@ -221,18 +237,18 @@ async function selectTopic(topic: typeof topics[0]) {
 selectedTopic = topic;
 activeTab = 'subscriptions';
 await Promise.all([
-loadSubscriptions(topic.TopicArn ?? ''),
-loadTopicTags(topic.TopicArn ?? '')
+loadSubscriptions(topic.TopicArn ?? '', topic.region),
+loadTopicTags(topic.TopicArn ?? '', topic.region)
 ]);
 }
 
 // ─── Load Subscriptions ───────────────────────────────────────────────────────
-async function loadSubscriptions(topicArn: string) {
+async function loadSubscriptions(topicArn: string, region: string) {
 loadingSubscriptions = true;
 try {
-const res = await sns().send(new ListSubscriptionsByTopicCommand({ TopicArn: topicArn }));
+const res = await getSNSClient(region).send(new ListSubscriptionsByTopicCommand({ TopicArn: topicArn }));
 subscriptions = res.Subscriptions ?? [];
-await loadSubscriptionDetails(subscriptions);
+await loadSubscriptionDetails(subscriptions, region);
 } catch (err: unknown) {
 toast.error(`Failed to load subscriptions: ${(err as Error).message}`);
 } finally {
@@ -240,14 +256,15 @@ loadingSubscriptions = false;
 }
 }
 
-async function loadSubscriptionDetails(subs: Subscription[]) {
+async function loadSubscriptionDetails(subs: Subscription[], region: string) {
 const loaded: Record<string, Record<string, string>> = {};
+const client = getSNSClient(region);
 await Promise.all(
 subs
 .filter((s) => s.SubscriptionArn && s.SubscriptionArn !== 'PendingConfirmation')
 .map(async (sub) => {
 try {
-const attrs = await sns().send(
+const attrs = await client.send(
 new GetSubscriptionAttributesCommand({ SubscriptionArn: sub.SubscriptionArn })
 );
 loaded[sub.SubscriptionArn!] = attrs.Attributes ?? {};
@@ -269,7 +286,7 @@ if (subFilterPolicy.trim() && subFilterPolicy.trim() !== '{}') {
 subAttrs['FilterPolicy'] = subFilterPolicy.trim();
 }
 if (subRawMessageDelivery) subAttrs['RawMessageDelivery'] = 'true';
-await sns().send(new SubscribeCommand({
+await getSNSClient(selectedTopic.region).send(new SubscribeCommand({
 TopicArn: selectedTopic.TopicArn,
 Protocol: subProtocol,
 Endpoint: subEndpoint.trim(),
@@ -280,7 +297,7 @@ showSubscribeModal = false;
 subEndpoint = '';
 subFilterPolicy = '';
 subRawMessageDelivery = false;
-await loadSubscriptions(selectedTopic.TopicArn ?? '');
+await loadSubscriptions(selectedTopic.TopicArn ?? '', selectedTopic.region);
 } catch (err: unknown) {
 toast.error(`Subscribe failed: ${(err as Error).message}`);
 } finally {
@@ -290,15 +307,16 @@ subscribing = false;
 
 // ─── Unsubscribe ──────────────────────────────────────────────────────────────
 async function unsubscribe(arn: string) {
+if (!selectedTopic) return;
 if (!await confirmDestructive({
 title: 'Remove Subscription',
 message: 'Remove this SNS subscription?',
 confirmLabel: 'Remove'
 })) return;
 try {
-await sns().send(new UnsubscribeCommand({ SubscriptionArn: arn }));
+await getSNSClient(selectedTopic.region).send(new UnsubscribeCommand({ SubscriptionArn: arn }));
 toast.success('Subscription removed');
-if (selectedTopic) await loadSubscriptions(selectedTopic.TopicArn ?? '');
+await loadSubscriptions(selectedTopic.TopicArn ?? '', selectedTopic.region);
 } catch (err: unknown) {
 toast.error(`Unsubscribe failed: ${(err as Error).message}`);
 }
@@ -306,13 +324,14 @@ toast.error(`Unsubscribe failed: ${(err as Error).message}`);
 
 // ─── Confirm Subscription ─────────────────────────────────────────────────────
 async function confirmSubscription(topicArn: string) {
+if (!selectedTopic) return;
 try {
-await sns().send(new ConfirmSubscriptionCommand({
+await getSNSClient(selectedTopic.region).send(new ConfirmSubscriptionCommand({
 TopicArn: topicArn,
 Token: 'mock-confirm-token'
 }));
 toast.success('Subscription confirmed');
-await loadSubscriptions(topicArn);
+await loadSubscriptions(topicArn, selectedTopic.region);
 } catch (err: unknown) {
 toast.error(`Confirm failed: ${(err as Error).message}`);
 }
@@ -328,7 +347,7 @@ showFilterPolicyModal = true;
 }
 
 async function saveFilterPolicy() {
-if (!selectedSubscriptionArn) return;
+if (!selectedSubscriptionArn || !selectedTopic) return;
 const value = editFilterPolicy.trim();
 if (value && value !== '{}') {
 try { JSON.parse(value); } catch {
@@ -338,13 +357,14 @@ return;
 }
 savingFilterPolicy = true;
 try {
-await sns().send(new SetSubscriptionAttributesCommand({
+const client = getSNSClient(selectedTopic.region);
+await client.send(new SetSubscriptionAttributesCommand({
 SubscriptionArn: selectedSubscriptionArn,
 AttributeName: 'FilterPolicy',
 AttributeValue: value === '{}' ? '' : value
 }));
 if (editFilterPolicyScope) {
-await sns().send(new SetSubscriptionAttributesCommand({
+await client.send(new SetSubscriptionAttributesCommand({
 SubscriptionArn: selectedSubscriptionArn,
 AttributeName: 'FilterPolicyScope',
 AttributeValue: editFilterPolicyScope
@@ -369,9 +389,10 @@ savingFilterPolicy = false;
 
 // ─── RawMessageDelivery toggle ────────────────────────────────────────────────
 async function toggleRawDelivery(subArn: string) {
+if (!selectedTopic) return;
 const current = subscriptionDetails[subArn]?.['RawMessageDelivery'] === 'true';
 try {
-await sns().send(new SetSubscriptionAttributesCommand({
+await getSNSClient(selectedTopic.region).send(new SetSubscriptionAttributesCommand({
 SubscriptionArn: subArn,
 AttributeName: 'RawMessageDelivery',
 AttributeValue: current ? 'false' : 'true'
@@ -403,13 +424,13 @@ showRedriveModal = true;
 }
 
 async function saveRedrivePolicy() {
-if (!redriveSubArn) return;
+if (!redriveSubArn || !selectedTopic) return;
 savingRedrive = true;
 try {
 const policy = editRedriveArn.trim()
 ? JSON.stringify({ deadLetterTargetArn: editRedriveArn.trim() })
 : '';
-await sns().send(new SetSubscriptionAttributesCommand({
+await getSNSClient(selectedTopic.region).send(new SetSubscriptionAttributesCommand({
 SubscriptionArn: redriveSubArn,
 AttributeName: 'RedrivePolicy',
 AttributeValue: policy
@@ -449,7 +470,7 @@ async function publish() {
 if (!selectedTopic || !pubMessage.trim()) return;
 publishing = true;
 try {
-await sns().send(new PublishCommand({
+await getSNSClient(selectedTopic.region).send(new PublishCommand({
 TopicArn: selectedTopic.TopicArn,
 Subject: pubSubject || undefined,
 Message: pubMessage,
@@ -474,9 +495,9 @@ publishing = false;
 }
 
 // ─── Topic Tags ───────────────────────────────────────────────────────────────
-async function loadTopicTags(topicArn: string) {
+async function loadTopicTags(topicArn: string, region: string) {
 try {
-const res = await sns().send(new ListTagsForResourceCommand({ ResourceArn: topicArn }));
+const res = await getSNSClient(region).send(new ListTagsForResourceCommand({ ResourceArn: topicArn }));
 topicTags = Object.fromEntries((res.Tags ?? []).map((t) => [t.Key!, t.Value!]));
 } catch {
 topicTags = {};
@@ -487,7 +508,7 @@ async function addTag() {
 if (!tagKey.trim() || !selectedTopic) return;
 savingTag = true;
 try {
-await sns().send(new TagResourceCommand({
+await getSNSClient(selectedTopic.region).send(new TagResourceCommand({
 ResourceArn: selectedTopic.TopicArn,
 Tags: [{ Key: tagKey.trim(), Value: tagValue.trim() }]
 }));
@@ -505,7 +526,7 @@ savingTag = false;
 async function removeTag(key: string) {
 if (!selectedTopic) return;
 try {
-await sns().send(new UntagResourceCommand({
+await getSNSClient(selectedTopic.region).send(new UntagResourceCommand({
 ResourceArn: selectedTopic.TopicArn,
 TagKeys: [key]
 }));
@@ -523,7 +544,7 @@ async function toggleContentBasedDedup() {
 if (!selectedTopic?.TopicArn) return;
 const current = selectedTopic.Attributes?.ContentBasedDeduplication === 'true';
 try {
-await sns().send(new SetTopicAttributesCommand({
+await getSNSClient(selectedTopic.region).send(new SetTopicAttributesCommand({
 TopicArn: selectedTopic.TopicArn,
 AttributeName: 'ContentBasedDeduplication',
 AttributeValue: current ? 'false' : 'true'
@@ -545,8 +566,12 @@ toast.error(`Failed: ${(err as Error).message}`);
 async function loadPlatformApps() {
 loadingApps = true;
 try {
-const res = await sns().send(new ListPlatformApplicationsCommand({}));
-platformApps = res.PlatformApplications ?? [];
+const result = await multiRegionList(
+(region) => getSNSClient(region).send(new ListPlatformApplicationsCommand({})),
+(r) => r.PlatformApplications ?? []
+);
+platformApps = result.items.map(({ region, item }) => ({ ...item, region }));
+if (result.errors.length > 0) toast.error(`Failed to load platform apps from ${result.errors.length} region(s)`);
 } catch (err: unknown) {
 toast.error(`Failed to load platform apps: ${(err as Error).message}`);
 } finally {
@@ -578,14 +603,15 @@ creatingApp = false;
 }
 }
 
-async function deletePlatformApp(arn: string) {
+async function deletePlatformApp(app: Regioned<PlatformApplication>) {
+const arn = app.PlatformApplicationArn ?? '';
 const name = arn.split('/').pop() ?? arn;
 if (!await confirmDestructive({
 title: 'Delete Platform Application',
 message: `Delete "${name}"? All endpoints will be removed.`
 })) return;
 try {
-await sns().send(new DeletePlatformApplicationCommand({ PlatformApplicationArn: arn }));
+await getSNSClient(app.region).send(new DeletePlatformApplicationCommand({ PlatformApplicationArn: arn }));
 toast.success('Platform application deleted');
 await loadPlatformApps();
 } catch (err: unknown) {
@@ -636,6 +662,7 @@ onRegionChange(() => {
 </div>
 </div>
 <div class="flex items-center gap-2">
+<WriteRegionHint />
 <button
 onclick={() => loadTopics()}
 class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -706,21 +733,24 @@ role="button"
 tabindex="0"
 onclick={() => selectTopic(topic)}
 onkeypress={(e) => { if (e.key === 'Enter') selectTopic(topic); }}
-class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-400 transition-colors cursor-pointer {selectedTopic?.TopicArn === topic.TopicArn ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700'}"
+class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-400 transition-colors cursor-pointer {selectedTopic && selectedTopic.TopicArn === topic.TopicArn && selectedTopic.region === topic.region ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700'}"
 >
 <div class="flex items-center justify-between">
 <div class="min-w-0 flex-1">
 <p class="font-medium text-slate-900 dark:text-white truncate">{topicName(topic.TopicArn ?? '')}</p>
-<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+<div class="flex items-center gap-2 mt-0.5">
+<RegionChip region={topic.region} />
+<p class="text-xs text-slate-500 dark:text-slate-400">
 {topic.Attributes?.SubscriptionsConfirmed ?? 0} confirmed &middot; {topic.Attributes?.SubscriptionsPending ?? 0} pending
 </p>
+</div>
 </div>
 <div class="flex items-center gap-1 ml-2 flex-shrink-0">
 {#if isFifo(topic.TopicArn)}
 <span class="px-2 py-0.5 text-xs rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">FIFO</span>
 {/if}
 <button
-onclick={(e) => { e.stopPropagation(); deleteTopic(topic.TopicArn ?? ''); }}
+onclick={(e) => { e.stopPropagation(); deleteTopic(topic); }}
 class="p-1 text-slate-400 hover:text-red-500"
 >
 <Trash2 class="w-4 h-4" />
@@ -740,7 +770,7 @@ class="p-1 text-slate-400 hover:text-red-500"
 <div class="p-5 border-b border-slate-200 dark:border-slate-700">
 <div class="flex items-start justify-between">
 <div>
-<h2 class="text-xl font-bold text-slate-900 dark:text-white">{topicName(selectedTopic.TopicArn ?? '')}</h2>
+<h2 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">{topicName(selectedTopic.TopicArn ?? '')} <RegionChip region={selectedTopic.region} /></h2>
 {#if selectedTopic.Attributes?.DisplayName}
 <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{selectedTopic.Attributes.DisplayName}</p>
 {/if}
@@ -799,7 +829,7 @@ class="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transiti
 {/if}
 </div>
 <button
-onclick={() => loadSubscriptions(selectedTopic?.TopicArn ?? '')}
+onclick={() => selectedTopic && loadSubscriptions(selectedTopic.TopicArn ?? '', selectedTopic.region)}
 class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
 title="Refresh subscriptions"
 >
@@ -1126,6 +1156,7 @@ Create Application
 <p class="font-medium text-slate-900 dark:text-white truncate">{appName}</p>
 <div class="flex items-center gap-2 mt-1 flex-wrap">
 <span class="inline-block px-2 py-0.5 text-xs rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">{platform}</span>
+<RegionChip region={app.region} />
 {#if app.Attributes?.Enabled === 'false'}
 <span class="px-2 py-0.5 text-xs rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">Disabled</span>
 {:else}
@@ -1142,7 +1173,7 @@ title="Copy ARN"
 <Copy class="w-4 h-4" />
 </button>
 <button
-onclick={() => deletePlatformApp(app.PlatformApplicationArn ?? '')}
+onclick={() => deletePlatformApp(app)}
 class="p-1 text-slate-400 hover:text-red-500"
 >
 <Trash2 class="w-4 h-4" />

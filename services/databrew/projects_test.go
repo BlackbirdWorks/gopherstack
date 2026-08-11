@@ -272,3 +272,44 @@ func TestHandlerSendProjectSessionAction(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "action-proj", resp["Name"])
 }
+
+// TestHandlerStartProjectSession_ClientSessionID proves StartProjectSession
+// returns a non-empty ClientSessionId, a real response field
+// (StartProjectSessionOutput.ClientSessionId) that was previously always
+// dropped.
+func TestHandlerStartProjectSession_ClientSessionID(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/projects", map[string]any{
+		"Name": "sess-id-proj", "RecipeName": "r1",
+	})
+	rec := databrewReq(t, h, http.MethodPut, "/databrew/v1/projects/sess-id-proj/startProjectSession", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp["ClientSessionId"])
+}
+
+// TestHandlerStartProjectSession_NoSuchProject and
+// TestHandlerSendProjectSessionAction_NoSuchProject prove both ops reject a
+// project name that doesn't exist instead of reporting success -- previously
+// neither handler consulted the backend at all, so any name (typo or not)
+// echoed back a 200. ResourceNotFoundException is a documented error for
+// both StartProjectSession and SendProjectSessionAction (botocore
+// databrew/2017-07-25 service-2.json operations[*].errors).
+func TestHandlerStartProjectSession_NoSuchProject(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	rec := databrewReq(t, h, http.MethodPut, "/databrew/v1/projects/no-such-proj/startProjectSession", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandlerSendProjectSessionAction_NoSuchProject(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	rec := databrewReq(
+		t, h, http.MethodPut, "/databrew/v1/projects/no-such-proj/sendProjectSessionAction",
+		map[string]any{"Action": map[string]any{"Operation": "TRIM"}},
+	)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}

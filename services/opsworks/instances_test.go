@@ -252,6 +252,23 @@ func TestRegisterDeregisterInstance(t *testing.T) {
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
+		{
+			// StackId is "This member is required" on the real
+			// RegisterInstanceInput (confirmed against
+			// aws-sdk-go-v2/service/opsworks@v1.31.0's
+			// api_op_RegisterInstance.go); a missing one must be
+			// ValidationException, not fall through to the stack-lookup's
+			// ResourceNotFoundException.
+			name: "RegisterInstance with missing StackId returns 400",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				rec := doTarget(t, h, "RegisterInstance", map[string]any{
+					"Hostname": "host",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.Contains(t, rec.Body.String(), "ValidationException")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -317,6 +334,28 @@ func TestAssignUnassignInstance(t *testing.T) {
 					"LayerIds":   []string{otherLayerID},
 				})
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			// AssignInstance's doc comment (aws-sdk-go-v2/service/
+			// opsworks@v1.31.0's api_op_AssignInstance.go) says "You cannot
+			// use this action with instances that were created with
+			// OpsWorks Stacks" -- i.e. CreateInstance'd instances, as
+			// opposed to RegisterInstance'd ones.
+			name: "AssignInstance rejects an instance created with OpsWorks",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				stackID := createTestStack(t, h)
+				layerID := createTestLayer(t, h, stackID)
+				instanceID := createTestInstance(t, h, stackID, layerID)
+				otherLayerID := createTestLayer(t, h, stackID)
+
+				rec := doTarget(t, h, "AssignInstance", map[string]any{
+					"InstanceId": instanceID,
+					"LayerIds":   []string{otherLayerID},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.Contains(t, rec.Body.String(), "ValidationException")
 			},
 		},
 		{

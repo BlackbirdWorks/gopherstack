@@ -12,8 +12,8 @@ import (
 
 func (h *Handler) handleCreateAppImageConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags               map[string]string `json:"Tags"`
-		AppImageConfigName string            `json:"AppImageConfigName"`
+		AppImageConfigName string      `json:"AppImageConfigName"`
+		Tags               []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -24,7 +24,7 @@ func (h *Handler) handleCreateAppImageConfig(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: AppImageConfigName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateAppImageConfig(ctx, req.AppImageConfigName, req.Tags)
+	result, err := h.Backend.CreateAppImageConfig(ctx, req.AppImageConfigName, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

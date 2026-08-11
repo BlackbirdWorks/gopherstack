@@ -2,8 +2,11 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 import { untrack } from 'svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { multiRegionList } from '$lib/multi-region';
 import { urlState } from '$lib/url-state.svelte';
 import LiveDot from '$lib/components/LiveDot.svelte';
+import RegionChip from '$lib/components/RegionChip.svelte';
+import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 import { getEC2Client } from '$lib/aws-client';
 import {
 	DescribeInstancesCommand,
@@ -56,6 +59,13 @@ import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw, Shield, 
 
 const ec2 = regionalClient(getEC2Client);
 
+// Row actions (start/stop/delete/etc) must use the REGION ON THE ROW, not
+// the shared `ec2()` client -- in All mode the same identifier can
+// legitimately exist in two different regions, and acting on a row shown
+// under eu-west-2 must target eu-west-2 even if the picker now says
+// something else.
+type Regioned<T> = T & { region: string };
+
 type EC2Instance = {
 	ImageId?: string;
 	InstanceId?: string;
@@ -76,7 +86,7 @@ type EC2Instance = {
 
 type TabName = 'instances' | 'secgroups' | 'keypairs' | 'amis' | 'launchtemplates' | 'vpcendpoints' | 'nacls' | 'vpcs' | 'volumes' | 'snapshots' | 'eips' | 'igws' | 'routetables' | 'natgateways';
 
-let instances = $state<EC2Instance[]>([]);
+let instances = $state<Regioned<EC2Instance>[]>([]);
 let loading = $state(true);
 // URL-backed (?q=..., ?state=...); see url-state.svelte.ts. Neither is read
 // inside the onRegionChange effect below, so no untrack() is needed at
@@ -88,7 +98,7 @@ let stateFilter = $derived(stateFilterParam.get());
 let vpcFilter = $state('all');
 let showLaunchModal = $state(false);
 let showCreateLTModal = $state(false);
-let selectedInstance = $state<EC2Instance | null>(null);
+let selectedInstance = $state<Regioned<EC2Instance> | null>(null);
 let newInstanceType = $state('t3.micro');
 let newInstanceAmi = $state('ami-0c55b159cbfafe1f0');
 let newInstanceName = $state('');
@@ -103,22 +113,22 @@ let newLTInstanceType = $state('t3.micro');
 // (see url-state.svelte.ts's header comment on the region-effect hazard).
 const activeTabParam = urlState<TabName>('tab', 'instances');
 let activeTab = $derived(activeTabParam.get());
-let securityGroups = $state<SecurityGroup[]>([]);
-let keyPairs = $state<KeyPairInfo[]>([]);
-let amis = $state<Image[]>([]);
-let launchTemplates = $state<LaunchTemplate[]>([]);
-let vpcEndpoints = $state<VpcEndpoint[]>([]);
-let networkAcls = $state<NetworkAcl[]>([]);
-let vpcs = $state<Vpc[]>([]);
-let subnets = $state<Subnet[]>([]);
-let volumes = $state<Volume[]>([]);
-let snapshots = $state<Snapshot[]>([]);
-let elasticIPs = $state<Address[]>([]);
-let internetGateways = $state<InternetGateway[]>([]);
-let routeTables = $state<RouteTable[]>([]);
-let natGateways = $state<NatGateway[]>([]);
+let securityGroups = $state<Regioned<SecurityGroup>[]>([]);
+let keyPairs = $state<Regioned<KeyPairInfo>[]>([]);
+let amis = $state<Regioned<Image>[]>([]);
+let launchTemplates = $state<Regioned<LaunchTemplate>[]>([]);
+let vpcEndpoints = $state<Regioned<VpcEndpoint>[]>([]);
+let networkAcls = $state<Regioned<NetworkAcl>[]>([]);
+let vpcs = $state<Regioned<Vpc>[]>([]);
+let subnets = $state<Regioned<Subnet>[]>([]);
+let volumes = $state<Regioned<Volume>[]>([]);
+let snapshots = $state<Regioned<Snapshot>[]>([]);
+let elasticIPs = $state<Regioned<Address>[]>([]);
+let internetGateways = $state<Regioned<InternetGateway>[]>([]);
+let routeTables = $state<Regioned<RouteTable>[]>([]);
+let natGateways = $state<Regioned<NatGateway>[]>([]);
 let sgSearch = $state('');
-let selectedSg = $state<SecurityGroup | null>(null);
+let selectedSg = $state<Regioned<SecurityGroup> | null>(null);
 let showSgRules = $state(false);
 let addRuleDirection = $state<'inbound' | 'outbound'>('inbound');
 let newRuleProtocol = $state('tcp');
@@ -156,32 +166,44 @@ onRegionChange(() => {
 	void tabLoaders[tab].load();
 });
 
-async function loadInstances() {
+// Every load* function goes through multiRegionList: in single-region mode
+// that's exactly one Describe*Command call (unchanged behavior), and in All
+// mode it fans out across every region with data, tagging each row.
+async function loadRegioned<TResponse, TItem>(
+	label: string,
+	regionCall: (region: string) => Promise<TResponse>,
+	extractItems: (r: TResponse) => TItem[],
+	assign: (items: Regioned<TItem>[]) => void
+) {
 	try {
 		loading = true;
-		const data = await ec2().send(new DescribeInstancesCommand({}));
-		instances = data.Reservations?.flatMap((r) => (r.Instances ?? []) as EC2Instance[]) ?? [];
+		const result = await multiRegionList(regionCall, extractItems);
+		assign(result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<TItem>));
+		if (result.errors.length > 0) toast.error(`Failed to load ${label} from ${result.errors.length} region(s)`);
 	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load instances');
+		toast.error(e instanceof Error ? e.message : `Failed to load ${label}`);
 	} finally {
 		loading = false;
 	}
+}
+
+async function loadInstances() {
+	await loadRegioned('instances',
+		(region) => getEC2Client(region).send(new DescribeInstancesCommand({})),
+		(r) => r.Reservations?.flatMap((res) => (res.Instances ?? []) as EC2Instance[]) ?? [],
+		(items) => instances = items);
 }
 
 async function loadSecurityGroups() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeSecurityGroupsCommand({}));
-		securityGroups = data.SecurityGroups || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load security groups');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('security groups',
+		(region) => getEC2Client(region).send(new DescribeSecurityGroupsCommand({})),
+		(r) => r.SecurityGroups ?? [],
+		(items) => securityGroups = items);
 }
 
 async function addSgRule() {
-	if (!selectedSg?.GroupId) return;
+	const sg = selectedSg;
+	if (!sg?.GroupId) return;
 	addingRule = true;
 	try {
 		const perm: IpPermission = {
@@ -191,14 +213,15 @@ async function addSgRule() {
 			IpRanges: [{ CidrIp: newRuleCidr }]
 		};
 		if (addRuleDirection === 'inbound') {
-			await ec2().send(new AuthorizeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await getEC2Client(sg.region).send(new AuthorizeSecurityGroupIngressCommand({ GroupId: sg.GroupId, IpPermissions: [perm] }));
 		} else {
-			await ec2().send(new AuthorizeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await getEC2Client(sg.region).send(new AuthorizeSecurityGroupEgressCommand({ GroupId: sg.GroupId, IpPermissions: [perm] }));
 		}
 		toast.success('Rule added');
-		const data = await ec2().send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
-		selectedSg = data.SecurityGroups?.[0] ?? selectedSg;
-		securityGroups = securityGroups.map(sg => sg.GroupId === selectedSg?.GroupId ? selectedSg! : sg);
+		const data = await getEC2Client(sg.region).send(new DescribeSecurityGroupsCommand({ GroupIds: [sg.GroupId] }));
+		const updated: Regioned<SecurityGroup> | undefined = data.SecurityGroups?.[0] ? { ...data.SecurityGroups[0], region: sg.region } : undefined;
+		if (updated) selectedSg = updated;
+		securityGroups = securityGroups.map(g => updated && g.GroupId === updated.GroupId && g.region === updated.region ? updated : g);
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to add rule');
 	} finally {
@@ -207,17 +230,19 @@ async function addSgRule() {
 }
 
 async function revokeSgRule(direction: 'inbound' | 'outbound', perm: IpPermission) {
-	if (!selectedSg?.GroupId) return;
+	const sg = selectedSg;
+	if (!sg?.GroupId) return;
 	try {
 		if (direction === 'inbound') {
-			await ec2().send(new RevokeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await getEC2Client(sg.region).send(new RevokeSecurityGroupIngressCommand({ GroupId: sg.GroupId, IpPermissions: [perm] }));
 		} else {
-			await ec2().send(new RevokeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await getEC2Client(sg.region).send(new RevokeSecurityGroupEgressCommand({ GroupId: sg.GroupId, IpPermissions: [perm] }));
 		}
 		toast.success('Rule removed');
-		const data = await ec2().send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
-		selectedSg = data.SecurityGroups?.[0] ?? selectedSg;
-		securityGroups = securityGroups.map(sg => sg.GroupId === selectedSg?.GroupId ? selectedSg! : sg);
+		const data = await getEC2Client(sg.region).send(new DescribeSecurityGroupsCommand({ GroupIds: [sg.GroupId] }));
+		const updated: Regioned<SecurityGroup> | undefined = data.SecurityGroups?.[0] ? { ...data.SecurityGroups[0], region: sg.region } : undefined;
+		if (updated) selectedSg = updated;
+		securityGroups = securityGroups.map(g => updated && g.GroupId === updated.GroupId && g.region === updated.region ? updated : g);
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to remove rule');
 	}
@@ -232,74 +257,57 @@ function formatIpPerm(perm: IpPermission): string {
 }
 
 async function loadKeyPairs() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeKeyPairsCommand({}));
-		keyPairs = data.KeyPairs || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load key pairs');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('key pairs',
+		(region) => getEC2Client(region).send(new DescribeKeyPairsCommand({})),
+		(r) => r.KeyPairs ?? [],
+		(items) => keyPairs = items);
 }
 
 async function loadAmis() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeImagesCommand({}));
-		amis = data.Images || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load AMIs');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('AMIs',
+		(region) => getEC2Client(region).send(new DescribeImagesCommand({})),
+		(r) => r.Images ?? [],
+		(items) => amis = items);
 }
 
 async function loadLaunchTemplates() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeLaunchTemplatesCommand({}));
-		launchTemplates = data.LaunchTemplates || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load launch templates');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('launch templates',
+		(region) => getEC2Client(region).send(new DescribeLaunchTemplatesCommand({})),
+		(r) => r.LaunchTemplates ?? [],
+		(items) => launchTemplates = items);
 }
 
 async function loadVpcEndpoints() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeVpcEndpointsCommand({}));
-		vpcEndpoints = data.VpcEndpoints || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load VPC endpoints');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('VPC endpoints',
+		(region) => getEC2Client(region).send(new DescribeVpcEndpointsCommand({})),
+		(r) => r.VpcEndpoints ?? [],
+		(items) => vpcEndpoints = items);
 }
 
 async function loadNetworkAcls() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeNetworkAclsCommand({}));
-		networkAcls = data.NetworkAcls || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load network ACLs');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('network ACLs',
+		(region) => getEC2Client(region).send(new DescribeNetworkAclsCommand({})),
+		(r) => r.NetworkAcls ?? [],
+		(items) => networkAcls = items);
 }
 
 async function loadVpcs() {
 	try {
 		loading = true;
-		const [vpcData, subnetData] = await Promise.all([
-			ec2().send(new DescribeVpcsCommand({})),
-			ec2().send(new DescribeSubnetsCommand({}))
+		const [vpcResult, subnetResult] = await Promise.all([
+			multiRegionList(
+				(region) => getEC2Client(region).send(new DescribeVpcsCommand({})),
+				(r) => r.Vpcs ?? []
+			),
+			multiRegionList(
+				(region) => getEC2Client(region).send(new DescribeSubnetsCommand({})),
+				(r) => r.Subnets ?? []
+			)
 		]);
-		vpcs = vpcData.Vpcs || [];
-		subnets = subnetData.Subnets || [];
+		vpcs = vpcResult.items.map(({ region, item }) => ({ ...item, region }));
+		subnets = subnetResult.items.map(({ region, item }) => ({ ...item, region }));
+		const failed = vpcResult.errors.length + subnetResult.errors.length;
+		if (failed > 0) toast.error(`Failed to load VPCs from ${failed} region(s)`);
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load VPCs');
 	} finally {
@@ -308,75 +316,45 @@ async function loadVpcs() {
 }
 
 async function loadVolumes() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeVolumesCommand({}));
-		volumes = data.Volumes || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load volumes');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('volumes',
+		(region) => getEC2Client(region).send(new DescribeVolumesCommand({})),
+		(r) => r.Volumes ?? [],
+		(items) => volumes = items);
 }
 
 async function loadSnapshots() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeSnapshotsCommand({}));
-		snapshots = data.Snapshots || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load snapshots');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('snapshots',
+		(region) => getEC2Client(region).send(new DescribeSnapshotsCommand({})),
+		(r) => r.Snapshots ?? [],
+		(items) => snapshots = items);
 }
 
 async function loadElasticIPs() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeAddressesCommand({}));
-		elasticIPs = data.Addresses || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load Elastic IPs');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('Elastic IPs',
+		(region) => getEC2Client(region).send(new DescribeAddressesCommand({})),
+		(r) => r.Addresses ?? [],
+		(items) => elasticIPs = items);
 }
 
 async function loadInternetGateways() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeInternetGatewaysCommand({}));
-		internetGateways = data.InternetGateways || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load internet gateways');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('internet gateways',
+		(region) => getEC2Client(region).send(new DescribeInternetGatewaysCommand({})),
+		(r) => r.InternetGateways ?? [],
+		(items) => internetGateways = items);
 }
 
 async function loadRouteTables() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeRouteTablesCommand({}));
-		routeTables = data.RouteTables || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load route tables');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('route tables',
+		(region) => getEC2Client(region).send(new DescribeRouteTablesCommand({})),
+		(r) => r.RouteTables ?? [],
+		(items) => routeTables = items);
 }
 
 async function loadNatGateways() {
-	try {
-		loading = true;
-		const data = await ec2().send(new DescribeNatGatewaysCommand({}));
-		natGateways = data.NatGateways || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load NAT gateways');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('NAT gateways',
+		(region) => getEC2Client(region).send(new DescribeNatGatewaysCommand({})),
+		(r) => r.NatGateways ?? [],
+		(items) => natGateways = items);
 }
 
 const tabLoaders: Record<
@@ -469,9 +447,9 @@ terminated: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
 return map[state] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300';
 }
 
-async function startInstance(id: string) {
+async function startInstance(id: string, region: string) {
 try {
-await ec2().send(new StartInstancesCommand({ InstanceIds: [id] }));
+await getEC2Client(region).send(new StartInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} starting...`);
 await loadInstances();
 } catch (e) {
@@ -479,9 +457,9 @@ toast.error(e instanceof Error ? e.message : 'Failed to start');
 }
 }
 
-async function stopInstance(id: string) {
+async function stopInstance(id: string, region: string) {
 try {
-await ec2().send(new StopInstancesCommand({ InstanceIds: [id] }));
+await getEC2Client(region).send(new StopInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} stopping...`);
 await loadInstances();
 } catch (e) {
@@ -489,19 +467,19 @@ toast.error(e instanceof Error ? e.message : 'Failed to stop');
 }
 }
 
-async function rebootInstance(id: string) {
+async function rebootInstance(id: string, region: string) {
 try {
-await ec2().send(new RebootInstancesCommand({ InstanceIds: [id] }));
+await getEC2Client(region).send(new RebootInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} rebooting...`);
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to reboot');
 }
 }
 
-async function terminateInstance(id: string) {
+async function terminateInstance(id: string, region: string) {
 if (!await confirmDestructive({ title: 'Terminate Instance', message: `Terminate instance ${id}? This cannot be undone.`, confirmLabel: 'Terminate' })) return;
 try {
-await ec2().send(new TerminateInstancesCommand({ InstanceIds: [id] }));
+await getEC2Client(region).send(new TerminateInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} terminated`);
 await loadInstances();
 } catch (e) {
@@ -509,10 +487,10 @@ toast.error(e instanceof Error ? e.message : 'Failed to terminate');
 }
 }
 
-async function deleteLaunchTemplate(id: string) {
+async function deleteLaunchTemplate(id: string, region: string) {
 if (!await confirmDestructive({ title: 'Delete Launch Template', message: `Delete launch template ${id}?`, confirmLabel: 'Delete' })) return;
 try {
-await ec2().send(new DeleteLaunchTemplateCommand({ LaunchTemplateId: id }));
+await getEC2Client(region).send(new DeleteLaunchTemplateCommand({ LaunchTemplateId: id }));
 toast.success('Launch template deleted');
 launchTemplates = []; await loadLaunchTemplates();
 } catch (e) {
@@ -520,10 +498,10 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete launch template')
 }
 }
 
-async function deleteVpcEndpoint(id: string) {
+async function deleteVpcEndpoint(id: string, region: string) {
 if (!await confirmDestructive({ title: 'Delete VPC Endpoint', message: `Delete endpoint ${id}?`, confirmLabel: 'Delete' })) return;
 try {
-await ec2().send(new DeleteVpcEndpointsCommand({ VpcEndpointIds: [id] }));
+await getEC2Client(region).send(new DeleteVpcEndpointsCommand({ VpcEndpointIds: [id] }));
 toast.success('VPC endpoint deleted');
 vpcEndpoints = []; await loadVpcEndpoints();
 } catch (e) {
@@ -531,10 +509,10 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete endpoint');
 }
 }
 
-async function deleteSnapshot(id: string) {
+async function deleteSnapshot(id: string, region: string) {
 if (!await confirmDestructive({ title: 'Delete Snapshot', message: `Delete snapshot ${id}?`, confirmLabel: 'Delete' })) return;
 try {
-await ec2().send(new DeleteSnapshotCommand({ SnapshotId: id }));
+await getEC2Client(region).send(new DeleteSnapshotCommand({ SnapshotId: id }));
 toast.success('Snapshot deleted');
 snapshots = []; await loadSnapshots();
 } catch (e) {
@@ -663,11 +641,13 @@ let filteredNATs = $derived(natGateways.filter(nat =>
 				<Plus class="w-4 h-4" />
 				Launch Instance
 			</button>
+			<WriteRegionHint />
 			{:else if activeTab === 'launchtemplates'}
 			<button onclick={() => showCreateLTModal = true} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" />
 				Create Template
 			</button>
+			<WriteRegionHint />
 			{/if}
 		</div>
 	</div>
@@ -793,7 +773,7 @@ let filteredNATs = $derived(natGateways.filter(nat =>
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
 <div class="flex items-start justify-between mb-4">
 <div>
-<h3 class="font-semibold text-slate-900 dark:text-white text-lg">{getName(instance)}</h3>
+<h3 class="font-semibold text-slate-900 dark:text-white text-lg flex items-center gap-2">{getName(instance)} <RegionChip region={instance.region} /></h3>
 <p class="text-sm text-slate-500 dark:text-slate-400 font-mono">{instance.InstanceId}</p>
 </div>
 <span class={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(instance.State?.Name ?? '')}`}>
@@ -824,14 +804,14 @@ let filteredNATs = $derived(natGateways.filter(nat =>
 </div>
 <div class="flex gap-2 flex-wrap">
 {#if instance.State?.Name === 'stopped'}
-<button onclick={() => startInstance(instance.InstanceId ?? '')} class="px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1">
+<button onclick={() => startInstance(instance.InstanceId ?? '', instance.region)} class="px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1">
 <Play class="w-3 h-3" /> Start
 </button>
 {:else if instance.State?.Name === 'running'}
-<button onclick={() => stopInstance(instance.InstanceId ?? '')} class="px-3 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 flex items-center gap-1">
+<button onclick={() => stopInstance(instance.InstanceId ?? '', instance.region)} class="px-3 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 flex items-center gap-1">
 <Square class="w-3 h-3" /> Stop
 </button>
-<button onclick={() => rebootInstance(instance.InstanceId ?? '')} class="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 flex items-center gap-1">
+<button onclick={() => rebootInstance(instance.InstanceId ?? '', instance.region)} class="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 flex items-center gap-1">
 <RotateCcw class="w-3 h-3" /> Reboot
 </button>
 {/if}
@@ -839,7 +819,7 @@ let filteredNATs = $derived(natGateways.filter(nat =>
 Details
 </button>
 {#if instance.State?.Name !== 'terminated'}
-<button onclick={() => terminateInstance(instance.InstanceId ?? '')} class="ml-auto px-3 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
+<button onclick={() => terminateInstance(instance.InstanceId ?? '', instance.region)} class="ml-auto px-3 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
 <Trash2 class="w-3 h-3" /> Terminate
 </button>
 {/if}
@@ -873,18 +853,20 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Group ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Rules</th>
 </tr>
 </thead>
 <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
 {#each filteredSGs as sg}
-<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer {selectedSg?.GroupId === sg.GroupId ? 'bg-blue-50 dark:bg-blue-900/20' : ''}" onclick={() => { selectedSg = sg; showSgRules = true; }}>
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer {selectedSg && selectedSg.GroupId === sg.GroupId && selectedSg.region === sg.region ? 'bg-blue-50 dark:bg-blue-900/20' : ''}" onclick={() => { selectedSg = sg; showSgRules = true; }}>
 <td class="px-4 py-3">
 <p class="font-medium text-slate-900 dark:text-white">{sg.GroupName}</p>
 {#if sg.Description}<p class="text-xs text-slate-500 dark:text-slate-400">{sg.Description}</p>{/if}
 </td>
 <td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-300">{sg.GroupId}</td>
+<td class="px-4 py-3"><RegionChip region={sg.region} /></td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{sg.VpcId || '—'}</td>
 <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
 <span class="text-green-600 dark:text-green-400">{sg.IpPermissions?.length ?? 0} in</span>
@@ -1011,6 +993,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Key Name</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Key ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Fingerprint</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Created</th>
 </tr>
@@ -1020,6 +1003,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{kp.KeyName}</td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{kp.KeyPairId || '—'}</td>
+<td class="px-4 py-3"><RegionChip region={kp.region} /></td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate">{kp.KeyFingerprint || '—'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{kp.CreateTime ? new Date(kp.CreateTime).toLocaleDateString() : '—'}</td>
 </tr>
@@ -1050,6 +1034,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">AMI ID</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Architecture</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Platform</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">State</th>
@@ -1060,6 +1045,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{ami.ImageId}</td>
 <td class="px-4 py-3 text-slate-900 dark:text-white">{ami.Name || '—'}</td>
+<td class="px-4 py-3"><RegionChip region={ami.region} /></td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{ami.Architecture || 'x86_64'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{ami.Platform || 'Linux'}</td>
 <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">{ami.State || 'available'}</span></td>
@@ -1092,6 +1078,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Template ID</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Default Ver</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Latest Ver</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Created</th>
@@ -1103,11 +1090,12 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{lt.LaunchTemplateId}</td>
 <td class="px-4 py-3 text-slate-900 dark:text-white font-medium">{lt.LaunchTemplateName || '—'}</td>
+<td class="px-4 py-3"><RegionChip region={lt.region} /></td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{lt.DefaultVersionNumber ?? '—'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{lt.LatestVersionNumber ?? '—'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{lt.CreateTime ? new Date(lt.CreateTime).toLocaleDateString() : '—'}</td>
 <td class="px-4 py-3">
-<button onclick={() => deleteLaunchTemplate(lt.LaunchTemplateId ?? '')} class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Delete">
+<button onclick={() => deleteLaunchTemplate(lt.LaunchTemplateId ?? '', lt.region)} class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Delete">
 <Trash2 class="w-4 h-4" />
 </button>
 </td>
@@ -1139,6 +1127,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Endpoint ID</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Service</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Type</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">State</th>
@@ -1150,11 +1139,12 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{ep.VpcEndpointId}</td>
 <td class="px-4 py-3 text-slate-900 dark:text-white text-xs">{ep.ServiceName || '—'}</td>
+<td class="px-4 py-3"><RegionChip region={ep.region} /></td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{ep.VpcEndpointType || '—'}</td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{ep.VpcId || '—'}</td>
 <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">{ep.State || '—'}</span></td>
 <td class="px-4 py-3">
-<button onclick={() => deleteVpcEndpoint(ep.VpcEndpointId ?? '')} class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Delete">
+<button onclick={() => deleteVpcEndpoint(ep.VpcEndpointId ?? '', ep.region)} class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Delete">
 <Trash2 class="w-4 h-4" />
 </button>
 </td>
@@ -1185,6 +1175,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <thead class="bg-slate-50 dark:bg-slate-700">
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">ACL ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Entries</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Associations</th>
@@ -1195,6 +1186,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 {#each filteredNacls as acl}
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{acl.NetworkAclId}</td>
+<td class="px-4 py-3"><RegionChip region={acl.region} /></td>
 <td class="px-4 py-3 text-slate-900 dark:text-white">{acl.VpcId || '—'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{acl.Entries?.length ?? 0}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{acl.Associations?.length ?? 0}</td>
@@ -1233,7 +1225,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
 <div class="flex items-start justify-between mb-3">
 <div>
-<p class="font-mono text-sm font-medium text-slate-900 dark:text-white">{vpc.VpcId}</p>
+<p class="font-mono text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">{vpc.VpcId} <RegionChip region={vpc.region} /></p>
 <p class="text-xs text-slate-500 dark:text-slate-400">{vpc.CidrBlock}</p>
 </div>
 <div class="flex items-center gap-2">
@@ -1244,11 +1236,11 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 </div>
 </div>
 <!-- Subnets for this VPC -->
-{#if subnets.filter(s => s.VpcId === vpc.VpcId).length > 0}
+{#if subnets.filter(s => s.VpcId === vpc.VpcId && s.region === vpc.region).length > 0}
 <div class="mt-2 border-t border-slate-100 dark:border-slate-700 pt-2">
-<p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Subnets ({subnets.filter(s => s.VpcId === vpc.VpcId).length})</p>
+<p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Subnets ({subnets.filter(s => s.VpcId === vpc.VpcId && s.region === vpc.region).length})</p>
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-{#each subnets.filter(s => s.VpcId === vpc.VpcId) as subnet}
+{#each subnets.filter(s => s.VpcId === vpc.VpcId && s.region === vpc.region) as subnet}
 <div class="bg-slate-50 dark:bg-slate-700/50 rounded px-3 py-2 text-xs">
 <p class="font-mono text-slate-900 dark:text-white">{subnet.SubnetId}</p>
 <p class="text-slate-500 dark:text-slate-400">{subnet.CidrBlock} · {subnet.AvailabilityZone}</p>
@@ -1284,6 +1276,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <thead class="bg-slate-50 dark:bg-slate-700">
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Volume ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Size (GiB)</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Type</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">AZ</th>
@@ -1295,6 +1288,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 {#each filteredVolumes as vol}
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{vol.VolumeId}</td>
+<td class="px-4 py-3"><RegionChip region={vol.region} /></td>
 <td class="px-4 py-3 text-slate-900 dark:text-white">{vol.Size ?? '—'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{vol.VolumeType || 'gp2'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{vol.AvailabilityZone || '—'}</td>
@@ -1332,6 +1326,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <thead class="bg-slate-50 dark:bg-slate-700">
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Snapshot ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Volume ID</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Size (GiB)</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Description</th>
@@ -1344,6 +1339,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 {#each filteredSnapshots as snap}
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{snap.SnapshotId}</td>
+<td class="px-4 py-3"><RegionChip region={snap.region} /></td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{snap.VolumeId || '—'}</td>
 <td class="px-4 py-3 text-slate-900 dark:text-white">{snap.VolumeSize ?? '—'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400 max-w-xs truncate">{snap.Description || '—'}</td>
@@ -1352,7 +1348,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 </td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">{snap.StartTime ? new Date(snap.StartTime).toLocaleString() : '—'}</td>
 <td class="px-4 py-3">
-<button onclick={() => deleteSnapshot(snap.SnapshotId ?? '')} class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Delete">
+<button onclick={() => deleteSnapshot(snap.SnapshotId ?? '', snap.region)} class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" title="Delete">
 <Trash2 class="w-4 h-4" />
 </button>
 </td>
@@ -1384,6 +1380,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <thead class="bg-slate-50 dark:bg-slate-700">
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Allocation ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Public IP</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Associated Instance</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Association ID</th>
@@ -1393,6 +1390,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 {#each filteredEIPs as addr}
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{addr.AllocationId || '—'}</td>
+<td class="px-4 py-3"><RegionChip region={addr.region} /></td>
 <td class="px-4 py-3 text-slate-900 dark:text-white font-mono">{addr.PublicIp || '—'}</td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{#if addr.InstanceId}{addr.InstanceId}{:else}<span class="italic text-slate-400">unassociated</span>{/if}</td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{addr.AssociationId || '—'}</td>
@@ -1424,6 +1422,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <thead class="bg-slate-50 dark:bg-slate-700">
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Gateway ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Attached VPC</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">State</th>
 </tr>
@@ -1432,6 +1431,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 {#each filteredIGWs as igw}
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{igw.InternetGatewayId || '—'}</td>
+<td class="px-4 py-3"><RegionChip region={igw.region} /></td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{#if igw.Attachments?.[0]?.VpcId}{igw.Attachments[0].VpcId}{:else}<span class="italic text-slate-400">detached</span>{/if}</td>
 <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs {(igw.Attachments?.length ?? 0) > 0 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}">{(igw.Attachments?.length ?? 0) > 0 ? 'attached' : 'detached'}</span></td>
 </tr>
@@ -1462,6 +1462,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <thead class="bg-slate-50 dark:bg-slate-700">
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Route Table ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Routes</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Associations</th>
@@ -1472,6 +1473,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 {#each filteredRTs as rt}
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{rt.RouteTableId || '—'}</td>
+<td class="px-4 py-3"><RegionChip region={rt.region} /></td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{rt.VpcId || '—'}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{rt.Routes?.length ?? 0}</td>
 <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{rt.Associations?.length ?? 0}</td>
@@ -1504,6 +1506,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <thead class="bg-slate-50 dark:bg-slate-700">
 <tr>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Gateway ID</th>
+<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Subnet</th>
 <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Public IP</th>
@@ -1514,6 +1517,7 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 {#each filteredNATs as nat}
 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{nat.NatGatewayId || '—'}</td>
+<td class="px-4 py-3"><RegionChip region={nat.region} /></td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{nat.VpcId || '—'}</td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{nat.SubnetId || '—'}</td>
 <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{nat.NatGatewayAddresses?.[0]?.PublicIp || '—'}</td>
@@ -1609,14 +1613,14 @@ class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg
 		<!-- Actions -->
 		<div class="flex flex-wrap gap-2">
 			{#if selectedInstance.State?.Name === 'stopped'}
-			<button onclick={() => { startInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1"><Play class="w-3 h-3" /> Start</button>
+			<button onclick={() => { if (selectedInstance) startInstance(selectedInstance.InstanceId ?? '', selectedInstance.region); selectedInstance = null; }} class="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1"><Play class="w-3 h-3" /> Start</button>
 			{/if}
 			{#if selectedInstance.State?.Name === 'running'}
-			<button onclick={() => { stopInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 flex items-center gap-1"><Square class="w-3 h-3" /> Stop</button>
-			<button onclick={() => { rebootInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 flex items-center gap-1"><RotateCcw class="w-3 h-3" /> Reboot</button>
+			<button onclick={() => { if (selectedInstance) stopInstance(selectedInstance.InstanceId ?? '', selectedInstance.region); selectedInstance = null; }} class="px-3 py-1.5 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 flex items-center gap-1"><Square class="w-3 h-3" /> Stop</button>
+			<button onclick={() => { if (selectedInstance) rebootInstance(selectedInstance.InstanceId ?? '', selectedInstance.region); selectedInstance = null; }} class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 flex items-center gap-1"><RotateCcw class="w-3 h-3" /> Reboot</button>
 			{/if}
 			{#if selectedInstance.State?.Name !== 'terminated'}
-			<button onclick={() => { terminateInstance(selectedInstance?.InstanceId ?? ''); selectedInstance = null; }} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1"><Trash2 class="w-3 h-3" /> Terminate</button>
+			<button onclick={() => { if (selectedInstance) terminateInstance(selectedInstance.InstanceId ?? '', selectedInstance.region); selectedInstance = null; }} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1"><Trash2 class="w-3 h-3" /> Terminate</button>
 			{/if}
 		</div>
 
@@ -1670,10 +1674,10 @@ class="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg
 						<span class="font-mono text-slate-500 dark:text-slate-400 ml-2">{sg.GroupId}</span>
 					</div>
 					<button onclick={() => {
-						const target = securityGroups.find(s => s.GroupId === sg.GroupId);
+						const target = securityGroups.find(s => s.GroupId === sg.GroupId && s.region === selectedInstance?.region);
 						if (target) { selectedSg = target; showSgRules = true; }
 						selectedInstance = null;
-						activeTab = 'secgroups';
+						activeTabParam.set('secgroups');
 						if (securityGroups.length === 0) loadSecurityGroups();
 					}} class="text-indigo-500 hover:text-indigo-700 text-xs font-medium">View Rules →</button>
 				</div>

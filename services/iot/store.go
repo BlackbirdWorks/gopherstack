@@ -179,20 +179,10 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Clears every table registered in store_setup.go's registerAllTables
-	// (things, thingTypes, thingGroups, certificates, policies, rules, jobs,
-	// jobExecutions, jobTemplates, billingGroups, topicRuleDestinations,
-	// certificateProviders, roleAliases, domainConfigs, dimensions,
-	// authorizers, scheduledAudits, mitigationActions, securityProfiles,
-	// caCertificates, streams, provTemplates, auditTaskObjects, otaUpdates,
-	// iotPackages, auditSuppressions, auditFindings, v2LoggingLevels,
-	// commands, registrationTasks, auditMitigationTaskObjects,
-	// detectMitigationTasks, activeViolations, fleetMetrics, customMetrics)
-	// in one call instead of one hand-rolled make() per map.
-	//
+	// Clears every table registered in store_setup.go's registerAllTables.
 	// b.shadows is deliberately NOT part of the registry and NOT cleared
-	// here -- see store_setup.go's registerAllTables comment for why this
-	// preserves a pre-existing quirk byte-for-byte.
+	// here — see registerAllTables' comment for why this preserves a
+	// pre-existing quirk byte-for-byte.
 	b.registry.ResetAll()
 
 	b.certificateTransfers = make(map[string]string)
@@ -286,17 +276,10 @@ func cloneThing(t *Thing) *Thing {
 
 // applyAttributePayload returns the attribute map that results from applying
 // an AttributePayload update on top of an existing attribute set, matching
-// AWS IoT's documented UpdateThing/UpdateThingGroup semantics:
-//
-//   - merge unset or false (the default) REPLACES the existing attributes
-//     with the payload's attributes rather than merging them.
-//   - merge true merges the payload into the existing attributes.
-//   - In either mode, an attribute present in the payload with an empty
-//     string value is removed from the result (AWS's documented mechanism
-//     for deleting an attribute via UpdateThing/UpdateThingGroup).
-//   - A nil payload, or a payload with a nil Attributes map (i.e. the
-//     request didn't include an attributes field at all), leaves the
-//     existing attributes untouched.
+// AWS IoT's documented UpdateThing/UpdateThingGroup semantics: merge unset
+// or false REPLACES existing attributes, merge true merges them; either
+// way, a payload attribute with an empty string value deletes it from the
+// result. A nil payload, or one with a nil Attributes map, is a no-op.
 func applyAttributePayload(existing map[string]string, payload *AttributePayload) map[string]string {
 	if payload == nil || payload.Attributes == nil {
 		return existing

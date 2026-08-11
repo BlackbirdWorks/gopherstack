@@ -2,7 +2,7 @@ package cloudwatch
 
 import (
 	"encoding/xml"
-	"math"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,56 +12,66 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-func (h *Handler) putAlarmMuteRuleFromForm(form url.Values, c *echo.Context) error {
-	muteName := form.Get("MuteName")
-	if muteName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
-	}
+// alarmMuteRuleScheduleXML is types.Rule.Schedule flattened onto the query
+// protocol as Rule.Schedule.{Expression,Duration,Timezone} (botocore
+// cloudwatch 2010-08-01 service-2.json shapes Rule/Schedule: default
+// structure-member flattening, no locationName overrides).
+type alarmMuteRuleScheduleXML struct {
+	Expression string `xml:"Expression"`
+	Duration   string `xml:"Duration"`
+	Timezone   string `xml:"Timezone,omitempty"`
+}
 
-	var muteDuration int64
-	if rawDuration := form.Get("MuteDuration"); rawDuration != "" {
-		parsedDuration, err := strconv.ParseInt(rawDuration, 10, 64)
-		if err != nil {
-			return h.xmlError(
-				c,
-				http.StatusBadRequest,
-				"InvalidParameterValue",
-				"MuteDuration must be an integer",
-			)
-		}
-		if parsedDuration < 0 || parsedDuration > math.MaxInt32 {
-			return h.xmlError(
-				c,
-				http.StatusBadRequest,
-				"InvalidParameterValue",
-				"MuteDuration must be between 0 and 2147483647",
-			)
-		}
-		muteDuration = parsedDuration
+type alarmMuteRuleRuleXML struct {
+	Schedule alarmMuteRuleScheduleXML `xml:"Schedule"`
+}
+
+// alarmMuteRuleTargetsXML is types.MuteTargets; AlarmNames is a
+// non-flattened list, so the wire form is
+// MuteTargets.AlarmNames.member.N (shape MuteTargetAlarmNameList has no
+// "flattened" trait).
+type alarmMuteRuleTargetsXML struct {
+	AlarmNames []string `xml:"AlarmNames>member,omitempty"`
+}
+
+func (h *Handler) putAlarmMuteRuleFromForm(form url.Values, c *echo.Context) error {
+	name := form.Get("Name")
+	if name == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
 	}
 
 	rule := &AlarmMuteRule{
-		MuteName:      muteName,
-		Description:   form.Get("Description"),
-		MuteDuration:  int32(muteDuration), //nolint:gosec // bounds checked above (0..MaxInt32)
-		AlarmNames:    parseMemberList(form, "AlarmNames."),
-		MuteStartTime: time.Now().UTC(),
+		Name:        name,
+		Description: form.Get("Description"),
+		Schedule: AlarmMuteRuleSchedule{
+			Expression: form.Get("Rule.Schedule.Expression"),
+			Duration:   form.Get("Rule.Schedule.Duration"),
+			Timezone:   form.Get("Rule.Schedule.Timezone"),
+		},
+		AlarmNames: parseMemberList(form, "MuteTargets.AlarmNames."),
 	}
 
-	if rawStart := form.Get("MuteStartTime"); rawStart != "" {
-		start, err := time.Parse(time.RFC3339, rawStart)
+	if raw := form.Get("StartDate"); raw != "" {
+		start, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			return h.xmlError(
-				c,
-				http.StatusBadRequest,
-				"InvalidParameterValue",
-				"MuteStartTime must be RFC3339",
-			)
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "StartDate must be RFC3339")
 		}
-		rule.MuteStartTime = start.UTC()
+		rule.StartDate = start.UTC()
+	}
+
+	if raw := form.Get("ExpireDate"); raw != "" {
+		expire, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "ExpireDate must be RFC3339")
+		}
+		rule.ExpireDate = expire.UTC()
 	}
 
 	if err := h.Backend.PutAlarmMuteRule(rule); err != nil {
+		if errors.Is(err, ErrValidation) {
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
+
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -83,13 +93,18 @@ func (h *Handler) handlePutAlarmMuteRule(form url.Values, c *echo.Context) error
 }
 
 func (h *Handler) handleDeleteAlarmMuteRule(form url.Values, c *echo.Context) error {
-	muteName := form.Get("MuteName")
-	if muteName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+	name := form.Get("AlarmMuteRuleName")
+	if name == "" {
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmMuteRuleName is required",
+		)
 	}
 
-	if err := h.Backend.DeleteAlarmMuteRule(muteName); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	if err := h.Backend.DeleteAlarmMuteRule(name); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type response struct {
@@ -101,73 +116,105 @@ func (h *Handler) handleDeleteAlarmMuteRule(form url.Values, c *echo.Context) er
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
-func (h *Handler) handleGetAlarmMuteRule(form url.Values, c *echo.Context) error {
-	muteName := form.Get("MuteName")
-	if muteName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
+// alarmMuteRuleResultXML is GetAlarmMuteRuleOutput's XML shape: flat fields,
+// no MuteRule wrapper (botocore service-2.json GetAlarmMuteRuleOutput has no
+// httpPayload member, so members sit directly under the *Result element).
+type alarmMuteRuleResultXML struct {
+	Name                 string                   `xml:"Name"`
+	AlarmMuteRuleArn     string                   `xml:"AlarmMuteRuleArn"`
+	Description          string                   `xml:"Description,omitempty"`
+	Rule                 alarmMuteRuleRuleXML     `xml:"Rule"`
+	MuteTargets          *alarmMuteRuleTargetsXML `xml:"MuteTargets,omitempty"`
+	StartDate            string                   `xml:"StartDate,omitempty"`
+	ExpireDate           string                   `xml:"ExpireDate,omitempty"`
+	Status               string                   `xml:"Status"`
+	MuteType             string                   `xml:"MuteType"`
+	LastUpdatedTimestamp string                   `xml:"LastUpdatedTimestamp"`
+}
+
+func buildAlarmMuteRuleResultXML(rule *AlarmMuteRule) alarmMuteRuleResultXML {
+	now := time.Now().UTC()
+	result := alarmMuteRuleResultXML{
+		Name:             rule.Name,
+		AlarmMuteRuleArn: rule.Arn,
+		Description:      rule.Description,
+		Rule: alarmMuteRuleRuleXML{Schedule: alarmMuteRuleScheduleXML{
+			Expression: rule.Schedule.Expression,
+			Duration:   rule.Schedule.Duration,
+			Timezone:   rule.Schedule.Timezone,
+		}},
+		Status:               rule.Status(now),
+		MuteType:             rule.MuteType(),
+		LastUpdatedTimestamp: rule.LastUpdatedTimestamp.UTC().Format(time.RFC3339),
+	}
+	if len(rule.AlarmNames) > 0 {
+		result.MuteTargets = &alarmMuteRuleTargetsXML{AlarmNames: rule.AlarmNames}
+	}
+	if !rule.StartDate.IsZero() {
+		result.StartDate = rule.StartDate.UTC().Format(time.RFC3339)
+	}
+	if !rule.ExpireDate.IsZero() {
+		result.ExpireDate = rule.ExpireDate.UTC().Format(time.RFC3339)
 	}
 
-	rule, err := h.Backend.GetAlarmMuteRule(muteName)
+	return result
+}
+
+func (h *Handler) handleGetAlarmMuteRule(form url.Values, c *echo.Context) error {
+	name := form.Get("AlarmMuteRuleName")
+	if name == "" {
+		return h.xmlError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValue",
+			"AlarmMuteRuleName is required",
+		)
+	}
+
+	rule, err := h.Backend.GetAlarmMuteRule(name)
 	if err != nil {
 		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
-	type muteRuleXML struct {
-		MuteName      string   `xml:"MuteName"`
-		Description   string   `xml:"Description,omitempty"`
-		CreationTime  string   `xml:"CreationTime"`
-		MuteStartTime string   `xml:"MuteStartTime,omitempty"`
-		AlarmNames    []string `xml:"AlarmNames>member,omitempty"`
-		MuteDuration  int32    `xml:"MuteDuration,omitempty"`
-	}
-	type result struct {
-		MuteRule muteRuleXML `xml:"MuteRule"`
-	}
 	type response struct {
-		XMLName   xml.Name `xml:"GetAlarmMuteRuleResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-		Result    result   `xml:"GetAlarmMuteRuleResult"`
-	}
-
-	mr := muteRuleXML{
-		MuteName:     rule.MuteName,
-		Description:  rule.Description,
-		AlarmNames:   rule.AlarmNames,
-		CreationTime: rule.CreationTime.UTC().Format(time.RFC3339),
-		MuteDuration: rule.MuteDuration,
-	}
-	if !rule.MuteStartTime.IsZero() {
-		mr.MuteStartTime = rule.MuteStartTime.UTC().Format(time.RFC3339)
+		XMLName   xml.Name               `xml:"GetAlarmMuteRuleResponse"`
+		Xmlns     string                 `xml:"xmlns,attr"`
+		RequestID string                 `xml:"ResponseMetadata>RequestId"`
+		Result    alarmMuteRuleResultXML `xml:"GetAlarmMuteRuleResult"`
 	}
 
 	return writeXML(c, response{
 		Xmlns:     cloudwatchNS,
 		RequestID: uuid.New().String(),
-		Result:    result{MuteRule: mr},
+		Result:    buildAlarmMuteRuleResultXML(rule),
 	})
+}
+
+// alarmMuteRuleSummaryXML is types.AlarmMuteRuleSummary's XML shape -- no
+// Name member (service-2.json AlarmMuteRuleSummary carries only
+// AlarmMuteRuleArn, ExpireDate, Status, MuteType, LastUpdatedTimestamp).
+type alarmMuteRuleSummaryXML struct {
+	AlarmMuteRuleArn     string `xml:"AlarmMuteRuleArn"`
+	ExpireDate           string `xml:"ExpireDate,omitempty"`
+	Status               string `xml:"Status"`
+	MuteType             string `xml:"MuteType"`
+	LastUpdatedTimestamp string `xml:"LastUpdatedTimestamp,omitempty"`
 }
 
 func (h *Handler) handleListAlarmMuteRules(form url.Values, c *echo.Context) error {
 	nextToken := form.Get("NextToken")
-	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+	maxResults, _ := strconv.Atoi(form.Get("MaxRecords"))
+	alarmName := form.Get("AlarmName")
+	statuses := parseMemberList(form, "Statuses.")
 
-	p, err := h.Backend.ListAlarmMuteRules(nextToken, maxResults)
+	p, err := h.Backend.ListAlarmMuteRules(nextToken, maxResults, alarmName, statuses)
 	if err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	type muteRuleXML struct {
-		MuteName      string   `xml:"MuteName"`
-		Description   string   `xml:"Description,omitempty"`
-		CreationTime  string   `xml:"CreationTime"`
-		MuteStartTime string   `xml:"MuteStartTime,omitempty"`
-		AlarmNames    []string `xml:"AlarmNames>member,omitempty"`
-		MuteDuration  int32    `xml:"MuteDuration,omitempty"`
-	}
 	type listResult struct {
-		NextToken string        `xml:"NextToken,omitempty"`
-		MuteRules []muteRuleXML `xml:"MuteRules>member"`
+		NextToken              string                    `xml:"NextToken,omitempty"`
+		AlarmMuteRuleSummaries []alarmMuteRuleSummaryXML `xml:"AlarmMuteRuleSummaries>member"`
 	}
 	type response struct {
 		XMLName   xml.Name   `xml:"ListAlarmMuteRulesResponse"`
@@ -176,24 +223,28 @@ func (h *Handler) handleListAlarmMuteRules(form url.Values, c *echo.Context) err
 		Result    listResult `xml:"ListAlarmMuteRulesResult"`
 	}
 
-	members := make([]muteRuleXML, 0, len(p.Data))
+	now := time.Now().UTC()
+	summaries := make([]alarmMuteRuleSummaryXML, 0, len(p.Data))
+
 	for _, rule := range p.Data {
-		mr := muteRuleXML{
-			MuteName:     rule.MuteName,
-			Description:  rule.Description,
-			AlarmNames:   rule.AlarmNames,
-			MuteDuration: rule.MuteDuration,
-			CreationTime: rule.CreationTime.UTC().Format(time.RFC3339),
+		summary := alarmMuteRuleSummaryXML{
+			AlarmMuteRuleArn: rule.Arn,
+			Status:           rule.Status(now),
+			MuteType:         rule.MuteType(),
 		}
-		if !rule.MuteStartTime.IsZero() {
-			mr.MuteStartTime = rule.MuteStartTime.UTC().Format(time.RFC3339)
+		if !rule.ExpireDate.IsZero() {
+			summary.ExpireDate = rule.ExpireDate.UTC().Format(time.RFC3339)
 		}
-		members = append(members, mr)
+		if !rule.LastUpdatedTimestamp.IsZero() {
+			summary.LastUpdatedTimestamp = rule.LastUpdatedTimestamp.UTC().Format(time.RFC3339)
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	return writeXML(c, response{
 		Xmlns:     cloudwatchNS,
 		RequestID: uuid.New().String(),
-		Result:    listResult{MuteRules: members, NextToken: p.Next},
+		Result:    listResult{AlarmMuteRuleSummaries: summaries, NextToken: p.Next},
 	})
 }

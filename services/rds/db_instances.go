@@ -73,6 +73,7 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 	inst := &DBInstance{
 		InstanceCreateTime:               time.Now().UTC(),
 		DBInstanceIdentifier:             id,
+		DBInstanceArn:                    b.rdsARN("db", id),
 		DbiResourceID:                    id,
 		DBInstanceClass:                  instanceClass,
 		DBClusterIdentifier:              opts.DBClusterIdentifier,
@@ -654,6 +655,7 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 		inst := &DBInstance{
 			DBInstanceIdentifier: id,
+			DBInstanceArn:        b.rdsARN("db", id),
 			DbiResourceID:        id,
 			DBInstanceClass:      source.DBInstanceClass,
 			Engine:               source.Engine,
@@ -780,6 +782,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	replica := &DBInstance{
 		DBInstanceIdentifier:              id,
+		DBInstanceArn:                     b.rdsARN("db", id),
 		DbiResourceID:                     id,
 		DBInstanceClass:                   instanceClass,
 		Engine:                            engine,
@@ -984,6 +987,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s
 	}
 	inst := &DBInstance{
 		DBInstanceIdentifier: id,
+		DBInstanceArn:        b.rdsARN("db", id),
 		DBInstanceClass:      dbInstanceClass,
 		Engine:               engine,
 		DBInstanceStatus:     "creating",

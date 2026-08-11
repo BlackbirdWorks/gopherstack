@@ -733,9 +733,12 @@ type BatchUpdateResult struct {
 // (types.UserGroup.ReplicationGroups): the reverse of
 // ReplicationGroup.UserGroupIDs, computed fresh on every response rather
 // than persisted (see userGroupReplicationGroupIDsLocked), matching how
-// User.UserGroupIDs is derived. Note: the real SDK's UserGroup type has NO
-// Description field -- a prior pass invented one and serialized it on the
-// wire; do not re-add it.
+// User.UserGroupIDs is derived. AssignedServerlessCacheIDs mirrors the wire
+// ServerlessCaches field (types.UserGroup.ServerlessCaches) the same way:
+// the reverse of ServerlessCache.UserGroupID (see
+// userGroupServerlessCacheIDsLocked). Note: the real SDK's UserGroup type
+// has NO Description field -- a prior pass invented one and serialized it
+// on the wire; do not re-add it.
 type UserGroup struct {
 	CreatedAt                   time.Time  `json:"createdAt"`
 	Tags                        *tags.Tags `json:"tags,omitempty"`
@@ -745,6 +748,7 @@ type UserGroup struct {
 	Engine                      string     `json:"engine"`
 	UserIDs                     []string   `json:"userIDs,omitempty"`
 	AssignedReplicationGroupIDs []string   `json:"assignedReplicationGroupIDs,omitempty"`
+	AssignedServerlessCacheIDs  []string   `json:"assignedServerlessCacheIDs,omitempty"`
 }
 
 // ReservedCacheNode represents a purchased reserved cache node.

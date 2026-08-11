@@ -13,8 +13,8 @@ import (
 func (h *Handler) handleCreateCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		GitConfig          map[string]string `json:"GitConfig"`
-		Tags               map[string]string `json:"Tags"`
 		CodeRepositoryName string            `json:"CodeRepositoryName"`
+		Tags               []tagObject       `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -25,7 +25,7 @@ func (h *Handler) handleCreateCodeRepository(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: CodeRepositoryName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateCodeRepository(ctx, req.CodeRepositoryName, req.GitConfig, req.Tags)
+	result, err := h.Backend.CreateCodeRepository(ctx, req.CodeRepositoryName, req.GitConfig, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

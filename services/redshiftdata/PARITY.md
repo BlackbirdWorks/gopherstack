@@ -5,30 +5,36 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: redshiftdata
-sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.0   # version audited against
-last_audit_commit: 2b2a22e6d                             # HEAD when this audit began (working tree, uncommitted)
-last_audit_date: 2026-07-25
+sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.4   # version audited against
+last_audit_commit: cf439a0b1                              # HEAD when this audit began (working tree, uncommitted)
+last_audit_date: 2026-08-10
 overall: A            # genuine wire-shape/field gaps found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   ExecuteStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Sets Status=FINISHED synchronously (deterministic mock, acceptable per parity rules).
-    Fixed this pass: Parameters were already stored but never echoed back via
-    DescribeStatement.QueryParameters -- now round-trips. SessionId is now real: accepted
-    on the wire, persisted on Statement, and echoed on ExecuteStatementOutput and every
-    downstream DescribeStatement/ListStatements read, as pure passthrough of whatever the
-    caller supplied (no session-scoped state exists to gate minting a fresh id when absent,
-    see gaps). ClientToken/SessionKeepAliveSeconds now accepted on the wire (previously not
-    even unmarshalled) but intentionally inert -- see gaps. DbGroups still not returned
-    (optional field, gap).}
+    Fixed this pass: (1) ClientToken is now real idempotency, not just accepted-and-dropped
+    -- a retried request with the same ClientToken (scoped by op+region) replays the
+    original statement Id instead of creating a second statement (idempotency.go), matching
+    the "ensure the idempotency of the request" doc comment and the SDK client's
+    auto-generation of a token when the caller omits one (api_op_ExecuteStatement.go);
+    follows the identical precedent in services/scheduler/idempotency.go. (2) Database was
+    unconditionally required (ValidationException if absent) -- more restrictive than real
+    AWS: ExecuteStatementInput.Database's doc comment says only "required when
+    authenticating using either Secrets Manager or temporary credentials" (conditional, not
+    a hard trait), and validateOpExecuteStatementInput has no Database check at all (unlike
+    ListDatabasesInput/ListSchemasInput/ListTablesInput/DescribeTableInput, which DO have
+    "This member is required" + a matching validator check). Requirement removed to match.
+    SessionId remains pure passthrough (no session-scoped state exists to gate minting a
+    fresh id when absent, see gaps). SessionKeepAliveSeconds remains accepted-but-inert --
+    see gaps. DbGroups still not returned (optional field, gap).}
   BatchExecuteStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     QueryString=Sqls[0] matches AWS; sub-statements built with fixed HasResultSet=false
-    (AWS doesn't run real SQL so this is a simplification, see gaps). Fixed this pass: the
-    real BatchExecuteStatementInput.Parameters field (shared across all SQL statements in
-    the batch) was not unmarshalled from the request body at all -- every parameter a batch
-    caller sent was silently dropped. Now parsed, stored, and echoed via
-    DescribeStatement.QueryParameters, matching ExecuteStatement. SessionId/ClientToken/
+    (AWS doesn't run real SQL so this is a simplification, see gaps). Fixed this pass:
+    ClientToken idempotency and Database-required relaxation, identical treatment and
+    identical SDK-source citations as ExecuteStatement above (BatchExecuteStatementInput's
+    Database/ClientToken doc comments and validator are the same shape). SessionId/
     SessionKeepAliveSeconds: same treatment as ExecuteStatement, see above.}
   DescribeStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Fixed this pass: QueryParameters was never emitted (dropped whatever Parameters the
@@ -38,7 +44,17 @@ ops:
     Prior-pass fixes retained: Duration in nanoseconds, SubStatements RedshiftQueryId=0.}
   GetStatementResult: {wire: ok, errors: ok, state: ok, persist: n/a, note: "unchanged this pass; ColumnMetadata key length / Records stringValue union previously field-diffed correct. Records/ColumnMetadata are deterministic mock data (acceptable, no real query engine)"}
   GetStatementResultV2: {wire: ok, errors: ok, state: ok, persist: n/a, note: "unchanged this pass; Records []{CSVRecords} union / columnSize->length previously field-diffed correct"}
-  CancelStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass; always errors with ErrTerminalState in practice because ExecuteStatement/BatchExecuteStatement finish synchronously -- see gaps"}
+  CancelStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
+    Re-verified this pass (gopherstack-ilos): the handler already validates fully before
+    mutating -- empty Id -> errMissingID, unknown Id -> ErrNotFound (ResourceNotFoundException,
+    confirmed both TestCancelStatement_NotFound and the not-found case are already covered),
+    only THEN checks terminal state and mutates. There is no missing-precondition bug here.
+    It always errors with ErrTerminalState (ValidationException) in practice because
+    ExecuteStatement/BatchExecuteStatement finish synchronously to FINISHED within the same
+    call, so no statement is ever observed running by the time a client could call
+    CancelStatement -- this is the correct, honest consequence of the synchronous-completion
+    design, not a bug, and matches the real API's own doc comment ("Cancels a running query.
+    To be canceled, a query must be running.", api_op_CancelStatement.go). See gaps.}
   ListStatements: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Fixed this pass: list items were missing QueryStrings (batch statements), QueryParameters,
     and SessionId, all three real StatementData members -- now conditionally included
@@ -125,14 +141,14 @@ gaps:
   - CancelStatement can never succeed against this backend: ExecuteStatement/BatchExecuteStatement set Status=FINISHED synchronously, so by the time a client calls CancelStatement the statement is always already terminal and CancelStatement always returns ErrTerminalState (ValidationException). This matches real AWS semantics ("To be canceled, a query must be running") given the backend's synchronous-completion design. Not fixed this pass -- would require modeling async statement execution (a state machine with a delay before reaching FINISHED), which is a larger behavioral change beyond a wire-shape/bug-fix pass.
   - ValidateConnectionTarget (models.go) enforces "exactly one of ClusterIdentifier/WorkgroupName" per real AWS constraints but is never called from any handler. ExecuteStatement/BatchExecuteStatement handlers are intentionally permissive (see TestHandler_ExecuteStatement_AllowsBothClusterAndWorkgroup / AllowsNeitherClusterNorWorkgroup in handler_statements_validation_test.go) -- this looks like a deliberate relaxation for ease of testing rather than an oversight, so left as-is. Re-review if strict AWS-parity validation becomes a priority.
   - DescribeStatement does not return RedshiftPid (optional field, always absent instead of 0); DbGroups not returned by ExecuteStatement/BatchExecuteStatement. Both are optional wire fields the real client zero-values when absent, so not a functional gap, just lower fidelity -- no group/pid registry exists in this mock to source real values from.
-  - ClientToken and SessionKeepAliveSeconds are accepted on ExecuteStatement/BatchExecuteStatement's wire (unmarshalled into the request struct) but are not behaviorally significant. ClientToken idempotency (returning the same statement for a retried request with the same token) and session keep-alive/expiry both require modeling request-retry dedup and time-bounded session lifetimes this in-memory backend does not have; inventing either risks fabricating undocumented AWS behavior not verifiable without a live cluster (same reasoning as rdsdata's typeHint gap). Relatedly, this mock does NOT mint a fresh SessionId when SessionKeepAliveSeconds>0 and no SessionId is supplied (real AWS would start a new session and return its id) -- SessionId here is pure passthrough of whatever the caller already provided, since there's no session-scoped state (temp tables, transaction visibility, etc.) that a minted id would actually gate.
-  - RoleLevel is parsed on ListStatements' request body but never applied as a filter: real semantics are "true (default) = all statements this IAM role has run, false = only this IAM session's statements," but this mock has no per-caller-identity or per-session model of statement ownership, so there is no signal to filter on. All statements are visible regardless of RoleLevel, matching the "true" default in effect at all times.
-  - ActiveStatementsExceededException, ActiveSessionsExceededException, DatabaseConnectionException, ExecuteStatementException, BatchExecuteStatementException, and QueryTimeoutException are all real modeled exception types in aws-sdk-go-v2/service/redshiftdata/types/errors.go but are unreachable by design in this backend: ExecuteStatement/BatchExecuteStatement always complete synchronously and successfully against in-memory demo data (no real cluster connection to fail, no concurrent-statement or concurrent-session limit tracked). Deliberately NOT implemented this pass: inventing trigger conditions (e.g. an arbitrary "N active statements" cap, or making some ClusterIdentifier/SecretArn values fail with DatabaseConnectionException) would fabricate gopherstack-only behavior with no real-AWS trigger to field-diff against -- consistent with rdsdata's precedent of leaving unreachable-by-design SDK exceptions undone rather than guessing.
+  - SessionKeepAliveSeconds is accepted on ExecuteStatement/BatchExecuteStatement's wire (unmarshalled into the request struct) but is accepted-then-silently-dropped: it never reaches the backend call and has no effect. Session keep-alive/expiry requires modeling time-bounded session lifetimes this in-memory backend does not have; inventing it risks fabricating undocumented AWS semantics not verifiable without a live cluster (same reasoning as rdsdata's typeHint gap). Relatedly, this mock does NOT mint a fresh SessionId when SessionKeepAliveSeconds>0 and no SessionId is supplied (real AWS would start a new session and return its id) -- SessionId here is pure passthrough of whatever the caller already provided, since there's no session-scoped state (temp tables, transaction visibility, etc.) that a minted id would actually gate. (ClientToken was in this same category through last pass -- now fixed, see ExecuteStatement/BatchExecuteStatement rows and idempotency.go.)
+  - RoleLevel is parsed on ListStatements' and ListSessions' request bodies but never applied as a filter (accepted-then-silently-dropped: decoded into the request struct but never placed on ListStatementsFilter/ListSessionsFilter, so it never reaches the backend at all): real semantics are "true (default) = all statements/sessions this IAM role has run, false = only this IAM session's," but this mock has no per-caller-identity or per-IAM-session model, so there is no signal to filter on. All statements/sessions are visible regardless of RoleLevel, matching the "true" default in effect at all times.
+  - ActiveStatementsExceededException/ActiveSessionsExceededException/ExecuteStatementException (modeled on ExecuteStatement's error deserializer) and BatchExecuteStatementException (BatchExecuteStatement's), DatabaseConnectionException/QueryTimeoutException (CancelStatement's), and ActiveWaitingRequestsExceededException (DescribeStatement's/GetStatementResult's/GetStatementResultV2's -- previously missing from this gap entry entirely) are all real modeled exception types, confirmed this pass by grepping each operation's awsAwsjson11_deserializeOpError<Op> function in aws-sdk-go-v2/service/redshiftdata@v1.43.4's deserializers.go for its strings.EqualFold(...) cases (NOT literal `case "X":` labels). All are unreachable by design in this backend: ExecuteStatement/BatchExecuteStatement always complete synchronously and successfully against in-memory demo data (no real cluster connection to fail, no concurrent-statement/session limit tracked, no waiting-request queue). Deliberately NOT implemented this pass: inventing trigger conditions (e.g. an arbitrary "N active statements" cap, or making some ClusterIdentifier/SecretArn values fail with DatabaseConnectionException) would fabricate gopherstack-only behavior with no real-AWS trigger to field-diff against -- consistent with rdsdata's precedent of leaving unreachable-by-design SDK exceptions undone rather than guessing.
   - ListStatements items include several fields (ClusterIdentifier, WorkgroupName, Database, DbUser, HasResultSet, Duration) that don't exist on the real StatementData shape at all. The AWS SDK's JSON deserializer silently discards unknown keys, so this is harmless today, but flagged in case a future SDK version repurposes one of those key names.
   - ListSessions (new this pass) never returns Status=BUSY or Status=CLOSED, and never returns SessionAliveSeconds/SessionTtl/CurrentStatementId at all: this backend executes every statement synchronously to a terminal state (no mid-flight window to observe BUSY/CurrentStatementId) and does not track SessionKeepAliveSeconds expiry (no SessionTtl to compare "now" against, so CLOSED can never be derived). Modeling any of these would require the same async-execution and keep-alive state machine already flagged as out-of-scope for CancelStatement/ClientToken/SessionKeepAliveSeconds above -- not invented here for the same reason. ListSessions also can't see sessions that were only ever referenced via SessionKeepAliveSeconds without an explicit SessionId (this mock doesn't mint one, see ExecuteStatement's note).
 deferred:
   - none
-leaks: {status: clean, note: "Janitor uses pkgs/worker.Group with TaskTimeout bounding; ticker stops cleanly via ctx.Done(); ring buffer + statements map bounded by maxStatementHistory and EvictExpiredStatements TTL sweep. Unchanged this pass -- no new goroutines/tickers/locks introduced (SessionID/Parameters changes are pure data threaded through the existing lock scopes in statements.go)."}
+leaks: {status: clean, note: "Janitor uses pkgs/worker.Group with TaskTimeout bounding; ticker stops cleanly via ctx.Done(); ring buffer + statements map bounded by maxStatementHistory and EvictExpiredStatements TTL sweep. New state this pass (Handler.idempotency, a safemap.Map) introduces no goroutine/ticker -- it's plain in-memory data, TTL-based lazy eviction on lookup (same pattern as services/scheduler/idempotency.go), and cleared on Handler.Reset."}
 ---
 
 ## Notes
@@ -142,7 +158,65 @@ the exact target prefix against `aws-sdk-go-v2/service/redshiftdata@v1.41.0`'s
 `serializers.go` (`httpBindingEncoder.SetHeader("X-Amz-Target").String("RedshiftData.<Op>")`)
 -- `redshiftDataTargetPrefix = "RedshiftData."` in handler.go matches exactly.
 
-### This pass (2026-07-25): AWS SDK bump to v1.43.0 exposed one new operation,
+### This pass (2026-08-10, gopherstack-ilos): worked the recorded follow-up ticket.
+
+`sdk_module` was stale (recorded v1.43.0, `go.mod` pins v1.43.4) -- diffed the two module
+cache directories (`diff -rq`) and confirmed only `CHANGELOG.md`/`go.mod`/`go.sum`/
+`go_module_metadata.go` differ (v1.43.1-.4 were all dependency-only bumps per their
+CHANGELOG entries, no operation/type changes), so the substance of the prior audit still
+holds; corrected the version citation here, in README.md, and in handler_sessions.go's
+doc comment.
+
+Verdicts on the three recorded items:
+1. **ClientToken/SessionKeepAliveSeconds/RoleLevel**: ClientToken was accepted-then-
+   silently-dropped (decoded, never passed to the backend call) -- fixed for real, see the
+   ExecuteStatement/BatchExecuteStatement rows and new `idempotency.go`. SessionKeepAliveSeconds
+   and RoleLevel remain accepted-then-silently-dropped (RoleLevel is decoded but never even
+   placed on the filter struct) -- both genuinely require modeling state (session TTL,
+   per-IAM-session identity) this backend does not have; not invented, see gaps.
+2. **CancelStatement**: re-tested the framing. It already validates fully before mutating
+   (empty Id, not-found Id, terminal-state Id are all rejected before any write) and already
+   rejects a statement ID that does not exist with ResourceNotFoundException
+   (`TestCancelStatement_NotFound`, pre-existing and passing). There was no missing
+   precondition to fix. It always errors in practice purely because
+   ExecuteStatement/BatchExecuteStatement complete synchronously to FINISHED, so no statement
+   is ever observably running -- an honest structural consequence, not a bug, and it matches
+   real AWS's own doc comment ("To be canceled, a query must be running").
+3. **ActiveStatements/Sessions/DatabaseConnection exceptions**: confirmed via
+   `strings.EqualFold` (not literal `case` labels) in each operation's
+   `awsAwsjson11_deserializeOpError<Op>` in `deserializers.go` that these ARE real,
+   correctly-attributed modeled exceptions (ActiveStatementsExceededException/
+   ActiveSessionsExceededException/ExecuteStatementException on ExecuteStatement,
+   BatchExecuteStatementException on BatchExecuteStatement, DatabaseConnectionException/
+   QueryTimeoutException on CancelStatement, and ActiveWaitingRequestsExceededException --
+   previously undocumented here at all -- on DescribeStatement/GetStatementResult/
+   GetStatementResultV2). All are unreachable by design (no concurrency/connection/queue
+   modeling in this backend) and were left unimplemented rather than invented triggers --
+   see gaps for the full reasoning.
+
+Sweep fix beyond the three recorded items: **Database was unconditionally required on
+ExecuteStatement/BatchExecuteStatement (ValidationException if absent), more restrictive
+than real AWS.** `validateOpExecuteStatementInput`/`validateOpBatchExecuteStatementInput`
+in `validators.go` have no Database check, and the field's doc comment says only
+"required when authenticating using either Secrets Manager or temporary credentials" --
+unlike `ListDatabasesInput`/`ListSchemasInput`/`ListTablesInput`/`DescribeTableInput`,
+whose Database members carry "This member is required" AND a matching
+`smithy.NewErrParamRequired("Database")` validator check. Removed the requirement from
+`(*InMemoryBackend).ExecuteStatement`/`BatchExecuteStatement`; the two pre-existing tests
+that locked in the wrong (over-strict) behavior,
+`TestExecuteStatement_DatabaseRequired`/`TestBatchExecuteStatement_DatabaseRequired`, were
+rewritten as `TestExecuteStatement_DatabaseOptional`/`TestBatchExecuteStatement_DatabaseOptional`
+asserting the correct 200 response.
+
+ClientToken idempotency: confirmed the pre-fix bug first (`TestExecuteStatement_ClientToken_ReplaysOnRetry`
+failed with two distinct statement Ids from one ClientToken before the fix). Implemented a
+`safemap.Map[string, idempotentStatement]` cache on `Handler`, keyed by
+`op:region:clientToken`, with a 5-minute TTL matching the identical precedent in
+`services/scheduler/idempotency.go`. Not persisted (matches scheduler: cleared on `Reset()`,
+not part of `backendSnapshot` -- it's a retry-dedup cache, not backend state). No snapshot
+version bump needed.
+
+### Prior pass (2026-07-25): AWS SDK bump to v1.43.0 exposed one new operation,
 
 `ListSessions`, which `TestSDKCompleteness` flagged as unhandled. Implemented for real
 (not added to a `notImplemented` list): see the `ListSessions` row above for the full

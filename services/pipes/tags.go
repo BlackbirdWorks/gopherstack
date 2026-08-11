@@ -58,6 +58,35 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 	return result, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every pipe ARN, across every region, that currently has at
+// least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, table := range b.pipes {
+		table.Range(func(p *Pipe) bool {
+			if len(p.Tags) > 0 {
+				result := make(map[string]string, len(p.Tags))
+				maps.Copy(result, p.Tags)
+				out = append(out, TaggedEntry{ARN: p.ARN, Tags: result})
+			}
+
+			return true
+		})
+	}
+
+	return out
+}
+
 // pipeByARN looks up a pipe by ARN within region via the pipesByARN secondary
 // index, returning (nil, false) if no pipe in that region has that ARN. ARNs
 // are unique per pipe, so the index group has at most one entry.

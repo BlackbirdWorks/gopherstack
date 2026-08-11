@@ -1,21 +1,5 @@
 package swf
 
-import "slices"
-
-// DecisionHandlerTypes returns the sorted set of DecisionType strings the
-// decision dispatch table (decision_tasks.go's decisionHandlers) routes to a
-// handler, for a table-driven test asserting every SWF decision type is
-// covered.
-func DecisionHandlerTypes() []string {
-	types := make([]string, 0, len(decisionHandlers()))
-	for t := range decisionHandlers() {
-		types = append(types, t)
-	}
-	slices.Sort(types)
-
-	return types
-}
-
 // DomainCount returns the number of domains in the backend.
 func DomainCount(b *InMemoryBackend) int {
 	b.mu.RLock("DomainCount")

@@ -93,11 +93,8 @@ func Test_ListRunBatches_UsesMaxItemsNotMaxResultsQueryParam(t *testing.T) {
 	h := newTestHandler(t)
 
 	for i := range 3 {
-		rec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-			"workflowId": "wf123",
-			"roleArn":    "arn:aws:iam::000000000000:role/role",
-			"name":       "batch-" + string(rune('a'+i)),
-		})
+		rec := doRequest(t, h, http.MethodPost, "/runBatch",
+			startRunBatchBody("batch-"+string(rune('a'+i)), "wf123"))
 		require.Equal(t, http.StatusCreated, rec.Code)
 	}
 

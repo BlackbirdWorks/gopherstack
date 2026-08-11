@@ -23,41 +23,34 @@ import (
 // transitions -- all cross-map transactions, so the invariant boundary is
 // the whole backend (see .claude/memories/pkgs-catalog.md's locking rule).
 type InMemoryBackend struct {
-	globalNetworks   *store.Table[GlobalNetwork]
-	sites            *store.Table[Site]
-	devices          *store.Table[Device]
-	links            *store.Table[Link]
-	linkAssociations *store.Table[LinkAssociation]
-	connections      *store.Table[Connection]
-
+	ec2Resolver                           EC2Resolver
+	dxResolver                            DirectConnectResolver
+	routingPolicyLabels                   *store.Table[AttachmentRoutingPolicyLabel]
+	registry                              *store.Registry
+	linkAssociations                      *store.Table[LinkAssociation]
+	connections                           *store.Table[Connection]
 	customerGatewayAssociations           *store.Table[CustomerGatewayAssociation]
 	transitGatewayRegistrations           *store.Table[TransitGatewayRegistration]
 	transitGatewayConnectPeerAssociations *store.Table[TransitGatewayConnectPeerAssociation]
 	connectPeerAssociations               *store.Table[ConnectPeerAssociation]
-
-	connectPeers *store.Table[ConnectPeer]
-
-	coreNetworks        *store.Table[CoreNetwork]
-	policyHistories     *store.Table[CoreNetworkPolicyHistory]
-	prefixListAssocs    *store.Table[CoreNetworkPrefixListAssociation]
-	routingPolicyLabels *store.Table[AttachmentRoutingPolicyLabel]
-
-	attachments *store.Table[Attachment]
-	peerings    *store.Table[Peering]
-
-	routeAnalyses *store.Table[RouteAnalysis]
-
-	resourceMetadata *store.Table[networkResourceMetadata]
-	resourcePolicies *store.Table[resourcePolicy]
-
-	orgStatus *organizationStatus
-
-	registry *store.Registry
-
-	mu        *lockmetrics.RWMutex
-	work      *worker.Group
-	accountID string
-	region    string
+	connectPeers                          *store.Table[ConnectPeer]
+	coreNetworks                          *store.Table[CoreNetwork]
+	policyHistories                       *store.Table[CoreNetworkPolicyHistory]
+	prefixListAssocs                      *store.Table[CoreNetworkPrefixListAssociation]
+	links                                 *store.Table[Link]
+	sites                                 *store.Table[Site]
+	orgStatus                             *organizationStatus
+	routeAnalyses                         *store.Table[RouteAnalysis]
+	resourceMetadata                      *store.Table[networkResourceMetadata]
+	resourcePolicies                      *store.Table[resourcePolicy]
+	peerings                              *store.Table[Peering]
+	globalNetworks                        *store.Table[GlobalNetwork]
+	mu                                    *lockmetrics.RWMutex
+	work                                  *worker.Group
+	attachments                           *store.Table[Attachment]
+	devices                               *store.Table[Device]
+	region                                string
+	accountID                             string
 }
 
 // NewInMemoryBackend creates a new in-memory AWS Network Manager backend.
@@ -73,6 +66,27 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 	registerAllTables(b)
 
 	return b
+}
+
+// SetEC2Resolver wires the backend to validate cross-service ARNs against
+// the real services/ec2 backend -- see EC2Resolver's doc comment. Called
+// from cli.go's wireNetworkManagerEC2.
+func (b *InMemoryBackend) SetEC2Resolver(r EC2Resolver) {
+	b.mu.Lock("SetEC2Resolver")
+	defer b.mu.Unlock()
+
+	b.ec2Resolver = r
+}
+
+// SetDirectConnectResolver wires the backend to validate
+// DirectConnectGatewayArn against the real services/directconnect backend
+// -- see DirectConnectResolver's doc comment. Called from cli.go's
+// wireNetworkManagerDirectConnect.
+func (b *InMemoryBackend) SetDirectConnectResolver(r DirectConnectResolver) {
+	b.mu.Lock("SetDirectConnectResolver")
+	defer b.mu.Unlock()
+
+	b.dxResolver = r
 }
 
 // Region returns the AWS region this backend is configured for.

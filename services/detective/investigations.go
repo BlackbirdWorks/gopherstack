@@ -23,6 +23,21 @@ const (
 	indicatorRelatedFindingGroup = "RELATED_FINDING_GROUP"
 )
 
+// validIndicatorTypes is the real IndicatorType enum (botocore
+// detective/2018-10-26 service-2.json shapes.IndicatorType) -- ListIndicators
+// documents ValidationException in its error set, so a filter value outside
+// this set must be rejected, not silently filtered to an empty result.
+var validIndicatorTypes = map[string]bool{ //nolint:gochecknoglobals // static enum lookup table, never mutated.
+	indicatorImpossibleTravel:    true,
+	indicatorFlaggedIPAddress:    true,
+	indicatorNewGeolocation:      true,
+	indicatorNewASO:              true,
+	indicatorNewUserAgent:        true,
+	indicatorTTPObserved:         true,
+	indicatorRelatedFinding:      true,
+	indicatorRelatedFindingGroup: true,
+}
+
 // builtInIndicators returns a deterministic set of indicators for an investigation.
 // Real Detective derives indicators from VPC Flow Logs, CloudTrail, and GuardDuty.
 // The emulator generates a fixed representative set seeded by the investigation ID
@@ -271,6 +286,10 @@ func (b *InMemoryBackend) ListIndicators(
 	maxResults int32,
 	nextToken string,
 ) ([]*Indicator, string, error) {
+	if indicatorType != "" && !validIndicatorTypes[indicatorType] {
+		return nil, "", fmt.Errorf("%w: invalid IndicatorType %q", ErrValidation, indicatorType)
+	}
+
 	b.mu.RLock("ListIndicators")
 	defer b.mu.RUnlock()
 

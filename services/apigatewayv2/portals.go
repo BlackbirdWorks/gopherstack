@@ -15,10 +15,11 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 
 	id := randomID()
 	portal := &Portal{
-		PortalID: id,
-		LogoURI:  input.LogoURI,
-		Tags:     copyTags(input.Tags),
-		Status:   "ACTIVE",
+		PortalID:  id,
+		PortalArn: "arn:aws:apigateway:" + defaultRegion + "::/portals/" + id,
+		LogoURI:   input.LogoURI,
+		Tags:      copyTags(input.Tags),
+		Status:    "ACTIVE",
 	}
 
 	b.portals.Put(portal)
@@ -39,10 +40,11 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 
 	id := randomID()
 	product := &PortalProduct{
-		PortalProductID: id,
-		DisplayName:     input.DisplayName,
-		Description:     input.Description,
-		Tags:            copyTags(input.Tags),
+		PortalProductID:  id,
+		PortalProductArn: "arn:aws:apigateway:" + defaultRegion + "::/portalproducts/" + id,
+		DisplayName:      input.DisplayName,
+		Description:      input.Description,
+		Tags:             copyTags(input.Tags),
 	}
 
 	b.portalProducts.Put(product)

@@ -4,27 +4,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/backup/types"
 )
 
-// validVaultEvents is the canonical set of AWS Backup vault notification events.
-var validVaultEvents = map[string]struct{}{ //nolint:gochecknoglobals // package-level lookup table
-	"BACKUP_JOB_STARTED":       {},
-	"BACKUP_JOB_COMPLETED":     {},
-	"BACKUP_JOB_SUCCESSFUL":    {},
-	"BACKUP_JOB_FAILED":        {},
-	"BACKUP_JOB_EXPIRED":       {},
-	"RESTORE_JOB_STARTED":      {},
-	"RESTORE_JOB_COMPLETED":    {},
-	"RESTORE_JOB_SUCCESSFUL":   {},
-	"RESTORE_JOB_FAILED":       {},
-	"COPY_JOB_STARTED":         {},
-	"COPY_JOB_SUCCESSFUL":      {},
-	"COPY_JOB_FAILURE":         {},
-	"RECOVERY_POINT_MODIFIED":  {},
-	"BACKUP_PLAN_CREATED":      {},
-	"BACKUP_PLAN_MODIFIED":     {},
-	"S3_BACKUP_OBJECT_FAILED":  {},
-	"S3_RESTORE_OBJECT_FAILED": {},
+// isValidVaultEvent derives its answer from types.BackupVaultEvent.Values()
+// so it cannot drift from the real enum -- the previous hand-copied list
+// misspelled COPY_JOB_FAILED as "COPY_JOB_FAILURE" and was missing 7 newer
+// values (CONTINUOUS_BACKUP_INTERRUPTED, the RECOVERY_POINT_INDEX* trio, and
+// the three EKS_* events).
+func isValidVaultEvent(event string) bool {
+	for _, v := range sdktypes.BackupVaultEvent("").Values() {
+		if string(v) == event {
+			return true
+		}
+	}
+
+	return false
 }
 
 // PutBackupVaultAccessPolicy sets an access policy for a vault.
@@ -165,7 +161,7 @@ func (b *InMemoryBackend) PutBackupVaultNotifications(
 	}
 
 	for _, ev := range cfg.BackupVaultEvents {
-		if _, valid := validVaultEvents[ev]; !valid {
+		if !isValidVaultEvent(ev) {
 			return fmt.Errorf(
 				"%w: invalid BackupVaultEvent %q; must be one of the allowed event types",
 				ErrValidation,

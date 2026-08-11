@@ -112,15 +112,15 @@ func TestTGWPeripherals_PolicyTableAssociations(t *testing.T) {
 	assert.Empty(t, bk.GetTransitGatewayPolicyTableAssociations(pt.TransitGatewayPolicyTableID))
 }
 
-func TestTGWPeripherals_PolicyTableEntriesAlwaysEmpty(t *testing.T) {
+func TestTGWPeripherals_PolicyTableEntriesValidation(t *testing.T) {
 	t.Parallel()
 
 	bk := newTestBackend()
 
-	err := bk.GetTransitGatewayPolicyTableEntries("")
+	_, err := bk.GetTransitGatewayPolicyTableEntries("")
 	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
 
-	err = bk.GetTransitGatewayPolicyTableEntries("tgw-ptb-nonexistent")
+	_, err = bk.GetTransitGatewayPolicyTableEntries("tgw-ptb-nonexistent")
 	require.ErrorIs(t, err, ec2.ErrTGWPolicyTableNotFound)
 
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
@@ -129,7 +129,215 @@ func TestTGWPeripherals_PolicyTableEntriesAlwaysEmpty(t *testing.T) {
 	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, bk.GetTransitGatewayPolicyTableEntries(pt.TransitGatewayPolicyTableID))
+	entries, err := bk.GetTransitGatewayPolicyTableEntries(pt.TransitGatewayPolicyTableID)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestTGWPeripherals_PolicyTableEntryLifecycle(t *testing.T) {
+	t.Parallel()
+
+	bk := newTestBackend()
+
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
+	require.NoError(t, err)
+
+	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
+	require.NoError(t, err)
+
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	require.NoError(t, err)
+
+	otherRT, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	require.NoError(t, err)
+
+	// Missing/invalid required fields.
+	_, err = bk.CreateTransitGatewayPolicyTableEntry(
+		"", &ec2.TransitGatewayPolicyTableEntry{PolicyRuleNumber: 100, TargetRouteTableID: rt.RouteTableID},
+	)
+	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
+
+	_, err = bk.CreateTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		&ec2.TransitGatewayPolicyTableEntry{TargetRouteTableID: rt.RouteTableID},
+	)
+	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
+
+	_, err = bk.CreateTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		&ec2.TransitGatewayPolicyTableEntry{PolicyRuleNumber: 100},
+	)
+	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
+
+	// Unknown policy table / unknown target route table.
+	_, err = bk.CreateTransitGatewayPolicyTableEntry(
+		"tgw-ptb-nonexistent",
+		&ec2.TransitGatewayPolicyTableEntry{PolicyRuleNumber: 100, TargetRouteTableID: rt.RouteTableID},
+	)
+	require.ErrorIs(t, err, ec2.ErrTGWPolicyTableNotFound)
+
+	_, err = bk.CreateTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		&ec2.TransitGatewayPolicyTableEntry{PolicyRuleNumber: 100, TargetRouteTableID: "tgw-rtb-nonexistent"},
+	)
+	require.ErrorIs(t, err, ec2.ErrTGWRouteTableNotFound)
+
+	// Create.
+	entry, err := bk.CreateTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		&ec2.TransitGatewayPolicyTableEntry{
+			PolicyRuleNumber:     100,
+			TargetRouteTableID:   rt.RouteTableID,
+			SourceCidrBlock:      "10.0.0.0/16",
+			DestinationCidrBlock: "10.1.0.0/16",
+			Protocol:             "6",
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "active", entry.State)
+	assert.Equal(t, pt.TransitGatewayPolicyTableID, entry.TransitGatewayPolicyTableID)
+
+	// Visible via Describe/Get.
+	entries, err := bk.GetTransitGatewayPolicyTableEntries(pt.TransitGatewayPolicyTableID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "10.0.0.0/16", entries[0].SourceCidrBlock)
+
+	// Duplicate rule number on the same table overwrites (Put is keyed by
+	// table+rule number, matching real AWS "one entry per rule number").
+	_, err = bk.CreateTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		&ec2.TransitGatewayPolicyTableEntry{PolicyRuleNumber: 100, TargetRouteTableID: otherRT.RouteTableID},
+	)
+	require.NoError(t, err)
+
+	entries, err = bk.GetTransitGatewayPolicyTableEntries(pt.TransitGatewayPolicyTableID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, otherRT.RouteTableID, entries[0].TargetRouteTableID)
+
+	// Modify: unset fields retain their current value.
+	modified, err := bk.ModifyTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		100,
+		&ec2.TransitGatewayPolicyTableEntry{TargetRouteTableID: rt.RouteTableID},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, rt.RouteTableID, modified.TargetRouteTableID)
+
+	// Modify: unknown target route table is rejected without mutating state.
+	_, err = bk.ModifyTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		100,
+		&ec2.TransitGatewayPolicyTableEntry{TargetRouteTableID: "tgw-rtb-nonexistent"},
+	)
+	require.ErrorIs(t, err, ec2.ErrTGWRouteTableNotFound)
+
+	entries, err = bk.GetTransitGatewayPolicyTableEntries(pt.TransitGatewayPolicyTableID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, rt.RouteTableID, entries[0].TargetRouteTableID)
+
+	// Modify: unknown rule number / unknown policy table.
+	_, err = bk.ModifyTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		999,
+		&ec2.TransitGatewayPolicyTableEntry{TargetRouteTableID: rt.RouteTableID},
+	)
+	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
+
+	_, err = bk.ModifyTransitGatewayPolicyTableEntry(
+		"tgw-ptb-nonexistent",
+		100,
+		&ec2.TransitGatewayPolicyTableEntry{TargetRouteTableID: rt.RouteTableID},
+	)
+	require.ErrorIs(t, err, ec2.ErrTGWPolicyTableNotFound)
+
+	// Delete: unknown rule number / unknown policy table.
+	_, err = bk.DeleteTransitGatewayPolicyTableEntry(pt.TransitGatewayPolicyTableID, 999)
+	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
+
+	_, err = bk.DeleteTransitGatewayPolicyTableEntry("tgw-ptb-nonexistent", 100)
+	require.ErrorIs(t, err, ec2.ErrTGWPolicyTableNotFound)
+
+	deleted, err := bk.DeleteTransitGatewayPolicyTableEntry(pt.TransitGatewayPolicyTableID, 100)
+	require.NoError(t, err)
+	assert.Equal(t, "deleted", deleted.State)
+
+	entries, err = bk.GetTransitGatewayPolicyTableEntries(pt.TransitGatewayPolicyTableID)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestTGWPeripherals_PolicyTableEntrySnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	bk := newTestBackend()
+
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
+	require.NoError(t, err)
+
+	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
+	require.NoError(t, err)
+
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	require.NoError(t, err)
+
+	_, err = bk.CreateTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		&ec2.TransitGatewayPolicyTableEntry{
+			PolicyRuleNumber:     42,
+			TargetRouteTableID:   rt.RouteTableID,
+			SourceCidrBlock:      "192.168.0.0/16",
+			DestinationCidrBlock: "172.16.0.0/12",
+			Protocol:             "17",
+		},
+	)
+	require.NoError(t, err)
+
+	snap := bk.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	restored := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, restored.Restore(t.Context(), snap))
+
+	entries, err := restored.GetTransitGatewayPolicyTableEntries(pt.TransitGatewayPolicyTableID)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, 42, entries[0].PolicyRuleNumber)
+	assert.Equal(t, rt.RouteTableID, entries[0].TargetRouteTableID)
+	assert.Equal(t, "192.168.0.0/16", entries[0].SourceCidrBlock)
+	assert.Equal(t, "172.16.0.0/12", entries[0].DestinationCidrBlock)
+	assert.Equal(t, "17", entries[0].Protocol)
+	assert.Equal(t, "active", entries[0].State)
+}
+
+func TestTGWPeripherals_DeletePolicyTableCascadesEntries(t *testing.T) {
+	t.Parallel()
+
+	bk := newTestBackend()
+
+	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
+	require.NoError(t, err)
+
+	pt, err := bk.CreateTransitGatewayPolicyTable(tgw.ID)
+	require.NoError(t, err)
+
+	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID)
+	require.NoError(t, err)
+
+	_, err = bk.CreateTransitGatewayPolicyTableEntry(
+		pt.TransitGatewayPolicyTableID,
+		&ec2.TransitGatewayPolicyTableEntry{PolicyRuleNumber: 1, TargetRouteTableID: rt.RouteTableID},
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, bk.DeleteTransitGatewayPolicyTable(pt.TransitGatewayPolicyTableID))
+
+	// The policy table itself is gone, so Get now reports NotFound rather
+	// than an empty entries list.
+	_, err = bk.GetTransitGatewayPolicyTableEntries(pt.TransitGatewayPolicyTableID)
+	require.ErrorIs(t, err, ec2.ErrTGWPolicyTableNotFound)
 }
 
 // ---- Transit Gateway Route Table Announcements ----

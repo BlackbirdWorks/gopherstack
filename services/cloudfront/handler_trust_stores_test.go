@@ -155,7 +155,7 @@ func TestTrustStore_NotFound(t *testing.T) {
 // update/delete is rejected with 412 PreconditionFailed, and that the correct ETag succeeds.
 func TestTrustStore_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
 	createRec := doXML(t, h, http.MethodPost, prefix+"trust-store",
@@ -254,7 +254,7 @@ func TestTrustStore_Persistence(t *testing.T) {
 		t.Fatal("expected non-empty snapshot")
 	}
 
-	restored := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	restored := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	if err := restored.Restore(t.Context(), snap); err != nil {
 		t.Fatalf("restore failed: %v", err)
 	}

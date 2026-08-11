@@ -150,8 +150,13 @@ func matchesTagFilters(t *tags.Tags, filters []TagFilter) bool {
 		return len(filters) == 0
 	}
 
-	kv := t.Clone()
+	return matchesTagFiltersMap(t.Clone(), filters)
+}
 
+// matchesTagFiltersMap is matchesTagFilters' core, operating directly on a
+// plain key/value map so callers with a resource's tags already in that form
+// (e.g. services/ec2's TagsForResource) don't need to wrap them in a *tags.Tags.
+func matchesTagFiltersMap(kv map[string]string, filters []TagFilter) bool {
 	for _, f := range filters {
 		if !matchesOneTagFilter(kv, f) {
 			return false
@@ -205,6 +210,18 @@ func matchesTagSetGroups(t *tags.Tags, groups [][]TagFilter) bool {
 	return false
 }
 
+// matchesTagSetGroupsMap is matchesTagSetGroups' core, operating directly on
+// a plain key/value map; see matchesTagFiltersMap.
+func matchesTagSetGroupsMap(kv map[string]string, groups [][]TagFilter) bool {
+	for _, group := range groups {
+		if matchesTagFiltersMap(kv, group) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // matchesOnPremisesTargeting reports whether an on-premises instance's tags
 // satisfy a deployment group's on-premises targeting configuration.
 // OnPremisesTagSet (AND-groups OR'd together) takes precedence over the
@@ -220,6 +237,23 @@ func matchesOnPremisesTargeting(t *tags.Tags, dg *DeploymentGroup) bool {
 
 	if len(dg.OnPremisesInstanceTagFilters) > 0 {
 		return matchesTagFilters(t, dg.OnPremisesInstanceTagFilters)
+	}
+
+	return false
+}
+
+// matchesEc2Targeting reports whether an EC2 instance's tags (as returned by
+// services/ec2's TagsForResource) satisfy a deployment group's EC2 targeting
+// configuration, mirroring matchesOnPremisesTargeting's
+// Ec2TagSet-precedes-Ec2TagFilters rule for the EC2 side of the same
+// mutually-exclusive-representation API contract.
+func matchesEc2Targeting(kv map[string]string, dg *DeploymentGroup) bool {
+	if dg.Ec2TagSet != nil && len(dg.Ec2TagSet.Ec2TagSetList) > 0 {
+		return matchesTagSetGroupsMap(kv, dg.Ec2TagSet.Ec2TagSetList)
+	}
+
+	if len(dg.Ec2TagFilters) > 0 {
+		return matchesTagFiltersMap(kv, dg.Ec2TagFilters)
 	}
 
 	return false
