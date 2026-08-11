@@ -200,6 +200,95 @@ func TestMediaConvert_UpdateQueue_ConcurrentJobsAndReservationPlanSettings(t *te
 	assert.Equal(t, "ONE_YEAR", rp["commitment"])
 }
 
+// TestMediaConvert_CreateQueue_MaximumConcurrentFeeds verifies
+// CreateQueueInput.maximumConcurrentFeeds (added to the real API after
+// createQueueInput's field list was written, see gopherstack-gt9o) is stored
+// and echoed back exactly as supplied, and is absent from the raw wire body
+// -- not present as null/0 -- when the caller never sent it.
+func TestMediaConvert_CreateQueue_MaximumConcurrentFeeds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check func(t *testing.T, queue map[string]any)
+		body  map[string]any
+		name  string
+	}{
+		{
+			name: "supplied",
+			body: map[string]any{
+				"name":                   "mcf-queue-supplied",
+				"maximumConcurrentFeeds": 5,
+			},
+			check: func(t *testing.T, queue map[string]any) {
+				t.Helper()
+				assert.InDelta(t, float64(5), queue["maximumConcurrentFeeds"], 0)
+			},
+		},
+		{
+			name: "absent",
+			body: map[string]any{
+				"name": "mcf-queue-absent",
+			},
+			check: func(t *testing.T, queue map[string]any) {
+				t.Helper()
+
+				_, ok := queue["maximumConcurrentFeeds"]
+				assert.False(t, ok, "maximumConcurrentFeeds must be absent, not null/0, when unset")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/2017-08-29/queues", tt.body)
+			require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			createQueue, ok := createResp["queue"].(map[string]any)
+			require.True(t, ok)
+			tt.check(t, createQueue)
+
+			name, _ := tt.body["name"].(string)
+			rec = doRequest(t, h, http.MethodGet, "/2017-08-29/queues/"+name, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var getResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			getQueue, ok := getResp["queue"].(map[string]any)
+			require.True(t, ok)
+			tt.check(t, getQueue)
+		})
+	}
+}
+
+// TestMediaConvert_UpdateQueue_MaximumConcurrentFeeds verifies
+// UpdateQueueInput.maximumConcurrentFeeds is applied, not silently dropped.
+func TestMediaConvert_UpdateQueue_MaximumConcurrentFeeds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/2017-08-29/queues", map[string]any{
+		"name": "update-mcf-queue",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = doRequest(t, h, http.MethodPut, "/2017-08-29/queues/update-mcf-queue", map[string]any{
+		"maximumConcurrentFeeds": 9,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	queueData, ok := out["queue"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, float64(9), queueData["maximumConcurrentFeeds"], 0)
+}
+
 func TestMediaConvert_TagLeakOnDeleteQueue(t *testing.T) {
 	t.Parallel()
 

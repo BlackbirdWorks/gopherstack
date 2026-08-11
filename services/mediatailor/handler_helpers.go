@@ -546,39 +546,42 @@ func extractUpdateProgramScheduleConfiguration(body map[string]any) *UpdateProgr
 	return sc
 }
 
-// extractExtraConfig reads PutPlaybackConfiguration's optional sub-configs
-// (AdConditioningConfiguration, AvailSuppression, Bumper, CdnConfiguration,
-// DashConfiguration, ManifestProcessingRules, etc.) and stores/echoes them
-// back verbatim without interpreting them. Real MediaTailor
-// validates/consumes these during ad-decision-server calls and manifest
-// personalization, which gopherstack's playback-configuration CRUD emulation
-// does not perform; storing them as decoded-JSON pass-through preserves
-// exact wire round-trip fidelity (what a client PUTs is exactly what a
-// client GETs back) without hand-modeling every nested SCTE/ADS field.
-func extractExtraConfig(body map[string]any) map[string]any {
-	keys := [...]string{
-		"AdConditioningConfiguration",
-		"AdDecisionServerConfiguration",
-		"AvailSuppression",
-		"Bumper",
-		"CdnConfiguration",
-		"ConfigurationAliases",
-		"DashConfiguration",
-		"FunctionMapping",
-		"InsertionMode",
-		"LivePreRollConfiguration",
-		"ManifestProcessingRules",
-		"PersonalizationThresholdSeconds",
-		"SlateAdUrl",
-		"TranscodeProfileName",
+// isExtraConfigHandledKey reports whether k is a PutPlaybackConfigurationInput
+// member extractExtraConfig must NOT pass through, because
+// handlePutPlaybackConfiguration already reads it individually (Name,
+// AdDecisionServerUrl, VideoContentSourceUrl) or extractTags already reads
+// it (keyTags).
+func isExtraConfigHandledKey(k string) bool {
+	switch k {
+	case keyName, keyAdDecisionServerURL, keyVideoContentSourceURL, keyTags:
+		return true
+	default:
+		return false
 	}
+}
 
-	extra := make(map[string]any, len(keys))
+// extractExtraConfig reads every PutPlaybackConfigurationInput member
+// handlePutPlaybackConfiguration doesn't parse individually
+// (AdConditioningConfiguration, AvailSuppression, Bumper, CdnConfiguration,
+// DashConfiguration, ManifestProcessingRules, AdsPersonalizationConcurrency,
+// AdsPersonalizationTimeouts, etc.) and stores/echoes them back verbatim
+// without interpreting them. Real MediaTailor validates/consumes these
+// during ad-decision-server calls and manifest personalization, which
+// gopherstack's playback-configuration CRUD emulation does not perform;
+// storing them as decoded-JSON pass-through preserves exact wire round-trip
+// fidelity (what a client PUTs is exactly what a client GETs back) without
+// hand-modeling every nested SCTE/ADS field. Excluding by the handled set
+// rather than enumerating the pass-through set means a future SDK bump that
+// adds another optional sub-config survives without a code change here.
+func extractExtraConfig(body map[string]any) map[string]any {
+	extra := make(map[string]any, len(body))
 
-	for _, k := range keys {
-		if v, ok := body[k]; ok {
-			extra[k] = v
+	for k, v := range body {
+		if isExtraConfigHandledKey(k) {
+			continue
 		}
+
+		extra[k] = v
 	}
 
 	if len(extra) == 0 {

@@ -13,6 +13,7 @@ type StorageBackend interface {
 		concurrentJobs int,
 		reservationPlan *ReservationPlan,
 		serviceOverrides map[string]any,
+		extras ...QueueCreateExtras,
 	) (*Queue, error)
 	GetQueue(name string) (*Queue, error)
 	ListQueues() []*Queue
@@ -20,6 +21,7 @@ type StorageBackend interface {
 		name, description, status string,
 		concurrentJobs *int,
 		reservationPlanSettings *ReservationPlan,
+		maximumConcurrentFeeds *int,
 	) (*Queue, error)
 	DeleteQueue(name string) error
 

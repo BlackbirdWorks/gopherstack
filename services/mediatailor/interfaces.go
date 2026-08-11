@@ -182,6 +182,15 @@ type PlaybackConfiguration struct {
 	PlaybackEndpointPrefix      string
 	SessionInitializationPrefix string
 	HlsManifestEndpointPrefix   string
+	// DualStackPlaybackEndpointPrefix and DualStackSessionInitializationEndpointPrefix
+	// are response-only members of the real PlaybackConfiguration type (no
+	// PutPlaybackConfigurationInput member sets them; aws-sdk-go-v2/service/mediatailor
+	// @v1.63.4 types/types.go:1049,1053). gopherstack never populates them -- doing so
+	// would mean fabricating a dual-stack URL a client might actually dial, which is
+	// worse than the field being absent, matching a real account with dual-stack
+	// endpoints not provisioned.
+	DualStackPlaybackEndpointPrefix              string
+	DualStackSessionInitializationEndpointPrefix string
 }
 
 // PlaybackConfigurationLogConfiguration is the logging configuration for a

@@ -17,10 +17,14 @@ overall: A            # all 4 prior gaps + 3 prior deferred items closed for rea
 # SourceLocation/VodSource/LiveSource and reported success; PutFunction accepted any
 # FunctionType string; every mediatailor error response was undecodable by a real SDK
 # client (see families.errors).
+# gopherstack-gt9o (2026-08-11, targeted follow-up, not a full re-audit): closed the
+# AdsPersonalizationConcurrency/AdsPersonalizationTimeouts drop by generalizing
+# extractExtraConfig; modeled (unset) the DualStackPlaybackEndpointPrefix/
+# DualStackSessionInitializationEndpointPrefix response fields. See Notes #13.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  PutPlaybackConfiguration: {wire: partial, errors: ok, state: ok, persist: ok, note: "fixed prior pass - only Name required; this pass adds pass-through storage for AdConditioningConfiguration/AdDecisionServerConfiguration/AvailSuppression/Bumper/CdnConfiguration/ConfigurationAliases/DashConfiguration/FunctionMapping/InsertionMode/LivePreRollConfiguration/ManifestProcessingRules/PersonalizationThresholdSeconds/SlateAdUrl/TranscodeProfileName (decoded-JSON round-trip, not hand-modeled Go structs - see Notes #6) and a real LogConfiguration reflecting ConfigureLogsForPlaybackConfiguration. gopherstack-u8my: extractExtraConfig's key list is a fixed enumeration, not a generic pass-through of unrecognized keys -- the SDK gained two new PlaybackConfiguration sub-configs (AdsPersonalizationConcurrency, AdsPersonalizationTimeouts) since this note's v1.59.2 pin, both silently dropped by a real PutPlaybackConfiguration call today. See gaps."}
+  PutPlaybackConfiguration: {wire: partial, errors: ok, state: ok, persist: ok, note: "fixed prior pass - only Name required; adds pass-through storage for AdConditioningConfiguration/AdDecisionServerConfiguration/AvailSuppression/Bumper/CdnConfiguration/ConfigurationAliases/DashConfiguration/FunctionMapping/InsertionMode/LivePreRollConfiguration/ManifestProcessingRules/PersonalizationThresholdSeconds/SlateAdUrl/TranscodeProfileName/AdsPersonalizationConcurrency/AdsPersonalizationTimeouts (decoded-JSON round-trip, not hand-modeled Go structs - see Notes #6) and a real LogConfiguration reflecting ConfigureLogsForPlaybackConfiguration. gopherstack-gt9o: extractExtraConfig (handler_helpers.go) was rewritten from a fixed 14-key enumeration to an exclude-known-handled-keys pass-through, so AdsPersonalizationConcurrency/AdsPersonalizationTimeouts now round-trip and any future SDK-added sub-config will too without another code change -- see Notes #13. Still wire:partial, not wire:ok: PlaybackConfiguration's response-only DualStackPlaybackEndpointPrefix/DualStackSessionInitializationEndpointPrefix (no PutPlaybackConfigurationInput member sets them) are modeled on the Go struct but deliberately left unset -- gopherstack has no real dual-stack endpoint to report, and fabricating one would be a dialable-but-fake URL, worse than an absent field."}
   GetPlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent per real API; now cascades to delete every attached prefetch schedule (fixed ghost-row leak, see Notes #7)"}
   ListPlaybackConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "query params PascalCase MaxResults/NextToken - correct"}
@@ -72,8 +76,8 @@ families:
   routing: {status: ok, note: "all 47 routed ops' HTTP method+path unchanged this pass and still verified against aws-sdk-go-v2 serializers.go/botocore service-2.json from the prior audit"}
   errors: {status: ok, note: "gopherstack-vdrs: FIXED a service-wide wire bug -- respondErr never set the X-Amzn-Errortype header or any body code/__type field, so aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go, checked at v1.43.4, the pinned aws-sdk-go-v2 core) had no code to read and every mediatailor error deserialized client-side as smithy.GenericAPIError{Code:\"UnknownError\"} regardless of the real failure (404/409/400 all included). Fixed by setting X-Amzn-Errortype from the sentinel error's mapped exception name, matching the sibling convention already used by services/account and services/apigatewayv2. See Notes #11."}
 gaps:
-  - "NEW since v1.59.2 (found by gopherstack-u8my's pin-correction pass, not fixed): PlaybackConfiguration gained AdsPersonalizationConcurrency (EnableVodVastParallelization/MaxConcurrentAdsRequests) and AdsPersonalizationTimeouts (AdsRequestTimeoutMilliseconds and 4 sibling fields) input sub-configs. extractExtraConfig's pass-through key list (handler_helpers.go) is a fixed 14-key enumeration predating these fields, so PutPlaybackConfiguration silently drops both -- breaks the round-trip-fidelity claim Notes #6 makes for 'every optional sub-config'. Same treatment as the other 14 (decoded-JSON pass-through) would close it; just needs the two keys added to extractExtraConfig's list. (needs bd issue)"
-  - "NEW since v1.59.2 (found by gopherstack-u8my's pin-correction pass, not fixed): PlaybackConfiguration/HlsConfiguration/SessionInitializationEndpoint responses gained dual-stack (IPv4+IPv6) URL fields -- DualStackManifestEndpointPrefix, DualStackSessionInitializationEndpointPrefix, DualStackPlaybackEndpointPrefix, and GetHlsManifestConfiguration's DualStackPlaybackUrl -- alongside the existing single-stack Prefix/Url fields. These are server-generated response fields (like their single-stack counterparts) that gopherstack's Get/Describe/List handlers do not populate. (needs bd issue)"
+  - "FIXED by gopherstack-gt9o: PlaybackConfiguration's AdsPersonalizationConcurrency/AdsPersonalizationTimeouts input sub-configs now round-trip through extractExtraConfig, generalized from a fixed 14-key enumeration to exclude-known-handled-keys pass-through (handler_helpers.go). See Notes #13."
+  - "PARTIAL, scope-limited by gopherstack-gt9o: PlaybackConfiguration's two response-only dual-stack fields (DualStackPlaybackEndpointPrefix, DualStackSessionInitializationEndpointPrefix) are now modeled on the Go PlaybackConfiguration struct and wired into toPlaybackConfigOutput, but deliberately left unset -- no PutPlaybackConfigurationInput member sets them, and gopherstack has no real dual-stack endpoint to report; fabricating one would be a dialable-but-fake URL, worse than an absent field. Still genuinely gap: HlsConfiguration's DualStackManifestEndpointPrefix, SessionInitializationEndpoint's DualStackSessionInitializationEndpointPrefix (that type's own copy), and GetHlsManifestConfiguration's DualStackPlaybackUrl were out of this pass's scope (gopherstack-gt9o only covered PutPlaybackConfiguration) and remain completely unmodeled. (needs bd issue for the HlsConfiguration/GetHlsManifestConfiguration fields)"
 deferred: []      # every deferred item from the prior manifest is now implemented this pass - see ops[*].note above
 items_still_open:
   - "ProgramScheduleEntry.ScheduleAdBreaks is always empty. Real MediaTailor populates it from SCTE-35 avails MediaTailor detects by scanning the underlying VOD/live source manifests during ingestion - a manifest-parsing capability gopherstack has nowhere in this service (or elsewhere in the fleet, as far as this pass could tell). Left empty rather than fabricated from the client-configured AdBreaks (which is a materially different, unrelated concept - AdBreaks is where a client tells MediaTailor to splice ads; ScheduleAdBreaks is what MediaTailor detected already exists in the source content). Matches a real VOD source with no scanned avails yet. Reconfirmed this pass (gopherstack-vdrs item 2): genuinely structural, not attempted. (needs bd issue if manifest-avail-detection is ever prioritized)"
@@ -249,3 +253,50 @@ the two cascade-delete leak fixes noted above.
     touched this pass — fixed service-wide in `handler.go`'s `respondErr`
     by setting `X-Amzn-Errortype`, matching the convention already
     established in `services/account` and `services/apigatewayv2`.
+
+13. **`extractExtraConfig`'s fixed key list generalized to exclude-known-handled,
+    closing the `AdsPersonalizationConcurrency`/`AdsPersonalizationTimeouts`
+    drop and future-proofing against the next SDK bump.** Confirmed against
+    `aws-sdk-go-v2/service/mediatailor@v1.63.4`: `PutPlaybackConfigurationInput`
+    gained `AdsPersonalizationConcurrency *types.AdsPersonalizationConcurrency`
+    (`EnableVodVastParallelization *bool`, `MaxConcurrentAdsRequests *int32`,
+    wire keys identical to the Go field names, `api_op_PutPlaybackConfiguration.go:58`,
+    `serializers.go:4694`) and `AdsPersonalizationTimeouts *types.AdsPersonalizationTimeouts`
+    (5 `*int32` millisecond fields, same file:63, `serializers.go:4711`) since the
+    prior manifest's v1.59.2 pin — both silently dropped because
+    `extractExtraConfig`'s pass-through was a fixed 14-key enumeration, not a
+    generic "everything I don't handle by name" pass-through. Rather than adding
+    2 keys to a list that will need the same fix on the next SDK bump,
+    `extractExtraConfig` now inverts the check: it copies every request body key
+    *except* the 4 (`Name`, `AdDecisionServerUrl`, `VideoContentSourceUrl`,
+    `tags`) that `handlePutPlaybackConfiguration`/`extractTags` already parse
+    individually (`extraConfigHandledKeys`, `handler_helpers.go`). This is a
+    small, mechanical change (invert a loop) that closes the whole class, not
+    just these two fields — a future SDK addition to `PlaybackConfiguration`'s
+    optional sub-configs survives without touching this file again. Considered
+    and rejected a more general fix at the framework level (e.g. an
+    unknown-field-preserving decode shared across services): not attempted
+    because this service's `PutPlaybackConfiguration` is unusual in *never*
+    interpreting these sub-configs (real MediaTailor validates them during
+    ad-decision-server calls this emulator doesn't perform, see Notes #6) — a
+    generic cross-service mechanism would need to reconcile with services that
+    *do* need typed validation of unknown-today fields, which is a materially
+    larger design question than this issue's two-service scope.
+
+    Also modeled (shape only, deliberately unset) `PlaybackConfiguration`'s two
+    response-only dual-stack fields: `DualStackPlaybackEndpointPrefix
+    *string` and `DualStackSessionInitializationEndpointPrefix *string`
+    (`types/types.go:1049,1053`). Neither has a `PutPlaybackConfigurationInput`
+    member — real MediaTailor generates them server-side the same way it
+    generates `PlaybackEndpointPrefix`/`SessionInitializationEndpointPrefix` —
+    but unlike those two (which this service already fabricates plausible
+    URLs for), a fabricated dual-stack URL is worse than an absent field: a
+    client might actually dial it. Added the two fields to the
+    `PlaybackConfiguration` Go struct and to `toPlaybackConfigOutput`
+    (`handler_playback_configurations.go`, same `if != ""` pattern as
+    `HlsManifestEndpointPrefix`) so the wire key mapping exists, but nothing
+    in `PutPlaybackConfiguration` ever sets them — the response correctly
+    omits them, matching a real account with dual-stack endpoints not
+    provisioned. `TestPutPlaybackConfiguration_DualStackFieldsAbsent`
+    (`handler_playback_configurations_test.go`) asserts on the raw decoded
+    body that the keys are absent, not null/empty.

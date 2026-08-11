@@ -11,8 +11,8 @@ import (
 
 func (h *Handler) handlePutPlaybackConfiguration(c *echo.Context, body map[string]any) error {
 	name, _ := body[keyName].(string)
-	adsURL, _ := body["AdDecisionServerUrl"].(string)
-	videoURL, _ := body["VideoContentSourceUrl"].(string)
+	adsURL, _ := body[keyAdDecisionServerURL].(string)
+	videoURL, _ := body[keyVideoContentSourceURL].(string)
 	tags := extractTags(body)
 	extra := extractExtraConfig(body)
 
@@ -53,8 +53,8 @@ func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
 		item := map[string]any{
 			keyName:                    s.Name,
 			"PlaybackConfigurationArn": s.PlaybackConfigurationARN,
-			"AdDecisionServerUrl":      s.AdDecisionServerURL,
-			"VideoContentSourceUrl":    s.VideoContentSourceURL,
+			keyAdDecisionServerURL:     s.AdDecisionServerURL,
+			keyVideoContentSourceURL:   s.VideoContentSourceURL,
 			keyTags:                    nilToEmpty(s.Tags),
 		}
 		mergeExtraConfig(item, s.Extra)
@@ -73,8 +73,8 @@ func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 	out := map[string]any{
 		keyName:                               cfg.Name,
 		"PlaybackConfigurationArn":            cfg.PlaybackConfigurationARN,
-		"AdDecisionServerUrl":                 cfg.AdDecisionServerURL,
-		"VideoContentSourceUrl":               cfg.VideoContentSourceURL,
+		keyAdDecisionServerURL:                cfg.AdDecisionServerURL,
+		keyVideoContentSourceURL:              cfg.VideoContentSourceURL,
 		"PlaybackEndpointPrefix":              cfg.PlaybackEndpointPrefix,
 		"SessionInitializationEndpointPrefix": cfg.SessionInitializationPrefix,
 		keyTags:                               nilToEmpty(cfg.Tags),
@@ -88,6 +88,14 @@ func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 
 	if cfg.LogConfiguration != nil {
 		out["LogConfiguration"] = toLogConfigurationOutput(cfg.LogConfiguration)
+	}
+
+	if cfg.DualStackPlaybackEndpointPrefix != "" {
+		out["DualStackPlaybackEndpointPrefix"] = cfg.DualStackPlaybackEndpointPrefix
+	}
+
+	if cfg.DualStackSessionInitializationEndpointPrefix != "" {
+		out["DualStackSessionInitializationEndpointPrefix"] = cfg.DualStackSessionInitializationEndpointPrefix
 	}
 
 	mergeExtraConfig(out, cfg.Extra)

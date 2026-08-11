@@ -40,6 +40,7 @@ type createQueueInput struct {
 	// ReservationPlan on the Queue output resource -- the request and
 	// response field names differ).
 	ReservationPlanSettings *ReservationPlan  `json:"reservationPlanSettings,omitempty"`
+	MaximumConcurrentFeeds  *int              `json:"maximumConcurrentFeeds,omitempty"`
 	ServiceOverrides        map[string]any    `json:"serviceOverrides,omitempty"`
 	Tags                    map[string]string `json:"tags,omitempty"`
 	Name                    string            `json:"name"`
@@ -70,6 +71,7 @@ func (h *Handler) handleCreateQueue(c *echo.Context, body []byte) error {
 	q, err := h.Backend.CreateQueueFull(
 		in.Name, in.Description, in.PricingPlan, in.Status,
 		in.Tags, in.ConcurrentJobs, in.ReservationPlanSettings, in.ServiceOverrides,
+		QueueCreateExtras{MaximumConcurrentFeeds: in.MaximumConcurrentFeeds},
 	)
 	if err != nil {
 		return h.writeError(c, err)
@@ -105,6 +107,7 @@ func (h *Handler) handleListQueues(c *echo.Context) error {
 type updateQueueInput struct {
 	ReservationPlanSettings *ReservationPlan `json:"reservationPlanSettings,omitempty"`
 	ConcurrentJobs          *int             `json:"concurrentJobs,omitempty"`
+	MaximumConcurrentFeeds  *int             `json:"maximumConcurrentFeeds,omitempty"`
 	Description             string           `json:"description,omitempty"`
 	Status                  string           `json:"status,omitempty"`
 }
@@ -115,7 +118,9 @@ func (h *Handler) handleUpdateQueue(c *echo.Context, name string, body []byte) e
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	q, err := h.Backend.UpdateQueue(name, in.Description, in.Status, in.ConcurrentJobs, in.ReservationPlanSettings)
+	q, err := h.Backend.UpdateQueue(
+		name, in.Description, in.Status, in.ConcurrentJobs, in.ReservationPlanSettings, in.MaximumConcurrentFeeds,
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
