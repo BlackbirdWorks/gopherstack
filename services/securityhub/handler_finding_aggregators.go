@@ -41,7 +41,7 @@ func (h *Handler) handleCreateFindingAggregator(c *echo.Context, body map[string
 
 	agg, err := h.Backend.CreateFindingAggregator(regionLinkingMode, regions)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -56,13 +56,13 @@ func (h *Handler) handleGetFindingAggregator(c *echo.Context, arn string) error 
 	agg, err := h.Backend.GetFindingAggregator(arn)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{keyMessage: "Finding aggregator not found"}, //nolint:goconst // existing issue.
+			return typedErrorResponse(
+				c, http.StatusNotFound, "ResourceNotFoundException",
+				"Finding aggregator not found",
 			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -121,10 +121,15 @@ func (h *Handler) handleUpdateFindingAggregator(c *echo.Context, body map[string
 	agg, err := h.Backend.UpdateFindingAggregator(arn, regionLinkingMode, regions)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Finding aggregator not found"})
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Finding aggregator not found",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -138,10 +143,15 @@ func (h *Handler) handleUpdateFindingAggregator(c *echo.Context, body map[string
 func (h *Handler) handleDeleteFindingAggregator(c *echo.Context, arn string) error {
 	if err := h.Backend.DeleteFindingAggregator(arn); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Finding aggregator not found"})
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Finding aggregator not found",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

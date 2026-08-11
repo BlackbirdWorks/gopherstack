@@ -155,12 +155,12 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 
 	if c.Request().Method != http.MethodPost {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 
 	topic := strings.TrimPrefix(c.Request().URL.Path, "/topics/")
 	if topic == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "topic is required"})
+		return invalidRequestResponse(c, "topic is required")
 	}
 
 	if err := validateTopic(topic); err != nil {
@@ -184,6 +184,12 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
+		// No X-Amzn-Errortype header here: Publish models only
+		// InternalFailureException, InvalidRequestException,
+		// MethodNotAllowedException, ThrottlingException and
+		// UnauthorizedException (iotdataplane@v1.35.4 deserializers.go) --
+		// unlike SendDirectMessage/UpdateThingShadow, it does not model
+		// RequestEntityTooLargeException, so there's no verified type to emit.
 		return c.JSON(
 			http.StatusRequestEntityTooLarge,
 			map[string]string{keyError: "request body too large"},
@@ -198,7 +204,7 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 		} else {
 			log.Error("iot data plane publish failed", "topic", topic, "error", publishErr)
 
-			return c.JSON(http.StatusInternalServerError, map[string]string{keyError: publishErr.Error()})
+			return h.handleError(c, publishErr)
 		}
 	}
 

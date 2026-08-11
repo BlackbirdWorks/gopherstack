@@ -41,10 +41,7 @@ func (h *Handler) handleStartDeployment(
 			return badRequestResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, deployment)
@@ -61,10 +58,7 @@ func (h *Handler) handleGetDeployment(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, deployment)
@@ -86,10 +80,7 @@ func (h *Handler) handleListDeployments(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	resp := map[string]any{keyItems: deployments}
@@ -119,10 +110,7 @@ func (h *Handler) handleStopDeployment(
 			return badRequestResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

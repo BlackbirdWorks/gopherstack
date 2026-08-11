@@ -70,6 +70,9 @@ func (h *Handler) handleListEnabledProductsForImport(c *echo.Context) error {
 func (h *Handler) handleEnableImportFindingsForProduct(c *echo.Context, body map[string]any) error {
 	productArn, _ := body["ProductArn"].(string)
 
+	// ErrHubNotEnabled is left unheadered: EnableImportFindingsForProduct's
+	// error list also carries InvalidAccessException (securityhub@v1.75.4
+	// deserializers.go), same ambiguity as handler_hub.go's V1 handlers.
 	subArn, err := h.Backend.EnableImportFindingsForProduct(productArn)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
@@ -77,10 +80,10 @@ func (h *Handler) handleEnableImportFindingsForProduct(c *echo.Context, body map
 		}
 
 		if errors.Is(err, ErrAlreadyExists) {
-			return c.JSON(http.StatusConflict, map[string]any{keyMessage: err.Error()})
+			return typedErrorResponse(c, http.StatusConflict, "ResourceConflictException", err.Error())
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"ProductSubscriptionArn": subArn})
@@ -89,10 +92,15 @@ func (h *Handler) handleEnableImportFindingsForProduct(c *echo.Context, body map
 func (h *Handler) handleDisableImportFindingsForProduct(c *echo.Context, productSubscriptionArn string) error {
 	if err := h.Backend.DisableImportFindingsForProduct(productSubscriptionArn); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Product subscription not found"})
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Product subscription not found",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -159,7 +167,7 @@ func classifyRecommendedPolicyV2Path(method, path string) (string, string) {
 func (h *Handler) handleGenerateRecommendedPolicyV2(c *echo.Context, metadataUID string, _ map[string]any) error {
 	rec, err := h.Backend.GenerateRecommendedPolicyV2(metadataUID)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -173,10 +181,15 @@ func (h *Handler) handleGetRecommendedPolicyV2(c *echo.Context, metadataUID stri
 	rec, err := h.Backend.GetRecommendedPolicyV2(metadataUID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Recommended policy not found"})
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Recommended policy not found",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

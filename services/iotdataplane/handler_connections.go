@@ -78,7 +78,11 @@ func (h *Handler) handleRegisterConnection(c *echo.Context) error {
 func (h *Handler) handleDeleteConnection(c *echo.Context) error {
 	clientID := extractConnectionClientID(c.Request().URL.Path)
 	if clientID == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "clientId is required"})
+		// DeleteConnection is reachable at both the gopherstack admin path
+		// and the real AWS wire path (see this func's doc comment);
+		// InvalidRequestException is modeled on the real one
+		// (iotdataplane@v1.35.4 deserializers.go).
+		return invalidRequestResponse(c, "clientId is required")
 	}
 
 	if err := h.Backend.DeleteConnection(clientID); err != nil {
@@ -282,10 +286,7 @@ func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 			log.Error("iot data plane send direct message failed",
 				"clientId", clientID, "topic", topic, "error", sendErr)
 
-			return c.JSON(
-				http.StatusInternalServerError,
-				map[string]string{keyError: sendErr.Error()},
-			)
+			return h.handleError(c, sendErr)
 		}
 	}
 

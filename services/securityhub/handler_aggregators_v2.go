@@ -32,7 +32,7 @@ func (h *Handler) handleCreateAggregatorV2(c *echo.Context, body map[string]any)
 
 	agg, err := h.Backend.CreateAggregatorV2(regionLinkingMode, regions)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	if tags, ok := body["Tags"].(map[string]any); ok {
@@ -69,13 +69,13 @@ func (h *Handler) handleGetAggregatorV2(c *echo.Context, arn string) error {
 	agg, err := h.Backend.GetAggregatorV2(arn)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{keyMessage: "Aggregator V2 not found"}, //nolint:goconst // existing issue.
+			return typedErrorResponse(
+				c, http.StatusNotFound, "ResourceNotFoundException",
+				"Aggregator V2 not found",
 			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, aggregatorV2ToResponse(agg))
@@ -117,10 +117,10 @@ func (h *Handler) handleUpdateAggregatorV2(c *echo.Context, arn string, body map
 	agg, err := h.Backend.UpdateAggregatorV2(arn, regionLinkingMode, regions)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Aggregator V2 not found"})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Aggregator V2 not found")
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, aggregatorV2ToResponse(agg))
@@ -129,10 +129,10 @@ func (h *Handler) handleUpdateAggregatorV2(c *echo.Context, arn string, body map
 func (h *Handler) handleDeleteAggregatorV2(c *echo.Context, arn string) error {
 	if err := h.Backend.DeleteAggregatorV2(arn); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Aggregator V2 not found"})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Aggregator V2 not found")
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

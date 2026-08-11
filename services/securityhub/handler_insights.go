@@ -31,17 +31,16 @@ func (h *Handler) handleCreateInsight(c *echo.Context, body map[string]any) erro
 	filters, _ := body["Filters"].(map[string]any)
 
 	if name == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			keyMessage: msgNameRequired,
-		})
+		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", msgNameRequired)
 	}
 
 	if groupByAttribute == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			keyMessage: "GroupByAttribute is required",
-		})
+		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "GroupByAttribute is required")
 	}
 
+	// ErrHubNotEnabled is left unheadered: CreateInsight's error list also
+	// carries InvalidAccessException (securityhub@v1.75.4 deserializers.go),
+	// same ambiguity as handler_hub.go's V1 handlers.
 	arn, err := h.Backend.CreateInsight(name, groupByAttribute, filters)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
@@ -50,7 +49,7 @@ func (h *Handler) handleCreateInsight(c *echo.Context, body map[string]any) erro
 			})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyInsightArn: arn})
@@ -78,7 +77,7 @@ func (h *Handler) handleGetInsights(c *echo.Context, body map[string]any) error 
 			})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	items := make([]map[string]any, len(insights))
@@ -104,9 +103,7 @@ func (h *Handler) handleGetInsightResults(c *echo.Context, insightArn string) er
 	results, err := h.Backend.GetInsightResults(insightArn)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{
-				keyMessage: msgInsightNotFound,
-			})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", msgInsightNotFound)
 		}
 
 		if errors.Is(err, ErrHubNotEnabled) {
@@ -115,7 +112,7 @@ func (h *Handler) handleGetInsightResults(c *echo.Context, insightArn string) er
 			})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -134,14 +131,14 @@ func (h *Handler) handleUpdateInsight(c *echo.Context, insightArn string, body m
 
 	if err := h.Backend.UpdateInsight(insightArn, name, groupByAttribute, filters); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: msgInsightNotFound})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", msgInsightNotFound)
 		}
 
 		if errors.Is(err, ErrHubNotEnabled) {
 			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubNotEnabled})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -151,14 +148,14 @@ func (h *Handler) handleDeleteInsight(c *echo.Context, insightArn string) error 
 	deletedArn, err := h.Backend.DeleteInsight(insightArn)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: msgInsightNotFound})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", msgInsightNotFound)
 		}
 
 		if errors.Is(err, ErrHubNotEnabled) {
 			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubNotEnabled})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyInsightArn: deletedArn})

@@ -182,19 +182,22 @@ func (h *Handler) handleUpdateStandardsControl(c *echo.Context, controlArn strin
 
 	const statusDisabled = "DISABLED"
 	if controlStatus != "" && controlStatus != statusEnabled && controlStatus != statusDisabled {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			keyMessage: "ControlStatus must be ENABLED or DISABLED",
-		})
+		return typedErrorResponse(
+			c,
+			http.StatusBadRequest,
+			"InvalidInputException",
+			"ControlStatus must be ENABLED or DISABLED",
+		)
 	}
 
 	if controlStatus == statusDisabled && disabledReason == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			keyMessage: "DisabledReason is required when disabling a control",
-		})
+		return typedErrorResponse(
+			c, http.StatusBadRequest, "InvalidInputException", "DisabledReason is required when disabling a control",
+		)
 	}
 
 	if err := h.Backend.UpdateStandardsControl(controlArn, controlStatus, disabledReason); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -249,7 +252,7 @@ func (h *Handler) handleBatchUpdateStdCtlAssociations(c *echo.Context, body map[
 
 	unprocessed, err := h.Backend.BatchUpdateStandardsControlAssociations(updates)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

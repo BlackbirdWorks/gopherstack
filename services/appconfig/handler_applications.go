@@ -24,18 +24,14 @@ func (h *Handler) handleCreateApplication(c *echo.Context) error {
 
 	app, err := h.Backend.CreateApplication(req.Name, req.Description, req.Tags)
 	if err != nil {
-		if errors.Is(err, awserr.ErrInvalidParameter) {
+		// CreateApplication models only BadRequestException, InternalServerException
+		// and ServiceQuotaExceededException (appconfig@v1.48.4 deserializers.go:87) --
+		// no ConflictException, so a name collision maps to BadRequestException here.
+		if errors.Is(err, awserr.ErrInvalidParameter) || errors.Is(err, awserr.ErrAlreadyExists) {
 			return badRequestResponse(c, err)
 		}
 
-		if errors.Is(err, awserr.ErrAlreadyExists) {
-			return conflictResponse(c, err)
-		}
-
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, app)
@@ -48,10 +44,7 @@ func (h *Handler) handleGetApplication(c *echo.Context, applicationID string) er
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, app)
@@ -87,10 +80,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string)
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, app)
@@ -102,10 +92,7 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, applicationID string)
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

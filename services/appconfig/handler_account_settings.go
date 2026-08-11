@@ -9,10 +9,7 @@ import (
 func (h *Handler) handleGetAccountSettings(c *echo.Context) error {
 	settings, err := h.Backend.GetAccountSettings()
 	if err != nil {
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, settings)
@@ -31,10 +28,7 @@ func (h *Handler) handleUpdateAccountSettings(c *echo.Context) error {
 
 	settings, err := h.Backend.UpdateAccountSettings(req.DeletionProtection)
 	if err != nil {
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, settings)

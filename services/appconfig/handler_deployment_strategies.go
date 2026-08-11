@@ -34,10 +34,7 @@ func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 		req.Tags,
 	)
 	if err != nil {
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, strategy)
@@ -50,10 +47,7 @@ func (h *Handler) handleGetDeploymentStrategy(c *echo.Context, strategyID string
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, strategy)
@@ -93,10 +87,7 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	deployDur := existing.DeploymentDurationInMinutes
@@ -124,10 +115,7 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, strategy)
@@ -139,10 +127,7 @@ func (h *Handler) handleDeleteDeploymentStrategy(c *echo.Context, strategyID str
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

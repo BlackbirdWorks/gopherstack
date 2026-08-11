@@ -995,16 +995,49 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// amznErrorTypeHeader carries the modeled exception type for the restjson1
+// protocol. aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go)
+// reads this header before falling back to a body "code"/"__type" field; without it every
+// error here deserialized client-side as a generic UnknownError.
+const amznErrorTypeHeader = "X-Amzn-Errortype"
+
+// Wire types below are verified per call site against this service's own
+// deserializer error lists (appconfig@v1.48.4 deserializers.go), which use
+// strings.EqualFold comparisons rather than literal case labels. Not every
+// operation models every one of these codes -- see the callers of
+// conflictResponse for the operations that don't model ConflictException.
 func notFoundResponse(c *echo.Context, err error) error {
+	c.Response().Header().Set(amznErrorTypeHeader, "ResourceNotFoundException")
+
 	return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
 }
 
 func badRequestResponse(c *echo.Context, err error) error {
+	c.Response().Header().Set(amznErrorTypeHeader, "BadRequestException")
+
 	return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 }
 
 func conflictResponse(c *echo.Context, err error) error {
+	c.Response().Header().Set(amznErrorTypeHeader, "ConflictException")
+
 	return c.JSON(http.StatusConflict, map[string]string{keyMessageField: err.Error()})
+}
+
+// payloadTooLargeResponse is only valid on operations that model
+// PayloadTooLargeException (CreateHostedConfigurationVersion).
+func payloadTooLargeResponse(c *echo.Context, err error) error {
+	c.Response().Header().Set(amznErrorTypeHeader, "PayloadTooLargeException")
+
+	return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{keyMessageField: err.Error()})
+}
+
+// internalServerErrorResponse is valid on every AppConfig operation --
+// InternalServerException is modeled on all of them.
+func internalServerErrorResponse(c *echo.Context, err error) error {
+	c.Response().Header().Set(amznErrorTypeHeader, "InternalServerException")
+
+	return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
 }
 
 // appConfigPaginationParams reads the next_token and max_results query parameters.

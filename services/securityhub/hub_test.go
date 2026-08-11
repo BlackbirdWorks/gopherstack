@@ -138,13 +138,13 @@ func TestHubV2(t *testing.T) {
 			name: "EnableDescribeDisableSecurityHubV2",
 			steps: []step{
 				{
-					name:   "describe before enable returns 400",
+					name:   "describe before enable returns 404",
 					method: http.MethodGet,
 					path:   "/hubv2",
 					body:   nil,
 					check: func(t *testing.T, code int, _ map[string]any) {
 						t.Helper()
-						assert.Equal(t, http.StatusBadRequest, code)
+						assert.Equal(t, http.StatusNotFound, code)
 					},
 				},
 				{
@@ -190,13 +190,13 @@ func TestHubV2(t *testing.T) {
 					},
 				},
 				{
-					name:   "describe after disable returns 400",
+					name:   "describe after disable returns 404",
 					method: http.MethodGet,
 					path:   "/hubv2",
 					body:   nil,
 					check: func(t *testing.T, code int, _ map[string]any) {
 						t.Helper()
-						assert.Equal(t, http.StatusBadRequest, code)
+						assert.Equal(t, http.StatusNotFound, code)
 					},
 				},
 			},
@@ -279,12 +279,12 @@ func TestHubV2Features(t *testing.T) {
 			name: "EnableDisableSecurityHubFeatureV2",
 			steps: []step{
 				{
-					name:   "enable feature before hub v2 enabled returns 400",
+					name:   "enable feature before hub v2 enabled returns 404",
 					method: http.MethodPost,
 					path:   "/hubv2/feature/NETWORK_SCANNING",
 					check: func(t *testing.T, code int, _ map[string]any) {
 						t.Helper()
-						assert.Equal(t, http.StatusBadRequest, code)
+						assert.Equal(t, http.StatusNotFound, code)
 					},
 				},
 				{
@@ -381,12 +381,12 @@ func TestHubV2Features(t *testing.T) {
 					},
 				},
 				{
-					name:   "enable feature after hub v2 disabled returns 400",
+					name:   "enable feature after hub v2 disabled returns 404",
 					method: http.MethodPost,
 					path:   "/hubv2/feature/NETWORK_SCANNING",
 					check: func(t *testing.T, code int, _ map[string]any) {
 						t.Helper()
-						assert.Equal(t, http.StatusBadRequest, code)
+						assert.Equal(t, http.StatusNotFound, code)
 					},
 				},
 			},

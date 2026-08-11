@@ -62,9 +62,10 @@ func (h *Handler) handleBatchImportFindings(c *echo.Context, body map[string]any
 
 	const maxImportFindings = 100
 	if len(findings) > maxImportFindings {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			keyMessage: fmt.Sprintf("Findings list must not exceed %d entries", maxImportFindings),
-		})
+		return typedErrorResponse(
+			c, http.StatusBadRequest, "InvalidInputException",
+			fmt.Sprintf("Findings list must not exceed %d entries", maxImportFindings),
+		)
 	}
 
 	successCount, failedCount, failedFindings := h.Backend.ImportFindings(findings)
@@ -109,6 +110,10 @@ func (h *Handler) handleUpdateFindings(c *echo.Context, body map[string]any) err
 	note, _ := body["Note"].(map[string]any)
 	recordState, _ := body["RecordState"].(string)
 
+	// ErrHubNotEnabled is left unheadered: UpdateFindings models both
+	// InvalidAccessException and ResourceNotFoundException
+	// (securityhub@v1.75.4 deserializers.go), same ambiguity as handler_hub.go's
+	// V1 handlers.
 	if err := h.Backend.UpdateFindings(filters, note, recordState); err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
 			return c.JSON(http.StatusBadRequest, map[string]any{
@@ -116,7 +121,7 @@ func (h *Handler) handleUpdateFindings(c *echo.Context, body map[string]any) err
 			})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

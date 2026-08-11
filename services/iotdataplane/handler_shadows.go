@@ -50,7 +50,7 @@ func (h *Handler) handleShadow(c *echo.Context) error {
 	thingName, shadowNameFromPath := parseShadowPath(path)
 
 	if thingName == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "thingName is required"})
+		return invalidRequestResponse(c, "thingName is required")
 	}
 
 	// Path-style takes precedence over query-param style.
@@ -71,7 +71,7 @@ func (h *Handler) handleShadow(c *echo.Context) error {
 	case http.MethodDelete:
 		return h.handleDeleteThingShadow(c, thingName, shadowName)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 }
 
@@ -118,12 +118,12 @@ func (h *Handler) handleDeleteThingShadow(c *echo.Context, thingName, shadowName
 // Pagination: pageSize (primary) or maxResults (alias); default 25, max 100.
 func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 
 	thingName := strings.TrimPrefix(c.Request().URL.Path, listNamedShadowsPrefix)
 	if thingName == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "thingName is required"})
+		return invalidRequestResponse(c, "thingName is required")
 	}
 
 	if err := validateThingName(thingName); err != nil {
