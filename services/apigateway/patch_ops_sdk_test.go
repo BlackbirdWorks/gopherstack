@@ -378,3 +378,193 @@ func TestSDK_UpdateMethodResponse_PatchOperations(t *testing.T) {
 		"method.response.header.New":      true,
 	}, out.ResponseParameters)
 }
+
+// TestSDK_UpdateBasePathMapping_PatchOperations drives UpdateBasePathMapping
+// through the real SDK client with both PATCH path spellings AWS's own docs
+// use: patch-operations.html documents "/basepath" and "/restapiId" (lowercase,
+// gopherstack-6q5h), while the AWS CLI reference's own worked example uses
+// "/basePath" (https://docs.aws.amazon.com/cli/latest/reference/apigateway/update-base-path-mapping.html).
+// Before the fix, the lowercase spelling silently no-opped: it never matched
+// UpdateBasePathMappingInput's camelCase json tags.
+func TestSDK_UpdateBasePathMapping_PatchOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"documented lowercase basepath", "/basepath"},
+		{"cli-reference camelcase basepath", "/basePath"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+			api, err := client.CreateRestApi(t.Context(), &apigwsdk.CreateRestApiInput{Name: aws.String("bpm-api")})
+			require.NoError(t, err)
+
+			_, err = client.CreateDomainName(t.Context(), &apigwsdk.CreateDomainNameInput{
+				DomainName: aws.String("api.example.com"),
+			})
+			require.NoError(t, err)
+
+			_, err = client.CreateBasePathMapping(t.Context(), &apigwsdk.CreateBasePathMappingInput{
+				DomainName: aws.String("api.example.com"), RestApiId: api.Id, BasePath: aws.String("v1"),
+			})
+			require.NoError(t, err)
+
+			out, err := client.UpdateBasePathMapping(t.Context(), &apigwsdk.UpdateBasePathMappingInput{
+				DomainName: aws.String("api.example.com"), BasePath: aws.String("v1"),
+				PatchOperations: []apigwtypes.PatchOperation{patchOp(apigwtypes.OpReplace, tt.path, "v2")},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "v2", aws.ToString(out.BasePath), "PATCH path %q must actually change basePath", tt.path)
+		})
+	}
+
+	t.Run("documented restapiid casing", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+		api1, err := client.CreateRestApi(t.Context(), &apigwsdk.CreateRestApiInput{Name: aws.String("bpm-api-1")})
+		require.NoError(t, err)
+		api2, err := client.CreateRestApi(t.Context(), &apigwsdk.CreateRestApiInput{Name: aws.String("bpm-api-2")})
+		require.NoError(t, err)
+
+		_, err = client.CreateDomainName(t.Context(), &apigwsdk.CreateDomainNameInput{
+			DomainName: aws.String("api2.example.com"),
+		})
+		require.NoError(t, err)
+
+		_, err = client.CreateBasePathMapping(t.Context(), &apigwsdk.CreateBasePathMappingInput{
+			DomainName: aws.String("api2.example.com"), RestApiId: api1.Id, BasePath: aws.String("v1"),
+		})
+		require.NoError(t, err)
+
+		out, err := client.UpdateBasePathMapping(t.Context(), &apigwsdk.UpdateBasePathMappingInput{
+			DomainName: aws.String("api2.example.com"), BasePath: aws.String("v1"),
+			PatchOperations: []apigwtypes.PatchOperation{
+				patchOp(apigwtypes.OpReplace, "/restapiId", aws.ToString(api2.Id)),
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, aws.ToString(api2.Id), aws.ToString(out.RestApiId))
+	})
+}
+
+// TestSDK_UpdateAuthorizer_ProviderARNsPatch drives UpdateAuthorizer through
+// the real SDK client with "/providerARNs" add/remove (patch-operations.html:
+// UpdateAuthorizer documents add/remove as supported, replace as not).
+// Before the fix, applyResourcePatchOp had no case for UpdateAuthorizer, so
+// the op fell through to the generic single-field flatten, which wrote the
+// Value's raw JSON string straight into a field typed []string -- a hard
+// json.Unmarshal 500, not a silent no-op.
+func TestSDK_UpdateAuthorizer_ProviderARNsPatch(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	api, err := client.CreateRestApi(t.Context(), &apigwsdk.CreateRestApiInput{Name: aws.String("authz-api")})
+	require.NoError(t, err)
+
+	authz, err := client.CreateAuthorizer(t.Context(), &apigwsdk.CreateAuthorizerInput{
+		RestApiId: api.Id, Name: aws.String("authz"), Type: apigwtypes.AuthorizerTypeToken,
+		ProviderARNs: []string{"arn:aws:cognito-idp:us-east-1:000000000000:userpool/existing"},
+	})
+	require.NoError(t, err)
+
+	t.Run("add merges with existing", func(t *testing.T) {
+		t.Parallel()
+
+		out, addErr := client.UpdateAuthorizer(t.Context(), &apigwsdk.UpdateAuthorizerInput{
+			RestApiId: api.Id, AuthorizerId: authz.Id,
+			PatchOperations: []apigwtypes.PatchOperation{
+				patchOp(apigwtypes.OpAdd, "/providerARNs", "arn:aws:cognito-idp:us-east-1:000000000000:userpool/new"),
+			},
+		})
+		require.NoError(t, addErr)
+		assert.ElementsMatch(t, []string{
+			"arn:aws:cognito-idp:us-east-1:000000000000:userpool/existing",
+			"arn:aws:cognito-idp:us-east-1:000000000000:userpool/new",
+		}, out.ProviderARNs)
+	})
+
+	t.Run("remove clears the last entry", func(t *testing.T) {
+		t.Parallel()
+
+		solo, createErr := client.CreateAuthorizer(t.Context(), &apigwsdk.CreateAuthorizerInput{
+			RestApiId: api.Id, Name: aws.String("authz-solo"), Type: apigwtypes.AuthorizerTypeToken,
+			ProviderARNs: []string{"arn:aws:cognito-idp:us-east-1:000000000000:userpool/solo"},
+		})
+		require.NoError(t, createErr)
+
+		out, removeErr := client.UpdateAuthorizer(t.Context(), &apigwsdk.UpdateAuthorizerInput{
+			RestApiId: api.Id, AuthorizerId: solo.Id,
+			PatchOperations: []apigwtypes.PatchOperation{
+				patchOp(
+					apigwtypes.OpRemove, "/providerARNs", "arn:aws:cognito-idp:us-east-1:000000000000:userpool/solo",
+				),
+			},
+		})
+		require.NoError(t, removeErr)
+		assert.Empty(t, out.ProviderARNs)
+	})
+
+	t.Run("replace rejected", func(t *testing.T) {
+		t.Parallel()
+
+		_, replaceErr := client.UpdateAuthorizer(t.Context(), &apigwsdk.UpdateAuthorizerInput{
+			RestApiId: api.Id, AuthorizerId: authz.Id,
+			PatchOperations: []apigwtypes.PatchOperation{
+				patchOp(apigwtypes.OpReplace, "/providerARNs", "arn:aws:cognito-idp:us-east-1:000000000000:userpool/x"),
+			},
+		})
+		require.Error(t, replaceErr)
+	})
+}
+
+// TestSDK_UpdateAccount_FeaturesPatch drives UpdateAccount through the real
+// SDK client with "/features" add/remove (patch-operations.html: UpdateAccount
+// documents add supported, remove supported except for the UsagePlans
+// feature, replace not supported). Before the fix, Account.Features existed
+// as a read-only field nothing ever wrote to, and UpdateAccountInput had no
+// Features field at all, so the op silently no-opped via the generic
+// single-field flatten.
+func TestSDK_UpdateAccount_FeaturesPatch(t *testing.T) {
+	t.Parallel()
+
+	client := newTestAPIGatewayClient(t, apigateway.NewHandler(apigateway.NewInMemoryBackend()))
+
+	t.Run("add a new feature", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.UpdateAccount(t.Context(), &apigwsdk.UpdateAccountInput{
+			PatchOperations: []apigwtypes.PatchOperation{patchOp(apigwtypes.OpAdd, "/features", "SNAPSTART")},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, out.Features, "SNAPSTART")
+		assert.Contains(t, out.Features, "UsagePlans", "add must merge, not replace, the existing feature list")
+	})
+
+	t.Run("remove usageplans rejected", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := client.UpdateAccount(t.Context(), &apigwsdk.UpdateAccountInput{
+			PatchOperations: []apigwtypes.PatchOperation{patchOp(apigwtypes.OpRemove, "/features", "UsagePlans")},
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("replace rejected", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := client.UpdateAccount(t.Context(), &apigwsdk.UpdateAccountInput{
+			PatchOperations: []apigwtypes.PatchOperation{patchOp(apigwtypes.OpReplace, "/features", "SNAPSTART")},
+		})
+		require.Error(t, err)
+	})
+}

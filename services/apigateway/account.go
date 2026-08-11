@@ -19,6 +19,9 @@ func (b *InMemoryBackend) UpdateAccount(input UpdateAccountInput) (*Account, err
 	if input.CloudwatchRoleARN != "" {
 		b.account.CloudwatchRoleARN = input.CloudwatchRoleARN
 	}
+	if input.Features != nil {
+		b.account.Features = input.Features
+	}
 
 	return b.account, nil
 }

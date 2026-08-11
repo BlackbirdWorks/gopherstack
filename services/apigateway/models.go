@@ -749,11 +749,17 @@ type UpdateDomainNameInput struct {
 }
 
 // UpdateBasePathMappingInput is the input for UpdateBasePathMapping.
+// NewBasePath has no equivalent on the real AWS wire (a real client only ever
+// renames via a "/basepath" or "/basePath" patchOperations entry) — BasePath
+// itself must stay the REQUIRED identity used to find the mapping, since it's
+// populated from the URL by injectJSONFieldAPIGW after patch resolution runs
+// (see applyBasePathMappingPatchOp).
 type UpdateBasePathMappingInput struct {
-	DomainName string `json:"domainName"`
-	BasePath   string `json:"basePath"`
-	RestAPIID  string `json:"restApiId,omitempty"`
-	Stage      string `json:"stage,omitempty"`
+	NewBasePath *string `json:"newBasePath,omitempty"`
+	DomainName  string  `json:"domainName"`
+	BasePath    string  `json:"basePath"`
+	RestAPIID   string  `json:"restApiId,omitempty"`
+	Stage       string  `json:"stage,omitempty"`
 }
 
 // UpdateDocumentationPartInput is the input for UpdateDocumentationPart.
@@ -835,10 +841,14 @@ type UpdateMethodResponseInput struct {
 // carries only "patchOperations" (see aws-sdk-go-v2 apigateway
 // UpdateAccountInput); handler.go flattens the patch document into these
 // named fields (CloudwatchRoleARN via top-level "/cloudwatchRoleArn",
-// ThrottleSettings via nested "/throttle/{rateLimit,burstLimit}" — see patch.go).
+// ThrottleSettings via nested "/throttle/{rateLimit,burstLimit}", Features via
+// "/features" add/remove — see patch.go). Features is nil-checked rather than
+// len-checked so patching the last entry away actually clears it (see
+// applyAccountFeaturesPatch).
 type UpdateAccountInput struct {
 	ThrottleSettings  *ThrottleSettings `json:"throttleSettings,omitempty"`
 	CloudwatchRoleARN string            `json:"cloudwatchRoleArn,omitempty"`
+	Features          []string          `json:"features,omitempty"`
 }
 
 // TestInvokeAuthorizerInput is the input for TestInvokeAuthorizer.

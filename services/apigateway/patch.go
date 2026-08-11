@@ -430,6 +430,8 @@ var resourcePatchResolvers = map[string]resourcePatchResolver{
 	opUpdateIntegration:         (*Handler).applyIntegrationPatchOp,
 	opUpdateIntegrationResponse: (*Handler).applyIntegrationResponsePatchOp,
 	opUpdateMethodResponse:      (*Handler).applyMethodResponsePatchOp,
+	opUpdateBasePathMapping:     (*Handler).applyBasePathMappingPatchOp,
+	opUpdateAuthorizer:          (*Handler).applyAuthorizerPatchOp,
 }
 
 // applyResourcePatchOp dispatches to the per-action patch resolver for
@@ -811,15 +813,22 @@ func (h *Handler) applyRestAPIPatchOp(
 	return true, nil
 }
 
+// accountFeatureUsagePlans is the one feature patch-operations.html documents
+// as blocked from removal (UpdateAccount "/features" row: "op:remove
+// Supported, but not for the UsagePlans feature").
+const accountFeatureUsagePlans = "UsagePlans"
+
 // applyAccountPatchOp handles UpdateAccount's nested ThrottleSettings edits
-// ("/throttle/{rateLimit,burstLimit}"), merging with the account's existing
-// throttle settings and whatever an earlier op in the SAME request already
-// staged into out["throttleSettings"]. "/cloudwatchRoleArn" is a plain
-// top-level string field and is handled by the generic fallback
-// (applyTopLevelPatchOp).
+// ("/throttle/{rateLimit,burstLimit}") and "/features" add/remove list
+// membership. "/cloudwatchRoleArn" is a plain top-level string field and is
+// handled by the generic fallback (applyTopLevelPatchOp).
 func (h *Handler) applyAccountPatchOp(
 	_ map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
 ) (bool, error) {
+	if len(segs) == 1 && segs[0] == "features" {
+		return h.applyAccountFeaturesPatch(op, out)
+	}
+
 	if len(segs) != patchPathSegs2 || segs[0] != "throttle" {
 		return false, nil
 	}
@@ -874,6 +883,56 @@ func applyAccountThrottleProp(cur *ThrottleSettings, prop, val string, remove bo
 	}
 
 	return true
+}
+
+// applyAccountFeaturesPatch adds/removes one entry of the account's Features
+// list, merging with the account's existing features (a wholesale replace
+// would otherwise silently drop every other feature) and whatever an earlier
+// op in the SAME request already staged into out["features"]. Rejects
+// removing accountFeatureUsagePlans, matching patch-operations.html's
+// documented exception, and any op other than add/remove (replace is "Not
+// supported").
+func (h *Handler) applyAccountFeaturesPatch(op patchOp, out map[string]json.RawMessage) (bool, error) {
+	if op.Op != patchOpAdd && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/features", op.Op)
+	}
+
+	val, ok := patchValueString(op.Value)
+	if !ok {
+		return true, nil
+	}
+
+	if op.Op == patchOpRemove && val == accountFeatureUsagePlans {
+		return true, unsupportedPatchOp("/features", op.Op)
+	}
+
+	features, ok := stagedValue[[]string](out, "features")
+	if !ok {
+		acct, err := h.Backend.GetAccount()
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		features = acct.Features
+	}
+
+	features = slices.Clone(features)
+
+	if op.Op == patchOpAdd {
+		if !slices.Contains(features, val) {
+			features = append(features, val)
+		}
+	} else {
+		features = slices.DeleteFunc(features, func(f string) bool { return f == val })
+	}
+
+	if features == nil {
+		features = []string{}
+	}
+
+	setJSONValue(out, "features", features)
+
+	return true, nil
 }
 
 // currentUsagePlanAPIStages returns the APIStages already staged in
@@ -1306,6 +1365,112 @@ func (h *Handler) applyResourceEntityPatchOp(
 	}
 
 	out["parentId"] = op.Value
+
+	return true, nil
+}
+
+// applyBasePathMappingPatchOp resolves UpdateBasePathMapping's PATCH paths.
+// AWS's own docs disagree on how "/basepath" is cased: patch-operations.html
+// spells it lowercase ("/basepath", also "/restapiId" — note the capital I
+// even there), while the AWS CLI reference's own worked example (docs.aws.
+// amazon.com/cli/latest/reference/apigateway/update-base-path-mapping.html,
+// also mirrored in AWS's Doc SDK Examples code-library page) uses
+// path='/basePath' and returns a populated "basePath" in its shown output —
+// both spellings are accepted here rather than picking one.
+//
+// Renaming the base path itself needs a dedicated resolver, not just a case
+// alias: UpdateBasePathMappingInput's "basePath" field does DOUBLE DUTY as
+// both the REQUIRED identity used to look up which mapping to update (from
+// the URL path segment) and, naively, the field a "/basepath" patch would
+// target — but pathParams is merged into the body via injectJSONFieldAPIGW
+// AFTER applyStructuredPatch runs (handler.go) and unconditionally overwrites
+// "basePath" with the URL's OLD value, clobbering anything staged here
+// regardless of casing. So both spellings stage the new value under
+// "newBasePath" instead, a field private to this backend's
+// UpdateBasePathMappingInput with no equivalent on the real AWS wire (every
+// real client only ever sends the rename through patchOperations), which
+// InMemoryBackend.UpdateBasePathMapping applies as an actual key rename.
+//
+// "/restapiId" is aliased explicitly to RestAPIID's "restApiId" json tag
+// rather than relied on via json.Unmarshal's incidental case-insensitive
+// field match (which happens to also save it, since RestAPIID isn't
+// pathParams-clobbered — but relying on that would be an accident, not a
+// decision). "/restApiId" and "/stage" are spelled identically in every AWS
+// source and already work via the generic fallback (applyTopLevelPatchOp).
+func (h *Handler) applyBasePathMappingPatchOp(
+	_ map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) != 1 {
+		return false, nil
+	}
+
+	if op.Op != patchOpReplace && op.Op != patchOpAdd {
+		return false, nil
+	}
+
+	switch segs[0] {
+	case "basepath", "basePath":
+		out["newBasePath"] = coerceTopLevelPatchValue("newBasePath", op.Value)
+	case "restapiId":
+		out["restApiId"] = coerceTopLevelPatchValue("restApiId", op.Value)
+	default:
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// applyAuthorizerPatchOp handles UpdateAuthorizer's "/providerARNs" add/remove
+// list-membership edits (patch-operations.html: UpdateAuthorizer table
+// documents add/remove as supported, replace as not supported), merging with
+// the authorizer's existing ProviderARNs (a wholesale replace would otherwise
+// silently drop every other ARN) and whatever an earlier op in the SAME
+// request already staged into out["providerARNs"]. Before this, the path fell
+// through to applyTopLevelPatchOp, which wrote the raw Value JSON string
+// straight into a field UpdateAuthorizerInput types as []string —
+// json.Unmarshal then failed the WHOLE PATCH request with a 500 (same bug
+// class as UpdateIntegration's /cacheKeyParameters).
+func (h *Handler) applyAuthorizerPatchOp(
+	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) (bool, error) {
+	if len(segs) != 1 || segs[0] != "providerARNs" {
+		return false, nil
+	}
+
+	if op.Op != patchOpAdd && op.Op != patchOpRemove {
+		return true, unsupportedPatchOp("/providerARNs", op.Op)
+	}
+
+	val, ok := patchValueString(op.Value)
+	if !ok {
+		return true, nil
+	}
+
+	arns, ok := stagedValue[[]string](out, "providerARNs")
+	if !ok {
+		auth, err := h.Backend.GetAuthorizer(pathParams[keyRestAPIID], pathParams[keyAuthorizerID])
+		if patchIgnorableErr(err) {
+			return true, nil
+		}
+
+		arns = auth.ProviderARNs
+	}
+
+	arns = slices.Clone(arns)
+
+	if op.Op == patchOpAdd {
+		if !slices.Contains(arns, val) {
+			arns = append(arns, val)
+		}
+	} else {
+		arns = slices.DeleteFunc(arns, func(a string) bool { return a == val })
+	}
+
+	if arns == nil {
+		arns = []string{}
+	}
+
+	setJSONValue(out, "providerARNs", arns)
 
 	return true, nil
 }
