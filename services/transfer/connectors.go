@@ -20,6 +20,7 @@ type CreateConnectorInput struct {
 	AccessRole         string
 	LoggingRole        string
 	SecurityPolicyName string
+	IPAddressType      string
 }
 
 // CreateConnector creates a Transfer connector. URL is required.
@@ -60,6 +61,7 @@ func (b *InMemoryBackend) CreateConnectorFull(in *CreateConnectorInput) (*Connec
 		As2Config:          in.As2Config,
 		LoggingRole:        in.LoggingRole,
 		SecurityPolicyName: in.SecurityPolicyName,
+		IPAddressType:      in.IPAddressType,
 		CreatedAt:          time.Now(),
 		Tags:               merged,
 		AccountID:          b.accountID,
@@ -126,8 +128,10 @@ type UpdateConnectorInput struct {
 	AccessRole            string
 	LoggingRole           string
 	SecurityPolicyName    string
+	IPAddressType         string
 	SetLoggingRole        bool
 	SetSecurityPolicyName bool
+	SetIPAddressType      bool
 }
 
 // UpdateConnector updates mutable fields on a connector.
@@ -177,6 +181,10 @@ func (b *InMemoryBackend) UpdateConnectorFull(in *UpdateConnectorInput) (*Connec
 
 	if in.SetSecurityPolicyName {
 		c.SecurityPolicyName = in.SecurityPolicyName
+	}
+
+	if in.SetIPAddressType {
+		c.IPAddressType = in.IPAddressType
 	}
 
 	return cloneConnector(c), nil

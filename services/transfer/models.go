@@ -367,6 +367,7 @@ type Connector struct {
 	Region             string               `json:"region"`
 	LoggingRole        string               `json:"logging_role,omitempty"`
 	SecurityPolicyName string               `json:"security_policy_name,omitempty"`
+	IPAddressType      string               `json:"ip_address_type,omitempty"`
 }
 
 // FileTransferResult stores state for a file transfer operation started via StartFileTransfer.
@@ -451,6 +452,7 @@ type WebAppIdentityCenterConfig struct {
 type WebAppVpcConfig struct {
 	VpcID            string   `json:"vpc_id,omitempty"`
 	VpcEndpointID    string   `json:"vpc_endpoint_id,omitempty"`
+	IPAddressType    string   `json:"ip_address_type,omitempty"`
 	SecurityGroupIDs []string `json:"security_group_ids,omitempty"`
 	SubnetIDs        []string `json:"subnet_ids,omitempty"`
 }

@@ -115,6 +115,28 @@ func TestUpdateWebApp_PartialFieldsOnly(t *testing.T) {
 		"InstanceArn is not updatable via UpdateWebApp in real AWS")
 }
 
+// TestUpdateWebApp_VpcIPAddressType verifies UpdateWebApp stores
+// VpcIPAddressType on the backend's WebAppVpcConfig (UpdateWebAppVpcConfig gained
+// IpAddressType in aws-sdk-go-v2/service/transfer@v1.75.4, types/types.go:2648).
+// Real AWS never returns this on Describe (DescribedWebAppVpcConfig has no such
+// field), so this is verified at the backend/storage layer, not through Describe.
+func TestUpdateWebApp_VpcIPAddressType(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	w, err := b.CreateWebApp(validWebAppInput(nil))
+	require.NoError(t, err)
+
+	ipType := "DUALSTACK"
+	updated, err := b.UpdateWebApp(&transfer.UpdateWebAppInput{
+		WebAppID:         w.WebAppID,
+		VpcIPAddressType: &ipType,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.VpcConfig)
+	assert.Equal(t, "DUALSTACK", updated.VpcConfig.IPAddressType)
+}
+
 // TestUpdateWebApp_NotFound verifies ResourceNotFoundException semantics.
 func TestUpdateWebApp_NotFound(t *testing.T) {
 	t.Parallel()

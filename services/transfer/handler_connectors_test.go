@@ -550,3 +550,127 @@ func TestHandler_StartRemoteMove_ReturnsMoveId(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, missingTarget.Code)
 }
+
+// TestHandler_ConnectorIPAddressType verifies IpAddressType (Connector gained this
+// field in aws-sdk-go-v2/service/transfer@v1.75.4, types/types.go:720) round-trips
+// through CreateConnector/DescribeConnector when supplied, and is absent from the
+// raw DescribeConnector body -- not merely zero-valued -- when never set.
+func TestHandler_ConnectorIPAddressType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		ipAddressType string
+	}{
+		{name: "ipv4", ipAddressType: "IPV4"},
+		{name: "dualstack", ipAddressType: "DUALSTACK"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createRec := doTransferRequest(t, h, "CreateConnector", map[string]any{
+				"Url":           "https://partner.example.com",
+				"IpAddressType": tt.ipAddressType,
+			})
+			require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			connectorID := createResp["ConnectorId"].(string)
+
+			descRec := doTransferRequest(t, h, "DescribeConnector", map[string]any{
+				"ConnectorId": connectorID,
+			})
+			require.Equal(t, http.StatusOK, descRec.Code)
+
+			var descResp map[string]any
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			connector := descResp["Connector"].(map[string]any)
+			assert.Equal(t, tt.ipAddressType, connector["IpAddressType"])
+			assert.Contains(t, descRec.Body.String(), `"IpAddressType":"`+tt.ipAddressType+`"`)
+		})
+	}
+
+	t.Run("unset is absent from wire, not empty", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createRec := doTransferRequest(t, h, "CreateConnector", map[string]any{
+			"Url": "https://partner.example.com",
+		})
+		require.Equal(t, http.StatusOK, createRec.Code)
+
+		var createResp map[string]any
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		connectorID := createResp["ConnectorId"].(string)
+
+		descRec := doTransferRequest(t, h, "DescribeConnector", map[string]any{
+			"ConnectorId": connectorID,
+		})
+		require.Equal(t, http.StatusOK, descRec.Code)
+
+		var descResp map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		connector := descResp["Connector"].(map[string]any)
+		_, hasIPAddressType := connector["IpAddressType"]
+		assert.False(t, hasIPAddressType, "IpAddressType must be absent, not an empty string, when unset")
+		assert.NotContains(t, descRec.Body.String(), "IpAddressType")
+	})
+}
+
+// TestHandler_UpdateConnectorIPAddressType verifies UpdateConnector persists
+// IpAddressType (UpdateConnectorInput gained this field alongside CreateConnectorInput
+// in aws-sdk-go-v2/service/transfer@v1.75.4, api_op_UpdateConnector.go:80).
+func TestHandler_UpdateConnectorIPAddressType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doTransferRequest(t, h, "CreateConnector", map[string]any{
+		"Url":           "https://partner.example.com",
+		"IpAddressType": "IPV4",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	connectorID := createResp["ConnectorId"].(string)
+
+	updateRec := doTransferRequest(t, h, "UpdateConnector", map[string]any{
+		"ConnectorId":   connectorID,
+		"IpAddressType": "DUALSTACK",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
+
+	descRec := doTransferRequest(t, h, "DescribeConnector", map[string]any{
+		"ConnectorId": connectorID,
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	connector := descResp["Connector"].(map[string]any)
+	assert.Equal(t, "DUALSTACK", connector["IpAddressType"])
+}
+
+// TestHandler_ListConnectorsExcludesIPAddressType pins that ListedConnector (unlike
+// DescribedConnector) has no IpAddressType field in real AWS -- confirmed absent from
+// both types.ListedConnector and its deserializer in
+// aws-sdk-go-v2/service/transfer@v1.75.4 (types/types.go:1897, deserializers.go).
+func TestHandler_ListConnectorsExcludesIPAddressType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doTransferRequest(t, h, "CreateConnector", map[string]any{
+		"Url":           "https://partner.example.com",
+		"IpAddressType": "DUALSTACK",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	listRec := doTransferRequest(t, h, "ListConnectors", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	assert.NotContains(t, listRec.Body.String(), "IpAddressType",
+		"ListedConnector has no IpAddressType field in real AWS")
+}
