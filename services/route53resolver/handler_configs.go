@@ -266,8 +266,9 @@ func (h *Handler) handleUpdateResolverDnssecConfig(
 }
 
 type listResolverDnssecConfigsInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken  string       `json:"NextToken"`
+	Filters    []wireFilter `json:"Filters"`
+	MaxResults int32        `json:"MaxResults"`
 }
 
 type listResolverDnssecConfigsOutput struct {
@@ -275,11 +276,27 @@ type listResolverDnssecConfigsOutput struct {
 	ResolverDnssecConfigs []resolverDnssecConfigOutput `json:"ResolverDnssecConfigs"`
 }
 
+// matchNoDnssecConfigFilter is unreachable: ListResolverDnssecConfigs is
+// passed a nil alias map below, so applyFilters rejects every Filter.Name
+// before ever calling match. Unlike the other five list ops, the pinned
+// SDK's Filter.Name doc (aws-sdk-go-v2/service/route53resolver@v1.48.4
+// types/types.go) does not enumerate ListResolverDnssecConfigs among the
+// operations it documents valid names for, and AWS's own API reference
+// page for this operation lists none either -- so no name is backed by
+// the model, and every filter must be rejected rather than guessed at.
+func matchNoDnssecConfigFilter(_ *ResolverDnssecConfig, _ string, _ []string) bool {
+	return false
+}
+
 func (h *Handler) handleListResolverDnssecConfigs(
 	ctx context.Context,
 	in *listResolverDnssecConfigsInput,
 ) (*listResolverDnssecConfigsOutput, error) {
 	configs := h.Backend.ListResolverDnssecConfigs(ctx)
+	configs, err := applyFilters(configs, in.Filters, nil, matchNoDnssecConfigFilter)
+	if err != nil {
+		return nil, err
+	}
 	items := mapSlice(configs, resolverDnssecConfigToOutput)
 	data, next := paginate(items, in.NextToken, in.MaxResults, defaultPageSizeLarge)
 

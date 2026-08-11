@@ -351,6 +351,40 @@ func TestUpdateResolverEndpoint_Extended(t *testing.T) {
 	}
 }
 
+// TestUpdateResolverEndpoint_RejectedTypeLeavesNameUnchanged asserts that
+// when ResolverEndpointType fails validation, a Name change bundled into
+// the same request is not partially applied. UpdateResolverEndpoint
+// (resolver_endpoints.go) mutates ep.Name on the live stored pointer
+// before it validates ResolverEndpointType, so a request that fails
+// validation was still leaving the name change committed.
+func TestUpdateResolverEndpoint_RejectedTypeLeavesNameUnchanged(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "orig-ep-partial",
+		"Direction": "INBOUND",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	epID := createResp["ResolverEndpoint"].(map[string]any)["Id"].(string)
+
+	updateRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId":   epID,
+		"Name":                 "changed-ep-name",
+		"ResolverEndpointType": "BOGUS",
+	})
+	require.Equal(t, http.StatusBadRequest, updateRec.Code)
+
+	getRec := doRequest(t, h, "GetResolverEndpoint", map[string]any{"ResolverEndpointId": epID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	ep := getResp["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, "orig-ep-partial", ep["Name"])
+}
+
 // TestResolverEndpoint_MetricsFlags verifies RniEnhancedMetricsEnabled and
 // TargetNameServerMetricsEnabled -- settable on both CreateResolverEndpoint
 // and UpdateResolverEndpoint per the real SDK's CreateResolverEndpointInput /

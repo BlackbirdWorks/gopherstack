@@ -315,9 +315,11 @@ func (h *Handler) handleGetFirewallRuleGroupAssociation(
 // --- ListFirewallRuleGroupAssociations ---
 
 type listFirewallRuleGroupAssociationsInput struct {
+	Priority            *int32 `json:"Priority,omitempty"`
 	NextToken           string `json:"NextToken"`
 	VpcID               string `json:"VpcId"`
 	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
+	Status              string `json:"Status"`
 	MaxResults          int32  `json:"MaxResults"`
 }
 
@@ -333,6 +335,12 @@ func (h *Handler) handleListFirewallRuleGroupAssociations(
 	assocs := h.Backend.ListFirewallRuleGroupAssociations(ctx, in.VpcID, in.FirewallRuleGroupID)
 	items := make([]firewallRuleGroupAssociationOutput, 0, len(assocs))
 	for _, a := range assocs {
+		if in.Status != "" && a.Status != in.Status {
+			continue
+		}
+		if in.Priority != nil && a.Priority != *in.Priority {
+			continue
+		}
 		items = append(items, firewallRuleGroupAssociationToOutput(a))
 	}
 	data, next := paginate(items, in.NextToken, in.MaxResults, defaultPageSizeLarge)

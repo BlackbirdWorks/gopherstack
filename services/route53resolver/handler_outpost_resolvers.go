@@ -132,6 +132,7 @@ func (h *Handler) handleDeleteOutpostResolver(
 
 type listOutpostResolversInput struct {
 	NextToken  string `json:"NextToken"`
+	OutpostArn string `json:"OutpostArn"`
 	MaxResults int32  `json:"MaxResults"`
 }
 
@@ -147,6 +148,9 @@ func (h *Handler) handleListOutpostResolvers(
 	resolvers := h.Backend.ListOutpostResolvers(ctx)
 	items := make([]outpostResolverOutput, 0, len(resolvers))
 	for _, r := range resolvers {
+		if in.OutpostArn != "" && r.OutpostARN != in.OutpostArn {
+			continue
+		}
 		items = append(items, outpostResolverToOutput(r))
 	}
 	data, next := paginate(items, in.NextToken, in.MaxResults, defaultPageSizeLarge)

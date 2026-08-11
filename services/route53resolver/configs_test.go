@@ -468,6 +468,47 @@ func TestListResolverDnssecConfigs(t *testing.T) {
 	}
 }
 
+// TestListResolverDnssecConfigs_FiltersRejected asserts that a Filters
+// entry on ListResolverDnssecConfigs is rejected rather than silently
+// dropped. Unlike ListResolverEndpoints/Rules/RuleAssociations/
+// QueryLogConfigs/QueryLogConfigAssociations, the pinned SDK's Filter.Name
+// doc (aws-sdk-go-v2/service/route53resolver@v1.48.4 types/types.go) does
+// not enumerate ListResolverDnssecConfigs among the operations it lists a
+// valid-Name set for, and the live AWS API reference page for this
+// operation documents no Name values either -- so no filter name is
+// backed by the model, and every filter name is "unrecognized".
+func TestListResolverDnssecConfigs_FiltersRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "GetResolverDnssecConfig", map[string]any{"ResourceId": "vpc-dnssec-filter"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	tests := []struct {
+		filterName string
+		name       string
+	}{
+		{name: "resource_id", filterName: "ResourceId"},
+		{name: "owner_id", filterName: "OwnerId"},
+		{name: "validation_status", filterName: "ValidationStatus"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			listRec := doRequest(t, h, "ListResolverDnssecConfigs", map[string]any{
+				"Filters": []map[string]any{
+					{"Name": tt.filterName, "Values": []string{"x"}},
+				},
+			})
+			require.Equal(t, http.StatusBadRequest, listRec.Code)
+			resp := decodeJSON(t, listRec)
+			assert.Equal(t, "InvalidParameterException", resp["__type"])
+		})
+	}
+}
+
 // --- Outpost Resolver CRUD ---
 
 func TestResolverConfigToOutput(t *testing.T) {

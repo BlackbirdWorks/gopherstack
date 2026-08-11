@@ -278,19 +278,19 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
 	}
+	switch resolverEndpointType {
+	case "", endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
+	default:
+		return nil, fmt.Errorf(
+			"%w: ResolverEndpointType must be IPV4, IPV6, or DUALSTACK",
+			ErrValidation,
+		)
+	}
 	if name != "" {
 		ep.Name = name
 	}
 	if resolverEndpointType != "" {
-		switch resolverEndpointType {
-		case endpointTypeIPV4, endpointTypeIPV6, endpointTypeDualStack:
-			ep.ResolverEndpointType = resolverEndpointType
-		default:
-			return nil, fmt.Errorf(
-				"%w: ResolverEndpointType must be IPV4, IPV6, or DUALSTACK",
-				ErrValidation,
-			)
-		}
+		ep.ResolverEndpointType = resolverEndpointType
 	}
 	if len(protocols) > 0 {
 		protocolsCopy := make([]string, len(protocols))

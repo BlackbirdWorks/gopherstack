@@ -334,3 +334,108 @@ func TestListResolverQueryLogConfigAssociations_Pagination(t *testing.T) {
 		})
 	}
 }
+
+func TestListResolverQueryLogConfigAssociations_Filters(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) (*route53resolver.Handler, string, string) {
+		t.Helper()
+		h := newTestHandler(t)
+
+		mkCfg := func(name, destArn string) string {
+			rec := doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+				"Name": name, "DestinationArn": destArn,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			return out["ResolverQueryLogConfig"].(map[string]any)["Id"].(string)
+		}
+		cfg1ID := mkCfg("cfg-one", "arn:aws:s3:::bucket-one")
+		cfg2ID := mkCfg("cfg-two", "arn:aws:s3:::bucket-two")
+
+		assocRec1 := doRequest(t, h, "AssociateResolverQueryLogConfig", map[string]any{
+			"ResolverQueryLogConfigId": cfg1ID, "ResourceId": "vpc-one",
+		})
+		require.Equal(t, http.StatusOK, assocRec1.Code)
+		assocRec2 := doRequest(t, h, "AssociateResolverQueryLogConfig", map[string]any{
+			"ResolverQueryLogConfigId": cfg2ID, "ResourceId": "vpc-two",
+		})
+		require.Equal(t, http.StatusOK, assocRec2.Code)
+
+		return h, cfg1ID, cfg2ID
+	}
+
+	tests := []struct {
+		buildFilter func(cfg1, cfg2 string) map[string]any
+		name        string
+		wantResIDs  []string
+	}{
+		{
+			name: "resource_id_canonical",
+			buildFilter: func(string, string) map[string]any {
+				return map[string]any{"Name": "ResourceId", "Values": []string{"vpc-one"}}
+			},
+			wantResIDs: []string{"vpc-one"},
+		},
+		{
+			name: "resource_id_legacy_uppercase",
+			buildFilter: func(string, string) map[string]any {
+				return map[string]any{"Name": "RESOURCE_ID", "Values": []string{"vpc-two"}}
+			},
+			wantResIDs: []string{"vpc-two"},
+		},
+		{
+			name: "resolver_query_log_config_id",
+			buildFilter: func(cfg1, _ string) map[string]any {
+				return map[string]any{"Name": "ResolverQueryLogConfigId", "Values": []string{cfg1}}
+			},
+			wantResIDs: []string{"vpc-one"},
+		},
+		{
+			name: "status_values_or_combined",
+			buildFilter: func(string, string) map[string]any {
+				return map[string]any{"Name": "Status", "Values": []string{"ACTIVE"}}
+			},
+			wantResIDs: []string{"vpc-one", "vpc-two"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, cfg1, cfg2 := setup(t)
+
+			rec := doRequest(t, h, "ListResolverQueryLogConfigAssociations", map[string]any{
+				"Filters": []map[string]any{tt.buildFilter(cfg1, cfg2)},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assocs, _ := resp["ResolverQueryLogConfigAssociations"].([]any)
+			gotResIDs := make([]string, len(assocs))
+			for i, a := range assocs {
+				gotResIDs[i] = a.(map[string]any)["ResourceId"].(string)
+			}
+			assert.ElementsMatch(t, tt.wantResIDs, gotResIDs)
+		})
+	}
+}
+
+func TestListResolverQueryLogConfigAssociations_UnknownFilterNameRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "ListResolverQueryLogConfigAssociations", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "NotARealFilter", "Values": []string{"x"}},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidParameterException", resp["__type"])
+}

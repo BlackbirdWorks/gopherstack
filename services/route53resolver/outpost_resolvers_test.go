@@ -347,3 +347,51 @@ func TestListOutpostResolvers_Pagination(t *testing.T) {
 		})
 	}
 }
+
+// TestListOutpostResolvers_OutpostArnFilter asserts that OutpostArn
+// (ListOutpostResolversRequest member, botocore route53resolver
+// 2018-04-01 service-2.json.gz) actually narrows the result set instead
+// of being silently dropped by the decoder.
+func TestListOutpostResolvers_OutpostArnFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 2 {
+		rec := doRequest(t, h, "CreateOutpostResolver", map[string]any{
+			"Name":                  fmt.Sprintf("op-res-arnf-%d", i),
+			"OutpostArn":            fmt.Sprintf("arn:aws:outposts:us-east-1:000000000000:outpost/opf-%d", i),
+			"PreferredInstanceType": "m5.xlarge",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	tests := []struct {
+		outpostArn string
+		name       string
+		wantLen    int
+	}{
+		{
+			name:       "matching_arn_narrows_to_one",
+			outpostArn: "arn:aws:outposts:us-east-1:000000000000:outpost/opf-0",
+			wantLen:    1,
+		},
+		{
+			name:       "unknown_arn_returns_none",
+			outpostArn: "arn:aws:outposts:us-east-1:000000000000:outpost/does-not-exist",
+			wantLen:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			listRec := doRequest(t, h, "ListOutpostResolvers", map[string]any{"OutpostArn": tt.outpostArn})
+			require.Equal(t, http.StatusOK, listRec.Code)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			resolvers, _ := out["OutpostResolvers"].([]any)
+			assert.Len(t, resolvers, tt.wantLen)
+		})
+	}
+}

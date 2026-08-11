@@ -3,9 +3,48 @@ package route53resolver
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+const (
+	filterFieldVPCID          = "VPCId"
+	filterFieldResolverRuleID = "ResolverRuleId"
+)
+
+// resolverRuleAssociationFilterAliases canonicalizes Filter.Name for
+// ListResolverRuleAssociations (types.Filter doc, aws-sdk-go-v2/service/
+// route53resolver@v1.48.4 types/types.go): Name, ResolverRuleId, Status,
+// VPCId -- see resolverEndpointFilterAliases's doc comment for the
+// two-forms rule.
+//
+//nolint:gochecknoglobals // immutable lookup table, same pattern as other services' dispatch/alias tables
+var resolverRuleAssociationFilterAliases = map[string]string{
+	filterFieldName:           filterFieldName,
+	legacyFilterName:          filterFieldName,
+	filterFieldResolverRuleID: filterFieldResolverRuleID,
+	"RESOLVER_RULE_ID":        filterFieldResolverRuleID,
+	filterFieldStatus:         filterFieldStatus,
+	legacyFilterStatus:        filterFieldStatus,
+	filterFieldVPCID:          filterFieldVPCID,
+	"VPC_ID":                  filterFieldVPCID,
+}
+
+func matchResolverRuleAssociationFilter(a *ResolverRuleAssociation, name string, values []string) bool {
+	switch name {
+	case filterFieldName:
+		return slices.Contains(values, a.Name)
+	case filterFieldResolverRuleID:
+		return slices.Contains(values, a.ResolverRuleID)
+	case filterFieldStatus:
+		return slices.Contains(values, a.Status)
+	case filterFieldVPCID:
+		return slices.Contains(values, a.VPCID)
+	default:
+		return false
+	}
+}
 
 // resolverRuleAssociationOutput is the JSON representation of a ResolverRuleAssociation.
 type resolverRuleAssociationOutput struct {
@@ -124,8 +163,9 @@ func (h *Handler) handleDisassociateResolverRule(
 // --- ListResolverRuleAssociations ---
 
 type listResolverRuleAssociationsInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken  string       `json:"NextToken"`
+	Filters    []wireFilter `json:"Filters"`
+	MaxResults int32        `json:"MaxResults"`
 }
 
 type listResolverRuleAssociationsOutput struct {
@@ -138,6 +178,15 @@ func (h *Handler) handleListResolverRuleAssociations(
 	in *listResolverRuleAssociationsInput,
 ) (*listResolverRuleAssociationsOutput, error) {
 	assocs := h.Backend.ListResolverRuleAssociations(ctx)
+	assocs, err := applyFilters(
+		assocs,
+		in.Filters,
+		resolverRuleAssociationFilterAliases,
+		matchResolverRuleAssociationFilter,
+	)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]resolverRuleAssociationOutput, 0, len(assocs))
 	for _, a := range assocs {
 		items = append(items, ruleAssociationToOutput(a))

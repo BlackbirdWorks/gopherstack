@@ -295,3 +295,116 @@ func TestListResolverRuleAssociations_Pagination(t *testing.T) {
 		})
 	}
 }
+
+func TestListResolverRuleAssociations_Filters(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) (*route53resolver.Handler, string, string) {
+		t.Helper()
+		h := newTestHandler(t)
+
+		mkRule := func(name, domain string) string {
+			rec := doRequest(t, h, "CreateResolverRule", map[string]any{
+				"Name": name, "DomainName": domain, "RuleType": "FORWARD",
+				"TargetIps": []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			return out["ResolverRule"].(map[string]any)["Id"].(string)
+		}
+		rule1ID := mkRule("rule-one", "one.example.com")
+		rule2ID := mkRule("rule-two", "two.example.com")
+
+		assocRec1 := doRequest(t, h, "AssociateResolverRule", map[string]any{
+			"ResolverRuleId": rule1ID, "VPCId": "vpc-aaa", "Name": "assoc-aaa",
+		})
+		require.Equal(t, http.StatusOK, assocRec1.Code)
+		assocRec2 := doRequest(t, h, "AssociateResolverRule", map[string]any{
+			"ResolverRuleId": rule2ID, "VPCId": "vpc-bbb", "Name": "assoc-bbb",
+		})
+		require.Equal(t, http.StatusOK, assocRec2.Code)
+
+		return h, rule1ID, rule2ID
+	}
+
+	tests := []struct {
+		buildFilter func(rule1, rule2 string) map[string]any
+		name        string
+		wantNames   []string
+	}{
+		{
+			name: "vpc_id_canonical",
+			buildFilter: func(string, string) map[string]any {
+				return map[string]any{"Name": "VPCId", "Values": []string{"vpc-aaa"}}
+			},
+			wantNames: []string{"assoc-aaa"},
+		},
+		{
+			name: "vpc_id_legacy_uppercase",
+			buildFilter: func(string, string) map[string]any {
+				return map[string]any{"Name": "VPC_ID", "Values": []string{"vpc-bbb"}}
+			},
+			wantNames: []string{"assoc-bbb"},
+		},
+		{
+			name: "name",
+			buildFilter: func(string, string) map[string]any {
+				return map[string]any{"Name": "Name", "Values": []string{"assoc-aaa"}}
+			},
+			wantNames: []string{"assoc-aaa"},
+		},
+		{
+			name: "resolver_rule_id",
+			buildFilter: func(rule1, _ string) map[string]any {
+				return map[string]any{"Name": "ResolverRuleId", "Values": []string{rule1}}
+			},
+			wantNames: []string{"assoc-aaa"},
+		},
+		{
+			name: "status_values_or_combined",
+			buildFilter: func(string, string) map[string]any {
+				return map[string]any{"Name": "Status", "Values": []string{"COMPLETE"}}
+			},
+			wantNames: []string{"assoc-aaa", "assoc-bbb"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, rule1, rule2 := setup(t)
+
+			rec := doRequest(t, h, "ListResolverRuleAssociations", map[string]any{
+				"Filters": []map[string]any{tt.buildFilter(rule1, rule2)},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assocs, _ := resp["ResolverRuleAssociations"].([]any)
+			gotNames := make([]string, len(assocs))
+			for i, a := range assocs {
+				gotNames[i] = a.(map[string]any)["Name"].(string)
+			}
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
+func TestListResolverRuleAssociations_UnknownFilterNameRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "ListResolverRuleAssociations", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "NotARealFilter", "Values": []string{"x"}},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidParameterException", resp["__type"])
+}

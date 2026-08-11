@@ -71,7 +71,7 @@ ops:
   GetResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field; added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled output"}
   ListResolverEndpoints: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same IpAddresses fix, see CreateResolverEndpoint; gopherstack-66dr: Filters was modelled in the SDK but not on this wire-input struct, so it was silently dropped and every call returned the unfiltered list. Added Filters (CreatorRequestId/Direction/HostVPCId/IpAddressCount/Name/SecurityGroupIds/Status, both CamelCase and legacy UPPER_SNAKE names per types.Filter's doc); unknown filter names now reject with InvalidParameterException."}
   DeleteResolverEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades rules + tags + rule associations"}
-  UpdateResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled partial-update input+output"}
+  UpdateResolverEndpoint: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled partial-update input+output. gopherstack-hvni sweep: Name was mutated on the live stored pointer before ResolverEndpointType was validated, so a request with a valid Name but an invalid ResolverEndpointType left the Name change committed despite the call returning InvalidRequestException. Reordered: ResolverEndpointType is now validated before any field is mutated."}
   ListResolverEndpointIpAddresses: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateResolverEndpointIpAddress: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field, see notes"}
   DisassociateResolverEndpointIpAddress: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field, see notes"}
@@ -83,17 +83,17 @@ ops:
   AssociateResolverRule: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResolverRuleAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CRITICAL: request shape was ResolverRuleAssociationId (an ID that only ever appears in Get/List responses); real API requires ResolverRuleId+VPCId. Every real SDK client call was rejected with ValidationException before this fix. Backend now looks up the association by (ResolverRuleID, VPCID) pair."}
-  ListResolverRuleAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListResolverRuleAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-hvni: same silently-ignored-Filters bug as ListResolverEndpoints/Rules/QueryLogConfigs (fixed separately in c90bf50bf), left out of that pass because the filed issue named only those three. Added Filters (Name/ResolverRuleId/Status/VPCId, both CamelCase and legacy UPPER_SNAKE names per types.Filter's doc); unknown filter names reject with InvalidParameterException."}
   GetResolverRulePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutResolverRulePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateResolverQueryLogConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResolverQueryLogConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListResolverQueryLogConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-66dr: same silently-ignored-Filters bug. Added Filters (Arn/AssociationCount/CreationTime/CreatorRequestId/Destination/DestinationArn/Id/Name/OwnerId/ShareStatus/Status, both name forms); Destination (S3/CloudWatchLogs/KinesisFirehose) is derived from DestinationArn's prefix, the same classification isValidQueryLogDestination already used, not a fabricated field. Unknown filter names reject with InvalidParameterException."}
+  ListResolverQueryLogConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-66dr: same silently-ignored-Filters bug. Added Filters (Arn/AssociationCount/CreationTime/CreatorRequestId/Destination/DestinationArn/Id/Name/OwnerId/ShareStatus/Status, both name forms); Destination (S3/CloudWatchLogs/KinesisFirehose) is derived from DestinationArn's prefix, the same classification isValidQueryLogDestination already used, not a fabricated field. Unknown filter names reject with InvalidParameterException. NOTE (gopherstack-hvni sweep): SortBy/SortOrder (also modelled on this op) remain unimplemented -- ordering-only gap, not a result-set correctness bug."}
   DeleteResolverQueryLogConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades tags + associations"}
   AssociateResolverQueryLogConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResolverQueryLogConfigAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateResolverQueryLogConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CRITICAL: same bug class as DisassociateResolverRule -- request shape was ResolverQueryLogConfigAssociationId; real API requires ResolverQueryLogConfigId+ResourceId. Fixed the same way (lookup by pair, decrement AssociationCount on match)."}
-  ListResolverQueryLogConfigAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListResolverQueryLogConfigAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-hvni: same silently-ignored-Filters bug, see ListResolverRuleAssociations. Added Filters (CreationTime/Error/Id/ResolverQueryLogConfigId/ResourceId/Status, both name forms); unknown filter names reject with InvalidParameterException. SortBy/SortOrder (also modelled on this op) remain unimplemented -- ordering-only gap, not a result-set correctness bug, out of scope for this pass."}
   GetResolverQueryLogConfigPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutResolverQueryLogConfigPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateFirewallRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -104,9 +104,9 @@ ops:
   PutFirewallRuleGroupPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateFirewallRuleGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags input field was missing entirely -- added, same fix class as CreateResolverRule"}
   GetFirewallRuleGroupAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFirewallRuleGroupAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFirewallRuleGroupAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-hvni sweep: Priority and Status (ListFirewallRuleGroupAssociationsRequest members, botocore route53resolver 2018-04-01) were missing from the wire-input struct -- silently dropped, every call returned the unfiltered list. Added; both are direct equality filters on state this backend already holds (FirewallRuleGroupAssociation.Priority/Status)."}
   DisassociateFirewallRuleGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly uses FirewallRuleGroupAssociationId (verified against real Input struct -- this op is NOT the same bug class as DisassociateResolverRule)"}
-  UpdateFirewallRuleGroupAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateFirewallRuleGroupAssociation: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-hvni sweep: Name/Priority were mutated on the live stored pointer before MutationProtection was validated, so a request with a valid Name/Priority but an invalid MutationProtection value left the Name/Priority change committed despite the call returning InvalidRequestException. Reordered: MutationProtection is now validated before any field is mutated."}
   CreateFirewallDomainList: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CreationTime/ModificationTime/StatusMessage were never tracked on FirewallDomainList at all (missing struct fields) -- added and wired through Create/Update/Import"}
   GetFirewallDomainList: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see CreateFirewallDomainList"}
   ListFirewallDomainLists: {wire: ok, errors: ok, state: ok, persist: ok, note: "real API returns the leaner FirewallDomainListMetadata shape for List; we return the full object -- harmless (extra fields are ignored by SDK json decoders), not fixed"}
@@ -123,7 +123,7 @@ ops:
   ListFirewallConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
   GetOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListOutpostResolvers: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListOutpostResolvers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-hvni sweep: OutpostArn (ListOutpostResolversRequest member) was missing from the wire-input struct -- silently dropped, every call returned the unfiltered list. Added as a direct equality filter on OutpostResolver.OutpostARN."}
   DeleteOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateOutpostResolver: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResolverConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "OwnerID -> OwnerId json tag (same bug class); real type also has no Arn field but our extra Arn field is harmless"}
@@ -131,7 +131,7 @@ ops:
   ListResolverConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResolverDnssecConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "OwnerID -> OwnerId json tag (same bug class)"}
   UpdateResolverDnssecConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Validation now accepts USE_LOCAL_RESOURCE_SETTING (verified against types/enums.go), transitioning to UPDATING_TO_USE_LOCAL_RESOURCE_SETTING, mirroring the existing ENABLE/DISABLE -> ENABLING/DISABLING transient-status pattern"}
-  ListResolverDnssecConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListResolverDnssecConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-hvni: Filters was modelled but silently dropped, same class as ListResolverRuleAssociations -- but unlike the other five Filter-bearing ops, types.Filter's Name doc (aws-sdk-go-v2@v1.48.4 types/types.go) does NOT enumerate ListResolverDnssecConfigs among the operations it documents valid Name values for, and AWS's own live API reference page for this op lists none either. DNSSEC config state IS modelled here (per-resource ValidationStatus, not an always-empty list), so this isn't the inert-plumbing-over-nothing case -- it's that no filter name is backed by the model at all. Wired the Filters field with a nil alias map so every filter name is correctly rejected as unrecognized (InvalidParameterException) rather than fabricating a match set from the response shape's own field names."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
