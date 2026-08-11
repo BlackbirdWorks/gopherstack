@@ -558,7 +558,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 gap |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 3 gaps |
 | [Glue](services/glue/README.md) | A | 54 | 11 gaps; 6 deferred |
-| [Glue DataBrew](services/databrew/README.md) | A | 44 | 3 gaps |
+| [Glue DataBrew](services/databrew/README.md) | A | 44 | 2 gaps |
 | [Kinesis](services/kinesis/README.md) | A | 39 | 5 gaps; 1 deferred |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 6 gaps; 1 deferred |
@@ -576,7 +576,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [ACM](services/acm/README.md) | A | 38 | 6 gaps; 3 deferred |
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 7 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 2 gaps; 2 deferred |
-| [GuardDuty](services/guardduty/README.md) | A | 63 | 4 gaps; 1 structural gap; 4 deferred |
+| [GuardDuty](services/guardduty/README.md) | A | 66 | 5 gaps; 1 structural gap; 5 deferred |
 | [Inspector](services/inspector2/README.md) | A | 13 | 8 gaps; 1 deferred |
 | [KMS](services/kms/README.md) | A | 54 | 5 gaps; 2 deferred |
 | [Macie](services/macie2/README.md) | A | 82 | clean |
