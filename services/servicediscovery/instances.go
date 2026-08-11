@@ -139,13 +139,27 @@ func (b *InMemoryBackend) GetInstancesHealthStatus(serviceID string, instanceIDs
 		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
+	insts := b.instancesByService.Get(serviceID)
+
 	filter := make(map[string]struct{}, len(instanceIDs))
 	for _, id := range instanceIDs {
 		filter[id] = struct{}{}
 	}
 
+	if len(filter) > 0 {
+		registered := make(map[string]struct{}, len(insts))
+		for _, inst := range insts {
+			registered[inst.ID] = struct{}{}
+		}
+
+		for _, id := range instanceIDs {
+			if _, ok := registered[id]; !ok {
+				return nil, fmt.Errorf("%w: instance %s in service %s not found", ErrInstanceNotFound, id, serviceID)
+			}
+		}
+	}
+
 	statuses := make(map[string]string)
-	insts := b.instancesByService.Get(serviceID)
 
 	for _, inst := range insts {
 		instID := inst.ID

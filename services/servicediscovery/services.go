@@ -244,6 +244,24 @@ func (b *InMemoryBackend) UpdateServiceAttributes(serviceARN string, attributes 
 	svcID := svcMatches[0].ID
 
 	existing := b.serviceAttributes[svcID]
+
+	merged := len(existing)
+	for k := range attributes {
+		if _, ok := existing[k]; !ok {
+			merged++
+		}
+	}
+
+	if merged > maxServiceAttrCount {
+		return fmt.Errorf(
+			"%w: service %s would have %d attributes, exceeding the maximum of %d",
+			ErrServiceAttributesLimitExceeded,
+			serviceARN,
+			merged,
+			maxServiceAttrCount,
+		)
+	}
+
 	if existing == nil {
 		existing = make(map[string]string)
 	}

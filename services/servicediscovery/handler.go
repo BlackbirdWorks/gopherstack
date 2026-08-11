@@ -42,6 +42,13 @@ const (
 	maxInstanceAttrKeyLen   = 255
 	maxInstanceAttrValueLen = 1024
 	maxInstanceAttrTotalLen = 5000
+
+	// UpdateServiceAttributes quota, per the botocore model
+	// (servicediscovery/2017-03-14/service-2.json): shape ServiceAttributesMap
+	// {max:30,min:1}, ServiceAttributeKey{max:255}, ServiceAttributeValue{max:1024}.
+	maxServiceAttrCount    = 30
+	maxServiceAttrKeyLen   = 255
+	maxServiceAttrValueLen = 1024
 )
 
 const (
@@ -385,6 +392,7 @@ var sentinelErrorCodes = sync.OnceValue(func() []struct {
 		{ErrServiceAlreadyExists, "ServiceAlreadyExists"},
 		{ErrResourceInUse, "ResourceInUse"},
 		{ErrTooManyTags, "TooManyTagsException"},
+		{ErrServiceAttributesLimitExceeded, "ServiceAttributesLimitExceededException"},
 		{ErrInvalidInput, errInvalidInput},
 		{errUnknownAction, errInvalidInput},
 	}
@@ -494,6 +502,38 @@ func validateInstanceAttributes(attrs map[string]string) error {
 			ErrInvalidInput,
 			maxInstanceAttrTotalLen,
 		)
+	}
+
+	return nil
+}
+
+// validateServiceAttributeShape enforces UpdateServiceAttributes' per-request
+// shape constraints (non-empty map, key/value length caps). The total-count
+// quota (maxServiceAttrCount, post-merge with existing attributes) is
+// enforced in the backend, which alone knows the service's current attributes.
+func validateServiceAttributeShape(attrs map[string]string) error {
+	if len(attrs) == 0 {
+		return fmt.Errorf("%w: Attributes must contain at least one entry", ErrInvalidInput)
+	}
+
+	for k, v := range attrs {
+		if len(k) > maxServiceAttrKeyLen {
+			return fmt.Errorf(
+				"%w: attribute key %q exceeds maximum length of %d",
+				ErrInvalidInput,
+				k,
+				maxServiceAttrKeyLen,
+			)
+		}
+
+		if len(v) > maxServiceAttrValueLen {
+			return fmt.Errorf(
+				"%w: attribute value for key %q exceeds maximum length of %d",
+				ErrInvalidInput,
+				k,
+				maxServiceAttrValueLen,
+			)
+		}
 	}
 
 	return nil
