@@ -222,7 +222,9 @@ func (b *InMemoryBackend) UpdateIntegration(input UpdateIntegrationInput) (*Inte
 
 	applyIntegrationFields(m.MethodIntegration, input)
 
-	return m.MethodIntegration, nil
+	cp := *m.MethodIntegration
+
+	return &cp, nil
 }
 
 func applyIntegrationFields(intg *Integration, input UpdateIntegrationInput) {
@@ -315,5 +317,7 @@ func (b *InMemoryBackend) UpdateIntegrationResponse(
 
 	m.MethodIntegration.IntegrationResponses[input.StatusCode] = ir
 
-	return ir, nil
+	cp := *ir
+
+	return &cp, nil
 }

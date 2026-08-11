@@ -119,5 +119,7 @@ func (b *InMemoryBackend) UpdateBasePathMapping(input UpdateBasePathMappingInput
 		b.basePathMappings.Put(m)
 	}
 
-	return m, nil
+	cp := *m
+
+	return &cp, nil
 }

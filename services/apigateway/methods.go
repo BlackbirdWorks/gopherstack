@@ -253,7 +253,9 @@ func (b *InMemoryBackend) UpdateMethod(input UpdateMethodInput) (*Method, error)
 		m.RequestParameters = input.RequestParameters
 	}
 
-	return m, nil
+	cp := *m
+
+	return &cp, nil
 }
 
 // UpdateMethodResponse updates a method response's models or parameters.
@@ -290,5 +292,7 @@ func (b *InMemoryBackend) UpdateMethodResponse(input UpdateMethodResponseInput) 
 
 	m.MethodResponses[input.StatusCode] = mr
 
-	return mr, nil
+	cp := *mr
+
+	return &cp, nil
 }
