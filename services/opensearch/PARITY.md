@@ -36,13 +36,13 @@ overall: A            # RAISED from A- (parity-5, this pass). The two gaps that 
                       # unrelated, pre-existing gap remains open and undisturbed by this pass (see gaps
                       # below): ListDataSourceAttachments/ListMigrations still ignore maxResults/nextToken.
 ops:
-  CreateDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed DomainId (required field, was missing) and IdentityCenterOptions wire key (see Notes)"}
+  CreateDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed DomainId (required field, was missing) and IdentityCenterOptions wire key (see Notes). FIXED gopherstack-5wj0: SoftwareUpdateOptions was read/written under the wrong wire key EnableSoftwareUpdateOptions (confirmed against serializers.go:1319-1321 and deserializers.go:21789-21790, aws-sdk-go-v2/service/opensearch@v1.75.4 -- both directions use object.Key(\"SoftwareUpdateOptions\")), so a real client's request value was silently discarded and any response value the backend did set was unparseable by a real SDK client's typed struct"}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDomains: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass added cascade-cleanup of inbound/outbound connections owned by the domain (see cross_cluster_connections)"}
   ListDomainNames: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed wire key EngineVersion->EngineType and value shape (full version string -> engine family); engineType filter param/logic was already correct"}
-  UpdateDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key; added DryRun=true support (previously always mutated even when DryRun requested)"}
-  DescribeDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key"}
+  UpdateDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key; added DryRun=true support (previously always mutated even when DryRun requested). FIXED gopherstack-5wj0: same EnableSoftwareUpdateOptions/SoftwareUpdateOptions wire-key bug as CreateDomain (see above), since both share domainJSON for request decoding. NOT fixed (see gaps): EngineMode (a real, distinct optional UpdateDomainConfigRequest field) is entirely absent -- no established backend concept to hook it into."}
+  DescribeDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key. FIXED gopherstack-5wj0: same EnableSoftwareUpdateOptions/SoftwareUpdateOptions wire-key bug as CreateDomain (domainConfigFields shares the response shape)"}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /2021-01-01/tags?arn=; not-found ARN returns empty TagList (no ResourceNotFoundException in SDK op docs) -- verified intentional, not a bug"}
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -162,6 +162,11 @@ families:
       the required DataSourceType or optional Status fields; (4) UpdateDirectQueryDataSource never
       accepted DataSourceType, which real AWS requires on every update call; (5) DataSource had no
       Status field at all (real DataSourceStatus: ACTIVE/DISABLED) -- added, defaults to ACTIVE.
+      NOT fixed (gopherstack-5wj0): UpdateDirectQueryDataSource also accepts no
+      DataSourceAccessPolicy field (a real, optional PolicyDocument-shaped
+      UpdateDirectQueryDataSourceRequest member) -- DirectQueryDataSource has no reserved field to
+      store it in, so wiring it through would mean modeling a new resource attribute end to end,
+      out of this pass's scope.
   serverless:
     status: deferred
     note: >

@@ -102,14 +102,17 @@ func (h *Handler) handleListFleetMetrics(c *echo.Context) error {
 func (h *Handler) handleUpdateFleetMetric(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/fleet-metric/")
 	var req struct {
-		QueryString string `json:"queryString,omitempty"`
-		Description string `json:"description,omitempty"`
-		Period      int32  `json:"period,omitempty"`
+		QueryString     string `json:"queryString,omitempty"`
+		Description     string `json:"description,omitempty"`
+		Period          int32  `json:"period,omitempty"`
+		ExpectedVersion int64  `json:"expectedVersion,omitempty"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateFleetMetric(name, req.QueryString, req.Description, req.Period); err != nil {
+	if err := h.Backend.UpdateFleetMetric(
+		name, req.QueryString, req.Description, req.Period, req.ExpectedVersion,
+	); err != nil {
 		return respondErr(c, err)
 	}
 

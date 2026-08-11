@@ -158,7 +158,7 @@ type domainConfigFields struct {
 	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions"`
 	OffPeakWindowOptions        opensearchConfigValue `json:"OffPeakWindowOptions"`
 	IdentityCenterOptions       opensearchConfigValue `json:"IdentityCenterOptions"`
-	EnableSoftwareUpdateOptions opensearchConfigValue `json:"EnableSoftwareUpdateOptions"`
+	EnableSoftwareUpdateOptions opensearchConfigValue `json:"SoftwareUpdateOptions"`
 }
 
 func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Request, name string) {

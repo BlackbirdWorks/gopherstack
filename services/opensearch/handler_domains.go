@@ -51,7 +51,7 @@ type domainJSON struct {
 	EBSOptions                  *ebsOptionsJSON                     `json:"EBSOptions,omitempty"`
 	ClusterConfig               *domainClusterConfig                `json:"ClusterConfig,omitempty"`
 	EncryptionAtRestOptions     *encryptAtRestOptionsJSON           `json:"EncryptionAtRestOptions,omitempty"`
-	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"SoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	EngineVersion               string                              `json:"EngineVersion"`
@@ -73,7 +73,7 @@ type domainStatusJSON struct {
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
 	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
 	IdentityCenterOptions       *identityCenterOptionsJSON          `json:"IdentityCenterOptions"`
-	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"SoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	ARN                         string                              `json:"ARN"`

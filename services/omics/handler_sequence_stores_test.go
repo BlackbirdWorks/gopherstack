@@ -94,6 +94,32 @@ func TestSequenceStoreHasStatusAndUpdateTime(t *testing.T) {
 	assert.NotEmpty(t, resp["updateTime"])
 }
 
+// TestCreateSequenceStoreETagAlgorithmAndS3AccessConfig verifies that
+// eTagAlgorithmFamily and s3AccessConfig.accessLogLocation are accepted on
+// create and echoed back, matching CreateSequenceStoreRequest (botocore
+// omics service-2.json).
+func TestCreateSequenceStoreETagAlgorithmAndS3AccessConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/sequencestore", map[string]any{
+		"name":                "my-store",
+		"eTagAlgorithmFamily": "SHA256up",
+		"s3AccessConfig": map[string]any{
+			"accessLogLocation": "s3://my-bucket/logs/",
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "SHA256up", resp["eTagAlgorithm"])
+
+	s3Access, ok := resp["s3Access"].(map[string]any)
+	require.True(t, ok, "s3Access missing from response: %v", resp)
+	assert.Equal(t, "s3://my-bucket/logs/", s3Access["accessLogLocation"])
+}
+
 // TestDeleteSequenceStoreReturnsID verifies that DeleteSequenceStore returns
 // {id: "..."} in the response body.
 func TestDeleteSequenceStoreReturnsID(t *testing.T) {

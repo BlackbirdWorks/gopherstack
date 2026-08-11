@@ -8,10 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 74 (74 ok) |
-| Feature families | 19 (19 ok) |
-| Known gaps | none |
+| Feature families | 20 (19 ok, 1 partial) |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | found_and_fixed |
+
+### Known gaps
+
+- gopherstack-5wj0: UpdateFleetMetric drops the required indexName field and the optional aggregationType/aggregationField/queryVersion/unit fields entirely -- found while fixing this op's expectedVersion bug (see fleet_metric: above) but out of that fix's scope. # All families closed as of pass #4 (2026-07-25). security_profiles -- the sole reason # pass #3 stayed at A- -- is now `ok` (see its families: entry above): CreateSecurityProfile/ # UpdateSecurityProfile persist the full real field set, ListActiveViolations/ # ListViolationEvents' behaviorCriteriaType filter is implemented, and every # security-profile op (CreateSecurityProfile, UpdateSecurityProfile, DescribeSecurityProfile, # ListSecurityProfiles, ListSecurityProfilesForTarget, AttachSecurityProfile, # DetachSecurityProfile, ListTargetsForSecurityProfile, ValidateSecurityProfileBehaviors) was # re-verified reachable end to end through the real RouteMatcher, not just callable on the # handler -- see the security_profiles families: entry's "routing verified" paragraph for the # two additional, previously-undiscovered bugs that check turned up (a RouteMatcher-whitelist # gap for ListSecurityProfiles/ListSecurityProfilesForTarget, and three wire-shape key-name # bugs on the same two ops plus ListTargetsForSecurityProfile).
 
 ## More
 

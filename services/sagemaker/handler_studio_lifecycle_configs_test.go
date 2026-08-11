@@ -17,6 +17,7 @@ func TestHandler_CreateStudioLifecycleConfig(t *testing.T) {
 	rec := doSageMakerRequest(t, h, "CreateStudioLifecycleConfig", map[string]any{
 		"StudioLifecycleConfigName":    "my-lc",
 		"StudioLifecycleConfigAppType": "JupyterServer",
+		"StudioLifecycleConfigContent": "IyEvYmluL2Jhc2g=",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -31,7 +32,9 @@ func TestHandler_DescribeStudioLifecycleConfig(t *testing.T) {
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateStudioLifecycleConfig", map[string]any{
-		"StudioLifecycleConfigName": "lc-1",
+		"StudioLifecycleConfigName":    "lc-1",
+		"StudioLifecycleConfigAppType": "JupyterServer",
+		"StudioLifecycleConfigContent": "IyEvYmluL2Jhc2g=",
 	})
 	rec := doSageMakerRequest(t, h, "DescribeStudioLifecycleConfig", map[string]any{
 		"StudioLifecycleConfigName": "lc-1",
@@ -43,13 +46,37 @@ func TestHandler_DescribeStudioLifecycleConfig(t *testing.T) {
 	assert.Equal(t, "lc-1", resp["StudioLifecycleConfigName"])
 }
 
+func TestHandler_CreateStudioLifecycleConfig_Content(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateStudioLifecycleConfig", map[string]any{
+		"StudioLifecycleConfigName":    "lc-content",
+		"StudioLifecycleConfigAppType": "JupyterServer",
+		"StudioLifecycleConfigContent": "IyEvYmluL2Jhc2g=",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeStudioLifecycleConfig", map[string]any{
+		"StudioLifecycleConfigName": "lc-content",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "IyEvYmluL2Jhc2g=", resp["StudioLifecycleConfigContent"])
+}
+
 func TestHandler_DeleteStudioLifecycleConfig(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateStudioLifecycleConfig", map[string]any{
-		"StudioLifecycleConfigName": "lc-del",
+		"StudioLifecycleConfigName":    "lc-del",
+		"StudioLifecycleConfigAppType": "JupyterServer",
+		"StudioLifecycleConfigContent": "IyEvYmluL2Jhc2g=",
 	})
 	rec := doSageMakerRequest(t, h, "DeleteStudioLifecycleConfig", map[string]any{
 		"StudioLifecycleConfigName": "lc-del",
@@ -81,6 +108,7 @@ func TestHandler_ListStudioLifecycleConfigs(t *testing.T) {
 	doSageMakerRequest(t, h, "CreateStudioLifecycleConfig", map[string]any{
 		"StudioLifecycleConfigName":    "my-config",
 		"StudioLifecycleConfigAppType": "JupyterServer",
+		"StudioLifecycleConfigContent": "IyEvYmluL2Jhc2g=",
 	})
 
 	rec = doSageMakerRequest(t, h, "ListStudioLifecycleConfigs", map[string]any{})

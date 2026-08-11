@@ -14,6 +14,7 @@ func (h *Handler) handleCreateStudioLifecycleConfig(ctx context.Context, body []
 	var req struct {
 		StudioLifecycleConfigName    string      `json:"StudioLifecycleConfigName"`
 		StudioLifecycleConfigAppType string      `json:"StudioLifecycleConfigAppType"`
+		StudioLifecycleConfigContent string      `json:"StudioLifecycleConfigContent"`
 		Tags                         []tagObject `json:"Tags"`
 	}
 
@@ -26,7 +27,8 @@ func (h *Handler) handleCreateStudioLifecycleConfig(ctx context.Context, body []
 	}
 
 	result, err := h.Backend.CreateStudioLifecycleConfig(ctx,
-		req.StudioLifecycleConfigName, req.StudioLifecycleConfigAppType, fromTagObjects(req.Tags),
+		req.StudioLifecycleConfigName, req.StudioLifecycleConfigAppType, req.StudioLifecycleConfigContent,
+		fromTagObjects(req.Tags),
 	)
 	if err != nil {
 		return nil, err

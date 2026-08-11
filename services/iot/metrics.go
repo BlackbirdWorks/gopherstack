@@ -99,13 +99,22 @@ func (b *InMemoryBackend) ListFleetMetrics() []*FleetMetric {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateFleetMetric(name, queryString, description string, period int32) error {
+func (b *InMemoryBackend) UpdateFleetMetric(
+	name, queryString, description string,
+	period int32,
+	expectedVersion int64,
+) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	fm, ok := b.fleetMetrics.Get(name)
 	if !ok {
 		return fmt.Errorf("fleet metric %q not found: %w", name, ErrResourceNotFound)
+	}
+
+	if expectedVersion != 0 && expectedVersion != fm.Version {
+		return fmt.Errorf("%w: expected version %d but current is %d",
+			ErrVersionConflict, expectedVersion, fm.Version)
 	}
 	if queryString != "" {
 		fm.QueryString = queryString

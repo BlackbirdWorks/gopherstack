@@ -192,7 +192,7 @@ type StorageBackend interface {
 	CreateFleetMetric(input *CreateFleetMetricInput) (*FleetMetric, error)
 	DescribeFleetMetric(name string) (*FleetMetric, error)
 	ListFleetMetrics() []*FleetMetric
-	UpdateFleetMetric(name, queryString, description string, period int32) error
+	UpdateFleetMetric(name, queryString, description string, period int32, expectedVersion int64) error
 	DeleteFleetMetric(name string) error
 
 	// Batch 2: CustomMetric operations.

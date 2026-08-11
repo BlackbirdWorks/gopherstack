@@ -38,7 +38,10 @@ type StorageBackend interface {
 	) ([]*ReferenceImportJob, string, error)
 
 	// SequenceStore
-	CreateSequenceStore(name, description string, tags map[string]string) (*SequenceStore, error)
+	CreateSequenceStore(
+		name, description, eTagAlgorithmFamily, accessLogLocation string,
+		tags map[string]string,
+	) (*SequenceStore, error)
 	DeleteSequenceStore(id string) error
 	GetSequenceStore(id string) (*SequenceStore, error)
 	ListSequenceStores(

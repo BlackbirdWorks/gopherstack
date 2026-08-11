@@ -114,6 +114,30 @@ func TestCreateDomain_FullClusterConfig(t *testing.T) {
 	}
 }
 
+// TestCreateDomain_SoftwareUpdateOptions verifies SoftwareUpdateOptions round-trips
+// through CreateDomain under its real wire key (serializers.go:1320,
+// aws-sdk-go-v2/service/opensearch@v1.75.4), not "EnableSoftwareUpdateOptions".
+func TestCreateDomain_SoftwareUpdateOptions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	body := map[string]any{
+		"DomainName":            "sw-update-domain",
+		"SoftwareUpdateOptions": map[string]any{"AutoSoftwareUpdateEnabled": true},
+	}
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", body)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	status, ok := out["DomainStatus"].(map[string]any)
+	require.True(t, ok)
+	swu, ok := status["SoftwareUpdateOptions"].(map[string]any)
+	require.True(t, ok, "SoftwareUpdateOptions missing from response: %v", status)
+	assert.Equal(t, true, swu["AutoSoftwareUpdateEnabled"])
+}
+
 // TestAudit1_CreateDomain_EBSOptions verifies EBSOptions are stored and returned.
 func TestCreateDomain_EBSOptions(t *testing.T) {
 	t.Parallel()
