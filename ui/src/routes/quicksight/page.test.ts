@@ -81,6 +81,9 @@ describe("QuickSight Page", () => {
     });
   });
 
+  // Multi-step modal interaction (open, fill 2 fields, submit, refresh) runs
+  // past the 5s default under the full 2000+ test suite's CPU contention
+  // (gopherstack CI job 93845979320); default timeout is fine standalone.
   it("creates a dashboard via the modal", async () => {
     mockSend.mockResolvedValueOnce({ DashboardSummaryList: [] });
     render(QuickSightPage);
@@ -104,8 +107,9 @@ describe("QuickSight Page", () => {
     });
     // ListDashboards (initial) + CreateDashboard + ListDashboards (refresh).
     expect(mockSend).toHaveBeenCalledTimes(3);
-  });
+  }, 30000);
 
+  // Same modal-under-load timing margin as "creates a dashboard via the modal" above.
   it("updates a dashboard via the edit modal", async () => {
     mockSend.mockResolvedValueOnce({ DashboardSummaryList: [exampleDashboard] });
     render(QuickSightPage);
@@ -126,7 +130,7 @@ describe("QuickSight Page", () => {
     await waitFor(() => {
       expect(screen.getByRole("cell", { name: "Sales Overview v2" })).toBeInTheDocument();
     });
-  });
+  }, 30000);
 
   it("deletes a dashboard after confirming", async () => {
     mockSend.mockResolvedValueOnce({ DashboardSummaryList: [exampleDashboard] });
@@ -236,6 +240,8 @@ describe("QuickSight Page", () => {
     }
   });
 
+  // Same modal-under-load timing margin as the dashboard modal tests above
+  // (tab switch + 3-field modal fill also observed timing out under load).
   it("lists templates and creates one via the modal", async () => {
     mockSend.mockResolvedValueOnce({ DashboardSummaryList: [] });
     render(QuickSightPage);
@@ -266,7 +272,7 @@ describe("QuickSight Page", () => {
     await waitFor(() => {
       expect(screen.getByRole("cell", { name: "My Template" })).toBeInTheDocument();
     });
-  });
+  }, 30000);
 
   it("lists namespaces and deletes one after confirming (no update op)", async () => {
     mockSend.mockResolvedValueOnce({ DashboardSummaryList: [] });
