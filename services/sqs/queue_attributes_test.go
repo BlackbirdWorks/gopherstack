@@ -656,3 +656,144 @@ func TestSetQueueAttributes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "60", out.Attributes["VisibilityTimeout"])
 }
+
+// TestQueueAttributeName_Allowlist verifies CreateQueue rejects attribute
+// names outside AWS's 21-value QueueAttributeName enum (aws-sdk-go-v2/
+// service/sqs@v1.46.4 types/enums.go:62-83) instead of silently storing them.
+func TestQueueAttributeName_Allowlist(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		key  string
+		val  string
+		ok   bool
+	}{
+		{"known_visibility_timeout", "VisibilityTimeout", "30", true},
+		{"known_fifo_throughput_limit", "FifoThroughputLimit", "perQueue", true},
+		{"unknown_attribute", "NotARealAttribute", "x", false},
+		{"typo_of_known_attribute", "VisibilityTimeOut", "30", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+
+			_, err := b.CreateQueue(&sqs.CreateQueueInput{
+				QueueName:  "allowlist-" + tc.name,
+				Endpoint:   testEndpoint,
+				Attributes: map[string]string{tc.key: tc.val},
+			})
+			if tc.ok {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, sqs.ErrInvalidAttributeName)
+			}
+		})
+	}
+}
+
+func TestSetQueueAttributes_UnknownAttributeName(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	qURL := createTestQueue(t, b, "unknown-attr-q")
+
+	err := b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
+		QueueURL:   qURL,
+		Attributes: map[string]string{"NotARealAttribute": "x"},
+	})
+	require.ErrorIs(t, err, sqs.ErrInvalidAttributeName)
+}
+
+// TestFifoThroughputLimit_DeduplicationScopePairing verifies AWS's documented
+// rule ("The perMessageGroupId value is allowed only when the value for
+// DeduplicationScope is messageGroup", aws-sdk-go-v2/service/sqs@v1.46.4
+// api_op_SetQueueAttributes.go:179-180) is enforced against the *effective*
+// attribute state, not just the fields present in a single SetQueueAttributes
+// call.
+func TestFifoThroughputLimit_DeduplicationScopePairing(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name          string
+		existingScope string
+		setScope      string
+		wantErr       bool
+	}{
+		{"explicit_messagegroup_same_call", "", "messageGroup", false},
+		{"explicit_queue_same_call", "", "queue", true},
+		{"default_scope_unset", "", "", false},
+		{"existing_queue_scope_not_overridden", "queue", "", true},
+		{"existing_messagegroup_scope_not_overridden", "messageGroup", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+
+			createAttrs := map[string]string{}
+			if tc.existingScope != "" {
+				createAttrs["DeduplicationScope"] = tc.existingScope
+			}
+
+			out, err := b.CreateQueue(&sqs.CreateQueueInput{
+				QueueName:  "pairing-" + tc.name + ".fifo",
+				Endpoint:   testEndpoint,
+				Attributes: createAttrs,
+			})
+			require.NoError(t, err)
+
+			setAttrs := map[string]string{"FifoThroughputLimit": "perMessageGroupId"}
+			if tc.setScope != "" {
+				setAttrs["DeduplicationScope"] = tc.setScope
+			}
+
+			err = b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
+				QueueURL:   out.QueueURL,
+				Attributes: setAttrs,
+			})
+			if tc.wantErr {
+				require.ErrorIs(t, err, sqs.ErrInvalidAttribute)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCreateQueue_FifoThroughputLimit_InvalidPairing(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	_, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: "create-pairing-invalid.fifo",
+		Endpoint:  testEndpoint,
+		Attributes: map[string]string{
+			"FifoThroughputLimit": "perMessageGroupId",
+			"DeduplicationScope":  "queue",
+		},
+	})
+	require.ErrorIs(t, err, sqs.ErrInvalidAttribute)
+}
+
+func TestCreateQueue_FifoThroughputLimit_ValidPairing(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	_, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: "create-pairing-valid.fifo",
+		Endpoint:  testEndpoint,
+		Attributes: map[string]string{
+			"FifoThroughputLimit": "perMessageGroupId",
+			"DeduplicationScope":  "messageGroup",
+		},
+	})
+	require.NoError(t, err)
+}

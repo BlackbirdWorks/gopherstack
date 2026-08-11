@@ -87,6 +87,10 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 		return ErrQueueNotFound
 	}
 
+	if !fifoThroughputPairingValid(q.Attributes, input.Attributes) {
+		return ErrInvalidAttribute
+	}
+
 	if _, hasRedrive := input.Attributes[attrRedrivePolicy]; hasRedrive {
 		if err := applyRedrivePolicy(q, input.Attributes, b); err != nil {
 			return err
@@ -101,8 +105,17 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 }
 
 // validateQueueAttributes returns an error if any of the provided queue attributes
-// fall outside their allowed ranges (matching AWS SQS validation).
+// fall outside their allowed ranges (matching AWS SQS validation), or if a key is
+// not one of AWS's 21 settable QueueAttributeName values (aws-sdk-go-v2/service/sqs
+// @v1.46.4 types/enums.go:62-83, excluding the read-only/computed ones already
+// filtered out of isConfigurableQueueAttribute).
 func validateQueueAttributes(attrs map[string]string) error {
+	for k := range attrs {
+		if !isConfigurableQueueAttribute(k) {
+			return ErrInvalidAttributeName
+		}
+	}
+
 	if err := validateIntAttrRange(attrs, attrVisibilityTimeout, 0, maxVisibilityTimeoutSeconds); err != nil {
 		return err
 	}
@@ -157,16 +170,6 @@ func validateFIFOAttributes(attrs map[string]string) error {
 
 	if v, ok := attrs[attrFifoThroughputLimit]; ok {
 		if v != fifoThroughputLimitPerQueue && v != fifoThroughputLimitPerMessageGroupID {
-			return ErrInvalidAttribute
-		}
-	}
-
-	// AWS requires DeduplicationScope=messageGroup when FifoThroughputLimit
-	// is perMessageGroupId. Enforce the pairing only when both sides are
-	// present in the same SetQueueAttributes call.
-	if t, hasT := attrs[attrFifoThroughputLimit]; hasT &&
-		t == fifoThroughputLimitPerMessageGroupID {
-		if s, hasS := attrs[attrDeduplicationScope]; hasS && s != fifoDedupScopePerMessageGroup {
 			return ErrInvalidAttribute
 		}
 	}
