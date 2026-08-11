@@ -150,7 +150,11 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*Location, error)
 	DescribeLocationNfs(locationArn string) (*LocationNfs, error)
-	UpdateLocationNfs(locationArn, subdirectory string, mountOptions *MountOptions, agentArns []string) error
+	UpdateLocationNfs(
+		locationArn, serverHostname, subdirectory string,
+		mountOptions *MountOptions,
+		agentArns []string,
+	) error
 
 	// Location operations (Object Storage)
 	CreateLocationObjectStorage(

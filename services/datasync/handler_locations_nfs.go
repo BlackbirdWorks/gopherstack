@@ -119,10 +119,11 @@ func (h *Handler) handleDescribeLocationNfs(
 }
 
 type updateLocationNfsInput struct {
-	MountOptions *mountOptionsInput    `json:"MountOptions"`
-	OnPremConfig *nfsOnPremConfigInput `json:"OnPremConfig"`
-	LocationArn  string                `json:"LocationArn"`
-	Subdirectory string                `json:"Subdirectory,omitempty"`
+	MountOptions   *mountOptionsInput    `json:"MountOptions"`
+	OnPremConfig   *nfsOnPremConfigInput `json:"OnPremConfig"`
+	LocationArn    string                `json:"LocationArn"`
+	ServerHostname string                `json:"ServerHostname,omitempty"`
+	Subdirectory   string                `json:"Subdirectory,omitempty"`
 }
 
 type updateLocationNfsOutput struct{}
@@ -145,7 +146,8 @@ func (h *Handler) handleUpdateLocationNfs(
 		agentArns = in.OnPremConfig.AgentArns
 	}
 
-	if err := h.Backend.UpdateLocationNfs(in.LocationArn, in.Subdirectory, mo, agentArns); err != nil {
+	err := h.Backend.UpdateLocationNfs(in.LocationArn, in.ServerHostname, in.Subdirectory, mo, agentArns)
+	if err != nil {
 		return nil, err
 	}
 
