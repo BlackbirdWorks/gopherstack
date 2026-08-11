@@ -197,7 +197,11 @@ func (b *InMemoryBackend) DeleteWorkspaceBundle(bundleID string) error {
 	return nil
 }
 
-// UpdateWorkspaceBundle updates the image of a custom bundle.
+// UpdateWorkspaceBundle updates the image of a custom bundle. Returns
+// errImageNotFound for an ImageId that doesn't reference a real image,
+// matching real AWS (ResourceNotFoundException is in this operation's error
+// list, and UpdateWorkspaceBundleInput.ImageId is optional, so an empty
+// value is a no-op rather than a validation failure).
 func (b *InMemoryBackend) UpdateWorkspaceBundle(bundleID, imageID string) error {
 	b.mu.Lock("UpdateWorkspaceBundle")
 	defer b.mu.Unlock()
@@ -205,6 +209,14 @@ func (b *InMemoryBackend) UpdateWorkspaceBundle(bundleID, imageID string) error 
 	bun, ok := b.customBundles.Get(bundleID)
 	if !ok {
 		return errBundleNotFound
+	}
+
+	if imageID == "" {
+		return nil
+	}
+
+	if !b.images.Has(imageID) {
+		return errImageNotFound
 	}
 
 	bun.ImageID = imageID

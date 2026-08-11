@@ -1,9 +1,10 @@
 service: workspaces
 sdk_module: aws-sdk-go-v2/service/workspaces@v1.73.1
-last_audit_commit: 1b07910674fd
-last_audit_date: 2026-07-23
-overall: A            # all previously-listed gaps/deferred items closed for real this pass;
-                       # 3 more genuine bugs found beyond the assigned list (2 wire-shape, 1 leak-adjacent)
+last_audit_commit: 7c8077891728
+last_audit_date: 2026-08-10
+overall: A            # follow-up pass on gopherstack-o5ig: both deferred items from the prior
+                       # pass (RunningMode-while-STOPPED, Applications family) fixed for real,
+                       # plus 3 more genuine bugs found via the same sweep classes
 
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -13,8 +14,8 @@ ops:
   DescribeWorkspacesConnectionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — ConnectionStateCheckTimestamp/LastKnownUserConnectionTimestamp were entirely missing from the response (only WorkspaceId/ConnectionState were wired); both are now emitted as epoch-seconds numbers via awstime.Epoch. LastKnownUserConnectionTimestamp stays zero-valued (0, omitted) since this backend models no actual client connection activity."}
   ModifyWorkspaceProperties: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyWorkspaceState: {wire: ok, errors: ok, state: ok, persist: ok}
-  RebootWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "intentionally does not transition state — documented + tested (TestRebootWorkspaces_DoesNotChangeState in workspaces_lifecycle_test.go); this emulator models reboot as instantaneous with no transient REBOOTING window, not a bug"}
-  RebuildWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as RebootWorkspaces — intentional, tested no-transition behavior (TestRebuildWorkspaces_DoesNotChangeState)"}
+  RebootWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "intentionally does not transition state — documented + tested (TestRebootWorkspaces_DoesNotChangeState in workspaces_lifecycle_test.go); this emulator models reboot as instantaneous with no transient REBOOTING window, not a bug. FIXED this pass (gopherstack-o5ig): real AWS's documented precondition 'You cannot reboot a WorkSpace unless its state is AVAILABLE, UNHEALTHY, or REBOOTING' was entirely unenforced (only existence was checked) — now returns a per-item FailedRequests{ErrorCode:\"OperationNotSupportedException\"} entry (the only error OperationNotSupportedException in this op's real error list) for a workspace in a disallowed state, e.g. STOPPED or ADMIN_MAINTENANCE."}
+  RebuildWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as RebootWorkspaces — intentional, tested no-transition behavior (TestRebuildWorkspaces_DoesNotChangeState). FIXED this pass (gopherstack-o5ig): same class of fix as RebootWorkspaces, enforcing the real precondition 'You cannot rebuild a WorkSpace unless its state is AVAILABLE, ERROR, UNHEALTHY, STOPPED, or REBOOTING' (ADMIN_MAINTENANCE/PENDING now rejected)."}
   StartWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "STOPPED->AVAILABLE; idempotent no-op for other states, no failure reported (matches AWS tolerance for redundant start/stop calls)"}
   StopWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok}
   TerminateWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "deletes workspace + its tags"}
@@ -43,17 +44,17 @@ ops:
 
 families:
   ConnectionAlias: {status: ok, note: "Create/Describe/Delete/Associate/Disassociate/Permissions all mutate storedConnAlias state correctly; spot-checked against real WorkspaceRequest/ConnectionAlias field names"}
-  WorkspaceBundle_custom: {status: ok, note: "Create/Delete/Update custom bundles verified real mutation"}
+  WorkspaceBundle_custom: {status: ok, note: "Create/Delete/Update custom bundles verified real mutation. FIXED this pass (gopherstack-o5ig): UpdateWorkspaceBundle accepted any ImageId, including nonexistent ones, and silently pointed the bundle at a phantom image — now validates ImageId against b.images (ResourceNotFoundException, real error list); empty ImageId remains a no-op (the real field is optional). CreateWorkspaceBundle.ImageId has the same gap and is NOT fixed this pass — see gaps note above."}
   WorkspaceImage: {status: ok, note: "Copy/Create/Delete/Import/CreateUpdated/DescribePermissions/UpdatePermission all mutate storedImage table. FIXED this pass: Created was serialized as an ISO8601 string (\"2006-01-02T15:04:05Z\") in three response shapes (CreateWorkspaceImage, DescribeWorkspaceImages, DescribeCustomWorkspaceImageImport) — real WorkspaceImage.Created / DescribeCustomWorkspaceImageImportOutput.Created are *time.Time, and this is the awsjson1.1 protocol, which requires epoch-seconds numbers (unixTimestamp), not RFC3339 strings; a real client SDK would fail to deserialize the response. Fixed via awstime.Epoch, matching the bug class already fixed in QuickSight/IoT."}
-  WorkspacesPool: {status: ok, note: "Create/Describe/Start/Stop/Terminate/Update all real state transitions on storedPool.State. FIXED this pass: (1) CreatedAt had the same ISO8601-string-instead-of-epoch-number bug as WorkspaceImage.Created, fixed via awstime.Epoch; (2) CapacityStatus and RunningMode — both `This member is required` on the real WorkspacesPool type — were entirely absent from the response; CreateWorkspacesPoolInput.Capacity.DesiredUserSessions was parsed but silently discarded, never reaching the backend. Now storedPool carries RunningMode (default ALWAYS_ON when unset) + DesiredUserSessions, both settable on Create and Update (UpdateWorkspacesPoolInput.RunningMode/Capacity were likewise previously accepted-but-dropped); CapacityStatus is derived as a steady-state value (ActiveUserSessions:0, ActualUserSessions=AvailableUserSessions=DesiredUserSessions) since no live session tracking is modeled — this matches the documented invariant ActualUserSessions = AvailableUserSessions + ActiveUserSessions. Not modeled: UpdateWorkspacesPoolInput's real constraint that RunningMode can only change while the pool is STOPPED (this backend applies it unconditionally) — flagged as a follow-up, not blocking."}
+  WorkspacesPool: {status: ok, note: "Create/Describe/Start/Stop/Terminate/Update all real state transitions on storedPool.State. FIXED prior pass: (1) CreatedAt epoch-seconds bug; (2) CapacityStatus/RunningMode were entirely absent from the response, DesiredUserSessions was parsed but discarded. FIXED this pass (gopherstack-o5ig): UpdateWorkspacesPoolInput's real constraint 'The running mode can only be updated when the pool is in a stopped state' (doc comment on RunningMode) is now enforced -- previously applied unconditionally. The pool state machine genuinely reaches STOPPED via StopWorkspacesPool, so this is a real, reachable precondition, not a strand-the-operation trap: UpdateWorkspacesPool now returns InvalidResourceStateException (in the real error list) when RunningMode is set on a non-STOPPED pool, checked before any other field is mutated. See TestWorkspacesPool_UpdateRunningModeRequiresStopped."}
   WorkspacesPoolSession: {status: ok}
   Account: {status: ok, note: "DescribeAccount/ModifyAccount/ModifyEndpointEncryptionMode read/write storedAccountConfig; DescribeAccountModifications now has a real, persisted modification history (see ops table) instead of an always-empty stub."}
   ConnectClientAddIn: {status: ok}
   ClientBranding: {status: ok}
   ClientProperties: {status: partial, note: "gopherstack-u8my: NEW since v1.68.3, not fixed -- ClientProperties gained ClientExperiencePolicy (*string: FORCE_CLASSIC/FORCE_UI_2026/USER_CHOICE). ModifyClientProperties(resourceID, reconnectEnabled string) only threads ReconnectEnabled; ClientExperiencePolicy is silently dropped (needs bd issue)."}
-  DirectoryModifyOps: {status: ok, note: "ModifyCertificateBasedAuthProperties/ModifySamlProperties/ModifySelfservicePermissions/ModifyStreamingProperties/ModifyWorkspaceAccessProperties/ModifyWorkspaceCreationProperties all write storedDirSettings.Properties map"}
+  DirectoryModifyOps: {status: ok, note: "ModifyEndpointEncryptionMode/ModifyCertificateBasedAuthProperties/ModifySamlProperties/ModifySelfservicePermissions/ModifyStreamingProperties/ModifyWorkspaceAccessProperties/ModifyWorkspaceCreationProperties all write storedDirSettings.Properties map. FIXED this pass (gopherstack-o5ig): all 7 shared one root cause -- ensureDirSettings silently created a storedDirSettings row (and, for the 6 non-EndpointEncryptionMode ops, wrote real properties into it) for ANY DirectoryId, including one never registered via RegisterWorkspaceDirectory, and always reported success. Each real error list includes ResourceNotFoundException. Now all 7 validate the directory is actually REGISTERED (not merely present in b.dirSettings, since the old ensureDirSettings call could itself create a bare row) before mutating anything, returning errDirectoryNotFound otherwise; ensureDirSettings itself is now only called from RegisterWorkspaceDirectory."}
   AccountLinks: {status: ok, note: "Create/Accept/Reject/Delete/Get/List all mutate storedAccountLink.Status"}
-  Applications: {status: ok, note: "Associate/Disassociate/Deploy/DescribeAssociations/DescribeApplicationAssociations/DescribeApplications"}
+  Applications: {status: ok, note: "FIXED this pass (gopherstack-o5ig): the family previously (1) accepted any WorkspaceId, including nonexistent ones, and always reported success -- Associate/Disassociate/Deploy/DescribeWorkspaceAssociations now validate WorkspaceId against b.workspaces (ResourceNotFoundException, real error list); (2) used a fabricated wire shape, `AssociationStatus: \"INSTALLED\"`/`\"UNINSTALLED\"` -- neither field name nor value exists on the real WorkspaceResourceAssociation type (field-diffed against deserializers.go's awsAwsjson11_deserializeDocumentWorkspaceResourceAssociation: real key is `State`, real enum is AssociationState with no INSTALLED/UNINSTALLED values). Now uses `State: \"COMPLETED\"`/`\"REMOVED\"` (real terminal enum values), matching this backend's synchronous apply -- see 'Applications family: legitimate simplification vs false claim' below. ApplicationId is deliberately NOT existence-checked (see same section) -- this backend never seeds the read-only applications catalog, so requiring a match would permanently strand the operation. DescribeWorkspaceAssociations/DescribeApplicationAssociations now also validate the real required AssociatedResourceTypes field against the real enum (WorkSpaceAssociatedResourceType: APPLICATION only; ApplicationAssociatedResourceType: WORKSPACE/BUNDLE/IMAGE)."}
   ImageBundleAssociations: {status: ok, note: "FIXED — see DescribeImageAssociations/DescribeBundleAssociations, now tracked individually in the ops table above (previously rolled up here only). Deep-audited this pass (previously marked deferred/not-audited): confirmed real AWS exposes no public create-association API for image/bundle<->application, so an always-empty (correctly validated + typed) response is genuine emulated behavior, not a gap."}
   DescribeWorkspaceSnapshots: {status: ok, note: "returns empty RebuildSnapshots/RestoreSnapshots lists — correct void-result shape since no snapshot state is modeled anywhere in this backend"}
 
@@ -61,15 +62,16 @@ gaps: []
   # All gaps from the prior pass (CreateStandbyWorkspaces FailedStandbyRequests,
   # AssociateIpGroups/DisassociateIpGroups persistence) were closed for real this
   # pass — see the ops table entries above for what changed.
+  #
+  # gopherstack-o5ig (2026-08-10): both items previously listed as deferred below
+  # (RunningMode-while-STOPPED, Applications family) are now fixed — see the
+  # WorkspacesPool and Applications family notes above. Known related-but-
+  # unfixed findings from this pass (out of scope, not part of gopherstack-o5ig):
+  # CreateWorkspaceBundle.ImageId and CreateWorkspaceImage.WorkspaceId also
+  # accept a nonexistent resource ID and report success (same bug class as
+  # UpdateWorkspaceBundle.ImageId, fixed this pass) — flagged for a future pass.
 
-deferred:
-  - DescribeWorkspaceAssociations/DescribeApplicationAssociations/DeployWorkspaceApplications
-    (the Applications family) still model application-deployment status as an
-    always-"INSTALLED" / always-empty-error placeholder rather than a real
-    per-application deployment state machine — not re-audited this pass (out of
-    the assigned gaps/deferred scope), flagged for a future pass.
-  - UpdateWorkspacesPoolInput's real "RunningMode can only change while STOPPED"
-    constraint is not enforced (see WorkspacesPool family note above).
+deferred: []
 
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table maps guarded by lockmetrics.RWMutex. FIXED this pass: DeregisterWorkspaceDirectory no longer allows deregistering a directory that still has live WorkSpaces assigned to it (previously left DescribeWorkspaces returning WorkSpaces pointing at a DirectoryId with no corresponding registered directory — a dangling-reference-shaped leak, now prevented outright per real AWS semantics) and now cascade-cleans the directoryIpGroups map entry for a directory on successful deregistration (was an orphaned map entry keyed by a dead DirectoryId, never reachable again once the directory itself was gone)."}
 
@@ -84,6 +86,103 @@ one of the 91 real SDK v1.68.3 ops is reachable — verified via `comm` diff bet
 `buildOps()` map; 91/91 match, no missing ops, no phantom (non-SDK) op names. Re-verified
 this pass (91 op names extracted straight from the SDK zip's `api_op_*.go` filenames):
 no gopherstack-invented op names exist in this service.
+
+### gopherstack-o5ig follow-up (2026-08-10)
+
+Three assigned items, verdicts:
+
+1. **UpdateWorkspacesPool RunningMode-only-while-STOPPED.** Real constraint
+   confirmed (`UpdateWorkspacesPoolInput.RunningMode` doc comment: "can only
+   be updated when the pool is in a stopped state"; `InvalidResourceStateException`
+   is in the op's real error list). This backend's pool state machine
+   genuinely reaches STOPPED (`StopWorkspacesPool` sets it), so the
+   counterweight case (an unreachable precondition that would permanently
+   strand the operation) does NOT apply — this was a real, fixable gap. Fixed:
+   see WorkspacesPool family note above.
+2. **Applications family — legitimate simplification vs false claim: BOTH,
+   split by field.** `AssociationState` (the real enum) has no PENDING
+   window this backend can produce — Associate/Deploy apply synchronously, so
+   reporting a terminal state immediately is a legitimate simplification, not
+   a false claim. But the VALUE used, `"INSTALLED"`/`"UNINSTALLED"`, was a
+   false claim: neither exists in the real `AssociationState` enum at all
+   (real values: PENDING_INSTALL/PENDING_INSTALL_DEPLOYMENT/PENDING_UNINSTALL/
+   PENDING_UNINSTALL_DEPLOYMENT/INSTALLING/UNINSTALLING/ERROR/COMPLETED/REMOVED),
+   and the wire key itself was wrong (`AssociationStatus`, not the real
+   `State` — field-diffed against deserializers.go). Fixed: real key/enum
+   (`State: "COMPLETED"`/`"REMOVED"`). Separately, and reachable regardless of
+   the above: WorkspaceId was never validated to exist — fixed via the real
+   `ResourceNotFoundException` (in every one of these ops' error lists).
+   ApplicationId is NOT existence-checked: this backend never seeds the
+   applications catalog (real AWS has no CreateApplication API — it's a
+   read-only AWS/partner catalog), so that would be the same
+   permanently-stranded-operation trap as (1)'s counterweight, just in the
+   other direction.
+3. **Per-operation ResourceLimitExceeded/OperationNotSupported.** Swept every
+   op with either in its real error list (grep across
+   `deserializers.go`'s `strings.EqualFold` switches, pinned v1.73.1).
+   `ResourceLimitExceededException` triggers were NOT added anywhere — every
+   instance found is a genuine account/service quota (pools, IP groups,
+   images, tags, bundles, ...) with no natural backend-side limit to check
+   against; inventing one would reject valid input, which is worse than
+   omitting it (an xray pass this campaign already reverted exactly this
+   mistake). `OperationNotSupportedException` had one real, deterministic,
+   previously-unenforced trigger: RebootWorkspaces/RebuildWorkspaces' documented
+   state preconditions (see ops table). Every other real-list occurrence of
+   `OperationNotSupportedException` in this service (AssociateConnectionAlias,
+   AssociateWorkspaceApplication's compute/OS-compatibility errors, the
+   WorkSpaces-Pools-end-of-support ops, ...) would require modeling data this
+   backend doesn't have (compute-type compatibility matrices, a real pool
+   lifecycle beyond RUNNING/STOPPED) and was left alone rather than fabricated.
+
+Sweep findings (beyond the three assigned items), in the campaign's listed
+bug-class order:
+
+- **State mutated before validation**: none newly found in this service's
+  Update/Modify operations beyond the already-filed ClientProperties gap —
+  every Update op here either validates first or has no validation to order
+  against. (The RunningMode fix above is validate-then-mutate by construction,
+  not a mutate-then-fail correction.)
+- **A field/value that doesn't exist on the real type**: `AssociationStatus`
+  (should be `State`) and `"INSTALLED"`/`"UNINSTALLED"` (not real
+  `AssociationState` values) — see item 2 above.
+- **An operation accepting a nonexistent resource ID and reporting success**
+  — the highest-yield class this pass, one root cause each:
+  - `AssociateWorkspaceApplication`/`DisassociateWorkspaceApplication`/
+    `DeployWorkspaceApplications`/`DescribeWorkspaceAssociations` accepted any
+    `WorkspaceId` (item 2).
+  - `ModifyEndpointEncryptionMode`/`ModifyCertificateBasedAuthProperties`/
+    `ModifySamlProperties`/`ModifySelfservicePermissions`/
+    `ModifyStreamingProperties`/`ModifyWorkspaceAccessProperties`/
+    `ModifyWorkspaceCreationProperties` all shared one root cause
+    (`ensureDirSettings` silently created a settings row for any
+    `DirectoryId`, registered or not) — fixed, see DirectoryModifyOps note.
+  - `UpdateWorkspaceBundle` accepted any `ImageId` — fixed, see
+    WorkspaceBundle_custom note. `CreateWorkspaceBundle.ImageId` and
+    `CreateWorkspaceImage.WorkspaceId` have the same gap and are **not**
+    fixed this pass (see gaps note) — flagged for a future pass rather than
+    expanded into out-of-scope territory.
+- **More permissive than real AWS (unvalidated enums)**:
+  `DescribeWorkspaceAssociations`/`DescribeApplicationAssociations` never
+  validated the real required `AssociatedResourceTypes` field — fixed
+  alongside item 2 (`validateAssociatedResourceTypes`/
+  `validateApplicationAssociatedResourceTypes` in store.go).
+- **More restrictive than real AWS**: none found this pass. (No hand-written
+  allowlist was touched or newly added except the two
+  `AssociatedResourceTypes` enum lists above, both directly transcribed from
+  the pinned SDK's `types.WorkSpaceAssociatedResourceType`/
+  `types.ApplicationAssociatedResourceType`.)
+- **A resource reporting a live status after deletion**: none found; not
+  re-audited exhaustively this pass (out of the assigned scope), no evidence
+  of one in the paths touched.
+
+Not touched: `services/sns` (a concurrent agent's assignment). Also observed
+mid-pass: `go build ./...`/`go vet .` at the repository root started failing
+partway through this session due to an unrelated, uncommitted, in-progress
+edit in `services/apigatewayv2/models.go` (a type mismatch in
+`persistence.go` against `RoutingRuleAction`/`RoutingRuleCondition`) —
+another concurrent agent's mid-edit, not anything in `services/workspaces`;
+`go build`/`go vet`/`go test -race` scoped to `./services/workspaces/...`
+are all clean.
 
 ### Bugs fixed this pass (2026-07-23)
 

@@ -1,8 +1,12 @@
 package workspaces_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestWorkspacesPool_CapacityStatusAndRunningMode verifies fields that were
@@ -95,6 +99,15 @@ func TestWorkspacesPool_UpdateRunningModeAndCapacity(t *testing.T) {
 	}
 	decodeJSON(t, rec.Body.Bytes(), &createOut)
 
+	// RunningMode can only be updated while the pool is STOPPED -- see
+	// TestWorkspacesPool_UpdateRunningModeRequiresStopped.
+	recStop := doTargetRequest(t, h, "StopWorkspacesPool", map[string]any{
+		"PoolId": createOut.WorkspacesPool.PoolId,
+	})
+	if recStop.Code != http.StatusOK {
+		t.Fatalf("stop: expected 200, got %d: %s", recStop.Code, recStop.Body)
+	}
+
 	rec2 := doTargetRequest(t, h, "UpdateWorkspacesPool", map[string]any{
 		"PoolId":      createOut.WorkspacesPool.PoolId,
 		"RunningMode": "ALWAYS_ON",
@@ -123,6 +136,88 @@ func TestWorkspacesPool_UpdateRunningModeAndCapacity(t *testing.T) {
 			"expected DesiredUserSessions=20, got %d",
 			updateOut.WorkspacesPool.CapacityStatus.DesiredUserSessions,
 		)
+	}
+}
+
+// TestWorkspacesPool_UpdateRunningModeRequiresStopped verifies real AWS's
+// UpdateWorkspacesPoolInput.RunningMode precondition: "The running mode can
+// only be updated when the pool is in a stopped state." A rejected update
+// must not leave any other field in the same request (e.g. Description)
+// partially applied.
+func TestWorkspacesPool_UpdateRunningModeRequiresStopped(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		stopFirst  bool
+		wantStatus int
+	}{
+		{name: "running pool rejects running mode change", stopFirst: false, wantStatus: http.StatusBadRequest},
+		{name: "stopped pool accepts running mode change", stopFirst: true, wantStatus: http.StatusOK},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandlerWithBackend(t)
+
+			rec := doTargetRequest(t, h, "CreateWorkspacesPool", map[string]any{
+				"PoolName":    "precondition-pool",
+				"BundleId":    "wsb-abc",
+				"DirectoryId": "d-xyz",
+				"Description": "original description",
+				"Capacity":    map[string]int{"DesiredUserSessions": 3},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var createOut struct {
+				WorkspacesPool struct {
+					PoolId string `json:"PoolId"` //nolint:revive,staticcheck // AWS wire casing.
+				} `json:"WorkspacesPool"`
+			}
+			decodeJSON(t, rec.Body.Bytes(), &createOut)
+			poolID := createOut.WorkspacesPool.PoolId
+
+			if tc.stopFirst {
+				recStop := doTargetRequest(t, h, "StopWorkspacesPool", map[string]any{"PoolId": poolID})
+				require.Equal(t, http.StatusOK, recStop.Code)
+			}
+
+			rec2 := doTargetRequest(t, h, "UpdateWorkspacesPool", map[string]any{
+				"PoolId":      poolID,
+				"RunningMode": "ALWAYS_ON",
+				"Description": "changed description",
+			})
+			require.Equal(t, tc.wantStatus, rec2.Code, "body: %s", rec2.Body)
+
+			if tc.wantStatus == http.StatusBadRequest {
+				var errOut map[string]string
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errOut))
+				assert.Equal(t, "InvalidResourceStateException", errOut["__type"])
+			}
+
+			recDesc := doTargetRequest(t, h, "DescribeWorkspacesPools", map[string]any{
+				"PoolIds": []string{poolID},
+			})
+			require.Equal(t, http.StatusOK, recDesc.Code)
+
+			var descOut struct {
+				WorkspacesPools []struct {
+					Description string `json:"Description"`
+				} `json:"WorkspacesPools"`
+			}
+			decodeJSON(t, recDesc.Body.Bytes(), &descOut)
+			require.Len(t, descOut.WorkspacesPools, 1)
+
+			wantDescription := "original description"
+			if tc.wantStatus == http.StatusOK {
+				wantDescription = "changed description"
+			}
+
+			assert.Equal(t, wantDescription, descOut.WorkspacesPools[0].Description,
+				"a rejected RunningMode change must not leave Description partially applied")
+		})
 	}
 }
 

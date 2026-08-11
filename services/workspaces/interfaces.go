@@ -205,16 +205,22 @@ type StorageBackend interface {
 	) ([]*storedAccountLink, string, error)
 
 	// Applications
-	AssociateWorkspaceApplication(workspaceID, applicationID string) error
-	DisassociateWorkspaceApplication(workspaceID, applicationID string) error
-	DeployWorkspaceApplications(workspaceID string, force bool) ([]map[string]string, error)
+	AssociateWorkspaceApplication(
+		workspaceID, applicationID string,
+	) (WorkspaceResourceAssociation, error)
+	DisassociateWorkspaceApplication(
+		workspaceID, applicationID string,
+	) (WorkspaceResourceAssociation, error)
+	DeployWorkspaceApplications(
+		workspaceID string, force bool,
+	) ([]WorkspaceResourceAssociation, error)
 	DescribeWorkspaceAssociations(
 		workspaceID string,
 		associatedResourceTypes []string,
-	) ([]map[string]string, error)
+	) ([]WorkspaceResourceAssociation, error)
 	DescribeApplicationAssociations(
 		applicationID string, associatedResourceTypes []string, maxResults int32, nextToken string,
-	) ([]map[string]string, string, error)
+	) ([]WorkspaceResourceAssociation, string, error)
 	DescribeApplications(
 		appIDs []string,
 		maxResults int32,
@@ -321,6 +327,23 @@ type PendingStandbyWorkspace struct {
 	WorkspaceID string
 	DirectoryID string
 	State       string
+}
+
+// WorkspaceResourceAssociation describes a workspace<->application
+// association, matching the real WorkspaceResourceAssociation SDK type
+// (field-diffed against deserializers.go's
+// awsAwsjson11_deserializeDocumentWorkspaceResourceAssociation: the wire key
+// is "State" with AssociationState enum values, not "AssociationStatus" /
+// "INSTALLED", which don't exist on the real type). This backend applies
+// Associate/Deploy synchronously, so State is always the terminal
+// COMPLETED/REMOVED value -- there is no pending/installing window to model.
+type WorkspaceResourceAssociation struct {
+	Created                time.Time
+	LastUpdatedTime        time.Time
+	AssociatedResourceID   string
+	AssociatedResourceType string
+	State                  string
+	WorkspaceID            string
 }
 
 // ImageResourceAssociation describes an application association for an image,

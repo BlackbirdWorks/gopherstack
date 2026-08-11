@@ -154,7 +154,20 @@ func (b *InMemoryBackend) ensureDirSettings(directoryID string) {
 	}
 }
 
-// ModifyWorkspaceCreationProperties stores workspace creation properties for a directory.
+// isDirectoryRegisteredLocked reports whether directoryID was registered via
+// RegisterWorkspaceDirectory -- not merely present in b.dirSettings, since
+// ensureDirSettings can create a bare row before State is set. Callers must
+// hold b.mu.
+func (b *InMemoryBackend) isDirectoryRegisteredLocked(directoryID string) bool {
+	ds, ok := b.dirSettings.Get(directoryID)
+
+	return ok && ds.Properties["State"] == stateRegistered
+}
+
+// ModifyWorkspaceCreationProperties stores workspace creation properties for
+// a registered directory. Returns errDirectoryNotFound for a DirectoryId
+// that was never registered, matching real AWS (ResourceNotFoundException is
+// in this operation's error list).
 func (b *InMemoryBackend) ModifyWorkspaceCreationProperties(
 	directoryID string,
 	props map[string]string,
@@ -162,7 +175,9 @@ func (b *InMemoryBackend) ModifyWorkspaceCreationProperties(
 	b.mu.Lock("ModifyWorkspaceCreationProperties")
 	defer b.mu.Unlock()
 
-	b.ensureDirSettings(directoryID)
+	if !b.isDirectoryRegisteredLocked(directoryID) {
+		return errDirectoryNotFound
+	}
 
 	ds, _ := b.dirSettings.Get(directoryID)
 	for k, v := range props {

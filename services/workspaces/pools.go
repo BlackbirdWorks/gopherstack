@@ -10,6 +10,10 @@ import (
 // makes RunningMode optional).
 const poolsRunningModeAlwaysOn = "ALWAYS_ON"
 
+// poolStateStopped is the WorkspacesPoolState value StopWorkspacesPool sets
+// and the only state UpdateWorkspacesPool may change RunningMode in.
+const poolStateStopped = "STOPPED"
+
 // CreateWorkspacesPool creates a new workspace pool.
 func (b *InMemoryBackend) CreateWorkspacesPool(
 	poolName, bundleID, directoryID, description, runningMode string,
@@ -100,7 +104,7 @@ func (b *InMemoryBackend) StopWorkspacesPool(poolID string) error {
 		return errPoolNotFound
 	}
 
-	p.State = "STOPPED"
+	p.State = poolStateStopped
 
 	return nil
 }
@@ -132,6 +136,10 @@ func (b *InMemoryBackend) UpdateWorkspacesPool(
 	p, ok := b.pools.Get(poolID)
 	if !ok {
 		return nil, errPoolNotFound
+	}
+
+	if runningMode != "" && p.State != poolStateStopped {
+		return nil, errPoolRunningModeRequiresStopped
 	}
 
 	if description != "" {

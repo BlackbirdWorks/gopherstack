@@ -3,6 +3,9 @@ package workspaces_test
 import (
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -63,11 +66,14 @@ func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existi
 			name: "DescribeWorkspaceAssociations",
 			fn: func(t *testing.T) {
 				t.Helper()
+				// AssociatedResourceTypes is a real required field (smithy
+				// `required` on DescribeWorkspaceAssociationsInput).
 				r := doTargetRequest(t, h, "DescribeWorkspaceAssociations", map[string]any{
-					"WorkspaceId": wsID,
+					"WorkspaceId":             wsID,
+					"AssociatedResourceTypes": []string{"APPLICATION"},
 				})
 				if r.Code != http.StatusOK {
-					t.Fatalf("expected 200, got %d", r.Code)
+					t.Fatalf("expected 200, got %d: %s", r.Code, r.Body)
 				}
 			},
 		},
@@ -75,11 +81,14 @@ func TestApplicationAssociations(t *testing.T) { //nolint:paralleltest // existi
 			name: "DescribeApplicationAssociations",
 			fn: func(t *testing.T) {
 				t.Helper()
+				// AssociatedResourceTypes is a real required field (smithy
+				// `required` on DescribeApplicationAssociationsInput).
 				r := doTargetRequest(t, h, "DescribeApplicationAssociations", map[string]any{
-					"ApplicationId": appID,
+					"ApplicationId":           appID,
+					"AssociatedResourceTypes": []string{"WORKSPACE"},
 				})
 				if r.Code != http.StatusOK {
-					t.Fatalf("expected 200, got %d", r.Code)
+					t.Fatalf("expected 200, got %d: %s", r.Code, r.Body)
 				}
 			},
 		},
@@ -241,5 +250,116 @@ func TestDescribeBundleAssociations_Validation(t *testing.T) {
 		if out.Associations == nil {
 			t.Fatal("expected non-nil (possibly empty) Associations array")
 		}
+	})
+}
+
+// TestWorkspaceApplicationAssociations_Validation verifies the
+// Associate/Disassociate/Deploy/Describe*Associations family validates a
+// nonexistent WorkspaceId (previously accepted unconditionally and reported
+// success) and the required AssociatedResourceTypes field, and that the wire
+// shape uses the real "State" key/enum rather than the previous
+// "AssociationStatus": "INSTALLED" (neither exists on the real
+// WorkspaceResourceAssociation type). ApplicationId is deliberately NOT
+// existence-checked: this backend never populates the read-only applications
+// catalog (real AWS has no CreateApplication API), so requiring a match would
+// make the whole family permanently unusable.
+func TestWorkspaceApplicationAssociations_Validation(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandlerWithBackend(t)
+
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-appval"})
+	recCreate := doTargetRequest(t, h, "CreateWorkspaces", map[string]any{
+		"Workspaces": []map[string]any{
+			{"UserName": "bob", "DirectoryId": "d-appval", "BundleId": "wsb-test"},
+		},
+	})
+	require.Equal(t, http.StatusOK, recCreate.Code)
+
+	var wsOut struct {
+		PendingRequests []map[string]string `json:"PendingRequests"`
+	}
+	decodeJSON(t, recCreate.Body.Bytes(), &wsOut)
+	require.Len(t, wsOut.PendingRequests, 1)
+	wsID := wsOut.PendingRequests[0]["WorkspaceId"]
+
+	t.Run("associate rejects unknown workspace", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "AssociateWorkspaceApplication", map[string]any{
+			"WorkspaceId":   "ws-does-not-exist",
+			"ApplicationId": "app-1",
+		})
+		require.Equal(t, http.StatusNotFound, rec.Code, "body: %s", rec.Body)
+	})
+
+	t.Run("disassociate rejects unknown workspace", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "DisassociateWorkspaceApplication", map[string]any{
+			"WorkspaceId":   "ws-does-not-exist",
+			"ApplicationId": "app-1",
+		})
+		require.Equal(t, http.StatusNotFound, rec.Code, "body: %s", rec.Body)
+	})
+
+	t.Run("deploy rejects unknown workspace", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "DeployWorkspaceApplications", map[string]any{
+			"WorkspaceId": "ws-does-not-exist",
+		})
+		require.Equal(t, http.StatusNotFound, rec.Code, "body: %s", rec.Body)
+	})
+
+	t.Run("describe workspace associations rejects unknown workspace", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "DescribeWorkspaceAssociations", map[string]any{
+			"WorkspaceId":             "ws-does-not-exist",
+			"AssociatedResourceTypes": []string{"APPLICATION"},
+		})
+		require.Equal(t, http.StatusNotFound, rec.Code, "body: %s", rec.Body)
+	})
+
+	t.Run("describe workspace associations requires resource types", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "DescribeWorkspaceAssociations", map[string]any{
+			"WorkspaceId": wsID,
+		})
+		require.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body)
+	})
+
+	t.Run("describe application associations requires resource types", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "DescribeApplicationAssociations", map[string]any{
+			"ApplicationId": "app-1",
+		})
+		require.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body)
+	})
+
+	t.Run("associate reports the real State enum, not a fabricated one", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doTargetRequest(t, h, "AssociateWorkspaceApplication", map[string]any{
+			"WorkspaceId":   wsID,
+			"ApplicationId": "app-real-shape",
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
+
+		var out struct {
+			Association struct {
+				State             string `json:"State"`
+				AssociationStatus string `json:"AssociationStatus"`
+			} `json:"Association"`
+		}
+		decodeJSON(t, rec.Body.Bytes(), &out)
+		assert.Equal(t, "COMPLETED", out.Association.State)
+		assert.Empty(
+			t, out.Association.AssociationStatus,
+			"AssociationStatus is not a field on the real WorkspaceResourceAssociation type",
+		)
 	})
 }

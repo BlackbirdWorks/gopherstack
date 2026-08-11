@@ -3,6 +3,7 @@ package workspaces
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -25,10 +26,29 @@ type associateWorkspaceApplicationInput struct {
 	ApplicationId string `json:"ApplicationId"` //nolint:revive,staticcheck // existing issue.
 }
 
+// workspaceAssocResp mirrors the real WorkspaceResourceAssociation shape
+// (field-diffed against deserializers.go's
+// awsAwsjson11_deserializeDocumentWorkspaceResourceAssociation): the wire key
+// is "State" carrying an AssociationState value, not "AssociationStatus" /
+// "INSTALLED", neither of which exist on the real type.
 type workspaceAssocResp struct {
-	WorkspaceId          string `json:"WorkspaceId"`          //nolint:revive,staticcheck // existing issue.
-	AssociatedResourceId string `json:"AssociatedResourceId"` //nolint:revive,staticcheck // existing issue.
-	AssociationStatus    string `json:"AssociationStatus"`
+	WorkspaceId            string  `json:"WorkspaceId"`          //nolint:revive,staticcheck // existing issue.
+	AssociatedResourceId   string  `json:"AssociatedResourceId"` //nolint:revive,staticcheck // existing issue.
+	AssociatedResourceType string  `json:"AssociatedResourceType,omitempty"`
+	State                  string  `json:"State"`
+	Created                float64 `json:"Created,omitempty"`
+	LastUpdatedTime        float64 `json:"LastUpdatedTime,omitempty"`
+}
+
+func toWorkspaceAssocResp(a WorkspaceResourceAssociation) workspaceAssocResp {
+	return workspaceAssocResp{
+		WorkspaceId:            a.WorkspaceID,
+		AssociatedResourceId:   a.AssociatedResourceID,
+		AssociatedResourceType: a.AssociatedResourceType,
+		State:                  a.State,
+		Created:                awstime.Epoch(a.Created),
+		LastUpdatedTime:        awstime.Epoch(a.LastUpdatedTime),
+	}
 }
 
 type associateWorkspaceApplicationOutput struct {
@@ -38,17 +58,12 @@ type associateWorkspaceApplicationOutput struct {
 func (h *Handler) handleAssociateWorkspaceApplication(
 	_ context.Context, req *associateWorkspaceApplicationInput,
 ) (*associateWorkspaceApplicationOutput, error) {
-	if err := h.Backend.AssociateWorkspaceApplication(req.WorkspaceId, req.ApplicationId); err != nil {
+	assoc, err := h.Backend.AssociateWorkspaceApplication(req.WorkspaceId, req.ApplicationId)
+	if err != nil {
 		return nil, err
 	}
 
-	return &associateWorkspaceApplicationOutput{
-		Association: workspaceAssocResp{
-			WorkspaceId:          req.WorkspaceId,
-			AssociatedResourceId: req.ApplicationId,
-			AssociationStatus:    "INSTALLED", //nolint:goconst // existing issue.
-		},
-	}, nil
+	return &associateWorkspaceApplicationOutput{Association: toWorkspaceAssocResp(assoc)}, nil
 }
 
 type disassociateWorkspaceApplicationInput struct {
@@ -63,17 +78,12 @@ type disassociateWorkspaceApplicationOutput struct {
 func (h *Handler) handleDisassociateWorkspaceApplication(
 	_ context.Context, req *disassociateWorkspaceApplicationInput,
 ) (*disassociateWorkspaceApplicationOutput, error) {
-	if err := h.Backend.DisassociateWorkspaceApplication(req.WorkspaceId, req.ApplicationId); err != nil {
+	assoc, err := h.Backend.DisassociateWorkspaceApplication(req.WorkspaceId, req.ApplicationId)
+	if err != nil {
 		return nil, err
 	}
 
-	return &disassociateWorkspaceApplicationOutput{
-		Association: workspaceAssocResp{
-			WorkspaceId:          req.WorkspaceId,
-			AssociatedResourceId: req.ApplicationId,
-			AssociationStatus:    "UNINSTALLED",
-		},
-	}, nil
+	return &disassociateWorkspaceApplicationOutput{Association: toWorkspaceAssocResp(assoc)}, nil
 }
 
 type deployWorkspaceApplicationsInput struct {
@@ -97,11 +107,7 @@ func (h *Handler) handleDeployWorkspaceApplications(
 
 	items := make([]workspaceAssocResp, 0, len(associations))
 	for _, a := range associations {
-		items = append(items, workspaceAssocResp{
-			WorkspaceId:          a[wireKeyWorkspaceID],
-			AssociatedResourceId: a["AssociatedResourceId"],
-			AssociationStatus:    a["AssociationStatus"],
-		})
+		items = append(items, toWorkspaceAssocResp(a))
 	}
 
 	out := &deployWorkspaceApplicationsOutput{}
@@ -132,11 +138,7 @@ func (h *Handler) handleDescribeWorkspaceAssociations(
 
 	items := make([]workspaceAssocResp, 0, len(assocs))
 	for _, a := range assocs {
-		items = append(items, workspaceAssocResp{
-			WorkspaceId:          a[wireKeyWorkspaceID],
-			AssociatedResourceId: a["AssociatedResourceId"],
-			AssociationStatus:    a["AssociationStatus"],
-		})
+		items = append(items, toWorkspaceAssocResp(a))
 	}
 
 	return &describeWorkspaceAssociationsOutput{Associations: items}, nil
@@ -166,11 +168,7 @@ func (h *Handler) handleDescribeApplicationAssociations(
 
 	items := make([]workspaceAssocResp, 0, len(assocs))
 	for _, a := range assocs {
-		items = append(items, workspaceAssocResp{
-			WorkspaceId:          a[wireKeyWorkspaceID],
-			AssociatedResourceId: a["AssociatedResourceId"],
-			AssociationStatus:    a["AssociationStatus"],
-		})
+		items = append(items, toWorkspaceAssocResp(a))
 	}
 
 	return &describeApplicationAssociationsOutput{Associations: items, NextToken: nextToken}, nil

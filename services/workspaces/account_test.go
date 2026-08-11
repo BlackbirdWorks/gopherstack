@@ -86,7 +86,10 @@ func TestDescribeAndModifyAccount(t *testing.T) { //nolint:paralleltest // exist
 		t.Fatalf("expected numeric StartTime, got %v (%T)", mod["StartTime"], mod["StartTime"])
 	}
 
-	// Modify endpoint encryption
+	// Modify endpoint encryption -- requires a registered directory
+	// (ResourceNotFoundException otherwise).
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-test"})
+
 	rec5 := doTargetRequest(t, h, "ModifyEndpointEncryptionMode", map[string]any{
 		"DirectoryId":            "d-test",
 		"EndpointEncryptionMode": "FIPS_VALIDATED",

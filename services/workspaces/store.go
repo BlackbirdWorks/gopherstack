@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
@@ -19,21 +20,48 @@ import (
 // applications with images/bundles.
 const associatedResourceTypeApplication = "APPLICATION"
 
-// validateAssociatedResourceTypes validates the required AssociatedResourceTypes
-// field shared by DescribeImageAssociations/DescribeBundleAssociations.
-func validateAssociatedResourceTypes(types []string) error {
+// validateResourceTypesIn validates the required AssociatedResourceTypes
+// field against an allowed enum set (a required smithy list field on every
+// caller: DescribeImageAssociations/DescribeBundleAssociations/
+// DescribeWorkspaceAssociations/DescribeApplicationAssociations all reject a
+// missing or empty list).
+func validateResourceTypesIn(types []string, allowed ...string) error {
 	if len(types) == 0 {
 		return awserr.New("AssociatedResourceTypes is required", awserr.ErrInvalidParameter)
 	}
 
 	for _, t := range types {
-		if t != associatedResourceTypeApplication {
+		if !slices.Contains(allowed, t) {
 			return awserr.Newf(
 				"invalid AssociatedResourceType %q", awserr.ErrInvalidParameter, t)
 		}
 	}
 
 	return nil
+}
+
+// validateAssociatedResourceTypes validates the required AssociatedResourceTypes
+// field shared by DescribeImageAssociations/DescribeBundleAssociations/
+// DescribeWorkspaceAssociations -- each real *AssociatedResourceType enum
+// (ImageAssociatedResourceType/BundleAssociatedResourceType/
+// WorkSpaceAssociatedResourceType) carries the single value "APPLICATION".
+func validateAssociatedResourceTypes(types []string) error {
+	return validateResourceTypesIn(types, associatedResourceTypeApplication)
+}
+
+// applicationAssociatedResourceTypes are the real enum values of
+// types.ApplicationAssociatedResourceType, used by DescribeApplicationAssociations
+// (the reverse direction from validateAssociatedResourceTypes: what an
+// application can be associated with, not what can be associated with an
+// application).
+//
+//nolint:gochecknoglobals // fixed SDK enum set, read-only.
+var applicationAssociatedResourceTypes = []string{"WORKSPACE", "BUNDLE", "IMAGE"}
+
+// validateApplicationAssociatedResourceTypes validates DescribeApplicationAssociations'
+// required AssociatedResourceTypes field.
+func validateApplicationAssociatedResourceTypes(types []string) error {
+	return validateResourceTypesIn(types, applicationAssociatedResourceTypes...)
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -45,7 +73,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		directoryIpGroups: make(map[string]map[string]struct{}),
 		imagePermissions:  make(map[string]map[string]bool),
 		clientProperties:  make(map[string]storedClientProps),
-		appAssociations:   make(map[string]map[string]struct{}),
+		appAssociations:   make(map[string]map[string]*storedAppAssociation),
 		accountID:         accountID,
 		region:            region,
 	}
@@ -80,16 +108,11 @@ func (b *InMemoryBackend) Reset() {
 	b.directoryIpGroups = make(map[string]map[string]struct{})
 	b.imagePermissions = make(map[string]map[string]bool)
 	b.clientProperties = make(map[string]storedClientProps)
-	b.appAssociations = make(map[string]map[string]struct{})
+	b.appAssociations = make(map[string]map[string]*storedAppAssociation)
 	b.accountConfig = storedAccountConfig{}
 	b.accountModifications = nil
 	b.counter = 0
 }
-
-// wireKeyWorkspaceID is the shared AWS wire-format key name for a WorkspaceId,
-// reused across the workspace-lifecycle and application-association response
-// builders (split across multiple files by family).
-const wireKeyWorkspaceID = "WorkspaceId"
 
 // nextID generates a sequential resource ID with the given prefix.
 func (b *InMemoryBackend) nextID(prefix string) string {
