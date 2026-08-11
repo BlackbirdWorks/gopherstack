@@ -25,6 +25,7 @@ ops:
   CreateLogStream: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLogStream: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLogStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "orderBy=LastEventTime + prefix and descending + orderBy=LogStreamName rejection rules match AWS."}
+  PutLogGroupDeletionProtection: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-7rq1): request member was `deletionProtected`, a gopherstack-invented name -- the real PutLogGroupDeletionProtectionRequest member (logs/2014-03-28/service-2.json) is `deletionProtectionEnabled`. A real client's flag was silently dropped by json.Unmarshal (wrong key = zero value = false), so every real PutLogGroupDeletionProtection call silently disabled protection regardless of the caller's intent. Fixed the json tag; both existing tests (which asserted only HTTP 200, not backend state, and used the wrong key) and a new state-asserting test cover it."}
   PutRetentionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRetentionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutSubscriptionFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "2-filter-per-group cap and update-in-place-by-name verified."}

@@ -109,7 +109,7 @@ type UpdateOpsItemInput struct {
 
 // UpdateOpsMetadataInput is the request payload for UpdateOpsMetadata.
 type UpdateOpsMetadataInput struct {
-	Metadata       map[string]MetadataValue `json:"Metadata,omitempty"`
+	Metadata       map[string]MetadataValue `json:"MetadataToUpdate,omitempty"`
 	OpsMetadataArn string                   `json:"OpsMetadataArn"`
 }
 

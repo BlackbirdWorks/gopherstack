@@ -557,7 +557,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EMR](services/emr/README.md) | A | 65 | 1 gap; 4 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 gap |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 3 gaps |
-| [Glue](services/glue/README.md) | A | 52 | 11 gaps; 6 deferred |
+| [Glue](services/glue/README.md) | A | 54 | 11 gaps; 6 deferred |
 | [Glue DataBrew](services/databrew/README.md) | A | 44 | 3 gaps |
 | [Kinesis](services/kinesis/README.md) | A | 39 | 5 gaps; 1 deferred |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
@@ -613,7 +613,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFormation](services/cloudformation/README.md) | A | 67 | 4 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 4 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
-| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 69 | 9 gaps; 3 deferred |
+| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 70 | 9 gaps; 3 deferred |
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 31 | 1 gap; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 gaps; 1 deferred |

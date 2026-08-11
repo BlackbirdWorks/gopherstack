@@ -224,7 +224,7 @@ func (h *Handler) handleListLogGroups(ctx context.Context, b []byte) (any, error
 
 type putLogGroupDeletionProtectionInput struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
-	DeletionProtected  bool   `json:"deletionProtected"`
+	DeletionProtected  bool   `json:"deletionProtectionEnabled"`
 }
 
 func (h *Handler) handlePutLogGroupDeletionProtection(
