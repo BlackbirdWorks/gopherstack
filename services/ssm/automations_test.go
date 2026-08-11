@@ -409,6 +409,56 @@ func TestGetCalendarState_EmptyCalendarNames(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "OPEN")
 }
+func TestAutomationExecution_WarningMessageAbsentFromWire(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body func(execID string) string
+		name string
+		op   string
+	}{
+		{
+			name: "get_automation_execution",
+			op:   "GetAutomationExecution",
+			body: func(execID string) string {
+				return `{"AutomationExecutionId":"` + execID + `"}`
+			},
+		},
+		{
+			name: "describe_automation_executions",
+			op:   "DescribeAutomationExecutions",
+			body: func(string) string { return `{}` },
+		},
+		{
+			name: "describe_automation_step_executions",
+			op:   "DescribeAutomationStepExecutions",
+			body: func(execID string) string {
+				return `{"AutomationExecutionId":"` + execID + `"}`
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+
+			start := doRequest(t, h, "StartAutomationExecution", `{"DocumentName":"AWS-RunShellScript"}`)
+			require.Equal(t, http.StatusOK, start.Code)
+
+			var startResp map[string]any
+			require.NoError(t, json.Unmarshal(start.Body.Bytes(), &startResp))
+			execID, _ := startResp["AutomationExecutionId"].(string)
+			require.NotEmpty(t, execID)
+
+			rec := doRequest(t, h, tt.op, tt.body(execID))
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.NotContains(t, rec.Body.String(), "WarningMessage",
+				"WarningMessage must be genuinely absent from the wire, not merely empty")
+		})
+	}
+}
 func TestGetCalendarState_MissingDocumentReturnsError(t *testing.T) {
 	t.Parallel()
 

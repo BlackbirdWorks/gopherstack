@@ -86,28 +86,36 @@ type StopAutomationExecutionInput struct {
 }
 
 // AutomationExecution represents a running or completed SSM automation execution.
+// Also serialized as AutomationExecutionMetadata for DescribeAutomationExecutions.
 type AutomationExecution struct {
-	Parameters            map[string][]string  `json:"Parameters,omitempty"`
-	AutomationExecutionID string               `json:"AutomationExecutionId"`
-	DocumentName          string               `json:"DocumentName"`
-	DocumentVersion       string               `json:"DocumentVersion"`
-	Status                string               `json:"AutomationExecutionStatus"`
-	ExecutionType         string               `json:"ExecutionType"`
-	Mode                  string               `json:"Mode,omitempty"`
-	FailureMessage        string               `json:"FailureMessage,omitempty"`
-	Steps                 []AutomationStepExec `json:"StepExecutions,omitempty"`
-	StartTime             float64              `json:"ExecutionStartTime"`
-	EndTime               float64              `json:"ExecutionEndTime,omitempty"`
-	completeAfter         float64
+	Parameters            map[string][]string `json:"Parameters,omitempty"`
+	Mode                  string              `json:"Mode,omitempty"`
+	DocumentName          string              `json:"DocumentName"`
+	DocumentVersion       string              `json:"DocumentVersion"`
+	Status                string              `json:"AutomationExecutionStatus"`
+	ExecutionType         string              `json:"ExecutionType"`
+	AutomationExecutionID string              `json:"AutomationExecutionId"`
+	FailureMessage        string              `json:"FailureMessage,omitempty"`
+	// Never populated: real SSM sets this for a non-critical issue its engine
+	// detects mid-run (types.go:801-803), but every execution here always
+	// completes every step to Success (completeAutomationLocked) with no
+	// partial-failure/degraded path to report one from.
+	WarningMessage string               `json:"WarningMessage,omitempty"`
+	Steps          []AutomationStepExec `json:"StepExecutions,omitempty"`
+	StartTime      float64              `json:"ExecutionStartTime"`
+	EndTime        float64              `json:"ExecutionEndTime,omitempty"`
+	completeAfter  float64
 }
 
 // AutomationStepExec represents a single step in an automation execution.
 type AutomationStepExec struct {
-	StepName           string  `json:"StepName"`
-	Action             string  `json:"Action"`
-	StepStatus         string  `json:"StepStatus"`
-	StepExecutionID    string  `json:"StepExecutionId,omitempty"`
-	FailureMessage     string  `json:"FailureMessage,omitempty"`
+	StepName        string `json:"StepName"`
+	Action          string `json:"Action"`
+	StepStatus      string `json:"StepStatus"`
+	StepExecutionID string `json:"StepExecutionId,omitempty"`
+	FailureMessage  string `json:"FailureMessage,omitempty"`
+	// Never populated: see AutomationExecution.WarningMessage.
+	WarningMessage     string  `json:"WarningMessage,omitempty"`
 	ExecutionStartTime float64 `json:"ExecutionStartTime,omitempty"`
 	ExecutionEndTime   float64 `json:"ExecutionEndTime,omitempty"`
 }
