@@ -6,18 +6,18 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: kinesisanalyticsv2
 sdk_module: aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4
-last_audit_commit: 1c4ee34e
-last_audit_date: 2026-07-23
+last_audit_commit: 58567cc03
+last_audit_date: 2026-08-11
 overall: A            # every previously-documented gap either fixed or narrowed to a
                        # deliberately-scoped, explicitly-documented remainder
 ops:
-  CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "inline ApplicationConfiguration/CloudWatchLoggingOptions were previously silently discarded (fixed pre-existing pass); ApplicationCodeConfiguration/FlinkApplicationConfiguration/EnvironmentProperties/ApplicationSnapshotConfiguration/ApplicationSystemRollbackConfiguration/ApplicationEncryptionConfiguration were accepted-but-not-modeled (this pass's gap) -- now seeded via SeedApplicationConfiguration's extended SeedConfig, still without bumping past version 1. ZeppelinApplicationConfiguration (Studio-notebook-only) remains accepted-but-ignored, see gaps."}
+  CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "inline ApplicationConfiguration/CloudWatchLoggingOptions were previously silently discarded (fixed pre-existing pass); ApplicationCodeConfiguration/FlinkApplicationConfiguration/EnvironmentProperties/ApplicationSnapshotConfiguration/ApplicationSystemRollbackConfiguration/ApplicationEncryptionConfiguration/ZeppelinApplicationConfiguration were accepted-but-not-modeled (this and a prior pass's gap) -- now seeded via SeedApplicationConfiguration's extended SeedConfig, still without bumping past version 1. ZeppelinApplicationConfiguration (Studio notebook: MonitoringConfiguration/CatalogConfiguration+GlueDataCatalogConfiguration/DeployAsApplicationConfiguration+S3ContentBaseLocation/CustomArtifactsConfiguration+S3orMaven) is now fully typed and echoed via ZeppelinApplicationConfigurationDescription -- sized first (4-level-deep tree, one ArtifactType-discriminated union, ~9 leaf fields across 3 wire variants, no recursion), all shallow and typeable, no part left opaque. Referenced ARNs (GlueDataCatalogConfiguration.DatabaseARN, S3ContentLocation/S3ContentBaseLocation.BucketARN) are stored as plain strings with no cross-service existence check, matching this service's pre-existing convention for every other ARN field (ServiceExecutionRole, S3CodeLocationDesc.BucketARN, KinesisStreamsInputDesc.ResourceARN, etc.) -- this codebase has no cross-service backend-to-backend validation anywhere, so adding it only here would be a new, unprecedented architecture, not a fix."}
   DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "applicationDetailOutput previously omitted LastUpdateTimestamp/ConditionalToken/ApplicationVersionCreateTimestamp/ApplicationVersionRolledBackFrom/To/ApplicationVersionUpdatedFrom/ApplicationMaintenanceConfigurationDescription (all now populated); its VpcConfigurationDescriptions was WRONGLY placed at the top level of ApplicationDetail (real AWS has no such field -- it only exists nested inside ApplicationConfigurationDescription) -- this gopherstack-invented field placement is fixed (moved into appConfigDesc, matching real ApplicationConfigurationDescription.VpcConfigurationDescriptions)."}
-  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "ApplicationConfigurationUpdate (code/Flink/env-properties/snapshot/rollback/encryption/SQL-input-output-refdata/VPC sub-updates), CloudWatchLoggingOptionUpdates, RunConfigurationUpdate, RuntimeEnvironmentUpdate, and ConditionalToken were all accepted-but-ignored; all now implemented (applications.go/application_update_apply.go/handler_application_update.go). ConditionalToken is a deterministic sha256-derived function of (ApplicationARN, ApplicationVersionId) -- see conditionalToken/checkAndBumpVersionOrToken in store.go -- so it needs no extra persisted field and automatically rotates on every version bump. Sub-resource IDs referenced by CloudWatchLoggingOptionUpdates/SqlApplicationConfigurationUpdate/VpcConfigurationUpdates are validated to exist BEFORE the version is bumped (validateUpdateReferences), matching the Add*/Delete* config ops' existing 'find before bumping' convention -- a request naming an unknown ID leaves ApplicationVersionId untouched."}
+  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "ApplicationConfigurationUpdate (code/Flink/env-properties/snapshot/rollback/encryption/SQL-input-output-refdata/VPC sub-updates), CloudWatchLoggingOptionUpdates, RunConfigurationUpdate, RuntimeEnvironmentUpdate, and ConditionalToken were all accepted-but-ignored; all now implemented (applications.go/application_update_apply.go/handler_application_update.go). ConditionalToken is a deterministic sha256-derived function of (ApplicationARN, ApplicationVersionId) -- see conditionalToken/checkAndBumpVersionOrToken in store.go -- so it needs no extra persisted field and automatically rotates on every version bump. Sub-resource IDs referenced by CloudWatchLoggingOptionUpdates/SqlApplicationConfigurationUpdate/VpcConfigurationUpdates are validated to exist BEFORE the version is bumped (validateUpdateReferences), matching the Add*/Delete* config ops' existing 'find before bumping' convention -- a request naming an unknown ID leaves ApplicationVersionId untouched. ZeppelinApplicationConfigurationUpdate (this pass's gap) was also accepted-but-ignored; now implemented (applyZeppelinConfigUpdate), merging onto any existing ZeppelinConfig the same way applyFlinkConfigUpdate does. CustomArtifactsConfigurationUpdate reuses the create-time item shape wholesale (verified: real AWS's botocore model has no separate per-item update shape)."}
   DeleteApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreateTimestamp request field is now validated against the application's actual CreateTimestamp (epoch-seconds float64 comparison with 1e-3/1ms tolerance, matching smithy-go's millisecond-precision unixTimestamp wire truncation); a mismatch returns InvalidArgumentException instead of silently deleting. DeleteApplication remains synchronous (see gaps, unchanged from prior audit)."}
   ListApplications: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "RunConfiguration request field (ApplicationRestoreConfiguration/FlinkRunConfiguration) was never parsed at all -- now applied and echoed back via DescribeApplication's ApplicationConfigurationDescription.RunConfigurationDescription. SqlRunConfigurations remains accepted-but-ignored (see gaps: no per-input starting-position state modeled anywhere, same root cause as DiscoverInputSchema's synthetic limitation)."}
-  StopApplication: {wire: partial, errors: ok, state: ok, persist: ok, note: "Force request field (skip the pre-stop snapshot) is not modeled: this backend never auto-snapshots on stop regardless of Force, and real AWS's auto-snapshot naming/visibility convention isn't documented publicly, so fabricating one was avoided as a gopherstack-invented-behavior risk -- see gaps."}
+  StartApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "RunConfiguration request field (ApplicationRestoreConfiguration/FlinkRunConfiguration) was never parsed at all -- now applied and echoed back via DescribeApplication's ApplicationConfigurationDescription.RunConfigurationDescription. SqlRunConfigurations was accepted-but-ignored, and its InputId was never validated: this pass found it DOES have somewhere to land -- real AWS's InputDescription (not RunConfigurationDescription, which has no such field) carries a per-input InputStartingPositionConfiguration -- so it is now validated (unknown InputId -> ResourceNotFoundException, checked BEFORE ApplicationStatus is mutated to RUNNING) and stored/echoed on the matching InputDescription."}
+  StopApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "Force request field was not even parsed (worse than accepted-but-ignored) -- now parsed and enforces real AWS's documented Flink-only restriction ('You can only force stop a Managed Service for Apache Flink application' -- api_op_StopApplication.go doc comment, aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4): Force=true on a SQL-1_0 application now returns InvalidArgumentException. Force's state-broadening effect (permitting stop from STARTING/UPDATING/STOPPING/AUTOSCALING) has no observable effect here since this backend's ApplicationStatus is only ever READY/RUNNING (synchronous lifecycle, same structural gap as DeleteApplication's unused ApplicationStatusDeleting -- confirmed no other status is ever assigned). The pre-stop auto-snapshot itself remains unimplemented: confirmed via AWS's own 'Deep dive into the Amazon Managed Service for Apache Flink application lifecycle' blog post that the auto-snapshot's naming/visibility is still not documented publicly, so fabricating one continues to be avoided as a gopherstack-invented-behavior risk -- see gaps."}
   RollbackApplication: {wire: ok, errors: ok, state: ok, persist: n/a, note: "now also sets ApplicationVersionRolledBackFrom/To (the version rolled back from/to) and ApplicationVersionUpdatedFrom on the resulting live Application, echoed via ApplicationDetail; these three lineage fields are cleared by every subsequent non-rollback version-bumping op (see bumpVersion in store.go) so they never linger as stale rollback markers."}
   DescribeApplicationOperation: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListApplicationOperations: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -40,17 +40,17 @@ ops:
   DeleteApplicationVpcConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "same OperationId gap/fix as AddApplicationCloudWatchLoggingOption -- verified against api_op_DeleteApplicationVpcConfiguration.go."}
   CreateApplicationPresignedUrl: {wire: ok, errors: ok, state: ok, persist: n/a, note: "unchanged this pass."}
   UpdateApplicationMaintenanceConfiguration: {wire: partial, errors: ok, state: ok, persist: ok, note: "ApplicationMaintenanceWindowEndTime never computed/returned (unchanged gap, low value -- see gaps)."}
-  DiscoverInputSchema: {wire: deferred, errors: ok, state: n/a, persist: n/a, note: "unchanged; always returns a fixed synthetic JSON/UTF-8 schema -- real AWS samples live stream data, which this emulator cannot do."}
+  DiscoverInputSchema: {wire: deferred, errors: ok, state: n/a, persist: n/a, note: "the synthetic JSON/UTF-8 placeholder schema itself is unchanged (real AWS samples live stream data, which this emulator cannot do -- confirmed this was NEVER made to error, contrary to this pass's starting premise: the synthetic response has existed since the op's introduction, commit 0d4fdada4). Fixed real wire bugs found while re-checking it: the request's ServiceExecutionRole (required by botocore's DiscoverInputSchemaRequest) was wired to the wrong key 'RoleARN' and never validated -- a real client's ServiceExecutionRole was silently dropped and an empty/absent one never rejected; InputStartingPositionConfiguration was a flat string instead of the real nested object; the response's InputSchema.SourceSchema was missing RecordColumns entirely (a required member -- the previous response couldn't even satisfy its own required fields, and RecordColumns is the field a real client actually needs to configure its application's input schema, the operation's whole purpose)."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass."}
 families:
   error_mapping: {status: ok, note: "unchanged this pass; ConcurrentModificationException mapping (fixed prior pass) also now covers ConditionalToken mismatches (checkAndBumpVersionOrToken returns the same ErrConcurrentModification sentinel as version mismatches)."}
 gaps:
-  - ZeppelinApplicationConfiguration/ZeppelinApplicationConfigurationUpdate (Managed Service for Apache Flink Studio notebooks: CatalogConfiguration/Glue Data Catalog, CustomArtifactConfiguration/Maven+S3 UDF JARs, DeployAsApplicationConfiguration) are accepted on the wire (to avoid rejecting well-formed requests) but not modeled -- out of scope for this pass given the size of the Flink/SQL core-path work already covered; Studio notebooks are a materially separate feature surface (INTERACTIVE ApplicationMode) from the streaming-application path this pass focused on. (bd: file follow-up)
-  - StartApplication's SqlRunConfigurations (per-input InputStartingPositionConfiguration) and FlinkApplicationConfigurationDescription.JobPlanDescription (DescribeApplicationRequest.IncludeAdditionalDetails) are accepted-but-ignored: neither has any backing state anywhere in this emulator (no real stream position tracking, no real Flink job graph), the same root cause as DiscoverInputSchema's documented synthetic-schema limitation. Leniency only.
-  - StopApplication's Force field (skip the pre-stop snapshot) is accepted but has no observable effect: this backend never auto-snapshots on stop regardless of Force. Real AWS's auto-snapshot naming/visibility isn't documented publicly enough to model without risking a gopherstack-invented behavior, so it was deliberately left unimplemented rather than fabricated.
+  - FlinkApplicationConfigurationDescription.JobPlanDescription (DescribeApplicationRequest.IncludeAdditionalDetails) remains accepted-but-ignored: it is real AWS's Apache Flink job graph/scheduling plan (see the Apache Flink "Jobs and Scheduling" docs JobPlanDescription's own doc comment links to), which requires an actual Flink job compiler to produce -- structural, same class as DiscoverInputSchema's synthetic-schema limitation. Confirmed still genuinely unmodelable this pass; IncludeAdditionalDetails isn't even parsed by describeApplicationInput. Leniency only.
+  - StopApplication's Force field now enforces the Flink-only restriction and is stored, but the pre-stop auto-snapshot itself is still not modeled: real AWS's auto-snapshot naming/visibility convention isn't documented publicly enough to fabricate (re-confirmed this pass via AWS's own "Deep dive into the Amazon Managed Service for Apache Flink application lifecycle" blog, which describes that a snapshot is taken but not how it's named or surfaced) -- deliberately left unimplemented rather than invented.
   - UpdateApplicationMaintenanceConfiguration's ApplicationMaintenanceWindowEndTime is never computed/returned (pre-existing gap, unchanged, low value -- no client observably depends on the exact window end time).
+  - ZeppelinApplicationConfiguration's referenced ARNs (GlueDataCatalogConfiguration.DatabaseARN, S3ContentLocation/S3ContentBaseLocation.BucketARN) are not validated to exist in a Glue/S3 backend -- matches every other ARN field in this service (ServiceExecutionRole, KinesisStreamsInputDesc.ResourceARN, etc.), none of which are cross-service-validated; this codebase has no cross-service backend-to-backend validation mechanism anywhere. Not a Zeppelin-specific gap.
   - DeleteApplication is synchronous (app removed immediately); real AWS transitions through a DELETING status first. ApplicationStatusDeleting const is defined but unused. Matches the synchronous-delete convention used elsewhere in this codebase; not fixed (pre-existing, unchanged).
   - Real AWS's default-assigned maintenance window (every application gets one automatically at creation, before any UpdateApplicationMaintenanceConfiguration call) is not modeled -- ApplicationMaintenanceConfigurationDescription is only populated in DescribeApplication once UpdateApplicationMaintenanceConfiguration has been called at least once. Pre-existing, unchanged; low value.
 deferred:
@@ -157,6 +157,48 @@ endpoint). RouteMatcher/ExtractOperation unchanged this pass.
    `Snapshot`/`Restore`. Fixed alongside the `kinesisanalyticsv2SnapshotVersion`
    bump to 2 (which also added persistence for every new `Application` field
    from items 1/3/4 above).
+
+### Follow-up pass (gopherstack-uci4, 2026-08-11)
+
+Re-examined the four gaps this pass's predecessor deferred. Two premises did
+not hold up:
+
+- `StopApplication`'s `Force` field wasn't merely accepted-and-ignored, it
+  wasn't parsed at all -- `startStopApplicationInput` had no `Force` field.
+  Now parsed and enforces real AWS's Flink-only force-stop restriction
+  (SQL-1_0 + Force=true -> `InvalidArgumentException`); the auto-snapshot
+  itself is still deliberately unfabricated (naming/visibility genuinely
+  undocumented, re-verified via AWS's own lifecycle blog post).
+- `DiscoverInputSchema` was never made to error -- it has returned the same
+  synthetic placeholder since its introduction (`0d4fdada4`). What it *did*
+  have were real wire bugs: `ServiceExecutionRole` (required) was wired to
+  a wrong key (`RoleARN`, never validated), `InputStartingPositionConfiguration`
+  was a flat string instead of a nested object, and the response's
+  `RecordColumns` (required) was omitted entirely. Fixed the wire; left the
+  synthetic placeholder itself alone.
+
+`StartApplication`'s `SqlRunConfigurations` turned out to have somewhere
+real to land: `InputDescription.InputStartingPositionConfiguration` (not
+`RunConfigurationDescription`, which real AWS has no such field on). Now
+validated (unknown `InputId` -> `ResourceNotFoundException`, checked before
+`ApplicationStatus` flips to `RUNNING`) and echoed. `JobPlanDescription`
+was confirmed genuinely structural (a real Flink job graph) and left alone.
+
+`ZeppelinApplicationConfiguration` was sized before typing: 4 levels deep
+(config -> sub-config -> nested struct -> scalar leaf), one
+`ArtifactType`-discriminated union (`CustomArtifactConfiguration`'s
+S3-vs-Maven choice), ~9 leaf fields total across the create/describe/update
+variants, no recursion. Fully typeable -- nothing left opaque. Referenced
+ARNs (`DatabaseARN`, `BucketARN`) are plain strings with no cross-service
+existence check, matching every other ARN field in this service (this
+codebase has no cross-service backend validation anywhere, so adding it only
+for Zeppelin would be new architecture, not a fix).
+
+`Application.ZeppelinConfig` and `InputDescription.InputStartingPositionConfiguration`
+are additive (`omitempty`); `kinesisanalyticsv2SnapshotVersion` was **not**
+bumped -- both are wired into `persistedApplication`/`toPersistedApp`/
+`fromPersistedApp` and round-trip-tested
+(`TestPersistence_ZeppelinConfigSurvivesRoundTrip`).
 
 ### Traps for the next auditor
 

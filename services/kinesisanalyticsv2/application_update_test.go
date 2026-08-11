@@ -353,7 +353,7 @@ func TestBackend_StartApplication_RunConfiguration(t *testing.T) {
 		ApplicationRestoreConfiguration: &kinesisanalyticsv2.ApplicationRestoreConfig{
 			ApplicationRestoreType: "RESTORE_FROM_LATEST_SNAPSHOT",
 		},
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	app, err := b.DescribeApplication(ctx, "start-runcfg-app")

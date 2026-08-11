@@ -19,7 +19,7 @@ func TestBackend_SnapshotLifecycle(t *testing.T) {
 	_, err := b.CreateApplication(ctx, "snap-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.StartApplication(ctx, "snap-app", nil)
+	_, err = b.StartApplication(ctx, "snap-app", nil, nil)
 	require.NoError(t, err)
 
 	// Create snapshot.
@@ -57,7 +57,7 @@ func TestBackend_DescribeApplicationSnapshot_DirectLookup(t *testing.T) {
 	_, err := b.CreateApplication(ctx, "snap-direct-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.StartApplication(ctx, "snap-direct-app", nil)
+	_, err = b.StartApplication(ctx, "snap-direct-app", nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateApplicationSnapshot(ctx, "snap-direct-app", "snap-direct")
@@ -102,7 +102,7 @@ func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
 			_, err := b.CreateApplication(ctx, "paged-snap-app", "FLINK-1_18", "", "", "", nil)
 			require.NoError(t, err)
 
-			_, err = b.StartApplication(ctx, "paged-snap-app", nil)
+			_, err = b.StartApplication(ctx, "paged-snap-app", nil, nil)
 			require.NoError(t, err)
 
 			for i := range tt.count {
@@ -144,7 +144,7 @@ func TestBackend_ListApplicationSnapshots_SortedByCreationTime(t *testing.T) {
 	_, err := b.CreateApplication(ctx, "sort-snap-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.StartApplication(ctx, "sort-snap-app", nil)
+	_, err = b.StartApplication(ctx, "sort-snap-app", nil, nil)
 	require.NoError(t, err)
 
 	for _, name := range []string{"snap-b", "snap-a", "snap-c"} {
