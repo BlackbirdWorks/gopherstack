@@ -2,9 +2,11 @@ package backup_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/backup/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -179,9 +181,12 @@ func TestVaultNotificationsEventValidation(t *testing.T) {
 					"BACKUP_JOB_STARTED","BACKUP_JOB_COMPLETED","BACKUP_JOB_SUCCESSFUL",
 					"BACKUP_JOB_FAILED","BACKUP_JOB_EXPIRED","RESTORE_JOB_STARTED",
 					"RESTORE_JOB_COMPLETED","RESTORE_JOB_SUCCESSFUL","RESTORE_JOB_FAILED",
-					"COPY_JOB_STARTED","COPY_JOB_SUCCESSFUL","COPY_JOB_FAILURE",
+					"COPY_JOB_STARTED","COPY_JOB_SUCCESSFUL","COPY_JOB_FAILED",
 					"RECOVERY_POINT_MODIFIED","BACKUP_PLAN_CREATED","BACKUP_PLAN_MODIFIED",
-					"S3_BACKUP_OBJECT_FAILED","S3_RESTORE_OBJECT_FAILED"
+					"S3_BACKUP_OBJECT_FAILED","S3_RESTORE_OBJECT_FAILED",
+					"CONTINUOUS_BACKUP_INTERRUPTED","RECOVERY_POINT_INDEX_COMPLETED",
+					"RECOVERY_POINT_INDEX_DELETED","RECOVERY_POINT_INDEXING_FAILED",
+					"EKS_RESTORE_OBJECT_FAILED","EKS_RESTORE_OBJECT_SKIPPED","EKS_BACKUP_OBJECT_FAILED"
 				]
 			}`,
 			wantStatus: http.StatusOK,
@@ -200,6 +205,47 @@ func TestVaultNotificationsEventValidation(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, resp.Code, "body: %s", tt.name)
 		})
 	}
+}
+
+// Anti-drift: every value the pinned SDK's types.BackupVaultEvent enum knows
+// about must be accepted, so a hand-maintained allowlist can't fall behind
+// or misspell a value again.
+func TestVaultNotifications_EverySDKBackupVaultEventAccepted(t *testing.T) {
+	t.Parallel()
+
+	for i, event := range sdktypes.BackupVaultEvent("").Values() {
+		t.Run(string(event), func(t *testing.T) {
+			t.Parallel()
+			h, _ := newHandler(t)
+
+			vaultName := fmt.Sprintf("notif-vault-%d", i)
+			doRequest(t, h, http.MethodPut, "/backup-vaults/"+vaultName, `{}`)
+
+			body := fmt.Sprintf(`{
+				"SNSTopicArn": "arn:aws:sns:us-east-1:000000000000:my-topic",
+				"BackupVaultEvents": [%q]
+			}`, event)
+
+			resp := doRequest(t, h, http.MethodPut, "/backup-vaults/"+vaultName+"/notification-configuration", body)
+			assert.Equal(t, http.StatusOK, resp.Code, "SDK BackupVaultEvent %s must be accepted", event)
+		})
+	}
+}
+
+// COPY_JOB_FAILURE (misspelled) is not a real BackupVaultEvent -- the real
+// value is COPY_JOB_FAILED. A hand-copied allowlist previously accepted the
+// typo instead.
+func TestVaultNotifications_MisspelledEventRejected(t *testing.T) {
+	t.Parallel()
+	h, _ := newHandler(t)
+
+	doRequest(t, h, http.MethodPut, "/backup-vaults/notif-vault-typo", `{}`)
+
+	resp := doRequest(t, h, http.MethodPut, "/backup-vaults/notif-vault-typo/notification-configuration", `{
+		"SNSTopicArn": "arn:aws:sns:us-east-1:000000000000:my-topic",
+		"BackupVaultEvents": ["COPY_JOB_FAILURE"]
+	}`)
+	assert.Equal(t, http.StatusBadRequest, resp.Code, "COPY_JOB_FAILURE is not a real BackupVaultEvent")
 }
 
 // ---- Vault access policy JSON validation (item 19) ----

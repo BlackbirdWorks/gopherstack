@@ -2,29 +2,36 @@ package appsync
 
 import (
 	"fmt"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 )
 
-// isValidAPICacheType returns true if the given cache type is a valid AppSync API cache type.
+// isValidAPICacheType derives its answer from types.ApiCacheType.Values() so
+// it cannot drift from the real enum the way the previous hand-copied list
+// did (it was missing R4_LARGE/R4_XLARGE and invented a nonexistent
+// R4_1XLARGE).
 func isValidAPICacheType(t string) bool {
-	switch t {
-	case "SMALL", "MEDIUM", "LARGE", "XLARGE",
-		"LARGE_2X", "LARGE_4X", "LARGE_8X", "LARGE_12X",
-		"T2_SMALL", "T2_MEDIUM",
-		"R4_1XLARGE", "R4_2XLARGE", "R4_4XLARGE", "R4_8XLARGE":
-		return true
-	default:
-		return false
+	for _, v := range sdktypes.ApiCacheType("").Values() {
+		if string(v) == t {
+			return true
+		}
 	}
+
+	return false
 }
 
-// isValidAPICachingBehavior returns true if the given caching behavior is valid.
+// isValidAPICachingBehavior derives its answer from
+// types.ApiCachingBehavior.Values() so it cannot drift from the real enum
+// (the previous list invented a nonexistent FULL_REQUEST_DATA_CACHING in
+// place of the real OPERATION_LEVEL_CACHING).
 func isValidAPICachingBehavior(behavior string) bool {
-	switch behavior {
-	case "FULL_REQUEST_CACHING", "PER_RESOLVER_CACHING", "FULL_REQUEST_DATA_CACHING":
-		return true
-	default:
-		return false
+	for _, v := range sdktypes.ApiCachingBehavior("").Values() {
+		if string(v) == behavior {
+			return true
+		}
 	}
+
+	return false
 }
 
 // CreateAPICache creates a cache configuration for a GraphQL API.

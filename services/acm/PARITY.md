@@ -125,7 +125,7 @@ ops:
   RemoveTagsFromCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired"}
   ListTagsForCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired"}
   RenewCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "IMPORTED/PRIVATE(caArn set) rejected with RequestInProgressException-mapped ErrNotEligible, matching AWS restriction to AMAZON_ISSUED. RenewalSummary.UpdatedAt now set/refreshed on renewal start and on auto-validation completion. InvalidArnException wired"}
-  RevokeCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired"}
+  RevokeCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired. FIXED (gopherstack-hnyl): validRevocationReason was a hand-copied 10-entry allowlist missing SUPERCEDED, the deprecated misspelling types.RevocationReason still keeps alongside SUPERSEDED for back-compat -- now derives from types.RevocationReason.Values()."}
   UpdateCertificateOptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "Export field on the shared CertificateOptions input type is intentionally ignored here (AWS: Export is immutable after creation); InvalidArnException wired"}
   ResendValidationEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "InvalidArnException wired"}
   GetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}

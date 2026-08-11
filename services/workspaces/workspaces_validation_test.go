@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -284,6 +285,28 @@ func TestModifyWorkspaceProperties_ValidComputeTypes_Accept(t *testing.T) {
 				},
 			})
 			assert.Equal(t, http.StatusOK, rec.Code, "ComputeTypeName %q must be accepted", ct)
+		})
+	}
+}
+
+// Anti-drift: every value the pinned SDK's types.Compute enum knows about
+// must be accepted, so a hand-maintained allowlist can't fall behind again.
+func TestModifyWorkspaceProperties_EverySDKComputeTypeAccepted(t *testing.T) {
+	t.Parallel()
+
+	for _, ct := range sdktypes.Compute("").Values() {
+		t.Run(string(ct), func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			wsID := createWorkspace(t, h)
+			rec := doTargetRequest(t, h, "ModifyWorkspaceProperties", map[string]any{
+				"WorkspaceId": wsID,
+				"WorkspaceProperties": map[string]any{
+					"ComputeTypeName": string(ct),
+				},
+			})
+			assert.Equal(t, http.StatusOK, rec.Code, "SDK ComputeTypeName %q must be accepted", ct)
 		})
 	}
 }

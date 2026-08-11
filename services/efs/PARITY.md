@@ -26,7 +26,7 @@ ops:
   CreateTags:                        {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteTags:                        {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLifecycleConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
-  PutLifecycleConfiguration:         {wire: ok, errors: ok, state: ok, persist: ok}
+  PutLifecycleConfiguration:         {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidTransitionToIA/isValidTransitionToArchive were hand-copied lists each missing AFTER_1_DAY and each wrongly accepting values from other fields (TransitionToIA took a nonexistent \"NONE\"; TransitionToArchive took AFTER_1_ACCESS, which belongs to TransitionToPrimaryStorageClassRules, plus a typo'd AFTER_90_DAYS_1). Both now derive from types.TransitionToIARules.Values()/types.TransitionToArchiveRules.Values()."}
   CreateReplicationConfiguration:    {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "Destination.LastReplicatedTimestamp now populated (epoch-seconds) at creation, simulating an instant initial sync -- was dormant/unset before this pass"}
   DeleteReplicationConfiguration:    {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeReplicationConfigurations: {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: "NextToken/MaxResults pagination implemented this pass (was previously always a single unpaginated page); LastReplicatedTimestamp now int64 epoch-seconds matching types.Destination.LastReplicatedTimestamp *time.Time wire shape, and populated"}

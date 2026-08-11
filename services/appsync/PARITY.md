@@ -57,7 +57,7 @@ ops:
   ListApis: {wire: ok, errors: ok, state: ok, persist: ok, note: "response was wrapped as \"items\" instead of the real \"apis\" — disguised no-op, a real client always saw an empty list; fixed, added pagination"}
   UpdateApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unreachable (PUT/PATCH-only); fixed, PUT/PATCH kept as alias"}
   DeleteApi: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateApiCache: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateApiCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidAPICacheType was missing R4_LARGE/R4_XLARGE and invented a nonexistent R4_1XLARGE; isValidAPICachingBehavior was missing OPERATION_LEVEL_CACHING and invented a nonexistent FULL_REQUEST_DATA_CACHING. Both now derive from types.ApiCacheType.Values()/types.ApiCachingBehavior.Values()."}
   DeleteApiCache: {wire: ok, errors: ok, state: ok, persist: ok}
   FlushApiCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "real path is DELETE /v1/apis/{apiId}/FlushCache, not /ApiCaches/entries — was unreachable; fixed, old path kept as alias"}
   GetApiCache: {wire: ok, errors: ok, state: ok, persist: ok}

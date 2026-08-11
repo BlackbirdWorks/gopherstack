@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -54,12 +55,14 @@ func isRebuildableWorkspaceState(state string) bool {
 	return false
 }
 
+// isValidComputeTypeName derives its answer from types.Compute.Values() so it
+// cannot fall behind AWS adding new bundle families (e.g. the G6/GR6 GPU
+// tiers) the way a hand-copied literal list did.
 func isValidComputeTypeName(name string) bool {
-	switch name {
-	case "VALUE", "STANDARD", "PERFORMANCE", "POWER",
-		"GRAPHICS", "GRAPHICSPRO", "POWERPRO",
-		"GRAPHICS_G4DN", "GRAPHICSPRO_G4DN":
-		return true
+	for _, v := range sdktypes.Compute("").Values() {
+		if string(v) == name {
+			return true
+		}
 	}
 
 	return false
