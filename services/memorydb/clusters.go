@@ -613,6 +613,12 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterR
 		return nil, err
 	}
 
+	if req.ACLName != "" {
+		if _, aclOK := b.aclsStore(region).Get(req.ACLName); !aclOK {
+			return nil, fmt.Errorf("ACL %q not found: %w", req.ACLName, ErrACLNotFound)
+		}
+	}
+
 	applyClusterUpdates(c, req)
 
 	b.appendEventLocked(region, &Event{
@@ -683,23 +689,40 @@ func (b *InMemoryBackend) ListAllowedNodeTypeUpdates(ctx context.Context, cluste
 	return allowedNodeTypes(), nil
 }
 
-// BatchUpdateCluster looks up each named cluster and returns a map of name→cluster
-// for all clusters that were found. Unknown names are omitted from the result.
-// The caller is responsible for deciding which names are processed vs unprocessed.
-func (b *InMemoryBackend) BatchUpdateCluster(ctx context.Context, clusterNames []string) map[string]*Cluster {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+// BatchUpdateCluster validates serviceUpdateName against the known service
+// updates (real AWS fault for an unknown name: ServiceUpdateNotFoundFault --
+// confirmed in botocore's BatchUpdateCluster.errors), then marks it applied on
+// every found cluster. It returns a map of name→cluster for all clusters that
+// were found; unknown names are omitted, and the caller decides which names
+// are processed vs unprocessed.
+func (b *InMemoryBackend) BatchUpdateCluster(
+	ctx context.Context, clusterNames []string, serviceUpdateName string,
+) (map[string]*Cluster, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if serviceUpdateName != "" {
+		if _, ok := b.serviceUpdates.Get(serviceUpdateName); !ok {
+			return nil, ErrServiceUpdateNotFound
+		}
+	}
 
 	region := getRegion(ctx, b.defaultRegion)
 
 	result := make(map[string]*Cluster, len(clusterNames))
 	for _, name := range clusterNames {
 		if c, ok := tableGet(b.clusters[region], name); ok {
+			if serviceUpdateName != "" {
+				if c.AppliedServiceUpdates == nil {
+					c.AppliedServiceUpdates = make(map[string]bool, 1)
+				}
+				c.AppliedServiceUpdates[serviceUpdateName] = true
+			}
 			result[name] = b.clusterView(c)
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 // -- ReservedNode operations ----------------------------------------------------

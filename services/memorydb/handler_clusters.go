@@ -129,7 +129,15 @@ func (h *Handler) handleBatchUpdateCluster(ctx context.Context, c *echo.Context,
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ClusterNames is required")
 	}
 
-	found := h.Backend.BatchUpdateCluster(ctx, req.ClusterNames)
+	var serviceUpdateName string
+	if req.ServiceUpdate != nil {
+		serviceUpdateName = req.ServiceUpdate.ServiceUpdateNameToApply
+	}
+
+	found, err := h.Backend.BatchUpdateCluster(ctx, req.ClusterNames, serviceUpdateName)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
 
 	processedObjs := make([]clusterObject, 0, len(found))
 	unprocessedObjs := make([]unprocessedCluster, 0, len(req.ClusterNames))

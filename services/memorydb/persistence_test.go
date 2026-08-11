@@ -201,6 +201,43 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Positive(t, memorydb.ARNIndexSize(fresh))
 }
 
+// TestInMemoryBackend_SnapshotRestore_AppliedServiceUpdates proves a cluster's
+// applied-service-update state (set by BatchUpdateCluster) survives a
+// Snapshot/Restore round trip -- the new AppliedServiceUpdates field is a
+// plain additive `omitempty` field on Cluster, so no snapshot version bump is
+// needed.
+func TestInMemoryBackend_SnapshotRestore_AppliedServiceUpdates(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	original := memorydb.NewInMemoryBackend("123456789012", "us-east-1")
+
+	_, err := original.CreateCluster(ctx, &memorydb.ExportedCreateClusterRequest{
+		ClusterName: "asu-cluster",
+		NodeType:    "db.r6g.large",
+	})
+	require.NoError(t, err)
+
+	_, err = original.BatchUpdateCluster(ctx, []string{"asu-cluster"}, "memorydb-20240601-redis-security")
+	require.NoError(t, err)
+
+	snap := original.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	fresh := memorydb.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, fresh.Restore(ctx, snap))
+
+	updates, err := fresh.DescribeServiceUpdates(ctx, &memorydb.ExportedDescribeServiceUpdatesRequest{
+		ServiceUpdateName: "memorydb-20240601-redis-security",
+		ClusterNames:      []string{"asu-cluster"},
+	})
+	require.NoError(t, err)
+	require.Len(t, updates, 1)
+	assert.Equal(t, "complete", updates[0].Status,
+		"AppliedServiceUpdates must survive Snapshot/Restore")
+}
+
 // TestInMemoryBackend_Restore_IncompatibleVersion feeds Restore a
 // well-formed-but-wrong-version snapshot (simulating an older/incompatible
 // on-disk format) and checks it is discarded cleanly -- resetting the backend

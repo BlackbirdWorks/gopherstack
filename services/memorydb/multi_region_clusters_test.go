@@ -125,6 +125,42 @@ func TestUpdateMultiRegionCluster_NodeType(t *testing.T) {
 	assert.Equal(t, "db.r6g.2xlarge", mrc.NodeType)
 }
 
+// TestCreateMultiRegionCluster_UnknownParameterGroup proves CreateMultiRegionCluster
+// rejects a MultiRegionParameterGroupName naming no known parameter group, instead
+// of silently storing the dangling reference.
+func TestCreateMultiRegionCluster_UnknownParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+
+	_, err := b.CreateMultiRegionCluster(context.Background(), &memorydb.ExportedCreateMultiRegionClusterRequest{
+		MultiRegionClusterNameSuffix:  "bad-mrpg",
+		NodeType:                      "db.r6g.large",
+		MultiRegionParameterGroupName: "no-such-mrpg",
+	})
+	require.ErrorIs(t, err, memorydb.ErrMultiRegionParameterGroupNotFound)
+}
+
+// TestUpdateMultiRegionCluster_UnknownParameterGroup proves UpdateMultiRegionCluster
+// rejects a MultiRegionParameterGroupName naming no known parameter group.
+func TestUpdateMultiRegionCluster_UnknownParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+
+	_, err := b.CreateMultiRegionCluster(context.Background(), &memorydb.ExportedCreateMultiRegionClusterRequest{
+		MultiRegionClusterNameSuffix: "upd-bad-mrpg",
+		NodeType:                     "db.r6g.large",
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateMultiRegionCluster(context.Background(), &memorydb.ExportedUpdateMultiRegionClusterRequest{
+		MultiRegionClusterName:        "virv-upd-bad-mrpg",
+		MultiRegionParameterGroupName: "no-such-mrpg",
+	})
+	require.ErrorIs(t, err, memorydb.ErrMultiRegionParameterGroupNotFound)
+}
+
 // TestRefinement1_MultiRegionParameterGroupNotFound verifies the named sentinel is used.
 func TestMultiRegionParameterGroupNotFound(t *testing.T) {
 	t.Parallel()

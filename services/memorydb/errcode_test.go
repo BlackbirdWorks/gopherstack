@@ -116,6 +116,49 @@ func TestErrCode_TagResourceInvalidARN(t *testing.T) {
 	assert.Equal(t, "InvalidARNFault", responseType(t, rec.Body.Bytes()))
 }
 
+// TestErrCode_UpdateClusterUnknownACL proves UpdateCluster rejects an ACLName
+// that names no known ACL instead of silently assigning the cluster a
+// dangling reference (real AWS fault: ACLNotFoundFault).
+func TestErrCode_UpdateClusterUnknownACL(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreateCluster", map[string]any{
+		"ClusterName": "acl-update-cluster",
+		"NodeType":    "db.r6g.large",
+		"ACLName":     "open-access",
+	})
+
+	rec := doRequest(t, h, "UpdateCluster", map[string]any{
+		"ClusterName": "acl-update-cluster",
+		"ACLName":     "no-such-acl",
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "ACLNotFoundFault", responseType(t, rec.Body.Bytes()))
+}
+
+func TestErrCode_ServiceUpdateNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreateCluster", map[string]any{
+		"ClusterName": "su-not-found-cluster",
+		"NodeType":    "db.t4g.small",
+		"ACLName":     "open-access",
+	})
+
+	rec := doRequest(t, h, "BatchUpdateCluster", map[string]any{
+		"ClusterNames": []string{"su-not-found-cluster"},
+		"ServiceUpdate": map[string]any{
+			"ServiceUpdateNameToApply": "no-such-service-update",
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "ServiceUpdateNotFoundFault", responseType(t, rec.Body.Bytes()))
+}
+
 func TestErrCode_MultiRegionParameterGroupNotFound(t *testing.T) {
 	t.Parallel()
 
