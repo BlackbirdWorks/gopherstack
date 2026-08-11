@@ -31,25 +31,25 @@ func TestMigrationProjectLifecycle(t *testing.T) {
 
 	// Modify by ARN.
 	modRec := doDMS(t, h, "ModifyMigrationProject", map[string]any{
-		"MigrationProjectArn": projArn,
-		"Description":         "updated",
+		"MigrationProjectIdentifier": projArn,
+		"Description":                "updated",
 	})
 	assert.Equal(t, http.StatusOK, modRec.Code)
 
 	// Modify not found.
 	notFoundRec := doDMS(t, h, "ModifyMigrationProject", map[string]any{
-		"MigrationProjectArn": "nonexistent",
+		"MigrationProjectIdentifier": "nonexistent",
 	})
 	assert.Equal(t, http.StatusNotFound, notFoundRec.Code)
 
 	// Delete.
 	delRec := doDMS(t, h, "DeleteMigrationProject", map[string]any{
-		"MigrationProjectArn": projArn,
+		"MigrationProjectIdentifier": projArn,
 	})
 	assert.Equal(t, http.StatusOK, delRec.Code)
 
 	delRec2 := doDMS(t, h, "DeleteMigrationProject", map[string]any{
-		"MigrationProjectArn": projArn,
+		"MigrationProjectIdentifier": projArn,
 	})
 	assert.Equal(t, http.StatusNotFound, delRec2.Code)
 }
@@ -86,8 +86,8 @@ func TestModifyMigrationProject_UpdatesDescription(t *testing.T) {
 			}
 
 			modRec := doDMS(t, h, "ModifyMigrationProject", map[string]any{
-				"MigrationProjectArn": lookupKey,
-				"Description":         "updated description",
+				"MigrationProjectIdentifier": lookupKey,
+				"Description":                "updated description",
 			})
 			require.Equal(t, http.StatusOK, modRec.Code)
 

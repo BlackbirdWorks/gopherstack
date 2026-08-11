@@ -59,7 +59,7 @@ type createEvaluationJobInput struct {
 	JobDescription  string                     `json:"jobDescription,omitempty"`
 	RoleArn         string                     `json:"roleArn,omitempty"`
 	ApplicationType string                     `json:"applicationType,omitempty"`
-	Tags            []Tag                      `json:"tags,omitempty"`
+	Tags            []Tag                      `json:"jobTags,omitempty"`
 	EvaluatorConfig *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
 	InferenceConfig *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
 	EvalConfig      []EvaluationTaskConfig     `json:"evaluationConfig,omitempty"`

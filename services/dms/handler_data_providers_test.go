@@ -17,7 +17,7 @@ func TestDeleteDataProvider(t *testing.T) {
 	h.Backend.AddDataProviderInternal("del-dp", "mysql")
 
 	rec := doDMS(t, h, "DeleteDataProvider", map[string]any{
-		"DataProviderArn": "del-dp",
+		"DataProviderIdentifier": "del-dp",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 0, h.Backend.DataProviderCount())
@@ -30,12 +30,12 @@ func TestModifyDataProvider(t *testing.T) {
 	h.Backend.AddDataProviderInternal("mod-dp", "mysql")
 
 	rec := doDMS(t, h, "ModifyDataProvider", map[string]any{
-		"DataProviderArn": "mod-dp",
+		"DataProviderIdentifier": "mod-dp",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doDMS(t, h, "ModifyDataProvider", map[string]any{
-		"DataProviderArn": "nonexistent",
+		"DataProviderIdentifier": "nonexistent",
 	})
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
@@ -45,7 +45,7 @@ func TestDeleteDataProvider_NotFound(t *testing.T) {
 
 	h := newTestDMSHandler()
 	rec := doDMS(t, h, "DeleteDataProvider", map[string]any{
-		"DataProviderArn": "arn:aws:dms:us-east-1:123:data-provider:nonexistent",
+		"DataProviderIdentifier": "arn:aws:dms:us-east-1:123:data-provider:nonexistent",
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 

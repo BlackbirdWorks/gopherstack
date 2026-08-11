@@ -54,7 +54,7 @@ ops:
   GetModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was wire-tagged tags; the real CreateEvaluationJobRequest field is jobTags, so every real client's tags were silently discarded"}
   GetEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListEvaluationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — took zero params and always returned the full unbounded table in one page, ignoring nextToken entirely (unlike every sibling List op). Now supports nextToken/statusEquals/nameContains/creationTimeAfter/creationTimeBefore query filters via a real ListEvaluationJobsInput, mirroring ListModelInvocationJobs' filter pattern. applicationTypeEquals/sortBy/sortOrder still unhandled — see gaps."}
   BatchDeleteEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -63,7 +63,7 @@ ops:
   GetModelCustomizationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListModelCustomizationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — per-item summaries reused GetModelCustomizationJob's outputModelArn/outputModelName wire keys; real ListModelCustomizationJobs uses customModelArn/customModelName instead (bedrock@v1.66.4 ModelCustomizationJobSummary via botocore), so those two fields silently deserialized to nil for every real SDK caller. Split into a dedicated summary shape (gopherstack-2wuv). sortBy/sortOrder still don't vary the sort field (always CreationTime) — see gaps."}
   StopModelCustomizationJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateCustomModel: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateCustomModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was wire-tagged tags; the real CreateCustomModelRequest field is modelTags, so every real client's tags were silently discarded"}
   GetCustomModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "now returns baseModelArn/customizationType/jobArn/jobName for customization-job output models (jobArn/jobName NULL for CreateCustomModel imports, matching bedrock@v1.66.4 GetCustomModelResponse) (gopherstack-2wuv)"}
   ListCustomModels: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — baseModelArnEquals/foundationModelArnEquals now implemented: they match a completed CreateModelCustomizationJob's output model (real baseModelArn from baseModelIdentifier) and correctly never match a CreateCustomModel import, which has no base model in its wire input to filter on (gopherstack-2wuv). sortBy/sortOrder still don't vary the sort field (always CreationTime) — see gaps."}
   DeleteCustomModel: {wire: ok, errors: ok, state: ok, persist: ok}

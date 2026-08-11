@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 94 (93 ok, 1 partial) |
+| Operations audited | 95 (93 ok, 2 partial) |
 | Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |

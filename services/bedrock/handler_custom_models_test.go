@@ -67,7 +67,7 @@ func TestHandler_TagsOnCustomModel(t *testing.T) { //nolint:paralleltest // exis
 
 	rec := doRequest(t, h, http.MethodPost, "/custom-models/create-custom-model", map[string]any{
 		"modelName": "tagged-model",
-		"tags": []map[string]string{
+		"modelTags": []map[string]string{
 			{"key": "version", "value": "1.0"},
 		},
 	})

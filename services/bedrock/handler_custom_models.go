@@ -53,7 +53,7 @@ func (h *Handler) routeCustomModel(
 
 type createCustomModelInput struct {
 	ModelName string `json:"modelName"`
-	Tags      []Tag  `json:"tags,omitempty"`
+	Tags      []Tag  `json:"modelTags,omitempty"`
 }
 
 type createCustomModelOutput struct {

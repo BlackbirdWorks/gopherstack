@@ -33,7 +33,7 @@ func (c *storedFileCache) toPublic() *FileCache {
 type createFileCacheInput struct {
 	FileCacheType      string `json:"FileCacheType"`
 	Tags               []Tag  `json:"Tags,omitempty"`
-	StorageCapacityGiB int32  `json:"StorageCapacityGiB,omitempty"`
+	StorageCapacityGiB int32  `json:"StorageCapacity,omitempty"`
 }
 
 // CreateFileCache creates a file cache.

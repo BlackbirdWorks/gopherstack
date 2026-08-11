@@ -92,6 +92,26 @@ func TestHTTP_StartMedicalTranscriptionJob(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "http-med-job")
 }
 
+func TestHTTP_StartMedicalTranscriptionJob_ContentIdentificationType(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerWithBackend(t)
+	rec := doTranscribeRequest(t, h, "StartMedicalTranscriptionJob", map[string]any{
+		"MedicalTranscriptionJobName": "http-med-job-cit",
+		"LanguageCode":                "en-US",
+		"Media":                       map[string]any{"MediaFileUri": "s3://b/f.mp3"},
+		"Specialty":                   "PRIMARYCARE",
+		"Type":                        "CONVERSATION",
+		"ContentIdentificationType":   "PHI",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	job := out["MedicalTranscriptionJob"].(map[string]any)
+	assert.Equal(t, "PHI", job["ContentIdentificationType"])
+}
+
 func TestDeleteMedicalTranscriptionJob(t *testing.T) {
 	t.Parallel()
 

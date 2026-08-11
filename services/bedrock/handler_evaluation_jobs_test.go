@@ -144,7 +144,7 @@ func TestHandler_TagsOnEvaluationJob(t *testing.T) { //nolint:paralleltest // ex
 	// Create a job with tags.
 	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs", map[string]any{
 		"jobName": "tagged-job",
-		"tags": []map[string]string{
+		"jobTags": []map[string]string{
 			{"key": "project", "value": "alpha"},
 		},
 	})

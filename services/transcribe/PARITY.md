@@ -48,8 +48,8 @@ ops:
   GetMedicalScribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as Start"}
   ListMedicalScribeJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (was partial): summary now trimmed to the real MedicalScribeJobSummary fields (no more Media/Settings/Tags/ChannelDefinitions leaking through) + added JobNameContains filter"}
   DeleteMedicalScribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
-  StartMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "removed invented top-level OutputBucketName/OutputKey"}
-  GetMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as Start"}
+  StartMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "removed invented top-level OutputBucketName/OutputKey. FIXED 2026-08-11 -- request field was wire-tagged MedicalContentIdentificationType (the shape's type name, not its wire field name); the real StartMedicalTranscriptionJobRequest field is ContentIdentificationType, so every real client's value was silently discarded. medicalTranscriptionJobSummary (ListMedicalTranscriptionJobs) already used the correct name"}
+  GetMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as Start. FIXED 2026-08-11 -- response field (shared medicalTranscriptionJobOutput struct) had the same MedicalContentIdentificationType/ContentIdentificationType wire-name bug on the response side"}
   ListMedicalTranscriptionJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (was partial): summary now trimmed to the real MedicalTranscriptionJobSummary fields, plus added the previously-missing OutputLocationType/ContentIdentificationType/Specialty/Type/StartTime fields + JobNameContains filter"}
   DeleteMedicalTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}

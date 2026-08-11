@@ -682,7 +682,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
-| [Database Migration Service](services/dms/README.md) | A | 94 | clean |
+| [Database Migration Service](services/dms/README.md) | A | 95 | clean |
 | [Transfer Family](services/transfer/README.md) | A | — | 15 families; 1 gap |
 
 ### Other
