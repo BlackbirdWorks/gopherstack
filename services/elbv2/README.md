@@ -8,6 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 51 (49 ok, 2 partial) |
+| Feature families | 6 (5 ok, 1 partial) |
 | Known gaps | 3 |
 | Deferred items | 6 |
 | Resource leaks | clean |

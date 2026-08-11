@@ -83,6 +83,8 @@ func run(ctx context.Context, log *slog.Logger) error {
 		return badgeErr
 	}
 
+	logParseWarnings(ctx, log, docs)
+
 	log.InfoContext(ctx, "gendocs complete",
 		"services_total", len(entries),
 		"readmes_generated", generated,
@@ -141,6 +143,18 @@ func processService(slug string) (summaryEntry, *ParityDoc, bool, error) {
 	}
 
 	return newSummaryEntry(slug, doc), doc, true, nil
+}
+
+// logParseWarnings surfaces every parsed doc's Warnings via the structured
+// logger, at Warn level. These never fail the build: a PARITY.md line that
+// looks like an entry but doesn't parse should be visible to whoever next
+// touches that file, not silently undercounted (gopherstack-udc7).
+func logParseWarnings(ctx context.Context, log *slog.Logger, docs []*ParityDoc) {
+	for _, doc := range docs {
+		for _, w := range doc.Warnings {
+			log.WarnContext(ctx, "PARITY.md entry did not parse", "detail", w)
+		}
+	}
 }
 
 // guideExists reports whether a hand-written docs/services/<svc>.md guide
