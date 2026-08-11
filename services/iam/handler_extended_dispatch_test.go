@@ -371,7 +371,7 @@ func TestIAMHandler_AdditionalActionsDispatch(t *testing.T) {
 			name:   "CreateDelegationRequest_success",
 			action: "CreateDelegationRequest",
 			params: map[string]string{
-				"TargetAccountId": "111122223333",
+				"OwnerAccountId": "111122223333",
 			},
 			wantCode:    http.StatusOK,
 			wantContain: "CreateDelegationRequestResponse",
@@ -381,7 +381,7 @@ func TestIAMHandler_AdditionalActionsDispatch(t *testing.T) {
 			name:   "AcceptDelegationRequest_not_found",
 			action: "AcceptDelegationRequest",
 			params: map[string]string{
-				"DelegationId": "nonexistent-id",
+				"DelegationRequestId": "nonexistent-id",
 			},
 			wantCode: http.StatusBadRequest,
 		},
@@ -390,8 +390,8 @@ func TestIAMHandler_AdditionalActionsDispatch(t *testing.T) {
 			name:   "AssociateDelegationRequest_not_found",
 			action: "AssociateDelegationRequest",
 			params: map[string]string{
-				"DelegationId": "nonexistent-id",
-				"PolicyArn":    "arn:aws:iam::123:policy/ReadOnly",
+				"DelegationRequestId": "nonexistent-id",
+				"PolicyArn":           "arn:aws:iam::123:policy/ReadOnly",
 			},
 			wantCode: http.StatusBadRequest,
 		},

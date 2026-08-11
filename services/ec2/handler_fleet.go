@@ -38,8 +38,8 @@ type describeFleetsResponse struct {
 type networkInsightsPathItem struct {
 	NetworkInsightsPathID  string `xml:"networkInsightsPathId"`
 	NetworkInsightsPathArn string `xml:"networkInsightsPathArn,omitempty"`
-	SourceID               string `xml:"sourceId,omitempty"`
-	DestinationID          string `xml:"destinationId,omitempty"`
+	SourceID               string `xml:"source,omitempty"`
+	DestinationID          string `xml:"destination,omitempty"`
 	Protocol               string `xml:"protocol,omitempty"`
 	DestinationPort        int    `xml:"destinationPort,omitempty"`
 }

@@ -314,7 +314,7 @@ type getRouteServerRoutingDatabaseResponse struct {
 
 func (h *Handler) handleCreateRouteServer(vals url.Values, reqID string) (any, error) {
 	amazonSideAsn, _ := strconv.ParseInt(vals.Get("AmazonSideAsn"), 10, 64)
-	persistRoutesState := vals.Get("PersistRoutesState")
+	persistRoutesState := vals.Get("PersistRoutes")
 
 	persistRoutesDuration, _ := strconv.ParseInt(vals.Get("PersistRoutesDuration"), 10, 64)
 	snsNotificationsEnabled, _ := strconv.ParseBool(vals.Get("SnsNotificationsEnabled"))
@@ -365,7 +365,7 @@ func (h *Handler) handleDeleteRouteServer(vals url.Values, reqID string) (any, e
 
 func (h *Handler) handleModifyRouteServer(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("RouteServerId")
-	persistRoutesState := vals.Get("PersistRoutesState")
+	persistRoutesState := vals.Get("PersistRoutes")
 
 	persistRoutesDuration, _ := strconv.ParseInt(vals.Get("PersistRoutesDuration"), 10, 64)
 	snsNotificationsEnabled, _ := strconv.ParseBool(vals.Get("SnsNotificationsEnabled"))

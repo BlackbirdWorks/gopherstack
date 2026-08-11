@@ -3,6 +3,7 @@ package iam
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 )
 
 func (h *Handler) iamUserDispatchTable() map[string]iamActionFn {
@@ -121,6 +122,10 @@ func (h *Handler) iamEntityUpdateDispatch() map[string]iamActionFn {
 				return nil, err
 			}
 
+			if err := h.applyUpdateRoleMaxSessionDuration(roleName, vals.Get("MaxSessionDuration")); err != nil {
+				return nil, err
+			}
+
 			r, err := h.Backend.GetRole(roleName)
 			if err != nil {
 				return nil, err
@@ -150,4 +155,26 @@ func (h *Handler) iamEntityUpdateDispatch() map[string]iamActionFn {
 			}, nil
 		},
 	}
+}
+
+// applyUpdateRoleMaxSessionDuration validates and applies UpdateRole's optional
+// MaxSessionDuration, a no-op when msd is empty.
+func (h *Handler) applyUpdateRoleMaxSessionDuration(roleName, msd string) error {
+	if msd == "" {
+		return nil
+	}
+
+	d, parseErr := strconv.ParseInt(msd, 10, 32)
+	if parseErr != nil || d < minMaxSessionDuration || d > maxMaxSessionDuration {
+		return fmt.Errorf(
+			"%w: MaxSessionDuration must be between %d and %d",
+			ErrValidationError, minMaxSessionDuration, maxMaxSessionDuration,
+		)
+	}
+
+	if err := h.Backend.UpdateRoleMaxSessionDuration(roleName, int32(d)); err != nil {
+		return fmt.Errorf("updating max session duration for role %s: %w", roleName, err)
+	}
+
+	return nil
 }

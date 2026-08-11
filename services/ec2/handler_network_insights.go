@@ -108,8 +108,8 @@ func toNetworkInsightsPathItem(p *NetworkInsightsPath) networkInsightsPathItem {
 }
 
 func (h *Handler) handleCreateNetworkInsightsPath(vals url.Values, reqID string) (any, error) {
-	sourceID := vals.Get("SourceId")
-	destinationID := vals.Get("DestinationId")
+	sourceID := vals.Get("Source")
+	destinationID := vals.Get("Destination")
 	protocol := vals.Get("Protocol")
 
 	destPort := 0
