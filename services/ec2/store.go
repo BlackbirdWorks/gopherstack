@@ -913,12 +913,11 @@ func (b *InMemoryBackend) RunInstances(
 	// ec2.Instance at all -- matches real RunInstances failing atomically.
 	var instanceIDs []string
 	if outpostArn != "" {
-		// count is clamped to maxRunInstancesCount above, in this function,
-		// so this allocation can't be driven arbitrarily large regardless of
-		// caller (CodeQL alert #253).
-		instanceIDs = make([]string, count)
-		for i := range instanceIDs {
-			instanceIDs[i] = newInstanceID()
+		// Capacity is the compile-time constant maxRunInstancesCount, not the
+		// clamped count, so the allocation size is never user-derived.
+		instanceIDs = make([]string, 0, maxRunInstancesCount)
+		for range count {
+			instanceIDs = append(instanceIDs, newInstanceID())
 		}
 
 		if outpostsBk, ok := b.outpostsBackend(); ok {
