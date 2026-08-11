@@ -637,7 +637,35 @@ func errStatus(err error) int {
 	}
 }
 
+// amznErrorTypeHeader carries the modeled exception type for the restjson1
+// protocol. aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go)
+// reads this header before falling back to a body "code"/"__type" field; without it every
+// error here deserialized client-side as a generic UnknownError -- the exact bug fixed for
+// the sibling mediatailor service in f41d5b42f.
+const amznErrorTypeHeader = "X-Amzn-Errortype"
+
+// errType maps err to the wire exception type name, verified against this
+// service's own deserializer error lists (medialive@v1.101.4 deserializers.go:
+// CreateChannel/DescribeChannel/DeleteChannel/UpdateChannel/DeleteInput model
+// exactly NotFoundException, ConflictException, BadRequestException,
+// InternalServerErrorException, ForbiddenException, TooManyRequestsException,
+// BadGatewayException, GatewayTimeoutException, UnprocessableEntityException).
+func errType(err error) string {
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
+		return "NotFoundException"
+	case errors.Is(err, awserr.ErrAlreadyExists):
+		return "ConflictException"
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return "BadRequestException"
+	default:
+		return "InternalServerErrorException"
+	}
+}
+
 func respondErr(c *echo.Context, err error) error {
+	c.Response().Header().Set(amznErrorTypeHeader, errType(err))
+
 	return c.JSON(errStatus(err), map[string]any{keyMessage: err.Error()})
 }
 

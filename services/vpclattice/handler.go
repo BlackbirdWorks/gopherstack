@@ -587,20 +587,35 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	return fn(h, c, id1, id2, id3, body)
 }
 
-// handleError converts backend errors to HTTP responses.
+// amznErrorTypeHeader carries the modeled exception type for the restjson1
+// protocol. aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go)
+// reads this header before falling back to a body "code"/"__type" field; without it every
+// error here deserialized client-side as a generic UnknownError.
+const amznErrorTypeHeader = "X-Amzn-Errortype"
+
+// handleError converts backend errors to HTTP responses. Wire types are
+// verified against this service's own deserializer error lists
+// (vpclattice@v1.25.5 deserializers.go: CreateService/GetService/DeleteService/
+// UpdateService/CreateServiceNetwork/CreateTargetGroup model exactly
+// AccessDeniedException, ConflictException, InternalServerException,
+// ResourceNotFoundException, ServiceQuotaExceededException,
+// ThrottlingException, ValidationException).
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	status := http.StatusInternalServerError
+	wireType := "InternalServerException"
+
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound, map[string]any{keyMessage: err.Error()})
-	case errors.Is(err, awserr.ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, map[string]any{keyMessage: err.Error()})
-	case errors.Is(err, awserr.ErrConflict):
-		return c.JSON(http.StatusConflict, map[string]any{keyMessage: err.Error()})
+		status, wireType = http.StatusNotFound, "ResourceNotFoundException"
+	case errors.Is(err, awserr.ErrAlreadyExists), errors.Is(err, awserr.ErrConflict):
+		status, wireType = http.StatusConflict, "ConflictException"
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: err.Error()})
+		status, wireType = http.StatusBadRequest, "ValidationException"
 	}
 
-	return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	c.Response().Header().Set(amznErrorTypeHeader, wireType)
+
+	return c.JSON(status, map[string]any{keyMessage: err.Error()})
 }
 
 // ------- Path classification -------
