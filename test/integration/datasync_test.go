@@ -115,14 +115,14 @@ func TestIntegration_DataSync_TaskLifecycle(t *testing.T) {
 			agentArn := aws.ToString(agentOut.AgentArn)
 
 			mkLocation := func(host string) string {
-				out, err := client.CreateLocationNfs(ctx, &datasyncsdk.CreateLocationNfsInput{
+				out, locErr := client.CreateLocationNfs(ctx, &datasyncsdk.CreateLocationNfsInput{
 					ServerHostname: aws.String(host),
 					Subdirectory:   aws.String("/export"),
 					OnPremConfig: &datasynctypes.OnPremConfig{
 						AgentArns: []string{agentArn},
 					},
 				})
-				require.NoError(t, err, "CreateLocationNfs should succeed")
+				require.NoError(t, locErr, "CreateLocationNfs should succeed")
 
 				return aws.ToString(out.LocationArn)
 			}
