@@ -540,6 +540,7 @@
   },
   "detective": {
     "fields": [
+      "DatasourceChangedAt map[string]map[string]time.Time `json:\"datasourceChangedAt,omitempty\"`",
       "Datasources map[string]map[string]string `json:\"datasources\"`",
       "OrgAdmins []*storedOrgAdmin `json:\"orgAdmins\"`",
       "OrgConfigs map[string]bool `json:\"orgConfigs\"`",
