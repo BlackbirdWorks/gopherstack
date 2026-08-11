@@ -54,24 +54,27 @@ func validateScheduleExpression(expr string) error {
 		if !strings.HasSuffix(expr, ")") {
 			return fmt.Errorf("%w: ScheduleExpression rate expression must end with ')'", ErrValidation)
 		}
+
+		if _, err := parseRateExpression(expr); err != nil {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
 	case strings.HasPrefix(expr, "at("):
 		if !strings.HasSuffix(expr, ")") {
 			return fmt.Errorf("%w: ScheduleExpression at expression must end with ')'", ErrValidation)
+		}
+
+		// Timezone doesn't affect whether the datetime string itself parses; the
+		// schedule's actual ScheduleExpressionTimezone is applied at fire time.
+		if _, err := parseAtExpression(expr, time.UTC); err != nil {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 	case strings.HasPrefix(expr, "cron("):
 		if !strings.HasSuffix(expr, ")") {
 			return fmt.Errorf("%w: ScheduleExpression cron expression must end with ')'", ErrValidation)
 		}
-		inner := expr[len("cron(") : len(expr)-1]
-		fields := strings.Fields(inner)
-		if len(fields) != cronFieldCount {
-			return fmt.Errorf(
-				"%w: ScheduleExpression cron expression must have exactly %d fields "+
-					"(minutes hours day-of-month month day-of-week year), got %d",
-				ErrValidation,
-				cronFieldCount,
-				len(fields),
-			)
+
+		if _, err := parseCronExpression(expr); err != nil {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 	default:
 		return fmt.Errorf(
@@ -136,8 +139,7 @@ func parseCronExpression(expr string) (*cronFields, error) {
 
 	parts := strings.Fields(inner)
 
-	const cronExprFieldCount = 6
-	if len(parts) != cronExprFieldCount {
+	if len(parts) != cronFieldCount {
 		return nil, fmt.Errorf("%w: must have 6 fields, got %d: %q", ErrInvalidCronExpression, len(parts), expr)
 	}
 

@@ -219,6 +219,36 @@ func TestCreateSchedule_ScheduleExpression_Validation(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 			wantType: "ValidationException",
 		},
+		{
+			name:     "rate_missing_unit_rejected",
+			expr:     "rate(5)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "rate_zero_value_rejected",
+			expr:     "rate(0 minutes)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "rate_unknown_unit_rejected",
+			expr:     "rate(5 fortnights)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "rate_negative_value_rejected",
+			expr:     "rate(-5 minutes)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "at_bad_format_rejected",
+			expr:     "at(2024-01-01)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1315,6 +1345,55 @@ func TestUpdateSchedule_RequiredFieldValidation(t *testing.T) {
 				require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
 				assert.Equal(t, "ValidationException", errResp["__type"])
 			}
+		})
+	}
+}
+
+// TestUpdateSchedule_ScheduleExpression_SemanticValidation asserts UpdateSchedule
+// rejects a structurally-valid but semantically-invalid ScheduleExpression, the
+// same class of bug fixed for CreateSchedule (gopherstack-8cg7): a schedule that
+// passes shape checks but never fires must be rejected, not silently accepted.
+func TestUpdateSchedule_ScheduleExpression_SemanticValidation(t *testing.T) {
+	t.Parallel()
+
+	validBody := map[string]any{
+		"Name":               "test-sched",
+		"ScheduleExpression": "rate(5 minutes)",
+		"Target":             map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
+		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+	}
+
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{name: "rate_missing_unit_rejected", expr: "rate(5)"},
+		{name: "rate_unknown_unit_rejected", expr: "rate(5 fortnights)"},
+		{name: "at_bad_format_rejected", expr: "at(2024-01-01)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSchedulerHandler(t)
+
+			createRec := doSchedulerRequest(t, h, "CreateSchedule", validBody)
+			require.Equal(t, http.StatusOK, createRec.Code, "failed to create seed schedule")
+
+			body := map[string]any{
+				"Name":               "test-sched",
+				"ScheduleExpression": tt.expr,
+				"Target":             map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
+				"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+			}
+
+			rec := doSchedulerRequest(t, h, "UpdateSchedule", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errResp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			assert.Equal(t, "ValidationException", errResp["__type"])
 		})
 	}
 }

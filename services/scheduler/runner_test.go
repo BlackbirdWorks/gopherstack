@@ -1,7 +1,10 @@
 package scheduler_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -9,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
@@ -1431,6 +1435,61 @@ func TestScheduler_Runner_AtExpressionIgnoresStartAndEndDate(t *testing.T) {
 
 	scheduler.CheckAndFireSchedules(t.Context(), runner, due)
 	assert.Len(t, invoker.Called(), 1, "at() schedules ignore StartDate/EndDate per AWS semantics")
+}
+
+// TestScheduler_Runner_SwallowsPreExistingInvalidExpression covers gopherstack-8cg7's
+// runner-swallow decision: CreateSchedule/UpdateSchedule now reject invalid
+// expressions, but a snapshot taken before that fix can still hold one. Restore
+// must not reject data it previously accepted (simulated here by mutating a valid
+// snapshot's expression after taking it), and the runner must keep polling --
+// neither panicking nor firing -- while warning exactly once, not once per poll.
+func TestScheduler_Runner_SwallowsPreExistingInvalidExpression(t *testing.T) {
+	t.Parallel()
+
+	backend := newRunnerTestBackend(t)
+	target := scheduler.Target{
+		ARN:     "arn:aws:lambda:us-east-1:000000000000:function:f",
+		RoleARN: "arn:aws:iam::000000000000:role/r",
+	}
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"pre-existing-bad-expr", "", "rate(1 minute)", "", "",
+		target, "ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	snap := backend.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	oldExpr := []byte(`"scheduleExpression":"rate(1 minute)"`)
+	newExpr := []byte(`"scheduleExpression":"rate(5)"`)
+	mutated := bytes.Replace(snap, oldExpr, newExpr, 1)
+	require.NotEqual(t, snap, mutated, "expression substring not found in snapshot bytes")
+
+	restored := newRunnerTestBackend(t)
+	require.NoError(t, restored.Restore(t.Context(), mutated), "restore must accept data it previously accepted")
+
+	got, err := restored.GetSchedule(context.Background(), "pre-existing-bad-expr", "")
+	require.NoError(t, err)
+	assert.Equal(t, "rate(5)", got.ScheduleExpression, "restore must not silently correct or drop stale invalid data")
+
+	var logBuf bytes.Buffer
+
+	testLogger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ctx := logger.Save(t.Context(), testLogger)
+
+	runner := scheduler.NewRunner(restored)
+	invoker := &mockLambdaInvoker{}
+	runner.SetLambdaInvoker(invoker)
+
+	now := time.Now()
+	for range 3 {
+		scheduler.CheckAndFireSchedules(ctx, runner, now)
+	}
+
+	assert.Empty(t, invoker.Called(), "an unparseable expression must never fire")
+	warnCount := strings.Count(logBuf.String(), "unparseable expression")
+	assert.Equal(t, 1, warnCount, "must warn exactly once, not once per poll")
 }
 
 // TestScheduler_Runner_LocCacheEviction lives in whitebox_test.go: it needs

@@ -5,9 +5,9 @@ last_audit_commit: 174b1f53                            # HEAD when this audit pa
 last_audit_date: 2026-07-24
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
-  CreateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name"}
+  CreateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally, see 2026-08-11 Notes"}
   GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented non-canonical Tags field deleted"}
-  UpdateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes)"}
+  UpdateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes); ScheduleExpression now semantically validated, see 2026-08-11 Notes"}
   DeleteSchedule:      {wire: ok, errors: ok, state: ok, persist: ok}
   ListSchedules:       {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented Target.RoleArn field deleted (real TargetSummary has only Arn)"}
   CreateScheduleGroup: {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes)"}
@@ -25,6 +25,102 @@ gaps: []
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
 ---
+
+## Notes (2026-08-11 pass, gopherstack-8cg7)
+
+- **`validateScheduleExpression` checked shape only, not semantics -- a schedule
+  could be created that would never fire, with zero signal to the caller.** It
+  accepted anything matching `rate(...)`/`cron(...)`/`at(...)` with balanced
+  parens and (for cron) exactly 6 fields, e.g. `rate(5)` (no unit) or
+  `at(2024-01-01)` (no time component). `CreateSchedule`/`UpdateSchedule`
+  returned success; the runner's `isDueRate`/`isDueCron`/`isDueAt` then failed to
+  parse the same string and swallowed the error as "not due," so the schedule
+  silently sat forever. Fixed: `validateScheduleExpression` now calls the same
+  `parseRateExpression`/`parseCronExpression`/`parseAtExpression` the runner uses,
+  wrapped as `ErrValidation` (`ValidationException`), so a semantically invalid
+  expression is rejected at write time on both Create and Update. Covered by new
+  cases in `TestCreateSchedule_ScheduleExpression_Validation` and the new
+  `TestUpdateSchedule_ScheduleExpression_SemanticValidation`.
+- **Boundaries enforced, cited against the pinned SDK
+  (`aws-sdk-go-v2/service/scheduler@v1.20.4`, `api_op_CreateSchedule.go:63-64`,
+  identical text in botocore `data/scheduler/2021-06-30/service-2.json.gz`'s
+  `CreateScheduleInput.ScheduleExpression` doc)**: "A rate expression consists of
+  a value as a positive integer, and a unit with the following options: minute |
+  minutes | hour | hours | day | days" -- so a zero or negative value is rejected
+  (`parseRateExpression` already required `n > 0`) and an unrecognized unit is
+  rejected. Cron: "six fields separated by white spaces: (minutes hours
+  day_of_month month day_of_week year)" -- confirms the existing 6-field count is
+  correct (not the 5-field Unix form). `at`: `at(yyyy-mm-ddThh:mm:ss)`, matching
+  the existing `atExpressionLayout`.
+- **Known, pre-existing, intentionally-untouched deviation**: `parseRateExpression`
+  also accepts a non-standard `second`/`seconds` unit (its own doc comment says
+  "for local testing"), which the real API does not. Wiring this same parser into
+  `validateScheduleExpression` means `rate(1 second)` is still accepted at
+  Create/Update -- this pass did not tighten it further, since dozens of existing
+  runner tests rely on `rate(1 second)` schedules to fire within a short test
+  window, and narrowing it was not part of this issue's scope. Flagging rather
+  than silently leaving it, per this pass's "prefer under-enforcing to guessing"
+  directive -- this is a case where the existing looseness is already understood
+  and deliberate, not a new gap.
+- **Not enforced (deferred, filed as a follow-up)**: cron field *values* are still
+  not deeply validated. `parseCronExpression` only checks field count; a
+  structurally-valid 6-field cron with a garbage token in one field (e.g.
+  `cron(0 12 * * ? GARBAGE)`) passes `validateScheduleExpression` because
+  `matchesCronField`/`matchesCronPart` swallow unparseable tokens as "no match"
+  rather than erroring, so at runtime that field simply never matches and the
+  schedule never fires -- the same invisible-failure bug class as this issue,
+  but for cron field content rather than expression shape. Left alone here
+  because closing it requires new validation logic (walking each field with the
+  same list/range/step/alias grammar `matchesCronField` uses, but propagating
+  `ErrUnknownCronValue` instead of swallowing it) that goes beyond "wire in the
+  existing parsers," which is what gopherstack-8cg7 scoped. File as a follow-up
+  issue.
+- **Runner swallow behaviour: kept, not changed to hard-fail.** `isDueRate`/
+  `isDueCron`/`isDueAt` still return "not due" on a parse error rather than
+  crashing the poll loop -- a background loop iterating every stored schedule
+  every second must not let one bad expression take down every other schedule's
+  evaluation. This should be unreachable in practice now that Create/UpdateSchedule
+  reject invalid expressions, but `Restore` does not re-validate (see below), so a
+  schedule persisted before this fix can still carry one. Added `Runner.
+  warnInvalidExpression` (runner.go): the first poll that fails to parse a given
+  schedule's expression logs one `WARN`, deduped per schedule key via
+  `invalidExprWarned` (swept alongside `lastFiredAt` in `checkAndFireSchedules`,
+  same lifecycle), instead of either staying silent forever or logging every
+  `runnerTickInterval` (1s) indefinitely. Covered by
+  `TestScheduler_Runner_SwallowsPreExistingInvalidExpression`.
+- **Snapshot/restore does not re-validate `ScheduleExpression`.** `InMemoryBackend.
+  Restore` (persistence.go) decodes DTOs straight into the live tables; it never
+  calls `validateScheduleExpression`. A snapshot taken before this fix that holds
+  an expression like `rate(5)` restores successfully with that value intact --
+  restore does not reject data it previously accepted. Such a schedule behaves
+  exactly as it did before this pass: it loads, lists, and round-trips normally;
+  the runner still evaluates it every poll and still never fires it, now with the
+  one-time warning above instead of total silence. Verified directly by
+  `TestScheduler_Runner_SwallowsPreExistingInvalidExpression`, which snapshots a
+  valid schedule, mutates the expression in the raw snapshot bytes to an invalid
+  one (simulating a pre-fix snapshot), restores it, and asserts `Restore` returns
+  no error and `GetSchedule` still returns the mutated (invalid) expression
+  unchanged.
+- **Existing tests already encoding invalid expressions: none found in the sense
+  the issue warned about.** Grepped every `rate(`/`cron(`/`at(` literal across
+  the test suite; all cron literals use the correct 6-field AWS form and all
+  `at()` literals use the correct `yyyy-mm-ddThh:mm:ss` layout. The one
+  systematic looseness (`rate(1 second)`, used by ~20 runner tests for fast
+  firing) is the pre-existing, documented non-standard-unit allowance discussed
+  above, not a value the real API would reject as malformed shape -- it is a real
+  AWS-shaped rate expression, just with a unit AWS does not offer. No test
+  changes were needed to keep the suite passing after this fix.
+- **Brief sweep for the day's other three bug classes (parameter parsed then
+  ignored; ID accepted for a nonexistent resource; state mutated before
+  validation) found nothing new**: `handler_schedules.go`'s `scheduleInput`/
+  `scheduleTarget` fields are all threaded through to the backend (traced every
+  field, including nested `EcsParameters`/`SageMakerPipelineParameters`);
+  `TagResource`/`UntagResource`/`ListTagsForResource` (tags.go) all reject an
+  unknown ARN with `ErrNotFound` before touching state;
+  `CreateSchedule`/`UpdateSchedule`/`CreateScheduleGroup`/`DeleteScheduleGroup`
+  all validate before acquiring the write lock or mutating a map. Consistent with
+  this service's 2026-07-24 A-grade audit; no new findings to file beyond the
+  cron-field-value gap above.
 
 ## Notes (2026-07-24 pass)
 
