@@ -80,7 +80,10 @@ func (b *InMemoryBackend) GetPrefetchSchedule(playbackConfigName, name string) (
 		return nil, fmt.Errorf("%w: prefetch schedule %s not found", ErrNotFound, name)
 	}
 
-	return ps, nil
+	out := *ps
+	out.Tags = copyTags(b.tags[ps.ARN])
+
+	return &out, nil
 }
 
 // DeletePrefetchSchedule deletes a prefetch schedule.
@@ -89,10 +92,13 @@ func (b *InMemoryBackend) DeletePrefetchSchedule(playbackConfigName, name string
 	defer b.mu.Unlock()
 
 	key := prefetchScheduleKey(playbackConfigName, name)
-	if !b.prefetchSchedules.Has(key) {
+
+	ps, ok := b.prefetchSchedules.Get(key)
+	if !ok {
 		return fmt.Errorf("%w: prefetch schedule %s not found", ErrNotFound, name)
 	}
 
+	delete(b.tags, ps.ARN)
 	b.prefetchSchedules.Delete(key)
 
 	return nil
@@ -130,5 +136,12 @@ func (b *InMemoryBackend) ListPrefetchSchedules(
 
 	pg := page.New(filtered, nextToken, maxResults, defaultMaxResults)
 
-	return pg.Data, pg.Next, nil
+	out := make([]*PrefetchSchedule, len(pg.Data))
+	for i, ps := range pg.Data {
+		cp := *ps
+		cp.Tags = copyTags(b.tags[ps.ARN])
+		out[i] = &cp
+	}
+
+	return out, pg.Next, nil
 }

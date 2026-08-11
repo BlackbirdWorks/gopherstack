@@ -98,6 +98,23 @@ func createTestChannel(t *testing.T, h *mediatailor.Handler) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// createTestSourceLocationAndVodSource creates source location "sl1" and VOD
+// source "vs1" on it, the fixture CreateProgram HTTP tests need since
+// CreateProgram validates SourceLocationName/VodSourceName against the
+// backend's real tables (gopherstack-vdrs item 2).
+func createTestSourceLocationAndVodSource(t *testing.T, h *mediatailor.Handler) {
+	t.Helper()
+
+	createTestSourceLocation(t, h)
+
+	rec := doRequest(t, h, http.MethodPost, "/sourceLocation/sl1/vodSource/vs1", map[string]any{
+		"HttpPackageConfigurations": []any{
+			map[string]any{"Path": "/", "SourceGroup": "hd", "Type": "HLS"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
 // testScheduleConfig returns a minimal, valid ScheduleConfiguration for
 // CreateProgram: an ABSOLUTE transition starting at startMillis. Every
 // backend/HTTP test that creates a program needs one, since real
@@ -637,7 +654,7 @@ func TestHandler_PaginationQueryParamCasing(t *testing.T) {
 
 		h := newTestHandler(t)
 		for _, id := range []string{"fn-a", "fn-b", "fn-c"} {
-			doRequest(t, h, http.MethodPut, "/function/"+id, map[string]any{"FunctionType": "AWS_LAMBDA"})
+			doRequest(t, h, http.MethodPut, "/function/"+id, map[string]any{"FunctionType": "HTTP_REQUEST"})
 		}
 
 		rec := doRequestWithQuery(t, h, http.MethodGet, "/functions", "MaxResults=1")
