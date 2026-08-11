@@ -25,7 +25,11 @@ var topLevelKeyRe = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*):(.*)$`)
 // entryLineRe matches the start of an ops:/families: block entry, e.g.
 // "  CreateAgent: {wire: ok, ...". Indent is tolerated at any depth because
 // a handful of PARITY.md files have a mis-indented (0-space) final entry in
-// their families: block (e.g. services/mwaa, services/rekognition).
+// their families: block (e.g. services/mwaa, services/rekognition). A key
+// that collides with a reserved word (e.g. rds's "leaks" family) is still
+// tolerated as an entry as long as it's indented -- only a column-0
+// occurrence is read as the reserved key's own section header; see
+// matchEntry/isBlockTerminator.
 //
 // The key class is wider than a Go identifier: real PARITY.md family keys
 // name multiple operations or add a parenthetical, e.g.
@@ -50,13 +54,18 @@ var possibleEntryRe = regexp.MustCompile(`^\s*[A-Za-z0-9_][A-Za-z0-9_/(),*>\- ]*
 // listItemRe matches a gaps:/deferred: list item, e.g. "  - some text".
 var listItemRe = regexp.MustCompile(`^\s*-\s+(.*)$`)
 
+// keyLeaks is the reserved top-level "leaks:" key. Named separately (rather
+// than inlined in isReservedKey) since it also collides with a real family
+// name in services/rds/PARITY.md — see matchEntry (gopherstack-jw5s).
+const keyLeaks = "leaks"
+
 // reservedTopLevelKeys are the only keys the schema defines at column 0.
 // Anything else found at column 0 inside an ops:/families: block is treated
 // as a (mis-indented) block entry rather than a new section.
 func isReservedKey(key string) bool {
 	switch key {
 	case "service", "sdk_module", "last_audit_commit", "last_audit_date",
-		"overall", "protocol", "ops", "families", "gaps", "structural_gaps", labelDeferred, "leaks":
+		"overall", "protocol", "ops", "families", "gaps", "structural_gaps", labelDeferred, keyLeaks:
 		return true
 	default:
 		return false
@@ -172,7 +181,7 @@ func parseScalarField(doc *ParityDoc, key, rest string) bool {
 		doc.Overall = cleanScalar(rest)
 	case "protocol":
 		doc.Protocol = cleanScalar(rest)
-	case "leaks":
+	case keyLeaks:
 		doc.LeaksStatus = extractLeaksStatus(rest)
 	default:
 		return false
@@ -236,21 +245,24 @@ func extractLeaksStatus(rest string) string {
 }
 
 // matchEntry reports whether line starts an ops:/families: block entry,
-// returning its key and the content following the opening brace. Lines
-// naming a reserved top-level key are never treated as entries even if they
-// happen to match the brace syntax (defensive; shouldn't occur in practice).
+// returning its key and the content following the opening brace. A line is
+// rejected as an entry only when isBlockTerminator would also claim it (a
+// reserved key at column 0) -- e.g. services/rds's "leaks" family entry is
+// indented like every other entry and must parse, while a genuine top-level
+// "leaks: {status: ..., note: ...}" header always sits at column 0. This
+// keeps matchEntry and isBlockTerminator in agreement: no line can fall
+// through both as neither an entry nor a terminator (gopherstack-jw5s).
 func matchEntry(line string) (string, string, bool) {
 	m := entryLineRe.FindStringSubmatch(line)
 	if m == nil {
 		return "", "", false
 	}
 
-	key := strings.TrimSpace(m[1])
-	if isReservedKey(key) {
+	if isBlockTerminator(line) {
 		return "", "", false
 	}
 
-	return key, m[2], true
+	return strings.TrimSpace(m[1]), m[2], true
 }
 
 // isBlockTerminator reports whether line opens a new reserved top-level
