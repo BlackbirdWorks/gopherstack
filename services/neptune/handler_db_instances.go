@@ -338,6 +338,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		InstanceCreateTime:              inst.InstanceCreateTime,
 		Endpoint:                        inst.Endpoint,
 		DBSubnetGroupName:               inst.DBSubnetGroupName,
+		NetworkType:                     inst.NetworkType,
 		Port:                            inst.Port,
 		StorageEncrypted:                inst.StorageEncrypted,
 		AutoMinorVersionUpgrade:         inst.AutoMinorVersionUpgrade,
@@ -364,6 +365,7 @@ type xmlDBInstance struct {
 	InstanceCreateTime              string `xml:"InstanceCreateTime,omitempty"`
 	Endpoint                        string `xml:"Endpoint>Address,omitempty"`
 	DBSubnetGroupName               string `xml:"DBSubnetGroup,omitempty"`
+	NetworkType                     string `xml:"NetworkType,omitempty"`
 	DBParameterGroupName            string `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"`
 	PreferredMaintenanceWindow      string `xml:"PreferredMaintenanceWindow,omitempty"`
 	PreferredBackupWindow           string `xml:"PreferredBackupWindow,omitempty"`
@@ -435,9 +437,16 @@ type describeDBEngineVersionsResponse struct {
 }
 
 type xmlOrderableDBInstanceOption struct {
-	Engine          string `xml:"Engine"`
-	EngineVersion   string `xml:"EngineVersion"`
-	DBInstanceClass string `xml:"DBInstanceClass"`
+	SupportedNetworkTypes *xmlSupportedNetworkTypeList `xml:"SupportedNetworkTypes,omitempty"`
+	Engine                string                       `xml:"Engine"`
+	EngineVersion         string                       `xml:"EngineVersion"`
+	DBInstanceClass       string                       `xml:"DBInstanceClass"`
+}
+
+// xmlSupportedNetworkTypeList decodes via the generic StringList deserializer
+// (neptune@v1.48.4 deserializers.go:22293, wraps each entry in <member>).
+type xmlSupportedNetworkTypeList struct {
+	Members []string `xml:"member"`
 }
 
 type xmlOrderableDBInstanceOptionList struct {

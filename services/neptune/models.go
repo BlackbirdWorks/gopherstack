@@ -22,6 +22,7 @@ type DBClusterCreateOptions struct {
 	KmsKeyID                        string
 	PreferredBackupWindow           string
 	MasterUsername                  string
+	NetworkType                     string
 	PreferredMaintenanceWindow      string
 	AvailabilityZones               []string
 	VpcSecurityGroupIDs             []string
@@ -37,6 +38,7 @@ type DBClusterCreateOptions struct {
 type DBClusterModifyOptions struct {
 	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration
 	EngineVersion                   string
+	NetworkType                     string
 	PreferredBackupWindow           string
 	PreferredMaintenanceWindow      string
 	VpcSecurityGroupIDs             []string
@@ -94,6 +96,7 @@ type DBCluster struct {
 	StorageType                     string                            `json:"StorageType"`
 	EngineMode                      string                            `json:"EngineMode"`
 	MasterUsername                  string                            `json:"MasterUsername"`
+	NetworkType                     string                            `json:"NetworkType,omitempty"`
 	AvailabilityZones               []string                          `json:"AvailabilityZones"`
 	VpcSecurityGroupIDs             []string                          `json:"VpcSecurityGroupIds"`
 	AssociatedRoles                 []string                          `json:"AssociatedRoles"`
@@ -112,21 +115,26 @@ type DBCluster struct {
 type DBInstance struct {
 	// region is the AWS region this instance belongs to; see DBCluster.region
 	// for the composite-key rationale (store_setup.go/persistence.go).
-	region                          string
-	DBInstanceIdentifier            string `json:"DBInstanceIdentifier"`
-	DBInstanceArn                   string `json:"DBInstanceArn"`
-	DBClusterIdentifier             string `json:"DBClusterIdentifier"`
-	DBInstanceClass                 string `json:"DBInstanceClass"`
-	Engine                          string `json:"Engine"`
-	EngineVersion                   string `json:"EngineVersion"`
-	DBInstanceStatus                string `json:"DBInstanceStatus"`
-	InstanceCreateTime              string `json:"InstanceCreateTime"`
-	Endpoint                        string `json:"Endpoint"`
-	DBSubnetGroupName               string `json:"DBSubnetGroupName"`
-	DBParameterGroupName            string `json:"DBParameterGroupName"`
-	PreferredMaintenanceWindow      string `json:"PreferredMaintenanceWindow"`
-	PreferredBackupWindow           string `json:"PreferredBackupWindow"`
-	AvailabilityZone                string `json:"AvailabilityZone"`
+	region                     string
+	DBInstanceIdentifier       string `json:"DBInstanceIdentifier"`
+	DBInstanceArn              string `json:"DBInstanceArn"`
+	DBClusterIdentifier        string `json:"DBClusterIdentifier"`
+	DBInstanceClass            string `json:"DBInstanceClass"`
+	Engine                     string `json:"Engine"`
+	EngineVersion              string `json:"EngineVersion"`
+	DBInstanceStatus           string `json:"DBInstanceStatus"`
+	InstanceCreateTime         string `json:"InstanceCreateTime"`
+	Endpoint                   string `json:"Endpoint"`
+	DBSubnetGroupName          string `json:"DBSubnetGroupName"`
+	DBParameterGroupName       string `json:"DBParameterGroupName"`
+	PreferredMaintenanceWindow string `json:"PreferredMaintenanceWindow"`
+	PreferredBackupWindow      string `json:"PreferredBackupWindow"`
+	AvailabilityZone           string `json:"AvailabilityZone"`
+	// NetworkType is inherited from the instance's DB cluster at create time
+	// (neptune@v1.48.4 types/types.go:764: "Inherited from the DB cluster" --
+	// CreateDBInstanceInput/ModifyDBInstanceInput carry no NetworkType member
+	// of their own).
+	NetworkType                     string `json:"NetworkType,omitempty"`
 	Port                            int    `json:"Port"`
 	PromotionTier                   int    `json:"PromotionTier"`
 	StorageEncrypted                bool   `json:"StorageEncrypted"`
@@ -177,6 +185,13 @@ type DBSubnetGroup struct {
 	VpcID                    string   `json:"VpcID"`
 	Status                   string   `json:"Status"`
 	SubnetIDs                []string `json:"SubnetIDs"`
+	// SupportedNetworkTypes is real AWS's derived set of IPV4/DUAL values a
+	// group supports, computed server-side from each subnet's IPv4/IPv6 CIDR
+	// blocks (neptune@v1.48.4 types/types.go:945). This backend tracks
+	// subnets only as opaque ID strings (no CIDR data), so it has no basis to
+	// compute a real value; left permanently empty rather than inventing a
+	// capability list (never populated -- see PARITY.md).
+	SupportedNetworkTypes []string `json:"SupportedNetworkTypes,omitempty"`
 }
 
 // Tag is a key-value pair tag.

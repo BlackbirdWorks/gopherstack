@@ -113,12 +113,13 @@ type xmlSubnetList struct {
 }
 
 type xmlDBSubnetGroup struct {
-	DBSubnetGroupName        string        `xml:"DBSubnetGroupName"`
-	DBSubnetGroupArn         string        `xml:"DBSubnetGroupArn,omitempty"`
-	DBSubnetGroupDescription string        `xml:"DBSubnetGroupDescription"`
-	VpcID                    string        `xml:"VpcId,omitempty"`
-	SubnetGroupStatus        string        `xml:"SubnetGroupStatus"`
-	Subnets                  xmlSubnetList `xml:"Subnets"`
+	SupportedNetworkTypes    *xmlSupportedNetworkTypeList `xml:"SupportedNetworkTypes,omitempty"`
+	DBSubnetGroupName        string                       `xml:"DBSubnetGroupName"`
+	DBSubnetGroupArn         string                       `xml:"DBSubnetGroupArn,omitempty"`
+	DBSubnetGroupDescription string                       `xml:"DBSubnetGroupDescription"`
+	VpcID                    string                       `xml:"VpcId,omitempty"`
+	SubnetGroupStatus        string                       `xml:"SubnetGroupStatus"`
+	Subnets                  xmlSubnetList                `xml:"Subnets"`
 }
 
 type xmlDBSubnetGroupList struct {

@@ -111,6 +111,7 @@ const (
 	percentProgressComplete      = 100
 	minFailoverClusterMembers    = 2
 	engineVersion1200            = "1.2.0.0"
+	networkTypeIPv4              = "IPV4"
 )
 
 // InMemoryBackend is a thread-safe in-memory backend for Neptune.

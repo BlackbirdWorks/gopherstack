@@ -40,6 +40,7 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 		MasterUsername:                  vals.Get("MasterUsername"),
 		DBSubnetGroupName:               vals.Get("DBSubnetGroupName"),
 		StorageType:                     vals.Get("StorageType"),
+		NetworkType:                     vals.Get("NetworkType"),
 		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		ManageMasterUserPassword:        vals.Get("ManageMasterUserPassword") == formTrue,
 		StorageEncrypted:                vals.Get("StorageEncrypted") == formTrue,
@@ -134,6 +135,7 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 	rawCopy := vals.Get("CopyTagsToSnapshot")
 	opts := DBClusterModifyOptions{
 		EngineVersion:                   vals.Get("EngineVersion"),
+		NetworkType:                     vals.Get("NetworkType"),
 		PreferredBackupWindow:           vals.Get("PreferredBackupWindow"),
 		PreferredMaintenanceWindow:      vals.Get("PreferredMaintenanceWindow"),
 		EnableIAMDatabaseAuthentication: rawIam == formTrue,
@@ -348,6 +350,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		MasterUsername:                  c.MasterUsername,
 		StorageType:                     c.StorageType,
 		HostedZoneID:                    c.HostedZoneID,
+		NetworkType:                     c.NetworkType,
 		Port:                            c.Port,
 		StorageEncrypted:                c.StorageEncrypted,
 		MultiAZ:                         c.MultiAZ,
@@ -440,6 +443,7 @@ type xmlDBCluster struct {
 	MasterUsername                   string                            `xml:"MasterUsername,omitempty"`
 	StorageType                      string                            `xml:"StorageType,omitempty"`
 	HostedZoneID                     string                            `xml:"HostedZoneId,omitempty"`
+	NetworkType                      string                            `xml:"NetworkType,omitempty"`
 	PreferredBackupWindow            string                            `xml:"PreferredBackupWindow,omitempty"`
 	PreferredMaintenanceWindow       string                            `xml:"PreferredMaintenanceWindow,omitempty"`
 	KmsKeyID                         string                            `xml:"KmsKeyId,omitempty"`

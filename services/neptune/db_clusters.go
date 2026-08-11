@@ -150,6 +150,12 @@ func (b *InMemoryBackend) buildNewCluster(
 	if opts.StorageType != "" {
 		storageType = opts.StorageType
 	}
+	// IPV4 is AWS's documented default when NetworkType is unspecified
+	// (neptune@v1.48.4 api_op_CreateDBCluster.go:161: "IPV4 - (the default)").
+	networkType := networkTypeIPv4
+	if opts.NetworkType != "" {
+		networkType = opts.NetworkType
+	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.neptune.amazonaws.com", id, region)
 	readerEndpoint := fmt.Sprintf(
 		"%s.cluster-ro.%s.neptune.amazonaws.com",
@@ -193,6 +199,7 @@ func (b *InMemoryBackend) buildNewCluster(
 		MasterUsername:                  opts.MasterUsername,
 		StorageType:                     storageType,
 		HostedZoneID:                    hostedZoneID,
+		NetworkType:                     networkType,
 	}
 	if opts.ManageMasterUserPassword {
 		cluster.MasterUserManagedSecret = &MasterUserManagedSecret{
@@ -366,6 +373,9 @@ func (b *InMemoryBackend) ModifyDBCluster(
 func applyClusterScalarModifications(c *DBCluster, opts DBClusterModifyOptions) {
 	if opts.EngineVersion != "" {
 		c.EngineVersion = opts.EngineVersion
+	}
+	if opts.NetworkType != "" {
+		c.NetworkType = opts.NetworkType
 	}
 	if opts.PreferredBackupWindow != "" {
 		c.PreferredBackupWindow = opts.PreferredBackupWindow

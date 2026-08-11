@@ -68,10 +68,12 @@ func (b *InMemoryBackend) CreateDBInstance(
 	endpoint := fmt.Sprintf("%s.neptune.%s.amazonaws.com", id, region)
 	engineVersion := defaultEngineVersion
 	dbSubnetGroupName := ""
+	networkType := ""
 	if clusterID != "" {
 		if cl, ok := b.clusterGet(region, clusterID); ok {
 			engineVersion = cl.EngineVersion
 			dbSubnetGroupName = cl.DBSubnetGroupName
+			networkType = cl.NetworkType
 		}
 	}
 	inst := &DBInstance{
@@ -90,6 +92,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		PreferredMaintenanceWindow:      maintenanceWindow,
 		DBParameterGroupName:            opts.DBParameterGroupName,
 		DBSubnetGroupName:               dbSubnetGroupName,
+		NetworkType:                     networkType,
 		PreferredBackupWindow:           opts.PreferredBackupWindow,
 		AvailabilityZone:                opts.AvailabilityZone,
 		CopyTagsToSnapshot:              opts.CopyTagsToSnapshot,
