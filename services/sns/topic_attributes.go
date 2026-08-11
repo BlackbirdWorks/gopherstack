@@ -21,6 +21,10 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 
 	attrs := make(map[string]string, len(topic.Attributes)+computedTopicAttrCount)
 	maps.Copy(attrs, topic.Attributes)
+	// DataProtectionPolicy is stored on topic.Attributes internally but is only
+	// ever surfaced via the dedicated GetDataProtectionPolicy operation, not here
+	// (see isKnownTopicAttribute).
+	delete(attrs, "DataProtectionPolicy")
 
 	// Ensure Policy is always a valid JSON string with an empty Statement array so
 	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
@@ -79,9 +83,13 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 func isKnownTopicAttribute(name string) bool {
 	switch name {
 	// Core topic attributes.
+	// DataProtectionPolicy is deliberately excluded: real AWS manages it only
+	// through the dedicated GetDataProtectionPolicy/PutDataProtectionPolicy
+	// operations, never via Set/GetTopicAttributes (confirmed absent from both
+	// operations' documented Attributes list in the SNS API reference).
 	case "DeliveryPolicy", "DisplayName", "FifoTopic", "ContentBasedDeduplication",
 		"KmsMasterKeyId", "Policy", "TracingConfig", "FifoThroughputScope",
-		"ArchivePolicy", "DataProtectionPolicy", "SignatureVersion":
+		"ArchivePolicy", "SignatureVersion":
 		return true
 	// HTTP/HTTPS delivery status logging.
 	case "HTTPSuccessFeedbackRoleArn",
@@ -235,11 +243,56 @@ func (b *InMemoryBackend) GetDataProtectionPolicy(resourceArn string) (string, e
 	return topic.Attributes["DataProtectionPolicy"], nil
 }
 
+// dataProtectionPolicyMaxLength is the AWS-documented size cap on a
+// DataProtectionPolicy document (aws-sdk-go-v2/service/sns@v1.42.4
+// api_op_PutDataProtectionPolicy.go DataProtectionPolicy field doc:
+// "Length Constraints: Maximum length of 30,720").
+const dataProtectionPolicyMaxLength = 30720
+
+// validateDataProtectionPolicy checks policy against the AWS-documented
+// wire-level constraints for a DataProtectionPolicy document: valid JSON,
+// under the size cap, and a JSON object carrying the required top-level
+// keys. It does not validate the policy statement grammar (data
+// identifiers, operations, principals) — that is not expressed on the wire
+// and is out of scope for this backend.
+func validateDataProtectionPolicy(policy string) error {
+	if policy == "" {
+		return nil
+	}
+
+	if len(policy) > dataProtectionPolicyMaxLength {
+		return fmt.Errorf(
+			"%w: DataProtectionPolicy exceeds the maximum length of %d",
+			ErrInvalidParameter, dataProtectionPolicyMaxLength,
+		)
+	}
+
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+		return fmt.Errorf("%w: DataProtectionPolicy must be a valid JSON object", ErrInvalidParameter)
+	}
+
+	// Required top-level keys per
+	// docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-policies.html
+	// ("A data protection policy requires the following basic policy information
+	// for identification: Name ... Version ... Statement ..."; Description is
+	// explicitly marked Optional there).
+	for _, key := range [...]string{"Name", "Version", "Statement"} {
+		if _, ok := doc[key]; !ok {
+			return fmt.Errorf(
+				"%w: DataProtectionPolicy is missing required member %s",
+				ErrInvalidParameter, key,
+			)
+		}
+	}
+
+	return nil
+}
+
 // PutDataProtectionPolicy stores a data protection policy JSON string on the given topic ARN.
-// The policy must be valid JSON; invalid JSON is rejected with ErrInvalidParameter.
 func (b *InMemoryBackend) PutDataProtectionPolicy(resourceArn, policy string) error {
-	if policy != "" && !json.Valid([]byte(policy)) {
-		return fmt.Errorf("%w: DataProtectionPolicy must be valid JSON", ErrInvalidParameter)
+	if err := validateDataProtectionPolicy(policy); err != nil {
+		return err
 	}
 
 	b.mu.Lock("PutDataProtectionPolicy")
