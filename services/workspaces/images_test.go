@@ -23,6 +23,9 @@ func TestWorkspaceImageCRUD(t *testing.T) { //nolint:paralleltest // existing is
 		op    string
 	}{
 		{
+			// SourceRegion differs from the test backend's "us-east-1", so
+			// SourceImageId is deliberately not validated here (see the
+			// CopyWorkspaceImage doc comment) -- a made-up ID is fine.
 			name: "CopyWorkspaceImage",
 			op:   "CopyWorkspaceImage",
 			body: map[string]any{
@@ -122,10 +125,12 @@ func TestWorkspaceImageDescribeAndPermissions(
 
 	h, _ := newTestHandlerWithBackend(t)
 
-	// Create an image
+	// Create an image. CopyWorkspaceImage validates SourceImageId against
+	// b.images when SourceRegion matches this backend's own region, so use
+	// one actually created rather than a made-up ID.
 	rec := doTargetRequest(t, h, "CopyWorkspaceImage", map[string]any{
 		"Name":          "perm-test",
-		"SourceImageId": "wsi-src",
+		"SourceImageId": createImage(t, h),
 		"SourceRegion":  "us-east-1",
 	})
 	var createOut map[string]string
@@ -308,6 +313,264 @@ func TestCreateWorkspaceImage_UnknownWorkspace_ConsumesNoState(t *testing.T) {
 	var out2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
 	secondID, _ := out2["ImageId"].(string)
+	require.NotEmpty(t, secondID)
+
+	assert.Equal(
+		t,
+		idCounterSuffix(t, firstID, "wsi-")+1,
+		idCounterSuffix(t, secondID, "wsi-"),
+		"rejected create must not consume an ID from the shared counter",
+	)
+}
+
+func createCopyImageReq(sourceImageID, sourceRegion string) map[string]any {
+	return map[string]any{
+		"Name":          "validation-test",
+		"SourceImageId": sourceImageID,
+		"SourceRegion":  sourceRegion,
+	}
+}
+
+// TestCopyWorkspaceImage_SourceImageIDValidation verifies CopyWorkspaceImage
+// rejects a SourceImageId that doesn't reference a real image when
+// SourceRegion is empty or matches this backend's own region ("us-east-1"
+// in tests), and that it deliberately does NOT reject an unknown
+// SourceImageId when SourceRegion names a different region -- a real
+// cross-region source image legitimately lives in a different backend
+// instance this one cannot see (see the CopyWorkspaceImage doc comment).
+// ResourceNotFoundException is in this operation's real error list
+// (aws-sdk-go-v2/service/workspaces@v1.73.1 deserializers.go's
+// awsAwsjson11_deserializeOpErrorCopyWorkspaceImage).
+func TestCopyWorkspaceImage_SourceImageIDValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sourceImageID func(t *testing.T, h *workspaces.Handler) string
+		name          string
+		sourceRegion  string
+		wantCode      int
+	}{
+		{
+			name: "missing image same region rejects",
+			sourceImageID: func(t *testing.T, _ *workspaces.Handler) string {
+				t.Helper()
+
+				return "wsi-doesnotexist"
+			},
+			sourceRegion: "us-east-1",
+			wantCode:     http.StatusNotFound,
+		},
+		{
+			name: "missing image empty region rejects",
+			sourceImageID: func(t *testing.T, _ *workspaces.Handler) string {
+				t.Helper()
+
+				return "wsi-doesnotexist"
+			},
+			sourceRegion: "",
+			wantCode:     http.StatusNotFound,
+		},
+		{
+			name: "valid image same region succeeds",
+			sourceImageID: func(t *testing.T, h *workspaces.Handler) string {
+				t.Helper()
+
+				return createImage(t, h)
+			},
+			sourceRegion: "us-east-1",
+			wantCode:     http.StatusOK,
+		},
+		{
+			name: "missing image cross region succeeds",
+			sourceImageID: func(t *testing.T, _ *workspaces.Handler) string {
+				t.Helper()
+
+				return "wsi-doesnotexist"
+			},
+			sourceRegion: "us-west-2",
+			wantCode:     http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandlerWithBackend(t)
+
+			rec := doTargetRequest(
+				t, h, "CopyWorkspaceImage",
+				createCopyImageReq(tc.sourceImageID(t, h), tc.sourceRegion),
+			)
+
+			require.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// TestCopyWorkspaceImage_UnknownSourceImage_ConsumesNoState verifies a
+// same-region CopyWorkspaceImage call rejected for an unknown SourceImageId
+// leaves nothing behind: no image appears in DescribeWorkspaceImages, and
+// the shared ID counter (store.go's nextID) isn't advanced, proving the
+// existence check runs before createImageLocked's nextID call, not after.
+func TestCopyWorkspaceImage_UnknownSourceImage_ConsumesNoState(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandlerWithBackend(t)
+	sourceID := createImage(t, h)
+
+	rec1 := doTargetRequest(t, h, "CopyWorkspaceImage", createCopyImageReq(sourceID, "us-east-1"))
+	require.Equal(t, http.StatusOK, rec1.Code, rec1.Body.String())
+
+	var out1 map[string]string
+	decodeJSON(t, rec1.Body.Bytes(), &out1)
+	firstID := out1["ImageId"]
+	require.NotEmpty(t, firstID)
+
+	describeRec := doTargetRequest(t, h, "DescribeWorkspaceImages", map[string]any{})
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	var before struct {
+		Images []map[string]any `json:"Images"`
+	}
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before))
+
+	rejectedRec := doTargetRequest(
+		t, h, "CopyWorkspaceImage", createCopyImageReq("wsi-doesnotexist", "us-east-1"),
+	)
+	require.Equal(t, http.StatusNotFound, rejectedRec.Code)
+
+	describeRec2 := doTargetRequest(t, h, "DescribeWorkspaceImages", map[string]any{})
+	require.Equal(t, http.StatusOK, describeRec2.Code)
+
+	var after struct {
+		Images []map[string]any `json:"Images"`
+	}
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after))
+
+	assert.Len(t, after.Images, len(before.Images), "rejected copy must not add an image")
+
+	rec2 := doTargetRequest(t, h, "CopyWorkspaceImage", createCopyImageReq(sourceID, "us-east-1"))
+	require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
+
+	var out2 map[string]string
+	decodeJSON(t, rec2.Body.Bytes(), &out2)
+	secondID := out2["ImageId"]
+	require.NotEmpty(t, secondID)
+
+	assert.Equal(
+		t,
+		idCounterSuffix(t, firstID, "wsi-")+1,
+		idCounterSuffix(t, secondID, "wsi-"),
+		"rejected copy must not consume an ID from the shared counter",
+	)
+}
+
+func createUpdatedImageReq(sourceImageID string) map[string]any {
+	return map[string]any{
+		"SourceImageId": sourceImageID,
+		"Name":          "validation-test",
+		"Description":   "test",
+	}
+}
+
+// TestCreateUpdatedWorkspaceImage_SourceImageIDValidation verifies
+// CreateUpdatedWorkspaceImage rejects a SourceImageId that doesn't
+// reference a real image and accepts one that does --
+// ResourceNotFoundException is in this operation's real error list
+// (aws-sdk-go-v2/service/workspaces@v1.73.1 deserializers.go's
+// awsAwsjson11_deserializeOpErrorCreateUpdatedWorkspaceImage).
+func TestCreateUpdatedWorkspaceImage_SourceImageIDValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sourceImageID func(t *testing.T, h *workspaces.Handler) string
+		name          string
+		wantCode      int
+	}{
+		{
+			name: "missing image rejects",
+			sourceImageID: func(t *testing.T, _ *workspaces.Handler) string {
+				t.Helper()
+
+				return "wsi-doesnotexist"
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "valid image succeeds",
+			sourceImageID: func(t *testing.T, h *workspaces.Handler) string {
+				t.Helper()
+
+				return createImage(t, h)
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandlerWithBackend(t)
+
+			rec := doTargetRequest(
+				t, h, "CreateUpdatedWorkspaceImage", createUpdatedImageReq(tc.sourceImageID(t, h)),
+			)
+
+			require.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// TestCreateUpdatedWorkspaceImage_UnknownSourceImage_ConsumesNoState
+// verifies a rejected CreateUpdatedWorkspaceImage call leaves nothing
+// behind: no image appears in DescribeWorkspaceImages, and the shared ID
+// counter (store.go's nextID) isn't advanced, proving the existence check
+// runs before createImageLocked's nextID call, not after.
+func TestCreateUpdatedWorkspaceImage_UnknownSourceImage_ConsumesNoState(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandlerWithBackend(t)
+	sourceID := createImage(t, h)
+
+	rec1 := doTargetRequest(t, h, "CreateUpdatedWorkspaceImage", createUpdatedImageReq(sourceID))
+	require.Equal(t, http.StatusOK, rec1.Code, rec1.Body.String())
+
+	var out1 map[string]string
+	decodeJSON(t, rec1.Body.Bytes(), &out1)
+	firstID := out1["ImageId"]
+	require.NotEmpty(t, firstID)
+
+	describeRec := doTargetRequest(t, h, "DescribeWorkspaceImages", map[string]any{})
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	var before struct {
+		Images []map[string]any `json:"Images"`
+	}
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before))
+
+	rejectedRec := doTargetRequest(
+		t, h, "CreateUpdatedWorkspaceImage", createUpdatedImageReq("wsi-doesnotexist"),
+	)
+	require.Equal(t, http.StatusNotFound, rejectedRec.Code)
+
+	describeRec2 := doTargetRequest(t, h, "DescribeWorkspaceImages", map[string]any{})
+	require.Equal(t, http.StatusOK, describeRec2.Code)
+
+	var after struct {
+		Images []map[string]any `json:"Images"`
+	}
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after))
+
+	assert.Len(t, after.Images, len(before.Images), "rejected create must not add an image")
+
+	rec2 := doTargetRequest(t, h, "CreateUpdatedWorkspaceImage", createUpdatedImageReq(sourceID))
+	require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
+
+	var out2 map[string]string
+	decodeJSON(t, rec2.Body.Bytes(), &out2)
+	secondID := out2["ImageId"]
 	require.NotEmpty(t, secondID)
 
 	assert.Equal(

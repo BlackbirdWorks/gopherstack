@@ -187,9 +187,12 @@ func TestDescribeImageAssociations_Validation(t *testing.T) {
 	t.Run("missing AssociatedResourceTypes is rejected", func(t *testing.T) {
 		t.Parallel()
 
+		// CopyWorkspaceImage validates SourceImageId against b.images when
+		// SourceRegion matches this backend's own region, so use one
+		// actually created rather than a made-up ID.
 		imgRec := doTargetRequest(t, h, "CopyWorkspaceImage", map[string]any{
 			"Name":          "img-for-validation",
-			"SourceImageId": "wsi-src",
+			"SourceImageId": createImage(t, h),
 			"SourceRegion":  "us-east-1",
 		})
 		var imgOut map[string]string

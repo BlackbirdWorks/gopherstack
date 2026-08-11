@@ -28,13 +28,25 @@ func (b *InMemoryBackend) createImageLocked(
 	return img
 }
 
-// CopyWorkspaceImage copies an image.
+// CopyWorkspaceImage copies an image. SourceImageId is checked against
+// b.images only when sourceRegion is empty or equals this backend's own
+// region: this service instantiates one InMemoryBackend per (account,
+// region) (see NewInMemoryBackend/provider.go), and storedImage carries no
+// region field, so a genuine cross-region copy's source image legitimately
+// lives in a different backend instance this one cannot see -- rejecting it
+// would be more restrictive than real AWS. ResourceNotFoundException is in
+// this operation's error list (aws-sdk-go-v2/service/workspaces@v1.73.1
+// deserializers.go's awsAwsjson11_deserializeOpErrorCopyWorkspaceImage).
 func (b *InMemoryBackend) CopyWorkspaceImage(
-	name, sourceImageID, _ /*sourceRegion*/, description string,
+	name, sourceImageID, sourceRegion, description string,
 	tags map[string]string,
 ) (string, error) {
 	b.mu.Lock("CopyWorkspaceImage")
 	defer b.mu.Unlock()
+
+	if (sourceRegion == "" || sourceRegion == b.region) && !b.images.Has(sourceImageID) {
+		return "", errImageNotFound
+	}
 
 	img := b.createImageLocked(name, description, sourceImageID, tags)
 
@@ -104,12 +116,20 @@ func (b *InMemoryBackend) ImportCustomWorkspaceImage(
 	return img, nil
 }
 
-// CreateUpdatedWorkspaceImage creates an updated version of an existing image.
+// CreateUpdatedWorkspaceImage creates an updated version of an existing
+// image. Returns errImageNotFound for a SourceImageId that doesn't
+// reference a real image, matching real AWS (ResourceNotFoundException is
+// in this operation's error list; see deserializers.go's
+// awsAwsjson11_deserializeOpErrorCreateUpdatedWorkspaceImage).
 func (b *InMemoryBackend) CreateUpdatedWorkspaceImage(
 	sourceImageID, name, description string, tags map[string]string,
 ) (string, error) {
 	b.mu.Lock("CreateUpdatedWorkspaceImage")
 	defer b.mu.Unlock()
+
+	if !b.images.Has(sourceImageID) {
+		return "", errImageNotFound
+	}
 
 	img := b.createImageLocked(name, description, sourceImageID, tags)
 
