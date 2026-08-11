@@ -1,6 +1,6 @@
 ---
 service: s3
-sdk_module: aws-sdk-go-v2/service/s3   # version: v1.105.0 (go.mod, confirmed no new api_op_* files vs v1.104.2)
+sdk_module: aws-sdk-go-v2/service/s3@v1.106.5   # version audited against (go.mod pin)
 last_audit_commit: b72533e7a   # parity-3 phase-2 pass, see 2026-07-24 (phase 2) section below
 last_audit_date: 2026-08-07
 overall: A   # phase-2: closed all 4 tracked gaps for real (or honestly out-of-scope w/ evidence); found+fixed 7 real wire-shape bugs incl. a serious double-nested-XML bug across 4 List*Configurations ops
