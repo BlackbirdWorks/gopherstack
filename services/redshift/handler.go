@@ -39,7 +39,11 @@ const (
 	// define real, distinct operations with these exact names.
 	opCreateEndpointAccess = "CreateEndpointAccess"
 	opDeleteEndpointAccess = "DeleteEndpointAccess"
-	opUnknown              = "Unknown"
+	// opGetIdentityCenterAuthToken is shared with handler_serverless.go:
+	// classic Redshift and Redshift Serverless both define real, distinct
+	// operations with this exact name.
+	opGetIdentityCenterAuthToken = "GetIdentityCenterAuthToken"
+	opUnknown                    = "Unknown"
 )
 
 const (
@@ -243,7 +247,7 @@ func supportedOpsGroup2() []string {
 		"DescribeQev2IdcApplications",
 		"DescribeRedshiftIdcApplications",
 		"DescribeScheduledActions",
-		"GetIdentityCenterAuthToken",
+		opGetIdentityCenterAuthToken,
 		"ListRecommendations",
 		"ModifyAquaConfiguration",
 		"ModifyClusterDbRevision",
@@ -499,7 +503,7 @@ func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 		"DescribeQev2IdcApplications":      h.handleDescribeQev2IdcApplications,
 		"DescribeRedshiftIdcApplications":  h.handleDescribeIdcApplications,
 		"DescribeScheduledActions":         h.handleDescribeScheduledActions,
-		"GetIdentityCenterAuthToken":       h.handleGetIdentityCenterAuthToken,
+		opGetIdentityCenterAuthToken:       h.handleGetIdentityCenterAuthToken,
 		"ListRecommendations":              h.handleListRecommendations,
 		"ModifyAquaConfiguration":          h.handleModifyAquaConfiguration,
 		"ModifyClusterDbRevision":          h.handleModifyClusterDBRevision,

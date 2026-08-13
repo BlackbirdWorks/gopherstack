@@ -301,3 +301,36 @@ func (b *InMemoryBackend) GetCredentials(
 
 	return user, randomHex(slCredSecretHexBytes), expiration, nextRefreshTime, nil
 }
+
+// GetIdentityCenterAuthTokenSL mints an Identity Center authentication token
+// scoped to workgroupNames. Real GetIdentityCenterAuthTokenInput requires 1-20
+// valid WorkgroupNames, each needing "Identity Center integration enabled"
+// (confirmed against api_op_GetIdentityCenterAuthToken.go) -- this backend
+// does not model IDC integration state on workgroups at all
+// (RedshiftIdcApplicationArn is accept-and-discard on Namespace, see
+// CreateNamespaceParams' doc comment), so the only real check available is
+// that every named workgroup actually exists, an FK validation classic
+// Redshift's own same-named operation (handleGetIdentityCenterAuthToken in
+// handler_idc_applications.go) does not even perform. The token itself is a
+// synthetic opaque value: no real Identity Center backend exists here to mint
+// one, the same honest limitation classic Redshift's sibling operation of the
+// identical name already accepts (see its doc comment).
+func (b *InMemoryBackend) GetIdentityCenterAuthTokenSL(workgroupNames []string) (string, time.Time, error) {
+	b.mu.RLock("GetIdentityCenterAuthToken")
+	defer b.mu.RUnlock()
+
+	if len(workgroupNames) == 0 {
+		return "", time.Time{}, fmt.Errorf("%w: workgroupNames is required", ErrServerlessValidation)
+	}
+
+	for _, name := range workgroupNames {
+		if _, ok := b.slWorkgroups.Get(name); !ok {
+			return "", time.Time{}, fmt.Errorf("%w: workgroup %q not found", ErrWorkgroupNotFound, name)
+		}
+	}
+
+	expiry := time.Now().UTC().Add(slCredExpiryMinutes * time.Minute)
+	token := "ict-" + randomHex(slIdcTokenHexBytes)
+
+	return token, expiry, nil
+}

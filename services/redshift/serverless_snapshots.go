@@ -211,6 +211,32 @@ func (b *InMemoryBackend) DeleteServerlessSnapshot(
 	return cp, nil
 }
 
+// UpdateServerlessSnapshot updates a serverless snapshot's retention period.
+// retentionPeriod is nilable: UpdateSnapshotInput.RetentionPeriod is optional
+// (confirmed against api_op_UpdateSnapshot.go -- unlike SnapshotName, which is
+// required), so an absent value leaves the stored retention period unchanged.
+func (b *InMemoryBackend) UpdateServerlessSnapshot(
+	snapshotName string, retentionPeriod *int,
+) (*ServerlessSnapshot, error) {
+	b.mu.Lock("UpdateServerlessSnapshot")
+	defer b.mu.Unlock()
+
+	snap, ok := b.slSnapshots.Get(snapshotName)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: snapshot %q not found",
+			ErrServerlessSnapshotNotFound,
+			snapshotName,
+		)
+	}
+
+	if retentionPeriod != nil {
+		snap.SnapshotRetentionPeriod = *retentionPeriod
+	}
+
+	return cloneServerlessSnapshot(snap), nil
+}
+
 func cloneServerlessSnapshot(snap *ServerlessSnapshot) *ServerlessSnapshot {
 	cp := *snap
 	cp.AccountsWithRestoreAccess = cloneStrings(snap.AccountsWithRestoreAccess)

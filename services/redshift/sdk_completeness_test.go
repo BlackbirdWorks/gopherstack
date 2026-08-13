@@ -31,21 +31,25 @@ func TestSDKCompleteness(t *testing.T) {
 func TestSDKCompleteness_Serverless(t *testing.T) {
 	t.Parallel()
 
-	// Reservations, tracks, lakehouse and IDC-token-vending are separate,
-	// unimplemented feature surfaces; UpdateSnapshot is a plain gap. None of
-	// these were in scope for gopherstack-0w2p/8v8v/mbcq -- discovered while
-	// pinning the module, tracked separately.
+	// gopherstack-v4wu: UpdateSnapshot, GetTrack/ListTracks,
+	// UpdateLakehouseConfiguration, and GetIdentityCenterAuthToken are now
+	// implemented (see handler_serverless.go/serverless_tracks.go/
+	// serverless_lakehouse.go/serverless_workgroups.go). The reservation
+	// family (CreateReservation/GetReservation/GetReservationOffering/
+	// ListReservationOfferings/ListReservations) remains a deliberate,
+	// documented gap -- see PARITY.md's "Redshift Serverless" family note for
+	// why: ReservationOffering carries AWS-set commercial pricing
+	// (HourlyCharge/UpfrontCharge/CurrencyCode) with no fixed, enumerable
+	// catalog in the SDK model to model honestly against (unlike classic
+	// Redshift's ReservedNode, whose offerings key off a small, real,
+	// AWS-documented node-type catalog), and this family has zero existing
+	// backend state to hang a reservation's identity on.
 	notImplemented := []string{
 		"CreateReservation",
-		"GetIdentityCenterAuthToken",
 		"GetReservation",
 		"GetReservationOffering",
-		"GetTrack",
 		"ListReservationOfferings",
 		"ListReservations",
-		"ListTracks",
-		"UpdateLakehouseConfiguration",
-		"UpdateSnapshot",
 	}
 
 	backend := redshift.NewInMemoryBackend("000000000000", "us-east-1")

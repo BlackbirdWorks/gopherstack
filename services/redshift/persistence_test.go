@@ -258,12 +258,25 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	_, err = b.UpdateLakehouseConfigurationSL(redshift.UpdateLakehouseConfigParams{
+		NamespaceName:              "rt-namespace",
+		CatalogName:                "rt-catalog",
+		LakehouseRegistration:      "Register",
+		LakehouseIdcApplicationArn: "arn:aws:sso::000000000000:application/rt-idc-app",
+		LakehouseIdcRegistration:   "Associate",
+	})
+	require.NoError(t, err)
+
 	_, err = b.CreateWorkgroup(
 		"rt-workgroup", "rt-namespace", redshift.WorkgroupParams{BaseCapacity: 32}, nil,
 	)
 	require.NoError(t, err)
 
 	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace", 0, nil)
+	require.NoError(t, err)
+
+	rtRetention := 45
+	_, err = b.UpdateServerlessSnapshot("rt-slsnapshot", &rtRetention)
 	require.NoError(t, err)
 
 	rtRecoveryPoints, _ := b.ListRecoveryPointsSL(redshift.ListRecoveryPointsParams{NamespaceName: "rt-namespace"})
@@ -378,14 +391,29 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, restores, 1)
 
-	_, err = fresh.GetNamespace("rt-namespace")
+	freshNS, err := fresh.GetNamespace("rt-namespace")
 	require.NoError(t, err)
+	assert.Contains(t, freshNS.CatalogArn, "rt-catalog")
+	assert.Equal(t, "Registered", freshNS.LakehouseRegistrationStatus)
 
 	_, err = fresh.GetWorkgroup("rt-workgroup")
 	require.NoError(t, err)
 
-	_, err = fresh.GetServerlessSnapshot("rt-slsnapshot", "")
+	slSnap, err := fresh.GetServerlessSnapshot("rt-slsnapshot", "")
 	require.NoError(t, err)
+	assert.Equal(t, 45, slSnap.SnapshotRetentionPeriod)
+
+	// A follow-up UpdateLakehouseConfiguration call that changes only the
+	// registration status must still see the LakehouseIdcApplicationArn set
+	// before the round trip -- proving slLakehouseConfig (a table with no
+	// Namespace field of its own) survived Restore, not just Namespace's own
+	// CatalogArn/LakehouseRegistrationStatus fields.
+	lhResult, err := fresh.UpdateLakehouseConfigurationSL(redshift.UpdateLakehouseConfigParams{
+		NamespaceName:         "rt-namespace",
+		LakehouseRegistration: "Deregister",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:sso::000000000000:application/rt-idc-app", lhResult.LakehouseIdcApplicationArn)
 
 	slLimits, _ := fresh.ListServerlessUsageLimits("", "", 0, "")
 	assert.Len(t, slLimits, 1)

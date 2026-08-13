@@ -102,6 +102,11 @@ func (h *ServerlessHandler) GetSupportedOperations() []string {
 		"ListManagedWorkgroups",
 		"RestoreFromSnapshot",
 		"ConvertRecoveryPointToSnapshot",
+		"UpdateSnapshot",
+		"GetTrack",
+		"ListTracks",
+		"UpdateLakehouseConfiguration",
+		opGetIdentityCenterAuthToken,
 	}
 }
 
@@ -131,6 +136,7 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.slRecoveryPoints.Reset()
 	h.Backend.slTableRestoreStatuses.Reset()
 	h.Backend.slEndpointAccesses.Reset()
+	h.Backend.slLakehouseConfig.Reset()
 	h.Backend.resetServerlessIndexes()
 }
 
@@ -278,6 +284,12 @@ var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte)
 
 	"RestoreFromSnapshot":            (*ServerlessHandler).handleRestoreFromSnapshot,
 	"ConvertRecoveryPointToSnapshot": (*ServerlessHandler).handleConvertRecoveryPointToSnapshot,
+
+	"UpdateSnapshot":               (*ServerlessHandler).handleUpdateSnapshot,
+	"GetTrack":                     (*ServerlessHandler).handleGetTrack,
+	"ListTracks":                   (*ServerlessHandler).handleListTracks,
+	"UpdateLakehouseConfiguration": (*ServerlessHandler).handleUpdateLakehouseConfiguration,
+	opGetIdentityCenterAuthToken:   (*ServerlessHandler).handleGetIdentityCenterAuthTokenSL,
 }
 
 // ---------------------------------------------------------------------------
@@ -701,6 +713,28 @@ func (h *ServerlessHandler) handleDeleteSnapshot(c *echo.Context, body []byte) e
 	return c.JSON(http.StatusOK, map[string]any{slRespSnapshot: snap})
 }
 
+func (h *ServerlessHandler) handleUpdateSnapshot(c *echo.Context, body []byte) error {
+	var req struct {
+		RetentionPeriod *int   `json:"retentionPeriod"`
+		SnapshotName    string `json:"snapshotName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	if req.SnapshotName == "" {
+		return slBadRequest(c, "snapshotName is required")
+	}
+
+	snap, err := h.Backend.UpdateServerlessSnapshot(req.SnapshotName, req.RetentionPeriod)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespSnapshot: snap})
+}
+
 // ---------------------------------------------------------------------------
 // Usage limit handlers
 // ---------------------------------------------------------------------------
@@ -1002,6 +1036,114 @@ func (h *ServerlessHandler) handleDeleteScheduledAction(c *echo.Context, body []
 }
 
 // ---------------------------------------------------------------------------
+// Track handlers
+// ---------------------------------------------------------------------------
+
+func (h *ServerlessHandler) handleGetTrack(c *echo.Context, body []byte) error {
+	var req struct {
+		TrackName string `json:"trackName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	if req.TrackName == "" {
+		return slBadRequest(c, "trackName is required")
+	}
+
+	track, err := h.Backend.GetServerlessTrack(req.TrackName)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"track": track})
+}
+
+func (h *ServerlessHandler) handleListTracks(c *echo.Context, body []byte) error {
+	var req struct {
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return slBadRequest(c, "invalid request body")
+		}
+	}
+
+	list, outToken := h.Backend.ListServerlessTracks(req.MaxResults, req.NextToken)
+	resp := map[string]any{"tracks": list}
+
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// ---------------------------------------------------------------------------
+// Lakehouse configuration handler
+// ---------------------------------------------------------------------------
+
+func (h *ServerlessHandler) handleUpdateLakehouseConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		NamespaceName              string `json:"namespaceName"`
+		CatalogName                string `json:"catalogName"`
+		LakehouseIdcApplicationArn string `json:"lakehouseIdcApplicationArn"`
+		LakehouseIdcRegistration   string `json:"lakehouseIdcRegistration"`
+		LakehouseRegistration      string `json:"lakehouseRegistration"`
+		DryRun                     bool   `json:"dryRun"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	if req.NamespaceName == "" {
+		return slBadRequest(c, "namespaceName is required")
+	}
+
+	result, err := h.Backend.UpdateLakehouseConfigurationSL(UpdateLakehouseConfigParams{
+		NamespaceName:              req.NamespaceName,
+		CatalogName:                req.CatalogName,
+		LakehouseIdcApplicationArn: req.LakehouseIdcApplicationArn,
+		LakehouseIdcRegistration:   req.LakehouseIdcRegistration,
+		LakehouseRegistration:      req.LakehouseRegistration,
+		DryRun:                     req.DryRun,
+	})
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, result)
+}
+
+// ---------------------------------------------------------------------------
+// Identity Center auth token handler
+// ---------------------------------------------------------------------------
+
+func (h *ServerlessHandler) handleGetIdentityCenterAuthTokenSL(c *echo.Context, body []byte) error {
+	var req struct {
+		WorkgroupNames []string `json:"workgroupNames"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	token, expiry, err := h.Backend.GetIdentityCenterAuthTokenSL(req.WorkgroupNames)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"token":          token,
+		"expirationTime": expiry,
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Response envelope keys and error helpers
 // ---------------------------------------------------------------------------
 
@@ -1047,7 +1189,8 @@ func slHandleErr(c *echo.Context, err error) error {
 		errors.Is(err, ErrSnapshotCopyConfigSLNotFound),
 		errors.Is(err, ErrRecoveryPointNotFound),
 		errors.Is(err, ErrTableRestoreSLNotFound),
-		errors.Is(err, ErrEndpointAccessSLNotFound):
+		errors.Is(err, ErrEndpointAccessSLNotFound),
+		errors.Is(err, ErrServerlessTrackNotFound):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrNamespaceAlreadyExists),
 		errors.Is(err, ErrWorkgroupAlreadyExists),
@@ -1055,6 +1198,8 @@ func slHandleErr(c *echo.Context, err error) error {
 		errors.Is(err, ErrCustomDomainSLConflict),
 		errors.Is(err, ErrEndpointAccessSLAlreadyExists):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ConflictException", err.Error()))
+	case errors.Is(err, ErrServerlessDryRun):
+		return c.JSON(http.StatusBadRequest, slErrorResponse("DryRunException", err.Error()))
 	default:
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ValidationException", err.Error()))
 	}
