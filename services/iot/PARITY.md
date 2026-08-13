@@ -2,8 +2,8 @@
 service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.77.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
-last_audit_commit: 2a94081753c196de1bbad6b25b8f9b9a90dce321
-last_audit_date: 2026-07-25
+last_audit_commit: 2a94081753c196de1bbad6b25b8f9b9a90dce321  # pass #4; pass #5 below is uncommitted at write time
+last_audit_date: 2026-08-13
 overall: A            # 2026-07-25 pass #4 (this pass): closed the ONE remaining partial
                        # family, security_profiles, the sole reason pass #3 stayed at A-.
                        # CreateSecurityProfile silently dropped Behaviors/AlertTargets/
@@ -112,6 +112,24 @@ overall: A            # 2026-07-25 pass #4 (this pass): closed the ONE remaining
                        # device_defender, and explicitly out of scope for this pass, but too
                        # substantial to paper over by silently declaring the service A. See
                        # the new `security_profiles` families: entry and gaps: below.
+                       #
+                       # --- pass #5 (2026-08-13, gopherstack-oc9v, stays A) ---
+                       # Scoped via gopherstack-oc9v's wire-sweep-blind-spot campaign
+                       # (anonymous inline request structs are invisible to the repo's
+                       # name-regex wire-diff tooling; iot has 79 of them, third-largest
+                       # concentration repo-wide). Read this file first per that issue's
+                       # instructions: overall was already `A` with every family `ok`
+                       # except `fleet_metric`, explicitly `partial`, so this pass scoped
+                       # to `fleet_metric` alone rather than re-auditing already-`ok`
+                       # families. Converted its 3 remaining inline structs
+                       # (UpdateFleetMetric/UpdateCustomMetric/UpdateDimension,
+                       # handler_metrics.go) to named types and closed the family -- see
+                       # `fleet_metric` below for the two real bugs found (the
+                       # UpdateFleetMetric gap noted by a prior pass, plus a
+                       # sibling CreateFleetMetric gap the conversion surfaced that no
+                       # prior pass had tracked). 76 of iot's 79 inline request structs
+                       # remain unconverted; see the campaign note under Notes below for
+                       # the full accounting.
 ops:
   CreateThing: {wire: ok, errors: ok, state: ok, persist: ok, note: "now accepts+wires billingGroupName (was silently dropped)"}
   DescribeThing: {wire: ok, errors: ok, state: ok, persist: ok, note: "now returns billingGroupName (was omitted entirely)"}
@@ -206,10 +224,15 @@ families:
   fleet_indexing: {status: ok, note: "Field-diffed against v1.76.0 this pass (previously entirely untouched). Two real, previously-unflagged wire-shape bugs found and fixed: (1) SearchIndex's ThingGroupDocument sent a single \"parentGroupName\" string (direct parent only) instead of the real \"parentGroupNames\" LIST field (the full ancestor chain) -- confirmed against awsRestjson1_deserializeDocumentThingGroupDocument, a real client's deserializer would never find the key it looks for under the old shape and silently leave the field empty; also added the missing \"thingGroupDescription\" field. (2) DescribeThingGroup's thingGroupMetadata was completely missing \"rootToParentThingGroups\" (root-first ancestor name+ARN list) -- confirmed against awsRestjson1_deserializeDocumentThingGroupMetadata; not implemented at all previously. Both fixed via a new thingGroupAncestors backend helper (indexing.go) that reconstructs the full chain by walking gopherstack's per-group direct-ParentGroupName links, since the domain model only stores one level per group. (3) GetStatistics' Statistics response was missing \"sumOfSquares\" entirely (types.Statistics has it; confirmed against awsRestjson1_deserializeDocumentStatistics) -- fixed by computing it in computeStatistics alongside the existing sum/variance accumulation. GetCardinality/GetPercentiles/GetBucketsAggregation/DescribeIndex/ListIndices output shapes also field-diffed against their real GetCardinalityOutput/GetPercentilesOutput/GetBucketsAggregationOutput/types.PercentPair/types.Bucket counterparts -- no further gaps found on this pass's sample."}
   billing_group: {status: ok, note: "AddThingToBillingGroup/RemoveThingFromBillingGroup/ListThingsInBillingGroup verified real state mutation via thingBillingGroups map; DescribeThing now surfaces it (see CreateThing/DescribeThing above)"}
   persistence: {status: ok, note: "backendSnapshot/Restore in persistence.go covers all backend maps observed during this audit (policyTargets, thingPrincipals, thingBillingGroups, thingThingGroups, securityProfileTargets, resourceTags, certificateTransfers, etc.); Handler.Snapshot/Restore already delegate correctly -- no gaps found. Certificate struct's new transfer-lifecycle fields (OwnedBy/PreviousOwnedBy/GenerationID/CertificateMode/CustomerVersion/Validity*/Transfer*) round-trip correctly since persistence marshals the full struct, not the handler-layer wire shape."}
-  fleet_metric: {status: partial, note: "FIXED this pass (gopherstack-5wj0) -- UpdateFleetMetric silently ignored expectedVersion entirely (types.UpdateFleetMetricRequest documents it as OptionalVersion and lists VersionConflictException among the op's real errors, botocore iot service-2.json), so a client relying on optimistic-concurrency control for this op always succeeded even against a stale version -- the same ExpectedVersion-vs-Version check already implemented for ThingGroup/Job/SecurityProfile in this service was simply never wired for FleetMetric. Now enforced (ErrVersionConflict -> VersionConflictException). NOT fixed (see gaps:): UpdateFleetMetric also drops the required indexName field and the optional aggregationType/aggregationField/queryVersion/unit fields entirely -- found while fixing expectedVersion but out of this pass's scope (not the field the audit tool flagged)."}
+  fleet_metric: {status: ok, note: "(pass #5, 2026-08-13, gopherstack-oc9v) CLOSED. Prior pass fixed UpdateFleetMetric's dropped expectedVersion but left indexName/aggregationType/aggregationField/queryVersion/unit unfixed. This pass converted handler_metrics.go's 3 remaining anonymous inline request structs (UpdateFleetMetric, UpdateCustomMetric, UpdateDimension -- part of the wire-sweep-blind-spot campaign, gopherstack-oc9v) to named types (UpdateFleetMetricInput/UpdateCustomMetricInput/UpdateDimensionInput, metrics.go), and while doing so field-diffed the whole family against v1.77.4's UpdateFleetMetricInput/CreateFleetMetricInput/DescribeFleetMetricOutput directly. Fixed all 5 of those documented UpdateFleetMetric gaps (indexName, aggregationType, aggregationField, queryVersion, unit all now applied). Also found a SIXTH, previously-untracked gap the same diff surfaced: CreateFleetMetricInput was ALSO missing aggregationField/aggregationType entirely (both `This member is required` on the real type) -- CreateFleetMetric silently dropped them with no error, and FleetMetric never modeled them at all, so DescribeFleetMetric/ListFleetMetrics could never have surfaced them either even if a caller worked around the drop. New `AggregationType{Name,Values}` type (metrics.go) mirrors types.AggregationType; both Create and Update now thread aggregationField/aggregationType through end to end (request parsing, backend storage on FleetMetric, response wire shape -- confirmed against awsRestjson1_deserializeOpDocumentDescribeFleetMetricOutput's \"aggregationField\"/\"aggregationType\" keys, aggregationType nested as {name,values}). UpdateCustomMetric/UpdateDimension's inline structs were already field-complete (DisplayName-only / StringValues-only, matching real UpdateCustomMetricInput/UpdateDimensionInput exactly) -- converted for tooling visibility only, no bug. Regression: TestFleetMetric_AggregationAndUpdateFields (handler_metrics_test.go), verified to fail against the pre-fix code by temporarily reverting the field-wiring."}
   device_shadows: {status: ok, note: "NEW entry (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): DeleteThingShadow/GetThingShadow/ListNamedShadowsForThing/UpdateThingShadow are real IoT Data Plane operations, on a separate SDK client (aws-sdk-go-v2/service/iotdataplane) from this service's control-plane client (aws-sdk-go-v2/service/iot) -- confirmed by name against iotdataplane.Client. pkgs/sdkcheck's reverse check was flagging all 4 as 'phantom' only because it compared them against iotsdk.Client instead of iotdataplanesdk.Client; sdk_completeness_test.go now checks this family separately against the correct client (notImplemented: DeleteConnection/GetConnection/GetRetainedMessage/ListRetainedMessages/ListSubscriptions/Publish/SendDirectMessage, the rest of that client's surface, covered instead by the separate services/iotdataplane package -- this Handler's shadow REST routes (handler_shadows.go) and services/iotdataplane's own shadow implementation are a pre-existing duplication across the two packages, not introduced by this fix and not resolved here). No wire-shape field-diff done, naming/completeness only."}
-gaps:
-  - "gopherstack-5wj0: UpdateFleetMetric drops the required indexName field and the optional aggregationType/aggregationField/queryVersion/unit fields entirely -- found while fixing this op's expectedVersion bug (see fleet_metric: above) but out of that fix's scope."
+gaps: []
+  # The UpdateFleetMetric gap (dropped indexName/aggregationType/
+  # aggregationField/queryVersion/unit) closed by pass #5 (2026-08-13, gopherstack-oc9v)
+  # -- see fleet_metric: above, which also documents a 6th, previously-untracked gap
+  # (CreateFleetMetric dropping aggregationField/aggregationType too) that surfaced
+  # only once the family's inline request structs were converted to named types.
+  #
   # All families closed as of pass #4 (2026-07-25). security_profiles -- the sole reason
   # pass #3 stayed at A- -- is now `ok` (see its families: entry above): CreateSecurityProfile/
   # UpdateSecurityProfile persist the full real field set, ListActiveViolations/
@@ -582,3 +605,57 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
   broker entirely through already-exported API (`NewBroker`/`Start`/
   `ClientSubscriptions`/`SendToClient`) plus a real TCP client, no whitebox
   hooks needed.
+- **Scope of pass #5 (2026-08-13, gopherstack-oc9v)**: this campaign targets a
+  coverage blind spot in the sweep *tooling*, not this file's wire-shape
+  content — handlers whose request is an anonymous inline `struct{...}`
+  literal generate no candidate for the repo's name-regex wire-diff sweep, so
+  a wrong-name or dropped field on one of them is invisible to that tooling
+  regardless of how correct the field values themselves are. iot has 79 such
+  structs (`grep -c 'var req struct\|var body struct'` across non-test
+  `services/iot/*.go`), the third-largest concentration repo-wide behind
+  sagemaker (362) and cleanrooms (97).
+
+  Per the campaign's stated method (proven by sagemaker's earlier passes):
+  read `PARITY.md` first and scope to what it shows as genuinely uncovered,
+  rather than re-deriving already-verified work. This file showed `overall:
+  A` with every family `ok` except `fleet_metric`, explicitly `partial` (the
+  one item under `gaps:`) — so this pass scoped there. Converted
+  `fleet_metric`'s 3 inline structs (`UpdateFleetMetric`,
+  `UpdateCustomMetric`, `UpdateDimension`, all in `handler_metrics.go`) to
+  named types (`UpdateFleetMetricInput`/`UpdateCustomMetricInput`/
+  `UpdateDimensionInput`, `metrics.go`) and field-diffed the whole family
+  (`Create`/`Describe`/`List`/`Update`/`Delete` FleetMetric) against
+  `aws-sdk-go-v2/service/iot@v1.77.4` directly. This closed the
+  gap a prior pass noted (`UpdateFleetMetric` dropping
+  `indexName`/`aggregationType`/`aggregationField`/`queryVersion`/`unit`) and
+  surfaced a sibling, previously-untracked one on `CreateFleetMetric`
+  (`aggregationField`/`aggregationType`, both `This member is required` on
+  the real `CreateFleetMetricInput`) that no prior wire-diff pass had found —
+  exactly the failure mode gopherstack-oc9v predicts: the bug was invisible
+  to the name-regex sweep because `CreateFleetMetricInput` in this codebase
+  was *already* a named type (so it wasn't part of the 79-count at all), but
+  nobody had actually diffed its field set against the real SDK type before
+  this pass, because the campaign that would have prompted that diff had
+  never been run. See the `fleet_metric` `families:` entry above for the
+  full fix (new `AggregationType{Name,Values}` type, threaded through
+  `Create`/`Update`/response wire shape) and
+  `TestFleetMetric_AggregationAndUpdateFields` (`handler_metrics_test.go`)
+  for the regression, confirmed to fail against the pre-fix code by manually
+  reverting the field-wiring and re-running before restoring it.
+
+  `UpdateCustomMetric`/`UpdateDimension`'s inline structs were already
+  field-complete against `UpdateCustomMetricInput`/`UpdateDimensionInput` —
+  converted to named types for tooling visibility only, no bug found.
+
+  **Not done by this pass, still exposed to the blind spot**: 76 of iot's 79
+  anonymous inline request structs remain unconverted (only the 3 in
+  `fleet_metric` were addressed) — every op family other than
+  `fleet_metric` was left exactly as pass #4 verified it, on the read-first
+  finding that those families were already `ok`. Converting the rest and
+  wire-diffing each is real, substantial, unstarted work; the next pass on
+  this service for this campaign should pick a family (or run a full
+  `grep -n 'var req struct\|var body struct' services/iot/*.go` sweep) rather
+  than assume `overall: A` means the inline-struct blind spot is closed here
+  — it means the *content* that pass #4's tooling could see was verified, not
+  that every request shape has been read as a named type against the pinned
+  SDK.

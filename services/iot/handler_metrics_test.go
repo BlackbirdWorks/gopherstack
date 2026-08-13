@@ -79,6 +79,68 @@ func TestUpdateFleetMetricExpectedVersion(t *testing.T) {
 	}
 }
 
+// TestFleetMetric_AggregationAndUpdateFields proves the fields that were
+// silently dropped by the anonymous-inline-struct request decoders (pre
+// named-type conversion) now round-trip: CreateFleetMetric's required
+// aggregationField/aggregationType, and UpdateFleetMetric's indexName/
+// queryVersion/unit/aggregationField/aggregationType (gopherstack-5wj0
+// documented indexName/aggregationType/aggregationField/queryVersion/unit
+// as dropped on Update; this also catches the same gap on Create, which
+// gopherstack-5wj0 did not flag).
+func TestFleetMetric_AggregationAndUpdateFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("create_persists_aggregation_fields", func(t *testing.T) {
+		t.Parallel()
+		h := newIoTHandler(t)
+
+		iotOK(t, h, http.MethodPut, "/fleet-metric/my-metric", map[string]any{
+			"queryString":      "SELECT * FROM 'iot/+/data'",
+			"period":           300,
+			"aggregationField": "connectivity.disconnectReason",
+			"aggregationType": map[string]any{
+				"name":   "Statistics",
+				"values": []any{"average"},
+			},
+		})
+
+		out := iotOK(t, h, http.MethodGet, "/fleet-metric/my-metric", nil)
+		require.Equal(t, "connectivity.disconnectReason", out["aggregationField"])
+		aggType, ok := out["aggregationType"].(map[string]any)
+		require.True(t, ok, "aggregationType missing from response: %v", out)
+		assert.Equal(t, "Statistics", aggType["name"])
+	})
+
+	t.Run("update_applies_previously_dropped_fields", func(t *testing.T) {
+		t.Parallel()
+		h := newIoTHandler(t)
+
+		iotOK(t, h, http.MethodPut, "/fleet-metric/my-metric", map[string]any{
+			"queryString": "SELECT * FROM 'iot/+/data'",
+			"period":      300,
+		})
+
+		iotOK(t, h, http.MethodPatch, "/fleet-metric/my-metric", map[string]any{
+			"indexName":        "AWS_Things",
+			"queryVersion":     "2017-09-30",
+			"unit":             "Count",
+			"aggregationField": "connectivity.disconnectReason",
+			"aggregationType": map[string]any{
+				"name": "Cardinality",
+			},
+		})
+
+		out := iotOK(t, h, http.MethodGet, "/fleet-metric/my-metric", nil)
+		assert.Equal(t, "AWS_Things", out["indexName"])
+		assert.Equal(t, "2017-09-30", out["queryVersion"])
+		assert.Equal(t, "Count", out["unit"])
+		assert.Equal(t, "connectivity.disconnectReason", out["aggregationField"])
+		aggType, ok := out["aggregationType"].(map[string]any)
+		require.True(t, ok, "aggregationType missing from response: %v", out)
+		assert.Equal(t, "Cardinality", aggType["name"])
+	})
+}
+
 // TestBatch2_CustomMetric tests custom metric lifecycle.
 func TestCustomMetric(t *testing.T) {
 	t.Parallel()

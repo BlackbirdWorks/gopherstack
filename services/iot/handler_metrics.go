@@ -101,18 +101,11 @@ func (h *Handler) handleListFleetMetrics(c *echo.Context) error {
 
 func (h *Handler) handleUpdateFleetMetric(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/fleet-metric/")
-	var req struct {
-		QueryString     string `json:"queryString,omitempty"`
-		Description     string `json:"description,omitempty"`
-		Period          int32  `json:"period,omitempty"`
-		ExpectedVersion int64  `json:"expectedVersion,omitempty"`
-	}
-	if err := readBody(c, &req); err != nil {
+	var input UpdateFleetMetricInput
+	if err := readBody(c, &input); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateFleetMetric(
-		name, req.QueryString, req.Description, req.Period, req.ExpectedVersion,
-	); err != nil {
+	if err := h.Backend.UpdateFleetMetric(name, &input); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -168,13 +161,11 @@ func (h *Handler) handleListCustomMetrics(c *echo.Context) error {
 
 func (h *Handler) handleUpdateCustomMetric(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/custom-metric/")
-	var req struct {
-		DisplayName string `json:"displayName"`
-	}
-	if err := readBody(c, &req); err != nil {
+	var input UpdateCustomMetricInput
+	if err := readBody(c, &input); err != nil {
 		return err
 	}
-	cm, err := h.Backend.UpdateCustomMetric(name, req.DisplayName)
+	cm, err := h.Backend.UpdateCustomMetric(name, input.DisplayName)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -234,13 +225,11 @@ func (h *Handler) handleListDimensions(c *echo.Context) error {
 
 func (h *Handler) handleUpdateDimension(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/dimensions/")
-	var req struct {
-		StringValues []string `json:"stringValues"`
-	}
-	if err := readBody(c, &req); err != nil {
+	var input UpdateDimensionInput
+	if err := readBody(c, &input); err != nil {
 		return err
 	}
-	d, err := h.Backend.UpdateDimension(name, req.StringValues)
+	d, err := h.Backend.UpdateDimension(name, input.StringValues)
 	if err != nil {
 		return respondErr(c, err)
 	}
