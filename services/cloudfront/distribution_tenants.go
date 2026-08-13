@@ -65,9 +65,11 @@ func normalizeDomains(domain string, extra []string) []string {
 // ---------------------------------------------------------------------------
 
 // findDomainConflicts returns every existing distribution tenant or distribution that already
-// claims domain, excluding the tenant identified by excludeTenantID (used when re-checking a
-// tenant's own domains during an update). Must be called with the lock held.
-func (b *InMemoryBackend) findDomainConflicts(domain, excludeTenantID string) []DomainConflict {
+// claims domain, excluding the tenant identified by excludeTenantID and the distribution
+// identified by excludeDistID (used when re-checking a resource's own domains during an update,
+// and by ListDomainConflicts to scope out the resource whose certificate validates the domain).
+// Must be called with the lock held.
+func (b *InMemoryBackend) findDomainConflicts(domain, excludeTenantID, excludeDistID string) []DomainConflict {
 	var conflicts []DomainConflict
 
 	if tid, ok := b.distributionTenantsByDomain[domain]; ok && tid != excludeTenantID {
@@ -86,6 +88,9 @@ func (b *InMemoryBackend) findDomainConflicts(domain, excludeTenantID string) []
 	sort.Strings(distIDs)
 
 	for _, distID := range distIDs {
+		if distID == excludeDistID {
+			continue
+		}
 		if slices.Contains(b.distributionAliases[distID], domain) {
 			conflicts = append(conflicts, DomainConflict{
 				Domain:       domain,
@@ -118,7 +123,7 @@ func (b *InMemoryBackend) CreateDistributionTenant(
 	}
 
 	for _, d := range domains {
-		if conflicts := b.findDomainConflicts(d, ""); len(conflicts) > 0 {
+		if conflicts := b.findDomainConflicts(d, "", ""); len(conflicts) > 0 {
 			return nil, fmt.Errorf(
 				"%w: domain %q is already associated with %s %s",
 				ErrDomainConflict, d, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
@@ -203,7 +208,7 @@ func (b *InMemoryBackend) UpdateDistributionTenant(
 	if len(upd.Domains) > 0 {
 		domains := normalizeDomains("", upd.Domains)
 		for _, d := range domains {
-			if conflicts := b.findDomainConflicts(d, id); len(conflicts) > 0 {
+			if conflicts := b.findDomainConflicts(d, id, ""); len(conflicts) > 0 {
 				return nil, fmt.Errorf(
 					"%w: domain %q is already associated with %s %s",
 					ErrDomainConflict, d, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
@@ -321,12 +326,34 @@ func (b *InMemoryBackend) ListDistributionTenantsByCustomization(webACLArn strin
 }
 
 // ListDomainConflicts returns every existing distribution tenant or distribution that already
-// claims domain.
-func (b *InMemoryBackend) ListDomainConflicts(domain string) []DomainConflict {
+// claims domain, excluding the resource identified by distributionID/distributionTenantID -- the
+// resource whose certificate is being used to validate control of the domain. Real AWS scopes
+// the check to that resource (excludes it from its own conflict list); the caller must ensure
+// exactly one of distributionID/distributionTenantID is set.
+func (b *InMemoryBackend) ListDomainConflicts(
+	domain, distributionID, distributionTenantID string,
+) ([]DomainConflict, error) {
 	b.mu.RLock("ListDomainConflicts")
 	defer b.mu.RUnlock()
 
-	return b.findDomainConflicts(domain, "")
+	if distributionTenantID != "" {
+		if _, ok := b.distributionTenants.Get(distributionTenantID); !ok {
+			return nil, fmt.Errorf(
+				"%w: distribution tenant %s not found",
+				ErrDomainControlValidationResourceNotFound, distributionTenantID,
+			)
+		}
+
+		return b.findDomainConflicts(domain, distributionTenantID, ""), nil
+	}
+
+	if _, ok := b.distributions.Get(distributionID); !ok {
+		return nil, fmt.Errorf(
+			"%w: distribution %s not found", ErrDomainControlValidationResourceNotFound, distributionID,
+		)
+	}
+
+	return b.findDomainConflicts(domain, "", distributionID), nil
 }
 
 // UpdateDomainAssociation moves a domain's association to the given target distribution tenant
@@ -364,7 +391,7 @@ func (b *InMemoryBackend) updateDomainAssociationToTenant(
 		return nil, fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, targetTenantID)
 	}
 
-	if conflicts := b.findDomainConflicts(domain, targetTenantID); len(conflicts) > 0 {
+	if conflicts := b.findDomainConflicts(domain, targetTenantID, ""); len(conflicts) > 0 {
 		return nil, fmt.Errorf(
 			"%w: domain %q is already associated with %s %s",
 			ErrDomainConflict, domain, strings.ToLower(conflicts[0].ResourceType), conflicts[0].ResourceID,
@@ -392,7 +419,7 @@ func (b *InMemoryBackend) updateDomainAssociationToDistribution(
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, targetDistID)
 	}
 
-	if conflicts := b.findDomainConflicts(domain, ""); len(conflicts) > 0 {
+	if conflicts := b.findDomainConflicts(domain, "", ""); len(conflicts) > 0 {
 		for _, c := range conflicts {
 			if c.ResourceType != "DISTRIBUTION" || c.ResourceID != targetDistID {
 				return nil, fmt.Errorf(

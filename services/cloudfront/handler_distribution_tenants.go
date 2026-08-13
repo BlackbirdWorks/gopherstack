@@ -691,13 +691,32 @@ func (h *Handler) handleListInvalidationsForTenant(c *echo.Context, tenantID str
 // ListDistributionsBy* handlers (config-search based)
 // ---------------------------------------------------------------------------
 
+// distributionResourceIDXML models the real DistributionResourceId shape (cloudfront@v1.67.4
+// types.go): exactly one of DistributionId/DistributionTenantId identifies the resource whose
+// certificate is being used to validate control of the domain.
+type distributionResourceIDXML struct {
+	DistributionID       string `xml:"DistributionId"`
+	DistributionTenantID string `xml:"DistributionTenantId"`
+}
+
+// listDomainConflictsXML models the real ListDomainConflictsRequest body (cloudfront@v1.67.4
+// serializers.go:10053, awsRestxml_serializeOpDocumentListDomainConflictsInput).
+// DomainControlValidationResource is a pointer so a present-but-empty element still nil-checks
+// false and an absent element nil-checks true, matching the SDK's own required-field check
+// (validators.go: validateOpListDomainConflictsInput requires the member itself, not any
+// particular child of it, to be non-nil).
 type listDomainConflictsXML struct {
-	XMLName xml.Name `xml:"ListDomainConflictsRequest"`
-	Domain  string   `xml:"Domain"`
+	DomainControlValidationResource *distributionResourceIDXML `xml:"DomainControlValidationResource"`
+	XMLName                         xml.Name                   `xml:"ListDomainConflictsRequest"`
+	Domain                          string                     `xml:"Domain"`
 }
 
 // handleListDomainConflicts reports every existing distribution or distribution tenant that
-// already claims the requested Domain.
+// already claims the requested Domain, other than the resource identified by
+// DomainControlValidationResource -- the resource whose certificate is being used to validate
+// control of the domain. Real AWS excludes that resource from its own conflict list
+// (api_op_ListDomainConflicts.go:73-77); gopherstack used to drop the field entirely and return
+// conflicts for the domain globally.
 func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
@@ -720,10 +739,35 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 	}
 
 	if req.Domain == "" {
-		req.Domain = c.Request().URL.Query().Get("Domain")
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "Domain is required"))
 	}
 
-	conflicts := h.Backend.ListDomainConflicts(req.Domain)
+	if req.DomainControlValidationResource == nil {
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "DomainControlValidationResource is required"),
+		)
+	}
+
+	distID := req.DomainControlValidationResource.DistributionID
+	tenantID := req.DomainControlValidationResource.DistributionTenantID
+	if (distID == "") == (tenantID == "") {
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML(
+				"InvalidArgument",
+				"exactly one of DistributionId or DistributionTenantId must be set "+
+					"in DomainControlValidationResource",
+			),
+		)
+	}
+
+	conflicts, err := h.Backend.ListDomainConflicts(req.Domain, distID, tenantID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
 
 	// The real deserializer (awsRestxml_deserializeDocumentDomainConflictsList,
 	// cloudfront@v1.67.4) wraps the list in <DomainConflicts>, and each entry

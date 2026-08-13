@@ -493,61 +493,127 @@ func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
 	}
 }
 
-// TestListDomainConflicts_TableDriven validates domain conflict detection with real state.
+// TestListDomainConflicts_TableDriven validates domain conflict detection with real state,
+// including the required DomainControlValidationResource scoping (gopherstack-3izo): real AWS
+// excludes that resource from its own conflict list, and rejects the request outright when
+// either required member (Domain, DomainControlValidationResource) is missing or when the
+// referenced resource does not exist.
 func TestListDomainConflicts_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	const prefix = "/2020-05-31/"
 
 	tests := []struct {
-		setup    func(b *cloudfront.InMemoryBackend)
+		setup    func(b *cloudfront.InMemoryBackend) (domain, distID, tenantID string)
 		name     string
-		domain   string
+		bodyOvr  string // overrides the built body when non-empty; used for malformed-request cases
 		wantBody []string
 		wantNot  []string
 		wantCode int
 	}{
 		{
-			name:     "no_conflicts_returns_empty_list",
-			setup:    func(_ *cloudfront.InMemoryBackend) {},
-			domain:   "nonexistent.example.com",
+			name: "no_conflicts_returns_empty_list",
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
+				dist, err := b.CreateDistribution("ref-scope", "test", true, nil)
+				require.NoError(t, err)
+
+				return "nonexistent.example.com", dist.ID, ""
+			},
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "<DomainConflicts></DomainConflicts>"},
 		},
 		{
 			name: "conflict_via_distribution_alias",
-			setup: func(b *cloudfront.InMemoryBackend) {
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
 				dist, err := b.CreateDistribution("ref-1", "test", true, nil)
 				require.NoError(t, err)
 				err = b.AssociateAlias(dist.ID, "conflict.example.com")
 				require.NoError(t, err)
+
+				scope, err := b.CreateDistribution("ref-1-scope", "test", true, nil)
+				require.NoError(t, err)
+
+				return "conflict.example.com", scope.ID, ""
 			},
-			domain:   "conflict.example.com",
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "conflict.example.com"},
 			wantNot:  []string{"<DomainConflicts></DomainConflicts>"},
 		},
 		{
 			name: "conflict_via_distribution_tenant_domain",
-			setup: func(b *cloudfront.InMemoryBackend) {
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
 				dist, err := b.CreateDistribution("ref-2", "test", true, nil)
 				require.NoError(t, err)
 				_, err = b.CreateDistributionTenant(
 					dist.ID, "tenant-domain-tenant", []string{"tenant-domain.example.com"}, nil,
 				)
 				require.NoError(t, err)
+
+				scope, err := b.CreateDistribution("ref-2-scope", "test", true, nil)
+				require.NoError(t, err)
+
+				return "tenant-domain.example.com", scope.ID, ""
 			},
-			domain:   "tenant-domain.example.com",
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "tenant-domain.example.com"},
 			wantNot:  []string{"<DomainConflicts></DomainConflicts>"},
 		},
 		{
-			name:     "empty_domain_returns_empty_list",
-			setup:    func(_ *cloudfront.InMemoryBackend) {},
-			domain:   "",
+			name: "scoping_to_the_claiming_distribution_excludes_it",
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
+				dist, err := b.CreateDistribution("ref-3", "test", true, nil)
+				require.NoError(t, err)
+				err = b.AssociateAlias(dist.ID, "self-scoped.example.com")
+				require.NoError(t, err)
+
+				return "self-scoped.example.com", dist.ID, ""
+			},
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "<DomainConflicts></DomainConflicts>"},
+		},
+		{
+			name: "scoping_to_the_claiming_tenant_excludes_it",
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
+				dist, err := b.CreateDistribution("ref-4", "test", true, nil)
+				require.NoError(t, err)
+				tenant, err := b.CreateDistributionTenant(
+					dist.ID, "self-scoped-tenant", []string{"self-scoped-tenant.example.com"}, nil,
+				)
+				require.NoError(t, err)
+
+				return "self-scoped-tenant.example.com", "", tenant.ID
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{"DomainConflictList", "<DomainConflicts></DomainConflicts>"},
+		},
+		{
+			name: "missing_domain_rejected",
+			bodyOvr: `<ListDomainConflictsRequest><DomainControlValidationResource>` +
+				`<DistributionId>d-x</DistributionId></DomainControlValidationResource>` +
+				`</ListDomainConflictsRequest>`,
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidArgument"},
+		},
+		{
+			name:     "missing_validation_resource_rejected",
+			bodyOvr:  `<ListDomainConflictsRequest><Domain>whatever.example.com</Domain></ListDomainConflictsRequest>`,
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidArgument"},
+		},
+		{
+			name: "both_distribution_and_tenant_id_rejected",
+			bodyOvr: `<ListDomainConflictsRequest><Domain>whatever.example.com</Domain>` +
+				`<DomainControlValidationResource><DistributionId>d-x</DistributionId>` +
+				`<DistributionTenantId>dt-x</DistributionTenantId></DomainControlValidationResource>` +
+				`</ListDomainConflictsRequest>`,
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidArgument"},
+		},
+		{
+			name:     "unknown_validation_resource_not_found",
+			bodyOvr:  listDomainConflictsBody("whatever.example.com", "does-not-exist", ""),
+			wantCode: http.StatusNotFound,
+			wantBody: []string{"EntityNotFound"},
 		},
 	}
 
@@ -556,16 +622,17 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend(t)
-			tt.setup(b)
-			h := cloudfront.NewHandler(b)
 
-			path := prefix + "domain-conflicts"
-			if tt.domain != "" {
-				path += "?Domain=" + tt.domain
+			body := tt.bodyOvr
+			if tt.setup != nil {
+				domain, distID, tenantID := tt.setup(b)
+				body = listDomainConflictsBody(domain, distID, tenantID)
 			}
 
-			rec := cfRequest(t, h, http.MethodPost, path, "")
-			assert.Equal(t, tt.wantCode, rec.Code)
+			h := cloudfront.NewHandler(b)
+
+			rec := cfRequest(t, h, http.MethodPost, prefix+"domain-conflicts", body)
+			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
 			for _, want := range tt.wantBody {
 				assert.Contains(t, rec.Body.String(), want)
 			}

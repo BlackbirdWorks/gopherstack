@@ -774,7 +774,7 @@ func notFoundCodeExtended(err error) (string, bool) {
 	case errors.Is(err, ErrRealtimeLogConfigNotFound):
 		return "NoSuchRealtimeLogConfig", true
 	case errors.Is(err, ErrKeyValueStoreNotFound):
-		return "EntityNotFound", true
+		return codeEntityNotFound, true
 	case errors.Is(err, ErrVpcOriginNotFound):
 		return "NoSuchVpcOrigin", true
 	case errors.Is(err, ErrDistributionTenantNotFound):
@@ -784,9 +784,11 @@ func notFoundCodeExtended(err error) (string, bool) {
 	case errors.Is(err, ErrTrustStoreNotFound):
 		return "NoSuchTrustStore", true
 	case errors.Is(err, ErrResourcePolicyNotFound):
-		return "EntityNotFound", true
+		return codeEntityNotFound, true
 	case errors.Is(err, ErrMonitoringSubscriptionNotFound):
 		return "NoSuchMonitoringSubscription", true
+	case errors.Is(err, ErrDomainControlValidationResourceNotFound):
+		return codeEntityNotFound, true
 	}
 
 	return "", false

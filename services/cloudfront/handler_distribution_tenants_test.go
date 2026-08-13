@@ -85,30 +85,50 @@ func TestCreateDistributionTenant_DomainConflict_WithDistributionAlias(t *testin
 	}
 }
 
+// domainConflictsList decodes with the real deserializer's element names
+// (awsRestxml_deserializeDocumentDomainConflictsList, cloudfront@v1.67.4): the list wrapper AND
+// each entry are both named <DomainConflicts>, not <Items>/<DomainConflict>.
+type domainConflictsList struct {
+	DomainConflicts struct {
+		Entries []struct {
+			ResourceID string `xml:"ResourceId"`
+		} `xml:"DomainConflicts"`
+	} `xml:"DomainConflicts"`
+}
+
+// listDomainConflictsBody builds a real ListDomainConflictsRequest body, scoped to either a
+// distribution or a distribution tenant (DomainControlValidationResource -- both members of
+// ListDomainConflictsInput are independently required per api_op_ListDomainConflicts.go:73-77).
+func listDomainConflictsBody(domain, distID, tenantID string) string {
+	var resource string
+	if distID != "" {
+		resource = "<DistributionId>" + distID + "</DistributionId>"
+	} else {
+		resource = "<DistributionTenantId>" + tenantID + "</DistributionTenantId>"
+	}
+
+	return `<ListDomainConflictsRequest><Domain>` + domain + `</Domain>` +
+		`<DomainControlValidationResource>` + resource + `</DomainControlValidationResource>` +
+		`</ListDomainConflictsRequest>`
+}
+
 // TestListDomainConflicts_RealConflicts verifies ListDomainConflicts returns actual conflicting
-// resources for a claimed domain and an empty list for an unclaimed one.
+// resources for a claimed domain (scoped to an unrelated resource) and an empty list both for an
+// unclaimed domain and when scoped to the very resource that claims the domain -- real AWS
+// excludes DomainControlValidationResource's own resource from its conflict list.
 func TestListDomainConflicts_RealConflicts(t *testing.T) {
 	t.Parallel()
 
 	h := newCFHandler(t)
 	tenantID := createTestTenant(t, h, "dist-conflicts", "claimed.example.com")
 
+	other, err := h.Backend.CreateDistribution("other-ref", "unrelated", true, nil)
+	require.NoError(t, err)
+
 	rr := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflicts",
-		`<ListDomainConflictsRequest><Domain>claimed.example.com</Domain></ListDomainConflictsRequest>`)
+		listDomainConflictsBody("claimed.example.com", other.ID, ""))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	// Decode with the real deserializer's element names
-	// (awsRestxml_deserializeDocumentDomainConflictsList,
-	// cloudfront@v1.67.4): the list wrapper AND each entry are both named
-	// <DomainConflicts>, not <Items>/<DomainConflict>.
-	type domainConflictsList struct {
-		DomainConflicts struct {
-			Entries []struct {
-				ResourceID string `xml:"ResourceId"`
-			} `xml:"DomainConflicts"`
-		} `xml:"DomainConflicts"`
 	}
 
 	var parsed domainConflictsList
@@ -117,11 +137,21 @@ func TestListDomainConflicts_RealConflicts(t *testing.T) {
 	assert.Equal(t, tenantID, parsed.DomainConflicts.Entries[0].ResourceID)
 
 	rr2 := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflicts",
-		`<ListDomainConflictsRequest><Domain>unclaimed.example.com</Domain></ListDomainConflictsRequest>`)
+		listDomainConflictsBody("unclaimed.example.com", other.ID, ""))
 
 	var parsed2 domainConflictsList
 	require.NoError(t, xml.Unmarshal(rr2.Body.Bytes(), &parsed2))
 	assert.Empty(t, parsed2.DomainConflicts.Entries)
+
+	// Scoping the check to the tenant that itself claims the domain excludes it: real AWS
+	// interprets DomainControlValidationResource as "the resource with a valid certificate for
+	// this domain," not as a resource to flag as a conflict against itself.
+	rr3 := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflicts",
+		listDomainConflictsBody("claimed.example.com", "", tenantID))
+
+	var parsed3 domainConflictsList
+	require.NoError(t, xml.Unmarshal(rr3.Body.Bytes(), &parsed3))
+	assert.Empty(t, parsed3.DomainConflicts.Entries)
 }
 
 // TestListDistributionTenantsByCustomization_FiltersByWebACL verifies that the customization
