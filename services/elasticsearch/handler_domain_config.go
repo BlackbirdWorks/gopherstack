@@ -432,8 +432,18 @@ type describeDomainConfigOutput struct {
 	DomainConfig domainConfigFields `json:"DomainConfig"`
 }
 
+// cancelDomainConfigChangeRequest is the request body for CancelDomainConfigChange.
+type cancelDomainConfigChangeRequest struct {
+	DryRun *bool `json:"DryRun"`
+}
+
 func (h *Handler) handleCancelDomainConfigChange(w http.ResponseWriter, r *http.Request, domainName string) {
-	d, err := h.Backend.CancelDomainConfigChange(h.reqContext(r), domainName)
+	var req cancelDomainConfigChangeRequest
+	if !h.decodeRequest(w, r, &req) {
+		return
+	}
+
+	_, err := h.Backend.CancelDomainConfigChange(h.reqContext(r), domainName)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
@@ -444,7 +454,16 @@ func (h *Handler) handleCancelDomainConfigChange(w http.ResponseWriter, r *http.
 		return
 	}
 
-	h.writeJSON(r, w, buildDomainConfigOutput(d))
+	dryRun := false
+	if req.DryRun != nil {
+		dryRun = *req.DryRun
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"CancelledChangeIds":        []string{},
+		"CancelledChangeProperties": []any{},
+		"DryRun":                    dryRun,
+	})
 }
 
 func (h *Handler) handleDescribeDomainAutoTunes(w http.ResponseWriter, r *http.Request, domainName string) {

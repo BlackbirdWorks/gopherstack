@@ -6,9 +6,12 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticsearch
 sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.45.4
-last_audit_commit: 59ab8f6a
-last_audit_date: 2026-08-10
-overall: A            # follow-up pass (gopherstack-toz8): SAMLOptions/MaintenanceSchedules/DeploymentStrategyOptions/Package timestamps closed; VPCOptions VPCId/AvailabilityZones and Processing remain documented gaps -- see Notes
+last_audit_commit: 8dc21e834
+last_audit_date: 2026-08-13
+overall: A            # gopherstack-p2mx pass: fixed CancelDomainConfigChange's borrowed-shape response and
+                       # CreateVpcEndpoint/UpdateVpcEndpoint's VpcOptions map[string]string that made every
+                       # real-SDK-client request 400 -- see Notes. Route audit (51/51) reconfirmed, no new
+                       # routing bugs. VPCOptions VPCId/AvailabilityZones and Processing remain documented gaps
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -19,7 +22,7 @@ ops:
   ListDomainNames: {wire: ok, errors: ok, state: ok, persist: ok, note: "route bug fixed this pass -- was served at the wrong path; see Notes"}
   UpdateElasticsearchDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10 pass added AdvancedSecurityOptions.SAMLOptions, AutoTuneOptions.MaintenanceSchedules, and DeploymentStrategyOptions; see Notes"}
   DescribeElasticsearchDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10 pass fixed AutoTuneOptions.Options/Status to use their real distinct shapes (types.AutoTuneOptions/types.AutoTuneStatus, not the DomainStatus response's AutoTuneOptionsOutput/generic OptionStatus) and added MaintenanceSchedules + DeploymentStrategyOptions; see Notes"}
-  CancelDomainConfigChange: {wire: ok, errors: ok, state: ok, persist: ok, note: "synchronous backend, so this is correctly a no-op read-back"}
+  CancelDomainConfigChange: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-p2mx) -- was echoing DescribeElasticsearchDomainConfig's DomainConfig-wrapped body (a borrowed shape, wrong operation entirely) instead of CancelDomainConfigChangeOutput's own {CancelledChangeIds,CancelledChangeProperties,DryRun}; DryRun was also never read from the request. Now returns the real shape: empty CancelledChangeIds/CancelledChangeProperties (this backend has no pending-change queue -- every config change already applied synchronously, so there is truly nothing to report as cancelled) and DryRun echoed from the request. Prior wire: ok was false; the old unit test asserted the wrong (bug-matching) shape and was corrected alongside the fix"}
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -44,11 +47,11 @@ ops:
   GetPackageVersionHistory: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListDomainsForPackage: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListPackagesForDomain: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CreateVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateVpcEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-p2mx) -- request/response VpcOptions was map[string]string; real wire shape is types.VPCOptions/{SecurityGroupIds,SubnetIds} (request) and types.VPCDerivedInfo (response, same two fields plus unmodeled AvailabilityZones/VPCId -- matches the identical domain-level VPCOptions simplification). A real SDK client always serializes VpcOptions as {SecurityGroupIds:[...],SubnetIds:[...]}, so json.Unmarshal into map[string]string failed on every real call with a security group or subnet -- CreateVpcEndpoint 400'd unconditionally for any non-toy client. Reused the already-correct vpcOptionsRequestJSON/vpcDerivedInfoJSON/toVPCDerivedInfoJSON machinery built for domain-level VPCOptions (handler_domains.go) -- CreateVpcEndpointInput.VpcOptions is the literal same SDK type. Prior wire: ok was false; existing unit tests asserted the broken shape (flat VpcId/SubnetId keys) and were corrected. Proven via a real aws-sdk-go-v2 client round-trip (handler_sdk_roundtrip_test.go), verified to fail against the unfixed code by hand-revert"}
   DescribeVpcEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListVpcEndpoints: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — dropped required NextToken (ListVpcEndpointsOutput, deserializers.go). Single-page emulator (never truncated) so no data is lost, but a required pointer left nil could panic a client that dereferences it unconditionally; now always emitted as an empty string. Prior wire: ok was false"}
   ListVpcEndpointsForDomain: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — same required-NextToken gap and fix as ListVpcEndpoints above. Prior wire: ok was false"}
-  UpdateVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateVpcEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-p2mx) -- same VpcOptions map[string]string bug and fix as CreateVpcEndpoint above. Prior wire: ok was false"}
   DeleteVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   AuthorizeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   RevokeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -99,6 +102,118 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/R
 ## Notes
 
 Protocol: **restjson1**. Base path prefix `/2015-01-01/`.
+
+### 2026-08-13 pass (gopherstack-p2mx): first full audit + two real bugs found and fixed
+
+This issue was filed on the premise that `services/elasticsearch` had **no** PARITY.md
+at all. That premise was false by the time this pass started: the file already existed
+(added by the 2026-07-12/07-24/08-10 passes above, `last_audit_commit: 59ab8f6a`,
+graded A) and was current -- it already reflected the `0190c00b0`
+NextToken fix on `ListVpcEndpoints`/`ListVpcEndpointAccess`/`ListVpcEndpointsForDomain`.
+Rather than skip the pass on that basis, this session treated the existing file as a
+baseline to re-verify (per parity-principles.md's own re-audit protocol) instead of
+trusting it blind, and found two real bugs the prior passes' route-level and
+field-level checks had missed:
+
+1. **`CancelDomainConfigChange` was returning the wrong operation's response shape**
+   (`handler_domain_config.go`, previously line ~447) -- a textbook instance of the
+   "operation reimplemented as a different operation entirely" bug class. The handler
+   called `buildDomainConfigOutput(d)`, which builds `{"DomainConfig": {...}}` --
+   the `DescribeElasticsearchDomainConfig`/`UpdateElasticsearchDomainConfig` response
+   shape. Real `CancelDomainConfigChangeOutput`
+   (confirmed via `awsRestjson1_deserializeOpDocumentCancelDomainConfigChangeOutput`,
+   deserializers.go:747) is `{CancelledChangeIds: []string, CancelledChangeProperties:
+   []types.CancelledChangeProperty, DryRun: *bool}` -- an entirely different shape with
+   no overlapping keys. None of the three real fields are required, so a real SDK
+   client wouldn't panic (restjson1 ignores unknown response keys and leaves absent
+   optional fields nil) -- but it would silently get `CancelledChangeIds`,
+   `CancelledChangeProperties`, and `DryRun` as permanently nil/false regardless of
+   what it asked for, and the request's own `DryRun` member was never read at all. The
+   existing unit test (`TestElasticsearchHandler_CancelDomainConfigChange`) asserted
+   the wrong (bug-matching) shape -- `wantContains: []string{"DomainConfig",
+   "ElasticsearchVersion"}` -- so it passed green against the bug, another instance of
+   parity-principles.md rule 3. Fixed: the handler now reads `DryRun` from the request
+   body and returns the real shape with empty `CancelledChangeIds`/
+   `CancelledChangeProperties` (this backend has no pending-config-change queue --
+   every change already applies synchronously, so "nothing is ever pending to cancel"
+   is the honest answer, not a stub) and `DryRun` echoed from the request. Test
+   corrected to assert the real keys; a new `Test_SDKRoundTrip_CancelDomainConfigChange`
+   (`handler_sdk_roundtrip_test.go`) drives the real SDK client and asserts `DryRun`
+   round-trips, verified to fail against the unfixed code by hand-revert.
+
+2. **`CreateVpcEndpoint`/`UpdateVpcEndpoint`'s `VpcOptions` was `map[string]string`**
+   (`models.go`, `vpc_endpoints.go`, `handler_vpc_endpoints.go`) instead of the real
+   `types.VPCOptions` shape (`{SecurityGroupIds: []string, SubnetIds: []string}`,
+   confirmed via `awsRestjson1_serializeDocumentVPCOptions`, serializers.go:5038, and
+   `awsRestjson1_deserializeDocumentVPCDerivedInfo` for the response side,
+   deserializers.go:15133). This is a client-breaking bug, not a cosmetic one: a real
+   `aws-sdk-go-v2` client always serializes `VpcOptions` as
+   `{"SecurityGroupIds":["sg-..."],"SubnetIds":["subnet-..."]}` -- decoding that into
+   `map[string]string` fails outright (`json: cannot unmarshal array into Go value of
+   type string`), so `CreateVpcEndpoint` 400'd with `ValidationException: invalid JSON
+   body` for *every* real caller that supplied a security group or subnet, which is to
+   say every real caller. `test/integration/elasticsearch_test.go`'s
+   `TestIntegration_Elasticsearch_VpcEndpointList_NextToken` even carried a comment
+   noting this as a known, out-of-scope, unfixed bug ("gopherstack-elsewhere") -- it
+   was in scope for this pass and is now fixed. The fix reuses the
+   `vpcOptionsRequestJSON`/`vpcDerivedInfoJSON`/`toVPCDerivedInfoJSON` machinery
+   `handler_domains.go` already built for domain-level `VPCOptions`, since
+   `CreateVpcEndpointInput.VpcOptions` is the literal same SDK type
+   (`*types.VPCOptions`) -- no new wire-shape modeling was needed, just correcting
+   which existing shape this operation used. `models.go`'s `VpcEndpoint.VpcOptions`
+   field changed from `map[string]string` to the existing `VPCOptions` model type;
+   `vpc_endpoints.go`'s deep-copy helper and `store.go`'s `vpcEndpointCopy` were
+   updated to clone the two slices instead of a map. `AvailabilityZones`/`VPCId` on the
+   response (`types.VPCDerivedInfo`'s other two members) are left unmodeled, matching
+   the identical, already-accepted domain-level VPCOptions simplification (see gaps
+   below) -- not a new gap, the same one extended to a second operation pair that
+   shares the type. Existing unit tests asserted the broken flat-key shape (`VpcId`,
+   `SubnetId` as top-level string values) and were corrected to the real
+   `SecurityGroupIds`/`SubnetIds` array shape. A new
+   `Test_SDKRoundTrip_CreateVpcEndpoint_VpcOptions` (`handler_sdk_roundtrip_test.go`)
+   drives the real SDK client with a real `types.VPCOptions` request and asserts the
+   response round-trips both fields; verified to fail against the unfixed code
+   (`ValidationException: invalid JSON body`) by hand-revert.
+
+**Not a bug, documented for the next auditor**: `ListVpcEndpoints`/
+`ListVpcEndpointsForDomain` return the same `vpcEndpointJSON` shape (including
+`Endpoint` and `VpcOptions`) for every list entry, but the real
+`ListVpcEndpointsOutput.VpcEndpointSummaryList` is `[]types.VpcEndpointSummary`, a
+narrower shape with only `DomainArn`/`Status`/`VpcEndpointId`/`VpcEndpointOwner` --
+no `Endpoint` or `VpcOptions`. restjson1 clients ignore unknown response keys, so this
+is inert (proven by the existing `ListVpcEndpoints`/`ListVpcEndpointAccess` SDK
+round-trip test continuing to pass unmodified), but it's excess surface a future change
+to `vpcEndpointJSON` could accidentally turn into a real bug. Left as-is this pass
+(not required-field-related, not client-breaking) but worth tightening in a future
+pass. Same observation applies to `DeleteVpcEndpoint`'s `VpcEndpointSummary` response.
+
+**Route audit reconfirmed, not repeated from scratch**: the bd issue this pass closes
+(gopherstack-p2mx) cited a prior route audit (gopherstack-4nek) that traced all 51 ops
+in `buildOps()` plus all three prefix-router chains in `handler.go` against the SDK's
+`serializers.go` method/path pairs, 51/51 match, zero routing bugs -- see "Route audit
+method" below, which predates this pass and was spot-checked (not re-run end-to-end)
+against the two ops touched here; both were already correctly routed.
+
+**Bug-class coverage for this pass**: class 3 (borrowed shapes/behaviour) accounted for
+both bugs found -- `CancelDomainConfigChange` borrowed a different operation's entire
+response shape, and `CreateVpcEndpoint`/`UpdateVpcEndpoint` borrowed the wrong Go type
+for a field two operations happen to share with domain-level `VPCOptions`. Spot-checked
+for classes 1/2/4 (required-input-never-read, required-output-never-populated,
+empty-struct inputs) across `PurchaseReservedElasticsearchInstanceOffering`,
+`CreateOutboundCrossClusterSearchConnection`, `AuthorizeVpcEndpointAccess`,
+`RevokeVpcEndpointAccess`, the four inbound/outbound connection lifecycle ops,
+`UpgradeElasticsearchDomain`, `StartElasticsearchServiceSoftwareUpdate`, and all
+no-required-input read-only ops (`GetCompatibleElasticsearchVersions`,
+`ListElasticsearchVersions`, `ListElasticsearchInstanceTypes`,
+`DescribeElasticsearchInstanceTypeLimits`, `GetPackageVersionHistory`,
+`ListDomainsForPackage`, `ListPackagesForDomain`, `DescribeDomainAutoTunes`,
+`DescribeDomainChangeProgress`, `GetUpgradeHistory`, `GetUpgradeStatus`,
+`CancelElasticsearchServiceSoftwareUpdate`, `DeleteElasticsearchServiceRole`) --
+none had unread required inputs, unpopulated required outputs, or `struct{}`-typed
+inputs hiding real required members. `CreateElasticsearchDomain`/
+`UpdateElasticsearchDomainConfig`/`CreatePackage` were not re-audited field-by-field
+this pass (already exhaustively covered by the 2026-07-24/08-10 passes above, files
+unchanged since `59ab8f6a`) per the manifest's own re-audit protocol.
 
 ### 2026-08-10 pass (gopherstack-toz8 follow-up): SAMLOptions, MaintenanceSchedules, DeploymentStrategyOptions, Package timestamps
 

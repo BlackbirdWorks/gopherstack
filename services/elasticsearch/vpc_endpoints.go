@@ -3,14 +3,22 @@ package elasticsearch
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 )
+
+// vpcOptionsCopy deep-copies a VPCOptions so the stored value is independent
+// of the caller's slices.
+func vpcOptionsCopy(v VPCOptions) VPCOptions {
+	return VPCOptions{
+		SubnetIDs:        slices.Clone(v.SubnetIDs),
+		SecurityGroupIDs: slices.Clone(v.SecurityGroupIDs),
+	}
+}
 
 // CreateVpcEndpoint creates a managed VPC endpoint for an Elasticsearch domain.
 // The endpoint's region is resolved from the domain ARN, falling back to ctx.
 func (b *InMemoryBackend) CreateVpcEndpoint(
-	ctx context.Context, domainARN string, vpcOptions map[string]string,
+	ctx context.Context, domainARN string, vpcOptions VPCOptions,
 ) (*VpcEndpoint, error) {
 	if domainARN == "" {
 		return nil, fmt.Errorf("%w: DomainArn is required", ErrValidation)
@@ -20,10 +28,6 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 	b.mu.Lock("CreateVpcEndpoint")
 	defer b.mu.Unlock()
 
-	// Deep-copy vpcOptions so the stored map is independent of the caller's map.
-	optsCopy := make(map[string]string, len(vpcOptions))
-	maps.Copy(optsCopy, vpcOptions)
-
 	id := fmt.Sprintf("vpc-endpoint-%010d", b.nextIDLocked())
 	endpoint := &VpcEndpoint{
 		ID:             id,
@@ -31,7 +35,7 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 		DomainARN:      domainARN,
 		Endpoint:       fmt.Sprintf("vpc-%s.%s.es.amazonaws.com", id, region),
 		Status:         statusActive,
-		VpcOptions:     optsCopy,
+		VpcOptions:     vpcOptionsCopy(vpcOptions),
 		region:         region,
 	}
 	b.vpcEndpointPut(endpoint)
@@ -183,7 +187,7 @@ func (b *InMemoryBackend) RevokeVpcEndpointAccess(ctx context.Context, domainNam
 
 // UpdateVpcEndpoint updates the VPC options of a VPC endpoint.
 func (b *InMemoryBackend) UpdateVpcEndpoint(
-	ctx context.Context, vpcEndpointID string, vpcOptions map[string]string,
+	ctx context.Context, vpcEndpointID string, vpcOptions VPCOptions,
 ) (*VpcEndpoint, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("UpdateVpcEndpoint")
@@ -194,9 +198,7 @@ func (b *InMemoryBackend) UpdateVpcEndpoint(
 		return nil, fmt.Errorf("%w: VPC endpoint %s not found", ErrVpcEndpointNotFound, vpcEndpointID)
 	}
 
-	newOpts := make(map[string]string, len(vpcOptions))
-	maps.Copy(newOpts, vpcOptions)
-	endpoint.VpcOptions = newOpts
+	endpoint.VpcOptions = vpcOptionsCopy(vpcOptions)
 
 	return vpcEndpointCopy(endpoint), nil
 }

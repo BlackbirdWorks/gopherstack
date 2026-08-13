@@ -35,7 +35,9 @@ func TestElasticsearchHandler_ExportCountHelpers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.PackageCount())
 
-	_, err = b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/cnt-domain", nil)
+	_, err = b.CreateVpcEndpoint(
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/cnt-domain", elasticsearch.VPCOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.VpcEndpointCount())
 
@@ -72,7 +74,9 @@ func TestElasticsearchHandler_ResetClearsAllMaps(t *testing.T) {
 		elasticsearch.PackageSource{S3BucketName: "b", S3Key: "k"})
 	require.NoError(t, err)
 
-	_, err = b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/reset-dom", nil)
+	_, err = b.CreateVpcEndpoint(
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/reset-dom", elasticsearch.VPCOptions{},
+	)
 	require.NoError(t, err)
 
 	b.AddInboundConnectionInternal(context.Background(), elasticsearch.InboundConnection{ConnectionID: "c1"})

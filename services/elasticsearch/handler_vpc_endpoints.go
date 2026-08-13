@@ -13,20 +13,27 @@ import (
 // marker on ListVpcEndpoints/ListVpcEndpointAccess/ListVpcEndpointsForDomain.
 const keyNextToken = "NextToken"
 
-// vpcEndpointJSON is the JSON representation of a VPC endpoint.
+// vpcEndpointJSON is the JSON representation of a VPC endpoint. VpcOptions
+// uses the response-shape VPCDerivedInfo (types.VpcEndpoint.VpcOptions),
+// the same shape the domain-level VPCOptions response already uses --
+// AvailabilityZones/VPCId are never populated, see VPCOptions's doc comment
+// in models.go.
 type vpcEndpointJSON struct {
-	VpcOptions       map[string]string `json:"VpcOptions"`
-	VpcEndpointID    string            `json:"VpcEndpointId"`
-	VpcEndpointOwner string            `json:"VpcEndpointOwner"`
-	DomainArn        string            `json:"DomainArn"`
-	Endpoint         string            `json:"Endpoint"`
-	Status           string            `json:"Status"`
+	VpcOptions       *vpcDerivedInfoJSON `json:"VpcOptions,omitempty"`
+	VpcEndpointID    string              `json:"VpcEndpointId"`
+	VpcEndpointOwner string              `json:"VpcEndpointOwner"`
+	DomainArn        string              `json:"DomainArn"`
+	Endpoint         string              `json:"Endpoint"`
+	Status           string              `json:"Status"`
 }
 
-// createVpcEndpointRequest is the JSON body for CreateVpcEndpoint.
+// createVpcEndpointRequest is the JSON body for CreateVpcEndpoint. VpcOptions
+// reuses the request-shape VPCOptions (types.VPCOptions) already modeled for
+// domain-level VPCOptions -- CreateVpcEndpointInput.VpcOptions is the exact
+// same SDK type.
 type createVpcEndpointRequest struct {
-	VpcOptions map[string]string `json:"VpcOptions"`
-	DomainArn  string            `json:"DomainArn"`
+	VpcOptions *vpcOptionsRequestJSON `json:"VpcOptions"`
+	DomainArn  string                 `json:"DomainArn"`
 }
 
 // createVpcEndpointOutput wraps the new VPC endpoint.
@@ -49,7 +56,9 @@ func (h *Handler) handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	endpoint, createErr := h.Backend.CreateVpcEndpoint(h.reqContext(r), req.DomainArn, req.VpcOptions)
+	endpoint, createErr := h.Backend.CreateVpcEndpoint(
+		h.reqContext(r), req.DomainArn, vpcOptionsFromRequest(req.VpcOptions),
+	)
 	if createErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", createErr.Error())
 
@@ -59,6 +68,16 @@ func (h *Handler) handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request
 	h.writeJSON(r, w, createVpcEndpointOutput{VpcEndpoint: toVpcEndpointJSON(endpoint)})
 }
 
+// vpcOptionsFromRequest converts the request-shape VpcOptions to its backend
+// storage form, treating an absent VpcOptions as the zero value.
+func vpcOptionsFromRequest(j *vpcOptionsRequestJSON) VPCOptions {
+	if j == nil {
+		return VPCOptions{}
+	}
+
+	return VPCOptions{SubnetIDs: j.SubnetIDs, SecurityGroupIDs: j.SecurityGroupIDs}
+}
+
 func toVpcEndpointJSON(e *VpcEndpoint) vpcEndpointJSON {
 	return vpcEndpointJSON{
 		VpcEndpointID:    e.ID,
@@ -66,7 +85,7 @@ func toVpcEndpointJSON(e *VpcEndpoint) vpcEndpointJSON {
 		DomainArn:        e.DomainARN,
 		Endpoint:         e.Endpoint,
 		Status:           e.Status,
-		VpcOptions:       e.VpcOptions,
+		VpcOptions:       toVPCDerivedInfoJSON(&e.VpcOptions),
 	}
 }
 
@@ -135,14 +154,16 @@ func (h *Handler) handleDescribeVpcEndpoints(w http.ResponseWriter, r *http.Requ
 
 func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		VpcOptions    map[string]string `json:"VpcOptions"`
-		VpcEndpointID string            `json:"VpcEndpointId"`
+		VpcOptions    *vpcOptionsRequestJSON `json:"VpcOptions"`
+		VpcEndpointID string                 `json:"VpcEndpointId"`
 	}
 	if !h.decodeRequest(w, r, &req) {
 		return
 	}
 
-	endpoint, err := h.Backend.UpdateVpcEndpoint(h.reqContext(r), req.VpcEndpointID, req.VpcOptions)
+	endpoint, err := h.Backend.UpdateVpcEndpoint(
+		h.reqContext(r), req.VpcEndpointID, vpcOptionsFromRequest(req.VpcOptions),
+	)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 

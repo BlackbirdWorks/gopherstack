@@ -151,7 +151,7 @@ func TestElasticsearchHandler_CancelDomainConfigChange(t *testing.T) {
 				r.Body.Close()
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DomainConfig", "ElasticsearchVersion"},
+			wantContains: []string{"CancelledChangeIds", "CancelledChangeProperties", "DryRun"},
 		},
 		{
 			name:       "not_found",

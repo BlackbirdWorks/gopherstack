@@ -416,7 +416,7 @@ func cloneLogPublishingOptions(v map[string]LogPublishingOption) map[string]LogP
 
 func vpcEndpointCopy(endpoint *VpcEndpoint) *VpcEndpoint {
 	cp := *endpoint
-	cp.VpcOptions = maps.Clone(endpoint.VpcOptions)
+	cp.VpcOptions = vpcOptionsCopy(endpoint.VpcOptions)
 	cp.AuthorizedAccts = slices.Clone(endpoint.AuthorizedAccts)
 
 	return &cp
