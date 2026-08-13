@@ -15,13 +15,23 @@ import (
 // SelectAggregateResourceConfig), so each identifier is resolved against
 // b.resourceConfigs (populated by PutResourceConfig) instead of being
 // blanket-reported unprocessed; only identifiers with no matching discovered
-// resource are unprocessed.
+// resource are unprocessed -- a missing resource is never an error for this
+// op (verified against aws-sdk-go-v2/service/configservice's
+// BatchGetAggregateResourceConfig deserializer, which declares
+// NoSuchConfigurationAggregatorException but no ResourceNotDiscovered-style
+// exception; real AWS reports it via UnprocessedResourceIdentifiers instead).
+// aggregatorName must name an existing aggregator
+// (NoSuchConfigurationAggregatorException), mirroring GetAggregateResourceConfig.
 func (b *InMemoryBackend) BatchGetAggregateResourceConfig(
-	_ string,
+	aggregatorName string,
 	identifiers []AggregateResourceIdentifier,
-) ([]BaseConfigurationItem, []AggregateResourceIdentifier) {
+) ([]BaseConfigurationItem, []AggregateResourceIdentifier, error) {
 	b.mu.RLock("BatchGetAggregateResourceConfig")
 	defer b.mu.RUnlock()
+
+	if err := b.requireAggregatorLocked(aggregatorName); err != nil {
+		return nil, nil, err
+	}
 
 	items := make([]BaseConfigurationItem, 0, len(identifiers))
 	unprocessed := make([]AggregateResourceIdentifier, 0, len(identifiers))
@@ -37,7 +47,7 @@ func (b *InMemoryBackend) BatchGetAggregateResourceConfig(
 		items = append(items, BaseConfigurationItem{ResourceType: item.ResourceType, ResourceID: item.ResourceID})
 	}
 
-	return items, unprocessed
+	return items, unprocessed, nil
 }
 
 // BatchGetResourceConfig returns configuration items for the requested resource

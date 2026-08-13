@@ -250,6 +250,59 @@ func TestIntegration_ECS_CreateService(t *testing.T) {
 	assert.Equal(t, "ACTIVE", aws.ToString(out.Service.Status))
 }
 
+func TestIntegration_ECS_ListServiceDeployments(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	clusterName := "lsd-cluster-" + suffix
+	family := "lsd-task-" + suffix
+	serviceName := "lsd-service-" + suffix
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	regOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String(family),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{Name: aws.String("app"), Image: aws.String("nginx:latest")},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateService(ctx, &ecs.CreateServiceInput{
+		ServiceName:    aws.String(serviceName),
+		Cluster:        aws.String(clusterName),
+		TaskDefinition: regOut.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:   aws.Int32(1),
+	})
+	require.NoError(t, err)
+
+	// A real client decodes ListServiceDeploymentsOutput.ServiceDeployments
+	// ([]types.ServiceDeploymentBrief) into typed struct fields, not the
+	// wire's bare-string-array shape this op used to emit -- so a non-nil,
+	// non-empty decode here proves the shape, not just the JSON keys.
+	out, err := client.ListServiceDeployments(ctx, &ecs.ListServiceDeploymentsInput{
+		Cluster: aws.String(clusterName),
+		Service: aws.String(serviceName),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.ServiceDeployments, 1)
+
+	brief := out.ServiceDeployments[0]
+	assert.NotEmpty(t, aws.ToString(brief.ServiceDeploymentArn))
+	assert.Contains(t, aws.ToString(brief.ClusterArn), clusterName)
+	assert.Contains(t, aws.ToString(brief.ServiceArn), serviceName)
+	assert.NotEmpty(t, brief.Status)
+	assert.NotNil(t, brief.CreatedAt)
+	assert.NotNil(t, brief.StartedAt)
+}
+
 func TestIntegration_ECS_DescribeServices(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)

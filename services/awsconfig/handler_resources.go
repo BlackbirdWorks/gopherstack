@@ -63,10 +63,13 @@ func (h *Handler) handleBatchGetAggregateResourceConfig(
 	_ context.Context,
 	in *batchGetAggregateResourceConfigInput,
 ) (*batchGetAggregateResourceConfigOutput, error) {
-	items, unprocessed := h.Backend.BatchGetAggregateResourceConfig(
+	items, unprocessed, err := h.Backend.BatchGetAggregateResourceConfig(
 		in.ConfigurationAggregatorName,
 		in.ResourceIdentifiers,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &batchGetAggregateResourceConfigOutput{
 		BaseConfigurationItems:         items,

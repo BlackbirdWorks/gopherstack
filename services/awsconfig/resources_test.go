@@ -12,7 +12,13 @@ import (
 func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 	t.Parallel()
 
+	withAggregator := func(t *testing.T, b *awsconfig.InMemoryBackend) {
+		t.Helper()
+		require.NoError(t, b.PutConfigurationAggregator("my-aggregator", nil, nil, nil))
+	}
+
 	tests := []struct {
+		wantErr              error
 		setup                func(t *testing.T, b *awsconfig.InMemoryBackend)
 		name                 string
 		aggregatorName       string
@@ -21,7 +27,16 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 		wantUnprocessedCount int
 	}{
 		{
+			name:           "unknown_aggregator_errors",
+			aggregatorName: "no-such-aggregator",
+			identifiers: []awsconfig.AggregateResourceIdentifier{
+				{ResourceID: "i-abc", ResourceType: "AWS::EC2::Instance"},
+			},
+			wantErr: awsconfig.ErrNoSuchAggregator,
+		},
+		{
 			name:           "undiscovered_resource_is_unprocessed",
+			setup:          withAggregator,
 			aggregatorName: "my-aggregator",
 			identifiers: []awsconfig.AggregateResourceIdentifier{
 				{
@@ -36,6 +51,7 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 		},
 		{
 			name:                 "empty_identifiers",
+			setup:                withAggregator,
 			aggregatorName:       "my-aggregator",
 			identifiers:          []awsconfig.AggregateResourceIdentifier{},
 			wantItemCount:        0,
@@ -45,6 +61,7 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 			name: "discovered_resource_is_returned",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
+				withAggregator(t, b)
 				require.NoError(t, b.PutResourceConfig("AWS::EC2::Instance", "i-abc", `{}`))
 			},
 			aggregatorName: "my-aggregator",
@@ -71,7 +88,16 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			items, unprocessed := b.BatchGetAggregateResourceConfig(tt.aggregatorName, tt.identifiers)
+			items, unprocessed, err := b.BatchGetAggregateResourceConfig(tt.aggregatorName, tt.identifiers)
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
 			assert.Len(t, items, tt.wantItemCount)
 			assert.Len(t, unprocessed, tt.wantUnprocessedCount)
 		})

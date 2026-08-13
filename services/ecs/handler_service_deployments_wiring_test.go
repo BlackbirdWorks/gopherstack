@@ -79,12 +79,12 @@ func TestECS_ServiceDeployments_RealDeploymentsAreVisible(t *testing.T) {
 			var listResp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 
-			arns, ok := listResp["serviceDeploymentArns"].([]any)
+			briefs, ok := listResp["serviceDeployments"].([]any)
 			require.True(t, ok)
-			require.GreaterOrEqualf(t, len(arns), tt.wantDeploymentMin,
-				"ListServiceDeployments returned %d ARNs, want at least %d", len(arns), tt.wantDeploymentMin)
+			require.GreaterOrEqualf(t, len(briefs), tt.wantDeploymentMin,
+				"ListServiceDeployments returned %d deployments, want at least %d", len(briefs), tt.wantDeploymentMin)
 
-			firstArn, ok := arns[0].(string)
+			firstArn, ok := briefs[0].(map[string]any)["serviceDeploymentArn"].(string)
 			require.True(t, ok)
 
 			rec = doECSRequest(t, h, "DescribeServiceDeployments", map[string]any{
@@ -147,7 +147,7 @@ func TestECS_ServiceDeployments_DeletedOnServiceDelete(t *testing.T) {
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 
-	arns, ok := listResp["serviceDeploymentArns"].([]any)
+	briefs, ok := listResp["serviceDeployments"].([]any)
 	require.True(t, ok)
-	assert.Empty(t, arns, "ServiceDeployment entries must be removed when their service is deleted")
+	assert.Empty(t, briefs, "ServiceDeployment entries must be removed when their service is deleted")
 }

@@ -5,16 +5,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAWSConfigHandler_BatchGetAggregateResourceConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body         any
-		name         string
-		wantContains []string
-		wantCode     int
+		body           any
+		name           string
+		wantContains   []string
+		wantCode       int
+		skipAggregator bool
 	}{
 		{
 			name: "returns_unprocessed_identifiers",
@@ -41,6 +43,23 @@ func TestAWSConfigHandler_BatchGetAggregateResourceConfig(t *testing.T) {
 			wantCode:     http.StatusOK,
 			wantContains: []string{"BaseConfigurationItems"},
 		},
+		{
+			name: "unknown_aggregator_errors",
+			body: map[string]any{
+				"ConfigurationAggregatorName": "no-such-aggregator",
+				"ResourceIdentifiers": []map[string]any{
+					{
+						"SourceAccountId": "000000000000",
+						"SourceRegion":    "us-east-1",
+						"ResourceId":      "i-1234567890abcdef0",
+						"ResourceType":    "AWS::EC2::Instance",
+					},
+				},
+			},
+			skipAggregator: true,
+			wantCode:       http.StatusNotFound,
+			wantContains:   []string{"NoSuchConfigurationAggregatorException"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -48,6 +67,13 @@ func TestAWSConfigHandler_BatchGetAggregateResourceConfig(t *testing.T) {
 			t.Parallel()
 
 			h := newTestAWSConfigHandler(t)
+			if !tt.skipAggregator {
+				seedRec := doAWSConfigRequest(t, h, "PutConfigurationAggregator", map[string]any{
+					"ConfigurationAggregatorName": "my-aggregator",
+				})
+				require.Equal(t, http.StatusOK, seedRec.Code)
+			}
+
 			rec := doAWSConfigRequest(t, h, "BatchGetAggregateResourceConfig", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 

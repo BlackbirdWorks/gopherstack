@@ -374,13 +374,14 @@ type Attribute struct {
 
 // ServiceDeployment represents an ECS service deployment.
 type ServiceDeployment struct {
-	CreatedAt            *time.Time `json:"createdAt,omitempty"`
-	UpdatedAt            *time.Time `json:"updatedAt,omitempty"`
-	ServiceDeploymentArn string     `json:"serviceDeploymentArn"`
-	ClusterArn           string     `json:"clusterArn"`
-	ServiceArn           string     `json:"serviceArn"`
-	Status               string     `json:"status"`
-	StatusReason         string     `json:"statusReason,omitempty"`
+	CreatedAt                *time.Time `json:"createdAt,omitempty"`
+	UpdatedAt                *time.Time `json:"updatedAt,omitempty"`
+	ServiceDeploymentArn     string     `json:"serviceDeploymentArn"`
+	ClusterArn               string     `json:"clusterArn"`
+	ServiceArn               string     `json:"serviceArn"`
+	Status                   string     `json:"status"`
+	StatusReason             string     `json:"statusReason,omitempty"`
+	TargetServiceRevisionArn string     `json:"targetServiceRevisionArn,omitempty"`
 }
 
 // ExpressGatewayServiceNetworkConfiguration is the VPC network configuration

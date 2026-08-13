@@ -31,7 +31,7 @@ ops:
   UpdateServicePrimaryTaskSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeServiceRevisions: {wire: ok, errors: ok, state: ok, persist: ok, note: "derived on read from Service.Deployments, not separately stored — intentional (see Notes)"}
   DescribeServiceDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "was a disguised stub: filtered a map only the AddServiceDeploymentInternal test seed ever populated. Fixed by syncServiceDeploymentsLocked."}
-  ListServiceDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeServiceDeployments"}
+  ListServiceDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-7ux2): returned a wholly wrong shape -- a bare serviceDeploymentArns string list instead of ServiceDeployments ([]types.ServiceDeploymentBrief), so a real client decoded nothing. Now returns Brief objects sourced from ServiceDeployment: ClusterArn/ServiceArn/ServiceDeploymentArn/Status/StatusReason/CreatedAt direct; StartedAt mirrors CreatedAt (the real full ServiceDeployment type has no separate started timestamp either, only CreatedAt/FinishedAt); FinishedAt is UpdatedAt when Status is terminal (SUCCESSFUL/STOPPED), absent otherwise; TargetServiceRevisionArn newly threaded from Deployment.ServiceRevisionArn (was tracked on Deployment but never copied onto ServiceDeployment). Alarms/DeploymentCircuitBreaker/DeploymentConfiguration remain absent -- not modeled on ServiceDeployment, nothing honest to source them from"}
   StopServiceDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix; also now really has data to stop"}
   ContinueServiceDeployment: {wire: ok, errors: ok, state: partial, persist: n/a, note: "NEW op (was entirely unimplemented / absent from GetSupportedOperations). Lifecycle hooks (blue/green PAUSE stages) are not modeled, so every call returns an honest ClientException that no paused hook exists, after real ARN/hookId validation — never a fabricated success. See gaps."}
   RunTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: added capacityProviderStrategy input (was entirely absent from RunTaskInput -- a real SDK field, now validated) and capacityProviderName output on Task (real SDK field; this backend does not model AWS's weight/base task-distribution algorithm across multiple providers in a strategy, so it always selects the first entry -- documented simplification, not a stub, see Task.CapacityProviderName doc comment in models.go)"}
@@ -82,11 +82,39 @@ gaps:
 deferred:
   - "Daemon* operation family (CreateDaemon..UpdateDaemon, 12 ops) — field-diffed for real; see families.daemon above for the full writeup (leak fixed; the wire-shape gap previously logged here was a documentation error, corrected gopherstack-rnka -- the nested revision shape was already correct)."
   - "docker_runner.go / real container lifecycle (vs NoopRunner) — re-audited this sweep. Reviewed RunTask (pull/create/start with rollback-on-failure via rollbackContainers, only registers the task's containers in the tracking map after every container in the task started successfully) and StopTask (snapshots container IDs under lock, stops/removes outside the lock, retains only failed-to-stop IDs for retry). No stubs, no goroutine or container-tracking-map leaks found: a task that fails mid-RunTask is fully rolled back before ever being added to r.containers, so there is no leaked entry for it to begin with. No changes needed."
-  - "Full ServiceDeployment wire-shape parity (LifecycleStage, SourceServiceRevisions, TargetServiceRevision, Rollback, DeploymentCircuitBreaker, Alarms sub-objects) — the emulator's ServiceDeployment type covers only ServiceDeploymentArn/ClusterArn/ServiceArn/Status/StatusReason/CreatedAt/UpdatedAt. Re-verified unchanged this sweep: correctly populated for every real deployment, but the richer blue/green fields are not modeled (same underlying reason ContinueServiceDeployment is deferred -- blue/green lifecycle is not modeled at all in this backend)."
+  - "Full ServiceDeployment wire-shape parity (LifecycleStage, SourceServiceRevisions, Rollback, DeploymentCircuitBreaker, Alarms sub-objects) — the emulator's ServiceDeployment type covers ServiceDeploymentArn/ClusterArn/ServiceArn/Status/StatusReason/CreatedAt/UpdatedAt/TargetServiceRevisionArn (the last added gopherstack-7ux2, sourced from Deployment.ServiceRevisionArn and now surfaced by ListServiceDeployments' Brief). The richer blue/green fields remain unmodeled (same underlying reason ContinueServiceDeployment is deferred -- blue/green lifecycle is not modeled at all in this backend)."
 leaks: {status: clean, note: "Prior 'found' status was stale documentation -- that leak (DeleteService's ServiceDeployment-map entry) was already fixed in the same prior sweep that wrote the note; the status field just never got flipped back to clean. Re-verified clean this sweep. Two NEW leaks found and fixed this sweep: (1) DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows, and purgeDaemonsLocked deleted from daemonRevisions by the wrong key so it silently matched nothing -- both fixed via deleteDaemonAncillaryLocked. (2) resourceTags side-map ghost rows were never cleaned up on delete for clusters/services/container-instances/task-sets/task-definitions/express-gateway-services -- fixed via deleteResourceTagsLocked. See Notes for full writeup and proof tests. Reconciler, janitor, lifecycle stepper, and docker_runner (re-audited this sweep) remain clean."}
 ---
 
 ## Notes
+
+### 2026-08-13 wrong-shape fix (gopherstack-7ux2)
+
+`ListServiceDeployments` (`handler_service_deployments.go`) returned a bare
+`serviceDeploymentArns` string list. The real output is `ServiceDeployments`,
+a list of `types.ServiceDeploymentBrief` (verified against
+`aws-sdk-go-v2/service/ecs@v1.90.0`'s `api_op_ListServiceDeployments.go` and
+`awsAwsjson11_deserializeDocumentServiceDeploymentBrief` in
+`deserializers.go`) — a real client decoded nothing at all, not merely a
+dropped field. Fixed with a `serviceDeploymentBriefView` DTO built from the
+existing `ServiceDeployment` backend record: `ClusterArn`/`ServiceArn`/
+`ServiceDeploymentArn`/`Status`/`StatusReason`/`CreatedAt` map directly;
+`StartedAt` mirrors `CreatedAt` (the real full `ServiceDeployment` type has
+no separate started timestamp either — only `CreatedAt`/`FinishedAt`);
+`FinishedAt` is `UpdatedAt` when `Status` is terminal (`SUCCESSFUL`/
+`STOPPED`), left absent otherwise (this backend has no dedicated
+"reached-terminal-state" timestamp, and fabricating one for an
+in-progress deployment would be worse than omitting it); `TargetServiceRevisionArn`
+is newly threaded from `Deployment.ServiceRevisionArn` onto the
+`ServiceDeployment` record in `recordServiceDeploymentLocked` — that data
+already existed on `Deployment` but was never copied over, so an existing
+test comment (`handler_agent_ops_test.go`) anticipating it was previously
+unfulfilled. `Alarms`/`DeploymentCircuitBreaker`/`DeploymentConfiguration`
+remain absent: not modeled anywhere in this backend, nothing honest to
+source them from. Proven end-to-end against a real `aws-sdk-go-v2` client in
+`test/integration/ecs_test.go`'s `TestIntegration_ECS_ListServiceDeployments`
+(fails against the pre-fix shape with a real client, verified by hand-revert),
+plus `TestECS_ListServiceDeployments_Shape` at the unit level.
 
 ### 2026-07-31 field-level wire-shape fixes (parity-5 branch)
 

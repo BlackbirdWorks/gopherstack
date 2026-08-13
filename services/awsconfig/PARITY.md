@@ -82,7 +82,7 @@ ops:
   GetAggregateConformancePackComplianceSummary: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives compliant/non-compliant conformance-pack counts for the local account/region group, aggregator existence validated"}
   GetAggregateDiscoveredResourceCounts: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): decoded into *emptyInput, dropping ConfigurationAggregatorName/ResourceIdentifier and always returning 'the first resource config found' -- every distinct request returned the same arbitrary item. Now resolves the requested identifier against b.resourceConfigs (mirroring BatchGetAggregateResourceConfig), NoSuchConfigurationAggregatorException for an unknown aggregator, ResourceNotDiscoveredException for no match"}
-  BatchGetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchGetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-ctaz): the aggregatorName parameter was discarded (blank identifier in the backend method signature), so an unknown ConfigurationAggregatorName never yielded NoSuchConfigurationAggregatorException, unlike its siblings ListAggregateDiscoveredResources and GetAggregateResourceConfig (fixed gopherstack-h910), both of which call requireAggregatorLocked. Now validates the aggregator first. Unlike GetAggregateResourceConfig's bug, this one was purely the missing validation -- each identifier in the batch was already resolved individually against b.resourceConfigs by its own ResourceType/ResourceID, never falling back to 'whichever resource came first'; confirmed by reading the resolution loop, not assumed from the shared bug report. Confirmed against the pinned SDK that a missing aggregator IS the right error to add: BatchGetAggregateResourceConfig's own deserializeOpError switch declares NoSuchConfigurationAggregatorException (and ValidationException) but no ResourceNotDiscovered-style exception -- a per-identifier miss is correctly reported via UnprocessedResourceIdentifiers, not an error, matching the pre-existing behavior."}
   SelectAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAggregateDiscoveredResources: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns local discovered resources of the requested type tagged with the local account/region as source, account/region/resourceId filters applied, aggregator existence validated"}
   DescribePendingAggregationRequests: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives pending requests from AggregationAuthorizations this account granted that no local ConfigurationAggregator has yet incorporated into its AccountAggregationSources -- the only genuinely-derivable cross-account state a single-account emulator has"}
@@ -227,6 +227,19 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   always returning "the first resource config found" regardless of what was requested -- a
   correctness bug, not just a dropped field. `PutResourceConfig` omitted the required
   `SchemaVersionId` entirely. Both fixed -- see their `ops` entries above.
+
+- 2026-08-13 follow-up pass (`gopherstack-ctaz`, found alongside the `GetAggregateResourceConfig`
+  fix above): `BatchGetAggregateResourceConfig`'s backend method signature took
+  `aggregatorName string` but discarded it with a blank identifier, so an unknown
+  `ConfigurationAggregatorName` never yielded `NoSuchConfigurationAggregatorException` --
+  unlike `GetAggregateResourceConfig` and `ListAggregateDiscoveredResources`, both of which
+  validate via `requireAggregatorLocked`. Checked whether the batch variant also shared
+  `GetAggregateResourceConfig`'s worse defect (returning an arbitrary "first" item for every
+  distinct request): it did not -- each identifier in the batch was already correctly
+  resolved against `b.resourceConfigs` by its own `ResourceType`/`ResourceID`, so only the
+  aggregator-existence check was missing. Fixed by adding the same `requireAggregatorLocked`
+  call used by its siblings. See its `ops` entry above for the pinned-SDK verification that
+  a per-identifier miss is correctly `UnprocessedResourceIdentifiers`, not an error.
 
 - 2026-07-25 pass (SDK bump v1.61.2 -> v1.68.0 revealed 5 new operations): implemented
   all 5 for real rather than adding them to `notImplemented` -- `PutConnector`/

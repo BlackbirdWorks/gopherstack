@@ -145,6 +145,87 @@ func TestGetAggregateResourceConfig_RoundTrip(t *testing.T) {
 	})
 }
 
+// TestBatchGetAggregateResourceConfig_RoundTrip drives
+// BatchGetAggregateResourceConfig through a real SDK client and proves
+// ConfigurationAggregatorName is validated against known aggregators
+// (NoSuchConfigurationAggregatorException for an unknown name) instead of
+// being silently discarded -- the batch sibling of the
+// GetAggregateResourceConfig bug fixed in gopherstack-h910
+// (gopherstack-ctaz). Unlike GetAggregateResourceConfig, a per-identifier
+// miss is reported via UnprocessedResourceIdentifiers, not an error: the
+// op's own deserializeOpError switch declares NoSuchConfigurationAggregatorException
+// and ValidationException only, no ResourceNotDiscovered-style exception.
+func TestBatchGetAggregateResourceConfig_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
+	client := newTestAWSConfigSDKClient(t, h)
+
+	_, err := client.PutConfigurationAggregator(t.Context(), &configservicesdk.PutConfigurationAggregatorInput{
+		ConfigurationAggregatorName: aws.String("my-aggregator"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutResourceConfig(t.Context(), &configservicesdk.PutResourceConfigInput{
+		ResourceType:    aws.String("AWS::EC2::Instance"),
+		ResourceId:      aws.String("i-first"),
+		Configuration:   aws.String(`{"a":1}`),
+		SchemaVersionId: aws.String("1.0"),
+	})
+	require.NoError(t, err)
+
+	t.Run("unknown_aggregator_errors", func(t *testing.T) {
+		t.Parallel()
+
+		_, batchErr := client.BatchGetAggregateResourceConfig(
+			t.Context(),
+			&configservicesdk.BatchGetAggregateResourceConfigInput{
+				ConfigurationAggregatorName: aws.String("no-such-aggregator"),
+				ResourceIdentifiers: []types.AggregateResourceIdentifier{
+					{
+						ResourceType:    types.ResourceType("AWS::EC2::Instance"),
+						ResourceId:      aws.String("i-first"),
+						SourceAccountId: aws.String("000000000000"),
+						SourceRegion:    aws.String("us-east-1"),
+					},
+				},
+			},
+		)
+		require.Error(t, batchErr)
+		assert.Contains(t, batchErr.Error(), "NoSuchConfigurationAggregatorException")
+	})
+
+	t.Run("known_aggregator_resolves_and_reports_unprocessed", func(t *testing.T) {
+		t.Parallel()
+
+		out, batchErr := client.BatchGetAggregateResourceConfig(
+			t.Context(),
+			&configservicesdk.BatchGetAggregateResourceConfigInput{
+				ConfigurationAggregatorName: aws.String("my-aggregator"),
+				ResourceIdentifiers: []types.AggregateResourceIdentifier{
+					{
+						ResourceType:    types.ResourceType("AWS::EC2::Instance"),
+						ResourceId:      aws.String("i-first"),
+						SourceAccountId: aws.String("000000000000"),
+						SourceRegion:    aws.String("us-east-1"),
+					},
+					{
+						ResourceType:    types.ResourceType("AWS::EC2::Instance"),
+						ResourceId:      aws.String("i-does-not-exist"),
+						SourceAccountId: aws.String("000000000000"),
+						SourceRegion:    aws.String("us-east-1"),
+					},
+				},
+			},
+		)
+		require.NoError(t, batchErr)
+		require.Len(t, out.BaseConfigurationItems, 1)
+		assert.Equal(t, "i-first", aws.ToString(out.BaseConfigurationItems[0].ResourceId))
+		require.Len(t, out.UnprocessedResourceIdentifiers, 1)
+		assert.Equal(t, "i-does-not-exist", aws.ToString(out.UnprocessedResourceIdentifiers[0].ResourceId))
+	})
+}
+
 // TestPutResourceConfig_RequiresSchemaVersionID proves SchemaVersionId is a
 // required member of PutResourceConfigInput, not silently dropped
 // (gopherstack-h910).
