@@ -81,9 +81,7 @@ func TestQuickSight_ExtendedResourcesPersistence(t *testing.T) {
 
 	require.Equal(
 		t, http.StatusOK,
-		doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), map[string]any{
-			"OAuthClientApplicationId": "app1", "Name": "App1",
-		}).Code,
+		doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), oauthAppBody("app1", "App1")).Code,
 	)
 
 	require.Equal(

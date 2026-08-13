@@ -268,7 +268,10 @@ func TestCreate_FKReferenceValidation(t *testing.T) {
 			name:   "predictor_backtest_export_predictor_arn",
 			action: "CreatePredictorBacktestExportJob",
 			buildBody: func(*testing.T, *forecast.Handler) map[string]any {
-				return map[string]any{"PredictorBacktestExportJobName": "job", "PredictorArn": danglingARN}
+				return map[string]any{
+					"PredictorBacktestExportJobName": "job", "PredictorArn": danglingARN,
+					"Destination": minimalDataDestination(),
+				}
 			},
 		},
 		{
@@ -285,6 +288,7 @@ func TestCreate_FKReferenceValidation(t *testing.T) {
 				return map[string]any{
 					"ForecastExportJobName": "job",
 					"ForecastArn":           "arn:aws:forecast:us-east-1:000000000000:forecast/does-not-exist",
+					"Destination":           minimalDataDestination(),
 				}
 			},
 		},
@@ -296,6 +300,7 @@ func TestCreate_FKReferenceValidation(t *testing.T) {
 					"ExplainabilityExportName": "job",
 					"ExplainabilityArn": "arn:aws:forecast:us-east-1:000000000000:" +
 						"explainability-export/does-not-exist",
+					"Destination": minimalDataDestination(),
 				}
 			},
 		},
@@ -303,7 +308,12 @@ func TestCreate_FKReferenceValidation(t *testing.T) {
 			name:   "explainability_resource_arn",
 			action: "CreateExplainability",
 			buildBody: func(*testing.T, *forecast.Handler) map[string]any {
-				return map[string]any{"ExplainabilityName": "job", "ResourceArn": danglingARN}
+				return map[string]any{
+					"ExplainabilityName": "job", "ResourceArn": danglingARN,
+					"ExplainabilityConfig": map[string]any{
+						"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL",
+					},
+				}
 			},
 		},
 		{
@@ -343,6 +353,7 @@ func TestCreate_FKReferenceValidation(t *testing.T) {
 					"WhatIfForecastArns": []any{
 						"arn:aws:forecast:us-east-1:000000000000:what-if-forecast/does-not-exist",
 					},
+					"Destination": minimalDataDestination(),
 				}
 			},
 		},
@@ -355,6 +366,7 @@ func TestCreate_FKReferenceValidation(t *testing.T) {
 					"InputDataConfig": map[string]any{
 						"DatasetGroupArn": "arn:aws:forecast:us-east-1:000000000000:dataset-group/does-not-exist",
 					},
+					"FeaturizationConfig": map[string]any{},
 				}
 			},
 		},
@@ -406,6 +418,197 @@ func TestCreateForecast_MissingPredictorArn(t *testing.T) {
 	code, resp := request(t, h, "CreateForecast", map[string]any{"ForecastName": "fc"})
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "InvalidInputException", resp["__type"])
+}
+
+// TestCreatePassthroughFields_PresenceValidation covers gopherstack-wl0s: six
+// Create* operations whose generic-CRUD handler (handler.go's execute/
+// store.go's cloneMap) stores and echoes the whole input map, so a supplied
+// value already round-trips fine -- what was missing was rejecting a
+// request that omits a field aws-sdk-go-v2/service/forecast@v1.44.4/
+// validators.go marks "This member is required": CreateExplainability's
+// ExplainabilityConfig; CreateForecastExportJob's, CreatePredictorBacktest
+// ExportJob's, CreateExplainabilityExport's, and CreateWhatIfForecastExport's
+// shared Destination; and CreatePredictor's ForecastHorizon, InputDataConfig,
+// and FeaturizationConfig (three fields, not the two the originating audit
+// guessed -- verified directly against validateOpCreatePredictorInput).
+//
+// Each case proves both directions: omitting the field is rejected with
+// InvalidInputException (the code every one of these ops' own
+// awsAwsjson11_deserializeOpError<Op> switch declares for InvalidInputException,
+// confirmed per op in deserializers.go), and supplying it is accepted and
+// the value round-trips unchanged through the matching Describe* operation.
+func TestCreatePassthroughFields_PresenceValidation(t *testing.T) {
+	t.Parallel()
+
+	explainabilityConfig := map[string]any{"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL"}
+
+	tests := []struct {
+		validBody      func(t *testing.T, h *forecast.Handler) map[string]any
+		roundTripCheck func(t *testing.T, describeResp map[string]any)
+		name           string
+		action         string
+		describeOp     string
+		arnField       string
+		missingField   string
+	}{
+		{
+			name:   "create_explainability_explainability_config",
+			action: "CreateExplainability", describeOp: "DescribeExplainability",
+			arnField: "ExplainabilityArn", missingField: "ExplainabilityConfig",
+			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"ExplainabilityName": "presence-explain", "ResourceArn": createPredictor(t, h),
+					"ExplainabilityConfig": explainabilityConfig,
+				}
+			},
+			roundTripCheck: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.Equal(t, explainabilityConfig, resp["ExplainabilityConfig"])
+			},
+		},
+		{
+			name:   "create_forecast_export_job_destination",
+			action: "CreateForecastExportJob", describeOp: "DescribeForecastExportJob",
+			arnField: "ForecastExportJobArn", missingField: "Destination",
+			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"ForecastExportJobName": "presence-fc-export", "ForecastArn": createForecast(t, h),
+					"Destination": minimalDataDestination(),
+				}
+			},
+			roundTripCheck: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.Equal(t, minimalDataDestination(), resp["Destination"])
+			},
+		},
+		{
+			name:   "create_predictor_backtest_export_job_destination",
+			action: "CreatePredictorBacktestExportJob", describeOp: "DescribePredictorBacktestExportJob",
+			arnField: "PredictorBacktestExportJobArn", missingField: "Destination",
+			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"PredictorBacktestExportJobName": "presence-pred-export", "PredictorArn": createPredictor(t, h),
+					"Destination": minimalDataDestination(),
+				}
+			},
+			roundTripCheck: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.Equal(t, minimalDataDestination(), resp["Destination"])
+			},
+		},
+		{
+			name:   "create_explainability_export_destination",
+			action: "CreateExplainabilityExport", describeOp: "DescribeExplainabilityExport",
+			arnField: "ExplainabilityExportArn", missingField: "Destination",
+			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"ExplainabilityExportName": "presence-explain-export",
+					"ExplainabilityArn":        createExplainability(t, h),
+					"Destination":              minimalDataDestination(),
+				}
+			},
+			roundTripCheck: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.Equal(t, minimalDataDestination(), resp["Destination"])
+			},
+		},
+		{
+			name:   "create_what_if_forecast_export_destination",
+			action: "CreateWhatIfForecastExport", describeOp: "DescribeWhatIfForecastExport",
+			arnField: "WhatIfForecastExportArn", missingField: "Destination",
+			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"WhatIfForecastExportName": "presence-wif-export",
+					"WhatIfForecastArns":       []any{createWhatIfForecast(t, h)},
+					"Destination":              minimalDataDestination(),
+				}
+			},
+			roundTripCheck: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.Equal(t, minimalDataDestination(), resp["Destination"])
+			},
+		},
+		{
+			name:   "create_predictor_forecast_horizon",
+			action: "CreatePredictor", describeOp: "DescribePredictor",
+			arnField: "PredictorArn", missingField: "ForecastHorizon",
+			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return minimalCreatePredictorBody(t, h, "presence-pred-horizon")
+			},
+			roundTripCheck: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.InEpsilon(t, float64(10), resp["ForecastHorizon"], 0)
+			},
+		},
+		{
+			name:   "create_predictor_input_data_config",
+			action: "CreatePredictor", describeOp: "DescribePredictor",
+			arnField: "PredictorArn", missingField: "InputDataConfig",
+			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return minimalCreatePredictorBody(t, h, "presence-pred-input")
+			},
+			roundTripCheck: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.Contains(t, resp, "InputDataConfig")
+				assert.NotEmpty(t, resp["InputDataConfig"].(map[string]any)["DatasetGroupArn"])
+			},
+		},
+		{
+			name:   "create_predictor_featurization_config",
+			action: "CreatePredictor", describeOp: "DescribePredictor",
+			arnField: "PredictorArn", missingField: "FeaturizationConfig",
+			validBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return minimalCreatePredictorBody(t, h, "presence-pred-featurization")
+			},
+			roundTripCheck: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				assert.Contains(t, resp, "FeaturizationConfig")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+"_missing_rejected", func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			body := tt.validBody(t, h)
+			delete(body, tt.missingField)
+
+			code, resp := request(t, h, tt.action, body)
+			assert.Equal(t, http.StatusBadRequest, code)
+			assert.Equal(t, "InvalidInputException", resp["__type"])
+		})
+
+		t.Run(tt.name+"_present_round_trips", func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			code, created := request(t, h, tt.action, tt.validBody(t, h))
+			require.Equal(t, http.StatusOK, code)
+			arn, ok := created[tt.arnField].(string)
+			require.True(t, ok)
+
+			_, described := request(t, h, tt.describeOp, map[string]any{tt.arnField: arn})
+			tt.roundTripCheck(t, described)
+		})
+	}
 }
 
 // TestCreateDatasetGroup_DatasetArnsOptional verifies that CreateDatasetGroup
@@ -496,6 +699,9 @@ func TestCreateExplainability_ResourceArnAcceptsEitherKind(t *testing.T) {
 		predictorARN := createPredictor(t, h)
 		code, _ := request(t, h, "CreateExplainability", map[string]any{
 			"ExplainabilityName": "explain-pred", "ResourceArn": predictorARN,
+			"ExplainabilityConfig": map[string]any{
+				"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL",
+			},
 		})
 		assert.Equal(t, http.StatusOK, code)
 	})
@@ -507,6 +713,9 @@ func TestCreateExplainability_ResourceArnAcceptsEitherKind(t *testing.T) {
 		forecastARN := createForecast(t, h)
 		code, _ := request(t, h, "CreateExplainability", map[string]any{
 			"ExplainabilityName": "explain-fc", "ResourceArn": forecastARN,
+			"ExplainabilityConfig": map[string]any{
+				"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL",
+			},
 		})
 		assert.Equal(t, http.StatusOK, code)
 	})
@@ -523,7 +732,7 @@ func TestDelete_ResourceInUseWhileCreatePending(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		createBody map[string]any
+		createBody func(t *testing.T, h *forecast.Handler) map[string]any
 		name       string
 		createOp   string
 		describeOp string
@@ -533,12 +742,22 @@ func TestDelete_ResourceInUseWhileCreatePending(t *testing.T) {
 		{
 			name: "dataset_group", createOp: "CreateDatasetGroup", describeOp: "DescribeDatasetGroup",
 			deleteOp: "DeleteDatasetGroup", arnField: "DatasetGroupArn",
-			createBody: map[string]any{"DatasetGroupName": "pending-dg", "Domain": "RETAIL"},
+			createBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{"DatasetGroupName": "pending-dg", "Domain": "RETAIL"}
+			},
 		},
 		{
 			name: "predictor", createOp: "CreatePredictor", describeOp: "DescribePredictor",
 			deleteOp: "DeletePredictor", arnField: "PredictorArn",
-			createBody: map[string]any{"PredictorName": "pending-pred", "ForecastHorizon": 5},
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"PredictorName": "pending-pred", "ForecastHorizon": 5,
+					"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+					"FeaturizationConfig": map[string]any{},
+				}
+			},
 		},
 	}
 
@@ -547,7 +766,7 @@ func TestDelete_ResourceInUseWhileCreatePending(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
-			code, created := request(t, h, tt.createOp, tt.createBody)
+			code, created := request(t, h, tt.createOp, tt.createBody(t, h))
 			require.Equal(t, http.StatusOK, code)
 			arn, ok := created[tt.arnField].(string)
 			require.True(t, ok)
@@ -603,6 +822,7 @@ func TestDelete_UnrestrictedKindsDeletableWhileCreatePending(t *testing.T) {
 		predictorARN := createPredictor(t, h)
 		code, created := request(t, h, "CreatePredictorBacktestExportJob", map[string]any{
 			"PredictorBacktestExportJobName": "backtest", "PredictorArn": predictorARN,
+			"Destination": minimalDataDestination(),
 		})
 		require.Equal(t, http.StatusOK, code)
 		arn := created["PredictorBacktestExportJobArn"].(string)
@@ -619,6 +839,7 @@ func TestDelete_UnrestrictedKindsDeletableWhileCreatePending(t *testing.T) {
 		explainabilityARN := createExplainability(t, h)
 		code, created := request(t, h, "CreateExplainabilityExport", map[string]any{
 			"ExplainabilityExportName": "export", "ExplainabilityArn": explainabilityARN,
+			"Destination": minimalDataDestination(),
 		})
 		require.Equal(t, http.StatusOK, code)
 		arn := created["ExplainabilityExportArn"].(string)

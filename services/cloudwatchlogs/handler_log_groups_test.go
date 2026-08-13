@@ -486,9 +486,9 @@ func TestHandler_AggregateLogGroupSummariesEmpty(t *testing.T) {
 		{
 			name:          "ListAggregateLogGroupSummaries/ReturnsEmpty",
 			action:        "ListAggregateLogGroupSummaries",
-			body:          map[string]any{},
+			body:          map[string]any{"groupBy": "DATA_SOURCE_NAME_AND_TYPE"},
 			wantCode:      http.StatusOK,
-			wantListField: "logGroupSummaries",
+			wantListField: "aggregateLogGroupSummaries",
 		},
 	}
 

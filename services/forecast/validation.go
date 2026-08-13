@@ -152,12 +152,59 @@ var updateFKSpecs = map[resourceKind]fkFieldSpec{
 	},
 }
 
-// validateCreateFieldsLocked validates enum fields and FK references on a
-// Create* request. It must be called with b.mu already held (for write, from
-// within create): FK resolution reads b.arnIndex/b.resources via
-// lookupLocked, which assumes the caller holds the lock.
-func (b *InMemoryBackend) validateCreateFieldsLocked(kind resourceKind, data map[string]any) error {
+// requiredPresenceFields lists top-level members that each Create* action's
+// own SDK input struct marks "// This member is required" but that this
+// emulator's generic create() path (which stores and echoes the whole input
+// map via cloneMap) does not already enforce through nameField or FK
+// validation. Keyed by action name, not resourceKind: CreatePredictor and
+// CreateAutoPredictor both route to kindPredictor but have different
+// required-field sets (CreateAutoPredictorInput only requires PredictorName;
+// its ForecastHorizon/DataConfig/ForecastFrequency are all optional and it
+// has no FeaturizationConfig field at all), so a kind-keyed table would
+// wrongly reject valid CreateAutoPredictor requests. Verified against
+// aws-sdk-go-v2/service/forecast@v1.44.4/validators.go's
+// validateOpCreate*Input functions (gopherstack-wl0s).
+//
+//nolint:gochecknoglobals // static declarative table, mirrors createFKSpecs above
+var requiredPresenceFields = map[string][]string{
+	"CreateExplainability":             {"ExplainabilityConfig"},
+	"CreateForecastExportJob":          {fieldDestination},
+	"CreatePredictorBacktestExportJob": {fieldDestination},
+	"CreateExplainabilityExport":       {fieldDestination},
+	"CreateWhatIfForecastExport":       {fieldDestination},
+	"CreatePredictor":                  {"ForecastHorizon", "InputDataConfig", "FeaturizationConfig"},
+}
+
+// fieldDestination is the DataDestination field name shared by every
+// Create*ExportJob operation's required output-location member.
+const fieldDestination = "Destination"
+
+// validateRequiredPresenceFields rejects a Create* request missing one of
+// requiredPresenceFields[action]. It only checks presence (data[field] !=
+// nil), not shape, matching the scope of the emulator's generic-CRUD
+// passthrough: the field's contents already round-trip via cloneMap, what
+// was missing was rejecting its absence.
+func validateRequiredPresenceFields(action string, data map[string]any) error {
+	for _, field := range requiredPresenceFields[action] {
+		if data[field] == nil {
+			return fmt.Errorf("%w: %s is required", ErrValidation, field)
+		}
+	}
+
+	return nil
+}
+
+// validateCreateFieldsLocked validates enum fields, required-presence
+// fields, and FK references on a Create* request. It must be called with
+// b.mu already held (for write, from within create): FK resolution reads
+// b.arnIndex/b.resources via lookupLocked, which assumes the caller holds
+// the lock.
+func (b *InMemoryBackend) validateCreateFieldsLocked(kind resourceKind, action string, data map[string]any) error {
 	if err := validateEnumFields(kind, data); err != nil {
+		return err
+	}
+
+	if err := validateRequiredPresenceFields(action, data); err != nil {
 		return err
 	}
 

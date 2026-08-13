@@ -89,9 +89,11 @@ func TestListEndpointsFilterByModelArn(t *testing.T) {
 	h := newHandler()
 	request(t, h, "CreateEndpoint", map[string]any{
 		"EndpointName": "ep-a", "ModelArn": "arn:aws:comprehend:us-east-1:123456789012:document-classifier/a",
+		"DesiredInferenceUnits": 1,
 	})
 	request(t, h, "CreateEndpoint", map[string]any{
 		"EndpointName": "ep-b", "ModelArn": "arn:aws:comprehend:us-east-1:123456789012:document-classifier/b",
+		"DesiredInferenceUnits": 1,
 	})
 
 	out := request(t, h, "ListEndpoints", map[string]any{
@@ -123,7 +125,7 @@ func TestListResourcesFilterByStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	request(t, h, "CreateEndpoint", map[string]any{"EndpointName": "ep-active"})
+	request(t, h, "CreateEndpoint", endpointBody("ep-active"))
 
 	// Every freshly created endpoint is ACTIVE (see initialResourceStatus in
 	// store.go); a Status filter for a different status must exclude it.
@@ -145,8 +147,8 @@ func TestListResourcesNoFilterReturnsAll(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	request(t, h, "CreateFlywheel", map[string]any{"FlywheelName": "fw-a"})
-	request(t, h, "CreateFlywheel", map[string]any{"FlywheelName": "fw-b"})
+	request(t, h, "CreateFlywheel", flywheelBody("fw-a"))
+	request(t, h, "CreateFlywheel", flywheelBody("fw-b"))
 
 	out := request(t, h, "ListFlywheels", nil)
 	assert.Len(t, out["FlywheelSummaryList"], 2)

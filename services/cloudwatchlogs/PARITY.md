@@ -2,8 +2,26 @@
 service: cloudwatchlogs
 sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.81.1
 last_audit_commit: 3884816a
-last_audit_date: 2026-07-25
-overall: A
+last_audit_date: 2026-08-13
+overall: A            # 2026-08-13 (gopherstack-wl0s): GetLogFields never read dataSourceType
+                       # from the request body at all (not even a field on the decode struct),
+                       # so it was silently unused rather than required (validateOpGetLogFieldsInput
+                       # marks it required). Fixed with a presence check. ListAggregateLogGroupSummaries
+                       # discarded its whole request body (`_ []byte` handler param), so groupBy
+                       # (also required) was silently unused; fixed with presence + enum validation
+                       # against types.ListAggregateLogGroupSummariesGroupBy.Values(). Reading the
+                       # full operation also caught a materially worse bug sitting beside the
+                       # reported one: the response was wrapped as "logGroupSummaries", a key the
+                       # real ListAggregateLogGroupSummariesOutput shape does not have at all
+                       # (confirmed against awsAwsjson11_deserializeOpDocumentListAggregateLogGroupSummariesOutput,
+                       # which only recognizes "aggregateLogGroupSummaries") -- so populated summaries
+                       # never actually round-tripped to a real SDK client before this fix, regardless
+                       # of groupBy. Both ops previously had no ValidationException sentinel in this
+                       # service (errors.go only had ErrValidation -> InvalidParameterException, which
+                       # is what most other ops' declared error sets use); ListAggregateLogGroupSummaries'
+                       # own awsAwsjson11_deserializeOpErrorListAggregateLogGroupSummaries switch
+                       # declares ValidationException instead, so a new ErrValidationException sentinel
+                       # was added rather than reusing ErrValidation. See ops entries below.
 ops:
   CreateLookupTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4: field-diffed against aws-sdk-go-v2@v1.80.0 api_op_CreateLookupTable.go/types.LookupTable. CreateLookupTableInput.TableBody is a plain *string of CSV content (verified against serializers.go: tableBody is serialized as a bare JSON string, no S3 reference anywhere in this op's input or output) -- so this backend genuinely parses the CSV (encoding/csv) rather than modeling a reference to data it never reads: the header row becomes TableFields, subsequent rows are counted into RecordsCount, and len(tableBody) becomes SizeBytes. Name validated against the documented alphanumeric+underscore/256-char charset; body validated against the documented 10 MB limit and real CSV syntax (malformed CSV -> InvalidParameterException). ARN is constructed as arn:{partition}:logs:{region}:{account}:lookup-table:{name} via pkgs/arn -- no ARN pattern is embedded anywhere in the SDK module (no smithy model shipped, no doc-comment pattern), so this mirrors the existing log-group ARN convention (arn.Build + \"log-group:\"+name) rather than an AWS-confirmed pattern; flagged here for anyone who later finds an authoritative pattern to check against. Response is create-only (createdAt/lookupTableArn), matching CreateLookupTableOutput exactly (no echoed metadata). Tags are accepted and stored via the handler-level tag store (h.setTags, keyed by lookupTableArn) exactly like log group tags, since types.LookupTable/GetLookupTableOutput have no Tags field of their own -- tags are wire-visible only via the generic ListTagsForResource/TagResource/UntagResource ops, which already existed."}
   GetLookupTable: {wire: ok, errors: ok, state: ok, persist: ok, note: "parity-4: full-content shape (description/kmsKeyId/lastUpdatedTime/lookupTableArn/lookupTableName/sizeBytes/tableBody) field-diffed against GetLookupTableOutput; unlike DescribeLookupTables this includes tableBody."}
@@ -19,9 +37,11 @@ ops:
   GetLogEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "startFromHead/nextToken precedence and stable-at-boundary forward/backward tokens verified correct."}
   FilterLogEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "cross-stream interleave + stable timestamp sort verified; logStreamNames/logStreamNamePrefix mutual-exclusion validated; searchedLogStreams correctly always empty (AWS deprecated this field)."}
   GetLogGroupFields: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: previously a disguised stub always returning the 4 static built-in fields at 100% regardless of actual log content, and didn't accept logGroupIdentifier or time at all. Now does real percentage-based sampling: logGroupIdentifier is accepted (via normalizeLogGroupIdentifier) alongside logGroupName; time (epoch *seconds*, unlike almost every other timestamp field in this API) centers an 8-minute-either-side window per the doc comment, or defaults to the most recent 15 minutes; every stored event in-window is sampled, the 4 built-in fields plus any JSON top-level keys (via the existing jsonMessageFields helper) are counted, and Percent is computed per-field over the sampled count, sorted descending. Zero sampled events now correctly returns an empty list rather than fabricating 100%-present built-in fields. Synthetic (pre-2001) event timestamps bypass the window, matching this file's existing test-fixture convention."}
+  GetLogFields: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-wl0s): dataSourceName presence was already checked (via the LogGroupName/LogGroupIdentifier/DataSourceName fallback chain), but dataSourceType -- also required per validateOpGetLogFieldsInput -- was not even a field on the decode struct, so it was silently ignored regardless of presence. Now required-present (InvalidParameterException otherwise, matching this op's own awsAwsjson11_deserializeOpErrorGetLogFields switch). DataSourceType has no types.X enum on the real SDK (declared *string, not an enum type), so this is a presence check only, not enum-validated."}
   CreateLogGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLogGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades streams/events/subscription filters/metric filters."}
   DescribeLogGroups: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAggregateLogGroupSummaries: {wire: fixed, errors: fixed, state: ok, persist: n/a, note: "two bugs fixed together (gopherstack-wl0s), both in handleListAggregateLogGroupSummaries: (1) the handler discarded its whole request body (`_ []byte` param), so groupBy -- required per validateOpListAggregateLogGroupSummariesInput -- was silently unused; now required-present and enum-validated against types.ListAggregateLogGroupSummariesGroupBy.Values() (DATA_SOURCE_NAME_TYPE_AND_FORMAT, DATA_SOURCE_NAME_AND_TYPE), rejecting with ValidationException (this op's own declared client-error code, confirmed against awsAwsjson11_deserializeOpErrorListAggregateLogGroupSummaries -- distinct from the InvalidParameterException most other ops in this service use). (2) MATERIALLY WORSE, found while reading the whole operation: the response was wrapped under \"logGroupSummaries\", a key the real ListAggregateLogGroupSummariesOutput shape does not have at all -- confirmed against awsAwsjson11_deserializeOpDocumentListAggregateLogGroupSummariesOutput, which only recognizes \"aggregateLogGroupSummaries\". A real SDK client's AggregateLogGroupSummaries field was always nil/empty regardless of what this backend returned, for every caller, unconditionally -- not a validation gap but a total wire-shape break. Fixed to emit \"aggregateLogGroupSummaries\"."}
   CreateLogStream: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLogStream: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLogStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "orderBy=LastEventTime + prefix and descending + orderBy=LogStreamName rejection rules match AWS."}

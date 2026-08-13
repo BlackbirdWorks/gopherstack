@@ -7,8 +7,16 @@
 service: comprehend
 sdk_module: aws-sdk-go-v2/service/comprehend@v1.43.4
 last_audit_commit: 2d47b51d4
-last_audit_date: 2026-07-31
-overall: A            # 2026-07-29: fabricated op family deleted, wire-shape/error-code bugs fixed, prior gaps closed
+last_audit_date: 2026-08-13
+overall: A            # 2026-08-13: closed gopherstack-wl0s (required-presence validation):
+                      # CreateFlywheel's DataAccessRoleArn/DataLakeS3Uri and CreateEndpoint's
+                      # DesiredInferenceUnits were stored and echoed via the generic-CRUD
+                      # CreateResource passthrough but never required present. DataAccessRoleArn
+                      # is fixed even though the originating audit named only DataLakeS3Uri/
+                      # DesiredInferenceUnits -- it's required by validateOpCreateFlywheelInput
+                      # too. See "Required-presence validation on CreateFlywheel/CreateEndpoint"
+                      # note below.
+                      # 2026-07-29: fabricated op family deleted, wire-shape/error-code bugs fixed, prior gaps closed
                       # 2026-07-31: pkgs/sdkcheck reverse check found five more phantoms this pass missed: BatchDetectPiiEntities (no Batch form of PII detection exists at all), DeleteDataset (datasets are immutable -- no real Delete op), GetFlywheelIteration (fabricated alias for the real DescribeFlywheelIteration, which was already correctly wired), StopDocumentClassificationJob and StopTopicsDetectionJob (2 of the 9 async job families have no real Stop op). All five were generated unintentionally by this service's generic CRUD/job-family builders (buildOperations/asyncJobSpecs/resourceSpecs) applying a uniform op set to families that are NOT uniform in the real API. Fixed via new jobSpec.noStop/resourceSpec.noDelete flags (see handler.go/handler_jobs.go/handler_resources.go) rather than hardcoded exclusion lists, so future job/resource families default to the correct (non-uniform) op set. GetFlywheelIteration's row below and the BatchDetect*/Stop*DetectionJob wildcard rows previously implied uniformity that did not exist; corrected. Grade held at A: all five are unreachable by real clients regardless (Comprehend dispatches by X-Amz-Target), and the routes/backend methods are harmless generic-factory reuse, not one-off invented logic.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -32,8 +40,8 @@ ops:
   DescribeDocumentClassifier/DescribeEntityRecognizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "SubmitTime/EndTime field names correct; see CreateDocumentClassifier/CreateEntityRecognizer for the removed fabricated Version ops and new metadata fields"}
   ListDocumentClassifiers/ListEntityRecognizers: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW: Filter (Name/Status/SubmitTimeBefore/SubmitTimeAfter) now supported, previously ignored entirely"}
   DeleteDocumentClassifier/DeleteEntityRecognizer: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateEndpoint/DescribeEndpoint/ListEndpoints/UpdateEndpoint/DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime/LastModifiedTime correct (prior fix, re-verified); NEW: ListEndpoints Filter (ModelArn/Status/CreationTimeBefore/CreationTimeAfter) now supported"}
-  CreateFlywheel/DescribeFlywheel/ListFlywheels/UpdateFlywheel/DeleteFlywheel: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime/LastModifiedTime + FlywheelSummaryList list-wrapper correct (prior fixes, re-verified); ListFlywheels Filter (Status/CreationTimeBefore/CreationTimeAfter) supported (prior pass). FIXED this pass (gopherstack-sw2q): CreateFlywheelInput.DataSecurityConfig (confirmed against types.DataSecurityConfig -- the ONLY Create*/resource op whose input has this field; CreateDatasetInput has no DataSecurityConfig at all, a dataset inherits its flywheel's config) carries its own DataLakeKmsKeyId/ModelKmsKeyId/VolumeKmsKeyId, independent of and previously unchecked by this op's top-level KMS validation -- now validated via validateDataSecurityConfigKmsKeys (store.go), raising KmsKeyValidationException for a malformed value in any of the three."}
+  CreateEndpoint/DescribeEndpoint/ListEndpoints/UpdateEndpoint/DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime/LastModifiedTime correct (prior fix, re-verified); NEW: ListEndpoints Filter (ModelArn/Status/CreationTimeBefore/CreationTimeAfter) now supported. 2026-08-13 (gopherstack-wl0s): DesiredInferenceUnits now required present (requiredResourceFields, store.go)."}
+  CreateFlywheel/DescribeFlywheel/ListFlywheels/UpdateFlywheel/DeleteFlywheel: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime/LastModifiedTime + FlywheelSummaryList list-wrapper correct (prior fixes, re-verified); ListFlywheels Filter (Status/CreationTimeBefore/CreationTimeAfter) supported (prior pass). FIXED this pass (gopherstack-sw2q): CreateFlywheelInput.DataSecurityConfig (confirmed against types.DataSecurityConfig -- the ONLY Create*/resource op whose input has this field; CreateDatasetInput has no DataSecurityConfig at all, a dataset inherits its flywheel's config) carries its own DataLakeKmsKeyId/ModelKmsKeyId/VolumeKmsKeyId, independent of and previously unchecked by this op's top-level KMS validation -- now validated via validateDataSecurityConfigKmsKeys (store.go), raising KmsKeyValidationException for a malformed value in any of the three. 2026-08-13 (gopherstack-wl0s): DataAccessRoleArn/DataLakeS3Uri now required present (requiredResourceFields, store.go) -- DataAccessRoleArn wasn't named by the originating audit but is required too."}
   CreateDataset/DescribeDataset/ListDatasets: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime/EndTime correct (prior fix, re-verified); NEW: ListDatasets Filter (DatasetType/Status/CreationTimeBefore/CreationTimeAfter) now supported. This row deliberately excludes Delete: real Comprehend has no DeleteDataset operation at all (datasets are immutable once created). 2026-07-31: the code previously advertised/dispatched a fabricated \"DeleteDataset\" op contradicting this row's own scope -- fixed via resourceSpec.noDelete (see header note); TestResourceCRUDAndTags' dataset case updated to assert persistence instead of exercising the fabricated delete."}
   StartFlywheelIteration/DescribeFlywheelIteration/ListFlywheelIterationHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-31 CORRECTION: this row previously also listed \"GetFlywheelIteration\" as if it were a second real op -- it is not; the real SDK operation is DescribeFlywheelIteration only (no Client.GetFlywheelIteration). A prior pass registered both names against the same handler; \"GetFlywheelIteration\" was a fabricated alias, now removed (real name was already wired) -- see header note."}
   TagResource/UntagResource/ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "covers job ARNs too (prior fix); NEW: TagResource now enforces TooManyTagsException when the merged (existing+new) tag count would exceed 50"}
@@ -257,3 +265,24 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
   `pkgs/page`). This works correctly for the synchronous request/response cycle Comprehend
   clients actually use it in, but is a plaintext offset rather than opaque -- functionally
   fine, flagged here only so a future auditor doesn't mistake the plain integer for a stub.
+
+- **Required-presence validation on CreateFlywheel/CreateEndpoint passthrough
+  fields (real bug fixed 2026-08-13, gopherstack-wl0s).** `CreateResource`'s
+  generic pass-through path (store.go's `cloneMap`) stores and echoes the
+  whole input map, so a supplied value for these fields already round-tripped
+  fine through Describe\* — verified per field, not assumed:
+  `CreateFlywheelInput`'s `DataAccessRoleArn` and `DataLakeS3Uri`, and
+  `CreateEndpointInput`'s `DesiredInferenceUnits`. What was missing was
+  rejecting a request that omitted one of these fields, even though
+  `aws-sdk-go-v2/service/comprehend@v1.43.4/validators.go`'s
+  `validateOpCreateFlywheelInput`/`validateOpCreateEndpointInput` mark each
+  required. `FlywheelName`/`EndpointName` were already covered by
+  `CreateResource`'s own `Name`-presence check, so they needed no new code.
+  All three newly-checked fields are now enforced by `requiredResourceFields`
+  in store.go, keyed by **resourceType** (not by action, unlike forecast's
+  equivalent fix in the same campaign): no other operation creates a
+  `resourceTypeFlywheel`/`resourceTypeEndpoint` resource, so this simpler
+  keying is safe here. The originating audit named only `DataLakeS3Uri` and
+  `DesiredInferenceUnits`; `DataAccessRoleArn` is required too
+  (`validateOpCreateFlywheelInput`) and was missed by that audit — fixed
+  alongside the other two.

@@ -151,6 +151,7 @@ func (h *Handler) handleGetLogRecord(ctx context.Context, b []byte) (any, error)
 func (h *Handler) handleGetLogFields(ctx context.Context, body []byte) (any, error) {
 	var input struct {
 		DataSourceName     string `json:"dataSourceName"`
+		DataSourceType     string `json:"dataSourceType"`
 		LogGroupIdentifier string `json:"logGroupIdentifier"`
 		LogGroupName       string `json:"logGroupName"`
 	}
@@ -169,6 +170,9 @@ func (h *Handler) handleGetLogFields(ctx context.Context, body []byte) (any, err
 	}
 	if name == "" {
 		return nil, fmt.Errorf("%w: dataSourceName is required", ErrValidation)
+	}
+	if input.DataSourceType == "" {
+		return nil, fmt.Errorf("%w: dataSourceType is required", ErrValidation)
 	}
 
 	b := cwlBackend(h)

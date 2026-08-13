@@ -20,6 +20,39 @@ func newHandler() *comprehend.Handler {
 	return comprehend.NewHandler(comprehend.NewInMemoryBackend("123456789012", "us-east-1"))
 }
 
+// flywheelBody returns a CreateFlywheelInput body carrying every field
+// aws-sdk-go-v2/service/comprehend@v1.43.4/validators.go's
+// validateOpCreateFlywheelInput marks required (FlywheelName,
+// DataAccessRoleArn, DataLakeS3Uri), for tests that only care about a
+// flywheel existing rather than exercising these fields directly.
+func flywheelBody(name string) map[string]any {
+	return map[string]any{
+		"FlywheelName":      name,
+		"DataAccessRoleArn": "arn:aws:iam::123456789012:role/comprehend-flywheel",
+		"DataLakeS3Uri":     "s3://fk-bucket/" + name,
+	}
+}
+
+// endpointBody returns a CreateEndpointInput body carrying every field
+// validateOpCreateEndpointInput marks required (EndpointName,
+// DesiredInferenceUnits).
+func endpointBody(name string) map[string]any {
+	return map[string]any{
+		"EndpointName":          name,
+		"DesiredInferenceUnits": 1,
+	}
+}
+
+// mergedBody returns a new map holding base's entries overlaid with extra's,
+// without mutating either argument.
+func mergedBody(base, extra map[string]any) map[string]any {
+	out := make(map[string]any, len(base)+len(extra))
+	maps.Copy(out, base)
+	maps.Copy(out, extra)
+
+	return out
+}
+
 func request(t *testing.T, handler *comprehend.Handler, operation string, input map[string]any) map[string]any {
 	t.Helper()
 
@@ -286,6 +319,7 @@ func TestResourceCRUDAndTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		extraFields  map[string]any // required fields beyond nameField (endpoint/flywheel)
 		name         string
 		prefix       string
 		nameField    string
@@ -326,6 +360,7 @@ func TestResourceCRUDAndTags(t *testing.T) {
 			objectField: "EndpointProperties",
 			listField:   "EndpointPropertiesList",
 			update:      true,
+			extraFields: map[string]any{"DesiredInferenceUnits": 1},
 		},
 		{
 			name:        "flywheel",
@@ -336,6 +371,10 @@ func TestResourceCRUDAndTags(t *testing.T) {
 			objectField: "FlywheelProperties",
 			listField:   "FlywheelSummaryList",
 			update:      true,
+			extraFields: map[string]any{
+				"DataAccessRoleArn": "arn:aws:iam::123456789012:role/comprehend-flywheel",
+				"DataLakeS3Uri":     "s3://fk-bucket/train",
+			},
 		},
 		{
 			name:        "dataset",
@@ -359,10 +398,12 @@ func TestResourceCRUDAndTags(t *testing.T) {
 			t.Parallel()
 
 			handler := newHandler()
-			created := request(t, handler, "Create"+test.prefix, map[string]any{
+			body := map[string]any{
 				test.nameField: test.nameValue,
 				"Tags":         []any{map[string]any{"Key": "team", "Value": "nlp"}},
-			})
+			}
+			maps.Copy(body, test.extraFields)
+			created := request(t, handler, "Create"+test.prefix, body)
 			resourceARN := created[test.arnField].(string)
 			assert.NotEmpty(t, resourceARN)
 
@@ -463,7 +504,7 @@ func TestModelVersionsAndFlywheelIteration(t *testing.T) {
 	}
 
 	handler := newHandler()
-	flywheel := request(t, handler, "CreateFlywheel", map[string]any{"FlywheelName": "quality"})
+	flywheel := request(t, handler, "CreateFlywheel", flywheelBody("quality"))
 	flywheelARN := flywheel["FlywheelArn"].(string)
 	started := request(t, handler, "StartFlywheelIteration", map[string]any{"FlywheelArn": flywheelARN})
 	id := started["FlywheelIterationId"].(string)
@@ -556,6 +597,7 @@ func TestResourceProperties_TimestampFieldNamesMatchAWSShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		extraFields     map[string]any
 		name            string
 		createOp        string
 		nameField       string
@@ -578,6 +620,7 @@ func TestResourceProperties_TimestampFieldNamesMatchAWSShape(t *testing.T) {
 			describeOp: "DescribeEndpoint", arnField: "EndpointArn",
 			objectField: "EndpointProperties", wantTimeFields: []string{"CreationTime", "LastModifiedTime"},
 			absentTimeField: "SubmitTime",
+			extraFields:     map[string]any{"DesiredInferenceUnits": 1},
 		},
 		{
 			name:     "flywheel_uses_creation_and_last_modified_time",
@@ -585,6 +628,10 @@ func TestResourceProperties_TimestampFieldNamesMatchAWSShape(t *testing.T) {
 			describeOp: "DescribeFlywheel", arnField: "FlywheelArn",
 			objectField: "FlywheelProperties", wantTimeFields: []string{"CreationTime", "LastModifiedTime"},
 			absentTimeField: "SubmitTime",
+			extraFields: map[string]any{
+				"DataAccessRoleArn": "arn:aws:iam::123456789012:role/comprehend-flywheel",
+				"DataLakeS3Uri":     "s3://fk-bucket/resource-name",
+			},
 		},
 		{
 			name:     "dataset_uses_creation_time_and_end_time",
@@ -600,7 +647,9 @@ func TestResourceProperties_TimestampFieldNamesMatchAWSShape(t *testing.T) {
 			t.Parallel()
 
 			handler := newHandler()
-			created := request(t, handler, test.createOp, map[string]any{test.nameField: "resource-name"})
+			body := map[string]any{test.nameField: "resource-name"}
+			maps.Copy(body, test.extraFields)
+			created := request(t, handler, test.createOp, body)
 			resourceARN, _ := created[test.arnField].(string)
 			require.NotEmpty(t, resourceARN)
 
@@ -627,7 +676,7 @@ func TestListFlywheels_UsesFlywheelSummaryListWrapper(t *testing.T) {
 	t.Parallel()
 
 	handler := newHandler()
-	request(t, handler, "CreateFlywheel", map[string]any{"FlywheelName": "quality"})
+	request(t, handler, "CreateFlywheel", flywheelBody("quality"))
 
 	listed := request(t, handler, "ListFlywheels", nil)
 	assert.NotContains(t, listed, "FlywheelPropertiesList")

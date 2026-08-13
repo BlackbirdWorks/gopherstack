@@ -14,7 +14,7 @@ func TestFlywheelIterationFieldShapes(t *testing.T) {
 
 	h := newHandler()
 
-	created := request(t, h, "CreateFlywheel", map[string]any{"FlywheelName": "audit-fw"})
+	created := request(t, h, "CreateFlywheel", flywheelBody("audit-fw"))
 	fwArn := created["FlywheelArn"].(string)
 
 	startResp := request(t, h, "StartFlywheelIteration", map[string]any{"FlywheelArn": fwArn})

@@ -214,6 +214,24 @@ func accountPath(sub string) string {
 	return fmt.Sprintf("/accounts/%s%s", testAccountID, sub)
 }
 
+// oauthAppBody returns a CreateOAuthClientApplicationInput body carrying
+// every field aws-sdk-go-v2/service/quicksight@v1.123.1/validators.go's
+// validateOpCreateOAuthClientApplicationInput marks required
+// (OAuthClientApplicationId, Name, OAuthClientAuthenticationType, ClientId,
+// ClientSecret, OAuthTokenEndpointUrl), for tests that only care about an
+// OAuth client application existing rather than exercising these fields
+// directly.
+func oauthAppBody(id, name string) map[string]any {
+	return map[string]any{
+		"OAuthClientApplicationId":      id,
+		"Name":                          name,
+		"ClientId":                      "idp-client-id-" + id,
+		"ClientSecret":                  "idp-client-secret-" + id,
+		"OAuthClientAuthenticationType": "TOKEN",
+		"OAuthTokenEndpointUrl":         "https://idp.example.com/token",
+	}
+}
+
 func nsPath(sub string) string {
 	return fmt.Sprintf("/accounts/%s/namespaces/%s%s", testAccountID, testNamespace, sub)
 }

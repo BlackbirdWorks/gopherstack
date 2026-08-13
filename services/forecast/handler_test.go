@@ -77,14 +77,60 @@ func unmarshalResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]
 func createPredictor(t *testing.T, h *forecast.Handler) string {
 	t.Helper()
 
-	code, created := request(t, h, "CreatePredictor", map[string]any{
-		"PredictorName": "fk-predictor", "ForecastHorizon": 10,
-	})
+	code, created := request(t, h, "CreatePredictor", minimalCreatePredictorBody(t, h, "fk-predictor"))
 	require.Equal(t, http.StatusOK, code)
 	arn, ok := created["PredictorArn"].(string)
 	require.True(t, ok)
 
 	return arn
+}
+
+// createDatasetGroup creates a DatasetGroup on h and returns its ARN, for
+// tests that only need a real DatasetGroupArn to satisfy CreatePredictor's
+// InputDataConfig.DatasetGroupArn requirement.
+func createDatasetGroup(t *testing.T, h *forecast.Handler) string {
+	t.Helper()
+
+	code, created := request(t, h, "CreateDatasetGroup", map[string]any{
+		"DatasetGroupName": "fk-dataset-group", "Domain": "RETAIL",
+	})
+	require.Equal(t, http.StatusOK, code)
+	arn, ok := created["DatasetGroupArn"].(string)
+	require.True(t, ok)
+
+	return arn
+}
+
+// minimalCreatePredictorBody returns a CreatePredictorInput body carrying
+// every field aws-sdk-go-v2/service/forecast@v1.44.4/validators.go's
+// validateOpCreatePredictorInput marks required (PredictorName,
+// ForecastHorizon, InputDataConfig, FeaturizationConfig) -- including
+// InputDataConfig.DatasetGroupArn, which validateInputDataConfig also marks
+// required, so this creates a real DatasetGroup to reference -- for tests
+// that only care about a resource existing rather than exercising these
+// fields directly.
+func minimalCreatePredictorBody(t *testing.T, h *forecast.Handler, name string) map[string]any {
+	t.Helper()
+
+	return map[string]any{
+		"PredictorName":       name,
+		"ForecastHorizon":     10,
+		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+		"FeaturizationConfig": map[string]any{},
+	}
+}
+
+// minimalDataDestination returns a DataDestination body for tests that only
+// need CreateForecastExportJob/CreatePredictorBacktestExportJob/
+// CreateExplainabilityExport/CreateWhatIfForecastExport's required
+// Destination field present, not deeply validated.
+func minimalDataDestination() map[string]any {
+	return map[string]any{
+		"S3Config": map[string]any{
+			"Path":    "s3://fk-bucket/export",
+			"RoleArn": "arn:aws:iam::000000000000:role/forecast-export",
+		},
+	}
 }
 
 // createDataset creates a Dataset on h and returns its ARN.
@@ -126,6 +172,9 @@ func createExplainability(t *testing.T, h *forecast.Handler) string {
 	predictorARN := createPredictor(t, h)
 	code, created := request(t, h, "CreateExplainability", map[string]any{
 		"ExplainabilityName": "fk-explainability", "ResourceArn": predictorARN,
+		"ExplainabilityConfig": map[string]any{
+			"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL",
+		},
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn, ok := created["ExplainabilityArn"].(string)
@@ -343,8 +392,13 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			name: "predictor", create: "CreatePredictor", describe: "DescribePredictor",
 			list: "ListPredictors", delete: "DeletePredictor", arnField: "PredictorArn",
 			status: "Status", listField: "Predictors",
-			createBody: func(*testing.T, *forecast.Handler) map[string]any {
-				return map[string]any{"PredictorName": "daily", "ForecastHorizon": 14, "PerformAutoML": true}
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				body := minimalCreatePredictorBody(t, h, "daily")
+				body["PerformAutoML"] = true
+
+				return body
 			},
 		},
 		{
@@ -357,6 +411,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 
 				return map[string]any{
 					"PredictorBacktestExportJobName": "backtest", "PredictorArn": createPredictor(t, h),
+					"Destination": minimalDataDestination(),
 				}
 			},
 		},
@@ -377,7 +432,10 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
 				t.Helper()
 
-				return map[string]any{"ForecastExportJobName": "forecast-export", "ForecastArn": createForecast(t, h)}
+				return map[string]any{
+					"ForecastExportJobName": "forecast-export", "ForecastArn": createForecast(t, h),
+					"Destination": minimalDataDestination(),
+				}
 			},
 		},
 		{
@@ -390,6 +448,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 
 				return map[string]any{
 					"ExplainabilityExportName": "explain-export", "ExplainabilityArn": createExplainability(t, h),
+					"Destination": minimalDataDestination(),
 				}
 			},
 		},
@@ -401,7 +460,12 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
 				t.Helper()
 
-				return map[string]any{"ExplainabilityName": "forecast-explain", "ResourceArn": createPredictor(t, h)}
+				return map[string]any{
+					"ExplainabilityName": "forecast-explain", "ResourceArn": createPredictor(t, h),
+					"ExplainabilityConfig": map[string]any{
+						"TimePointGranularity": "ALL", "TimeSeriesGranularity": "ALL",
+					},
+				}
 			},
 		},
 		{
@@ -437,6 +501,7 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 				return map[string]any{
 					"WhatIfForecastExportName": "promo-export",
 					"WhatIfForecastArns":       []any{createWhatIfForecast(t, h)},
+					"Destination":              minimalDataDestination(),
 				}
 			},
 		},

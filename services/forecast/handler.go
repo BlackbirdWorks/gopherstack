@@ -151,7 +151,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: %s", ErrValidation, action)
 	}
 
-	output, err := h.execute(spec, input)
+	output, err := h.execute(action, spec, input)
 	if err != nil {
 		return nil, err
 	}
@@ -159,11 +159,12 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 	return json.Marshal(output)
 }
 
-func (h *Handler) execute(spec operationSpec, input map[string]any) (map[string]any, error) {
+func (h *Handler) execute(action string, spec operationSpec, input map[string]any) (map[string]any, error) {
 	switch spec.mode {
 	case modeCreate:
 		resource, err := h.Backend.create(
 			spec.kind,
+			action,
 			stringValue(input[spec.nameField]),
 			input,
 			createFails(spec.kind, input),

@@ -7,8 +7,19 @@
 service: forecast
 sdk_module: aws-sdk-go-v2/service/forecast@v1.44.4
 last_audit_commit: 80757023
-last_audit_date: 2026-08-10
-overall: A            # 2026-08-10: closed gopherstack-4vpt (nested FK existence validation):
+last_audit_date: 2026-08-13
+overall: A            # 2026-08-13: closed gopherstack-wl0s (required-presence validation):
+                       # CreateExplainability's ExplainabilityConfig; CreateForecastExportJob's,
+                       # CreatePredictorBacktestExportJob's, CreateExplainabilityExport's, and
+                       # CreateWhatIfForecastExport's shared Destination; and CreatePredictor's
+                       # ForecastHorizon/InputDataConfig/FeaturizationConfig (three fields, not
+                       # the two the originating audit named) were stored and echoed via the
+                       # generic-CRUD cloneMap passthrough but never required present. All are
+                       # now enforced via requiredPresenceFields in validation.go, keyed by
+                       # action name (not resourceKind) because CreatePredictor and
+                       # CreateAutoPredictor share kindPredictor but have different required
+                       # fields. See "Required-presence validation on Create*" note below.
+                       # 2026-08-10: closed gopherstack-4vpt (nested FK existence validation):
                        # CreatePredictor's InputDataConfig.DatasetGroupArn, CreateAutoPredictor's
                        # DataConfig.DatasetGroupArn, and CreateDatasetGroup/UpdateDatasetGroup's
                        # DatasetArns list now resolve against the backend before mutating state.
@@ -41,15 +52,15 @@ ops:
   UpdateDatasetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-10 -- DatasetArns (required field, per validators.go) must all resolve to existing Datasets; empty list legal (ArnList shape has no min), missing field is InvalidInputException"}
   CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- Domain/DatasetType required + enum-validated, Schema required, DataFrequency format-validated"}
   CreateDatasetImportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- DatasetArn must resolve to an existing Dataset (ResourceNotFoundException otherwise); ImportMode enum-validated when present"}
-  CreatePredictorBacktestExportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- PredictorArn must resolve to an existing Predictor"}
+  CreatePredictorBacktestExportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-07-23 -- PredictorArn must resolve to an existing Predictor; fixed 2026-08-13 (gopherstack-wl0s) -- Destination now required present"}
   CreateForecast: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- PredictorArn must resolve to an existing Predictor"}
-  CreateForecastExportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ForecastArn must resolve to an existing Forecast"}
-  CreateExplainability: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ResourceArn must resolve to an existing Predictor or Forecast (real AWS accepts either)"}
-  CreateExplainabilityExport: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ExplainabilityArn must resolve to an existing Explainability"}
+  CreateForecastExportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-07-23 -- ForecastArn must resolve to an existing Forecast; fixed 2026-08-13 (gopherstack-wl0s) -- Destination now required present"}
+  CreateExplainability: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-07-23 -- ResourceArn must resolve to an existing Predictor or Forecast (real AWS accepts either); fixed 2026-08-13 (gopherstack-wl0s) -- ExplainabilityConfig now required present"}
+  CreateExplainabilityExport: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-07-23 -- ExplainabilityArn must resolve to an existing Explainability; fixed 2026-08-13 (gopherstack-wl0s) -- Destination now required present"}
   CreateMonitor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ResourceArn must resolve to an existing Predictor"}
   CreateWhatIfAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- ForecastArn must resolve to an existing Forecast"}
   CreateWhatIfForecast: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- WhatIfAnalysisArn must resolve to an existing WhatIfAnalysis"}
-  CreateWhatIfForecastExport: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- WhatIfForecastArns (list) must all resolve to existing WhatIfForecasts; also corrected the field name itself (was erroneously WhatIfAnalysisArn in the emulator's own prior test fixtures -- real CreateWhatIfForecastExportInput has no such field)"}
+  CreateWhatIfForecastExport: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-07-23 -- WhatIfForecastArns (list) must all resolve to existing WhatIfForecasts; also corrected the field name itself (was erroneously WhatIfAnalysisArn in the emulator's own prior test fixtures -- real CreateWhatIfForecastExportInput has no such field); fixed 2026-08-13 (gopherstack-wl0s) -- Destination now required present"}
   "DeleteDatasetGroup/DeleteDataset/DeleteDatasetImportJob/DeletePredictor/DeleteForecast/DeleteForecastExportJob/DeleteExplainability/DeleteWhatIfAnalysis/DeleteWhatIfForecast/DeleteWhatIfForecastExport/DeleteMonitor":
     {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- now reject a resource still CREATE_PENDING with ResourceInUseException, matching each op's documented \"you can delete only X that have a status of ACTIVE or CREATE_FAILED\" precondition. DeletePredictorBacktestExportJob/DeleteExplainabilityExport deliberately excluded: their SDK doc comments carry no status precondition at all, so they remain deletable in any status."}
 # Families audited as a group (when per-op is impractical):
@@ -57,7 +68,7 @@ families:
   DatasetGroup: {status: ok, note: "Create/Describe/Update/Delete/List verified; CREATE_PENDING->ACTIVE on first Describe; Update replaces DatasetArns wholesale (correct, not merged); Domain required+enum-validated. 2026-08-10: DatasetArns is FK-validated on both Create (optional field, per-entry existence check when present) and Update (required field per validators.go's validateOpUpdateDatasetGroupInput, but the underlying ArnList shape sets no minimum length so an empty list is legal and clears the group)."}
   Dataset: {status: ok, note: "Create/Describe/Delete/List verified; Schema/DataFrequency/Domain/DatasetType field retention correct; Domain/DatasetType required+enum-validated and DataFrequency format-validated this pass. 2026-07-31: a fabricated \"UpdateDataset\" route (addCRUD update=true) was found wired and advertised even though this family note never claimed Update -- real Forecast has no such op; deleted, see header note."}
   DatasetImportJob: {status: ok, note: "S3Config.Path required -> CREATE_FAILED on missing path, matches known emulator convention (documented in TestDatasetImportJobs_S3Validation); DatasetArn FK-validated this pass"}
-  Predictor: {status: ok, note: "Create/Describe/Delete/List + CreateAutoPredictor/DescribeAutoPredictor verified; PerformAutoML/PerformHPO/HyperParameterTuningJobConfig retained. 2026-08-10: InputDataConfig.DatasetGroupArn (CreatePredictor) / DataConfig.DatasetGroupArn (CreateAutoPredictor) are now FK-validated when that nested config block is present in the request (validatePredictorFieldsLocked in validation.go) -- both operations route to kindPredictor, so presence of the parent field name distinguishes which shape is in play."}
+  Predictor: {status: ok, note: "Create/Describe/Delete/List + CreateAutoPredictor/DescribeAutoPredictor verified; PerformAutoML/PerformHPO/HyperParameterTuningJobConfig retained. 2026-08-10: InputDataConfig.DatasetGroupArn (CreatePredictor) / DataConfig.DatasetGroupArn (CreateAutoPredictor) are now FK-validated when that nested config block is present in the request (validatePredictorFieldsLocked in validation.go) -- both operations route to kindPredictor, so presence of the parent field name distinguishes which shape is in play. 2026-08-13 (gopherstack-wl0s): CreatePredictor's ForecastHorizon/InputDataConfig/FeaturizationConfig are now required-present (requiredPresenceFields, keyed by action name so CreateAutoPredictor -- whose SDK input has no FeaturizationConfig field at all and only requires PredictorName -- is unaffected)."}
   Forecast: {status: ok, note: "Create/Describe/Delete/List verified; epoch-seconds CreationTime/LastModificationTime via awstime.Epoch; PredictorArn FK-validated this pass"}
   "ForecastExportJob/PredictorBacktestExportJob/ExplainabilityExport/WhatIfAnalysis/WhatIfForecast/WhatIfForecastExport/Monitor/Explainability":
     status: ok
@@ -183,6 +194,33 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset()/Sn
   enum-membership check, and treats the field as optional (real AWS's doc
   text only requires it for RELATED_TIME_SERIES datasets, and even then only
   in prose).
+
+- **Required-presence validation on Create\* passthrough fields (real bug
+  fixed 2026-08-13, gopherstack-wl0s).** The generic-CRUD `create()` path
+  (store.go's `cloneMap`) stores and echoes the whole input map, so a
+  supplied value for these fields already round-tripped fine through
+  Describe\* — verified per field, not assumed: `CreateExplainability`'s
+  `ExplainabilityConfig`; `CreateForecastExportJob`'s,
+  `CreatePredictorBacktestExportJob`'s, `CreateExplainabilityExport`'s, and
+  `CreateWhatIfForecastExport`'s shared `Destination`; and `CreatePredictor`'s
+  `ForecastHorizon`, `InputDataConfig`, and `FeaturizationConfig`. What was
+  missing was rejecting a request that omitted one of these fields, even
+  though `aws-sdk-go-v2/service/forecast@v1.44.4/validators.go`'s
+  `validateOpCreate*Input` functions mark each of them required. All are now
+  checked by `requiredPresenceFields` in validation.go, keyed by **action
+  name**, not `resourceKind`: `CreatePredictor` and `CreateAutoPredictor`
+  both route to `kindPredictor`, but `CreateAutoPredictorInput` only requires
+  `PredictorName` (its `ForecastHorizon`/`DataConfig` are optional, and it has
+  no `FeaturizationConfig` field at all) — a kind-keyed table would have
+  wrongly rejected valid `CreateAutoPredictor` requests, which the FK
+  reference table below sidesteps by nesting on the parent field name instead
+  but presence-of-the-whole-input-struct can't. The originating audit named
+  only 2 of `CreatePredictor`'s 3 unvalidated required fields (missed
+  `InputDataConfig`); this fix covers all 3, confirmed against
+  `validateOpCreatePredictorInput`. `InputDataConfig`'s presence check also
+  surfaces `InputDataConfig.DatasetGroupArn`'s pre-existing nested FK check
+  (`validatePredictorFieldsLocked`), which previously never fired for
+  `CreatePredictor` because no test ever supplied `InputDataConfig` at all.
 
 - Persistence: `Handler.Snapshot`/`Restore` already delegate to
   `InMemoryBackend.Snapshot`/`Restore` (persistence.go), which uses

@@ -29,7 +29,10 @@ func newFullPersistenceTestBackend(t *testing.T) *comprehend.InMemoryBackend {
 	// something to reference) plus tags (raw map).
 	resource, err := b.CreateResource(
 		"flywheel", "full-flywheel", "",
-		map[string]any{},
+		map[string]any{
+			"DataAccessRoleArn": "arn:aws:iam::123456789012:role/comprehend-flywheel",
+			"DataLakeS3Uri":     "s3://fk-bucket/full-flywheel",
+		},
 		[]comprehend.Tag{{Key: "env", Value: "test"}},
 	)
 	require.NoError(t, err)
