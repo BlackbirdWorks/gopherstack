@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -24,10 +25,15 @@ const (
 	arnServiceIAM = "iam"
 	arnServiceSTS = "sts"
 
-	// condKeyExternalID and condKeyPrincipalArn are the trust-policy condition
-	// keys the emulator models (compared case-insensitively).
+	// condKeyExternalID, condKeyPrincipalArn, and condKeyMFAPresent are the
+	// trust-policy condition keys the emulator models (compared case-insensitively).
 	condKeyExternalID   = "sts:externalid"
 	condKeyPrincipalArn = "aws:principalarn"
+	condKeyMFAPresent   = "aws:multifactorauthpresent"
+
+	// condOperatorBool is the normalized (lowercased, IfExists-stripped) form of
+	// the AWS Bool condition operator.
+	condOperatorBool = "bool"
 )
 
 // trustEval carries the caller context evaluated against a role trust policy.
@@ -455,6 +461,8 @@ func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) b
 		return anyWildcard(want, actual)
 	case "stringnotlike":
 		return !anyWildcard(want, actual)
+	case condOperatorBool:
+		return anyEquals(want, actual, true)
 	default:
 		// Operators we do not model (numeric/date/bool/etc.) are not enforced.
 		return true
@@ -593,6 +601,76 @@ func requiredExternalIDs(condition map[string]map[string]json.RawMessage) []stri
 	}
 
 	return nil
+}
+
+// validateMFACondition parses a trust policy JSON document and validates that
+// mfaPresent (true when the caller supplied a well-formed SerialNumber+TokenCode
+// pair) satisfies any aws:MultiFactorAuthPresent Bool condition found therein.
+// Mirrors validateExternalID's OR semantics: if any statement's condition is
+// satisfied, access is granted; only when every statement carrying the
+// condition fails is ErrAccessDenied returned. This is the principal-independent
+// half of MFA enforcement — checkAssumeRoleTrust additionally threads the same
+// condition through the general Principal-aware evaluator via conditionCtx so
+// statements combining Principal and MFA in one clause are evaluated jointly.
+func validateMFACondition(trustPolicyJSON string, mfaPresent bool) error {
+	if trustPolicyJSON == "" {
+		return nil
+	}
+
+	var tp trustPolicy
+
+	// Unmarshal errors leave tp with a zero value (empty Statements): a malformed
+	// trust policy is treated permissively, same as validateExternalID.
+	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp)
+
+	var hasMFACondition bool
+
+	for _, stmt := range tp.Statement {
+		required, ok := requiredMFAPresent(stmt.Condition)
+		if !ok {
+			continue
+		}
+
+		hasMFACondition = true
+
+		if required == mfaPresent {
+			return nil
+		}
+	}
+
+	if hasMFACondition {
+		return fmt.Errorf(
+			"%w: the role's trust policy requires MFA authentication",
+			ErrAccessDenied,
+		)
+	}
+
+	return nil
+}
+
+// requiredMFAPresent extracts the required aws:MultiFactorAuthPresent Bool value
+// from a trust-statement Condition map. The second result reports whether the
+// condition is present at all.
+func requiredMFAPresent(condition map[string]map[string]json.RawMessage) (bool, bool) {
+	for condOp, condMap := range condition {
+		if normalizeConditionOp(condOp) != condOperatorBool {
+			continue
+		}
+
+		for condKey, rawVal := range condMap {
+			if !strings.EqualFold(condKey, "aws:MultiFactorAuthPresent") {
+				continue
+			}
+
+			for _, v := range extractStringValues(rawVal) {
+				if b, err := strconv.ParseBool(v); err == nil {
+					return b, true
+				}
+			}
+		}
+	}
+
+	return false, false
 }
 
 // extractStringValues unmarshals a JSON RawMessage that may be either a string

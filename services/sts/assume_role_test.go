@@ -559,6 +559,183 @@ func TestAssumeRole_ExternalID_MalformedTrustPolicy(t *testing.T) {
 	assert.NotNil(t, resp)
 }
 
+// ---- MFA condition validation tests ----------------------------------------
+
+// TestAssumeRole_MFACondition_DeniesWithoutMFA is the decisive regression test
+// for gopherstack-41fl: a trust policy requiring MFA must deny a caller who
+// presents no SerialNumber/TokenCode at all. Before the fix, AssumeRole never
+// read these fields and never modeled aws:MultiFactorAuthPresent, so this
+// call succeeded when it must not.
+func TestAssumeRole_MFACondition_DeniesWithoutMFA(t *testing.T) {
+	t.Parallel()
+
+	trustDoc := `{
+		"Version":"2012-10-17",
+		"Statement":[{
+			"Effect":"Allow",
+			"Action":"sts:AssumeRole",
+			"Condition":{
+				"Bool":{"aws:MultiFactorAuthPresent":"true"}
+			}
+		}]
+	}`
+
+	backend := sts.NewInMemoryBackend()
+	backend.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{TrustPolicy: trustDoc}})
+
+	_, err := backend.AssumeRole(&sts.AssumeRoleInput{
+		RoleArn:         "arn:aws:iam::123456789012:role/MFARequired",
+		RoleSessionName: "session",
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, sts.ErrAccessDenied)
+}
+
+func TestAssumeRole_MFACondition_PermitsWithMFA(t *testing.T) {
+	t.Parallel()
+
+	trustDoc := `{
+		"Version":"2012-10-17",
+		"Statement":[{
+			"Effect":"Allow",
+			"Action":"sts:AssumeRole",
+			"Condition":{
+				"Bool":{"aws:MultiFactorAuthPresent":"true"}
+			}
+		}]
+	}`
+
+	backend := sts.NewInMemoryBackend()
+	backend.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{TrustPolicy: trustDoc}})
+
+	resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
+		RoleArn:         "arn:aws:iam::123456789012:role/MFARequired",
+		RoleSessionName: "session",
+		SerialNumber:    "arn:aws:iam::123456789012:mfa/my-device",
+		TokenCode:       "123456",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.AssumeRoleResult.Credentials.AccessKeyID)
+}
+
+func TestAssumeRole_MFACondition_NotRequired(t *testing.T) {
+	t.Parallel()
+
+	// No MFA condition in the trust policy: absence of MFA does not block the call.
+	backend := sts.NewInMemoryBackend()
+	backend.SetRoleLookup(&stubRoleLookup{
+		meta: &sts.RoleMeta{
+			TrustPolicy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sts:AssumeRole"}]}`,
+		},
+	})
+
+	resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
+		RoleArn:         "arn:aws:iam::123456789012:role/NoMFA",
+		RoleSessionName: "session",
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, resp)
+}
+
+func TestAssumeRole_MFACondition_CombinedWithPrincipal(t *testing.T) {
+	t.Parallel()
+
+	const (
+		roleArn   = "arn:aws:iam::123456789012:role/Target"
+		callerArn = "arn:aws:sts::123456789012:assumed-role/AppRole/session"
+	)
+
+	trustDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+		`"Principal":{"AWS":"arn:aws:iam::123456789012:role/AppRole"},"Action":"sts:AssumeRole",` +
+		`"Condition":{"Bool":{"aws:MultiFactorAuthPresent":"true"}}}]}`
+
+	tests := []struct {
+		name         string
+		serialNumber string
+		tokenCode    string
+		wantErr      bool
+	}{
+		{name: "principal_matches_no_mfa_denied", wantErr: true},
+		{
+			name:         "principal_matches_with_mfa_allowed",
+			serialNumber: "arn:aws:iam::123456789012:mfa/my-device",
+			tokenCode:    "123456",
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sts.NewInMemoryBackend()
+			backend.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{TrustPolicy: trustDoc}})
+
+			_, err := backend.AssumeRole(&sts.AssumeRoleInput{
+				RoleArn:         roleArn,
+				RoleSessionName: "session",
+				CallerArn:       callerArn,
+				SerialNumber:    tt.serialNumber,
+				TokenCode:       tt.tokenCode,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, sts.ErrAccessDenied)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestAssumeRole_MFAFields_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr      error
+		name         string
+		serialNumber string
+		tokenCode    string
+	}{
+		{name: "token_code_without_serial", tokenCode: "123456", wantErr: sts.ErrTokenCodeWithoutSerial},
+		{
+			name:         "serial_without_token_code",
+			serialNumber: "arn:aws:iam::123456789012:mfa/my-device",
+			wantErr:      sts.ErrMFACodeRequired,
+		},
+		{
+			name:         "malformed_serial_number",
+			serialNumber: "not-a-serial-number",
+			tokenCode:    "123456",
+			wantErr:      sts.ErrInvalidMFASerialNumber,
+		},
+		{
+			name:         "non_6_digit_code",
+			serialNumber: "arn:aws:iam::123456789012:mfa/my-device",
+			tokenCode:    "12345",
+			wantErr:      sts.ErrInvalidMFATokenCode,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sts.NewInMemoryBackend()
+
+			_, err := backend.AssumeRole(&sts.AssumeRoleInput{
+				RoleArn:         "arn:aws:iam::123456789012:role/MyRole",
+				RoleSessionName: "session",
+				SerialNumber:    tt.serialNumber,
+				TokenCode:       tt.tokenCode,
+			})
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
 // ---- Duration enforcement tests --------------------------------------------
 
 func TestAssumeRole_Duration_RespectRoleMaxSessionDuration(t *testing.T) {

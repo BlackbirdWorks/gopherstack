@@ -96,6 +96,24 @@ func validateSourceIdentity(identity string) error {
 	return nil
 }
 
+// validateMFAFields checks the SerialNumber/TokenCode pairing and format rules
+// shared by every STS operation that accepts MFA proof (GetSessionToken, AssumeRole).
+func validateMFAFields(serial, tokenCode string) error {
+	if serial != "" && tokenCode == "" {
+		return ErrMFACodeRequired
+	}
+
+	if tokenCode != "" && serial == "" {
+		return ErrTokenCodeWithoutSerial
+	}
+
+	if err := validateMFASerialNumber(serial); err != nil {
+		return err
+	}
+
+	return validateMFATokenCode(tokenCode)
+}
+
 // validateMFASerialNumber checks that a SerialNumber is either a virtual MFA device ARN
 // (arn:aws:iam::ACCOUNT:mfa/NAME) or a hardware token serial (GAHT + 8 chars).
 func validateMFASerialNumber(serial string) error {
