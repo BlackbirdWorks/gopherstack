@@ -262,3 +262,44 @@ func TestFirewallDomainListCRUD(t *testing.T) {
 	rec = doRequest(t, h, "DeleteFirewallDomainList", map[string]any{"FirewallDomainListId": dlID})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+// TestListFirewallDomainLists_NoOverwideLeak asserts the raw JSON body of a
+// ListFirewallDomainLists item has none of Status/DomainCount/CreationTime/
+// ModificationTime/StatusMessage -- the real ListFirewallDomainListsOutput.
+// FirewallDomainLists is []types.FirewallDomainListMetadata
+// (route53resolver@v1.48.4 types/types.go:584, deserializer at
+// deserializers.go:10568), which has none of those members. An SDK client
+// silently drops the unrecognized keys, so only a raw-body assertion
+// catches the leak.
+func TestListFirewallDomainLists_NoOverwideLeak(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{
+		"Name":             "leak-check-list",
+		"CreatorRequestId": "req-leak",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "ListFirewallDomainLists", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var raw struct {
+		FirewallDomainLists []map[string]any `json:"FirewallDomainLists"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.Len(t, raw.FirewallDomainLists, 1)
+
+	item := raw.FirewallDomainLists[0]
+	for _, leaked := range []string{"Status", "DomainCount", "CreationTime", "ModificationTime", "StatusMessage"} {
+		_, has := item[leaked]
+		assert.Falsef(
+			t,
+			has,
+			"ListFirewallDomainLists item leaked %s; real types.FirewallDomainListMetadata has no such member",
+			leaked,
+		)
+	}
+	assert.Contains(t, item, "Id", "FirewallDomainListMetadata must still emit Id")
+	assert.Contains(t, item, "Name", "FirewallDomainListMetadata must still emit Name")
+}

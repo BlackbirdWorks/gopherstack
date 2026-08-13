@@ -235,6 +235,68 @@ func TestElasticsearchHandler_VpcEndpoints_Lifecycle(t *testing.T) {
 	resp.Body.Close()
 }
 
+// TestElasticsearchHandler_VpcEndpointSummary_NoEndpointOrVpcOptionsLeak
+// asserts the raw JSON body of ListVpcEndpoints/ListVpcEndpointsForDomain
+// items and DeleteVpcEndpoint's response have neither "Endpoint" nor
+// "VpcOptions" -- types.VpcEndpointSummary (elasticsearchservice@v1.45.4
+// types/types.go:1911, deserializer at deserializers.go:15436) has only
+// DomainArn/Status/VpcEndpointId/VpcEndpointOwner. An SDK client silently
+// drops the unrecognized keys, so only a raw-body assertion catches the
+// leak.
+func TestElasticsearchHandler_VpcEndpointSummary_NoEndpointOrVpcOptionsLeak(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	domain := "vpc-summary-leak-domain"
+	domainARN := createDomainAndGetARN(t, h, domain)
+
+	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/vpcEndpoints", map[string]any{
+		"DomainArn": domainARN, "VpcOptions": map[string]any{"SubnetIds": []string{"subnet-a"}},
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	endpointID, _ := readJSONBody(t, resp)["VpcEndpoint"].(map[string]any)["VpcEndpointId"].(string)
+	require.NotEmpty(t, endpointID)
+
+	assertNoLeak := func(t *testing.T, item map[string]any) {
+		t.Helper()
+		_, hasEndpoint := item["Endpoint"]
+		assert.False(
+			t,
+			hasEndpoint,
+			"VpcEndpointSummary leaked Endpoint; real types.VpcEndpointSummary has no such member",
+		)
+		_, hasVpcOptions := item["VpcOptions"]
+		assert.False(
+			t,
+			hasVpcOptions,
+			"VpcEndpointSummary leaked VpcOptions; real types.VpcEndpointSummary has no such member",
+		)
+		assert.Contains(t, item, "VpcEndpointId", "VpcEndpointSummary must still emit VpcEndpointId")
+		assert.Contains(t, item, "Status", "VpcEndpointSummary must still emit Status")
+	}
+
+	resp = doRequest(t, h, http.MethodGet, "/2015-01-01/es/vpcEndpoints", nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	listBody := readJSONBody(t, resp)
+	listItems, _ := listBody["VpcEndpointSummaryList"].([]any)
+	require.Len(t, listItems, 1)
+	assertNoLeak(t, listItems[0].(map[string]any))
+
+	resp = doRequest(t, h, http.MethodGet, "/2015-01-01/es/domain/"+domain+"/vpcEndpoints", nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	listForDomainBody := readJSONBody(t, resp)
+	listForDomainItems, _ := listForDomainBody["VpcEndpointSummaryList"].([]any)
+	require.Len(t, listForDomainItems, 1)
+	assertNoLeak(t, listForDomainItems[0].(map[string]any))
+
+	resp = doRequest(t, h, http.MethodDelete, "/2015-01-01/es/vpcEndpoints/"+endpointID, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	deleteBody := readJSONBody(t, resp)
+	deleteSummary, _ := deleteBody["VpcEndpointSummary"].(map[string]any)
+	require.NotEmpty(t, deleteSummary)
+	assertNoLeak(t, deleteSummary)
+}
+
 // TestElasticsearchHandler_VpcEndpointStatusActive verifies VPC endpoints are
 // created with ACTIVE status.
 func TestElasticsearchHandler_VpcEndpointStatusActive(t *testing.T) {

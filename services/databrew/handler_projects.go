@@ -120,7 +120,10 @@ func (h *Handler) handleDescribeProject(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(p)
+	cp := *p
+	cp.AccountID = ""
+
+	return json.Marshal(cp)
 }
 
 func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, error) {

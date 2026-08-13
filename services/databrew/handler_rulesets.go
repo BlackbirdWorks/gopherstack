@@ -89,7 +89,7 @@ func (h *Handler) handleDescribeRuleset(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(rs)
+	return json.Marshal(newRulesetDescribeView(rs))
 }
 
 func (h *Handler) handleListRulesets(ctx context.Context, body []byte) ([]byte, error) {
@@ -102,8 +102,12 @@ func (h *Handler) handleListRulesets(ctx context.Context, body []byte) ([]byte, 
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
 	rulesets, next := h.Backend.ListRulesets(ctx, maxResults, req.NextToken, req.TargetArn)
+	items := make([]RulesetListItem, 0, len(rulesets))
+	for _, rs := range rulesets {
+		items = append(items, newRulesetListItem(rs))
+	}
 
-	return json.Marshal(map[string]any{"Rulesets": rulesets, nextTokenKey: next})
+	return json.Marshal(map[string]any{"Rulesets": items, nextTokenKey: next})
 }
 
 func (h *Handler) handleUpdateRuleset(ctx context.Context, body []byte) ([]byte, error) {

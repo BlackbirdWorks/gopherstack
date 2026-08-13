@@ -252,7 +252,10 @@ func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(j)
+	cp := *j
+	cp.AccountID = ""
+
+	return json.Marshal(cp)
 }
 
 func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, error) {

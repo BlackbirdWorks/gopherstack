@@ -94,8 +94,8 @@ type listNotebookExecutionsInput struct {
 }
 
 type listNotebookExecutionsOutput struct {
-	Marker             string              `json:"Marker,omitempty"`
-	NotebookExecutions []NotebookExecution `json:"NotebookExecutions"`
+	Marker             string                     `json:"Marker,omitempty"`
+	NotebookExecutions []NotebookExecutionSummary `json:"NotebookExecutions"`
 }
 
 func (h *Handler) handleListNotebookExecutions(
@@ -108,5 +108,10 @@ func (h *Handler) handleListNotebookExecutions(
 		Marker:   in.Marker,
 	})
 
-	return &listNotebookExecutionsOutput{NotebookExecutions: list, Marker: marker}, nil
+	summaries := make([]NotebookExecutionSummary, 0, len(list))
+	for _, ne := range list {
+		summaries = append(summaries, newNotebookExecutionSummary(ne))
+	}
+
+	return &listNotebookExecutionsOutput{NotebookExecutions: summaries, Marker: marker}, nil
 }

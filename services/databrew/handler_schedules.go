@@ -88,7 +88,10 @@ func (h *Handler) handleDescribeSchedule(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(sc)
+	cp := *sc
+	cp.AccountID = ""
+
+	return json.Marshal(cp)
 }
 
 func (h *Handler) handleListSchedules(ctx context.Context, body []byte) ([]byte, error) {

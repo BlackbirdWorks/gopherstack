@@ -89,6 +89,36 @@ func toVpcEndpointJSON(e *VpcEndpoint) vpcEndpointJSON {
 	}
 }
 
+// vpcEndpointSummaryJSON is the wire shape for ListVpcEndpoints/
+// ListVpcEndpointsForDomain items and DeleteVpcEndpoint's response
+// (types.VpcEndpointSummary, elasticsearchservice@v1.45.4 types/types.go:1911,
+// deserializer at deserializers.go:15436): only DomainArn/Status/
+// VpcEndpointId/VpcEndpointOwner -- no Endpoint, no VpcOptions.
+type vpcEndpointSummaryJSON struct {
+	VpcEndpointID    string `json:"VpcEndpointId"`
+	VpcEndpointOwner string `json:"VpcEndpointOwner"`
+	DomainArn        string `json:"DomainArn"`
+	Status           string `json:"Status"`
+}
+
+func toVpcEndpointSummaryJSON(e *VpcEndpoint) vpcEndpointSummaryJSON {
+	return vpcEndpointSummaryJSON{
+		VpcEndpointID:    e.ID,
+		VpcEndpointOwner: e.OwnerAccountID,
+		DomainArn:        e.DomainARN,
+		Status:           e.Status,
+	}
+}
+
+func toVpcEndpointSummariesJSON(endpoints []*VpcEndpoint) []vpcEndpointSummaryJSON {
+	result := make([]vpcEndpointSummaryJSON, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		result = append(result, toVpcEndpointSummaryJSON(endpoint))
+	}
+
+	return result
+}
+
 // authorizeVpcEndpointAccessRequest is the JSON body for AuthorizeVpcEndpointAccess.
 type authorizeVpcEndpointAccessRequest struct {
 	Account string `json:"Account"`
@@ -175,7 +205,7 @@ func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) handleListVpcEndpoints(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(r, w, map[string]any{
-		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpoints(h.reqContext(r))),
+		"VpcEndpointSummaryList": toVpcEndpointSummariesJSON(h.Backend.ListVpcEndpoints(h.reqContext(r))),
 		keyNextToken:             "",
 	})
 }
@@ -189,7 +219,7 @@ func (h *Handler) handleDeleteVpcEndpoint(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"VpcEndpointSummary": toVpcEndpointJSON(endpoint)})
+	h.writeJSON(r, w, map[string]any{"VpcEndpointSummary": toVpcEndpointSummaryJSON(endpoint)})
 }
 
 func (h *Handler) handleListVpcEndpointAccess(w http.ResponseWriter, r *http.Request, domainName string) {
@@ -210,8 +240,10 @@ func (h *Handler) handleListVpcEndpointAccess(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) handleListVpcEndpointsForDomain(w http.ResponseWriter, r *http.Request, domainName string) {
 	h.writeJSON(r, w, map[string]any{
-		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpointsForDomain(h.reqContext(r), domainName)),
-		keyNextToken:             "",
+		"VpcEndpointSummaryList": toVpcEndpointSummariesJSON(
+			h.Backend.ListVpcEndpointsForDomain(h.reqContext(r), domainName),
+		),
+		keyNextToken: "",
 	})
 }
 

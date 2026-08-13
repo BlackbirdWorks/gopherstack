@@ -376,6 +376,34 @@ type NotebookExecution struct {
 	EndTime               float64 `json:"EndTime,omitempty"`
 }
 
+// NotebookExecutionSummary is the wire shape for ListNotebookExecutions
+// items (types.NotebookExecutionSummary, emr@v1.64.4 types.go:2161): no
+// NotebookParams, no Tags -- both present on the full NotebookExecution that
+// DescribeNotebookExecution returns.
+type NotebookExecutionSummary struct {
+	NotebookExecutionID   string  `json:"NotebookExecutionId"`
+	EditorID              string  `json:"EditorId,omitempty"`
+	NotebookExecutionName string  `json:"NotebookExecutionName,omitempty"`
+	ExecutionEngineID     string  `json:"ExecutionEngineId,omitempty"`
+	Status                string  `json:"Status"`
+	StartTime             float64 `json:"StartTime,omitempty"`
+	EndTime               float64 `json:"EndTime,omitempty"`
+}
+
+// newNotebookExecutionSummary projects a NotebookExecution into
+// ListNotebookExecutions' real per-item shape.
+func newNotebookExecutionSummary(ne NotebookExecution) NotebookExecutionSummary {
+	return NotebookExecutionSummary{
+		NotebookExecutionID:   ne.NotebookExecutionID,
+		EditorID:              ne.EditorID,
+		NotebookExecutionName: ne.NotebookExecutionName,
+		ExecutionEngineID:     ne.ExecutionEngineID,
+		Status:                ne.Status,
+		StartTime:             ne.StartTime,
+		EndTime:               ne.EndTime,
+	}
+}
+
 // InstanceGroupStatus is the status of an EMR instance group.
 type InstanceGroupStatus struct {
 	State string `json:"State"`

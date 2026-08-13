@@ -48,6 +48,32 @@ func firewallDomainListToOutput(dl *FirewallDomainList) firewallDomainListOutput
 	}
 }
 
+// firewallDomainListMetadataOutput is the wire shape for
+// ListFirewallDomainListsOutput.FirewallDomainLists (types.FirewallDomainListMetadata,
+// route53resolver@v1.48.4 types/types.go:584, deserializer at
+// deserializers.go:10568): only Arn/Category/CreatorRequestId/Id/
+// ManagedListType/ManagedOwnerName/Name -- no Status/DomainCount/
+// CreationTime/ModificationTime/StatusMessage. Category and ManagedListType
+// are omitted here (rather than emitted always-empty): this backend never
+// creates AWS-managed domain lists, so it has no source of truth for either.
+type firewallDomainListMetadataOutput struct {
+	ID               string `json:"Id"`
+	Arn              string `json:"Arn"`
+	Name             string `json:"Name"`
+	CreatorRequestID string `json:"CreatorRequestId"`
+	ManagedOwnerName string `json:"ManagedOwnerName,omitempty"`
+}
+
+func firewallDomainListToMetadataOutput(dl *FirewallDomainList) firewallDomainListMetadataOutput {
+	return firewallDomainListMetadataOutput{
+		ID:               dl.ID,
+		Arn:              dl.ARN,
+		Name:             dl.Name,
+		CreatorRequestID: dl.CreatorRequestID,
+		ManagedOwnerName: dl.ManagedOwnerName,
+	}
+}
+
 func (h *Handler) handleCreateFirewallDomainList(
 	ctx context.Context,
 	in *createFirewallDomainListInput,
@@ -129,8 +155,8 @@ type listFirewallDomainListsInput struct {
 }
 
 type listFirewallDomainListsOutput struct {
-	NextToken           *string                    `json:"NextToken,omitempty"`
-	FirewallDomainLists []firewallDomainListOutput `json:"FirewallDomainLists"`
+	NextToken           *string                            `json:"NextToken,omitempty"`
+	FirewallDomainLists []firewallDomainListMetadataOutput `json:"FirewallDomainLists"`
 }
 
 func (h *Handler) handleListFirewallDomainLists(
@@ -138,9 +164,9 @@ func (h *Handler) handleListFirewallDomainLists(
 	in *listFirewallDomainListsInput,
 ) (*listFirewallDomainListsOutput, error) {
 	lists := h.Backend.ListFirewallDomainLists(ctx)
-	items := make([]firewallDomainListOutput, 0, len(lists))
+	items := make([]firewallDomainListMetadataOutput, 0, len(lists))
 	for _, dl := range lists {
-		items = append(items, firewallDomainListToOutput(dl))
+		items = append(items, firewallDomainListToMetadataOutput(dl))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	data, next := paginate(items, in.NextToken, in.MaxResults, defaultPageSizeLarge)

@@ -49,10 +49,10 @@ ops:
   ListPackagesForDomain: {wire: ok, errors: ok, state: ok, persist: n/a}
   CreateVpcEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-p2mx) -- request/response VpcOptions was map[string]string; real wire shape is types.VPCOptions/{SecurityGroupIds,SubnetIds} (request) and types.VPCDerivedInfo (response, same two fields plus unmodeled AvailabilityZones/VPCId -- matches the identical domain-level VPCOptions simplification). A real SDK client always serializes VpcOptions as {SecurityGroupIds:[...],SubnetIds:[...]}, so json.Unmarshal into map[string]string failed on every real call with a security group or subnet -- CreateVpcEndpoint 400'd unconditionally for any non-toy client. Reused the already-correct vpcOptionsRequestJSON/vpcDerivedInfoJSON/toVPCDerivedInfoJSON machinery built for domain-level VPCOptions (handler_domains.go) -- CreateVpcEndpointInput.VpcOptions is the literal same SDK type. Prior wire: ok was false; existing unit tests asserted the broken shape (flat VpcId/SubnetId keys) and were corrected. Proven via a real aws-sdk-go-v2 client round-trip (handler_sdk_roundtrip_test.go), verified to fail against the unfixed code by hand-revert"}
   DescribeVpcEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListVpcEndpoints: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — dropped required NextToken (ListVpcEndpointsOutput, deserializers.go). Single-page emulator (never truncated) so no data is lost, but a required pointer left nil could panic a client that dereferences it unconditionally; now always emitted as an empty string. Prior wire: ok was false"}
-  ListVpcEndpointsForDomain: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — same required-NextToken gap and fix as ListVpcEndpoints above. Prior wire: ok was false"}
+  ListVpcEndpoints: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — dropped required NextToken (ListVpcEndpointsOutput, deserializers.go). Single-page emulator (never truncated) so no data is lost, but a required pointer left nil could panic a client that dereferences it unconditionally; now always emitted as an empty string. Prior wire: ok was false. gopherstack-4gzs: CORRECTED (this pass) — see the 'Not a bug' note below (now removed), which argued returning the full vpcEndpointJSON shape (Endpoint/VpcOptions included) was harmless. Now emits vpcEndpointSummaryJSON via toVpcEndpointSummariesJSON (handler_vpc_endpoints.go)."}
+  ListVpcEndpointsForDomain: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — same required-NextToken gap and fix as ListVpcEndpoints above. Prior wire: ok was false. gopherstack-4gzs: CORRECTED (this pass) — same vpcEndpointSummaryJSON fix as ListVpcEndpoints above."}
   UpdateVpcEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-p2mx) -- same VpcOptions map[string]string bug and fix as CreateVpcEndpoint above. Prior wire: ok was false"}
-  DeleteVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteVpcEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-4gzs: CORRECTED (this pass) — DeleteVpcEndpointOutput.VpcEndpointSummary is *types.VpcEndpointSummary (api_op_DeleteVpcEndpoint.go:41-53), same narrower shape as the List ops; was emitting the full vpcEndpointJSON. Now emits vpcEndpointSummaryJSON via toVpcEndpointSummaryJSON."}
   AuthorizeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   RevokeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   ListVpcEndpointAccess: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — same required-NextToken gap and fix as ListVpcEndpoints (ListVpcEndpointAccessOutput, deserializers.go). Prior wire: ok was false"}
@@ -175,17 +175,34 @@ field-level checks had missed:
    response round-trips both fields; verified to fail against the unfixed code
    (`ValidationException: invalid JSON body`) by hand-revert.
 
-**Not a bug, documented for the next auditor**: `ListVpcEndpoints`/
-`ListVpcEndpointsForDomain` return the same `vpcEndpointJSON` shape (including
-`Endpoint` and `VpcOptions`) for every list entry, but the real
-`ListVpcEndpointsOutput.VpcEndpointSummaryList` is `[]types.VpcEndpointSummary`, a
-narrower shape with only `DomainArn`/`Status`/`VpcEndpointId`/`VpcEndpointOwner` --
-no `Endpoint` or `VpcOptions`. restjson1 clients ignore unknown response keys, so this
-is inert (proven by the existing `ListVpcEndpoints`/`ListVpcEndpointAccess` SDK
-round-trip test continuing to pass unmodified), but it's excess surface a future change
-to `vpcEndpointJSON` could accidentally turn into a real bug. Left as-is this pass
-(not required-field-related, not client-breaking) but worth tightening in a future
-pass. Same observation applies to `DeleteVpcEndpoint`'s `VpcEndpointSummary` response.
+**gopherstack-4gzs: CORRECTED** — this section previously argued, "not a bug,
+documented for the next auditor", that `ListVpcEndpoints`/
+`ListVpcEndpointsForDomain` returning the full `vpcEndpointJSON` shape
+(including `Endpoint` and `VpcOptions`) for every list entry was inert
+because restjson1 clients ignore unknown response keys, proven by the
+existing SDK round-trip test continuing to pass unmodified. The premise is
+true but the conclusion was wrong: `types.VpcEndpointSummary`
+(elasticsearchservice@v1.45.4 types/types.go:1911, deserializer at
+deserializers.go:15436) is a real, narrower type — only
+`DomainArn`/`Status`/`VpcEndpointId`/`VpcEndpointOwner`, no `Endpoint` or
+`VpcOptions` — so the superset response was a genuine wire-shape lie
+regardless of SDK-client tolerance: a raw-body or non-SDK caller sees a
+VPC endpoint's connection address and subnet/security-group IDs leaked
+through a list call. The existing SDK round-trip test passing was never
+proof of correctness here -- see parity-principles.md's no-stub rule on
+why a typed-client pass is not sufficient for a leaked-field bug; only a
+raw-body assertion catches it (see `TestElasticsearchHandler_VpcEndpointSummary_NoEndpointOrVpcOptionsLeak`,
+handler_vpc_endpoints_test.go). Fixed by emitting a dedicated
+`vpcEndpointSummaryJSON` via `toVpcEndpointSummaryJSON`/
+`toVpcEndpointSummariesJSON` (handler_vpc_endpoints.go) from
+`ListVpcEndpoints`, `ListVpcEndpointsForDomain`, and `DeleteVpcEndpoint`'s
+`VpcEndpointSummary` response (`DeleteVpcEndpointOutput.VpcEndpointSummary`
+is the same narrower `*types.VpcEndpointSummary`, api_op_DeleteVpcEndpoint.go:41-53
+-- this call site was not called out by name in the original "not a bug" note's
+heading but was mentioned in its last sentence and had the identical bug).
+`vpcEndpointJSON` (full shape, with `Endpoint`/`VpcOptions`) stays reserved for
+`CreateVpcEndpoint`/`UpdateVpcEndpoint`/`DescribeVpcEndpoints`, which really do
+return the full `types.VpcEndpoint`.
 
 **Route audit reconfirmed, not repeated from scratch**: the bd issue this pass closes
 (gopherstack-p2mx) cited a prior route audit (gopherstack-4nek) that traced all 51 ops
