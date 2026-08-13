@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 51 (49 ok, 2 partial) |
+| Operations audited | 51 (50 ok, 1 partial) |
 | Feature families | 8 (7 ok, 1 partial) |
 | Known gaps | 3 |
 | Deferred items | 6 |
@@ -16,7 +16,7 @@
 ### Known gaps
 
 - ASG/ECS -> ELBv2 target registration is cross-service: RegisterTargets/DeregisterTargets/DescribeTargetHealth on the ELBv2 side are correct and complete (verified and improved this pass - see ops), but nothing on the ASG/ECS side calls them when instances/tasks scale (bd: gopherstack-18k) - NOT fixed here, out of scope per task instructions (elbv2-only edits)
-- GetTrustStoreCaCertificatesBundle / GetTrustStoreRevocationContent always return an empty Location (no real S3-backed object to point to) - documented simplification, not a hidden stub (the ops correctly validate the trust store/revocation exist and return 400 TrustStoreNotFound/RevocationIdNotFound otherwise)
+- GetTrustStoreCaCertificatesBundle / GetTrustStoreRevocationContent always return an empty Location (no real S3-backed object to point to) - documented simplification, not a hidden stub (the ops correctly validate the trust store/revocation exist and return 400 TrustStoreNotFound/RevocationIdNotFound otherwise). UPDATED (2026-08-13, bd gopherstack-hl3h): the RevocationIdNotFound check was previously not implemented despite this gap note claiming it was (GetTrustStoreRevocationContent never read RevocationId at all) - now genuinely true, see the op's PARITY note above. CreateTrustStore/ModifyTrustStore's CaCertificatesBundleS3Bucket/Key/ObjectVersion are recorded on TrustStore (same pass) but likewise never used to produce real bundle content, for the same no-real-S3 reason.
 - CreateTargetGroup's default TargetGroupAttributes map only pre-populates 5 of the ~15+ attribute keys real AWS always returns from DescribeTargetGroupAttributes (see target-group-attributes family note above) - explicitly-set attributes still round-trip correctly via ModifyTargetGroupAttributes, so this is a completeness gap in the *defaults*, not a wire-shape bug; deferred rather than rushed because the correct default value differs per target type (instance/ip vs lambda) and expanding the map risks breaking the ~30 existing tests that assert on today's 5-key map. No bd id filed yet - recommend filing one if prioritized.
 
 ### Deferred

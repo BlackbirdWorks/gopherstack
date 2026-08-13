@@ -487,8 +487,8 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Backup](services/backup/README.md) | A | 45 | clean |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 2 gaps; 2 deferred |
-| [FSx](services/fsx/README.md) | A | — | 13 families; 3 gaps |
-| [S3](services/s3/README.md) | A | 10 | 5 gaps |
+| [FSx](services/fsx/README.md) | A | — | 13 families; 4 gaps |
+| [S3](services/s3/README.md) | A | 11 | 5 gaps |
 | [S3 Control](services/s3control/README.md) | A | 45 | 6 gaps; 3 deferred |
 | [S3 Glacier](services/glacier/README.md) | A | 33 | 1 gap |
 | [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
@@ -522,7 +522,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 2 gaps; 3 deferred |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 3 gaps; 1 deferred |
-| [CloudFront](services/cloudfront/README.md) | A | 38 | 4 deferred |
+| [CloudFront](services/cloudfront/README.md) | A | 39 | 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
 | [ELBv2](services/elbv2/README.md) | A | 51 | 3 gaps; 6 deferred |
@@ -599,7 +599,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 4 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
-| [STS](services/sts/README.md) | A | 11 | 2 gaps; 1 deferred |
+| [STS](services/sts/README.md) | A | 11 | 3 gaps; 1 deferred |
 
 ### Management & Governance
 
@@ -615,7 +615,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 70 | 9 gaps; 3 deferred |
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
-| [Cost Explorer](services/ce/README.md) | A | 31 | 1 gap; 2 deferred |
+| [Cost Explorer](services/ce/README.md) | A | 37 | 1 gap; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | B | 32 | 4 gaps; 1 deferred |
 | [Organizations](services/organizations/README.md) | A | 63 | 5 gaps |
@@ -651,7 +651,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Personalize](services/personalize/README.md) | A | 73 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 4 deferred |
-| [SageMaker](services/sagemaker/README.md) | A | 54 | 13 gaps; 6 deferred |
+| [SageMaker](services/sagemaker/README.md) | A | 54 | 15 gaps; 5 deferred |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 gap |
 | [Textract](services/textract/README.md) | A | 25 | 1 gap; 1 structural gap; 1 deferred |
 | [Transcribe](services/transcribe/README.md) | A | 43 | 2 gaps |

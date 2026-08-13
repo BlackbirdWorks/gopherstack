@@ -9,8 +9,8 @@
 | --- | --- |
 | Operations audited | 54 (54 ok) |
 | Feature families | 26 (10 ok, 16 partial) |
-| Known gaps | 13 |
-| Deferred items | 6 |
+| Known gaps | 15 |
+| Deferred items | 5 |
 | Resource leaks | clean |
 
 ### Known gaps
@@ -28,15 +28,16 @@
 - parity-5: lineage's CreateAction/CreateArtifact accept no MetadataProperties field (a real, optional CreateActionInput/CreateArtifactInput field) — low-severity accept-and-drop left for a follow-up pass since the rest of this family was clean. (no bd issue filed yet)
 - parity-6: CreateAutoMLJobV2/DescribeAutoMLJobV2's AutoMLProblemTypeConfig is a 5-member tagged union (ImageClassificationJobConfig/TabularJobConfig/TextClassificationJobConfig/TextGenerationJobConfig/TimeSeriesForecastingJobConfig), each itself a materially large nested struct (e.g. TabularJobConfig alone has CandidateGenerationConfig/FeatureSpecificationS3Uri/Mode/ProblemType/TargetAttributeName/...). Carried as opaque json.RawMessage passthrough, same established convention as this file's other deeply-nested unions (ai_benchmark_job/ai_recommendation_job/inference_recommendations_job) — every field a client sends round-trips exactly; only AutoMLProblemTypeConfigName (which member is present) is derived, not the member's internal fields. (no bd issue filed yet)
 - parity-6: DescribeAutoMLJobV2Output's BestCandidate/PartialFailureReasons/ResolvedAttributes/AutoMLJobArtifacts/EndTime/FailureReason/ModelDeployResult are not modeled — these are server-synthesized/derived fields that mirror V1 DescribeAutoMLJobOutput's pre-existing, disclosed depth limit (V1 has never modeled BestCandidate/ResolvedAttributes/etc. either); not a V2-specific regression, just not newly fixed by this pass. (no bd issue filed yet)
+- parity-7 (gopherstack-oc9v): Domain's DefaultUserSettings/DefaultSpaceSettings/DomainSettings, UserProfile's UserSettings, Space's OwnershipSettings/SpaceSettings/SpaceSharingSettings, and App's ResourceSpec are all carried as opaque json.RawMessage passthrough rather than fully-typed structs — UserSettings alone has ~20 app-specific sub-configs (JupyterServerAppSettings, KernelGatewayAppSettings, CanvasAppSettings, CodeEditorAppSettings, SpaceStorageSettings, ...), each individually as large as a small family already in this file. Every field a client sends round-trips exactly; no server-synthesized sub-field is fabricated. (no bd issue filed yet)
+- parity-7 (gopherstack-oc9v): DescribeApp/DescribeDomain still omit several real optional output-only fields this pass didn't add backend state for: App's EffectiveTrustedIdentityPropagationStatus/BuiltInLifecycleConfigArn/FailureReason/LastHealthCheckTimestamp/LastUserActivityTimestamp; Domain's FailureReason/HomeEfsFileSystemId/SecurityGroupIdForDomainBoundary/SingleSignOnApplicationArn/SingleSignOnManagedApplicationInstanceId/HomeEfsFileSystemKmsKeyId (deprecated, superseded by KmsKeyId which IS modeled). These are server-derived/lifecycle fields with no synchronous backend process to derive them from truthfully; left absent rather than fabricated. (no bd issue filed yet)
 
 ### Deferred
 
-- domain_app_userprofile_space (Domain/App/UserProfile portion; Space timestamp bug fixed)
 - model_package_model_package_group (beyond ModelPackageStatusDetails fix; InferenceSpecification etc. not audited)
 - edge_deployment_device_fleet (EdgeDeploymentPlan/EdgePackagingJob portion; DeviceFleet/Device fixed)
 - training_plan (beyond timestamp fix)
 - monitoring_schedule_workteam_compilation_job (Workteam portion; MonitoringSchedule/CompilationJob timestamps fixed)
-- …and 1 more — see PARITY.md
+- inference_recommendations_edge_packaging (EdgePackagingJob portion only; InferenceRecommendationsJob itself audited+fixed parity-5)
 
 ## More
 
