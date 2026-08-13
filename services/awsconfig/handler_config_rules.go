@@ -57,9 +57,22 @@ func configRuleSupportedOps() []string {
 	}
 }
 
+// describeConfigRulesFiltersInput mirrors types.DescribeConfigRulesFilters.
+// Both fields are accepted but inert: gopherstack's ConfigRule has no
+// EvaluationMode/RuleEvaluationVisibility concept (PutConfigRule doesn't
+// model the real types.ConfigRule.EvaluationModes field either), so there is
+// no per-rule state here to filter by -- a filtered request currently returns
+// the same unfiltered set as an unfiltered one, rather than silently dropping
+// the Filters object as an unknown JSON key.
+type describeConfigRulesFiltersInput struct {
+	EvaluationMode           string `json:"EvaluationMode,omitempty"`
+	RuleEvaluationVisibility string `json:"RuleEvaluationVisibility,omitempty"`
+}
+
 type describeConfigRulesInput struct {
-	NextToken       string   `json:"NextToken,omitempty"`
-	ConfigRuleNames []string `json:"ConfigRuleNames,omitempty"`
+	Filters         *describeConfigRulesFiltersInput `json:"Filters,omitempty"`
+	NextToken       string                           `json:"NextToken,omitempty"`
+	ConfigRuleNames []string                         `json:"ConfigRuleNames,omitempty"`
 }
 
 type describeConfigRulesOutput struct {

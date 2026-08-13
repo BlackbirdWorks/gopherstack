@@ -293,6 +293,7 @@ var errorWireMappings = []errorWireMapping{
 	{ErrInvalidDeliveryChannelName, "InvalidDeliveryChannelNameException", http.StatusBadRequest},
 	{ErrConflict, "ConflictException", http.StatusBadRequest},
 	{ErrValidation, "ValidationException", http.StatusBadRequest},
+	{ErrInvalidParameterValue, "InvalidParameterValueException", http.StatusBadRequest},
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {

@@ -187,10 +187,24 @@ type AggregateResourceIdentifier struct {
 	ResourceType    string `json:"ResourceType,omitempty"`
 }
 
-// ResourceKey identifies a resource by type and ID.
+// ResourceKey identifies a resource by type and ID for
+// StartRemediationExecution/DescribeRemediationExecutionStatus (wire keys
+// resourceType/resourceId -- verified against aws-sdk-go-v2/service/
+// configservice's awsAwsjson11_serializeDocumentResourceKey).
 type ResourceKey struct {
 	ResourceType string `json:"resourceType,omitempty"`
 	ResourceID   string `json:"resourceId,omitempty"`
+}
+
+// RemediationExceptionResourceKey identifies a resource by type and ID for
+// Put/DeleteRemediationExceptions. Despite the similar name, its wire keys
+// are PascalCase (ResourceType/ResourceId), not lowerCamelCase like
+// ResourceKey above -- verified against aws-sdk-go-v2/service/configservice's
+// awsAwsjson11_serializeDocumentRemediationExceptionResourceKey, a distinct
+// serializer from ResourceKey's.
+type RemediationExceptionResourceKey struct {
+	ResourceType string `json:"ResourceType,omitempty"`
+	ResourceID   string `json:"ResourceId,omitempty"`
 }
 
 // RetentionConfiguration holds the retention period configuration.

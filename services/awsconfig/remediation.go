@@ -47,11 +47,22 @@ func (b *InMemoryBackend) DescribeRemediationConfigurations(ruleNames []string) 
 	return out
 }
 
-// PutRemediationExceptions stores a remediation exception for a rule + resource.
-func (b *InMemoryBackend) PutRemediationExceptions(ruleName, resourceType, resourceID string) error {
+// PutRemediationExceptions stores a remediation exception per resource key
+// for a rule (real Config adds one exception per key in the request, e.g. 3
+// exceptions for 3 resource keys).
+func (b *InMemoryBackend) PutRemediationExceptions(ruleName string, keys []RemediationExceptionResourceKey) error {
 	b.mu.Lock("PutRemediationExceptions")
 	defer b.mu.Unlock()
 
+	for _, k := range keys {
+		b.putRemediationExceptionLocked(ruleName, k.ResourceType, k.ResourceID)
+	}
+
+	return nil
+}
+
+// putRemediationExceptionLocked upserts a single exception; callers must hold b.mu.
+func (b *InMemoryBackend) putRemediationExceptionLocked(ruleName, resourceType, resourceID string) {
 	ex := RemediationException{
 		ConfigRuleName: ruleName,
 		ResourceType:   resourceType,
@@ -66,13 +77,11 @@ func (b *InMemoryBackend) PutRemediationExceptions(ruleName, resourceType, resou
 
 			b.remediationExceptions[ruleName] = existing
 
-			return nil
+			return
 		}
 	}
 
 	b.remediationExceptions[ruleName] = append(existing, ex)
-
-	return nil
 }
 
 // DescribeRemediationExceptions returns all remediation exceptions for the given rule name.
@@ -109,16 +118,25 @@ func (b *InMemoryBackend) DeleteRemediationConfiguration(ruleName string) error 
 	return nil
 }
 
-// DeleteRemediationExceptions removes an exception for a rule + resource.
-func (b *InMemoryBackend) DeleteRemediationExceptions(ruleName, resourceID string) error {
+// DeleteRemediationExceptions removes the exceptions matching the given
+// resource keys (type + ID) for a rule. Real Config's declared error model
+// for this op has no ValidationException (only NoSuchRemediationException,
+// surfaced per-item via FailedBatches -- not modeled, since gopherstack never
+// fails to delete an exception it holds), so an empty ruleName/keys is
+// treated as a no-op rather than an invented validation error.
+func (b *InMemoryBackend) DeleteRemediationExceptions(ruleName string, keys []RemediationExceptionResourceKey) error {
 	b.mu.Lock("DeleteRemediationExceptions")
 	defer b.mu.Unlock()
+
+	if len(keys) == 0 {
+		return nil
+	}
 
 	existing := b.remediationExceptions[ruleName]
 	filtered := existing[:0]
 
 	for _, e := range existing {
-		if e.ResourceID != resourceID {
+		if !containsRemediationExceptionKey(keys, e.ResourceType, e.ResourceID) {
 			filtered = append(filtered, e)
 		}
 	}
@@ -126,6 +144,18 @@ func (b *InMemoryBackend) DeleteRemediationExceptions(ruleName, resourceID strin
 	b.remediationExceptions[ruleName] = filtered
 
 	return nil
+}
+
+// containsRemediationExceptionKey reports whether keys contains a
+// (resourceType, resourceID) pair.
+func containsRemediationExceptionKey(keys []RemediationExceptionResourceKey, resourceType, resourceID string) bool {
+	for _, k := range keys {
+		if k.ResourceType == resourceType && k.ResourceID == resourceID {
+			return true
+		}
+	}
+
+	return false
 }
 
 // remediationExecutionStepName is the single synthetic step this emulator

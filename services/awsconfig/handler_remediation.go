@@ -2,6 +2,7 @@ package awsconfig
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -45,17 +46,14 @@ func (h *Handler) handleDeleteRemediationConfiguration(
 
 // DeleteRemediationExceptions request/response types and handler.
 type deleteRemediationExceptionsInput struct {
-	ConfigRuleName    string `json:"ConfigRuleName"`
-	ResourceGroupName string `json:"ResourceGroupName"`
+	ConfigRuleName string                            `json:"ConfigRuleName"`
+	ResourceKeys   []RemediationExceptionResourceKey `json:"ResourceKeys"`
 }
 
 func (h *Handler) handleDeleteRemediationExceptions(
 	_ context.Context, in *deleteRemediationExceptionsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.DeleteRemediationExceptions(
-		in.ConfigRuleName,
-		in.ResourceGroupName,
-	)
+	return &emptyOutput{}, h.Backend.DeleteRemediationExceptions(in.ConfigRuleName, in.ResourceKeys)
 }
 
 // DescribeRemediationConfigurations request/response types and handler.
@@ -121,17 +119,29 @@ func (h *Handler) handlePutRemediationConfigurations(
 	return &emptyOutput{}, h.Backend.PutRemediationConfigurations(in.RemediationConfigurations)
 }
 
-// PutRemediationExceptions request/response types and handler.
+// PutRemediationExceptions request/response types and handler. ExpirationTime
+// and Message are real optional members of PutRemediationExceptionsInput but
+// aren't modeled: gopherstack's RemediationException has no fields to reflect
+// them into (DescribeRemediationExceptions doesn't report them either), so
+// they're left for the JSON decoder to silently discard rather than accepted
+// into a field nothing reads.
 type putRemediationExceptionsInput struct {
-	ConfigRuleName string `json:"ConfigRuleName"`
-	ResourceType   string `json:"ResourceType"`
-	ResourceID     string `json:"ResourceId"`
+	ConfigRuleName string                            `json:"ConfigRuleName"`
+	ResourceKeys   []RemediationExceptionResourceKey `json:"ResourceKeys"`
 }
 
 func (h *Handler) handlePutRemediationExceptions(
 	_ context.Context, in *putRemediationExceptionsInput,
 ) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutRemediationExceptions(in.ConfigRuleName, in.ResourceType, in.ResourceID)
+	if in.ConfigRuleName == "" {
+		return nil, fmt.Errorf("%w: ConfigRuleName is required", ErrInvalidParameterValue)
+	}
+
+	if len(in.ResourceKeys) == 0 {
+		return nil, fmt.Errorf("%w: ResourceKeys is required", ErrInvalidParameterValue)
+	}
+
+	return &emptyOutput{}, h.Backend.PutRemediationExceptions(in.ConfigRuleName, in.ResourceKeys)
 }
 
 // StartRemediationExecution request/response types and handler.

@@ -7,8 +7,79 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// importDataSourceInput mirrors types.ImportDataSource. Both members are
+// required on the real type; gopherstack has no S3 fetcher, so DataFormat/
+// S3Url are validated and stored for echo-back but the file they name is
+// never actually read.
+type importDataSourceInput struct {
+	DataFormat string `json:"DataFormat"`
+	S3Url      string `json:"S3Url"`
+}
+
+// contactListDestinationInput mirrors types.ContactListDestination.
+type contactListDestinationInput struct {
+	ContactListImportAction string `json:"ContactListImportAction"`
+	ContactListName         string `json:"ContactListName"`
+}
+
+// suppressionListDestinationInput mirrors types.SuppressionListDestination.
+type suppressionListDestinationInput struct {
+	SuppressionListImportAction string `json:"SuppressionListImportAction"`
+}
+
+// importDestinationInput mirrors types.ImportDestination: exactly one of the
+// two branches must be set (real SES v2 requires "either
+// ContactListDestination or SuppressionListDestination").
+type importDestinationInput struct {
+	ContactListDestination     *contactListDestinationInput     `json:"ContactListDestination,omitempty"`
+	SuppressionListDestination *suppressionListDestinationInput `json:"SuppressionListDestination,omitempty"`
+}
+
+// toImportDestination validates the oneof and its branch's own required
+// members, then converts to the backend shape.
+func (d importDestinationInput) toImportDestination() (ImportDestination, error) {
+	hasContactList := d.ContactListDestination != nil
+	hasSuppressionList := d.SuppressionListDestination != nil
+
+	switch {
+	case hasContactList == hasSuppressionList:
+		return ImportDestination{}, fmt.Errorf(
+			"%w: ImportDestination must set exactly one of ContactListDestination or SuppressionListDestination",
+			ErrInvalidInput,
+		)
+	case hasContactList:
+		if d.ContactListDestination.ContactListImportAction == "" {
+			return ImportDestination{}, fmt.Errorf(
+				"%w: ContactListDestination.ContactListImportAction is required", ErrInvalidInput,
+			)
+		}
+
+		if d.ContactListDestination.ContactListName == "" {
+			return ImportDestination{}, fmt.Errorf(
+				"%w: ContactListDestination.ContactListName is required", ErrInvalidInput,
+			)
+		}
+
+		return ImportDestination{
+			ContactListName:         d.ContactListDestination.ContactListName,
+			ContactListImportAction: d.ContactListDestination.ContactListImportAction,
+		}, nil
+	default:
+		if d.SuppressionListDestination.SuppressionListImportAction == "" {
+			return ImportDestination{}, fmt.Errorf(
+				"%w: SuppressionListDestination.SuppressionListImportAction is required", ErrInvalidInput,
+			)
+		}
+
+		return ImportDestination{
+			SuppressionListImportAction: d.SuppressionListDestination.SuppressionListImportAction,
+		}, nil
+	}
+}
+
 type createImportJobInput struct {
-	DataSource string `json:"DataSource"`
+	ImportDataSource  *importDataSourceInput  `json:"ImportDataSource"`
+	ImportDestination *importDestinationInput `json:"ImportDestination"`
 }
 
 func (h *Handler) handleCreateImportJob(c *echo.Context) (any, error) {
@@ -18,7 +89,28 @@ func (h *Handler) handleCreateImportJob(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	job, err := h.Backend.CreateImportJob(in.DataSource)
+	if in.ImportDataSource == nil {
+		return nil, fmt.Errorf("%w: ImportDataSource is required", ErrInvalidInput)
+	}
+
+	if in.ImportDataSource.DataFormat == "" {
+		return nil, fmt.Errorf("%w: ImportDataSource.DataFormat is required", ErrInvalidInput)
+	}
+
+	if in.ImportDataSource.S3Url == "" {
+		return nil, fmt.Errorf("%w: ImportDataSource.S3Url is required", ErrInvalidInput)
+	}
+
+	if in.ImportDestination == nil {
+		return nil, fmt.Errorf("%w: ImportDestination is required", ErrInvalidInput)
+	}
+
+	dest, err := in.ImportDestination.toImportDestination()
+	if err != nil {
+		return nil, err
+	}
+
+	job, err := h.Backend.CreateImportJob(dest)
 	if err != nil {
 		return nil, err
 	}

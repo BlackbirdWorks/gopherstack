@@ -137,13 +137,13 @@ type StorageBackend interface {
 	TestRenderEmailTemplate(name, templateData string) (string, error)
 
 	// Export job ops
-	CreateExportJob(dataSource string) (*ExportJob, error)
+	CreateExportJob(sourceType string) (*ExportJob, error)
 	GetExportJob(jobID string) (*ExportJob, error)
 	ListExportJobs(nextToken string, pageSize int) page.Page[*ExportJob]
 	CancelExportJob(jobID string) error
 
 	// Import job ops
-	CreateImportJob(dataSource string) (*ImportJob, error)
+	CreateImportJob(destination ImportDestination) (*ImportJob, error)
 	GetImportJob(jobID string) (*ImportJob, error)
 	ListImportJobs(nextToken string, pageSize int) page.Page[*ImportJob]
 

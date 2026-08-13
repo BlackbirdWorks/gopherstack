@@ -11,11 +11,18 @@ import (
 
 const exportJobStatusCancelled = "CANCELLED"
 
+// Real ExportSourceType enum values (aws-sdk-go-v2/service/sesv2/types/enums.go).
+const (
+	ExportSourceTypeMetricsData     = "METRICS_DATA"
+	ExportSourceTypeMessageInsights = "MESSAGE_INSIGHTS"
+)
+
 // ExportJob represents a SES v2 export job (minimal model for CancelExportJob).
 type ExportJob struct {
-	CreatedAt time.Time `json:"createdAt"`
-	JobID     string    `json:"jobId"`
-	JobStatus string    `json:"jobStatus"`
+	CreatedAt        time.Time `json:"createdAt"`
+	JobID            string    `json:"jobId"`
+	JobStatus        string    `json:"jobStatus"`
+	ExportSourceType string    `json:"exportSourceType"`
 }
 
 // CancelExportJob sets an export job status to CANCELLED.
@@ -50,17 +57,20 @@ func (b *InMemoryBackend) AddExportJobInternal(jobID, status string) *ExportJob 
 
 // ---- export / import jobs ----
 
-// CreateExportJob creates a new export job.
-func (b *InMemoryBackend) CreateExportJob(dataSource string) (*ExportJob, error) {
+// CreateExportJob creates a new export job. gopherstack has no metrics-
+// aggregation or message-log engine behind an export job, so it never
+// actually produces export file contents -- it only records which of the two
+// mutually exclusive ExportDataSource branches the caller selected (see
+// ExportSourceType), readable back via GetExportJob/ListExportJobs.
+func (b *InMemoryBackend) CreateExportJob(sourceType string) (*ExportJob, error) {
 	jobID := uuid.New().String()
 
 	job := &ExportJob{
-		JobID:     jobID,
-		JobStatus: "CREATED",
-		CreatedAt: time.Now(),
+		JobID:            jobID,
+		JobStatus:        "CREATED",
+		CreatedAt:        time.Now(),
+		ExportSourceType: sourceType,
 	}
-
-	_ = dataSource
 
 	b.mu.Lock("CreateExportJob")
 	b.exportJobs.Put(job)

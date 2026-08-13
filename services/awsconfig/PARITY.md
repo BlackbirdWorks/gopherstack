@@ -39,7 +39,7 @@ ops:
 
   # --- ConfigRule + compliance family ---
   PutConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeConfigRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-s7u1): unknown name in a non-empty ConfigRuleNames filter now errors NoSuchConfigRuleException instead of silently omitting it; backend signature changed to return an error (~14 call sites across this package updated)"}
+  DescribeConfigRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-s7u1): unknown name in a non-empty ConfigRuleNames filter now errors NoSuchConfigRuleException instead of silently omitting it; backend signature changed to return an error (~14 call sites across this package updated). ALSO fixed (gopherstack-m0ow): the real optional Filters *types.DescribeConfigRulesFilters (EvaluationMode/RuleEvaluationVisibility) was entirely absent from describeConfigRulesInput and therefore silently dropped by the JSON decoder even when a client sent it. Now modeled and accepted, but inert: gopherstack's ConfigRule has no EvaluationMode/RuleEvaluationVisibility concept at all (PutConfigRule doesn't model the real types.ConfigRule.EvaluationModes field either), so a filtered request currently returns the same unfiltered set -- there is no per-rule state to filter by, and none is fabricated."}
   DeleteConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
   GetComplianceDetailsByConfigRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-s7u1): unknown ConfigRuleName now errors NoSuchConfigRuleException instead of silently returning empty"}
   GetComplianceDetailsByResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -92,9 +92,9 @@ ops:
   PutRemediationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRemediationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRemediationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended: cascade-deletes any recorded remediation executions for the rule too (new remediationExecutions table introduced this pass)"}
-  PutRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
+  PutRemediationExceptions: {wire: fixed, errors: fixed, state: fixed, persist: n/a, note: "previously graded 'wire: ok' in error (gopherstack-m0ow): the handler read invented flat ConfigRuleName/ResourceType/ResourceId fields; real required member is ResourceKeys []types.RemediationExceptionResourceKey (a LIST, one exception per key -- 'Config adds exception for each resource key. For example, Config adds 3 exceptions for 3 resource keys'), with wire keys ResourceType/ResourceId nested PascalCase inside each array element. Also note RemediationExceptionResourceKey's wire keys are PascalCase, unlike the pre-existing, similarly-named ResourceKey type (used by StartRemediationExecution/DescribeRemediationExecutionStatus) whose wire keys are lowerCamelCase -- verified as two distinct serializers (awsAwsjson11_serializeDocumentRemediationExceptionResourceKey vs awsAwsjson11_serializeDocumentResourceKey), not the same shape reused. Backend signature changed to accept the key list, upserting one exception per key. ConfigRuleName/ResourceKeys presence now validated -- InvalidParameterValueException (new ErrInvalidParameterValue sentinel), not ValidationException: this op's declared error switch is InsufficientPermissionsException/InvalidParameterValueException only (verified against awsAwsjson11_deserializeOpErrorPutRemediationExceptions), matching this package's documented policy of not modeling ValidationException on ops that don't declare it. ExpirationTime/Message (real optional members) aren't modeled: gopherstack's RemediationException has no fields to reflect them into, so they're left for the JSON decoder to silently discard."}
   DescribeRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  DeleteRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
+  DeleteRemediationExceptions: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "previously graded 'wire: ok' in error (gopherstack-m0ow): the handler read ConfigRuleName + an invented ResourceGroupName field that doesn't exist on the real API surface, so a real client's request never populated it and nothing was ever actually deleted. Real required member is ResourceKeys []types.RemediationExceptionResourceKey (same PascalCase-nested list shape as PutRemediationExceptions -- see its note). Backend signature changed to accept the key list, deleting exceptions matching (ResourceType, ResourceID) pairs. No validation error added for a missing ConfigRuleName/ResourceKeys: this op's declared error switch is NoSuchRemediationExceptionException only (verified against awsAwsjson11_deserializeOpErrorDeleteRemediationExceptions) -- no ValidationException/InvalidParameterValueException modeled at all, so an empty request is treated as a no-op rather than inventing an error code AWS doesn't declare for this op."}
   StartRemediationExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was a no-op stub; now validates a remediation configuration exists for the rule (NoSuchRemediationConfigurationException) and records a SUCCEEDED execution per resource key (no real SSM Automation runner modeled), readable back via DescribeRemediationExecutionStatus"}
   DescribeRemediationExecutionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns recorded executions for the rule, optionally filtered by resource key, NoSuchRemediationConfigurationException validation"}
 
@@ -240,6 +240,17 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   ConflictException when the same ServicePrincipal reuses a different ConnectorArn -- "one
   recorder per service principal" is enforced, unlike the pre-existing, still-unenforced
   single-customer-managed-recorder limit noted in `gaps`).
+
+- 2026-08-12 pass (`gopherstack-m0ow`, from the `gopherstack-7rq1` sweep for request
+  fields present in the model but absent from wire structs): `Put`/`DeleteRemediationExceptions`
+  read invented flat fields (`ResourceType`/`ResourceId` at the top level for Put;
+  `ResourceGroupName` -- which doesn't exist on the real API at all -- for Delete) instead
+  of the real required `ResourceKeys []types.RemediationExceptionResourceKey` list, making
+  both ops unreachable by a real client. Fixed -- see their `ops` entries above for the
+  wire-shape/error-model detail, including the PascalCase-vs-lowerCamelCase gotcha between
+  the new `RemediationExceptionResourceKey` and the pre-existing, similarly-named
+  `ResourceKey`. Also added `DescribeConfigRules`' real optional `Filters` (accepted,
+  currently inert -- see its `ops` entry).
 
 - 2026-07-24 pass bug-class findings (see `.claude/memories/parity-principles.md` bug
   classes) -- this pass closed all remaining items from the prior audit's `gaps` list

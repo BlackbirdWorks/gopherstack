@@ -35,6 +35,36 @@ func TestConfigRulePascalCaseKeys(t *testing.T) {
 	assert.NotContains(t, body, `"configRuleName"`)
 }
 
+// TestDescribeConfigRulesAcceptsFilters verifies the real DescribeConfigRules
+// Filters object (EvaluationMode/RuleEvaluationVisibility) round-trips
+// through the JSON decoder without erroring. gopherstack's ConfigRule has no
+// EvaluationMode concept to filter by, so the filtered request currently
+// returns the same set as an unfiltered one -- this test asserts that
+// (documented) behavior, not a fabricated filtered result.
+func TestDescribeConfigRulesAcceptsFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-detective"}))
+
+	rec := doAWSConfigRequest(t, h, "DescribeConfigRules", map[string]any{
+		"Filters": map[string]any{
+			"EvaluationMode":           "DETECTIVE",
+			"RuleEvaluationVisibility": "PUBLIC",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		ConfigRules []struct {
+			ConfigRuleName string `json:"ConfigRuleName"`
+		} `json:"ConfigRules"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.ConfigRules, 1)
+	assert.Equal(t, "rule-detective", out.ConfigRules[0].ConfigRuleName)
+}
+
 // TestConfigRuleARNGenerated verifies PutConfigRule generates a proper ARN.
 func TestConfigRuleARNGenerated(t *testing.T) {
 	t.Parallel()
