@@ -41,7 +41,9 @@ func (h *Handler) handleGetResourcePolicy(c *echo.Context) error {
 
 	var req getResourcePolicyRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid GetResourcePolicyRequest XML"))
+		}
 	}
 
 	policy, getErr := h.Backend.GetResourcePolicy(req.ResourceARN)
@@ -70,7 +72,9 @@ func (h *Handler) handlePutResourcePolicy(c *echo.Context) error {
 
 	var req putResourcePolicyRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid PutResourcePolicyRequest XML"))
+		}
 	}
 
 	if putErr := h.Backend.PutResourcePolicy(req.ResourceARN, req.PolicyDocument); putErr != nil {
@@ -92,7 +96,13 @@ func (h *Handler) handleDeleteResourcePolicy(c *echo.Context) error {
 
 	var req deleteResourcePolicyRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid DeleteResourcePolicyRequest XML"),
+			)
+		}
 	}
 
 	if delErr := h.Backend.DeleteResourcePolicy(req.ResourceARN); delErr != nil {

@@ -870,8 +870,12 @@ func parseCFDistributionMonitoringOps(method, suffix string) (string, string) {
 		case http.MethodDelete:
 			return opDeleteMonitoringSubscription, id
 		}
-	case strings.HasSuffix(inner, "/staging") && method == http.MethodPut:
-		return opUpdateDistributionWithStagingConfig, strings.TrimSuffix(inner, "/staging")
+	// Real path is /distribution/{Id}/promote-staging-config (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpUpdateDistributionWithStagingConfig's
+	// SplitURI) -- the previous "/staging" suffix never matched a real client's PUT,
+	// so every real UpdateDistributionWithStagingConfig call 404'd as NoSuchOperation.
+	case strings.HasSuffix(inner, "/promote-staging-config") && method == http.MethodPut:
+		return opUpdateDistributionWithStagingConfig, strings.TrimSuffix(inner, "/promote-staging-config")
 	case strings.HasSuffix(inner, "/disassociate-web-acl") && method == http.MethodPut:
 		return opDisassociateDistributionWebACL, strings.TrimSuffix(inner, "/disassociate-web-acl")
 	case strings.Contains(inner, "/list-by-") && method == http.MethodGet:
@@ -932,7 +936,11 @@ func parseCFMiscPathSimple(method, suffix string) string {
 
 	exact := []exactMatch{
 		{"conflicting-alias", http.MethodGet, opListConflictingAliases},
-		{"domain-conflict", http.MethodPost, opListDomainConflicts},
+		// Real path is /domain-conflicts (plural; cloudfront@v1.67.4 serializers.go:
+		// awsRestxml_serializeOpListDomainConflicts's SplitURI) -- the previous singular
+		// "domain-conflict" never matched a real client's POST, so every real
+		// ListDomainConflicts call 404'd as NoSuchOperation.
+		{"domain-conflicts", http.MethodPost, opListDomainConflicts},
 		{"domain-association", http.MethodPost, opUpdateDomainAssociation},
 		{"verify-dns-configuration", http.MethodPost, opVerifyDNSConfiguration},
 		{"distributions/by-connection-mode", http.MethodGet, opListDistributionsByConnectionMode},

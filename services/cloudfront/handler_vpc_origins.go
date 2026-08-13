@@ -33,44 +33,49 @@ func vpcOriginResponseXML(origin *VpcOrigin) string {
 		origin.Name, origin.EndpointArn, origin.HTTPPort, origin.HTTPSPort, origin.OriginProtocolPolicy)
 }
 
-// vpcOriginRequestFields is shared by Create and Update, whose real request
-// shapes carry identical fields but different root element names
-// (CreateVpcOriginRequest vs UpdateVpcOriginRequest; cloudfront@v1.67.4
-// serializers.go). A prior single struct fixed the root to
-// "VpcOriginRequest", which matched neither real root name, so
-// xml.Unmarshal silently failed on every field for any real client.
+// vpcOriginRequestFields is shared by Create and Update: both carry the same
+// VpcOriginEndpointConfig field set, but at different XML depths, because their
+// real root elements differ in shape (cloudfront@v1.67.4 serializers.go). Create's
+// root is CreateVpcOriginRequest, a wrapper with VpcOriginEndpointConfig and Tags as
+// children (awsRestxml_serializeOpDocumentCreateVpcOriginInput). Update's root IS
+// VpcOriginEndpointConfig itself -- Id/IfMatch travel as URI/header, and the payload
+// has no wrapping element at all (awsRestxml_serializeOpUpdateVpcOrigin's payloadRoot
+// is "VpcOriginEndpointConfig", not "UpdateVpcOriginRequest"). The previous Update
+// struct used a root of "UpdateVpcOriginRequest", which never matched a real client's
+// root element, so xml.Unmarshal errored on the whole body and the update silently
+// no-opped (masked by the existing tests hand-crafting bodies with that same wrong
+// root).
 //
 // Arn, HTTPPort, HTTPSPort, and OriginProtocolPolicy are also required members
 // of VpcOriginEndpointConfig (types.go:6987-7018) that a prior version of this
 // struct dropped entirely, so Arn -- the ARN of the VPC endpoint or ALB the
 // origin actually routes to -- was silently discarded on every real request.
 type vpcOriginRequestFields struct {
-	Name                 string  `xml:"VpcOriginEndpointConfig>Name"`
-	Arn                  string  `xml:"VpcOriginEndpointConfig>Arn"`
-	OriginProtocolPolicy string  `xml:"VpcOriginEndpointConfig>OriginProtocolPolicy"`
-	Tags                 tagsXML `xml:"Tags"`
-	HTTPPort             int32   `xml:"VpcOriginEndpointConfig>HTTPPort"`
-	HTTPSPort            int32   `xml:"VpcOriginEndpointConfig>HTTPSPort"`
+	Name                 string `xml:"Name"`
+	Arn                  string `xml:"Arn"`
+	OriginProtocolPolicy string `xml:"OriginProtocolPolicy"`
+	HTTPPort             int32  `xml:"HTTPPort"`
+	HTTPSPort            int32  `xml:"HTTPSPort"`
 }
 
 // endpointConfig converts the parsed request fields into a VpcOriginEndpointConfig.
 func (f vpcOriginRequestFields) endpointConfig() VpcOriginEndpointConfig {
-	return VpcOriginEndpointConfig{
-		Name:                 f.Name,
-		Arn:                  f.Arn,
-		OriginProtocolPolicy: f.OriginProtocolPolicy,
-		HTTPPort:             f.HTTPPort,
-		HTTPSPort:            f.HTTPSPort,
-	}
+	return VpcOriginEndpointConfig(f)
 }
 
 type createVpcOriginRequestXML struct {
-	XMLName xml.Name `xml:"CreateVpcOriginRequest"`
-	vpcOriginRequestFields
+	XMLName                 xml.Name               `xml:"CreateVpcOriginRequest"`
+	VpcOriginEndpointConfig vpcOriginRequestFields `xml:"VpcOriginEndpointConfig"`
+	Tags                    tagsXML                `xml:"Tags"`
 }
 
+// updateVpcOriginRequestXML matches UpdateVpcOriginInput (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpUpdateVpcOrigin) -- the root element itself
+// is VpcOriginEndpointConfig, with Name/Arn/OriginProtocolPolicy/HTTPPort/HTTPSPort
+// as its direct children, not nested one level deeper under another element of the
+// same name.
 type updateVpcOriginRequestXML struct {
-	XMLName xml.Name `xml:"UpdateVpcOriginRequest"`
+	XMLName xml.Name `xml:"VpcOriginEndpointConfig"`
 	vpcOriginRequestFields
 }
 
@@ -86,14 +91,16 @@ func (h *Handler) handleCreateVpcOrigin(c *echo.Context) error {
 
 	var req createVpcOriginRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid CreateVpcOriginRequest XML"))
+		}
 	}
 
-	if req.Name == "" {
-		req.Name = generateID()
+	if req.VpcOriginEndpointConfig.Name == "" {
+		req.VpcOriginEndpointConfig.Name = generateID()
 	}
 
-	origin, createErr := h.Backend.CreateVpcOrigin(req.endpointConfig(), tagsXMLToMap(req.Tags))
+	origin, createErr := h.Backend.CreateVpcOrigin(req.VpcOriginEndpointConfig.endpointConfig(), tagsXMLToMap(req.Tags))
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -162,7 +169,9 @@ func (h *Handler) handleUpdateVpcOrigin(c *echo.Context, id string) error {
 
 	var req updateVpcOriginRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid VpcOriginEndpointConfig XML"))
+		}
 	}
 
 	current, getErr := h.Backend.GetVpcOrigin(id)

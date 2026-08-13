@@ -43,7 +43,9 @@ func (h *Handler) handleCreatePublicKey(c *echo.Context) error {
 
 	var req publicKeyConfigXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid PublicKeyConfig XML"))
+		}
 	}
 
 	if req.Name == "" {
@@ -119,7 +121,9 @@ func (h *Handler) handleUpdatePublicKey(c *echo.Context, id string) error {
 
 	var req publicKeyConfigXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid PublicKeyConfig XML"))
+		}
 	}
 
 	pk, updateErr := h.Backend.UpdatePublicKey(id, req.Comment)
@@ -193,7 +197,9 @@ func (h *Handler) handleCreateKeyGroup(c *echo.Context) error {
 
 	var req keyGroupConfigXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid KeyGroupConfig XML"))
+		}
 	}
 
 	if req.Name == "" {
@@ -269,7 +275,9 @@ func (h *Handler) handleUpdateKeyGroup(c *echo.Context, id string) error {
 
 	var req keyGroupConfigXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid KeyGroupConfig XML"))
+		}
 	}
 
 	current, getErr := h.Backend.GetKeyGroup(id)

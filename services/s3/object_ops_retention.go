@@ -215,7 +215,14 @@ func (h *S3Handler) handleRestoreObject(
 
 	body, _ := httputils.ReadBody(r)
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+				Code:    errMalformedXML,
+				Message: errMalformedXMLMsg,
+			}, http.StatusBadRequest)
+
+			return
+		}
 	}
 
 	if err := h.Backend.RestoreObject(ctx, bucket, key, req.Days); err != nil {

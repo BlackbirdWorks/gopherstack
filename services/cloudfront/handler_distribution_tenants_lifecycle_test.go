@@ -550,7 +550,7 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 			tt.setup(b)
 			h := cloudfront.NewHandler(b)
 
-			path := prefix + "domain-conflict"
+			path := prefix + "domain-conflicts"
 			if tt.domain != "" {
 				path += "?Domain=" + tt.domain
 			}

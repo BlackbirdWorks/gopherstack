@@ -93,7 +93,7 @@ func TestListDomainConflicts_RealConflicts(t *testing.T) {
 	h := newCFHandler(t)
 	tenantID := createTestTenant(t, h, "dist-conflicts", "claimed.example.com")
 
-	rr := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflict",
+	rr := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflicts",
 		`<ListDomainConflictsRequest><Domain>claimed.example.com</Domain></ListDomainConflictsRequest>`)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -116,7 +116,7 @@ func TestListDomainConflicts_RealConflicts(t *testing.T) {
 	require.Len(t, parsed.DomainConflicts.Entries, 1)
 	assert.Equal(t, tenantID, parsed.DomainConflicts.Entries[0].ResourceID)
 
-	rr2 := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflict",
+	rr2 := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflicts",
 		`<ListDomainConflictsRequest><Domain>unclaimed.example.com</Domain></ListDomainConflictsRequest>`)
 
 	var parsed2 domainConflictsList

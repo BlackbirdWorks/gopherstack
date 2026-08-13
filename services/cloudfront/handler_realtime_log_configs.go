@@ -126,7 +126,13 @@ func (h *Handler) handleCreateRealtimeLogConfig(c *echo.Context) error {
 
 	var req createRealtimeLogConfigRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CreateRealtimeLogConfigRequest XML"),
+			)
+		}
 	}
 
 	if req.Name == "" {
@@ -162,7 +168,13 @@ func (h *Handler) handleGetRealtimeLogConfig(c *echo.Context) error {
 
 	var req getRealtimeLogConfigRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid GetRealtimeLogConfigRequest XML"),
+			)
+		}
 	}
 
 	cfg, getErr := h.resolveRealtimeLogConfig(req.ARN, req.Name)
@@ -220,7 +232,13 @@ func (h *Handler) handleUpdateRealtimeLogConfig(c *echo.Context) error {
 
 	var req updateRealtimeLogConfigRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateRealtimeLogConfigRequest XML"),
+			)
+		}
 	}
 
 	cfg, getErr := h.resolveRealtimeLogConfig(req.ARN, req.Name)
@@ -246,7 +264,13 @@ func (h *Handler) handleDeleteRealtimeLogConfig(c *echo.Context) error {
 
 	var req deleteRealtimeLogConfigRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid DeleteRealtimeLogConfigRequest XML"),
+			)
+		}
 	}
 
 	cfg, getErr := h.resolveRealtimeLogConfig(req.ARN, req.Name)

@@ -566,7 +566,12 @@ func (h *Handler) handleUpdateDistributionWithStagingConfig(c *echo.Context, pri
 
 	var req updateWithStagingConfigXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c, http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateDistributionWithStagingConfigRequest XML"),
+			)
+		}
 	}
 
 	// If staging ID not in body, try query param.

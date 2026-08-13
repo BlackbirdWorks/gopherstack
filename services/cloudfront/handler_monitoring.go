@@ -39,7 +39,9 @@ func (h *Handler) handleCreateMonitoringSubscription(c *echo.Context, distributi
 			XMLName xml.Name `xml:"MonitoringSubscription"`
 			Status  string   `xml:"RealtimeMetricsSubscriptionConfig>RealtimeMetricsSubscriptionStatus"`
 		}
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid MonitoringSubscription XML"))
+		}
 		enabled = req.Status != metricDisabled
 	}
 	if err := h.Backend.CreateMonitoringSubscription(distributionID, enabled); err != nil {

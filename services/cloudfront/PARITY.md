@@ -65,11 +65,14 @@ ops:
   GetResourcePolicy: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "Twin of the PutResourcePolicy bug: response element was xml:\"Policy\" instead of PolicyDocument, and ResourceArn was never echoed at all. Both request-side bugs (root-name mismatch discarding ResourceArn, routing) also applied -- see PutResourcePolicy row. Response now emits PolicyDocument and ResourceArn per GetResourcePolicyOutput."}
   DeleteResourcePolicy: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "Same routing + body-vs-query-string bugs as Put/Get; DeleteResourcePolicyInput.ResourceArn now read from the body (root DeleteResourcePolicyRequest)."}
   CreateVpcOrigin: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-13 (gopherstack-nfka): request parsing captured only VpcOriginEndpointConfig.Name and Tags; the other three required members -- Arn (the ARN of the VPC interface endpoint or ALB this origin actually routes to, types/types.go:6989-6992), HTTPPort, HTTPSPort, and OriginProtocolPolicy -- were dropped entirely and never reached backend state. Now parsed, validated (InvalidArgument if any required member is empty/non-positive, matching the op's declared error set), stored, and echoed back inside VpcOriginEndpointConfig in the response (which is a sibling of the resource's own top-level Arn, not nested inside it -- confirmed via CreateVpcOriginOutput's httpPayload-bound VpcOrigin decode)."}
-  UpdateVpcOrigin: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Same fix as CreateVpcOrigin; unset fields in the request fall back to the current value (pre-existing leniency convention already used for Name) rather than erroring, since real AWS documents Update as re-sending the full config."}
+  UpdateVpcOrigin: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "CORRECTED 2026-08-13 (gopherstack-ob1g): the 2026-08-13 (gopherstack-nfka) fix above stopped one field short. UpdateVpcOriginInput's real root element IS VpcOriginEndpointConfig itself (serializers.go: awsRestxml_serializeOpUpdateVpcOrigin's payloadRoot.Local) -- there is no wrapping UpdateVpcOriginRequest element the way Create has one. The struct fixed that pass still used XMLName=\"UpdateVpcOriginRequest\" and nested fields one level under a VpcOriginEndpointConfig>Name-style path, so xml.Unmarshal still errored on the whole body for every real client and the error was discarded (_ = xml.Unmarshal(...)), silently no-opping every real UpdateVpcOrigin call end to end -- this survived because the existing tests hand-crafted bodies matching the same wrong root. Root and field nesting corrected; the unmarshal error is now handled (400 MalformedXML) instead of discarded. Verified against the real aws-sdk-go-v2 client (TestUpdateVpcOrigin_RealClient) and confirmed to fail against the pre-fix shape by reverting by hand."}
   CreateRealtimeLogConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-13 (gopherstack-nfka): THREE stacked wire bugs. (1) Request struct root was xml:\"RealtimeLogConfig\"; the real root is CreateRealtimeLogConfigRequest (api_op_CreateRealtimeLogConfig.go, serializers.go:2489-2609) -- same root-name-mismatch class of bug as PutResourcePolicy, so Name/Fields/SamplingRate were ALSO silently dropped for every real client, not just EndPoints. (2) EndPoints -- the required Kinesis destination (api_op_CreateRealtimeLogConfig.go:37-43) -- was never declared as a struct field at all; now parsed (list wrapped in <member>, matching serializers.go's awsRestxml_serializeDocumentEndPointList) and required (InvalidArgument if empty). (3) The response nested ARN/Name/etc directly under the root; CreateRealtimeLogConfigOutput is NOT httpPayload-bound (unlike VpcOrigin/Distribution) so the real deserializer looks for a child element literally named <RealtimeLogConfig> wrapping the fields (deserializers.go: awsRestxml_deserializeOpDocumentCreateRealtimeLogConfigOutput) -- the old flat response left output.RealtimeLogConfig nil for a real client even once (1) and (2) were fixed. All three verified against the real aws-sdk-go-v2 client via a round-trip test (TestRealtimeLogConfigCRUD_RealClient), and each fails against the pre-fix shape individually (confirmed by temporarily reverting each in turn)."}
   GetRealtimeLogConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Same response double-nesting bug as Create (fixed). ALSO a routing bug: this op is a POST to /2020-05-31/get-realtime-log-config carrying ARN or Name in the body (api_op_GetRealtimeLogConfig.go:33-42), not a GET to /realtime-log-config/{id}; the old route table 404'd NoSuchOperation for every real client. Now POSTs to the correct path and resolves by ARN or Name (preferring Name when both given, per the op's doc comment)."}
   UpdateRealtimeLogConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Same three bugs as Create (missing EndPoints, response nesting) plus the same routing bug as Get: real wire is PUT to the base /2020-05-31/realtime-log-config path with ARN/Name identifying the target in the body (api_op_UpdateRealtimeLogConfig.go:43-67), not a PUT to /realtime-log-config/{id}."}
   DeleteRealtimeLogConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Same routing bug as Get: real wire is POST to /2020-05-31/delete-realtime-log-config with ARN/Name in the body (api_op_DeleteRealtimeLogConfig.go), not a DELETE to /realtime-log-config/{id}."}
+  UpdateTrustStore: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "FIXED 2026-08-13 (gopherstack-ob1g): TWO stacked wire bugs, same class as UpdateVpcOrigin above. (1) UpdateTrustStoreInput's real root is CaCertificatesBundleSource, containing CaCertificatesBundleS3Location>Bucket/Key/Region as its only children (serializers.go: awsRestxml_serializeOpUpdateTrustStore's payloadRoot.Local; types.go: CaCertificatesBundleSourceMemberCaCertificatesBundleS3Location) -- UpdateTrustStoreInput has NO Name or Comment member at all, so real AWS can never change either through this operation. The struct here used root TrustStoreConfig with Name/Comment/CertificateAuthorityCertificatesBundle fields, none of which exist on the real wire; xml.Unmarshal errored on the whole body for every real client and the error was discarded, silently no-opping the CA bundle update while ALSO exposing a Name/Comment-update capability real AWS doesn't have. (2) The unmarshal error was discarded (_ = xml.Unmarshal(...)); now handled (400 MalformedXML). Fix: request struct rebuilt to the real CaCertificatesBundleSource>CaCertificatesBundleS3Location shape (Region accepted on the wire but not persisted -- see deferred note), handler now always passes empty name/comment to the backend (never overwritten, matching real AWS), and the old TrustStoreConfig>CertificateAuthorityCertificatesBundle shape is still accepted for backward compatibility. Verified against the real aws-sdk-go-v2 client (TestUpdateTrustStore_RealClient, which reads back the applied bundle via a raw follow-up GET since the real TrustStore output shape has no field for the CA bundle at all) and confirmed to fail against the pre-fix shape by reverting by hand."}
+  UpdateDistributionWithStagingConfig: {wire: fixed, errors: fixed, state: ok, persist: n/a, note: "FIXED 2026-08-13 (gopherstack-ob1g): routing bug found while hardening this handler's discarded xml.Unmarshal error. Real wire is PUT /2020-05-31/distribution/{Id}/promote-staging-config with StagingDistributionId as a QUERY parameter, never a body field (serializers.go: awsRestxml_serializeOpUpdateDistributionWithStagingConfig's SplitURI and awsRestxml_serializeOpHttpBindingsUpdateDistributionWithStagingConfigInput's SetQuery call). The route table matched a bare \"/staging\" suffix instead, so every real client's PUT 404'd as NoSuchOperation. Since real clients never send a body, the (now-fixed) discarded xml.Unmarshal error itself was latent rather than an active wipe for real traffic -- the route was the blocking bug. Fixed both: route corrected to the real path, and the unmarshal error is now handled instead of discarded, guarding the pre-existing body-based fallback path some callers may still use for backward compatibility."}
+  ListDomainConflicts: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "FIXED 2026-08-13 (gopherstack-ob1g): routing bug found while hardening this handler's discarded xml.Unmarshal error. Real path is /2020-05-31/domain-conflicts (plural; serializers.go: awsRestxml_serializeOpListDomainConflicts's SplitURI); the route table matched the singular \"domain-conflict\", so every real client's POST 404'd as NoSuchOperation. Root/field names (ListDomainConflictsRequest>Domain) were already correct. Fixed both: route corrected to the plural path, and the unmarshal error is now handled instead of discarded."}
 families:
   distribution_tenants_connection_groups: {status: ok, note: "CreateDistributionTenant/UpdateDistributionTenant now run validateQuantities; If-Match enforced on update/delete; audited, no new findings beyond the Quantity gap"}
   field_level_encryption: {status: ok, note: "Create/Update for config + profile now run validateQuantities and return the correct *AlreadyExists code (FieldLevelEncryptionConfigAlreadyExists / FieldLevelEncryptionProfileAlreadyExists) instead of DistributionAlreadyExists; FLEProfileInUse guard on profile delete pre-existed and is correct"}
@@ -82,7 +85,23 @@ families:
   monitoring_subscriptions_public_resource_policy_connection_groups: {status: fixed, note: "audited via handler_new_ops.go/handler_batch2.go dispatch; no Quantity/AlreadyExists-code issues found in these shapes. CORRECTION: this note previously claimed resource-policy was clean, but the 2026-07-23 audit missed that PutResourcePolicy's request never parsed at all against a real client (root/field name mismatch) and all three resource-policy ops were mis-routed (see PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy op rows, gopherstack-nfka, fixed 2026-08-13)."}
   managed_policies: {status: ok, note: "NEW this pass (gopherstack-a9t): 7 managed cache policies, 8 managed origin request policies, and 5 managed response headers policies seeded at backend construction/Reset/Restore with their real, permanent, verified-against-live-AWS-docs IDs and configs (see managed_policies.go's doc comment for the exact verification method and the deliberately-omitted Amplify-internal policies). Managed=true policies reject Update/Delete with IllegalUpdate/IllegalDelete (400); List* honors the real Type=managed|custom query filter and each summary carries the correct <Type> element"}
   streaming_distributions: {status: ok, note: "FIXED this pass: CreateStreamingDistribution treated non-empty CallerReference reuse as unconditionally idempotent; real AWS returns StreamingDistributionAlreadyExists on any reuse regardless of content (verified against the live CreateStreamingDistribution API reference, same rule as CreateDistribution)"}
-gaps: []
+gaps:
+  - "UpdatePublicKey/UpdateFieldLevelEncryptionConfig/UpdateFieldLevelEncryptionProfile are routed
+    to their bare-ID path (e.g. /public-key/{Id}), but the real wire for all three PUTs to a
+    /config-suffixed path instead (/public-key/{Id}/config, /field-level-encryption/{Id}/config,
+    /field-level-encryption-profile/{Id}/config -- serializers.go SplitURI for each op,
+    cloudfront@v1.67.4). parseCFResourcePath's call sites for these three resource types
+    (handler_paths.go: parseCFPublicKeyRealtimePath, parseCFFieldLevelEncryptionPath) pass the
+    real op as updateOp (bound to the bare path) and \"\" as updateConfigOp (leaving the
+    /config-suffixed PUT unmatched), backwards from what the SDK actually sends -- so a real
+    client's Update call 404s as NoSuchOperation for all three. Found 2026-08-13
+    (gopherstack-ob1g) while hardening these handlers' discarded xml.Unmarshal errors and
+    checking routability per this pass's mandate, but NOT fixed: correcting it requires
+    swapping which op each parseCFResourcePath call passes as updateOp vs updateConfigOp, which
+    breaks every existing test that PUTs to the bare path expecting these three specific
+    updates to succeed (a wider blast radius than this pass's discard-error scope). Filed for a
+    follow-up pass. GetPublicKeyConfig/GetFieldLevelEncryption{Config,ProfileConfig} are
+    unaffected -- their /config-suffixed GET routing was already correct."
   # All three gaps filed by the previous pass are closed as of this pass:
   #  - gopherstack-a9t (managed policies + Type filter): closed, see managed_policies family above.
   #  - gopherstack-na4 (OAI/OAC/KeyGroup delete InUse guards): closed, see the three
@@ -290,3 +309,50 @@ and `managed_policies.go`'s doc comment for the full rationale, verification met
 deliberately-omitted Amplify-internal policy set. Every ID was cross-checked against the live
 AWS documentation pages (not invented, not guessed) via `WebFetch`, since a wrong ID posing as
 a real managed-policy ID would be worse than not seeding one at all.
+
+---
+
+## Discarded xml.Unmarshal errors sweep (2026-08-13, gopherstack-ob1g)
+
+`encoding/xml` returns an error when a document's root element doesn't match the target
+struct's `XMLName` tag, and leaves the struct **zeroed**, not partially filled -- so
+`_ = xml.Unmarshal(body, &req)` with a wrong root silently discards the entire request and
+proceeds on zero values, exactly the mechanism behind the `PutResourcePolicy`/
+`CreateRealtimeLogConfig` bugs fixed by gopherstack-nfka (e5fbae252) above. This pass swept
+every remaining non-test `_ = xml.Unmarshal(...)` call in `services/cloudfront/` (28
+occurrences) and re-verified each struct's `XMLName` against the pinned SDK's serializer.
+
+**Two more genuine whole-request wipes found and fixed** (each verified to fail against the
+pre-fix code by reverting by hand, and covered by a real aws-sdk-go-v2 client round-trip
+test): `UpdateVpcOrigin` (root was `UpdateVpcOriginRequest`, real root is
+`VpcOriginEndpointConfig` itself -- see the corrected `UpdateVpcOrigin` op row above) and
+`UpdateTrustStore` (root was `TrustStoreConfig` with Name/Comment fields that don't exist on
+the real wire at all; real root is `CaCertificatesBundleSource` -- see the `UpdateTrustStore`
+op row above).
+
+**Two routing bugs found as a second layer behind hardening fixes**, per this pass's mandate
+to check routability whenever touching one of these handlers (`UpdateDistributionWithStagingConfig`
+matched a `/staging` suffix no real client sends; `ListDomainConflicts` matched the singular
+`domain-conflict` instead of the real plural `domain-conflicts`) -- both fixed, see their op
+rows above. **One more routing bug found but NOT fixed** (`UpdatePublicKey`/
+`UpdateFieldLevelEncryptionConfig`/`UpdateFieldLevelEncryptionProfile` bound to the wrong path
+shape) -- see `gaps` above for why it was left for a follow-up pass.
+
+**The remaining 26 occurrences (23 in cloudfront: all but the two above; 3 in s3) had a
+correct `XMLName` already** -- the discarded error was hardening, not a live bug, since no
+real client body could ever hit a mismatched root there. Each now returns the service's
+`MalformedXML` error (matching the pattern already established elsewhere in both codebases,
+e.g. `handler_anycast_ip_lists.go`) instead of silently discarding the error, which is what
+would have made the two genuine wipes above immediately findable instead of surviving three
+prior audit passes. Covered by `TestXMLUnmarshalErrorHandled` (cloudfront) and
+`TestXMLUnmarshalErrorHandled`/`TestRestoreObject_MalformedBodyHandled` (s3), each of which
+fails against the pre-fix `_ = xml.Unmarshal(...)` form (spot-verified by reverting one
+representative case, `CreateMonitoringSubscription`, by hand).
+
+The matching s3 sweep (4 occurrences, one genuine wipe -- `GetBucketAbac`'s re-parse of its
+own stored `PutBucketAbac` body used root `AbacConfiguration` where the real root is
+`AbacStatus`, discovered to ALSO have a response-nesting bug once fixed: `GetBucketAbacOutput`
+is httpPayload-bound so the response body itself must be the bare `AbacStatus` document, not
+`AbacStatus` nested under an `AbacConfiguration` envelope -- the real deserializer function
+that looks for a nested child is dead/unused generated code, not evidence of an envelope
+shape) is recorded in `services/s3/PARITY.md`.

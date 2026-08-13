@@ -60,7 +60,13 @@ func (h *Handler) handleCreateKeyValueStore(c *echo.Context) error {
 
 	var req createKeyValueStoreRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CreateKeyValueStoreRequest XML"),
+			)
+		}
 	}
 
 	if req.Name == "" {
@@ -166,7 +172,13 @@ func (h *Handler) handleUpdateKeyValueStore(c *echo.Context, id string) error {
 
 	var req updateKeyValueStoreRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateKeyValueStoreRequest XML"),
+			)
+		}
 	}
 
 	current, getErr := h.Backend.GetKeyValueStore(id)

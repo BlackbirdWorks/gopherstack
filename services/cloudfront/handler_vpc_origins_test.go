@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -140,16 +143,17 @@ func TestVpcOriginCRUD(t *testing.T) {
 			name:   "update_vpc_origin",
 			method: http.MethodPut,
 			path:   "",
+			// Real UpdateVpcOriginInput has no wrapping UpdateVpcOriginRequest element --
+			// the root itself is VpcOriginEndpointConfig (cloudfront@v1.67.4
+			// serializers.go: awsRestxml_serializeOpUpdateVpcOrigin's payloadRoot.Local).
 			body: []byte(
-				`<UpdateVpcOriginRequest>` +
-					`<VpcOriginEndpointConfig>` +
+				`<VpcOriginEndpointConfig>` +
 					`<Name>updated-vpc-origin</Name>` +
 					`<Arn>arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/50dc6c495c0c9188</Arn>` +
 					`<HTTPPort>8080</HTTPPort>` +
 					`<HTTPSPort>8443</HTTPSPort>` +
 					`<OriginProtocolPolicy>match-viewer</OriginProtocolPolicy>` +
-					`</VpcOriginEndpointConfig>` +
-					`</UpdateVpcOriginRequest>`,
+					`</VpcOriginEndpointConfig>`,
 			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
@@ -320,4 +324,75 @@ func TestInMemoryBackend_VpcOrigin(t *testing.T) {
 			tt.run(t, b)
 		})
 	}
+}
+
+// TestUpdateVpcOrigin_RealClient is a regression test for gopherstack-ob1g:
+// UpdateVpcOriginInput's real root element is VpcOriginEndpointConfig itself, with no
+// wrapping UpdateVpcOriginRequest element (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpUpdateVpcOrigin's payloadRoot.Local). A handler expecting the
+// wrong root discards the whole body via xml.Unmarshal's error, so the update
+// silently no-ops -- driving this through the real SDK client is what catches it,
+// since the SDK writes the exact wire shape regardless of what the handler expects.
+func TestUpdateVpcOrigin_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := client.CreateVpcOrigin(t.Context(), &cfsdk.CreateVpcOriginInput{
+		VpcOriginEndpointConfig: &types.VpcOriginEndpointConfig{
+			Name:                 aws.String("vpc-origin-rc"),
+			Arn:                  aws.String("arn:aws:ec2:us-east-1:123456789012:vpc-endpoint/vpce-rc1"),
+			HTTPPort:             aws.Int32(80),
+			HTTPSPort:            aws.Int32(443),
+			OriginProtocolPolicy: types.OriginProtocolPolicyHttpsOnly,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.VpcOrigin)
+
+	updated, err := client.UpdateVpcOrigin(t.Context(), &cfsdk.UpdateVpcOriginInput{
+		Id:      created.VpcOrigin.Id,
+		IfMatch: created.ETag,
+		VpcOriginEndpointConfig: &types.VpcOriginEndpointConfig{
+			Name:                 aws.String("vpc-origin-rc-updated"),
+			Arn:                  aws.String("arn:aws:ec2:us-east-1:123456789012:vpc-endpoint/vpce-rc2"),
+			HTTPPort:             aws.Int32(8080),
+			HTTPSPort:            aws.Int32(8443),
+			OriginProtocolPolicy: types.OriginProtocolPolicyHttpOnly,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.VpcOrigin)
+	require.NotNil(t, updated.VpcOrigin.VpcOriginEndpointConfig)
+
+	cfg := updated.VpcOrigin.VpcOriginEndpointConfig
+	assert.Equal(t, "vpc-origin-rc-updated", aws.ToString(cfg.Name))
+	assert.Equal(t, "arn:aws:ec2:us-east-1:123456789012:vpc-endpoint/vpce-rc2", aws.ToString(cfg.Arn))
+	assert.Equal(t, int32(8080), aws.ToInt32(cfg.HTTPPort))
+	assert.Equal(t, int32(8443), aws.ToInt32(cfg.HTTPSPort))
+	assert.Equal(t, types.OriginProtocolPolicyHttpOnly, cfg.OriginProtocolPolicy)
+}
+
+// TestUpdateVpcOrigin_MalformedBodyHandled verifies a malformed request body is
+// rejected with 400 MalformedXML instead of silently no-opping the update
+// (gopherstack-ob1g: the previous handler discarded xml.Unmarshal's error).
+func TestUpdateVpcOrigin_MalformedBodyHandled(t *testing.T) {
+	t.Parallel()
+
+	h := newCFHandler(t)
+	const prefix = "/2020-05-31/"
+
+	created := cfOK(t, h, http.MethodPost, prefix+"vpc-origin",
+		`<CreateVpcOriginRequest><VpcOriginEndpointConfig>`+
+			`<Name>vpc-origin-malformed</Name>`+
+			`<Arn>arn:aws:ec2:us-east-1:123456789012:vpc-endpoint/vpce-malformed</Arn>`+
+			`<HTTPPort>80</HTTPPort><HTTPSPort>443</HTTPSPort>`+
+			`<OriginProtocolPolicy>https-only</OriginProtocolPolicy>`+
+			`</VpcOriginEndpointConfig></CreateVpcOriginRequest>`)
+	id := extractXMLID(t, created)
+
+	rec := cfRequest(t, h, http.MethodPut, prefix+"vpc-origin/"+id, "<<<not xml")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
 }

@@ -496,7 +496,13 @@ func (h *Handler) handleTestConnectionFunction(c *echo.Context, id string) error
 	}
 	var req testConnectionFunctionRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid TestConnectionFunctionRequest XML"),
+			)
+		}
 	}
 
 	result, testErr := h.Backend.TestConnectionFunction(id, decodeConnectionFunctionCode(req.ConnectionObject))

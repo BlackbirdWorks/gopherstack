@@ -543,14 +543,40 @@ func TestUpdateDistributionWithStagingConfig(t *testing.T) {
 	)
 	stagingID := extractXMLID(t, stagingResp)
 
-	// Promote staging to primary
-	promoteBody := `<UpdateDistributionWithStagingConfigRequest>` +
-		`<StagingDistributionId>` + stagingID + `</StagingDistributionId>` +
-		`</UpdateDistributionWithStagingConfigRequest>`
-	promoteResp := cfOK(t, h, http.MethodPut, prefix+"distribution/"+primaryID+"/staging", promoteBody)
+	// Promote staging to primary. Real clients send StagingDistributionId as a query
+	// parameter to /promote-staging-config, never in the body (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpHttpBindingsUpdateDistributionWithStagingConfigInput).
+	promoteResp := cfOK(
+		t, h, http.MethodPut,
+		prefix+"distribution/"+primaryID+"/promote-staging-config?StagingDistributionId="+stagingID, "",
+	)
 	if !strings.Contains(promoteResp, "Distribution") {
 		t.Errorf("expected Distribution in response, got: %s", promoteResp)
 	}
+}
+
+// TestUpdateDistributionWithStagingConfig_MalformedBodyHandled verifies a malformed
+// request body is rejected with 400 MalformedXML instead of silently proceeding
+// (gopherstack-ob1g: the previous handler discarded xml.Unmarshal's error). It also
+// exercises the corrected /promote-staging-config route (gopherstack-ob1g: the route
+// table previously matched a "/staging" suffix no real client sends).
+func TestUpdateDistributionWithStagingConfig_MalformedBodyHandled(t *testing.T) {
+	t.Parallel()
+	h := newCFHandler(t)
+	const prefix = "/2020-05-31/"
+
+	primaryResp := cfOK(
+		t,
+		h,
+		http.MethodPost,
+		prefix+"distribution",
+		`<DistributionConfig><CallerReference>cr-primary-x</CallerReference><Enabled>true</Enabled></DistributionConfig>`,
+	)
+	primaryID := extractXMLID(t, primaryResp)
+
+	rec := cfRequest(t, h, http.MethodPut, prefix+"distribution/"+primaryID+"/promote-staging-config", "<<<not xml")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
 }
 
 func TestDistributionCreatesAsDeployed(t *testing.T) {

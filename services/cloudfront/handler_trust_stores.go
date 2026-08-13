@@ -14,11 +14,39 @@ type trustStoreCertificateBundleXML struct {
 	InlineCertificateBundle string `xml:"InlineCertificateBundle"`
 }
 
-type trustStoreConfigXML struct {
-	XMLName                                xml.Name                       `xml:"TrustStoreConfig"`
-	Name                                   string                         `xml:"Name"`
-	Comment                                string                         `xml:"Comment"`
+// updateTrustStoreRequestXML matches UpdateTrustStoreInput (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpUpdateTrustStore). Its root element is
+// CaCertificatesBundleSource, with CaCertificatesBundleS3Location as its only
+// child (types.go: CaCertificatesBundleSourceMemberCaCertificatesBundleS3Location)
+// -- UpdateTrustStoreInput has no Name or Comment member at all, so real AWS
+// cannot change either through this operation; Id/IfMatch travel as URI/header.
+// The previous root here was TrustStoreConfig, which never matched a real
+// client's root element, so xml.Unmarshal errored on the whole body (err
+// discarded) and every real UpdateTrustStore call silently no-opped.
+type updateTrustStoreRequestXML struct {
+	XMLName                        xml.Name `xml:"CaCertificatesBundleSource"`
+	CaCertificatesBundleS3Location struct {
+		Bucket string `xml:"Bucket"`
+		Key    string `xml:"Key"`
+	} `xml:"CaCertificatesBundleS3Location"`
+	// CertificateAuthorityCertificatesBundle is not part of the real
+	// UpdateTrustStore request shape, but accepted here too for backward
+	// compatibility with callers that send the old shape.
 	CertificateAuthorityCertificatesBundle trustStoreCertificateBundleXML `xml:"CertificateAuthorityCertificatesBundle"`
+}
+
+// bundle resolves the CA certificate bundle from whichever shape was populated,
+// preferring the real SDK's CaCertificatesBundleSource>CaCertificatesBundleS3Location
+// shape.
+func (req updateTrustStoreRequestXML) bundle() TrustStoreCertificateBundle {
+	if req.CaCertificatesBundleS3Location.Bucket != "" || req.CaCertificatesBundleS3Location.Key != "" {
+		return TrustStoreCertificateBundle{
+			S3Bucket: req.CaCertificatesBundleS3Location.Bucket,
+			S3Key:    req.CaCertificatesBundleS3Location.Key,
+		}
+	}
+
+	return trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle)
 }
 
 // createTrustStoreRequestXML models the real CreateTrustStore wire request. The real SDK
@@ -176,13 +204,17 @@ func (h *Handler) handleUpdateTrustStore(c *echo.Context, id string) error {
 	if qErr := validateQuantities(body); qErr != nil {
 		return h.handleError(c, qErr)
 	}
-	var req trustStoreConfigXML
+	var req updateTrustStoreRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CaCertificatesBundleSource XML"),
+			)
+		}
 	}
-	ts, updateErr := h.Backend.UpdateTrustStore(
-		id, req.Name, req.Comment, trustStoreBundleFromXML(req.CertificateAuthorityCertificatesBundle),
-	)
+	ts, updateErr := h.Backend.UpdateTrustStore(id, "", "", req.bundle())
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}

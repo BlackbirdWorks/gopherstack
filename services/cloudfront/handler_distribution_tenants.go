@@ -105,7 +105,13 @@ func (h *Handler) handleCreateDistributionTenant(c *echo.Context) error {
 
 	var req createDistributionTenantXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CreateDistributionTenantRequest XML"),
+			)
+		}
 	}
 
 	tags := make(map[string]string, len(req.Tags))
@@ -179,7 +185,13 @@ func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) err
 
 	var req updateDistributionTenantXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateDistributionTenantRequest XML"),
+			)
+		}
 	}
 
 	domains := req.Domains
@@ -483,7 +495,13 @@ func (h *Handler) handleVerifyDNSConfiguration(c *echo.Context) error {
 
 	var req verifyDNSConfigurationXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid VerifyDnsConfigurationRequest XML"),
+			)
+		}
 	}
 
 	configs, verifyErr := h.Backend.VerifyDNSConfiguration(req.Identifier)
@@ -553,7 +571,9 @@ func (h *Handler) handleCreateInvalidationForTenant(c *echo.Context, tenantID st
 
 	var batch invalidationBatchXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &batch)
+		if xmlErr := xml.Unmarshal(body, &batch); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid InvalidationBatch XML"))
+		}
 	}
 
 	inv, backendErr := h.Backend.CreateInvalidationForTenant(tenantID, batch.Paths.Items)
@@ -675,7 +695,13 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 
 	var req listDomainConflictsXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ListDomainConflictsRequest XML"),
+			)
+		}
 	}
 
 	if req.Domain == "" {
