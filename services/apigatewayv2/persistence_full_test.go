@@ -77,7 +77,24 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	portal, err := b.CreatePortal(apigatewayv2.CreatePortalInput{LogoURI: "https://example.com/logo.png"})
+	portal, err := b.CreatePortal(apigatewayv2.CreatePortalInput{
+		LogoURI:               "https://example.com/logo.png",
+		Authorization:         &apigatewayv2.Authorization{None: &apigatewayv2.None{}},
+		EndpointConfiguration: &apigatewayv2.EndpointConfigurationRequest{None: &apigatewayv2.None{}},
+		PortalContent: &apigatewayv2.PortalContent{
+			DisplayName: "persist-portal",
+			Theme: &apigatewayv2.PortalTheme{
+				CustomColors: &apigatewayv2.CustomColors{
+					AccentColor:          "#000000",
+					BackgroundColor:      "#ffffff",
+					ErrorValidationColor: "#ff0000",
+					HeaderColor:          "#111111",
+					NavigationColor:      "#222222",
+					TextColor:            "#333333",
+				},
+			},
+		},
+	})
 	require.NoError(t, err)
 
 	portalProduct, err := b.CreatePortalProduct(apigatewayv2.CreatePortalProductInput{DisplayName: "product1"})
@@ -87,7 +104,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	productREPage, err := b.CreateProductRestEndpointPage(
-		portalProduct.PortalProductID, apigatewayv2.CreateProductRestEndpointPageInput{},
+		portalProduct.PortalProductID, apigatewayv2.CreateProductRestEndpointPageInput{
+			RestEndpointIdentifier: &apigatewayv2.RestEndpointIdentifier{
+				IdentifierParts: &apigatewayv2.IdentifierParts{
+					Method: "GET", Path: "/widgets", RestAPIID: "abc123", Stage: "prod",
+				},
+			},
+		},
 	)
 	require.NoError(t, err)
 
@@ -166,6 +189,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotPortal, err := fresh.GetPortal(portal.PortalID)
 	require.NoError(t, err)
 	assert.Equal(t, portal.LogoURI, gotPortal.LogoURI)
+	require.NotNil(t, gotPortal.PortalContent)
+	assert.Equal(t, "persist-portal", gotPortal.PortalContent.DisplayName)
+	require.NotNil(t, gotPortal.EndpointConfiguration)
+	assert.NotEmpty(t, gotPortal.EndpointConfiguration.PortalDefaultDomainName)
 
 	gotPortalProduct, err := fresh.GetPortalProduct(portalProduct.PortalProductID)
 	require.NoError(t, err)
@@ -180,6 +207,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, productREPage.ProductRestEndpointPageID, gotProductREPage.ProductRestEndpointPageID)
+	require.NotNil(t, gotProductREPage.RestEndpointIdentifier)
+	require.NotNil(t, gotProductREPage.RestEndpointIdentifier.IdentifierParts)
+	assert.Equal(t, "abc123", gotProductREPage.RestEndpointIdentifier.IdentifierParts.RestAPIID)
 
 	gotSharingPolicy, err := fresh.GetPortalProductSharingPolicy(portalProduct.PortalProductID)
 	require.NoError(t, err)

@@ -540,12 +540,33 @@ type RunsInBatchFilter struct {
 	SubmissionStatus string
 }
 
+// ConfigurationVpcConfig mirrors types.VpcConfig on the request side and
+// types.VpcConfigResponse on the response side (types.go:2242/2254) -- both
+// wire shapes share the same field set here. VpcID is the response-only
+// "computed from the provided subnet IDs" field; left empty rather than
+// fabricated since this backend does no real VPC/subnet resolution.
+type ConfigurationVpcConfig struct {
+	VpcID            string   `json:"vpcId,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+	SubnetIDs        []string `json:"subnetIds,omitempty"`
+}
+
+// ConfigurationRunConfigurations mirrors types.RunConfigurations (request)
+// and types.RunConfigurationsResponse (response) (types.go:1523/1532).
+type ConfigurationRunConfigurations struct {
+	VpcConfig *ConfigurationVpcConfig `json:"vpcConfig,omitempty"`
+}
+
 // Configuration represents an HealthOmics configuration.
 type Configuration struct {
-	CreationTime time.Time `json:"creationTime"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description"`
-	Value        string    `json:"value"`
+	CreationTime      time.Time                       `json:"creationTime"`
+	RunConfigurations *ConfigurationRunConfigurations `json:"runConfigurations,omitempty"`
+	Tags              map[string]string               `json:"tags,omitempty"`
+	Name              string                          `json:"name"`
+	Description       string                          `json:"description,omitempty"`
+	ARN               string                          `json:"arn,omitempty"`
+	UUID              string                          `json:"uuid,omitempty"`
+	Status            string                          `json:"status,omitempty"`
 }
 
 // S3AccessPolicy holds an S3 access policy for HealthOmics.

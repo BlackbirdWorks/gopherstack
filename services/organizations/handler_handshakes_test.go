@@ -515,7 +515,7 @@ func TestHandler_DescribeResponsibilityTransfer(t *testing.T) {
 				b.AddHandshakeInternal(&organizations.Handshake{
 					ID:                  tt.handshakeID,
 					ARN:                 "arn:aws:organizations::123456789012:handshake/o-test/transfer/" + tt.handshakeID,
-					Action:              "APPROVE_ALL_FEATURES",
+					Action:              "TRANSFER_RESPONSIBILITY",
 					State:               "OPEN",
 					RequestedTimestamp:  now,
 					ExpirationTimestamp: now.Add(7 * 24 * time.Hour),

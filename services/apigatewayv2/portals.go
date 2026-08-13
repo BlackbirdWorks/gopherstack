@@ -5,21 +5,113 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 )
 
+// validateCreatePortalAuthorization enforces Authorization's required
+// presence and CognitoConfig's required members when present (verified
+// against validateOpCreatePortalInput/validateAuthorization/
+// validateCognitoConfig, validators.go).
+func validateCreatePortalAuthorization(auth *Authorization) error {
+	if auth == nil {
+		return fmt.Errorf("%w: authorization is required", ErrBadRequest)
+	}
+
+	if cc := auth.CognitoConfig; cc != nil {
+		if cc.AppClientID == "" || cc.UserPoolArn == "" || cc.UserPoolDomain == "" {
+			return fmt.Errorf(
+				"%w: authorization.cognitoConfig.appClientId, userPoolArn and userPoolDomain are required",
+				ErrBadRequest,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateCreatePortalEndpointConfiguration enforces EndpointConfiguration's
+// required presence and ACMManaged's required members when present (verified
+// against validateOpCreatePortalInput/validateEndpointConfigurationRequest/
+// validateACMManaged, validators.go).
+func validateCreatePortalEndpointConfiguration(cfg *EndpointConfigurationRequest) error {
+	if cfg == nil {
+		return fmt.Errorf("%w: endpointConfiguration is required", ErrBadRequest)
+	}
+
+	if am := cfg.AcmManaged; am != nil {
+		if am.CertificateArn == "" || am.DomainName == "" {
+			return fmt.Errorf(
+				"%w: endpointConfiguration.acmManaged.certificateArn and domainName are required", ErrBadRequest,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateCreatePortalContent enforces PortalContent's required members
+// (DisplayName, Theme.CustomColors, and all six CustomColors fields) --
+// verified against validateOpCreatePortalInput/validatePortalContent/
+// validatePortalTheme/validateCustomColors, validators.go.
+func validateCreatePortalContent(content *PortalContent) error {
+	if content == nil {
+		return fmt.Errorf("%w: portalContent is required", ErrBadRequest)
+	}
+
+	if content.DisplayName == "" {
+		return fmt.Errorf("%w: portalContent.displayName is required", ErrBadRequest)
+	}
+
+	if content.Theme == nil || content.Theme.CustomColors == nil {
+		return fmt.Errorf("%w: portalContent.theme.customColors is required", ErrBadRequest)
+	}
+
+	cc := content.Theme.CustomColors
+	if cc.AccentColor == "" || cc.BackgroundColor == "" || cc.ErrorValidationColor == "" ||
+		cc.HeaderColor == "" || cc.NavigationColor == "" || cc.TextColor == "" {
+		return fmt.Errorf("%w: portalContent.theme.customColors is missing required color fields", ErrBadRequest)
+	}
+
+	return nil
+}
+
+// validateCreatePortalInput enforces CreatePortalInput's required members
+// (Authorization, EndpointConfiguration, PortalContent) and their required
+// nested members, matching validateOpCreatePortalInput (validators.go).
+func validateCreatePortalInput(input CreatePortalInput) error {
+	if err := validateCreatePortalAuthorization(input.Authorization); err != nil {
+		return err
+	}
+
+	if err := validateCreatePortalEndpointConfiguration(input.EndpointConfiguration); err != nil {
+		return err
+	}
+
+	return validateCreatePortalContent(input.PortalContent)
+}
+
 // CreatePortal creates a new portal.
 func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error) {
+	if err := validateCreatePortalInput(input); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreatePortal")
 	defer b.mu.Unlock()
 
 	id := randomID()
 	portal := &Portal{
-		PortalID:  id,
-		PortalArn: "arn:aws:apigateway:" + defaultRegion + "::/portals/" + id,
-		LogoURI:   input.LogoURI,
-		Tags:      copyTags(input.Tags),
-		Status:    "ACTIVE",
+		PortalID:      id,
+		PortalArn:     "arn:aws:apigateway:" + defaultRegion + "::/portals/" + id,
+		LogoURI:       input.LogoURI,
+		Tags:          copyTags(input.Tags),
+		Status:        "ACTIVE",
+		Authorization: input.Authorization,
+		PortalContent: input.PortalContent,
+		EndpointConfiguration: endpointConfigurationResponseFromRequest(
+			id, input.EndpointConfiguration,
+		),
 	}
 
 	b.portals.Put(portal)
@@ -27,6 +119,29 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 	cp := *portal
 
 	return &cp, nil
+}
+
+// endpointConfigurationResponseFromRequest renders the request-shape
+// EndpointConfigurationRequest as the response-shape
+// EndpointConfigurationResponse. PortalDefaultDomainName/
+// PortalDomainHostedZoneId are required response members with no
+// client-supplied source, synthesized the same way this backend already
+// synthesizes ARNs and execute-api endpoints (randomID/defaultRegion) --
+// see EndpointConfigurationResponse's doc comment.
+func endpointConfigurationResponseFromRequest(
+	portalID string, req *EndpointConfigurationRequest,
+) *EndpointConfigurationResponse {
+	resp := &EndpointConfigurationResponse{
+		PortalDefaultDomainName:  portalID + ".portal.apigateway." + defaultRegion + ".amazonaws.com",
+		PortalDomainHostedZoneID: "Z" + strings.ToUpper(portalID),
+	}
+
+	if req != nil && req.AcmManaged != nil {
+		resp.CertificateArn = req.AcmManaged.CertificateArn
+		resp.DomainName = req.AcmManaged.DomainName
+	}
+
+	return resp
 }
 
 // CreatePortalProduct creates a new portal product.
@@ -84,8 +199,26 @@ func (b *InMemoryBackend) CreateProductPage(
 // CreateProductRestEndpointPage creates a new product REST endpoint page for a portal product.
 func (b *InMemoryBackend) CreateProductRestEndpointPage(
 	portalProductID string,
-	_ CreateProductRestEndpointPageInput,
+	input CreateProductRestEndpointPageInput,
 ) (*ProductRestEndpointPage, error) {
+	// RestEndpointIdentifier is a required CreateProductRestEndpointPageInput
+	// member; its nested IdentifierParts is itself optional, but each of its
+	// four members is required whenever IdentifierParts is present (verified
+	// against validateOpCreateProductRestEndpointPageInput/
+	// validateRestEndpointIdentifier/validateIdentifierParts, validators.go).
+	if input.RestEndpointIdentifier == nil {
+		return nil, fmt.Errorf("%w: restEndpointIdentifier is required", ErrBadRequest)
+	}
+
+	if ip := input.RestEndpointIdentifier.IdentifierParts; ip != nil {
+		if ip.Method == "" || ip.Path == "" || ip.RestAPIID == "" || ip.Stage == "" {
+			return nil, fmt.Errorf(
+				"%w: restEndpointIdentifier.identifierParts.method, path, restApiId and stage are required",
+				ErrBadRequest,
+			)
+		}
+	}
+
 	b.mu.Lock("CreateProductRestEndpointPage")
 	defer b.mu.Unlock()
 
@@ -99,6 +232,7 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 		ProductRestEndpointPageID: id,
 		PortalProductID:           portalProductID,
 		LastModified:              &now,
+		RestEndpointIdentifier:    input.RestEndpointIdentifier,
 	}
 
 	b.productREPages.Put(page)

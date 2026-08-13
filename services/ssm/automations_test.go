@@ -37,9 +37,45 @@ func TestChangeRequest(t *testing.T) {
 
 	h, _ := newTestHandler(t)
 
+	// gopherstack-4ggy: Runbooks is a required StartChangeRequestExecutionInput
+	// member that the pre-fix request never read at all.
 	rec := doRequest(t, h, "StartChangeRequestExecution", `{"DocumentName":"AWS-ChangeRequest"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	rec = doRequest(t, h, "StartChangeRequestExecution", `{
+		"DocumentName":"AWS-ChangeRequest",
+		"Runbooks":[{"DocumentName":"AWS-RunShellScript","MaxConcurrency":"1"}]
+	}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assertBodyContains(t, rec, "AutomationExecutionId")
+
+	var startResp struct {
+		AutomationExecutionID string `json:"AutomationExecutionId"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&startResp))
+
+	// Runbooks must round-trip on GetAutomationExecution.
+	rec = doRequest(t, h, "GetAutomationExecution",
+		`{"AutomationExecutionId":"`+startResp.AutomationExecutionID+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp struct {
+		AutomationExecution struct {
+			Runbooks []struct {
+				DocumentName   string `json:"DocumentName"`
+				MaxConcurrency string `json:"MaxConcurrency"`
+			} `json:"Runbooks"`
+		} `json:"AutomationExecution"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	require.Len(t, getResp.AutomationExecution.Runbooks, 1)
+	assert.Equal(t, "AWS-RunShellScript", getResp.AutomationExecution.Runbooks[0].DocumentName)
+	assert.Equal(t, "1", getResp.AutomationExecution.Runbooks[0].MaxConcurrency)
+
+	// A runbook with a missing DocumentName is rejected too.
+	rec = doRequest(t, h, "StartChangeRequestExecution",
+		`{"DocumentName":"AWS-ChangeRequest","Runbooks":[{}]}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 func TestExecutionPreview(t *testing.T) {
 	t.Parallel()

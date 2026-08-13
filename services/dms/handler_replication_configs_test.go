@@ -18,6 +18,8 @@ func TestReplicationConfigLifecycle(t *testing.T) {
 		"ReplicationType":             "full-load",
 		"SourceEndpointArn":           "arn:src",
 		"TargetEndpointArn":           "arn:tgt",
+		"TableMappings":               "{}",
+		"ComputeConfig":               map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	rcArn := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)["ReplicationConfigArn"].(string)
@@ -28,6 +30,8 @@ func TestReplicationConfigLifecycle(t *testing.T) {
 		"ReplicationType":             "cdc",
 		"SourceEndpointArn":           "arn:src",
 		"TargetEndpointArn":           "arn:tgt",
+		"TableMappings":               "{}",
+		"ComputeConfig":               map[string]any{},
 	})
 	assert.Equal(t, http.StatusConflict, dupRec.Code)
 
@@ -82,6 +86,8 @@ func TestModifyReplicationConfig_UpdatesReplicationType(t *testing.T) {
 				"ReplicationType":             "full-load",
 				"SourceEndpointArn":           "arn:aws:dms:us-east-1:123:endpoint:src",
 				"TargetEndpointArn":           "arn:aws:dms:us-east-1:123:endpoint:tgt",
+				"TableMappings":               "{}",
+				"ComputeConfig":               map[string]any{},
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 			rc := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)
@@ -102,6 +108,83 @@ func TestModifyReplicationConfig_UpdatesReplicationType(t *testing.T) {
 			updated := parseJSON(t, modRec)["ReplicationConfig"].(map[string]any)
 			assert.Equal(t, "cdc", updated["ReplicationType"],
 				"ModifyReplicationConfig must persist the updated ReplicationType")
+		})
+	}
+}
+
+// TestCreateReplicationConfig_ComputeConfigAndTableMappingsRoundTrip proves
+// gopherstack-4ggy's fix: ComputeConfig and TableMappings are both required
+// CreateReplicationConfigInput members (api_op_CreateReplicationConfig.go:30-81)
+// that the pre-fix handler never read at all. This drives real field values
+// (not empty placeholders) through Create and checks they come back on the
+// response, matching real AWS's CreateReplicationConfigOutput.ReplicationConfig
+// (types.go:3820) which echoes ComputeConfig verbatim.
+func TestCreateReplicationConfig_ComputeConfigAndTableMappingsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	createRec := doDMS(t, h, "CreateReplicationConfig", map[string]any{
+		"ReplicationConfigIdentifier": "rc-roundtrip",
+		"ReplicationType":             "full-load",
+		"SourceEndpointArn":           "arn:src",
+		"TargetEndpointArn":           "arn:tgt",
+		"TableMappings":               `{"rules":[{"rule-id":"1"}]}`,
+		"ComputeConfig": map[string]any{
+			"MaxCapacityUnits": 8,
+			"MinCapacityUnits": 1,
+			"MultiAZ":          true,
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	rc := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)
+	assert.JSONEq(t, `{"rules":[{"rule-id":"1"}]}`, rc["TableMappings"].(string))
+
+	cc, ok := rc["ComputeConfig"].(map[string]any)
+	require.True(t, ok, "ComputeConfig must be echoed back on CreateReplicationConfig's response")
+	assert.InDelta(t, float64(8), cc["MaxCapacityUnits"], 0)
+	assert.InDelta(t, float64(1), cc["MinCapacityUnits"], 0)
+	assert.Equal(t, true, cc["MultiAZ"])
+
+	// DescribeReplicationConfigs must echo the same fields back too.
+	descRec := doDMS(t, h, "DescribeReplicationConfigs", map[string]any{})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	described := parseJSON(t, descRec)["ReplicationConfigs"].([]any)[0].(map[string]any)
+	assert.JSONEq(t, `{"rules":[{"rule-id":"1"}]}`, described["TableMappings"].(string))
+	assert.NotNil(t, described["ComputeConfig"])
+}
+
+func TestCreateReplicationConfig_MissingRequiredFields_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	base := func() map[string]any {
+		return map[string]any{
+			"ReplicationConfigIdentifier": "rc-missing",
+			"ReplicationType":             "full-load",
+			"SourceEndpointArn":           "arn:src",
+			"TargetEndpointArn":           "arn:tgt",
+			"TableMappings":               "{}",
+			"ComputeConfig":               map[string]any{},
+		}
+	}
+
+	tests := map[string]func(body map[string]any){
+		"missing compute config": func(body map[string]any) { delete(body, "ComputeConfig") },
+		"missing table mappings": func(body map[string]any) { delete(body, "TableMappings") },
+	}
+
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			body := base()
+			mutate(body)
+
+			rec := doDMS(t, h, "CreateReplicationConfig", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
 }

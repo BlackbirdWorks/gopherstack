@@ -41,6 +41,8 @@ func Test_StartStopReplication_Lifecycle(t *testing.T) {
 		"ReplicationType":             "full-load-and-cdc",
 		"SourceEndpointArn":           srcArn,
 		"TargetEndpointArn":           tgtArn,
+		"TableMappings":               "{}",
+		"ComputeConfig":               map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, rcRec.Code)
 	rcArn := parseJSON(t, rcRec)["ReplicationConfig"].(map[string]any)["ReplicationConfigArn"].(string)

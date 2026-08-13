@@ -222,6 +222,9 @@ func TestMetadataModelDescribeFiltersNarrow(t *testing.T) {
 			startAction: "StartMetadataModelCreation",
 			startBody: map[string]any{
 				"MigrationProjectIdentifier": "proj-mm", "MetadataModelName": "m", "SelectionRules": "{}",
+				"Properties": map[string]any{
+					"StatementProperties": map[string]any{"Definition": "SELECT 1"},
+				},
 			},
 			describeAction: "DescribeMetadataModelCreations",
 		},
@@ -323,6 +326,8 @@ func TestDescribeReplicationTableStatisticsFiltersAccepted(t *testing.T) {
 		"ReplicationType":             "full-load",
 		"SourceEndpointArn":           srcArn,
 		"TargetEndpointArn":           dstArn,
+		"TableMappings":               "{}",
+		"ComputeConfig":               map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, cfgRec.Code)
 	cfgArn := parseJSON(t, cfgRec)["ReplicationConfig"].(map[string]any)["ReplicationConfigArn"].(string)

@@ -3,18 +3,23 @@ package organizations
 import (
 	"cmp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	handshakeActionInvite         = "INVITE"
-	handshakeActionLeave          = "LEAVE_ORGANIZATION"
-	handshakeActionEnableFeatures = "ENABLE_ALL_FEATURES"
-	handshakeActionApproveAll     = "APPROVE_ALL_FEATURES"
-	handshakeResourceOrg          = "ORGANIZATION"
-	handshakeResourceMasterEmail  = "MASTER_EMAIL"
-	handshakeResourceNotes        = "NOTES"
+	handshakeActionInvite                   = "INVITE"
+	handshakeActionLeave                    = "LEAVE_ORGANIZATION"
+	handshakeActionEnableFeatures           = "ENABLE_ALL_FEATURES"
+	handshakeActionApproveAll               = "APPROVE_ALL_FEATURES"
+	handshakeActionTransferResponsibility   = "TRANSFER_RESPONSIBILITY"
+	handshakeResourceOrg                    = "ORGANIZATION"
+	handshakeResourceMasterEmail            = "MASTER_EMAIL"
+	handshakeResourceNotes                  = "NOTES"
+	handshakeResourceResponsibilityTransfer = "RESPONSIBILITY_TRANSFER"
+	handshakeResourceTransferStartTimestamp = "TRANSFER_START_TIMESTAMP"
+	handshakeResourceTransferType           = "TRANSFER_TYPE"
 
 	handshakeStateOpen     = "OPEN"
 	handshakeStateCanceled = "CANCELED"
@@ -349,7 +354,13 @@ func (b *InMemoryBackend) ListHandshakesForOrganization(actionTypeFilter string)
 	return out, nil
 }
 
-// ListInboundResponsibilityTransfers returns INVITE-type handshakes targeting this account.
+// ListInboundResponsibilityTransfers returns responsibility-transfer handshakes sent TO this account by
+// another organization's management account. InviteOrganizationToTransferResponsibility can only be called
+// from the sending account (api_op_InviteOrganizationToTransferResponsibility.go doc comment), and this
+// single-account backend has no way to simulate a transfer initiated by a foreign account, so every
+// TRANSFER_RESPONSIBILITY handshake this backend ever creates is outbound -- see
+// ListOutboundResponsibilityTransfers. Returning empty here is honest given that structural limit, not a stub:
+// there is no fabricated data to return.
 func (b *InMemoryBackend) ListInboundResponsibilityTransfers() ([]*Handshake, error) {
 	b.mu.RLock("ListInboundResponsibilityTransfers")
 	defer b.mu.RUnlock()
@@ -358,18 +369,7 @@ func (b *InMemoryBackend) ListInboundResponsibilityTransfers() ([]*Handshake, er
 		return nil, ErrOrgNotFound
 	}
 
-	var out []*Handshake
-
-	for _, h := range b.handshakes.All() {
-		if h.Action == handshakeActionApproveAll ||
-			h.Action == "ADD_ORGANIZATIONS_SERVICE_LINKED_ROLE" {
-			out = append(out, copyHandshake(h))
-		}
-	}
-
-	slices.SortFunc(out, func(a, b *Handshake) int { return cmp.Compare(a.ID, b.ID) })
-
-	return out, nil
+	return nil, nil
 }
 
 // ListOutboundResponsibilityTransfers returns responsibility-transfer handshakes initiated by this org.
@@ -384,7 +384,7 @@ func (b *InMemoryBackend) ListOutboundResponsibilityTransfers() ([]*Handshake, e
 	var out []*Handshake
 
 	for _, h := range b.handshakes.All() {
-		if h.Action == handshakeActionInvite {
+		if h.Action == handshakeActionTransferResponsibility {
 			out = append(out, copyHandshake(h))
 		}
 	}
@@ -442,9 +442,14 @@ func (b *InMemoryBackend) UpdateResponsibilityTransfer(
 }
 
 // InviteOrganizationToTransferResponsibility creates an OPEN invitation for org-to-org responsibility transfer.
+// SourceName/StartTimestamp/Type are required InviteOrganizationToTransferResponsibilityInput members with no
+// first-class Handshake field to carry them, so they are embedded as HandshakeResource entries the same way
+// InviteAccountToOrganization/EnableAllFeatures embed their own extra fields (NOTES, MASTER_EMAIL) --
+// RESPONSIBILITY_TRANSFER/TRANSFER_START_TIMESTAMP/TRANSFER_TYPE are the matching HandshakeResourceType enum
+// values (types/enums.go).
 func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 	target HandshakeParty,
-	notes string,
+	params TransferResponsibilityParams,
 ) (*Handshake, error) {
 	b.mu.Lock("InviteOrganizationToTransferResponsibility")
 	defer b.mu.Unlock()
@@ -453,7 +458,7 @@ func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 		return nil, ErrOrgNotFound
 	}
 
-	if target.ID == "" {
+	if target.ID == "" || params.SourceName == "" || params.Type == "" || params.StartTimestamp.IsZero() {
 		return nil, ErrInvalidInput
 	}
 
@@ -461,8 +466,8 @@ func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 	id := newHandshakeID()
 	h := &Handshake{
 		ID:                  id,
-		ARN:                 b.handshakeARN(b.org.ID, handshakeActionApproveAll, id),
-		Action:              handshakeActionApproveAll,
+		ARN:                 b.handshakeARN(b.org.ID, handshakeActionTransferResponsibility, id),
+		Action:              handshakeActionTransferResponsibility,
 		State:               handshakeStateOpen,
 		RequestedTimestamp:  now,
 		ExpirationTimestamp: now.Add(handshakeExpirationDuration),
@@ -472,11 +477,17 @@ func (b *InMemoryBackend) InviteOrganizationToTransferResponsibility(
 		},
 		Resources: []HandshakeResource{
 			{Type: handshakeResourceOrg, Value: b.org.ID},
+			{Type: handshakeResourceResponsibilityTransfer, Value: params.SourceName},
+			{
+				Type:  handshakeResourceTransferStartTimestamp,
+				Value: strconv.FormatFloat(epochSeconds(params.StartTimestamp), 'f', -1, 64),
+			},
+			{Type: handshakeResourceTransferType, Value: params.Type},
 		},
 	}
 
-	if notes != "" {
-		h.Resources = append(h.Resources, HandshakeResource{Type: handshakeResourceNotes, Value: notes})
+	if params.Notes != "" {
+		h.Resources = append(h.Resources, HandshakeResource{Type: handshakeResourceNotes, Value: params.Notes})
 	}
 
 	b.handshakes.Put(h)

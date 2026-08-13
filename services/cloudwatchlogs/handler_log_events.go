@@ -225,10 +225,43 @@ func (h *Handler) handleGetLogObject(ctx context.Context, body []byte) (any, err
 	return map[string]any{"fieldStream": record}, nil
 }
 
+// putBearerTokenAuthenticationInput mirrors PutBearerTokenAuthenticationInput
+// (api_op_PutBearerTokenAuthentication.go:33-58). No token material is ever
+// present on this request -- BearerTokenAuthenticationEnabled only turns the
+// feature on/off for the log group; the token itself is carried on later,
+// separately authenticated requests, never here.
+type putBearerTokenAuthenticationInput struct {
+	BearerTokenAuthenticationEnabled *bool  `json:"bearerTokenAuthenticationEnabled"`
+	LogGroupIdentifier               string `json:"logGroupIdentifier"`
+}
+
 func (h *Handler) handlePutBearerTokenAuthentication(
-	ctx context.Context, //nolint:revive // existing issue.
-	_ []byte,
+	ctx context.Context, body []byte,
 ) (any, error) {
+	var in putBearerTokenAuthenticationInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
+	}
+
+	if in.LogGroupIdentifier == "" {
+		return nil, fmt.Errorf("%w: logGroupIdentifier is required", ErrValidation)
+	}
+
+	if in.BearerTokenAuthenticationEnabled == nil {
+		return nil, fmt.Errorf("%w: bearerTokenAuthenticationEnabled is required", ErrValidation)
+	}
+
+	b := cwlBackend(h)
+	if b == nil {
+		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, in.LogGroupIdentifier)
+	}
+
+	if err := b.PutBearerTokenAuthentication(
+		ctx, in.LogGroupIdentifier, *in.BearerTokenAuthenticationEnabled,
+	); err != nil {
+		return nil, err
+	}
+
 	return struct{}{}, nil
 }
 

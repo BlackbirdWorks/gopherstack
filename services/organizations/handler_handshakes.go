@@ -3,6 +3,7 @@ package organizations
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -155,8 +156,11 @@ type updateResponsibilityTransferResponse struct {
 // -- InviteOrganizationToTransferResponsibility --
 
 type inviteOrganizationToTransferResponsibilityRequest struct {
-	Target HandshakeParty `json:"Target"`
-	Notes  string         `json:"Notes,omitempty"`
+	Target         HandshakeParty `json:"Target"`
+	SourceName     string         `json:"SourceName"`
+	Type           string         `json:"Type"`
+	Notes          string         `json:"Notes,omitempty"`
+	StartTimestamp float64        `json:"StartTimestamp"`
 }
 
 type inviteOrganizationToTransferResponsibilityResponse struct {
@@ -340,7 +344,26 @@ func (h *Handler) handleInviteOrganizationToTransferResponsibility(c *echo.Conte
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Target.Id is required")
 	}
 
-	hs, err := h.Backend.InviteOrganizationToTransferResponsibility(req.Target, req.Notes)
+	if req.SourceName == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "SourceName is required")
+	}
+
+	if req.StartTimestamp == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "StartTimestamp is required")
+	}
+
+	if req.Type == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Type is required")
+	}
+
+	params := TransferResponsibilityParams{
+		SourceName:     req.SourceName,
+		StartTimestamp: time.Unix(int64(req.StartTimestamp), 0).UTC(),
+		Type:           req.Type,
+		Notes:          req.Notes,
+	}
+
+	hs, err := h.Backend.InviteOrganizationToTransferResponsibility(req.Target, params)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

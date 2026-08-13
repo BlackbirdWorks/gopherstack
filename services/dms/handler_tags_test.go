@@ -523,6 +523,8 @@ func TestHandler_TagsOnReplicationConfig(t *testing.T) {
 					"ReplicationType":             "full-load",
 					"SourceEndpointArn":           "arn:src",
 					"TargetEndpointArn":           "arn:tgt",
+					"TableMappings":               "{}",
+					"ComputeConfig":               map[string]any{},
 					"Tags": []map[string]string{
 						{"Key": "tier", "Value": "prod"},
 					},
@@ -548,6 +550,8 @@ func TestHandler_TagsOnReplicationConfig(t *testing.T) {
 					"ReplicationType":             "cdc",
 					"SourceEndpointArn":           "arn:src",
 					"TargetEndpointArn":           "arn:tgt",
+					"TableMappings":               "{}",
+					"ComputeConfig":               map[string]any{},
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				rcArn := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)["ReplicationConfigArn"].(string)

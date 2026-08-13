@@ -131,6 +131,34 @@ func (b *InMemoryBackend) SetRetentionPolicy(
 	return nil
 }
 
+// PutBearerTokenAuthentication enables or disables bearer token
+// authentication for a log group. logGroupIdentifier and enabled are both
+// required PutBearerTokenAuthenticationInput members (verified against
+// validateOpPutBearerTokenAuthenticationInput, validators.go) -- the pre-fix
+// handler read neither and always returned success with no backend effect.
+func (b *InMemoryBackend) PutBearerTokenAuthentication(
+	ctx context.Context, logGroupIdentifier string, enabled bool,
+) error {
+	if logGroupIdentifier == "" {
+		return fmt.Errorf("%w: logGroupIdentifier is required", ErrValidation)
+	}
+
+	name := normalizeLogGroupIdentifier(logGroupIdentifier)
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("PutBearerTokenAuthentication")
+	defer b.mu.Unlock()
+
+	g, exists := b.groupGet(region, name)
+	if !exists {
+		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, name)
+	}
+
+	g.BearerTokenAuthenticationEnabled = &enabled
+
+	return nil
+}
+
 // DescribeLogGroups returns log groups optionally filtered by prefix, with pagination.
 func (b *InMemoryBackend) DescribeLogGroups(
 	ctx context.Context, prefix, nextToken string, limit int,

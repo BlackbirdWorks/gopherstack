@@ -27,20 +27,32 @@ func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
 	return id, nil
 }
 
-// PutIntegration creates or updates an integration.
-func (b *InMemoryBackend) PutIntegration(name, integrationType string) (*CWLIntegration, error) {
+// PutIntegration creates or updates an integration. resourceConfig is
+// required (PutIntegrationInput.ResourceConfig, verified against
+// validateOpPutIntegrationInput, validators.go); its own required members
+// (DataSourceRoleArn/DashboardViewerPrincipals/RetentionDays) are validated
+// by the caller (handlePutIntegration) before this is invoked, matching
+// nested-required validation elsewhere in this package.
+func (b *InMemoryBackend) PutIntegration(
+	name, integrationType string, resourceConfig *OpenSearchResourceConfig,
+) (*CWLIntegration, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: integrationName is required", ErrValidation)
+	}
+
+	if resourceConfig == nil {
+		return nil, fmt.Errorf("%w: resourceConfig is required", ErrValidation)
 	}
 
 	b.mu.Lock("PutIntegration")
 	defer b.mu.Unlock()
 
 	ig := CWLIntegration{
-		Name:      name,
-		Type:      integrationType,
-		Status:    completenessStatusActive,
-		CreatedAt: time.Now().UTC(),
+		Name:                     name,
+		Type:                     integrationType,
+		Status:                   completenessStatusActive,
+		CreatedAt:                time.Now().UTC(),
+		OpenSearchResourceConfig: resourceConfig,
 	}
 	stored := ig
 	b.integrations.Put(&stored)

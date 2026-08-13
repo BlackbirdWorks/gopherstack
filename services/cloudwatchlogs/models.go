@@ -11,10 +11,16 @@ const (
 // LogGroup represents a CloudWatch Logs log group.
 type LogGroup struct {
 	RetentionInDays *int32 `json:"retentionInDays,omitempty"`
-	LogGroupName    string `json:"logGroupName"`
-	Arn             string `json:"arn"`
-	LogGroupClass   string `json:"logGroupClass,omitempty"`
-	KmsKeyID        string `json:"kmsKeyId,omitempty"`
+	// BearerTokenAuthenticationEnabled mirrors types.LogGroup's field of the
+	// same name (types.go:1366), set via PutBearerTokenAuthentication. nil
+	// until explicitly set (matches a log group that was never touched by
+	// PutBearerTokenAuthentication -- AWS's own doc doesn't say this
+	// defaults to a concrete true/false).
+	BearerTokenAuthenticationEnabled *bool  `json:"bearerTokenAuthenticationEnabled,omitempty"`
+	LogGroupName                     string `json:"logGroupName"`
+	Arn                              string `json:"arn"`
+	LogGroupClass                    string `json:"logGroupClass,omitempty"`
+	KmsKeyID                         string `json:"kmsKeyId,omitempty"`
 	// region is the AWS region this group lives under. It is unexported (never
 	// marshaled, so the wire response shape is unaffected) and exists solely so
 	// the store.Table[LogGroup] holding every region's groups can derive a
@@ -467,10 +473,23 @@ type Transformer struct {
 
 // CWLIntegration represents a CloudWatch Logs integration (e.g. OpenSearch).
 type CWLIntegration struct {
-	CreatedAt time.Time `json:"-"`
-	Name      string    `json:"integrationName"`
-	Type      string    `json:"integrationType"`
-	Status    string    `json:"integrationStatus"`
+	CreatedAt                time.Time                 `json:"-"`
+	OpenSearchResourceConfig *OpenSearchResourceConfig `json:"openSearchResourceConfig,omitempty"`
+	Name                     string                    `json:"integrationName"`
+	Type                     string                    `json:"integrationType"`
+	Status                   string                    `json:"integrationStatus"`
+}
+
+// OpenSearchResourceConfig mirrors types.OpenSearchResourceConfig
+// (types.go:1977). DashboardViewerPrincipals/DataSourceRoleArn/RetentionDays
+// are required whenever the OpenSearch ResourceConfig branch is used
+// (validateOpenSearchResourceConfig, validators.go).
+type OpenSearchResourceConfig struct {
+	RetentionDays             *int32
+	DataSourceRoleArn         string
+	ApplicationArn            string
+	KmsKeyArn                 string
+	DashboardViewerPrincipals []string
 }
 
 // AggregateLogGroupSummary describes aggregated statistics for a single log group.

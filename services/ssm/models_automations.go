@@ -64,9 +64,23 @@ type StartAutomationExecutionInput struct {
 // StartAutomationExecutionOutput is the response payload.
 type StartAutomationExecutionOutput struct{}
 
+// Runbook mirrors types.Runbook (types.go:5718). TargetLocations/TargetMaps/
+// TargetParameterName/Targets are deliberately not modeled -- the same
+// shallow-scalar simplification StartAutomationExecutionInput already makes
+// for its own Targets/TargetLocations/TargetParameterName (this file, above),
+// an established convention in this backend, not new scope for this fix.
+type Runbook struct {
+	Parameters      map[string][]string `json:"Parameters,omitempty"`
+	DocumentName    string              `json:"DocumentName"`
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	MaxConcurrency  string              `json:"MaxConcurrency,omitempty"`
+	MaxErrors       string              `json:"MaxErrors,omitempty"`
+}
+
 // StartChangeRequestExecutionInput is the request payload.
 type StartChangeRequestExecutionInput struct {
-	DocumentName string `json:"DocumentName"`
+	DocumentName string    `json:"DocumentName"`
+	Runbooks     []Runbook `json:"Runbooks"`
 }
 
 // StartChangeRequestExecutionOutput is the response payload.
@@ -100,11 +114,15 @@ type AutomationExecution struct {
 	// detects mid-run (types.go:801-803), but every execution here always
 	// completes every step to Success (completeAutomationLocked) with no
 	// partial-failure/degraded path to report one from.
-	WarningMessage string               `json:"WarningMessage,omitempty"`
-	Steps          []AutomationStepExec `json:"StepExecutions,omitempty"`
-	StartTime      float64              `json:"ExecutionStartTime"`
-	EndTime        float64              `json:"ExecutionEndTime,omitempty"`
-	completeAfter  float64
+	WarningMessage string `json:"WarningMessage,omitempty"`
+	// Runbooks is populated only by StartChangeRequestExecution (the only op
+	// whose real Input carries Runbooks); always empty for executions started
+	// via StartAutomationExecution, matching real AWS.
+	Runbooks      []Runbook            `json:"Runbooks,omitempty"`
+	Steps         []AutomationStepExec `json:"StepExecutions,omitempty"`
+	StartTime     float64              `json:"ExecutionStartTime"`
+	EndTime       float64              `json:"ExecutionEndTime,omitempty"`
+	completeAfter float64
 }
 
 // AutomationStepExec represents a single step in an automation execution.

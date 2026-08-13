@@ -178,22 +178,52 @@ func (b *InMemoryBackend) ListResourceDataSync(
 	return &ListResourceDataSyncOutputFull{ResourceDataSyncItems: items}, nil
 }
 
-// UpdateResourceDataSync updates an existing resource data sync.
+// UpdateResourceDataSync updates an existing resource data sync. SyncType and
+// SyncSource are, along with SyncName, required UpdateResourceDataSyncInput
+// members (verified against validateOpUpdateResourceDataSyncInput,
+// validators.go); SyncSource's own SourceType/SourceRegions are required
+// whenever SyncSource is present (validateResourceDataSyncSource). The
+// pre-fix handler read only SyncName, silently no-opped (returned success)
+// on an empty one instead of erroring, and never errored on an unknown sync
+// name either -- this API only supports updating a SyncFromSource sync
+// (doc comment on api_op_UpdateResourceDataSync.go), which is what the fix
+// below now actually models.
 func (b *InMemoryBackend) UpdateResourceDataSync(
 	ctx context.Context,
 	input *UpdateResourceDataSyncInput,
 ) (*UpdateResourceDataSyncOutput, error) {
+	if input.SyncName == "" {
+		return nil, fmt.Errorf("%w: SyncName is required", ErrValidationException)
+	}
+
+	if input.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", ErrValidationException)
+	}
+
+	if input.SyncSource == nil {
+		return nil, fmt.Errorf("%w: SyncSource is required", ErrValidationException)
+	}
+
+	if input.SyncSource.SourceType == "" {
+		return nil, fmt.Errorf("%w: SyncSource.SourceType is required", ErrValidationException)
+	}
+
+	if len(input.SyncSource.SourceRegions) == 0 {
+		return nil, fmt.Errorf("%w: SyncSource.SourceRegions is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateResourceDataSync")
 	defer b.mu.Unlock()
 
-	if input.SyncName == "" {
-		return &UpdateResourceDataSyncOutput{}, nil
+	sync, exists := b.resourceDataSyncsStore(region).Get(input.SyncName)
+	if !exists {
+		return nil, ErrResourceDataSyncNotFound
 	}
 
-	if sync, exists := b.resourceDataSyncsStore(region).Get(input.SyncName); exists {
-		sync.LastSyncTime = UnixTimeFloat(time.Now())
-	}
+	sync.SyncType = input.SyncType
+	sync.SyncSource = input.SyncSource
+	sync.LastSyncTime = UnixTimeFloat(time.Now())
 
 	return &UpdateResourceDataSyncOutput{}, nil
 }

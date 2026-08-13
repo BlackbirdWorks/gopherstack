@@ -267,7 +267,9 @@ type StorageBackend interface {
 	) ([]*Run, string, error)
 
 	// Configuration
-	CreateConfiguration(name, description string) (*Configuration, error)
+	CreateConfiguration(
+		name, description string, runConfigurations *ConfigurationRunConfigurations, tags map[string]string,
+	) (*Configuration, error)
 	DeleteConfiguration(name string) error
 	GetConfiguration(name string) (*Configuration, error)
 	ListConfigurations(maxResults int, nextToken string) ([]*Configuration, string, error)

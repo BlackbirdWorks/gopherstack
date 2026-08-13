@@ -211,6 +211,8 @@ func createServerlessConfig(t *testing.T, h *dms.Handler, prefix string) string 
 		"ReplicationType":             "full-load-and-cdc",
 		"SourceEndpointArn":           srcArn,
 		"TargetEndpointArn":           tgtArn,
+		"TableMappings":               "{}",
+		"ComputeConfig":               map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, rcRec.Code)
 

@@ -47,6 +47,8 @@ func TestDescribeReplicationTableStatistics(t *testing.T) {
 		"ReplicationType":             "full-load",
 		"SourceEndpointArn":           "arn:src",
 		"TargetEndpointArn":           "arn:tgt",
+		"TableMappings":               "{}",
+		"ComputeConfig":               map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	rcArn := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)["ReplicationConfigArn"].(string)

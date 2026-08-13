@@ -73,7 +73,9 @@ type StorageBackend interface {
 	DescribeResponsibilityTransfer(handshakeID string) (*Handshake, error)
 	EnableAllFeatures() (*Handshake, error)
 	InviteAccountToOrganization(target HandshakeParty, notes string) (*Handshake, error)
-	InviteOrganizationToTransferResponsibility(target HandshakeParty, notes string) (*Handshake, error)
+	InviteOrganizationToTransferResponsibility(
+		target HandshakeParty, params TransferResponsibilityParams,
+	) (*Handshake, error)
 	LeaveOrganization() error
 	ListHandshakesForAccount(actionTypeFilter string) ([]*Handshake, error)
 	ListHandshakesForOrganization(actionTypeFilter string) ([]*Handshake, error)

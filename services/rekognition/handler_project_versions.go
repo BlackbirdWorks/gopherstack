@@ -214,9 +214,11 @@ func (h *Handler) handleDescribeProjectVersions(
 }
 
 type copyProjectVersionReq struct {
-	SourceProjectVersionArn string `json:"SourceProjectVersionArn"`
-	DestinationProjectArn   string `json:"DestinationProjectArn"`
-	VersionName             string `json:"VersionName"`
+	OutputConfig            *outputConfigWire `json:"OutputConfig"`
+	SourceProjectArn        string            `json:"SourceProjectArn"`
+	SourceProjectVersionArn string            `json:"SourceProjectVersionArn"`
+	DestinationProjectArn   string            `json:"DestinationProjectArn"`
+	VersionName             string            `json:"VersionName"`
 }
 
 type copyProjectVersionResp struct {
@@ -226,6 +228,10 @@ type copyProjectVersionResp struct {
 func (h *Handler) handleCopyProjectVersion(
 	_ context.Context, req *copyProjectVersionReq,
 ) (*copyProjectVersionResp, error) {
+	if req.SourceProjectArn == "" {
+		return nil, fmt.Errorf("%w: SourceProjectArn is required", ErrValidation)
+	}
+
 	if req.SourceProjectVersionArn == "" {
 		return nil, fmt.Errorf("%w: SourceProjectVersionArn is required", ErrValidation)
 	}
@@ -234,8 +240,24 @@ func (h *Handler) handleCopyProjectVersion(
 		return nil, fmt.Errorf("%w: DestinationProjectArn is required", ErrValidation)
 	}
 
+	if req.VersionName == "" {
+		return nil, fmt.Errorf("%w: VersionName is required", ErrValidation)
+	}
+
+	// OutputConfig is a required CopyProjectVersionInput member (verified
+	// against validateOpCopyProjectVersionInput, validators.go).
+	if req.OutputConfig == nil {
+		return nil, fmt.Errorf("%w: OutputConfig is required", ErrValidation)
+	}
+
+	params := CopyProjectVersionParams{
+		SourceProjectARN:        req.SourceProjectArn,
+		OutputConfigS3Bucket:    req.OutputConfig.S3Bucket,
+		OutputConfigS3KeyPrefix: req.OutputConfig.S3KeyPrefix,
+	}
+
 	v, err := h.Backend.CopyProjectVersion(
-		req.SourceProjectVersionArn, req.DestinationProjectArn, req.VersionName,
+		req.SourceProjectVersionArn, req.DestinationProjectArn, req.VersionName, params,
 	)
 	if err != nil {
 		return nil, err

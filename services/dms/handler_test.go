@@ -635,6 +635,7 @@ func TestPassThroughOperationsSmoke(t *testing.T) {
 		{
 			body: map[string]any{
 				"MigrationProjectIdentifier": "x", "MetadataModelName": "m", "SelectionRules": "{}",
+				"Properties": map[string]any{"StatementProperties": map[string]any{"Definition": "SELECT 1"}},
 			},
 			action: "StartMetadataModelCreation",
 		},

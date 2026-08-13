@@ -314,8 +314,28 @@ func classifySSMError(reqErr error) (string, int) {
 	return classifySSMErrorExtended(reqErr)
 }
 
+// classifySSMResourceDataSyncError handles the two ResourceDataSync-specific
+// errors, split out of classifySSMErrorExtended purely to keep that
+// function's cyclomatic complexity under this repo's cyclop limit.
+func classifySSMResourceDataSyncError(reqErr error) (string, int, bool) {
+	statusCode := http.StatusBadRequest
+
+	switch {
+	case errors.Is(reqErr, ErrResourceDataSyncNotFound):
+		return "ResourceDataSyncNotFoundException", statusCode, true
+	case errors.Is(reqErr, ErrResourceDataSyncExists):
+		return "ResourceDataSyncAlreadyExistsException", statusCode, true
+	default:
+		return "", 0, false
+	}
+}
+
 func classifySSMErrorExtended(reqErr error) (string, int) {
 	statusCode := http.StatusBadRequest
+
+	if code, status, ok := classifySSMResourceDataSyncError(reqErr); ok {
+		return code, status
+	}
 
 	switch {
 	case errors.Is(reqErr, ErrInvalidAggregator):

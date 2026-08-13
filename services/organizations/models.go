@@ -165,6 +165,19 @@ type HandshakeParty struct {
 	Type string `json:"type"`
 }
 
+// TransferResponsibilityParams groups
+// InviteOrganizationToTransferResponsibilityInput's fields beyond Target:
+// SourceName, StartTimestamp, and Type are all required members
+// (validateOpInviteOrganizationToTransferResponsibilityInput,
+// validators.go); Notes is optional, matching InviteAccountToOrganization's
+// Notes.
+type TransferResponsibilityParams struct {
+	StartTimestamp time.Time
+	SourceName     string
+	Type           string
+	Notes          string
+}
+
 // HandshakeResource holds a resource associated with a handshake.
 type HandshakeResource struct {
 	Type      string              `json:"type"`

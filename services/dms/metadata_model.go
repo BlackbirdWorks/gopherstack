@@ -91,10 +91,13 @@ func (b *InMemoryBackend) CancelMetadataModelCreation(
 	return b.cancelMetadataModelRequest(region, projectARN, requestIdentifier), nil
 }
 
-// StartMetadataModelRequest persists a metadata model operation request and returns its ID.
+// StartMetadataModelRequest persists a metadata model operation request and
+// returns its ID. propertiesDefinition is StartMetadataModelCreationInput's
+// Properties.StatementProperties.Definition; callers for every other
+// RequestType pass "".
 func (b *InMemoryBackend) StartMetadataModelRequest(
 	ctx context.Context,
-	projectIdentifier, reqType, selectionRules string,
+	projectIdentifier, reqType, selectionRules, propertiesDefinition string,
 ) (string, error) {
 	b.mu.Lock("StartMetadataModelRequest")
 	defer b.mu.Unlock()
@@ -109,6 +112,7 @@ func (b *InMemoryBackend) StartMetadataModelRequest(
 		RequestType:                reqType,
 		SelectionRules:             selectionRules,
 		Region:                     region,
+		PropertiesDefinition:       propertiesDefinition,
 	})
 
 	return reqID, nil

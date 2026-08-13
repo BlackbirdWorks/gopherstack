@@ -41,11 +41,54 @@ func TestResourceDataSync_CRUD(t *testing.T) {
 
 	// Create duplicate → returns error (sync already exists)
 	rec = doRequest(t, h, "CreateResourceDataSync", `{"SyncName":"my-sync"}`)
-	assert.NotEqual(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assertBodyContains(t, rec, "ResourceDataSyncAlreadyExistsException")
 
-	// Update
+	// Update missing required fields -- gopherstack-4ggy: SyncSource/SyncType
+	// were previously dropped entirely and this call silently no-opped
+	// (returned success) instead of erroring.
 	rec = doRequest(t, h, "UpdateResourceDataSync", `{"SyncName":"my-sync"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// Update with SyncSource/SyncType -- must round-trip on ListResourceDataSync.
+	rec = doRequest(t, h, "UpdateResourceDataSync", `{
+		"SyncName":"my-sync",
+		"SyncType":"SyncFromSource",
+		"SyncSource":{"SourceType":"SingleAccountMultiRegions","SourceRegions":["us-east-1","us-west-2"]}
+	}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "ListResourceDataSync", `{}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		ResourceDataSyncItems []struct {
+			SyncSource *struct {
+				SourceType    string   `json:"SourceType"`
+				SourceRegions []string `json:"SourceRegions"`
+			} `json:"SyncSource"`
+			SyncName string `json:"SyncName"`
+			SyncType string `json:"SyncType"`
+		} `json:"ResourceDataSyncItems"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.Len(t, listResp.ResourceDataSyncItems, 1)
+	item := listResp.ResourceDataSyncItems[0]
+	assert.Equal(t, "SyncFromSource", item.SyncType)
+	require.NotNil(t, item.SyncSource)
+	assert.Equal(t, "SingleAccountMultiRegions", item.SyncSource.SourceType)
+	assert.Equal(t, []string{"us-east-1", "us-west-2"}, item.SyncSource.SourceRegions)
+
+	// Update against an unknown sync name -> not found (this service's
+	// convention maps every known domain error to 400, not 404 -- see
+	// classifySSMError/classifySSMErrorExtended, handler.go).
+	rec = doRequest(t, h, "UpdateResourceDataSync", `{
+		"SyncName":"does-not-exist",
+		"SyncType":"SyncFromSource",
+		"SyncSource":{"SourceType":"SingleAccountMultiRegions","SourceRegions":["us-east-1"]}
+	}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assertBodyContains(t, rec, "ResourceDataSyncNotFoundException")
 
 	// Delete
 	rec = doRequest(t, h, "DeleteResourceDataSync", `{"SyncName":"my-sync"}`)
@@ -222,6 +265,15 @@ func TestDeleteResourceDataSync_RoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteResourceDataSync_Handler_NotFound previously asserted a
+// StatusInternalServerError (500) for an unknown sync name -- ErrResourceDataSyncNotFound
+// had no case in classifySSMErrorExtended (handler.go) at all, so it fell
+// through to the default InternalServerError branch. Fixed alongside
+// gopherstack-4ggy's UpdateResourceDataSync fix, which needed the same
+// mapping for its own not-found path; this service's uniform convention
+// maps every known domain error to 400 (see classifySSMError/
+// classifySSMErrorExtended), never 404.
 func TestDeleteResourceDataSync_Handler_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -230,7 +282,7 @@ func TestDeleteResourceDataSync_Handler_NotFound(t *testing.T) {
 		body string
 	}{
 		{
-			name: "non_existent_sync_returns_500",
+			name: "non_existent_sync_returns_400",
 			body: `{"SyncName":"ghost-sync"}`,
 		},
 	}
@@ -241,7 +293,7 @@ func TestDeleteResourceDataSync_Handler_NotFound(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			rec := doRequest(t, h, "DeleteResourceDataSync", tt.body)
-			assert.Equal(t, http.StatusInternalServerError, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			assert.Contains(t, rec.Body.String(), "ResourceDataSyncNotFoundException")
 		})
 	}

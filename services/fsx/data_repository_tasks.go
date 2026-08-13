@@ -10,6 +10,7 @@ import (
 
 type storedDataRepositoryTask struct {
 	CreationTime time.Time         `json:"creationTime"`
+	Report       *CompletionReport `json:"report,omitempty"`
 	Tags         map[string]string `json:"tags"`
 	TaskID       string            `json:"taskId"`
 	FileSystemID string            `json:"fileSystemId"`
@@ -22,6 +23,7 @@ type storedDataRepositoryTask struct {
 func (t *storedDataRepositoryTask) toPublic() *DataRepositoryTask {
 	return &DataRepositoryTask{
 		CreationTime: epochTime(t.CreationTime),
+		Report:       t.Report,
 		TaskID:       t.TaskID,
 		FileSystemID: t.FileSystemID,
 		Type:         t.Type,
@@ -33,16 +35,29 @@ func (t *storedDataRepositoryTask) toPublic() *DataRepositoryTask {
 }
 
 type createDataRepositoryTaskInput struct {
-	FileSystemID string   `json:"FileSystemId"`
-	Type         string   `json:"Type"`
-	Paths        []string `json:"Paths,omitempty"`
-	Tags         []Tag    `json:"Tags,omitempty"`
+	Report       *CompletionReport `json:"Report"`
+	FileSystemID string            `json:"FileSystemId"`
+	Type         string            `json:"Type"`
+	Paths        []string          `json:"Paths,omitempty"`
+	Tags         []Tag             `json:"Tags,omitempty"`
 }
 
-// CreateDataRepositoryTask creates a data repository task.
+// CreateDataRepositoryTask creates a data repository task. Report is a
+// required CreateDataRepositoryTaskInput member (verified against
+// validateOpCreateDataRepositoryTaskInput, validators.go), and its own
+// Enabled member is required whenever Report is present (validateCompletionReport)
+// -- the pre-fix request never read Report at all.
 func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTaskInput) (*DataRepositoryTask, error) {
 	if err := validateTags(input.Tags); err != nil {
 		return nil, err
+	}
+
+	if input.Report == nil {
+		return nil, fmt.Errorf("%w: Report is required", ErrValidation)
+	}
+
+	if input.Report.Enabled == nil {
+		return nil, fmt.Errorf("%w: Report.Enabled is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateDataRepositoryTask")
@@ -59,6 +74,7 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 
 	t := &storedDataRepositoryTask{
 		CreationTime: now,
+		Report:       input.Report,
 		Tags:         tags,
 		Paths:        input.Paths,
 		TaskID:       id,

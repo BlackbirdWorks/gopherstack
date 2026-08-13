@@ -183,24 +183,43 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 }
 
 // StartChangeRequestExecution creates a change request automation execution.
+// Runbooks is a required StartChangeRequestExecutionInput member (verified
+// against validateOpStartChangeRequestExecutionInput, validators.go), each
+// entry's own DocumentName required whenever present (validateRunbook) --
+// the pre-fix request read only the top-level DocumentName (the change
+// template document) and built steps from it directly, when the actual
+// Automation runbook(s) to run live in Runbooks instead.
 func (b *InMemoryBackend) StartChangeRequestExecution(
 	ctx context.Context,
 	input *StartChangeRequestExecutionInput,
 ) (*StartChangeRequestExecutionOutputFull, error) {
+	if len(input.Runbooks) == 0 {
+		return nil, fmt.Errorf("%w: Runbooks is required", ErrValidationException)
+	}
+
+	for i, rb := range input.Runbooks {
+		if rb.DocumentName == "" {
+			return nil, fmt.Errorf("%w: Runbooks[%d].DocumentName is required", ErrValidationException, i)
+		}
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("StartChangeRequestExecution")
 	defer b.mu.Unlock()
 
 	execID := "auto-cr-" + uuid.NewString()
 	// Change requests remain InProgress pending approval (SendAutomationSignal),
-	// mirroring AWS — but their steps are populated up front.
+	// mirroring AWS — but their steps are populated up front, built from the
+	// first runbook's document (this backend's AutomationExecution models a
+	// single step list; real AWS runs each Runbook entry as its own workflow).
 	exec := &AutomationExecution{
 		AutomationExecutionID: execID,
 		DocumentName:          input.DocumentName,
 		Status:                automationStatusInProgress,
 		StartTime:             UnixTimeFloat(time.Now().UTC()),
 		ExecutionType:         "ChangeRequest",
-		Steps:                 b.buildAutomationSteps(region, input.DocumentName),
+		Runbooks:              input.Runbooks,
+		Steps:                 b.buildAutomationSteps(region, input.Runbooks[0].DocumentName),
 	}
 	b.automationExecutionsStore(region).Put(exec)
 

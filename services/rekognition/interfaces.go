@@ -46,7 +46,10 @@ type StorageBackend interface {
 	DeleteProjectVersion(projectVersionARN string) error
 	DescribeProjectVersions(projectARN string, versionNames []string, maxResults int32, nextToken string) (
 		[]*ProjectVersion, string, error)
-	CopyProjectVersion(sourceProjectVersionARN, destinationProjectARN, versionName string) (*ProjectVersion, error)
+	CopyProjectVersion(
+		sourceProjectVersionARN, destinationProjectARN, versionName string,
+		params CopyProjectVersionParams,
+	) (*ProjectVersion, error)
 	StartProjectVersion(projectVersionARN string, minInferenceUnits, maxInferenceUnits int32) error
 	StopProjectVersion(projectVersionARN string) error
 	ListProjectPolicies(projectARN string, maxResults int32, nextToken string) ([]*ProjectPolicy, string, error)
@@ -84,7 +87,7 @@ type StorageBackend interface {
 	// Async video jobs
 	StartAsyncJob(params StartAsyncJobParams) (string, error)
 	GetAsyncJob(jobID string) (*AsyncJob, error)
-	StartMediaAnalysisJob(jobName string) (string, error)
+	StartMediaAnalysisJob(jobName string, params StartMediaAnalysisJobParams) (string, error)
 	GetMediaAnalysisJob(jobID string) (*MediaAnalysisJob, error)
 	ListMediaAnalysisJobs(maxResults int32, nextToken string) ([]*MediaAnalysisJob, string, error)
 
@@ -272,6 +275,16 @@ type CreateProjectVersionParams struct {
 	VersionDescription                      string
 }
 
+// CopyProjectVersionParams groups CopyProjectVersionInput's fields beyond
+// SourceProjectVersionArn/DestinationProjectArn/VersionName: SourceProjectArn
+// (the source project the copied version must belong to) and OutputConfig
+// (where the copied training results are stored in the destination account).
+type CopyProjectVersionParams struct {
+	SourceProjectARN        string
+	OutputConfigS3Bucket    string
+	OutputConfigS3KeyPrefix string
+}
+
 // ProjectPolicy represents a project policy.
 type ProjectPolicy struct {
 	CreationTimestamp    time.Time
@@ -373,10 +386,32 @@ type StartAsyncJobParams struct {
 
 // MediaAnalysisJob represents a Rekognition media analysis job.
 type MediaAnalysisJob struct {
-	CreationTimestamp time.Time
-	JobID             string
-	JobName           string
-	Status            string
+	CreationTimestamp                    time.Time
+	DetectModerationLabelsMinConfidence  *float32
+	JobID                                string
+	JobName                              string
+	Status                               string
+	InputS3Bucket                        string
+	InputS3Name                          string
+	InputS3Version                       string
+	OutputConfigS3Bucket                 string
+	OutputConfigS3KeyPrefix              string
+	DetectModerationLabelsProjectVersion string
+	HasDetectModerationLabels            bool
+}
+
+// StartMediaAnalysisJobParams groups StartMediaAnalysisJobInput's required
+// Input/OperationsConfig/OutputConfig members beyond JobName, so the
+// StartMediaAnalysisJob backend method signature stays manageable.
+type StartMediaAnalysisJobParams struct {
+	DetectModerationLabelsMinConfidence  *float32
+	InputS3Bucket                        string
+	InputS3Name                          string
+	InputS3Version                       string
+	OutputConfigS3Bucket                 string
+	OutputConfigS3KeyPrefix              string
+	DetectModerationLabelsProjectVersion string
+	HasDetectModerationLabels            bool
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

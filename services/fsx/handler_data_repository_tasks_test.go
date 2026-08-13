@@ -2,6 +2,7 @@ package fsx_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -39,6 +40,7 @@ func TestFSx_DataRepositoryTask(t *testing.T) {
 				"FileSystemId": fsID,
 				"Type":         tc.taskType,
 				"Paths":        []string{"/data"},
+				"Report":       map[string]any{"Enabled": false},
 			})
 			require.Equal(t, tc.wantCode, rec.Code)
 
@@ -47,6 +49,43 @@ func TestFSx_DataRepositoryTask(t *testing.T) {
 			task := out["DataRepositoryTask"].(map[string]any)
 			assert.Contains(t, task["TaskId"].(string), "task-")
 			assert.Equal(t, "EXECUTING", task["Lifecycle"])
+		})
+	}
+}
+
+// TestFSx_DataRepositoryTask_MissingReport verifies gopherstack-4ggy's fix:
+// Report is a required CreateDataRepositoryTaskInput member
+// (api_op_CreateDataRepositoryTask.go:49-129) that the pre-fix request never
+// read at all, so a request that omitted it (or omitted Report.Enabled)
+// still succeeded.
+func TestFSx_DataRepositoryTask_MissingReport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "missing report",
+			body: map[string]any{"Type": "EXPORT_TO_REPOSITORY"},
+		},
+		{
+			name: "missing report enabled",
+			body: map[string]any{"Type": "EXPORT_TO_REPOSITORY", "Report": map[string]any{}},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			fsID := createFS(t, h, "LUSTRE")
+
+			body := map[string]any{"FileSystemId": fsID}
+			maps.Copy(body, tc.body)
+
+			rec := doFSxRequest(t, h, "CreateDataRepositoryTask", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
 }
@@ -62,6 +101,7 @@ func TestFSx_DataRepositoryTaskLifecycle(t *testing.T) {
 		rec := doFSxRequest(t, h, "CreateDataRepositoryTask", map[string]any{
 			"FileSystemId": fsID,
 			"Type":         "EXPORT_TO_REPOSITORY",
+			"Report":       map[string]any{"Enabled": false},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var cr map[string]any
@@ -124,6 +164,7 @@ func TestDataRepositoryTask_TagsStoredAtCreation(t *testing.T) {
 			body := map[string]any{
 				"FileSystemId": fsID,
 				"Type":         "EXPORT_TO_REPOSITORY",
+				"Report":       map[string]any{"Enabled": false},
 			}
 			if tc.tags != nil {
 				body["Tags"] = tc.tags
@@ -165,6 +206,7 @@ func TestDataRepositoryTask_TagResource(t *testing.T) {
 	rec := doFSxRequest(t, h, "CreateDataRepositoryTask", map[string]any{
 		"FileSystemId": fsID,
 		"Type":         "EXPORT_TO_REPOSITORY",
+		"Report":       map[string]any{"Enabled": false},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

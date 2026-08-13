@@ -591,19 +591,103 @@ type CreateModelInput struct {
 	Description string `json:"description,omitempty"`
 }
 
+// CognitoConfig mirrors types.CognitoConfig (types.go:245): all three
+// members are required whenever CognitoConfig is present (verified against
+// validateCognitoConfig, validators.go).
+type CognitoConfig struct {
+	AppClientID    string `json:"appClientId"`
+	UserPoolArn    string `json:"userPoolArn"`
+	UserPoolDomain string `json:"userPoolDomain"`
+}
+
+// None mirrors types.None (types.go:901), an empty marker struct used by
+// the Authorization and EndpointConfigurationRequest unions to select the
+// "no auth" / "default domain" branch.
+type None struct{}
+
+// Authorization mirrors types.Authorization (types.go:142), a union of
+// CognitoConfig and None. Neither branch is required by
+// validateAuthorization -- only Authorization itself is required on
+// CreatePortalInput.
+type Authorization struct {
+	CognitoConfig *CognitoConfig `json:"cognitoConfig,omitempty"`
+	None          *None          `json:"none,omitempty"`
+}
+
+// ACMManaged mirrors types.ACMManaged (types.go:24): both members are
+// required whenever ACMManaged is present (verified against
+// validateACMManaged, validators.go).
+type ACMManaged struct {
+	CertificateArn string `json:"certificateArn"`
+	DomainName     string `json:"domainName"`
+}
+
+// EndpointConfigurationRequest mirrors types.EndpointConfigurationRequest
+// (types.go:486), a union of ACMManaged and None.
+type EndpointConfigurationRequest struct {
+	AcmManaged *ACMManaged `json:"acmManaged,omitempty"`
+	None       *None       `json:"none,omitempty"`
+}
+
+// EndpointConfigurationResponse mirrors types.EndpointConfigurationResponse
+// (types.go:498). PortalDefaultDomainName/PortalDomainHostedZoneId are
+// required response members with no client-supplied equivalent -- this
+// backend synthesizes them the same way it synthesizes ARNs and execute-api
+// endpoints elsewhere (see randomID/defaultRegion), not fabricated business
+// data.
+type EndpointConfigurationResponse struct {
+	CertificateArn           string `json:"certificateArn,omitempty"`
+	DomainName               string `json:"domainName,omitempty"`
+	PortalDefaultDomainName  string `json:"portalDefaultDomainName"`
+	PortalDomainHostedZoneID string `json:"portalDomainHostedZoneId"`
+}
+
+// CustomColors mirrors types.CustomColors (types.go:295): all six
+// members are required whenever CustomColors is present (verified against
+// validateCustomColors, validators.go).
+type CustomColors struct {
+	AccentColor          string `json:"accentColor"`
+	BackgroundColor      string `json:"backgroundColor"`
+	ErrorValidationColor string `json:"errorValidationColor"`
+	HeaderColor          string `json:"headerColor"`
+	NavigationColor      string `json:"navigationColor"`
+	TextColor            string `json:"textColor"`
+}
+
+// PortalTheme mirrors types.PortalTheme (types.go:1034). LogoLastUploaded
+// is set by the (unmodeled) logo-upload API, never by CreatePortal/UpdatePortal,
+// so it is omitted here rather than accepted from the client and echoed
+// dishonestly.
+type PortalTheme struct {
+	CustomColors *CustomColors `json:"customColors"`
+}
+
+// PortalContent mirrors types.PortalContent (types.go:917).
+type PortalContent struct {
+	Theme       *PortalTheme `json:"theme"`
+	DisplayName string       `json:"displayName"`
+	Description string       `json:"description,omitempty"`
+}
+
 // Portal represents an API Gateway v2 portal.
 type Portal struct {
-	Tags      map[string]string `json:"tags,omitempty"`
-	PortalID  string            `json:"portalId"`
-	PortalArn string            `json:"portalArn,omitempty"`
-	LogoURI   string            `json:"logoUri,omitempty"`
-	Status    string            `json:"status,omitempty"`
+	Authorization         *Authorization                 `json:"authorization,omitempty"`
+	EndpointConfiguration *EndpointConfigurationResponse `json:"endpointConfiguration,omitempty"`
+	PortalContent         *PortalContent                 `json:"portalContent,omitempty"`
+	Tags                  map[string]string              `json:"tags,omitempty"`
+	PortalID              string                         `json:"portalId"`
+	PortalArn             string                         `json:"portalArn,omitempty"`
+	LogoURI               string                         `json:"logoUri,omitempty"`
+	Status                string                         `json:"status,omitempty"`
 }
 
 // CreatePortalInput is the input for CreatePortal.
 type CreatePortalInput struct {
-	Tags    map[string]string `json:"tags,omitempty"`
-	LogoURI string            `json:"logoUri,omitempty"`
+	Authorization         *Authorization                `json:"authorization"`
+	EndpointConfiguration *EndpointConfigurationRequest `json:"endpointConfiguration"`
+	PortalContent         *PortalContent                `json:"portalContent"`
+	Tags                  map[string]string             `json:"tags,omitempty"`
+	LogoURI               string                        `json:"logoUri,omitempty"`
 }
 
 // PortalProduct represents a portal product.
@@ -635,17 +719,37 @@ type CreateProductPageInput struct {
 	PortalProductID string `json:"-"`
 }
 
+// IdentifierParts mirrors types.IdentifierParts (types.go:551): all four
+// members are required whenever IdentifierParts is present (verified against
+// validateIdentifierParts, validators.go).
+type IdentifierParts struct {
+	Method    string `json:"method"`
+	Path      string `json:"path"`
+	RestAPIID string `json:"restApiId"`
+	Stage     string `json:"stage"`
+}
+
+// RestEndpointIdentifier mirrors types.RestEndpointIdentifier
+// (types.go:1138). IdentifierParts itself is optional per
+// validateRestEndpointIdentifier -- only RestEndpointIdentifier as a whole is
+// a required CreateProductRestEndpointPageInput member.
+type RestEndpointIdentifier struct {
+	IdentifierParts *IdentifierParts `json:"identifierParts,omitempty"`
+}
+
 // ProductRestEndpointPage represents a REST endpoint page within a portal product.
 type ProductRestEndpointPage struct {
-	LastModified              *isoTime       `json:"lastModified,omitempty"`
-	DisplayContent            map[string]any `json:"displayContent,omitempty"`
-	ProductRestEndpointPageID string         `json:"productRestEndpointPageId"`
-	PortalProductID           string         `json:"-"`
+	LastModified              *isoTime                `json:"lastModified,omitempty"`
+	RestEndpointIdentifier    *RestEndpointIdentifier `json:"restEndpointIdentifier,omitempty"`
+	DisplayContent            map[string]any          `json:"displayContent,omitempty"`
+	ProductRestEndpointPageID string                  `json:"productRestEndpointPageId"`
+	PortalProductID           string                  `json:"-"`
 }
 
 // CreateProductRestEndpointPageInput is the input for CreateProductRestEndpointPage.
 type CreateProductRestEndpointPageInput struct {
-	PortalProductID string `json:"-"`
+	RestEndpointIdentifier *RestEndpointIdentifier `json:"restEndpointIdentifier"`
+	PortalProductID        string                  `json:"-"`
 }
 
 // RouteResponse represents a route response.

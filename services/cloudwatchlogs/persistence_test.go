@@ -474,7 +474,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "integration_survives",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutIntegration("my-opensearch", "OPENSEARCH")
+				_, err := b.PutIntegration("my-opensearch", "OPENSEARCH", validOpenSearchResourceConfig())
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -482,6 +482,12 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 				ig, err := b.GetIntegration("my-opensearch")
 				require.NoError(t, err)
 				assert.Equal(t, "OPENSEARCH", ig.Type)
+				require.NotNil(t, ig.OpenSearchResourceConfig, "OpenSearchResourceConfig must survive Snapshot/Restore")
+				assert.Equal(
+					t,
+					"arn:aws:iam::123456789012:role/cwl-opensearch",
+					ig.OpenSearchResourceConfig.DataSourceRoleArn,
+				)
 			},
 		},
 		{

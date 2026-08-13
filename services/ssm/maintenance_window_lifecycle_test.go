@@ -26,6 +26,11 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 	// (Aggregators) and now correctly rejects an empty body with
 	// InvalidAggregatorException — see TestListNodesSummary_MissingAggregators
 	// in list_nodes_summary_test.go.
+	// StartChangeRequestExecution and UpdateResourceDataSync are also NOT
+	// listed here (gopherstack-4ggy): both now correctly reject an empty
+	// body -- Runbooks and SyncSource/SyncType respectively are required and
+	// were previously dropped entirely. See TestChangeRequest
+	// (automations_test.go) and TestResourceDataSync_CRUD (activations_test.go).
 	ops := []string{
 		"CreateResourceDataSync",
 		"DeleteInventory",
@@ -94,7 +99,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"SendAutomationSignal",
 		"StartAssociationsOnce",
 		"StartAutomationExecution",
-		"StartChangeRequestExecution",
 		"StartExecutionPreview",
 		"StartSession",
 		"StopAutomationExecution",
@@ -103,7 +107,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"UpdateDocumentDefaultVersion",
 		"UpdateDocumentMetadata",
 		"UpdateManagedInstanceRole",
-		"UpdateResourceDataSync",
 		"UpdateServiceSetting",
 	}
 

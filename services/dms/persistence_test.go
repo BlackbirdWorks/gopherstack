@@ -71,7 +71,15 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	require.NoError(t, err)
 	ids["subnetGroupArn"] = sg.ReplicationSubnetGroupArn
 
-	rc, err := b.CreateReplicationConfig(ctx, "rc-1", "full-load", src.EndpointArn, tgt.EndpointArn, nil)
+	maxCapacityUnits := int32(4)
+	rc, err := b.CreateReplicationConfig(ctx, dms.CreateReplicationConfigParams{
+		Identifier:        "rc-1",
+		ReplicationType:   "full-load",
+		SourceEndpointArn: src.EndpointArn,
+		TargetEndpointArn: tgt.EndpointArn,
+		TableMappings:     `{"rules":[]}`,
+		ComputeConfig:     &dms.ComputeConfig{MaxCapacityUnits: &maxCapacityUnits},
+	}, nil)
 	require.NoError(t, err)
 	ids["replicationConfigArn"] = rc.ReplicationConfigArn
 
@@ -81,7 +89,7 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	_, err = b.StartAssessmentRun(ctx, rt.ReplicationTaskArn, "", "", "run-1")
 	require.NoError(t, err)
 
-	reqID, err := b.StartMetadataModelRequest(ctx, mp.MigrationProjectName, "assessment", "")
+	reqID, err := b.StartMetadataModelRequest(ctx, mp.MigrationProjectName, "assessment", "", "")
 	require.NoError(t, err)
 	ids["metadataModelRequestID"] = reqID
 
@@ -187,6 +195,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rcs, 1)
 	assert.Equal(t, ids["replicationConfigArn"], rcs[0].ReplicationConfigArn)
+	assert.JSONEq(t, `{"rules":[]}`, rcs[0].TableMappings)
+	require.NotNil(t, rcs[0].ComputeConfig)
+	require.NotNil(t, rcs[0].ComputeConfig.MaxCapacityUnits)
+	assert.Equal(t, int32(4), *rcs[0].ComputeConfig.MaxCapacityUnits)
 
 	conns, err := fresh.DescribeConnections(ctx, "", "")
 	require.NoError(t, err)

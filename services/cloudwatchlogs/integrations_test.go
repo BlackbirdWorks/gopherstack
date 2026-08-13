@@ -8,6 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// validOpenSearchResourceConfig returns an OpenSearchResourceConfig
+// satisfying its three required members (DataSourceRoleArn,
+// DashboardViewerPrincipals, RetentionDays -- validateOpenSearchResourceConfig,
+// validators.go).
+func validOpenSearchResourceConfig() *cloudwatchlogs.OpenSearchResourceConfig {
+	days := int32(30)
+
+	return &cloudwatchlogs.OpenSearchResourceConfig{
+		DataSourceRoleArn:         "arn:aws:iam::123456789012:role/cwl-opensearch",
+		DashboardViewerPrincipals: []string{"arn:aws:iam::123456789012:user/viewer"},
+		RetentionDays:             &days,
+	}
+}
+
 func TestIntegration_CRUD(t *testing.T) {
 	t.Parallel()
 
@@ -20,10 +34,16 @@ func TestIntegration_CRUD(t *testing.T) {
 			name: "put_get_list_delete",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				ig, err := b.PutIntegration("my-opensearch", "OPENSEARCH")
+				ig, err := b.PutIntegration("my-opensearch", "OPENSEARCH", validOpenSearchResourceConfig())
 				require.NoError(t, err)
 				assert.Equal(t, "my-opensearch", ig.Name)
 				assert.Equal(t, "ACTIVE", ig.Status)
+				require.NotNil(t, ig.OpenSearchResourceConfig)
+				assert.Equal(
+					t,
+					"arn:aws:iam::123456789012:role/cwl-opensearch",
+					ig.OpenSearchResourceConfig.DataSourceRoleArn,
+				)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
@@ -45,9 +65,9 @@ func TestIntegration_CRUD(t *testing.T) {
 			name: "list_multiple_sorted",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutIntegration("z-integration", "OPENSEARCH")
+				_, err := b.PutIntegration("z-integration", "OPENSEARCH", validOpenSearchResourceConfig())
 				require.NoError(t, err)
-				_, err = b.PutIntegration("a-integration", "OPENSEARCH")
+				_, err = b.PutIntegration("a-integration", "OPENSEARCH", validOpenSearchResourceConfig())
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -78,7 +98,15 @@ func TestIntegration_CRUD(t *testing.T) {
 			name: "put_empty_name_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutIntegration("", "OPENSEARCH")
+				_, err := b.PutIntegration("", "OPENSEARCH", validOpenSearchResourceConfig())
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+			},
+		},
+		{
+			name: "put_missing_resource_config_errors",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutIntegration("no-config", "OPENSEARCH", nil)
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},

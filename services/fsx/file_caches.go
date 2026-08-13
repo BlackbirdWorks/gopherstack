@@ -9,37 +9,59 @@ import (
 )
 
 type storedFileCache struct {
-	CreationTime       time.Time         `json:"creationTime"`
-	Tags               map[string]string `json:"tags"`
-	FileCacheID        string            `json:"fileCacheId"`
-	FileCacheType      string            `json:"fileCacheType"`
-	Lifecycle          string            `json:"lifecycle"`
-	ResourceARN        string            `json:"resourceArn"`
-	StorageCapacityGiB int32             `json:"storageCapacityGiB,omitempty"`
+	CreationTime         time.Time         `json:"creationTime"`
+	Tags                 map[string]string `json:"tags"`
+	FileCacheID          string            `json:"fileCacheId"`
+	FileCacheType        string            `json:"fileCacheType"`
+	FileCacheTypeVersion string            `json:"fileCacheTypeVersion,omitempty"`
+	Lifecycle            string            `json:"lifecycle"`
+	ResourceARN          string            `json:"resourceArn"`
+	SubnetIDs            []string          `json:"subnetIds,omitempty"`
+	StorageCapacityGiB   int32             `json:"storageCapacityGiB,omitempty"`
 }
 
 func (c *storedFileCache) toPublic() *FileCache {
 	return &FileCache{
-		CreationTime:       epochTime(c.CreationTime),
-		FileCacheID:        c.FileCacheID,
-		FileCacheType:      c.FileCacheType,
-		Lifecycle:          c.Lifecycle,
-		ResourceARN:        c.ResourceARN,
-		StorageCapacityGiB: c.StorageCapacityGiB,
-		Tags:               tagsMapToSlice(c.Tags),
+		CreationTime:         epochTime(c.CreationTime),
+		FileCacheID:          c.FileCacheID,
+		FileCacheType:        c.FileCacheType,
+		FileCacheTypeVersion: c.FileCacheTypeVersion,
+		Lifecycle:            c.Lifecycle,
+		ResourceARN:          c.ResourceARN,
+		SubnetIDs:            c.SubnetIDs,
+		StorageCapacityGiB:   c.StorageCapacityGiB,
+		Tags:                 tagsMapToSlice(c.Tags),
 	}
 }
 
 type createFileCacheInput struct {
-	FileCacheType      string `json:"FileCacheType"`
-	Tags               []Tag  `json:"Tags,omitempty"`
-	StorageCapacityGiB int32  `json:"StorageCapacity,omitempty"`
+	FileCacheType        string   `json:"FileCacheType"`
+	FileCacheTypeVersion string   `json:"FileCacheTypeVersion"`
+	Tags                 []Tag    `json:"Tags,omitempty"`
+	SubnetIDs            []string `json:"SubnetIds"`
+	StorageCapacityGiB   int32    `json:"StorageCapacity,omitempty"`
 }
 
-// CreateFileCache creates a file cache.
+// CreateFileCache creates a file cache. FileCacheTypeVersion and SubnetIds
+// are, along with FileCacheType/StorageCapacity, required
+// CreateFileCacheInput members (verified against
+// validateOpCreateFileCacheInput, validators.go) that the pre-fix request
+// never read at all -- StorageCapacity was already wired.
 func (b *InMemoryBackend) CreateFileCache(input *createFileCacheInput) (*FileCache, error) {
 	if input.FileCacheType == "" {
 		return nil, ErrValidation
+	}
+
+	if input.FileCacheTypeVersion == "" {
+		return nil, fmt.Errorf("%w: FileCacheTypeVersion is required", ErrValidation)
+	}
+
+	if input.StorageCapacityGiB == 0 {
+		return nil, fmt.Errorf("%w: StorageCapacity is required", ErrValidation)
+	}
+
+	if len(input.SubnetIDs) == 0 {
+		return nil, fmt.Errorf("%w: SubnetIds is required", ErrValidation)
 	}
 
 	if err := validateTags(input.Tags); err != nil {
@@ -55,13 +77,15 @@ func (b *InMemoryBackend) CreateFileCache(input *createFileCacheInput) (*FileCac
 	tags := tagsSliceToMap(input.Tags)
 
 	c := &storedFileCache{
-		CreationTime:       now,
-		Tags:               tags,
-		FileCacheID:        id,
-		FileCacheType:      input.FileCacheType,
-		Lifecycle:          lifecycleAvailable,
-		ResourceARN:        arn,
-		StorageCapacityGiB: input.StorageCapacityGiB,
+		CreationTime:         now,
+		Tags:                 tags,
+		FileCacheID:          id,
+		FileCacheType:        input.FileCacheType,
+		FileCacheTypeVersion: input.FileCacheTypeVersion,
+		Lifecycle:            lifecycleAvailable,
+		ResourceARN:          arn,
+		SubnetIDs:            input.SubnetIDs,
+		StorageCapacityGiB:   input.StorageCapacityGiB,
 	}
 
 	b.fileCaches.Put(c)

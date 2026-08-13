@@ -12,8 +12,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// validCustomColorsBody returns a body fragment satisfying CustomColors'
+// six required color fields (validateCustomColors, validators.go).
+func validCustomColorsBody() map[string]any {
+	return map[string]any{
+		"accentColor":          "#000000",
+		"backgroundColor":      "#ffffff",
+		"errorValidationColor": "#ff0000",
+		"headerColor":          "#111111",
+		"navigationColor":      "#222222",
+		"textColor":            "#333333",
+	}
+}
+
+// validCreatePortalBody returns a CreatePortal request body satisfying every
+// required member: Authorization, EndpointConfiguration, and PortalContent
+// (with its required Theme.CustomColors) -- see validateOpCreatePortalInput.
+func validCreatePortalBody() map[string]any {
+	return map[string]any{
+		"authorization":         map[string]any{"none": map[string]any{}},
+		"endpointConfiguration": map[string]any{"none": map[string]any{}},
+		"portalContent": map[string]any{
+			"displayName": "My Portal",
+			"theme":       map[string]any{"customColors": validCustomColorsBody()},
+		},
+	}
+}
+
 func TestHandler_CreatePortal(t *testing.T) {
 	t.Parallel()
+
+	withLogo := validCreatePortalBody()
+	withLogo["logoUri"] = "https://example.com/logo.png"
+
+	missingAuth := validCreatePortalBody()
+	delete(missingAuth, "authorization")
+
+	missingPortalContent := validCreatePortalBody()
+	delete(missingPortalContent, "portalContent")
+
+	missingCustomColors := validCreatePortalBody()
+	missingCustomColors["portalContent"] = map[string]any{
+		"displayName": "My Portal",
+		"theme":       map[string]any{},
+	}
 
 	tests := []struct {
 		body       any
@@ -23,15 +65,30 @@ func TestHandler_CreatePortal(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			body:       map[string]any{},
+			body:       validCreatePortalBody(),
 			wantStatus: http.StatusCreated,
 			wantPortal: true,
 		},
 		{
 			name:       "with_logo",
-			body:       map[string]any{"logoUri": "https://example.com/logo.png"},
+			body:       withLogo,
 			wantStatus: http.StatusCreated,
 			wantPortal: true,
+		},
+		{
+			name:       "missing_authorization",
+			body:       missingAuth,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_portal_content",
+			body:       missingPortalContent,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing_custom_colors",
+			body:       missingCustomColors,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "invalid_body",
@@ -68,6 +125,12 @@ func TestHandler_CreatePortal(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &portal))
 				assert.NotEmpty(t, portal.PortalID)
 				assert.Equal(t, "ACTIVE", portal.Status)
+				require.NotNil(t, portal.Authorization)
+				require.NotNil(t, portal.EndpointConfiguration)
+				assert.NotEmpty(t, portal.EndpointConfiguration.PortalDefaultDomainName)
+				assert.NotEmpty(t, portal.EndpointConfiguration.PortalDomainHostedZoneID)
+				require.NotNil(t, portal.PortalContent)
+				assert.Equal(t, "My Portal", portal.PortalContent.DisplayName)
 			}
 		})
 	}
@@ -194,6 +257,24 @@ func TestHandler_CreateProductPage(t *testing.T) {
 	}
 }
 
+// validRestEndpointIdentifierBody returns a CreateProductRestEndpointPage
+// request body satisfying its required RestEndpointIdentifier member --
+// IdentifierParts itself is optional, but its four fields are required
+// whenever it's present (validateOpCreateProductRestEndpointPageInput,
+// validators.go).
+func validRestEndpointIdentifierBody() map[string]any {
+	return map[string]any{
+		"restEndpointIdentifier": map[string]any{
+			"identifierParts": map[string]any{
+				"method":    "GET",
+				"path":      "/widgets",
+				"restApiId": "abc123",
+				"stage":     "prod",
+			},
+		},
+	}
+}
+
 func TestHandler_CreateProductRestEndpointPage(t *testing.T) {
 	t.Parallel()
 
@@ -206,15 +287,29 @@ func TestHandler_CreateProductRestEndpointPage(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			body:       map[string]any{},
+			body:       validRestEndpointIdentifierBody(),
 			wantStatus: http.StatusCreated,
 			wantPage:   true,
 		},
 		{
 			name:            "product_not_found",
 			portalProductID: "nonexistent",
-			body:            map[string]any{},
+			body:            validRestEndpointIdentifierBody(),
 			wantStatus:      http.StatusNotFound,
+		},
+		{
+			name:       "missing_rest_endpoint_identifier",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "incomplete_identifier_parts",
+			body: map[string]any{
+				"restEndpointIdentifier": map[string]any{
+					"identifierParts": map[string]any{"method": "GET"},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "invalid_body",
@@ -256,6 +351,10 @@ func TestHandler_CreateProductRestEndpointPage(t *testing.T) {
 				var page apigatewayv2.ProductRestEndpointPage
 				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page))
 				assert.NotEmpty(t, page.ProductRestEndpointPageID)
+				require.NotNil(t, page.RestEndpointIdentifier)
+				require.NotNil(t, page.RestEndpointIdentifier.IdentifierParts)
+				assert.Equal(t, "GET", page.RestEndpointIdentifier.IdentifierParts.Method)
+				assert.Equal(t, "/widgets", page.RestEndpointIdentifier.IdentifierParts.Path)
 			}
 		})
 	}
@@ -288,7 +387,7 @@ func TestHandler_ListPortals(t *testing.T) {
 			h := newTestHandler()
 
 			for range tt.portalCnt {
-				rr := doRequest(t, h, http.MethodPost, "/v2/portals", map[string]any{})
+				rr := doRequest(t, h, http.MethodPost, "/v2/portals", validCreatePortalBody())
 				require.Equal(t, http.StatusCreated, rr.Code)
 			}
 
@@ -329,7 +428,7 @@ func TestHandler_GetPortal(t *testing.T) {
 
 			h := newTestHandler()
 
-			rr := doRequest(t, h, http.MethodPost, "/v2/portals", map[string]any{})
+			rr := doRequest(t, h, http.MethodPost, "/v2/portals", validCreatePortalBody())
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var portal apigatewayv2.Portal
@@ -549,8 +648,16 @@ func TestHandler_ListProductRestEndpointPages(t *testing.T) {
 			}
 
 			for range tt.pageCnt {
-				rr := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/v2/portalproducts/%s/productrestendpointpages", ppID), map[string]any{})
+				rr := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					fmt.Sprintf(
+						"/v2/portalproducts/%s/productrestendpointpages",
+						ppID,
+					),
+					validRestEndpointIdentifierBody(),
+				)
 				require.Equal(t, http.StatusCreated, rr.Code)
 			}
 
@@ -571,7 +678,7 @@ func TestHandler_ListProductRestEndpointPages(t *testing.T) {
 
 func createPortal(t *testing.T, h *apigatewayv2.Handler) string {
 	t.Helper()
-	rr := doRequest(t, h, http.MethodPost, "/v2/portals", map[string]any{})
+	rr := doRequest(t, h, http.MethodPost, "/v2/portals", validCreatePortalBody())
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var p apigatewayv2.Portal
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p))
@@ -860,8 +967,16 @@ func TestHandler_GetProductRestEndpointPage(t *testing.T) {
 			name: "success",
 			setup: func(h *apigatewayv2.Handler) (string, string) {
 				ppID := createPortalProduct(t, h)
-				rr := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/v2/portalproducts/%s/productrestendpointpages", ppID), map[string]any{})
+				rr := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					fmt.Sprintf(
+						"/v2/portalproducts/%s/productrestendpointpages",
+						ppID,
+					),
+					validRestEndpointIdentifierBody(),
+				)
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var p apigatewayv2.ProductRestEndpointPage
 				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p))
@@ -906,8 +1021,16 @@ func TestHandler_DeleteProductRestEndpointPage(t *testing.T) {
 			name: "success",
 			setup: func(h *apigatewayv2.Handler) (string, string) {
 				ppID := createPortalProduct(t, h)
-				rr := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/v2/portalproducts/%s/productrestendpointpages", ppID), map[string]any{})
+				rr := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					fmt.Sprintf(
+						"/v2/portalproducts/%s/productrestendpointpages",
+						ppID,
+					),
+					validRestEndpointIdentifierBody(),
+				)
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var p apigatewayv2.ProductRestEndpointPage
 				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p))

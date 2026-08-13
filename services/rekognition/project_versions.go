@@ -143,15 +143,20 @@ func (b *InMemoryBackend) DescribeProjectVersions(
 	return result, outToken, nil
 }
 
-// CopyProjectVersion copies a project version to another project.
+// CopyProjectVersion copies a project version to another project. The source
+// version must belong to params.SourceProjectARN -- AWS reports a mismatch
+// the same way it reports any other missing source, ResourceNotFoundException
+// (verified against CopyProjectVersion's deserializeOpError switch, which
+// declares ResourceNotFoundException but no ValidationException).
 func (b *InMemoryBackend) CopyProjectVersion(
 	sourceProjectVersionARN, destinationProjectARN, versionName string,
+	params CopyProjectVersionParams,
 ) (*ProjectVersion, error) {
 	b.mu.Lock("CopyProjectVersion")
 	defer b.mu.Unlock()
 
 	src, exists := b.projectVersions.Get(sourceProjectVersionARN)
-	if !exists {
+	if !exists || src.ProjectARN != params.SourceProjectARN {
 		return nil, ErrProjectVersionNotFound
 	}
 
@@ -173,6 +178,8 @@ func (b *InMemoryBackend) CopyProjectVersion(
 		VersionName:             name,
 		Status:                  "COPYING_IN_PROGRESS",
 		SourceProjectVersionARN: sourceProjectVersionARN,
+		OutputConfigS3Bucket:    params.OutputConfigS3Bucket,
+		OutputConfigS3KeyPrefix: params.OutputConfigS3KeyPrefix,
 	}
 	b.projectVersions.Put(v)
 

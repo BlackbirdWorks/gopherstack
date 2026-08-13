@@ -42,9 +42,29 @@ func (h *Handler) handleAssociateSourceToS3TableIntegration(
 	return &associateSourceToS3TableIntegrationOutput{Identifier: id}, nil
 }
 
+// openSearchResourceConfigInput mirrors types.OpenSearchResourceConfig
+// (types.go:1977).
+type openSearchResourceConfigInput struct {
+	DataSourceRoleArn         *string  `json:"dataSourceRoleArn"`
+	ApplicationArn            *string  `json:"applicationArn,omitempty"`
+	KmsKeyArn                 *string  `json:"kmsKeyArn,omitempty"`
+	RetentionDays             *int32   `json:"retentionDays"`
+	DashboardViewerPrincipals []string `json:"dashboardViewerPrincipals"`
+}
+
+// resourceConfigInput mirrors the types.ResourceConfig union (types.go:2696),
+// whose only member is openSearchResourceConfig -- unions serialize as a
+// single-key object naming the active member under the JSON-RPC 1.1
+// protocol (verified against awsAwsjson11_serializeDocumentResourceConfig,
+// serializers.go).
+type resourceConfigInput struct {
+	OpenSearchResourceConfig *openSearchResourceConfigInput `json:"openSearchResourceConfig,omitempty"`
+}
+
 type putIntegrationInput struct {
-	IntegrationName string `json:"integrationName"`
-	IntegrationType string `json:"integrationType"`
+	ResourceConfig  *resourceConfigInput `json:"resourceConfig"`
+	IntegrationName string               `json:"integrationName"`
+	IntegrationType string               `json:"integrationType"`
 }
 
 func (h *Handler) handlePutIntegration(
@@ -56,10 +76,22 @@ func (h *Handler) handlePutIntegration(
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
+	// ResourceConfig is a required PutIntegrationInput member (verified
+	// against validateOpPutIntegrationInput, validators.go) that the
+	// pre-fix request never read at all.
+	if in.ResourceConfig == nil {
+		return nil, fmt.Errorf("%w: resourceConfig is required", ErrValidation)
+	}
+
+	osConfig, err := resourceConfigFromWire(in.ResourceConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	if b := cwlBackend(h); b != nil {
-		ig, err := b.PutIntegration(in.IntegrationName, in.IntegrationType)
-		if err != nil {
-			return nil, err
+		ig, putErr := b.PutIntegration(in.IntegrationName, in.IntegrationType, osConfig)
+		if putErr != nil {
+			return nil, putErr
 		}
 
 		return map[string]any{
@@ -72,6 +104,50 @@ func (h *Handler) handlePutIntegration(
 		keyIntegrationName:   in.IntegrationName,
 		keyIntegrationStatus: completenessStatusActive,
 	}, nil
+}
+
+// resourceConfigFromWire validates and converts a decoded resourceConfig
+// wire object into the domain OpenSearchResourceConfig. DataSourceRoleArn/
+// DashboardViewerPrincipals/RetentionDays are required whenever the
+// OpenSearch branch is present (validateOpenSearchResourceConfig, validators.go).
+func resourceConfigFromWire(in *resourceConfigInput) (*OpenSearchResourceConfig, error) {
+	osIn := in.OpenSearchResourceConfig
+	if osIn == nil {
+		return nil, fmt.Errorf("%w: resourceConfig.openSearchResourceConfig is required", ErrValidation)
+	}
+
+	if osIn.DataSourceRoleArn == nil || *osIn.DataSourceRoleArn == "" {
+		return nil, fmt.Errorf(
+			"%w: resourceConfig.openSearchResourceConfig.dataSourceRoleArn is required", ErrValidation,
+		)
+	}
+
+	if osIn.DashboardViewerPrincipals == nil {
+		return nil, fmt.Errorf(
+			"%w: resourceConfig.openSearchResourceConfig.dashboardViewerPrincipals is required", ErrValidation,
+		)
+	}
+
+	if osIn.RetentionDays == nil {
+		return nil, fmt.Errorf(
+			"%w: resourceConfig.openSearchResourceConfig.retentionDays is required", ErrValidation,
+		)
+	}
+
+	cfg := &OpenSearchResourceConfig{
+		DataSourceRoleArn:         *osIn.DataSourceRoleArn,
+		DashboardViewerPrincipals: osIn.DashboardViewerPrincipals,
+		RetentionDays:             osIn.RetentionDays,
+	}
+	if osIn.ApplicationArn != nil {
+		cfg.ApplicationArn = *osIn.ApplicationArn
+	}
+
+	if osIn.KmsKeyArn != nil {
+		cfg.KmsKeyArn = *osIn.KmsKeyArn
+	}
+
+	return cfg, nil
 }
 
 type getIntegrationInput struct {

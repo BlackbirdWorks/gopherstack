@@ -12,7 +12,7 @@ import (
 // CreateReplicationConfig creates a replication config.
 func (b *InMemoryBackend) CreateReplicationConfig(
 	ctx context.Context,
-	identifier, replicationType, sourceEndpointArn, targetEndpointArn string,
+	params CreateReplicationConfigParams,
 	kv map[string]string,
 ) (*ReplicationConfig, error) {
 	b.mu.Lock("CreateReplicationConfig")
@@ -20,25 +20,27 @@ func (b *InMemoryBackend) CreateReplicationConfig(
 
 	region := getRegion(ctx, b.region)
 
-	if b.replicationConfigs.Has(regionKey(region, identifier)) {
+	if b.replicationConfigs.Has(regionKey(region, params.Identifier)) {
 		return nil, fmt.Errorf(
 			"%w: replication config %s already exists",
 			ErrAlreadyExists,
-			identifier,
+			params.Identifier,
 		)
 	}
 
 	configARN := arn.Build("dms", region, b.accountID, "replication-config:"+uuid.NewString())
-	t := tags.New("dms.replication-config." + identifier + ".tags")
+	t := tags.New("dms.replication-config." + params.Identifier + ".tags")
 	if len(kv) > 0 {
 		t.Merge(kv)
 	}
 	rc := &ReplicationConfig{
-		ReplicationConfigIdentifier: identifier,
+		ReplicationConfigIdentifier: params.Identifier,
 		ReplicationConfigArn:        configARN,
-		ReplicationType:             replicationType,
-		SourceEndpointArn:           sourceEndpointArn,
-		TargetEndpointArn:           targetEndpointArn,
+		ReplicationType:             params.ReplicationType,
+		SourceEndpointArn:           params.SourceEndpointArn,
+		TargetEndpointArn:           params.TargetEndpointArn,
+		TableMappings:               params.TableMappings,
+		ComputeConfig:               params.ComputeConfig,
 		AccountID:                   b.accountID,
 		Region:                      region,
 		Status:                      statusCreated,
