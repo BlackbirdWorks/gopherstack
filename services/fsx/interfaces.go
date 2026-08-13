@@ -108,23 +108,24 @@ type StorageBackend interface {
 // FileSystem represents an Amazon FSx file system.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 type FileSystem struct {
-	CreationTime         epochTime             `json:"CreationTime"`
-	LustreConfiguration  *LustreConfiguration  `json:"LustreConfiguration,omitempty"`
-	WindowsConfiguration *WindowsConfiguration `json:"WindowsConfiguration,omitempty"`
-	OntapConfiguration   *OntapConfiguration   `json:"OntapConfiguration,omitempty"`
-	OpenZFSConfiguration *OpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
-	FileSystemID         string                `json:"FileSystemId"`
-	FileSystemType       string                `json:"FileSystemType"`
-	Lifecycle            string                `json:"Lifecycle"`
-	ResourceARN          string                `json:"ResourceARN"`
-	DNSName              string                `json:"DNSName,omitempty"`
-	StorageType          string                `json:"StorageType,omitempty"`
-	VpcID                string                `json:"VpcId,omitempty"`
-	OwnersID             string                `json:"OwnerId,omitempty"`
-	SubnetIDs            []string              `json:"SubnetIds,omitempty"`
-	NetworkInterfaceIDs  []string              `json:"NetworkInterfaceIds,omitempty"`
-	Tags                 []Tag                 `json:"Tags,omitempty"`
-	StorageCapacityGiB   int32                 `json:"StorageCapacity,omitempty"`
+	CreationTime          epochTime             `json:"CreationTime"`
+	LustreConfiguration   *LustreConfiguration  `json:"LustreConfiguration,omitempty"`
+	WindowsConfiguration  *WindowsConfiguration `json:"WindowsConfiguration,omitempty"`
+	OntapConfiguration    *OntapConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration  *OpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	FileSystemID          string                `json:"FileSystemId"`
+	FileSystemType        string                `json:"FileSystemType"`
+	FileSystemTypeVersion string                `json:"FileSystemTypeVersion,omitempty"`
+	Lifecycle             string                `json:"Lifecycle"`
+	ResourceARN           string                `json:"ResourceARN"`
+	DNSName               string                `json:"DNSName,omitempty"`
+	StorageType           string                `json:"StorageType,omitempty"`
+	VpcID                 string                `json:"VpcId,omitempty"`
+	OwnersID              string                `json:"OwnerId,omitempty"`
+	SubnetIDs             []string              `json:"SubnetIds,omitempty"`
+	NetworkInterfaceIDs   []string              `json:"NetworkInterfaceIds,omitempty"`
+	Tags                  []Tag                 `json:"Tags,omitempty"`
+	StorageCapacityGiB    int32                 `json:"StorageCapacity,omitempty"`
 }
 
 // WindowsConfiguration describes the Windows-specific configuration of an

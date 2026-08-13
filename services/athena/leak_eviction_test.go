@@ -79,7 +79,8 @@ func TestJanitor_EvictsStaleSessions(t *testing.T) {
 			b := athena.NewInMemoryBackend("", "")
 
 			id, _, err := b.StartSession("primary", "desc", "",
-				athena.EngineConfiguration{}, athena.SessionConfiguration{}, "")
+				athena.EngineConfiguration{}, athena.SessionConfiguration{},
+				athena.MonitoringConfiguration{}, "")
 			require.NoError(t, err)
 			require.Equal(t, 1, b.SessionCount())
 
@@ -122,7 +123,8 @@ func TestJanitor_EvictsStaleCalculations(t *testing.T) {
 			b := athena.NewInMemoryBackend("", "")
 
 			sid, _, err := b.StartSession("primary", "desc", "",
-				athena.EngineConfiguration{}, athena.SessionConfiguration{}, "")
+				athena.EngineConfiguration{}, athena.SessionConfiguration{},
+				athena.MonitoringConfiguration{}, "")
 			require.NoError(t, err)
 
 			cid, _, err := b.StartCalculationExecution(sid, "calc", "print(1)")

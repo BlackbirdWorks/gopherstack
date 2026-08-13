@@ -61,7 +61,8 @@ const (
 
 // StartSession creates a new session in the specified workgroup.
 func (b *InMemoryBackend) StartSession(workGroup, description, notebookVersion string,
-	engineCfg EngineConfiguration, sessionCfg SessionConfiguration, notebookID string,
+	engineCfg EngineConfiguration, sessionCfg SessionConfiguration,
+	monitoringCfg MonitoringConfiguration, notebookID string,
 ) (string, string, error) {
 	if workGroup == "" {
 		return "", "", fmt.Errorf("%w: WorkGroup is required", ErrValidation)
@@ -85,13 +86,14 @@ func (b *InMemoryBackend) StartSession(workGroup, description, notebookVersion s
 	id := randomID()
 	now := nowSeconds()
 	b.sessions.Put(&Session{
-		SessionID:            id,
-		Description:          description,
-		WorkGroup:            workGroup,
-		NotebookVersion:      notebookVersion,
-		NotebookID:           notebookID,
-		EngineConfiguration:  engineCfg,
-		SessionConfiguration: sessionCfg,
+		SessionID:               id,
+		Description:             description,
+		WorkGroup:               workGroup,
+		NotebookVersion:         notebookVersion,
+		NotebookID:              notebookID,
+		EngineConfiguration:     engineCfg,
+		SessionConfiguration:    sessionCfg,
+		MonitoringConfiguration: monitoringCfg,
 		Status: SessionStatus{
 			State:                sessionStateIdle,
 			StartDateTime:        now,

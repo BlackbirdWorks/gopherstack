@@ -948,19 +948,6 @@ func TestIntegration_Outposts_ConnectionLifecycle(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(startOut.UnderlayIpAddress))
 
 	t.Run("get", func(t *testing.T) {
-		// gopherstack-vpoh: services/iotdataplane's RouteMatcher claims every
-		// GET /connections/{id} by path+method alone (MatchPriority 88, no
-		// SigV4 gate), outranking outposts' 85 -- pkgs/service/router.go
-		// dispatches to the first (highest-priority) match, so a real,
-		// correctly-signed Outposts GetConnection request is currently
-		// routed to iotdataplane's handler instead of ever reaching
-		// outposts. Fixing this from services/outposts/ alone is impossible
-		// (outposts' RouteMatcher is never even evaluated); the fix belongs
-		// in iotdataplane's own RouteMatcher (out of this session's scope).
-		t.Skip(
-			"gopherstack-vpoh: GET /connections/{id} shadowed by iotdataplane's higher-priority RouteMatcher",
-		)
-
 		getOut, err := client.GetConnection(
 			ctx,
 			&outpostssdk.GetConnectionInput{ConnectionId: aws.String(connectionID)},

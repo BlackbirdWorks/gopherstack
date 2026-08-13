@@ -385,6 +385,192 @@ func TestHandler_ListAssociations_ResolvesEntityNames(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ListAssociations — filter/sort/pagination request members
+// ---------------------------------------------------------------------------
+
+// setupListAssociationsFixture creates two associations sharing one
+// destination but differing in source entity type and AssociationType, so
+// SourceType/DestinationType/AssociationType filters each have a true and a
+// false case within the same result set.
+func setupListAssociationsFixture(t *testing.T, h *sagemaker.Handler) (string, string) {
+	t.Helper()
+
+	ctxArn := createTestContext(t, h, "src-context")
+	actionArn := createTestAction(t, h, "src-action")
+	artifactArn := createTestArtifact(t, h, "dst-artifact")
+
+	doSageMakerRequest(t, h, "AddAssociation", map[string]any{
+		"SourceArn":       ctxArn,
+		"DestinationArn":  artifactArn,
+		"AssociationType": "ContributedTo",
+	})
+	doSageMakerRequest(t, h, "AddAssociation", map[string]any{
+		"SourceArn":       actionArn,
+		"DestinationArn":  artifactArn,
+		"AssociationType": "Produced",
+	})
+
+	return ctxArn, actionArn
+}
+
+func listAssociationSourceArns(t *testing.T, body []byte) []string {
+	t.Helper()
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(body, &out))
+
+	summaries, _ := out["AssociationSummaries"].([]any)
+	arns := make([]string, 0, len(summaries))
+
+	for _, s := range summaries {
+		arns = append(arns, s.(map[string]any)["SourceArn"].(string))
+	}
+
+	return arns
+}
+
+func TestHandler_ListAssociations_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctxArn, actionArn := setupListAssociationsFixture(t, h)
+
+	tests := []struct {
+		name    string
+		request map[string]any
+		want    []string
+	}{
+		{
+			name:    "association type narrows to one",
+			request: map[string]any{"AssociationType": "Produced"},
+			want:    []string{actionArn},
+		},
+		{
+			name:    "source type narrows to context source",
+			request: map[string]any{"SourceType": "Experiment"},
+			want:    []string{ctxArn},
+		},
+		{
+			name:    "source type narrows to action source",
+			request: map[string]any{"SourceType": "ModelDeployment"},
+			want:    []string{actionArn},
+		},
+		{
+			name:    "destination type matches both",
+			request: map[string]any{"DestinationType": "DataSet"},
+			want:    []string{ctxArn, actionArn},
+		},
+		{
+			name:    "destination type excludes all on mismatch",
+			request: map[string]any{"DestinationType": "Endpoint"},
+			want:    []string{},
+		},
+		{
+			name:    "created after far future excludes all",
+			request: map[string]any{"CreatedAfter": 32503680000.0}, // 3000-01-01
+			want:    []string{},
+		},
+		{
+			name:    "created before far past excludes all",
+			request: map[string]any{"CreatedBefore": 0.0}, // 1970-01-01
+			want:    []string{},
+		},
+		{
+			name:    "created window spanning now matches both",
+			request: map[string]any{"CreatedAfter": 0.0, "CreatedBefore": 32503680000.0},
+			want:    []string{ctxArn, actionArn},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSageMakerRequest(t, h, "ListAssociations", tt.request)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			got := listAssociationSourceArns(t, rec.Body.Bytes())
+			assert.ElementsMatch(t, tt.want, got)
+		})
+	}
+}
+
+func TestHandler_ListAssociations_Sort(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctxArn, actionArn := setupListAssociationsFixture(t, h)
+
+	wantAscending := []string{ctxArn, actionArn}
+	if actionArn < ctxArn {
+		wantAscending = []string{actionArn, ctxArn}
+	}
+
+	wantDescending := []string{wantAscending[1], wantAscending[0]}
+
+	tests := []struct {
+		name    string
+		request map[string]any
+		want    []string
+	}{
+		{
+			name:    "sort by source arn ascending",
+			request: map[string]any{"SortBy": "SourceArn", "SortOrder": "Ascending"},
+			want:    wantAscending,
+		},
+		{
+			name:    "sort by source arn descending",
+			request: map[string]any{"SortBy": "SourceArn", "SortOrder": "Descending"},
+			want:    wantDescending,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSageMakerRequest(t, h, "ListAssociations", tt.request)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			got := listAssociationSourceArns(t, rec.Body.Bytes())
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestHandler_ListAssociations_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupListAssociationsFixture(t, h)
+
+	rec := doSageMakerRequest(t, h, "ListAssociations", map[string]any{"MaxResults": 1})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	summaries, _ := out["AssociationSummaries"].([]any)
+	require.Len(t, summaries, 1, "MaxResults=1 should return exactly one association out of two")
+
+	nextToken, _ := out["NextToken"].(string)
+	require.NotEmpty(t, nextToken, "a truncated page must carry a NextToken")
+
+	rec2 := doSageMakerRequest(t, h, "ListAssociations", map[string]any{
+		"MaxResults": 1,
+		"NextToken":  nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	summaries2, _ := out2["AssociationSummaries"].([]any)
+	require.Len(t, summaries2, 1, "second page should return the remaining association")
+
+	assert.NotEqual(t, summaries[0], summaries2[0], "the two pages should not repeat the same association")
+}
+
+// ---------------------------------------------------------------------------
 // QueryLineage — graph traversal
 // ---------------------------------------------------------------------------
 

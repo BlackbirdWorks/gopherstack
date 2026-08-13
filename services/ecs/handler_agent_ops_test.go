@@ -171,8 +171,8 @@ func TestECS_DiscoverPollEndpoint(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doECSRequest(t, h, "DiscoverPollEndpoint", map[string]any{
-		"clusterArn":           "default",
-		"containerInstanceArn": "arn:aws:ecs:us-east-1:000000000000:container-instance/default/abc",
+		"cluster":           "default",
+		"containerInstance": "arn:aws:ecs:us-east-1:000000000000:container-instance/default/abc",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -374,8 +374,8 @@ func TestHandler_DiscoverPollEndpoint(t *testing.T) {
 		{
 			name: "with cluster and container instance arg",
 			input: map[string]any{
-				"clusterArn":           "arn:aws:ecs:us-east-1:000000000000:cluster/test",
-				"containerInstanceArn": "arn:aws:ecs:us-east-1:000000000000:container-instance/abc",
+				"cluster":           "arn:aws:ecs:us-east-1:000000000000:cluster/test",
+				"containerInstance": "arn:aws:ecs:us-east-1:000000000000:container-instance/abc",
 			},
 			wantStatus:      http.StatusOK,
 			wantEndpointPfx: "https://ecs-a-1.us-east-1.amazonaws.com/",

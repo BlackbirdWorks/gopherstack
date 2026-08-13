@@ -273,6 +273,32 @@ type SessionConfiguration struct {
 	IdleTimeoutSeconds      int64                   `json:"IdleTimeoutSeconds,omitempty"`
 }
 
+// CloudWatchLoggingConfiguration controls delivery of session logs to CloudWatch.
+type CloudWatchLoggingConfiguration struct {
+	LogGroup string `json:"LogGroup,omitempty"`
+	Enabled  bool   `json:"Enabled,omitempty"`
+}
+
+// ManagedLoggingConfiguration controls Athena-managed log persistence for a session.
+type ManagedLoggingConfiguration struct {
+	KmsKey  string `json:"KmsKey,omitempty"`
+	Enabled bool   `json:"Enabled,omitempty"`
+}
+
+// S3LoggingConfiguration controls delivery of session logs to Amazon S3.
+type S3LoggingConfiguration struct {
+	KmsKey      string `json:"KmsKey,omitempty"`
+	LogLocation string `json:"LogLocation,omitempty"`
+	Enabled     bool   `json:"Enabled,omitempty"`
+}
+
+// MonitoringConfiguration is the log-delivery configuration for a session.
+type MonitoringConfiguration struct {
+	CloudWatchLoggingConfiguration CloudWatchLoggingConfiguration `json:"CloudWatchLoggingConfiguration,omitzero"`
+	ManagedLoggingConfiguration    ManagedLoggingConfiguration    `json:"ManagedLoggingConfiguration,omitzero"`
+	S3LoggingConfiguration         S3LoggingConfiguration         `json:"S3LoggingConfiguration,omitzero"`
+}
+
 // SessionStatus tracks the lifecycle of a session.
 type SessionStatus struct {
 	StateChangeReason    string  `json:"StateChangeReason,omitempty"`
@@ -290,15 +316,16 @@ type SessionStatistics struct {
 
 // Session represents an interactive notebook session.
 type Session struct {
-	EngineConfiguration  EngineConfiguration  `json:"EngineConfiguration,omitzero"`
-	SessionConfiguration SessionConfiguration `json:"SessionConfiguration,omitzero"`
-	SessionID            string               `json:"SessionId"`
-	Description          string               `json:"Description,omitempty"`
-	WorkGroup            string               `json:"WorkGroup"`
-	NotebookVersion      string               `json:"NotebookVersion,omitempty"`
-	NotebookID           string               `json:"NotebookId,omitempty"`
-	Status               SessionStatus        `json:"Status"`
-	Statistics           SessionStatistics    `json:"Statistics,omitzero"`
+	EngineConfiguration     EngineConfiguration     `json:"EngineConfiguration,omitzero"`
+	SessionConfiguration    SessionConfiguration    `json:"SessionConfiguration,omitzero"`
+	MonitoringConfiguration MonitoringConfiguration `json:"MonitoringConfiguration,omitzero"`
+	SessionID               string                  `json:"SessionId"`
+	Description             string                  `json:"Description,omitempty"`
+	WorkGroup               string                  `json:"WorkGroup"`
+	NotebookVersion         string                  `json:"NotebookVersion,omitempty"`
+	NotebookID              string                  `json:"NotebookId,omitempty"`
+	Status                  SessionStatus           `json:"Status"`
+	Statistics              SessionStatistics       `json:"Statistics,omitzero"`
 }
 
 // SessionSummary is the list view of a session.

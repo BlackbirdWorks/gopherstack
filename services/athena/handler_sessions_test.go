@@ -114,6 +114,63 @@ func TestHandler_GetSession(t *testing.T) {
 	}
 }
 
+func TestHandler_StartSession_MonitoringConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		block     string
+		wantKey   string
+		wantField string
+		wantValue string
+	}{
+		{
+			name:      "cloudwatch logging configuration round trips",
+			block:     `"CloudWatchLoggingConfiguration": {"Enabled": true, "LogGroup": "/athena/sessions"}`,
+			wantKey:   "CloudWatchLoggingConfiguration",
+			wantField: "LogGroup",
+			wantValue: "/athena/sessions",
+		},
+		{
+			name:      "s3 logging configuration round trips",
+			block:     `"S3LoggingConfiguration": {"Enabled": true, "LogLocation": "s3://bucket/logs/"}`,
+			wantKey:   "S3LoggingConfiguration",
+			wantField: "LogLocation",
+			wantValue: "s3://bucket/logs/",
+		},
+		{
+			name:      "managed logging configuration round trips",
+			block:     `"ManagedLoggingConfiguration": {"Enabled": true, "KmsKey": "arn:aws:kms:us-east-1:0:key/k"}`,
+			wantKey:   "ManagedLoggingConfiguration",
+			wantField: "KmsKey",
+			wantValue: "arn:aws:kms:us-east-1:0:key/k",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := `{"WorkGroup":"primary","MonitoringConfiguration":{` + tt.block + `}}`
+			rec := doRequest(t, h, "StartSession", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			id := jsonField(t, rec.Body.Bytes(), "SessionId")
+
+			getRec := doRequest(t, h, "GetSession", `{"SessionId":"`+id+`"}`)
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			monitoringCfg := jsonNested(t, getRec.Body.Bytes(), "MonitoringConfiguration")
+			block, ok := monitoringCfg[tt.wantKey].(map[string]any)
+			require.True(t, ok, "%s should round-trip", tt.wantKey)
+			assert.Equal(t, true, block["Enabled"])
+			assert.Equal(t, tt.wantValue, block[tt.wantField])
+		})
+	}
+}
+
 func TestHandler_GetSessionStatus(t *testing.T) {
 	t.Parallel()
 

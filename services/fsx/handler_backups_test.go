@@ -2,6 +2,7 @@ package fsx_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -99,6 +100,49 @@ func TestFSx_Backup(t *testing.T) {
 		rec := doFSxRequest(t, h, "CreateFileSystemFromBackup", map[string]any{"BackupId": "backup-notexist"})
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
+}
+
+func TestFSx_CreateFileSystemFromBackup_FileSystemTypeVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		request map[string]any
+		want    string
+	}{
+		{
+			name:    "explicit version overrides the backup default",
+			request: map[string]any{"FileSystemTypeVersion": "2.15"},
+			want:    "2.15",
+		},
+		{
+			name:    "omitted version leaves the field empty",
+			request: map[string]any{},
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			bkID := createFSandBackup(t, h, "LUSTRE")
+
+			body := map[string]any{"BackupId": bkID}
+			maps.Copy(body, tt.request)
+
+			rec := doFSxRequest(t, h, "CreateFileSystemFromBackup", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			fs := resp["FileSystem"].(map[string]any)
+
+			got, _ := fs["FileSystemTypeVersion"].(string)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestFSx_CopyBackup(t *testing.T) {
