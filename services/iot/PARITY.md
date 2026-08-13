@@ -727,15 +727,46 @@ unreachable route, only driving the real `aws-sdk-go-v2` client proves the
 fix (a raw-body assertion would pass against the old fictional route without
 ever exercising the real one); see `TestSDKRoundTrip_ListCommandExecutions`.
 
-**Not fixed, flagged for follow-up**: `GetCommandExecution`'s real route
-(`GET /command-executions/{executionId}`, no `commandId`) already matches
-`matchIoTPath` (via the same prefix rule this pass extended), but
-`resolveFinalOpsGroupB` only resolves that path prefix for `DELETE`
-(`DeleteCommandExecution`) -- `GET` falls through to `unknownOperation`, so
-a real client's `GetCommandExecution` also currently fails, the same failure
-mode as the `ListCommandExecutions` bug this pass fixed. Out of scope here
-(a different op, not one of the two bugs this pass was scoped to); the fix
-shape is the same (add a `GET` case for that path prefix, decide whether the
-existing `GetCommandExecutionInput.TargetArn`-required semantics need
-backend changes since executions are presently addressed by
-`commandID+executionID`, not `executionID+targetARN`).
+**Fixed (gopherstack-8ez0)**: `GetCommandExecution`'s real route (`GET
+/command-executions/{executionId}?targetArn=...`, no `commandId`) already
+matched `matchIoTPath` (via the same prefix rule the `ListCommandExecutions`
+fix above extended), but `resolveFinalOpsGroupB` only resolved that path
+prefix for `DELETE` (`DeleteCommandExecution`) -- `GET` fell through to
+`unknownOperation`, so a real client's `GetCommandExecution` 400'd with
+"unknown operation" before ever reaching the handler, the same failure mode
+as the `ListCommandExecutions` bug above. Fixed: `resolveFinalOpsGroupB` now
+also resolves `GET` for that prefix. The existing `GetCommandExecutionInput`
+requires `TargetArn`, but executions were only ever stored/addressed by
+`commandID+executionID` internally, so a new `Backend.GetCommandExecutionByID
+(executionID, targetARN string)` was added that scans by `ExecutionID` alone
+(optionally scoped by `targetARN`), mirroring `DeleteCommandExecution`'s
+existing lookup-by-executionID pattern -- `handleGetCommandExecution` now
+branches on the real top-level path vs. the pre-existing fictional nested
+`/commands/{commandId}/executions/{executionId}` route the same way
+`handleListCommandExecutions` already does. Reading the full real
+`GetCommandExecutionOutput` shape while fixing this also surfaced that both
+routes had been serializing the raw `IoTCommandExecution` struct directly,
+whose own JSON tag is `"thingArn"` -- not a member `GetCommandExecutionOutput`
+declares at all; the real key is `"targetArn"`. Both routes now render
+through `commandExecutionSummaryFields` (the same scoped map
+`ListCommandExecutions` already used), which happens to cover every field
+`GetCommandExecutionOutput` and this backend can honestly source in common:
+`CommandArn`, `CreatedAt`, `ExecutionId`, `Status`, `TargetArn`.
+`ExecutionTimeoutSeconds`, `LastUpdatedAt`, `Parameters`, `Result`,
+`StatusReason`, `CompletedAt` and `StartedAt` all stay absent for the same
+reason those last two already did: no `StartCommandExecution`/
+`UpdateCommandExecution` control-plane op exists to source them from.
+Because this is a wrong key **plus** a previously-unreachable route, only
+driving the real `aws-sdk-go-v2` client proves the fix
+(`TestSDKRoundTrip_GetCommandExecution`); reverting the new `resolveFinalOpsGroupB`
+case by hand reproduces the original 400 ("unknown operation") against the
+`found_by_execution_id_and_target_arn` case.
+
+Swept the rest of the command/command-execution family against the pinned
+SDK's own `serializers.go` HTTP bindings while here: `CreateCommand`
+(`PUT /commands/{commandId}`), `GetCommand`/`UpdateCommand`/`DeleteCommand`
+(`GET`/`PATCH`/`DELETE /commands/{commandId}`), `ListCommands`
+(`GET /commands`) and `DeleteCommandExecution`
+(`DELETE /command-executions/{executionId}`) all already matched their real
+routes correctly -- `GetCommandExecution` was the only unreachable op left in
+the family.

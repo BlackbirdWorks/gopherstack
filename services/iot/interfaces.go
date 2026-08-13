@@ -340,6 +340,7 @@ type StorageBackend interface {
 	DeleteCommand(id string) error
 	ListCommands() []*IoTCommand
 	GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error)
+	GetCommandExecutionByID(executionID, targetARN string) (*IoTCommandExecution, error)
 	ListCommandExecutions(commandID string) []*IoTCommandExecution
 	ListCommandExecutionsByFilter(commandARN, targetARN, status string) []*IoTCommandExecution
 

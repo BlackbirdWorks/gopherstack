@@ -174,6 +174,29 @@ func (b *InMemoryBackend) ListCommandExecutions(commandID string) []*IoTCommandE
 	return out
 }
 
+// GetCommandExecutionByID looks up a command execution by executionId alone
+// (optionally scoped by targetARN), matching the real GetCommandExecution
+// request shape where executions are addressed by executionId+targetArn,
+// not commandId+executionId (mirrors DeleteCommandExecution below).
+func (b *InMemoryBackend) GetCommandExecutionByID(executionID, targetARN string) (*IoTCommandExecution, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for _, ex := range b.commandExecutions {
+		if ex.ExecutionID != executionID {
+			continue
+		}
+		if targetARN != "" && ex.ThingARN != targetARN {
+			continue
+		}
+		cp := *ex
+
+		return &cp, nil
+	}
+
+	return nil, fmt.Errorf("command execution %q not found: %w", executionID, ErrResourceNotFound)
+}
+
 // ListCommandExecutionsByFilter returns command executions matching the
 // real ListCommandExecutions filters (commandARN and/or targetARN and/or
 // status; each optional, empty means unfiltered). Backs the real

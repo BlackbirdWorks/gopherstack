@@ -894,6 +894,8 @@ func resolveFinalOpsGroupB(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, pathCommandExecutions+"/") && method == http.MethodDelete:
 		return opDeleteCommandExecution
+	case strings.HasPrefix(path, pathCommandExecutions+"/") && method == http.MethodGet:
+		return opGetCommandExecution
 	case path == pathBehaviorModelTrainingSummaries && method == http.MethodGet:
 		return opGetBehaviorModelTrainingSummaries
 	case path == pathCertificatesOutgoing && method == http.MethodGet:

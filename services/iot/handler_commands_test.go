@@ -156,3 +156,61 @@ func TestSDKRoundTrip_ListCommandExecutions(t *testing.T) {
 	assert.Nil(t, exec.CompletedAt)
 	assert.Nil(t, exec.StartedAt)
 }
+
+// TestSDKRoundTrip_GetCommandExecution drives the real aws-sdk-go-v2 IoT
+// client through GET /command-executions/{executionId} (iot@v1.77.4
+// api_op_GetCommandExecution.go), GetCommandExecution's real route. The
+// path already matched matchIoTPath (via the same pathCommandExecutions
+// prefix rule ListCommandExecutions' fix relies on), but
+// resolveFinalOpsGroupB only had a DELETE case for that prefix -- GET fell
+// through to unknownOperation, so a real client's GetCommandExecution 400'd
+// on "unknown operation" before ever reaching the handler. A raw-body
+// assertion against the handler cannot show this: it bypasses resolveOperation
+// and the RouteMatcher entirely, so it would pass against unfixed code too.
+func TestSDKRoundTrip_GetCommandExecution(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		executionID string
+		wantErr     bool
+	}{
+		{name: "found_by_execution_id_and_target_arn", executionID: "exec-1"},
+		{name: "unknown_execution_id_errors", executionID: "no-such-exec", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := iot.NewInMemoryBackend()
+			h := iot.NewHandler(backend, nil)
+			client := newTestIoTClient(t, h)
+
+			backend.AddCommandExecutionInternal("cmd-1", "exec-1", iot.IoTCommandExecution{
+				CommandARN: "arn:aws:iot:us-east-1:123456789012:command/cmd-1",
+				ThingARN:   "arn:aws:iot:us-east-1:123456789012:thing/my-thing",
+				Status:     "SUCCEEDED",
+			})
+
+			out, err := client.GetCommandExecution(t.Context(), &iotsdk.GetCommandExecutionInput{
+				ExecutionId: aws.String(tt.executionID),
+				TargetArn:   aws.String("arn:aws:iot:us-east-1:123456789012:thing/my-thing"),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, "exec-1", aws.ToString(out.ExecutionId))
+			assert.Equal(t, "arn:aws:iot:us-east-1:123456789012:command/cmd-1", aws.ToString(out.CommandArn))
+			assert.Equal(t, "arn:aws:iot:us-east-1:123456789012:thing/my-thing", aws.ToString(out.TargetArn))
+			assert.Equal(t, "SUCCEEDED", string(out.Status))
+			assert.Nil(t, out.CompletedAt)
+			assert.Nil(t, out.StartedAt)
+		})
+	}
+}
