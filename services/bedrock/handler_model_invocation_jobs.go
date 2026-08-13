@@ -54,8 +54,13 @@ func extractModelInvocationJobOperation(path, method string) (string, bool) {
 }
 
 type createModelInvocationJobInput struct {
-	JobName string `json:"jobName"`
-	Tags    []Tag  `json:"tags,omitempty"`
+	JobName          string         `json:"jobName"`
+	ModelID          string         `json:"modelId"`
+	RoleArn          string         `json:"roleArn"`
+	InputDataConfig  map[string]any `json:"inputDataConfig,omitempty"`
+	OutputDataConfig map[string]any `json:"outputDataConfig,omitempty"`
+	ClientToken      string         `json:"clientRequestToken,omitempty"`
+	Tags             []Tag          `json:"tags,omitempty"`
 }
 
 func (h *Handler) handleCreateModelInvocationJob(c *echo.Context) error {
@@ -69,12 +74,47 @@ func (h *Handler) handleCreateModelInvocationJob(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	job, opErr := h.Backend.CreateModelInvocationJob(in.JobName, in.Tags)
+	job, opErr := h.Backend.CreateModelInvocationJob(in.JobName, in.Tags, &CreateModelInvocationJobInput{
+		RoleArn:          in.RoleArn,
+		ModelID:          in.ModelID,
+		InputDataConfig:  in.InputDataConfig,
+		OutputDataConfig: in.OutputDataConfig,
+		ClientToken:      in.ClientToken,
+	})
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
 
 	return c.JSON(http.StatusCreated, map[string]any{keyJobArn: job.JobArn})
+}
+
+// modelInvocationJobToSummary mirrors types.ModelInvocationJobSummary, which
+// GetModelInvocationJobOutput shares field-for-field (bedrock@v1.66.4
+// types/types.go:5592-5722 vs api_op_GetModelInvocationJob.go): jobArn,
+// jobName, modelId, roleArn, inputDataConfig, outputDataConfig, submitTime,
+// status, lastModifiedTime, endTime. Neither shape carries tags -- job.Tags
+// is Create-only, surfaced through ListTagsForResource, and must not leak
+// here. submitTime has no dedicated domain field; job.CreationTime already
+// records submission time and is reused, since the real shape has no
+// separate creationTime key at all.
+func modelInvocationJobToSummary(j *ModelInvocationJob) map[string]any {
+	out := map[string]any{
+		keyJobArn:           j.JobArn,
+		keyJobName:          j.JobName,
+		keyModelID:          j.ModelID,
+		"roleArn":           j.RoleArn,
+		"inputDataConfig":   j.InputDataConfig,
+		"outputDataConfig":  j.OutputDataConfig,
+		keyStatus:           j.Status,
+		"submitTime":        j.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
+	}
+
+	if j.EndTime != nil {
+		out["endTime"] = j.EndTime.Format(time.RFC3339)
+	}
+
+	return out
 }
 
 func (h *Handler) handleGetModelInvocationJob(c *echo.Context, jobARN string) error {
@@ -83,13 +123,7 @@ func (h *Handler) handleGetModelInvocationJob(c *echo.Context, jobARN string) er
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyJobArn:           job.JobArn,
-		keyJobName:          job.JobName,
-		keyStatus:           job.Status,
-		keyCreationTime:     job.CreationTime.Format(time.RFC3339),
-		keyLastModifiedTime: job.LastModifiedTime.Format(time.RFC3339),
-	})
+	return c.JSON(http.StatusOK, modelInvocationJobToSummary(job))
 }
 
 // parseListModelInvocationJobsQuery builds the backend filter/sort/pagination input from
@@ -128,13 +162,7 @@ func (h *Handler) handleListModelInvocationJobs(c *echo.Context) error {
 	summaries := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
-		summaries = append(summaries, map[string]any{
-			keyJobArn:           j.JobArn,
-			keyJobName:          j.JobName,
-			keyStatus:           j.Status,
-			keyCreationTime:     j.CreationTime.Format(time.RFC3339),
-			keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
-		})
+		summaries = append(summaries, modelInvocationJobToSummary(j))
 	}
 
 	resp := map[string]any{"invocationJobSummaries": summaries}

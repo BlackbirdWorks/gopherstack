@@ -9,11 +9,13 @@ import (
 // --- InputDevice handlers ---
 
 // inputDeviceOutput mirrors DescribeInputDeviceOutput/UpdateInputDeviceOutput
-// (see channelOutput's doc comment for why case matters). "maintenanceWindowActive"
-// is NOT a real top-level field on this shape (verified against the SDK
-// deserializer) -- left in place (harmless extra key an SDK client
-// ignores) since only casing, not shape, is in scope for InputDevice this
-// pass.
+// (see channelOutput's doc comment for why case matters). gopherstack-7ux2:
+// "maintenanceWindowActive" was emitted here but is not a member of either
+// types.InputDeviceSummary or DescribeInputDeviceOutput (medialive@v1.101.4
+// types/types.go:4498-4556, api_op_DescribeInputDevice.go) -- confirmed
+// against both deserializer field switches, which list no such key. Removed;
+// it had no reader anywhere in this package either, so nothing downstream
+// depended on it.
 type inputDeviceOutput struct {
 	Tags                    map[string]string `json:"tags"`
 	Arn                     string            `json:"arn"`
@@ -25,7 +27,6 @@ type inputDeviceOutput struct {
 	ConnectionState         string            `json:"connectionState"`
 	DeviceSettingsSyncState string            `json:"deviceSettingsSyncState"`
 	DeviceUpdateStatus      string            `json:"deviceUpdateStatus"`
-	MaintenanceWindowActive bool              `json:"maintenanceWindowActive"`
 }
 
 func toInputDeviceOutput(d *InputDevice) inputDeviceOutput {
@@ -45,7 +46,6 @@ func toInputDeviceOutput(d *InputDevice) inputDeviceOutput {
 		ConnectionState:         d.ConnectionState,
 		DeviceSettingsSyncState: d.DeviceSettingsSyncState,
 		DeviceUpdateStatus:      d.DeviceUpdateStatus,
-		MaintenanceWindowActive: d.MaintenanceWindowActive,
 	}
 }
 

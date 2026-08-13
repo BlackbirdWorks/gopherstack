@@ -33,7 +33,7 @@ func (h *Handler) routeStubFoundationModelOps(c *echo.Context, path, method stri
 // client that inspects them.
 func (h *Handler) handleGetFoundationModelAvailability(c *echo.Context, modelID string) error {
 	return c.JSON(http.StatusOK, map[string]any{
-		"modelId":                 modelID,
+		keyModelID:                modelID,
 		"agreementAvailability":   map[string]string{keyStatus: statusAvailable},
 		"authorizationStatus":     "AUTHORIZED",
 		"entitlementAvailability": statusAvailable,
@@ -87,7 +87,7 @@ func (h *Handler) handleListFoundationModelAgreementOffers(c *echo.Context, mode
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"modelId": modelID, "offers": wire})
+	return c.JSON(http.StatusOK, map[string]any{keyModelID: modelID, "offers": wire})
 }
 
 type deleteFoundationModelAgreementInput struct {

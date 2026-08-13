@@ -2629,7 +2629,6 @@ type InputDevice struct {
 	ConnectionState         string
 	DeviceSettingsSyncState string
 	DeviceUpdateStatus      string
-	MaintenanceWindowActive bool
 }
 
 // InputDeviceTransfer represents a pending input device transfer.

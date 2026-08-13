@@ -76,6 +76,7 @@ const (
 	keyName                     = "name"
 	keyUpdatedAt                = "updatedAt"
 	keyModelArn                 = "modelArn"
+	keyModelID                  = "modelId"
 	keyPromptRouterArn          = "promptRouterArn"
 	keyCustomModelDeploymentArn = "customModelDeploymentArn"
 

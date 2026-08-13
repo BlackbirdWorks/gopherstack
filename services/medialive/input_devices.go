@@ -253,17 +253,17 @@ func (b *InMemoryBackend) StopInputDevice(deviceID string) error {
 	return nil
 }
 
-// StartInputDeviceMaintenanceWindow opens a maintenance window for the device.
+// StartInputDeviceMaintenanceWindow opens a maintenance window for the
+// device (no-op aside from existence check). StartInputDeviceMaintenanceWindowOutput
+// carries no fields on the real wire, and the device shapes have no
+// maintenanceWindowActive member to flip -- see gopherstack-7ux2.
 func (b *InMemoryBackend) StartInputDeviceMaintenanceWindow(deviceID string) error {
-	b.mu.Lock("StartInputDeviceMaintenanceWindow")
-	defer b.mu.Unlock()
+	b.mu.RLock("StartInputDeviceMaintenanceWindow")
+	defer b.mu.RUnlock()
 
-	d, ok := b.inputDevices.Get(deviceID)
-	if !ok {
+	if !b.inputDevices.Has(deviceID) {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
-
-	d.MaintenanceWindowActive = true
 
 	return nil
 }

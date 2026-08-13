@@ -1,6 +1,6 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
-last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
+last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119  # gopherstack-7ux2 (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
 last_audit_date: 2026-08-13
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
                        # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
@@ -345,6 +345,21 @@ families:
       real fields, availabilityZone/hdDeviceSettings/uhdDeviceSettings,
       remain unhandled, consistent with this service's existing
       minimal-model approach for deeply nested device-settings objects).
+      gopherstack-7ux2: REMOVED "maintenanceWindowActive" outright.
+      SWEEP 4 had only fixed its casing while leaving it in place (see the
+      prior handler comment, now deleted); this pass confirmed against
+      both deserializer field switches (medialive@v1.101.4
+      types/types.go:4498-4556 InputDeviceSummary,
+      api_op_DescribeInputDevice.go DescribeInputDeviceOutput) that neither
+      shape has ever had this member -- ListInputDevices and
+      DescribeInputDevice were both emitting a field no real client
+      expects. It had no reader anywhere in this package either (only ever
+      set true by StartInputDeviceMaintenanceWindow and never checked), so
+      removal touched the domain model, the persisted-device shape, and the
+      wire struct with nothing left dangling; StartInputDeviceMaintenanceWindow
+      is now a pure existence-check no-op, matching StartInputDevice/
+      StopInputDevice's existing pattern (StartInputDeviceMaintenanceWindowOutput
+      carries no fields on the real wire either).
   Cluster:
     status: ok
     note: >

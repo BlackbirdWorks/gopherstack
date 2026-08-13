@@ -5,10 +5,15 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/bedrock"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	bedrocksdk "github.com/aws/aws-sdk-go-v2/service/bedrock"
+	"github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
 func TestAccuracy_ModelInvocationJob_StopTransitionsStatus(t *testing.T) {
@@ -245,6 +250,90 @@ func TestBatch2Ops_StopModelInvocationJob_AlreadyStopped_Rejected(t *testing.T) 
 			var errBody map[string]any
 			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errBody))
 			assert.Equal(t, "ValidationException", errBody["__type"])
+		})
+	}
+}
+
+// TestAccuracy_ModelInvocationJob_RequiredMembersReachClient proves
+// gopherstack-7ux2: ListModelInvocationJobs and GetModelInvocationJob both
+// omitted modelId, inputDataConfig, outputDataConfig, roleArn and submitTime
+// -- all five "This member is required" on the real
+// types.ModelInvocationJobSummary / GetModelInvocationJobOutput
+// (bedrock@v1.66.4 types/types.go:5592-5722, api_op_GetModelInvocationJob.go).
+// Driven through the real aws-sdk-go-v2 client rather than a raw-body
+// assertion: for a missing-member bug that is the only thing that proves a
+// field actually reaches a caller instead of being silently zeroed by the
+// SDK's own decoder.
+func TestAccuracy_ModelInvocationJob_RequiredMembersReachClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "list"},
+		{name: "get"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			client := newTestBedrockClient(t, h)
+
+			createOut, err := client.CreateModelInvocationJob(t.Context(), &bedrocksdk.CreateModelInvocationJobInput{
+				JobName: aws.String("full-invoc-" + tt.name),
+				ModelId: aws.String("anthropic.claude-v2"),
+				RoleArn: aws.String("arn:aws:iam::000000000000:role/batch-role"),
+				InputDataConfig: &types.ModelInvocationJobInputDataConfigMemberS3InputDataConfig{
+					Value: types.ModelInvocationJobS3InputDataConfig{S3Uri: aws.String("s3://bucket/input.jsonl")},
+				},
+				OutputDataConfig: &types.ModelInvocationJobOutputDataConfigMemberS3OutputDataConfig{
+					Value: types.ModelInvocationJobS3OutputDataConfig{S3Uri: aws.String("s3://bucket/output/")},
+				},
+			})
+			require.NoError(t, err)
+
+			var (
+				modelID, roleArn    string
+				hasInput, hasOutput bool
+				submitTime          *time.Time
+			)
+
+			switch tt.name {
+			case "list":
+				listOut, listErr := client.ListModelInvocationJobs(
+					t.Context(),
+					&bedrocksdk.ListModelInvocationJobsInput{},
+				)
+				require.NoError(t, listErr)
+				require.Len(t, listOut.InvocationJobSummaries, 1)
+
+				s := listOut.InvocationJobSummaries[0]
+				modelID = aws.ToString(s.ModelId)
+				roleArn = aws.ToString(s.RoleArn)
+				hasInput = s.InputDataConfig != nil
+				hasOutput = s.OutputDataConfig != nil
+				submitTime = s.SubmitTime
+			case "get":
+				getOut, getErr := client.GetModelInvocationJob(t.Context(), &bedrocksdk.GetModelInvocationJobInput{
+					JobIdentifier: createOut.JobArn,
+				})
+				require.NoError(t, getErr)
+
+				modelID = aws.ToString(getOut.ModelId)
+				roleArn = aws.ToString(getOut.RoleArn)
+				hasInput = getOut.InputDataConfig != nil
+				hasOutput = getOut.OutputDataConfig != nil
+				submitTime = getOut.SubmitTime
+			}
+
+			assert.Equal(t, "anthropic.claude-v2", modelID)
+			assert.Equal(t, "arn:aws:iam::000000000000:role/batch-role", roleArn)
+			assert.True(t, hasInput, "inputDataConfig should reach the client")
+			assert.True(t, hasOutput, "outputDataConfig should reach the client")
+			require.NotNil(t, submitTime, "submitTime should reach the client")
+			assert.False(t, submitTime.IsZero())
 		})
 	}
 }
