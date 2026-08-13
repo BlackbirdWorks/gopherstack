@@ -14,7 +14,6 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 	engineVersion := vals.Get("EngineVersion")
 	masterUser := vals.Get("MasterUsername")
 	masterUserPassword := vals.Get("MasterUserPassword")
-	dbName := vals.Get("DatabaseName")
 	paramGroupName := vals.Get("DBClusterParameterGroupName")
 	subnetGroupName := vals.Get("DBSubnetGroupName")
 	portStr := vals.Get("Port")
@@ -34,14 +33,13 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 	availabilityZones := parseAvailabilityZones(vals)
 	tags := parseTags(vals)
 	opts := &CreateDBClusterOptions{
-		KmsKeyID:                         vals.Get("KmsKeyId"),
-		VpcSecurityGroupIDs:              parseVpcSecurityGroupIDs(vals),
-		EnabledCloudwatchLogsExports:     parseEnableLogTypes(vals),
-		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == stringTrue,
+		KmsKeyID:                     vals.Get("KmsKeyId"),
+		VpcSecurityGroupIDs:          parseVpcSecurityGroupIDs(vals),
+		EnabledCloudwatchLogsExports: parseEnableLogTypes(vals),
 	}
 	cluster, err := h.Backend.CreateDBCluster(
 		ctx,
-		id, engine, engineVersion, masterUser, masterUserPassword, dbName, paramGroupName, subnetGroupName,
+		id, engine, engineVersion, masterUser, masterUserPassword, "", paramGroupName, subnetGroupName,
 		port, storageEncrypted, deletionProtection, backupRetentionPeriod,
 		preferredBackupWindow, preferredMaintenanceWindow, availabilityZones, tags, opts,
 	)
@@ -93,8 +91,8 @@ func (h *Handler) handleDescribeDBClusters(ctx context.Context, vals url.Values)
 func (h *Handler) handleDeleteDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	opts := &DeleteDBClusterOptions{
-		SkipFinalSnapshot:                vals.Get("SkipFinalSnapshot") == stringTrue,
-		FinalDBClusterSnapshotIdentifier: vals.Get("FinalDBClusterSnapshotIdentifier"),
+		SkipFinalSnapshot:         vals.Get("SkipFinalSnapshot") == stringTrue,
+		FinalDBSnapshotIdentifier: vals.Get("FinalDBSnapshotIdentifier"),
 	}
 	cluster, err := h.Backend.DeleteDBCluster(ctx, id, opts)
 	if err != nil {
@@ -178,7 +176,8 @@ func (h *Handler) handleStartDBCluster(ctx context.Context, vals url.Values) (an
 
 func (h *Handler) handleFailoverDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.FailoverDBCluster(ctx, id)
+	targetInstanceID := vals.Get("TargetDBInstanceIdentifier")
+	cluster, err := h.Backend.FailoverDBCluster(ctx, id, targetInstanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -232,33 +231,31 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	copy(azMembers, c.AvailabilityZones)
 
 	return xmlDBCluster{
-		DBClusterIdentifier:              c.DBClusterIdentifier,
-		Engine:                           c.Engine,
-		Status:                           c.Status,
-		MasterUsername:                   c.MasterUsername,
-		DatabaseName:                     c.DatabaseName,
-		DBClusterParameterGroupName:      c.DBClusterParameterGroupName,
-		Endpoint:                         c.Endpoint,
-		ReaderEndpoint:                   c.ReaderEndpoint,
-		DBSubnetGroupName:                c.DBSubnetGroupName,
-		PreferredBackupWindow:            c.PreferredBackupWindow,
-		PreferredMaintenanceWindow:       c.PreferredMaintenanceWindow,
-		Port:                             c.Port,
-		DBClusterArn:                     c.DBClusterArn,
-		EngineVersion:                    c.EngineVersion,
-		BackupRetentionPeriod:            c.BackupRetentionPeriod,
-		StorageEncrypted:                 c.StorageEncrypted,
-		MultiAZ:                          c.MultiAZ,
-		DeletionProtection:               c.DeletionProtection,
-		ClusterCreateTime:                c.ClusterCreateTime,
-		HostedZoneID:                     c.HostedZoneID,
-		KmsKeyID:                         c.KmsKeyID,
-		ReplicationSourceIdentifier:      c.ReplicationSourceIdentifier,
-		IAMDatabaseAuthenticationEnabled: c.IAMDatabaseAuthenticationEnabled,
-		VpcSecurityGroups:                xmlVpcSecurityGroupMembershipList{Members: vpcSGs},
-		EnabledCloudwatchLogsExports:     xmlLogTypeList{Members: logTypes},
-		DBClusterMembers:                 xmlDBClusterMemberList{},
-		AvailabilityZones:                xmlAvailabilityZoneList{Members: azMembers},
+		DBClusterIdentifier:          c.DBClusterIdentifier,
+		Engine:                       c.Engine,
+		Status:                       c.Status,
+		MasterUsername:               c.MasterUsername,
+		DBClusterParameterGroupName:  c.DBClusterParameterGroupName,
+		Endpoint:                     c.Endpoint,
+		ReaderEndpoint:               c.ReaderEndpoint,
+		DBSubnetGroupName:            c.DBSubnetGroupName,
+		PreferredBackupWindow:        c.PreferredBackupWindow,
+		PreferredMaintenanceWindow:   c.PreferredMaintenanceWindow,
+		Port:                         c.Port,
+		DBClusterArn:                 c.DBClusterArn,
+		EngineVersion:                c.EngineVersion,
+		BackupRetentionPeriod:        c.BackupRetentionPeriod,
+		StorageEncrypted:             c.StorageEncrypted,
+		MultiAZ:                      c.MultiAZ,
+		DeletionProtection:           c.DeletionProtection,
+		ClusterCreateTime:            c.ClusterCreateTime,
+		HostedZoneID:                 c.HostedZoneID,
+		KmsKeyID:                     c.KmsKeyID,
+		ReplicationSourceIdentifier:  c.ReplicationSourceIdentifier,
+		VpcSecurityGroups:            xmlVpcSecurityGroupMembershipList{Members: vpcSGs},
+		EnabledCloudwatchLogsExports: xmlLogTypeList{Members: logTypes},
+		DBClusterMembers:             xmlDBClusterMemberList{},
+		AvailabilityZones:            xmlAvailabilityZoneList{Members: azMembers},
 	}
 }
 
@@ -298,33 +295,31 @@ type xmlAvailabilityZoneList struct {
 }
 
 type xmlDBCluster struct {
-	DBClusterIdentifier              string                            `xml:"DBClusterIdentifier"`
-	Engine                           string                            `xml:"Engine"`
-	Status                           string                            `xml:"Status"`
-	MasterUsername                   string                            `xml:"MasterUsername,omitempty"`
-	DatabaseName                     string                            `xml:"DatabaseName,omitempty"`
-	DBClusterParameterGroupName      string                            `xml:"DBClusterParameterGroup,omitempty"`
-	Endpoint                         string                            `xml:"Endpoint,omitempty"`
-	ReaderEndpoint                   string                            `xml:"ReaderEndpoint,omitempty"`
-	DBSubnetGroupName                string                            `xml:"DBSubnetGroup,omitempty"`
-	PreferredBackupWindow            string                            `xml:"PreferredBackupWindow,omitempty"`
-	PreferredMaintenanceWindow       string                            `xml:"PreferredMaintenanceWindow,omitempty"`
-	DBClusterArn                     string                            `xml:"DBClusterArn,omitempty"`
-	EngineVersion                    string                            `xml:"EngineVersion,omitempty"`
-	ClusterCreateTime                string                            `xml:"ClusterCreateTime,omitempty"`
-	HostedZoneID                     string                            `xml:"HostedZoneId,omitempty"`
-	KmsKeyID                         string                            `xml:"KmsKeyId,omitempty"`
-	ReplicationSourceIdentifier      string                            `xml:"ReplicationSourceIdentifier,omitempty"`
-	VpcSecurityGroups                xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups"`
-	EnabledCloudwatchLogsExports     xmlLogTypeList                    `xml:"EnabledCloudwatchLogsExports"`
-	DBClusterMembers                 xmlDBClusterMemberList            `xml:"DBClusterMembers"`
-	AvailabilityZones                xmlAvailabilityZoneList           `xml:"AvailabilityZones"`
-	Port                             int                               `xml:"Port"`
-	BackupRetentionPeriod            int                               `xml:"BackupRetentionPeriod,omitempty"`
-	StorageEncrypted                 bool                              `xml:"StorageEncrypted"`
-	MultiAZ                          bool                              `xml:"MultiAZ"`
-	DeletionProtection               bool                              `xml:"DeletionProtection"`
-	IAMDatabaseAuthenticationEnabled bool                              `xml:"IAMDatabaseAuthenticationEnabled"`
+	DBClusterIdentifier          string                            `xml:"DBClusterIdentifier"`
+	Engine                       string                            `xml:"Engine"`
+	Status                       string                            `xml:"Status"`
+	MasterUsername               string                            `xml:"MasterUsername,omitempty"`
+	DBClusterParameterGroupName  string                            `xml:"DBClusterParameterGroup,omitempty"`
+	Endpoint                     string                            `xml:"Endpoint,omitempty"`
+	ReaderEndpoint               string                            `xml:"ReaderEndpoint,omitempty"`
+	DBSubnetGroupName            string                            `xml:"DBSubnetGroup,omitempty"`
+	PreferredBackupWindow        string                            `xml:"PreferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow   string                            `xml:"PreferredMaintenanceWindow,omitempty"`
+	DBClusterArn                 string                            `xml:"DBClusterArn,omitempty"`
+	EngineVersion                string                            `xml:"EngineVersion,omitempty"`
+	ClusterCreateTime            string                            `xml:"ClusterCreateTime,omitempty"`
+	HostedZoneID                 string                            `xml:"HostedZoneId,omitempty"`
+	KmsKeyID                     string                            `xml:"KmsKeyId,omitempty"`
+	ReplicationSourceIdentifier  string                            `xml:"ReplicationSourceIdentifier,omitempty"`
+	VpcSecurityGroups            xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups"`
+	EnabledCloudwatchLogsExports xmlLogTypeList                    `xml:"EnabledCloudwatchLogsExports"`
+	DBClusterMembers             xmlDBClusterMemberList            `xml:"DBClusterMembers"`
+	AvailabilityZones            xmlAvailabilityZoneList           `xml:"AvailabilityZones"`
+	Port                         int                               `xml:"Port"`
+	BackupRetentionPeriod        int                               `xml:"BackupRetentionPeriod,omitempty"`
+	StorageEncrypted             bool                              `xml:"StorageEncrypted"`
+	MultiAZ                      bool                              `xml:"MultiAZ"`
+	DeletionProtection           bool                              `xml:"DeletionProtection"`
 }
 
 type xmlDBClusterList struct {

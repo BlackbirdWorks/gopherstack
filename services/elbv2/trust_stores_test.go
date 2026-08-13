@@ -534,6 +534,88 @@ func TestELBv2_ModifyTrustStore(t *testing.T) {
 	}
 }
 
+// TestTrustStore_CaCertificatesBundleS3Wiring guards against gopherstack-hl3h:
+// CreateTrustStoreInput requires CaCertificatesBundleS3Bucket/S3Key
+// (api_op_CreateTrustStore.go), and ModifyTrustStoreInput carries the same
+// two required fields plus the optional S3ObjectVersion. Both ops must
+// record the raw form values a real client sends, not silently drop them.
+func TestTrustStore_CaCertificatesBundleS3Wiring(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		modifyBucket    string
+		modifyKey       string
+		wantFinalBucket string
+		wantFinalKey    string
+	}{
+		{
+			name:            "create_only",
+			wantFinalBucket: "create-bucket",
+			wantFinalKey:    "create-key.pem",
+		},
+		{
+			name:            "modify_overwrites_bundle_location",
+			modifyBucket:    "modify-bucket",
+			modifyKey:       "modify-key.pem",
+			wantFinalBucket: "modify-bucket",
+			wantFinalKey:    "modify-key.pem",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			createRec := doELBv2(t, h, url.Values{
+				"Action":                       {"CreateTrustStore"},
+				"Version":                      {"2015-12-01"},
+				"Name":                         {"ts-" + tt.name},
+				"CaCertificatesBundleS3Bucket": {"create-bucket"},
+				"CaCertificatesBundleS3Key":    {"create-key.pem"},
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var resp struct {
+				Result struct {
+					TrustStores struct {
+						Members []struct {
+							TrustStoreArn string `xml:"TrustStoreArn"`
+						} `xml:"member"`
+					} `xml:"TrustStores"`
+				} `xml:"CreateTrustStoreResult"`
+			}
+			require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &resp))
+			require.Len(t, resp.Result.TrustStores.Members, 1)
+			tsArn := resp.Result.TrustStores.Members[0].TrustStoreArn
+
+			stores, err := h.Backend.DescribeTrustStores([]string{tsArn}, nil)
+			require.NoError(t, err)
+			require.Len(t, stores, 1)
+			assert.Equal(t, "create-bucket", stores[0].CaCertificatesBundleS3Bucket)
+			assert.Equal(t, "create-key.pem", stores[0].CaCertificatesBundleS3Key)
+
+			if tt.modifyBucket != "" {
+				modRec := doELBv2(t, h, url.Values{
+					"Action":                       {"ModifyTrustStore"},
+					"Version":                      {"2015-12-01"},
+					"TrustStoreArn":                {tsArn},
+					"CaCertificatesBundleS3Bucket": {tt.modifyBucket},
+					"CaCertificatesBundleS3Key":    {tt.modifyKey},
+				})
+				require.Equal(t, http.StatusOK, modRec.Code)
+			}
+
+			stores, err = h.Backend.DescribeTrustStores([]string{tsArn}, nil)
+			require.NoError(t, err)
+			require.Len(t, stores, 1)
+			assert.Equal(t, tt.wantFinalBucket, stores[0].CaCertificatesBundleS3Bucket)
+			assert.Equal(t, tt.wantFinalKey, stores[0].CaCertificatesBundleS3Key)
+		})
+	}
+}
+
 func TestTrustStore_FullLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -796,6 +878,11 @@ func TestRemoveTrustStoreRevocations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// TestGetTrustStoreRevocationContent guards against gopherstack-hl3h: the
+// real GetTrustStoreRevocationContentInput requires RevocationId
+// (api_op_GetTrustStoreRevocationContent.go), and a RevocationId that isn't
+// on the trust store must be rejected (RevocationIdNotFound) rather than
+// silently returning 200 for an ID nobody ever assigned.
 func TestGetTrustStoreRevocationContent(t *testing.T) {
 	t.Parallel()
 
@@ -818,11 +905,64 @@ func TestGetTrustStoreRevocationContent(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(tsRec.Body.Bytes(), &tsResp))
 	tsArn := tsResp.Result.TrustStores.Members[0].TrustStoreArn
 
-	rec := doELBv2(t, h, url.Values{
-		"Action":        {"GetTrustStoreRevocationContent"},
-		"Version":       {"2015-12-01"},
-		"TrustStoreArn": {tsArn},
-		"RevocationId":  {"1"},
+	addRec := doELBv2(t, h, url.Values{
+		"Action":                               {"AddTrustStoreRevocations"},
+		"Version":                              {"2015-12-01"},
+		"TrustStoreArn":                        {tsArn},
+		"RevocationContents.member.1.S3Bucket": {"my-bucket"},
+		"RevocationContents.member.1.S3Key":    {"revocations.crl"},
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, addRec.Code)
+	var addResp struct {
+		Result struct {
+			TrustStoreRevocations struct {
+				Members []struct {
+					RevocationID int64 `xml:"RevocationId"`
+				} `xml:"member"`
+			} `xml:"TrustStoreRevocations"`
+		} `xml:"AddTrustStoreRevocationsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(addRec.Body.Bytes(), &addResp))
+	require.Len(t, addResp.Result.TrustStoreRevocations.Members, 1)
+	realID := addResp.Result.TrustStoreRevocations.Members[0].RevocationID
+
+	tests := []struct {
+		name         string
+		revocationID string
+		wantStatus   int
+	}{
+		{
+			name:         "real_revocation_id_ok",
+			revocationID: strconv.FormatInt(realID, 10),
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "unknown_revocation_id_rejected",
+			revocationID: strconv.FormatInt(realID+1, 10),
+			wantStatus:   http.StatusBadRequest,
+		},
+		{
+			name:         "missing_revocation_id_rejected",
+			revocationID: "",
+			wantStatus:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			vals := url.Values{
+				"Action":        {"GetTrustStoreRevocationContent"},
+				"Version":       {"2015-12-01"},
+				"TrustStoreArn": {tsArn},
+			}
+			if tt.revocationID != "" {
+				vals.Set("RevocationId", tt.revocationID)
+			}
+
+			rec := doELBv2(t, h, vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }

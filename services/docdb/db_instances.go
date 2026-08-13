@@ -138,10 +138,22 @@ func (b *InMemoryBackend) GetClusterMembers(ctx context.Context, clusterID strin
 	sort.Slice(members, func(i, j int) bool {
 		return members[i].DBInstanceIdentifier < members[j].DBInstanceIdentifier
 	})
-	// Mark the first member (lowest PromotionTier or alphabetically first) as writer.
-	if len(members) > 0 {
-		members[0].IsClusterWriter = true
+	if len(members) == 0 {
+		return members
 	}
+	// Default writer is the alphabetically first member; FailoverDBCluster
+	// can override this via DBCluster.WriterInstanceID.
+	writerIdx := 0
+	if c, exists := b.clusterGet(region, clusterID); exists && c.WriterInstanceID != "" {
+		for i, m := range members {
+			if m.DBInstanceIdentifier == c.WriterInstanceID {
+				writerIdx = i
+
+				break
+			}
+		}
+	}
+	members[writerIdx].IsClusterWriter = true
 
 	return members
 }

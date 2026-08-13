@@ -68,7 +68,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			trustStore, err := src.CreateTrustStore("snap-ts", nil)
+			trustStore, err := src.CreateTrustStore("snap-ts", nil, "", "", "")
 			require.NoError(t, err)
 
 			addedBeforeSnapshot, err := src.AddTrustStoreRevocations(

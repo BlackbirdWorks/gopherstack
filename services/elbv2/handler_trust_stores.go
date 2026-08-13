@@ -14,8 +14,11 @@ func (h *Handler) handleCreateTrustStore(vals url.Values) (any, error) {
 	}
 
 	kvs := parseTagKVs(vals)
+	s3Bucket := vals.Get("CaCertificatesBundleS3Bucket")
+	s3Key := vals.Get("CaCertificatesBundleS3Key")
+	s3ObjectVersion := vals.Get("CaCertificatesBundleS3ObjectVersion")
 
-	ts, err := h.Backend.CreateTrustStore(name, kvs)
+	ts, err := h.Backend.CreateTrustStore(name, kvs, s3Bucket, s3Key, s3ObjectVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +193,11 @@ func (h *Handler) handleModifyTrustStore(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
-	ts, err := h.Backend.ModifyTrustStore(tsArn)
+	s3Bucket := vals.Get("CaCertificatesBundleS3Bucket")
+	s3Key := vals.Get("CaCertificatesBundleS3Key")
+	s3ObjectVersion := vals.Get("CaCertificatesBundleS3ObjectVersion")
+
+	ts, err := h.Backend.ModifyTrustStore(tsArn, s3Bucket, s3Key, s3ObjectVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -308,6 +315,15 @@ func (h *Handler) handleGetTrustStoreRevocationContent(vals url.Values) (any, er
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
+	revocationIDStr := vals.Get("RevocationId")
+	if revocationIDStr == "" {
+		return nil, fmt.Errorf("%w: RevocationId is required", ErrInvalidParameter)
+	}
+	revocationID, err := strconv.ParseInt(revocationIDStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid RevocationId %q", ErrInvalidParameter, revocationIDStr)
+	}
+
 	stores, err := h.Backend.DescribeTrustStores([]string{tsArn}, nil)
 	if err != nil {
 		return nil, err
@@ -315,6 +331,18 @@ func (h *Handler) handleGetTrustStoreRevocationContent(vals url.Values) (any, er
 
 	if len(stores) == 0 {
 		return nil, ErrTrustStoreNotFound
+	}
+
+	found := false
+	for _, r := range stores[0].Revocations {
+		if r.RevocationID == revocationID {
+			found = true
+
+			break
+		}
+	}
+	if !found {
+		return nil, ErrRevocationIDNotFound
 	}
 
 	return &getTrustStoreRevocationContentResponse{

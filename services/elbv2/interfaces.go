@@ -39,10 +39,10 @@ type StorageBackend interface {
 	RemoveTags(resourceArns []string, keys []string) error
 	DescribeTags(resourceArns []string) (map[string][]tags.KV, error)
 	// TrustStore operations.
-	CreateTrustStore(name string, kvs []tags.KV) (*TrustStore, error)
+	CreateTrustStore(name string, kvs []tags.KV, s3Bucket, s3Key, s3ObjectVersion string) (*TrustStore, error)
 	DescribeTrustStores(arns []string, names []string) ([]TrustStore, error)
 	DeleteTrustStore(trustStoreArn string) error
-	ModifyTrustStore(trustStoreArn string) (*TrustStore, error)
+	ModifyTrustStore(trustStoreArn string, s3Bucket, s3Key, s3ObjectVersion string) (*TrustStore, error)
 	AddTrustStoreRevocations(
 		trustStoreArn string,
 		contents []RevocationContentInput,

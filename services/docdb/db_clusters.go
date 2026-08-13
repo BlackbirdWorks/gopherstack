@@ -42,9 +42,9 @@ func validateCreateDBClusterParams(
 // threshold.
 func extractCreateDBClusterOpts(
 	opts *CreateDBClusterOptions,
-) (string, []string, []string, bool) {
+) (string, []string, []string) {
 	if opts == nil {
-		return "", nil, nil, false
+		return "", nil, nil
 	}
 	var vpcSecurityGroupIDs, enabledCloudwatchLogsExports []string
 	if len(opts.VpcSecurityGroupIDs) > 0 {
@@ -56,12 +56,20 @@ func extractCreateDBClusterOpts(
 		copy(enabledCloudwatchLogsExports, opts.EnabledCloudwatchLogsExports)
 	}
 
-	return opts.KmsKeyID, vpcSecurityGroupIDs, enabledCloudwatchLogsExports, opts.IAMDatabaseAuthenticationEnabled
+	return opts.KmsKeyID, vpcSecurityGroupIDs, enabledCloudwatchLogsExports
 }
 
+// CreateDBCluster creates a cluster. The unnamed string parameter between
+// masterUserPassword and paramGroupName is a deliberately ignored
+// database-name slot, kept only to hold this exported method's positional
+// signature stable for call sites outside this package; docdb's real
+// CreateDBClusterInput has no DatabaseName member at all (verified against
+// docdb@v1.51.4, gopherstack-xou3), so the value is never read from the wire
+// and never stored -- see handleCreateDBCluster, which no longer parses it.
 func (b *InMemoryBackend) CreateDBCluster(
 	ctx context.Context,
-	id, engine, engineVersion, masterUser, masterUserPassword, dbName, paramGroupName, subnetGroupName string,
+	id, engine, engineVersion, masterUser, masterUserPassword string,
+	_, paramGroupName, subnetGroupName string,
 	port int,
 	storageEncrypted, deletionProtection bool,
 	backupRetentionPeriod int,
@@ -108,35 +116,32 @@ func (b *InMemoryBackend) CreateDBCluster(
 	azs := make([]string, len(availabilityZones))
 	copy(azs, availabilityZones)
 
-	kmsKeyID, vpcSecurityGroupIDs, enabledCloudwatchLogsExports, iamDatabaseAuthenticationEnabled :=
-		extractCreateDBClusterOpts(opts)
+	kmsKeyID, vpcSecurityGroupIDs, enabledCloudwatchLogsExports := extractCreateDBClusterOpts(opts)
 
 	cluster := &DBCluster{
-		region:                           region,
-		DBClusterIdentifier:              id,
-		Engine:                           engine,
-		Status:                           statusAvailable,
-		MasterUsername:                   masterUser,
-		DatabaseName:                     dbName,
-		DBClusterParameterGroupName:      paramGroupName,
-		DBSubnetGroupName:                subnetGroupName,
-		Endpoint:                         endpoint,
-		ReaderEndpoint:                   readerEndpoint,
-		Port:                             port,
-		DBClusterArn:                     clusterArn,
-		EngineVersion:                    engineVersion,
-		StorageEncrypted:                 storageEncrypted,
-		DeletionProtection:               deletionProtection,
-		BackupRetentionPeriod:            backupRetentionPeriod,
-		PreferredBackupWindow:            preferredBackupWindow,
-		PreferredMaintenanceWindow:       preferredMaintenanceWindow,
-		AvailabilityZones:                azs,
-		ClusterCreateTime:                time.Now().UTC().Format(time.RFC3339),
-		Tags:                             copyTags(tags),
-		KmsKeyID:                         kmsKeyID,
-		VpcSecurityGroupIDs:              vpcSecurityGroupIDs,
-		EnabledCloudwatchLogsExports:     enabledCloudwatchLogsExports,
-		IAMDatabaseAuthenticationEnabled: iamDatabaseAuthenticationEnabled,
+		region:                       region,
+		DBClusterIdentifier:          id,
+		Engine:                       engine,
+		Status:                       statusAvailable,
+		MasterUsername:               masterUser,
+		DBClusterParameterGroupName:  paramGroupName,
+		DBSubnetGroupName:            subnetGroupName,
+		Endpoint:                     endpoint,
+		ReaderEndpoint:               readerEndpoint,
+		Port:                         port,
+		DBClusterArn:                 clusterArn,
+		EngineVersion:                engineVersion,
+		StorageEncrypted:             storageEncrypted,
+		DeletionProtection:           deletionProtection,
+		BackupRetentionPeriod:        backupRetentionPeriod,
+		PreferredBackupWindow:        preferredBackupWindow,
+		PreferredMaintenanceWindow:   preferredMaintenanceWindow,
+		AvailabilityZones:            azs,
+		ClusterCreateTime:            time.Now().UTC().Format(time.RFC3339),
+		Tags:                         copyTags(tags),
+		KmsKeyID:                     kmsKeyID,
+		VpcSecurityGroupIDs:          vpcSecurityGroupIDs,
+		EnabledCloudwatchLogsExports: enabledCloudwatchLogsExports,
 	}
 	b.clusterPut(cluster)
 	if len(tags) > 0 {
@@ -194,9 +199,9 @@ func (b *InMemoryBackend) DeleteDBCluster(
 			return nil, fmt.Errorf("%w: cluster %s still has instances, delete them first", ErrInvalidClusterState, id)
 		}
 	}
-	if opts == nil || (!opts.SkipFinalSnapshot && opts.FinalDBClusterSnapshotIdentifier == "") {
+	if opts == nil || (!opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier == "") {
 		return nil, fmt.Errorf(
-			"%w: specify SkipFinalSnapshot=true or provide FinalDBClusterSnapshotIdentifier",
+			"%w: specify SkipFinalSnapshot=true or provide FinalDBSnapshotIdentifier",
 			ErrInvalidParameter,
 		)
 	}
@@ -204,8 +209,8 @@ func (b *InMemoryBackend) DeleteDBCluster(
 	cp := copyCluster(c)
 
 	// Create a final snapshot if requested.
-	if !opts.SkipFinalSnapshot && opts.FinalDBClusterSnapshotIdentifier != "" {
-		snapID := opts.FinalDBClusterSnapshotIdentifier
+	if !opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier != "" {
+		snapID := opts.FinalDBSnapshotIdentifier
 		if b.clusterSnapshotHas(region, snapID) {
 			return nil, fmt.Errorf(
 				"%w: cluster snapshot %s already exists",
@@ -363,7 +368,10 @@ func (b *InMemoryBackend) StartDBCluster(ctx context.Context, id string) (*DBClu
 	return copyCluster(c), nil
 }
 
-func (b *InMemoryBackend) FailoverDBCluster(ctx context.Context, id string) (*DBCluster, error) {
+func (b *InMemoryBackend) FailoverDBCluster(
+	ctx context.Context,
+	id, targetInstanceID string,
+) (*DBCluster, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("FailoverDBCluster")
 	defer b.mu.Unlock()
@@ -374,6 +382,23 @@ func (b *InMemoryBackend) FailoverDBCluster(ctx context.Context, id string) (*DB
 	if c.Status != statusAvailable {
 		return nil, fmt.Errorf("%w: cluster %s is not in available state for failover", ErrInvalidClusterState, id)
 	}
+	if targetInstanceID != "" {
+		member := false
+		for _, inst := range b.instancesInRegion(region) {
+			if inst.DBClusterIdentifier == id && inst.DBInstanceIdentifier == targetInstanceID {
+				member = true
+
+				break
+			}
+		}
+		if !member {
+			return nil, fmt.Errorf(
+				"%w: instance %s is not a member of cluster %s",
+				ErrInvalidInstanceState, targetInstanceID, id,
+			)
+		}
+	}
+	c.WriterInstanceID = targetInstanceID
 	b.recordEvent(region, id, sourceTypeDBCluster, c.DBClusterArn, "DB cluster failover started", "failover")
 
 	return copyCluster(c), nil
@@ -468,7 +493,6 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		Engine:                      src.Engine,
 		Status:                      statusAvailable,
 		MasterUsername:              src.MasterUsername,
-		DatabaseName:                src.DatabaseName,
 		DBClusterParameterGroupName: src.DBClusterParameterGroupName,
 		DBSubnetGroupName:           src.DBSubnetGroupName,
 		Endpoint:                    endpoint,

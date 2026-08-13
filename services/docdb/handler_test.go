@@ -3,7 +3,6 @@ package docdb_test
 import (
 	"context"
 	"encoding/xml"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -743,7 +742,7 @@ func b2CreateParamGroup(t *testing.T, h *docdb.Handler, name string) {
 	require.Equal(t, http.StatusOK, rr.Code, "create param group %s: %s", name, rr.Body.String())
 }
 
-func pbCreateCluster(t *testing.T, h *docdb.Handler, clusterID string, extraVals url.Values) {
+func pbCreateCluster(t *testing.T, h *docdb.Handler, clusterID string) {
 	t.Helper()
 	vals := url.Values{
 		"Action":              {"CreateDBCluster"},
@@ -751,7 +750,6 @@ func pbCreateCluster(t *testing.T, h *docdb.Handler, clusterID string, extraVals
 		"DBClusterIdentifier": {clusterID},
 		"Engine":              {"docdb"},
 	}
-	maps.Copy(vals, extraVals)
 	rr := doRequest(t, h, vals)
 	require.Equal(t, http.StatusOK, rr.Code, "create cluster %s: %s", clusterID, rr.Body.String())
 }

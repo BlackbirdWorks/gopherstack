@@ -282,14 +282,20 @@ type RevocationContentInput struct {
 	RevocationType  string `json:"revocationType,omitempty"`
 }
 
-// TrustStore represents an ELBv2 trust store.
+// TrustStore represents an ELBv2 trust store. CaCertificatesBundleS3* fields
+// are stored inertly -- this emulator has no real S3 to fetch the bundle
+// from (see GetTrustStoreCaCertificatesBundle's always-empty Location), so
+// they are recorded but never used to compute NumberOfCaCerts or content.
 type TrustStore struct {
-	Tags                *tags.Tags             `json:"tags,omitempty"`
-	TrustStoreArn       string                 `json:"trustStoreArn"`
-	Name                string                 `json:"name"`
-	Status              string                 `json:"status"`
-	Revocations         []TrustStoreRevocation `json:"revocations,omitempty"`
-	TotalRevokedEntries int64                  `json:"totalRevokedEntries"`
+	Tags                                *tags.Tags             `json:"tags,omitempty"`
+	TrustStoreArn                       string                 `json:"trustStoreArn"`
+	Name                                string                 `json:"name"`
+	Status                              string                 `json:"status"`
+	CaCertificatesBundleS3Bucket        string                 `json:"caCertificatesBundleS3Bucket,omitempty"`
+	CaCertificatesBundleS3Key           string                 `json:"caCertificatesBundleS3Key,omitempty"`
+	CaCertificatesBundleS3ObjectVersion string                 `json:"caCertificatesBundleS3ObjectVersion,omitempty"`
+	Revocations                         []TrustStoreRevocation `json:"revocations,omitempty"`
+	TotalRevokedEntries                 int64                  `json:"totalRevokedEntries"`
 }
 
 // CreateLoadBalancerInput holds the parameters for creating a load balancer.

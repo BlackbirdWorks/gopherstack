@@ -257,11 +257,11 @@ func TestDeleteCluster_FinalSnapshot(t *testing.T) {
 		{
 			name: "create_final_snapshot",
 			vals: url.Values{
-				"Action":                           {"DeleteDBCluster"},
-				"Version":                          {"2014-10-31"},
-				"DBClusterIdentifier":              {"del-cluster"},
-				"SkipFinalSnapshot":                {"false"},
-				"FinalDBClusterSnapshotIdentifier": {"final-snap"},
+				"Action":                    {"DeleteDBCluster"},
+				"Version":                   {"2014-10-31"},
+				"DBClusterIdentifier":       {"del-cluster"},
+				"SkipFinalSnapshot":         {"false"},
+				"FinalDBSnapshotIdentifier": {"final-snap"},
 			},
 			wantStatus:         200,
 			wantContains:       "DeleteDBClusterResponse",
@@ -279,11 +279,11 @@ func TestDeleteCluster_FinalSnapshot(t *testing.T) {
 				})
 			},
 			vals: url.Values{
-				"Action":                           {"DeleteDBCluster"},
-				"Version":                          {"2014-10-31"},
-				"DBClusterIdentifier":              {"del-cluster"},
-				"SkipFinalSnapshot":                {"false"},
-				"FinalDBClusterSnapshotIdentifier": {"final-snap"},
+				"Action":                    {"DeleteDBCluster"},
+				"Version":                   {"2014-10-31"},
+				"DBClusterIdentifier":       {"del-cluster"},
+				"SkipFinalSnapshot":         {"false"},
+				"FinalDBSnapshotIdentifier": {"final-snap"},
 			},
 			wantStatus:   400,
 			wantContains: "DBClusterSnapshotAlreadyExistsFault",
@@ -655,7 +655,7 @@ func TestDeleteDBCluster_SkipFinalSnapshot(t *testing.T) {
 		{
 			name: "final_snapshot_identifier_ok",
 			extraVals: url.Values{
-				"FinalDBClusterSnapshotIdentifier": {"my-final-snap"},
+				"FinalDBSnapshotIdentifier": {"my-final-snap"},
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -665,7 +665,7 @@ func TestDeleteDBCluster_SkipFinalSnapshot(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			pbCreateCluster(t, h, "del-cluster", nil)
+			pbCreateCluster(t, h, "del-cluster")
 			vals := url.Values{
 				"Action":              {"DeleteDBCluster"},
 				"Version":             {"2014-10-31"},
@@ -676,6 +676,124 @@ func TestDeleteDBCluster_SkipFinalSnapshot(t *testing.T) {
 			assert.Equal(t, tc.wantStatus, rr.Code)
 			if tc.wantCode != "" {
 				assert.Equal(t, tc.wantCode, pbExtractErrorCode(t, rr.Body.String()))
+			}
+		})
+	}
+}
+
+// TestDeleteDBCluster_FinalSnapshotWireKey guards against gopherstack-xou3:
+// the real wire field is FinalDBSnapshotIdentifier, no "Cluster" (see
+// api_op_DeleteDBCluster.go), not FinalDBClusterSnapshotIdentifier. A client
+// sending the real key must get its final snapshot; the old (wrong,
+// neptune-shaped) key must now be treated as absent.
+func TestDeleteDBCluster_FinalSnapshotWireKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		extraVals    url.Values
+		name         string
+		wantStatus   int
+		wantSnapshot bool
+	}{
+		{
+			name: "real_key_creates_snapshot",
+			extraVals: url.Values{
+				"FinalDBSnapshotIdentifier": {"real-key-snap"},
+			},
+			wantStatus:   http.StatusOK,
+			wantSnapshot: true,
+		},
+		{
+			name: "old_neptune_shaped_key_is_ignored",
+			extraVals: url.Values{
+				"FinalDBClusterSnapshotIdentifier": {"stale-key-snap"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantSnapshot: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			pbCreateCluster(t, h, "wire-key-cluster")
+			vals := url.Values{
+				"Action":              {"DeleteDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"wire-key-cluster"},
+				"SkipFinalSnapshot":   {"false"},
+			}
+			maps.Copy(vals, tc.extraVals)
+
+			rr := doRequest(t, h, vals)
+			require.Equal(t, tc.wantStatus, rr.Code)
+
+			snaps, err := h.Backend.DescribeDBClusterSnapshots(context.Background(), "", "wire-key-cluster", "")
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantSnapshot, len(snaps) == 1)
+		})
+	}
+}
+
+// TestFailoverDBCluster_TargetDBInstanceIdentifier guards against
+// gopherstack-xou3: api_op_FailoverDBCluster.go's optional
+// TargetDBInstanceIdentifier must be read and drive which member becomes
+// writer, matching neptune's already-correct handleFailoverDBCluster.
+func TestFailoverDBCluster_TargetDBInstanceIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		target     string
+		wantWriter string
+	}{
+		{
+			name:       "no_target_keeps_default_writer",
+			target:     "",
+			wantWriter: "aaa-inst",
+		},
+		{
+			name:       "explicit_target_becomes_writer",
+			target:     "zzz-inst",
+			wantWriter: "zzz-inst",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			pbCreateCluster(t, h, "fo-cluster")
+			for _, id := range []string{"aaa-inst", "zzz-inst"} {
+				rr := doRequest(t, h, url.Values{
+					"Action":               {"CreateDBInstance"},
+					"Version":              {"2014-10-31"},
+					"DBInstanceIdentifier": {id},
+					"DBClusterIdentifier":  {"fo-cluster"},
+					"DBInstanceClass":      {"db.r5.large"},
+					"Engine":               {"docdb"},
+				})
+				require.Equal(t, http.StatusOK, rr.Code)
+			}
+
+			vals := url.Values{
+				"Action":              {"FailoverDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"fo-cluster"},
+			}
+			if tt.target != "" {
+				vals.Set("TargetDBInstanceIdentifier", tt.target)
+			}
+			rr := doRequest(t, h, vals)
+			require.Equal(t, http.StatusOK, rr.Code)
+
+			members := h.Backend.GetClusterMembers(context.Background(), "fo-cluster")
+			require.Len(t, members, 2)
+			for _, m := range members {
+				assert.Equal(t, m.DBInstanceIdentifier == tt.wantWriter, m.IsClusterWriter)
 			}
 		})
 	}

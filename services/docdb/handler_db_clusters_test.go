@@ -404,7 +404,6 @@ func TestClusterResponseFields(t *testing.T) {
 				"VpcSecurityGroups",
 				"DBClusterMembers",
 				"EnabledCloudwatchLogsExports",
-				"IAMDatabaseAuthenticationEnabled",
 			},
 		},
 	}
@@ -505,7 +504,7 @@ func TestDefaultParamGroupName(t *testing.T) {
 func TestModifyDBCluster_NewIdentifier(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
-	pbCreateCluster(t, h, "rename-src", nil)
+	pbCreateCluster(t, h, "rename-src")
 
 	rr := doRequest(t, h, url.Values{
 		"Action":                 {"ModifyDBCluster"},
