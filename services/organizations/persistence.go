@@ -52,7 +52,8 @@ func newDirtyDTORegistry() (*store.Registry, *store.Table[delegatedAdminSnapshot
 //
 // Tables holds one JSON-encoded array per registered table name, produced by
 // merging b.registry.SnapshotAll() (the "clean" tables: accounts, ous,
-// policies, createStatuses, handshakes, serviceAccess) with the ephemeral
+// policies, createStatuses, handshakes, serviceAccess,
+// responsibilityTransfers) with the ephemeral
 // DTO registry's SnapshotAll() (the "dirty" delegatedAdmins table). Version
 // guards against decoding a snapshot from an incompatible (older or newer)
 // build of this backend as though it were the current shape; see Restore.

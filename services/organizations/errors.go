@@ -180,6 +180,28 @@ var (
 		"InvalidInputException: tag value must not exceed 256 characters",
 		awserr.ErrInvalidParameter,
 	)
+	// ErrResponsibilityTransferNotFound is returned when a responsibility
+	// transfer does not exist (looked up by its own rt-... Id, not a
+	// handshake Id).
+	ErrResponsibilityTransferNotFound = awserr.New(
+		"ResponsibilityTransferNotFoundException: responsibility transfer not found",
+		awserr.ErrNotFound,
+	)
+	// ErrInvalidResponsibilityTransferTransition is returned by
+	// TerminateResponsibilityTransfer when the transfer has never reached
+	// ACCEPTED status -- declared on that op's own deserializeOpError switch
+	// (deserializers.go), distinct from ErrResponsibilityTransferAlreadyInStatus.
+	ErrInvalidResponsibilityTransferTransition = awserr.New(
+		"InvalidResponsibilityTransferTransitionException: transfer is not in a state that can be terminated",
+		awserr.ErrConflict,
+	)
+	// ErrResponsibilityTransferAlreadyInStatus is returned by
+	// TerminateResponsibilityTransfer when the transfer already has an
+	// EndTimestamp (already terminated).
+	ErrResponsibilityTransferAlreadyInStatus = awserr.New(
+		"ResponsibilityTransferAlreadyInStatusException: transfer has already ended",
+		awserr.ErrConflict,
+	)
 )
 
 // Ensure errors are used somewhere to satisfy linter.

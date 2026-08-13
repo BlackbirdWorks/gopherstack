@@ -478,28 +478,28 @@ func TestHandler_DescribeResponsibilityTransfer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		handshakeID string
-		seed        bool
-		wantStatus  int
+		name       string
+		transferID string
+		seed       bool
+		wantStatus int
 	}{
 		{
-			name:        "found",
-			handshakeID: "h-rt00001",
-			seed:        true,
-			wantStatus:  http.StatusOK,
+			name:       "found",
+			transferID: "rt-00000001",
+			seed:       true,
+			wantStatus: http.StatusOK,
 		},
 		{
-			name:        "not_found",
-			handshakeID: "h-missing",
-			seed:        false,
-			wantStatus:  http.StatusBadRequest,
+			name:       "not_found",
+			transferID: "rt-missing",
+			seed:       false,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:        "missing_id",
-			handshakeID: "",
-			seed:        false,
-			wantStatus:  http.StatusBadRequest,
+			name:       "missing_id",
+			transferID: "",
+			seed:       false,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -511,20 +511,19 @@ func TestHandler_DescribeResponsibilityTransfer(t *testing.T) {
 			h := organizations.NewHandler(b)
 
 			if tt.seed {
-				now := time.Now()
-				b.AddHandshakeInternal(&organizations.Handshake{
-					ID:                  tt.handshakeID,
-					ARN:                 "arn:aws:organizations::123456789012:handshake/o-test/transfer/" + tt.handshakeID,
-					Action:              "TRANSFER_RESPONSIBILITY",
-					State:               "OPEN",
-					RequestedTimestamp:  now,
-					ExpirationTimestamp: now.Add(7 * 24 * time.Hour),
+				b.AddResponsibilityTransferInternal(&organizations.ResponsibilityTransfer{
+					ID:                tt.transferID,
+					ARN:               "arn:aws:organizations::123456789012:transfer/o-test/billing/outbound/" + tt.transferID,
+					ActiveHandshakeID: "h-rt00001",
+					Name:              "billing-transfer",
+					Status:            "REQUESTED",
+					Type:              "BILLING",
 				})
 			}
 
 			body := map[string]any{}
-			if tt.handshakeID != "" {
-				body["HandshakeId"] = tt.handshakeID
+			if tt.transferID != "" {
+				body["Id"] = tt.transferID
 			}
 
 			rec := doRequest(t, h, "DescribeResponsibilityTransfer", body)
@@ -533,9 +532,11 @@ func TestHandler_DescribeResponsibilityTransfer(t *testing.T) {
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
 				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-				details, ok := resp["HandshakeDetails"].(map[string]any)
-				require.True(t, ok, "response must have HandshakeDetails")
-				assert.Equal(t, tt.handshakeID, details["Id"])
+				details, ok := resp["ResponsibilityTransfer"].(map[string]any)
+				require.True(t, ok, "response must have ResponsibilityTransfer")
+				assert.Equal(t, tt.transferID, details["Id"])
+				assert.Equal(t, "billing-transfer", details["Name"])
+				assert.Equal(t, "REQUESTED", details["Status"])
 			}
 		})
 	}

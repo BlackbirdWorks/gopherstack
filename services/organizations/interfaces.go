@@ -1,6 +1,9 @@
 package organizations
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend defines the interface for the Organizations in-memory backend.
 // All mutating methods must be safe for concurrent use.
@@ -70,7 +73,7 @@ type StorageBackend interface {
 	CancelHandshake(handshakeID string) (*Handshake, error)
 	DeclineHandshake(handshakeID string) (*Handshake, error)
 	DescribeHandshake(handshakeID string) (*Handshake, error)
-	DescribeResponsibilityTransfer(handshakeID string) (*Handshake, error)
+	DescribeResponsibilityTransfer(transferID string) (*ResponsibilityTransfer, error)
 	EnableAllFeatures() (*Handshake, error)
 	InviteAccountToOrganization(target HandshakeParty, notes string) (*Handshake, error)
 	InviteOrganizationToTransferResponsibility(
@@ -79,11 +82,12 @@ type StorageBackend interface {
 	LeaveOrganization() error
 	ListHandshakesForAccount(actionTypeFilter string) ([]*Handshake, error)
 	ListHandshakesForOrganization(actionTypeFilter string) ([]*Handshake, error)
-	ListInboundResponsibilityTransfers() ([]*Handshake, error)
-	ListOutboundResponsibilityTransfers() ([]*Handshake, error)
-	TerminateResponsibilityTransfer(handshakeID string) (*Handshake, error)
-	UpdateResponsibilityTransfer(handshakeID, action string) (*Handshake, error)
+	ListInboundResponsibilityTransfers(transferType, id string) ([]*ResponsibilityTransfer, error)
+	ListOutboundResponsibilityTransfers(transferType string) ([]*ResponsibilityTransfer, error)
+	TerminateResponsibilityTransfer(transferID string, endTimestamp *time.Time) (*ResponsibilityTransfer, error)
+	UpdateResponsibilityTransfer(transferID, name string) (*ResponsibilityTransfer, error)
 	AddHandshakeInternal(h *Handshake)
+	AddResponsibilityTransferInternal(rt *ResponsibilityTransfer)
 
 	// Account status operations
 	ListCreateAccountStatus(states []string) ([]*CreateAccountStatus, error)

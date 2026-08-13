@@ -185,6 +185,38 @@ type HandshakeResource struct {
 	Resources []HandshakeResource `json:"resources,omitempty"`
 }
 
+// ResponsibilityTransfer represents a transfer arrangement between two
+// management accounts, one of which designates the other with specified
+// responsibilities (currently only BILLING) for its organization. Distinct
+// from Handshake: types.ResponsibilityTransfer
+// (awsAwsjson11_deserializeDocumentResponsibilityTransfer, deserializers.go)
+// is its own wire shape, not a Handshake. EndTimestamp is the zero time.Time
+// until TerminateResponsibilityTransfer sets it -- a transfer that hasn't
+// ended has no EndTimestamp on the wire, not a fabricated one.
+type ResponsibilityTransfer struct {
+	StartTimestamp    time.Time           `json:"startTimestamp"`
+	EndTimestamp      time.Time           `json:"endTimestamp"`
+	ID                string              `json:"id"`
+	ARN               string              `json:"arn"`
+	ActiveHandshakeID string              `json:"activeHandshakeID"`
+	Name              string              `json:"name"`
+	Status            string              `json:"status"`
+	Type              string              `json:"type"`
+	Source            TransferParticipant `json:"source"`
+	Target            TransferParticipant `json:"target"`
+}
+
+// TransferParticipant identifies one management account on either side of a
+// ResponsibilityTransfer. Fields are independently optional: a participant
+// invited by EMAIL has no known ManagementAccountID until they join, and one
+// invited by ACCOUNT has no known ManagementAccountEmail -- this backend
+// never fabricates the missing half (types.TransferParticipant,
+// awsAwsjson11_deserializeDocumentTransferParticipant, deserializers.go).
+type TransferParticipant struct {
+	ManagementAccountID    string `json:"managementAccountID"`
+	ManagementAccountEmail string `json:"managementAccountEmail"`
+}
+
 // ResourcePolicy represents the organization resource-based policy.
 type ResourcePolicy struct {
 	ID      string `json:"id"`

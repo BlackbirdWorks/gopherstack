@@ -8,13 +8,13 @@ service: organizations
 sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
 last_audit_commit: 012f98aa
 last_audit_date: 2026-07-23
-overall: B            # DOWNGRADED this pass: fixed InviteOrganizationToTransferResponsibility's
-                      # dropped required fields (gopherstack-4ggy) but that fix surfaced a much
-                      # bigger pre-existing structural bug -- 5 sibling responsibility-transfer ops
-                      # wire the wrong response type (Handshake instead of types.ResponsibilityTransfer,
-                      # see gaps below), previously hidden behind an incorrect "wire: ok" in this file.
-                      # Everything else: closed the 2 previously-deferred validation gaps (policy content
-                      # size/syntax validation, tag validation) + epochSeconds reuse-hygiene fix.
+overall: A            # RESTORED this pass (gopherstack-0m6h): the 5 sibling responsibility-transfer
+                      # ops (DescribeResponsibilityTransfer/ListInboundResponsibilityTransfers/
+                      # ListOutboundResponsibilityTransfers/TerminateResponsibilityTransfer/
+                      # UpdateResponsibilityTransfer) that downgraded this to B now model the real,
+                      # distinct types.ResponsibilityTransfer shape (new ResponsibilityTransfer domain
+                      # type + store.Table + backend methods + wire DTOs), not a Handshake reused
+                      # across a real type boundary. Everything else unchanged from the prior pass.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -75,12 +75,12 @@ ops:
   DescribeEffectivePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "walks the OU/root policy chain and merges per policy-type semantics (SCP intersection-style vs tag-style override)"}
   ListAccountsWithInvalidEffectivePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly always empty -- this backend performs no policy-schema validation so no account can ever have an invalid effective policy; NOT a stub, a correct void result (parity-principles rule 4)"}
   ListEffectivePolicyValidationErrors: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as above -- correct void result, not a stub"}
-  DescribeResponsibilityTransfer: {wire: gap, errors: ok, state: ok, persist: ok, note: "response is wrapped as 'HandshakeDetails' holding a Handshake-shaped body (handshakeObject/toHandshakeObject); real AWS DescribeResponsibilityTransferOutput's field is 'ResponsibilityTransfer' holding types.ResponsibilityTransfer (ActiveHandshakeId/Arn/EndTimestamp/Id/Name/Source/StartTimestamp/Status/Target/Type) -- both the envelope key and the element shape are wrong. Found this sweep while fixing InviteOrganizationToTransferResponsibility's dropped fields (gopherstack-4ggy); NOT fixed here, out of scope for that issue -- see gaps below."}
-  InviteOrganizationToTransferResponsibility: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-4ggy: request dropped SourceName/StartTimestamp/Type (3 of 4 required members) entirely -- now validated and stored as HandshakeResource entries (RESPONSIBILITY_TRANSFER/TRANSFER_START_TIMESTAMP/TRANSFER_TYPE), matching how InviteAccountToOrganization/EnableAllFeatures embed their own extra fields. Also fixed a pre-existing bug found by reading the whole shape: the created Handshake's Action was hardcoded to APPROVE_ALL_FEATURES (copy-paste from EnableAllFeatures) instead of the real TRANSFER_RESPONSIBILITY (types/enums.go ActionType). Output.Handshake genuinely is types.Handshake -- this op's wire shape is correct, unlike its 5 siblings below."}
-  ListInboundResponsibilityTransfers: {wire: gap, errors: ok, state: fixed, persist: ok, note: "same Handshake-vs-ResponsibilityTransfer type confusion as DescribeResponsibilityTransfer (envelope key 'ResponsibilityTransfers' is correct, element shape is not). State fixed this pass: previously matched Action==APPROVE_ALL_FEATURES||ADD_ORGANIZATIONS_SERVICE_LINKED_ROLE (wrong action types entirely -- would return EnableAllFeatures/service-linked-role handshakes for a responsibility-transfer query); now honestly always returns empty, since InviteOrganizationToTransferResponsibility can only be called by the sending account (doc comment) and this single-account backend has no path to simulate a transfer received from elsewhere."}
-  ListOutboundResponsibilityTransfers: {wire: gap, errors: ok, state: fixed, persist: ok, note: "same wire gap as above. State fixed: previously filtered Action==INVITE (the InviteAccountToOrganization action, not TRANSFER_RESPONSIBILITY -- meant account invites showed up as responsibility transfers and real transfers never did); now filters the corrected TRANSFER_RESPONSIBILITY action."}
-  TerminateResponsibilityTransfer: {wire: gap, errors: ok, state: ok, persist: ok, note: "same Handshake-vs-ResponsibilityTransfer wire gap; also takes a transfer Id in real AWS (api_op_TerminateResponsibilityTransfer.go), this backend takes a HandshakeId -- different ID space, unaddressed."}
-  UpdateResponsibilityTransfer: {wire: gap, errors: ok, state: ok, persist: ok, note: "same wire gap; real UpdateResponsibilityTransferInput takes Id+Name (renames the transfer, api_op_UpdateResponsibilityTransfer.go), this backend instead takes HandshakeId+Action(ACCEPT/DECLINE) -- reusing AcceptHandshake/DeclineHandshake semantics that belong to a different op family. Unaddressed."}
+  DescribeResponsibilityTransfer: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-0m6h: now returns the real types.ResponsibilityTransfer shape (ActiveHandshakeId/Arn/EndTimestamp/Id/Name/Source/StartTimestamp/Status/Target/Type) under the correct 'ResponsibilityTransfer' envelope key -- was 'HandshakeDetails' holding a Handshake-shaped body (handshakeObject/toHandshakeObject), decoding as all-zero beyond Id/Arn against a real SDK client. Also fixed on the input side: real Id is the transfer's own rt-... id (DescribeResponsibilityTransferInput.Id), not the underlying HandshakeId this backend previously required. Verified against awsAwsjson11_deserializeOpDocumentDescribeResponsibilityTransferOutput/awsAwsjson11_deserializeDocumentResponsibilityTransfer, deserializers.go, aws-sdk-go-v2/service/organizations@v1.53.5."}
+  InviteOrganizationToTransferResponsibility: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-4ggy: request dropped SourceName/StartTimestamp/Type (3 of 4 required members) entirely -- now validated and stored as HandshakeResource entries (RESPONSIBILITY_TRANSFER/TRANSFER_START_TIMESTAMP/TRANSFER_TYPE), matching how InviteAccountToOrganization/EnableAllFeatures embed their own extra fields. Also fixed a pre-existing bug found by reading the whole shape: the created Handshake's Action was hardcoded to APPROVE_ALL_FEATURES (copy-paste from EnableAllFeatures) instead of the real TRANSFER_RESPONSIBILITY (types/enums.go ActionType). Output.Handshake genuinely is types.Handshake -- this op's wire shape was already correct, unlike its 5 (now-fixed) siblings. gopherstack-0m6h additionally makes this op create the backing ResponsibilityTransfer domain record the other 5 ops now read/write."}
+  ListInboundResponsibilityTransfers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-0m6h: element shape fixed same as DescribeResponsibilityTransfer; request now requires Type (real ListInboundResponsibilityTransfersInput.Type is required) and accepts Id/MaxResults/NextToken, all previously unparsed (handler took no body at all). Still honestly always returns empty: InviteOrganizationToTransferResponsibility can only be called by the sending account (doc comment) and this single-account backend has no path to simulate a transfer received from elsewhere -- see PARITY notes."}
+  ListOutboundResponsibilityTransfers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-0m6h: element shape fixed same as above; request now requires/filters on Type and paginates via MaxResults/NextToken (previously unparsed). Backed by the same ResponsibilityTransfer records InviteOrganizationToTransferResponsibility now creates, kept in sync with the underlying Handshake's Accept/Cancel/Decline/expire transitions."}
+  TerminateResponsibilityTransfer: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-0m6h: now takes/returns the real transfer Id (rt-...), not a HandshakeId -- different ID space, previously conflated. Real TerminateResponsibilityTransferInput.EndTimestamp (optional) is now honored, defaulting to now() when omitted. State machine added: only an ACCEPTED transfer can be terminated (InvalidResponsibilityTransferTransitionException) and a transfer already terminated is rejected (ResponsibilityTransferAlreadyInStatusException) -- both declared on this op's own deserializeOpErrorTerminateResponsibilityTransfer switch, deserializers.go. Previously this op silently canceled any OPEN handshake regardless of the real op's semantics."}
+  UpdateResponsibilityTransfer: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-0m6h: real UpdateResponsibilityTransferInput takes Id+Name and renames the transfer (api_op_UpdateResponsibilityTransfer.go doc comment) -- this backend previously took HandshakeId+Action(ACCEPT/DECLINE), reusing AcceptHandshake/DeclineHandshake semantics that belong to a different op entirely. Now renames ResponsibilityTransfer.Name by its own Id; allowed at any Status since this op's error switch declares no transition-related exception (unlike Terminate's)."}
 # Families audited as a group (when per-op is impractical):
 families:
   error_table: {status: ok, note: "getErrorTable() in handler.go covers all 28 sentinel errors defined in backend.go one-to-one; no gap that would surface as a 500 InternalFailure for a known error condition"}
@@ -94,7 +94,8 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "Policy content size limits are modeled at AWS's DEFAULT per-type quota only (SCP 10240, RCP 5120, TAG/BACKUP/DECLARATIVE_POLICY_EC2/CHATBOT_POLICY/SECURITYHUB_POLICY 10000, AISERVICES_OPT_OUT_POLICY 2500 -- all independently verified against the live orgs_reference_limits.html 'Maximum size of a policy document' table this pass, including the SCP default itself, which was previously wrong at 5120/shared with RCP and has been fixed); this backend does not model the service-quota-increase path (e.g. SCP up to 20480 via a quota request) since there is no quota-management API call being emulated here. A client that successfully requested a real quota increase would see this backend reject documents AWS would accept -- legitimately unmodeled account state, not a bug (no bd issue filed yet)."
   - "DescribeEffectivePolicy does not validate its policyType argument against AWS's EffectivePolicyType enum (a different, larger enum than PolicyType -- includes INSPECTOR_POLICY/UPGRADE_ROLLOUT_POLICY/BEDROCK_POLICY/S3_POLICY/NETWORK_SECURITY_DIRECTOR_POLICY, excludes SCP/RCP), so an unrecognized value falls through to ErrEffectivePolicyNotFound instead of AWS's InvalidInputException; unlike EnablePolicyType/DisablePolicyType (fixed this pass against the existing validPolicyTypes() allowlist), adding this correctly needs a second, distinct allowlist and was left alone to avoid guessing at one under time pressure (no bd issue filed yet)"
   - "FIXED (gopherstack-gt9o): Account.Paths and OrganizationalUnit.Path are now computed at read time in paths.go, not stored (organizationsSnapshotVersion stays 1 -- both are json:\"-\" on the domain structs, derived from the already-persisted accountParent/ouParent trees). Format verified against the live AWS API Reference example responses for DescribeAccount ('Paths': ['o-exampleorgid/r-examplerootid111/555555555555/']) and DescribeOrganizationalUnit ('Path': 'o-exampleorgid/r-examplerootid111/ou-examplerootid111-exampleouid111/'), and against both types' published regex (^(o-[a-z0-9]{10,32}/r-[0-9a-z]{4,32}(/ou-[0-9a-z]{4,32}-[a-z0-9]{8,32})*(/\\d{12})*)/) -- the aws-sdk-go-v2 v1.53.5 Go doc comments alone ('The paths in the organization where the account exists.') don't pin the format, so the API Reference examples were load-bearing. Paths is list-typed but every real AWS example (and gopherstack's own single-parent tree -- accounts move via MoveAccount between exactly one source and one destination, matching AWS's no-multi-parenting model) yields exactly one element; gopherstack always returns a 1-element slice, never fabricating a second entry. Populated on DescribeAccount/ListAccounts/ListAccountsForParent/DescribeOrganizationalUnit/UpdateOrganizationalUnit/ListOrganizationalUnitsForParent/CreateOrganizationalUnit (found by grepping every func returning *Account/[]*Account/*OrganizationalUnit/[]*OrganizationalUnit, not by trusting the gap's named list); ListAccountsWithInvalidEffectivePolicy is exempt since it's provably always-empty (see families/gaps above) and ListChildren/ListParents return ChildSummary/ParentSummary, which AWS itself doesn't put Path on. A detached (dangling parent reference) or cyclic ouParent chain -- unreachable through this backend's own API surface, only via a hand-edited/corrupted Restore snapshot -- deterministically yields nil Paths / empty Path (bounded maxPathWalk traversal, never loops) rather than a fabricated string."
-  - "gopherstack-4ggy follow-up (bd issue not yet filed -- flag for next session): DescribeResponsibilityTransfer/ ListInboundResponsibilityTransfers/ListOutboundResponsibilityTransfers/TerminateResponsibilityTransfer/ UpdateResponsibilityTransfer all model their response (and Terminate/Update's request) as a Handshake instead of the real, distinct types.ResponsibilityTransfer shape (ActiveHandshakeId/Arn/EndTimestamp/Id/Name/Source/StartTimestamp/Status/Target/Type -- a different ID space, keyed off a transfer Id, not a HandshakeId). A real SDK client would silently decode only the two overlapping key names (Id, Arn) from these responses and leave Name/Source/StartTimestamp/Status/Target/Type zero, rather than erroring -- a structural bug across 5 operations, not a dropped-field bug. InviteOrganizationToTransferResponsibility itself is correct (its Output.Handshake really is types.Handshake) and was fixed this pass; the other 5 need a dedicated ResponsibilityTransfer domain type + backend storage + handler rewrite, out of scope for the single-field-drop issue that prompted this audit."
+  - "FIXED (gopherstack-0m6h): the 5-op Handshake-vs-ResponsibilityTransfer structural gap noted below in the notes section is resolved -- see the ops table above and the dedicated notes entry."
+  - "ResponsibilityTransfer.Source/Target directionality: this single-account backend can only originate transfers as the Source (self) inviting a Target (the invited party) -- see ListInboundResponsibilityTransfers' note and the responsibilityTransferDirectionOutbound const's doc comment (handshakes.go). This is inferred from the ARN's documented inbound/outbound path segment and the ListInbound/ListOutbound doc prose (both cross-checked against docs.aws.amazon.com, not just the Go SDK, since the SDK alone doesn't state which side of a transfer the inviting account ends up on); a genuinely two-account harness could observe the other account's Inbound-side view and confirm this independently. No bd issue filed -- documented here as a judgment call, not a known bug."
 deferred: []               # both previously-deferred items (policy content validation, tag validation)
                             # were implemented and field-diffed this pass -- see CreatePolicy/UpdatePolicy/
                             # TagResource notes above and the residual-limitation gaps listed above.
@@ -241,3 +242,61 @@ so the next auditor doesn't re-flag them.
      requested and received a real SCP size-limit increase would see this backend reject
      documents AWS would now accept), and per-tag key/value length limits (only count,
      duplicate-key, and reserved-prefix are enforced).
+
+- **Real bug #8 (fixed, gopherstack-0m6h) -- 5 responsibility-transfer ops wired a Handshake
+  where AWS uses a distinct type**: `DescribeResponsibilityTransfer`,
+  `ListInboundResponsibilityTransfers`, `ListOutboundResponsibilityTransfers`,
+  `TerminateResponsibilityTransfer`, and `UpdateResponsibilityTransfer` all serialized a
+  `handshakeObject` under a `HandshakeDetails`/`ResponsibilityTransfers` key. Real AWS's element
+  type there is `types.ResponsibilityTransfer` (`ActiveHandshakeId`/`Arn`/`EndTimestamp`/`Id`/
+  `Name`/`Source`/`StartTimestamp`/`Status`/`Target`/`Type`,
+  `awsAwsjson11_deserializeDocumentResponsibilityTransfer`, deserializers.go) -- a real SDK
+  client decoded only the two overlapping key names (`Id`, `Arn`) and left everything else zero.
+  Fixed with a full structural rebuild: a new `ResponsibilityTransfer`/`TransferParticipant`
+  domain type (models.go), a `store.Table[ResponsibilityTransfer]` +
+  `responsibilityTransfersByHandshake` secondary index (store_setup.go), new
+  `responsibilityTransferObject`/`transferParticipantObject` wire DTOs, and backend methods
+  keyed by the transfer's own `rt-...` `Id` (a distinct ID space from the `h-...` `HandshakeId`
+  these ops previously, incorrectly, took as input).
+  - `InviteOrganizationToTransferResponsibility` (already correct, unchanged wire shape) now
+    additionally creates the backing `ResponsibilityTransfer` record (`Status: REQUESTED`,
+    `Source`=self, `Target`=invited party) alongside the `Handshake` it already created.
+  - `AcceptHandshake`/`CancelHandshake`/`DeclineHandshake`/the lazy-expiry sweep now sync a
+    `TRANSFER_RESPONSIBILITY` handshake's state transition onto its linked
+    `ResponsibilityTransfer.Status` (`syncResponsibilityTransferStatusLocked`, handshakes.go) --
+    `HandshakeState`'s `OPEN` maps to `ResponsibilityTransferStatus`'s `REQUESTED`, every other
+    value is shared verbatim between the two enums (types/enums.go).
+  - `TerminateResponsibilityTransfer` gained a real state machine it never had as a
+    disguised `CancelHandshake`: only an `ACCEPTED` transfer can be terminated
+    (`InvalidResponsibilityTransferTransitionException`), and a transfer that already has an
+    `EndTimestamp` can't be terminated again (`ResponsibilityTransferAlreadyInStatusException`)
+    -- both exceptions are declared on this op's own
+    `deserializeOpErrorTerminateResponsibilityTransfer` switch (deserializers.go), distinguishing
+    the two failure modes. `EndTimestamp` (optional input) defaults to `time.Now()` when omitted;
+    absent otherwise (never fabricated for a transfer that hasn't ended).
+  - `UpdateResponsibilityTransfer` changed semantics entirely: real AWS only renames the transfer
+    (`Id`+`Name`, `api_op_UpdateResponsibilityTransfer.go`'s doc comment); this backend previously
+    hijacked `HandshakeId`+`Action(ACCEPT/DECLINE)`, which belongs to `AcceptHandshake`/
+    `DeclineHandshake`. Renaming is allowed at any `Status` since that op's error switch declares
+    no transition-related exception (unlike `Terminate`'s).
+  - `ResponsibilityTransfer.Arn`'s documented pattern
+    (`arn:...:organizations::<account>:transfer/o-.../(billing)/(inbound|outbound)/rt-...`,
+    verified against the live AWS API Reference page since the Go SDK carries no ARN pattern
+    constants) encodes direction per-account: this backend can only ever produce the outbound
+    side of a transfer (see the `gaps` entry above), matching the pre-existing, unchanged
+    `ListInboundResponsibilityTransfers`/`ListOutboundResponsibilityTransfers` action-filter fix
+    from gopherstack-4ggy.
+  - Checked whether `ResponsibilityTransfer` and `Handshake` diverge anywhere else in this
+    service (the prompt for this fix, given kinesis/cloudformation/cloudwatch hit the same
+    sibling-type-confusion bug class the same day): `InviteOrganizationToTransferResponsibility`,
+    `AcceptHandshake`, `CancelHandshake`, and `DeclineHandshake` all genuinely operate on/return
+    `types.Handshake` in real AWS (confirmed via their own `api_op_*.go` Output structs) -- no
+    further confusion found.
+  - 4 new/rewritten tests drive the real `aws-sdk-go-v2` client end-to-end
+    (`TestResponsibilityTransfer_RoundTrip`,
+    `TestInviteOrganizationToTransferResponsibility_RoundTrip`'s updated backend-level assertions,
+    `handshakes_test.go`'s `TestBackend_DescribeResponsibilityTransfer`/
+    `TestBackend_ResponsibilityTransfer_Lifecycle`, `handler_handshakes_test.go`'s
+    `TestHandler_DescribeResponsibilityTransfer`); confirmed by hand-reverting the envelope key
+    and the field-population that the round-trip test fails against the pre-fix shape (nil
+    `ResponsibilityTransfer` / all-zero fields beyond `Id`/`Arn`).

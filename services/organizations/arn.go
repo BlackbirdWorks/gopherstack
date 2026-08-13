@@ -63,3 +63,20 @@ func (b *InMemoryBackend) handshakeARN(orgID, action, handshakeID string) string
 		handshakeID,
 	)
 }
+
+// responsibilityTransferARN builds an ARN for a responsibility transfer.
+// Pattern verified against ResponsibilityTransfer.Arn's documented regex
+// (docs.aws.amazon.com/organizations/latest/APIReference/API_ResponsibilityTransfer.html):
+// arn:...:organizations::<account>:transfer/o-.../(billing)/(inbound|outbound)/rt-....
+// direction is caller-relative -- the same transfer has a different ARN (and
+// therefore shows under a different List op) for each of its two accounts.
+func (b *InMemoryBackend) responsibilityTransferARN(orgID, transferType, direction, transferID string) string {
+	return fmt.Sprintf(
+		"arn:aws:organizations::%s:transfer/%s/%s/%s/%s",
+		b.accountID,
+		orgID,
+		strings.ToLower(transferType),
+		direction,
+		transferID,
+	)
+}

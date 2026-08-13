@@ -308,6 +308,18 @@ func getErrorTable() map[error]awserr.APIError {
 		ErrDuplicateTagKey:            {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
 		ErrInvalidTagKeyLength:        {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
 		ErrInvalidTagValueLength:      {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
+		ErrResponsibilityTransferNotFound: {
+			Code:       "ResponsibilityTransferNotFoundException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrInvalidResponsibilityTransferTransition: {
+			Code:       "InvalidResponsibilityTransferTransitionException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrResponsibilityTransferAlreadyInStatus: {
+			Code:       "ResponsibilityTransferAlreadyInStatusException",
+			HTTPStatus: http.StatusBadRequest,
+		},
 	}
 }
 
