@@ -15,13 +15,13 @@ func (h *Handler) createEventTracker(input map[string]any) (map[string]any, erro
 	}
 
 	return map[string]any{
-		"eventTrackerArn": et.EventTrackerArn,
-		"trackingId":      et.TrackingID,
+		keyEventTrackerArn: et.EventTrackerArn,
+		"trackingId":       et.TrackingID,
 	}, nil
 }
 
 func (h *Handler) describeEventTracker(input map[string]any) (map[string]any, error) {
-	nameOrArn, _ := input["eventTrackerArn"].(string)
+	nameOrArn, _ := input[keyEventTrackerArn].(string)
 
 	et, err := h.Backend.DescribeEventTracker(nameOrArn)
 	if err != nil {
@@ -32,7 +32,7 @@ func (h *Handler) describeEventTracker(input map[string]any) (map[string]any, er
 }
 
 func (h *Handler) deleteEventTracker(input map[string]any) (map[string]any, error) {
-	nameOrArn, _ := input["eventTrackerArn"].(string)
+	nameOrArn, _ := input[keyEventTrackerArn].(string)
 
 	return map[string]any{}, h.Backend.DeleteEventTracker(nameOrArn)
 }
@@ -46,7 +46,7 @@ func (h *Handler) listEventTrackers(input map[string]any) (map[string]any, error
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, et := range list {
-		summaries = append(summaries, eventTrackerToMap(et))
+		summaries = append(summaries, eventTrackerSummaryToMap(et))
 	}
 
 	result := map[string]any{"eventTrackers": summaries}
@@ -59,10 +59,22 @@ func (h *Handler) listEventTrackers(input map[string]any) (map[string]any, error
 
 func eventTrackerToMap(et *EventTracker) map[string]any {
 	return map[string]any{
-		"eventTrackerArn":      et.EventTrackerArn,
+		keyEventTrackerArn:     et.EventTrackerArn,
 		keyName:                et.Name,
 		keyDatasetGroupArn:     et.DatasetGroupArn,
 		"trackingId":           et.TrackingID,
+		keyStatus:              et.Status,
+		keyCreationDateTime:    awstime.Epoch(et.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(et.LastUpdatedDateTime),
+	}
+}
+
+// eventTrackerSummaryToMap builds the types.EventTrackerSummary shape
+// (types.go:1266) -- no datasetGroupArn or trackingId.
+func eventTrackerSummaryToMap(et *EventTracker) map[string]any {
+	return map[string]any{
+		keyEventTrackerArn:     et.EventTrackerArn,
+		keyName:                et.Name,
 		keyStatus:              et.Status,
 		keyCreationDateTime:    awstime.Epoch(et.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(et.LastUpdatedDateTime),

@@ -16,11 +16,11 @@ func (h *Handler) createDataDeletionJob(input map[string]any) (map[string]any, e
 		return nil, err
 	}
 
-	return map[string]any{"dataDeletionJobArn": job.DataDeletionJobArn}, nil
+	return map[string]any{keyDataDeletionJobArn: job.DataDeletionJobArn}, nil
 }
 
 func (h *Handler) describeDataDeletionJob(input map[string]any) (map[string]any, error) {
-	jobArn, _ := input["dataDeletionJobArn"].(string)
+	jobArn, _ := input[keyDataDeletionJobArn].(string)
 
 	job, err := h.Backend.DescribeDataDeletionJob(jobArn)
 	if err != nil {
@@ -39,7 +39,7 @@ func (h *Handler) listDataDeletionJobs(input map[string]any) (map[string]any, er
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, job := range list {
-		summaries = append(summaries, dataDeletionJobToMap(job))
+		summaries = append(summaries, dataDeletionJobSummaryToMap(job))
 	}
 
 	result := map[string]any{"dataDeletionJobs": summaries}
@@ -52,13 +52,28 @@ func (h *Handler) listDataDeletionJobs(input map[string]any) (map[string]any, er
 
 func dataDeletionJobToMap(job *DataDeletionJob) map[string]any {
 	return map[string]any{
-		"dataDeletionJobArn":   job.DataDeletionJobArn,
+		keyDataDeletionJobArn:  job.DataDeletionJobArn,
 		keyJobName:             job.JobName,
 		keyDatasetGroupArn:     job.DatasetGroupArn,
 		keyRoleArn:             job.RoleArn,
 		"dataSource":           job.DataSource,
 		keyStatus:              job.Status,
 		"numDeleted":           job.NumDeleted,
+		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
+	}
+}
+
+// dataDeletionJobSummaryToMap builds the types.DataDeletionJobSummary shape
+// (types.go:625) -- no roleArn, dataSource, or numDeleted. failureReason is a
+// real member but the backend's DataDeletionJob model has no source for it,
+// so it stays absent rather than being fabricated.
+func dataDeletionJobSummaryToMap(job *DataDeletionJob) map[string]any {
+	return map[string]any{
+		keyDataDeletionJobArn:  job.DataDeletionJobArn,
+		keyJobName:             job.JobName,
+		keyDatasetGroupArn:     job.DatasetGroupArn,
+		keyStatus:              job.Status,
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
 	}

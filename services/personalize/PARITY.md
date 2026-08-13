@@ -2,76 +2,76 @@
 service: personalize
 sdk_module: aws-sdk-go-v2/service/personalize@v1.50.4  # go.mod pins v1.50.4; prior audit passes cited v1.47.11 in this file -- this pass verified every field/citation below against the actually-pinned v1.50.4 module in the Go module cache
 sibling_sdk_modules: [aws-sdk-go-v2/service/personalizeruntime@v1.36.2]  # GetRecommendations/GetPersonalizedRanking; see the Runtime family below
-last_audit_commit: 12cf224d
-last_audit_date: 2026-07-23
+last_audit_commit: 12cf224d  # this pass (2026-08-13, gopherstack-sm02) fixed all 16 List-op Get-field leaks; commit hash not yet known at edit time
+last_audit_date: 2026-08-13
 overall: A
 ops:
   CreateDatasetGroup: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added domain enum validation (ECOMMERCE/VIDEO_ON_DEMAND, or empty for a Custom group) -- an unrecognized value previously succeeded silently'}
   DescribeDatasetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDatasetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatasetGroups: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDatasetGroups: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetGroupSummary (datasetGroupArn/name/domain/status/creationDateTime/lastUpdatedDateTime/failureReason) via a dedicated datasetGroupSummaryToMap instead of reusing datasetGroupToMap unscoped -- dropped kmsKeyArn/roleArn, and added failureReason (a real Summary member the backend model already carried but no converter emitted)'}
   CreateDataset: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added FK validation on datasetGroupArn/schemaArn (ResourceNotFoundException for a dangling reference) and datasetType enum validation (case-insensitive INTERACTIONS/ITEMS/USERS/ACTIONS/ACTION_INTERACTIONS) -- both previously unvalidated'}
   DescribeDataset: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDataset: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDataset: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatasets: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDatasets: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetSummary via datasetSummaryToMap instead of the unscoped Describe converter -- dropped datasetGroupArn/schemaArn'}
   CreateSchema: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added domain enum validation (ECOMMERCE/VIDEO_ON_DEMAND, or empty), same as CreateDatasetGroup'}
   DescribeSchema: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteSchema: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListSchemas: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListSchemas: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetSchemaSummary via schemaSummaryToMap instead of the unscoped Describe converter -- dropped schema (the full Avro body, Get-only)'}
   CreateSolution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'this pass: added FK validation on datasetGroupArn (always required) and recipeArn (required only when performAutoML is false); added eventType (a plain CreateSolutionInput member that was completely unread) and solutionConfig (opaque round-trip) and autoMLResult (populated with a deterministic bestRecipeArn when performAutoML is true). Prior pass: added performAutoTraining (default true)/performIncrementalUpdate, previously silently dropped'}
   DescribeSolution: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'now populates latestSolutionVersion (types.SolutionVersionSummary, a cross-table lookup over solutionVersions picking the max CreationDateTime for this solutionArn) -- previously absent entirely. Not added to ListSolutions: types.SolutionSummary has no latestSolutionVersion member'}
   UpdateSolution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'this pass: now populates latestSolutionUpdate (types.SolutionUpdateSummary-shaped) on every successful call, absent until the first update, matching the real API. Prior pass: was reading performAutoML/performHPO, fields that do not exist on the real UpdateSolutionInput -- real SDK calls were a silent no-op. Now reads performAutoTraining/performIncrementalUpdate (*bool, nil = unchanged)'}
   DeleteSolution: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListSolutions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListSolutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: worst leak in the service -- was emitting solutionToMap(sol, nil), a 12+-field Describe shape, for a types.SolutionSummary that only declares 6 (solutionArn/name/recipeArn/status/creationDateTime/lastUpdatedDateTime). Dropped datasetGroupArn/eventType/performAutoML/performHPO/performAutoTraining/performIncrementalUpdate/solutionConfig/autoMLResult/latestSolutionUpdate (9 leaked members) via a new solutionSummaryToMap. The old comment here claimed correctness but only addressed the latestSolutionVersion sub-field -- corrected'}
   CreateSolutionVersion: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'this pass: datasetGroupArn/eventType/performAutoML/performHPO/performIncrementalUpdate/recipeArn are now also copied from the parent Solution at creation time (types.SolutionVersion, types.go:2074), snapshotted as plain field copies so a later UpdateSolution cannot retroactively change an already-created version. Prior pass: added FK validation on solutionArn; solutionConfig is inherited from the parent solution onto the version, matching the real SolutionVersion.solutionConfig field'}
   DescribeSolutionVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListSolutionVersions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListSolutionVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: second-worst leak -- was calling solutionVersionToMap (the full Describe shape, 12 fields) instead of the already-existing solutionVersionSummaryToMap (7 fields, previously only used for Solution.latestSolutionVersion). Dropped solutionArn/datasetGroupArn/recipeArn/eventType/performAutoML/performHPO/performIncrementalUpdate/trainingHours/solutionConfig (9 leaked members) by swapping which converter the handler calls -- no new converter needed here'}
   StopSolutionVersionCreation: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'was setting status to "STOPPED", not a valid SolutionVersion.Status enum member; fixed to "CREATE STOPPED"'}
   GetSolutionMetrics: {wire: ok, errors: ok, state: ok, persist: n/a}
   CreateCampaign: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added FK validation on solutionVersionArn and campaignConfig (enableMetadataWithRecommendations/itemExplorationConfig/etc., opaque round-trip) support -- both previously missing'}
   DescribeCampaign: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateCampaign: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added FK validation on solutionVersionArn (when supplied), campaignConfig support, and latestCampaignUpdate (types.CampaignUpdateSummary-shaped) population on every successful call -- previously the real UpdateCampaignInput.campaignConfig member was silently dropped and no update history was tracked'}
   DeleteCampaign: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListCampaigns: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListCampaigns: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.CampaignSummary via campaignSummaryToMap -- dropped solutionVersionArn/minProvisionedTPS/campaignConfig/latestCampaignUpdate (4 leaked members). failureReason is a real CampaignSummary member but the backend Campaign model has no source for it (campaigns never fail asynchronously here), so it stays absent rather than fabricated'}
   CreateEventTracker: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetGroupArn}
   DescribeEventTracker: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteEventTracker: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListEventTrackers: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListEventTrackers: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.EventTrackerSummary via eventTrackerSummaryToMap -- dropped datasetGroupArn/trackingId (2 leaked members)'}
   CreateFilter: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetGroupArn}
   DescribeFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFilters: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFilters: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.FilterSummary via filterSummaryToMap -- dropped filterExpression (1 leaked member). failureReason is a real FilterSummary member but the backend Filter model has no source for it, so it stays absent rather than fabricated'}
   CreateRecommender: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added FK validation on datasetGroupArn and recipeArn (against the built-in recipe catalog); recommenderConfig now round-trips in full (previously only minRecommendationRequestsPerSecond was extracted from the sub-object -- enableMetadataWithRecommendations/itemExplorationConfig/etc. were silently dropped, a disguised-partial-implementation bug)'}
   DescribeRecommender: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateRecommender: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'recommenderConfig is a required member on the real UpdateRecommenderInput and is now enforced (was silently optional); now round-trips in full (see CreateRecommender) and populates latestRecommenderUpdate on every successful call, absent until the first update'}
   DeleteRecommender: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListRecommenders: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListRecommenders: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.RecommenderSummary via recommenderSummaryToMap -- dropped latestRecommenderUpdate (1 leaked member). Unlike its List siblings, RecommenderSummary does declare recommenderConfig, so that field is kept (not dropped) -- verified individually rather than assumed by analogy'}
   StartRecommender: {wire: ok, errors: ok, state: ok, persist: ok}
   StopRecommender: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateMetricAttribution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'this pass: added FK validation on datasetGroupArn. Prior pass: metrics is a required field on the real API and was silently ignored; now required + stored'}
   DescribeMetricAttribution: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateMetricAttribution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'real request uses addMetrics/removeMetrics, not a metrics replacement; was silently dropped'}
   DeleteMetricAttribution: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListMetricAttributions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListMetricAttributions: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.MetricAttributionSummary via metricAttributionSummaryToMap -- dropped datasetGroupArn/metricsOutputConfig (2 leaked members)'}
   ListMetricAttributionMetrics: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'was a hardcoded fabricated 2-entry list ignoring the actual attribution; now returns the attribution''s real, paginated Metrics'}
   CreateDatasetImportJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetArn}
   DescribeDatasetImportJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatasetImportJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDatasetImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetImportJobSummary via datasetImportJobSummaryToMap -- dropped datasetArn/roleArn/dataSource (3 leaked members)'}
   CreateDatasetExportJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetArn}
   DescribeDatasetExportJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatasetExportJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDatasetExportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetExportJobSummary via datasetExportJobSummaryToMap -- dropped datasetArn/roleArn/jobOutput (3 leaked members)'}
   CreateBatchInferenceJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on solutionVersionArn}
   DescribeBatchInferenceJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListBatchInferenceJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListBatchInferenceJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.BatchInferenceJobSummary via batchInferenceJobSummaryToMap -- dropped roleArn/jobInput/jobOutput (3 leaked members). batchInferenceJobMode and failureReason are real Summary members but the backend model has no source for either, so both stay absent rather than fabricated'}
   CreateBatchSegmentJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on solutionVersionArn}
   DescribeBatchSegmentJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListBatchSegmentJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListBatchSegmentJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.BatchSegmentJobSummary via batchSegmentJobSummaryToMap -- dropped roleArn/jobInput/jobOutput (3 leaked members). failureReason is a real Summary member but the backend model has no source for it, so it stays absent rather than fabricated'}
   CreateDataDeletionJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetGroupArn}
   DescribeDataDeletionJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDataDeletionJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDataDeletionJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DataDeletionJobSummary via dataDeletionJobSummaryToMap -- dropped roleArn/dataSource/numDeleted (3 leaked members). failureReason is a real Summary member but the backend model has no source for it, so it stays absent rather than fabricated'}
   DescribeRecipe: {wire: ok, errors: ok, state: n/a, persist: n/a}
-  ListRecipes: {wire: ok, errors: ok, state: n/a, persist: n/a}
+  ListRecipes: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: 'gopherstack-sm02: now emits types.RecipeSummary via recipeSummaryToMap -- dropped recipeType (1 leaked member, Describe-only). domain/creationDateTime/lastUpdatedDateTime are real RecipeSummary members but the built-in static recipe catalog has no source for any of them, so all three stay absent rather than fabricated'}
   DescribeFeatureTransformation: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAlgorithm: {wire: ok, errors: ok, state: n/a, persist: n/a}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -80,12 +80,12 @@ ops:
   GetRecommendations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real personalizeruntime.Client op (confirmed by name against aws-sdk-go-v2/service/personalizeruntime), not personalizesdk.Client -- pkgs/sdkcheck's reverse check flagged this as 'phantom' only because it compared against the control-plane client; sdk_completeness_test.go now checks it against personalizeruntimesdk.Client (2026-07-31, gopherstack-vhw2)"}
   GetPersonalizedRanking: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same as GetRecommendations -- real personalizeruntime.Client op, now checked against the correct sibling client"}
 families:
-  DatasetGroup/Dataset/Schema: {status: fixed, note: 'ARNs, timestamps (awstime.Epoch), field shapes verified against types.DatasetGroup/Dataset/DatasetSchema deserializers; Schema correctly has no status field (matches real API). This pass: domain enum validation on DatasetGroup/Schema, datasetType enum validation + datasetGroupArn/schemaArn FK validation on Dataset (see ops)'}
+  DatasetGroup/Dataset/Schema: {status: fixed, note: 'ARNs, timestamps (awstime.Epoch), field shapes verified against types.DatasetGroup/Dataset/DatasetSchema deserializers; Schema correctly has no status field (matches real API). This pass (gopherstack-sm02): ListDatasetGroups/ListDatasets/ListSchemas now use dedicated types.DatasetGroupSummary/DatasetSummary/DatasetSchemaSummary converters instead of the unscoped Describe converter (see ops). Prior pass: domain enum validation on DatasetGroup/Schema, datasetType enum validation + datasetGroupArn/schemaArn FK validation on Dataset (see ops)'}
   Solution/SolutionVersion: {status: fixed, note: 'This pass: SolutionVersion now models datasetGroupArn/eventType/performAutoML/performHPO/performIncrementalUpdate/recipeArn/failureReason, snapshotted from the parent Solution at CreateSolutionVersion time (not a live lookup); Solution.latestSolutionVersion (types.SolutionVersionSummary) now populated on DescribeSolution via a solutionVersions cross-table lookup; SolutionConfig deep-typed (see Campaign/Recommender family note) -- verified field-by-field against types.Solution/types.SolutionVersion/types.SolutionVersionSummary. Prior pass: datasetGroupArn/recipeArn/solutionArn FK validation, eventType/solutionConfig/autoMLResult/latestSolutionUpdate wire fields added; CreateSolution/UpdateSolution wire bug fixed; StopSolutionVersionCreation status-string bug fixed'}
-  Campaign/EventTracker/Filter/Recommender: {status: fixed, note: 'Create/Describe/Update/Delete/List field shapes verified against types.CampaignSummary/EventTrackerSummary/FilterSummary/RecommenderSummary -- gopherstack returns a superset (extra fields harmless, ignored by real deserializers per default case). This pass: CampaignConfig/RecommenderConfig (and SolutionConfig, above) are now deep-typed real Go structs (types.CampaignConfig/RecommenderConfig/SolutionConfig and their nested sub-objects, types.go) instead of opaque map[string]any passthrough -- a caller-supplied field with no counterpart in the real API is now dropped rather than echoed back; Recommender''s duplicated minRecommendationRequestsPerSecond bookkeeping now stays in sync with recommenderConfig''s own typed field instead of being hand-merged in the response builder. Prior pass: datasetGroupArn FK validation on EventTracker/Filter, datasetGroupArn+solutionVersionArn+recipeArn FK validation on Campaign/Recommender, campaignConfig/recommenderConfig full round-trip + latestCampaignUpdate/latestRecommenderUpdate (see ops)'}
-  MetricAttribution: {status: fixed, note: 'Prior pass: metrics/addMetrics/removeMetrics/ListMetricAttributionMetrics fixed. This pass: datasetGroupArn FK validation added (see ops)'}
-  Async jobs (DatasetImportJob/DatasetExportJob/BatchInferenceJob/BatchSegmentJob/DataDeletionJob): {status: fixed, note: 'no Delete/Update ops in the real API either -- gopherstack correctly omits them; Create/Describe/List shapes verified. This pass: datasetArn/solutionVersionArn/datasetGroupArn FK validation added to every Create* op (see ops)'}
-  Recipe/Algorithm/FeatureTransformation: {status: ok, note: built-in read-only catalogs, ARNs/status/timestamps verified}
+  Campaign/EventTracker/Filter/Recommender: {status: fixed, note: 'Create/Describe/Update/Delete field shapes verified against types.CampaignSummary/EventTrackerSummary/FilterSummary/RecommenderSummary. This pass (gopherstack-sm02): List* for all four now use dedicated Summary-scoped converters instead of the unscoped Describe converter -- the "extra fields are harmless because real deserializers ignore them" reasoning that used to justify skipping this was WRONG (see the corrected note below) and had let a real 1-4-member leak per op go unflagged across several prior audit passes; see ops for the per-op diff. Prior pass: CampaignConfig/RecommenderConfig (and SolutionConfig, above) are now deep-typed real Go structs (types.CampaignConfig/RecommenderConfig/SolutionConfig and their nested sub-objects, types.go) instead of opaque map[string]any passthrough -- a caller-supplied field with no counterpart in the real API is now dropped rather than echoed back; Recommender''s duplicated minRecommendationRequestsPerSecond bookkeeping now stays in sync with recommenderConfig''s own typed field instead of being hand-merged in the response builder; datasetGroupArn FK validation on EventTracker/Filter, datasetGroupArn+solutionVersionArn+recipeArn FK validation on Campaign/Recommender, campaignConfig/recommenderConfig full round-trip + latestCampaignUpdate/latestRecommenderUpdate (see ops)'}
+  MetricAttribution: {status: fixed, note: 'This pass (gopherstack-sm02): ListMetricAttributions now uses a dedicated types.MetricAttributionSummary converter instead of the unscoped Describe converter (see ops). Prior pass: metrics/addMetrics/removeMetrics/ListMetricAttributionMetrics fixed; datasetGroupArn FK validation added (see ops)'}
+  Async jobs (DatasetImportJob/DatasetExportJob/BatchInferenceJob/BatchSegmentJob/DataDeletionJob): {status: fixed, note: 'no Delete/Update ops in the real API either -- gopherstack correctly omits them. This pass (gopherstack-sm02): all five List* ops now use dedicated Summary-scoped converters instead of the unscoped Describe converter, dropping 3 leaked members per op (see ops). Prior pass: datasetArn/solutionVersionArn/datasetGroupArn FK validation added to every Create* op (see ops)'}
+  Recipe/Algorithm/FeatureTransformation: {status: fixed, note: 'built-in read-only catalogs, ARNs/status/timestamps verified. This pass (gopherstack-sm02): ListRecipes now uses a dedicated types.RecipeSummary converter instead of returning the full DescribeRecipe entry, dropping recipeType'}
   Tags: {status: ok, note: 'tagKey/tagValue round-trip verified; arnExists() FK check spans all 16 resource tables correctly'}
   Runtime (GetRecommendations/GetPersonalizedRanking): {status: ok, note: 'ValidateCampaign/ValidateCampaignOrRecommender FK checks present and correct -- this pass extended the same validate-parent-existence discipline to every control-plane Create* op, closing the inconsistency previously noted here. UPDATE (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): both are real aws-sdk-go-v2/service/personalizeruntime ops, not personalize ops -- added the module to go.mod and pointed sdk_completeness_test.go at it directly. That client also has a third op, GetActionRecommendations, which this Handler does not implement (listed as notImplemented in the completeness check; not otherwise audited this sweep).'}
 gaps: []
@@ -263,16 +263,35 @@ leaks: {status: clean, note: no goroutines/janitors in this backend; all state i
   round-trip through a real `MetricAttribution.Metrics []MetricAttribute`
   field on the backend struct.
 
-- **Extra fields on List summaries are harmless.** gopherstack's
-  `listCampaigns`/`listSolutions`/`listDatasets`/etc. reuse the same
-  `*ToMap` function for both `Describe*` (full type) and `List*`
-  (`*Summary` type, which is a strict subset of fields in the real API).
-  Real aws-sdk-go-v2 deserializers `default: _, _ = key, value` on unknown
-  keys, so returning extra fields on a List response is not a wire-shape
-  bug -- confirmed by reading `deserializers.go` for
-  `CampaignSummary`/`SolutionSummary`/`DatasetSummary`/etc. Do not flag this
-  pattern again without first confirming a *required* summary field is
-  actually missing (none were).
+- **CORRECTED (gopherstack-sm02): "extra fields on List summaries are
+  harmless" was wrong and let this bug sit unflagged across several prior
+  audit passes.** The previous version of this note claimed all sixteen
+  `List*` ops reusing their `Get*` op's `*ToMap` function unscoped was fine
+  because real aws-sdk-go-v2 deserializers silently discard unrecognised
+  keys. That premise is true (`default: _, _ = key, value` in
+  `deserializers.go`) but the conclusion drawn from it was not: an
+  SDK-mediated client cannot observe the leak, but gopherstack is a wire
+  emulator, not just an SDK-client target -- raw HTTP/boto3/other-language
+  callers, and any parity tooling that inspects the actual JSON body, see
+  every leaked field. "Ignored by one particular client library" is not the
+  same as "matches the real API shape." All sixteen `List*` ops were in fact
+  emitting their sibling `Get*` op's full converter output completely
+  unscoped, leaking between 1 and 9 Describe-only members per op (worst:
+  `ListSolutions` leaked 9 of what should be `types.SolutionSummary`'s 6
+  fields; `ListSolutionVersions` leaked 9 of `types.SolutionVersionSummary`'s
+  7). Every op now has its own `*SummaryToMap` converter built by reading
+  that op's own `types.*Summary` struct individually (not derived from a
+  sibling by analogy -- `RecommenderSummary` keeps `recommenderConfig` where
+  every other List sibling drops its equivalent nested-config field, and
+  `DatasetGroupSummary` is the one type in the set where a real `failureReason`
+  member turned out to have an honest backend source and was added rather
+  than left absent). See the per-op `wire: fixed` notes above for the full
+  per-resource diff. This mirrors the pattern already correct in ssm,
+  medialive, and glue: a dedicated summary-scoped converter alongside the
+  full one, not a shared function. Regression coverage:
+  `handler_list_summary_test.go`'s `TestPersonalize_ListOps_SummaryShape`
+  asserts on the raw JSON response body (not through an SDK client, which
+  cannot see this class of bug) for all sixteen ops.
 
 - Persistence: `Handler.Snapshot`/`Restore` correctly delegate to
   `InMemoryBackend.Snapshot`/`Restore` (`persistence.go`), which round-trips

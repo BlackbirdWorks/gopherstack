@@ -49,7 +49,7 @@ func (h *Handler) listDatasetGroups(input map[string]any) (map[string]any, error
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, dg := range list {
-		summaries = append(summaries, datasetGroupToMap(dg))
+		summaries = append(summaries, datasetGroupSummaryToMap(dg))
 	}
 
 	result := map[string]any{"datasetGroups": summaries}
@@ -71,4 +71,26 @@ func datasetGroupToMap(dg *DatasetGroup) map[string]any {
 		keyCreationDateTime:    awstime.Epoch(dg.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(dg.LastUpdatedDateTime),
 	}
+}
+
+// datasetGroupSummaryToMap builds the types.DatasetGroupSummary shape
+// (types.go:865) -- no kmsKeyArn or roleArn. Unlike its siblings,
+// DatasetGroupSummary does declare failureReason, and the backend's
+// DatasetGroup model does carry that field (models.go), so it is emitted
+// here the same conditional way solutionVersionToMap does -- it just never
+// gets set to non-empty by this backend today.
+func datasetGroupSummaryToMap(dg *DatasetGroup) map[string]any {
+	m := map[string]any{
+		keyDatasetGroupArn:     dg.DatasetGroupArn,
+		keyName:                dg.Name,
+		keyDomain:              dg.Domain,
+		keyStatus:              dg.Status,
+		keyCreationDateTime:    awstime.Epoch(dg.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(dg.LastUpdatedDateTime),
+	}
+	if dg.FailureReason != "" {
+		m["failureReason"] = dg.FailureReason
+	}
+
+	return m
 }

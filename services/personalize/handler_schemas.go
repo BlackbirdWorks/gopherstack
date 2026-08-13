@@ -42,7 +42,7 @@ func (h *Handler) listSchemas(input map[string]any) (map[string]any, error) {
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, s := range list {
-		summaries = append(summaries, schemaToMap(s))
+		summaries = append(summaries, schemaSummaryToMap(s))
 	}
 
 	result := map[string]any{"schemas": summaries}
@@ -58,6 +58,19 @@ func schemaToMap(s *Schema) map[string]any {
 		keySchemaArn:           s.SchemaArn,
 		keyName:                s.Name,
 		"schema":               s.Schema,
+		keyDomain:              s.Domain,
+		keyCreationDateTime:    awstime.Epoch(s.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(s.LastUpdatedDateTime),
+	}
+}
+
+// schemaSummaryToMap builds the types.DatasetSchemaSummary shape
+// (types.go:1016) -- no schema body: ListSchemas never returns the full
+// Avro text, only DescribeSchema does.
+func schemaSummaryToMap(s *Schema) map[string]any {
+	return map[string]any{
+		keySchemaArn:           s.SchemaArn,
+		keyName:                s.Name,
 		keyDomain:              s.Domain,
 		keyCreationDateTime:    awstime.Epoch(s.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(s.LastUpdatedDateTime),

@@ -40,6 +40,14 @@ const (
 	keyEventType                = "eventType"
 	keyPerformIncrementalUpdate = "performIncrementalUpdate"
 
+	keyBatchInferenceJobArn = "batchInferenceJobArn"
+	keyBatchSegmentJobArn   = "batchSegmentJobArn"
+	keyDataDeletionJobArn   = "dataDeletionJobArn"
+	keyDatasetImportJobArn  = "datasetImportJobArn"
+	keyDatasetExportJobArn  = "datasetExportJobArn"
+	keyEventTrackerArn      = "eventTrackerArn"
+	keyFilterArn            = "filterArn"
+
 	recipeTypeUserPersonalization = "USER_PERSONALIZATION"
 )
 
