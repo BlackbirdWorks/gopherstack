@@ -9,6 +9,7 @@ import (
 
 func (h *ServerlessHandler) handleRestoreFromSnapshot(c *echo.Context, body []byte) error {
 	var req struct {
+		MaintainIntegration         *bool  `json:"maintainIntegration"`
 		NamespaceName               string `json:"namespaceName"`
 		WorkgroupName               string `json:"workgroupName"`
 		SnapshotName                string `json:"snapshotName"`
@@ -37,6 +38,7 @@ func (h *ServerlessHandler) handleRestoreFromSnapshot(c *echo.Context, body []by
 		SnapshotArn:                 req.SnapshotArn,
 		AdminPasswordSecretKmsKeyID: req.AdminPasswordSecretKmsKeyID,
 		ManageAdminPassword:         req.ManageAdminPassword,
+		MaintainIntegration:         req.MaintainIntegration,
 	})
 	if err != nil {
 		return slHandleErr(c, err)

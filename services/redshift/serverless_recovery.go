@@ -57,14 +57,43 @@ func (b *InMemoryBackend) GetRecoveryPointSL(recoveryPointID string) (*RecoveryP
 	return &cp, nil
 }
 
+// ListRecoveryPointsParams holds ListRecoveryPointsInput's filters.
+type ListRecoveryPointsParams struct {
+	StartTime     time.Time
+	EndTime       time.Time
+	NamespaceName string
+	NamespaceArn  string
+	NextToken     string
+	MaxResults    int
+}
+
+// matches reports whether rp satisfies every filter set on p (an unset
+// filter matches everything). Split out of ListRecoveryPointsSL to keep that
+// function's cognitive complexity flat as filters were added.
+func (p ListRecoveryPointsParams) matches(rp *RecoveryPoint) bool {
+	if p.NamespaceName != "" && rp.NamespaceName != p.NamespaceName {
+		return false
+	}
+
+	if p.NamespaceArn != "" && rp.NamespaceArn != p.NamespaceArn {
+		return false
+	}
+
+	if !p.StartTime.IsZero() && rp.RecoveryPointCreateTime.Before(p.StartTime) {
+		return false
+	}
+
+	if !p.EndTime.IsZero() && rp.RecoveryPointCreateTime.After(p.EndTime) {
+		return false
+	}
+
+	return true
+}
+
 // ListRecoveryPointsSL returns recovery points, optionally filtered by
-// namespaceName or namespaceArn (either is accepted per
+// namespaceName, namespaceArn, and creation time range (all accepted per
 // ListRecoveryPointsRequest in service-2.json).
-//
-//nolint:dupl // pagination pattern is structurally identical across serverless resource types
-func (b *InMemoryBackend) ListRecoveryPointsSL(
-	namespaceName, namespaceArn string, maxResults int, nextToken string,
-) ([]*RecoveryPoint, string) {
+func (b *InMemoryBackend) ListRecoveryPointsSL(p ListRecoveryPointsParams) ([]*RecoveryPoint, string) {
 	b.mu.RLock("ListRecoveryPointsSL")
 	defer b.mu.RUnlock()
 
@@ -73,21 +102,16 @@ func (b *InMemoryBackend) ListRecoveryPointsSL(
 
 	for _, id := range keys {
 		rp, ok := b.slRecoveryPoints.Get(id)
-		if !ok {
-			continue
-		}
-
-		if namespaceName != "" && rp.NamespaceName != namespaceName {
-			continue
-		}
-
-		if namespaceArn != "" && rp.NamespaceArn != namespaceArn {
+		if !ok || !p.matches(rp) {
 			continue
 		}
 
 		cp := *rp
 		list = append(list, &cp)
 	}
+
+	maxResults := p.MaxResults
+	nextToken := p.NextToken
 
 	if maxResults <= 0 {
 		maxResults = serverlessDefaultPageSize()

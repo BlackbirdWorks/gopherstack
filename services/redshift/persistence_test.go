@@ -266,7 +266,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace", 0, nil)
 	require.NoError(t, err)
 
-	rtRecoveryPoints, _ := b.ListRecoveryPointsSL("rt-namespace", "", 0, "")
+	rtRecoveryPoints, _ := b.ListRecoveryPointsSL(redshift.ListRecoveryPointsParams{NamespaceName: "rt-namespace"})
 	require.Len(t, rtRecoveryPoints, 1, "CreateWorkgroup must have generated exactly one recovery point")
 	rtRecoveryPointID := rtRecoveryPoints[0].RecoveryPointID
 
@@ -384,10 +384,10 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	_, err = fresh.GetWorkgroup("rt-workgroup")
 	require.NoError(t, err)
 
-	_, err = fresh.GetServerlessSnapshot("rt-slsnapshot")
+	_, err = fresh.GetServerlessSnapshot("rt-slsnapshot", "")
 	require.NoError(t, err)
 
-	slLimits, _ := fresh.ListServerlessUsageLimits("", 0, "")
+	slLimits, _ := fresh.ListServerlessUsageLimits("", "", 0, "")
 	assert.Len(t, slLimits, 1)
 
 	_, err = fresh.GetServerlessScheduledAction("rt-slscheduledaction")
@@ -413,7 +413,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "rt-namespace", recoveryPoint.NamespaceName)
 
-	recoveryPointList, _ := fresh.ListRecoveryPointsSL("rt-namespace", "", 0, "")
+	recoveryPointList, _ := fresh.ListRecoveryPointsSL(redshift.ListRecoveryPointsParams{NamespaceName: "rt-namespace"})
 	require.Len(t, recoveryPointList, 1, "sorted index must survive the round trip, not just the underlying table")
 
 	tr, err := fresh.GetTableRestoreStatusSL(rtTableRestore.TableRestoreRequestID)

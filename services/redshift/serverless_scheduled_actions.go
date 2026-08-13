@@ -97,8 +97,6 @@ func (b *InMemoryBackend) GetServerlessScheduledAction(
 }
 
 // ListServerlessScheduledActions returns all serverless scheduled actions.
-//
-//nolint:dupl // pagination pattern is structurally identical across serverless resource types
 func (b *InMemoryBackend) ListServerlessScheduledActions(
 	namespaceName string,
 	maxResults int,

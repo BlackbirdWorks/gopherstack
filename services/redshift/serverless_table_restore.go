@@ -14,17 +14,25 @@ const slTableRestoreStatusSucceeded = "SUCCEEDED"
 // RestoreTableFromSnapshotInput/RestoreTableFromRecoveryPointInput --
 // SnapshotName and RecoveryPointID are mutually exclusive, set by the
 // respective caller (see RestoreTableFromSnapshotSL/RestoreTableFromRecoveryPointSL).
+// Field order/names must stay identical to slTableRestoreReq in
+// handler_serverless_table_restore.go: toParams() converts between them with
+// a direct struct conversion.
+//
+// ActivateCaseSensitiveIdentifier is accepted for wire compatibility but
+// intentionally inert: this backend does not execute queries against
+// restored tables, so there is no case-sensitive identifier matching to gate.
 type RestoreTableFromSnapshotParams struct {
-	NamespaceName      string
-	NewTableName       string
-	SnapshotName       string
-	RecoveryPointID    string
-	SourceDatabaseName string
-	SourceSchemaName   string
-	SourceTableName    string
-	TargetDatabaseName string
-	TargetSchemaName   string
-	WorkgroupName      string
+	ActivateCaseSensitiveIdentifier *bool
+	NamespaceName                   string
+	NewTableName                    string
+	SnapshotName                    string
+	RecoveryPointID                 string
+	SourceDatabaseName              string
+	SourceSchemaName                string
+	SourceTableName                 string
+	TargetDatabaseName              string
+	TargetSchemaName                string
+	WorkgroupName                   string
 }
 
 // RestoreTableFromSnapshotSL restores a single table from a serverless
@@ -70,6 +78,8 @@ func (b *InMemoryBackend) RestoreTableFromRecoveryPointSL(
 func (b *InMemoryBackend) createTableRestoreStatusLocked(
 	p RestoreTableFromSnapshotParams,
 ) *ServerlessTableRestoreStatus {
+	_ = p.ActivateCaseSensitiveIdentifier // no query execution to gate, see RestoreTableFromSnapshotParams doc comment
+
 	tr := &ServerlessTableRestoreStatus{
 		TableRestoreRequestID: uuid.New().String(),
 		NamespaceName:         p.NamespaceName,
@@ -114,8 +124,6 @@ func (b *InMemoryBackend) GetTableRestoreStatusSL(tableRestoreRequestID string) 
 
 // ListTableRestoreStatusSL returns table restore requests, optionally
 // filtered by namespaceName/workgroupName.
-//
-//nolint:dupl // pagination pattern is structurally identical across serverless resource types
 func (b *InMemoryBackend) ListTableRestoreStatusSL(
 	namespaceName, workgroupName string, maxResults int, nextToken string,
 ) ([]*ServerlessTableRestoreStatus, string) {

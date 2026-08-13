@@ -288,10 +288,12 @@ func (h *ServerlessHandler) handleCreateNamespace(c *echo.Context, body []byte) 
 	var req struct {
 		NamespaceName               string      `json:"namespaceName"`
 		AdminUsername               string      `json:"adminUsername"`
+		AdminUserPassword           string      `json:"adminUserPassword"`
 		DBName                      string      `json:"dbName"`
 		KmsKeyID                    string      `json:"kmsKeyId"`
 		DefaultIamRoleArn           string      `json:"defaultIamRoleArn"`
 		AdminPasswordSecretKmsKeyID string      `json:"adminPasswordSecretKmsKeyId"`
+		RedshiftIdcApplicationArn   string      `json:"redshiftIdcApplicationArn"`
 		IamRoles                    []string    `json:"iamRoles"`
 		LogExports                  []string    `json:"logExports"`
 		Tags                        []slTagWire `json:"tags"`
@@ -309,10 +311,12 @@ func (h *ServerlessHandler) handleCreateNamespace(c *echo.Context, body []byte) 
 	ns, err := h.Backend.CreateNamespace(CreateNamespaceParams{
 		NamespaceName:               req.NamespaceName,
 		AdminUsername:               req.AdminUsername,
+		AdminUserPassword:           req.AdminUserPassword,
 		DBName:                      req.DBName,
 		KmsKeyID:                    req.KmsKeyID,
 		DefaultIamRoleArn:           req.DefaultIamRoleArn,
 		AdminPasswordSecretKmsKeyID: req.AdminPasswordSecretKmsKeyID,
+		RedshiftIdcApplicationArn:   req.RedshiftIdcApplicationArn,
 		ManageAdminPassword:         req.ManageAdminPassword,
 		IamRoles:                    req.IamRoles,
 		LogExports:                  req.LogExports,
@@ -368,7 +372,7 @@ func (h *ServerlessHandler) handleUpdateNamespace(c *echo.Context, body []byte) 
 	var req struct {
 		NamespaceName               string   `json:"namespaceName"`
 		AdminUsername               string   `json:"adminUsername"`
-		DBName                      string   `json:"dbName"`
+		AdminUserPassword           string   `json:"adminUserPassword"`
 		KmsKeyID                    string   `json:"kmsKeyId"`
 		DefaultIamRoleArn           string   `json:"defaultIamRoleArn"`
 		AdminPasswordSecretKmsKeyID string   `json:"adminPasswordSecretKmsKeyId"`
@@ -383,7 +387,7 @@ func (h *ServerlessHandler) handleUpdateNamespace(c *echo.Context, body []byte) 
 
 	ns, err := h.Backend.UpdateNamespace(req.NamespaceName, UpdateNamespaceParams{
 		AdminUsername:               req.AdminUsername,
-		DBName:                      req.DBName,
+		AdminUserPassword:           req.AdminUserPassword,
 		KmsKeyID:                    req.KmsKeyID,
 		DefaultIamRoleArn:           req.DefaultIamRoleArn,
 		AdminPasswordSecretKmsKeyID: req.AdminPasswordSecretKmsKeyID,
@@ -497,8 +501,9 @@ func (h *ServerlessHandler) handleGetWorkgroup(c *echo.Context, body []byte) err
 
 func (h *ServerlessHandler) handleListWorkgroups(c *echo.Context, body []byte) error {
 	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
+		OwnerAccount string `json:"ownerAccount"`
+		NextToken    string `json:"nextToken"`
+		MaxResults   int    `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -507,7 +512,7 @@ func (h *ServerlessHandler) handleListWorkgroups(c *echo.Context, body []byte) e
 		}
 	}
 
-	list, outToken := h.Backend.ListWorkgroups(req.MaxResults, req.NextToken)
+	list, outToken := h.Backend.ListWorkgroups(req.OwnerAccount, req.MaxResults, req.NextToken)
 	resp := map[string]any{"workgroups": list}
 
 	if outToken != "" {
@@ -624,6 +629,7 @@ func (h *ServerlessHandler) handleGetSnapshot(c *echo.Context, body []byte) erro
 	var req struct {
 		SnapshotName string `json:"snapshotName"`
 		SnapshotArn  string `json:"snapshotArn"`
+		OwnerAccount string `json:"ownerAccount"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -635,7 +641,7 @@ func (h *ServerlessHandler) handleGetSnapshot(c *echo.Context, body []byte) erro
 		lookup = req.SnapshotArn
 	}
 
-	snap, err := h.Backend.GetServerlessSnapshot(lookup)
+	snap, err := h.Backend.GetServerlessSnapshot(lookup, req.OwnerAccount)
 	if err != nil {
 		return slHandleErr(c, err)
 	}
@@ -645,9 +651,13 @@ func (h *ServerlessHandler) handleGetSnapshot(c *echo.Context, body []byte) erro
 
 func (h *ServerlessHandler) handleListSnapshots(c *echo.Context, body []byte) error {
 	var req struct {
-		NamespaceName string `json:"namespaceName"`
-		NextToken     string `json:"nextToken"`
-		MaxResults    int    `json:"maxResults"`
+		StartTime     *float64 `json:"startTime"`
+		EndTime       *float64 `json:"endTime"`
+		NamespaceName string   `json:"namespaceName"`
+		NamespaceArn  string   `json:"namespaceArn"`
+		OwnerAccount  string   `json:"ownerAccount"`
+		NextToken     string   `json:"nextToken"`
+		MaxResults    int      `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -656,7 +666,15 @@ func (h *ServerlessHandler) handleListSnapshots(c *echo.Context, body []byte) er
 		}
 	}
 
-	list, outToken := h.Backend.ListServerlessSnapshots(req.NamespaceName, req.MaxResults, req.NextToken)
+	list, outToken := h.Backend.ListServerlessSnapshots(ListServerlessSnapshotsParams{
+		NamespaceName: req.NamespaceName,
+		NamespaceArn:  req.NamespaceArn,
+		OwnerAccount:  req.OwnerAccount,
+		StartTime:     slEpochFromPtr(req.StartTime),
+		EndTime:       slEpochFromPtr(req.EndTime),
+		MaxResults:    req.MaxResults,
+		NextToken:     req.NextToken,
+	})
 	resp := map[string]any{"snapshots": list}
 
 	if outToken != "" {
@@ -734,6 +752,7 @@ func (h *ServerlessHandler) handleGetUsageLimit(c *echo.Context, body []byte) er
 func (h *ServerlessHandler) handleListUsageLimits(c *echo.Context, body []byte) error {
 	var req struct {
 		ResourceArn string `json:"resourceArn"`
+		UsageType   string `json:"usageType"`
 		NextToken   string `json:"nextToken"`
 		MaxResults  int    `json:"maxResults"`
 	}
@@ -744,7 +763,7 @@ func (h *ServerlessHandler) handleListUsageLimits(c *echo.Context, body []byte) 
 		}
 	}
 
-	list, outToken := h.Backend.ListServerlessUsageLimits(req.ResourceArn, req.MaxResults, req.NextToken)
+	list, outToken := h.Backend.ListServerlessUsageLimits(req.ResourceArn, req.UsageType, req.MaxResults, req.NextToken)
 	resp := map[string]any{"usageLimits": list}
 
 	if outToken != "" {

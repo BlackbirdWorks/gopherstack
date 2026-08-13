@@ -99,12 +99,20 @@ func (b *InMemoryBackend) GetWorkgroup(workgroupName string) (*Workgroup, error)
 	return cloneWorkgroup(wg), nil
 }
 
-// ListWorkgroups returns all workgroups with pagination.
+// ListWorkgroups returns all workgroups with pagination, optionally filtered
+// by owner account.
 //
-//nolint:dupl // pagination pattern is structurally identical across serverless resource types
-func (b *InMemoryBackend) ListWorkgroups(maxResults int, nextToken string) ([]*Workgroup, string) {
+// ownerAccount is honestly single-account: this backend has no cross-account
+// workgroup sharing (every workgroup belongs to b.accountID), so a non-empty
+// ownerAccount that doesn't match b.accountID matches nothing -- same
+// rationale as GetServerlessSnapshot's ownerAccount filter.
+func (b *InMemoryBackend) ListWorkgroups(ownerAccount string, maxResults int, nextToken string) ([]*Workgroup, string) {
 	b.mu.RLock("ListWorkgroups")
 	defer b.mu.RUnlock()
+
+	if ownerAccount != "" && ownerAccount != b.accountID {
+		return []*Workgroup{}, ""
+	}
 
 	// Iterate the pre-sorted index so results are ordered without re-sorting.
 	keys := b.slWorkgroupIdx.ordered()

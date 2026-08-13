@@ -13,7 +13,16 @@ import (
 // ---------------------------------------------------------------------------
 
 // CreateNamespace creates a new Redshift Serverless namespace.
+//
+// p.AdminUserPassword is a credential: it is read from the wire (so a client
+// setting it doesn't get a phantom rejection) but never stored anywhere,
+// never logged, and never echoed back -- see CreateNamespaceParams' doc
+// comment. p.RedshiftIdcApplicationArn is likewise accepted but not
+// persisted, since real AWS never surfaces it back either.
 func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, error) {
+	_ = p.AdminUserPassword         // credential: intentionally never persisted, see doc comment above
+	_ = p.RedshiftIdcApplicationArn // intentionally never persisted, see doc comment above
+
 	b.mu.Lock("CreateNamespace")
 	defer b.mu.Unlock()
 
@@ -77,8 +86,6 @@ func (b *InMemoryBackend) GetNamespace(namespaceName string) (*Namespace, error)
 }
 
 // ListNamespaces returns all namespaces with pagination.
-//
-//nolint:dupl // pagination pattern is structurally identical across serverless resource types
 func (b *InMemoryBackend) ListNamespaces(maxResults int, nextToken string) ([]*Namespace, string) {
 	b.mu.RLock("ListNamespaces")
 	defer b.mu.RUnlock()
@@ -121,7 +128,12 @@ func (b *InMemoryBackend) ListNamespaces(maxResults int, nextToken string) ([]*N
 }
 
 // UpdateNamespace updates a Redshift Serverless namespace.
+//
+// p.AdminUserPassword is a credential: it is read from the wire but never
+// stored, logged, or echoed back -- see UpdateNamespaceParams' doc comment.
 func (b *InMemoryBackend) UpdateNamespace(namespaceName string, p UpdateNamespaceParams) (*Namespace, error) {
+	_ = p.AdminUserPassword // credential: intentionally never persisted, see doc comment above
+
 	b.mu.Lock("UpdateNamespace")
 	defer b.mu.Unlock()
 
@@ -132,10 +144,6 @@ func (b *InMemoryBackend) UpdateNamespace(namespaceName string, p UpdateNamespac
 
 	if p.AdminUsername != "" {
 		ns.AdminUsername = p.AdminUsername
-	}
-
-	if p.DBName != "" {
-		ns.DBName = p.DBName
 	}
 
 	if p.KmsKeyID != "" {

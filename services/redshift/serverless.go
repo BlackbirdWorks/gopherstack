@@ -87,23 +87,39 @@ type Namespace struct {
 // CreateNamespaceParams holds the mutable fields accepted by CreateNamespace.
 // Grouped into a struct because the real CreateNamespaceInput carries more
 // fields than fit a readable positional parameter list.
+//
+// AdminUserPassword and RedshiftIdcApplicationArn are accepted for wire
+// compatibility but intentionally never persisted: real CreateNamespaceInput
+// has both (confirmed against api_op_CreateNamespace.go), but neither is
+// ever echoed back on the Namespace shape (types.go has no such members), so
+// no client can observe whether this backend stores them. AdminUserPassword
+// is additionally a credential -- see CreateNamespace's doc comment.
 type CreateNamespaceParams struct {
 	Tags                        map[string]string
 	NamespaceName               string
 	AdminUsername               string
+	AdminUserPassword           string
 	DBName                      string
 	KmsKeyID                    string
 	DefaultIamRoleArn           string
 	AdminPasswordSecretKmsKeyID string
+	RedshiftIdcApplicationArn   string
 	IamRoles                    []string
 	LogExports                  []string
 	ManageAdminPassword         bool
 }
 
 // UpdateNamespaceParams holds the mutable fields accepted by UpdateNamespace.
+//
+// AdminUserPassword is accepted for wire compatibility but intentionally
+// never persisted -- see CreateNamespaceParams' doc comment; the same
+// credential-handling rationale applies here. There is deliberately no DBName
+// field: UpdateNamespaceInput has no dbName member (a namespace's database
+// name can't be changed after creation, confirmed against
+// api_op_UpdateNamespace.go), unlike CreateNamespaceInput which does.
 type UpdateNamespaceParams struct {
 	AdminUsername               string
-	DBName                      string
+	AdminUserPassword           string
 	KmsKeyID                    string
 	DefaultIamRoleArn           string
 	AdminPasswordSecretKmsKeyID string
