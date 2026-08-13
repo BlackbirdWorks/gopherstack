@@ -54,7 +54,12 @@ func (h *Handler) handleListExperimentRuns(c *echo.Context, applicationID, defId
 		return experimentRunErrorResponse(c, err)
 	}
 
-	resp := map[string]any{keyItems: runs}
+	summaries := make([]ExperimentRunSummary, 0, len(runs))
+	for _, r := range runs {
+		summaries = append(summaries, experimentRunToSummary(r))
+	}
+
+	resp := map[string]any{keyItems: summaries}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}

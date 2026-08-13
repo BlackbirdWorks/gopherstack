@@ -159,7 +159,12 @@ func (h *Handler) handleListHostedConfigurationVersions(
 		return internalServerErrorResponse(c, err)
 	}
 
-	resp := map[string]any{keyItems: versions}
+	summaries := make([]HostedConfigurationVersionSummary, 0, len(versions))
+	for _, v := range versions {
+		summaries = append(summaries, hostedConfigurationVersionToSummary(v))
+	}
+
+	resp := map[string]any{keyItems: summaries}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}

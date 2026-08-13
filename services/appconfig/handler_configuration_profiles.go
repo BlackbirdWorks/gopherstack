@@ -86,7 +86,12 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 		return internalServerErrorResponse(c, err)
 	}
 
-	resp := map[string]any{keyItems: profiles}
+	summaries := make([]ConfigurationProfileSummary, 0, len(profiles))
+	for _, p := range profiles {
+		summaries = append(summaries, configurationProfileToSummary(p))
+	}
+
+	resp := map[string]any{keyItems: summaries}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}

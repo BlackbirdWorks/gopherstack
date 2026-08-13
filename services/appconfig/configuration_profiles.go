@@ -107,6 +107,25 @@ func (b *InMemoryBackend) ListConfigurationProfiles(
 	return page, token, nil
 }
 
+// configurationProfileToSummary builds the types.ConfigurationProfileSummary
+// shape -- see its doc comment in models.go. ValidatorTypes carries one
+// entry per Validators member, in the same order.
+func configurationProfileToSummary(p ConfigurationProfile) ConfigurationProfileSummary {
+	validatorTypes := make([]string, 0, len(p.Validators))
+	for _, v := range p.Validators {
+		validatorTypes = append(validatorTypes, v.Type)
+	}
+
+	return ConfigurationProfileSummary{
+		ApplicationID:  p.ApplicationID,
+		ID:             p.ID,
+		Name:           p.Name,
+		LocationURI:    p.LocationURI,
+		Type:           p.Type,
+		ValidatorTypes: validatorTypes,
+	}
+}
+
 // UpdateConfigurationProfile updates a configuration profile. A nil
 // name/description/retrievalRoleArn/validators means the request omitted
 // that field, and AWS AppConfig leaves an omitted field unchanged rather

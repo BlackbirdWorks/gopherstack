@@ -50,6 +50,20 @@ type ConfigurationProfile struct {
 	Validators       []Validator `json:"Validators,omitempty"`
 }
 
+// ConfigurationProfileSummary is the shape ListConfigurationProfiles
+// returns (types.ConfigurationProfileSummary, deserializers.go:12061) -- a
+// strict subset of ConfigurationProfile: no Description, RetrievalRoleArn,
+// or the full Validators list. ValidatorTypes carries the validator kinds
+// only, one entry per Validators member.
+type ConfigurationProfileSummary struct {
+	ApplicationID  string   `json:"ApplicationId"`
+	ID             string   `json:"Id"`
+	Name           string   `json:"Name"`
+	LocationURI    string   `json:"LocationUri"`
+	Type           string   `json:"Type,omitempty"`
+	ValidatorTypes []string `json:"ValidatorTypes,omitempty"`
+}
+
 // HostedConfigurationVersion represents a hosted configuration version.
 type HostedConfigurationVersion struct {
 	CreatedAt              time.Time `json:"CreatedAt,omitzero"`
@@ -60,6 +74,25 @@ type HostedConfigurationVersion struct {
 	VersionLabel           string    `json:"VersionLabel,omitempty"`
 	Content                []byte    `json:"-"`
 	VersionNumber          int32     `json:"VersionNumber"`
+}
+
+// HostedConfigurationVersionSummary is the shape ListHostedConfigurationVersions
+// returns (types.HostedConfigurationVersionSummary, deserializers.go:13825) --
+// a strict subset of HostedConfigurationVersion: no CreatedAt (Get-only).
+// KmsKeyArn is a real Summary member too, but this backend never models a
+// KMS key anywhere on ConfigurationProfile -- CreateConfigurationProfile
+// doesn't accept KmsKeyIdentifier and CreateHostedConfigurationVersion has
+// no KMS input of its own either (it inherits the profile's key on real
+// AWS) -- so there is no honest value to put here. Left absent rather than
+// fabricated, same rationale as personalize's undocumented FailureReason
+// members (gopherstack-sm02).
+type HostedConfigurationVersionSummary struct {
+	ApplicationID          string `json:"ApplicationId"`
+	ConfigurationProfileID string `json:"ConfigurationProfileId"`
+	ContentType            string `json:"ContentType"`
+	Description            string `json:"Description,omitempty"`
+	VersionLabel           string `json:"VersionLabel,omitempty"`
+	VersionNumber          int32  `json:"VersionNumber"`
 }
 
 // DeploymentStrategy represents an AppConfig deployment strategy.
@@ -125,6 +158,30 @@ type Deployment struct {
 	FinalBakeTimeInMinutes      int32              `json:"FinalBakeTimeInMinutes,omitempty"`
 }
 
+// DeploymentSummary is the shape ListDeployments returns
+// (types.DeploymentSummary, deserializers.go:12583) -- a strict subset of
+// Deployment: no ApplicationId, EnvironmentId, DeploymentStrategyId,
+// Description, ConfigurationLocationUri, EventLog, or AppliedExtensions.
+// Type is a real DeploymentSummary member that GetDeployment's own output
+// shape lacks entirely -- see deploymentToSummary in deployments.go for how
+// it's populated.
+type DeploymentSummary struct {
+	StartedAt                   time.Time `json:"StartedAt,omitzero"`
+	CompletedAt                 time.Time `json:"CompletedAt,omitzero"`
+	ConfigurationProfileID      string    `json:"ConfigurationProfileId"`
+	ConfigurationVersion        string    `json:"ConfigurationVersion"`
+	State                       string    `json:"State"`
+	Type                        string    `json:"Type,omitempty"`
+	ConfigurationName           string    `json:"ConfigurationName,omitempty"`
+	GrowthType                  string    `json:"GrowthType,omitempty"`
+	VersionLabel                string    `json:"VersionLabel,omitempty"`
+	PercentageComplete          float32   `json:"PercentageComplete,omitempty"`
+	GrowthFactor                float32   `json:"GrowthFactor,omitempty"`
+	DeploymentNumber            int32     `json:"DeploymentNumber"`
+	DeploymentDurationInMinutes int32     `json:"DeploymentDurationInMinutes,omitempty"`
+	FinalBakeTimeInMinutes      int32     `json:"FinalBakeTimeInMinutes,omitempty"`
+}
+
 // ExtensionAction represents a single action in an AppConfig extension.
 type ExtensionAction struct {
 	Name        string `json:"Name,omitempty"`
@@ -150,6 +207,17 @@ type Extension struct {
 	VersionNumber int32                         `json:"VersionNumber"`
 }
 
+// ExtensionSummary is the shape ListExtensions returns (types.ExtensionSummary,
+// deserializers.go:13700) -- a strict subset of Extension: no Actions or
+// Parameters.
+type ExtensionSummary struct {
+	Arn           string `json:"Arn"`
+	Description   string `json:"Description,omitempty"`
+	ID            string `json:"Id"`
+	Name          string `json:"Name"`
+	VersionNumber int32  `json:"VersionNumber"`
+}
+
 // ExtensionAssociation represents an association between an extension and an AppConfig resource.
 type ExtensionAssociation struct {
 	Parameters             map[string]string `json:"Parameters,omitempty"`
@@ -158,6 +226,16 @@ type ExtensionAssociation struct {
 	ID                     string            `json:"Id"`
 	ResourceArn            string            `json:"ResourceArn"`
 	ExtensionVersionNumber int32             `json:"ExtensionVersionNumber"`
+}
+
+// ExtensionAssociationSummary is the shape ListExtensionAssociations returns
+// (types.ExtensionAssociationSummary, deserializers.go:13608) -- a strict
+// subset of ExtensionAssociation: no Arn, Parameters, or
+// ExtensionVersionNumber.
+type ExtensionAssociationSummary struct {
+	ExtensionArn string `json:"ExtensionArn"`
+	ID           string `json:"Id"`
+	ResourceArn  string `json:"ResourceArn"`
 }
 
 // DeletionProtectionSettings represents the deletion protection configuration for an account.
@@ -291,6 +369,23 @@ type ExperimentDefinition struct {
 	Treatments             []Treatment `json:"Treatments,omitempty"`
 }
 
+// ExperimentDefinitionSummary is the shape ListExperimentDefinitions returns
+// (types.ExperimentDefinitionSummary, deserializers.go:13090) -- a strict
+// subset of ExperimentDefinition: no AudienceDescription, AudienceRule,
+// Control, KmsKeyIdentifier, LaunchCriteria, or Treatments.
+type ExperimentDefinitionSummary struct {
+	CreatedAt              time.Time `json:"CreatedAt,omitzero"`
+	UpdatedAt              time.Time `json:"UpdatedAt,omitzero"`
+	ApplicationID          string    `json:"ApplicationId"`
+	ID                     string    `json:"Id"`
+	Name                   string    `json:"Name"`
+	ConfigurationProfileID string    `json:"ConfigurationProfileId"`
+	EnvironmentID          string    `json:"EnvironmentId"`
+	FlagKey                string    `json:"FlagKey"`
+	Hypothesis             string    `json:"Hypothesis,omitempty"`
+	Status                 string    `json:"Status"`
+}
+
 // ExperimentRunEvent records a single lifecycle event -- run start, an
 // exposure-percentage change, a treatment-override change, or a run stop --
 // observed during an experiment run. Events are recorded by this backend as
@@ -326,4 +421,18 @@ type ExperimentRun struct {
 	Events                       []ExperimentRunEvent          `json:"-"`
 	ExposurePercentage           float32                       `json:"ExposurePercentage,omitempty"`
 	Run                          int32                         `json:"Run"`
+}
+
+// ExperimentRunSummary is the shape ListExperimentRuns returns
+// (types.ExperimentRunSummary, deserializers.go:13430) -- a strict subset
+// of ExperimentRun: no ApplicationId, ExperimentDefinitionSnapshot,
+// ExposurePercentage, Result, or TreatmentOverrides.
+type ExperimentRunSummary struct {
+	StartedAt              time.Time `json:"StartedAt,omitzero"`
+	EndedAt                time.Time `json:"EndedAt,omitzero"`
+	UpdatedAt              time.Time `json:"UpdatedAt,omitzero"`
+	ExperimentDefinitionID string    `json:"ExperimentDefinitionId"`
+	Description            string    `json:"Description,omitempty"`
+	Status                 string    `json:"Status"`
+	Run                    int32     `json:"Run"`
 }

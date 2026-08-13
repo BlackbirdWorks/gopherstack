@@ -44,6 +44,13 @@ const (
 	deploymentStateReverted   = "REVERTED"
 )
 
+// deploymentTypeUser is the only types.DeploymentType this backend ever
+// produces for DeploymentSummary.Type: every Deployment here is created by
+// StartDeployment, matching real AWS's "USER" value. The "MANAGED" value
+// covers AppConfig-initiated deployments (e.g. scheduled/automatic
+// rollouts), which this backend has no code path to create.
+const deploymentTypeUser = "USER"
+
 // deploymentTimer tracks when an in-flight deployment's next progression
 // step is due. See the deploymentTimers doc comment on InMemoryBackend
 // (store.go) for why this is not persisted.
@@ -430,6 +437,27 @@ func (b *InMemoryBackend) ListDeployments(
 	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
+}
+
+// deploymentToSummary builds the types.DeploymentSummary shape -- see its
+// doc comment in models.go.
+func deploymentToSummary(d Deployment) DeploymentSummary {
+	return DeploymentSummary{
+		StartedAt:                   d.StartedAt,
+		CompletedAt:                 d.CompletedAt,
+		ConfigurationProfileID:      d.ConfigurationProfileID,
+		ConfigurationVersion:        d.ConfigurationVersion,
+		State:                       d.State,
+		Type:                        deploymentTypeUser,
+		ConfigurationName:           d.ConfigurationName,
+		GrowthType:                  d.GrowthType,
+		VersionLabel:                d.VersionLabel,
+		PercentageComplete:          d.PercentageComplete,
+		GrowthFactor:                d.GrowthFactor,
+		DeploymentNumber:            d.DeploymentNumber,
+		DeploymentDurationInMinutes: d.DeploymentDurationInMinutes,
+		FinalBakeTimeInMinutes:      d.FinalBakeTimeInMinutes,
+	}
 }
 
 // stoppableDeploymentStates are the states from which a deployment can be

@@ -69,7 +69,12 @@ func (h *Handler) handleListExperimentDefinitions(c *echo.Context) error {
 		nextToken, maxResults,
 	)
 
-	resp := map[string]any{keyItems: defs}
+	summaries := make([]ExperimentDefinitionSummary, 0, len(defs))
+	for _, d := range defs {
+		summaries = append(summaries, experimentDefinitionToSummary(d))
+	}
+
+	resp := map[string]any{keyItems: summaries}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}

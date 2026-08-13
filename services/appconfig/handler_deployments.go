@@ -83,7 +83,12 @@ func (h *Handler) handleListDeployments(
 		return internalServerErrorResponse(c, err)
 	}
 
-	resp := map[string]any{keyItems: deployments}
+	summaries := make([]DeploymentSummary, 0, len(deployments))
+	for _, d := range deployments {
+		summaries = append(summaries, deploymentToSummary(d))
+	}
+
+	resp := map[string]any{keyItems: summaries}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}

@@ -255,6 +255,20 @@ func (b *InMemoryBackend) ListExperimentRuns(
 	return page, token, nil
 }
 
+// experimentRunToSummary builds the types.ExperimentRunSummary shape -- see
+// its doc comment in models.go.
+func experimentRunToSummary(r ExperimentRun) ExperimentRunSummary {
+	return ExperimentRunSummary{
+		StartedAt:              r.StartedAt,
+		EndedAt:                r.EndedAt,
+		UpdatedAt:              r.UpdatedAt,
+		ExperimentDefinitionID: r.ExperimentDefinitionID,
+		Description:            r.Description,
+		Status:                 r.Status,
+		Run:                    r.Run,
+	}
+}
+
 // UpdateExperimentRun updates a RUNNING experiment run. See the
 // StorageBackend interface doc comment for semantics.
 func (b *InMemoryBackend) UpdateExperimentRun(
