@@ -51,11 +51,11 @@ families:
   RunTask: {status: ok, note: "FIXED: GetRunTask advances PENDING->RUNNING->COMPLETED across polls, same waiter-hang fix as Run. This pass: ListRunTasks now applies its status query filter (gap jxc5)"}
   Workflow: {status: ok, note: "FIXED: GetWorkflow advances CREATING->ACTIVE on first poll (waiter-hang fix, prior pass). This pass: (1) ListWorkflows now applies its name/type query filters (gap jxc5); (2) CreateWorkflow's response now includes the optional uuid field real CreateWorkflowOutput has (gap fedo)"}
   WorkflowVersion: {status: ok, note: "FIXED: GetWorkflowVersion advances CREATING->ACTIVE on first poll (waiter-hang fix, prior pass); pagination already correct. This pass: ListWorkflowVersions now applies its type query filter (gap jxc5)"}
-  AnnotationStore: {status: ok, note: "FIXED: GetAnnotationStore advances CREATING->ACTIVE on first poll (real AnnotationStoreCreatedWaiter previously hung forever); pagination fixed to query maxResults+nextToken. ListAnnotationStores' own status/ids filter still not applied (see deferred)"}
-  AnnotationStoreVersion: {status: ok, note: "created ACTIVE immediately (no waiter-hang risk); pagination fixed. ListAnnotationStoreVersions' own status filter still not applied (see deferred)"}
-  AnnotationImportJob: {status: ok, note: "completes synchronously; pagination fixed. This pass: ListAnnotationImportJobs now applies its status/storeName body filter and explicit ids list (gap jxc5)"}
-  VariantStore: {status: ok, note: "FIXED: GetVariantStore advances CREATING->ACTIVE on first poll (real VariantStoreCreatedWaiter previously hung forever); pagination fixed. ListVariantStores' own status/ids filter still not applied (see deferred)"}
-  VariantImportJob: {status: ok, note: "completes synchronously; pagination fixed. This pass: ListVariantImportJobs now applies its status/storeName body filter and explicit ids list (gap jxc5)"}
+  AnnotationStore: {status: ok, note: "FIXED: GetAnnotationStore advances CREATING->ACTIVE on first poll (real AnnotationStoreCreatedWaiter previously hung forever); pagination fixed to query maxResults+nextToken. ListAnnotationStores' own status/ids filter still not applied (see deferred). 2026-08-13 (gopherstack-lx5h/kb66): the ARN was tagged json:\"arn\" -- real GetAnnotationStoreOutput/AnnotationStoreItem wire key is \"storeArn\" (deserializers.go:6266) -- renamed to StoreArn/storeArn. Added NumVersions (real required \"numVersions\", deserializers.go:6225), computed live from annotationVersionsByStore at Get/List/Update time rather than stored, since a stored counter would drift as versions are added/deleted. Added StoreSizeBytes (real required \"storeSizeBytes\", deserializers.go:6289) -- this backend does not track actual stored bytes, so it is always 0 (modeled honestly, not fabricated) rather than omitted, since the field is required on the real wire. StatusMessage (also a real required GetAnnotationStoreOutput field) remains entirely unmodeled -- found while field-diffing this op but out of scope for this pass; needs a follow-up bd issue, same gap on VariantStore/AnnotationStoreVersion below"}
+  AnnotationStoreVersion: {status: ok, note: "created ACTIVE immediately (no waiter-hang risk); pagination fixed. ListAnnotationStoreVersions' own status filter still not applied (see deferred). 2026-08-13 (gopherstack-lx5h/kb66): the ARN was tagged json:\"arn\" -- real GetAnnotationStoreVersionOutput/AnnotationStoreVersionItem wire key is \"versionArn\" (deserializers.go:6564) -- renamed to VersionArn/versionArn. Added VersionSizeBytes (real required \"versionSizeBytes\", deserializers.go:6587) -- always 0, same not-tracked rationale as AnnotationStore.StoreSizeBytes. StatusMessage remains unmodeled (see AnnotationStore note)"}
+  AnnotationImportJob: {status: ok, note: "completes synchronously; pagination fixed. This pass: ListAnnotationImportJobs now applies its status/storeName body filter and explicit ids list (gap jxc5). 2026-08-13 (gopherstack-lx5h/kb66): StartAnnotationImportJob's response was built by marshaling this same domain struct with its ID field tagged json:\"id\" -- correct for GetAnnotationImportJobOutput/AnnotationImportJobItem (deserializers.go:5954/21500s) but WRONG for StartAnnotationImportJobOutput, whose only member is \"jobId\" (deserializers.go:17434). The two ops don't share a response shape in the real API, so this needed splitting rather than a rename: the start handler now builds its own {\"jobId\": ...} response and leaves the shared struct's \"id\" tag alone. Also added FormatOptions/RunLeftNormalization/VersionName/StatusMessage/UpdateTime/AnnotationFields -- real GetAnnotationImportJobOutput required members (deserializers.go:5949-6015) and real StartAnnotationImportJobInput optional members (serializers.go:7892-7935) that were entirely absent from this struct before -- a schema gap, not a dropped key, on both the request and response sides. FormatOptions is modeled as a passthrough map (same convention as Reference/SseConfig/StoreOptions elsewhere in this service); StatusMessage is always empty (no error state to describe -- this backend completes synchronously). Item-level JobStatus (real AnnotationImportItemDetail.JobStatus, required, types.go:75-88) is a further, separate gap found while reading the whole operation -- Items still only carries Source -- not fixed this pass, needs a follow-up bd issue"}
+  VariantStore: {status: ok, note: "FIXED: GetVariantStore advances CREATING->ACTIVE on first poll (real VariantStoreCreatedWaiter previously hung forever); pagination fixed. ListVariantStores' own status/ids filter still not applied (see deferred). 2026-08-13 (gopherstack-lx5h/kb66): the ARN was tagged json:\"arn\" -- real GetVariantStoreOutput/VariantStoreItem wire key is \"storeArn\" (deserializers.go:11673) -- renamed to StoreArn/storeArn. Added StoreSizeBytes (real required \"storeSizeBytes\", deserializers.go:11682) -- always 0, not tracked (see AnnotationStore note). VariantStore has no NumVersions concept in the real API (confirmed: GetVariantStoreOutput/VariantStoreItem have no such field) -- correctly not added. StatusMessage remains unmodeled (see AnnotationStore note)"}
+  VariantImportJob: {status: ok, note: "completes synchronously; pagination fixed. This pass: ListVariantImportJobs now applies its status/storeName body filter and explicit ids list (gap jxc5). 2026-08-13 (gopherstack-lx5h/kb66): same StartVariantImportJobOutput \"jobId\" (deserializers.go:18893) vs GetVariantImportJobOutput \"id\" (deserializers.go:11383) split-response bug as AnnotationImportJob above -- found by reading the whole Start/Get operation pair, not itemized in either originating bd issue, fixed the same way (dedicated {\"jobId\": ...} start response). Added RunLeftNormalization/StatusMessage/UpdateTime/AnnotationFields (real GetVariantImportJobOutput required members, deserializers.go:11406-11444, and StartVariantImportJobInput optional members, serializers.go:8737-8767) -- previously absent entirely. Unlike AnnotationImportJob, variant import jobs have NO FormatOptions or VersionName field anywhere in the real API (confirmed against both StartVariantImportJobInput and GetVariantImportJobOutput) -- correctly not added, verified rather than assumed from the annotation sibling. Same item-level JobStatus gap as AnnotationImportJob (types.VariantImportItemDetail also has an optional StatusMessage AnnotationImportItemDetail lacks) -- not fixed this pass"}
   Share: {status: ok, note: "Create/Accept/Delete/Get/List; ACCEPTING/DELETED transient statuses returned synchronously, unchanged this pass; pagination fixed. ListShares' own resourceArns/status/resourceTypes filter still not applied (see deferred)"}
   RunCache: {status: ok, note: "CRUD + List; already used correct query params"}
   RunBatch: {status: ok, note: "2026-08-07 (gopherstack-hnhk): body-shape re-architecture. StartRunBatch's real wire shape ({requestId, batchName, batchRunSettings:{inlineSettings|s3UriSettings}, defaultRunSetting:{roleArn,workflowId,...}, tags} -- field-diffed against awsRestjson1_serializeOpDocumentStartRunBatchInput/DefaultRunSetting/BatchRunSettings/InlineSetting) replaces the old flat {workflowId,roleArn,name} shape a real client never sends. Each inlineSettings entry (merged with defaultRunSetting per the documented per-run-override semantics) now creates a real constituent Run via the new startRunLocked helper shared with StartRun -- previously StartRunBatch created zero runs regardless of what a caller sent. GetBatch's real response shape (arn/creationTime/defaultRunSetting/id/name/runSummary/status/submissionSummary/submittedTime/processedTime/tags/totalRuns/uuid -- field-diffed against awsRestjson1_deserializeOpDocumentGetBatchOutput) is now built by a dedicated handler response, separate from ListBatch's smaller BatchListItem shape (arn/createdAt/id/name/status/totalRuns/workflowId) which was previously (and remains, now correctly) served by marshaling the same struct -- a latent leak risk this pass closed by giving each its own wire type instead of widening the shared one. runSummary's pending/running/completed/cancelled/failed counts are computed LIVE from surviving Run rows (summarizeRunBatchLocked) rather than stored, since this backend creates/completes runs synchronously and a stored counter would drift; deletedRunCount and submissionSummary's success/failure counts ARE stored, since DeleteRunsInBatch actually removes the Run rows they'd otherwise be computed from. ListRunsInBatch's runSettingId filter is now real (previously accepted-but-ignored; SubmissionStatus remains accepted-but-ignored -- this backend has no async submission-status state machine, batches complete synchronously). NOT modeled, see gaps: s3UriSettings (rejected with a clear ValidationException rather than silently creating zero runs -- reading real S3 object content synchronously is not something this backend can honestly simulate), most optional DefaultRunSetting fields (cacheBehavior/cacheId/configurationName/engineSettings/logLevel/networkingMode/outputBucketOwnerId/parameters/retentionMode/scratchStorageMode/storageCapacity/storageType/workflowOwnerId), and RequestId idempotency (accepted and required, matching the real API, but not deduplicated against retries)."}
@@ -72,6 +72,84 @@ leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutine
 ---
 
 ## Notes
+
+**2026-08-13 (gopherstack-lx5h/gopherstack-kb66):** fixed the omics items
+these two bd issues deferred from the required-response-member sweep (the
+other 7 services across both issues were fixed elsewhere; omics was held by
+another agent at the time). All four premises verified against the pinned
+`omics@v1.49.5` `deserializers.go`/`serializers.go` (path resolved from
+`go.mod`, read only that module-cache copy, not a stale sibling version):
+
+- `GetAnnotationStore`/`GetVariantStore` ARN tagged `json:"arn"` → real key
+  `storeArn` (deserializers.go:6266/11673).
+- `GetAnnotationStoreVersion` ARN tagged `json:"arn"` → real key
+  `versionArn` (deserializers.go:6564).
+- `StartAnnotationImportJob` job id tagged `json:"id"` → real key `jobId`
+  (deserializers.go:17434) — but `GetAnnotationImportJob`/
+  `ListAnnotationImportJobs` genuinely use `id` (deserializers.go:5954), so
+  this was NOT a blanket rename: `AnnotationImportJob.ID` keeps its `id` tag
+  (correct for Get/List) and `handleStartAnnotationImportJob` now builds a
+  dedicated `{"jobId": ...}` response instead of marshaling the domain
+  struct. Reading the whole Start/Get operation pair (not just the one op
+  gopherstack-lx5h named) found the *identical* bug on
+  `StartVariantImportJob` (real key `jobId`, deserializers.go:18893, vs
+  `GetVariantImportJob`'s `id`, deserializers.go:11383) — fixed the same way,
+  reported here since neither originating issue named it.
+- `NumVersions`/`StoreSizeBytes` (AnnotationStore, VariantStore) and
+  `VersionSizeBytes` (AnnotationStoreVersion) had no model field at all.
+  `NumVersions` is derived live from `annotationVersionsByStore` (the backend
+  already tracks per-store version rows via that index) rather than stored,
+  to avoid drift. The two size fields are honestly modeled but always `0`:
+  nothing in this in-memory backend measures real stored bytes, and a
+  required wire field can't be omitted the way an optional one can, so `0`
+  (not a fabricated plausible-looking number) is what a client receives.
+- `FormatOptions`/`RunLeftNormalization` were missing from
+  `GetAnnotationImportJob`/`GetVariantImportJob` on both the request
+  (`StartAnnotationImportJob`/`StartVariantImportJob` silently dropped
+  caller-supplied values — the handler never even read them into its request
+  struct) and response sides — a schema gap, not a dropped key, per the
+  issue's framing. Field-diffing the full `GetAnnotationImportJobOutput`/
+  `GetVariantImportJobOutput` shapes (not just the two named fields) while
+  already inside these structs turned up the same class of gap on
+  `VersionName` (annotation only — confirmed variant import jobs have no
+  such field anywhere in the real API), `StatusMessage`, `UpdateTime`, and
+  `AnnotationFields`; all four are also real required (or accepted-but-
+  dropped optional) members of the same ops, so they were closed in the same
+  pass rather than left half-fixed next to the two the issue named.
+
+Two further gaps were found but NOT fixed this pass, to keep scope to what
+the two structs actually needed for their named ops (both worth a follow-up
+bd issue): `StatusMessage` (real required `GetAnnotationStoreOutput`/
+`GetVariantStoreOutput`/`GetAnnotationStoreVersionOutput` field,
+deserializers.go:6257 etc.) is absent from `AnnotationStore`/`VariantStore`/
+`AnnotationStoreVersion` entirely — a wider version of the same StatusMessage
+gap closed on the import-job structs above, but touching three more
+Create/Get/Update/List families was out of scope here; and per-item
+`JobStatus` (real required `AnnotationImportItemDetail`/
+`VariantImportItemDetail` field, types.go:75-88/2060-2076) is still missing
+from `AnnotationImportJob.Items`/`VariantImportJob.Items`, which only carry
+`Source` — `StartAnnotationImportJob`/`StartVariantImportJob` take
+`ItemSource` (Source only) but `Get`/`List` return `ItemDetail` (Source +
+JobStatus), two genuinely different real shapes this service currently
+conflates into one.
+
+Proof: `wire_field_additions_test.go` drives the real `aws-sdk-go-v2/service/
+omics` client against an `httptest` server (same pattern as
+`services/acm/wire_field_additions_test.go`) for all of the above — a raw-
+JSON assertion against the wrong key would have passed against the bug, so
+only round-tripping through the genuine SDK deserializer proves the fix.
+Every case was hand-verified to fail against the pre-fix code (tag/field/
+handler-arg reverted, test re-run, re-applied) before being counted as
+proof, not just written and trusted: 8 tests, 7 of 8 fix categories directly
+reverted and re-confirmed failing (the eighth, `VersionSizeBytes`, shares its
+model-diffing proof with `StoreSizeBytes`/`NumVersions`).
+
+The annotation/variant-store family of operations routes to a real
+`analytics-<region>...` endpoint-host-prefix (see e.g.
+`endpointPrefix_opGetAnnotationStoreMiddleware` in the generated SDK); the
+test helper disables it via `smithyhttp.DisableEndpointHostPrefix` on an
+Initialize-step middleware so the SDK talks to the local `httptest` server
+instead of trying to resolve a nonexistent `analytics-127.0.0.1` host.
 
 **2026-08-13 (gopherstack-jqh2 pass 2):** re-extracted all 107 ops' real
 method+path directly from `omics@v1.49.5` serializers.go and drove them

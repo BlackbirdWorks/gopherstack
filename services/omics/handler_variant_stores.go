@@ -82,21 +82,33 @@ func (h *Handler) handleUpdateVariantStore(c *echo.Context, name string) error {
 
 func (h *Handler) handleStartVariantImportJob(c *echo.Context) error {
 	var req struct {
-		DestinationName string              `json:"destinationName"`
-		RoleArn         string              `json:"roleArn"`
-		Items           []VariantImportItem `json:"items"`
+		AnnotationFields     map[string]string   `json:"annotationFields"`
+		DestinationName      string              `json:"destinationName"`
+		RoleArn              string              `json:"roleArn"`
+		Items                []VariantImportItem `json:"items"`
+		RunLeftNormalization bool                `json:"runLeftNormalization"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	job, err := h.Backend.StartVariantImportJob(req.DestinationName, req.RoleArn, req.Items)
+	job, err := h.Backend.StartVariantImportJob(
+		req.DestinationName,
+		req.RoleArn,
+		req.Items,
+		req.AnnotationFields,
+		req.RunLeftNormalization,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, job)
+	// Real StartVariantImportJobOutput's only member is "jobId"
+	// (deserializers.go:18893) -- distinct from GetVariantImportJobOutput's
+	// "id" (deserializers.go:11383), so this doesn't marshal the domain
+	// struct directly the way most other Create/Get pairs in this file do.
+	return c.JSON(http.StatusCreated, map[string]any{"jobId": job.ID})
 }
 
 func (h *Handler) handleGetVariantImportJob(c *echo.Context, jobID string) error {

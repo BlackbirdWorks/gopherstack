@@ -235,6 +235,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	annImportJob, err := original.StartAnnotationImportJob(
 		annStore.Name, "role-arn", []omics.AnnotationImportItem{{Source: "s3://bucket/ann.vcf"}},
+		nil, nil, false, "",
 	)
 	require.NoError(t, err)
 
@@ -244,6 +245,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	varImportJob, err := original.StartVariantImportJob(
 		varStore.Name, "role-arn", []omics.VariantImportItem{{Source: "s3://bucket/var.vcf"}},
+		nil, false,
 	)
 	require.NoError(t, err)
 

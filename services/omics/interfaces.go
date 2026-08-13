@@ -179,6 +179,10 @@ type StorageBackend interface {
 	StartAnnotationImportJob(
 		destinationName, roleARN string,
 		items []AnnotationImportItem,
+		annotationFields map[string]string,
+		formatOptions map[string]any,
+		runLeftNormalization bool,
+		versionName string,
 	) (*AnnotationImportJob, error)
 	GetAnnotationImportJob(jobID string) (*AnnotationImportJob, error)
 	ListAnnotationImportJobs(
@@ -220,6 +224,8 @@ type StorageBackend interface {
 	StartVariantImportJob(
 		destinationName, roleARN string,
 		items []VariantImportItem,
+		annotationFields map[string]string,
+		runLeftNormalization bool,
 	) (*VariantImportJob, error)
 	GetVariantImportJob(jobID string) (*VariantImportJob, error)
 	ListVariantImportJobs(

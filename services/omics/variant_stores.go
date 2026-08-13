@@ -38,11 +38,11 @@ func (b *InMemoryBackend) CreateVariantStore(
 		CreationTime: now,
 		UpdateTime:   now,
 	}
-	vs.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "variantStore/"+name)
+	vs.StoreArn = arn.Build("omics", b.defaultRegion, b.accountID, "variantStore/"+name)
 	b.variantStores.Put(vs)
 
 	if tags != nil {
-		b.tags[vs.Arn] = copyTags(tags)
+		b.tags[vs.StoreArn] = copyTags(tags)
 	}
 
 	result := *vs
@@ -60,7 +60,7 @@ func (b *InMemoryBackend) DeleteVariantStore(name string) (*VariantStore, error)
 		return nil, fmt.Errorf("%w: variant store %s not found", ErrNotFound, name)
 	}
 
-	delete(b.tags, vs.Arn)
+	delete(b.tags, vs.StoreArn)
 	b.variantStores.Delete(name)
 
 	result := *vs
@@ -142,10 +142,16 @@ func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*Variant
 	return &result, nil
 }
 
-// StartVariantImportJob starts a variant import job.
+// StartVariantImportJob starts a variant import job. annotationFields and
+// runLeftNormalization are real optional StartVariantImportJobInput members
+// (serializers.go:8737-8767) that were previously dropped on the floor -- the
+// handler never read them at all. Unlike annotation import jobs, variant
+// import jobs have no formatOptions or versionName field in the real API.
 func (b *InMemoryBackend) StartVariantImportJob(
 	destinationName, roleARN string,
 	items []VariantImportItem,
+	annotationFields map[string]string,
+	runLeftNormalization bool,
 ) (*VariantImportJob, error) {
 	b.mu.Lock("StartVariantImportJob")
 	defer b.mu.Unlock()
@@ -156,13 +162,16 @@ func (b *InMemoryBackend) StartVariantImportJob(
 
 	now := time.Now().UTC()
 	job := &VariantImportJob{
-		ID:              newID(),
-		DestinationName: destinationName,
-		RoleARN:         roleARN,
-		Items:           items,
-		Status:          statusCompleted,
-		CreationTime:    now,
-		CompletionTime:  &now,
+		ID:                   newID(),
+		DestinationName:      destinationName,
+		RoleARN:              roleARN,
+		Items:                items,
+		AnnotationFields:     annotationFields,
+		RunLeftNormalization: runLeftNormalization,
+		Status:               statusCompleted,
+		CreationTime:         now,
+		CompletionTime:       &now,
+		UpdateTime:           now,
 	}
 	b.variantImportJobs.Put(job)
 

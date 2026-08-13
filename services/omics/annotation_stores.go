@@ -42,11 +42,11 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 		CreationTime: now,
 		UpdateTime:   now,
 	}
-	as.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "annotationStore/"+name)
+	as.StoreArn = arn.Build("omics", b.defaultRegion, b.accountID, "annotationStore/"+name)
 	b.annotationStores.Put(as)
 
 	if tags != nil {
-		b.tags[as.Arn] = copyTags(tags)
+		b.tags[as.StoreArn] = copyTags(tags)
 	}
 
 	result := *as
@@ -64,7 +64,7 @@ func (b *InMemoryBackend) DeleteAnnotationStore(name string) (*AnnotationStore, 
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
-	delete(b.tags, as.Arn)
+	delete(b.tags, as.StoreArn)
 	b.annotationStores.Delete(name)
 
 	for _, v := range slices.Clone(b.annotationVersionsByStore.Get(name)) {
@@ -97,8 +97,18 @@ func (b *InMemoryBackend) GetAnnotationStore(name string) (*AnnotationStore, err
 	}
 
 	result := *as
+	result.NumVersions = b.numAnnotationVersionsLocked(name)
 
 	return &result, nil
+}
+
+// numAnnotationVersionsLocked returns the current version count for an
+// annotation store, computed live from annotationVersionsByStore (real
+// GetAnnotationStoreOutput's required "numVersions", deserializers.go:6225)
+// rather than stored, since a stored counter would drift as versions are
+// added/deleted. Caller must hold b.mu.
+func (b *InMemoryBackend) numAnnotationVersionsLocked(name string) int32 {
+	return int32(len(b.annotationVersionsByStore.Get(name))) //nolint:gosec // G115: bounded by realistic version counts
 }
 
 // ListAnnotationStores lists annotation stores, optionally filtered by status
@@ -127,6 +137,10 @@ func (b *InMemoryBackend) ListAnnotationStores(
 
 	result, outToken := paginatedCopies(names, nextToken, maxResults, b.annotationStores.Get)
 
+	for _, as := range result {
+		as.NumVersions = b.numAnnotationVersionsLocked(as.Name)
+	}
+
 	return result, outToken, nil
 }
 
@@ -148,14 +162,22 @@ func (b *InMemoryBackend) UpdateAnnotationStore(
 
 	as.UpdateTime = time.Now().UTC()
 	result := *as
+	result.NumVersions = b.numAnnotationVersionsLocked(name)
 
 	return &result, nil
 }
 
-// StartAnnotationImportJob starts an annotation import job.
+// StartAnnotationImportJob starts an annotation import job. annotationFields,
+// formatOptions, runLeftNormalization, and versionName are real optional
+// StartAnnotationImportJobInput members (serializers.go:7892-7935) that were
+// previously dropped on the floor -- the handler never read them at all.
 func (b *InMemoryBackend) StartAnnotationImportJob(
 	destinationName, roleARN string,
 	items []AnnotationImportItem,
+	annotationFields map[string]string,
+	formatOptions map[string]any,
+	runLeftNormalization bool,
+	versionName string,
 ) (*AnnotationImportJob, error) {
 	b.mu.Lock("StartAnnotationImportJob")
 	defer b.mu.Unlock()
@@ -166,13 +188,18 @@ func (b *InMemoryBackend) StartAnnotationImportJob(
 
 	now := time.Now().UTC()
 	job := &AnnotationImportJob{
-		ID:              newID(),
-		DestinationName: destinationName,
-		RoleARN:         roleARN,
-		Items:           items,
-		Status:          statusCompleted,
-		CreationTime:    now,
-		CompletionTime:  &now,
+		ID:                   newID(),
+		DestinationName:      destinationName,
+		RoleARN:              roleARN,
+		Items:                items,
+		AnnotationFields:     annotationFields,
+		FormatOptions:        formatOptions,
+		RunLeftNormalization: runLeftNormalization,
+		VersionName:          versionName,
+		Status:               statusCompleted,
+		CreationTime:         now,
+		CompletionTime:       &now,
+		UpdateTime:           now,
 	}
 	b.annotationImportJobs.Put(job)
 
@@ -276,7 +303,7 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 		CreationTime: now,
 		UpdateTime:   now,
 	}
-	v.Arn = arn.Build(
+	v.VersionArn = arn.Build(
 		"omics",
 		b.defaultRegion,
 		b.accountID,
@@ -285,7 +312,7 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 	b.annotationVersions.Put(v)
 
 	if tags != nil {
-		b.tags[v.Arn] = copyTags(tags)
+		b.tags[v.VersionArn] = copyTags(tags)
 	}
 
 	result := *v
@@ -319,7 +346,7 @@ func (b *InMemoryBackend) DeleteAnnotationStoreVersions(
 			continue
 		}
 
-		delete(b.tags, v.Arn)
+		delete(b.tags, v.VersionArn)
 		b.annotationVersions.Delete(parentKey(name, vn))
 	}
 

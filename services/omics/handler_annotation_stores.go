@@ -92,21 +92,37 @@ func (h *Handler) handleUpdateAnnotationStore(c *echo.Context, name string) erro
 
 func (h *Handler) handleStartAnnotationImportJob(c *echo.Context) error {
 	var req struct {
-		DestinationName string                 `json:"destinationName"`
-		RoleArn         string                 `json:"roleArn"`
-		Items           []AnnotationImportItem `json:"items"`
+		AnnotationFields     map[string]string      `json:"annotationFields"`
+		FormatOptions        map[string]any         `json:"formatOptions"`
+		DestinationName      string                 `json:"destinationName"`
+		RoleArn              string                 `json:"roleArn"`
+		VersionName          string                 `json:"versionName"`
+		Items                []AnnotationImportItem `json:"items"`
+		RunLeftNormalization bool                   `json:"runLeftNormalization"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	job, err := h.Backend.StartAnnotationImportJob(req.DestinationName, req.RoleArn, req.Items)
+	job, err := h.Backend.StartAnnotationImportJob(
+		req.DestinationName,
+		req.RoleArn,
+		req.Items,
+		req.AnnotationFields,
+		req.FormatOptions,
+		req.RunLeftNormalization,
+		req.VersionName,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, job)
+	// Real StartAnnotationImportJobOutput's only member is "jobId"
+	// (deserializers.go:17434) -- distinct from GetAnnotationImportJobOutput's
+	// "id" (deserializers.go:5954), so this doesn't marshal the domain
+	// struct directly the way most other Create/Get pairs in this file do.
+	return c.JSON(http.StatusCreated, map[string]any{"jobId": job.ID})
 }
 
 func (h *Handler) handleGetAnnotationImportJob(c *echo.Context, jobID string) error {
