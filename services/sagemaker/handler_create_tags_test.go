@@ -237,10 +237,11 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 				t.Helper()
 
 				out, err := client.CreateApp(t.Context(), &sagemakersdk.CreateAppInput{
-					DomainId: aws.String("d-tagged"),
-					AppType:  smtypes.AppTypeJupyterServer,
-					AppName:  aws.String("tagged-app"),
-					Tags:     []smtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
+					DomainId:        aws.String("d-tagged"),
+					UserProfileName: aws.String("tagged-user"),
+					AppType:         smtypes.AppTypeJupyterServer,
+					AppName:         aws.String("tagged-app"),
+					Tags:            []smtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
 				})
 				require.NoError(t, err)
 

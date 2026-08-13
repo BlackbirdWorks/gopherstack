@@ -108,7 +108,7 @@ families:
   processing_transform_job: {status: ok, note: "Wire-audited this pass: DescribeProcessingJob/DescribeTransformJob field-by-field against SDK output structs — field names, optional-field gating, and epoch-seconds timestamps all correct. No bugs found."}
   notebook_instance: {status: ok, note: "Wire-audited this pass: DescribeNotebookInstanceFull field-by-field against SDK — all optional fields correctly gated, epoch-seconds timestamps correct. No bugs found."}
   hyperparameter_tuning_job: {status: ok, note: "FIXED this pass — see Notes (wire-shape bug: flat Strategy instead of nested HyperParameterTuningJobConfig, missing required ObjectiveStatusCounters/TrainingJobStatusCounters/ResourceLimits)."}
-  domain_app_userprofile_space: {status: partial, note: "Space's Describe/List timestamp encoding FIXED this pass (see systemic timestamp bug in Notes). Domain/App/UserProfile not otherwise wire-audited this pass."}
+  domain_app_userprofile_space: {status: partial, note: "Space's Describe/List timestamp encoding FIXED parity-4 (see systemic timestamp bug in Notes). FIXED this pass (parity-7, gopherstack-oc9v) — this family was the largest concentration of anonymous inline request structs in the service (part of the 362 counted repo-wide) and had never been wire-audited; converted all 19 Create/Describe/List/Delete/Update handlers across Domain/App/Space/UserProfile to named types and found real gaps, not just a tooling blind spot. See Notes: parity-7 for the full list; highlights: CreateDomain was missing DefaultUserSettings entirely — a 'This member is required' CreateDomainInput field — so it was silently accepted-and-dropped rather than rejected; CreateApp had no way to create a Space-owned app at all (CreateAppInput.SpaceName, the real alternative to UserProfileName, didn't exist on the wire struct), so any client without a UserProfile could never launch an app even though this backend has supported Spaces since spaces.go; ListDomains/ListApps/ListSpaces/ListUserProfiles all silently ignored MaxResults and had none of ListApps'/ListSpaces'/ListUserProfiles' real SortBy/SortOrder/*Equals/*Contains filter-and-sort fields — the exact 'parsed field, silently ignored' defect class this campaign targets. All now real: MaxResults caps the page via paginateSlice, SortBy/SortOrder reorder by CreationTime/LastModifiedTime, UserProfileNameEquals/SpaceNameEquals/SpaceNameContains/UserProfileNameContains narrow the result set. DefaultSpaceSettings/DomainSettings/DomainSettingsForUpdate/UserSettings/OwnershipSettings/SpaceSettings/SpaceSharingSettings/ResourceSpec are carried as opaque json.RawMessage passthrough (established convention, see ai_workload_configs.go) rather than fully typed — these are all deeply-nested union/config shapes (UserSettings alone has ~20 app-specific sub-configs) out of this pass's budget; every field a client actually sends round-trips exactly. UpdateDomain went from a pure no-op (only bumped LastModifiedTime) to a real partial update of AppNetworkAccessType/AppSecurityGroupManagement/HomeEfsFileSystemCreation/TagPropagation/VpcId/SubnetIds/DefaultUserSettings/DefaultSpaceSettings/DomainSettingsForUpdate. See gaps: for what's still not modeled (DescribeApp/DescribeDomain's remaining server-derived/identity fields, UserSettings' internal structure)."}
   pipeline_pipeline_execution: {status: partial, note: "parity-5, wire-audited op-by-op against api_op_{Create,Update,Delete,Describe,List}Pipeline*.go. FIXED this pass — DescribePipelineExecution silently dropped ParallelismConfiguration even though it was already stored on the backend struct (class-a bug); StartPipelineExecution/DescribePipelineExecution now also accept+echo PipelineVersionId and SelectiveExecutionConfig (previously accepted-and-dropped, both real optional CreateInput/DescribeOutput fields). FIXED this pass (parity-6) — DescribePipeline now accepts the optional PipelineVersionId input (previously ignored, always describing the current version regardless; an unknown version now correctly errors instead of silently returning the current one) and returns LastRunTime (derived as the max StartTime across the pipeline's PipelineExecutions, or omitted if it has never run — a real, not fabricated, value). FIXED this pass (gopherstack-i359, session 2) — CreatePipeline/UpdatePipeline's PipelineDefinitionS3Location (api_op_CreatePipeline.go:59, api_op_UpdatePipeline.go:43) was previously accepted-and-dropped; honoring it for real needed a cross-service S3 GetObject call (out of scope that session — cli.go's S3 wiring was owned elsewhere), so it was rejected explicitly with a ValidationException instead of silently ignored. FIXED for real this pass (gopherstack-i359, session 3) — CreatePipeline/UpdatePipeline now fetch the real object through the backend's wired S3Accessor (services/sagemaker/s3pipeline.go, cli.go's wireSageMakerS3, same registry pattern as wireMGNS3/wireDynamoDBS3) and use its body as PipelineDefinition. The ValidationException path is retained only for the genuinely-unreadable case (no S3 backend wired, or GetObject/read failure against a real bucket/key) — an honest error, not a fabricated definition. Remaining gaps (not fixed, see gaps:): DescribePipeline still omits PipelineVersionDescription/PipelineVersionDisplayName/CreatedBy/LastModifiedBy; ListPipelines summary is missing PipelineDescription/PipelineDisplayName/RoleArn/LastExecutionTime."}
   experiment_trial_trial_component: {status: partial, note: "parity-5, wire-audited against api_op_{Create,Describe,List}{Experiment,Trial,TrialComponent}.go. FIXED this pass — CreateExperiment/CreateTrial silently dropped DisplayName (and Experiment's Description), both real optional Create fields, so a client-supplied display name never round-tripped through Describe/List until a later Update call; ListExperiments/ListTrials summaries also gained DisplayName/LastModifiedTime (real ExperimentSummary/TrialSummary fields). CreateTrialComponent was the worst finding in this family: it silently dropped StartTime/EndTime/Status/Parameters/InputArtifacts/OutputArtifacts/DisplayName entirely — every field a client actually uses a TrialComponent for — now accepted and stored. Also fixed a genuine wire-shape bug (not accept-and-drop, but same severity class): TrialComponent.Status was serialized as a bare JSON string, but the real DescribeTrialComponentOutput.Status/TrialComponentSummary.Status is a {PrimaryStatus,Message} object (types.TrialComponentStatus) — a real AWS SDK client's JSON deserializer would fail outright on the old shape. The pre-existing TestHandler_UpdateTrialComponent test literally asserted the buggy bare-string shape; updated it to the correct object shape as part of this fix. Not fixed (see gaps:): CreatedBy/LastModifiedBy/Source (UserContext — no identity model to derive from, class d)."}
   feature_store: {status: partial, note: "parity-5, wire-audited CreateFeatureGroup/DescribeFeatureGroup/UpdateFeatureGroup against api_op_{Create,Describe,Update}FeatureGroup.go. FIXED this pass — RoleArn and Description are both real CreateFeatureGroupInput fields (RoleArn is what OfflineStoreConfig replication would use) that were accepted-and-dropped entirely; now stored and returned. FIXED this pass (parity-6) — OnlineStoreConfig/OfflineStoreConfig/ThroughputConfig (CreateFeatureGroupInput/DescribeFeatureGroupOutput) are now fully modeled and round-trip: OnlineStoreConfig (EnableOnlineStore/StorageType/SecurityConfig.KmsKeyId/TtlDuration), OfflineStoreConfig (S3StorageConfig/DataCatalogConfig/TableFormat/DisableGlueTableCreation), ThroughputConfig (ThroughputMode/ProvisionedRead+WriteCapacityUnits — one Go type serves both CreateFeatureGroupInput.ThroughputConfig and DescribeFeatureGroupOutput.ThroughputConfigDescription since their fields are identical). NOT fixed (see gaps:): UpdateFeatureGroup's OnlineStoreConfigUpdate/ThroughputConfigUpdate (a distinct, separate update path from Create's fields, out of this pass's scope); LastUpdateStatus/OfflineStoreStatus/FailureReason/OnlineStoreTotalSizeBytes (DescribeFeatureGroupOutput fields describing async store-creation progress, not modeled); FeatureRecord PutRecord/GetRecord/DeleteRecord/BatchGetRecord (feature_store.go) belong to the separate sagemaker-featurestore-runtime SDK, not the sagemaker control-plane SDK audited here, and were out of scope."}
@@ -138,9 +138,10 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "parity-5: lineage's CreateAction/CreateArtifact accept no MetadataProperties field (a real, optional CreateActionInput/CreateArtifactInput field) — low-severity accept-and-drop left for a follow-up pass since the rest of this family was clean. (no bd issue filed yet)"
   - "parity-6: CreateAutoMLJobV2/DescribeAutoMLJobV2's AutoMLProblemTypeConfig is a 5-member tagged union (ImageClassificationJobConfig/TabularJobConfig/TextClassificationJobConfig/TextGenerationJobConfig/TimeSeriesForecastingJobConfig), each itself a materially large nested struct (e.g. TabularJobConfig alone has CandidateGenerationConfig/FeatureSpecificationS3Uri/Mode/ProblemType/TargetAttributeName/...). Carried as opaque json.RawMessage passthrough, same established convention as this file's other deeply-nested unions (ai_benchmark_job/ai_recommendation_job/inference_recommendations_job) — every field a client sends round-trips exactly; only AutoMLProblemTypeConfigName (which member is present) is derived, not the member's internal fields. (no bd issue filed yet)"
   - "parity-6: DescribeAutoMLJobV2Output's BestCandidate/PartialFailureReasons/ResolvedAttributes/AutoMLJobArtifacts/EndTime/FailureReason/ModelDeployResult are not modeled — these are server-synthesized/derived fields that mirror V1 DescribeAutoMLJobOutput's pre-existing, disclosed depth limit (V1 has never modeled BestCandidate/ResolvedAttributes/etc. either); not a V2-specific regression, just not newly fixed by this pass. (no bd issue filed yet)"
+  - "parity-7 (gopherstack-oc9v): Domain's DefaultUserSettings/DefaultSpaceSettings/DomainSettings, UserProfile's UserSettings, Space's OwnershipSettings/SpaceSettings/SpaceSharingSettings, and App's ResourceSpec are all carried as opaque json.RawMessage passthrough rather than fully-typed structs — UserSettings alone has ~20 app-specific sub-configs (JupyterServerAppSettings, KernelGatewayAppSettings, CanvasAppSettings, CodeEditorAppSettings, SpaceStorageSettings, ...), each individually as large as a small family already in this file. Every field a client sends round-trips exactly; no server-synthesized sub-field is fabricated. (no bd issue filed yet)"
+  - "parity-7 (gopherstack-oc9v): DescribeApp/DescribeDomain still omit several real optional output-only fields this pass didn't add backend state for: App's EffectiveTrustedIdentityPropagationStatus/BuiltInLifecycleConfigArn/FailureReason/LastHealthCheckTimestamp/LastUserActivityTimestamp; Domain's FailureReason/HomeEfsFileSystemId/SecurityGroupIdForDomainBoundary/SingleSignOnApplicationArn/SingleSignOnManagedApplicationInstanceId/HomeEfsFileSystemKmsKeyId (deprecated, superseded by KmsKeyId which IS modeled). These are server-derived/lifecycle fields with no synchronous backend process to derive them from truthfully; left absent rather than fabricated. (no bd issue filed yet)"
 
 deferred:                 # consciously not (fully) audited this pass (scope) — next pass targets
-  - domain_app_userprofile_space (Domain/App/UserProfile portion; Space timestamp bug fixed)
   - model_package_model_package_group (beyond ModelPackageStatusDetails fix; InferenceSpecification etc. not audited)
   - edge_deployment_device_fleet (EdgeDeploymentPlan/EdgePackagingJob portion; DeviceFleet/Device fixed)
   - training_plan (beyond timestamp fix)
@@ -758,5 +759,96 @@ verified type tree on record (`gaps:` entry above) so a future pass can scope an
 accurately in one sitting, rather than re-deriving it from scratch a fourth time.
 
 Gates for this session: `go build ./...`, `go test -race ./services/sagemaker/... .`, and
+`golangci-lint run ./services/sagemaker/...` all clean; zero
+`nolint:{cyclop,gocyclo,gocognit,funlen}` added.
+
+## parity-7 (2026-08-13, gopherstack-oc9v): Domain/App/Space/UserProfile inline-struct sweep
+
+gopherstack-oc9v sized a repo-wide blind spot: handlers that declare their request as an
+anonymous inline `struct{...}` are invisible to both wire-sweep tools, which match on named
+types. sagemaker held 362 of the repo's 1487 candidates — the largest concentration, and the
+only service proven (via `ListAssociations`, fixed gopherstack-cgq3) to hide real bugs.
+
+Per `PARITY.md`'s own frontmatter/families at the start of this session: sagemaker was already
+graded A with an extensive per-op/family audit history (parity-4/5/6). The `domain_app_
+userprofile_space` family was explicitly marked `deferred`/`partial` — "Domain/App/UserProfile
+not otherwise wire-audited this pass" — making it the correct, honestly-scoped starting point:
+real uncovered surface, not a re-derivation of already-verified work.
+
+**Enumerated vs. converted vs. audited:** all 19 inline `struct{...}` request declarations
+across `handler_domains.go` (5), `handler_apps.go` (4), `handler_spaces.go` (5), and
+`handler_user_profiles.go` (5) were converted to named types (`createDomainInput`,
+`describeDomainInput`, `listDomainsInput`, `deleteDomainInput`, `updateDomainInput`, and the
+equivalent for App/Space/UserProfile) and wire-audited field-by-field against the pinned SDK
+(`v1.263.2`: `api_op_{Create,Describe,List,Delete,Update}{Domain,App,Space,UserProfile}.go`).
+This is a small slice of the repo-wide 362/1487, scoped deliberately (see gopherstack-oc9v's own
+"work in deterministic order, state exactly where you stopped" instruction) rather than a shallow
+pass over all of them — see that issue for what remains repo-wide.
+
+**Findings, classified (a=absent entirely, b=wrong name, c=deliberately unmodelled):**
+
+- (a) `CreateDomainInput.DefaultUserSettings` — `This member is required` — did not exist on the
+  wire struct at all; a real client's mandatory field was silently accepted-and-dropped instead
+  of rejected. Now required (`ValidationException` if absent) and stored as opaque
+  `json.RawMessage` passthrough (`domains.go`).
+- (a) `CreateAppInput.SpaceName` — the real, documented alternative to `UserProfileName`
+  ("The name of the space. If this value is not set, then UserProfileName must be set.") — did
+  not exist on the wire struct. A client with only a Space (no UserProfile) could never launch an
+  app through `CreateApp`, even though this backend has modeled Spaces since `spaces.go`. Fixed:
+  `CreateApp`/`DescribeApp`/`DeleteApp` now accept `SpaceName` as an alternative identity to
+  `UserProfileName`, validated as mutually exclusive-and-required (one, not both, not neither).
+- (a) `ListDomainsInput.MaxResults`, `ListAppsInput.{MaxResults,SortBy,SortOrder,
+  SpaceNameEquals,UserProfileNameEquals}`, `ListSpacesInput.{MaxResults,SortBy,SortOrder,
+  SpaceNameContains}`, `ListUserProfilesInput.{MaxResults,SortBy,SortOrder,
+  UserProfileNameContains}` — none of these nine real filter/sort/pagination fields were modeled
+  anywhere in the family; every `List*` silently used a fixed page size and insertion-order-ish
+  sort regardless of what the client asked for. This is the exact "parsed field, silently
+  ignored" defect class gopherstack-oc9v exists to find. All nine are now real: `MaxResults`
+  caps the page via the existing `paginateSlice` helper; `SortBy`/`SortOrder` reorder by
+  `CreationTime`/`LastModifiedTime` (the real `AppSortKey`/`SpaceSortKey`/`UserProfileSortKey`
+  enum values, confirmed against `types/enums.go`); the four `*Equals`/`*Contains` filters narrow
+  the result set.
+- (c) `CreateAppInput.ResourceSpec`, `CreateSpaceInput.{OwnershipSettings,SpaceSettings,
+  SpaceSharingSettings}`, `CreateUserProfileInput.UserSettings`,
+  `CreateDomainInput.{DefaultSpaceSettings,DomainSettings}`, `UpdateDomainInput.
+  DomainSettingsForUpdate` — deeply-nested config/union shapes (`UserSettings` alone has ~20
+  app-specific sub-configs). Modeled as opaque `json.RawMessage` passthrough, the established
+  convention in this file (`ai_workload_configs.go`, `algorithms.go`) for shapes materially
+  larger than a single pass's budget — every field a client sends round-trips exactly through
+  Create→Describe and a persistence Snapshot/Restore cycle; nothing is fabricated.
+- (a) `CreateUserProfileInput.{SingleSignOnUserIdentifier,SingleSignOnUserValue}` — simple flat
+  strings, previously absent; now modeled and round-tripped.
+- `UpdateDomain` was a pure no-op beyond bumping `LastModifiedTime` — none of
+  `UpdateDomainInput`'s nine real optional fields were accepted. Now a real partial update
+  (`UpdateDomainOptions`/`applyUpdateDomainOptions`): each field overwrites only when the client
+  supplies it, leaving the rest of the domain untouched, matching AWS's partial-update semantics.
+
+**A second bug the conversion itself surfaced** (the exact pattern gopherstack-oc9v warned about
+— "conversion itself surfaces gaps"): adding `SpaceName` to `appKey` fixed the request-shape gap,
+but `store_domain.go`'s `appsStore`/`appsStoreRO` had their own separately-hand-written `keyFn`
+closures that built the `App` table's primary key — and those were not updated alongside
+`appKey`. The result: `CreateApp` computed its duplicate-check key with the new 5-field
+`appKeyString` (including `SpaceName`), but `store.Table.Put` computed a *different* key via the
+stale 4-field closure, so a Space-owned app was stored under one key and looked up under another
+— `DescribeApp` returned `ResourceNotFound` for an app that had just been created successfully.
+Caught immediately by `TestHandler_CreateApp_SpaceOwned` (added this pass) before this reached
+any shared branch; fixed by updating both closures in `store_domain.go` to match `appKey`'s new
+shape.
+
+**Tests:** every fix above has a table-driven or targeted test that asserts on the actual
+narrowed/reordered/capped/rejected result — not just that the request parsed. Verified against
+unfixed code by temporarily reverting three representative fixes (the `DefaultUserSettings`
+requiredness check, `ListDomains`' `MaxResults` wiring, and `ListApps`' `UserProfileNameEquals`
+filter) one at a time and confirming the corresponding test fails, then restoring — the same
+protocol used for the rest. `TestPersistenceRoundtrip_Domain` confirms the new fields survive a
+Snapshot/Restore cycle, not just an in-process Describe.
+
+**Not touched this pass:** `DescribeApp`/`DescribeDomain`'s remaining server-only derived fields
+(see `gaps:` above); the internal structure of `UserSettings`/`SpaceSettings`/etc.; any of the
+other 343 (362 minus the 19 converted here) inline structs elsewhere in this service —
+gopherstack-oc9v remains open for those.
+
+Gates for this session: `go build ./...`, `go vet ./services/sagemaker/...`,
+`go test -race ./services/sagemaker/...`, `go fix -diff ./services/sagemaker/...` (no diff), and
 `golangci-lint run ./services/sagemaker/...` all clean; zero
 `nolint:{cyclop,gocyclo,gocognit,funlen}` added.

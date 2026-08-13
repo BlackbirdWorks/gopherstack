@@ -72,7 +72,10 @@ func TestHandler_CreatePresignedDomainUrl(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	recDomain := doSageMakerRequest(t, h, "CreateDomain", map[string]any{"DomainName": "my-domain2"})
+	recDomain := doSageMakerRequest(t, h, "CreateDomain", map[string]any{
+		"DomainName":          "my-domain2",
+		"DefaultUserSettings": map[string]any{},
+	})
 	var domainOut map[string]any
 	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
 	domainID, _ := domainOut["DomainId"].(string)

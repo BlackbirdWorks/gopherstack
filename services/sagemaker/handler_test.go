@@ -228,7 +228,10 @@ func TestHandler_SageMakerReset(t *testing.T) {
 	})
 	doSageMakerRequest(t, h, "CreateFeatureGroup", map[string]any{"FeatureGroupName": "reset-fg"})
 	doSageMakerRequest(t, h, "CreatePipeline", map[string]any{"PipelineName": "reset-pipeline"})
-	doSageMakerRequest(t, h, "CreateDomain", map[string]any{"DomainName": "reset-domain"})
+	doSageMakerRequest(t, h, "CreateDomain", map[string]any{
+		"DomainName":          "reset-domain",
+		"DefaultUserSettings": map[string]any{},
+	})
 
 	// Verify they exist.
 	recList := doSageMakerRequest(t, h, "ListModels", map[string]any{})
