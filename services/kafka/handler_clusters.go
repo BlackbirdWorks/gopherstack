@@ -41,6 +41,7 @@ type clusterInfoV1 struct {
 	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
 	StateInfo                 *StateInfo            `json:"stateInfo,omitempty"`
 	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
+	Rebalancing               *Rebalancing          `json:"rebalancing,omitempty"`
 	ClusterArn                string                `json:"clusterArn"`
 	ClusterName               string                `json:"clusterName"`
 	KafkaVersion              string                `json:"kafkaVersion"`
@@ -69,6 +70,7 @@ type provisionedClusterInfo struct {
 	OpenMonitoring            *OpenMonitoring       `json:"openMonitoring,omitempty"`
 	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
 	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
+	Rebalancing               *Rebalancing          `json:"rebalancing,omitempty"`
 	KafkaVersion              string                `json:"kafkaVersion"`
 	State                     string                `json:"state"`
 	EnhancedMonitoring        string                `json:"enhancedMonitoring,omitempty"`
@@ -491,6 +493,7 @@ func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
 		Tags:                      maps.Clone(cl.Tags),
 		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
 		ConfigurationInfo:         cl.ConfigurationInfo,
+		Rebalancing:               cl.Rebalancing,
 	}
 }
 
@@ -571,6 +574,7 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 			StorageMode:               cl.StorageMode,
 			CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
 			ConfigurationInfo:         cl.ConfigurationInfo,
+			Rebalancing:               cl.Rebalancing,
 		}
 	}
 

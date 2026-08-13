@@ -3,10 +3,21 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 type createPartnerEventSourceOutput struct {
 	EventSourceArn string `json:"EventSourceArn"`
+}
+
+// partnerEventSourceAccountResponse is the handler-level DTO for
+// PartnerEventSourceAccountInfo. Timestamps are float64 Unix epoch seconds
+// as required by the AWS JSON protocol.
+type partnerEventSourceAccountResponse struct {
+	Account        string  `json:"Account,omitempty"`
+	State          string  `json:"State,omitempty"`
+	CreationTime   float64 `json:"CreationTime,omitempty"`
+	ExpirationTime float64 `json:"ExpirationTime,omitempty"`
 }
 
 // partnerSourceActions returns the CreatePartnerEventSource action.
@@ -71,14 +82,36 @@ func (h *Handler) extendedPartnerSourceActions() map[string]actionFn {
 				PartnerEventSources []PartnerEventSource `json:"PartnerEventSources"`
 			}{PartnerEventSources: srcs, NextToken: next}, nil
 		},
-		"ListPartnerEventSourceAccounts": func(_ context.Context, _ []byte) (any, error) {
-			// ListPartnerEventSourceAccounts returns accounts that have been
-			// granted access to a partner event source. Cross-account metadata
-			// has no meaningful in-process simulation; return empty list.
+		"ListPartnerEventSourceAccounts": func(ctx context.Context, b []byte) (any, error) {
+			var input struct {
+				EventSourceName string `json:"EventSourceName"`
+				NextToken       string `json:"NextToken"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			if input.EventSourceName == "" {
+				return nil, fmt.Errorf("%w: EventSourceName is required", ErrInvalidParameter)
+			}
+
+			accounts, err := h.Backend.ListPartnerEventSourceAccounts(ctx, input.EventSourceName)
+			if err != nil {
+				return nil, err
+			}
+
+			out := make([]partnerEventSourceAccountResponse, 0, len(accounts))
+			for _, a := range accounts {
+				out = append(out, partnerEventSourceAccountResponse{
+					Account:        a.Account,
+					CreationTime:   timeToEpochSeconds(a.CreationTime),
+					ExpirationTime: timeToEpochSeconds(a.ExpirationTime),
+					State:          a.State,
+				})
+			}
+
 			return &struct {
-				NextToken                  string `json:"NextToken,omitempty"`
-				PartnerEventSourceAccounts []any  `json:"PartnerEventSourceAccounts"`
-			}{PartnerEventSourceAccounts: []any{}}, nil
+				PartnerEventSourceAccounts []partnerEventSourceAccountResponse `json:"PartnerEventSourceAccounts"`
+			}{PartnerEventSourceAccounts: out}, nil
 		},
 		"PutPartnerEvents": func(ctx context.Context, b []byte) (any, error) {
 			var input putEventsInput

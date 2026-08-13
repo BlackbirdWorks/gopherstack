@@ -132,8 +132,13 @@ func TestCAEnrollmentPolicy(t *testing.T) {
 			h := newTestHandler(t)
 			dirID := mustCreateSimpleAD(t, h, "corp.example.com")
 
+			connectorArn := "arn:aws:pca-connector-ad:us-east-1:000000000000:connector/conn-1"
+
 			// Enable
-			rec1 := doRequest(t, h, "EnableCAEnrollmentPolicy", map[string]any{"DirectoryId": dirID})
+			rec1 := doRequest(t, h, "EnableCAEnrollmentPolicy", map[string]any{
+				"DirectoryId":     dirID,
+				"PcaConnectorArn": connectorArn,
+			})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 
 			// Describe
@@ -141,8 +146,9 @@ func TestCAEnrollmentPolicy(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
 			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
-			policy, _ := r2["CAEnrollmentPolicy"].(map[string]any)
-			assert.Equal(t, "Enabled", policy["EnrollmentStatus"])
+			assert.Equal(t, "Success", r2["CaEnrollmentPolicyStatus"])
+			assert.Equal(t, connectorArn, r2["PcaConnectorArn"])
+			assert.Equal(t, dirID, r2["DirectoryId"])
 
 			// Disable
 			rec3 := doRequest(t, h, "DisableCAEnrollmentPolicy", map[string]any{"DirectoryId": dirID})
@@ -153,12 +159,26 @@ func TestCAEnrollmentPolicy(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec4.Code)
 			var r4 map[string]any
 			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &r4))
-			policy2, _ := r4["CAEnrollmentPolicy"].(map[string]any)
-			assert.Equal(t, "Disabled", policy2["EnrollmentStatus"])
+			assert.Equal(t, "Disabled", r4["CaEnrollmentPolicyStatus"])
+			assert.Equal(t, connectorArn, r4["PcaConnectorArn"])
 
 			_ = tc
 		})
 	}
+}
+
+// TestEnableCAEnrollmentPolicy_RequiresPcaConnectorArn proves PcaConnectorArn
+// is a required member of EnableCAEnrollmentPolicyInput, not silently
+// dropped (gopherstack-h910).
+func TestEnableCAEnrollmentPolicy_RequiresPcaConnectorArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+
+	rec := doRequest(t, h, "EnableCAEnrollmentPolicy", map[string]any{"DirectoryId": dirID})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
 }
 
 func TestRegisterCertificate_InvalidPEM(t *testing.T) {

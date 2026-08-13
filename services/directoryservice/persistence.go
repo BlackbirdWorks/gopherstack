@@ -19,7 +19,7 @@ import (
 // (pre-Phase-3.3) snapshots carried no version field at all, so they also
 // fail this check and are discarded rather than misread, which is the safe
 // behaviour across any snapshot-format change.
-const directoryserviceSnapshotVersion = 1
+const directoryserviceSnapshotVersion = 2
 
 // regionalDTO wraps a region-nested resource for JSON round-tripping through
 // store.Registry. Table[V].Snapshot's plain json.Marshal(V) cannot see the
@@ -56,7 +56,7 @@ type backendSnapshot struct {
 	Aliases           map[string]map[string]string                    `json:"aliases"`
 	IPRoutes          map[string]map[string][]storedIpRoute           `json:"ipRoutes"`
 	DirDataAccess     map[string]map[string]bool                      `json:"dirDataAccess"`
-	CAEnrollment      map[string]map[string]bool                      `json:"caEnrollment"`
+	CAEnrollment      map[string]map[string]*CAEnrollmentPolicy       `json:"caEnrollment"`
 	DirSettings       map[string]map[string][]*storedDirectorySetting `json:"dirSettings"`
 	UpdateInfoEntries map[string]map[string][]*storedUpdateInfo       `json:"updateInfoEntries"`
 	AccountID         string                                          `json:"accountID"`

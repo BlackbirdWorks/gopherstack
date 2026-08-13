@@ -855,7 +855,8 @@ func (h *Handler) buildPackageVersionOps() map[string]func(*echo.Context, []byte
 
 			return h.handlePublishPackageVersion(
 				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
-				q.Get("namespace"), q.Get("package"), q.Get(keyVersion), q.Get("asset"), body,
+				q.Get("namespace"), q.Get("package"), q.Get(keyVersion), q.Get("asset"),
+				c.Request().Header.Get("X-Amz-Content-Sha256"), body,
 			)
 		},
 		opPutPackageOriginConfiguration: func(c *echo.Context, body []byte) error {

@@ -279,6 +279,13 @@ type StateInfo struct {
 	Message string `json:"message,omitempty"`
 }
 
+// Rebalancing describes the intelligent rebalancing configuration of an MSK
+// Provisioned cluster with Express brokers (aws-sdk-go-v2/service/kafka's
+// types.Rebalancing; wire key "status").
+type Rebalancing struct {
+	Status string `json:"status,omitempty"`
+}
+
 // ServerlessVpcConfig holds VPC configuration for a serverless cluster.
 type ServerlessVpcConfig struct {
 	SubnetIDs        []string `json:"subnetIds,omitempty"`
@@ -306,6 +313,7 @@ type Cluster struct {
 	StateInfo            *StateInfo             `json:"stateInfo,omitempty"`
 	Serverless           *ServerlessClusterInfo `json:"serverless,omitempty"`
 	ConfigurationInfo    *ConfigurationInfo     `json:"configurationInfo,omitempty"`
+	Rebalancing          *Rebalancing           `json:"rebalancing,omitempty"`
 	ClusterArn           string                 `json:"clusterArn"`
 	ClusterName          string                 `json:"clusterName"`
 	ClusterType          string                 `json:"clusterType"`
@@ -518,6 +526,7 @@ type MutableClusterInfo struct {
 	LoggingInfo          *LoggingInfo          `json:"loggingInfo,omitempty"`
 	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
 	EncryptionInfo       *EncryptionInfo       `json:"encryptionInfo,omitempty"`
+	Rebalancing          *Rebalancing          `json:"rebalancing,omitempty"`
 	StorageMode          string                `json:"storageMode,omitempty"`
 	EnhancedMonitoring   string                `json:"enhancedMonitoring,omitempty"`
 	BrokerEBSVolumeInfo  []BrokerEBSVolumeInfo `json:"brokerEBSVolumeInfo,omitempty"`

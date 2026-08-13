@@ -160,7 +160,7 @@ type StorageBackend interface {
 	DisableDirectoryDataAccess(ctx context.Context, directoryID string) error
 	DescribeDirectoryDataAccess(ctx context.Context, directoryID string) (*DirectoryDataAccessStatus, error)
 
-	EnableCAEnrollmentPolicy(ctx context.Context, directoryID string) error
+	EnableCAEnrollmentPolicy(ctx context.Context, directoryID, pcaConnectorArn string) error
 	DisableCAEnrollmentPolicy(ctx context.Context, directoryID string) error
 	DescribeCAEnrollmentPolicy(ctx context.Context, directoryID string) (*CAEnrollmentPolicy, error)
 

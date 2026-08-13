@@ -437,6 +437,8 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrServiceQuotaExceeded, ErrServiceQuotaExceeded.Error()},
 	{ErrTermsNotFound, ErrTermsNotFound.Error()},
 	{ErrTermsExists, ErrTermsExists.Error()},
+	{ErrSecretNotFound, ErrSecretNotFound.Error()},
+	{ErrLimitExceeded, ErrLimitExceeded.Error()},
 	{errUnknownAction, "UnknownOperationException"},
 }
 

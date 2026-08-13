@@ -144,6 +144,7 @@ type StorageBackend interface {
 	DescribePartnerEventSource(ctx context.Context, name string) (*PartnerEventSource, error)
 	DeletePartnerEventSource(ctx context.Context, name string) error
 	ListPartnerEventSources(ctx context.Context, namePrefix, nextToken string) ([]PartnerEventSource, string, error)
+	ListPartnerEventSourceAccounts(ctx context.Context, eventSourceName string) ([]PartnerEventSourceAccountInfo, error)
 	PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
 	DescribeReplay(ctx context.Context, name string) (*Replay, error)
 	ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error)

@@ -296,7 +296,7 @@ func TestExportAPI_ReturnsRawSpec(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rr.Code)
 
-	rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID+"/exports/OAS30", nil)
+	rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID+"/exports/OAS30?outputType=JSON", nil)
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var spec map[string]any
@@ -308,6 +308,64 @@ func TestExportAPI_ReturnsRawSpec(t *testing.T) {
 	assert.NotContains(t, spec, "specification")
 	if _, wrapped := spec["body"]; wrapped {
 		t.Fatalf("export should not wrap the spec in a body field: %v", spec)
+	}
+}
+
+// TestExportAPI_OutputType proves OutputType is actually honored -- distinct
+// requests with outputType=JSON vs outputType=YAML must produce distinct
+// response formats, instead of always returning JSON regardless of what was
+// requested (gopherstack-h910).
+func TestExportAPI_OutputType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		outputType   string
+		wantStatus   int
+		wantYAMLLike bool
+	}{
+		{name: "json", outputType: "JSON", wantStatus: http.StatusOK},
+		{name: "yaml", outputType: "YAML", wantStatus: http.StatusOK, wantYAMLLike: true},
+		{name: "lowercase_yaml_case_insensitive", outputType: "yaml", wantStatus: http.StatusOK, wantYAMLLike: true},
+		{name: "missing", outputType: "", wantStatus: http.StatusBadRequest},
+		{name: "invalid", outputType: "XML", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "export-outputtype-api")
+
+			path := "/v2/apis/" + apiID + "/exports/OAS30"
+			if tt.outputType != "" {
+				path += "?outputType=" + tt.outputType
+			}
+
+			rr := doRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, tt.wantStatus, rr.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			if tt.wantYAMLLike {
+				var asJSON map[string]any
+				require.Error(
+					t,
+					json.Unmarshal(rr.Body.Bytes(), &asJSON),
+					"YAML output must not also be valid strict JSON object syntax expected by this assertion",
+				)
+				assert.Contains(t, rr.Body.String(), "openapi:")
+
+				return
+			}
+
+			var spec map[string]any
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &spec))
+			assert.Equal(t, "3.0.1", spec["openapi"])
+		})
 	}
 }
 
@@ -350,7 +408,7 @@ func TestExportAPI_JWTSecurityScheme(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rr.Code)
 
-	rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID+"/exports/OAS30", nil)
+	rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID+"/exports/OAS30?outputType=JSON", nil)
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var spec map[string]any

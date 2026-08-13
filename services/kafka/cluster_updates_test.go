@@ -140,19 +140,22 @@ func TestUpdateSettings(t *testing.T) {
 			},
 		},
 		{
-			name:   "rebalancing_is_action_only",
+			name:   "rebalancing_persists_status",
 			opType: "UPDATE_REBALANCING",
 			apply: func(t *testing.T, b *kafka.InMemoryBackend, arn string) string {
 				t.Helper()
-				op, err := b.UpdateRebalancing(context.Background(), arn)
+				op, err := b.UpdateRebalancing(context.Background(), arn, "PAUSED")
 				require.NoError(t, err)
 
 				return op.ClusterOperationArn
 			},
-			verify: func(t *testing.T, _ *kafka.Cluster, op *kafka.ClusterOperation) {
+			verify: func(t *testing.T, c *kafka.Cluster, op *kafka.ClusterOperation) {
 				t.Helper()
-				// Rebalancing has no persisted setting; the operation is still recorded.
-				assert.Nil(t, op.TargetClusterInfo)
+				require.NotNil(t, c.Rebalancing)
+				assert.Equal(t, "PAUSED", c.Rebalancing.Status)
+				require.NotNil(t, op.TargetClusterInfo)
+				require.NotNil(t, op.TargetClusterInfo.Rebalancing)
+				assert.Equal(t, "PAUSED", op.TargetClusterInfo.Rebalancing.Status)
 			},
 		},
 	}
@@ -199,6 +202,6 @@ func TestUpdateSettings_NotFound(t *testing.T) {
 	require.Error(t, err)
 	_, err = b.UpdateStorage(context.Background(), missing, kafka.UpdateStorageSettings{})
 	require.Error(t, err)
-	_, err = b.UpdateRebalancing(context.Background(), missing)
+	_, err = b.UpdateRebalancing(context.Background(), missing, "ACTIVE")
 	require.Error(t, err)
 }

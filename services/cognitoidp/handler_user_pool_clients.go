@@ -22,12 +22,18 @@ func (h *Handler) handleAddUserPoolClientSecret(
 	_ context.Context,
 	in *addUserPoolClientSecretInput,
 ) (*addUserPoolClientSecretOutput, error) {
-	secret, err := h.Backend.AddUserPoolClientSecret(in.UserPoolID, in.ClientID)
+	record, err := h.Backend.AddUserPoolClientSecret(in.UserPoolID, in.ClientID)
 	if err != nil {
 		return nil, err
 	}
 
-	return &addUserPoolClientSecretOutput{ClientSecret: secret}, nil
+	return &addUserPoolClientSecretOutput{
+		ClientSecretDescriptor: clientSecretDescriptor{
+			ClientSecretID:         record.ClientSecretID,
+			ClientSecretValue:      record.ClientSecretValue,
+			ClientSecretCreateDate: float64(record.ClientSecretCreateDate.Unix()),
+		},
+	}, nil
 }
 
 func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
@@ -158,7 +164,7 @@ func (h *Handler) handleDeleteUserPoolClientSecret(
 	_ context.Context,
 	in *deleteUserPoolClientSecretInput,
 ) (*deleteUserPoolClientSecretOutput, error) {
-	if err := h.Backend.DeleteUserPoolClientSecret(in.UserPoolID, in.ClientID); err != nil {
+	if err := h.Backend.DeleteUserPoolClientSecret(in.UserPoolID, in.ClientID, in.ClientSecretID); err != nil {
 		return nil, err
 	}
 
@@ -174,7 +180,15 @@ func (h *Handler) handleListUserPoolClientSecrets(
 		return nil, err
 	}
 
-	return &listUserPoolClientSecretsOutput{Secrets: secrets}, nil
+	out := make([]clientSecretDescriptor, 0, len(secrets))
+	for _, s := range secrets {
+		out = append(out, clientSecretDescriptor{
+			ClientSecretID:         s.ClientSecretID,
+			ClientSecretCreateDate: float64(s.ClientSecretCreateDate.Unix()),
+		})
+	}
+
+	return &listUserPoolClientSecretsOutput{ClientSecrets: out}, nil
 }
 
 // userPoolClientsOpsA registers the ops in this file that have no accurate twin

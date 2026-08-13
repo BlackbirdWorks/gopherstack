@@ -105,7 +105,7 @@ type StorageBackend interface {
 	UpdateMalwareScanSettings(detectorID string, settings *MalwareScanSettings) error
 	GetUsageStatistics(detectorID string, query UsageQuery) (map[string]any, error)
 	GetRemainingFreeTrialDays(detectorID string, accountIDs []string) (map[string]any, error)
-	GetCoverageStatistics(detectorID string) (map[string]any, error)
+	GetCoverageStatistics(detectorID string, statisticsType []string) (map[string]any, error)
 	ListCoverage(detectorID string) ([]map[string]any, error)
 
 	// Malware protection plans

@@ -66,7 +66,9 @@ ops:
   DescribeUserPoolClient: {wire: ok, errors: ok, state: ok, persist: ok}
   ListUserPoolClients: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteUserPoolClient: {wire: ok, errors: ok, state: ok, persist: ok}
-  AddUserPoolClientSecret: {wire: ok, errors: ok, state: ok, persist: ok}
+  AddUserPoolClientSecret: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): output was a flat ClientSecret string; real AddUserPoolClientSecretOutput nests ClientSecretDescriptor{ClientSecretId, ClientSecretValue, ClientSecretCreateDate}. UserPoolClient.ClientSecret was a single string with no ClientSecretId, so DeleteUserPoolClientSecret's required ClientSecretId was unwireable -- added a separate ClientSecretId-keyed ExtraClientSecrets set (capped at 1, i.e. 2 active secrets total including the original), LimitExceededException past the cap"}
+  DeleteUserPoolClientSecret: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): dropped the required ClientSecretId entirely (decoded a dead SecretHash field that doesn't exist on the real API and was never even read). Now requires ClientSecretId, ResourceNotFoundException for an unknown id, removes only the matching entry from ExtraClientSecrets"}
+  ListUserPoolClientSecrets: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed alongside gopherstack-h910: output was a fabricated flat Secrets []string; real ListUserPoolClientSecretsOutput is ClientSecrets []ClientSecretDescriptorType (Id + CreateDate only, value never revealed). Also fixed a false comment claiming AWS allows at most one active secret -- the real API documents up to 2"}
   SignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "password policy enforced, real confirm code generated; PreSignUp trigger now fires and applies autoConfirmUser/autoVerifyEmail/autoVerifyPhone, CustomMessage trigger now fires (this pass, gopherstack-8fw)"}
   ConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "expiring codes, CodeMismatchException/ExpiredCodeException; PostConfirmation trigger fires fire-and-observe -- invocation errors surface but do not roll back confirmation, matching AWS; PreventUserExistenceErrors=ENABLED now masks an unknown username behind CodeMismatchException, the same error a real-but-wrong-code account produces (this pass, closes remainder of gopherstack-aib)"}
   AdminConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "PostConfirmation trigger now fires (this pass), same source/semantics as ConfirmSignUp"}
@@ -127,6 +129,33 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
 ---
 
 ## Notes
+
+### What this pass fixed (2026-08-13, gopherstack-h910)
+
+`DeleteUserPoolClientSecret` dropped the required `ClientSecretId` -- the request struct
+instead decoded a `SecretHash` field that does not exist on the real API at all and was
+never even read anywhere in the handler, a dead field left over from an earlier design.
+Investigating why turned up the real cause: `UserPoolClient` modeled a client's secret as
+a single `ClientSecret` string, so there was no `ClientSecretId`-keyed value for
+`DeleteUserPoolClientSecret` to identify. Real AWS supports up to 2 active secrets per app
+client for zero-downtime rotation (`AddUserPoolClientSecret`'s own doc comment), each
+identified by a real `ClientSecretId` -- a feature this emulator could not represent at
+all under the old model.
+
+Fixed by adding a second, ClientSecretId-keyed secret slot (`ExtraClientSecrets`, capped
+at 1 to match the real 2-active-secrets-total limit) alongside the original
+`ClientSecret` field, which is left untouched: real `types.UserPoolClientType` (the
+`DescribeUserPoolClient`/`CreateUserPoolClient` response shape) has no `ClientSecretId`
+field for the original secret either, so this emulator does not fabricate one for it --
+it stays reachable only the way it always was, and is not visible to
+List/DeleteUserPoolClientSecret. `AddUserPoolClientSecret`'s and
+`ListUserPoolClientSecrets`' response shapes were also wrong (a flat `ClientSecret`
+string and a flat `Secrets []string` respectively, neither of which exist on the real
+API -- both are really `ClientSecretDescriptorType`/`[]ClientSecretDescriptorType` with
+`ClientSecretId`/`ClientSecretCreateDate`, and `ClientSecretValue` only ever populated by
+`AddUserPoolClientSecret`, never by `List`). Also fixed a false comment on
+`ListUserPoolClientSecrets` claiming "AWS allows at most one active secret" -- the real
+API's own doc comment says up to 2.
 
 ### What this pass fixed (2026-08-08, gopherstack-kxow)
 

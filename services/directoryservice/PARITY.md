@@ -75,9 +75,9 @@ ops:
   EnableDirectoryDataAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableDirectoryDataAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDirectoryDataAccess: {wire: ok, errors: ok, state: ok, persist: ok}
-  EnableCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  EnableCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): request struct dropped the required PcaConnectorArn entirely, and CAEnrollmentPolicy had no field to hold it, so it was unrecoverable. Now decoded, required (InvalidParameterException if empty), and persisted"}
   DisableCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): the pre-fix response was a wholly fabricated shape -- a nested {\"CAEnrollmentPolicy\":{\"EnrollmentStatus\":\"Enabled\"/\"Disabled\"}} that does not exist on the real API at all. Real DescribeCAEnrollmentPolicyOutput is flat: CaEnrollmentPolicyStatus (enum InProgress/Success/Failed/Disabling/Disabled/Impaired, verified against types/enums.go), CaEnrollmentPolicyStatusReason, DirectoryId, LastUpdatedDateTime, PcaConnectorArn. All now wired; snapshot version bumped 1->2 since CAEnrollment's persisted value type changed from bool to *CAEnrollmentPolicy"}
   StartADAssessment: {wire: FIXED, errors: FIXED, state: FIXED, persist: ok, note: "synchronous SUCCESS; AWS is async but no client-visible divergence for polling clients (prior-pass note, still true). gopherstack-10hx 2nd follow-up (2026-07-30): CLOSED the SEVERE finding from the prior pass -- StartADAssessmentInput.AssessmentConfiguration (types.AssessmentConfiguration: CustomerDnsIps, DnsName, InstanceIds, VpcSettings{VpcId,SubnetIds} required when supplied at all; SecurityGroupIds optional -- confirmed against the installed SDK's validateAssessmentConfiguration) is now accepted, required-field-validated (InvalidParameterException per missing member, matching the real validator's shape), and genuinely stored on storedADAssessment. UpdateHybridAD's internally-triggered assessment (no AssessmentConfiguration in the real API either) passes nil and is unaffected."}
   DeleteADAssessment: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeADAssessment: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartTime epoch fix (prior pass); removed the fabricated 'Region' wire field and fixed the AssessmentType->ReportType/Operational->CUSTOMER fabrication (prior pass). gopherstack-10hx 2nd follow-up (2026-07-30): now also emits CustomerDnsIps, DnsName, LastUpdateDateTime, SecurityGroupIds, SelfManagedInstanceIds, SubnetIds, VpcId -- all real, non-fabricated data sourced from the AssessmentConfiguration captured at StartADAssessment time (empty/omitted, matching AWS's null-omission convention, for assessments started without one). StatusCode/StatusReason/Version remain genuinely unpopulated -- see gaps (AWS-internal assessment-engine output with no request input and no documented deterministic default; same class of honest gap as Directory.OsVersion)."}
@@ -142,6 +142,21 @@ fixed this pass had exactly this shape.
 account to call AcceptSharedDirectory (initial ShareStatus = PendingAcceptance);
 ORGANIZATIONS shares are active immediately (ShareStatus = Shared). The handler defaults
 ShareMethod to "HANDSHAKE" when the request omits it (matches AWS's own default).
+
+2026-08-13 pass (`gopherstack-h910`, required-member sweep pass 5): a required-member miss
+on `EnableCAEnrollmentPolicy` (`PcaConnectorArn` dropped) led to finding
+`DescribeCAEnrollmentPolicy`'s response was a wholly fabricated shape -- a required-member
+miss reliably smells of a wholly wrong shape, exactly as this class of bug has looked
+before. The pre-fix response nested a boolean-derived `EnrollmentStatus` string under a
+`CAEnrollmentPolicy` key that doesn't exist on the real API; the real
+`DescribeCAEnrollmentPolicyOutput` is flat with a six-value status enum
+(`CaEnrollmentPolicyStatus`: InProgress/Success/Failed/Disabling/Disabled/Impaired). Fixed
+both the request and response shape; `CAEnrollmentPolicy`'s persisted representation
+changed from a bare `bool` to a struct carrying `PcaConnectorArn`/`Status`/
+`LastUpdatedDateTime`, so `directoryserviceSnapshotVersion` was bumped 1->2 (an existing
+field's type changed, not a pure addition -- confirmed via
+`pkgs/persistence/snapshotversion_guard_test.go`'s `TestSnapshotVersionGuard`, which
+otherwise refuses exactly this kind of silent-data-loss bump).
 
 Directory lifecycle (Stage enum): Requested → Creating → Active, each transition on its
 own goroutine with a fixed delay (`directoryLifecycleDelay` = 50ms) — this is real state

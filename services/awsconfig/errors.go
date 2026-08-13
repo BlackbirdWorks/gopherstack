@@ -37,6 +37,11 @@ var (
 	ErrInvalidParameterValue = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
 	// ErrResourceNotFound is returned when a referenced resource evaluation does not exist.
 	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrResourceNotDiscovered is returned when GetAggregateResourceConfig's
+	// ResourceIdentifier matches no discovered resource (verified against
+	// aws-sdk-go-v2/service/configservice's GetAggregateResourceConfig
+	// deserializer, which declares ResourceNotDiscoveredException).
+	ErrResourceNotDiscovered = awserr.New("ResourceNotDiscoveredException", awserr.ErrNotFound)
 	// ErrNoSuchConfigRuleInConformancePack is returned when a conformance pack
 	// filter/lookup references a config rule name that the pack did not deploy
 	// (verified against aws-sdk-go-v2/service/configservice's

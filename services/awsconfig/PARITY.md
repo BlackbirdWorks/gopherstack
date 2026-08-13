@@ -81,7 +81,7 @@ ops:
   GetAggregateConfigRuleComplianceSummary: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives a single-group compliant/non-compliant rollup keyed by the local account ID or region (GroupByKey), aggregator existence validated"}
   GetAggregateConformancePackComplianceSummary: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives compliant/non-compliant conformance-pack counts for the local account/region group, aggregator existence validated"}
   GetAggregateDiscoveredResourceCounts: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): decoded into *emptyInput, dropping ConfigurationAggregatorName/ResourceIdentifier and always returning 'the first resource config found' -- every distinct request returned the same arbitrary item. Now resolves the requested identifier against b.resourceConfigs (mirroring BatchGetAggregateResourceConfig), NoSuchConfigurationAggregatorException for an unknown aggregator, ResourceNotDiscoveredException for no match"}
   BatchGetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   SelectAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAggregateDiscoveredResources: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns local discovered resources of the requested type tagged with the local account/region as source, account/region/resourceId filters applied, aggregator existence validated"}
@@ -123,7 +123,7 @@ ops:
   DeleteStoredQuery: {wire: ok, errors: ok, state: ok, persist: ok}
 
   # --- ResourceConfig (Get/List/BatchGet/Select) family ---
-  PutResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): request struct omitted the required SchemaVersionId entirely. Now decoded and required (ValidationException if empty); not stored since real AWS uses it only to validate Configuration against the CloudFormation-registered schema for ResourceType, a check this emulator cannot perform, and no output ever echoes it"}
   DeleteResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResourceConfigHistory: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDiscoveredResources: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -221,6 +221,12 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   `resourceTags`, `remediationExceptions`, `customRulePolicies`, `orgCustomRulePolicies`)
   still have no `store.Table` identity and are NOT persisted -- this is a pre-existing gap
   (not introduced or fixed this pass), see `persistence.go`'s doc comment.
+
+- 2026-08-13 pass (`gopherstack-h910`, required-member sweep pass 5): `GetAggregateResourceConfig`
+  decoded into `*emptyInput`, dropping `ConfigurationAggregatorName`/`ResourceIdentifier` and
+  always returning "the first resource config found" regardless of what was requested -- a
+  correctness bug, not just a dropped field. `PutResourceConfig` omitted the required
+  `SchemaVersionId` entirely. Both fixed -- see their `ops` entries above.
 
 - 2026-07-25 pass (SDK bump v1.61.2 -> v1.68.0 revealed 5 new operations): implemented
   all 5 for real rather than adding them to `notImplemented` -- `PutConnector`/

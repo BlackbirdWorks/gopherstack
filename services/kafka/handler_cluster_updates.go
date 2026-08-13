@@ -342,13 +342,36 @@ func (h *Handler) handleUpdateMonitoring(
 	)
 }
 
+type rebalancingBody struct {
+	Status string `json:"status,omitempty"`
+}
+
+type updateRebalancingInput struct {
+	CurrentVersion string          `json:"currentVersion"`
+	Rebalancing    rebalancingBody `json:"rebalancing"`
+}
+
 func (h *Handler) handleUpdateRebalancing(
 	ctx context.Context,
 	c *echo.Context,
 	clusterArn string,
-	_ []byte,
+	body []byte,
 ) error {
-	op, err := h.Backend.UpdateRebalancing(ctx, clusterArn)
+	var in updateRebalancingInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"invalid request body: "+err.Error(),
+		)
+	}
+
+	if ok, err := h.requireCurrentVersion(ctx, c, clusterArn, in.CurrentVersion); !ok {
+		return err
+	}
+
+	op, err := h.Backend.UpdateRebalancing(ctx, clusterArn, in.Rebalancing.Status)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}

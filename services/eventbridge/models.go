@@ -403,6 +403,16 @@ type PartnerEventSource struct {
 	Account string `json:"Account,omitempty"`
 }
 
+// PartnerEventSourceAccountInfo mirrors aws-sdk-go-v2/service/eventbridge's
+// types.PartnerEventSourceAccount, ListPartnerEventSourceAccountsOutput's
+// element type.
+type PartnerEventSourceAccountInfo struct {
+	CreationTime   time.Time `json:"CreationTime,omitzero"`
+	ExpirationTime time.Time `json:"ExpirationTime,omitzero"`
+	Account        string    `json:"Account,omitempty"`
+	State          string    `json:"State,omitempty"`
+}
+
 // CreateAPIDestinationInput is the input for CreateAPIDestination.
 type CreateAPIDestinationInput struct {
 	ConnectionArn                string `json:"ConnectionArn"`

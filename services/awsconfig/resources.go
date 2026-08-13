@@ -1,6 +1,7 @@
 package awsconfig
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -230,19 +231,32 @@ func (b *InMemoryBackend) GetAggregateDiscoveredResourceCounts() int32 {
 	return int32(b.resourceConfigs.Len()) //nolint:gosec // Len is non-negative and bounded
 }
 
-// GetAggregateResourceConfig returns the first resource config found, or an empty item.
-func (b *InMemoryBackend) GetAggregateResourceConfig() *BaseConfigurationItem {
+// GetAggregateResourceConfig returns the configuration item for a single
+// aggregate resource identified by identifier, resolved against
+// b.resourceConfigs (populated by PutResourceConfig) the same way
+// BatchGetAggregateResourceConfig resolves each identifier in its batch --
+// this emulator does not model multi-account aggregation separately from
+// the account's own resource-config state. aggregatorName must name an
+// existing aggregator (NoSuchConfigurationAggregatorException); an
+// identifier with no matching discovered resource is
+// ResourceNotDiscoveredException (verified against aws-sdk-go-v2/service/
+// configservice's GetAggregateResourceConfig deserializer).
+func (b *InMemoryBackend) GetAggregateResourceConfig(
+	aggregatorName string, identifier AggregateResourceIdentifier,
+) (*BaseConfigurationItem, error) {
 	b.mu.RLock("GetAggregateResourceConfig")
 	defer b.mu.RUnlock()
 
-	for _, item := range b.resourceConfigs.All() {
-		return &BaseConfigurationItem{
-			ResourceType: item.ResourceType,
-			ResourceID:   item.ResourceID,
-		}
+	if err := b.requireAggregatorLocked(aggregatorName); err != nil {
+		return nil, err
 	}
 
-	return &BaseConfigurationItem{}
+	item, ok := b.resourceConfigs.Get(resourceConfigItemKey(identifier.ResourceType, identifier.ResourceID))
+	if !ok {
+		return nil, fmt.Errorf("%w: %s/%s", ErrResourceNotDiscovered, identifier.ResourceType, identifier.ResourceID)
+	}
+
+	return &BaseConfigurationItem{ResourceType: item.ResourceType, ResourceID: item.ResourceID}, nil
 }
 
 // resourceConfigItemsLocked returns every discovered resource configuration

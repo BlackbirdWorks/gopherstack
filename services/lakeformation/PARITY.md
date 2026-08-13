@@ -64,7 +64,7 @@ ops:
   GetQueryState: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetQueryStatistics: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetWorkUnits: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetWorkUnitResults: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetWorkUnitResults: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-h910): the required WorkUnitId (int64, JSON body field, verified against serializers.go's awsRestjson1_serializeOpDocumentGetWorkUnitResultsInput) was dropped entirely, so any value -- even one addressing a work unit that was never generated -- returned the same result. Now validated against GetWorkUnits' actual output: since GetWorkUnits always returns exactly one range (WorkUnitIDMin/Max both 0), only WorkUnitId=0 is accepted, InvalidInputException otherwise."}
   ListTableStorageOptimizers: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateTableStorageOptimizer: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchDatabasesByLFTags: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real implementation in lf_tags.go, not a stub"}

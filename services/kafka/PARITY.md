@@ -12,7 +12,7 @@ ops:
   UpdateClusterKafkaVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/version"}
   UpdateConnectivity: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/connectivity"}
   UpdateMonitoring: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/monitoring"}
-  UpdateRebalancing: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/rebalancing"}
+  UpdateRebalancing: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/rebalancing. Fixed (gopherstack-h910): dropped both CurrentVersion (optimistic-lock check every sibling Update op enforces) and Rebalancing.Status, behind a false comment claiming AWS exposes no per-field rebalancing configuration -- types.Rebalancing.Status is real and persistable. Now enforces CurrentVersion via requireCurrentVersion and persists Status onto Cluster.Rebalancing, echoed by DescribeCluster/DescribeClusterV2's new rebalancing field."}
   UpdateSecurity: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/security, method corrected PUT->PATCH"}
   UpdateStorage: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: now /v1/clusters/{arn}/storage"}
   RejectClientVpcConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "route+wire fixed: PUT /v1/clusters/{arn}/client-vpc-connection (singular), vpcConnectionArn read from JSON body not path. Verified against SDK: no separate AcceptClientVpcConnection op exists in this SDK version -- Reject is the only client-VPC-connection mutation, so the family is complete, not partial."}
@@ -22,8 +22,8 @@ ops:
   UpdateReplicationInfo: {wire: ok, errors: ok, state: ok, persist: ok, note: "route ok. Request/response now match the real UpdateReplicationInfoInput/Output: currentVersion/sourceKafkaClusterArn/targetKafkaClusterArn (required) + optional topicReplication/consumerGroupReplication updates applied to the matching ReplicationInfoConfig flow; response is replicatorArn/replicatorState only. Optimistic-lock currentVersion check added (mismatch -> BadRequestException); unknown (source,target) flow -> NotFoundException."}
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateClusterV2: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATING->ACTIVE lazy transition on first poll confirmed correct, not a stuck-CREATING bug"}
-  DescribeClusterV2: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "CREATING->ACTIVE lazy transition on first poll confirmed correct, not a stuck-CREATING bug. Now also echoes rebalancing (gopherstack-h910, added so UpdateRebalancing's persisted status is observable)"}
+  DescribeClusterV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "Provisioned.rebalancing now echoed (gopherstack-h910, added so UpdateRebalancing's persisted status is observable)"}
   ListClusters: {wire: ok, errors: ok, state: ok, persist: ok}
   ListClustersV2: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -357,3 +357,10 @@ handler calls) per the parity route-matcher-check protocol.
   case must re-fetch the version between calls (via Describe) rather than
   reusing `DefaultClusterVersion`/the value captured at creation --
   `TestClusterOperationTracking_V1` needed exactly this fix this pass.
+- **A confident wrong comment is worse than no comment** -- `UpdateRebalancing`
+  carried "AWS MSK exposes no per-field rebalancing configuration to persist"
+  next to code that dropped `CurrentVersion`/`Rebalancing.Status`, when
+  `types.Rebalancing.Status` is a real, persistable field (gopherstack-h910).
+  The comment read as a verified fact and stopped this bug from being caught
+  earlier. Don't trust an existing comment's premise over reading the pinned
+  SDK's own struct.

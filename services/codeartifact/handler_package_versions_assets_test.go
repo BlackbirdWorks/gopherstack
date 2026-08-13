@@ -1,10 +1,13 @@
 package codeartifact_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -676,6 +679,63 @@ func TestHandler_PublishPackageVersion(t *testing.T) {
 				assert.NotEmpty(t, resp["status"])
 				assert.NotEmpty(t, resp["asset"])
 			}
+		})
+	}
+}
+
+// TestHandler_PublishPackageVersion_AssetSHA256 proves the client-supplied
+// X-Amz-Content-Sha256 is actually checked against the asset content, instead
+// of being ignored while the server silently computes and stores its own
+// (gopherstack-h910).
+func TestHandler_PublishPackageVersion_AssetSHA256(t *testing.T) {
+	t.Parallel()
+
+	const publishPath = "/v1/package/version/publish" +
+		"?domain=sha-domain&repository=sha-repo&format=generic&package=mylib&version=1.0.0&asset=mylib-1.0.0.tgz"
+
+	tests := []struct {
+		name          string
+		assetSHA256   string
+		wantErrSubstr string
+		wantStatus    int
+		omitSHA256    bool
+	}{
+		{
+			name:          "missing_header",
+			omitSHA256:    true,
+			wantStatus:    http.StatusBadRequest,
+			wantErrSubstr: "X-Amz-Content-Sha256",
+		},
+		{
+			name:          "mismatched_sha256",
+			assetSHA256:   "0000000000000000000000000000000000000000000000000000000000000000",
+			wantStatus:    http.StatusBadRequest,
+			wantErrSubstr: "ValidationException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			setupDomain(t, h, "sha-domain")
+			setupRepo(t, h, "sha-domain", "sha-repo")
+
+			req := httptest.NewRequest(http.MethodPost, publishPath, bytes.NewReader([]byte("asset-content")))
+			req.Header.Set("Content-Type", "application/octet-stream")
+
+			if !tt.omitSHA256 {
+				req.Header.Set("X-Amz-Content-Sha256", tt.assetSHA256)
+			}
+
+			rec := httptest.NewRecorder()
+			e := echo.New()
+			c := e.NewContext(req, rec)
+			require.NoError(t, h.Handler()(c))
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantErrSubstr)
 		})
 	}
 }

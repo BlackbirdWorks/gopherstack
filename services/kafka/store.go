@@ -218,6 +218,7 @@ func cloneMutableClusterInfo(m *MutableClusterInfo) *MutableClusterInfo {
 		LoggingInfo:          cloneLoggingInfo(m.LoggingInfo),
 		ClientAuthentication: cloneClientAuth(m.ClientAuthentication),
 		EncryptionInfo:       cloneEncryptionInfo(m.EncryptionInfo),
+		Rebalancing:          cloneRebalancing(m.Rebalancing),
 		StorageMode:          m.StorageMode,
 		EnhancedMonitoring:   m.EnhancedMonitoring,
 		NumberOfBrokerNodes:  m.NumberOfBrokerNodes,

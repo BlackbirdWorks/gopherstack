@@ -1155,6 +1155,7 @@ type getTemporaryGlueTableCredentialsOutput struct {
 type getWorkUnitResultsInput struct {
 	QueryID       string `json:"QueryId"`
 	WorkUnitToken string `json:"WorkUnitToken"`
+	WorkUnitID    int64  `json:"WorkUnitId"`
 }
 
 type getWorkUnitsInput struct {

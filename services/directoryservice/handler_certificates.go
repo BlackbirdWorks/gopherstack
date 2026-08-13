@@ -163,7 +163,8 @@ func (h *Handler) handleEnableCAEnrollmentPolicy(c *echo.Context) error {
 	}
 
 	var req struct {
-		DirectoryID string `json:"DirectoryId"`
+		DirectoryID     string `json:"DirectoryId"`
+		PcaConnectorArn string `json:"PcaConnectorArn"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
@@ -174,7 +175,13 @@ func (h *Handler) handleEnableCAEnrollmentPolicy(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
-	if enableErr := h.Backend.EnableCAEnrollmentPolicy(h.contextWithRegion(c), req.DirectoryID); enableErr != nil {
+	if req.PcaConnectorArn == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "PcaConnectorArn is required"))
+	}
+
+	if enableErr := h.Backend.EnableCAEnrollmentPolicy(
+		h.contextWithRegion(c), req.DirectoryID, req.PcaConnectorArn,
+	); enableErr != nil {
 		return h.mapError(c, enableErr)
 	}
 
@@ -229,14 +236,22 @@ func (h *Handler) handleDescribeCAEnrollmentPolicy(c *echo.Context) error {
 		return h.mapError(c, descErr)
 	}
 
-	enrollmentStatus := "Disabled" //nolint:goconst // existing issue.
-	if policy.Enabled {
-		enrollmentStatus = "Enabled" //nolint:goconst // existing issue.
+	resp := map[string]any{
+		"CaEnrollmentPolicyStatus": policy.Status,
+		"DirectoryId":              policy.DirectoryID,
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"CAEnrollmentPolicy": map[string]any{
-			"EnrollmentStatus": enrollmentStatus,
-		},
-	})
+	if policy.StatusReason != "" {
+		resp["CaEnrollmentPolicyStatusReason"] = policy.StatusReason
+	}
+
+	if policy.PcaConnectorArn != "" {
+		resp["PcaConnectorArn"] = policy.PcaConnectorArn
+	}
+
+	if !policy.LastUpdatedDateTime.IsZero() {
+		resp["LastUpdatedDateTime"] = awstime.Epoch(policy.LastUpdatedDateTime)
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }

@@ -104,7 +104,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.EnableDirectoryDataAccess(ctx, dirID))
 
 	// caEnrollment (raw map)
-	require.NoError(t, original.EnableCAEnrollmentPolicy(ctx, dirID))
+	require.NoError(
+		t,
+		original.EnableCAEnrollmentPolicy(
+			ctx,
+			dirID,
+			"arn:aws:pca-connector-ad:us-east-1:000000000000:connector/conn-1",
+		),
+	)
 
 	// adAssessments
 	assessmentID, err := original.StartADAssessment(ctx, dirID, nil)
@@ -268,7 +275,8 @@ func assertSettingsStateRestored(t *testing.T, b *directoryservice.InMemoryBacke
 
 	policy, err := b.DescribeCAEnrollmentPolicy(ctx, dirID)
 	require.NoError(t, err)
-	assert.True(t, policy.Enabled)
+	assert.Equal(t, directoryservice.CaEnrollmentPolicyStatusSuccess, policy.Status)
+	assert.Equal(t, "arn:aws:pca-connector-ad:us-east-1:000000000000:connector/conn-1", policy.PcaConnectorArn)
 
 	assessment, err := b.DescribeADAssessment(ctx, dirID, assessmentID)
 	require.NoError(t, err)

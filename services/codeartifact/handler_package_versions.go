@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -469,7 +470,9 @@ func (h *Handler) handleListPackageVersions(
 }
 
 func (h *Handler) handlePublishPackageVersion(
-	c *echo.Context, domainName, repoName, format, namespace, name, version, assetName string, body []byte,
+	c *echo.Context,
+	domainName, repoName, format, namespace, name, version, assetName, assetSHA256 string,
+	body []byte,
 ) error {
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
@@ -489,12 +492,29 @@ func (h *Handler) handlePublishPackageVersion(
 	if assetName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "asset is required"))
 	}
+	if assetSHA256 == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "X-Amz-Content-Sha256 header is required"))
+	}
 
 	sum := sha256.Sum256(body)
+	computedSHA256 := hex.EncodeToString(sum[:])
+
+	if !strings.EqualFold(assetSHA256, computedSHA256) {
+		// The pinned SDK (codeartifact@v1.41.4) declares no MismatchedSha256Exception
+		// for this op -- only AccessDeniedException/ConflictException/
+		// InternalServerException/ResourceNotFoundException/
+		// ServiceQuotaExceededException/ThrottlingException/ValidationException
+		// (verified against deserializers.go's awsRestjson1_deserializeOpErrorPublishPackageVersion).
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", "assetSHA256 does not match the computed SHA256 of assetContent"),
+		)
+	}
+
 	asset := AssetInfo{
 		Name:    assetName,
 		Size:    int64(len(body)),
-		SHA256:  hex.EncodeToString(sum[:]),
+		SHA256:  computedSHA256,
 		Content: body,
 	}
 

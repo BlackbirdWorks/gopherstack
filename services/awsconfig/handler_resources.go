@@ -108,16 +108,26 @@ func (h *Handler) handleDeleteResourceConfig(
 	return &emptyOutput{}, h.Backend.DeleteResourceConfig(in.ResourceType, in.ResourceID)
 }
 
-// PutResourceConfig request/response types and handler.
+// PutResourceConfig request/response types and handler. SchemaVersionId is a
+// required member (aws-sdk-go-v2/service/configservice's
+// PutResourceConfigInput) that real AWS uses to validate Configuration
+// against the CloudFormation-registered schema for ResourceType -- a check
+// this emulator cannot perform. It carries no output (PutResourceConfigOutput
+// has no fields), so it is accepted and required but not stored.
 type putResourceConfigInput struct {
-	ResourceType  string `json:"ResourceType"`
-	ResourceID    string `json:"ResourceId"`
-	Configuration string `json:"Configuration"`
+	ResourceType    string `json:"ResourceType"`
+	ResourceID      string `json:"ResourceId"`
+	Configuration   string `json:"Configuration"`
+	SchemaVersionID string `json:"SchemaVersionId"`
 }
 
 func (h *Handler) handlePutResourceConfig(
 	_ context.Context, in *putResourceConfigInput,
 ) (*emptyOutput, error) {
+	if in.SchemaVersionID == "" {
+		return nil, fmt.Errorf("%w: SchemaVersionId is required", ErrValidation)
+	}
+
 	return &emptyOutput{}, h.Backend.PutResourceConfig(in.ResourceType, in.ResourceID, in.Configuration)
 }
 
@@ -172,16 +182,23 @@ func (h *Handler) handleGetAggregateDiscoveredResourceCounts(
 }
 
 // GetAggregateResourceConfig request/response types and handler.
+type getAggregateResourceConfigInput struct {
+	ConfigurationAggregatorName string                      `json:"ConfigurationAggregatorName"`
+	ResourceIdentifier          AggregateResourceIdentifier `json:"ResourceIdentifier"`
+}
 type getAggregateResourceConfigOutput struct {
 	ConfigurationItem *BaseConfigurationItem `json:"ConfigurationItem"`
 }
 
 func (h *Handler) handleGetAggregateResourceConfig(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getAggregateResourceConfigInput,
 ) (*getAggregateResourceConfigOutput, error) {
-	return &getAggregateResourceConfigOutput{
-		ConfigurationItem: h.Backend.GetAggregateResourceConfig(),
-	}, nil
+	item, err := h.Backend.GetAggregateResourceConfig(in.ConfigurationAggregatorName, in.ResourceIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getAggregateResourceConfigOutput{ConfigurationItem: item}, nil
 }
 
 // ListDiscoveredResources request/response types and handler.

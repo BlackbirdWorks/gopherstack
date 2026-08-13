@@ -239,6 +239,7 @@ func cloneCluster(c *Cluster) *Cluster {
 	clone.OpenMonitoring = cloneOpenMonitoring(c.OpenMonitoring)
 	clone.LoggingInfo = cloneLoggingInfo(c.LoggingInfo)
 	clone.Serverless = cloneServerless(c.Serverless)
+	clone.Rebalancing = cloneRebalancing(c.Rebalancing)
 
 	if c.StateInfo != nil {
 		si := *c.StateInfo
@@ -396,6 +397,17 @@ func cloneLoggingInfo(li *LoggingInfo) *LoggingInfo {
 	}
 
 	return clone
+}
+
+// cloneRebalancing copies a Rebalancing.
+func cloneRebalancing(r *Rebalancing) *Rebalancing {
+	if r == nil {
+		return nil
+	}
+
+	clone := *r
+
+	return &clone
 }
 
 // cloneServerless deep-copies a ServerlessClusterInfo.

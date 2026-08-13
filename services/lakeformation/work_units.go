@@ -64,8 +64,11 @@ func (b *InMemoryBackend) GetWorkUnits(queryID string) ([]WorkUnitRange, string,
 	return []WorkUnitRange{{WorkUnitIDMax: 0, WorkUnitIDMin: 0, WorkUnitToken: queryID}}, "", nil
 }
 
-// GetWorkUnitResults validates that the query exists and returns its content.
-func (b *InMemoryBackend) GetWorkUnitResults(queryID, _ string) (string, error) {
+// GetWorkUnitResults validates that the query exists and that workUnitID
+// names a real work unit -- GetWorkUnits always returns exactly one range
+// (WorkUnitIDMin/Max both 0, see GetWorkUnits above), so only 0 is valid
+// today, but a caller-supplied ID is no longer silently ignored.
+func (b *InMemoryBackend) GetWorkUnitResults(queryID string, workUnitID int64, _ string) (string, error) {
 	if strings.TrimSpace(queryID) == "" {
 		return "", fmt.Errorf("QueryId is required: %w", ErrValidation)
 	}
@@ -74,6 +77,10 @@ func (b *InMemoryBackend) GetWorkUnitResults(queryID, _ string) (string, error) 
 	query, ok := b.queries[queryID]
 	if !ok {
 		return "", awserr.New("query not found: "+queryID, awserr.ErrNotFound)
+	}
+
+	if workUnitID != 0 {
+		return "", fmt.Errorf("WorkUnitId %d not found for query %q: %w", workUnitID, queryID, ErrValidation)
 	}
 
 	return query, nil

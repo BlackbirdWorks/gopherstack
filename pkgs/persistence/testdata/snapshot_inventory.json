@@ -564,7 +564,7 @@
     "fields": [
       "AccountID string `json:\"accountID\"`",
       "Aliases map[string]map[string]string `json:\"aliases\"`",
-      "CAEnrollment map[string]map[string]bool `json:\"caEnrollment\"`",
+      "CAEnrollment map[string]map[string]*CAEnrollmentPolicy `json:\"caEnrollment\"`",
       "DirDataAccess map[string]map[string]bool `json:\"dirDataAccess\"`",
       "DirSettings map[string]map[string][]*storedDirectorySetting `json:\"dirSettings\"`",
       "IPRoutes map[string]map[string][]storedIpRoute `json:\"ipRoutes\"`",
@@ -572,7 +572,7 @@
       "Tables map[string]json.RawMessage `json:\"tables\"`",
       "UpdateInfoEntries map[string]map[string][]*storedUpdateInfo `json:\"updateInfoEntries\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "dlm": {
     "fields": [

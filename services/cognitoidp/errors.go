@@ -99,6 +99,18 @@ var (
 	// ErrTermsExists is returned when a terms document with the same TermsName
 	// already exists for the given app client.
 	ErrTermsExists = awserr.New("TermsExistsException", awserr.ErrAlreadyExists)
+
+	// ErrSecretNotFound is returned when a ClientSecretId does not match any
+	// secret added via AddUserPoolClientSecret for the given app client
+	// (DeleteUserPoolClientSecret).
+	ErrSecretNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+
+	// ErrLimitExceeded is returned when AddUserPoolClientSecret would exceed
+	// the real API's documented cap of 2 active secrets per app client
+	// (verified against aws-sdk-go-v2/service/cognitoidentityprovider's
+	// AddUserPoolClientSecret deserializer, which declares
+	// LimitExceededException).
+	ErrLimitExceeded = awserr.New("LimitExceededException", awserr.ErrConflict)
 )
 
 // ErrJWTKeyNotFound is returned when a JWT key ID is not found for a known issuer.

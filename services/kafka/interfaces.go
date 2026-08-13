@@ -134,7 +134,7 @@ type StorageBackend interface {
 		clusterArn string,
 		settings UpdateMonitoringSettings,
 	) (*ClusterOperation, error)
-	UpdateRebalancing(ctx context.Context, clusterArn string) (*ClusterOperation, error)
+	UpdateRebalancing(ctx context.Context, clusterArn, status string) (*ClusterOperation, error)
 	UpdateSecurity(ctx context.Context, clusterArn string, settings UpdateSecuritySettings) (*ClusterOperation, error)
 	UpdateStorage(ctx context.Context, clusterArn string, settings UpdateStorageSettings) (*ClusterOperation, error)
 	RebootBroker(ctx context.Context, clusterArn string, brokerIDs []string) (*ClusterOperation, error)

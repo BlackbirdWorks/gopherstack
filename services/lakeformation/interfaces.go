@@ -109,7 +109,7 @@ type StorageBackend interface {
 	GetQueryState(queryID string) (string, error)
 	GetQueryStatistics(queryID string) (*ExecutionStatistics, *PlanningStatistics, error)
 	GetWorkUnits(queryID string) ([]WorkUnitRange, string, error)
-	GetWorkUnitResults(queryID, workUnitToken string) (string, error)
+	GetWorkUnitResults(queryID string, workUnitID int64, workUnitToken string) (string, error)
 
 	ListTableStorageOptimizers(catalogID, databaseName, tableName, storageOptimizerType string) []StorageOptimizer
 	UpdateTableStorageOptimizer(catalogID, databaseName, tableName string, config map[string]map[string]string) string

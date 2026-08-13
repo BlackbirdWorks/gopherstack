@@ -20,6 +20,12 @@ const (
 	// clientSecretLen is the length of randomly generated client secrets.
 	clientSecretLen = 51
 
+	// clientSecretIDLen is the length of the random suffix used for
+	// AddUserPoolClientSecret's ClientSecretId (real AWS's format is
+	// documented as "--", an opaque identifier this emulator does not
+	// attempt to reproduce structurally).
+	clientSecretIDLen = 20
+
 	// alphanumChars contains characters used for random ID generation.
 	alphanumChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 

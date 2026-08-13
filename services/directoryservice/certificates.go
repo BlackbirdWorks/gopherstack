@@ -166,8 +166,18 @@ func (b *InMemoryBackend) DescribeCertificate(ctx context.Context, directoryID, 
 
 // --- CA Enrollment Policy ---
 
-// EnableCAEnrollmentPolicy enables CA enrollment policy.
-func (b *InMemoryBackend) EnableCAEnrollmentPolicy(ctx context.Context, directoryID string) error {
+// CaEnrollmentPolicyStatus* mirror aws-sdk-go-v2/service/directoryservice's
+// types.CaEnrollmentPolicyStatus enum values (verified against types/enums.go).
+const (
+	CaEnrollmentPolicyStatusSuccess  = "Success"
+	CaEnrollmentPolicyStatusDisabled = "Disabled"
+)
+
+// EnableCAEnrollmentPolicy enables CA enrollment policy, persisting the
+// required PcaConnectorArn (this emulator cannot reach a real PCA connector,
+// so the policy transitions straight to Success rather than modeling
+// InProgress).
+func (b *InMemoryBackend) EnableCAEnrollmentPolicy(ctx context.Context, directoryID, pcaConnectorArn string) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("EnableCAEnrollmentPolicy")
@@ -177,12 +187,19 @@ func (b *InMemoryBackend) EnableCAEnrollmentPolicy(ctx context.Context, director
 		return ErrDirectoryNotFound
 	}
 
-	b.caEnrollmentStore(region)[directoryID] = true
+	b.caEnrollmentStore(region)[directoryID] = &CAEnrollmentPolicy{
+		DirectoryID:         directoryID,
+		Status:              CaEnrollmentPolicyStatusSuccess,
+		PcaConnectorArn:     pcaConnectorArn,
+		LastUpdatedDateTime: time.Now(),
+	}
 
 	return nil
 }
 
-// DisableCAEnrollmentPolicy disables CA enrollment policy.
+// DisableCAEnrollmentPolicy disables CA enrollment policy, retaining the
+// previously configured PcaConnectorArn (real AWS does not document clearing
+// it on disable).
 func (b *InMemoryBackend) DisableCAEnrollmentPolicy(ctx context.Context, directoryID string) error {
 	region := getRegion(ctx, b.region)
 
@@ -193,12 +210,23 @@ func (b *InMemoryBackend) DisableCAEnrollmentPolicy(ctx context.Context, directo
 		return ErrDirectoryNotFound
 	}
 
-	b.caEnrollmentStore(region)[directoryID] = false
+	store := b.caEnrollmentStore(region)
+
+	policy, ok := store[directoryID]
+	if !ok {
+		policy = &CAEnrollmentPolicy{DirectoryID: directoryID}
+		store[directoryID] = policy
+	}
+
+	policy.Status = CaEnrollmentPolicyStatusDisabled
+	policy.LastUpdatedDateTime = time.Now()
 
 	return nil
 }
 
-// DescribeCAEnrollmentPolicy returns CA enrollment policy for a directory.
+// DescribeCAEnrollmentPolicy returns CA enrollment policy for a directory. A
+// directory that has never called EnableCAEnrollmentPolicy is Disabled with
+// no PcaConnectorArn, mirroring real AWS's default (never-enrolled) state.
 func (b *InMemoryBackend) DescribeCAEnrollmentPolicy(
 	ctx context.Context,
 	directoryID string,
@@ -212,7 +240,11 @@ func (b *InMemoryBackend) DescribeCAEnrollmentPolicy(
 		return nil, ErrDirectoryNotFound
 	}
 
-	enabled := b.caEnrollmentStoreRO(region)[directoryID]
+	if policy, ok := b.caEnrollmentStoreRO(region)[directoryID]; ok {
+		clone := *policy
 
-	return &CAEnrollmentPolicy{DirectoryID: directoryID, Enabled: enabled}, nil
+		return &clone, nil
+	}
+
+	return &CAEnrollmentPolicy{DirectoryID: directoryID, Status: CaEnrollmentPolicyStatusDisabled}, nil
 }
