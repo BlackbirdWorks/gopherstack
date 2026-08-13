@@ -22,7 +22,7 @@ package ssm_test
 //   - PatchComplianceData.InstalledTime     (DescribeInstancePatches)
 //   - ResourceDataSync.SyncCreatedTime/LastSyncTime (ListResourceDataSync)
 //   - InventoryDeletion.DeletionStartTime   (DescribeInventoryDeletions)
-//   - NodeInfo.RegistrationDate             (ListNodes)
+//   - Node.CaptureTime                      (ListNodes)
 
 import (
 	"context"
@@ -134,14 +134,15 @@ func TestEpochSecondsWireShape_InventoryDeletion(t *testing.T) {
 	numericJSONField(t, body, "DeletionStartTime")
 }
 
-func TestEpochSecondsWireShape_NodeInfo(t *testing.T) {
+func TestEpochSecondsWireShape_Node(t *testing.T) {
 	t.Parallel()
 
-	body, err := json.Marshal(ssm.NodeInfo{
-		InstanceID: "i-1", PlatformType: "Linux", RegistrationDate: 1_700_000_000,
+	body, err := json.Marshal(ssm.Node{
+		ID: "i-1", CaptureTime: 1_700_000_000,
+		NodeType: &ssm.NodeType{Instance: &ssm.NodeInstanceInfo{PlatformType: "Linux"}},
 	})
 	require.NoError(t, err)
-	numericJSONField(t, body, "RegistrationDate")
+	numericJSONField(t, body, "CaptureTime")
 }
 
 // TestEpochSecondsWireShape_EndToEnd exercises the fix through the actual

@@ -631,12 +631,21 @@ func TestCreateActivation_WithTags(t *testing.T) {
 		})
 	}
 }
+
+// TestFleetManager_ListNodes_FromActivations drives the real SDK client so
+// the shape assertion can't pass against the bug this op used to have: the
+// backend previously serialized PlatformType/AgentVersion/InstanceId as
+// top-level keys, but the real Node shape (types.Node) nests them three
+// levels down under NodeType.Instance, and the client's own deserializer
+// would silently decode zero values from top-level fields it doesn't
+// recognize -- a raw map assertion on those top-level keys would pass
+// either way.
 func TestFleetManager_ListNodes_FromActivations(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler(t)
+	client := newTestSSMClient(t, h)
 
-	// Create activations — each produces a node.
 	for range 3 {
 		_, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
 			IamRole:           "arn:aws:iam::123456789012:role/SSMRole",
@@ -645,20 +654,50 @@ func TestFleetManager_ListNodes_FromActivations(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	rec := doRequest(t, h, "ListNodes", `{}`)
-	require.Equal(t, http.StatusOK, rec.Code)
+	out, err := client.ListNodes(t.Context(), &ssmsdk.ListNodesInput{})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(out.Nodes), 3)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	for _, n := range out.Nodes {
+		require.NotEmpty(t, n.Id)
 
-	nodes := resp["Nodes"].([]any)
-	assert.GreaterOrEqual(t, len(nodes), 3)
-
-	// Each node should have PlatformType.
-	for _, n := range nodes {
-		node := n.(map[string]any)
-		assert.NotEmpty(t, node["PlatformType"])
+		member, ok := n.NodeType.(*ssmtypes.NodeTypeMemberInstance)
+		require.True(t, ok, "NodeType must be the Instance union member")
+		assert.NotEmpty(t, member.Value.PlatformType)
 	}
+}
+
+// TestFleetManager_ListNodes_Filters verifies NodeFilter narrows the
+// returned population, matching ListNodesSummary's already-fixed Filters
+// handling (gopherstack-m53b) instead of accepting and silently ignoring
+// it the way the struct{} input did.
+func TestFleetManager_ListNodes_Filters(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+	client := newTestSSMClient(t, h)
+
+	_, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
+		IamRole:           "arn:aws:iam::123456789012:role/SSMRole",
+		RegistrationLimit: 2,
+	})
+	require.NoError(t, err)
+
+	matching, err := client.ListNodes(t.Context(), &ssmsdk.ListNodesInput{
+		Filters: []ssmtypes.NodeFilter{
+			{Key: ssmtypes.NodeFilterKeyPlatformType, Values: []string{"Linux"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, matching.Nodes)
+
+	empty, err := client.ListNodes(t.Context(), &ssmsdk.ListNodesInput{
+		Filters: []ssmtypes.NodeFilter{
+			{Key: ssmtypes.NodeFilterKeyPlatformType, Values: []string{"Windows"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, empty.Nodes)
 }
 
 // TestFleetManager_ListNodesSummary_NodeCount drives ListNodesSummary

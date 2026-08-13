@@ -167,6 +167,39 @@ func (b *InMemoryBackend) UpdateAnnotationStore(
 	return &result, nil
 }
 
+// annotationImportItemDetails converts the real StartAnnotationImportJobInput
+// item shape (AnnotationImportItem, source only) into the real
+// GetAnnotationImportJobOutput item shape (AnnotationImportItemDetail,
+// jobStatus + source), stamping every item with the job's own status. This
+// backend completes import jobs synchronously in one step, so that status is
+// each item's true final state, not a guess.
+func annotationImportItemDetails(items []AnnotationImportItem, status string) []AnnotationImportItemDetail {
+	details := make([]AnnotationImportItemDetail, 0, len(items))
+	for _, item := range items {
+		details = append(details, AnnotationImportItemDetail{Source: item.Source, JobStatus: status})
+	}
+
+	return details
+}
+
+// newAnnotationImportJobSummary converts a persisted job record into the
+// real ListAnnotationImportJobsOutput element shape (see
+// AnnotationImportJobSummary's doc comment for why List and Get differ).
+func newAnnotationImportJobSummary(job *AnnotationImportJob) AnnotationImportJobSummary {
+	return AnnotationImportJobSummary{
+		CreationTime:         job.CreationTime,
+		CompletionTime:       job.CompletionTime,
+		UpdateTime:           job.UpdateTime,
+		AnnotationFields:     job.AnnotationFields,
+		ID:                   job.ID,
+		DestinationName:      job.DestinationName,
+		RoleARN:              job.RoleARN,
+		Status:               job.Status,
+		VersionName:          job.VersionName,
+		RunLeftNormalization: job.RunLeftNormalization,
+	}
+}
+
 // StartAnnotationImportJob starts an annotation import job. annotationFields,
 // formatOptions, runLeftNormalization, and versionName are real optional
 // StartAnnotationImportJobInput members (serializers.go:7892-7935) that were
@@ -187,16 +220,17 @@ func (b *InMemoryBackend) StartAnnotationImportJob(
 	}
 
 	now := time.Now().UTC()
+	status := statusCompleted
 	job := &AnnotationImportJob{
 		ID:                   newID(),
 		DestinationName:      destinationName,
 		RoleARN:              roleARN,
-		Items:                items,
+		Items:                annotationImportItemDetails(items, status),
 		AnnotationFields:     annotationFields,
 		FormatOptions:        formatOptions,
 		RunLeftNormalization: runLeftNormalization,
 		VersionName:          versionName,
-		Status:               statusCompleted,
+		Status:               status,
 		CreationTime:         now,
 		CompletionTime:       &now,
 		UpdateTime:           now,

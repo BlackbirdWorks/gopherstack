@@ -137,7 +137,16 @@ func (h *Handler) handleListVariantImportJobs(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: jobs, keyNextToken: next})
+	// Real ListVariantImportJobsOutput's element (VariantImportJobItem) has
+	// no items/statusMessage -- narrower than GetVariantImportJobOutput, so
+	// this doesn't marshal the domain structs directly (see
+	// VariantImportJobSummary).
+	summaries := make([]VariantImportJobSummary, 0, len(jobs))
+	for _, job := range jobs {
+		summaries = append(summaries, newVariantImportJobSummary(job))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleCancelVariantImportJob(c *echo.Context, jobID string) error {

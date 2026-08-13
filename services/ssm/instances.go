@@ -42,16 +42,93 @@ func (b *InMemoryBackend) buildNodeInfos(region string) []NodeInfo {
 	return nodes
 }
 
-// ListNodes returns managed nodes derived from the activations store.
+// nodeToWire converts the internal NodeInfo into the real ListNodesOutput
+// element (types.Node). Owner is always nil: this backend has no
+// account/OU tracking to report.
+func nodeToWire(n NodeInfo, region string) Node {
+	return Node{
+		ID:          n.InstanceID,
+		CaptureTime: n.RegistrationDate,
+		Region:      region,
+		NodeType: &NodeType{
+			Instance: &NodeInstanceInfo{
+				AgentVersion: n.AgentVersion,
+				PlatformType: n.PlatformType,
+			},
+		},
+	}
+}
+
+// filterNodes returns the nodes matching every filter (AND semantics, same
+// as the real API). Shared by ListNodes and ListNodesSummary.
+func filterNodes(nodes []NodeInfo, filters []NodeFilter) []NodeInfo {
+	filtered := nodes[:0:0]
+
+	for _, n := range nodes {
+		matched := true
+
+		for _, f := range filters {
+			if !matchesNodeFilter(n, f) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			filtered = append(filtered, n)
+		}
+	}
+
+	return filtered
+}
+
+// defaultListNodesMaxResults is used when the caller omits MaxResults. The
+// pinned SDK's ListNodesInput doc does not state a default, so this mirrors
+// the 50-item default already established for this service's other
+// NextToken-paginated list ops (e.g. DescribeOpsItems).
+const defaultListNodesMaxResults = 50
+
+// ListNodes returns managed nodes derived from the activations store,
+// filtered by input.Filters and paginated by input.MaxResults/NextToken --
+// all real, optional ListNodesInput members (api_op_ListNodes.go:31-53)
+// that a literal struct{} input previously discarded from every request.
 func (b *InMemoryBackend) ListNodes(
 	ctx context.Context,
-	_ *ListNodesInput,
+	input *ListNodesInput,
 ) (*ListNodesOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListNodes")
 	defer b.mu.RUnlock()
 
-	return &ListNodesOutputFull{Nodes: b.buildNodeInfos(region)}, nil
+	filtered := filterNodes(b.buildNodeInfos(region), input.Filters)
+
+	startIdx := parseNextToken(input.NextToken)
+	if startIdx >= len(filtered) {
+		return &ListNodesOutputFull{Nodes: []Node{}}, nil
+	}
+
+	maxResults := int32(defaultListNodesMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+
+	if end < len(filtered) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(filtered)
+	}
+
+	wire := make([]Node, 0, end-startIdx)
+	for _, n := range filtered[startIdx:end] {
+		wire = append(wire, nodeToWire(n, region))
+	}
+
+	return &ListNodesOutputFull{Nodes: wire, NextToken: nextToken}, nil
 }
 
 // nodeAttributeValue returns the value of a NodeAttributeName/NodeFilterKey
@@ -150,24 +227,7 @@ func (b *InMemoryBackend) ListNodesSummary(
 	b.mu.RLock("ListNodesSummary")
 	defer b.mu.RUnlock()
 
-	nodes := b.buildNodeInfos(region)
-
-	filtered := nodes[:0:0]
-	for _, n := range nodes {
-		matched := true
-
-		for _, f := range input.Filters {
-			if !matchesNodeFilter(n, f) {
-				matched = false
-
-				break
-			}
-		}
-
-		if matched {
-			filtered = append(filtered, n)
-		}
-	}
+	filtered := filterNodes(b.buildNodeInfos(region), input.Filters)
 
 	summary := make([]map[string]string, 0, len(input.Aggregators))
 	for _, agg := range input.Aggregators {

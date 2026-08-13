@@ -358,6 +358,13 @@ type AnnotationStore struct {
 	Description  string            `json:"description"`
 	StoreFormat  string            `json:"storeFormat"`
 	Status       string            `json:"status"`
+	// StatusMessage is real GetAnnotationStoreOutput's required
+	// "statusMessage" (deserializers.go, GetAnnotationStore/
+	// ListAnnotationStores) -- previously absent from this struct entirely,
+	// the same gap fixed for import jobs in c41d36cb6 but missed here.
+	// Always empty: this backend transitions store status synchronously
+	// with no error state to describe.
+	StatusMessage string `json:"statusMessage"`
 	// NumVersions is real GetAnnotationStoreOutput's required "numVersions"
 	// (deserializers.go:6225) -- computed live from annotationVersionsByStore
 	// at read time (GetAnnotationStore/ListAnnotationStores), never stored,
@@ -385,6 +392,12 @@ type AnnotationStoreVersion struct {
 	VersionName  string            `json:"versionName"`
 	Description  string            `json:"description"`
 	Status       string            `json:"status"`
+	// StatusMessage is real GetAnnotationStoreVersionOutput's required
+	// "statusMessage" -- previously absent from this struct entirely, the
+	// same gap fixed for import jobs in c41d36cb6 but missed here. Always
+	// empty: this backend transitions version status synchronously with no
+	// error state to describe.
+	StatusMessage string `json:"statusMessage"`
 	// VersionSizeBytes is real GetAnnotationStoreVersionOutput's required
 	// "versionSizeBytes" (deserializers.go:6587). This backend does not
 	// track actual stored bytes -- always 0 rather than a fabricated number.
@@ -398,9 +411,32 @@ type VersionDeleteError struct {
 	Message     string `json:"message"`
 }
 
-// AnnotationImportItem is a source item for an annotation import job.
+// AnnotationImportItem is a source item for an annotation import job --
+// real types.AnnotationImportItemSource (types.go:91-99, omics@v1.49.5):
+// Source only. This is StartAnnotationImportJobInput.Items' element shape,
+// not the response shape GetAnnotationImportJobOutput.Items uses (see
+// AnnotationImportItemDetail) -- the two are declared separately below
+// rather than one struct serving both, the same trap the ID/jobId field
+// already forced apart for this job type (c41d36cb6).
 type AnnotationImportItem struct {
 	Source string `json:"source"`
+}
+
+// AnnotationImportItemDetail is the real GetAnnotationImportJobOutput.Items
+// element, types.AnnotationImportItemDetail (types.go:75-89): JobStatus and
+// Source, both required. JobStatus is set once from the job's own Status at
+// Start time (annotationImportItemDetails, annotation_stores.go): this
+// backend completes import jobs synchronously in one step, so every item
+// reaches its final status in that same step and there is no async window
+// in which a stored per-item value could go stale.
+//
+// gopherstack-7s8r assumed ListAnnotationImportJobs also returns this
+// shape; it does not -- the real List element (AnnotationImportJobItem,
+// types.go:102-146) has no Items field at all. See
+// AnnotationImportJobSummary.
+type AnnotationImportItemDetail struct {
+	JobStatus string `json:"jobStatus"`
+	Source    string `json:"source"`
 }
 
 // ImportJobFilter is filter criteria shared by ListAnnotationImportJobs and
@@ -410,14 +446,16 @@ type ImportJobFilter struct {
 	StoreName string
 }
 
-// AnnotationImportJob represents an annotation import job.
+// AnnotationImportJob is the real GetAnnotationImportJobOutput shape
+// (deserializers.go:5949-6015) and this backend's persisted job record.
 //
 // ID is tagged "id" -- the real GetAnnotationImportJobOutput/
 // AnnotationImportJobItem wire key (deserializers.go:5954) -- which is right
 // for Get/List but wrong for StartAnnotationImportJobOutput, whose only field
 // is "jobId" (deserializers.go:17434); the two ops don't share a response
 // shape in the real API, so the start handler builds its own {"jobId": ...}
-// response instead of marshaling this struct.
+// response instead of marshaling this struct. ListAnnotationImportJobs
+// doesn't marshal this struct either -- see AnnotationImportJobSummary.
 //
 // FormatOptions/RunLeftNormalization/VersionName/StatusMessage/UpdateTime are
 // real required GetAnnotationImportJobOutput members (deserializers.go:5949-
@@ -427,19 +465,38 @@ type ImportJobFilter struct {
 // tsvOptions/vcfOptions). StatusMessage is always empty: this backend
 // completes import jobs synchronously with no error state to describe.
 type AnnotationImportJob struct {
-	CreationTime         time.Time              `json:"creationTime"`
-	CompletionTime       *time.Time             `json:"completionTime,omitempty"`
-	UpdateTime           time.Time              `json:"updateTime"`
-	FormatOptions        map[string]any         `json:"formatOptions,omitempty"`
-	AnnotationFields     map[string]string      `json:"annotationFields,omitempty"`
-	ID                   string                 `json:"id"`
-	DestinationName      string                 `json:"destinationName"`
-	RoleARN              string                 `json:"roleArn"`
-	Status               string                 `json:"status"`
-	StatusMessage        string                 `json:"statusMessage"`
-	VersionName          string                 `json:"versionName"`
-	Items                []AnnotationImportItem `json:"items"`
-	RunLeftNormalization bool                   `json:"runLeftNormalization,omitempty"`
+	CreationTime         time.Time                    `json:"creationTime"`
+	CompletionTime       *time.Time                   `json:"completionTime,omitempty"`
+	UpdateTime           time.Time                    `json:"updateTime"`
+	FormatOptions        map[string]any               `json:"formatOptions,omitempty"`
+	AnnotationFields     map[string]string            `json:"annotationFields,omitempty"`
+	ID                   string                       `json:"id"`
+	DestinationName      string                       `json:"destinationName"`
+	RoleARN              string                       `json:"roleArn"`
+	Status               string                       `json:"status"`
+	StatusMessage        string                       `json:"statusMessage"`
+	VersionName          string                       `json:"versionName"`
+	Items                []AnnotationImportItemDetail `json:"items"`
+	RunLeftNormalization bool                         `json:"runLeftNormalization,omitempty"`
+}
+
+// AnnotationImportJobSummary is the real ListAnnotationImportJobsOutput
+// element, types.AnnotationImportJobItem (types.go:102-146). It is
+// deliberately narrower than AnnotationImportJob/GetAnnotationImportJobOutput:
+// no Items, FormatOptions or StatusMessage -- List and Get are not the same
+// response shape in the real API, the same class of gap that already forced
+// StartAnnotationImportJobOutput apart to a standalone {"jobId": ...} body.
+type AnnotationImportJobSummary struct {
+	CreationTime         time.Time         `json:"creationTime"`
+	CompletionTime       *time.Time        `json:"completionTime,omitempty"`
+	UpdateTime           time.Time         `json:"updateTime"`
+	AnnotationFields     map[string]string `json:"annotationFields,omitempty"`
+	ID                   string            `json:"id"`
+	DestinationName      string            `json:"destinationName"`
+	RoleARN              string            `json:"roleArn"`
+	Status               string            `json:"status"`
+	VersionName          string            `json:"versionName"`
+	RunLeftNormalization bool              `json:"runLeftNormalization,omitempty"`
 }
 
 // VariantStore represents an HealthOmics variant store.
@@ -457,6 +514,12 @@ type VariantStore struct {
 	Name         string            `json:"name"`
 	Description  string            `json:"description"`
 	Status       string            `json:"status"`
+	// StatusMessage is real GetVariantStoreOutput's required
+	// "statusMessage" -- previously absent from this struct entirely, the
+	// same gap fixed for import jobs in c41d36cb6 but missed here. Always
+	// empty: this backend transitions store status synchronously with no
+	// error state to describe.
+	StatusMessage string `json:"statusMessage"`
 	// StoreSizeBytes is real GetVariantStoreOutput's required
 	// "storeSizeBytes" (deserializers.go:11682). This backend does not track
 	// actual stored bytes -- always 0 rather than a fabricated number.
@@ -464,37 +527,78 @@ type VariantStore struct {
 	pollCount      int   // tracks CREATING→ACTIVE progression; not serialized
 }
 
-// VariantImportItem is a source item for a variant import job.
+// VariantImportItem is a source item for a variant import job -- real
+// types.VariantImportItemSource (types.go:2078-2086, omics@v1.49.5): Source
+// only. This is StartVariantImportJobInput.Items' element shape, not the
+// response shape GetVariantImportJobOutput.Items uses (see
+// VariantImportItemDetail).
 type VariantImportItem struct {
 	Source string `json:"source"`
 }
 
-// VariantImportJob represents a variant import job.
+// VariantImportItemDetail is the real GetVariantImportJobOutput.Items
+// element, types.VariantImportItemDetail (types.go:2058-2071): JobStatus and
+// Source are required, StatusMessage is optional. JobStatus is set once
+// from the job's own Status at Start time (see
+// variantImportItemDetails, variant_stores.go): this backend completes
+// import jobs synchronously in one step, so every item reaches its final
+// status in that same step. StatusMessage is always empty, same convention
+// as the job-level StatusMessage below.
+//
+// gopherstack-7s8r assumed ListVariantImportJobs also returns this shape;
+// it does not -- the real List element (VariantImportJobItem,
+// types.go:2090-2132) has no Items field at all. See
+// VariantImportJobSummary.
+type VariantImportItemDetail struct {
+	JobStatus     string `json:"jobStatus"`
+	Source        string `json:"source"`
+	StatusMessage string `json:"statusMessage,omitempty"`
+}
+
+// VariantImportJob is the real GetVariantImportJobOutput shape
+// (deserializers.go:11383-11444) and this backend's persisted job record.
 //
 // ID is tagged "id" -- the real GetVariantImportJobOutput/
 // VariantImportJobItem wire key (deserializers.go:11383) -- which is right
 // for Get/List but wrong for StartVariantImportJobOutput, whose only field is
 // "jobId" (deserializers.go:18893); the start handler builds its own
-// {"jobId": ...} response instead of marshaling this struct. Unlike
-// annotation import jobs, variant import jobs have no FormatOptions or
-// VersionName field anywhere in the real API (StartVariantImportJobInput/
-// GetVariantImportJobOutput both lack them) -- RunLeftNormalization/
-// StatusMessage/UpdateTime are the real gaps here (deserializers.go:11406-
-// 11444), same schema-gap class as the annotation job. StatusMessage is
-// always empty: this backend completes import jobs synchronously with no
-// error state to describe.
+// {"jobId": ...} response instead of marshaling this struct.
+// ListVariantImportJobs doesn't marshal this struct either -- see
+// VariantImportJobSummary. Unlike annotation import jobs, variant import
+// jobs have no FormatOptions or VersionName field anywhere in the real API
+// (StartVariantImportJobInput/GetVariantImportJobOutput both lack them) --
+// RunLeftNormalization/StatusMessage/UpdateTime are the real gaps here
+// (deserializers.go:11406-11444), same schema-gap class as the annotation
+// job. StatusMessage is always empty: this backend completes import jobs
+// synchronously with no error state to describe.
 type VariantImportJob struct {
-	CreationTime         time.Time           `json:"creationTime"`
-	CompletionTime       *time.Time          `json:"completionTime,omitempty"`
-	UpdateTime           time.Time           `json:"updateTime"`
-	AnnotationFields     map[string]string   `json:"annotationFields,omitempty"`
-	ID                   string              `json:"id"`
-	DestinationName      string              `json:"destinationName"`
-	RoleARN              string              `json:"roleArn"`
-	Status               string              `json:"status"`
-	StatusMessage        string              `json:"statusMessage"`
-	Items                []VariantImportItem `json:"items"`
-	RunLeftNormalization bool                `json:"runLeftNormalization,omitempty"`
+	CreationTime         time.Time                 `json:"creationTime"`
+	CompletionTime       *time.Time                `json:"completionTime,omitempty"`
+	UpdateTime           time.Time                 `json:"updateTime"`
+	AnnotationFields     map[string]string         `json:"annotationFields,omitempty"`
+	ID                   string                    `json:"id"`
+	DestinationName      string                    `json:"destinationName"`
+	RoleARN              string                    `json:"roleArn"`
+	Status               string                    `json:"status"`
+	StatusMessage        string                    `json:"statusMessage"`
+	Items                []VariantImportItemDetail `json:"items"`
+	RunLeftNormalization bool                      `json:"runLeftNormalization,omitempty"`
+}
+
+// VariantImportJobSummary is the real ListVariantImportJobsOutput element,
+// types.VariantImportJobItem (types.go:2090-2132). Deliberately narrower
+// than VariantImportJob/GetVariantImportJobOutput: no Items or
+// StatusMessage.
+type VariantImportJobSummary struct {
+	CreationTime         time.Time         `json:"creationTime"`
+	CompletionTime       *time.Time        `json:"completionTime,omitempty"`
+	UpdateTime           time.Time         `json:"updateTime"`
+	AnnotationFields     map[string]string `json:"annotationFields,omitempty"`
+	ID                   string            `json:"id"`
+	DestinationName      string            `json:"destinationName"`
+	RoleARN              string            `json:"roleArn"`
+	Status               string            `json:"status"`
+	RunLeftNormalization bool              `json:"runLeftNormalization,omitempty"`
 }
 
 // ShareFilter is filter criteria for ListShares (real AWS types.Filter,

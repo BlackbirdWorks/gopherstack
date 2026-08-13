@@ -142,6 +142,38 @@ func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*Variant
 	return &result, nil
 }
 
+// variantImportItemDetails converts the real StartVariantImportJobInput item
+// shape (VariantImportItem, source only) into the real
+// GetVariantImportJobOutput item shape (VariantImportItemDetail, jobStatus +
+// source), stamping every item with the job's own status. This backend
+// completes import jobs synchronously in one step, so that status is each
+// item's true final state, not a guess.
+func variantImportItemDetails(items []VariantImportItem, status string) []VariantImportItemDetail {
+	details := make([]VariantImportItemDetail, 0, len(items))
+	for _, item := range items {
+		details = append(details, VariantImportItemDetail{Source: item.Source, JobStatus: status})
+	}
+
+	return details
+}
+
+// newVariantImportJobSummary converts a persisted job record into the real
+// ListVariantImportJobsOutput element shape (see VariantImportJobSummary's
+// doc comment for why List and Get differ).
+func newVariantImportJobSummary(job *VariantImportJob) VariantImportJobSummary {
+	return VariantImportJobSummary{
+		CreationTime:         job.CreationTime,
+		CompletionTime:       job.CompletionTime,
+		UpdateTime:           job.UpdateTime,
+		AnnotationFields:     job.AnnotationFields,
+		ID:                   job.ID,
+		DestinationName:      job.DestinationName,
+		RoleARN:              job.RoleARN,
+		Status:               job.Status,
+		RunLeftNormalization: job.RunLeftNormalization,
+	}
+}
+
 // StartVariantImportJob starts a variant import job. annotationFields and
 // runLeftNormalization are real optional StartVariantImportJobInput members
 // (serializers.go:8737-8767) that were previously dropped on the floor -- the
@@ -161,14 +193,15 @@ func (b *InMemoryBackend) StartVariantImportJob(
 	}
 
 	now := time.Now().UTC()
+	status := statusCompleted
 	job := &VariantImportJob{
 		ID:                   newID(),
 		DestinationName:      destinationName,
 		RoleARN:              roleARN,
-		Items:                items,
+		Items:                variantImportItemDetails(items, status),
 		AnnotationFields:     annotationFields,
 		RunLeftNormalization: runLeftNormalization,
-		Status:               statusCompleted,
+		Status:               status,
 		CreationTime:         now,
 		CompletionTime:       &now,
 		UpdateTime:           now,

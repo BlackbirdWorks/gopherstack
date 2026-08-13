@@ -151,7 +151,16 @@ func (h *Handler) handleListAnnotationImportJobs(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: jobs, keyNextToken: next})
+	// Real ListAnnotationImportJobsOutput's element (AnnotationImportJobItem)
+	// has no items/formatOptions/statusMessage -- narrower than
+	// GetAnnotationImportJobOutput, so this doesn't marshal the domain
+	// structs directly (see AnnotationImportJobSummary).
+	summaries := make([]AnnotationImportJobSummary, 0, len(jobs))
+	for _, job := range jobs {
+		summaries = append(summaries, newAnnotationImportJobSummary(job))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleCancelAnnotationImportJob(c *echo.Context, jobID string) error {
