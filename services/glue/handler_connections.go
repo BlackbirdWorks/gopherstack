@@ -3,6 +3,7 @@ package glue
 import (
 	"context"
 	"fmt"
+	"maps"
 )
 
 type batchDeleteConnectionInput struct {
@@ -83,19 +84,100 @@ func (h *Handler) handleGetConnection(
 	return &getConnectionOutput{Connection: c}, nil
 }
 
-type getConnectionsInput struct{}
+// defaultGetConnectionsLimit is used when GetConnectionsInput.MaxResults is unset.
+const defaultGetConnectionsLimit = 100
+
+// getConnectionsFilter mirrors aws-sdk-go-v2/service/glue/types.GetConnectionsFilter.
+// ConnectionSchemaVersion is not modeled: this backend's Connection (models.go)
+// has no schema-version field, so there is nothing honest to filter on -- it is
+// accepted on the wire and otherwise inert.
+type getConnectionsFilter struct {
+	ConnectionType          string   `json:"ConnectionType,omitempty"`
+	MatchCriteria           []string `json:"MatchCriteria,omitempty"`
+	ConnectionSchemaVersion int32    `json:"ConnectionSchemaVersion,omitempty"`
+}
+
+// getConnectionsInput holds input for GetConnections.
+//
+// CatalogId is not modeled: Connection (models.go) carries no CatalogId field
+// and this backend keeps connections in one flat namespace, not scoped per
+// catalog, so there is no honest per-catalog subset to return -- it is
+// accepted on the wire and otherwise inert.
+type getConnectionsInput struct {
+	CatalogID    string               `json:"CatalogId,omitempty"`
+	NextToken    string               `json:"NextToken,omitempty"`
+	Filter       getConnectionsFilter `json:"Filter,omitzero"`
+	MaxResults   int32                `json:"MaxResults,omitempty"`
+	HidePassword bool                 `json:"HidePassword,omitempty"`
+}
 
 type getConnectionsOutput struct {
+	NextToken      string        `json:"NextToken,omitempty"`
 	ConnectionList []*Connection `json:"ConnectionList"`
 }
 
 func (h *Handler) handleGetConnections(
 	_ context.Context,
-	_ *getConnectionsInput,
+	in *getConnectionsInput,
 ) (*getConnectionsOutput, error) {
 	conns := h.Backend.GetConnections()
 
-	return &getConnectionsOutput{ConnectionList: conns}, nil
+	if in.Filter.ConnectionType != "" || len(in.Filter.MatchCriteria) > 0 {
+		filtered := make([]*Connection, 0, len(conns))
+
+		for _, c := range conns {
+			if in.Filter.ConnectionType != "" && c.ConnectionType != in.Filter.ConnectionType {
+				continue
+			}
+
+			if len(in.Filter.MatchCriteria) > 0 && !matchesAllCriteria(c.MatchCriteria, in.Filter.MatchCriteria) {
+				continue
+			}
+
+			filtered = append(filtered, c)
+		}
+
+		conns = filtered
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetConnectionsLimit
+	}
+
+	page, next := paginateSlice(conns, in.NextToken, limit)
+
+	if in.HidePassword {
+		for i, c := range page {
+			cp := *c
+			if cp.ConnectionProperties != nil {
+				props := maps.Clone(cp.ConnectionProperties)
+				delete(props, "PASSWORD")
+				cp.ConnectionProperties = props
+			}
+
+			page[i] = &cp
+		}
+	}
+
+	return &getConnectionsOutput{ConnectionList: page, NextToken: next}, nil
+}
+
+// matchesAllCriteria reports whether every entry in want is present in have,
+// mirroring GetConnectionsFilter.MatchCriteria's "must match" semantics.
+func matchesAllCriteria(have, want []string) bool {
+	set := make(map[string]bool, len(have))
+	for _, c := range have {
+		set[c] = true
+	}
+
+	for _, w := range want {
+		if !set[w] {
+			return false
+		}
+	}
+
+	return true
 }
 
 type deleteConnectionInput struct {

@@ -140,19 +140,50 @@ func (h *Handler) handleGetBlueprintRuns(
 	return &getBlueprintRunsOutput{Runs: result}, nil
 }
 
+// defaultListBlueprintsLimit is used when ListBlueprintsInput.MaxResults is unset.
+const defaultListBlueprintsLimit = 100
+
 // listBlueprintsInput holds input for ListBlueprints.
-type listBlueprintsInput struct{}
+type listBlueprintsInput struct {
+	Tags       map[string]string `json:"Tags,omitempty"`
+	NextToken  string            `json:"NextToken,omitempty"`
+	MaxResults int32             `json:"MaxResults,omitempty"`
+}
 
 // listBlueprintsOutput holds the result for ListBlueprints.
 type listBlueprintsOutput struct {
+	NextToken  string   `json:"NextToken,omitempty"`
 	Blueprints []string `json:"Blueprints"`
 }
 
 func (h *Handler) handleListBlueprints(
 	_ context.Context,
-	_ *listBlueprintsInput,
+	in *listBlueprintsInput,
 ) (*listBlueprintsOutput, error) {
-	return &listBlueprintsOutput{Blueprints: h.Backend.ListBlueprints()}, nil
+	names := h.Backend.ListBlueprints()
+
+	blueprints := names
+	if len(in.Tags) > 0 {
+		full, _ := h.Backend.BatchGetBlueprints(names)
+		filtered := make([]string, 0, len(full))
+
+		for _, bp := range full {
+			if matchesTagFilter(bp.Tags, in.Tags) {
+				filtered = append(filtered, bp.Name)
+			}
+		}
+
+		blueprints = filtered
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListBlueprintsLimit
+	}
+
+	page, next := paginateSlice(blueprints, in.NextToken, limit)
+
+	return &listBlueprintsOutput{Blueprints: page, NextToken: next}, nil
 }
 
 // startBlueprintRunInput holds input for StartBlueprintRun.

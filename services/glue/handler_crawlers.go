@@ -60,16 +60,30 @@ func (h *Handler) handleGetCrawler(_ context.Context, in *getCrawlerInput) (*get
 	return &getCrawlerOutput{Crawler: c}, nil
 }
 
-type getCrawlersInput struct{}
+// defaultGetCrawlersLimit is used when GetCrawlersInput.MaxResults is unset.
+const defaultGetCrawlersLimit = 100
 
-type getCrawlersOutput struct {
-	Crawlers []*Crawler `json:"Crawlers"`
+type getCrawlersInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
 }
 
-func (h *Handler) handleGetCrawlers(_ context.Context, _ *getCrawlersInput) (*getCrawlersOutput, error) {
+type getCrawlersOutput struct {
+	NextToken string     `json:"NextToken,omitempty"`
+	Crawlers  []*Crawler `json:"Crawlers"`
+}
+
+func (h *Handler) handleGetCrawlers(_ context.Context, in *getCrawlersInput) (*getCrawlersOutput, error) {
 	crawlers := h.Backend.GetCrawlers()
 
-	return &getCrawlersOutput{Crawlers: crawlers}, nil
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetCrawlersLimit
+	}
+
+	page, next := paginateSlice(crawlers, in.NextToken, limit)
+
+	return &getCrawlersOutput{Crawlers: page, NextToken: next}, nil
 }
 
 type updateCrawlerInput struct {
@@ -139,19 +153,51 @@ func (h *Handler) handleBatchGetCrawlers(
 	return &batchGetCrawlersOutput{Crawlers: found, CrawlersNotFound: missing}, nil
 }
 
-type listCrawlersInput struct{}
+// defaultListCrawlersLimit is used when ListCrawlersInput.MaxResults is unset.
+const defaultListCrawlersLimit = 100
+
+type listCrawlersInput struct {
+	Tags       map[string]string `json:"Tags,omitempty"`
+	NextToken  string            `json:"NextToken,omitempty"`
+	MaxResults int32             `json:"MaxResults,omitempty"`
+}
 
 type listCrawlersOutput struct {
+	NextToken    string   `json:"NextToken,omitempty"`
 	CrawlerNames []string `json:"CrawlerNames"`
 }
 
 func (h *Handler) handleListCrawlers(
 	_ context.Context,
-	_ *listCrawlersInput,
+	in *listCrawlersInput,
 ) (*listCrawlersOutput, error) {
-	names := h.Backend.ListCrawlers()
+	crawlers := h.Backend.GetCrawlers()
 
-	return &listCrawlersOutput{CrawlerNames: names}, nil
+	if len(in.Tags) > 0 {
+		filtered := make([]*Crawler, 0, len(crawlers))
+
+		for _, c := range crawlers {
+			if matchesTagFilter(c.Tags, in.Tags) {
+				filtered = append(filtered, c)
+			}
+		}
+
+		crawlers = filtered
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListCrawlersLimit
+	}
+
+	page, next := paginateSlice(crawlers, in.NextToken, limit)
+
+	names := make([]string, 0, len(page))
+	for _, c := range page {
+		names = append(names, c.Name)
+	}
+
+	return &listCrawlersOutput{CrawlerNames: names, NextToken: next}, nil
 }
 
 type startCrawlerInput struct {

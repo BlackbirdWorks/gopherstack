@@ -96,17 +96,40 @@ func (h *Handler) handleGetCustomEntityType(
 	}, nil
 }
 
+// defaultListCustomEntityTypesLimit is used when ListCustomEntityTypesInput.MaxResults is unset.
+const defaultListCustomEntityTypesLimit = 100
+
 // listCustomEntityTypesInput holds input for ListCustomEntityTypes.
-type listCustomEntityTypesInput struct{}
+//
+// Tags is not modeled: CustomEntityType (models.go) carries no Tags field --
+// unlike crawlers/jobs/triggers/etc., custom entity types are never routed
+// through tags.go's tagResource/GetTags/TaggedResources dispatch, so there is
+// no tag state anywhere in this backend to filter on. Accepted on the wire
+// and otherwise inert; see PARITY.md.
+type listCustomEntityTypesInput struct {
+	Tags       map[string]string `json:"Tags,omitempty"`
+	NextToken  string            `json:"NextToken,omitempty"`
+	MaxResults int32             `json:"MaxResults,omitempty"`
+}
 
 // listCustomEntityTypesOutput holds the result for ListCustomEntityTypes.
 type listCustomEntityTypesOutput struct {
+	NextToken         string              `json:"NextToken,omitempty"`
 	CustomEntityTypes []*CustomEntityType `json:"CustomEntityTypes"`
 }
 
 func (h *Handler) handleListCustomEntityTypes(
 	_ context.Context,
-	_ *listCustomEntityTypesInput,
+	in *listCustomEntityTypesInput,
 ) (*listCustomEntityTypesOutput, error) {
-	return &listCustomEntityTypesOutput{CustomEntityTypes: h.Backend.ListCustomEntityTypes()}, nil
+	all := h.Backend.ListCustomEntityTypes()
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListCustomEntityTypesLimit
+	}
+
+	page, next := paginateSlice(all, in.NextToken, limit)
+
+	return &listCustomEntityTypesOutput{CustomEntityTypes: page, NextToken: next}, nil
 }

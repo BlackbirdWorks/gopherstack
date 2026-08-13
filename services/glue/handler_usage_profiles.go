@@ -2,6 +2,8 @@ package glue
 
 import (
 	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // createUsageProfileInput holds input for CreateUsageProfile.
@@ -75,25 +77,58 @@ func (h *Handler) handleGetUsageProfile(
 	}, nil
 }
 
+// defaultListUsageProfilesLimit is used when ListUsageProfilesInput.MaxResults is unset.
+const defaultListUsageProfilesLimit = 100
+
 // listUsageProfilesInput holds input for ListUsageProfiles.
-type listUsageProfilesInput struct{}
+type listUsageProfilesInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
+
+// usageProfileDefinition mirrors
+// aws-sdk-go-v2/service/glue/types.UsageProfileDefinition. CreatedOn/
+// LastModifiedOn are epoch floats (via pkgs/awstime), not the raw
+// UsageProfile.CreatedOn time.Time -- that field's plain json tag marshals to
+// an RFC3339 string, which the real client rejects for this unixTimestamp
+// wire shape (same class of bug pkgs/awstime exists to prevent).
+type usageProfileDefinition struct {
+	Name           string  `json:"Name"`
+	Description    string  `json:"Description,omitempty"`
+	CreatedOn      float64 `json:"CreatedOn,omitempty"`
+	LastModifiedOn float64 `json:"LastModifiedOn,omitempty"`
+}
 
 // listUsageProfilesOutput holds the result for ListUsageProfiles.
 type listUsageProfilesOutput struct {
-	Profiles []any `json:"Profiles"`
+	NextToken string                   `json:"NextToken,omitempty"`
+	Profiles  []usageProfileDefinition `json:"Profiles"`
 }
 
 func (h *Handler) handleListUsageProfiles(
 	_ context.Context,
-	_ *listUsageProfilesInput,
+	in *listUsageProfilesInput,
 ) (*listUsageProfilesOutput, error) {
-	profiles := h.Backend.ListUsageProfiles()
-	result := make([]any, 0, len(profiles))
-	for _, p := range profiles {
-		result = append(result, p)
+	all := h.Backend.ListUsageProfiles()
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListUsageProfilesLimit
 	}
 
-	return &listUsageProfilesOutput{Profiles: result}, nil
+	page, next := paginateSlice(all, in.NextToken, limit)
+
+	result := make([]usageProfileDefinition, 0, len(page))
+	for _, p := range page {
+		result = append(result, usageProfileDefinition{
+			Name:           p.Name,
+			Description:    p.Description,
+			CreatedOn:      awstime.Epoch(p.CreatedOn),
+			LastModifiedOn: awstime.Epoch(p.LastModifiedOn),
+		})
+	}
+
+	return &listUsageProfilesOutput{Profiles: result, NextToken: next}, nil
 }
 
 // updateUsageProfileInput holds input for UpdateUsageProfile.

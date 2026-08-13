@@ -3,6 +3,8 @@ package glue
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 )
 
 // cancelMLTaskRunInput holds input for CancelMLTaskRun.
@@ -181,46 +183,194 @@ func (h *Handler) handleGetMLTransform(
 	return &getMLTransformOutput{MLTransform: m}, nil
 }
 
+// defaultGetMLTransformsLimit is used when MaxResults is unset on
+// GetMLTransformsInput/ListMLTransformsInput.
+const defaultGetMLTransformsLimit = 100
+
+// transformFilterCriteria mirrors
+// aws-sdk-go-v2/service/glue/types.TransformFilterCriteria. TransformType has
+// no honest backing: MLTransform (models.go) has no TransformType field (this
+// backend only ever models the one real transform kind, FIND_MATCHES) --
+// accepted on the wire and otherwise inert. Every other member is backed by a
+// real MLTransform field.
+type transformFilterCriteria struct {
+	Name               string              `json:"Name,omitempty"`
+	GlueVersion        string              `json:"GlueVersion,omitempty"`
+	Status             string              `json:"Status,omitempty"`
+	TransformType      string              `json:"TransformType,omitempty"`
+	Schema             []SchemaColumnEntry `json:"Schema,omitempty"`
+	CreatedBefore      float64             `json:"CreatedBefore,omitempty"`
+	CreatedAfter       float64             `json:"CreatedAfter,omitempty"`
+	LastModifiedBefore float64             `json:"LastModifiedBefore,omitempty"`
+	LastModifiedAfter  float64             `json:"LastModifiedAfter,omitempty"`
+}
+
+// transformSortCriteria mirrors
+// aws-sdk-go-v2/service/glue/types.TransformSortCriteria. Column
+// "TRANSFORM_TYPE" has no honest backing (see transformFilterCriteria) and
+// falls back to leaving the list in its existing (name-sorted) order.
+type transformSortCriteria struct {
+	Column        string `json:"Column,omitempty"`
+	SortDirection string `json:"SortDirection,omitempty"`
+}
+
+// matchesTransformBasics checks the non-time-window scalar members of
+// transformFilterCriteria, split out of matchesTransformFilter to keep its
+// cyclomatic complexity down.
+func matchesTransformBasics(m *MLTransform, f *transformFilterCriteria) bool {
+	if f.Name != "" && m.Name != f.Name {
+		return false
+	}
+
+	if f.GlueVersion != "" && m.GlueVersion != f.GlueVersion {
+		return false
+	}
+
+	if f.Status != "" && m.Status != f.Status {
+		return false
+	}
+
+	return len(f.Schema) == 0 || slices.Equal(f.Schema, m.Schema)
+}
+
+func matchesTransformFilter(m *MLTransform, f *transformFilterCriteria) bool {
+	if f == nil {
+		return true
+	}
+
+	if !matchesTransformBasics(m, f) {
+		return false
+	}
+
+	if !matchesTimeWindow(m.CreatedOn, f.CreatedAfter, f.CreatedBefore) {
+		return false
+	}
+
+	return matchesTimeWindow(m.LastModifiedOn, f.LastModifiedAfter, f.LastModifiedBefore)
+}
+
+func sortTransforms(transforms []*MLTransform, sortBy *transformSortCriteria) {
+	if sortBy == nil {
+		return
+	}
+
+	var less func(a, b *MLTransform) bool
+
+	switch sortBy.Column {
+	case "NAME":
+		less = func(a, b *MLTransform) bool { return a.Name < b.Name }
+	case "STATUS":
+		less = func(a, b *MLTransform) bool { return a.Status < b.Status }
+	case "CREATED":
+		less = func(a, b *MLTransform) bool { return a.CreatedOn < b.CreatedOn }
+	case "LAST_MODIFIED":
+		less = func(a, b *MLTransform) bool { return a.LastModifiedOn < b.LastModifiedOn }
+	default:
+		return
+	}
+
+	sort.SliceStable(transforms, func(i, j int) bool {
+		if sortBy.SortDirection == "DESCENDING" {
+			return less(transforms[j], transforms[i])
+		}
+
+		return less(transforms[i], transforms[j])
+	})
+}
+
 // getMLTransformsInput holds input for GetMLTransforms.
-type getMLTransformsInput struct{}
+type getMLTransformsInput struct {
+	Filter     *transformFilterCriteria `json:"Filter,omitempty"`
+	Sort       *transformSortCriteria   `json:"Sort,omitempty"`
+	NextToken  string                   `json:"NextToken,omitempty"`
+	MaxResults int32                    `json:"MaxResults,omitempty"`
+}
 
 // getMLTransformsOutput holds the result for GetMLTransforms.
 type getMLTransformsOutput struct {
+	NextToken  string         `json:"NextToken,omitempty"`
 	Transforms []*MLTransform `json:"Transforms"`
 }
 
 func (h *Handler) handleGetMLTransforms(
 	_ context.Context,
-	_ *getMLTransformsInput,
+	in *getMLTransformsInput,
 ) (*getMLTransformsOutput, error) {
 	transforms := h.Backend.GetMLTransforms()
-	if transforms == nil {
-		transforms = []*MLTransform{}
+
+	filtered := make([]*MLTransform, 0, len(transforms))
+
+	for _, m := range transforms {
+		if matchesTransformFilter(m, in.Filter) {
+			filtered = append(filtered, m)
+		}
 	}
 
-	return &getMLTransformsOutput{Transforms: transforms}, nil
+	sortTransforms(filtered, in.Sort)
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetMLTransformsLimit
+	}
+
+	page, next := paginateSlice(filtered, in.NextToken, limit)
+	if page == nil {
+		page = []*MLTransform{}
+	}
+
+	return &getMLTransformsOutput{Transforms: page, NextToken: next}, nil
 }
 
 // listMLTransformsInput holds input for ListMLTransforms.
-type listMLTransformsInput struct{}
+type listMLTransformsInput struct {
+	Filter     *transformFilterCriteria `json:"Filter,omitempty"`
+	Sort       *transformSortCriteria   `json:"Sort,omitempty"`
+	Tags       map[string]string        `json:"Tags,omitempty"`
+	NextToken  string                   `json:"NextToken,omitempty"`
+	MaxResults int32                    `json:"MaxResults,omitempty"`
+}
 
 // listMLTransformsOutput holds the result for ListMLTransforms.
 type listMLTransformsOutput struct {
+	NextToken    string   `json:"NextToken,omitempty"`
 	TransformIDs []string `json:"TransformIds"`
 }
 
 func (h *Handler) handleListMLTransforms(
 	_ context.Context,
-	_ *listMLTransformsInput,
+	in *listMLTransformsInput,
 ) (*listMLTransformsOutput, error) {
 	transforms := h.Backend.GetMLTransforms()
-	ids := make([]string, 0, len(transforms))
+
+	filtered := make([]*MLTransform, 0, len(transforms))
 
 	for _, m := range transforms {
+		if !matchesTransformFilter(m, in.Filter) {
+			continue
+		}
+
+		if len(in.Tags) > 0 && !matchesTagFilter(m.Tags, in.Tags) {
+			continue
+		}
+
+		filtered = append(filtered, m)
+	}
+
+	sortTransforms(filtered, in.Sort)
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetMLTransformsLimit
+	}
+
+	page, next := paginateSlice(filtered, in.NextToken, limit)
+
+	ids := make([]string, 0, len(page))
+	for _, m := range page {
 		ids = append(ids, m.TransformID)
 	}
 
-	return &listMLTransformsOutput{TransformIDs: ids}, nil
+	return &listMLTransformsOutput{TransformIDs: ids, NextToken: next}, nil
 }
 
 // startExportLabelsTaskRunInput holds input for StartExportLabelsTaskRun.

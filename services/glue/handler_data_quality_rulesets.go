@@ -2,6 +2,7 @@ package glue
 
 import (
 	"context"
+	"slices"
 )
 
 type createDataQualityRulesetInput struct {
@@ -101,19 +102,103 @@ func (h *Handler) handleUpdateDataQualityRuleset(
 	return &emptyOutput{}, nil
 }
 
-type listDataQualityRulesetsInput struct{}
+// defaultListDataQualityRulesetsLimit is used when
+// ListDataQualityRulesetsInput.MaxResults is unset.
+const defaultListDataQualityRulesetsLimit = 100
+
+// dataQualityRulesetFilterCriteria mirrors
+// aws-sdk-go-v2/service/glue/types.DataQualityRulesetFilterCriteria. Every
+// member is backed by a real DataQualityRuleset field (models.go).
+type dataQualityRulesetFilterCriteria struct {
+	TargetTable        *DataQualityTargetTable `json:"TargetTable,omitempty"`
+	Name               string                  `json:"Name,omitempty"`
+	Description        string                  `json:"Description,omitempty"`
+	CreatedBefore      float64                 `json:"CreatedBefore,omitempty"`
+	CreatedAfter       float64                 `json:"CreatedAfter,omitempty"`
+	LastModifiedBefore float64                 `json:"LastModifiedBefore,omitempty"`
+	LastModifiedAfter  float64                 `json:"LastModifiedAfter,omitempty"`
+}
+
+type listDataQualityRulesetsInput struct {
+	Filter     *dataQualityRulesetFilterCriteria `json:"Filter,omitempty"`
+	Tags       map[string]string                 `json:"Tags,omitempty"`
+	NextToken  string                            `json:"NextToken,omitempty"`
+	MaxResults int32                             `json:"MaxResults,omitempty"`
+}
 
 type listDataQualityRulesetsOutput struct {
-	Rulesets []*DataQualityRuleset `json:"Rulesets"`
+	NextToken string                `json:"NextToken,omitempty"`
+	Rulesets  []*DataQualityRuleset `json:"Rulesets"`
+}
+
+// matchesTimeWindow reports whether value falls strictly after after (when
+// after > 0) and strictly before before (when before > 0). A zero bound is
+// treated as unset, matching how these *FilterCriteria members are optional
+// on the wire.
+func matchesTimeWindow(value, after, before float64) bool {
+	if after > 0 && value <= after {
+		return false
+	}
+
+	if before > 0 && value >= before {
+		return false
+	}
+
+	return true
+}
+
+func matchesDataQualityRulesetFilter(r *DataQualityRuleset, f *dataQualityRulesetFilterCriteria) bool {
+	if f == nil {
+		return true
+	}
+
+	if f.Name != "" && r.Name != f.Name {
+		return false
+	}
+
+	if f.Description != "" && r.Description != f.Description {
+		return false
+	}
+
+	if !matchesTimeWindow(r.CreatedOn, f.CreatedAfter, f.CreatedBefore) {
+		return false
+	}
+
+	if !matchesTimeWindow(r.LastModifiedOn, f.LastModifiedAfter, f.LastModifiedBefore) {
+		return false
+	}
+
+	return f.TargetTable == nil || (r.TargetTable != nil && *r.TargetTable == *f.TargetTable)
 }
 
 func (h *Handler) handleListDataQualityRulesets(
 	_ context.Context,
-	_ *listDataQualityRulesetsInput,
+	in *listDataQualityRulesetsInput,
 ) (*listDataQualityRulesetsOutput, error) {
 	rulesets := h.Backend.ListDataQualityRulesets()
 
-	return &listDataQualityRulesetsOutput{Rulesets: rulesets}, nil
+	filtered := make([]*DataQualityRuleset, 0, len(rulesets))
+
+	for _, r := range rulesets {
+		if !matchesDataQualityRulesetFilter(r, in.Filter) {
+			continue
+		}
+
+		if len(in.Tags) > 0 && !matchesTagFilter(r.Tags, in.Tags) {
+			continue
+		}
+
+		filtered = append(filtered, r)
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListDataQualityRulesetsLimit
+	}
+
+	page, next := paginateSlice(filtered, in.NextToken, limit)
+
+	return &listDataQualityRulesetsOutput{Rulesets: page, NextToken: next}, nil
 }
 
 type startDataQualityRulesetEvaluationRunInput struct {
@@ -235,47 +320,155 @@ func (h *Handler) handleGetDataQualityRuleRecommendationRun(
 	}, nil
 }
 
-// listDataQualityRuleRecommendationRunsInput holds input for ListDataQualityRuleRecommendationRuns.
-type listDataQualityRuleRecommendationRunsInput struct{}
+// defaultListDataQualityRuleRecommendationRunsLimit is used when
+// ListDataQualityRuleRecommendationRunsInput.MaxResults is unset.
+const defaultListDataQualityRuleRecommendationRunsLimit = 100
+
+// dataQualityRuleRecommendationRunFilter mirrors
+// aws-sdk-go-v2/service/glue/types.DataQualityRuleRecommendationRunFilter.
+// DataSource is required on the real op but has no honest backing here:
+// DQRuleRecommendationRun (models.go) records only a flat DataSourceS3Path
+// string, never the structured types.DataSource{GlueTable: ...} a real
+// filter would compare against -- accepted on the wire and left inert rather
+// than fabricating a match against data this backend never stored.
+// StartedAfter/StartedBefore are real: they compare against StartedOn, which
+// DQRuleRecommendationRun does store.
+type dataQualityRuleRecommendationRunFilter struct {
+	DataSource    any     `json:"DataSource,omitempty"`
+	StartedAfter  float64 `json:"StartedAfter,omitempty"`
+	StartedBefore float64 `json:"StartedBefore,omitempty"`
+}
+
+// listDataQualityRuleRecommendationRunsInput holds input for
+// ListDataQualityRuleRecommendationRuns.
+//
+// Tags is not modeled: DQRuleRecommendationRun is never routed through
+// tags.go's tag dispatch, so it is accepted on the wire and otherwise inert.
+type listDataQualityRuleRecommendationRunsInput struct {
+	Filter     *dataQualityRuleRecommendationRunFilter `json:"Filter,omitempty"`
+	Tags       map[string]string                       `json:"Tags,omitempty"`
+	NextToken  string                                  `json:"NextToken,omitempty"`
+	MaxResults int32                                   `json:"MaxResults,omitempty"`
+}
 
 // listDataQualityRuleRecommendationRunsOutput holds the result for ListDataQualityRuleRecommendationRuns.
 type listDataQualityRuleRecommendationRunsOutput struct {
-	Runs []any `json:"Runs"`
+	NextToken string `json:"NextToken,omitempty"`
+	Runs      []any  `json:"Runs"`
 }
 
 func (h *Handler) handleListDataQualityRuleRecommendationRuns(
 	_ context.Context,
-	_ *listDataQualityRuleRecommendationRunsInput,
+	in *listDataQualityRuleRecommendationRunsInput,
 ) (*listDataQualityRuleRecommendationRunsOutput, error) {
-	runs := h.Backend.ListDataQualityRuleRecommendationRuns()
-	result := make([]any, 0, len(runs))
-	for _, r := range runs {
+	all := h.Backend.ListDataQualityRuleRecommendationRuns()
+
+	matching := make([]*DQRuleRecommendationRun, 0, len(all))
+
+	for _, r := range all {
+		if in.Filter != nil {
+			if in.Filter.StartedAfter > 0 && r.StartedOn <= in.Filter.StartedAfter {
+				continue
+			}
+
+			if in.Filter.StartedBefore > 0 && r.StartedOn >= in.Filter.StartedBefore {
+				continue
+			}
+		}
+
+		matching = append(matching, r)
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListDataQualityRuleRecommendationRunsLimit
+	}
+
+	page, next := paginateSlice(matching, in.NextToken, limit)
+
+	result := make([]any, 0, len(page))
+	for _, r := range page {
 		result = append(result, r)
 	}
 
-	return &listDataQualityRuleRecommendationRunsOutput{Runs: result}, nil
+	return &listDataQualityRuleRecommendationRunsOutput{Runs: result, NextToken: next}, nil
+}
+
+// defaultListDataQualityRulesetEvaluationRunsLimit is used when
+// ListDataQualityRulesetEvaluationRunsInput.MaxResults is unset.
+const defaultListDataQualityRulesetEvaluationRunsLimit = 100
+
+// dataQualityRulesetEvaluationRunFilter mirrors
+// aws-sdk-go-v2/service/glue/types.DataQualityRulesetEvaluationRunFilter.
+// DataSource is required on the real op but has no honest backing:
+// DataQualityEvaluationRun (models.go) records no data-source/table link at
+// all -- accepted on the wire and left inert. RulesetName and
+// StartedAfter/StartedBefore are real: they compare against RulesetNames and
+// StartedOn, which DataQualityEvaluationRun does store.
+type dataQualityRulesetEvaluationRunFilter struct {
+	DataSource    any     `json:"DataSource,omitempty"`
+	RulesetName   string  `json:"RulesetName,omitempty"`
+	StartedAfter  float64 `json:"StartedAfter,omitempty"`
+	StartedBefore float64 `json:"StartedBefore,omitempty"`
 }
 
 // listDataQualityRulesetEvaluationRunsInput holds input for ListDataQualityRulesetEvaluationRuns.
-type listDataQualityRulesetEvaluationRunsInput struct{}
+type listDataQualityRulesetEvaluationRunsInput struct {
+	Filter     *dataQualityRulesetEvaluationRunFilter `json:"Filter,omitempty"`
+	NextToken  string                                 `json:"NextToken,omitempty"`
+	MaxResults int32                                  `json:"MaxResults,omitempty"`
+}
 
 // listDataQualityRulesetEvaluationRunsOutput holds the result for ListDataQualityRulesetEvaluationRuns.
 type listDataQualityRulesetEvaluationRunsOutput struct {
-	Runs []any `json:"Runs"`
+	NextToken string `json:"NextToken,omitempty"`
+	Runs      []any  `json:"Runs"`
+}
+
+func evaluationRunHasRuleset(r *DataQualityEvaluationRun, name string) bool {
+	return slices.Contains(r.RulesetNames, name)
 }
 
 func (h *Handler) handleListDataQualityRulesetEvaluationRuns(
 	_ context.Context,
-	_ *listDataQualityRulesetEvaluationRunsInput,
+	in *listDataQualityRulesetEvaluationRunsInput,
 ) (*listDataQualityRulesetEvaluationRunsOutput, error) {
-	runs := h.Backend.ListDataQualityEvaluationRuns()
-	result := make([]any, 0, len(runs))
+	all := h.Backend.ListDataQualityEvaluationRuns()
 
-	for _, r := range runs {
+	matching := make([]*DataQualityEvaluationRun, 0, len(all))
+
+	for _, r := range all {
+		if in.Filter != nil {
+			if in.Filter.RulesetName != "" && !evaluationRunHasRuleset(r, in.Filter.RulesetName) {
+				continue
+			}
+
+			if in.Filter.StartedAfter > 0 && r.StartedOn <= in.Filter.StartedAfter {
+				continue
+			}
+
+			if in.Filter.StartedBefore > 0 && r.StartedOn >= in.Filter.StartedBefore {
+				continue
+			}
+		}
+
+		matching = append(matching, r)
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListDataQualityRulesetEvaluationRunsLimit
+	}
+
+	page, next := paginateSlice(matching, in.NextToken, limit)
+
+	result := make([]any, 0, len(page))
+
+	for _, r := range page {
 		result = append(result, r)
 	}
 
-	return &listDataQualityRulesetEvaluationRunsOutput{Runs: result}, nil
+	return &listDataQualityRulesetEvaluationRunsOutput{Runs: result, NextToken: next}, nil
 }
 
 // startDataQualityRuleRecommendationRunInput holds input for StartDataQualityRuleRecommendationRun.

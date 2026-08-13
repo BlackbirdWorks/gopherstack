@@ -42,25 +42,70 @@ func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 	}, nil
 }
 
-// listMaterializedViewRefreshTaskRunsInput holds input for ListMaterializedViewRefreshTaskRuns.
-type listMaterializedViewRefreshTaskRunsInput struct{}
+// defaultListMaterializedViewRefreshTaskRunsLimit is used when
+// ListMaterializedViewRefreshTaskRunsInput.MaxResults is unset.
+const defaultListMaterializedViewRefreshTaskRunsLimit = 100
 
-// listMaterializedViewRefreshTaskRunsOutput holds the result for ListMaterializedViewRefreshTaskRuns.
+// listMaterializedViewRefreshTaskRunsInput holds input for
+// ListMaterializedViewRefreshTaskRuns.
+//
+// CatalogId (required on the real op) is not modeled: this backend keeps one
+// flat namespace of materialized-view refresh runs with no per-catalog
+// scoping, matching how the rest of this service treats the account's
+// implicit single catalog -- accepted on the wire and otherwise inert.
+// DatabaseName/TableName are real: MaterializedViewRefreshRun (models.go)
+// stores both.
+type listMaterializedViewRefreshTaskRunsInput struct {
+	CatalogID    string `json:"CatalogId"`
+	DatabaseName string `json:"DatabaseName,omitempty"`
+	TableName    string `json:"TableName,omitempty"`
+	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults   int32  `json:"MaxResults,omitempty"`
+}
+
+// listMaterializedViewRefreshTaskRunsOutput holds the result for
+// ListMaterializedViewRefreshTaskRuns. The real member name is
+// MaterializedViewRefreshTaskRuns, not Runs (glue@v1.152.0
+// api_op_ListMaterializedViewRefreshTaskRuns.go) -- found while wiring this
+// op's Filter/MaxResults/NextToken (gopherstack-awzv).
 type listMaterializedViewRefreshTaskRunsOutput struct {
-	Runs []any `json:"Runs"`
+	NextToken                       string `json:"NextToken,omitempty"`
+	MaterializedViewRefreshTaskRuns []any  `json:"MaterializedViewRefreshTaskRuns"`
 }
 
 func (h *Handler) handleListMaterializedViewRefreshTaskRuns(
 	_ context.Context,
-	_ *listMaterializedViewRefreshTaskRunsInput,
+	in *listMaterializedViewRefreshTaskRunsInput,
 ) (*listMaterializedViewRefreshTaskRunsOutput, error) {
-	runs := h.Backend.ListMaterializedViewRefreshTaskRuns()
-	result := make([]any, 0, len(runs))
-	for _, r := range runs {
+	all := h.Backend.ListMaterializedViewRefreshTaskRuns()
+
+	matching := make([]*MaterializedViewRefreshRun, 0, len(all))
+
+	for _, r := range all {
+		if in.DatabaseName != "" && r.DatabaseName != in.DatabaseName {
+			continue
+		}
+
+		if in.TableName != "" && r.TableName != in.TableName {
+			continue
+		}
+
+		matching = append(matching, r)
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListMaterializedViewRefreshTaskRunsLimit
+	}
+
+	page, next := paginateSlice(matching, in.NextToken, limit)
+
+	result := make([]any, 0, len(page))
+	for _, r := range page {
 		result = append(result, r)
 	}
 
-	return &listMaterializedViewRefreshTaskRunsOutput{Runs: result}, nil
+	return &listMaterializedViewRefreshTaskRunsOutput{MaterializedViewRefreshTaskRuns: result, NextToken: next}, nil
 }
 
 // startMaterializedViewRefreshTaskRunInput holds input for StartMaterializedViewRefreshTaskRun.

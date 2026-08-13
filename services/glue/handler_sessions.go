@@ -122,26 +122,49 @@ func (h *Handler) handleGetStatement(
 	return &getStatementOutput{Statement: st}, nil
 }
 
+// defaultListSessionsLimit is used when ListSessionsInput.MaxResults is unset.
+const defaultListSessionsLimit = 100
+
 // listSessionsInput holds input for ListSessions.
-type listSessionsInput struct{}
+//
+// Tags and RequestOrigin have no honest backing: Session (models.go) carries
+// neither field, Session is never routed through tags.go's tag dispatch, and
+// CreateSession (handler_sessions.go) doesn't even accept a RequestOrigin to
+// store. Accepted on the wire and otherwise inert; only MaxResults/NextToken
+// are wired.
+type listSessionsInput struct {
+	Tags          map[string]string `json:"Tags,omitempty"`
+	NextToken     string            `json:"NextToken,omitempty"`
+	RequestOrigin string            `json:"RequestOrigin,omitempty"`
+	MaxResults    int32             `json:"MaxResults,omitempty"`
+}
 
 // listSessionsOutput holds the result for ListSessions.
 type listSessionsOutput struct {
-	IDs      []string   `json:"Ids"`
-	Sessions []*Session `json:"Sessions"`
+	NextToken string     `json:"NextToken,omitempty"`
+	IDs       []string   `json:"Ids"`
+	Sessions  []*Session `json:"Sessions"`
 }
 
 func (h *Handler) handleListSessions(
 	_ context.Context,
-	_ *listSessionsInput,
+	in *listSessionsInput,
 ) (*listSessionsOutput, error) {
-	sessions := h.Backend.ListSessions()
+	all := h.Backend.ListSessions()
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListSessionsLimit
+	}
+
+	sessions, next := paginateSlice(all, in.NextToken, limit)
+
 	ids := make([]string, len(sessions))
 	for i, s := range sessions {
 		ids[i] = s.SessionID
 	}
 
-	return &listSessionsOutput{IDs: ids, Sessions: sessions}, nil
+	return &listSessionsOutput{IDs: ids, Sessions: sessions, NextToken: next}, nil
 }
 
 // listStatementsInput holds input for ListStatements.

@@ -79,24 +79,71 @@ func (h *Handler) handleGetCatalogImportStatus(
 	return &getCatalogImportStatusOutput{ImportStatus: status}, nil
 }
 
+// defaultGetCatalogsLimit is used when GetCatalogsInput.MaxResults is unset.
+const defaultGetCatalogsLimit = 100
+
 // getCatalogsInput holds input for GetCatalogs.
-type getCatalogsInput struct{}
+//
+// IncludeRoot, ParentCatalogId and Recursive describe navigating a catalog
+// hierarchy (the account's root catalog plus nested federated catalogs).
+// CatalogEntry (see catalogs.go) has no ParentCatalogId of its own and this
+// backend's b.catalogs table is a flat namespace with no root-catalog
+// concept, so there is no honest hierarchy to filter or recurse over; these
+// three members are accepted on the wire and otherwise inert. HasDatabases is
+// real: Database.CatalogID (databases.go) links a database to its owning
+// catalog, so "does this catalog contain any database" is answerable from
+// backend state.
+type getCatalogsInput struct {
+	HasDatabases    *bool  `json:"HasDatabases,omitempty"`
+	ParentCatalogID string `json:"ParentCatalogId,omitempty"`
+	NextToken       string `json:"NextToken,omitempty"`
+	MaxResults      int32  `json:"MaxResults,omitempty"`
+	IncludeRoot     bool   `json:"IncludeRoot,omitempty"`
+	Recursive       bool   `json:"Recursive,omitempty"`
+}
 
 // getCatalogsOutput holds the result for GetCatalogs.
 type getCatalogsOutput struct {
+	NextToken   string          `json:"NextToken,omitempty"`
 	CatalogList []*CatalogEntry `json:"CatalogList"`
 }
 
 func (h *Handler) handleGetCatalogs(
 	_ context.Context,
-	_ *getCatalogsInput,
+	in *getCatalogsInput,
 ) (*getCatalogsOutput, error) {
 	catalogs := h.Backend.GetCatalogs()
-	if catalogs == nil {
-		catalogs = []*CatalogEntry{}
+
+	if in.HasDatabases != nil {
+		databases := h.Backend.GetDatabases()
+		withDatabases := make(map[string]bool, len(catalogs))
+
+		for _, db := range databases {
+			withDatabases[db.CatalogID] = true
+		}
+
+		filtered := make([]*CatalogEntry, 0, len(catalogs))
+
+		for _, c := range catalogs {
+			if withDatabases[c.CatalogID] == *in.HasDatabases {
+				filtered = append(filtered, c)
+			}
+		}
+
+		catalogs = filtered
 	}
 
-	return &getCatalogsOutput{CatalogList: catalogs}, nil
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetCatalogsLimit
+	}
+
+	page, next := paginateSlice(catalogs, in.NextToken, limit)
+	if page == nil {
+		page = []*CatalogEntry{}
+	}
+
+	return &getCatalogsOutput{CatalogList: page, NextToken: next}, nil
 }
 
 // getDataCatalogEncryptionSettingsInput holds input for GetDataCatalogEncryptionSettings.

@@ -113,8 +113,14 @@ func (h *Handler) handleDescribeConnectionType(
 	}, nil
 }
 
+// defaultListConnectionTypesLimit is used when ListConnectionTypesInput.MaxResults is unset.
+const defaultListConnectionTypesLimit = 100
+
 // listConnectionTypesInput holds input for ListConnectionTypes.
-type listConnectionTypesInput struct{}
+type listConnectionTypesInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
 
 // connectionTypeBrief is the per-type summary returned by ListConnectionTypes.
 // The real types.ConnectionTypeBrief (glue@v1.152.0 types/types.go:2533-2564)
@@ -134,17 +140,25 @@ type connectionTypeBrief struct {
 
 // listConnectionTypesOutput holds the result for ListConnectionTypes.
 type listConnectionTypesOutput struct {
+	NextToken       string                `json:"NextToken,omitempty"`
 	ConnectionTypes []connectionTypeBrief `json:"ConnectionTypes"`
 }
 
 func (h *Handler) handleListConnectionTypes(
 	_ context.Context,
-	_ *listConnectionTypesInput,
+	in *listConnectionTypesInput,
 ) (*listConnectionTypesOutput, error) {
 	infos := h.Backend.ListConnectionTypes()
 
-	out := make([]connectionTypeBrief, 0, len(infos))
-	for _, info := range infos {
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListConnectionTypesLimit
+	}
+
+	page, next := paginateSlice(infos, in.NextToken, limit)
+
+	out := make([]connectionTypeBrief, 0, len(page))
+	for _, info := range page {
 		var categories []string
 		if info.Category != "" {
 			categories = []string{info.Category}
@@ -158,7 +172,7 @@ func (h *Handler) handleListConnectionTypes(
 		})
 	}
 
-	return &listConnectionTypesOutput{ConnectionTypes: out}, nil
+	return &listConnectionTypesOutput{ConnectionTypes: out, NextToken: next}, nil
 }
 
 // registerConnectionTypeInput holds input for RegisterConnectionType.

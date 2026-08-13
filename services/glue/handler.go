@@ -234,4 +234,18 @@ func paginateSlice[T any](items []T, nextToken string, limit int) ([]T, string) 
 	return items[start:end], strconv.Itoa(end)
 }
 
+// matchesTagFilter reports whether tags carries every key/value pair in
+// filter. An empty filter matches everything, mirroring the real API's
+// "Tags" list-input members (e.g. ListCrawlersInput.Tags), which specify
+// that only tagged resources matching every given pair are returned.
+func matchesTagFilter(tags, filter map[string]string) bool {
+	for k, v := range filter {
+		if tags[k] != v {
+			return false
+		}
+	}
+
+	return true
+}
+
 type emptyOutput struct{}

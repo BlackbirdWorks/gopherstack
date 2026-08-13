@@ -628,12 +628,19 @@ type ColumnStatisticsTaskRun struct {
 }
 
 // MaterializedViewRefreshRun represents a materialized view refresh task run.
+//
+// TaskRunID and StartedOn deliberately carry non-obvious json tags:
+// MaterializedViewRefreshTaskRunId and StartTime are the real member names
+// (glue@v1.152.0 types.MaterializedViewRefreshTaskRun), not TaskRunId/
+// StartedOn -- found while wiring ListMaterializedViewRefreshTaskRuns
+// (gopherstack-awzv) and fixed here since this struct is shared by that op's
+// output.
 type MaterializedViewRefreshRun struct {
 	DatabaseName string  `json:"DatabaseName"`
 	TableName    string  `json:"TableName"`
-	TaskRunID    string  `json:"TaskRunId"`
+	TaskRunID    string  `json:"MaterializedViewRefreshTaskRunId"`
 	Status       string  `json:"Status"`
-	StartedOn    float64 `json:"StartedOn,omitempty"`
+	StartedOn    float64 `json:"StartTime,omitempty"`
 }
 
 // Integration represents a Glue integration.

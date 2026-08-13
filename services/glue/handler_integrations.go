@@ -2,6 +2,7 @@ package glue
 
 import (
 	"context"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
@@ -188,25 +189,126 @@ func (h *Handler) handleDescribeInboundIntegrations(
 	return &describeInboundIntegrationsOutput{Integrations: result}, nil
 }
 
+// defaultDescribeIntegrationsLimit is used when DescribeIntegrationsInput.MaxRecords is unset.
+const defaultDescribeIntegrationsLimit = 100
+
+// integrationFilter mirrors aws-sdk-go-v2/service/glue/types.IntegrationFilter.
+// Real supported Name keys are "Status", "IntegrationName" and "SourceArn"
+// (api_op_DescribeIntegrations.go doc comment), all of which are real
+// Integration fields (models.go).
+type integrationFilter struct {
+	Name   string   `json:"Name,omitempty"`
+	Values []string `json:"Values,omitempty"`
+}
+
 // describeIntegrationsInput holds input for DescribeIntegrations.
-type describeIntegrationsInput struct{}
+type describeIntegrationsInput struct {
+	IntegrationIdentifier string              `json:"IntegrationIdentifier,omitempty"`
+	Marker                string              `json:"Marker,omitempty"`
+	Filters               []integrationFilter `json:"Filters,omitempty"`
+	MaxRecords            int32               `json:"MaxRecords,omitempty"`
+}
+
+// integrationSummary mirrors the wire-safe subset of
+// aws-sdk-go-v2/service/glue/types.Integration that this backend tracks.
+// CreateTime is an epoch float (via pkgs/awstime), not the raw
+// Integration.CreatedAt time.Time -- that field's plain json tag marshals to
+// an RFC3339 string, which the real client rejects for this unixTimestamp
+// wire shape ("expected IntegrationTimestamp to be a JSON Number"), same
+// class of bug pkgs/awstime exists to prevent. Description, DataFilter,
+// IntegrationConfig, KmsKeyId, Errors, AdditionalEncryptionContext and Tags
+// are real Integration members with no backing state in this backend's
+// Integration model (models.go) and are omitted rather than fabricated.
+type integrationSummary struct {
+	IntegrationName string  `json:"IntegrationName"`
+	IntegrationArn  string  `json:"IntegrationArn"`
+	SourceArn       string  `json:"SourceArn"`
+	TargetArn       string  `json:"TargetArn"`
+	Status          string  `json:"Status"`
+	CreateTime      float64 `json:"CreateTime,omitempty"`
+}
+
+func toIntegrationSummary(ig *Integration) integrationSummary {
+	return integrationSummary{
+		IntegrationName: ig.IntegrationName,
+		IntegrationArn:  ig.IntegrationArn,
+		SourceArn:       ig.SourceArn,
+		TargetArn:       ig.TargetArn,
+		Status:          ig.Status,
+		CreateTime:      awstime.Epoch(ig.CreatedAt),
+	}
+}
 
 // describeIntegrationsOutput holds the result for DescribeIntegrations.
 type describeIntegrationsOutput struct {
-	Integrations []any `json:"Integrations"`
+	Marker       string               `json:"Marker,omitempty"`
+	Integrations []integrationSummary `json:"Integrations"`
+}
+
+func integrationFieldValue(ig *Integration, name string) string {
+	switch name {
+	case "Status":
+		return ig.Status
+	case "IntegrationName":
+		return ig.IntegrationName
+	case "SourceArn":
+		return ig.SourceArn
+	default:
+		return ""
+	}
+}
+
+func matchesIntegrationFilters(ig *Integration, filters []integrationFilter) bool {
+	for _, f := range filters {
+		if f.Name == "" {
+			continue
+		}
+
+		got := integrationFieldValue(ig, f.Name)
+
+		matched := slices.Contains(f.Values, got)
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (h *Handler) handleDescribeIntegrations(
 	_ context.Context,
-	_ *describeIntegrationsInput,
+	in *describeIntegrationsInput,
 ) (*describeIntegrationsOutput, error) {
 	list := h.Backend.ListIntegrations()
-	result := make([]any, 0, len(list))
+
+	matching := make([]*Integration, 0, len(list))
+
 	for _, ig := range list {
-		result = append(result, ig)
+		if in.IntegrationIdentifier != "" && ig.IntegrationArn != in.IntegrationIdentifier {
+			continue
+		}
+
+		if !matchesIntegrationFilters(ig, in.Filters) {
+			continue
+		}
+
+		matching = append(matching, ig)
 	}
 
-	return &describeIntegrationsOutput{Integrations: result}, nil
+	limit := int(in.MaxRecords)
+	if limit <= 0 {
+		limit = defaultDescribeIntegrationsLimit
+	}
+
+	page, next := paginateSlice(matching, in.Marker, limit)
+
+	result := make([]integrationSummary, 0, len(page))
+	for _, ig := range page {
+		result = append(result, toIntegrationSummary(ig))
+	}
+
+	return &describeIntegrationsOutput{Integrations: result, Marker: next}, nil
 }
 
 // getIntegrationResourcePropertyInput holds input for GetIntegrationResourceProperty.

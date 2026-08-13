@@ -139,40 +139,84 @@ func (h *Handler) handleGetDevEndpoint(
 	return &getDevEndpointOutput{DevEndpoint: dep}, nil
 }
 
+// defaultGetDevEndpointsLimit is used when GetDevEndpointsInput.MaxResults is unset.
+const defaultGetDevEndpointsLimit = 100
+
 // getDevEndpointsInput holds input for GetDevEndpoints.
-type getDevEndpointsInput struct{}
+type getDevEndpointsInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
 
 // getDevEndpointsOutput holds the result for GetDevEndpoints.
 type getDevEndpointsOutput struct {
+	NextToken    string         `json:"NextToken,omitempty"`
 	DevEndpoints []*DevEndpoint `json:"DevEndpoints"`
 }
 
 func (h *Handler) handleGetDevEndpoints(
 	_ context.Context,
-	_ *getDevEndpointsInput,
+	in *getDevEndpointsInput,
 ) (*getDevEndpointsOutput, error) {
-	return &getDevEndpointsOutput{DevEndpoints: h.Backend.GetAllDevEndpoints()}, nil
+	deps := h.Backend.GetAllDevEndpoints()
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetDevEndpointsLimit
+	}
+
+	page, next := paginateSlice(deps, in.NextToken, limit)
+
+	return &getDevEndpointsOutput{DevEndpoints: page, NextToken: next}, nil
 }
 
+// defaultListDevEndpointsLimit is used when ListDevEndpointsInput.MaxResults is unset.
+const defaultListDevEndpointsLimit = 100
+
 // listDevEndpointsInput holds input for ListDevEndpoints.
-type listDevEndpointsInput struct{}
+type listDevEndpointsInput struct {
+	Tags       map[string]string `json:"Tags,omitempty"`
+	NextToken  string            `json:"NextToken,omitempty"`
+	MaxResults int32             `json:"MaxResults,omitempty"`
+}
 
 // listDevEndpointsOutput holds the result for ListDevEndpoints.
 type listDevEndpointsOutput struct {
+	NextToken        string   `json:"NextToken,omitempty"`
 	DevEndpointNames []string `json:"DevEndpointNames"`
 }
 
 func (h *Handler) handleListDevEndpoints(
 	_ context.Context,
-	_ *listDevEndpointsInput,
+	in *listDevEndpointsInput,
 ) (*listDevEndpointsOutput, error) {
 	deps := h.Backend.GetAllDevEndpoints()
-	names := make([]string, 0, len(deps))
-	for _, d := range deps {
+
+	if len(in.Tags) > 0 {
+		filtered := make([]*DevEndpoint, 0, len(deps))
+
+		for _, d := range deps {
+			if matchesTagFilter(d.Tags, in.Tags) {
+				filtered = append(filtered, d)
+			}
+		}
+
+		deps = filtered
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListDevEndpointsLimit
+	}
+
+	page, next := paginateSlice(deps, in.NextToken, limit)
+
+	names := make([]string, 0, len(page))
+	for _, d := range page {
 		names = append(names, d.EndpointName)
 	}
 
-	return &listDevEndpointsOutput{DevEndpointNames: names}, nil
+	return &listDevEndpointsOutput{DevEndpointNames: names, NextToken: next}, nil
 }
 
 // updateDevEndpointInput holds input for UpdateDevEndpoint.

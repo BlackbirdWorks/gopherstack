@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // validateSchemaDefinition checks a schema definition string against its DataFormat.
@@ -614,45 +615,80 @@ func (h *Handler) handleGetSchemaVersionsDiff(
 	return &getSchemaVersionsDiffOutput{Diff: diff}, nil
 }
 
+// defaultListRegistriesLimit is used when ListRegistriesInput.MaxResults is
+// unset, matching the real API's documented default (api_op_ListRegistries.go:
+// "If the value is not supplied, this will be defaulted to 25 per page.").
+const defaultListRegistriesLimit = 25
+
 // listRegistriesInput holds input for ListRegistries.
-type listRegistriesInput struct{}
+type listRegistriesInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
 
 // registryListItem mirrors types.RegistryListItem: RegistryName, RegistryArn,
 // Description, Status, CreatedTime, UpdatedTime. No Tags — that member exists
 // only on the Registry struct returned by GetRegistry/CreateRegistry.
+//
+// CreatedTime/UpdatedTime are *string on the real type (glue@v1.152.0
+// types/types.go), not the usual unixTimestamp float -- Glue Schema
+// Registry's timestamps are a documented exception to the rest of this
+// service's wire shapes. A real client rejects a JSON number here
+// ("expected CreatedTimestamp to be of type string"). GetRegistry/GetSchema/
+// ListSchemas/ListSchemaVersions/GetSchemaVersion share this same
+// float64-instead-of-string bug and are not fixed here (out of scope for
+// gopherstack-awzv); see PARITY.md follow-up note.
 type registryListItem struct {
-	RegistryName string  `json:"RegistryName"`
-	RegistryArn  string  `json:"RegistryArn"`
-	Description  string  `json:"Description,omitempty"`
-	Status       string  `json:"Status"`
-	CreatedTime  float64 `json:"CreatedTime,omitempty"`
-	UpdatedTime  float64 `json:"UpdatedTime,omitempty"`
+	RegistryName string `json:"RegistryName"`
+	RegistryArn  string `json:"RegistryArn"`
+	Description  string `json:"Description,omitempty"`
+	Status       string `json:"Status"`
+	CreatedTime  string `json:"CreatedTime,omitempty"`
+	UpdatedTime  string `json:"UpdatedTime,omitempty"`
+}
+
+// formatGlueTimestampString renders an epoch-seconds float as the RFC3339
+// string real Glue Schema Registry timestamp fields use on the wire.
+func formatGlueTimestampString(epochSeconds float64) string {
+	if epochSeconds == 0 {
+		return ""
+	}
+
+	return time.Unix(int64(epochSeconds), 0).UTC().Format("2006-01-02T15:04:05Z")
 }
 
 // listRegistriesOutput holds the result for ListRegistries.
 type listRegistriesOutput struct {
+	NextToken  string              `json:"NextToken,omitempty"`
 	Registries []*registryListItem `json:"Registries"`
 }
 
 func (h *Handler) handleListRegistries(
 	_ context.Context,
-	_ *listRegistriesInput,
+	in *listRegistriesInput,
 ) (*listRegistriesOutput, error) {
 	regs := h.Backend.ListRegistries()
 
-	items := make([]*registryListItem, 0, len(regs))
-	for _, r := range regs {
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListRegistriesLimit
+	}
+
+	page, next := paginateSlice(regs, in.NextToken, limit)
+
+	items := make([]*registryListItem, 0, len(page))
+	for _, r := range page {
 		items = append(items, &registryListItem{
 			RegistryName: r.Name,
 			RegistryArn:  r.ARN,
 			Description:  r.Description,
 			Status:       r.Status,
-			CreatedTime:  r.CreatedTime,
-			UpdatedTime:  r.UpdatedTime,
+			CreatedTime:  formatGlueTimestampString(r.CreatedTime),
+			UpdatedTime:  formatGlueTimestampString(r.UpdatedTime),
 		})
 	}
 
-	return &listRegistriesOutput{Registries: items}, nil
+	return &listRegistriesOutput{Registries: items, NextToken: next}, nil
 }
 
 // listSchemaVersionsInput holds input for ListSchemaVersions.

@@ -167,26 +167,49 @@ func (h *Handler) handleGetDataQualityResult(
 	return &getDataQualityResultOutput{ResultID: found[0].ResultID, Score: found[0].Score}, nil
 }
 
+// defaultListDataQualityResultsLimit is used when
+// ListDataQualityResultsInput.MaxResults is unset.
+const defaultListDataQualityResultsLimit = 100
+
 // listDataQualityResultsInput holds input for ListDataQualityResults.
-type listDataQualityResultsInput struct{}
+//
+// Filter is not modeled: DataQualityResult (models.go) stores only ResultID
+// and Score -- none of DataSource, JobName, JobRunId, StartedAfter or
+// StartedBefore have a real field on the stored entity to compare against, so
+// the whole filter is accepted on the wire and left inert rather than
+// fabricating a match. Only MaxResults/NextToken are wired.
+type listDataQualityResultsInput struct {
+	Filter     any    `json:"Filter,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
 
 // listDataQualityResultsOutput holds the result for ListDataQualityResults.
 type listDataQualityResultsOutput struct {
-	Results []any `json:"Results"`
+	NextToken string `json:"NextToken,omitempty"`
+	Results   []any  `json:"Results"`
 }
 
 func (h *Handler) handleListDataQualityResults(
 	_ context.Context,
-	_ *listDataQualityResultsInput,
+	in *listDataQualityResultsInput,
 ) (*listDataQualityResultsOutput, error) {
-	results := h.Backend.ListDataQualityResults()
-	list := make([]any, 0, len(results))
+	all := h.Backend.ListDataQualityResults()
 
-	for _, r := range results {
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListDataQualityResultsLimit
+	}
+
+	page, next := paginateSlice(all, in.NextToken, limit)
+
+	list := make([]any, 0, len(page))
+
+	for _, r := range page {
 		list = append(list, r)
 	}
 
-	return &listDataQualityResultsOutput{Results: list}, nil
+	return &listDataQualityResultsOutput{Results: list, NextToken: next}, nil
 }
 
 // listDataQualityStatisticAnnotationsInput holds input for ListDataQualityStatisticAnnotations.
