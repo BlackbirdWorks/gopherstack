@@ -482,9 +482,47 @@ type ListGrantsInput struct {
 
 // ListGrantsOutput is the response payload for ListGrants.
 type ListGrantsOutput struct {
-	NextMarker string  `json:"NextMarker,omitempty"`
-	Grants     []Grant `json:"Grants"`
-	Truncated  bool    `json:"Truncated"`
+	NextMarker string           `json:"NextMarker,omitempty"`
+	Grants     []GrantListEntry `json:"Grants"`
+	Truncated  bool             `json:"Truncated"`
+}
+
+// GrantListEntry is the wire shape of a single ListGrants/ListRetirableGrants
+// result entry, matching real AWS's types.GrantListEntry field-for-field.
+// It deliberately excludes GrantToken and TokenIssuedAt: a grant token is
+// returned exactly once, in the CreateGrant response, and is never
+// retrievable from a List call -- see kms.Grant for the internal storage
+// representation that does carry both.
+type GrantListEntry struct {
+	Constraints              *GrantConstraints `json:"Constraints,omitempty"`
+	GrantID                  string            `json:"GrantId"`
+	KeyID                    string            `json:"KeyId"`
+	GranteePrincipal         string            `json:"GranteePrincipal,omitempty"`
+	GranteeServicePrincipal  string            `json:"GranteeServicePrincipal,omitempty"`
+	RetiringPrincipal        string            `json:"RetiringPrincipal,omitempty"`
+	RetiringServicePrincipal string            `json:"RetiringServicePrincipal,omitempty"`
+	Name                     string            `json:"Name,omitempty"`
+	Operations               []string          `json:"Operations"`
+	CreationDate             float64           `json:"CreationDate"`
+	IssuingAccount           string            `json:"IssuingAccount,omitempty"`
+}
+
+// toGrantListEntry converts a stored Grant into its wire-safe ListGrants shape,
+// stripping GrantToken and TokenIssuedAt.
+func toGrantListEntry(g *Grant) GrantListEntry {
+	return GrantListEntry{
+		Constraints:              g.Constraints,
+		GrantID:                  g.GrantID,
+		KeyID:                    g.KeyID,
+		GranteePrincipal:         g.GranteePrincipal,
+		GranteeServicePrincipal:  g.GranteeServicePrincipal,
+		RetiringPrincipal:        g.RetiringPrincipal,
+		RetiringServicePrincipal: g.RetiringServicePrincipal,
+		Name:                     g.Name,
+		Operations:               g.Operations,
+		CreationDate:             g.CreationDate,
+		IssuingAccount:           g.IssuingAccount,
+	}
 }
 
 // RevokeGrantInput is the request payload for RevokeGrant.

@@ -364,13 +364,28 @@ full `terraform apply`/`plan`/`destroy` cycle, since the CreateKey bug proved mo
   `aws-sdk-go-v2/service/kms@v1.54.0/types.KeyMetadata`.
 - **Tag/grant/policy wire shapes** (`TagResource`/`UntagResource`/`ListResourceTags`
   inputs+outputs, `ListGrantsInput`/`CreateGrantInput`/`GrantListEntry`) — all
-  field-for-field checked against the vendored real SDK; no casing or shape gaps. Note
-  the real SDK's `GrantListEntry` (the `ListGrants` response entry type) has NO
-  `GrantToken` field at all (tokens are only ever returned once, at `CreateGrant` time);
-  gopherstack's shared `Grant` struct does include `GrantToken` in `ListGrants` output
-  too, which is a harmless superset (unknown extra JSON fields are ignored by the real
-  SDK's non-strict deserializer) rather than a functional bug — not fixed, noted for
-  awareness only.
+  field-for-field checked against the vendored real SDK; no casing or shape gaps.
+  gopherstack-ioxy: CORRECTED — this entry previously argued that `ListGrants`
+  echoing `GrantToken` on every entry was a "harmless superset (unknown extra JSON
+  fields are ignored)". The premise is true but the conclusion was wrong: this
+  isn't an inert extra field, it's a bearer credential. Real AWS's `GrantListEntry`
+  (kms@v1.55.4 `types/types.go:308`, deserialized field-by-field in
+  `deserializers.go:9430` `awsAwsjson11_deserializeDocumentGrantListEntry`) has no
+  `GrantToken` member at all, by design: a grant token is minted once, in
+  `CreateGrantOutput` (`api_op_CreateGrant.go:278`, confirmed same field/value as
+  `Grant.GrantToken` set at `CreateGrant` time), specifically so it can't be
+  re-read later — it lets the holder exercise a grant's permissions before
+  eventual consistency settles. Emitting it from `ListGrants`/`ListRetirableGrants`
+  handed out that bearer credential to anyone who could list grants, regardless of
+  SDK-client tolerance for unknown keys. Fixed: `ListGrantsOutput.Grants` is now
+  `[]GrantListEntry`, a dedicated wire type built by `toGrantListEntry` that drops
+  both `GrantToken` and the internal `TokenIssuedAt` bookkeeping field (also not
+  part of real `GrantListEntry`); the internal `Grant` storage struct keeps both,
+  since `TokenIssuedAt`/`GrantToken` are needed for TTL and token-lookup indexing.
+  No consumer in this repo (tests, `cli.go`, UI) read `GrantToken` off a
+  `ListGrants`/`ListRetirableGrants` response — every existing reference reads it
+  off `CreateGrant`'s own output — so this was a pure emulator-side leak with no
+  in-repo caller depending on it.
 
 ### Cross-service KMS integration punch-list (Step 4, report-only — no edits made)
 

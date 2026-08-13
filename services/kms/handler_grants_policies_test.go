@@ -151,3 +151,64 @@ func TestKMSRetireGrant(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
 	assert.Empty(t, listOut.Grants)
 }
+
+// TestListGrants_RawBody_NoGrantTokenLeak asserts the raw JSON body of a
+// ListGrants/ListRetirableGrants response never carries GrantToken or
+// TokenIssuedAt. A grant token is a bearer credential real AWS returns
+// exactly once, from CreateGrant; a typed client-side decode wouldn't catch
+// the leak since json.Unmarshal silently drops unrecognised fields.
+func TestListGrants_RawBody_NoGrantTokenLeak(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   func(keyID string) string
+		name   string
+		action string
+	}{
+		{
+			name:   "list_grants",
+			action: "ListGrants",
+			body:   func(keyID string) string { return `{"KeyId":"` + keyID + `"}` },
+		},
+		{
+			name:   "list_retirable_grants",
+			action: "ListRetirableGrants",
+			body: func(string) string {
+				return `{"RetiringPrincipal":"arn:aws:iam::000000000000:role/retire-role"}`
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := b2newHandler(t)
+			b := h.Backend.(*kms.InMemoryBackend)
+
+			out, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
+			require.NoError(t, err)
+			keyID := out.KeyMetadata.KeyID
+
+			createBody := `{"KeyId":"` + keyID + `","GranteePrincipal":"arn:aws:iam::000000000000:role/grantee",` +
+				`"RetiringPrincipal":"arn:aws:iam::000000000000:role/retire-role","Operations":["Encrypt"]}`
+			rec := doKMSHTTPRequest(t, h, "CreateGrant", createBody)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			rec = doKMSHTTPRequest(t, h, tt.action, tt.body(keyID))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var raw struct {
+				Grants []map[string]json.RawMessage `json:"Grants"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			require.Len(t, raw.Grants, 1)
+
+			_, hasToken := raw.Grants[0]["GrantToken"]
+			assert.False(t, hasToken, "ListGrants must never echo GrantToken")
+
+			_, hasIssuedAt := raw.Grants[0]["TokenIssuedAt"]
+			assert.False(t, hasIssuedAt, "TokenIssuedAt is internal bookkeeping, not part of real AWS's GrantListEntry")
+		})
+	}
+}

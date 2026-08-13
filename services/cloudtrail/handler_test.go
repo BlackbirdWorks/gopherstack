@@ -463,7 +463,15 @@ func TestCloudTrailRequiredFieldValidation(t *testing.T) {
 				})
 				assert.Equal(t, http.StatusOK, rec.Code)
 				resp := parseCloudTrailResp(t, rec)
-				assert.Equal(t, "CREATED", resp["Status"])
+				// CreateDashboardOutput has no Status field -- only GetDashboardOutput does.
+				_, hasStatus := resp["Status"]
+				assert.False(t, hasStatus, "CreateDashboardOutput has no Status field")
+
+				dashARN, _ := resp["DashboardArn"].(string)
+				getRec := doCloudTrailOp(t, h, "GetDashboard", map[string]any{"DashboardId": dashARN})
+				assert.Equal(t, http.StatusOK, getRec.Code)
+				getResp := parseCloudTrailResp(t, getRec)
+				assert.Equal(t, "CREATED", getResp["Status"])
 			},
 		},
 		{

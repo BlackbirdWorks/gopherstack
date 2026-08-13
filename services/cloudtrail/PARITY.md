@@ -34,9 +34,9 @@ ops:
   UpdateChannel: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteChannel: {wire: ok, errors: ok, state: ok, persist: ok}
   ListChannels: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NextToken/MaxResults pagination via pkgs/page"}
-  CreateDashboard: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Widgets/RefreshSchedule/TerminationProtectionEnabled were accepted on the wire but never modeled/stored/echoed (deferred item from last pass); now real Dashboard fields, CreatedTimestamp/UpdatedTimestamp added"}
-  GetDashboard: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now returns Widgets/RefreshSchedule/TerminationProtectionEnabled/LastRefreshId/LastRefreshFailureReason/CreatedTimestamp/UpdatedTimestamp"}
-  UpdateDashboard: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: removed a gopherstack-invented Name (rename) parameter -- real UpdateDashboardInput has no Name field, dashboards cannot be renamed. Now takes the real fields: Widgets, RefreshSchedule, TerminationProtectionEnabled"}
+  CreateDashboard: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed prior pass: Widgets/RefreshSchedule/TerminationProtectionEnabled were accepted on the wire but never modeled/stored/echoed; now real Dashboard fields. gopherstack-4gzs: CORRECTED -- the shared dashToMap helper leaked Status/CreatedTimestamp/UpdatedTimestamp/LastRefreshId/LastRefreshFailureReason (none exist on the real CreateDashboardOutput) and, the inverse bug, never emitted TagsList (the real output's only tag field -- confirmed via cloudtrail@v1.58.4 deserializers.go's CreateDashboardOutput case switch: DashboardArn/Name/RefreshSchedule/TagsList/TerminationProtectionEnabled/Type/Widgets only). Split into a dedicated dashCreateToMap; TagsList now populated from the dashboard's own tags."}
+  GetDashboard: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed prior pass: now returns Widgets/RefreshSchedule/TerminationProtectionEnabled/LastRefreshId/LastRefreshFailureReason/CreatedTimestamp/UpdatedTimestamp. gopherstack-4gzs: CORRECTED -- the shared dashToMap helper leaked Name (GetDashboardOutput has no Name field; confirmed via deserializers.go's case switch: CreatedTimestamp/DashboardArn/LastRefreshFailureReason/LastRefreshId/RefreshSchedule/Status/TerminationProtectionEnabled/Type/UpdatedTimestamp/Widgets only). Split into a dedicated dashGetToMap."}
+  UpdateDashboard: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed prior pass: removed a gopherstack-invented Name (rename) parameter -- real UpdateDashboardInput has no Name field, dashboards cannot be renamed. Now takes the real fields: Widgets, RefreshSchedule, TerminationProtectionEnabled. gopherstack-4gzs: CORRECTED -- the shared dashToMap helper leaked Status/LastRefreshId/LastRefreshFailureReason (none exist on the real UpdateDashboardOutput; confirmed via deserializers.go's case switch: CreatedTimestamp/DashboardArn/Name/RefreshSchedule/TerminationProtectionEnabled/Type/UpdatedTimestamp/Widgets only). Split into a dedicated dashUpdateToMap."}
   DeleteDashboard: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDashboards: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NextToken/MaxResults pagination; narrowed the per-item shape to the real DashboardDetail{DashboardArn,Type} (previously returned the full dashToMap shape, harmless-extra but now exact); added Type/NamePrefix filters"}
   StartDashboardRefresh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: real StartDashboardRefreshOutput has exactly one field, RefreshId. Previously returned a fabricated {DashboardArn, Status} shape with Status set to \"REFRESHING\", which is not even a valid DashboardStatus enum value (real values: CREATING/CREATED/UPDATING/UPDATED/DELETING)"}
@@ -189,10 +189,18 @@ exactly).
   output shape: the *shape* is correct, and the emptiness reflects a genuinely unimplemented
   downstream capability (import file replay, Insights event synthesis) rather than a
   populated-but-never-returned map — documented simplifications, not disguised no-ops.
-- `dashToMap`'s extra `Status`/`Name` keys (present on some but not all of Create/Get/Update
-  Dashboard's real output structs) and similar cross-op-family "superset" response shapes
-  are inert: AWS JSON-protocol deserializers ignore unknown response keys (confirmed via
-  each `case "...":`/`default: ignore` switch in `deserializers.go`), so returning every
-  field any one of Create/Get/Update needs from a single shared `dashToMap`/`edsToMap`/
-  `importToMap` helper is harmless, not a bug — only *missing or wrong-cased* keys for
-  fields a client actually reads are bugs (see items 6/7 above, which were exactly that).
+- gopherstack-4gzs: CORRECTED — this entry previously argued the single shared `dashToMap`
+  helper's extra `Status`/`Name` keys (present on some but not all of Create/Get/Update
+  Dashboard's real output structs) were inert, since AWS JSON-protocol deserializers ignore
+  unknown response keys. The premise is true but the conclusion was wrong: `CreateDashboardOutput`
+  and `UpdateDashboardOutput` have no `Status` field, `GetDashboardOutput` has no `Name` field
+  (cloudtrail@v1.58.4, each op's own `case "...":` switch in `deserializers.go`) — a raw-body or
+  non-SDK caller sees the leak regardless of SDK-client tolerance. It is a shared-helper bug, not
+  a same-type copy: `dashToMap` is now three dedicated converters, `dashCreateToMap`/
+  `dashGetToMap`/`dashUpdateToMap` (see ops rows above), each emitting exactly its op's real
+  field set — including the inverse gap this surfaced: `CreateDashboardOutput` genuinely has a
+  `TagsList` field that the old helper never populated at all. `DeleteDashboard` (empty
+  `map[string]any{}`, matching the real empty `DeleteDashboardOutput`) and `ListDashboards`
+  (`dashDetailToMap`, already its own dedicated converter) never used `dashToMap` and needed no
+  change. `edsToMap`/`importToMap` are separate shared helpers (event data stores / imports) —
+  not re-verified this pass, left as previously assessed.

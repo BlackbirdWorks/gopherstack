@@ -290,19 +290,19 @@ func (h *Handler) handleEnableFederation(c *echo.Context, body []byte) error {
 // edsToMap converts an EventDataStore to the JSON map used in API responses.
 func edsToMap(eds *EventDataStore) map[string]any {
 	m := map[string]any{
-		keyEDSArn:                      eds.EventDataStoreARN,
-		keyName:                        eds.Name,
-		keyStatus:                      eds.Status,
-		"MultiRegionEnabled":           eds.MultiRegionEnabled,
-		"OrganizationEnabled":          eds.OrganizationEnabled,
-		"TerminationProtectionEnabled": eds.TerminationProtected,
-		"RetentionPeriod":              eds.RetentionPeriod,
+		keyEDSArn:                       eds.EventDataStoreARN,
+		keyName:                         eds.Name,
+		keyStatus:                       eds.Status,
+		"MultiRegionEnabled":            eds.MultiRegionEnabled,
+		"OrganizationEnabled":           eds.OrganizationEnabled,
+		keyTerminationProtectionEnabled: eds.TerminationProtected,
+		"RetentionPeriod":               eds.RetentionPeriod,
 		// CreatedTimestamp/UpdatedTimestamp are unixTimestamp (epoch-seconds
 		// JSON number) per the awsjson1.1 deserializer, not a raw time.Time
 		// (which encoding/json would render as an RFC3339 string the real SDK
 		// client's ParseEpochSeconds cannot decode).
-		"CreatedTimestamp": float64(eds.CreatedTimestamp.Unix()),
-		"UpdatedTimestamp": float64(eds.UpdatedTimestamp.Unix()),
+		keyCreatedTimestamp: float64(eds.CreatedTimestamp.Unix()),
+		keyUpdatedTimestamp: float64(eds.UpdatedTimestamp.Unix()),
 	}
 	if eds.BillingMode != "" {
 		m["BillingMode"] = eds.BillingMode
