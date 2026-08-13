@@ -84,6 +84,20 @@ leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/add
 
 ## Notes
 
+**2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 65 ops' real
+method+path directly from `eks@v1.90.4` serializers.go and drove them
+through `ExtractOperation` via the new `handler_sdk_route_table_test.go`
+(`TestExtractOperation_SDKRouteTable`, one subtest per op, `t.Parallel()`).
+All 65 resolved correctly, including the several same-path/different-method
+collisions this service's routing depends on (`/clusters/{name}/updates`
+GET/POST, `/clusters/{clusterName}/insights-refresh` GET/POST,
+`/clusters/{clusterName}/{access-entries,capabilities,
+pod-identity-associations,eks-anywhere-subscriptions}/{id}`
+GET/DELETE/POST). No pre-existing table existed to check. This confirms the
+extensive 2026-07-12/07-23 route-matcher fixes documented below held under
+the strong per-op SDK diff method — no new routing bugs found. This test is
+now the permanent regression guard for route-table drift.
+
 Protocol: REST-JSON (restjson1). All wire-shape and route facts in this file were
 verified directly against `aws-sdk-go-v2/service/eks@v1.89.0`'s `serializers.go`
 (`httpbinding.SplitURI(...)` + `request.Method = "..."` per

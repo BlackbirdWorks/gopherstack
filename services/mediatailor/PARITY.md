@@ -86,6 +86,21 @@ leaks: {status: clean, note: "no goroutines, timers, or janitors in this service
 
 ## Notes
 
+**2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 48 ops' real
+method+path directly from `mediatailor@v1.63.4` serializers.go and drove
+them through `ExtractOperation` via the new
+`handler_sdk_route_table_test.go` (`TestExtractOperation_SDKRouteTable`, one
+subtest per op, `t.Parallel()`). Confirmed the ListPrefetchSchedules
+POST-not-GET quirk (already handled with a doc comment) held. One
+test-construction wrinkle, not a service bug: the three tag ops'
+`ExtractOperation` requires the `/tags/{arn}` ARN to contain `:mediatailor:`
+to disambiguate from FIS's identically-shaped path — a bare PLACEHOLDER
+resolved to `Unknown`, fixed by using a realistic
+`arn:aws:mediatailor:...:channel/...` ARN in the table instead (a real SDK
+client's ARN always satisfies this). No pre-existing table existed to
+check, and no real routing bugs found. This test is now the permanent
+regression guard for route-table drift.
+
 MediaTailor is restjson1. This pass closed every gap and deferred item from
 the prior manifest (2026-07-13, commit 024e43bf) for real — field-diffed
 against `aws-sdk-go-v2/service/mediatailor@v1.59.2`'s generated types,

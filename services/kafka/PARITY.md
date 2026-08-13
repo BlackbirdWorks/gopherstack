@@ -139,6 +139,20 @@ leaks: {status: clean, note: "no goroutines/timers introduced or found this pass
 
 ## Notes
 
+**2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 64 ops' real
+method+path directly from `kafka@v1.57.2` serializers.go and drove them
+through `ExtractOperation` via the new `handler_sdk_route_table_test.go`
+(`TestExtractOperation_SDKRouteTable`, one subtest per op, `t.Parallel()`).
+All 64 resolved correctly, including the singular/plural
+`/v1/vpc-connection` vs `/v1/vpc-connections` split and every
+suffix-discriminated collision (`/nodes` vs `/nodes/{count,storage,type}`,
+`/scram-secrets` POST/PATCH/GET). Also spot-checked with a real
+slash-embedded MSK cluster ARN (`arn:aws:kafka:...:cluster/name/uuid-1`) on
+four representative ops to confirm the string-suffix-based parser (not
+segment-count-based) handles embedded slashes correctly — it does. No
+pre-existing table existed to check, and no new routing bugs found. This
+test is now the permanent regression guard for route-table drift.
+
 Kafka (MSK) is restjson1, with request paths split across four independent
 roots: `/v1/clusters/...` (legacy "V1" surface -- also where **every** cluster
 Update* op actually lives), `/api/v2/clusters/...` ("V2" surface -- only

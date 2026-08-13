@@ -80,3 +80,17 @@ gaps:
   - "ProfileConfiguration (CreateProfileJob/UpdateProfileJob's Configuration field) remains map[string]any pass-through -- see families.job_extras_typing for the depth measurement behind that call. Wire-compatible (arbitrary nested JSON round-trips byte-for-byte) but not validated."
   - "StartProjectSession/SendProjectSessionAction's interactive session lifecycle (view frames, recipe-step preview/apply) is not modeled -- structural, not a stub gap: there's no session state to be incomplete. What was fixable (rejecting a project name that doesn't exist) was fixed 2026-08-10."
 leaks: {status: clean, note: "StartJobRun's delayed STARTING->SUCCEEDED transition runs on a b.wg-tracked goroutine gated by b.svcCtx; Shutdown cancels svcCtx and waits on wg bounded by the caller's ctx (see shutdown_test.go). This pass added no new goroutines/tickers. The new recipeVersions map follows jobRuns' existing lifecycle pattern (Reset/Snapshot/Restore-wired, see store.go) and DeleteRecipe now cascade-deletes it so no ghost rows survive a deleted recipe."}
+---
+
+## Notes
+
+**2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 44 ops' real
+method+path directly from `databrew@v1.42.4` serializers.go and drove them
+through `ExtractOperation` via the new `handler_sdk_route_table_test.go`
+(`TestExtractOperation_SDKRouteTable`, one subtest per op, `t.Parallel()`).
+All 44 resolved correctly, including the generic `/jobs/{Name}`
+Delete/Describe path shared by both job subtypes (ProfileJob/RecipeJob use
+type-specific paths only for Create/Update) and every
+same-path/different-method collision. No pre-existing table existed to
+check, and no new routing bugs found. This test is now the permanent
+regression guard for route-table drift.

@@ -124,6 +124,26 @@ leaks: {status: clean, note: "FIXED — DeleteApplication/DeleteEnvironment/Dele
 
 ## Notes
 
+**2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 56 ops' real
+method+path directly from `appconfig@v1.48.4` serializers.go and drove them
+through `ExtractOperation` via the new `handler_sdk_route_table_test.go`
+(`TestExtractOperation_SDKRouteTable`, one subtest per op, `t.Parallel()`).
+Confirmed the real AWS `DeleteDeploymentStrategy` path typo
+(`/deployementstrategies/{Id}`, extra "e", every sibling op uses
+`/deploymentstrategies`) and the account-wide (non-app-nested)
+`ListExperimentDefinitions` path were both already correctly handled with
+doc comments in handler.go. One test-construction wrinkle, not a service
+bug: `DeploymentNumber`, `VersionNumber`, and `Run` are wire-serialized as
+integers (`encoder.SetURI(...).Integer(...)`, not `.String()`), and this
+handler's route parser requires them to `strconv.ParseInt` to resolve
+`GetDeployment`/`StopDeployment`, `Get/DeleteHostedConfigurationVersion`,
+and the four Run-numbered experiment-run ops — a non-numeric placeholder in
+that position resolves to `Unknown`, which a real client can never trigger
+since the SDK always sends a real integer there. Table uses a numeric
+literal for those 8 entries instead of the generic PLACEHOLDER. No
+pre-existing table existed to check, and no real routing bugs found. This
+test is now the permanent regression guard for route-table drift.
+
 Protocol: restjson1 (REST paths + JSON bodies), like the rest of the newer AWS services.
 Two response operations are httpPayload-based rather than JSON-bodied: **CreateHostedConfigurationVersion**
 and **GetHostedConfigurationVersion** both return the raw configuration content as the response body, with

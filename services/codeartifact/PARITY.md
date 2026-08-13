@@ -90,6 +90,21 @@ leaks: {status: clean, note: "FIXED (this pass) — DeleteDomain never cascade-d
 
 ## Notes
 
+**2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 48 ops' real
+method+path directly from `codeartifact@v1.41.4` serializers.go and drove
+them through `ExtractOperation` via the new
+`handler_sdk_route_table_test.go` (`TestExtractOperation_SDKRouteTable`, one
+subtest per op, `t.Parallel()`). All 48 resolved correctly, including the
+real AWS `DeleteRepositoryPermissionsPolicy` singular/plural path quirk
+(already deliberately handled with a doc comment) and every
+same-path/different-method collision (`/v1/domain`, `/v1/repository`,
+`/v1/package` each serve three methods). None of this service's ops carry a
+URI-label path parameter, so this table needed no PLACEHOLDER substitution
+at all. No pre-existing table existed to check, and no new routing bugs
+found — this pass's earlier route-matcher audits (see below) already
+covered this ground. This test is now the permanent regression guard for
+route-table drift.
+
 ### 2026-08-07 pass, addendum: two severe bugs found only by adding SDK-driven integration tests
 
 While implementing the weak-match feature (below), `test/integration/codeartifact_test.go` gained

@@ -73,6 +73,19 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 ## Notes
 
+**2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 49 ops' real
+method+path directly from `s3tables@v1.18.4` serializers.go and drove them
+through `ExtractOperation` via the new `handler_sdk_route_table_test.go`
+(`TestExtractOperation_SDKRouteTable`, one subtest per op, `t.Parallel()`).
+All 49 resolved correctly, including the standalone `/get-table` path
+(distinct from `/tables/{bucket}/{ns}/{name}`) and every
+same-path/different-method collision. Also spot-checked with a real
+percent-encoded table-bucket ARN on three representative ops to confirm the
+RawPath-based segment splitting (see the ARN-in-path note below) correctly
+handles a real ARN containing `/` — it does. No pre-existing table existed
+to check, and no new routing bugs found. This test is now the permanent
+regression guard for route-table drift.
+
 Protocol: restjson1. Verified against `aws-sdk-go-v2/service/s3tables@v1.14.3`
 `serializers.go`/`deserializers.go` directly (not against gopherstack's own output).
 

@@ -116,6 +116,21 @@ structural_gaps:
 leaks: {status: clean, note: "InMemoryBackend.Reset() closes every Outpost's and Site's tags.Tags before clearing (store.go); Close() stops the worker.Group backing every scheduled Order/CapacityTask transition timer, now a 2-3-hop chain instead of one shot (mirrors services/grafana's scheduleWorkspaceActivation pattern the prior audit called out as the thing to watch for; services/mgn's exportimport.go chained-After pattern confirmed the same shape holds for a multi-hop chain, not just one hop)."}
 ---
 
+## Route table SDK diff (2026-08-13, gopherstack-jqh2 pass 3)
+
+Re-extracted all 43 ops' real method+path directly from `outposts@v1.66.1`
+serializers.go and drove them through `ExtractOperation` via the new
+`handler_sdk_route_table_test.go` (`TestExtractOperation_SDKRouteTable`, one
+subtest per op, `t.Parallel()`). All 43 resolved correctly, including two
+real AWS API quirks confirmed directly in serializers.go: singular
+`/outpost/{id}/billing-information` and `/outpost/{id}/renewal-pricing`
+(every other outpost op uses plural `/outposts/{id}/...`), and the
+standalone verb-prefixed `/list-orders` path for `ListOrders` (distinct
+from `/orders`, which `CreateOrder` POSTs to and `GetOrder` GETs a specific
+order from). No pre-existing table existed to check, and no new routing
+bugs found. This test is now the permanent regression guard for
+route-table drift.
+
 ## Lifecycle and OrderingRequirements pass (2026-08-07, gopherstack-b9mg)
 
 Closed the two remaining buildable gaps the prior pass left open and explicitly declined to close

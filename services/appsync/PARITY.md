@@ -124,6 +124,19 @@ leaks: {status: clean, note: "janitor.go's background goroutine already takes ct
 
 ## Notes
 
+**2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 74 ops' real
+method+path directly from `appsync@v1.56.4` serializers.go and drove them
+through `ExtractOperation` via the new `handler_sdk_route_table_test.go`
+(`TestExtractOperation_SDKRouteTable`, one subtest per op, `t.Parallel()`).
+All 74 resolved correctly, including the several same-path/different-method
+collisions this service's routing depends on
+(`/v1/apis/{apiId}/ApiCaches`, `/v1/tags/{arn}`, `/v2/apis/{apiId}`,
+`/v1/apis/{apiId}` GET/DELETE/POST). No pre-existing table existed to
+check. This confirms the extensive Update*-uses-POST route work from the
+2026-07-24/07-31 passes documented below held under the strong per-op SDK
+diff method — no new routing bugs found. This test is now the permanent
+regression guard for route-table drift.
+
 ### The core bug class this sweep found and fixed: Update* uses POST, not PUT/PATCH
 
 AppSync is restjson1. Verified directly against `aws-sdk-go-v2/service/appsync@v1.55.0`'s

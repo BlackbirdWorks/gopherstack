@@ -88,6 +88,22 @@ leaks: {status: clean, note: "no new goroutines/janitors added this pass; all ne
 
 ## Notes
 
+**2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 61 ops' real
+method+path directly from `lakeformation@v1.50.4` serializers.go and drove
+them through `ExtractOperation` via the new
+`handler_sdk_route_table_test.go` (`TestExtractOperation_SDKRouteTable`, one
+subtest per op, `t.Parallel()`). Lake Formation's real API uses a static
+literal `/<OperationName>` path per op (confirmed directly in
+serializers.go), so `ExtractOperation`'s "strip the leading slash" logic is
+structurally exact by construction. Went further and diffed all three of
+this service's op-name tables against the 61-op SDK set:
+`isLakeFormationPath`'s switch (handler.go), `buildOps`' dispatch map
+(handler.go), and `GetSupportedOperations`' advertised list — all three
+match exactly, no drift between them (the bug shape 4 concern: a parallel
+op-resolution table drifting from real dispatch). No pre-existing test
+covered this; no new routing bugs found. This test is now the permanent
+regression guard for route-table drift.
+
 Freeform: AWS-behavior specifics worth remembering.
 
 - **gopherstack-kbnu follow-up (2026-08-10)**: closed all three named gaps from the prior
