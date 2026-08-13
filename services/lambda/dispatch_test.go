@@ -239,7 +239,9 @@ func TestHandlerReset_ClearsState(t *testing.T) {
 
 	// Create a capacity provider
 	rec2 := callInMemoryHandler(t, h, http.MethodPost, "/2025-11-30/capacity-providers",
-		`{"Name":"cp1"}`)
+		`{"CapacityProviderName":"cp1",`+
+			`"PermissionsConfig":{"CapacityProviderOperatorRoleArn":"arn:aws:iam::000000000000:role/r"},`+
+			`"VpcConfig":{"SubnetIds":["subnet-1"],"SecurityGroupIds":["sg-1"]}}`)
 	require.Equal(t, http.StatusCreated, rec2.Code)
 
 	// Verify they exist

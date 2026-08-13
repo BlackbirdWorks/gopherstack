@@ -70,15 +70,26 @@ func (h *Handler) handleCreateCapacityProvider(c *echo.Context, bk *InMemoryBack
 		}
 	}
 
-	if input.Name == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Name is required")
+	if input.CapacityProviderName == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"CapacityProviderName is required")
+	}
+
+	if input.PermissionsConfig == nil || input.PermissionsConfig.CapacityProviderOperatorRoleArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"PermissionsConfig.CapacityProviderOperatorRoleArn is required")
+	}
+
+	if input.VpcConfig == nil || len(input.VpcConfig.SubnetIDs) == 0 || len(input.VpcConfig.SecurityGroupIDs) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"VpcConfig.SubnetIds and VpcConfig.SecurityGroupIds are required")
 	}
 
 	cp, createErr := bk.CreateCapacityProvider(&input)
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionAlreadyExists) {
 			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
-				"Capacity provider already exists: "+input.Name)
+				"Capacity provider already exists: "+input.CapacityProviderName)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())

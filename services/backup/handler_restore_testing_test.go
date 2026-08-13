@@ -14,7 +14,13 @@ func TestScanJob(t *testing.T) {
 	t.Parallel()
 	b := backup.NewInMemoryBackend("000000000000", "us-east-1")
 
-	job := b.StartScanJob("arn:aws:backup:us-east-1:000000000000:backup-vault:test")
+	job := b.StartScanJob("arn:aws:backup:us-east-1:000000000000:backup-vault:test", backup.StartScanJobInput{
+		IamRoleArn:       "arn:aws:iam::000000000000:role/ScanRole",
+		MalwareScanner:   "GUARDDUTY",
+		RecoveryPointArn: "arn:aws:backup:us-east-1:000000000000:recovery-point:test",
+		ScanMode:         "FULL_SCAN",
+		ScannerRoleArn:   "arn:aws:iam::000000000000:role/ScannerRole",
+	})
 	assert.NotEmpty(t, job.ScanJobID)
 
 	found, err := b.DescribeScanJob(job.ScanJobID)

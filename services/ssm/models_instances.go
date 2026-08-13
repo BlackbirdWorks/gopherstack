@@ -122,8 +122,35 @@ type ListNodesInput struct{}
 // ListNodesOutput is the response payload.
 type ListNodesOutput struct{}
 
-// ListNodesSummaryInput is the request payload.
-type ListNodesSummaryInput struct{}
+// NodeAggregator mirrors types.NodeAggregator in the pinned SDK
+// (types/types.go:4109-4132): AggregatorType, AttributeName and TypeName are
+// all required. Nested Aggregators (multi-level grouping) are accepted on
+// the wire but not applied -- this backend only groups by the top-level
+// AttributeName.
+type NodeAggregator struct {
+	AggregatorType string           `json:"AggregatorType"`
+	AttributeName  string           `json:"AttributeName"`
+	TypeName       string           `json:"TypeName"`
+	Aggregators    []NodeAggregator `json:"Aggregators,omitempty"`
+}
+
+// NodeFilter mirrors types.NodeFilter (types/types.go:4135-4152).
+type NodeFilter struct {
+	Key    string   `json:"Key"`
+	Type   string   `json:"Type,omitempty"`
+	Values []string `json:"Values"`
+}
+
+// ListNodesSummaryInput is the request payload. Field set matches
+// ListNodesSummaryInput in the pinned SDK (api_op_ListNodesSummary.go:31-62):
+// Aggregators is required.
+type ListNodesSummaryInput struct {
+	MaxResults  *int32           `json:"MaxResults,omitempty"`
+	NextToken   string           `json:"NextToken,omitempty"`
+	SyncName    string           `json:"SyncName,omitempty"`
+	Aggregators []NodeAggregator `json:"Aggregators"`
+	Filters     []NodeFilter     `json:"Filters,omitempty"`
+}
 
 // ListNodesSummaryOutput is the response payload.
 type ListNodesSummaryOutput struct{}

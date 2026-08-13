@@ -41,4 +41,9 @@ var (
 	ErrInventoryNotFound = errors.New("InventoryTypeNotFound")
 	// ErrDocumentVersionNotFound is returned when a document version is not found.
 	ErrDocumentVersionNotFound = errors.New("InvalidDocumentVersion")
+	// ErrInvalidAggregator is returned by ListNodesSummary when Aggregators is
+	// missing or empty. InvalidAggregatorException is one of the op's own
+	// declared exceptions (awsAwsjson11_deserializeOpErrorListNodesSummary,
+	// ssm@v1.73.4 deserializers.go), not the generic ValidationException.
+	ErrInvalidAggregator = errors.New("InvalidAggregatorException")
 )

@@ -26,6 +26,14 @@ const (
 // PackageStatus has no ACTIVE value at all, only AVAILABLE.
 const pkgStatusAvailable = "AVAILABLE"
 
+// indexStatusCreated/indexStatusUpdated mirror types.IndexStatus, the sole
+// response field of the real CreateIndex/UpdateIndex ops (types/enums.go:620-627
+// in the pinned SDK).
+const (
+	indexStatusCreated = "CREATED"
+	indexStatusUpdated = "UPDATED"
+)
+
 // reservedInstanceStateActive matches the documented (freeform, non-enum in
 // the SDK) ReservedInstance.State value AWS returns for an active
 // reservation: "payment-pending" | "active" | "payment-failed" | "retired",
@@ -285,7 +293,12 @@ type Package struct {
 	PackageStatus            string                    `json:"PackageStatus"`
 	AvailablePackageVersion  string                    `json:"AvailablePackageVersion,omitempty"`
 	VersionHistory           []*PackageVersionHistory  `json:"-"`
-	CreatedAt                float64                   `json:"CreatedAt"`
+	// PackageUserList holds the package's scope (users who can view/associate
+	// it), maintained by UpdatePackageScope. Not part of the Package/
+	// PackageDetails wire shape itself -- only UpdatePackageScopeOutput
+	// carries it (api_op_UpdatePackageScope.go:50-65 in the pinned SDK).
+	PackageUserList []string `json:"-"`
+	CreatedAt       float64  `json:"CreatedAt"`
 }
 
 // PackageVersionHistory records a version of a package.
@@ -352,6 +365,13 @@ type DomainIndex struct {
 	Mappings map[string]any `json:"Mappings,omitempty"`
 	Settings map[string]any `json:"Settings,omitempty"`
 	Aliases  map[string]any `json:"Aliases,omitempty"`
+	// IndexSchema is the opaque smithy document body of the real AWS
+	// CreateIndex/UpdateIndex request (api_op_CreateIndex.go:57,
+	// api_op_UpdateIndex.go:49 in the pinned SDK: IndexSchema
+	// document.Interface). It is an arbitrary JSON value with no fixed
+	// schema on the wire, so it is stored and echoed back verbatim rather
+	// than parsed into Mappings/Settings/Aliases.
+	IndexSchema any `json:"IndexSchema,omitempty"`
 	// Documents holds the real per-index document store keyed by document ID.
 	Documents   map[string]map[string]any `json:"Documents,omitempty"`
 	IndexName   string                    `json:"IndexName"`

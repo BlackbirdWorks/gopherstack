@@ -16,18 +16,23 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 	b.mu.Lock("CreateCapacityProvider")
 	defer b.mu.Unlock()
 
-	if _, exists := b.capacityProviders.Get(input.Name); exists {
+	if _, exists := b.capacityProviders.Get(input.CapacityProviderName); exists {
 		return nil, ErrFunctionAlreadyExists
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	cp := &CapacityProvider{
-		Name:                      input.Name,
-		CapacityProviderArn:       buildCapacityProviderARN(b.region, b.accountID, input.Name),
-		TargetOnDemandConcurrency: input.TargetOnDemandConcurrency,
-		Status:                    "ACTIVE",
-		LastModifiedTime:          now,
-		TelemetryConfig:           input.TelemetryConfig,
+		Name:                          input.CapacityProviderName,
+		CapacityProviderArn:           buildCapacityProviderARN(b.region, b.accountID, input.CapacityProviderName),
+		PermissionsConfig:             input.PermissionsConfig,
+		VpcConfig:                     input.VpcConfig,
+		CapacityProviderScalingConfig: input.CapacityProviderScalingConfig,
+		InstanceRequirements:          input.InstanceRequirements,
+		KmsKeyArn:                     input.KmsKeyArn,
+		PropagateTags:                 input.PropagateTags,
+		TelemetryConfig:               input.TelemetryConfig,
+		State:                         CapacityProviderStateActive,
+		LastModified:                  now,
 	}
 
 	b.capacityProviders.Put(cp)
@@ -75,15 +80,19 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 		return nil, ErrFunctionNotFound
 	}
 
-	if input.TargetOnDemandConcurrency > 0 {
-		cp.TargetOnDemandConcurrency = input.TargetOnDemandConcurrency
+	if input.CapacityProviderScalingConfig != nil {
+		cp.CapacityProviderScalingConfig = input.CapacityProviderScalingConfig
+	}
+
+	if input.PropagateTags != nil {
+		cp.PropagateTags = input.PropagateTags
 	}
 
 	if input.TelemetryConfig != nil {
 		cp.TelemetryConfig = input.TelemetryConfig
 	}
 
-	cp.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	cp.LastModified = time.Now().UTC().Format(time.RFC3339)
 	b.capacityProviders.Put(cp)
 
 	return cp, nil

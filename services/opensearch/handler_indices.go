@@ -9,6 +9,27 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+// createIndexRealRequest and updateIndexRealRequest mirror
+// CreateIndexInput/UpdateIndexInput in the pinned SDK (api_op_CreateIndex.go:37-60,
+// api_op_UpdateIndex.go:32-52): IndexSchema is a smithy document.Interface, an
+// arbitrary JSON value with no fixed shape, decoded here as `any` and stored
+// verbatim rather than parsed into Mappings/Settings/Aliases.
+type createIndexRealRequest struct {
+	IndexSchema any    `json:"IndexSchema"`
+	IndexName   string `json:"IndexName"`
+}
+
+type updateIndexRealRequest struct {
+	IndexSchema any `json:"IndexSchema"`
+}
+
+// createUpdateIndexResponseJSON is the response for the real CreateIndex/
+// UpdateIndex ops: Status is their only field (api_op_CreateIndex.go:62-73,
+// api_op_UpdateIndex.go:54-65).
+type createUpdateIndexResponseJSON struct {
+	Status string `json:"Status"`
+}
+
 // handleCreateIndexRealRoute serves the real CreateIndex op: POST
 // {domainName}/index, with IndexName carried in the body (not the URL) --
 // see the dispatchDomainPostRoutesExtended doc comment. Returns true always
@@ -23,24 +44,25 @@ func (h *Handler) handleCreateIndexRealRoute(w http.ResponseWriter, r *http.Requ
 
 	body, _ := httputils.ReadBody(r)
 
-	var req struct {
-		Mappings  map[string]any `json:"Mappings"`
-		Settings  map[string]any `json:"Settings"`
-		Aliases   map[string]any `json:"Aliases"`
-		IndexName string         `json:"IndexName"`
-	}
+	var req createIndexRealRequest
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
 
-	idx, err := h.Backend.CreateIndex(domainName, req.IndexName, req.Mappings, req.Settings, req.Aliases)
+	if req.IndexName == "" {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "IndexName is required")
+
+		return true
+	}
+
+	_, err := h.Backend.CreateIndex(domainName, req.IndexName, nil, nil, nil, req.IndexSchema)
 	if err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return true
 	}
 
-	h.writeJSON(r, w, toIndexResponseJSON(idx))
+	h.writeJSON(r, w, createUpdateIndexResponseJSON{Status: indexStatusCreated})
 
 	return true
 }
@@ -55,20 +77,18 @@ func (h *Handler) handleUpdateIndexRoute(w http.ResponseWriter, r *http.Request,
 	}
 
 	body, _ := httputils.ReadBody(r)
-	var req struct {
-		Mappings map[string]any `json:"Mappings"`
-		Settings map[string]any `json:"Settings"`
-	}
+	var req updateIndexRealRequest
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
-	idx, err := h.Backend.UpdateIndex(parts[0], parts[1], req.Mappings, req.Settings)
+
+	_, err := h.Backend.UpdateIndex(parts[0], parts[1], nil, nil, req.IndexSchema)
 	if err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return
 	}
-	h.writeJSON(r, w, toIndexResponseJSON(idx))
+	h.writeJSON(r, w, createUpdateIndexResponseJSON{Status: indexStatusUpdated})
 }
 
 // handleIndexGetRoute handles GET routes under {domainName}/index/{indexName}:
@@ -220,7 +240,7 @@ func (h *Handler) handleCreateIndex(w http.ResponseWriter, r *http.Request, sp i
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
-	idx, err := h.Backend.CreateIndex(sp.domain, sp.index, req.Mappings, req.Settings, req.Aliases)
+	idx, err := h.Backend.CreateIndex(sp.domain, sp.index, req.Mappings, req.Settings, req.Aliases, nil)
 	if err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 

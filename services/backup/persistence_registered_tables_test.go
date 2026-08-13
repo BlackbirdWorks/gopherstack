@@ -155,7 +155,13 @@ func TestRegisteredTablesSurviveRestore(t *testing.T) {
 				t.Helper()
 				b := newTestBackend(t)
 				vault := mustVault(t, b, "scan-vault")
-				job := b.StartScanJob(vault.BackupVaultArn)
+				job := b.StartScanJob(vault.BackupVaultArn, backup.StartScanJobInput{
+					IamRoleArn:       "arn:aws:iam::000000000000:role/ScanRole",
+					MalwareScanner:   "GUARDDUTY",
+					RecoveryPointArn: "arn:aws:backup:us-east-1:000000000000:recovery-point:test",
+					ScanMode:         "FULL_SCAN",
+					ScannerRoleArn:   "arn:aws:iam::000000000000:role/ScannerRole",
+				})
 
 				restored := restoreFresh(t, b)
 

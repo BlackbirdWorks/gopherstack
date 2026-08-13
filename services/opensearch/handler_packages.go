@@ -187,35 +187,34 @@ func (h *Handler) handleUpdatePackageRoute(w http.ResponseWriter, r *http.Reques
 	h.writeJSON(r, w, map[string]any{jsonKeyPackageDetails: pkg})
 }
 
-// handleUpdatePackageScopeRoute serves UpdatePackageScope: POST /packages/updateScope, PackageID in the body.
+// handleUpdatePackageScopeRoute serves UpdatePackageScope: POST
+// /packages/updateScope, all fields carried in the body. Field set matches
+// UpdatePackageScopeInput/Output (api_op_UpdatePackageScope.go:29-65 in the
+// pinned SDK): PackageUserList is a top-level member, not nested under a
+// "PackageScopeOperationConfig" wrapper.
 func (h *Handler) handleUpdatePackageScopeRoute(w http.ResponseWriter, r *http.Request) {
 	body, _ := httputils.ReadBody(r)
 
 	var req struct {
-		PackageID   string   `json:"PackageID"`
-		Operation   string   `json:"Operation"`
-		DomainNames []string `json:"PackageScopeOperationConfig"`
+		PackageID       string   `json:"PackageID"`
+		Operation       string   `json:"Operation"`
+		PackageUserList []string `json:"PackageUserList"`
 	}
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
 
-	pkg, err := h.Backend.UpdatePackageScope(req.PackageID, req.Operation, req.DomainNames)
+	pkg, err := h.Backend.UpdatePackageScope(req.PackageID, req.Operation, req.PackageUserList)
 	if err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return
 	}
 
-	var retPkgID string
-	if pkg != nil {
-		retPkgID = pkg.PackageID
-	}
-
 	h.writeJSON(r, w, map[string]any{
-		jsonKeyPackageID:              retPkgID,
-		"Operation":                   req.Operation,
-		"PackageScopeOperationStatus": softwareUpdateCompleted,
+		jsonKeyPackageID:  pkg.PackageID,
+		"Operation":       req.Operation,
+		"PackageUserList": pkg.PackageUserList,
 	})
 }
 

@@ -92,6 +92,39 @@ families:
       packages/{id}/domains) returned the wrong wire shape entirely -- raw Package objects / bare
       domain-name strings instead of DomainPackageDetailsList -- fixed to emit
       PackageID/DomainName/DomainPackageStatus/PackageName/PackageType per element.
+      gopherstack-m53b (required-member sweep pass 4): UpdatePackageScope decoded its required
+      PackageUserList under the JSON tag "PackageScopeOperationConfig", which does not exist on
+      the real wire (api_op_UpdatePackageScope.go:29-48 confirms the top-level member is literally
+      PackageUserList) -- every real client's list was silently dropped and the field always
+      decoded to nil. The response also fabricated a "PackageScopeOperationStatus" key not present
+      on UpdatePackageScopeOutput, and never echoed PackageUserList back at all even though the
+      real Output requires it. Fixed the wire key, added a real PackageUserList field to Package
+      (json:"-", internal-only -- no other Package/PackageDetails response carries package scope),
+      and implemented actual ADD/REMOVE/OVERRIDE semantics in UpdatePackageScope (previously a
+      pure no-op that just re-read the package). Proven via Test_SDKRoundTrip_UpdatePackageScope
+      (handler_update_package_scope_test.go), which fails against the unfixed decode.
+  indices:
+    status: ok
+    note: >
+      gopherstack-m53b (required-member sweep pass 4): CreateIndex/UpdateIndex read top-level
+      Mappings/Settings/Aliases fields from the request body, but the real
+      CreateIndexInput/UpdateIndexInput (api_op_CreateIndex.go:37-60, api_op_UpdateIndex.go:32-52,
+      opensearch@v1.75.4) carry a single IndexSchema member typed document.Interface -- a smithy
+      document (arbitrary JSON value, no fixed schema on the wire). A real client's entire payload
+      was silently dropped and the index was created/updated with no schema at all. Also found via
+      full-shape read: the real response is `{"Status": "CREATED"|"UPDATED"}` (types.IndexStatus,
+      the op's only output member) -- the handler's prior response reused a Get/Delete-shaped
+      envelope (IndexName/IndexStatus/Mappings/Settings/Aliases/DocumentCount) that never carried
+      the wire-required "Status" key at all, so a real client's *CreateIndexOutput.Status/
+      *UpdateIndexOutput.Status stayed the empty string even once the request body was fixed.
+      Fixed by adding DomainIndex.IndexSchema (any, stored/echoed verbatim -- not parsed into
+      Mappings/Settings/Aliases, since the smithy document has no fixed internal shape to parse
+      against) and a dedicated {"Status": ...} response for these two ops specifically, matching
+      the real Output exactly. GetIndex/DeleteIndex's own response shape (which this backend
+      reuses a shared envelope for) was not re-verified -- out of this pass's scope, see
+      items_still_open. Proven via Test_SDKRoundTrip_CreateIndex_IndexSchema/
+      Test_SDKRoundTrip_UpdateIndex_IndexSchema (handler_indices_test.go), which fail against the
+      unfixed decode.
   applications:
     status: ok
     note: >
@@ -506,7 +539,11 @@ beyond the capability's existence/name/status.
   ListInstanceTypeDetails, CreateIndex) were actually unreachable/misrouted
   and are now fixed. Field-level wire-shape diffing of these ops' request/
   response bodies is still outstanding -- route correctness is not the same
-  claim as wire-shape completeness.
+  claim as wire-shape completeness. UPDATE (gopherstack-m53b): CreateIndex
+  and UpdateIndex are now field-diffed and fixed -- see the `indices` family
+  above. GetIndex/DeleteIndex still reuse that same fix's response envelope
+  but their own wire shape was not independently re-verified against
+  api_op_GetIndex.go/api_op_DeleteIndex.go this pass.
 - **VpcEndpoint's derived AvailabilityZones/VPCId, Application's Endpoint,
   and CancelDomainConfigChange's absence of per-property
   CancelledChangeProperties** are synthesized/omitted non-stub defaults (no

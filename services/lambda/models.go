@@ -678,15 +678,78 @@ type ListFunctionsByCodeSigningConfigOutput struct {
 	FunctionArns []string `json:"FunctionArns"`
 }
 
-// CapacityProvider holds a Lambda capacity provider configuration.
+// CapacityProviderState mirrors the Lambda CapacityProviderState enum
+// (api_op_CreateCapacityProvider.go / types/enums.go:88-96 in the pinned SDK).
+const (
+	CapacityProviderStatePending  = "Pending"
+	CapacityProviderStateActive   = "Active"
+	CapacityProviderStateFailed   = "Failed"
+	CapacityProviderStateDeleting = "Deleting"
+)
+
+// CapacityProvider holds a Lambda capacity provider configuration. Field set
+// matches types.CapacityProvider in the pinned SDK; Name is internal-only
+// (map key / URL routing) and is never on the wire — AWS identifies a
+// capacity provider solely by CapacityProviderArn/CapacityProviderName.
 type CapacityProvider struct {
-	TelemetryConfig           *CapacityProviderTelemetryConfig `json:"TelemetryConfig,omitempty"`
-	CapacityProviderArn       string                           `json:"CapacityProviderArn"`
-	LastModifiedTime          string                           `json:"LastModifiedTime"`
-	Name                      string                           `json:"Name"`
-	Status                    string                           `json:"Status,omitempty"`
-	AssignedFunctionVersions  []string                         `json:"-"`
-	TargetOnDemandConcurrency int                              `json:"TargetOnDemandConcurrency,omitempty"`
+	CapacityProviderScalingConfig *CapacityProviderScalingConfig     `json:"CapacityProviderScalingConfig,omitempty"`
+	InstanceRequirements          *InstanceRequirements              `json:"InstanceRequirements,omitempty"`
+	PermissionsConfig             *CapacityProviderPermissionsConfig `json:"PermissionsConfig"`
+	PropagateTags                 *PropagateTags                     `json:"PropagateTags,omitempty"`
+	TelemetryConfig               *CapacityProviderTelemetryConfig   `json:"TelemetryConfig,omitempty"`
+	VpcConfig                     *CapacityProviderVpcConfig         `json:"VpcConfig"`
+	CapacityProviderArn           string                             `json:"CapacityProviderArn"`
+	KmsKeyArn                     string                             `json:"KmsKeyArn,omitempty"`
+	LastModified                  string                             `json:"LastModified"`
+	State                         string                             `json:"State"`
+	Name                          string                             `json:"-"`
+	AssignedFunctionVersions      []string                           `json:"-"`
+}
+
+// CapacityProviderPermissionsConfig holds the IAM role the capacity provider
+// uses to manage compute resources. Required on CreateCapacityProvider.
+type CapacityProviderPermissionsConfig struct {
+	CapacityProviderOperatorRoleArn string `json:"CapacityProviderOperatorRoleArn"`
+}
+
+// CapacityProviderVpcConfig holds the network settings for compute instances
+// managed by the capacity provider. Required on CreateCapacityProvider.
+// Named distinctly from the function-level VpcConfig above (real SDK also
+// keeps these as two separate types).
+type CapacityProviderVpcConfig struct {
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+	SubnetIDs        []string `json:"SubnetIds"`
+}
+
+// CapacityProviderScalingConfig defines how the capacity provider scales
+// compute instances. Accept-and-echo only: this emulator does not actually
+// launch or scale compute instances.
+type CapacityProviderScalingConfig struct {
+	MaxVCpuCount    *int32                        `json:"MaxVCpuCount,omitempty"`
+	ScalingMode     string                        `json:"ScalingMode,omitempty"`
+	ScalingPolicies []TargetTrackingScalingPolicy `json:"ScalingPolicies,omitempty"`
+}
+
+// TargetTrackingScalingPolicy is a single scaling policy within
+// CapacityProviderScalingConfig.
+type TargetTrackingScalingPolicy struct {
+	PredefinedMetricType string  `json:"PredefinedMetricType"`
+	TargetValue          float64 `json:"TargetValue"`
+}
+
+// InstanceRequirements constrains which EC2 instance types the capacity
+// provider may use. Accept-and-echo only.
+type InstanceRequirements struct {
+	AllowedInstanceTypes  []string `json:"AllowedInstanceTypes,omitempty"`
+	Architectures         []string `json:"Architectures,omitempty"`
+	ExcludedInstanceTypes []string `json:"ExcludedInstanceTypes,omitempty"`
+}
+
+// PropagateTags configures whether tags propagate to the capacity provider's
+// managed resources. Accept-and-echo only.
+type PropagateTags struct {
+	ExplicitTags map[string]string `json:"ExplicitTags,omitempty"`
+	Mode         string            `json:"Mode,omitempty"`
 }
 
 // CapacityProviderTelemetryConfig holds the telemetry (logging) configuration
@@ -704,10 +767,18 @@ type CapacityProviderLoggingConfig struct {
 }
 
 // CreateCapacityProviderInput is the request body for CreateCapacityProvider.
+// Field set matches CreateCapacityProviderInput in the pinned SDK
+// (api_op_CreateCapacityProvider.go:28-71).
 type CreateCapacityProviderInput struct {
-	TelemetryConfig           *CapacityProviderTelemetryConfig `json:"TelemetryConfig,omitempty"`
-	Name                      string                           `json:"Name"`
-	TargetOnDemandConcurrency int                              `json:"TargetOnDemandConcurrency,omitempty"`
+	CapacityProviderScalingConfig *CapacityProviderScalingConfig     `json:"CapacityProviderScalingConfig,omitempty"`
+	InstanceRequirements          *InstanceRequirements              `json:"InstanceRequirements,omitempty"`
+	PermissionsConfig             *CapacityProviderPermissionsConfig `json:"PermissionsConfig"`
+	PropagateTags                 *PropagateTags                     `json:"PropagateTags,omitempty"`
+	Tags                          map[string]string                  `json:"Tags,omitempty"`
+	TelemetryConfig               *CapacityProviderTelemetryConfig   `json:"TelemetryConfig,omitempty"`
+	VpcConfig                     *CapacityProviderVpcConfig         `json:"VpcConfig"`
+	CapacityProviderName          string                             `json:"CapacityProviderName"`
+	KmsKeyArn                     string                             `json:"KmsKeyArn,omitempty"`
 }
 
 // CreateCapacityProviderOutput is the response for CreateCapacityProvider.
@@ -716,9 +787,14 @@ type CreateCapacityProviderOutput struct {
 }
 
 // UpdateCapacityProviderInput is the request body for UpdateCapacityProvider.
+// CapacityProviderName is a URI label (not a body field) in the real SDK
+// (serializers.go:7098-7113); the handler supplies it from the path.
+// Field set otherwise matches UpdateCapacityProviderInput
+// (api_op_UpdateCapacityProvider.go:27-43).
 type UpdateCapacityProviderInput struct {
-	TelemetryConfig           *CapacityProviderTelemetryConfig `json:"TelemetryConfig,omitempty"`
-	TargetOnDemandConcurrency int                              `json:"TargetOnDemandConcurrency,omitempty"`
+	CapacityProviderScalingConfig *CapacityProviderScalingConfig   `json:"CapacityProviderScalingConfig,omitempty"`
+	PropagateTags                 *PropagateTags                   `json:"PropagateTags,omitempty"`
+	TelemetryConfig               *CapacityProviderTelemetryConfig `json:"TelemetryConfig,omitempty"`
 }
 
 // UpdateCapacityProviderOutput is the response for UpdateCapacityProvider.

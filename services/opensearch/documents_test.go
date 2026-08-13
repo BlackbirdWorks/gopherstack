@@ -20,7 +20,7 @@ func seedIndex(t *testing.T, index string) *opensearch.InMemoryBackend {
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
 	_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: seedIndexDomain})
 	require.NoError(t, err)
-	_, err = b.CreateIndex(seedIndexDomain, index, nil, nil, nil)
+	_, err = b.CreateIndex(seedIndexDomain, index, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	return b

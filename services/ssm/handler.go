@@ -318,6 +318,8 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 	statusCode := http.StatusBadRequest
 
 	switch {
+	case errors.Is(reqErr, ErrInvalidAggregator):
+		return "InvalidAggregatorException", statusCode
 	case errors.Is(reqErr, ErrCloudConnectorNotFound):
 		return "ResourceNotFoundException", statusCode
 	case errors.Is(reqErr, ErrAccessRequestNotFound):

@@ -154,10 +154,12 @@ type StorageBackend interface {
 	ListDomainMaintenances(domainName string) ([]*DomainMaintenance, error)
 
 	// Index operations
-	CreateIndex(domainName, indexName string, mappings, settings, aliases map[string]any) (*DomainIndex, error)
+	CreateIndex(
+		domainName, indexName string, mappings, settings, aliases map[string]any, indexSchema any,
+	) (*DomainIndex, error)
 	DeleteIndex(domainName, indexName string) (*DomainIndex, error)
 	GetIndex(domainName, indexName string) (*DomainIndex, error)
-	UpdateIndex(domainName, indexName string, mappings, settings map[string]any) (*DomainIndex, error)
+	UpdateIndex(domainName, indexName string, mappings, settings map[string]any, indexSchema any) (*DomainIndex, error)
 
 	// Document operations (real per-index document storage + bounded search)
 	IndexDocument(domainName, indexName, docID string, doc map[string]any) (string, bool, error)

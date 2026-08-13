@@ -22,6 +22,10 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 	// now correctly reject an empty body with ValidationException — see
 	// TestGetAccessToken_RequiresAccessRequestID and
 	// TestAccessRequest_ValidationRequiresReasonAndTargets in sessions_test.go.
+	// ListNodesSummary is also NOT listed here: it has a real required field
+	// (Aggregators) and now correctly rejects an empty body with
+	// InvalidAggregatorException — see TestListNodesSummary_MissingAggregators
+	// in list_nodes_summary_test.go.
 	ops := []string{
 		"CreateResourceDataSync",
 		"DeleteInventory",
@@ -76,7 +80,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"ListDocumentMetadataHistory",
 		"ListInventoryEntries",
 		"ListNodes",
-		"ListNodesSummary",
 		"ListOpsItemEvents",
 		"ListOpsItemRelatedItems",
 		"ListOpsMetadata",
