@@ -86,7 +86,14 @@ func TestDelegationRequestOps_RealWireKeys(t *testing.T) {
 		h := NewHandler(b)
 		client := newDelegationTestClient(t, h)
 
-		seeded, err := b.CreateDelegationRequest("111122223333")
+		seeded, err := b.CreateDelegationRequest(CreateDelegationRequestInput{
+			OwnerAccountID:      "111122223333",
+			Description:         "test delegation",
+			NotificationChannel: "arn:aws:sns:us-east-1:000000000000:topic",
+			RequestorWorkflowID: "workflow-1",
+			SessionDuration:     3600,
+			PolicyTemplateArn:   "arn:aws:iam::aws:policy/ReadOnlyAccess",
+		})
 		require.NoError(t, err)
 
 		_, err = client.AcceptDelegationRequest(t.Context(), &iamsdk.AcceptDelegationRequestInput{
@@ -102,7 +109,14 @@ func TestDelegationRequestOps_RealWireKeys(t *testing.T) {
 		h := NewHandler(b)
 		client := newDelegationTestClient(t, h)
 
-		seeded, err := b.CreateDelegationRequest("111122223333")
+		seeded, err := b.CreateDelegationRequest(CreateDelegationRequestInput{
+			OwnerAccountID:      "111122223333",
+			Description:         "test delegation",
+			NotificationChannel: "arn:aws:sns:us-east-1:000000000000:topic",
+			RequestorWorkflowID: "workflow-1",
+			SessionDuration:     3600,
+			PolicyTemplateArn:   "arn:aws:iam::aws:policy/ReadOnlyAccess",
+		})
 		require.NoError(t, err)
 
 		_, err = client.AssociateDelegationRequest(t.Context(), &iamsdk.AssociateDelegationRequestInput{

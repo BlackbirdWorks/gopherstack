@@ -2,8 +2,32 @@ package iam
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 )
+
+// getSSHPublicKeyWithEncoding looks up an SSH public key and returns its body
+// re-encoded per vals's required Encoding parameter. Shared by the live
+// opGetSSHPublicKey handler and its shadowed iamSSHKeyCompletenessDispatch
+// duplicate below so neither grows past funlen fixing the same bug twice.
+func (h *Handler) getSSHPublicKeyWithEncoding(vals url.Values) (*SSHPublicKey, string, error) {
+	encoding := vals.Get("Encoding")
+	if encoding != sshEncodingSSH && encoding != sshEncodingPEM {
+		return nil, "", fmt.Errorf("%w: Encoding must be SSH or PEM", ErrUnrecognizedPublicKeyEncoding)
+	}
+
+	key, err := h.Backend.GetSSHPublicKey(vals.Get("UserName"), vals.Get("SSHPublicKeyId"))
+	if err != nil {
+		return nil, "", err
+	}
+
+	body, err := convertSSHPublicKeyEncoding(key.SSHPublicKeyBody, encoding)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return key, body, nil
+}
 
 // iamSSHKeyUploadGetDispatch wires UploadSSHPublicKey and GetSSHPublicKey with real storage.
 func (h *Handler) iamSSHKeyUploadGetDispatch() map[string]iamActionFn {
@@ -35,10 +59,7 @@ func (h *Handler) iamSSHKeyUploadGetDispatch() map[string]iamActionFn {
 		},
 
 		opGetSSHPublicKey: func(vals url.Values, reqID string) (any, error) {
-			key, err := h.Backend.GetSSHPublicKey(
-				vals.Get("UserName"),
-				vals.Get("SSHPublicKeyId"),
-			)
+			key, body, err := h.getSSHPublicKeyWithEncoding(vals)
 			if err != nil {
 				return nil, err
 			}
@@ -51,7 +72,7 @@ func (h *Handler) iamSSHKeyUploadGetDispatch() map[string]iamActionFn {
 						UserName:         key.UserName,
 						SSHPublicKeyID:   key.SSHPublicKeyID,
 						Fingerprint:      key.Fingerprint,
-						SSHPublicKeyBody: key.SSHPublicKeyBody,
+						SSHPublicKeyBody: body,
 						Status:           key.Status,
 						UploadDate:       isoTime(key.UploadDate),
 					},
@@ -166,7 +187,7 @@ func (h *Handler) iamSSHKeyCompletenessDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"GetSSHPublicKey": func(vals url.Values, reqID string) (any, error) {
-			key, err := h.Backend.GetSSHPublicKey(vals.Get("UserName"), vals.Get("SSHPublicKeyId"))
+			key, body, err := h.getSSHPublicKeyWithEncoding(vals)
 			if err != nil {
 				return nil, err
 			}
@@ -179,7 +200,7 @@ func (h *Handler) iamSSHKeyCompletenessDispatch() map[string]iamActionFn {
 						UserName:         key.UserName,
 						SSHPublicKeyID:   key.SSHPublicKeyID,
 						Fingerprint:      key.Fingerprint,
-						SSHPublicKeyBody: key.SSHPublicKeyBody,
+						SSHPublicKeyBody: body,
 						Status:           key.Status,
 						UploadDate:       isoTime(key.UploadDate),
 					},

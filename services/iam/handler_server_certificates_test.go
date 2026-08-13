@@ -21,6 +21,7 @@ func TestHandler_ServerCertificate_UploadAndGet(t *testing.T) {
 	req := iamRequest("UploadServerCertificate", map[string]string{
 		"ServerCertificateName": "my-tls-cert",
 		"CertificateBody":       certBody,
+		"PrivateKey":            "-----BEGIN PRIVATE KEY-----\nMA==\n-----END PRIVATE KEY-----",
 		"Path":                  "/",
 	})
 	rec := httptest.NewRecorder()
@@ -52,7 +53,7 @@ func TestHandler_ServerCertificate_CRUD(t *testing.T) {
 	req := iamRequest("UploadServerCertificate", map[string]string{
 		"ServerCertificateName": "MyCert",
 		"CertificateBody":       certBody,
-		"PrivateKey":            "-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----",
+		"PrivateKey":            "-----BEGIN RSA PRIVATE KEY-----\nMA==\n-----END RSA PRIVATE KEY-----",
 	})
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))

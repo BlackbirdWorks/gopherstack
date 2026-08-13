@@ -262,7 +262,11 @@ func (h *Handler) iamMiscDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"SetSecurityTokenServicePreferences": func(_ url.Values, reqID string) (any, error) {
+		"SetSecurityTokenServicePreferences": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.SetSecurityTokenServicePreferences(vals.Get("GlobalEndpointTokenVersion")); err != nil {
+				return nil, err
+			}
+
 			return &SetSecurityTokenServicePreferencesResponse{
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
@@ -279,6 +283,7 @@ func (h *Handler) iamMiscDispatchTable() map[string]iamActionFn {
 				{Key: "InstanceProfiles", Value: summary.InstanceProfiles},
 				{Key: "SAMLProviders", Value: summary.SAMLProviders},
 				{Key: "MFADevices", Value: summary.MFADevices},
+				{Key: "GlobalEndpointTokenVersion", Value: summary.GlobalEndpointTokenVersion},
 			}
 
 			return &GetAccountSummaryResponse{

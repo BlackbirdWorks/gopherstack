@@ -559,63 +559,76 @@ func (h *Handler) dispatch(
 	return fn(vals, reqID)
 }
 
+// codeInvalidInput is the AWS Query error code for an invalid (present but
+// malformed, or missing-and-not-otherwise-modeled) input parameter.
+const codeInvalidInput = "InvalidInput"
+
+// codeNoSuchEntity and codeEntityAlreadyExists are the AWS Query error codes
+// shared by every not-found/already-exists resource kind in iamErrorMappings.
+const (
+	codeNoSuchEntity        = "NoSuchEntity"
+	codeEntityAlreadyExists = "EntityAlreadyExists"
+)
+
+// iamErrorMapping associates a backend sentinel error with the AWS error
+// code/HTTP status handleError writes for it.
+type iamErrorMapping struct {
+	err    error
+	code   string
+	status int
+}
+
+//nolint:gochecknoglobals // read-only lookup table, same pattern as actions.go
+var iamErrorMappings = []iamErrorMapping{
+	{ErrUserNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrRoleNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrPolicyNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrGroupNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrAccessKeyNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrInstanceProfileNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrInlinePolicyNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrSAMLProviderNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrOIDCProviderNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrLoginProfileNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrDelegationRequestNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrUserAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
+	{ErrRoleAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
+	{ErrPolicyAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
+	{ErrGroupAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
+	{ErrInstanceProfileAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
+	{ErrSAMLProviderAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
+	{ErrOIDCProviderAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
+	{ErrLoginProfileAlreadyExists, codeEntityAlreadyExists, http.StatusConflict},
+	{ErrDeleteConflict, "DeleteConflict", http.StatusConflict},
+	{ErrLimitExceeded, "LimitExceeded", http.StatusConflict},
+	{ErrMalformedPolicyDocument, "MalformedPolicyDocument", http.StatusBadRequest},
+	{ErrInvalidAction, "InvalidAction", http.StatusBadRequest},
+	{ErrInvalidOIDCProviderURL, codeInvalidInput, http.StatusBadRequest},
+	{ErrInvalidPassword, codeInvalidInput, http.StatusBadRequest},
+	{ErrOldPasswordIncorrect, "PasswordPolicyViolation", http.StatusBadRequest},
+	{ErrValidationError, "ValidationError", http.StatusBadRequest},
+	{ErrInvalidInput, codeInvalidInput, http.StatusBadRequest},
+	{ErrMalformedCertificate, "MalformedCertificate", http.StatusBadRequest},
+	{ErrUnrecognizedPublicKeyEncoding, "UnrecognizedPublicKeyEncoding", http.StatusBadRequest},
+	{ErrInvalidAuthenticationCode, "InvalidAuthenticationCode", http.StatusForbidden},
+}
+
 // handleError writes a standardized IAM XML error response.
 func (h *Handler) handleError(ctx context.Context, c *echo.Context, action string, reqErr error) error {
 	log := logger.Load(ctx)
 
-	statusCode := http.StatusBadRequest
+	// Real AWS IAM (query protocol) returns "ServiceFailure" for unhandled
+	// server errors, not the JSON-protocol-style "InternalFailure".
+	code := "ServiceFailure"
+	statusCode := http.StatusInternalServerError
 
-	var code string
+	for _, m := range iamErrorMappings {
+		if errors.Is(reqErr, m.err) {
+			code = m.code
+			statusCode = m.status
 
-	switch {
-	case errors.Is(reqErr, ErrUserNotFound),
-		errors.Is(reqErr, ErrRoleNotFound),
-		errors.Is(reqErr, ErrPolicyNotFound),
-		errors.Is(reqErr, ErrGroupNotFound),
-		errors.Is(reqErr, ErrAccessKeyNotFound),
-		errors.Is(reqErr, ErrInstanceProfileNotFound),
-		errors.Is(reqErr, ErrInlinePolicyNotFound),
-		errors.Is(reqErr, ErrSAMLProviderNotFound),
-		errors.Is(reqErr, ErrOIDCProviderNotFound),
-		errors.Is(reqErr, ErrLoginProfileNotFound):
-		code = "NoSuchEntity"
-		statusCode = http.StatusNotFound
-	case errors.Is(reqErr, ErrUserAlreadyExists),
-		errors.Is(reqErr, ErrRoleAlreadyExists),
-		errors.Is(reqErr, ErrPolicyAlreadyExists),
-		errors.Is(reqErr, ErrGroupAlreadyExists),
-		errors.Is(reqErr, ErrInstanceProfileAlreadyExists),
-		errors.Is(reqErr, ErrSAMLProviderAlreadyExists),
-		errors.Is(reqErr, ErrOIDCProviderAlreadyExists),
-		errors.Is(reqErr, ErrLoginProfileAlreadyExists):
-		code = "EntityAlreadyExists"
-		statusCode = http.StatusConflict
-	case errors.Is(reqErr, ErrDeleteConflict):
-		code = "DeleteConflict"
-		statusCode = http.StatusConflict
-	case errors.Is(reqErr, ErrLimitExceeded):
-		code = "LimitExceeded"
-		statusCode = http.StatusConflict
-	case errors.Is(reqErr, ErrMalformedPolicyDocument):
-		code = "MalformedPolicyDocument"
-	case errors.Is(reqErr, ErrInvalidAction):
-		code = "InvalidAction"
-	case errors.Is(reqErr, ErrInvalidOIDCProviderURL):
-		code = "InvalidInput"
-	case errors.Is(reqErr, ErrInvalidPassword):
-		code = "InvalidInput"
-	case errors.Is(reqErr, ErrOldPasswordIncorrect):
-		code = "PasswordPolicyViolation"
-	case errors.Is(reqErr, ErrValidationError):
-		code = "ValidationError"
-	case errors.Is(reqErr, ErrInvalidAuthenticationCode):
-		code = "InvalidAuthenticationCode"
-		statusCode = http.StatusForbidden
-	default:
-		// Real AWS IAM (query protocol) returns "ServiceFailure" for unhandled
-		// server errors, not the JSON-protocol-style "InternalFailure".
-		code = "ServiceFailure"
-		statusCode = http.StatusInternalServerError
+			break
+		}
 	}
 
 	if statusCode == http.StatusInternalServerError {

@@ -371,7 +371,12 @@ func TestIAMHandler_AdditionalActionsDispatch(t *testing.T) {
 			name:   "CreateDelegationRequest_success",
 			action: "CreateDelegationRequest",
 			params: map[string]string{
-				"OwnerAccountId": "111122223333",
+				"OwnerAccountId":                "111122223333",
+				"Description":                   "test delegation",
+				"NotificationChannel":           "arn:aws:sns:us-east-1:000000000000:topic",
+				"RequestorWorkflowId":           "workflow-1",
+				"SessionDuration":               "3600",
+				"Permissions.PolicyTemplateArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
 			},
 			wantCode:    http.StatusOK,
 			wantContain: "CreateDelegationRequestResponse",

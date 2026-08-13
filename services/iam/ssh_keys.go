@@ -1,12 +1,23 @@
 package iam
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// sshEncodingSSH and sshEncodingPEM are GetSSHPublicKey's Encoding values
+// (aws-sdk-go-v2/service/iam/types.EncodingType).
+const (
+	sshEncodingSSH = "SSH"
+	sshEncodingPEM = "PEM"
 )
 
 // sshFingerprintBytes is the number of bytes used to derive a fingerprint.
@@ -140,4 +151,88 @@ func computeSSHFingerprint(body string) string {
 	}
 
 	return strings.Join(parts, ":")
+}
+
+// convertSSHPublicKeyEncoding re-encodes body to match encoding, converting
+// between authorized_keys ("ssh-rsa AAAA...") and PEM SubjectPublicKeyInfo
+// format when the stored body is not already in that format.
+// UploadSSHPublicKey accepts either format on upload ("must be encoded in
+// ssh-rsa format or PEM format"), so GetSSHPublicKey must convert on read to
+// honor the requested Encoding rather than always returning the stored body
+// verbatim. encoding must already be sshEncodingSSH or sshEncodingPEM.
+func convertSSHPublicKeyEncoding(body, encoding string) (string, error) {
+	isAuthorizedKeys := false
+	if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(body)); err == nil {
+		isAuthorizedKeys = true
+	}
+
+	switch encoding {
+	case sshEncodingSSH:
+		if isAuthorizedKeys {
+			return body, nil
+		}
+
+		return pemToAuthorizedKeys(body)
+	case sshEncodingPEM:
+		if !isAuthorizedKeys {
+			if block, _ := pem.Decode([]byte(body)); block != nil {
+				return body, nil
+			}
+
+			return "", fmt.Errorf(
+				"%w: stored SSH public key is not in a recognized format",
+				ErrUnrecognizedPublicKeyEncoding,
+			)
+		}
+
+		return authorizedKeysToPEM(body)
+	default:
+		return "", fmt.Errorf("%w: Encoding must be SSH or PEM", ErrUnrecognizedPublicKeyEncoding)
+	}
+}
+
+// authorizedKeysToPEM converts an authorized_keys-format SSH public key to
+// PEM-encoded SubjectPublicKeyInfo.
+func authorizedKeysToPEM(body string) (string, error) {
+	pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(body))
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrUnrecognizedPublicKeyEncoding, err)
+	}
+
+	cryptoPub, ok := pub.(ssh.CryptoPublicKey)
+	if !ok {
+		return "", fmt.Errorf(
+			"%w: key type %s cannot be converted to PEM",
+			ErrUnrecognizedPublicKeyEncoding,
+			pub.Type(),
+		)
+	}
+
+	der, err := x509.MarshalPKIXPublicKey(cryptoPub.CryptoPublicKey())
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrUnrecognizedPublicKeyEncoding, err)
+	}
+
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), nil
+}
+
+// pemToAuthorizedKeys converts a PEM-encoded SubjectPublicKeyInfo to
+// authorized_keys format.
+func pemToAuthorizedKeys(body string) (string, error) {
+	block, _ := pem.Decode([]byte(body))
+	if block == nil {
+		return "", fmt.Errorf("%w: stored SSH public key is not valid PEM", ErrUnrecognizedPublicKeyEncoding)
+	}
+
+	pubAny, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrUnrecognizedPublicKeyEncoding, err)
+	}
+
+	sshPub, err := ssh.NewPublicKey(pubAny)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrUnrecognizedPublicKeyEncoding, err)
+	}
+
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))), nil
 }

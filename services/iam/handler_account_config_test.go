@@ -297,7 +297,14 @@ func TestDelegationRequest_Backend(t *testing.T) {
 
 			b := iam.NewInMemoryBackend()
 
-			req, err := b.CreateDelegationRequest(tt.target)
+			req, err := b.CreateDelegationRequest(iam.CreateDelegationRequestInput{
+				OwnerAccountID:      tt.target,
+				Description:         "test delegation",
+				NotificationChannel: "arn:aws:sns:us-east-1:000000000000:topic",
+				RequestorWorkflowID: "workflow-1",
+				SessionDuration:     3600,
+				PolicyTemplateArn:   "arn:aws:iam::aws:policy/ReadOnlyAccess",
+			})
 			require.NoError(t, err)
 			require.NotNil(t, req)
 			assert.Equal(t, "PENDING", req.Status)

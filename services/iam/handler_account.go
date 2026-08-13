@@ -159,6 +159,10 @@ func toUserDetailXML(u UserDetail) UserDetailXML {
 // formValueTrue is the string "true" as submitted via HTML form values.
 const formValueTrue = "true"
 
+// summaryStateNotSupported is GetHumanReadableSummary's SummaryState value
+// for entities gopherstack does not generate LLM summaries for (see PARITY.md).
+const summaryStateNotSupported = "NOT_SUPPORTED"
+
 // iamNewOpsAccountActions returns dispatch entries for account-level new operations.
 func (h *Handler) iamNewOpsAccountActions() map[string]iamActionFn {
 	return map[string]iamActionFn{
@@ -190,7 +194,53 @@ func (h *Handler) iamNewOpsAccountActions() map[string]iamActionFn {
 func (h *Handler) iamNewOpsDelegationAndOIDCActions() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"CreateDelegationRequest": func(vals url.Values, reqID string) (any, error) {
-			req, err := h.Backend.CreateDelegationRequest(vals.Get("OwnerAccountId"))
+			description := vals.Get("Description")
+			notificationChannel := vals.Get("NotificationChannel")
+			requestorWorkflowID := vals.Get("RequestorWorkflowId")
+
+			if description == "" {
+				return nil, fmt.Errorf("%w: Description must not be empty", ErrInvalidInput)
+			}
+
+			if notificationChannel == "" {
+				return nil, fmt.Errorf("%w: NotificationChannel must not be empty", ErrInvalidInput)
+			}
+
+			if requestorWorkflowID == "" {
+				return nil, fmt.Errorf("%w: RequestorWorkflowId must not be empty", ErrInvalidInput)
+			}
+
+			sessionDurationRaw := vals.Get("SessionDuration")
+
+			sessionDuration, convErr := strconv.ParseInt(sessionDurationRaw, 10, 32)
+			if sessionDurationRaw == "" || convErr != nil {
+				return nil, fmt.Errorf("%w: SessionDuration must be a valid integer", ErrInvalidInput)
+			}
+
+			policyTemplateArn := vals.Get("Permissions.PolicyTemplateArn")
+			permissionParameters := parseDelegationPermissionParameters(vals)
+
+			// Permissions is a required *struct* member at the SDK level (must
+			// be non-nil), but every field within it is optional -- an
+			// omitted-vs-empty-object distinction the query wire form cannot
+			// express (there is no way to send "Permissions: {}"). The best a
+			// server can do is require at least one Permissions.* key.
+			if policyTemplateArn == "" && len(permissionParameters) == 0 {
+				return nil, fmt.Errorf("%w: Permissions must not be empty", ErrInvalidInput)
+			}
+
+			req, err := h.Backend.CreateDelegationRequest(CreateDelegationRequestInput{
+				Description:          description,
+				NotificationChannel:  notificationChannel,
+				RequestorWorkflowID:  requestorWorkflowID,
+				SessionDuration:      int32(sessionDuration),
+				OnlySendByOwner:      vals.Get("OnlySendByOwner") == formValueTrue,
+				OwnerAccountID:       vals.Get("OwnerAccountId"),
+				RedirectURL:          vals.Get("RedirectUrl"),
+				RequestMessage:       vals.Get("RequestMessage"),
+				PolicyTemplateArn:    policyTemplateArn,
+				PermissionParameters: permissionParameters,
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -198,12 +248,8 @@ func (h *Handler) iamNewOpsDelegationAndOIDCActions() map[string]iamActionFn {
 			return &CreateDelegationRequestResponse{
 				Xmlns: iamXMLNS,
 				CreateDelegationRequestResult: CreateDelegationRequestResult{
-					DelegationRequest: DelegationRequestXML{
-						DelegationID:    req.DelegationID,
-						TargetAccountID: req.TargetAccountID,
-						Status:          req.Status,
-						CreateDate:      isoTime(req.CreateDate),
-					},
+					ConsoleDeepLink:     delegationRequestConsoleDeepLink(req.DelegationID),
+					DelegationRequestID: req.DelegationID,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -247,6 +293,25 @@ func (h *Handler) iamNewOpsDelegationAndOIDCActions() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
+	}
+}
+
+// parseDelegationPermissionParameters parses
+// Permissions.Parameters.member.N.{Name,Type,Values.member.M} form values.
+func parseDelegationPermissionParameters(vals url.Values) []DelegationPolicyParameter {
+	var params []DelegationPolicyParameter
+
+	for i := 1; ; i++ {
+		name := vals.Get(fmt.Sprintf("Permissions.Parameters.member.%d.Name", i))
+		if name == "" {
+			return params
+		}
+
+		params = append(params, DelegationPolicyParameter{
+			Name:   name,
+			Type:   vals.Get(fmt.Sprintf("Permissions.Parameters.member.%d.Type", i)),
+			Values: parseIndexedValues(vals, fmt.Sprintf("Permissions.Parameters.member.%d.Values.member.", i)),
+		})
 	}
 }
 
@@ -445,10 +510,29 @@ func (h *Handler) iamDelegationDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"GetHumanReadableSummary": func(_ url.Values, reqID string) (any, error) {
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "GetHumanReadableSummaryResponse"},
-				Xmlns:            iamXMLNS,
+		"GetHumanReadableSummary": func(vals url.Values, reqID string) (any, error) {
+			entityArn := vals.Get("EntityArn")
+			if entityArn == "" {
+				return nil, fmt.Errorf("%w: EntityArn must not be empty", ErrInvalidInput)
+			}
+
+			delegationID, ok := delegationRequestIDFromArn(entityArn)
+			if !ok || !h.Backend.DelegationRequestExists(delegationID) {
+				return nil, fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, entityArn)
+			}
+
+			// Real GetHumanReadableSummary uses an LLM to generate a
+			// natural-language permissions summary for the entity.
+			// gopherstack does not fabricate that content -- an invented
+			// capability is worse than an absent one (see PARITY.md) -- so a
+			// known entity honestly gets NOT_SUPPORTED rather than invented
+			// prose or a fake AVAILABLE/IN_PROGRESS/FAILED state.
+			return &GetHumanReadableSummaryResponse{
+				Xmlns: iamXMLNS,
+				GetHumanReadableSummaryResult: GetHumanReadableSummaryResult{
+					Locale:       vals.Get("Locale"),
+					SummaryState: summaryStateNotSupported,
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},

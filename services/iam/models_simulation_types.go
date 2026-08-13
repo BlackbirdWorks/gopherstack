@@ -42,18 +42,19 @@ type RoleDetail struct {
 
 // AccountSummary holds summary counts for GetAccountSummary.
 type AccountSummary struct {
-	Users             int `json:"users,omitempty"`
-	Groups            int `json:"groups,omitempty"`
-	Roles             int `json:"roles,omitempty"`
-	Policies          int `json:"policies,omitempty"`
-	InstanceProfiles  int `json:"instanceProfiles,omitempty"`
-	AccessKeysPerUser int `json:"accessKeysPerUser,omitempty"`
-	ActiveAccessKeys  int `json:"activeAccessKeys,omitempty"`
-	AttachedPolicies  int `json:"attachedPolicies,omitempty"`
-	AccountAliases    int `json:"accountAliases,omitempty"`
-	OIDCProviders     int `json:"oidcProviders,omitempty"`
-	SAMLProviders     int `json:"samlProviders,omitempty"`
-	MFADevices        int `json:"mfaDevices,omitempty"`
+	Users                      int `json:"users,omitempty"`
+	Groups                     int `json:"groups,omitempty"`
+	Roles                      int `json:"roles,omitempty"`
+	Policies                   int `json:"policies,omitempty"`
+	InstanceProfiles           int `json:"instanceProfiles,omitempty"`
+	AccessKeysPerUser          int `json:"accessKeysPerUser,omitempty"`
+	ActiveAccessKeys           int `json:"activeAccessKeys,omitempty"`
+	AttachedPolicies           int `json:"attachedPolicies,omitempty"`
+	AccountAliases             int `json:"accountAliases,omitempty"`
+	OIDCProviders              int `json:"oidcProviders,omitempty"`
+	SAMLProviders              int `json:"samlProviders,omitempty"`
+	MFADevices                 int `json:"mfaDevices,omitempty"`
+	GlobalEndpointTokenVersion int `json:"globalEndpointTokenVersion,omitempty"`
 }
 
 // AccountAuthorizationDetails is the full IAM entity dump returned by GetAccountAuthorizationDetails.
