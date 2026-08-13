@@ -305,7 +305,7 @@ type getOrganizationsAccessReportResponse struct {
 // element serializes identically either way. Revisit the element type if
 // this op ever grows real emulation.
 type listPGSAResult struct {
-	PoliciesGrantingServiceAccess []string `xml:"PolicyGroups>member"`
+	PoliciesGrantingServiceAccess []string `xml:"PoliciesGrantingServiceAccess>member"`
 	IsTruncated                   bool     `xml:"IsTruncated"`
 }
 
