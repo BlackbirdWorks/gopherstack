@@ -35,7 +35,7 @@ func TestPackageVersionCRUD(t *testing.T) {
 
 	// List versions
 	out3 := iotOK(t, h, http.MethodGet, "/packages/my-pkg/versions", nil)
-	versions, _ := out3["packageVersionList"].([]any)
+	versions, _ := out3["packageVersionSummaries"].([]any)
 	if len(versions) != 1 {
 		t.Errorf("expected 1 version, got %d", len(versions))
 	}
@@ -65,6 +65,72 @@ func TestPackageConfiguration(t *testing.T) {
 	cfg, _ := out2["versionUpdateByJobsConfig"].(map[string]any)
 	if cfg == nil {
 		t.Errorf("expected versionUpdateByJobsConfig, got %v", out2)
+	}
+}
+
+// TestListPackages_SummaryScoping proves handleListPackages stops leaking
+// tags/packageArn/description (none of which types.PackageSummary,
+// iot@v1.77.4 types.go:3386-3401, declares) and wraps the list under
+// "packageSummaries" rather than the fabricated "packageList" (real
+// ListPackagesOutput field per deserializers.go:
+// awsRestjson1_deserializeOpDocumentListPackagesOutput). An SDK-driven
+// client cannot prove either half: it silently drops unrecognized member
+// keys, and prior to the wrapper-key fix it would decode a *correctly
+// empty* list either way (both "packageList" and the over-wide shape are
+// invisible to it) -- only a raw-body assertion distinguishes fixed from
+// unfixed.
+func TestListPackages_SummaryScoping(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerForBatch3Test(t)
+
+	iotOK(t, h, http.MethodPut, "/packages/my-pkg", map[string]any{
+		"description": "must not leak",
+		"tags":        map[string]string{"env": "prod"},
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/packages", nil)
+	pkgs, ok := out["packageSummaries"].([]any)
+	require.True(t, ok, "expected wrapper key packageSummaries, got %v", out)
+	require.Len(t, pkgs, 1)
+
+	pkg, ok := pkgs[0].(map[string]any)
+	require.True(t, ok)
+
+	for _, forbidden := range []string{"tags", "packageArn", "description"} {
+		assert.NotContainsf(t, pkg, forbidden, "%s is not a member of types.PackageSummary", forbidden)
+	}
+	for _, want := range []string{"creationDate", "defaultVersionName", "lastModifiedDate", "packageName"} {
+		assert.Containsf(t, pkg, want, "%s is a member of types.PackageSummary", want)
+	}
+}
+
+// TestListPackageVersions_SummaryScoping is TestListPackages_SummaryScoping's
+// counterpart for ListPackageVersions / types.PackageVersionSummary
+// (types.go:3413-3433) and its real "packageVersionSummaries" wrapper.
+func TestListPackageVersions_SummaryScoping(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerForBatch3Test(t)
+
+	iotOK(t, h, http.MethodPut, "/packages/my-pkg/versions/1.0.0", map[string]any{
+		"description": "must not leak",
+		"tags":        map[string]string{"env": "prod"},
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/packages/my-pkg/versions", nil)
+	versions, ok := out["packageVersionSummaries"].([]any)
+	require.True(t, ok, "expected wrapper key packageVersionSummaries, got %v", out)
+	require.Len(t, versions, 1)
+
+	v, ok := versions[0].(map[string]any)
+	require.True(t, ok)
+
+	for _, forbidden := range []string{"tags", "packageVersionArn", "description"} {
+		assert.NotContainsf(t, v, forbidden, "%s is not a member of types.PackageVersionSummary", forbidden)
+	}
+	for _, want := range []string{"creationDate", "lastModifiedDate", "packageName", "status", "versionName"} {
+		assert.Containsf(t, v, want, "%s is a member of types.PackageVersionSummary", want)
 	}
 }
 

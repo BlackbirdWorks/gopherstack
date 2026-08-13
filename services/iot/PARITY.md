@@ -659,3 +659,83 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
   — it means the *content* that pass #4's tooling could see was verified, not
   that every request shape has been read as a named type against the pinned
   SDK.
+
+## over-wide/wrong-name list responses (gopherstack-g3jk, gopherstack-k26u)
+
+Three `List*` ops (`ListCommands`, `ListPackages`, `ListPackageVersions`,
+`handler_commands.go`/`handler_packages.go`) shared one root cause: the
+handler `c.JSON`'d the raw `[]*IoTCommand`/`[]*IoTPackage`/`[]*IoTPackageVersion`
+straight from the backend, marshaled by that domain struct's own JSON tags
+with no per-op summary DTO -- so every internal field (`tags`, `payload`,
+`description`, `namespace`, `packageArn`, `packageVersionArn`) leaked onto
+the wire regardless of what the real `CommandSummary`/`PackageSummary`/
+`PackageVersionSummary` types (`types.go:1504-1527`/`3386-3401`/`3413-3433`,
+`iot@v1.77.4`) declare. Fixed by copying the pattern this service's own
+`ListCertificates`/`ListThingTypes`/`ListThingGroups` already used correctly:
+a small per-op `*SummaryFields` function building a scoped `map[string]any`.
+An SDK-driven client cannot prove an over-wide response is fixed -- its
+deserializer silently drops unrecognized members, so both the buggy and
+fixed shapes decode identically -- so these three are proven with a raw-body
+assertion instead (`TestListCommands_SummaryScoping`,
+`TestListPackages_SummaryScoping`, `TestListPackageVersions_SummaryScoping`).
+
+Reading each op's real Output struct while fixing the above surfaced two
+further, previously-undetected bugs beyond what the over-wide sweep was
+looking for:
+
+- `ListCommands`' raw struct tag was `"creationDate"`; the real
+  `CommandSummary.CreatedAt` wire key is `"createdAt"`
+  (`deserializers.go`, `awsRestjson1_deserializeDocumentCommandSummary`) --
+  a silent wrong-name bug riding along with the over-wide one, now fixed as
+  part of the same DTO.
+- `ListPackages`/`ListPackageVersions` wrapped their list under the
+  fabricated `"packageList"`/`"packageVersionList"` keys; the real
+  `ListPackagesOutput`/`ListPackageVersionsOutput` wrap under
+  `"packageSummaries"`/`"packageVersionSummaries"`
+  (`awsRestjson1_deserializeOpDocumentListPackagesOutput`/
+  `...ListPackageVersionsOutput`). A real client's list was **always
+  empty**, regardless of backend state -- worse than the over-wide leak
+  itself. Fixed alongside the summary scoping.
+
+`ListCommandExecutions` (`handler_commands.go`, `IoTCommandExecution`,
+`commands.go`) had the wrong-name bug gopherstack-k26u flagged --
+`"thingArn"` where the real `CommandExecutionSummary.TargetArn`
+(`types.go:1327-1352`) wire key is `"targetArn"` -- plus never emitted
+`CompletedAt`/`StartedAt`. Those two are deliberately left absent rather
+than fabricated: this backend has no `StartCommandExecution`/
+`UpdateCommandExecution` control-plane op, so there is no honest source for
+a start or completion time distinct from `CreatedAt` (see the doc comment on
+`commandExecutionSummaryFields`). Reading the operation's full real shape
+(not just the flagged field) surfaced a third, more severe bug: the real
+`ListCommandExecutions` is `POST /command-executions` with filters
+(`commandArn`/`targetArn`/`status`) in the JSON body
+(`serializers.go:13785`, `awsRestjson1_serializeOpListCommandExecutions`) --
+this service's `RouteMatcher` (`matchIoTPath`) never matched the bare
+`/command-executions` path at all (only `/command-executions/{id}`), so a
+real client's `ListCommandExecutions` call 404'd outright, never reaching
+resolveOperation. Fixed: `matchFinalOpsPath` now also matches the bare path,
+`resolveCommandOps` resolves `POST /command-executions` to
+`opListCommandExecutions`, and the handler parses filters from the body via
+a new `Backend.ListCommandExecutionsByFilter`. The pre-existing fictional
+`/commands/{commandId}/executions` route (untested, unreachable by any real
+client, but not proven unused) is left wired for backward compatibility.
+`route_matcher_whitebox_test.go`'s `TestRouteMatcher_ExhaustiveCoverage`
+previously carried `/command-executions` in `knownUnmatchedIoTPathsRaw` as a
+deliberately-out-of-scope gap from the earlier tags sweep (gopherstack-2mwl)
+-- removed now that it matches. Because this bug is a wrong key **plus** an
+unreachable route, only driving the real `aws-sdk-go-v2` client proves the
+fix (a raw-body assertion would pass against the old fictional route without
+ever exercising the real one); see `TestSDKRoundTrip_ListCommandExecutions`.
+
+**Not fixed, flagged for follow-up**: `GetCommandExecution`'s real route
+(`GET /command-executions/{executionId}`, no `commandId`) already matches
+`matchIoTPath` (via the same prefix rule this pass extended), but
+`resolveFinalOpsGroupB` only resolves that path prefix for `DELETE`
+(`DeleteCommandExecution`) -- `GET` falls through to `unknownOperation`, so
+a real client's `GetCommandExecution` also currently fails, the same failure
+mode as the `ListCommandExecutions` bug this pass fixed. Out of scope here
+(a different op, not one of the two bugs this pass was scoped to); the fix
+shape is the same (add a `GET` case for that path prefix, decide whether the
+existing `GetCommandExecutionInput.TargetArn`-required semantics need
+backend changes since executions are presently addressed by
+`commandID+executionID`, not `executionID+targetARN`).

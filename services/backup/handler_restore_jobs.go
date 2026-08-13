@@ -20,7 +20,11 @@ func restoreJobToJSON(j *RestoreJob) map[string]any {
 		keyAccountID:       j.AccountID,
 		"CreationDate":     epochSeconds(j.StartTime),
 	}
-	setOptionalStr(resp, "ResourceArn", j.ResourceArn)
+	// Wire member is SourceResourceArn, not ResourceArn -- neither
+	// types.RestoreJobsListMember nor DescribeRestoreJobOutput (backup@v1.59.4
+	// types/types.go:2109-2196, api_op_DescribeRestoreJob.go:39-124) declares
+	// "ResourceArn".
+	setOptionalStr(resp, "SourceResourceArn", j.ResourceArn)
 	setOptionalStr(resp, "ResourceType", j.ResourceType)
 	setOptionalStr(resp, "BackupVaultArn", j.BackupVaultArn)
 	setOptionalStr(resp, "CreatedResourceArn", j.CreatedResourceArn)

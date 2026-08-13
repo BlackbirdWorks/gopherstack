@@ -174,6 +174,34 @@ func (b *InMemoryBackend) ListCommandExecutions(commandID string) []*IoTCommandE
 	return out
 }
 
+// ListCommandExecutionsByFilter returns command executions matching the
+// real ListCommandExecutions filters (commandARN and/or targetARN and/or
+// status; each optional, empty means unfiltered). Backs the real
+// POST /command-executions route. ListCommandExecutions above backs the
+// separate legacy path-scoped route instead.
+func (b *InMemoryBackend) ListCommandExecutionsByFilter(commandARN, targetARN, status string) []*IoTCommandExecution {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var out []*IoTCommandExecution
+	for _, ex := range b.commandExecutions {
+		if commandARN != "" && ex.CommandARN != commandARN {
+			continue
+		}
+		if targetARN != "" && ex.ThingARN != targetARN {
+			continue
+		}
+		if status != "" && ex.Status != status {
+			continue
+		}
+		cp := *ex
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ExecutionID < out[j].ExecutionID })
+
+	return out
+}
+
 // DeleteCommandExecution removes a stored command execution identified by
 // its executionId and (optionally) the ARN of its target device, matching
 // AWS's real request shape where executions are addressed by

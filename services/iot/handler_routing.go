@@ -855,6 +855,7 @@ func matchFinalOpsPath(path string) bool {
 		path == pathTestAuthorization ||
 		strings.HasPrefix(path, pathPrincipalPolicies+"/") ||
 		strings.HasPrefix(path, pathConfirmDestination+"/") ||
+		path == pathCommandExecutions ||
 		strings.HasPrefix(path, pathCommandExecutions+"/") ||
 		path == pathBehaviorModelTrainingSummaries ||
 		path == pathCertificatesOutgoing ||

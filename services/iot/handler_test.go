@@ -329,7 +329,7 @@ func TestPackageCRUD(t *testing.T) {
 
 	// List
 	out3 := iotOK(t, h, http.MethodGet, "/packages", nil)
-	pkgs, _ := out3["packageList"].([]any)
+	pkgs, _ := out3["packageSummaries"].([]any)
 	if len(pkgs) != 1 {
 		t.Errorf("expected 1 package, got %d", len(pkgs))
 	}

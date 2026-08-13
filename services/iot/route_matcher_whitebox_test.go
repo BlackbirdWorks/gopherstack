@@ -228,7 +228,6 @@ const knownUnmatchedIoTPathsRaw = `
 /principals/things-v2|ListPrincipalThingsV2: no Tags field
 /destinations|CreateTopicRuleDestination: no Tags field (see doc comment re pathRuleDestinations)
 /destinations/{arn+}|GetTopicRuleDestination/DeleteTopicRuleDestination: no Tags field
-/command-executions|ListCommandExecutions: no Tags field
 /event-configurations|DescribeEventConfigurations/UpdateEventConfigurations: no Tags field
 /package-configuration|GetPackageConfiguration/UpdatePackageConfiguration: no Tags field
 /registrationcode|GetRegistrationCode/DeleteRegistrationCode: no Tags field

@@ -184,6 +184,42 @@ func TestQuickSight_ListIAMPolicyAssignments_Pagination(t *testing.T) {
 	}
 }
 
+// TestQuickSight_ListIAMPolicyAssignments_SummaryScoping proves the list
+// response no longer leaks AssignmentId/PolicyArn/Identities, none of which
+// types.IAMPolicyAssignmentSummary (quicksight@v1.123.1 types.go:12309-12318)
+// declares -- it declares only AssignmentName and AssignmentStatus. An
+// SDK-driven client cannot prove this: its deserializer silently drops
+// unrecognized members, so the over-wide response decodes "successfully"
+// either way. Only a raw-body assertion distinguishes fixed from unfixed.
+func TestQuickSight_ListIAMPolicyAssignments_SummaryScoping(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, nsPath("/iam-policy-assignments"), map[string]any{
+		"AssignmentName":   "assign-scoped",
+		"AssignmentStatus": "ENABLED",
+		"PolicyArn":        "arn:aws:iam::000000000000:policy/must-not-leak",
+		"Identities": map[string]any{
+			"alice": []any{"alice"},
+		},
+	})
+
+	rec := doRequest(t, h, http.MethodGet, nsPath("/iam-policy-assignments"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	items, ok := parseBody(t, rec)["IAMPolicyAssignments"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+
+	m, ok := items[0].(map[string]any)
+	require.True(t, ok)
+
+	for _, forbidden := range []string{"AssignmentId", "PolicyArn", "Identities"} {
+		assert.NotContainsf(t, m, forbidden, "%s is not a member of types.IAMPolicyAssignmentSummary", forbidden)
+	}
+	assert.Equal(t, "assign-scoped", m["AssignmentName"])
+	assert.Equal(t, "ENABLED", m["AssignmentStatus"])
+}
+
 // ---- ListIAMPolicyAssignmentsForUser: only ENABLED assignments referencing the user ----
 
 func TestQuickSight_ListIAMPolicyAssignmentsForUser(t *testing.T) {

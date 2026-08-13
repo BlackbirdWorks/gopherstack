@@ -99,6 +99,56 @@ func TestQuickSight_ListAssetBundleExportJobs_Pagination(t *testing.T) {
 	assert.Len(t, parseBody(t, page2)["AssetBundleExportJobSummaryList"].([]any), 2)
 }
 
+// TestQuickSight_ListAssetBundleExportJobs_SummaryScoping proves the list
+// response no longer leaks ResourceArns/IncludeFolderMemberships/
+// DownloadUrl/IncludeFolderMembers, none of which
+// types.AssetBundleExportJobSummary (quicksight@v1.123.1 types.go:1278-1308)
+// declares. An SDK-driven client cannot prove this: its deserializer
+// silently drops unrecognized members, so the over-wide response decodes
+// "successfully" either way. Only a raw-body assertion distinguishes fixed
+// from unfixed.
+func TestQuickSight_ListAssetBundleExportJobs_SummaryScoping(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, accountPath("/asset-bundle-export-jobs"), map[string]any{
+		"AssetBundleExportJobId":   "job-scoped",
+		"ResourceArns":             []string{"arn:aws:quicksight:us-east-1:000000000000:dashboard/dash1"},
+		"IncludeFolderMembers":     "RECURSE",
+		"IncludeFolderMemberships": true,
+		"IncludePermissions":       true,
+		"IncludeTags":              true,
+	})
+
+	// Settle the job to SUCCESSFUL with DownloadUrl populated (mirrors
+	// TestQuickSight_AssetBundleExportJob_Lifecycle's settlement step), so a
+	// leak of DownloadUrl specifically would be forced to show up.
+	describeRec := doRequest(t, h, http.MethodGet, accountPath("/asset-bundle-export-jobs/job-scoped"), nil)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	require.NotEmpty(t, parseBody(t, describeRec)["DownloadUrl"])
+
+	rec := doRequest(t, h, http.MethodGet, accountPath("/asset-bundle-export-jobs"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	items, ok := parseBody(t, rec)["AssetBundleExportJobSummaryList"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+
+	m, ok := items[0].(map[string]any)
+	require.True(t, ok)
+
+	for _, forbidden := range []string{
+		"ResourceArns", "IncludeFolderMemberships", "DownloadUrl", "IncludeFolderMembers",
+	} {
+		assert.NotContainsf(t, m, forbidden, "%s is not a member of types.AssetBundleExportJobSummary", forbidden)
+	}
+	for _, want := range []string{
+		"AssetBundleExportJobId", "Arn", "CreatedTime", "ExportFormat",
+		"IncludeAllDependencies", "IncludePermissions", "IncludeTags", "JobStatus",
+	} {
+		assert.Containsf(t, m, want, "%s is a member of types.AssetBundleExportJobSummary", want)
+	}
+}
+
 // ---- Asset bundle import job lifecycle and errors ----
 
 func TestQuickSight_AssetBundleImportJob_Lifecycle(t *testing.T) {

@@ -83,6 +83,27 @@ func (h *Handler) dispatchDashboardSnapshot(c *echo.Context, op string) error {
 
 // ---- Asset bundle export jobs ----
 
+// exportJobSummaryToMap renders the fields job declares that
+// types.AssetBundleExportJobSummary (types.go:1278-1308,
+// quicksight@v1.123.1) also declares: Arn, AssetBundleExportJobId,
+// CreatedTime, ExportFormat, IncludeAllDependencies, IncludePermissions,
+// IncludeTags, JobStatus. Mirrors importJobToMap's scoping for the sibling
+// ListAssetBundleImportJobs op; unlike exportJobToMap (the Describe shape),
+// it must not leak ResourceArns/IncludeFolderMemberships/DownloadUrl/
+// IncludeFolderMembers, none of which the summary type declares.
+func exportJobSummaryToMap(job *AssetBundleExportJob) map[string]any {
+	return map[string]any{
+		keyAssetBundleExportJobID: job.JobID,
+		keyArn:                    job.Arn,
+		keyJobStatus:              job.Status,
+		keyExportFormat:           job.ExportFormat,
+		keyIncludeAllDeps:         job.IncludeAllDependencies,
+		keyIncludePermissions:     job.IncludePermissions,
+		keyIncludeTags:            job.IncludeTags,
+		keyCreatedTime:            job.CreatedTime.Unix(),
+	}
+}
+
 func exportJobToMap(job *AssetBundleExportJob) map[string]any {
 	m := map[string]any{
 		keyAssetBundleExportJobID:   job.JobID,
@@ -168,7 +189,7 @@ func (h *Handler) handleListAssetBundleExportJobs(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(jobs))
 	for _, job := range jobs {
-		items = append(items, exportJobToMap(job))
+		items = append(items, exportJobSummaryToMap(job))
 	}
 
 	resp := map[string]any{

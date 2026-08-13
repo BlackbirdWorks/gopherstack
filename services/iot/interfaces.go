@@ -341,6 +341,7 @@ type StorageBackend interface {
 	ListCommands() []*IoTCommand
 	GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error)
 	ListCommandExecutions(commandID string) []*IoTCommandExecution
+	ListCommandExecutionsByFilter(commandARN, targetARN, status string) []*IoTCommandExecution
 
 	// Fleet indexing: configuration.
 	GetIndexingConfiguration() *GetIndexingConfigurationOutput

@@ -27,6 +27,7 @@ const (
 	keyLastModifiedDate        = "lastModifiedDate"
 	keyPolicyVersionID         = "policyVersionId"
 	keyInvalidPath             = "invalid path"
+	keyCommandArn              = "commandArn"
 
 	// URL path prefix constants.
 	pathPolicies         = "/policies"

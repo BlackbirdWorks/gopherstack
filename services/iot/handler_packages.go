@@ -191,10 +191,29 @@ func (h *Handler) handleDeletePackage(c *echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
+// packageSummaryFields renders the fields of p that types.PackageSummary
+// (types.go:3386-3401, iot@v1.77.4) declares: CreationDate,
+// DefaultVersionName, LastModifiedDate, PackageName.
+func packageSummaryFields(p *IoTPackage) map[string]any {
+	return map[string]any{
+		"creationDate":       p.CreationDate,
+		"defaultVersionName": p.DefaultVersionName,
+		"lastModifiedDate":   p.LastModifiedDate,
+		"packageName":        p.PackageName,
+	}
+}
+
 func (h *Handler) handleListPackages(c *echo.Context) error {
 	items := h.Backend.ListIoTPackages()
+	out := make([]map[string]any, 0, len(items))
+	for _, p := range items {
+		out = append(out, packageSummaryFields(p))
+	}
 
-	return c.JSON(http.StatusOK, map[string]any{"packageList": items})
+	// Real ListPackagesOutput wraps the list under "packageSummaries"
+	// (deserializers.go: awsRestjson1_deserializeOpDocumentListPackagesOutput),
+	// not "packageList".
+	return c.JSON(http.StatusOK, map[string]any{"packageSummaries": out})
 }
 
 func packageAndVersion(path string) (string, string) {
@@ -260,13 +279,34 @@ func (h *Handler) handleDeletePackageVersion(c *echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
+// packageVersionSummaryFields renders the fields of v that
+// types.PackageVersionSummary (types.go:3413-3433, iot@v1.77.4) declares:
+// CreationDate, LastModifiedDate, PackageName, Status, VersionName.
+func packageVersionSummaryFields(v *IoTPackageVersion) map[string]any {
+	return map[string]any{
+		"creationDate":     v.CreationDate,
+		"lastModifiedDate": v.LastModifiedDate,
+		"packageName":      v.PackageName,
+		keyStatus:          v.Status,
+		"versionName":      v.VersionName,
+	}
+}
+
 func (h *Handler) handleListPackageVersions(c *echo.Context) error {
 	// /packages/{name}/versions
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/packages/")
 	pkgName := strings.TrimSuffix(trimmed, "/versions")
 	items := h.Backend.ListIoTPackageVersions(pkgName)
+	out := make([]map[string]any, 0, len(items))
+	for _, v := range items {
+		out = append(out, packageVersionSummaryFields(v))
+	}
 
-	return c.JSON(http.StatusOK, map[string]any{"packageVersionList": items})
+	// Real ListPackageVersionsOutput wraps the list under
+	// "packageVersionSummaries"
+	// (deserializers.go: awsRestjson1_deserializeOpDocumentListPackageVersionsOutput),
+	// not "packageVersionList".
+	return c.JSON(http.StatusOK, map[string]any{"packageVersionSummaries": out})
 }
 
 func (h *Handler) handleGetPackageConfiguration(c *echo.Context) error {
