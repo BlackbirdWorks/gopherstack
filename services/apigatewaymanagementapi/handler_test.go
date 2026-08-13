@@ -325,10 +325,47 @@ func TestHandler_GetConnection(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				var conn apigatewaymanagementapi.Connection
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &conn))
-				assert.Equal(t, tt.connectionID, conn.ConnectionID)
+				var body map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				assert.Contains(t, body, "connectedAt")
+				assert.Contains(t, body, "identity")
+				assert.Contains(t, body, "lastActiveAt")
 			}
+		})
+	}
+}
+
+// TestHandler_GetConnection_NoConnectionIDField verifies GetConnection's
+// response does not carry a connectionId key: real GetConnectionOutput has
+// no such member (the caller already supplied it as the path parameter).
+// A raw-body assertion because an SDK client silently discards unrecognized
+// response keys, so a client-typed test would pass even with the extra field.
+func TestHandler_GetConnection_NoConnectionIDField(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		connectionID string
+	}{
+		{name: "simple id", connectionID: "conn-no-id-field"},
+		{name: "base64-ish id", connectionID: "L0Xc123="},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_, err := h.Backend.CreateConnection(tt.connectionID, "10.0.0.1", "test-agent/1.0", nil)
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodGet, "/@connections/"+tt.connectionID, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var body map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.NotContains(t, body, "connectionId",
+				"GetConnectionOutput has no ConnectionId member on the real API")
 		})
 	}
 }

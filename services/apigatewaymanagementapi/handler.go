@@ -27,12 +27,13 @@ type identityShape struct {
 
 // getConnectionResponse is the AWS-shaped response for GetConnection.
 // Real AWS nests sourceIp and userAgent under "identity", not as flat fields.
-// connectionId is a gopherstack extension (AWS omits it since you queried by it).
+// GetConnectionOutput has no ConnectionId member (verified against
+// aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4 api_op_GetConnection.go,
+// checked 2026-08-13): the caller already supplied it as the path parameter.
 type getConnectionResponse struct {
 	ConnectedAt  time.Time     `json:"connectedAt"`
-	Identity     identityShape `json:"identity"`
 	LastActiveAt time.Time     `json:"lastActiveAt"`
-	ConnectionID string        `json:"connectionId"`
+	Identity     identityShape `json:"identity"`
 }
 
 const (
@@ -267,7 +268,6 @@ func (h *Handler) handleGetConnection(c *echo.Context, connectionID string) erro
 		ConnectedAt:  conn.ConnectedAt,
 		Identity:     identityShape{SourceIP: conn.SourceIP, UserAgent: conn.UserAgent},
 		LastActiveAt: conn.LastActiveAt,
-		ConnectionID: conn.ConnectionID,
 	}
 
 	return c.JSON(http.StatusOK, resp)

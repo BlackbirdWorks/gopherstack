@@ -159,3 +159,22 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 
 	return nil
 }
+
+// applicationOutput is the real API response shape for an application --
+// types.Application (aws-sdk-go-v2/service/appconfig@v1.48.4 types/types.go,
+// checked 2026-08-13) has Description/Id/Name only, no CreatedAt/UpdatedAt.
+// Application itself keeps those two fields (with JSON tags) for
+// Snapshot/Restore; this converter is what strips them for the wire.
+type applicationOutput struct {
+	ID          string `json:"Id"`
+	Name        string `json:"Name"`
+	Description string `json:"Description,omitempty"`
+}
+
+func applicationToOutput(a Application) applicationOutput {
+	return applicationOutput{
+		ID:          a.ID,
+		Name:        a.Name,
+		Description: a.Description,
+	}
+}

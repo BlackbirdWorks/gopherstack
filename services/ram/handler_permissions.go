@@ -15,6 +15,9 @@ import (
 const permissionStatusAttachable = "ATTACHABLE"
 
 // permissionSummaryObject is the JSON representation of a RAM permission summary.
+// Matches types.ResourceSharePermissionSummary (aws-sdk-go-v2/service/ram@v1.39.4
+// types/types.go:492-, checked 2026-08-13): no ResourceRegionScope member -- that
+// field exists only on types.Resource and types.ServiceNameAndResourceType.
 type permissionSummaryObject struct {
 	Arn                   string      `json:"arn"`
 	Name                  string      `json:"name"`
@@ -23,7 +26,6 @@ type permissionSummaryObject struct {
 	FeatureSet            string      `json:"featureSet"`
 	Version               string      `json:"version"`
 	Status                string      `json:"status,omitempty"`
-	ResourceRegionScope   string      `json:"resourceRegionScope,omitempty"`
 	Tags                  []tagObject `json:"tags,omitempty"`
 	CreationTime          float64     `json:"creationTime"`
 	LastUpdatedTime       float64     `json:"lastUpdatedTime"`
@@ -32,6 +34,8 @@ type permissionSummaryObject struct {
 }
 
 // permissionDetailObject is the JSON representation of a RAM permission detail (GetPermission).
+// Matches types.ResourceSharePermissionDetail (same SDK version, types/types.go:403-):
+// no ResourceRegionScope member either.
 type permissionDetailObject struct {
 	Arn                   string      `json:"arn"`
 	Name                  string      `json:"name"`
@@ -41,7 +45,6 @@ type permissionDetailObject struct {
 	Version               string      `json:"version"`
 	Status                string      `json:"status,omitempty"`
 	Permission            string      `json:"permission,omitempty"`
-	ResourceRegionScope   string      `json:"resourceRegionScope,omitempty"`
 	Tags                  []tagObject `json:"tags,omitempty"`
 	CreationTime          float64     `json:"creationTime"`
 	LastUpdatedTime       float64     `json:"lastUpdatedTime"`
@@ -67,7 +70,6 @@ func toPermissionSummaryObject(p *Permission) permissionSummaryObject {
 		Version:               strconv.Itoa(int(p.DefaultVersion)),
 		DefaultVersion:        true,
 		IsResourceTypeDefault: p.IsResourceTypeDefault,
-		ResourceRegionScope:   p.ResourceRegionScope,
 	}
 
 	if len(p.Tags) > 0 {
@@ -106,7 +108,6 @@ func toPermissionDetailObject(p *Permission, pv *PermissionVersion) permissionDe
 		Version:               strconv.Itoa(int(pv.Version)),
 		DefaultVersion:        pv.Version == p.DefaultVersion,
 		IsResourceTypeDefault: p.IsResourceTypeDefault,
-		ResourceRegionScope:   p.ResourceRegionScope,
 		Permission:            pv.PolicyTemplate,
 	}
 

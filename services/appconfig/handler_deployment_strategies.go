@@ -37,7 +37,7 @@ func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, strategy)
+	return c.JSON(http.StatusCreated, deploymentStrategyToOutput(*strategy))
 }
 
 func (h *Handler) handleGetDeploymentStrategy(c *echo.Context, strategyID string) error {
@@ -50,14 +50,19 @@ func (h *Handler) handleGetDeploymentStrategy(c *echo.Context, strategyID string
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.JSON(http.StatusOK, strategy)
+	return c.JSON(http.StatusOK, deploymentStrategyToOutput(*strategy))
 }
 
 func (h *Handler) handleListDeploymentStrategies(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
 	strategies, outToken := h.Backend.ListDeploymentStrategies(nextToken, maxResults)
 
-	resp := map[string]any{keyItems: strategies}
+	items := make([]deploymentStrategyOutput, 0, len(strategies))
+	for _, strategy := range strategies {
+		items = append(items, deploymentStrategyToOutput(strategy))
+	}
+
+	resp := map[string]any{keyItems: items}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -118,7 +123,7 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.JSON(http.StatusOK, strategy)
+	return c.JSON(http.StatusOK, deploymentStrategyToOutput(*strategy))
 }
 
 func (h *Handler) handleDeleteDeploymentStrategy(c *echo.Context, strategyID string) error {

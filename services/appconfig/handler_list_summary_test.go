@@ -91,6 +91,38 @@ func TestHandler_ListOps_SummaryShape(t *testing.T) {
 			leaked: []string{"CreatedAt", "KmsKeyArn"},
 			setup:  setupHostedConfigurationVersionListLeak,
 		},
+		{
+			// types.Application (aws-sdk-go-v2/service/appconfig@v1.48.4
+			// types/types.go) has Description/Id/Name only -- CreatedAt/
+			// UpdatedAt were fabricated onto every Application response
+			// (Create/Get/Update/List alike), fixed 2026-08-13.
+			name:    "applications",
+			present: []string{"Id", "Name"},
+			leaked:  []string{"CreatedAt", "UpdatedAt"},
+			setup:   setupApplicationListLeak,
+		},
+		{
+			// types.Environment (same SDK version) has ApplicationId/
+			// Description/Id/Monitors/Name/State only -- same CreatedAt/
+			// UpdatedAt fabrication, same fix.
+			name:    "environments",
+			present: []string{"ApplicationId", "Id", "Name", "State"},
+			leaked:  []string{"CreatedAt", "UpdatedAt"},
+			setup:   setupEnvironmentListLeak,
+		},
+		{
+			// types.DeploymentStrategy (same SDK version) has
+			// DeploymentDurationInMinutes/Description/FinalBakeTimeInMinutes/
+			// GrowthFactor/GrowthType/Id/Name/ReplicateTo only -- same
+			// CreatedAt/UpdatedAt fabrication, same fix.
+			name: "deploymentstrategies",
+			present: []string{
+				"Id", "Name", "GrowthType", "ReplicateTo",
+				"DeploymentDurationInMinutes", "GrowthFactor", "FinalBakeTimeInMinutes",
+			},
+			leaked: []string{"CreatedAt", "UpdatedAt"},
+			setup:  setupDeploymentStrategyListLeak,
+		},
 	}
 
 	for _, tt := range tests {
@@ -334,6 +366,86 @@ func setupHostedConfigurationVersionListLeak(t *testing.T, h *appconfig.Handler)
 	return listSingleItem(
 		t, h, "/applications/"+app.ID+"/configurationprofiles/"+prof.ID+"/hostedconfigurationversions",
 	)
+}
+
+func setupApplicationListLeak(t *testing.T, h *appconfig.Handler) map[string]any {
+	t.Helper()
+
+	rec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"app-list-leak-app"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	return listSingleItem(t, h, "/applications")
+}
+
+func setupEnvironmentListLeak(t *testing.T, h *appconfig.Handler) map[string]any {
+	t.Helper()
+
+	appRec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"env-list-leak-app"}`))
+	require.Equal(t, http.StatusCreated, appRec.Code)
+
+	var app struct {
+		ID string `json:"Id"`
+	}
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+
+	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
+		[]byte(`{"Name":"env-list-leak-env"}`))
+	require.Equal(t, http.StatusCreated, envRec.Code)
+
+	return listSingleItem(t, h, "/applications/"+app.ID+"/environments")
+}
+
+func setupDeploymentStrategyListLeak(t *testing.T, h *appconfig.Handler) map[string]any {
+	t.Helper()
+
+	body := []byte(
+		`{"Name":"strat-list-leak","DeploymentDurationInMinutes":0,"GrowthFactor":100,"ReplicateTo":"NONE"}`,
+	)
+	rec := doRequest(t, h, http.MethodPost, "/deploymentstrategies", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	return listSingleItem(t, h, "/deploymentstrategies")
+}
+
+// TestHandler_GetOps_NoCreatedAtUpdatedAt is a raw-body assertion that
+// Get/Create/Update responses for Application/Environment/DeploymentStrategy
+// never carry CreatedAt/UpdatedAt keys, matching TestHandler_ListOps_SummaryShape's
+// coverage of the List-side responses above. Decoding into map[string]any
+// rather than a typed struct or an AWS SDK client is required here too --
+// either would silently drop an unrecognized key without noticing the leak.
+func TestHandler_GetOps_NoCreatedAtUpdatedAt(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	appRec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"getop-leak-app"}`))
+	require.Equal(t, http.StatusCreated, appRec.Code)
+
+	var createdApp map[string]any
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &createdApp))
+	assert.NotContains(t, createdApp, "CreatedAt")
+	assert.NotContains(t, createdApp, "UpdatedAt")
+
+	appID, _ := createdApp["Id"].(string)
+	require.NotEmpty(t, appID)
+
+	getAppRec := doRequest(t, h, http.MethodGet, "/applications/"+appID, nil)
+	require.Equal(t, http.StatusOK, getAppRec.Code)
+
+	var gotApp map[string]any
+	require.NoError(t, json.Unmarshal(getAppRec.Body.Bytes(), &gotApp))
+	assert.NotContains(t, gotApp, "CreatedAt")
+	assert.NotContains(t, gotApp, "UpdatedAt")
+
+	stratRec := doRequest(t, h, http.MethodPost, "/deploymentstrategies", []byte(
+		`{"Name":"getop-leak-strat","DeploymentDurationInMinutes":0,"GrowthFactor":100,"ReplicateTo":"NONE"}`,
+	))
+	require.Equal(t, http.StatusCreated, stratRec.Code)
+
+	var createdStrat map[string]any
+	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &createdStrat))
+	assert.NotContains(t, createdStrat, "CreatedAt")
+	assert.NotContains(t, createdStrat, "UpdatedAt")
 }
 
 // TestListConfigurationProfiles_ValidatorTypesViaSDKClient proves the

@@ -76,12 +76,21 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   prefix is exactly `AWSShield_20160616.` (verified via `serializers.go`
   `resolveAuthSchemeOptions`/build-target constant strings across every `api_op_*.go`).
 - Real `aws-sdk-go-v2` JSON deserializers silently ignore unrecognized response keys
-  (`default: _, _ = key, value` in every `awsAwsjson11_deserializeDocument*` case). This
-  means gopherstack emitting *extra* fields the real API doesn't have (e.g. `CreationTime`
-  on `Protection`/`ProtectionGroup`, `MaxProtections` on `ProtectionLimits`) is harmless --
-  do not flag these as bugs on a future pass. Only *missing* or *misnamed* fields the SDK
-  actively reads are real bugs (the `TimeCommitmentInSeconds` bug fixed a prior sweep was the
-  latter kind).
+  (`default: _, _ = key, value` in every `awsAwsjson11_deserializeDocument*` case, confirmed
+  at the end of `awsAwsjson11_deserializeDocumentProtection` in `deserializers.go`). This
+  means gopherstack emitting *extra* fields the real API doesn't have is additive-only, not
+  a wire break -- but that verdict must be re-derivable, not taken on trust. Evidence, checked
+  2026-08-13 against `aws-sdk-go-v2/service/shield@v1.37.4`: `types.Protection` (types.go:343-369)
+  has exactly `ApplicationLayerAutomaticResponseConfiguration`/`HealthCheckIds`/`Id`/`Name`/
+  `ProtectionArn`/`ResourceArn`, no `CreationTime`; `types.ProtectionGroup` (types.go:374-424)
+  has exactly `Aggregation`/`Members`/`Pattern`/`ProtectionGroupId`/`ProtectionGroupArn`/
+  `ResourceType`, no `CreationTime` either; `types.ProtectionLimits` (types.go:469-477) has
+  exactly one member, `ProtectedResourceTypeLimits`, no `MaxProtections`. Re-check this by
+  diffing those three struct definitions against the pinned version above -- if a future SDK
+  bump adds any of these fields for real, gopherstack's existing extra key becomes a
+  same-named coincidence to re-verify, not an automatic pass. Only *missing* or *misnamed*
+  fields the SDK actively reads are real bugs (the `TimeCommitmentInSeconds` bug fixed a
+  prior sweep was the latter kind).
 - Real `types.Subscription.TimeCommitmentInSeconds` is `int64` seconds. gopherstack's
   internal `Subscription.TimeCommitmentInDays` field/JSON tag intentionally kept as *days*
   (readable business value, 365) -- the seconds conversion happens only at serialization

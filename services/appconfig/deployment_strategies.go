@@ -150,3 +150,34 @@ func (b *InMemoryBackend) DeleteDeploymentStrategy(strategyID string) error {
 
 	return nil
 }
+
+// deploymentStrategyOutput is the real API response shape for a deployment
+// strategy -- types.DeploymentStrategy (aws-sdk-go-v2/service/appconfig@v1.48.4
+// types/types.go, checked 2026-08-13) has DeploymentDurationInMinutes/
+// Description/FinalBakeTimeInMinutes/GrowthFactor/GrowthType/Id/Name/
+// ReplicateTo only, no CreatedAt/UpdatedAt. DeploymentStrategy itself keeps
+// those two fields (with JSON tags) for Snapshot/Restore; this converter
+// strips them for the wire.
+type deploymentStrategyOutput struct {
+	ID                          string  `json:"Id"`
+	Name                        string  `json:"Name"`
+	Description                 string  `json:"Description,omitempty"`
+	GrowthType                  string  `json:"GrowthType"`
+	ReplicateTo                 string  `json:"ReplicateTo"`
+	DeploymentDurationInMinutes int32   `json:"DeploymentDurationInMinutes"`
+	GrowthFactor                float32 `json:"GrowthFactor"`
+	FinalBakeTimeInMinutes      int32   `json:"FinalBakeTimeInMinutes"`
+}
+
+func deploymentStrategyToOutput(d DeploymentStrategy) deploymentStrategyOutput {
+	return deploymentStrategyOutput{
+		ID:                          d.ID,
+		Name:                        d.Name,
+		Description:                 d.Description,
+		GrowthType:                  d.GrowthType,
+		ReplicateTo:                 d.ReplicateTo,
+		DeploymentDurationInMinutes: d.DeploymentDurationInMinutes,
+		GrowthFactor:                d.GrowthFactor,
+		FinalBakeTimeInMinutes:      d.FinalBakeTimeInMinutes,
+	}
+}

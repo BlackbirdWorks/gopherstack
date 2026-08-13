@@ -157,3 +157,29 @@ func (b *InMemoryBackend) DeleteEnvironment(applicationID, environmentID string)
 
 	return nil
 }
+
+// environmentOutput is the real API response shape for an environment --
+// types.Environment (aws-sdk-go-v2/service/appconfig@v1.48.4 types/types.go,
+// checked 2026-08-13) has ApplicationId/Description/Id/Monitors/Name/State
+// only, no CreatedAt/UpdatedAt. Environment itself keeps those two fields
+// (with JSON tags) for Snapshot/Restore; this converter strips them for the
+// wire.
+type environmentOutput struct {
+	ApplicationID string    `json:"ApplicationId"`
+	ID            string    `json:"Id"`
+	Name          string    `json:"Name"`
+	Description   string    `json:"Description,omitempty"`
+	State         string    `json:"State"`
+	Monitors      []Monitor `json:"Monitors,omitempty"`
+}
+
+func environmentToOutput(e Environment) environmentOutput {
+	return environmentOutput{
+		ApplicationID: e.ApplicationID,
+		ID:            e.ID,
+		Name:          e.Name,
+		Description:   e.Description,
+		State:         e.State,
+		Monitors:      e.Monitors,
+	}
+}

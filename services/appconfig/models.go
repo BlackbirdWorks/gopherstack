@@ -4,8 +4,13 @@ import (
 	"time"
 )
 
-// Application represents an AppConfig application.
-// JSON field names match the AWS AppConfig REST API (PascalCase).
+// Application represents an AppConfig application. This struct backs both
+// persistence (store.Table snapshots marshal it directly, see store_setup.go)
+// and, historically, the wire response -- CreatedAt/UpdatedAt must keep their
+// JSON tags so Snapshot/Restore round-trips them; applicationToOutput
+// (handler_applications.go) strips them for the real API response instead,
+// since the real types.Application (aws-sdk-go-v2/service/appconfig@v1.48.4
+// types/types.go, checked 2026-08-13) has Description/Id/Name only.
 type Application struct {
 	CreatedAt   time.Time `json:"CreatedAt,omitzero"`
 	UpdatedAt   time.Time `json:"UpdatedAt,omitzero"`
@@ -20,7 +25,10 @@ type Monitor struct {
 	AlarmRoleArn string `json:"AlarmRoleArn,omitempty"`
 }
 
-// Environment represents an AppConfig environment.
+// Environment represents an AppConfig environment. Same persistence-vs-wire
+// split as Application above: CreatedAt/UpdatedAt keep their JSON tags for
+// Snapshot/Restore; environmentToOutput strips them for the real API
+// response (types.Environment, same SDK version, has no such members).
 type Environment struct {
 	CreatedAt     time.Time `json:"CreatedAt,omitzero"`
 	UpdatedAt     time.Time `json:"UpdatedAt,omitzero"`
@@ -95,7 +103,11 @@ type HostedConfigurationVersionSummary struct {
 	VersionNumber          int32  `json:"VersionNumber"`
 }
 
-// DeploymentStrategy represents an AppConfig deployment strategy.
+// DeploymentStrategy represents an AppConfig deployment strategy. Same
+// persistence-vs-wire split as Application above: CreatedAt/UpdatedAt keep
+// their JSON tags for Snapshot/Restore; deploymentStrategyToOutput strips
+// them for the real API response (types.DeploymentStrategy, same SDK
+// version, has no such members).
 type DeploymentStrategy struct {
 	CreatedAt                   time.Time `json:"CreatedAt,omitzero"`
 	UpdatedAt                   time.Time `json:"UpdatedAt,omitzero"`

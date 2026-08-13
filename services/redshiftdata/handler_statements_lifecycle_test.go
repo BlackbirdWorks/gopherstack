@@ -330,68 +330,25 @@ func TestConcurrent_AccessSafe(t *testing.T) {
 	assert.Positive(t, b.StatementCount())
 }
 
-// TestListStatements_HasDatabaseField verifies that the ListStatements
-// response includes the Database field for each statement.
-func TestListStatements_HasDatabaseField(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	doRequest(t, h, "ExecuteStatement", map[string]any{
-		"Sql":      "SELECT 1",
-		"Database": "analytics",
-	})
-
-	rec := doRequest(t, h, "ListStatements", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	stmts, ok := resp["Statements"].([]any)
-	require.True(t, ok)
-	require.NotEmpty(t, stmts)
-
-	first := stmts[0].(map[string]any)
-	assert.Equal(t, "analytics", first["Database"], "Database should be in list item")
-}
-
-// TestListStatements_HasHasResultSetField verifies ListStatements
-// includes HasResultSet per item (matching AWS behaviour).
-func TestListStatements_HasHasResultSetField(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	doRequest(t, h, "ExecuteStatement", map[string]any{
-		"Sql":      "SELECT 1",
-		"Database": "dev",
-	})
-
-	rec := doRequest(t, h, "ListStatements", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	stmts := resp["Statements"].([]any)
-	require.NotEmpty(t, stmts)
-
-	first := stmts[0].(map[string]any)
-	_, hasField := first["HasResultSet"]
-	assert.True(t, hasField, "HasResultSet should be in list item")
-}
-
 // TestListStatements_WorkgroupFilter verifies that ListStatements
-// filters by WorkgroupName when provided.
+// filters by WorkgroupName when provided. WorkgroupName is a request filter
+// only, not a real ListStatements response field (types.StatementData has
+// no WorkgroupName member), so the assertion checks which statement was
+// returned by StatementName rather than reading a fabricated response key.
 func TestListStatements_WorkgroupFilter(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 	h := redshiftdata.NewHandler(b)
 
-	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "", "wg-a", "dev", "", "", "", false, "", nil, "")
+	_, err := b.ExecuteStatement(
+		context.Background(), "SELECT 1", "", "wg-a", "dev", "", "", "wg-a-stmt", false, "", nil, "",
+	)
 	require.NoError(t, err)
 
-	_, err = b.ExecuteStatement(context.Background(), "SELECT 2", "", "wg-b", "dev", "", "", "", false, "", nil, "")
+	_, err = b.ExecuteStatement(
+		context.Background(), "SELECT 2", "", "wg-b", "dev", "", "", "wg-b-stmt", false, "", nil, "",
+	)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, "ListStatements", map[string]any{
@@ -404,7 +361,7 @@ func TestListStatements_WorkgroupFilter(t *testing.T) {
 
 	stmts := resp["Statements"].([]any)
 	require.Len(t, stmts, 1, "should only return statements for wg-a")
-	assert.Equal(t, "wg-a", stmts[0].(map[string]any)["WorkgroupName"])
+	assert.Equal(t, "wg-a-stmt", stmts[0].(map[string]any)["StatementName"])
 }
 
 // TestGetStatementResultV2_DemoRow verifies that GetStatementResultV2

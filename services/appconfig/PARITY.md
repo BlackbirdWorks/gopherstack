@@ -197,9 +197,22 @@ long-running process) and `deployedConfigs` tracking entries for the deleted app
 typo baked into the real SDK's serializer, not a gopherstack bug; the route matcher already special-cases
 this correctly (unchanged this pass).
 
-This backend adds `CreatedAt`/`UpdatedAt` fields to `Application`/`Environment`/`DeploymentStrategy` JSON
-responses that don't exist in the real AWS shapes. Harmless — real deserializers ignore unknown JSON keys —
-noted here so a future auditor doesn't mistake it for parity drift (unchanged this pass).
+CLOSED 2026-08-13: this backend added `CreatedAt`/`UpdatedAt` fields to `Application`/`Environment`/
+`DeploymentStrategy` JSON responses that don't exist in the real AWS shapes. Evidence:
+`aws-sdk-go-v2/service/appconfig@v1.48.4`, `types/types.go`, checked 2026-08-13 — `types.Application` has
+`Description`/`Id`/`Name` only; `types.Environment` has `ApplicationId`/`Description`/`Id`/`Monitors`/`Name`/
+`State` only; `types.DeploymentStrategy` has `DeploymentDurationInMinutes`/`Description`/
+`FinalBakeTimeInMinutes`/`GrowthFactor`/`GrowthType`/`Id`/`Name`/`ReplicateTo` only — none declare
+`CreatedAt`/`UpdatedAt`. Unlike the other single-field deletes this same sweep found elsewhere, a bare
+delete wasn't safe here: `Application`/`Environment`/`DeploymentStrategy` are the same structs
+`store.Table`'s `Snapshot`/`Restore` JSON-marshals directly (see `backendSnapshot`'s doc comment in
+persistence.go — "none of them need a DTO wrapper"), so blanking the JSON tag would have silently dropped
+both fields across every snapshot/restore cycle. Fixed instead with a converter per type
+(`applicationToOutput`/`environmentToOutput`/`deploymentStrategyToOutput`, each next to its backend file) —
+the domain struct keeps its `CreatedAt`/`UpdatedAt` JSON tags for persistence, and Create/Get/Update/List
+handlers now serialize the converted `*Output` type instead of the raw domain struct. Raw-body regression
+tests: `TestHandler_ListOps_SummaryShape`'s new `applications`/`environments`/`deploymentstrategies` cases
+and `TestHandler_GetOps_NoCreatedAtUpdatedAt` (`handler_list_summary_test.go`).
 
 **Experiment family (new this pass, SDK bumped v1.43.11 -> v1.48.0).** AppConfig's A/B-testing surface: an
 `ExperimentDefinition` (a treatment plan attached to a feature-flag `ConfigurationProfile`) can be run

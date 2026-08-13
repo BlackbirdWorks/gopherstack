@@ -559,10 +559,32 @@ func TestResolverConfigToOutput(t *testing.T) {
 			resp := decodeJSON(t, rec)
 			cfg, ok := resp["ResolverConfig"].(map[string]any)
 			require.True(t, ok)
-			assert.NotEmpty(t, cfg["Arn"])
 			assert.Equal(t, tt.vpc, cfg["ResourceId"])
 		})
 	}
+}
+
+// TestResolverConfig_NoArn is a raw-body assertion that GetResolverConfig's
+// response never carries an Arn key: types.ResolverConfig (aws-sdk-go-v2/
+// service/route53resolver@v1.48.4 types/types.go) has AutodefinedReverse/Id/
+// OwnerId/ResourceId only, no Arn. An SDK client silently discards unknown
+// response keys, so a client-typed test would pass even with the field
+// still fabricated onto the wire.
+func TestResolverConfig_NoArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "GetResolverConfig", map[string]any{"ResourceId": "vpc-rco-noarn"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := decodeJSON(t, rec)
+	cfg, ok := resp["ResolverConfig"].(map[string]any)
+	require.True(t, ok)
+
+	_, hasArn := cfg["Arn"]
+	assert.False(t, hasArn, "ResolverConfig should not have an Arn field")
+	assert.NotEmpty(t, cfg["Id"])
+	assert.NotEmpty(t, cfg["OwnerId"])
 }
 
 // --- UpdateResolverEndpoint ---

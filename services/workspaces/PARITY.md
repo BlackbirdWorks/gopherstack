@@ -311,12 +311,32 @@ are all clean.
   (renamed from `handler_parity3_test.go`'s `TestParity3_*` names by an
   unrelated file-naming cleanup pass; same tests, same rationale).
   Do not "fix" this without reading that test's rationale first.
-- `workspaceResp`/`pendingWorkspace` include a `Tags` JSON field on the `Workspace`
-  shape; real AWS's `Workspace` type has **no** `Tags` field (tags are fetched via
-  a separate `DescribeTags` call). This is harmless (aws-sdk-go-v2's json
-  deserializers silently ignore unrecognized keys via a `default:` case in every
-  generated switch), so it was left as-is rather than spending scope removing a
-  non-breaking extra field.
+- CLOSED 2026-08-13: `workspaceResp` (`DescribeWorkspaces`'s per-item shape) carried
+  a fabricated `Tags` JSON field. Evidence: `aws-sdk-go-v2/service/workspaces@v1.73.1`
+  `types/types.go`, `type Workspace struct` -- exhaustive field list is
+  `BundleId`/`ComputerName`/`DataReplicationSettings`/`DirectoryId`/`ErrorCode`/
+  `ErrorMessage`/`IpAddress`/`ModificationStates`/`RelatedWorkspaces`/
+  `RootVolumeEncryptionEnabled`/`StandbyWorkspacesProperties`/`State`/`SubnetId`/
+  `UserName`/`UserVolumeEncryptionEnabled`/`VolumeEncryptionKey`/`WorkspaceId`/
+  `WorkspaceName`/`WorkspaceProperties` -- no `Tags` member; real tags are read
+  back only via a separate `DescribeTags` call. Deleted the field from
+  `workspaceResp`/`toWorkspaceResp` (`handler_workspaces.go`); the internal
+  `Workspace.Tags` domain field is untouched (still backs `DescribeTags`). `pendingWorkspace`
+  (`CreateWorkspaces`'s pending-item shape) never had a `Tags` field in the first
+  place, despite this note's prior claim otherwise -- re-verified against the current
+  source, not assumed. Raw-body regression test: `TestDescribeWorkspaces_NoTagsField`
+  (`tags_test.go`); `TestCreateTags_VisibleInDescribeWorkspaces`/
+  `TestDeleteTags_RemovedFromDescribeWorkspaces` (which asserted the fabricated field)
+  were rewritten to `TestCreateTags_VisibleInDescribeTags`/`TestDeleteTags_RemovedFromDescribeTags`,
+  reading back through the real `DescribeTags` op instead.
+  INVERSE FOUND, not fixed (out of this pass's cheap-delete scope): the real
+  `Workspace` type also declares `DataReplicationSettings`, `IpAddress`,
+  `ModificationStates`, `RelatedWorkspaces`, `StandbyWorkspacesProperties`, and
+  `WorkspaceName` -- none of which this backend tracks or emits anywhere. `WorkspaceName`
+  in particular looks like the cheapest of these to close (a plain string, and
+  `WorkspaceRequest.WorkspaceName` is already a real *input* field accepted by
+  neither `createWorkspaceSpec` nor echoed by `workspaceRequestResp`) -- flagged for a
+  future pass, not filed as a bd issue yet.
 - `CreateIpGroup`/`DescribeIpGroups`/etc use **lowercase** wire keys (`groupId`,
   `groupName`, `groupDesc`, `userRules`, `ipRule`, `ruleDesc`) — this looks wrong
   at a glance (every other shape in this service is PascalCase) but is verified
