@@ -70,6 +70,10 @@ families:
       /prod/signal-maps/{id}/...). No route-matcher bugs found in this
       service -- the class of bug that hit backup/eks/s3control/guardduty/
       cleanrooms/bedrockagent/iotwireless does not reproduce here.
+      gopherstack-jqh2: this manual diff is now a permanent regression test,
+      TestExtractOperation_SDKRouteTable (handler_paths_sdk_diff_test.go),
+      table-driven over all 123 real ops -- re-run and reconfirmed 123/123
+      clean.
   Channel:
     status: ok
     note: >

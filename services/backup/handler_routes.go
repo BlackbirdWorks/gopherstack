@@ -53,6 +53,10 @@ func matchesBackupPath(path string) bool {
 		pathIndexedRecovery,
 		pathRestoreTestingInferredMeta,
 		pathPITRMalwareScanResults,
+		pathAuditBackupJobSummaries,
+		pathAuditCopyJobSummaries,
+		pathAuditRestoreJobSummaries,
+		pathAuditScanJobSummaries,
 	}
 
 	if slices.Contains(exacts, path) {
@@ -191,17 +195,31 @@ func parseBackupSettingsPath(method, path string) backupRoute {
 	return backupRoute{operation: opUnknown}
 }
 
-// parseBackupJobFamilyPath routes report jobs, scan jobs, indexed recovery
-// points, and tiering configuration paths.
-func parseBackupJobFamilyPath(method, path string) backupRoute {
-	switch {
-	case path == pathReportJobs:
-		if method == http.MethodGet {
-			return backupRoute{operation: opListReportJobs}
-		}
-	case strings.HasPrefix(path, pathReportJobs+"/"):
+// parseAuditJobSummariesRoute routes the four GET-only /audit/*-job-summaries
+// paths. Split out of parseBackupJobFamilyPath to keep its complexity down.
+func parseAuditJobSummariesRoute(method, path string) backupRoute {
+	if method != http.MethodGet {
+		return backupRoute{operation: opUnknown}
+	}
 
-		return parseReportJobRoute(method, strings.TrimPrefix(path, pathReportJobs+"/"))
+	switch path {
+	case pathAuditBackupJobSummaries:
+		return backupRoute{operation: opListBackupJobSummaries}
+	case pathAuditCopyJobSummaries:
+		return backupRoute{operation: opListCopyJobSummaries}
+	case pathAuditRestoreJobSummaries:
+		return backupRoute{operation: opListRestoreJobSummaries}
+	case pathAuditScanJobSummaries:
+		return backupRoute{operation: opListScanJobSummaries}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// parseScanJobFamilyRoute routes /scan/job (start) and /scan/jobs[/{id}].
+// Split out of parseBackupJobFamilyPath to keep its complexity down.
+func parseScanJobFamilyRoute(method, path string) backupRoute {
+	switch {
 	case path == pathScanJobStart:
 		if method == http.MethodPut {
 			return backupRoute{operation: opStartScanJob}
@@ -217,6 +235,30 @@ func parseBackupJobFamilyPath(method, path string) backupRoute {
 				resource:  strings.TrimPrefix(path, pathScanJobs+"/"),
 			}
 		}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// parseBackupJobFamilyPath routes report jobs, scan jobs, indexed recovery
+// points, and tiering configuration paths.
+func parseBackupJobFamilyPath(method, path string) backupRoute {
+	if r := parseAuditJobSummariesRoute(method, path); r.operation != opUnknown {
+		return r
+	}
+
+	if r := parseScanJobFamilyRoute(method, path); r.operation != opUnknown {
+		return r
+	}
+
+	switch {
+	case path == pathReportJobs:
+		if method == http.MethodGet {
+			return backupRoute{operation: opListReportJobs}
+		}
+	case strings.HasPrefix(path, pathReportJobs+"/"):
+
+		return parseReportJobRoute(method, strings.TrimPrefix(path, pathReportJobs+"/"))
 	case path == pathPITRMalwareScanResults:
 		if method == http.MethodGet {
 			return backupRoute{operation: opGetPITRMalwareScanResults}
@@ -324,14 +366,19 @@ func parseTieringRoute(method, suffix string) backupRoute {
 	return backupRoute{operation: opUnknown}
 }
 
+// vaultLockSuffix is the /backup-vaults/{name}/vault-lock sub-resource path
+// segment, shared by vaultSubRoute and parseVaultLockOrNotificationRoute.
+const vaultLockSuffix = "/vault-lock"
+
 // vaultSubRoute tries to match a sub-resource suffix, returning the vault name and op suffix.
 // Returns ("", "") if no recognized suffix is found.
 func vaultSubRoute(name string) (string, string) {
 	for _, sfx := range []string{
 		"/mpaApprovalTeam",
 		"/access-policy",
-		"/vault-lock",
+		vaultLockSuffix,
 		"/notification-configuration",
+		"/resources",
 	} {
 		if v, ok := strings.CutSuffix(name, sfx); ok {
 			return v, sfx
@@ -382,35 +429,56 @@ func parseVaultRoute(method, suffix string) backupRoute {
 
 func parseVaultSubResourceRoute(method, vaultName, sub string) backupRoute {
 	switch sub {
+	case "/resources":
+		if method == http.MethodGet {
+			return backupRoute{operation: opListProtectedResourcesByBackupVault, resource: vaultName}
+		}
 	case "/mpaApprovalTeam":
-		switch method {
-		case http.MethodPut:
-
-			return backupRoute{
-				operation: opAssociateBackupVaultMpaApprovalTeam,
-				resource:  vaultName,
-			}
-		case http.MethodPost:
-			// AWS uses POST .../mpaApprovalTeam?delete for the disassociate call
-			// (same path as associate, distinguished by method + query string).
-			return backupRoute{
-				operation: opDisassociateBackupVaultMpaApprovalTeam,
-				resource:  vaultName,
-			}
-		}
+		return parseVaultMpaApprovalRoute(method, vaultName)
 	case "/access-policy":
-		switch method {
-		case http.MethodPut:
+		return parseVaultAccessPolicyRoute(method, vaultName)
+	case vaultLockSuffix, "/notification-configuration":
+		return parseVaultLockOrNotificationRoute(method, vaultName, sub)
+	}
 
-			return backupRoute{operation: opPutBackupVaultAccessPolicy, resource: vaultName}
-		case http.MethodGet:
+	return backupRoute{operation: opUnknown}
+}
 
-			return backupRoute{operation: opGetBackupVaultAccessPolicy, resource: vaultName}
-		case http.MethodDelete:
+func parseVaultMpaApprovalRoute(method, vaultName string) backupRoute {
+	switch method {
+	case http.MethodPut:
 
-			return backupRoute{operation: opDeleteBackupVaultAccessPolicy, resource: vaultName}
-		}
-	case "/vault-lock":
+		return backupRoute{operation: opAssociateBackupVaultMpaApprovalTeam, resource: vaultName}
+	case http.MethodPost:
+		// AWS uses POST .../mpaApprovalTeam?delete for the disassociate call
+		// (same path as associate, distinguished by method + query string).
+		return backupRoute{operation: opDisassociateBackupVaultMpaApprovalTeam, resource: vaultName}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+func parseVaultAccessPolicyRoute(method, vaultName string) backupRoute {
+	switch method {
+	case http.MethodPut:
+
+		return backupRoute{operation: opPutBackupVaultAccessPolicy, resource: vaultName}
+	case http.MethodGet:
+
+		return backupRoute{operation: opGetBackupVaultAccessPolicy, resource: vaultName}
+	case http.MethodDelete:
+
+		return backupRoute{operation: opDeleteBackupVaultAccessPolicy, resource: vaultName}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// parseVaultLockOrNotificationRoute handles the /vault-lock and
+// /notification-configuration vault sub-resources, which share a
+// PUT/GET|DELETE shape.
+func parseVaultLockOrNotificationRoute(method, vaultName, sub string) backupRoute {
+	if sub == vaultLockSuffix {
 		switch method {
 		case http.MethodPut:
 
@@ -419,18 +487,20 @@ func parseVaultSubResourceRoute(method, vaultName, sub string) backupRoute {
 
 			return backupRoute{operation: opDeleteBackupVaultLockConfiguration, resource: vaultName}
 		}
-	case "/notification-configuration":
-		switch method {
-		case http.MethodPut:
 
-			return backupRoute{operation: opPutBackupVaultNotifications, resource: vaultName}
-		case http.MethodGet:
+		return backupRoute{operation: opUnknown}
+	}
 
-			return backupRoute{operation: opGetBackupVaultNotifications, resource: vaultName}
-		case http.MethodDelete:
+	switch method {
+	case http.MethodPut:
 
-			return backupRoute{operation: opDeleteBackupVaultNotifications, resource: vaultName}
-		}
+		return backupRoute{operation: opPutBackupVaultNotifications, resource: vaultName}
+	case http.MethodGet:
+
+		return backupRoute{operation: opGetBackupVaultNotifications, resource: vaultName}
+	case http.MethodDelete:
+
+		return backupRoute{operation: opDeleteBackupVaultNotifications, resource: vaultName}
 	}
 
 	return backupRoute{operation: opUnknown}

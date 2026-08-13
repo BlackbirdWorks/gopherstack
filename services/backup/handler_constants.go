@@ -148,20 +148,24 @@ const (
 const (
 	backupMatchPriority = service.PriorityPathVersioned
 
-	pathBackupVaults        = "/backup-vaults"
-	pathBackupPlans         = "/backup/plans"
-	pathBackupTemplate      = "/backup/template"
-	pathBackupJobs          = "/backup-jobs"
-	pathCopyJobs            = "/copy-jobs"
-	pathTags                = "/tags/"
-	pathUntag               = "/untag/"
-	pathLegalHolds          = "/legal-holds"
-	pathAuditFrameworks     = "/audit/frameworks"
-	pathAuditReportPlans    = "/audit/report-plans"
-	pathLogicallyAirGapped  = "/logically-air-gapped-backup-vaults"
-	pathRestoreAccessVaults = "/restore-access-backup-vaults"
-	pathRestoreTestingPlans = "/restore-testing/plans"
-	pathGlobalSettings      = "/global-settings"
+	pathBackupVaults             = "/backup-vaults"
+	pathBackupPlans              = "/backup/plans"
+	pathBackupTemplate           = "/backup/template"
+	pathBackupJobs               = "/backup-jobs"
+	pathCopyJobs                 = "/copy-jobs"
+	pathTags                     = "/tags/"
+	pathUntag                    = "/untag/"
+	pathLegalHolds               = "/legal-holds"
+	pathAuditFrameworks          = "/audit/frameworks"
+	pathAuditReportPlans         = "/audit/report-plans"
+	pathAuditBackupJobSummaries  = "/audit/backup-job-summaries"
+	pathAuditCopyJobSummaries    = "/audit/copy-job-summaries"
+	pathAuditRestoreJobSummaries = "/audit/restore-job-summaries"
+	pathAuditScanJobSummaries    = "/audit/scan-job-summaries"
+	pathLogicallyAirGapped       = "/logically-air-gapped-backup-vaults"
+	pathRestoreAccessVaults      = "/restore-access-backup-vaults"
+	pathRestoreTestingPlans      = "/restore-testing/plans"
+	pathGlobalSettings           = "/global-settings"
 	// pathRegionSettings is AWS's actual wire path for region-settings
 	// operations -- the API confusingly binds DescribeRegionSettings /
 	// UpdateRegionSettings to /account-settings, not /region-settings.
