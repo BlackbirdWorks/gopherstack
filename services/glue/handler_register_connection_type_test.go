@@ -1,7 +1,6 @@
 package glue_test
 
 import (
-	"encoding/json"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -139,6 +138,16 @@ func TestRegisterConnectionType_RequiredMembers(t *testing.T) {
 // verbatim; api_op_DescribeConnectionType.go:76-79) -- round-trips there,
 // and that RegisterConnectionType itself returns ConnectionTypeArn, the
 // real RegisterConnectionTypeOutput's only field.
+//
+// DescribeConnectionType is now driven through the real client too
+// (gopherstack-ustu): it previously could not be, because Capabilities was
+// fabricated as []string ("READ"/"WRITE") instead of the real
+// *types.Capabilities struct (SupportedAuthenticationTypes/
+// SupportedComputeEnvironments/SupportedDataOperations, all required) -- a
+// real client's deserializer rejected the whole response body on that
+// mismatch before RestConfiguration was ever reached. Fixing Capabilities'
+// shape is what lets this assertion use the real client instead of the
+// former raw-HTTP fallback.
 func TestSDKRoundTrip_RegisterConnectionType_EchoesRequiredMembers(t *testing.T) {
 	t.Parallel()
 
@@ -169,32 +178,16 @@ func TestSDKRoundTrip_RegisterConnectionType_EchoesRequiredMembers(t *testing.T)
 	require.NotNil(t, created.ConnectionTypeArn)
 	assert.NotEmpty(t, *created.ConnectionTypeArn)
 
-	// DescribeConnectionType can't be driven through the real client here:
-	// its Capabilities field predates this fix and is already fabricated as
-	// []string ("READ"/"WRITE") instead of the real *types.Capabilities
-	// struct (SupportedAuthenticationTypes/SupportedComputeEnvironments/
-	// SupportedDataOperations, all required) -- a real client's
-	// deserializer rejects the whole response body on that mismatch before
-	// RestConfiguration is ever reached. That's a distinct, pre-existing
-	// wrong-shape bug in DescribeConnectionType/ListConnectionTypes, not one
-	// of the five required-member drops this pass fixes; tracked in
-	// PARITY.md rather than fixed here. So RestConfiguration's echo is
-	// verified over raw HTTP instead, which this backend's JSON shape still
-	// supports correctly.
-	descRec := doGlueRequest(t, glue.NewHandler(backend), "DescribeConnectionType", map[string]any{
-		"ConnectionType": "RTCUSTOMTYPE",
+	described, err := client.DescribeConnectionType(t.Context(), &gluesdk.DescribeConnectionTypeInput{
+		ConnectionType: aws.String("RTCUSTOMTYPE"),
 	})
-	require.Equal(t, http.StatusOK, descRec.Code)
+	require.NoError(t, err)
+	require.NotNil(t, described.RestConfiguration)
+	require.NotNil(t, described.RestConfiguration.ValidationEndpointConfiguration)
+	assert.Equal(t, types.HTTPMethodGet, described.RestConfiguration.ValidationEndpointConfiguration.RequestMethod)
+	assert.Equal(t, "/health", aws.ToString(described.RestConfiguration.ValidationEndpointConfiguration.RequestPath))
 
-	var descOut struct {
-		RestConfiguration struct {
-			ValidationEndpointConfiguration struct {
-				RequestMethod string `json:"RequestMethod"`
-				RequestPath   string `json:"RequestPath"`
-			} `json:"ValidationEndpointConfiguration"`
-		} `json:"RestConfiguration"`
-	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
-	assert.Equal(t, "GET", descOut.RestConfiguration.ValidationEndpointConfiguration.RequestMethod)
-	assert.Equal(t, "/health", descOut.RestConfiguration.ValidationEndpointConfiguration.RequestPath)
+	require.NotNil(t, described.Capabilities, "a custom type has real DataOperations state to report")
+	assert.ElementsMatch(t, []types.DataOperation{types.DataOperationRead, types.DataOperationWrite},
+		described.Capabilities.SupportedDataOperations)
 }

@@ -297,22 +297,22 @@ func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
 // ---- ModifyAquaConfiguration ----
 
 type aquaConfigurationResponse struct {
-	XMLName xml.Name `xml:"ModifyAquaConfigurationResponse"`
-	Xmlns   string   `xml:"xmlns,attr"`
-	Result  struct {
-		AquaConfiguration struct {
-			AquaConfigurationStatus string `xml:"AquaConfigurationStatus"`
-			AquaStatus              string `xml:"AquaStatus"`
-		} `xml:"AquaConfiguration"`
-	} `xml:"ModifyAquaConfigurationResult"`
+	XMLName xml.Name      `xml:"ModifyAquaConfigurationResponse"`
+	Xmlns   string        `xml:"xmlns,attr"`
+	Result  xmlAquaConfig `xml:"ModifyAquaConfigurationResult>AquaConfiguration"`
 }
 
-func (h *Handler) handleModifyAquaConfiguration(_ url.Values) (any, error) {
-	resp := &aquaConfigurationResponse{Xmlns: redshiftXMLNS}
-	resp.Result.AquaConfiguration.AquaConfigurationStatus = "auto"
-	resp.Result.AquaConfiguration.AquaStatus = "disabled"
+func (h *Handler) handleModifyAquaConfiguration(vals url.Values) (any, error) {
+	id := vals.Get("ClusterIdentifier")
 
-	return resp, nil
+	if _, err := h.Backend.ModifyAquaConfiguration(id); err != nil {
+		return nil, err
+	}
+
+	return &aquaConfigurationResponse{
+		Xmlns:  redshiftXMLNS,
+		Result: defaultAquaConfig(),
+	}, nil
 }
 
 // ---- ModifyLakehouseConfiguration ----
@@ -320,10 +320,36 @@ func (h *Handler) handleModifyAquaConfiguration(_ url.Values) (any, error) {
 type modifyLakehouseConfigurationResponse struct {
 	XMLName xml.Name `xml:"ModifyLakehouseConfigurationResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		ClusterIdentifier           string `xml:"ClusterIdentifier,omitempty"`
+		CatalogArn                  string `xml:"CatalogArn,omitempty"`
+		LakehouseIdcApplicationArn  string `xml:"LakehouseIdcApplicationArn,omitempty"`
+		LakehouseRegistrationStatus string `xml:"LakehouseRegistrationStatus,omitempty"`
+	} `xml:"ModifyLakehouseConfigurationResult"`
 }
 
-func (h *Handler) handleModifyLakehouseConfiguration(_ url.Values) (any, error) {
-	return &modifyLakehouseConfigurationResponse{Xmlns: redshiftXMLNS}, nil
+func (h *Handler) handleModifyLakehouseConfiguration(vals url.Values) (any, error) {
+	params := ModifyLakehouseConfigParams{
+		ClusterIdentifier:          vals.Get("ClusterIdentifier"),
+		CatalogName:                vals.Get("CatalogName"),
+		LakehouseIdcApplicationArn: vals.Get("LakehouseIdcApplicationArn"),
+		LakehouseIdcRegistration:   vals.Get("LakehouseIdcRegistration"),
+		LakehouseRegistration:      vals.Get("LakehouseRegistration"),
+		DryRun:                     vals.Get("DryRun") == paramValueTrue,
+	}
+
+	result, err := h.Backend.ModifyLakehouseConfiguration(params)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &modifyLakehouseConfigurationResponse{Xmlns: redshiftXMLNS}
+	resp.Result.ClusterIdentifier = result.ClusterIdentifier
+	resp.Result.CatalogArn = result.CatalogArn
+	resp.Result.LakehouseIdcApplicationArn = result.LakehouseIdcApplicationArn
+	resp.Result.LakehouseRegistrationStatus = result.LakehouseRegistrationStatus
+
+	return resp, nil
 }
 
 // ---- FailoverPrimaryCompute ----

@@ -338,25 +338,27 @@ type ClusterPendingModifiedValues struct {
 
 // Cluster represents a Redshift cluster.
 type Cluster struct {
-	Tags                       *tags.Tags                    `json:"tags,omitempty"`
-	PendingModifiedValues      *ClusterPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
-	MasterUsername             string                        `json:"masterUsername"`
-	PreferredMaintenanceWindow string                        `json:"preferredMaintenanceWindow,omitempty"`
-	ClusterType                string                        `json:"clusterType"`
-	Endpoint                   string                        `json:"endpoint"`
-	Status                     string                        `json:"status"`
-	DBName                     string                        `json:"dbName"`
-	ClusterIdentifier          string                        `json:"clusterIdentifier"`
-	VpcID                      string                        `json:"vpcId,omitempty"`
-	KmsKeyID                   string                        `json:"kmsKeyId,omitempty"`
-	NodeType                   string                        `json:"nodeType"`
-	SnapshotScheduleState      string                        `json:"snapshotScheduleState,omitempty"`
-	SnapshotScheduleIdentifier string                        `json:"snapshotScheduleIdentifier,omitempty"`
-	IamRoles                   []string                      `json:"iamRoles,omitempty"`
-	Port                       int                           `json:"port"`
-	NumberOfNodes              int                           `json:"numberOfNodes"`
-	Encrypted                  bool                          `json:"encrypted"`
-	EnhancedVpcRouting         bool                          `json:"enhancedVpcRouting"`
+	Tags                        *tags.Tags                    `json:"tags,omitempty"`
+	PendingModifiedValues       *ClusterPendingModifiedValues `json:"pendingModifiedValues,omitempty"`
+	MasterUsername              string                        `json:"masterUsername"`
+	PreferredMaintenanceWindow  string                        `json:"preferredMaintenanceWindow,omitempty"`
+	ClusterType                 string                        `json:"clusterType"`
+	Endpoint                    string                        `json:"endpoint"`
+	Status                      string                        `json:"status"`
+	DBName                      string                        `json:"dbName"`
+	ClusterIdentifier           string                        `json:"clusterIdentifier"`
+	VpcID                       string                        `json:"vpcId,omitempty"`
+	KmsKeyID                    string                        `json:"kmsKeyId,omitempty"`
+	NodeType                    string                        `json:"nodeType"`
+	SnapshotScheduleState       string                        `json:"snapshotScheduleState,omitempty"`
+	SnapshotScheduleIdentifier  string                        `json:"snapshotScheduleIdentifier,omitempty"`
+	CatalogArn                  string                        `json:"catalogArn,omitempty"`
+	LakehouseRegistrationStatus string                        `json:"lakehouseRegistrationStatus,omitempty"`
+	IamRoles                    []string                      `json:"iamRoles,omitempty"`
+	Port                        int                           `json:"port"`
+	NumberOfNodes               int                           `json:"numberOfNodes"`
+	Encrypted                   bool                          `json:"encrypted"`
+	EnhancedVpcRouting          bool                          `json:"enhancedVpcRouting"`
 }
 
 // ClusterCredentials holds temporary cluster credentials.

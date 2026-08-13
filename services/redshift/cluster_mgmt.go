@@ -100,6 +100,30 @@ func (b *InMemoryBackend) RebootCluster(id string) (*Cluster, error) {
 	return &cp, nil
 }
 
+// ModifyAquaConfiguration validates that id refers to a real cluster and
+// otherwise does nothing: the real operation is retired
+// (api_op_ModifyAquaConfiguration.go: "Calling this operation does not
+// change AQUA configuration. Amazon Redshift automatically determines
+// whether to use AQUA") but still requires and existence-checks
+// ClusterIdentifier (ClusterNotFoundFault is declared in its error switch).
+func (b *InMemoryBackend) ModifyAquaConfiguration(id string) (*Cluster, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ModifyAquaConfiguration")
+	defer b.mu.Unlock()
+
+	cluster, exists := b.clusters.Get(id)
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+
+	cp := cloneCluster(cluster)
+
+	return &cp, nil
+}
+
 // PauseCluster pauses the specified cluster.
 func (b *InMemoryBackend) PauseCluster(id string) (*Cluster, error) {
 	if id == "" {

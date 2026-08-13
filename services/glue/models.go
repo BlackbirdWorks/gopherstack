@@ -708,7 +708,15 @@ type ConnectionTypeInfo struct {
 	// input and DescribeConnectionTypeOutput.RestConfiguration, so it is
 	// stored and echoed verbatim on describe.
 	RestConfiguration map[string]any `json:"restConfiguration,omitempty"`
-	// Capabilities lists supported connector capabilities.
+	// Capabilities holds this connector's supported data operations
+	// ("READ"/"WRITE", matching types.DataOperation's only two enum values
+	// verbatim). This is internal storage, not the wire shape: the real
+	// DescribeConnectionTypeOutput/ConnectionTypeBrief.Capabilities is
+	// *types.Capabilities, a struct with this list nested under
+	// SupportedDataOperations alongside two more required members this
+	// backend does not track -- see connectionCapabilities/
+	// toConnectionCapabilities in handler_connection_types.go for the wire
+	// shaping.
 	Capabilities []string `json:"Capabilities,omitempty"`
 	// BuiltIn reports whether this is an AWS-managed (undeletable) type.
 	BuiltIn bool `json:"BuiltIn"`

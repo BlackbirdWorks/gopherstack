@@ -23,6 +23,8 @@ type StorageBackend interface {
 	RotateEncryptionKey(id string) (*Cluster, error)
 	ModifyClusterIamRoles(id string, addRoles, removeRoles []string) (*Cluster, error)
 	ModifyClusterMaintenance(id, maintenanceTrack string, deferMaintenance bool) (*Cluster, error)
+	ModifyAquaConfiguration(id string) (*Cluster, error)
+	ModifyLakehouseConfiguration(p ModifyLakehouseConfigParams) (*ClusterLakehouseConfigResult, error)
 
 	// Tag operations
 	DescribeTags() map[string]map[string]string
