@@ -542,10 +542,10 @@ func (b *InMemoryBackend) ExportAutomatedReasoningPolicyVersion(arnParam string)
 	}
 
 	return map[string]any{
-		keyPolicyArn:     v.PolicyArn,
-		"version":        v.Version,
-		"definitionHash": v.DefinitionHash,
-		keyCreatedAt:     v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		keyPolicyArn:      v.PolicyArn,
+		keyVersion:        v.Version,
+		keyDefinitionHash: v.DefinitionHash,
+		keyCreatedAt:      v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}, nil
 }
 

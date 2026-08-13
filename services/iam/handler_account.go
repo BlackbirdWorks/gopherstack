@@ -481,8 +481,8 @@ func (h *Handler) iamOrgsDispatch() map[string]iamActionFn {
 				XMLName: xml.Name{Local: "ListPoliciesGrantingServiceAccessResponse"},
 				Xmlns:   iamXMLNS,
 				ListPoliciesGrantingServiceAccessResult: listPGSAResult{
-					PolicyGroups: []string{},
-					IsTruncated:  false,
+					PoliciesGrantingServiceAccess: []string{},
+					IsTruncated:                   false,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

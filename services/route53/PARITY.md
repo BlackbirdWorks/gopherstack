@@ -83,8 +83,8 @@ ops:
   GetTrafficPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteTrafficPolicyInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTrafficPolicyInstance: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTrafficPolicies: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTrafficPolicyVersions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTrafficPolicies: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — response dropped TrafficPolicyIdMarker, a required member on ListTrafficPoliciesOutput (deserializers.go's ListTrafficPoliciesOutput switch) that AWS always serializes, not just when truncated. This backend is single-page (IsTruncated always false), so the marker is emitted as an always-present empty string rather than a fabricated next-page ID. Prior wire: ok was false"}
+  ListTrafficPolicyVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — same TrafficPolicyVersionMarker gap and fix as ListTrafficPolicies' TrafficPolicyIdMarker above. Prior wire: ok was false"}
   ListTrafficPolicyInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTrafficPolicyInstancesByHostedZone: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTrafficPolicyInstancesByPolicy: {wire: ok, errors: ok, state: ok, persist: ok}

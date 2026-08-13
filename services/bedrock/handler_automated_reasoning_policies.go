@@ -346,11 +346,11 @@ func (h *Handler) handleCreateAutomatedReasoningPolicyVersion(
 	}
 
 	return c.JSON(http.StatusCreated, map[string]any{
-		"policyArn":      version.PolicyArn,
-		keyName:          version.Name,
-		"definitionHash": version.DefinitionHash,
-		"version":        version.Version,
-		"createdAt":      isoTime{version.CreatedAt},
+		keyPolicyArn:      version.PolicyArn,
+		keyName:           version.Name,
+		keyDefinitionHash: version.DefinitionHash,
+		keyVersion:        version.Version,
+		"createdAt":       isoTime{version.CreatedAt},
 	})
 }
 
@@ -543,6 +543,24 @@ func extractARPExportPolicyArn(path string) string {
 	return decodePath(strings.TrimSuffix(rest, "/export"))
 }
 
+// policyIDFromARN extracts the policy ID path segment from an Automated
+// Reasoning policy ARN, draft or versioned
+// (".../automated-reasoning-policy/{id}[/version/{n}]"). This is the same ID
+// CreateAutomatedReasoningPolicy embedded when it built the ARN, not a
+// fabricated value.
+func policyIDFromARN(policyARN string) string {
+	const marker = "automated-reasoning-policy/"
+
+	_, rest, ok := strings.Cut(policyARN, marker)
+	if !ok {
+		return ""
+	}
+
+	id, _, _ := strings.Cut(rest, "/")
+
+	return id
+}
+
 func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN string) error {
 	policy, err := h.Backend.GetAutomatedReasoningPolicy(policyARN)
 	if err != nil {
@@ -550,12 +568,14 @@ func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN s
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyPolicyArn:  policy.PolicyArn,
-		keyName:       policy.Name,
-		"description": policy.Description,
-		keyStatus:     policy.Status,
-		keyCreatedAt:  isoTime{policy.CreatedAt},
-		keyUpdatedAt:  isoTime{policy.UpdatedAt},
+		keyPolicyArn:      policy.PolicyArn,
+		"policyId":        policyIDFromARN(policy.PolicyArn),
+		keyName:           policy.Name,
+		"description":     policy.Description,
+		keyDefinitionHash: policy.DefinitionHash,
+		keyVersion:        policy.Version,
+		keyCreatedAt:      isoTime{policy.CreatedAt},
+		keyUpdatedAt:      isoTime{policy.UpdatedAt},
 	})
 }
 

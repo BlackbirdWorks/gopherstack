@@ -580,6 +580,7 @@ const (
 	keyPromptID       = "promptId"
 	keyCollaboratorID = "collaboratorId"
 	keyVersion        = "version"
+	keyDefinitionHash = "definitionHash"
 
 	suffixAliases  = "/aliases"
 	suffixVersions = "/versions"

@@ -429,10 +429,10 @@ type StorageBackend interface {
 	ListMaterializedViewRefreshTaskRuns() []*MaterializedViewRefreshRun
 
 	// Integration operations.
-	CreateIntegration(name string, tags map[string]string) (*Integration, error)
-	DeleteIntegration(name string) error
+	CreateIntegration(name, sourceArn, targetArn string, tags map[string]string) (*Integration, error)
+	DeleteIntegration(identifier string) (*Integration, error)
 	ListIntegrations() []*Integration
-	ModifyIntegration(name string) error
+	ModifyIntegration(identifier string) (*Integration, error)
 	CreateIntegrationResourceProperty(
 		resourceArn string,
 		sourceProps, targetProps map[string]string,

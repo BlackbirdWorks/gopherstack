@@ -2,30 +2,45 @@ package glue
 
 import (
 	"context"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // createIntegrationInput holds input for CreateIntegration.
 type createIntegrationInput struct {
 	Tags            map[string]string `json:"Tags,omitempty"`
 	IntegrationName string            `json:"IntegrationName"`
+	SourceArn       string            `json:"SourceArn"`
+	TargetArn       string            `json:"TargetArn"`
 }
 
 // createIntegrationOutput holds the result for CreateIntegration.
 type createIntegrationOutput struct {
-	IntegrationName string `json:"IntegrationName"`
-	Status          string `json:"Status"`
+	IntegrationName string  `json:"IntegrationName"`
+	IntegrationArn  string  `json:"IntegrationArn"`
+	SourceArn       string  `json:"SourceArn"`
+	TargetArn       string  `json:"TargetArn"`
+	Status          string  `json:"Status"`
+	CreateTime      float64 `json:"CreateTime"`
 }
 
 func (h *Handler) handleCreateIntegration(
 	_ context.Context,
 	in *createIntegrationInput,
 ) (*createIntegrationOutput, error) {
-	ig, err := h.Backend.CreateIntegration(in.IntegrationName, in.Tags)
+	ig, err := h.Backend.CreateIntegration(in.IntegrationName, in.SourceArn, in.TargetArn, in.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createIntegrationOutput{IntegrationName: ig.IntegrationName, Status: ig.Status}, nil
+	return &createIntegrationOutput{
+		IntegrationName: ig.IntegrationName,
+		IntegrationArn:  ig.IntegrationArn,
+		SourceArn:       ig.SourceArn,
+		TargetArn:       ig.TargetArn,
+		Status:          ig.Status,
+		CreateTime:      awstime.Epoch(ig.CreatedAt),
+	}, nil
 }
 
 // createIntegrationResourcePropertyInput holds input for CreateIntegrationResourceProperty.
@@ -88,18 +103,31 @@ type deleteIntegrationInput struct {
 
 // deleteIntegrationOutput holds the result for DeleteIntegration.
 type deleteIntegrationOutput struct {
-	IntegrationName string `json:"IntegrationName"`
+	IntegrationName string  `json:"IntegrationName"`
+	IntegrationArn  string  `json:"IntegrationArn"`
+	SourceArn       string  `json:"SourceArn"`
+	TargetArn       string  `json:"TargetArn"`
+	Status          string  `json:"Status"`
+	CreateTime      float64 `json:"CreateTime"`
 }
 
 func (h *Handler) handleDeleteIntegration(
 	_ context.Context,
 	in *deleteIntegrationInput,
 ) (*deleteIntegrationOutput, error) {
-	if err := h.Backend.DeleteIntegration(in.IntegrationIdentifier); err != nil {
+	ig, err := h.Backend.DeleteIntegration(in.IntegrationIdentifier)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteIntegrationOutput{IntegrationName: in.IntegrationIdentifier}, nil
+	return &deleteIntegrationOutput{
+		IntegrationName: ig.IntegrationName,
+		IntegrationArn:  ig.IntegrationArn,
+		SourceArn:       ig.SourceArn,
+		TargetArn:       ig.TargetArn,
+		Status:          "DELETING",
+		CreateTime:      awstime.Epoch(ig.CreatedAt),
+	}, nil
 }
 
 // deleteIntegrationResourcePropertyInput holds input for DeleteIntegrationResourceProperty.
@@ -150,7 +178,7 @@ func (h *Handler) handleDescribeInboundIntegrations(
 	result := make([]any, 0, len(all))
 	for _, ig := range all {
 		// Filter by IntegrationArn when specified.
-		if in.IntegrationArn != "" && ig.IntegrationName != in.IntegrationArn {
+		if in.IntegrationArn != "" && ig.IntegrationArn != in.IntegrationArn {
 			continue
 		}
 
@@ -286,19 +314,31 @@ type modifyIntegrationInput struct {
 
 // modifyIntegrationOutput holds the result for ModifyIntegration.
 type modifyIntegrationOutput struct {
-	IntegrationArn string `json:"IntegrationArn"`
-	Status         string `json:"Status"`
+	IntegrationName string  `json:"IntegrationName"`
+	IntegrationArn  string  `json:"IntegrationArn"`
+	SourceArn       string  `json:"SourceArn"`
+	TargetArn       string  `json:"TargetArn"`
+	Status          string  `json:"Status"`
+	CreateTime      float64 `json:"CreateTime"`
 }
 
 func (h *Handler) handleModifyIntegration(
 	_ context.Context,
 	in *modifyIntegrationInput,
 ) (*modifyIntegrationOutput, error) {
-	if err := h.Backend.ModifyIntegration(in.IntegrationIdentifier); err != nil {
+	ig, err := h.Backend.ModifyIntegration(in.IntegrationIdentifier)
+	if err != nil {
 		return nil, err
 	}
 
-	return &modifyIntegrationOutput{Status: stateActive}, nil
+	return &modifyIntegrationOutput{
+		IntegrationName: ig.IntegrationName,
+		IntegrationArn:  ig.IntegrationArn,
+		SourceArn:       ig.SourceArn,
+		TargetArn:       ig.TargetArn,
+		Status:          stateActive,
+		CreateTime:      awstime.Epoch(ig.CreatedAt),
+	}, nil
 }
 
 // updateIntegrationResourcePropertyInput holds input for UpdateIntegrationResourceProperty.

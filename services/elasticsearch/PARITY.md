@@ -46,13 +46,13 @@ ops:
   ListPackagesForDomain: {wire: ok, errors: ok, state: ok, persist: n/a}
   CreateVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeVpcEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListVpcEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListVpcEndpointsForDomain: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListVpcEndpoints: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — dropped required NextToken (ListVpcEndpointsOutput, deserializers.go). Single-page emulator (never truncated) so no data is lost, but a required pointer left nil could panic a client that dereferences it unconditionally; now always emitted as an empty string. Prior wire: ok was false"}
+  ListVpcEndpointsForDomain: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — same required-NextToken gap and fix as ListVpcEndpoints above. Prior wire: ok was false"}
   UpdateVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   AuthorizeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   RevokeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListVpcEndpointAccess: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — same required-NextToken gap and fix as ListVpcEndpoints (ListVpcEndpointAccessOutput, deserializers.go). Prior wire: ok was false"}
   CreateOutboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeOutboundCrossClusterSearchConnections: {wire: ok, errors: ok, state: ok, persist: n/a}
   DeleteOutboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}

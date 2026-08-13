@@ -299,9 +299,14 @@ type getOrganizationsAccessReportResponse struct {
 }
 
 // listPGSAResult contains the (always-empty, mock) policies-granting-service-access list.
+// PoliciesGrantingServiceAccess is []string, not the real
+// []types.PolicyGrantingServiceAccess struct list, because the list is
+// always empty (see the handler's validation-only note) — an empty child
+// element serializes identically either way. Revisit the element type if
+// this op ever grows real emulation.
 type listPGSAResult struct {
-	PolicyGroups []string `xml:"PolicyGroups>member"`
-	IsTruncated  bool     `xml:"IsTruncated"`
+	PoliciesGrantingServiceAccess []string `xml:"PolicyGroups>member"`
+	IsTruncated                   bool     `xml:"IsTruncated"`
 }
 
 // listPoliciesGrantingServiceAccessResponse is the XML response for ListPoliciesGrantingServiceAccess.

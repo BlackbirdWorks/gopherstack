@@ -126,7 +126,12 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	_, err = b.StartMaterializedViewRefreshTaskRun("db1", "view1")
 	require.NoError(t, err)
-	_, err = b.CreateIntegration("int1", nil)
+	_, err = b.CreateIntegration(
+		"int1",
+		"arn:aws:s3:::source-bucket",
+		"arn:aws:redshift:us-east-1:123456789012:cluster/target",
+		nil,
+	)
 	require.NoError(t, err)
 	_, err = b.CreateIntegrationResourceProperty("arn:aws:glue:resource1", nil, nil)
 	require.NoError(t, err)

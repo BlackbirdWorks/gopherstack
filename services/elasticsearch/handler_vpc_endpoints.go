@@ -9,6 +9,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+// keyNextToken is the required (always-empty, single-page emulator) pagination
+// marker on ListVpcEndpoints/ListVpcEndpointAccess/ListVpcEndpointsForDomain.
+const keyNextToken = "NextToken"
+
 // vpcEndpointJSON is the JSON representation of a VPC endpoint.
 type vpcEndpointJSON struct {
 	VpcOptions       map[string]string `json:"VpcOptions"`
@@ -151,6 +155,7 @@ func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request
 func (h *Handler) handleListVpcEndpoints(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(r, w, map[string]any{
 		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpoints(h.reqContext(r))),
+		keyNextToken:             "",
 	})
 }
 
@@ -179,12 +184,13 @@ func (h *Handler) handleListVpcEndpointAccess(w http.ResponseWriter, r *http.Req
 		principals = append(principals, authorizedPrincipalJSON{PrincipalType: "AWS_ACCOUNT", Principal: account})
 	}
 
-	h.writeJSON(r, w, map[string]any{"AuthorizedPrincipalList": principals})
+	h.writeJSON(r, w, map[string]any{"AuthorizedPrincipalList": principals, keyNextToken: ""})
 }
 
 func (h *Handler) handleListVpcEndpointsForDomain(w http.ResponseWriter, r *http.Request, domainName string) {
 	h.writeJSON(r, w, map[string]any{
 		"VpcEndpointSummaryList": toVpcEndpointsJSON(h.Backend.ListVpcEndpointsForDomain(h.reqContext(r), domainName)),
+		keyNextToken:             "",
 	})
 }
 

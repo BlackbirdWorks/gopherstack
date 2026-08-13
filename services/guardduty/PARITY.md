@@ -102,7 +102,7 @@ ops:
   StartMonitoringMembers: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (ca2732322) — same missing detector-existence check as DeleteMembers, now fixed"}
   StopMonitoringMembers: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (ca2732322) — same missing detector-existence check as DeleteMembers, now fixed"}
   DisassociateMembers: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (ca2732322) — same missing detector-existence check as DeleteMembers, now fixed"}
-  GetMemberDetectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "no ops row here previously despite existing. FIXED (ca2732322) — same missing detector-existence check as DeleteMembers, now fixed"}
+  GetMemberDetectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "no ops row here previously despite existing. FIXED (ca2732322) — same missing detector-existence check as DeleteMembers, now fixed. FIXED (gopherstack-lx5h) — response emitted memberDataSources; real required key (deserializers.go GetMemberDetectorsOutput switch) is members, mapping to MemberDataSourceConfigurations. Prior wire: ok was false"}
   UpdateMemberDetectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "no ops row here previously despite existing. FIXED (ca2732322) — same missing detector-existence check as DeleteMembers, now fixed"}
   DeleteMalwareProtectionPlan: {wire: ok, errors: ok, state: ok, persist: ok}
   ListMalwareProtectionPlans: {wire: ok, errors: ok, state: ok, persist: ok}

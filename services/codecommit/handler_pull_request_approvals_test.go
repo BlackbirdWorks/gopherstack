@@ -296,11 +296,13 @@ func TestHandler_EvaluatePullRequestApprovalRules(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	evals := resp["evaluationResults"].([]any)
-	require.Len(t, evals, 1)
-	eval := evals[0].(map[string]any)
-	assert.Equal(t, "eval-rule", eval["approvalRuleName"])
-	assert.Equal(t, true, eval["satisfied"])
+	eval := resp["evaluation"].(map[string]any)
+	satisfied := eval["approvalRulesSatisfied"].([]any)
+	require.Len(t, satisfied, 1)
+	assert.Equal(t, "eval-rule", satisfied[0])
+	assert.Empty(t, eval["approvalRulesNotSatisfied"])
+	assert.Equal(t, true, eval["approved"])
+	assert.Equal(t, false, eval["overridden"])
 }
 
 func TestHandler_EvaluatePullRequestApprovalRules_WithRules(t *testing.T) {
@@ -329,8 +331,9 @@ func TestHandler_EvaluatePullRequestApprovalRules_WithRules(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	results := resp["evaluationResults"].([]any)
-	assert.Len(t, results, 2)
+	eval := resp["evaluation"].(map[string]any)
+	satisfied := eval["approvalRulesSatisfied"].([]any)
+	assert.Len(t, satisfied, 2)
 }
 
 func TestHandler_PullRequestApprovalRule_Lifecycle(t *testing.T) {
@@ -369,8 +372,8 @@ func TestHandler_PullRequestApprovalRule_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	evals := resp["evaluationResults"].([]any)
-	assert.Len(t, evals, 1)
+	eval := resp["evaluation"].(map[string]any)
+	assert.Len(t, eval["approvalRulesSatisfied"].([]any), 1)
 
 	// Delete rule.
 	rec = doRequest(t, h, "DeletePullRequestApprovalRule", map[string]any{
@@ -387,6 +390,6 @@ func TestHandler_PullRequestApprovalRule_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	evals = resp["evaluationResults"].([]any)
-	assert.Empty(t, evals)
+	eval = resp["evaluation"].(map[string]any)
+	assert.Empty(t, eval["approvalRulesSatisfied"])
 }

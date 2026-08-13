@@ -409,7 +409,28 @@ func (h *Handler) handleEvaluatePullRequestApprovalRules(body []byte) (any, erro
 		return nil, err
 	}
 
+	overridden, _, err := h.Backend.GetPullRequestOverrideState(req.PullRequestID)
+	if err != nil {
+		return nil, err
+	}
+
+	satisfied := make([]string, 0, len(evals))
+	notSatisfied := make([]string, 0, len(evals))
+
+	for _, e := range evals {
+		if e.Satisfied {
+			satisfied = append(satisfied, e.RuleName)
+		} else {
+			notSatisfied = append(notSatisfied, e.RuleName)
+		}
+	}
+
 	return map[string]any{
-		"evaluationResults": evals,
+		"evaluation": map[string]any{
+			"approved":                  overridden || len(notSatisfied) == 0,
+			"overridden":                overridden,
+			"approvalRulesSatisfied":    satisfied,
+			"approvalRulesNotSatisfied": notSatisfied,
+		},
 	}, nil
 }

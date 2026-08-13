@@ -296,10 +296,10 @@ func (h *Handler) handleGetMergeConflicts(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"mergeable":       mergeable,
-		keySourceCommitID: sourceCommitID,
-		keyDestCommitID:   destCommitID,
-		"conflicts":       []any{},
+		"mergeable":            mergeable,
+		keySourceCommitID:      sourceCommitID,
+		keyDestCommitID:        destCommitID,
+		"conflictMetadataList": []any{},
 	}, nil
 }
 

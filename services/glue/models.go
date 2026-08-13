@@ -641,6 +641,9 @@ type Integration struct {
 	CreatedAt       time.Time         `json:"CreateTime"`
 	Tags            map[string]string `json:"Tags,omitempty"`
 	IntegrationName string            `json:"IntegrationName"`
+	IntegrationArn  string            `json:"IntegrationArn,omitempty"`
+	SourceArn       string            `json:"SourceArn"`
+	TargetArn       string            `json:"TargetArn"`
 	Status          string            `json:"Status"`
 }
 
