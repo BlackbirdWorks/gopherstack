@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // sdkRouteCases is the authoritative method+path for every real pinpoint
@@ -157,6 +159,15 @@ func sdkRouteCases() []struct{ op, method, path string } {
 // TestExtractOperation_SDKRouteTable drives every real pinpoint op's
 // authoritative method+path (see sdkRouteCases) through ExtractOperation and
 // asserts the route table resolves it to the right op. gopherstack-jqh2.
+//
+// It then drives the same request through the real Handler() and asserts it
+// did not fall through to the literal "resource not found" body that the
+// various path/sub-route dispatch defaults emit throughout handler.go and
+// its per-family handlers -- distinct from the backend-lookup-failure
+// responses (e.g. handler_campaigns.go's handleGetCampaign), which always
+// carry the specific err.Error() text instead of that literal string. This
+// guards against an operation name that resolves correctly but has no
+// matching case in the dispatch chain (gopherstack-ey26).
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 
@@ -168,12 +179,17 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			if got != tc.op {
 				t.Errorf("method=%s path=%s: got op %q, want %q", tc.method, tc.path, got, tc.op)
 			}
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), "resource not found",
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

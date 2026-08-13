@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // sdkRouteCases is the authoritative method+path for every real backup
@@ -149,7 +151,13 @@ func sdkRouteCases() []struct{ op, method, path string } {
 
 // TestExtractOperation_SDKRouteTable drives every real backup op's
 // authoritative method+path (see sdkRouteCases) through ExtractOperation and
-// asserts the route table resolves it to the right op. gopherstack-jqh2.
+// asserts the route table resolves it to the right op, then drives the same
+// request through the real Handler() and asserts it did not fall through to
+// the "unknown operation: " ResourceNotFoundException that dispatch's final
+// default case emits (handler_dispatch.go) -- backup shares parseBackupPath
+// between ExtractOperation and dispatch, so this mainly guards against an op
+// name that resolves correctly but has no matching case in the dispatch
+// switch chain (gopherstack-ey26). gopherstack-jqh2.
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 
@@ -161,12 +169,17 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			if got != tc.op {
 				t.Errorf("method=%s path=%s: got op %q, want %q", tc.method, tc.path, got, tc.op)
 			}
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), "unknown operation: ",
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

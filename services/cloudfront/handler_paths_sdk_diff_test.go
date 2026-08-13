@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // sdkRouteCases is the authoritative method+path for every real cloudfront
@@ -223,7 +225,13 @@ func sdkRouteCases() []struct{ op, method, path string } {
 
 // TestExtractOperation_SDKRouteTable drives every real cloudfront op's
 // authoritative method+path (see sdkRouteCases) through ExtractOperation and
-// asserts the route table resolves it to the right op. This is what caught
+// asserts the route table resolves it to the right op, then drives the same
+// request through the real Handler() and asserts it did not fall through to
+// the "NoSuchOperation" error dispatchStubsTenantAndCerts's default case
+// emits at the end of the dispatch chain (handler_dispatch.go) -- cloudfront
+// shares parseCFPath between ExtractOperation and dispatch, so this mainly
+// guards against an op name that resolves correctly but has no matching case
+// in the dispatch switch chain (gopherstack-ey26). This is what caught
 // gopherstack-o31x's routing bugs beyond the three already known: the whole
 // ListDistributionsBy* family using a hyphenated path with no real-SDK
 // counterpart, the monitoring-subscription trio using singular "distribution/"
@@ -242,12 +250,17 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			if got != tc.op {
 				t.Errorf("method=%s path=%s: got op %q, want %q", tc.method, tc.path, got, tc.op)
 			}
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), "NoSuchOperation",
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

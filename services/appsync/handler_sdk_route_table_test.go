@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -105,6 +106,15 @@ func sdkRouteCases() []struct{ op, method, path string } {
 // existing parseOperation table already correct, including its several
 // same-path/different-method collisions (/v1/apis/{apiId}/ApiCaches,
 // /v1/tags/{arn}, /v2/apis/{apiId}).
+//
+// It then drives the same request through the real Handler() and asserts it
+// did not fall through to the literal "Not found" body that the various
+// route/path-shape dispatch defaults emit throughout handler.go and its
+// per-family handlers -- distinct from handleError's backend-not-found
+// responses (handler_errors.go), which always carry the specific
+// err.Error() text instead of that literal string. This guards against an
+// operation name that resolves correctly but has no matching case in the
+// dispatch chain (gopherstack-ey26).
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 
@@ -116,10 +126,15 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			require.Equal(t, tc.op, got, "method=%s path=%s", tc.method, tc.path)
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), "Not found",
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

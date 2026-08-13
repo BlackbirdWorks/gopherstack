@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,6 +91,12 @@ func sdkRouteCases() []struct{ op, method, path string } {
 // several same-path/different-method collisions this service's routing
 // depends on (/buckets/{arn}/{encryption,metrics,policy,storage-class},
 // /table-bucket-replication, /table-replication).
+//
+// It then drives the same request through the real Handler() and asserts it
+// did not fall through to the "unknown path" error handler.go:236-239 emits
+// when h.routeRequest (the same lookup ExtractOperation calls) returns a nil
+// dispatch func -- guarding against a request whose route lookup diverges
+// between the two calls (gopherstack-ey26).
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 
@@ -101,10 +108,15 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			require.Equal(t, tc.op, got, "method=%s path=%s", tc.method, tc.path)
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), "unknown path",
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

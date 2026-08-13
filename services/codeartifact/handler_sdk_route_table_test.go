@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,6 +90,12 @@ func sdkRouteCases() []struct{ op, method, path string } {
 // deliberately handled with a doc comment before this pass) and every
 // same-path/different-method collision (/v1/domain, /v1/repository,
 // /v1/package all serve three methods each).
+//
+// It then drives the same request through the real Handler() and asserts it
+// did not fall through to the "unknown operation: " ResourceNotFoundException
+// that dispatch's map-lookup miss emits (handler.go:598-605) -- guarding
+// against an operation name that resolves correctly but has no entry in
+// h.ops (gopherstack-ey26).
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 
@@ -100,10 +107,15 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			require.Equal(t, tc.op, got, "method=%s path=%s", tc.method, tc.path)
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), "unknown operation: ",
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

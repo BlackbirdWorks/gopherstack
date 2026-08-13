@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // sdkRouteCases is the authoritative method+path for every real classic
@@ -136,7 +138,14 @@ func sdkRouteCases() []struct{ op, method, path string } {
 
 // TestExtractOperation_SDKRouteTable drives every real classic-opensearch
 // op's authoritative method+path (see sdkRouteCases) through ExtractOperation
-// and asserts the route table resolves it to the right op. gopherstack-l5ir:
+// and asserts the route table resolves it to the right op, then drives the
+// same request through the real Handler() and asserts it did not fall
+// through to the "route not found" ResourceNotFoundException that
+// handler.go's dispatch default cases emit -- opensearch keeps a
+// hand-duplicated extraction tree separate from real dispatch (see
+// handler_operations.go:196-201), so an op name that resolves correctly
+// could still have no matching dispatch case (gopherstack-ey26).
+// gopherstack-l5ir:
 // this audit found and fixed 22 unreachable/misrouted ops (UpdateDomainConfig,
 // UpdateVpcEndpoint, DescribeInboundConnections, DescribeOutboundConnections,
 // StartServiceSoftwareUpdate, DescribeDomains, ListDomainNames,
@@ -157,12 +166,17 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			if got != tc.op {
 				t.Errorf("method=%s path=%s: got op %q, want %q", tc.method, tc.path, got, tc.op)
 			}
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), "route not found",
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

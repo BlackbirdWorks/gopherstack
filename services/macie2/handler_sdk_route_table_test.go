@@ -1,11 +1,13 @@
 package macie2_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/macie2"
@@ -109,7 +111,16 @@ func sdkRouteCases() []struct{ op, method, path string } {
 
 // TestExtractOperation_SDKRouteTable drives every real Macie2 op's
 // authoritative method+path (see sdkRouteCases) through ExtractOperation and
-// asserts the route table resolves it to the right op. gopherstack-jqh2 pass
+// asserts the route table resolves it to the right op, then drives the same
+// request through the real Handler() and asserts it did not fall through to
+// the unmatched-dispatch fallback: pkgs/service/restdispatch.go's shared
+// RESTRouter 404s with an errBody when Parse itself can't name an op, but
+// when Parse (== ExtractOperation) DOES resolve a real op name yet no
+// dispatcher family in h.dispatch claims it, dispatchTagOps's final default
+// (handler_tags.go) silently returns (nil, 404, nil) -- rendered as a bare
+// "{}" body with no error at all. That gap is exactly the risk this test
+// closes: an op name that resolves correctly but has no matching dispatch
+// case (gopherstack-ey26). gopherstack-jqh2 pass
 // 2: re-extracted all 81 macie2 ops from the pinned SDK and found the
 // existing parseRESTPath table already correct -- no bugs, including on the
 // four-way (/macie) and three-way (/admin) same-path/different-method
@@ -125,10 +136,18 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			require.Equal(t, tc.op, got, "method=%s path=%s", tc.method, tc.path)
+
+			require.NoError(t, h.Handler()(c))
+
+			unmatched := rec.Code == http.StatusNotFound && strings.TrimSpace(rec.Body.String()) == "{}"
+			assert.False(t, unmatched,
+				"method=%s path=%s op=%s: dispatched to the unmatched-route fallback (404, empty body)",
+				tc.method, tc.path, tc.op)
 		})
 	}
 }

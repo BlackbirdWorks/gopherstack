@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // sdkRouteCases is the authoritative method+path for every real HealthOmics
@@ -136,6 +138,12 @@ func sdkRouteCases() []struct{ op, method, path string } {
 // 2: re-derived all 107 omics ops from the pinned SDK and found the existing
 // classifyPath table already correct -- no bugs, unlike this audit's earlier
 // opensearch/lambda/route53/backup findings.
+//
+// It then drives the same request through the real Handler() and asserts it
+// did not fall through to the "operation not implemented" NotImplementedException
+// that handleREST's map-lookup miss emits (handler.go:704-711) -- guarding
+// against an operation name that resolves correctly but has no entry in
+// opDispatch (gopherstack-ey26).
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 
@@ -147,12 +155,17 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			if got != tc.op {
 				t.Errorf("method=%s path=%s: got op %q, want %q", tc.method, tc.path, got, tc.op)
 			}
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), "operation not implemented",
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

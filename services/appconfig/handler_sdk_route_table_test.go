@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -132,6 +133,12 @@ func sdkRouteCases() []struct{ op, method, path string } {
 // DeleteDeploymentStrategy path typo and the account-wide (non-nested)
 // ListExperimentDefinitions path -- both already deliberately handled with
 // doc comments in handler.go before this pass.
+//
+// It then drives the same request through the real Handler() and asserts it
+// did not fall through to the "not found" body that appConfigDispatch's
+// map-lookup miss emits (handler.go:977-995) -- guarding against an
+// operation name that resolves correctly but has no entry in
+// appConfigDispatch (gopherstack-ey26).
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 
@@ -143,10 +150,15 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			require.Equal(t, tc.op, got, "method=%s path=%s", tc.method, tc.path)
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), `"not found"`,
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

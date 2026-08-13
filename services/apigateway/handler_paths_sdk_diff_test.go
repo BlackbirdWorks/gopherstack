@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // sdkRouteCases is the authoritative method+path for every real apigateway
@@ -82,6 +84,12 @@ func sdkRouteCases() []struct{ op, method, path string } {
 // that performs real request dispatch -- so there is no separate,
 // independently-maintained op-name-resolution path to drift out of sync,
 // unlike several other services' ExtractOperation.
+//
+// It then drives the same request through the real Handler() and asserts it
+// did not fall through to the "UnknownOperationException" errType that
+// dispatch's map-lookup miss produces (handler.go:700-704) -- guarding
+// against an action name that resolves correctly but has no entry in
+// dispatchTable (gopherstack-ey26).
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 
@@ -93,12 +101,17 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			if got != tc.op {
 				t.Errorf("method=%s path=%s: got op %q, want %q", tc.method, tc.path, got, tc.op)
 			}
+
+			require.NoError(t, h.Handler()(c))
+			assert.NotContains(t, rec.Body.String(), "UnknownOperationException",
+				"method=%s path=%s op=%s: dispatched to the unmatched-route handler", tc.method, tc.path, tc.op)
 		})
 	}
 }

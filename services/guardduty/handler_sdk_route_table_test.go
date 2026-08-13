@@ -1,11 +1,13 @@
 package guardduty_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
@@ -129,6 +131,19 @@ func sdkRouteCases() []struct{ op, method, path string } {
 // existing parseRESTPath table already correct -- no new bugs, on top of the
 // UpdateMalwareProtectionPlan PATCH fix a prior pass already locked in via
 // handler_route_matcher_test.go.
+//
+// It then drives the same request through the real Handler() and asserts it
+// did not fall through to the unmatched-dispatch fallback: when Parse (==
+// ExtractOperation) resolves a real op name but no dispatcher family in
+// h.dispatch claims it, dispatchTagOps's final default (handler_tags.go)
+// returns errorf(errResourceNotFound) -- the only callsite that wraps
+// awserr.ErrInvalidParameter with the bare "ResourceNotFoundException"
+// message, so handleError renders it as 400 with message
+// "ResourceNotFoundException" (as opposed to legitimate *NotFound sentinels
+// in errors.go, which wrap awserr.ErrNotFound and render as 404). That
+// status+message combination is this test's unmatched-route sentinel,
+// closing the gap where an op name resolves correctly but has no matching
+// dispatch case (gopherstack-ey26).
 func TestExtractOperation_SDKRouteTable(t *testing.T) {
 	t.Parallel()
 
@@ -140,10 +155,18 @@ func TestExtractOperation_SDKRouteTable(t *testing.T) {
 
 			e := echo.New()
 			req := httptest.NewRequest(tc.method, tc.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
 			got := h.ExtractOperation(c)
 			require.Equal(t, tc.op, got, "method=%s path=%s", tc.method, tc.path)
+
+			require.NoError(t, h.Handler()(c))
+
+			unmatched := rec.Code == http.StatusBadRequest &&
+				strings.Contains(rec.Body.String(), `"message":"ResourceNotFoundException"`)
+			assert.False(t, unmatched,
+				"method=%s path=%s op=%s: dispatched to the unmatched-route fallback", tc.method, tc.path, tc.op)
 		})
 	}
 }
