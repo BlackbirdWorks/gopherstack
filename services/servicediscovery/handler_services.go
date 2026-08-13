@@ -271,7 +271,7 @@ func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, er
 
 	items := make([]map[string]any, 0, len(page))
 	for i := range page {
-		items = append(items, serviceToMap(&page[i]))
+		items = append(items, serviceSummaryToMap(&page[i]))
 	}
 
 	resp := map[string]any{
@@ -286,16 +286,28 @@ func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, er
 }
 
 // serviceToMap converts a Service to a JSON-serialisable map including DNS and
-// health check config. Tags are intentionally NOT included: real Cloud Map's
-// types.Service (returned by CreateService/GetService) and types.ServiceSummary
-// (returned by ListServices) both omit Tags -- tags are only retrievable via
-// ListTagsForResource.
+// health check config, for the full types.Service shape (CreateService/
+// GetService). Tags are intentionally NOT included: real Cloud Map's
+// types.Service and types.ServiceSummary both omit Tags -- tags are only
+// retrievable via ListTagsForResource.
 func serviceToMap(svc *Service) map[string]any {
+	m := serviceSummaryToMap(svc)
+	m[keyNamespaceID] = svc.NamespaceID
+
+	return m
+}
+
+// serviceSummaryToMap builds the types.ServiceSummary shape (types.go:1215)
+// -- no top-level NamespaceId; unlike types.Service, ServiceSummary does not
+// declare that member (confirmed against
+// awsAwsjson11_deserializeDocumentServiceSummary). The nested, deprecated
+// DnsConfig.NamespaceId is a distinct field shared by both shapes and is
+// unaffected.
+func serviceSummaryToMap(svc *Service) map[string]any {
 	m := map[string]any{
 		"Id":            svc.ID,
 		keyArn:          svc.ARN,
 		"Name":          svc.Name,
-		keyNamespaceID:  svc.NamespaceID,
 		"Description":   svc.Description,
 		keyCreateDate:   awstime.Epoch(svc.CreatedAt),
 		"InstanceCount": svc.InstanceCount,

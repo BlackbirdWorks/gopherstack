@@ -36,6 +36,9 @@ const (
 	keyStateDetails  = "stateDetails"
 	keySessionID     = "sessionId"
 	keyCreatedBy     = "createdBy"
+	keyType          = "type"
+	keyExecutionRole = "executionRole"
+	keyAttempt       = "attempt"
 )
 
 const (
@@ -503,7 +506,7 @@ func applicationToMap(app *Application) map[string]any {
 		"id":             app.ApplicationID, // ApplicationSummary.id in AWS SDK ListApplications response
 		keyArn:           app.Arn,
 		keyName:          app.Name,
-		"type":           app.Type,
+		keyType:          app.Type,
 		keyReleaseLabel:  app.ReleaseLabel,
 		keyState:         app.State,
 		keyCreatedAt:     epochSeconds(app.CreatedAt),
@@ -518,6 +521,35 @@ func applicationToMap(app *Application) map[string]any {
 	}
 
 	maps.Copy(m, app.ExtraConfig)
+
+	return m
+}
+
+// applicationSummaryToMap builds the types.ApplicationSummary shape
+// (types/types.go:119) -- no applicationId (Summary uses "id" only, unlike
+// the full Application type), tags, or any ExtraConfig sub-object
+// (maximumCapacity, networkConfiguration, autoStartConfiguration, etc, up
+// to 14 -- see applicationConfigFieldCount), all of which are Get-only
+// (confirmed against awsRestjson1_deserializeDocumentApplicationSummary,
+// which recognises only architecture/arn/createdAt/id/name/releaseLabel/
+// state/stateDetails/type/updatedAt).
+func applicationSummaryToMap(app *Application) map[string]any {
+	m := map[string]any{
+		"id":            app.ApplicationID,
+		keyArn:          app.Arn,
+		keyName:         app.Name,
+		keyType:         app.Type,
+		keyReleaseLabel: app.ReleaseLabel,
+		keyState:        app.State,
+		keyCreatedAt:    epochSeconds(app.CreatedAt),
+		keyUpdatedAt:    epochSeconds(app.UpdatedAt),
+	}
+	if app.Architecture != "" {
+		m["architecture"] = app.Architecture
+	}
+	if app.StateDetails != "" {
+		m[keyStateDetails] = app.StateDetails
+	}
 
 	return m
 }
@@ -540,13 +572,13 @@ func jobRunToMap(jr *JobRun) map[string]any {
 		// types.JobRunSummary.ExecutionRole), NOT "executionRoleArn" -- that name
 		// is only used on the StartJobRunInput *request* body. Confirmed against
 		// deserializeDocumentJobRun / deserializeDocumentJobRunSummary.
-		"executionRole":           jr.ExecutionRoleArn,
+		keyExecutionRole:          jr.ExecutionRoleArn,
 		keyCreatedBy:              jr.CreatedBy,
 		"executionTimeoutMinutes": jr.ExecutionTimeoutMinutes,
 		keyCreatedAt:              epochSeconds(jr.CreatedAt),
 		keyUpdatedAt:              epochSeconds(jr.UpdatedAt),
 		keyTags:                   jr.Tags,
-		"attempt":                 0,
+		keyAttempt:                0,
 	}
 	if jr.ReleaseLabel != "" {
 		m[keyReleaseLabel] = jr.ReleaseLabel
@@ -562,6 +594,37 @@ func jobRunToMap(jr *JobRun) map[string]any {
 	}
 	if jr.RetryPolicy != nil {
 		m["retryPolicy"] = jr.RetryPolicy
+	}
+
+	return m
+}
+
+// jobRunSummaryToMap builds the types.JobRunSummary shape
+// (types/types.go:661) -- no jobRunId (Summary uses "id" only, unlike the
+// full JobRun type), tags, executionTimeoutMinutes, jobDriver,
+// configurationOverrides, executionIamPolicy, or retryPolicy, all of which
+// are Get-only (confirmed against
+// awsRestjson1_deserializeDocumentJobRunSummary, which recognises only
+// applicationId/arn/attempt/attemptCreatedAt/attemptUpdatedAt/createdAt/
+// createdBy/executionRole/id/mode/name/releaseLabel/state/stateDetails/
+// type/updatedAt).
+func jobRunSummaryToMap(jr *JobRun) map[string]any {
+	m := map[string]any{
+		keyApplicationID: jr.ApplicationID,
+		"id":             jr.JobRunID,
+		keyArn:           jr.Arn,
+		keyName:          jr.Name,
+		keyState:         jr.State,
+		keyStateDetails:  jr.StateDetails,
+		"mode":           jr.Mode,
+		keyExecutionRole: jr.ExecutionRoleArn,
+		keyCreatedBy:     jr.CreatedBy,
+		keyCreatedAt:     epochSeconds(jr.CreatedAt),
+		keyUpdatedAt:     epochSeconds(jr.UpdatedAt),
+		keyAttempt:       0,
+	}
+	if jr.ReleaseLabel != "" {
+		m[keyReleaseLabel] = jr.ReleaseLabel
 	}
 
 	return m
@@ -705,7 +768,7 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 	list := make([]map[string]any, 0, len(apps))
 
 	for _, app := range apps {
-		list = append(list, applicationToMap(app))
+		list = append(list, applicationSummaryToMap(app))
 	}
 
 	resp := map[string]any{"applications": list}
@@ -866,7 +929,7 @@ func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error
 	list := make([]map[string]any, 0, len(runs))
 
 	for _, jr := range runs {
-		list = append(list, jobRunToMap(jr))
+		list = append(list, jobRunSummaryToMap(jr))
 	}
 
 	resp := map[string]any{"jobRuns": list}
@@ -907,14 +970,14 @@ func jobRunAttemptToMap(a *JobRunAttemptSummary) map[string]any {
 		keyUpdatedAt:     epochSeconds(a.UpdatedAt),
 		"jobCreatedAt":   epochSeconds(a.JobCreatedAt),
 		keyCreatedBy:     a.CreatedBy,
-		"executionRole":  a.ExecutionRole,
+		keyExecutionRole: a.ExecutionRole,
 		"id":             a.ID,
 		"releaseLabel":   a.ReleaseLabel,
 		keyState:         a.State,
 		"stateDetails":   a.StateDetails,
 		keyName:          a.Name,
-		"type":           a.Type,
-		"attempt":        a.Attempt,
+		keyType:          a.Type,
+		keyAttempt:       a.Attempt,
 	}
 }
 

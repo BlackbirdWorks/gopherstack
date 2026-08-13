@@ -26,6 +26,22 @@ func packageVersionToMap(pv *PackageVersion) map[string]any {
 	return m
 }
 
+// packageVersionSummaryToMap builds the types.PackageVersionSummary shape
+// (types.go:547) -- no format, packageName, publishedTime, or namespace,
+// all of which are Get-only (types.PackageVersionDescription, not
+// types.PackageVersionSummary; confirmed against
+// awsRestjson1_deserializeDocumentPackageVersionSummary, which recognises
+// only origin/revision/status/version). origin is a real Summary member
+// but the backend's PackageVersion model has no source for it, so it stays
+// absent rather than fabricated.
+func packageVersionSummaryToMap(pv *PackageVersion) map[string]any {
+	return map[string]any{
+		keyVersion:     pv.Version,
+		keyStatusField: pv.Status,
+		keyRevision:    pv.Revision,
+	}
+}
+
 func (h *Handler) handleDescribePackageVersion(
 	c *echo.Context,
 	domainName, repoName, format, namespace, name, version string,
@@ -458,7 +474,7 @@ func (h *Handler) handleListPackageVersions(
 
 	items := make([]map[string]any, 0, len(page))
 	for _, pv := range page {
-		items = append(items, packageVersionToMap(pv))
+		items = append(items, packageVersionSummaryToMap(pv))
 	}
 
 	resp := map[string]any{"versions": items, "package": name, "format": format}

@@ -7,8 +7,8 @@
 service: servicediscovery
 sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.43.4   # version audited against; matches go.mod (verified)
 botocore_model: servicediscovery/2017-03-14/service-2.json (botocore 1.43.56)  # for shape constraints not carried into the Go SDK comments
-last_audit_commit: 778e7aa0                       # HEAD when this follow-up pass wrote the manifest; this pass's own commit was not yet cut (see re-audit protocol)
-last_audit_date: 2026-08-10
+last_audit_commit: 778e7aa0                       # this pass (2026-08-13, gopherstack-tuh5) fixed a ListServices Get-field leak; commit hash not yet known at edit time
+last_audit_date: 2026-08-13
 overall: A            # real bugs found and fixed this pass (follow-up to gopherstack-bq50)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -24,7 +24,7 @@ ops:
   UpdatePublicDnsNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateService: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "Tags field removed from response; ServiceAlreadyExists now enforced (case-insensitive within DNS namespaces, case-sensitive within HTTP namespaces); DnsConfig.RoutingPolicy/DnsRecords[].Type and HealthCheckConfig.Type now validated against their closed enums (see gopherstack-bq50 Notes) -- fixed"}
   GetService: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags field removed (see CreateService) -- fixed"}
-  ListServices: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Filters now implement NAMESPACE_ID/RESOURCE_OWNER -- fixed, see Notes"}
+  ListServices: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-tuh5: was reusing serviceToMap (the full GetService converter) unscoped, leaking a top-level NamespaceId that types.ServiceSummary does not declare (confirmed against awsAwsjson11_deserializeDocumentServiceSummary; the nested, deprecated DnsConfig.NamespaceId is a distinct field on both shapes and is unaffected). namespaceToMap in this same file was checked and is clean (types.NamespaceSummary matches exactly). serviceToMap now delegates to a dedicated serviceSummaryToMap plus the one extra field. Regression: raw-body assertion (an SDK client discards unrecognised keys and can't observe an over-wide response). Prior pass: Filters now implement NAMESPACE_ID/RESOURCE_OWNER -- fixed, see Notes"}
   DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "was silently auto-deregistering instances instead of failing ResourceInUse -- fixed prior pass"}
   UpdateService: {wire: ok, errors: fixed, state: ok, persist: ok, note: "DnsConfig.RoutingPolicy/DnsRecords[].Type and HealthCheckConfig.Type now validated (see CreateService) -- fixed"}
   GetServiceAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
