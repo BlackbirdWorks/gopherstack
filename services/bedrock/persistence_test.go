@@ -2,6 +2,7 @@ package bedrock_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -96,7 +97,10 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 		LoggingEnabled: true,
 	})
 	b.PutUseCaseForModelAccess([]byte("test use case form data"))
-	require.NoError(t, b.UpdateAutomatedReasoningPolicyAnnotations(ids.arpARN, ids.arpWorkflowID))
+	_, err := b.UpdateAutomatedReasoningPolicyAnnotations(
+		ids.arpARN, ids.arpWorkflowID, []any{map[string]any{"seed": true}}, "seed-hash",
+	)
+	require.NoError(t, err)
 	require.NoError(t, b.TagAgentResource(ids.agentArn, map[string]string{"team": "platform"}))
 
 	seedParity4Resources(t, b, &ids)
@@ -206,7 +210,9 @@ func seedJobResources(
 	arp, err := b.CreateAutomatedReasoningPolicy("test-arp", "desc", tags)
 	require.NoError(t, err)
 
-	wf, err := b.StartAutomatedReasoningPolicyBuildWorkflow(arp.PolicyArn)
+	wf, err := b.StartAutomatedReasoningPolicyBuildWorkflow(
+		arp.PolicyArn, "INGEST_CONTENT", json.RawMessage(`{}`),
+	)
 	require.NoError(t, err)
 
 	tc, err := b.CreateAutomatedReasoningPolicyTestCase(arp.PolicyArn)
@@ -224,7 +230,7 @@ func seedJobResources(
 	)
 	require.NoError(t, err)
 
-	mcpj, err := b.CreateModelCopyJob(customModelARN, tags)
+	mcpj, err := b.CreateModelCopyJob(customModelARN, "test-copy-target", tags)
 	require.NoError(t, err)
 
 	mij, err := b.CreateModelImportJob(

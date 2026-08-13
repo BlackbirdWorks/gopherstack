@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -96,7 +97,7 @@ func (h *Handler) routeARPBuildWorkflow(c *echo.Context, path, method string, bo
 		return true, err
 	}
 
-	return h.routeARPBuildWorkflowCore(c, path, method)
+	return h.routeARPBuildWorkflowCore(c, path, method, body)
 }
 
 // routeARPBuildWorkflowSubResource handles the build-workflow-scoped sub-resources
@@ -113,7 +114,7 @@ func (h *Handler) routeARPBuildWorkflowSubResource(
 		return true, h.handleGetARPAnnotations(c, path)
 	// UpdateAutomatedReasoningPolicyAnnotations uses PATCH in the real SDK, not PUT.
 	case isARPBuildWorkflowAnnotationsPath(path) && method == http.MethodPatch:
-		return true, h.handleUpdateARPAnnotations(c, path)
+		return true, h.handleUpdateARPAnnotations(c, path, body)
 	case isARPBuildWorkflowScenariosPath(path) && method == http.MethodGet:
 		return true, h.handleGetARPNextScenario(c, path)
 	case isARPBuildWorkflowTestCaseResultPath(path) && method == http.MethodGet:
@@ -127,18 +128,23 @@ func (h *Handler) routeARPBuildWorkflowSubResource(
 	return false, nil
 }
 
-func (h *Handler) routeARPBuildWorkflowCore(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeARPBuildWorkflowCore(c *echo.Context, path, method string, body []byte) (bool, error) {
 	switch {
 	case isARPBuildWorkflowCancelPath(path) && method == http.MethodPost:
 		return true, h.handleCancelAutomatedReasoningPolicyBuildWorkflow(c, path)
 	case isARPBuildWorkflowResultAssetsPath(path) && method == http.MethodGet:
 		return true, h.handleGetARPBuildWorkflowResultAssets(c, path)
+	// StartAutomatedReasoningPolicyBuildWorkflow's real path is
+	// .../build-workflows/{buildWorkflowType}/start (bedrock@v1.66.4
+	// serializers.go:8008), not bare .../build-workflows -- must be checked
+	// before isARPBuildWorkflowsPath below, whose POST case a real client's
+	// Start request never actually reaches.
+	case isARPBuildWorkflowStartPath(path) && method == http.MethodPost:
+		return true, h.handleStartARPBuildWorkflow(c, path, body)
 	case isARPBuildWorkflowSubPath(path) && method == http.MethodGet:
 		return true, h.handleGetARPBuildWorkflow(c, path)
 	case isARPBuildWorkflowSubPath(path) && method == http.MethodDelete:
 		return true, h.handleDeleteARPBuildWorkflow(c, path)
-	case isARPBuildWorkflowsPath(path) && method == http.MethodPost:
-		return true, h.handleStartARPBuildWorkflow(c, path)
 	case isARPBuildWorkflowsPath(path) && method == http.MethodGet:
 		return true, h.handleListARPBuildWorkflows(c, path)
 	}
@@ -362,6 +368,31 @@ func isARPBuildWorkflowsPath(path string) bool {
 	}
 
 	return strings.HasSuffix(rest, "/build-workflows")
+}
+
+// isARPBuildWorkflowStartPath matches
+// /automated-reasoning-policies/{arn}/build-workflows/{buildWorkflowType}/start
+// (bedrock@v1.66.4 serializers.go:8008).
+func isARPBuildWorkflowStartPath(path string) bool {
+	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+	if !ok {
+		return false
+	}
+
+	return strings.Contains(rest, "/build-workflows/") && strings.HasSuffix(rest, "/start")
+}
+
+// extractARPBuildWorkflowStart extracts policyARN and buildWorkflowType from
+// the Start path.
+func extractARPBuildWorkflowStart(path string) (string, string) {
+	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+
+	before, after, ok := strings.Cut(rest, "/build-workflows/")
+	if !ok {
+		return "", ""
+	}
+
+	return decodePath(before), strings.TrimSuffix(after, "/start")
 }
 
 // isARPBuildWorkflowSubPath matches /automated-reasoning-policies/{arn}/build-workflows/{id}
@@ -597,7 +628,9 @@ func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {
 }
 
 type updateARPInput struct {
-	Description string `json:"description,omitempty"`
+	Description      string          `json:"description,omitempty"`
+	Name             string          `json:"name,omitempty"`
+	PolicyDefinition json.RawMessage `json:"policyDefinition"`
 }
 
 func (h *Handler) handleUpdateAutomatedReasoningPolicy(c *echo.Context, policyARN string, body []byte) error {
@@ -606,16 +639,22 @@ func (h *Handler) handleUpdateAutomatedReasoningPolicy(c *echo.Context, policyAR
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	policy, opErr := h.Backend.UpdateAutomatedReasoningPolicy(policyARN, in.Description)
+	if len(in.PolicyDefinition) == 0 {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "policyDefinition is required"))
+	}
+
+	policy, opErr := h.Backend.UpdateAutomatedReasoningPolicy(policyARN, in.Name, in.Description, in.PolicyDefinition)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
 
+	// Real UpdateAutomatedReasoningPolicyOutput has definitionHash/name/policyArn/
+	// updatedAt -- no status (bedrock@v1.66.4 deserializers.go:17590-17650).
 	return c.JSON(http.StatusOK, map[string]any{
-		keyPolicyArn: policy.PolicyArn,
-		keyName:      policy.Name,
-		keyStatus:    policy.Status,
-		keyUpdatedAt: isoTime{policy.UpdatedAt},
+		keyPolicyArn:      policy.PolicyArn,
+		keyName:           policy.Name,
+		keyDefinitionHash: policy.DefinitionHash,
+		keyUpdatedAt:      isoTime{policy.UpdatedAt},
 	})
 }
 
@@ -627,18 +666,32 @@ func (h *Handler) handleDeleteAutomatedReasoningPolicy(c *echo.Context, policyAR
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleStartARPBuildWorkflow(c *echo.Context, path string) error {
-	policyARN := extractARPPolicyARN(path, "/build-workflows")
+// handleStartARPBuildWorkflow starts a build workflow. Path:
+// /automated-reasoning-policies/{policyArn}/build-workflows/{buildWorkflowType}/start;
+// body is the entire required sourceContent object, not a wrapper (bedrock@v1.66.4
+// serializers.go:8008-8058). sourceContent's own nested union is not
+// interpreted -- stored verbatim on the workflow (AutomatedReasoningPolicyBuildWorkflow.
+// SourceContent) as real, inert backing state, never fabricated.
+func (h *Handler) handleStartARPBuildWorkflow(c *echo.Context, path string, body []byte) error {
+	policyARN, buildWorkflowType := extractARPBuildWorkflowStart(path)
 
-	wf, err := h.Backend.StartAutomatedReasoningPolicyBuildWorkflow(policyARN)
+	if !json.Valid(body) {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	wf, err := h.Backend.StartAutomatedReasoningPolicyBuildWorkflow(
+		policyARN, buildWorkflowType, json.RawMessage(body),
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
 
+	// Real StartAutomatedReasoningPolicyBuildWorkflowOutput has only
+	// buildWorkflowId/policyArn -- no status (bedrock@v1.66.4
+	// api_op_StartAutomatedReasoningPolicyBuildWorkflow.go:59-76).
 	return c.JSON(http.StatusCreated, map[string]any{
 		keyBuildWorkflowID: wf.BuildWorkflowID,
 		keyPolicyArn:       wf.PolicyArn,
-		keyStatus:          wf.Status,
 	})
 }
 
@@ -651,9 +704,10 @@ func (h *Handler) handleGetARPBuildWorkflow(c *echo.Context, path string) error 
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyBuildWorkflowID: wf.BuildWorkflowID,
-		keyPolicyArn:       wf.PolicyArn,
-		keyStatus:          wf.Status,
+		keyBuildWorkflowID:  wf.BuildWorkflowID,
+		keyPolicyArn:        wf.PolicyArn,
+		keyStatus:           wf.Status,
+		"buildWorkflowType": wf.BuildWorkflowType,
 	})
 }
 
@@ -664,9 +718,10 @@ func (h *Handler) handleListARPBuildWorkflows(c *echo.Context, path string) erro
 
 	for _, wf := range workflows {
 		summaries = append(summaries, map[string]any{
-			keyBuildWorkflowID: wf.BuildWorkflowID,
-			keyPolicyArn:       wf.PolicyArn,
-			keyStatus:          wf.Status,
+			keyBuildWorkflowID:  wf.BuildWorkflowID,
+			keyPolicyArn:        wf.PolicyArn,
+			keyStatus:           wf.Status,
+			"buildWorkflowType": wf.BuildWorkflowType,
 		})
 	}
 
@@ -683,6 +738,12 @@ func (h *Handler) handleDeleteARPBuildWorkflow(c *echo.Context, path string) err
 	return c.NoContent(http.StatusNoContent)
 }
 
+// handleGetARPBuildWorkflowResultAssets deliberately does not read the
+// assetType/assetId query params (bedrock@v1.66.4 serializers.go:4068-4074).
+// See GetAutomatedReasoningPolicyBuildWorkflowResultAssets's doc comment for
+// why: the backend has no result-asset content to filter, so wiring the
+// param would accept it without it ever changing the (always-empty) output --
+// unverifiable surface, not a real fix.
 func (h *Handler) handleGetARPBuildWorkflowResultAssets(c *echo.Context, path string) error {
 	policyARN, workflowID := extractARPWorkflowIDs(path)
 
@@ -845,14 +906,44 @@ func (h *Handler) handleGetARPAnnotations(c *echo.Context, path string) error {
 	return c.JSON(http.StatusOK, result)
 }
 
-func (h *Handler) handleUpdateARPAnnotations(c *echo.Context, path string) error {
+type updateARPAnnotationsInput struct {
+	LastUpdatedAnnotationSetHash string `json:"lastUpdatedAnnotationSetHash"`
+	Annotations                  []any  `json:"annotations"`
+}
+
+// handleUpdateARPAnnotations updates annotations for a build workflow. Both
+// annotations and lastUpdatedAnnotationSetHash are required
+// (bedrock@v1.66.4 api_op_UpdateAutomatedReasoningPolicyAnnotations.go:37-56)
+// and the real response carries annotationSetHash/buildWorkflowId/policyArn/
+// updatedAt, all required too -- previously this returned an empty 200 body,
+// dropping both the request and the response.
+func (h *Handler) handleUpdateARPAnnotations(c *echo.Context, path string, body []byte) error {
 	policyARN, workflowID := extractARPWorkflowIDs(path)
 
-	if err := h.Backend.UpdateAutomatedReasoningPolicyAnnotations(policyARN, workflowID); err != nil {
-		return h.writeError(c, err)
+	in, err := parseBody[updateARPAnnotationsInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	return c.NoContent(http.StatusOK)
+	if in.Annotations == nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "annotations is required"))
+	}
+
+	if in.LastUpdatedAnnotationSetHash == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "lastUpdatedAnnotationSetHash is required"),
+		)
+	}
+
+	result, opErr := h.Backend.UpdateAutomatedReasoningPolicyAnnotations(
+		policyARN, workflowID, in.Annotations, in.LastUpdatedAnnotationSetHash,
+	)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusOK, result)
 }
 
 func (h *Handler) handleGetARPNextScenario(c *echo.Context, path string) error {

@@ -70,7 +70,17 @@ type InMemoryBackend struct {
 	promptRouters               *store.Table[PromptRouter]                   // routerArn → router
 	enforcedGuardrailConfigs    *store.Table[AccountEnforcedGuardrailConfig] // configID → config
 	arpAnnotations              map[string][]any                             // policyARN+":"+buildWorkflowID → annotations
-	useCaseFormData             []byte                                       // raw FormData for PutUseCaseForModelAccess
+	// arpAnnotationSetHash is the optimistic-concurrency token
+	// UpdateAutomatedReasoningPolicyAnnotations's required
+	// lastUpdatedAnnotationSetHash checks against and
+	// GetAutomatedReasoningPolicyAnnotations's required annotationSetHash
+	// returns (bedrock@v1.66.4 api_op_GetAutomatedReasoningPolicyAnnotations.go:54,
+	// api_op_UpdateAutomatedReasoningPolicyAnnotations.go). Deliberately NOT
+	// part of backendSnapshot/restoreRawMaps: losing it across a restore only
+	// means the next Get lazily mints a fresh opaque token, unlike
+	// GuardrailVersionCounters where losing state risks a real key collision.
+	arpAnnotationSetHash map[string]string // policyARN+":"+buildWorkflowID → hash
+	useCaseFormData      []byte            // raw FormData for PutUseCaseForModelAccess
 	// parity-4 additions. resourcePolicies is shared by both the core
 	// bedrock and bedrock-agent flavors -- see resource_policy.go.
 	advancedPromptOptimizationJobs *store.Table[AdvancedPromptOptimizationJob] // jobArn → job
@@ -166,6 +176,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		inferenceProfilesByName:    make(map[string]string),
 		marketplaceEndpointsByName: make(map[string]string),
 		arpAnnotations:             make(map[string][]any),
+		arpAnnotationSetHash:       make(map[string]string),
 		promptRoutersByName:        make(map[string]string),
 		agentsByName:               make(map[string]string),
 		kbByName:                   make(map[string]string),
@@ -280,6 +291,7 @@ func (b *InMemoryBackend) resetAuxState() {
 	b.agentTags = make(map[string]map[string]string)
 	b.agentMemory = make(map[string][]any)
 	b.arpAnnotations = make(map[string][]any)
+	b.arpAnnotationSetHash = make(map[string]string)
 	b.useCaseFormData = nil
 	b.accountDataRetention = nil
 }

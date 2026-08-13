@@ -36,7 +36,8 @@ func (h *Handler) routeStubCopyImportOps(c *echo.Context, path, method string) (
 
 // createModelCopyJobInput is the parsed request body for CreateModelCopyJob.
 type createModelCopyJobInput struct {
-	SourceModelArn string `json:"sourceModelArn"`
+	SourceModelArn  string `json:"sourceModelArn"`
+	TargetModelName string `json:"targetModelName"`
 	// TargetModelTags, not Tags: real CreateModelCopyJobInput carries the field
 	// as TargetModelTags, wire key "targetModelTags" (bedrock@v1.66.4
 	// serializers.go: awsRestjson1_serializeOpDocumentCreateModelCopyJobInput).
@@ -60,7 +61,14 @@ func (h *Handler) handleCreateModelCopyJob(c *echo.Context) error {
 		)
 	}
 
-	job, opErr := h.Backend.CreateModelCopyJob(in.SourceModelArn, in.Tags)
+	if in.TargetModelName == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "targetModelName is required"),
+		)
+	}
+
+	job, opErr := h.Backend.CreateModelCopyJob(in.SourceModelArn, in.TargetModelName, in.Tags)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}

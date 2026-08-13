@@ -193,6 +193,9 @@ func (b *InMemoryBackend) agentCollaboratorsStore(agentID string) *store.Table[A
 //   - agentMemory, arpAnnotations: map[string][]any; the value is a raw
 //     slice with no identity field of its own to derive a store.Table key
 //     function from.
+//   - arpAnnotationSetHash: map[string]string optimistic-concurrency token,
+//     same key shape as arpAnnotations and deliberately not persisted (see
+//     its field doc comment in this struct).
 //   - loggingConfig: a single *ModelInvocationLoggingConfiguration, not a map.
 //   - accountDataRetention (parity-4): a single *AccountDataRetention, not a
 //     map -- same shape as loggingConfig.
