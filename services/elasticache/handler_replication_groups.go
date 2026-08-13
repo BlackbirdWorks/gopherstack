@@ -571,6 +571,10 @@ func mapReplicationGroupModifyErr(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 	case errors.Is(err, ErrTransitEncryptionModeInvalid):
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
+	case errors.Is(err, ErrClusterModeRequired):
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
+	case errors.Is(err, ErrApplyImmediatelyRequired):
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 	case errors.Is(err, ErrReplicationGroupNotAvailable):
 		return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
 	default:
@@ -637,14 +641,18 @@ func (h *Handler) completeMigration(ctx context.Context, c *echo.Context, form u
 
 func (h *Handler) startMigration(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
+	endpoints := parseCustomerNodeEndpoints(form, "CustomerNodeEndpointList")
 
-	rg, err := h.Backend.StartMigration(ctx, replicationGroupID)
+	rg, err := h.Backend.StartMigration(ctx, replicationGroupID, endpoints)
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupNotFound) {
+		switch {
+		case errors.Is(err, ErrReplicationGroupNotFound):
 			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+		case errors.Is(err, ErrCustomerNodeEndpointsRequired):
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		default:
+			return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type result struct {
@@ -661,14 +669,18 @@ func (h *Handler) startMigration(ctx context.Context, c *echo.Context, form url.
 
 func (h *Handler) testMigration(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
+	endpoints := parseCustomerNodeEndpoints(form, "CustomerNodeEndpointList")
 
-	rg, err := h.Backend.TestMigration(ctx, replicationGroupID)
+	rg, err := h.Backend.TestMigration(ctx, replicationGroupID, endpoints)
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupNotFound) {
+		switch {
+		case errors.Is(err, ErrReplicationGroupNotFound):
 			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+		case errors.Is(err, ErrCustomerNodeEndpointsRequired):
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		default:
+			return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type result struct {
@@ -683,11 +695,33 @@ func (h *Handler) testMigration(ctx context.Context, c *echo.Context, form url.V
 	})
 }
 
+// parseCustomerNodeEndpoints parses "<prefix>.member.N.{Address,Port}" form
+// values into a []CustomerNodeEndpoint (StartMigration/TestMigration).
+func parseCustomerNodeEndpoints(form url.Values, prefix string) []CustomerNodeEndpoint {
+	var endpoints []CustomerNodeEndpoint
+
+	for i := 1; ; i++ {
+		base := fmt.Sprintf("%s.member.%d.", prefix, i)
+		address := form.Get(base + "Address")
+		portStr := form.Get(base + "Port")
+
+		if address == "" && portStr == "" {
+			break
+		}
+
+		port, _ := strconv.ParseInt(portStr, 10, 32)
+		endpoints = append(endpoints, CustomerNodeEndpoint{Address: address, Port: int32(port)})
+	}
+
+	return endpoints
+}
+
 func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	newReplicaCount, _ := strconv.ParseInt(form.Get("NewReplicaCount"), 10, 32)
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	rg, err := h.Backend.IncreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
+	rg, err := h.Backend.IncreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount), applyImmediately)
 	if err != nil {
 		return mapReplicationGroupModifyErr(c, err)
 	}
@@ -707,8 +741,9 @@ func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, for
 func (h *Handler) decreaseReplicaCount(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	newReplicaCount, _ := strconv.ParseInt(form.Get("NewReplicaCount"), 10, 32)
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	rg, err := h.Backend.DecreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
+	rg, err := h.Backend.DecreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount), applyImmediately)
 	if err != nil {
 		return mapReplicationGroupModifyErr(c, err)
 	}
@@ -732,22 +767,13 @@ func (h *Handler) modifyReplicationGroupShardConfiguration(
 ) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	nodeGroupCount, _ := strconv.ParseInt(form.Get("NodeGroupCount"), 10, 32)
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	rg, err := h.Backend.ModifyReplicationGroupShardConfiguration(ctx, replicationGroupID, int32(nodeGroupCount))
+	rg, err := h.Backend.ModifyReplicationGroupShardConfiguration(
+		ctx, replicationGroupID, int32(nodeGroupCount), applyImmediately,
+	)
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
-		}
-
-		if errors.Is(err, ErrClusterModeRequired) {
-			return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
-		}
-
-		if errors.Is(err, ErrReplicationGroupNotAvailable) {
-			return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapReplicationGroupModifyErr(c, err)
 	}
 
 	type result struct {

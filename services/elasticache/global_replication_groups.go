@@ -219,11 +219,18 @@ func (b *InMemoryBackend) FailoverGlobalReplicationGroup(
 }
 
 // IncreaseNodeGroupsInGlobalReplicationGroup increases the node group count.
+// AWS documents ApplyImmediately as required, stating "the only permitted
+// value for this parameter is true", so applyImmediately=false is rejected.
 func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
 	_ context.Context,
 	id string,
 	nodeGroupCount int32,
+	applyImmediately bool,
 ) (*GlobalReplicationGroup, error) {
+	if !applyImmediately {
+		return nil, ErrApplyImmediatelyRequired
+	}
+
 	b.mu.Lock("IncreaseNodeGroupsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -248,11 +255,18 @@ func (b *InMemoryBackend) IncreaseNodeGroupsInGlobalReplicationGroup(
 }
 
 // DecreaseNodeGroupsInGlobalReplicationGroup decreases the node group count.
+// See IncreaseNodeGroupsInGlobalReplicationGroup's doc comment: AWS documents
+// ApplyImmediately=false as unsupported for this operation too.
 func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(
 	_ context.Context,
 	id string,
 	nodeGroupCount int32,
+	applyImmediately bool,
 ) (*GlobalReplicationGroup, error) {
+	if !applyImmediately {
+		return nil, ErrApplyImmediatelyRequired
+	}
+
 	b.mu.Lock("DecreaseNodeGroupsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -277,11 +291,19 @@ func (b *InMemoryBackend) DecreaseNodeGroupsInGlobalReplicationGroup(
 }
 
 // ModifyGlobalReplicationGroup modifies a global replication group.
+// applyImmediately is accepted (it is a required wire member) but is not a
+// gate on timing here: AWS's own docs for this operation state that GRG
+// modifications "cannot be requested to be applied in PreferredMaintenceWindow"
+// -- there is no deferred path to honour, on the real API or in this
+// backend's GlobalReplicationGroup model (which, unlike ReplicationGroup, has
+// no PendingModifiedValues concept). Both true and false apply immediately.
 func (b *InMemoryBackend) ModifyGlobalReplicationGroup(
 	_ context.Context,
 	id, description, engineVersion string,
-	automaticFailoverEnabled bool,
+	automaticFailoverEnabled, applyImmediately bool,
 ) (*GlobalReplicationGroup, error) {
+	_ = applyImmediately
+
 	b.mu.Lock("ModifyGlobalReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -310,11 +332,17 @@ func (b *InMemoryBackend) ModifyGlobalReplicationGroup(
 	return b.globalReplicationGroupView(grg), nil
 }
 
-// RebalanceSlotsInGlobalReplicationGroup rebalances slots.
+// RebalanceSlotsInGlobalReplicationGroup rebalances slots. applyImmediately is
+// accepted (it is a required wire member) but, like ModifyGlobalReplicationGroup,
+// is not a genuine timing gate: this backend has no background scheduler to
+// defer a redistribution onto, so both true and false rebalance synchronously.
 func (b *InMemoryBackend) RebalanceSlotsInGlobalReplicationGroup(
 	_ context.Context,
 	id string,
+	applyImmediately bool,
 ) (*GlobalReplicationGroup, error) {
+	_ = applyImmediately
+
 	b.mu.Lock("RebalanceSlotsInGlobalReplicationGroup")
 	defer b.mu.Unlock()
 

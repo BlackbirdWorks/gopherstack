@@ -28,6 +28,15 @@ var (
 	ErrAuthTokenRequiredForMode     = errors.New(
 		"auth token must be provided when transit encryption mode is 'required'",
 	)
+	// ErrApplyImmediatelyRequired matches AWS's own documented constraint on
+	// IncreaseReplicaCount/DecreaseReplicaCount/ModifyReplicationGroupShardConfiguration/
+	// IncreaseNodeGroupsInGlobalReplicationGroup/DecreaseNodeGroupsInGlobalReplicationGroup:
+	// ApplyImmediately is required, and false is documented as "not currently
+	// supported" / "the only permitted value for this parameter is true".
+	ErrApplyImmediatelyRequired = errors.New("ApplyImmediately=false is not currently supported for this operation")
+	// ErrCustomerNodeEndpointsRequired guards StartMigration/TestMigration's
+	// required CustomerNodeEndpointList member.
+	ErrCustomerNodeEndpointsRequired = errors.New("CustomerNodeEndpointList must contain at least one endpoint")
 )
 
 // State-transition guard sentinels: a resource must be "available" before it

@@ -87,7 +87,9 @@ func TestBackend_ModifyGlobalReplicationGroup(t *testing.T) {
 	_, err = b.CreateGlobalReplicationGroup(context.Background(), "mod", "original desc", "mod-grg-primary")
 	require.NoError(t, err)
 
-	grg, err := b.ModifyGlobalReplicationGroup(context.Background(), "ldgnf-mod", "updated description", "", false)
+	grg, err := b.ModifyGlobalReplicationGroup(
+		context.Background(), "ldgnf-mod", "updated description", "", false, true,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "updated description", grg.Description)
 }
@@ -105,7 +107,9 @@ func TestBackend_IncreaseNodeGroupsInGRG_UpdatesCount(t *testing.T) {
 	require.NoError(t, err)
 	initialCount := grg.NodeGroupCount
 
-	updated, err := b.IncreaseNodeGroupsInGlobalReplicationGroup(context.Background(), grg.GlobalReplicationGroupID, 3)
+	updated, err := b.IncreaseNodeGroupsInGlobalReplicationGroup(
+		context.Background(), grg.GlobalReplicationGroupID, 3, true,
+	)
 	require.NoError(t, err)
 	assert.Greater(t, updated.NodeGroupCount, initialCount)
 	assert.Equal(t, int32(3), updated.NodeGroupCount)
@@ -119,10 +123,12 @@ func TestBackend_DecreaseNodeGroupsInGRG_UpdatesCount(t *testing.T) {
 	grg, err := b.CreateGlobalReplicationGroup(context.Background(), "dec-grg", "desc", "")
 	require.NoError(t, err)
 
-	_, err = b.IncreaseNodeGroupsInGlobalReplicationGroup(context.Background(), grg.GlobalReplicationGroupID, 5)
+	_, err = b.IncreaseNodeGroupsInGlobalReplicationGroup(context.Background(), grg.GlobalReplicationGroupID, 5, true)
 	require.NoError(t, err)
 
-	updated, err := b.DecreaseNodeGroupsInGlobalReplicationGroup(context.Background(), grg.GlobalReplicationGroupID, 2)
+	updated, err := b.DecreaseNodeGroupsInGlobalReplicationGroup(
+		context.Background(), grg.GlobalReplicationGroupID, 2, true,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), updated.NodeGroupCount)
 }

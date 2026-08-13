@@ -92,6 +92,8 @@ func mapGlobalReplicationGroupErr(c *echo.Context, err error) error {
 		)
 	case errors.Is(err, ErrGlobalReplicationGroupNotAvailable):
 		return xmlError(c, http.StatusBadRequest, "InvalidGlobalReplicationGroupState", err.Error())
+	case errors.Is(err, ErrApplyImmediatelyRequired):
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 	default:
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -196,8 +198,9 @@ func (h *Handler) increaseNodeGroupsInGlobalReplicationGroup(
 ) error {
 	id := form.Get("GlobalReplicationGroupId")
 	nodeGroupCount, _ := strconv.ParseInt(form.Get("NodeGroupCount"), 10, 32)
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	grg, err := h.Backend.IncreaseNodeGroupsInGlobalReplicationGroup(ctx, id, int32(nodeGroupCount))
+	grg, err := h.Backend.IncreaseNodeGroupsInGlobalReplicationGroup(ctx, id, int32(nodeGroupCount), applyImmediately)
 	if err != nil {
 		return mapGlobalReplicationGroupErr(c, err)
 	}
@@ -221,8 +224,9 @@ func (h *Handler) decreaseNodeGroupsInGlobalReplicationGroup(
 ) error {
 	id := form.Get("GlobalReplicationGroupId")
 	nodeGroupCount, _ := strconv.ParseInt(form.Get("NodeGroupCount"), 10, 32)
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	grg, err := h.Backend.DecreaseNodeGroupsInGlobalReplicationGroup(ctx, id, int32(nodeGroupCount))
+	grg, err := h.Backend.DecreaseNodeGroupsInGlobalReplicationGroup(ctx, id, int32(nodeGroupCount), applyImmediately)
 	if err != nil {
 		return mapGlobalReplicationGroupErr(c, err)
 	}
@@ -244,8 +248,11 @@ func (h *Handler) modifyGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 	description := form.Get("GlobalReplicationGroupDescription")
 	engineVersion := form.Get("EngineVersion")
 	automaticFailoverEnabled := strings.EqualFold(form.Get("AutomaticFailoverEnabled"), "true")
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	grg, err := h.Backend.ModifyGlobalReplicationGroup(ctx, id, description, engineVersion, automaticFailoverEnabled)
+	grg, err := h.Backend.ModifyGlobalReplicationGroup(
+		ctx, id, description, engineVersion, automaticFailoverEnabled, applyImmediately,
+	)
 	if err != nil {
 		return mapGlobalReplicationGroupErr(c, err)
 	}
@@ -264,8 +271,9 @@ func (h *Handler) modifyGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 
 func (h *Handler) rebalanceSlotsInGlobalReplicationGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("GlobalReplicationGroupId")
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	grg, err := h.Backend.RebalanceSlotsInGlobalReplicationGroup(ctx, id)
+	grg, err := h.Backend.RebalanceSlotsInGlobalReplicationGroup(ctx, id, applyImmediately)
 	if err != nil {
 		return mapGlobalReplicationGroupErr(c, err)
 	}

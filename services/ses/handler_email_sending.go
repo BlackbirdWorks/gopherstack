@@ -44,9 +44,11 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 	sourceArn := vals.Get("SourceArn")
 	configSetName := vals.Get("ConfigurationSetName")
 	tags := parseSESTags(vals, "Tags")
+	destinations := parseSESMemberList(vals, "Destinations")
 
-	// Parse RFC 2822 headers to extract From, To, and Subject when not supplied explicitly.
-	var toAddrs []string
+	// Parse RFC 2822 headers to extract From, Subject, and the visible
+	// To/Cc recipients when not supplied explicitly.
+	var headerTo, headerCc []string
 	subject := "raw"
 
 	msg, err := mail.ReadMessage(strings.NewReader(rawData))
@@ -56,19 +58,28 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 		}
 
 		subject = msg.Header.Get("Subject")
+		headerTo = parseSESAddressHeader(msg.Header.Get("To"))
+		headerCc = parseSESAddressHeader(msg.Header.Get("Cc"))
+	}
 
-		if toHeader := msg.Header.Get("To"); toHeader != "" {
-			if addrs, parseErr := mail.ParseAddressList(toHeader); parseErr == nil {
-				for _, a := range addrs {
-					toAddrs = append(toAddrs, a.Address)
-				}
-			}
-		}
+	to, cc, bcc := headerTo, headerCc, []string(nil)
+	// Destinations, when supplied, is the actual SMTP envelope AWS SES
+	// delivers to: it takes precedence over the To/Cc/Bcc headers in the raw
+	// message and is the documented mechanism for reaching recipients
+	// deliberately absent from those headers (e.g. Bcc, which most MIME
+	// builders strip before the message ever reaches SES). Classify each
+	// Destinations address by whether it's visible in a To/Cc header so it's
+	// recorded under the right bucket; anything not visible is, by
+	// definition, a Bcc recipient.
+	if len(destinations) > 0 {
+		to, cc, bcc = classifySESDestinations(destinations, headerTo, headerCc)
 	}
 
 	msgID, sendErr := h.Backend.SendEmail(SendEmailInput{
 		From:                 source,
-		To:                   toAddrs,
+		To:                   to,
+		Cc:                   cc,
+		Bcc:                  bcc,
 		Subject:              subject,
 		BodyText:             rawData,
 		ConfigurationSetName: configSetName,
@@ -86,6 +97,57 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 		Result:    sendEmailResult{MessageID: msgID},
 		RequestID: reqID,
 	}, nil
+}
+
+// parseSESAddressHeader parses an RFC 2822 address header value (e.g. the
+// "To" or "Cc" header) into a flat list of email addresses. An empty or
+// unparseable header yields nil.
+func parseSESAddressHeader(header string) []string {
+	if header == "" {
+		return nil
+	}
+
+	addrs, err := mail.ParseAddressList(header)
+	if err != nil {
+		return nil
+	}
+
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		out = append(out, a.Address)
+	}
+
+	return out
+}
+
+// classifySESDestinations splits SendRawEmail's Destinations envelope list
+// into To/Cc/Bcc buckets by matching against the raw message's visible
+// To/Cc headers.
+func classifySESDestinations(destinations, headerTo, headerCc []string) ([]string, []string, []string) {
+	inTo := make(map[string]bool, len(headerTo))
+	for _, a := range headerTo {
+		inTo[strings.ToLower(a)] = true
+	}
+
+	inCc := make(map[string]bool, len(headerCc))
+	for _, a := range headerCc {
+		inCc[strings.ToLower(a)] = true
+	}
+
+	var to, cc, bcc []string
+
+	for _, d := range destinations {
+		switch key := strings.ToLower(d); {
+		case inTo[key]:
+			to = append(to, d)
+		case inCc[key]:
+			cc = append(cc, d)
+		default:
+			bcc = append(bcc, d)
+		}
+	}
+
+	return to, cc, bcc
 }
 
 func (h *Handler) handleSendTemplatedEmail(vals url.Values, reqID string) (any, error) {

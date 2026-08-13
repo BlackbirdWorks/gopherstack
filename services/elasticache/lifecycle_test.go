@@ -149,7 +149,7 @@ func globalReplicationGroupOps() lifecycleOps {
 				func(g elasticache.GlobalReplicationGroup) string { return g.Status })
 		},
 		modify: func(ctx context.Context, b *elasticache.InMemoryBackend) error {
-			_, err := b.ModifyGlobalReplicationGroup(ctx, id, "new-desc", "", false)
+			_, err := b.ModifyGlobalReplicationGroup(ctx, id, "new-desc", "", false, true)
 
 			return err
 		},

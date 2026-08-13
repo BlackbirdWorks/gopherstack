@@ -277,18 +277,24 @@ type StorageBackend interface {
 		ctx context.Context,
 		id string,
 		nodeGroupCount int32,
+		applyImmediately bool,
 	) (*GlobalReplicationGroup, error)
 	DecreaseNodeGroupsInGlobalReplicationGroup(
 		ctx context.Context,
 		id string,
 		nodeGroupCount int32,
+		applyImmediately bool,
 	) (*GlobalReplicationGroup, error)
 	ModifyGlobalReplicationGroup(
 		ctx context.Context,
 		id, description, engineVersion string,
-		automaticFailoverEnabled bool,
+		automaticFailoverEnabled, applyImmediately bool,
 	) (*GlobalReplicationGroup, error)
-	RebalanceSlotsInGlobalReplicationGroup(ctx context.Context, id string) (*GlobalReplicationGroup, error)
+	RebalanceSlotsInGlobalReplicationGroup(
+		ctx context.Context,
+		id string,
+		applyImmediately bool,
+	) (*GlobalReplicationGroup, error)
 	// ReservedCacheNodes operations
 	DescribeReservedCacheNodes(
 		ctx context.Context,
@@ -326,22 +332,33 @@ type StorageBackend interface {
 	CreateServerlessCacheFull(ctx context.Context, opts ServerlessCreateOpts) (*ServerlessCache, error)
 	ModifyServerlessCacheFull(ctx context.Context, name string, opts ServerlessModifyOpts) (*ServerlessCache, error)
 	// Migration operations
-	StartMigration(ctx context.Context, replicationGroupID string) (*ReplicationGroup, error)
-	TestMigration(ctx context.Context, replicationGroupID string) (*ReplicationGroup, error)
+	StartMigration(
+		ctx context.Context,
+		replicationGroupID string,
+		customerNodeEndpoints []CustomerNodeEndpoint,
+	) (*ReplicationGroup, error)
+	TestMigration(
+		ctx context.Context,
+		replicationGroupID string,
+		customerNodeEndpoints []CustomerNodeEndpoint,
+	) (*ReplicationGroup, error)
 	IncreaseReplicaCount(
 		ctx context.Context,
 		replicationGroupID string,
 		newReplicaCount int32,
+		applyImmediately bool,
 	) (*ReplicationGroup, error)
 	DecreaseReplicaCount(
 		ctx context.Context,
 		replicationGroupID string,
 		newReplicaCount int32,
+		applyImmediately bool,
 	) (*ReplicationGroup, error)
 	ModifyReplicationGroupShardConfiguration(
 		ctx context.Context,
 		replicationGroupID string,
 		nodeGroupCount int32,
+		applyImmediately bool,
 	) (*ReplicationGroup, error)
 	// Cache info operations
 	DescribeCacheEngineVersions(
@@ -558,6 +575,15 @@ type ReplicationGroupModifyOpts struct {
 	UserGroupIDsToAdd         []string
 	UserGroupIDsToRemove      []string
 	ApplyImmediately          bool
+}
+
+// CustomerNodeEndpoint is a source endpoint for StartMigration/TestMigration
+// (aws-sdk-go-v2/service/elasticache/types.CustomerNodeEndpoint). It has no
+// output-side wire counterpart -- AWS's ReplicationGroup response never
+// echoes it back -- so it exists purely as an input shape.
+type CustomerNodeEndpoint struct {
+	Address string
+	Port    int32
 }
 
 // ----------------------------------------
