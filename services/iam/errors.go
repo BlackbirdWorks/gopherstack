@@ -57,4 +57,7 @@ var (
 	ErrLimitExceeded = errors.New("LimitExceeded")
 	// ErrValidationError is returned when a parameter fails AWS constraint validation (e.g. MaxSessionDuration bounds).
 	ErrValidationError = errors.New("ValidationError")
+	// ErrOldPasswordIncorrect is returned when ChangePassword's required OldPassword
+	// is missing or does not match the account's current password.
+	ErrOldPasswordIncorrect = errors.New("PasswordPolicyViolation")
 )

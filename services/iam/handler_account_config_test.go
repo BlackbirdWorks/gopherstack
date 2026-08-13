@@ -335,16 +335,25 @@ func TestChangePassword_Backend(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		oldPassword string
 		newPassword string
 		wantErr     bool
 	}{
 		{
-			name:        "valid_password_succeeds",
+			name:        "valid password succeeds",
+			oldPassword: "OldSecureP@ss1!",
 			newPassword: "NewSecureP@ss1!",
 		},
 		{
-			name:        "empty_password_returns_error",
+			name:        "empty new password returns error",
+			oldPassword: "OldSecureP@ss1!",
 			newPassword: "",
+			wantErr:     true,
+		},
+		{
+			name:        "empty old password returns error",
+			oldPassword: "",
+			newPassword: "NewSecureP@ss1!",
 			wantErr:     true,
 		},
 	}
@@ -354,12 +363,92 @@ func TestChangePassword_Backend(t *testing.T) {
 			t.Parallel()
 
 			b := iam.NewInMemoryBackend()
-			err := b.ChangePassword(tt.newPassword)
+			err := b.ChangePassword(tt.oldPassword, tt.newPassword)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+// TestChangePassword_WrongOldPasswordRejected proves that once an account has a
+// current password on file, a ChangePassword call presenting a non-matching
+// OldPassword is rejected instead of silently succeeding. Real IAM requires
+// OldPassword (iam@v1.58.1 api_op_ChangePassword.go:57-59) to prove the caller
+// knows the current password before setting a new one.
+func TestChangePassword_WrongOldPasswordRejected(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+
+	require.NoError(t, b.ChangePassword("FirstP@ssw0rd!", "SecondP@ssw0rd!"),
+		"first ChangePassword call establishes the current password")
+
+	err := b.ChangePassword("WrongP@ssw0rd!", "ThirdP@ssw0rd!")
+	require.Error(t, err)
+	require.ErrorIs(t, err, iam.ErrOldPasswordIncorrect,
+		"a non-matching OldPassword must be rejected, not silently accepted")
+
+	require.NoError(t, b.ChangePassword("SecondP@ssw0rd!", "ThirdP@ssw0rd!"),
+		"the real current password must still be accepted")
+}
+
+// TestHandler_ChangePassword_OldPasswordOnWire proves the handler reads
+// OldPassword off the raw form request rather than dropping it: the real
+// current password must be accepted (200) and a wrong one rejected as
+// PasswordPolicyViolation (iam@v1.58.1 deserializers.go:766-816 lists it as
+// one of ChangePassword's real exception codes) — not a silent 200 OK
+// regardless of what OldPassword the caller sends. If the handler stops
+// reading "OldPassword" from vals (e.g. reverts to always passing ""), the
+// "correct old password" case starts failing because the backend would see
+// an empty OldPassword instead of the real one.
+func TestHandler_ChangePassword_OldPasswordOnWire(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		oldPassword string
+		wantCode2   string
+		wantCode    int
+	}{
+		{
+			name:        "correct old password accepted",
+			oldPassword: "FirstP@ssw0rd!",
+			wantCode:    http.StatusOK,
+		},
+		{
+			name:        "wrong old password rejected",
+			oldPassword: "WrongP@ssw0rd!",
+			wantCode:    http.StatusBadRequest,
+			wantCode2:   "PasswordPolicyViolation",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			require.NoError(t, b.ChangePassword("FirstP@ssw0rd!", "FirstP@ssw0rd!"))
+
+			req := iamRequest("ChangePassword", map[string]string{
+				"OldPassword": tt.oldPassword,
+				"NewPassword": "ThirdP@ssw0rd!",
+			})
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			require.Equal(t, tt.wantCode, rec.Code, "body: %s", rec.Body.String())
+
+			if tt.wantCode2 == "" {
+				return
+			}
+
+			var errResp iam.ErrorResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, tt.wantCode2, errResp.Error.Code)
 		})
 	}
 }

@@ -38,6 +38,7 @@ type backendSnapshot struct {
 	Comprehensive             *comprehensiveSnapshot           `json:"comprehensive,omitempty"`
 	OutboundFederationEnabled *bool                            `json:"outboundFederationEnabled,omitempty"`
 	AccountID                 string                           `json:"accountID,omitempty"`
+	CurrentPassword           string                           `json:"currentPassword,omitempty"`
 	AccountAliases            []string                         `json:"accountAliases,omitempty"`
 	Version                   int                              `json:"version"`
 }
@@ -86,6 +87,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		PolicyAttachments:         b.policyAttachments,
 		DeletedV1Policies:         b.deletedV1Policies,
 		PasswordPolicy:            b.passwordPolicy,
+		CurrentPassword:           b.currentPassword,
 		OutboundFederationEnabled: &outboundFederationEnabled,
 	}
 
@@ -162,6 +164,7 @@ func (b *InMemoryBackend) restoreSnapshotLocked(ctx context.Context, snap *backe
 		b.deletedV1Policies = make(map[string]bool)
 	}
 	b.passwordPolicy = snap.PasswordPolicy
+	b.currentPassword = snap.CurrentPassword
 
 	if snap.OutboundFederationEnabled != nil {
 		b.outboundFederationEnabled = *snap.OutboundFederationEnabled

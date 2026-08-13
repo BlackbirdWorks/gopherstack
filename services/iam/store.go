@@ -217,7 +217,7 @@ type StorageBackend interface {
 	AssociateDelegationRequest(delegationID, policyArn string) error
 
 	// Change Password
-	ChangePassword(newPassword string) error
+	ChangePassword(oldPassword, newPassword string) error
 
 	// OIDC Client IDs
 	AddClientIDToOpenIDConnectProvider(providerArn, clientID string) error
@@ -332,6 +332,7 @@ type InMemoryBackend struct {
 	registry                  *store.Registry
 	comprehensive             *comprehensiveBackend
 	accountID                 string
+	currentPassword           string
 	accountAliases            []string
 	sortedUserNames           []string
 	sortedRoleNames           []string

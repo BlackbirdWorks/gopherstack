@@ -451,20 +451,31 @@ func (b *InMemoryBackend) AssociateDelegationRequest(delegationID, policyArn str
 	return nil
 }
 
-// ChangePassword changes the IAM user password, validating against the account password policy.
-// In real AWS, this operates on the currently authenticated user.
-func (b *InMemoryBackend) ChangePassword(newPassword string) error {
+// ChangePassword changes the IAM user password, validating OldPassword against the
+// account's current password and NewPassword against the account password policy.
+// In real AWS, this operates on the currently authenticated user; this mock tracks a
+// single account-wide current password since it has no per-request caller identity.
+func (b *InMemoryBackend) ChangePassword(oldPassword, newPassword string) error {
+	if oldPassword == "" {
+		return fmt.Errorf("%w: OldPassword must not be empty", ErrOldPasswordIncorrect)
+	}
+
 	if newPassword == "" {
 		return fmt.Errorf("%w: new password must not be empty", ErrInvalidPassword)
 	}
 
-	b.mu.RLock("ChangePassword")
-	policy := b.passwordPolicy
-	b.mu.RUnlock()
+	b.mu.Lock("ChangePassword")
+	defer b.mu.Unlock()
 
-	if err := validatePasswordAgainstPolicy(newPassword, policy); err != nil {
+	if b.currentPassword != "" && oldPassword != b.currentPassword {
+		return fmt.Errorf("%w: old password does not match", ErrOldPasswordIncorrect)
+	}
+
+	if err := validatePasswordAgainstPolicy(newPassword, b.passwordPolicy); err != nil {
 		return err
 	}
+
+	b.currentPassword = newPassword
 
 	return nil
 }

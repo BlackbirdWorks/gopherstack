@@ -604,6 +604,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		code = "InvalidInput"
 	case errors.Is(reqErr, ErrInvalidPassword):
 		code = "InvalidInput"
+	case errors.Is(reqErr, ErrOldPasswordIncorrect):
+		code = "PasswordPolicyViolation"
 	case errors.Is(reqErr, ErrValidationError):
 		code = "ValidationError"
 	case errors.Is(reqErr, ErrInvalidAuthenticationCode):

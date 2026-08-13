@@ -174,7 +174,7 @@ func (h *Handler) iamNewOpsAccountActions() map[string]iamActionFn {
 		},
 
 		"ChangePassword": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.ChangePassword(vals.Get("NewPassword")); err != nil {
+			if err := h.Backend.ChangePassword(vals.Get("OldPassword"), vals.Get("NewPassword")); err != nil {
 				return nil, err
 			}
 
