@@ -347,6 +347,13 @@ func TestLambda_CodeSigningConfig(t *testing.T) {
 }
 
 // TestLambda_CapacityProvider tests the full lifecycle of capacity providers.
+//
+// The real CreateCapacityProvider requires CapacityProviderName,
+// PermissionsConfig and VpcConfig (api_op_CreateCapacityProvider.go:28-45 in
+// the pinned SDK); there is no top-level Name or TargetOnDemandConcurrency
+// field anywhere on the wire. UpdateCapacityProvider only accepts
+// CapacityProviderScalingConfig, PropagateTags and TelemetryConfig
+// (api_op_UpdateCapacityProvider.go:27-43).
 func TestLambda_CapacityProvider(t *testing.T) {
 	t.Parallel()
 
@@ -355,8 +362,14 @@ func TestLambda_CapacityProvider(t *testing.T) {
 
 	// Create capacity provider
 	createBody, err := json.Marshal(map[string]any{
-		"Name":                      "test-provider",
-		"TargetOnDemandConcurrency": 100,
+		"CapacityProviderName": "test-provider",
+		"PermissionsConfig": map[string]any{
+			"CapacityProviderOperatorRoleArn": "arn:aws:iam::000000000000:role/cp-role",
+		},
+		"VpcConfig": map[string]any{
+			"SubnetIds":        []string{"subnet-1"},
+			"SecurityGroupIds": []string{"sg-1"},
+		},
 	})
 	require.NoError(t, err)
 
@@ -374,8 +387,9 @@ func TestLambda_CapacityProvider(t *testing.T) {
 
 	cpData, ok := createOut["CapacityProvider"].(map[string]any)
 	require.True(t, ok, "expected CapacityProvider in response")
-	assert.Equal(t, "test-provider", cpData["Name"])
-	assert.NotEmpty(t, cpData["CapacityProviderArn"])
+	assert.Contains(t, cpData["CapacityProviderArn"], "test-provider")
+	assert.Equal(t, "Active", cpData["State"])
+	assert.NotEmpty(t, cpData["LastModified"])
 
 	// Create duplicate should conflict
 	createDupResp, err := doLambdaRequest(ctx, http.MethodPost,
@@ -408,7 +422,9 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	assert.Len(t, providers, 1)
 
 	// Update capacity provider
-	updateBody, err := json.Marshal(map[string]any{"TargetOnDemandConcurrency": 200})
+	updateBody, err := json.Marshal(map[string]any{
+		"CapacityProviderScalingConfig": map[string]any{"MaxVCpuCount": 200},
+	})
 	require.NoError(t, err)
 
 	updateResp, err := doLambdaRequest(ctx, http.MethodPut,
@@ -425,7 +441,9 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	require.NoError(t, json.Unmarshal(updateRespBody, &updateOut))
 	cpUpdated, ok := updateOut["CapacityProvider"].(map[string]any)
 	require.True(t, ok)
-	assert.InEpsilon(t, float64(200), cpUpdated["TargetOnDemandConcurrency"].(float64), 0.001)
+	scalingConfig, ok := cpUpdated["CapacityProviderScalingConfig"].(map[string]any)
+	require.True(t, ok, "expected CapacityProviderScalingConfig in response")
+	assert.InEpsilon(t, float64(200), scalingConfig["MaxVCpuCount"].(float64), 0.001)
 
 	// Delete capacity provider
 	delResp, err := doLambdaRequest(ctx, http.MethodDelete,
