@@ -1,7 +1,7 @@
 service: bedrock
 sdk_module: aws-sdk-go-v2/service/bedrock@v1.66.4
-last_audit_commit: 5ee940036
-last_audit_date: 2026-07-25
+last_audit_commit: 5ee940036  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
+last_audit_date: 2026-08-13
 overall: A            # RESTORED A-->A (parity-5, 2026-07-31, follow-up pass): the
                       # dispatchDocumentOps routing bug that caused the prior A->A- downgrade
                       # is fixed and proven. Re-verified both real wire shapes against the
@@ -81,7 +81,7 @@ ops:
   ListModelCopyJobs: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateModelImportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — accepted only {jobName,tags}, silently dropping importedModelName, roleArn, and modelDataSource, all three \"This member is required\" on the real CreateModelImportJobInput. GetModelImportJob/ListModelImportJobs responses were therefore always missing importedModelName/roleArn/modelDataSource too. Now parses and stores all three; response includes them."}
   GetModelImportJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListModelImportJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListModelImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-uult: reused modelImportJobToOutput (the Get-shape converter) unscoped, leaking roleArn/modelDataSource/tags -- none of which types.ModelImportJobSummary declares (creationTime/jobArn/jobName/status/endTime/importedModelArn/importedModelName/lastModifiedTime only). Fixed with a dedicated modelImportJobToSummary."}
   GetImportedModel: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed — response invented a \"status\" field with no basis in the real GetImportedModelOutput shape (ImportedModel has no lifecycle status of its own), and used \"createdAt\" instead of the real \"creationTime\" key, while omitting the required modelArn/modelName/jobArn/jobName fields entirely. Now matches the real shape (modelArn, modelName, jobArn, jobName, creationTime, modelDataSource); the invented status field is deleted."}
   ListImportedModels: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same field-shape fix as GetImportedModel (per-item). Also fixed: previously took zero params and returned every imported model unfiltered/unpaginated; now supports nameContains + creationTimeAfter/Before + nextToken."}
   DeleteImportedModel: {wire: ok, errors: ok, state: ok, persist: n/a, note: "status code fixed 204 -> 200 for consistency with DeleteImportedModelOutput's empty (non-204-specified) real shape, matching this service's other verified-ok Delete ops."}

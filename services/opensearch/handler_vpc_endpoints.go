@@ -9,6 +9,25 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+// vpcEndpointSummaryJSON mirrors types.VpcEndpointSummary: DomainArn, Status,
+// VpcEndpointId, VpcEndpointOwner (opensearch@v1.75.4 types/types.go:3483-3498).
+// No Endpoint, VpcOptions, or the internal-only StatusUntil clock field.
+type vpcEndpointSummaryJSON struct {
+	DomainArn        string `json:"DomainArn"`
+	Status           string `json:"Status"`
+	VpcEndpointID    string `json:"VpcEndpointId"`
+	VpcEndpointOwner string `json:"VpcEndpointOwner"`
+}
+
+func toVpcEndpointSummary(ep *VpcEndpoint) vpcEndpointSummaryJSON {
+	return vpcEndpointSummaryJSON{
+		DomainArn:        ep.DomainArn,
+		Status:           ep.Status,
+		VpcEndpointID:    ep.VpcEndpointID,
+		VpcEndpointOwner: ep.VpcEndpointOwner,
+	}
+}
+
 // authorizeVpcEndpointAccessRequest is the JSON request body for AuthorizeVpcEndpointAccess.
 type authorizeVpcEndpointAccessRequest struct {
 	Account string `json:"Account"`
@@ -150,10 +169,11 @@ func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Req
 		h.writeJSON(r, w, map[string]any{"VpcEndpoint": ep})
 	case http.MethodGet:
 		endpoints := h.Backend.ListVpcEndpoints()
-		if endpoints == nil {
-			endpoints = []*VpcEndpoint{}
+		summaries := make([]vpcEndpointSummaryJSON, 0, len(endpoints))
+		for _, ep := range endpoints {
+			summaries = append(summaries, toVpcEndpointSummary(ep))
 		}
-		h.writeJSON(r, w, map[string]any{"VpcEndpoints": endpoints})
+		h.writeJSON(r, w, map[string]any{"VpcEndpoints": summaries})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -199,11 +219,15 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, r *http.Requ
 			domainArn = domain.ARN
 		}
 		endpoints := h.Backend.ListVpcEndpointsForDomain(domainArn)
+		summaries := make([]vpcEndpointSummaryJSON, 0, len(endpoints))
+		for _, ep := range endpoints {
+			summaries = append(summaries, toVpcEndpointSummary(ep))
+		}
 		httputils.WriteJSON(
 			r.Context(),
 			w,
 			http.StatusOK,
-			map[string]any{"VpcEndpointSummaryList": endpoints},
+			map[string]any{"VpcEndpointSummaryList": summaries},
 		)
 	case strings.HasSuffix(trimmed, "/listVpcEndpointAccess"):
 		// ListVpcEndpointAccess

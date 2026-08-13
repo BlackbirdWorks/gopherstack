@@ -1,7 +1,7 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
-last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119
-last_audit_date: 2026-07-25
+last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
+last_audit_date: 2026-08-13
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
                        # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
                        # CdiInputSpecification/ChannelEngineVersion/ChannelSecurityGroups/
@@ -459,6 +459,15 @@ families:
       that fast path (Reservation, Network, SdiSource,
       CloudWatchAlarmTemplate(Group), EventBridgeRuleTemplate(Group)) --
       noted once here, not repeated per family below.
+      gopherstack-uult (this pass): ListSignalMaps reused toSignalMapOutput
+      unscoped, leaking discoveryEntryPointArn/
+      cloudWatchAlarmTemplateGroupIds/eventBridgeRuleTemplateGroupIds --
+      none of which types.SignalMapSummary declares. Fixed with a dedicated
+      toSignalMapSummary. Note the trap here: types.SignalMapSummary DOES
+      declare "tags" (verified against deserializers.go's
+      awsRestjson1_deserializeDocumentSignalMapSummary), unlike every other
+      List-vs-Get pair fixed in this sweep -- tags was correctly kept on the
+      summary, not dropped.
   CloudWatchAlarmTemplateGroup:
     status: ok
     note: >

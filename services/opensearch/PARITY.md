@@ -2,8 +2,8 @@
 service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
-last_audit_commit: acb2e23f9
-last_audit_date: 2026-07-30
+last_audit_commit: acb2e23f9  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
+last_audit_date: 2026-08-13
 overall: A            # RAISED from A- (parity-5, this pass). The two gaps that previously held the grade
                       # down -- AttachDataSource's workspaceConfiguration/workspaceId, and StartMigration's
                       # MigrationOptions.Workspace/ExportOptions/ConflictResolution -- are now built to the
@@ -77,7 +77,13 @@ families:
       (SecurityGroupIds/SubnetIds) verbatim instead of the response-shape VPCDerivedInfo, which
       also carries server-derived AvailabilityZones/VPCId -- added synthesized derivation (see
       Notes, "reasonable non-stub default" like DryRunResults.DeploymentType); (4) Create/Update
-      accepted a nil/empty DomainArn or VpcOptions with no validation.
+      accepted a nil/empty DomainArn or VpcOptions with no validation. (5, gopherstack-uult,
+      2026-08-13) ListVpcEndpoints and ListVpcEndpointsForDomain both marshaled the raw
+      []*VpcEndpoint domain slice (leaking Endpoint, VpcOptions, and the internal-only
+      StatusUntil clock field) instead of types.VpcEndpointSummary's four members
+      (DomainArn/Status/VpcEndpointId/VpcEndpointOwner); fixed with a shared
+      toVpcEndpointSummary scoped converter, mirroring the pattern DeleteVpcEndpoint's
+      VpcEndpointSummary response already used correctly.
   packages:
     status: ok
     note: >

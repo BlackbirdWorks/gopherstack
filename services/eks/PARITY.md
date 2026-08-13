@@ -2,8 +2,8 @@
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.90.4
-last_audit_commit: 7c297a53
-last_audit_date: 2026-07-23
+last_audit_commit: 7c297a53  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
+last_audit_date: 2026-08-13
 overall: A            # route-matcher pass (prior audit) + gaps/deferred closeout pass (this audit)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -64,7 +64,7 @@ ops:
   DeleteEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok}
   UpdateEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was PUT; real method is POST to the same leaf path"}
   DescribeInsight: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "content is synthetic/fabricated (pre-existing; AWS's real insight analysis cannot be emulated) but is now reachable at the correct path"}
-  ListInsights: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "was GET; real method is POST (carries an optional filter body) — was unreachable by the real SDK client. Now also reads maxResults/nextToken from the POST body (not query params, since ListInsights carries no query string) and paginates"}
+  ListInsights: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "was GET; real method is POST (carries an optional filter body) — was unreachable by the real SDK client. Now also reads maxResults/nextToken from the POST body (not query params, since ListInsights carries no query string) and paginates. Was also emitting the FULL Insight shape (recommendation, plus the invented clusterName that neither Insight nor InsightSummary carries on the wire — the cluster is already identified by the URL path); real ListInsights returns types.InsightSummary, which omits recommendation/additionalInfo/categorySpecificSummary/resources entirely -- verified against types.InsightSummary. DescribeInsight's response still includes the invented clusterName (separate pre-existing bug, out of scope for this pass). kubernetesVersion/name (InsightSummary members) have no honest source in this backend's Insight model and are left absent rather than fabricated"}
   StartInsightsRefresh: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "was routed/shaped as a per-insight, per-refresh-id nested resource (/insights/{id}/refresh); real API is a cluster-level singleton at /clusters/{name}/insights-refresh with no id at all. Response was also wrongly nested under an 'insightsRefresh' envelope key; real fields (message/status/startedAt/endedAt) are at the response root"}
   DescribeInsightsRefresh: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "same fixes as StartInsightsRefresh"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended to find Capability ARNs too"}
@@ -76,6 +76,8 @@ ops:
 gaps:
   - "Capability Configuration remains an untyped passthrough map — no per-CapabilityType (ArgoCd/Ack/Kro) schema validation of Configuration/UpdateCapabilityConfiguration, unlike the real API's discriminated CapabilityConfigurationResponse/UpdateCapabilityConfiguration union types"
   - "Insight/DescribeInsight content is fabricated/synthetic, not derived from real cluster analysis (pre-existing, inherent emulator limitation -- there is no real cluster to analyze)"
+  - "types.InsightSummary/types.Insight's kubernetesVersion and name members have no honest source in this backend's Insight model and are left absent from both DescribeInsight and ListInsights rather than fabricated"
+  - "DescribeInsight still emits an invented clusterName field that neither types.Insight nor types.InsightSummary carries on the wire (the cluster is already identified by the URL path); ListInsights was fixed to drop it this pass (gopherstack-uult) but DescribeInsight was out of scope for that fix"
   - "ClientRequestToken (CreateCapability, CancelUpdate, CreatePodIdentityAssociation, etc.) is accepted on the wire for shape parity but never used for idempotency dedup, matching this backend's in-memory non-durable nature; a real duplicate-request-with-same-token replay will create two resources instead of returning the first one"
 deferred:
   - "AWS error-code granularity beyond ResourceNotFoundException/ResourceInUseException/InvalidParameterValueException/InvalidRequestException (added this pass for CancelUpdate's not-cancellable case) — ClientException/ResourceLimitExceededException/ServerException are not modeled/reachable anywhere in this backend; a full sweep of which ops can plausibly return them was not done this pass"

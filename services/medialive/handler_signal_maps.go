@@ -36,6 +36,28 @@ func toSignalMapOutput(sm *SignalMap) map[string]any {
 	}
 }
 
+// toSignalMapSummary mirrors types.SignalMapSummary (medialive@v1.101.4
+// types/types.go:7724-7765; wire keys per deserializers.go:48841-48930):
+// arn, createdAt, id, monitorDeploymentStatus, name, status, description,
+// modifiedAt, tags. No discoveryEntryPointArn,
+// cloudWatchAlarmTemplateGroupIds or eventBridgeRuleTemplateGroupIds --
+// those are Get/Create/StartUpdate-only. Tags DOES belong here, unlike its
+// siblings in this file: SignalMapSummary is the one type that carries it.
+func toSignalMapSummary(sm *SignalMap) map[string]any {
+	tags := sm.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return map[string]any{
+		keyArn: sm.Arn, keyID: sm.ID, keyName: sm.Name,
+		keyDescription: sm.Description,
+		"status":       sm.Status, "monitorDeploymentStatus": sm.MonitorDeploymentStatus,
+		keyCreatedAt: formatISO8601(sm.CreatedAt), keyModifiedAt: formatISO8601(sm.ModifiedAt),
+		keyTags: tags,
+	}
+}
+
 func (h *Handler) handleCreateSignalMap(c *echo.Context, body map[string]any) error {
 	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
@@ -74,7 +96,7 @@ func (h *Handler) handleListSignalMaps(c *echo.Context) error {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, sm := range items {
-		out = append(out, toSignalMapOutput(sm))
+		out = append(out, toSignalMapSummary(sm))
 	}
 	resp := map[string]any{"signalMaps": out}
 	if nextToken != "" {

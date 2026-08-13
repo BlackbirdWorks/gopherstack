@@ -617,9 +617,21 @@ func (h *Handler) handleGetSchemaVersionsDiff(
 // listRegistriesInput holds input for ListRegistries.
 type listRegistriesInput struct{}
 
+// registryListItem mirrors types.RegistryListItem: RegistryName, RegistryArn,
+// Description, Status, CreatedTime, UpdatedTime. No Tags — that member exists
+// only on the Registry struct returned by GetRegistry/CreateRegistry.
+type registryListItem struct {
+	RegistryName string  `json:"RegistryName"`
+	RegistryArn  string  `json:"RegistryArn"`
+	Description  string  `json:"Description,omitempty"`
+	Status       string  `json:"Status"`
+	CreatedTime  float64 `json:"CreatedTime,omitempty"`
+	UpdatedTime  float64 `json:"UpdatedTime,omitempty"`
+}
+
 // listRegistriesOutput holds the result for ListRegistries.
 type listRegistriesOutput struct {
-	Registries []*Registry `json:"Registries"`
+	Registries []*registryListItem `json:"Registries"`
 }
 
 func (h *Handler) handleListRegistries(
@@ -628,7 +640,19 @@ func (h *Handler) handleListRegistries(
 ) (*listRegistriesOutput, error) {
 	regs := h.Backend.ListRegistries()
 
-	return &listRegistriesOutput{Registries: regs}, nil
+	items := make([]*registryListItem, 0, len(regs))
+	for _, r := range regs {
+		items = append(items, &registryListItem{
+			RegistryName: r.Name,
+			RegistryArn:  r.ARN,
+			Description:  r.Description,
+			Status:       r.Status,
+			CreatedTime:  r.CreatedTime,
+			UpdatedTime:  r.UpdatedTime,
+		})
+	}
+
+	return &listRegistriesOutput{Registries: items}, nil
 }
 
 // listSchemaVersionsInput holds input for ListSchemaVersions.
@@ -636,9 +660,20 @@ type listSchemaVersionsInput struct {
 	SchemaID *schemaIDInput `json:"SchemaId"`
 }
 
+// schemaVersionListItem mirrors types.SchemaVersionListItem: SchemaVersionId,
+// SchemaArn, Status, VersionNumber, CreatedTime. No SchemaDefinition or
+// DataFormat — those live only on GetSchemaVersion's output.
+type schemaVersionListItem struct {
+	SchemaVersionID string  `json:"SchemaVersionId"`
+	SchemaArn       string  `json:"SchemaArn"`
+	Status          string  `json:"Status"`
+	VersionNumber   int64   `json:"VersionNumber"`
+	CreatedTime     float64 `json:"CreatedTime,omitempty"`
+}
+
 // listSchemaVersionsOutput holds the result for ListSchemaVersions.
 type listSchemaVersionsOutput struct {
-	SchemaVersions []*SchemaVersion `json:"SchemaVersions"`
+	SchemaVersions []*schemaVersionListItem `json:"SchemaVersions"`
 }
 
 func (h *Handler) handleListSchemaVersions(
@@ -652,11 +687,19 @@ func (h *Handler) handleListSchemaVersions(
 	}
 
 	versions := h.Backend.ListSchemaVersions(registryName, schemaName)
-	if versions == nil {
-		versions = []*SchemaVersion{}
+
+	items := make([]*schemaVersionListItem, 0, len(versions))
+	for _, v := range versions {
+		items = append(items, &schemaVersionListItem{
+			SchemaVersionID: v.SchemaVersionID,
+			SchemaArn:       v.SchemaARN,
+			Status:          v.Status,
+			VersionNumber:   v.VersionNumber,
+			CreatedTime:     v.CreatedTime,
+		})
 	}
 
-	return &listSchemaVersionsOutput{SchemaVersions: versions}, nil
+	return &listSchemaVersionsOutput{SchemaVersions: items}, nil
 }
 
 // listSchemasInput holds input for ListSchemas.
@@ -664,9 +707,24 @@ type listSchemasInput struct {
 	RegistryID *registryIDInput `json:"RegistryId"`
 }
 
+// schemaListItem mirrors types.SchemaListItem: SchemaName, SchemaArn,
+// RegistryName, SchemaStatus, Description, CreatedTime, UpdatedTime. No
+// RegistryArn, DataFormat, Compatibility, LatestSchemaVersion,
+// NextSchemaVersion, CheckpointVersion or Tags — those live only on
+// GetSchema/CreateSchema's output.
+type schemaListItem struct {
+	SchemaName   string  `json:"SchemaName"`
+	SchemaArn    string  `json:"SchemaArn"`
+	RegistryName string  `json:"RegistryName"`
+	SchemaStatus string  `json:"SchemaStatus"`
+	Description  string  `json:"Description,omitempty"`
+	CreatedTime  float64 `json:"CreatedTime,omitempty"`
+	UpdatedTime  float64 `json:"UpdatedTime,omitempty"`
+}
+
 // listSchemasOutput holds the result for ListSchemas.
 type listSchemasOutput struct {
-	Schemas []*Schema `json:"Schemas"`
+	Schemas []*schemaListItem `json:"Schemas"`
 }
 
 func (h *Handler) handleListSchemas(
@@ -680,7 +738,20 @@ func (h *Handler) handleListSchemas(
 
 	schemas := h.Backend.ListSchemas(registryName)
 
-	return &listSchemasOutput{Schemas: schemas}, nil
+	items := make([]*schemaListItem, 0, len(schemas))
+	for _, s := range schemas {
+		items = append(items, &schemaListItem{
+			SchemaName:   s.SchemaName,
+			SchemaArn:    s.SchemaARN,
+			RegistryName: s.RegistryName,
+			SchemaStatus: s.SchemaStatus,
+			Description:  s.Description,
+			CreatedTime:  s.CreatedTime,
+			UpdatedTime:  s.UpdatedTime,
+		})
+	}
+
+	return &listSchemasOutput{Schemas: items}, nil
 }
 
 // putSchemaVersionMetadataInput holds input for PutSchemaVersionMetadata.

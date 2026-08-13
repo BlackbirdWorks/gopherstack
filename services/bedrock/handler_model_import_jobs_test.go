@@ -79,6 +79,47 @@ func TestAccuracy_ModelImportJob_Lifecycle(t *testing.T) {
 	assert.Equal(t, jobARN, getOut["jobArn"])
 }
 
+// TestAccuracy_ModelImportJob_ListOmitsGetOnlyFields verifies gopherstack-uult:
+// ListModelImportJobs must emit only types.ModelImportJobSummary's members
+// (creationTime, jobArn, jobName, status, endTime, importedModelArn,
+// importedModelName, lastModifiedTime) -- bedrock@v1.66.4
+// types/types.go:5479-5514. roleArn, modelDataSource and tags are
+// GetModelImportJob/CreateModelImportJob-only and must not leak.
+func TestAccuracy_ModelImportJob_ListOmitsGetOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := validModelImportJobBody("scoped-import")
+	body["jobTags"] = []map[string]any{{"key": "k", "value": "v"}}
+	rec := doRequest(t, h, http.MethodPost, "/model-import-jobs", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	recList := doRequest(t, h, http.MethodGet, "/model-import-jobs", nil)
+	require.Equal(t, http.StatusOK, recList.Code)
+
+	var listOut struct {
+		Summaries []map[string]any `json:"modelImportJobSummaries"`
+	}
+	mustUnmarshal(t, recList, &listOut)
+	require.Len(t, listOut.Summaries, 1)
+
+	item := listOut.Summaries[0]
+	keys := make([]string, 0, len(item))
+	for k := range item {
+		keys = append(keys, k)
+	}
+	assert.ElementsMatch(t,
+		[]string{
+			"creationTime", "jobArn", "jobName", "status",
+			"importedModelArn", "importedModelName", "lastModifiedTime",
+		},
+		keys,
+	)
+	assert.NotContains(t, item, "roleArn")
+	assert.NotContains(t, item, "modelDataSource")
+	assert.NotContains(t, item, "tags")
+}
+
 func TestAccuracy_ModelImportJob_MissingJobName(t *testing.T) {
 	t.Parallel()
 

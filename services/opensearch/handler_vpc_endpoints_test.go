@@ -125,6 +125,76 @@ func TestVpcEndpoints_CreateAndList(t *testing.T) {
 	assert.Len(t, eps, 1)
 }
 
+// TestVpcEndpoints_ListOmitsGetOnlyFields verifies gopherstack-uult: both
+// ListVpcEndpoints and ListVpcEndpointsForDomain must emit only
+// types.VpcEndpointSummary's members (DomainArn, Status, VpcEndpointId,
+// VpcEndpointOwner) -- opensearch@v1.75.4 types/types.go:3483-3498. Endpoint
+// and VpcOptions are DescribeVpcEndpoints-only, and the internal StatusUntil
+// clock field must never reach the wire. An SDK client would silently drop
+// the extra keys, so this asserts on the raw body.
+func TestVpcEndpoints_ListOmitsGetOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		path    func(domARN, domName string) string
+		key     string
+		domName string
+	}{
+		{
+			name:    "list_vpc_endpoints",
+			path:    func(_, _ string) string { return "/2021-01-01/opensearch/vpcEndpoints" },
+			key:     "VpcEndpoints",
+			domName: "vpc-list-a",
+		},
+		{
+			name: "list_vpc_endpoints_for_domain",
+			path: func(_, domName string) string {
+				return "/2021-01-01/opensearch/domain/" + domName + "/vpcEndpoints"
+			},
+			key:     "VpcEndpointSummaryList",
+			domName: "vpc-list-b",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			domARN := createDomainAndGetARN(t, h, tt.domName)
+
+			cr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/vpcEndpoints",
+				map[string]any{"DomainArn": domARN, "VpcOptions": map[string]any{"SubnetIds": []string{"subnet-1"}}})
+			require.Equal(t, http.StatusOK, cr.StatusCode)
+			cr.Body.Close()
+
+			lr := doRequest(t, h, http.MethodGet, tt.path(domARN, tt.domName), nil)
+			defer lr.Body.Close()
+			require.Equal(t, http.StatusOK, lr.StatusCode)
+
+			var out map[string]any
+			require.NoError(t, json.NewDecoder(lr.Body).Decode(&out))
+			items, ok := out[tt.key].([]any)
+			require.True(t, ok)
+			require.Len(t, items, 1)
+
+			item := items[0].(map[string]any)
+			keys := make([]string, 0, len(item))
+			for k := range item {
+				keys = append(keys, k)
+			}
+			assert.ElementsMatch(t,
+				[]string{"DomainArn", "Status", "VpcEndpointId", "VpcEndpointOwner"},
+				keys,
+			)
+			assert.NotContains(t, item, "Endpoint")
+			assert.NotContains(t, item, "VpcOptions")
+			assert.NotContains(t, item, "statusUntil")
+		})
+	}
+}
+
 func TestVpcEndpoints_DescribeByIDs(t *testing.T) {
 	t.Parallel()
 
