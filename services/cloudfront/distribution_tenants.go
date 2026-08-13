@@ -285,6 +285,22 @@ func (b *InMemoryBackend) TenantWebACLArn(tenantID string) string {
 	return b.distributionTenantWebACLs[tenantID]
 }
 
+// TenantCertificateArn returns the ARN of the certificate a distribution tenant uses, or "" if
+// the tenant does not exist. Real AWS lets a tenant use either a customer-supplied ACM
+// certificate (Customizations.Certificate.Arn) or CloudFront's own managed certificate;
+// CreateDistributionTenant/UpdateDistributionTenant don't model the former here, so this always
+// reports the deterministic managed-certificate ARN every tenant has.
+func (b *InMemoryBackend) TenantCertificateArn(tenantID string) string {
+	b.mu.RLock("TenantCertificateArn")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.distributionTenants.Get(tenantID); !ok {
+		return ""
+	}
+
+	return b.managedCertificateARN(tenantID)
+}
+
 // ListDistributionTenantsByCustomization returns distribution tenants filtered by an associated
 // WAF web ACL ARN. When webACLArn is empty, all tenants are returned (same as
 // ListDistributionTenants), since no customization filter was supplied.

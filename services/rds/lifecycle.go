@@ -16,7 +16,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		instanceReadyAt:         make(map[string]time.Time),
 		tags:                    make(map[string][]Tag),
 		clusterRoles:            make(map[string][]string),
-		instanceRoles:           make(map[string][]string),
+		instanceRoles:           make(map[string]map[string]string),
 		events:                  make([]Event, 0),
 		fisFailoverFaults:       make(map[string]time.Time),
 		proxyTargets:            make(map[string][]DBProxyTarget),
@@ -87,7 +87,7 @@ func (b *InMemoryBackend) Reset() {
 	b.instanceReadyAt = make(map[string]time.Time)
 	b.tags = make(map[string][]Tag)
 	b.clusterRoles = make(map[string][]string)
-	b.instanceRoles = make(map[string][]string)
+	b.instanceRoles = make(map[string]map[string]string)
 	b.events = make([]Event, 0)
 	b.fisFailoverFaults = make(map[string]time.Time)
 	b.proxyTargets = make(map[string][]DBProxyTarget)

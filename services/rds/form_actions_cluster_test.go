@@ -394,14 +394,33 @@ func TestRDSHandler_FormActions_Clusters(t *testing.T) {
 			name: "StartExportTask",
 			body: "Action=StartExportTask&Version=2014-10-31" +
 				"&ExportTaskIdentifier=my-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:my-snap" +
-				"&S3BucketName=my-bucket",
+				"&S3BucketName=my-bucket&IamRoleArn=arn:aws:iam::000000000000:role/export-role" +
+				"&KmsKeyId=arn:aws:kms:us-east-1:000000000000:key/test-key",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"StartExportTaskResponse", "my-export", "complete"},
 		},
 		{
 			name: "StartExportTask_EmptyID",
 			body: "Action=StartExportTask&Version=2014-10-31" +
-				"&ExportTaskIdentifier=&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:my-snap",
+				"&ExportTaskIdentifier=&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:my-snap" +
+				"&IamRoleArn=arn:aws:iam::000000000000:role/export-role" +
+				"&KmsKeyId=arn:aws:kms:us-east-1:000000000000:key/test-key",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "StartExportTask_MissingIamRoleArn",
+			body: "Action=StartExportTask&Version=2014-10-31" +
+				"&ExportTaskIdentifier=no-role&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:my-snap" +
+				"&KmsKeyId=arn:aws:kms:us-east-1:000000000000:key/test-key",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "StartExportTask_MissingKmsKeyId",
+			body: "Action=StartExportTask&Version=2014-10-31" +
+				"&ExportTaskIdentifier=no-key&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:my-snap" +
+				"&IamRoleArn=arn:aws:iam::000000000000:role/export-role",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
@@ -409,10 +428,14 @@ func TestRDSHandler_FormActions_Clusters(t *testing.T) {
 			name: "StartExportTask_Duplicate",
 			setupBodies: []string{
 				"Action=StartExportTask&Version=2014-10-31" +
-					"&ExportTaskIdentifier=dup-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s1",
+					"&ExportTaskIdentifier=dup-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s1" +
+					"&IamRoleArn=arn:aws:iam::000000000000:role/export-role" +
+					"&KmsKeyId=arn:aws:kms:us-east-1:000000000000:key/test-key",
 			},
 			body: "Action=StartExportTask&Version=2014-10-31" +
-				"&ExportTaskIdentifier=dup-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s1",
+				"&ExportTaskIdentifier=dup-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s1" +
+				"&IamRoleArn=arn:aws:iam::000000000000:role/export-role" +
+				"&KmsKeyId=arn:aws:kms:us-east-1:000000000000:key/test-key",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ExportTaskAlreadyExists"},
 		},
@@ -421,7 +444,9 @@ func TestRDSHandler_FormActions_Clusters(t *testing.T) {
 			name: "DescribeExportTasks",
 			setupBodies: []string{
 				"Action=StartExportTask&Version=2014-10-31" +
-					"&ExportTaskIdentifier=list-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s2",
+					"&ExportTaskIdentifier=list-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s2" +
+					"&IamRoleArn=arn:aws:iam::000000000000:role/export-role" +
+					"&KmsKeyId=arn:aws:kms:us-east-1:000000000000:key/test-key",
 			},
 			body:         "Action=DescribeExportTasks&Version=2014-10-31",
 			wantCode:     http.StatusOK,
@@ -438,7 +463,9 @@ func TestRDSHandler_FormActions_Clusters(t *testing.T) {
 			name: "CancelExportTask",
 			setupBodies: []string{
 				"Action=StartExportTask&Version=2014-10-31" +
-					"&ExportTaskIdentifier=cancel-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s3",
+					"&ExportTaskIdentifier=cancel-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s3" +
+					"&IamRoleArn=arn:aws:iam::000000000000:role/export-role" +
+					"&KmsKeyId=arn:aws:kms:us-east-1:000000000000:key/test-key",
 			},
 			body:         "Action=CancelExportTask&Version=2014-10-31&ExportTaskIdentifier=cancel-export",
 			wantCode:     http.StatusOK,

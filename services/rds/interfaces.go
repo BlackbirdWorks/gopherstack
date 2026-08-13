@@ -132,7 +132,7 @@ type StorageBackend interface {
 	) (*GlobalCluster, error)
 
 	// Export task operations
-	StartExportTask(taskID, sourceARN, s3Bucket string) (*ExportTask, error)
+	StartExportTask(taskID, sourceARN, s3Bucket, iamRoleARN, kmsKeyID string) (*ExportTask, error)
 	DescribeExportTasks(taskID string) ([]ExportTask, error)
 	CancelExportTask(taskID string) (*ExportTask, error)
 
@@ -158,8 +158,8 @@ type StorageBackend interface {
 	// IAM role operations
 	AddRoleToDBCluster(clusterID, roleARN string) error
 	RemoveRoleFromDBCluster(clusterID, roleARN string) error
-	AddRoleToDBInstance(instanceID, roleARN string) error
-	RemoveRoleFromDBInstance(instanceID, roleARN string) error
+	AddRoleToDBInstance(instanceID, roleARN, featureName string) error
+	RemoveRoleFromDBInstance(instanceID, roleARN, featureName string) error
 
 	// Event subscription operations
 	AddSourceIdentifierToSubscription(

@@ -41,11 +41,17 @@ func (b *InMemoryBackend) CreateBucket(
 		return nil, ErrBucketAlreadyOwnedByYou
 	}
 
+	var tags []types.Tag
+	if input.CreateBucketConfiguration != nil {
+		tags = input.CreateBucketConfiguration.Tags
+	}
+
 	b.buckets.Put(&StoredBucket{
 		Name:         bucketName,
 		Region:       region,
 		CreationDate: time.Now().UTC(),
 		Objects:      make(map[string]*StoredObject),
+		Tags:         tags,
 		// Versioning is intentionally not set: new buckets have never had versioning
 		// configured, which AWS represents as an empty VersioningConfiguration element.
 		mu:                        lockmetrics.New("s3.bucket." + bucketName),

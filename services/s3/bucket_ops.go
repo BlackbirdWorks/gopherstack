@@ -18,7 +18,13 @@ import (
 
 // createBucketConfiguration is the XML body of a CreateBucket request.
 type createBucketConfiguration struct {
-	LocationConstraint string `xml:"LocationConstraint"`
+	LocationConstraint string               `xml:"LocationConstraint"`
+	Tags               []createBucketTagXML `xml:"Tags>Tag"`
+}
+
+type createBucketTagXML struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
 }
 
 // s3BucketLoggingStatus is the XML response for GetBucketLogging (empty by default).
@@ -437,6 +443,70 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
+// parseCreateBucketRequest reads a CreateBucket request body and extracts the
+// LocationConstraint and Tags carried in its CreateBucketConfiguration XML, if any. A malformed
+// or absent body is not an error here -- region/tags are simply left at their zero values and
+// resolved by the caller from other sources (region) or omitted (tags).
+func parseCreateBucketRequest(ctx context.Context, r *http.Request) (string, []types.Tag, error) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if len(body) == 0 {
+		return "", nil, nil
+	}
+
+	var bucketConfig createBucketConfiguration
+	if xmlErr := xml.Unmarshal(body, &bucketConfig); xmlErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "failed to parse CreateBucketConfiguration", "error", xmlErr)
+
+		return "", nil, nil
+	}
+
+	tags := make([]types.Tag, 0, len(bucketConfig.Tags))
+	for _, t := range bucketConfig.Tags {
+		tags = append(tags, types.Tag{Key: aws.String(t.Key), Value: aws.String(t.Value)})
+	}
+
+	return bucketConfig.LocationConstraint, tags, nil
+}
+
+// writeCreateBucketError writes the appropriate S3 error response for a CreateBucket failure.
+// Returns true if err was handled (a response was written), false if err is nil.
+func writeCreateBucketError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) bool {
+	switch {
+	case errors.Is(err, ErrBucketAlreadyOwnedByYou):
+		logger.Load(ctx).
+			ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:     "BucketAlreadyOwnedByYou",
+			Message:  "Your previous request to create the named bucket succeeded and you already own it.",
+			Resource: r.URL.Path,
+		}, http.StatusConflict)
+
+		return true
+	case errors.Is(err, ErrBucketAlreadyExists):
+		logger.Load(ctx).
+			ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code: "BucketAlreadyExists",
+			Message: "The requested bucket name is not available. " +
+				"The bucket namespace is shared by all users of the system. " +
+				"Select a different name and try again.",
+			Resource: r.URL.Path,
+		}, http.StatusConflict)
+
+		return true
+	case err != nil:
+		WriteError(ctx, w, r, err)
+
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *S3Handler) createBucket(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -446,22 +516,11 @@ func (h *S3Handler) createBucket(
 	h.setOperation(ctx, "CreateBucket")
 	logger.Load(ctx).DebugContext(ctx, "S3 createBucket input", "bucket", bucketName)
 
-	var region string
-	// Read the body to check for LocationConstraint
-	body, err := httputils.ReadBody(r)
+	region, tags, err := parseCreateBucketRequest(ctx, r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
-	}
-
-	if len(body) > 0 {
-		var bucketConfig createBucketConfiguration
-		if xmlErr := xml.Unmarshal(body, &bucketConfig); xmlErr == nil {
-			region = bucketConfig.LocationConstraint
-		} else {
-			logger.Load(ctx).WarnContext(ctx, "failed to parse CreateBucketConfiguration", "error", xmlErr)
-		}
 	}
 
 	// If region not in body, try to get from context (extracted from Authorization header)
@@ -479,42 +538,17 @@ func (h *S3Handler) createBucket(
 	input := &s3.CreateBucketInput{
 		Bucket: aws.String(bucketName),
 	}
-	if region != defaultRegionName {
+	if region != defaultRegionName || len(tags) > 0 {
 		input.CreateBucketConfiguration = &types.CreateBucketConfiguration{
-			LocationConstraint: types.BucketLocationConstraint(region),
+			Tags: tags,
+		}
+		if region != defaultRegionName {
+			input.CreateBucketConfiguration.LocationConstraint = types.BucketLocationConstraint(region)
 		}
 	}
 
 	output, err := h.Backend.CreateBucket(ctx, input)
-	if errors.Is(err, ErrBucketAlreadyOwnedByYou) {
-		logger.Load(ctx).
-			ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:     "BucketAlreadyOwnedByYou",
-			Message:  "Your previous request to create the named bucket succeeded and you already own it.",
-			Resource: r.URL.Path,
-		}, http.StatusConflict)
-
-		return
-	}
-
-	if errors.Is(err, ErrBucketAlreadyExists) {
-		logger.Load(ctx).
-			ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code: "BucketAlreadyExists",
-			Message: "The requested bucket name is not available. " +
-				"The bucket namespace is shared by all users of the system. " +
-				"Select a different name and try again.",
-			Resource: r.URL.Path,
-		}, http.StatusConflict)
-
-		return
-	}
-
-	if err != nil {
-		WriteError(ctx, w, r, err)
-
+	if writeCreateBucketError(ctx, w, r, err) {
 		return
 	}
 

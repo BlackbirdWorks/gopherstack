@@ -9,7 +9,9 @@ func (h *Handler) handleStartExportTask(vals url.Values) (any, error) {
 	taskID := vals.Get("ExportTaskIdentifier")
 	sourceARN := vals.Get("SourceArn")
 	s3Bucket := vals.Get("S3BucketName")
-	task, err := h.Backend.StartExportTask(taskID, sourceARN, s3Bucket)
+	iamRoleARN := vals.Get("IamRoleArn")
+	kmsKeyID := vals.Get("KmsKeyId")
+	task, err := h.Backend.StartExportTask(taskID, sourceARN, s3Bucket, iamRoleARN, kmsKeyID)
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +59,8 @@ func toXMLExportTask(task *ExportTask) xmlExportTask {
 		SourceArn:            task.SourceArn,
 		Status:               task.Status,
 		S3Bucket:             task.S3Bucket,
+		IamRoleArn:           task.IamRoleArn,
+		KmsKeyID:             task.KmsKeyID,
 	}
 }
 
@@ -65,6 +69,8 @@ type xmlExportTask struct {
 	SourceArn            string `xml:"SourceArn"`
 	Status               string `xml:"Status"`
 	S3Bucket             string `xml:"S3Bucket,omitempty"`
+	IamRoleArn           string `xml:"IamRoleArn,omitempty"`
+	KmsKeyID             string `xml:"KmsKeyId,omitempty"`
 }
 
 type xmlExportTaskList struct {

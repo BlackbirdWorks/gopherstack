@@ -108,42 +108,67 @@ func TestRemoveRoleFromDBInstance(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantErrIs  error
-		setup      func(b *rds.InMemoryBackend)
-		name       string
-		instanceID string
-		roleARN    string
-		wantErr    bool
+		wantErrIs   error
+		setup       func(b *rds.InMemoryBackend)
+		name        string
+		instanceID  string
+		roleARN     string
+		featureName string
+		wantErr     bool
 	}{
 		{
 			name: "success_removes_role",
 			setup: func(b *rds.InMemoryBackend) {
 				b.AddInstanceInternal("i1", "mysql")
-				_ = b.AddRoleToDBInstance("i1", "arn:aws:iam::000:role/R1")
+				_ = b.AddRoleToDBInstance("i1", "arn:aws:iam::000:role/R1", "S3_INTEGRATION")
 			},
-			instanceID: "i1",
-			roleARN:    "arn:aws:iam::000:role/R1",
+			instanceID:  "i1",
+			roleARN:     "arn:aws:iam::000:role/R1",
+			featureName: "S3_INTEGRATION",
 		},
 		{
 			name: "noop_when_role_not_associated",
 			setup: func(b *rds.InMemoryBackend) {
 				b.AddInstanceInternal("i2", "mysql")
 			},
-			instanceID: "i2",
-			roleARN:    "arn:aws:iam::000:role/NotAttached",
+			instanceID:  "i2",
+			roleARN:     "arn:aws:iam::000:role/NotAttached",
+			featureName: "S3_INTEGRATION",
 		},
 		{
-			name:       "instance_not_found",
-			setup:      func(_ *rds.InMemoryBackend) {},
-			instanceID: "no-such-instance",
-			roleARN:    "arn:aws:iam::000:role/R1",
-			wantErr:    true,
-			wantErrIs:  rds.ErrInstanceNotFound,
+			name: "noop_when_feature_name_does_not_match",
+			setup: func(b *rds.InMemoryBackend) {
+				b.AddInstanceInternal("i4", "mysql")
+				_ = b.AddRoleToDBInstance("i4", "arn:aws:iam::000:role/R1", "S3_INTEGRATION")
+			},
+			instanceID:  "i4",
+			roleARN:     "arn:aws:iam::000:role/R1",
+			featureName: "SQLSERVER_AUDIT",
 		},
 		{
-			name:       "empty_instance_id",
-			setup:      func(_ *rds.InMemoryBackend) {},
-			instanceID: "",
+			name:        "instance_not_found",
+			setup:       func(_ *rds.InMemoryBackend) {},
+			instanceID:  "no-such-instance",
+			roleARN:     "arn:aws:iam::000:role/R1",
+			featureName: "S3_INTEGRATION",
+			wantErr:     true,
+			wantErrIs:   rds.ErrInstanceNotFound,
+		},
+		{
+			name:        "empty_instance_id",
+			setup:       func(_ *rds.InMemoryBackend) {},
+			instanceID:  "",
+			roleARN:     "arn:aws:iam::000:role/R1",
+			featureName: "S3_INTEGRATION",
+			wantErr:     true,
+			wantErrIs:   rds.ErrInvalidParameter,
+		},
+		{
+			name: "empty_feature_name",
+			setup: func(b *rds.InMemoryBackend) {
+				b.AddInstanceInternal("i3", "mysql")
+			},
+			instanceID: "i3",
 			roleARN:    "arn:aws:iam::000:role/R1",
 			wantErr:    true,
 			wantErrIs:  rds.ErrInvalidParameter,
@@ -157,7 +182,7 @@ func TestRemoveRoleFromDBInstance(t *testing.T) {
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
 
-			err := b.RemoveRoleFromDBInstance(tt.instanceID, tt.roleARN)
+			err := b.RemoveRoleFromDBInstance(tt.instanceID, tt.roleARN, tt.featureName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -223,7 +248,7 @@ func TestHTTP_RemoveRoleFromDBInstance(t *testing.T) {
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddInstanceInternal("my-inst", "mysql")
-	_ = b.AddRoleToDBInstance("my-inst", "arn:aws:iam::000:role/R1")
+	_ = b.AddRoleToDBInstance("my-inst", "arn:aws:iam::000:role/R1", "S3_INTEGRATION")
 	h := rds.NewHandler(b)
 
 	tests := []struct {
@@ -235,13 +260,13 @@ func TestHTTP_RemoveRoleFromDBInstance(t *testing.T) {
 		{
 			name: "success",
 			body: "Action=RemoveRoleFromDBInstance&Version=2014-10-31" +
-				"&DBInstanceIdentifier=my-inst&RoleArn=arn%3Aaws%3Aiam%3A%3A000%3Arole%2FR1",
+				"&DBInstanceIdentifier=my-inst&RoleArn=arn%3Aaws%3Aiam%3A%3A000%3Arole%2FR1&FeatureName=S3_INTEGRATION",
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name: "instance_not_found",
 			body: "Action=RemoveRoleFromDBInstance&Version=2014-10-31" +
-				"&DBInstanceIdentifier=no-such&RoleArn=arn%3Aaws%3Aiam%3A%3A000%3Arole%2FR1",
+				"&DBInstanceIdentifier=no-such&RoleArn=arn%3Aaws%3Aiam%3A%3A000%3Arole%2FR1&FeatureName=S3_INTEGRATION",
 			wantStatusCode: http.StatusBadRequest,
 			wantCode:       "DBInstanceNotFound",
 		},
@@ -274,7 +299,7 @@ func TestClusterRoleCountAndInstanceRoleCount(t *testing.T) {
 
 	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1")
 	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R2")
-	_ = b.AddRoleToDBInstance("i1", "arn:aws:iam::000:role/R3")
+	_ = b.AddRoleToDBInstance("i1", "arn:aws:iam::000:role/R3", "S3_INTEGRATION")
 
 	assert.Equal(t, 2, rds.ClusterRoleCount(b, "c1"))
 	assert.Equal(t, 1, rds.InstanceRoleCount(b, "i1"))
@@ -392,44 +417,59 @@ func TestRDSBackend_AddRoleToDBInstance(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantErrIs  error
-		setup      func(b *rds.InMemoryBackend)
-		name       string
-		instanceID string
-		roleARN    string
-		wantErr    bool
+		wantErrIs   error
+		setup       func(b *rds.InMemoryBackend)
+		name        string
+		instanceID  string
+		roleARN     string
+		featureName string
+		wantErr     bool
 	}{
 		{
 			name: "success",
 			setup: func(b *rds.InMemoryBackend) {
 				_, _ = b.CreateDBInstance("my-db", "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
 			},
-			instanceID: "my-db",
-			roleARN:    "arn:aws:iam::000000000000:role/MyRole",
+			instanceID:  "my-db",
+			roleARN:     "arn:aws:iam::000000000000:role/MyRole",
+			featureName: "S3_INTEGRATION",
 		},
 		{
-			name:       "instance_not_found",
-			setup:      func(_ *rds.InMemoryBackend) {},
-			instanceID: "no-such-db",
-			roleARN:    "arn:aws:iam::000000000000:role/MyRole",
-			wantErr:    true,
-			wantErrIs:  rds.ErrInstanceNotFound,
+			name:        "instance_not_found",
+			setup:       func(_ *rds.InMemoryBackend) {},
+			instanceID:  "no-such-db",
+			roleARN:     "arn:aws:iam::000000000000:role/MyRole",
+			featureName: "S3_INTEGRATION",
+			wantErr:     true,
+			wantErrIs:   rds.ErrInstanceNotFound,
 		},
 		{
-			name:       "empty_instance_id",
-			setup:      func(_ *rds.InMemoryBackend) {},
-			instanceID: "",
-			roleARN:    "arn:aws:iam::000000000000:role/MyRole",
-			wantErr:    true,
-			wantErrIs:  rds.ErrInvalidParameter,
+			name:        "empty_instance_id",
+			setup:       func(_ *rds.InMemoryBackend) {},
+			instanceID:  "",
+			roleARN:     "arn:aws:iam::000000000000:role/MyRole",
+			featureName: "S3_INTEGRATION",
+			wantErr:     true,
+			wantErrIs:   rds.ErrInvalidParameter,
 		},
 		{
 			name: "empty_role_arn",
 			setup: func(b *rds.InMemoryBackend) {
 				_, _ = b.CreateDBInstance("my-db", "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
 			},
+			instanceID:  "my-db",
+			roleARN:     "",
+			featureName: "S3_INTEGRATION",
+			wantErr:     true,
+			wantErrIs:   rds.ErrInvalidParameter,
+		},
+		{
+			name: "empty_feature_name",
+			setup: func(b *rds.InMemoryBackend) {
+				_, _ = b.CreateDBInstance("my-db", "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
+			},
 			instanceID: "my-db",
-			roleARN:    "",
+			roleARN:    "arn:aws:iam::000000000000:role/MyRole",
 			wantErr:    true,
 			wantErrIs:  rds.ErrInvalidParameter,
 		},
@@ -442,7 +482,7 @@ func TestRDSBackend_AddRoleToDBInstance(t *testing.T) {
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
 
-			err := b.AddRoleToDBInstance(tt.instanceID, tt.roleARN)
+			err := b.AddRoleToDBInstance(tt.instanceID, tt.roleARN, tt.featureName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -452,4 +492,46 @@ func TestRDSBackend_AddRoleToDBInstance(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAddRoleToDBInstance_FeatureNameKeepsRolesSeparate verifies the fix for the bug where
+// AddRoleToDBInstance/RemoveRoleFromDBInstance dropped FeatureName: two roles for different
+// features must not collapse into one, and RemoveRoleFromDBInstance must only remove the
+// (feature, role) pair that actually matches. Goes through the real HTTP form handler so the
+// FeatureName form field is exercised exactly as a real client sends it, not just the backend
+// method directly.
+func TestAddRoleToDBInstance_FeatureNameKeepsRolesSeparate(t *testing.T) {
+	t.Parallel()
+
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	b.AddInstanceInternal("multi-feature-inst", "mysql")
+	h := rds.NewHandler(b)
+
+	addS3 := postRDSForm(t, h, "Action=AddRoleToDBInstance&Version=2014-10-31"+
+		"&DBInstanceIdentifier=multi-feature-inst"+
+		"&RoleArn=arn%3Aaws%3Aiam%3A%3A000%3Arole%2FS3Role&FeatureName=S3_INTEGRATION")
+	require.Equal(t, http.StatusOK, addS3.Code)
+
+	addAudit := postRDSForm(t, h, "Action=AddRoleToDBInstance&Version=2014-10-31"+
+		"&DBInstanceIdentifier=multi-feature-inst"+
+		"&RoleArn=arn%3Aaws%3Aiam%3A%3A000%3Arole%2FAuditRole&FeatureName=SQLSERVER_AUDIT")
+	require.Equal(t, http.StatusOK, addAudit.Code)
+
+	require.Equal(t, 2, rds.InstanceRoleCount(b, "multi-feature-inst"),
+		"roles for two different features must not collapse into one association")
+
+	// Removing with a FeatureName that doesn't match the stored association is a no-op.
+	removeWrongFeature := postRDSForm(t, h, "Action=RemoveRoleFromDBInstance&Version=2014-10-31"+
+		"&DBInstanceIdentifier=multi-feature-inst"+
+		"&RoleArn=arn%3Aaws%3Aiam%3A%3A000%3Arole%2FS3Role&FeatureName=SQLSERVER_AUDIT")
+	require.Equal(t, http.StatusOK, removeWrongFeature.Code)
+	assert.Equal(t, 2, rds.InstanceRoleCount(b, "multi-feature-inst"),
+		"remove must not touch a role under the wrong feature")
+
+	removeS3 := postRDSForm(t, h, "Action=RemoveRoleFromDBInstance&Version=2014-10-31"+
+		"&DBInstanceIdentifier=multi-feature-inst"+
+		"&RoleArn=arn%3Aaws%3Aiam%3A%3A000%3Arole%2FS3Role&FeatureName=S3_INTEGRATION")
+	require.Equal(t, http.StatusOK, removeS3.Code)
+	assert.Equal(t, 1, rds.InstanceRoleCount(b, "multi-feature-inst"),
+		"only the matching (feature, role) association should be removed")
 }

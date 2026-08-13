@@ -301,6 +301,8 @@ type ExportTask struct {
 	SourceArn            string `json:"sourceArn"`
 	Status               string `json:"status"`
 	S3Bucket             string `json:"s3Bucket"`
+	IamRoleArn           string `json:"iamRoleArn"`
+	KmsKeyID             string `json:"kmsKeyId"`
 }
 
 // GlobalCluster represents an RDS global cluster.
@@ -688,7 +690,7 @@ type InMemoryBackend struct {
 	eventSubscriptions        *store.Table[EventSubscription]
 	globalClusters            *store.Table[GlobalCluster]
 	clusterRoles              map[string][]string
-	instanceRoles             map[string][]string
+	instanceRoles             map[string]map[string]string
 	exportTasks               *store.Table[ExportTask]
 	mu                        *lockmetrics.RWMutex
 	dbSecurityGroups          *store.Table[DBSecurityGroup]

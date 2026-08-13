@@ -3,9 +3,17 @@ package rds
 import "fmt"
 
 // StartExportTask creates a new export task for the given source ARN.
-func (b *InMemoryBackend) StartExportTask(taskID, sourceARN, s3Bucket string) (*ExportTask, error) {
+func (b *InMemoryBackend) StartExportTask(
+	taskID, sourceARN, s3Bucket, iamRoleARN, kmsKeyID string,
+) (*ExportTask, error) {
 	if taskID == "" {
 		return nil, fmt.Errorf("%w: ExportTaskIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if iamRoleARN == "" {
+		return nil, fmt.Errorf("%w: IamRoleArn must not be empty", ErrInvalidParameter)
+	}
+	if kmsKeyID == "" {
+		return nil, fmt.Errorf("%w: KmsKeyId must not be empty", ErrInvalidParameter)
 	}
 	b.mu.Lock("StartExportTask")
 	defer b.mu.Unlock()
@@ -17,6 +25,8 @@ func (b *InMemoryBackend) StartExportTask(taskID, sourceARN, s3Bucket string) (*
 		SourceArn:            sourceARN,
 		Status:               "complete",
 		S3Bucket:             s3Bucket,
+		IamRoleArn:           iamRoleARN,
+		KmsKeyID:             kmsKeyID,
 	}
 	b.exportTasks.Put(task)
 	cp := *task

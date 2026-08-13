@@ -693,8 +693,6 @@ func parseCFDistributionsByPath(method, suffix string) (string, string) {
 		)
 	case suffix == "distributions/by-connection-mode":
 		return opListDistributionsByConnectionMode, ""
-	case suffix == "distribution-tenants/by-customization":
-		return opListDistributionTenantsByCustom, ""
 	case strings.HasPrefix(suffix, "distributions/by-trust-store-id/"):
 		return opListDistributionsByTrustStore, strings.TrimPrefix(suffix, "distributions/by-trust-store-id/")
 	}
@@ -917,7 +915,10 @@ func parseCFMiscPathSimple(method, suffix string) string {
 		{"domain-association", http.MethodPost, opUpdateDomainAssociation},
 		{"verify-dns-configuration", http.MethodPost, opVerifyDNSConfiguration},
 		{"distributions/by-connection-mode", http.MethodGet, opListDistributionsByConnectionMode},
-		{"distribution-tenants/by-customization", http.MethodGet, opListDistributionTenantsByCustom},
+		// cloudfront@v1.67.4 serializers.go awsRestxml_serializeOpListDistributionTenantsByCustomization:
+		// POST to "distribution-tenants-by-customization" (one hyphenated segment), not GET to
+		// "distribution-tenants/by-customization" (the old entry here never matched a real client).
+		{"distribution-tenants-by-customization", http.MethodPost, opListDistributionTenantsByCustom},
 		{"connection-group-by-routing-endpoint", http.MethodGet, opGetConnectionGroupByRoutingEndpoint},
 		{"distribution-tenant-by-domain", http.MethodGet, opGetDistributionTenantByDomain},
 	}

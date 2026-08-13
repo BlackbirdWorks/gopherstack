@@ -1,12 +1,14 @@
 package s3_test
 
 import (
+	"context"
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -499,6 +501,34 @@ func TestHandler_CreateBucket_ReturnsLocation(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "/test-bucket", rec.Header().Get("Location"), "Location header should be set")
+}
+
+// TestHandler_CreateBucket_Tags verifies that Tags carried in the
+// CreateBucketConfiguration XML body (real S3 wire shape: <Tags><Tag>...)
+// are stored on the bucket, matching what PutBucketTagging/GetBucketTagging
+// already expose.
+func TestHandler_CreateBucket_Tags(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+
+	bucket := "tagged-on-create"
+	body := `<CreateBucketConfiguration>` +
+		`<Tags><Tag><Key>env</Key><Value>prod</Value></Tag><Tag><Key>team</Key><Value>infra</Value></Tag></Tags>` +
+		`</CreateBucketConfiguration>`
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket, strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	tags, err := backend.GetBucketTagging(context.Background(), bucket)
+	require.NoError(t, err)
+	require.Len(t, tags, 2)
+	assert.Equal(t, "env", aws.ToString(tags[0].Key))
+	assert.Equal(t, "prod", aws.ToString(tags[0].Value))
+	assert.Equal(t, "team", aws.ToString(tags[1].Key))
+	assert.Equal(t, "infra", aws.ToString(tags[1].Value))
 }
 
 func TestHandler_DeleteBucket(t *testing.T) {

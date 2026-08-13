@@ -80,7 +80,8 @@ func clusterAutomatedBackupsKeyFn(v *DBClusterAutomatedBackup) string { return v
 //   - tags: map[string][]Tag keyed by ARN, slice-valued
 //   - instanceReadyAt / clusterReadyAt: transient reconciler-scheduling
 //     timestamps, not persisted resource state with an identity field
-//   - clusterRoles / instanceRoles: map[string][]string, slice-valued
+//   - clusterRoles: map[string][]string, slice-valued
+//   - instanceRoles: map[string]map[string]string, keyed by FeatureName per instance
 //   - proxyTargets: map[string][]DBProxyTarget, slice-valued
 //   - fisFailoverFaults: map[string]time.Time, transient FIS fault-injection
 //     state explicitly cleared (not restored) on Restore

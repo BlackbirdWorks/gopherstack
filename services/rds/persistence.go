@@ -18,13 +18,16 @@ import (
 // attempts to partially decode) any mismatch -- see Restore below. This
 // mirrors the services/ec2 (commit 12e611a4) and services/sqs (commit
 // 0f09d77c) conversions.
-const rdsSnapshotVersion = 1
+// Bumped to 2: instanceRoles changed shape from map[string][]string (role ARNs, collapsing
+// different FeatureName associations together) to map[string]map[string]string (instance ID ->
+// FeatureName -> role ARN), matching AWS's per-feature role slots.
+const rdsSnapshotVersion = 2
 
 type backendSnapshot struct {
 	Tables                  map[string]json.RawMessage             `json:"tables"`
 	Tags                    map[string][]Tag                       `json:"tags"`
 	ClusterRoles            map[string][]string                    `json:"clusterRoles"`
-	InstanceRoles           map[string][]string                    `json:"instanceRoles"`
+	InstanceRoles           map[string]map[string]string           `json:"instanceRoles"`
 	ProxyTargets            map[string][]DBProxyTarget             `json:"proxyTargets"`
 	InstanceReadyAt         map[string]time.Time                   `json:"instanceReadyAt"`
 	ClusterReadyAt          map[string]time.Time                   `json:"clusterReadyAt"`
@@ -156,7 +159,7 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 
 	if snap.InstanceRoles == nil {
-		snap.InstanceRoles = make(map[string][]string)
+		snap.InstanceRoles = make(map[string]map[string]string)
 	}
 
 	if snap.ProxyTargets == nil {

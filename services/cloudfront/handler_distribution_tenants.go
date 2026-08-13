@@ -251,6 +251,7 @@ type tenantListXML struct {
 type tenantListResultXML struct {
 	XMLName                xml.Name      `xml:"ListDistributionTenantsResult"`
 	XMLNS                  string        `xml:"xmlns,attr"`
+	NextMarker             string        `xml:"NextMarker,omitempty"`
 	DistributionTenantList tenantListXML `xml:"DistributionTenantList"`
 }
 
@@ -288,13 +289,93 @@ func (h *Handler) handleListDistributionTenants(c *echo.Context) error {
 	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
 }
 
-// handleListDistributionTenantsByCustomization returns distribution tenants filtered by the
-// WebACLArn query parameter, i.e. tenants that have that WAF web ACL associated.
-func (h *Handler) handleListDistributionTenantsByCustomization(c *echo.Context) error {
-	webACLArn := c.Request().URL.Query().Get("WebACLArn")
-	tenants := h.Backend.ListDistributionTenantsByCustomization(webACLArn)
+// listDistributionTenantsByCustomizationXML is the XML body of a
+// ListDistributionTenantsByCustomization request. cloudfront@v1.67.4 serializers.go
+// awsRestxml_serializeOpHttpBindingsListDistributionTenantsByCustomizationInput returns nil (no
+// HTTP-bound fields), so CertificateArn, Marker, MaxItems, and WebACLArn all serialize into the
+// XML body, not the query string.
+type listDistributionTenantsByCustomizationXML struct {
+	XMLName        xml.Name `xml:"ListDistributionTenantsByCustomizationRequest"`
+	CertificateArn string   `xml:"CertificateArn"`
+	Marker         string   `xml:"Marker"`
+	WebACLArn      string   `xml:"WebACLArn"`
+	MaxItems       int      `xml:"MaxItems"`
+}
 
-	out, xmlErr := xml.Marshal(tenantsToSummaryList(tenants))
+// filterTenantsByCertificateArn narrows tenants to those whose certificate ARN matches certArn.
+// A blank certArn is a no-op (no filter requested).
+func (h *Handler) filterTenantsByCertificateArn(tenants []*DistributionTenant, certArn string) []*DistributionTenant {
+	if certArn == "" {
+		return tenants
+	}
+
+	filtered := make([]*DistributionTenant, 0, len(tenants))
+	for _, t := range tenants {
+		if h.Backend.TenantCertificateArn(t.ID) == certArn {
+			filtered = append(filtered, t)
+		}
+	}
+
+	return filtered
+}
+
+// paginateTenants applies the Marker/MaxItems page window to an already-sorted tenant list,
+// returning the page, the effective page size, and whether more results follow.
+func paginateTenants(tenants []*DistributionTenant, marker string, maxItemsReq int) ([]*DistributionTenant, int, bool) {
+	pageSize := maxItems
+	if maxItemsReq > 0 && maxItemsReq < maxItems {
+		pageSize = maxItemsReq
+	}
+
+	// Tenants are already sorted by ID (see ListDistributionTenantsByCustomization); the marker
+	// is the ID of the last item returned on the previous page.
+	if marker != "" {
+		cut := 0
+		for cut < len(tenants) && tenants[cut].ID <= marker {
+			cut++
+		}
+		tenants = tenants[cut:]
+	}
+
+	isTruncated := len(tenants) > pageSize
+	if isTruncated {
+		tenants = tenants[:pageSize]
+	}
+
+	return tenants, pageSize, isTruncated
+}
+
+// handleListDistributionTenantsByCustomization returns distribution tenants filtered by
+// WebACLArn and/or CertificateArn, paginated by Marker/MaxItems.
+func (h *Handler) handleListDistributionTenantsByCustomization(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req listDistributionTenantsByCustomizationXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ListDistributionTenantsByCustomizationRequest XML"),
+			)
+		}
+	}
+
+	tenants := h.Backend.ListDistributionTenantsByCustomization(req.WebACLArn)
+	tenants = h.filterTenantsByCertificateArn(tenants, req.CertificateArn)
+
+	page, pageSize, isTruncated := paginateTenants(tenants, req.Marker, req.MaxItems)
+
+	result := tenantsToSummaryList(page)
+	result.DistributionTenantList.MaxItems = pageSize
+	if isTruncated && len(page) > 0 {
+		result.NextMarker = page[len(page)-1].ID
+	}
+
+	out, xmlErr := xml.Marshal(result)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
 	}

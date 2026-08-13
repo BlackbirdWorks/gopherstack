@@ -125,7 +125,10 @@ func TestListDomainConflicts_RealConflicts(t *testing.T) {
 }
 
 // TestListDistributionTenantsByCustomization_FiltersByWebACL verifies that the customization
-// listing filters tenants by their associated WAF web ACL ARN.
+// listing filters tenants by their associated WAF web ACL ARN. Uses the real wire shape --
+// cloudfront@v1.67.4 serializers.go awsRestxml_serializeOpListDistributionTenantsByCustomization
+// sends POST to the hyphenated "distribution-tenants-by-customization" path with WebACLArn in
+// the XML body, not GET with a query parameter.
 func TestListDistributionTenantsByCustomization_FiltersByWebACL(t *testing.T) {
 	t.Parallel()
 
@@ -139,9 +142,11 @@ func TestListDistributionTenantsByCustomization_FiltersByWebACL(t *testing.T) {
 	rr := cfRequest(
 		t,
 		h,
-		http.MethodGet,
-		tenantDomainPrefix+"distribution-tenants/by-customization?WebACLArn=arn:aws:wafv2:us-east-1:123:global/webacl/x/1",
-		"",
+		http.MethodPost,
+		tenantDomainPrefix+"distribution-tenants-by-customization",
+		`<ListDistributionTenantsByCustomizationRequest>`+
+			`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/x/1</WebACLArn>`+
+			`</ListDistributionTenantsByCustomizationRequest>`,
 	)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())

@@ -66,7 +66,7 @@ func TestPersistence_SnapshotRestore_ExtendedFields(t *testing.T) {
 	_, err = b.CreateDBInstance("my-db", "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
 	require.NoError(t, err)
 
-	err = b.AddRoleToDBInstance("my-db", "arn:aws:iam::000000000000:role/InstanceRole")
+	err = b.AddRoleToDBInstance("my-db", "arn:aws:iam::000000000000:role/InstanceRole", "S3_INTEGRATION")
 	require.NoError(t, err)
 
 	_, err = b.AddSourceIdentifierToSubscription("my-sub", "source-1")
@@ -89,7 +89,7 @@ func TestPersistence_SnapshotRestore_ExtendedFields(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify instance role persisted.
-	err = b2.AddRoleToDBInstance("my-db", "arn:aws:iam::000000000000:role/InstanceRole")
+	err = b2.AddRoleToDBInstance("my-db", "arn:aws:iam::000000000000:role/InstanceRole", "S3_INTEGRATION")
 	require.NoError(t, err)
 
 	// Verify event subscription persisted.
@@ -143,7 +143,8 @@ func TestRDSBackend_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start export task.
-	_, err = b1.StartExportTask("task1", "arn:aws:rds:us-east-1:000000000000:snapshot:snap1", "my-bucket")
+	_, err = b1.StartExportTask("task1", "arn:aws:rds:us-east-1:000000000000:snapshot:snap1", "my-bucket",
+		"arn:aws:iam::000000000000:role/export-role", "arn:aws:kms:us-east-1:000000000000:key/test-key")
 	require.NoError(t, err)
 
 	// Take a snapshot of backend state.
@@ -396,7 +397,8 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NotNil(t, b.CreateDBClusterAutomatedBackup(cluster.DBClusterIdentifier))
 
 	// exportTasks / globalClusters / eventSubscriptions / dbSecurityGroups / blueGreenDeployments
-	_, err = b.StartExportTask("exp1", "arn:aws:rds:us-east-1:000000000000:snapshot:snap1", "bucket1")
+	_, err = b.StartExportTask("exp1", "arn:aws:rds:us-east-1:000000000000:snapshot:snap1", "bucket1",
+		"arn:aws:iam::000000000000:role/export-role", "arn:aws:kms:us-east-1:000000000000:key/test-key")
 	require.NoError(t, err)
 	_, err = b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.6", false, false)
 	require.NoError(t, err)
@@ -427,7 +429,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 
 	// representative sample of maps deliberately left raw (see store_setup.go)
 	require.NoError(t, b.AddRoleToDBCluster(cluster.DBClusterIdentifier, "arn:aws:iam::000000000000:role/cluster"))
-	require.NoError(t, b.AddRoleToDBInstance("inst1", "arn:aws:iam::000000000000:role/instance"))
+	require.NoError(t, b.AddRoleToDBInstance("inst1", "arn:aws:iam::000000000000:role/instance", "S3_INTEGRATION"))
 	b.AddDBSnapshotTenantDatabase("snap1", "inst1", "tenant1", "mysql")
 
 	snap := b.Snapshot(ctx)
