@@ -343,6 +343,27 @@ type ModelImportJob struct {
 	Tags              []Tag      `json:"tags,omitempty"`
 }
 
+// OutputDataConfig mirrors bedrock@v1.66.4 types.OutputDataConfig
+// (api_op_CreateModelCustomizationJob.go), the S3 location a completed job
+// writes its output to.
+type OutputDataConfig struct {
+	S3Uri string `json:"s3Uri"`
+}
+
+// TrainingDataConfig mirrors bedrock@v1.66.4 types.TrainingDataConfig
+// (api_op_CreateModelCustomizationJob.go). InvocationLogSource is flattened
+// to InvocationLogSourceS3Uri, the same way ModelImportJob.ModelDataSourceS3
+// flattens ModelDataSource above -- it is the union's only member
+// (types.InvocationLogSourceMemberS3Uri). RequestMetadataFilters is not
+// modeled: a recursive filter-expression union (AndAll/OrAll/Equals/NotEquals)
+// that only prunes which invocation logs a Distillation job trains on, and
+// this backend has no invocation-log pipeline for such filters to act on.
+type TrainingDataConfig struct {
+	S3Uri                    string `json:"s3Uri,omitempty"`
+	InvocationLogSourceS3Uri string `json:"invocationLogSourceS3Uri,omitempty"`
+	UsePromptResponse        bool   `json:"usePromptResponse,omitempty"`
+}
+
 // ModelCustomizationJob represents a model customization job. BaseModelName is
 // the display name of the foundation model resolved from BaseModelArn (best
 // effort: only populated when the base model identifier matches a seeded
@@ -350,21 +371,30 @@ type ModelImportJob struct {
 // completion (see AdvanceCustomizationJobStatuses) can populate
 // CustomModelSummary's required baseModelName without a second lookup.
 type ModelCustomizationJob struct {
-	CreationTime      time.Time `json:"creationTime"`
-	LastModifiedTime  time.Time `json:"lastModifiedTime"`
-	EndTime           time.Time `json:"endTime"`
-	JobArn            string    `json:"jobArn"`
-	JobName           string    `json:"jobName"`
-	BaseModelArn      string    `json:"baseModelArn"`
-	BaseModelName     string    `json:"baseModelName,omitempty"`
-	OutputModelArn    string    `json:"outputModelArn"`
-	CustomModelName   string    `json:"customModelName"`
-	Status            string    `json:"status"`
-	CustomizationType string    `json:"customizationType,omitempty"`
-	Tags              []Tag     `json:"tags,omitempty"`
+	CreationTime       time.Time          `json:"creationTime"`
+	LastModifiedTime   time.Time          `json:"lastModifiedTime"`
+	EndTime            time.Time          `json:"endTime"`
+	JobArn             string             `json:"jobArn"`
+	JobName            string             `json:"jobName"`
+	BaseModelArn       string             `json:"baseModelArn"`
+	BaseModelName      string             `json:"baseModelName,omitempty"`
+	OutputModelArn     string             `json:"outputModelArn"`
+	CustomModelName    string             `json:"customModelName"`
+	Status             string             `json:"status"`
+	CustomizationType  string             `json:"customizationType,omitempty"`
+	RoleArn            string             `json:"roleArn"`
+	OutputDataConfig   OutputDataConfig   `json:"outputDataConfig"`
+	TrainingDataConfig TrainingDataConfig `json:"trainingDataConfig"`
+	Tags               []Tag              `json:"tags,omitempty"`
 }
 
-// InferenceProfile represents an inference profile resource.
+// InferenceProfile represents an inference profile resource. ModelSource is
+// the CopyFrom ARN from types.InferenceProfileModelSource
+// (api_op_CreateInferenceProfile.go), the union's only member -- the
+// foundation model or system-defined inference profile this profile tracks.
+// GetInferenceProfileOutput echoes it back as the required Models list
+// (types.InferenceProfileModel), not as ModelSource itself; see
+// inferenceProfileToOutput.
 type InferenceProfile struct {
 	CreatedAt            time.Time `json:"createdAt"`
 	UpdatedAt            time.Time `json:"updatedAt"`
@@ -374,6 +404,7 @@ type InferenceProfile struct {
 	Status               string    `json:"status"`
 	Type                 string    `json:"type"`
 	Description          string    `json:"description,omitempty"`
+	ModelSource          string    `json:"modelSource"`
 	Tags                 []Tag     `json:"tags,omitempty"`
 }
 

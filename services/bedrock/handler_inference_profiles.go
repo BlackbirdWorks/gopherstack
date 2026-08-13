@@ -46,10 +46,19 @@ func (h *Handler) routeInferenceProfile(
 	}
 }
 
+// inferenceProfileModelSourceInput mirrors bedrock@v1.66.4
+// types.InferenceProfileModelSourceMemberCopyFrom, the union's only member
+// (serializers.go: awsRestjson1_serializeDocumentInferenceProfileModelSource
+// emits {"copyFrom": ...} for it).
+type inferenceProfileModelSourceInput struct {
+	CopyFrom string `json:"copyFrom"`
+}
+
 type createInferenceProfileInput struct {
-	InferenceProfileName string `json:"inferenceProfileName"`
-	Description          string `json:"description,omitempty"`
-	Tags                 []Tag  `json:"tags,omitempty"`
+	InferenceProfileName string                            `json:"inferenceProfileName"`
+	ModelSource          *inferenceProfileModelSourceInput `json:"modelSource"`
+	Description          string                            `json:"description,omitempty"`
+	Tags                 []Tag                             `json:"tags,omitempty"`
 }
 
 type createInferenceProfileOutput struct {
@@ -66,9 +75,15 @@ func (h *Handler) handleCreateInferenceProfile(c *echo.Context, body []byte) err
 		)
 	}
 
+	var modelSource string
+	if in.ModelSource != nil {
+		modelSource = in.ModelSource.CopyFrom
+	}
+
 	profile, opErr := h.Backend.CreateInferenceProfile(
 		in.InferenceProfileName,
 		in.Description,
+		modelSource,
 		in.Tags,
 	)
 	if opErr != nil {
@@ -81,17 +96,29 @@ func (h *Handler) handleCreateInferenceProfile(c *echo.Context, body []byte) err
 	})
 }
 
-type inferenceProfileOutput struct {
-	CreatedAt            string `json:"createdAt"`
-	UpdatedAt            string `json:"updatedAt"`
-	InferenceProfileArn  string `json:"inferenceProfileArn"`
-	InferenceProfileID   string `json:"inferenceProfileId"`
-	InferenceProfileName string `json:"inferenceProfileName"`
-	Status               string `json:"status"`
-	Type                 string `json:"type"`
-	Description          string `json:"description,omitempty"`
+// inferenceProfileModelOutput mirrors bedrock@v1.66.4 types.InferenceProfileModel
+// (deserializers.go: awsRestjson1_deserializeDocumentInferenceProfileModel
+// reads wire key "modelArn").
+type inferenceProfileModelOutput struct {
+	ModelArn string `json:"modelArn"`
 }
 
+type inferenceProfileOutput struct {
+	CreatedAt            string                        `json:"createdAt"`
+	UpdatedAt            string                        `json:"updatedAt"`
+	InferenceProfileArn  string                        `json:"inferenceProfileArn"`
+	InferenceProfileID   string                        `json:"inferenceProfileId"`
+	InferenceProfileName string                        `json:"inferenceProfileName"`
+	Status               string                        `json:"status"`
+	Type                 string                        `json:"type"`
+	Description          string                        `json:"description,omitempty"`
+	Models               []inferenceProfileModelOutput `json:"models"`
+}
+
+// inferenceProfileToOutput echoes ModelSource back as the required Models
+// list (api_op_GetInferenceProfile.go:62), the ARN it tracks -- this backend
+// does not expand a system-defined profile's CopyFrom into its
+// per-region constituent models, so Models always has exactly one entry.
 func inferenceProfileToOutput(p *InferenceProfile) inferenceProfileOutput {
 	return inferenceProfileOutput{
 		InferenceProfileArn:  p.InferenceProfileArn,
@@ -102,6 +129,7 @@ func inferenceProfileToOutput(p *InferenceProfile) inferenceProfileOutput {
 		Description:          p.Description,
 		CreatedAt:            p.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:            p.UpdatedAt.Format(time.RFC3339),
+		Models:               []inferenceProfileModelOutput{{ModelArn: p.ModelSource}},
 	}
 }
 

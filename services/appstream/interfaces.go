@@ -63,7 +63,8 @@ type StorageBackend interface {
 
 	// Applications
 	CreateApplication(name, displayName, description, launchPath, appBlockArn string,
-		platforms []string, tags map[string]string) (*Application, error)
+		platforms []string, iconS3Location S3Location, instanceFamilies []string,
+		tags map[string]string) (*Application, error)
 	DeleteApplication(name string) error
 	DescribeApplications(arns []string) ([]*Application, error)
 	UpdateApplication(name, displayName, description, launchPath string) (*Application, error)
@@ -230,17 +231,28 @@ type AppBlockBuilderAppBlockAssociation struct {
 	State               string
 }
 
+// S3Location mirrors appstream@v1.64.5 types.S3Location: an S3 bucket/key
+// pair. S3Key is only conditionally required depending on which field it's
+// used for (types/types.go:1434-1451) -- for IconS3Location on
+// CreateApplication and UpdateApplication, both members are required.
+type S3Location struct {
+	S3Bucket string
+	S3Key    string
+}
+
 // Application holds AppStream 2.0 application details.
 type Application struct {
-	CreatedTime time.Time
-	Tags        map[string]string
-	Name        string
-	Arn         string
-	DisplayName string
-	Description string
-	LaunchPath  string
-	AppBlockArn string
-	Platforms   []string
+	CreatedTime      time.Time
+	Tags             map[string]string
+	Name             string
+	Arn              string
+	DisplayName      string
+	Description      string
+	LaunchPath       string
+	AppBlockArn      string
+	Platforms        []string
+	IconS3Location   S3Location
+	InstanceFamilies []string
 }
 
 // ApplicationFleetAssociation represents an Application-Fleet link.

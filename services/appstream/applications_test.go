@@ -30,6 +30,11 @@ func TestAppStream_Applications(t *testing.T) {
 				"Name":       "my-app",
 				"LaunchPath": "/app/my-app",
 				"Platforms":  []string{"WINDOWS_SERVER_2019"},
+				"IconS3Location": map[string]any{
+					"S3Bucket": "icon-bucket",
+					"S3Key":    "icons/my-app.png",
+				},
+				"InstanceFamilies": []string{"GENERAL_PURPOSE"},
 			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, respBody []byte) {
@@ -47,7 +52,15 @@ func TestAppStream_Applications(t *testing.T) {
 			setup: func(h *appstream.Handler) {
 				createApplication(t, h, "dup-app")
 			},
-			body:     map[string]any{"Name": "dup-app", "LaunchPath": "/x"},
+			body: map[string]any{
+				"Name":       "dup-app",
+				"LaunchPath": "/x",
+				"IconS3Location": map[string]any{
+					"S3Bucket": "icon-bucket",
+					"S3Key":    "icons/dup-app.png",
+				},
+				"InstanceFamilies": []string{"GENERAL_PURPOSE"},
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -177,6 +190,103 @@ func TestAppStream_Applications(t *testing.T) {
 	}
 }
 
+// TestAppStream_CreateApplication_RequiredMembersRejected proves
+// IconS3Location and InstanceFamilies are enforced as required members
+// (api_op_CreateApplication.go:47,53), including IconS3Location's own
+// required S3Key leaf when used for CreateApplication
+// (appstream@v1.64.5 types/types.go:1434-1451). Against unfixed code (which
+// never reads either member) every case here gets 200, not 400.
+func TestAppStream_CreateApplication_RequiredMembersRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "missing iconS3location",
+			body: map[string]any{
+				"Name":             "no-icon-app",
+				"LaunchPath":       "/app/no-icon-app",
+				"InstanceFamilies": []string{"GENERAL_PURPOSE"},
+			},
+		},
+		{
+			name: "iconS3location missing s3key",
+			body: map[string]any{
+				"Name":             "no-s3key-app",
+				"LaunchPath":       "/app/no-s3key-app",
+				"IconS3Location":   map[string]any{"S3Bucket": "icon-bucket"},
+				"InstanceFamilies": []string{"GENERAL_PURPOSE"},
+			},
+		},
+		{
+			name: "missing instancefamilies",
+			body: map[string]any{
+				"Name":           "no-families-app",
+				"LaunchPath":     "/app/no-families-app",
+				"IconS3Location": map[string]any{"S3Bucket": "icon-bucket", "S3Key": "icons/x.png"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CreateApplication", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestAppStream_CreateApplication_RequiredMembersRoundTrip proves
+// IconS3Location and InstanceFamilies survive from Create through
+// DescribeApplications, not just that Create returns 200 (a field parsed
+// and discarded looks identical to one that works if only the status is
+// checked).
+func TestAppStream_CreateApplication_RequiredMembersRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "CreateApplication", map[string]any{
+		"Name":       "roundtrip-app",
+		"LaunchPath": "/app/roundtrip-app",
+		"IconS3Location": map[string]any{
+			"S3Bucket": "roundtrip-bucket",
+			"S3Key":    "icons/roundtrip-app.png",
+		},
+		"InstanceFamilies": []string{"GENERAL_PURPOSE", "GRAPHICS_G4"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	app := createOut["Application"].(map[string]any)
+
+	icon, ok := app["IconS3Location"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "roundtrip-bucket", icon["S3Bucket"])
+	assert.Equal(t, "icons/roundtrip-app.png", icon["S3Key"])
+	assert.ElementsMatch(t, []any{"GENERAL_PURPOSE", "GRAPHICS_G4"}, app["InstanceFamilies"])
+
+	descRec := doRequest(t, h, "DescribeApplications", map[string]any{"Arns": []string{app["Arn"].(string)}})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	apps := descOut["Applications"].([]any)
+	require.Len(t, apps, 1)
+	got := apps[0].(map[string]any)
+
+	gotIcon, ok := got["IconS3Location"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "roundtrip-bucket", gotIcon["S3Bucket"])
+	assert.Equal(t, "icons/roundtrip-app.png", gotIcon["S3Key"])
+	assert.ElementsMatch(t, []any{"GENERAL_PURPOSE", "GRAPHICS_G4"}, got["InstanceFamilies"])
+}
+
 // TestAppStream_ApplicationARNFormat verifies application ARN format.
 func TestAppStream_ApplicationARNFormat(t *testing.T) {
 	t.Parallel()
@@ -185,6 +295,11 @@ func TestAppStream_ApplicationARNFormat(t *testing.T) {
 	rec := doRequest(t, h, "CreateApplication", map[string]any{
 		"Name":       "arn-app",
 		"LaunchPath": "/path/to/app",
+		"IconS3Location": map[string]any{
+			"S3Bucket": "icon-bucket",
+			"S3Key":    "icons/arn-app.png",
+		},
+		"InstanceFamilies": []string{"GENERAL_PURPOSE"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

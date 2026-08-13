@@ -42,7 +42,9 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	require.NoError(t, b.AssociateAppBlockBuilderAppBlock("builder1", "appblock1"))
 
 	_, err = b.CreateApplication(
-		"app1", "App One", "an app", "C:\\app.exe", "", []string{"WINDOWS"}, nil,
+		"app1", "App One", "an app", "C:\\app.exe", "", []string{"WINDOWS"},
+		appstream.S3Location{S3Bucket: "icon-bucket", S3Key: "icons/app1.png"},
+		[]string{"GENERAL_PURPOSE"}, nil,
 	)
 	require.NoError(t, err)
 
@@ -142,6 +144,9 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	apps, err := fresh.DescribeApplications([]string{"app1"})
 	require.NoError(t, err)
 	require.Len(t, apps, 1)
+	assert.Equal(t, "icon-bucket", apps[0].IconS3Location.S3Bucket)
+	assert.Equal(t, "icons/app1.png", apps[0].IconS3Location.S3Key)
+	assert.Equal(t, []string{"GENERAL_PURPOSE"}, apps[0].InstanceFamilies)
 
 	dirConfigs, err := fresh.DescribeDirectoryConfigs([]string{"dir1"})
 	require.NoError(t, err)

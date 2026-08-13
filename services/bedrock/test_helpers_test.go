@@ -19,6 +19,48 @@ func newTestHandler(t *testing.T) *bedrock.Handler {
 	return bedrock.NewHandler(bedrock.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
+// testCustomizationRoleArn, testOutputDataConfig and testTrainingDataConfig
+// are stand-in values for CreateModelCustomizationJob's required RoleArn,
+// OutputDataConfig and TrainingDataConfig members, shared by tests that
+// don't specifically exercise those fields.
+const testCustomizationRoleArn = "arn:aws:iam::000000000000:role/test-role"
+
+func testOutputDataConfig() bedrock.OutputDataConfig {
+	return bedrock.OutputDataConfig{S3Uri: "s3://test-bucket/output/"}
+}
+
+func testTrainingDataConfig() bedrock.TrainingDataConfig {
+	return bedrock.TrainingDataConfig{S3Uri: "s3://test-bucket/training/"}
+}
+
+// withCustomizationJobRequiredFields adds RoleArn/OutputDataConfig/
+// TrainingDataConfig to an HTTP CreateModelCustomizationJob request body,
+// for tests that don't specifically exercise those fields.
+func withCustomizationJobRequiredFields(body map[string]any) map[string]any {
+	body["roleArn"] = testCustomizationRoleArn
+	body["outputDataConfig"] = map[string]any{"s3Uri": "s3://test-bucket/output/"}
+	body["trainingDataConfig"] = map[string]any{"s3Uri": "s3://test-bucket/training/"}
+
+	return body
+}
+
+// createCustomizationJob calls CreateModelCustomizationJob with stand-in
+// RoleArn/OutputDataConfig/TrainingDataConfig, for tests that don't
+// specifically exercise those fields.
+func createCustomizationJob(
+	b *bedrock.InMemoryBackend, jobName, customModelName string,
+) (*bedrock.ModelCustomizationJob, error) {
+	return b.CreateModelCustomizationJob(
+		jobName, customModelName, "amazon.titan-text-express-v1", "",
+		testCustomizationRoleArn, testOutputDataConfig(), testTrainingDataConfig(),
+		nil,
+	)
+}
+
+// testModelSource is a stand-in for CreateInferenceProfile's required
+// ModelSource member, for tests that don't specifically exercise it.
+const testModelSource = "anthropic.claude-v2"
+
 func doRequest(
 	t *testing.T,
 	h *bedrock.Handler,

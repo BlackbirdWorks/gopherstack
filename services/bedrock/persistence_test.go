@@ -216,7 +216,11 @@ func seedJobResources(
 	require.NoError(t, err)
 
 	mcj, err := b.CreateModelCustomizationJob(
-		"test-cust-job", "test-cust-model", "amazon.titan-text-express-v1", "FINE_TUNING", tags,
+		"test-cust-job", "test-cust-model", "amazon.titan-text-express-v1", "FINE_TUNING",
+		"arn:aws:iam::000000000000:role/cust-role",
+		bedrock.OutputDataConfig{S3Uri: "s3://my-bucket/output/"},
+		bedrock.TrainingDataConfig{S3Uri: "s3://my-bucket/training/"},
+		tags,
 	)
 	require.NoError(t, err)
 
@@ -229,7 +233,10 @@ func seedJobResources(
 	)
 	require.NoError(t, err)
 
-	ip, err := b.CreateInferenceProfile("test-inference-profile", "desc", tags)
+	ip, err := b.CreateInferenceProfile(
+		"test-inference-profile", "desc",
+		"arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2", tags,
+	)
 	require.NoError(t, err)
 
 	mme, err := b.CreateMarketplaceModelEndpoint("test-mp-endpoint", "test-model-source-id", nil, tags)
@@ -527,6 +534,9 @@ func assertJobState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs
 	mcj, err := fresh.GetModelCustomizationJob(ids.customizationJobARN)
 	require.NoError(t, err)
 	assert.Equal(t, "test-cust-job", mcj.JobName)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/cust-role", mcj.RoleArn)
+	assert.Equal(t, "s3://my-bucket/output/", mcj.OutputDataConfig.S3Uri)
+	assert.Equal(t, "s3://my-bucket/training/", mcj.TrainingDataConfig.S3Uri)
 
 	mcpj, err := fresh.GetModelCopyJob(ids.copyJobARN)
 	require.NoError(t, err)
@@ -539,6 +549,7 @@ func assertJobState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs
 	ip, err := fresh.GetInferenceProfile(ids.inferenceProfileARN)
 	require.NoError(t, err)
 	assert.Equal(t, "test-inference-profile", ip.InferenceProfileName)
+	assert.Equal(t, "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2", ip.ModelSource)
 
 	mme, err := fresh.GetMarketplaceModelEndpoint(ids.marketplaceEndpointARN)
 	require.NoError(t, err)

@@ -114,6 +114,11 @@ func createApplication(t *testing.T, h *appstream.Handler, name string) {
 	rec := doRequest(t, h, "CreateApplication", map[string]any{
 		"Name":       name,
 		"LaunchPath": "/app/" + name,
+		"IconS3Location": map[string]any{
+			"S3Bucket": "icon-bucket",
+			"S3Key":    "icons/" + name + ".png",
+		},
+		"InstanceFamilies": []string{"GENERAL_PURPOSE"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }
@@ -157,6 +162,8 @@ func TestAppStream_DescribeByARN(t *testing.T) {
 
 	appRec := doRequest(t, h, "CreateApplication", map[string]any{
 		"Name": "arn-app", "LaunchPath": "/app/arn-app",
+		"IconS3Location":   map[string]any{"S3Bucket": "icon-bucket", "S3Key": "icons/arn-app.png"},
+		"InstanceFamilies": []string{"GENERAL_PURPOSE"},
 	})
 	require.Equal(t, http.StatusOK, appRec.Code)
 
@@ -238,6 +245,8 @@ func TestAppStream_AssociationsAcceptARNIdentifiers(t *testing.T) {
 
 		appRec := doRequest(t, h, "CreateApplication", map[string]any{
 			"Name": "assoc-arn-app", "LaunchPath": "/app/assoc-arn-app",
+			"IconS3Location":   map[string]any{"S3Bucket": "icon-bucket", "S3Key": "icons/assoc-arn-app.png"},
+			"InstanceFamilies": []string{"GENERAL_PURPOSE"},
 		})
 		require.Equal(t, http.StatusOK, appRec.Code)
 

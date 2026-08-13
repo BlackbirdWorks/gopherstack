@@ -22,8 +22,11 @@ func TestAccuracy_InferenceProfile_CreateResponseShape(t *testing.T) {
 		wantARN           bool
 	}{
 		{
-			name:              "valid create returns arn and status",
-			input:             map[string]any{"inferenceProfileName": "my-profile"},
+			name: "valid create returns arn and status",
+			input: map[string]any{
+				"inferenceProfileName": "my-profile",
+				"modelSource":          map[string]any{"copyFrom": testModelSource},
+			},
 			wantHTTPStatus:    http.StatusCreated,
 			wantARN:           true,
 			wantProfileStatus: "ACTIVE",
@@ -53,6 +56,57 @@ func TestAccuracy_InferenceProfile_CreateResponseShape(t *testing.T) {
 	}
 }
 
+// TestAccuracy_CreateInferenceProfile_MissingModelSourceRejected proves
+// ModelSource is enforced as a required member
+// (api_op_CreateInferenceProfile.go:48). Against unfixed code (which never
+// reads ModelSource) this gets 201, not 400.
+func TestAccuracy_CreateInferenceProfile_MissingModelSourceRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/inference-profiles",
+		map[string]any{"inferenceProfileName": "no-model-source-profile"})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestAccuracy_CreateInferenceProfile_ModelSourceRoundTrip proves
+// ModelSource's CopyFrom ARN survives from Create through Get as the
+// required Models list (api_op_GetInferenceProfile.go:62), not just that
+// Create returns 201.
+func TestAccuracy_CreateInferenceProfile_ModelSourceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/inference-profiles", map[string]any{
+		"inferenceProfileName": "model-source-roundtrip",
+		"modelSource": map[string]any{
+			"copyFrom": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2",
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createOut map[string]any
+	mustUnmarshal(t, rec, &createOut)
+	profileARN, ok := createOut["inferenceProfileArn"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, profileARN)
+
+	recGet := doRequest(t, h, http.MethodGet, "/inference-profiles/"+url.PathEscape(profileARN), nil)
+	require.Equal(t, http.StatusOK, recGet.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, recGet, &out)
+
+	models, ok := out["models"].([]any)
+	require.True(t, ok)
+	require.Len(t, models, 1)
+
+	model, ok := models[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2", model["modelArn"])
+}
+
 func TestAccuracy_InferenceProfile_GetReturnsAllFields(t *testing.T) {
 	t.Parallel()
 
@@ -79,7 +133,7 @@ func TestAccuracy_InferenceProfile_GetReturnsAllFields(t *testing.T) {
 
 			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 			h := bedrock.NewHandler(b)
-			p, err := b.CreateInferenceProfile(tt.profileName, tt.description, nil)
+			p, err := b.CreateInferenceProfile(tt.profileName, tt.description, testModelSource, nil)
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodGet, "/inference-profiles/"+url.PathEscape(p.InferenceProfileArn), nil)
@@ -135,7 +189,7 @@ func TestAccuracy_InferenceProfile_ListContainsCreated(t *testing.T) {
 			h := bedrock.NewHandler(b)
 
 			for _, name := range tt.profileNames {
-				_, err := b.CreateInferenceProfile(name, "", nil)
+				_, err := b.CreateInferenceProfile(name, "", testModelSource, nil)
 				require.NoError(t, err)
 			}
 
@@ -182,9 +236,9 @@ func TestAccuracy_InferenceProfile_ListTypeFilter(t *testing.T) {
 			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 			h := bedrock.NewHandler(b)
 
-			_, err := b.CreateInferenceProfile("profile-a", "", nil)
+			_, err := b.CreateInferenceProfile("profile-a", "", testModelSource, nil)
 			require.NoError(t, err)
-			_, err = b.CreateInferenceProfile("profile-b", "", nil)
+			_, err = b.CreateInferenceProfile("profile-b", "", testModelSource, nil)
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodGet, "/inference-profiles"+tt.query, nil)
@@ -203,7 +257,7 @@ func TestAccuracy_InferenceProfile_DeleteRemovesFromList(t *testing.T) {
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrock.NewHandler(b)
-	p, err := b.CreateInferenceProfile("to-delete", "", nil)
+	p, err := b.CreateInferenceProfile("to-delete", "", testModelSource, nil)
 	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodDelete, "/inference-profiles/"+url.PathEscape(p.InferenceProfileArn), nil)
@@ -234,11 +288,17 @@ func TestAccuracy_InferenceProfile_DuplicateNameConflict(t *testing.T) {
 	h := bedrock.NewHandler(b)
 
 	rec1 := doRequest(t, h, http.MethodPost, "/inference-profiles",
-		map[string]any{"inferenceProfileName": "unique-profile"})
+		map[string]any{
+			"inferenceProfileName": "unique-profile",
+			"modelSource":          map[string]any{"copyFrom": testModelSource},
+		})
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/inference-profiles",
-		map[string]any{"inferenceProfileName": "unique-profile"})
+		map[string]any{
+			"inferenceProfileName": "unique-profile",
+			"modelSource":          map[string]any{"copyFrom": testModelSource},
+		})
 	assert.Equal(t, http.StatusConflict, rec2.Code)
 }
 
@@ -247,7 +307,7 @@ func TestAccuracy_InferenceProfile_TagsPreserved(t *testing.T) {
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	tags := []bedrock.Tag{{Key: "env", Value: "test"}, {Key: "owner", Value: "team"}}
-	p, err := b.CreateInferenceProfile("tagged-profile", "", tags)
+	p, err := b.CreateInferenceProfile("tagged-profile", "", testModelSource, tags)
 	require.NoError(t, err)
 	assert.Len(t, p.Tags, 2)
 
@@ -262,7 +322,7 @@ func TestAccuracy_InferenceProfile_LookupByName(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateInferenceProfile("name-lookup-profile", "desc", nil)
+	_, err := b.CreateInferenceProfile("name-lookup-profile", "desc", testModelSource, nil)
 	require.NoError(t, err)
 
 	got, err := b.GetInferenceProfile("name-lookup-profile")

@@ -10,14 +10,31 @@ import (
 
 // --- Application handlers ---
 
+// s3LocationJSON mirrors appstream@v1.64.5 types.S3Location's wire shape
+// (serializers.go: serializeCBOR_S3Location emits {"S3Bucket":..., "S3Key":...}).
+type s3LocationJSON struct {
+	S3Bucket string `json:"S3Bucket"`
+	S3Key    string `json:"S3Key"`
+}
+
+func (j *s3LocationJSON) toModel() S3Location {
+	if j == nil {
+		return S3Location{}
+	}
+
+	return S3Location(*j)
+}
+
 type createApplicationInput struct {
-	Tags        map[string]string `json:"Tags"`
-	Name        string            `json:"Name"`
-	DisplayName string            `json:"DisplayName"`
-	Description string            `json:"Description"`
-	LaunchPath  string            `json:"LaunchPath"`
-	AppBlockArn string            `json:"AppBlockArn"`
-	Platforms   []string          `json:"Platforms"`
+	Tags             map[string]string `json:"Tags"`
+	Name             string            `json:"Name"`
+	DisplayName      string            `json:"DisplayName"`
+	Description      string            `json:"Description"`
+	LaunchPath       string            `json:"LaunchPath"`
+	AppBlockArn      string            `json:"AppBlockArn"`
+	Platforms        []string          `json:"Platforms"`
+	IconS3Location   *s3LocationJSON   `json:"IconS3Location"`
+	InstanceFamilies []string          `json:"InstanceFamilies"`
 }
 
 func (h *Handler) opCreateApplication(_ context.Context, body []byte) (any, error) {
@@ -28,7 +45,7 @@ func (h *Handler) opCreateApplication(_ context.Context, body []byte) (any, erro
 
 	app, err := h.Backend.CreateApplication(
 		req.Name, req.DisplayName, req.Description, req.LaunchPath,
-		req.AppBlockArn, req.Platforms, req.Tags,
+		req.AppBlockArn, req.Platforms, req.IconS3Location.toModel(), req.InstanceFamilies, req.Tags,
 	)
 	if err != nil {
 		return nil, err
@@ -483,7 +500,12 @@ func applicationToResponse(app *Application) map[string]any {
 		"AppBlockArn": app.AppBlockArn,
 		"Platforms":   app.Platforms,
 		"CreatedTime": awstime.Epoch(app.CreatedTime), //nolint:goconst // existing issue.
-		keyTags:       app.Tags,
+		"IconS3Location": map[string]any{
+			"S3Bucket": app.IconS3Location.S3Bucket,
+			"S3Key":    app.IconS3Location.S3Key,
+		},
+		"InstanceFamilies": app.InstanceFamilies,
+		keyTags:            app.Tags,
 	}
 }
 

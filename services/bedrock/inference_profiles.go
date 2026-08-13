@@ -15,9 +15,13 @@ func (b *InMemoryBackend) newInferenceProfileID() string {
 	return fmt.Sprintf("ip-%07d", b.inferenceProfileCounter)
 }
 
-// CreateInferenceProfile creates a new inference profile.
+// CreateInferenceProfile creates a new inference profile. modelSource is the
+// required ModelSource member (api_op_CreateInferenceProfile.go:48), the
+// CopyFrom ARN of the foundation model or system-defined inference profile
+// this profile tracks (types.InferenceProfileModelSourceMemberCopyFrom, the
+// union's only member).
 func (b *InMemoryBackend) CreateInferenceProfile(
-	name, description string,
+	name, description, modelSource string,
 	tags []Tag,
 ) (*InferenceProfile, error) {
 	b.mu.Lock("CreateInferenceProfile")
@@ -25,6 +29,10 @@ func (b *InMemoryBackend) CreateInferenceProfile(
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: inferenceProfileName is required", ErrValidation)
+	}
+
+	if modelSource == "" {
+		return nil, fmt.Errorf("%w: modelSource is required", ErrValidation)
 	}
 
 	if _, exists := b.inferenceProfilesByName[name]; exists {
@@ -40,6 +48,7 @@ func (b *InMemoryBackend) CreateInferenceProfile(
 		InferenceProfileID:   id,
 		InferenceProfileName: name,
 		Description:          description,
+		ModelSource:          modelSource,
 		Status:               "ACTIVE",
 		Type:                 "APPLICATION",
 		CreatedAt:            now,

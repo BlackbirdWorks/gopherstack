@@ -22,8 +22,15 @@ func (b *InMemoryBackend) newCustomizationJobID() string {
 // AdvanceCustomizationJobStatuses can materialize the output CustomModel
 // without discovering a name conflict after the job has already committed to
 // running.
+//
+// roleArn, outputDataConfig and trainingDataConfig are also required members
+// (api_op_CreateModelCustomizationJob.go:66,75,80). outputDataConfig.S3Uri is
+// itself required within OutputDataConfig; TrainingDataConfig's own leaves
+// (S3Uri, InvocationLogsConfig) are not required by the SDK, only the
+// TrainingDataConfig object itself, so no leaf-level check is made there.
 func (b *InMemoryBackend) CreateModelCustomizationJob(
-	jobName, customModelName, baseModelID, customizationType string,
+	jobName, customModelName, baseModelID, customizationType, roleArn string,
+	outputDataConfig OutputDataConfig, trainingDataConfig TrainingDataConfig,
 	tags []Tag,
 ) (*ModelCustomizationJob, error) {
 	b.mu.Lock("CreateModelCustomizationJob")
@@ -35,6 +42,14 @@ func (b *InMemoryBackend) CreateModelCustomizationJob(
 
 	if customModelName == "" {
 		return nil, fmt.Errorf("%w: customModelName is required", ErrValidation)
+	}
+
+	if roleArn == "" {
+		return nil, fmt.Errorf("%w: roleArn is required", ErrValidation)
+	}
+
+	if outputDataConfig.S3Uri == "" {
+		return nil, fmt.Errorf("%w: outputDataConfig.s3Uri is required", ErrValidation)
 	}
 
 	if _, exists := b.customizationJobsByName[jobName]; exists {
@@ -63,17 +78,20 @@ func (b *InMemoryBackend) CreateModelCustomizationJob(
 	}
 
 	job := &ModelCustomizationJob{
-		JobArn:            jobARN,
-		JobName:           jobName,
-		BaseModelArn:      baseModelARN,
-		BaseModelName:     baseModelName,
-		OutputModelArn:    outputModelARN,
-		CustomModelName:   customModelName,
-		Status:            statusInProgress,
-		CustomizationType: customizationType,
-		CreationTime:      now,
-		LastModifiedTime:  now,
-		Tags:              copyTags(tags),
+		JobArn:             jobARN,
+		JobName:            jobName,
+		BaseModelArn:       baseModelARN,
+		BaseModelName:      baseModelName,
+		OutputModelArn:     outputModelARN,
+		CustomModelName:    customModelName,
+		Status:             statusInProgress,
+		CustomizationType:  customizationType,
+		RoleArn:            roleArn,
+		OutputDataConfig:   outputDataConfig,
+		TrainingDataConfig: trainingDataConfig,
+		CreationTime:       now,
+		LastModifiedTime:   now,
+		Tags:               copyTags(tags),
 	}
 	b.modelCustomizationJobs.Put(job)
 	b.customizationJobsByName[jobName] = jobARN

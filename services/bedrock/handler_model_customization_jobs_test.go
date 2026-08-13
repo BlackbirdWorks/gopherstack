@@ -22,16 +22,133 @@ func TestAccuracy_CreateModelCustomizationJob_MissingJobName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestAccuracy_CreateModelCustomizationJob_RequiredMembersRejected proves
+// RoleArn, OutputDataConfig and TrainingDataConfig are enforced as required
+// members (api_op_CreateModelCustomizationJob.go:66,75,80), including
+// OutputDataConfig's own required S3Uri leaf (types.go:5781). Against
+// unfixed code (which reads none of these members) every case here gets
+// 201, not 400.
+func TestAccuracy_CreateModelCustomizationJob_RequiredMembersRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body func() map[string]any
+		name string
+	}{
+		{
+			name: "missing rolearn",
+			body: func() map[string]any {
+				return map[string]any{
+					"jobName":             "job-no-role",
+					"customModelName":     "model-no-role",
+					"baseModelIdentifier": "amazon.titan-text-express-v1",
+					"outputDataConfig":    map[string]any{"s3Uri": "s3://bucket/out/"},
+					"trainingDataConfig":  map[string]any{"s3Uri": "s3://bucket/train/"},
+				}
+			},
+		},
+		{
+			name: "missing outputdataconfig",
+			body: func() map[string]any {
+				return map[string]any{
+					"jobName":             "job-no-output",
+					"customModelName":     "model-no-output",
+					"baseModelIdentifier": "amazon.titan-text-express-v1",
+					"roleArn":             testCustomizationRoleArn,
+					"trainingDataConfig":  map[string]any{"s3Uri": "s3://bucket/train/"},
+				}
+			},
+		},
+		{
+			name: "outputdataconfig missing s3uri",
+			body: func() map[string]any {
+				return map[string]any{
+					"jobName":             "job-empty-output",
+					"customModelName":     "model-empty-output",
+					"baseModelIdentifier": "amazon.titan-text-express-v1",
+					"roleArn":             testCustomizationRoleArn,
+					"outputDataConfig":    map[string]any{},
+					"trainingDataConfig":  map[string]any{"s3Uri": "s3://bucket/train/"},
+				}
+			},
+		},
+		{
+			name: "missing trainingdataconfig",
+			body: func() map[string]any {
+				return map[string]any{
+					"jobName":             "job-no-training",
+					"customModelName":     "model-no-training",
+					"baseModelIdentifier": "amazon.titan-text-express-v1",
+					"roleArn":             testCustomizationRoleArn,
+					"outputDataConfig":    map[string]any{"s3Uri": "s3://bucket/out/"},
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs", tt.body())
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestAccuracy_CreateModelCustomizationJob_RequiredMembersRoundTrip proves
+// RoleArn, OutputDataConfig.S3Uri and TrainingDataConfig.S3Uri survive from
+// Create through Get, not just that Create returns 201 (a field parsed and
+// discarded looks identical to one that works if only the status is
+// checked).
+func TestAccuracy_CreateModelCustomizationJob_RequiredMembersRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs", map[string]any{
+		"jobName":             "roundtrip-job",
+		"customModelName":     "roundtrip-model",
+		"baseModelIdentifier": "amazon.titan-text-express-v1",
+		"roleArn":             "arn:aws:iam::000000000000:role/customize-role",
+		"outputDataConfig":    map[string]any{"s3Uri": "s3://roundtrip-bucket/output/"},
+		"trainingDataConfig":  map[string]any{"s3Uri": "s3://roundtrip-bucket/training/"},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createOut map[string]any
+	mustUnmarshal(t, rec, &createOut)
+	jobARN, ok := createOut["jobArn"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, jobARN)
+
+	recGet := doRequest(t, h, http.MethodGet, "/model-customization-jobs/"+url.PathEscape(jobARN), nil)
+	require.Equal(t, http.StatusOK, recGet.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, recGet, &out)
+
+	assert.Equal(t, "arn:aws:iam::000000000000:role/customize-role", out["roleArn"])
+
+	outputDataConfig, ok := out["outputDataConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "s3://roundtrip-bucket/output/", outputDataConfig["s3Uri"])
+
+	trainingDataConfig, ok := out["trainingDataConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "s3://roundtrip-bucket/training/", trainingDataConfig["s3Uri"])
+}
+
 func TestAccuracy_CreateModelCustomizationJob_StatusInProgress(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs",
-		map[string]any{
+		withCustomizationJobRequiredFields(map[string]any{
 			"jobName":             "my-finetune-job",
 			"customModelName":     "my-finetune-model",
 			"baseModelIdentifier": "amazon.titan-text-express-v1",
-		})
+		}))
 
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -64,6 +181,9 @@ func TestAccuracy_AdvanceCustomizationJobStatus(t *testing.T) {
 		"advance-test-model",
 		"amazon.titan-text-express-v1",
 		"",
+		testCustomizationRoleArn,
+		testOutputDataConfig(),
+		testTrainingDataConfig(),
 		nil,
 	)
 	require.NoError(t, err)
@@ -98,6 +218,9 @@ func TestAccuracy_CustomizationJob_StopTransitionsStatus(t *testing.T) {
 				"stop-job-model",
 				"amazon.titan-text-express-v1",
 				"",
+				testCustomizationRoleArn,
+				testOutputDataConfig(),
+				testTrainingDataConfig(),
 				nil,
 			)
 			require.NoError(t, err)
@@ -144,6 +267,9 @@ func TestAccuracy_CustomizationJob_ListViaHTTP(t *testing.T) {
 					name+"-model",
 					"amazon.titan-text-express-v1",
 					"",
+					testCustomizationRoleArn,
+					testOutputDataConfig(),
+					testTrainingDataConfig(),
 					nil,
 				)
 				require.NoError(t, err)
@@ -205,21 +331,9 @@ func TestAccuracy_CustomizationJob_ListFilters(t *testing.T) {
 			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 			h := bedrock.NewHandler(b)
 
-			_, err := b.CreateModelCustomizationJob(
-				"alpha-job",
-				"alpha-job-model",
-				"amazon.titan-text-express-v1",
-				"",
-				nil,
-			)
+			_, err := createCustomizationJob(b, "alpha-job", "alpha-job-model")
 			require.NoError(t, err)
-			betaJob, err := b.CreateModelCustomizationJob(
-				"beta-job",
-				"beta-job-model",
-				"amazon.titan-text-express-v1",
-				"",
-				nil,
-			)
+			betaJob, err := createCustomizationJob(b, "beta-job", "beta-job-model")
 			require.NoError(t, err)
 			require.NoError(t, b.StopModelCustomizationJob(betaJob.JobArn))
 
@@ -244,10 +358,10 @@ func TestAccuracy_CustomizationJob_DuplicateNameConflict(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateModelCustomizationJob("dup-job", "dup-job-model", "amazon.titan-text-express-v1", "", nil)
+	_, err := createCustomizationJob(b, "dup-job", "dup-job-model")
 	require.NoError(t, err)
 
-	_, err2 := b.CreateModelCustomizationJob("dup-job", "dup-job-model-2", "amazon.titan-text-express-v1", "", nil)
+	_, err2 := createCustomizationJob(b, "dup-job", "dup-job-model-2")
 	require.Error(t, err2)
 }
 
@@ -255,10 +369,10 @@ func TestAccuracy_CustomizationJob_DuplicateModelNameConflict(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateModelCustomizationJob("job-one", "shared-model-name", "amazon.titan-text-express-v1", "", nil)
+	_, err := createCustomizationJob(b, "job-one", "shared-model-name")
 	require.NoError(t, err)
 
-	_, err2 := b.CreateModelCustomizationJob("job-two", "shared-model-name", "amazon.titan-text-express-v1", "", nil)
+	_, err2 := createCustomizationJob(b, "job-two", "shared-model-name")
 	require.Error(t, err2)
 }
 
@@ -266,7 +380,7 @@ func TestAccuracy_CustomizationJob_GetByNameOrARN(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	job, err := b.CreateModelCustomizationJob("lookup-job", "lookup-job-model", "amazon.titan-text-express-v1", "", nil)
+	job, err := createCustomizationJob(b, "lookup-job", "lookup-job-model")
 	require.NoError(t, err)
 
 	// Get by ARN.
@@ -284,13 +398,7 @@ func TestAccuracy_CustomizationJob_AdvanceCompletesJob(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	job, err := b.CreateModelCustomizationJob(
-		"advance-job",
-		"advance-job-model",
-		"amazon.titan-text-express-v1",
-		"",
-		nil,
-	)
+	job, err := createCustomizationJob(b, "advance-job", "advance-job-model")
 	require.NoError(t, err)
 	assert.Equal(t, "InProgress", job.Status)
 
@@ -323,12 +431,12 @@ func TestAccuracy_CustomizationJob_CustomizationTypePreserved(t *testing.T) {
 
 			rec := doRequest(
 				t, h, http.MethodPost, "/model-customization-jobs",
-				map[string]any{
+				withCustomizationJobRequiredFields(map[string]any{
 					"jobName":             fmt.Sprintf("job-%s", tt.name),
 					"customModelName":     fmt.Sprintf("model-%s", tt.name),
 					"baseModelIdentifier": "amazon.titan-text-express-v1",
 					"customizationType":   tt.customizationType,
-				},
+				}),
 			)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -358,11 +466,12 @@ func TestHandler_ModelCustomizationJobLifecycle(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create customization job.
-	rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs", map[string]any{
+	body := withCustomizationJobRequiredFields(map[string]any{
 		"jobName":             "my-customization-job",
 		"baseModelIdentifier": "amazon.titan-text-express-v1",
 		"customModelName":     "my-fine-tuned-model",
 	})
+	rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs", body)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createOut map[string]any
