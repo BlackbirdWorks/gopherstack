@@ -92,7 +92,7 @@ ops:
   UpdateSensitivityInspectionTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "route method was PATCH; real SDK sends PUT /templates/sensitivity-inspections/{id} -- unreachable via real client before fix"}
   GetUsageStatistics: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetUsageTotals: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "query param was read as 'currencyCode' (not a real GetUsageTotalsInput field at all); real key is 'timeRange' -- fixed extraction/naming. Backend still ignores the value and returns static zeroed totals, matching a no-billing emulator; low functional impact."}
-  ListManagedDataIdentifiers: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListManagedDataIdentifiers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-08-13 (gopherstack-jqh2 pass 2): parseManagedDataIDsPath (handler_custom_data_identifiers.go) required http.MethodGet for POST /managed-data-identifiers/list -- confirmed against awsRestjson1_serializeOpListManagedDataIdentifiers, real SDK sends POST -- so the op, despite a complete handler and backend, was permanently unroutable by a real client. A pre-existing unit test (handler_usage_test.go) encoded the same wrong GET method and passed anyway (it drives h.Handler() directly); fixed to POST alongside the routing fix. Caught by the new handler_sdk_route_table_test.go (TestExtractOperation_SDKRouteTable, full 81/81 SDK-path coverage)."}
   SearchResources: {wire: ok, errors: ok, state: ok, persist: n/a}
 # Families audited as a group (when per-op is impractical):
 families:

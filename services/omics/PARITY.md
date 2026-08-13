@@ -73,6 +73,14 @@ leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutine
 
 ## Notes
 
+**2026-08-13 (gopherstack-jqh2 pass 2):** re-extracted all 107 ops' real
+method+path directly from `omics@v1.49.5` serializers.go and drove them
+through `ExtractOperation` via `handler_sdk_route_table_test.go`
+(`TestExtractOperation_SDKRouteTable`, one subtest per op). All 107 resolved
+correctly — the route/dispatch fixes from the 2026-08-07 pass below held, and
+no new drift was found. This test is now the permanent regression guard for
+route-table drift, replacing ad hoc re-verification on future audits.
+
 Protocol: restjson1. Every op path/method was cross-checked op-by-op against
 `aws-sdk-go-v2/service/omics@v1.45.0`'s generated `serializers.go` (both the
 `awsRestjson1_serializeOpHttpBindings*Input` — method/URI/query — and
