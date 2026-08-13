@@ -4,7 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
+	"github.com/aws/aws-sdk-go-v2/service/wafv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -401,7 +405,12 @@ func TestValidation_RulePriorityRange(t *testing.T) {
 
 // ---- Scope mismatch on GetWebACL / GetIPSet ----------------------------------
 
-// TestParity_GetTopPathStatisticsByTraffic verifies input validation.
+// TestParity_GetTopPathStatisticsByTraffic verifies input validation. The
+// body keys here are the real wire keys (WebAclArn, Limit,
+// NumberOfTopTrafficBotsPerPath) -- WebACLName/WebACLId don't exist on this
+// op's request shape at all (gopherstack-kb66); see
+// TestGetTopPathStatisticsByTraffic_SDKRoundTrip for the real-client proof
+// that the response decodes.
 func TestGetTopPathStatisticsByTraffic(t *testing.T) {
 	t.Parallel()
 
@@ -412,6 +421,7 @@ func TestGetTopPathStatisticsByTraffic(t *testing.T) {
 	require.NoError(t, err)
 
 	hWithACL := wafv2.NewHandler(backend)
+	aclARN := backend.WebACLARN(acl.Name, acl.ID, "REGIONAL")
 
 	timeWindow := map[string]any{"StartTime": 1000, "EndTime": 2000}
 
@@ -422,12 +432,13 @@ func TestGetTopPathStatisticsByTraffic(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid request returns empty UrlStatistics",
+			name: "valid request returns empty PathStatistics",
 			body: map[string]any{
-				"Scope":      "REGIONAL",
-				"WebACLName": acl.Name,
-				"WebACLId":   acl.ID,
-				"TimeWindow": timeWindow,
+				"Scope":                         "REGIONAL",
+				"WebAclArn":                     aclARN,
+				"TimeWindow":                    timeWindow,
+				"Limit":                         100,
+				"NumberOfTopTrafficBotsPerPath": 10,
 			},
 			handler: hWithACL,
 			wantErr: false,
@@ -435,29 +446,21 @@ func TestGetTopPathStatisticsByTraffic(t *testing.T) {
 		{
 			name: "missing Scope rejected",
 			body: map[string]any{
-				"WebACLName": "x",
-				"WebACLId":   "y",
-				"TimeWindow": timeWindow,
+				"WebAclArn":                     aclARN,
+				"TimeWindow":                    timeWindow,
+				"Limit":                         100,
+				"NumberOfTopTrafficBotsPerPath": 10,
 			},
 			handler: h,
 			wantErr: true,
 		},
 		{
-			name: "missing WebACLName rejected",
+			name: "missing WebAclArn rejected",
 			body: map[string]any{
-				"Scope":      "REGIONAL",
-				"WebACLId":   "y",
-				"TimeWindow": timeWindow,
-			},
-			handler: h,
-			wantErr: true,
-		},
-		{
-			name: "missing WebACLId rejected",
-			body: map[string]any{
-				"Scope":      "REGIONAL",
-				"WebACLName": "x",
-				"TimeWindow": timeWindow,
+				"Scope":                         "REGIONAL",
+				"TimeWindow":                    timeWindow,
+				"Limit":                         100,
+				"NumberOfTopTrafficBotsPerPath": 10,
 			},
 			handler: h,
 			wantErr: true,
@@ -465,20 +468,58 @@ func TestGetTopPathStatisticsByTraffic(t *testing.T) {
 		{
 			name: "missing TimeWindow rejected",
 			body: map[string]any{
-				"Scope":      "REGIONAL",
-				"WebACLName": "x",
-				"WebACLId":   "y",
+				"Scope":                         "REGIONAL",
+				"WebAclArn":                     aclARN,
+				"Limit":                         100,
+				"NumberOfTopTrafficBotsPerPath": 10,
 			},
-			handler: h,
+			handler: hWithACL,
+			wantErr: true,
+		},
+		{
+			name: "Limit zero rejected",
+			body: map[string]any{
+				"Scope":                         "REGIONAL",
+				"WebAclArn":                     aclARN,
+				"TimeWindow":                    timeWindow,
+				"Limit":                         0,
+				"NumberOfTopTrafficBotsPerPath": 10,
+			},
+			handler: hWithACL,
+			wantErr: true,
+		},
+		{
+			name: "Limit over 100 rejected",
+			body: map[string]any{
+				"Scope":                         "REGIONAL",
+				"WebAclArn":                     aclARN,
+				"TimeWindow":                    timeWindow,
+				"Limit":                         101,
+				"NumberOfTopTrafficBotsPerPath": 10,
+			},
+			handler: hWithACL,
+			wantErr: true,
+		},
+		{
+			name: "NumberOfTopTrafficBotsPerPath over 10 rejected",
+			body: map[string]any{
+				"Scope":                         "REGIONAL",
+				"WebAclArn":                     aclARN,
+				"TimeWindow":                    timeWindow,
+				"Limit":                         100,
+				"NumberOfTopTrafficBotsPerPath": 11,
+			},
+			handler: hWithACL,
 			wantErr: true,
 		},
 		{
 			name: "nonexistent WebACL returns 400",
 			body: map[string]any{
-				"Scope":      "REGIONAL",
-				"WebACLName": "no-such",
-				"WebACLId":   "dead-beef-0000",
-				"TimeWindow": timeWindow,
+				"Scope":                         "REGIONAL",
+				"WebAclArn":                     "arn:aws:wafv2:us-east-1:000000000000:regional/webacl/no-such/dead-beef",
+				"TimeWindow":                    timeWindow,
+				"Limit":                         100,
+				"NumberOfTopTrafficBotsPerPath": 10,
 			},
 			handler: h,
 			wantErr: true,
@@ -493,17 +534,52 @@ func TestGetTopPathStatisticsByTraffic(t *testing.T) {
 
 			if tc.wantErr {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			} else {
-				assert.Equal(t, http.StatusOK, rec.Code)
 
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				stats, ok := resp["UrlStatistics"]
-				assert.True(t, ok, "UrlStatistics key must be present")
-				assert.Empty(t, stats, "UrlStatistics should be empty (no traffic in emulator)")
+				return
 			}
+
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Contains(t, resp, "PathStatistics", "PathStatistics is a required response member")
+			assert.Empty(t, resp["PathStatistics"], "no real traffic in emulator")
+			assert.Contains(t, resp, "TotalRequestCount", "TotalRequestCount is a required response member")
+			assert.InDelta(t, float64(0), resp["TotalRequestCount"], 0)
 		})
 	}
+}
+
+// TestGetTopPathStatisticsByTraffic_SDKRoundTrip drives GetTopPathStatisticsByTraffic
+// through the real aws-sdk-go-v2 wafv2 client. The SDK decodes nothing from a
+// response key it doesn't recognize, so this is the only proof that
+// PathStatistics/TotalRequestCount actually reach a real client -- a raw-JSON
+// assertion (as TestGetTopPathStatisticsByTraffic above does) cannot catch a
+// wrong response key.
+func TestGetTopPathStatisticsByTraffic_SDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := wafv2.NewInMemoryBackend("000000000000", "us-east-1")
+	acl, err := wafv2.CreateWebACLSimple(backend, "sdk-acl", "REGIONAL", "", "ALLOW", nil)
+	require.NoError(t, err)
+	aclARN := backend.WebACLARN(acl.Name, acl.ID, "REGIONAL")
+
+	h := wafv2.NewHandler(backend)
+	client := newTestWAFV2Client(t, h)
+
+	out, err := client.GetTopPathStatisticsByTraffic(t.Context(), &wafv2sdk.GetTopPathStatisticsByTrafficInput{
+		WebAclArn:                     aws.String(aclARN),
+		Scope:                         types.ScopeRegional,
+		Limit:                         aws.Int32(100),
+		NumberOfTopTrafficBotsPerPath: aws.Int32(10),
+		TimeWindow: &types.TimeWindow{
+			StartTime: aws.Time(time.Unix(1000, 0)),
+			EndTime:   aws.Time(time.Unix(2000, 0)),
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.PathStatistics, "no real traffic in emulator")
+	assert.Zero(t, out.TotalRequestCount)
 }
 
 // TestParity_GetRateBasedStatementManagedKeys verifies input validation and WebACL existence check.

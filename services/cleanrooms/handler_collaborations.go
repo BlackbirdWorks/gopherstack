@@ -184,7 +184,7 @@ func (h *Handler) handleListCollaborationChangeRequests(
 	if err != nil {
 		return nil, err
 	}
-	resp := map[string]any{"collaborationChangeRequests": items}
+	resp := map[string]any{"collaborationChangeRequestSummaries": items}
 	if next != "" {
 		resp["nextToken"] = next
 	}

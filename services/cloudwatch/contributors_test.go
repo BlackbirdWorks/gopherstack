@@ -4,8 +4,45 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cwsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	cloudwatch "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
+
+// TestDescribeAlarmContributors_SDKRoundTrip drives DescribeAlarmContributors
+// through the real aws-sdk-go-v2 cloudwatch client (rpc-v2 CBOR, the only
+// wire protocol this SDK version speaks -- see sdk_roundtrip_helper_test.go).
+// The SDK decodes nothing from a response key it doesn't recognize, so this
+// is the only proof that AlarmContributors (not the previous Contributors)
+// and its real ContributorId/StateReason/StateTransitionedTimestamp fields
+// (not the previous Keys/Sum) actually reach a real client.
+func TestDescribeAlarmContributors_SDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	client, backend := newTestHandlerAndClientWithBackend(t)
+
+	require.NoError(t, backend.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child-a"}))
+	require.NoError(t, backend.SetAlarmState(t.Context(), "child-a", "ALARM", "breach detected", ""))
+	require.NoError(t, backend.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "composite",
+		AlarmRule: `ALARM("child-a")`,
+	}))
+
+	out, err := client.DescribeAlarmContributors(t.Context(), &cwsdk.DescribeAlarmContributorsInput{
+		AlarmName: aws.String("composite"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.AlarmContributors, 1,
+		"AlarmContributors is the real wire key; an empty list means the wrong key is still in play")
+
+	got := out.AlarmContributors[0]
+	assert.Equal(t, "child-a", aws.ToString(got.ContributorId))
+	assert.Equal(t, "breach detected", aws.ToString(got.StateReason))
+	assert.Equal(t, "ALARM", got.ContributorAttributes["State"])
+}
 
 func TestExtractAlarmRuleRefs(t *testing.T) {
 	t.Parallel()
@@ -89,11 +126,11 @@ func TestDescribeAlarmContributors(t *testing.T) {
 		t.Fatalf("contributors = %d (%+v), want 1", len(page.Data), page.Data)
 	}
 	got := page.Data[0]
-	if len(got.Keys) == 0 || got.Keys[0] != "child-a" {
-		t.Fatalf("contributor keys = %v, want first child-a", got.Keys)
+	if got.ContributorID != "child-a" {
+		t.Fatalf("contributor ContributorID = %q, want child-a", got.ContributorID)
 	}
-	if got.Sum != 1 {
-		t.Fatalf("contributor sum = %v, want 1", got.Sum)
+	if got.ContributorAttributes["State"] != "ALARM" {
+		t.Fatalf("contributor ContributorAttributes[State] = %q, want ALARM", got.ContributorAttributes["State"])
 	}
 }
 

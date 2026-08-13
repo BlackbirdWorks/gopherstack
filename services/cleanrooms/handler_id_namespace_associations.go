@@ -24,7 +24,7 @@ func (h *Handler) handleGetCollaborationIDNamespaceAssociation(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{keyIDNamespaceAssociation: a}), nil
+	return mustJSON(map[string]any{keyCollaborationIDNamespaceAssociation: a}), nil
 }
 
 func (h *Handler) handleListCollaborationIDNamespaceAssociations(
@@ -44,7 +44,7 @@ func (h *Handler) handleListCollaborationIDNamespaceAssociations(
 	if err != nil {
 		return nil, err
 	}
-	resp := map[string]any{"idNamespaceAssociationSummaries": items}
+	resp := map[string]any{"collaborationIdNamespaceAssociationSummaries": items}
 	if next != "" {
 		resp["nextToken"] = next
 	}

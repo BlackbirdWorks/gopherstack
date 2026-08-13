@@ -46,6 +46,14 @@ const (
 
 	// maxSampledRequestsItems is the maximum value for GetSampledRequests.MaxItems.
 	maxSampledRequestsItems = 500
+
+	// maxTopPathStatisticsLimit is the maximum value for
+	// GetTopPathStatisticsByTraffic.Limit.
+	maxTopPathStatisticsLimit = 100
+
+	// maxTopTrafficBotsPerPath is the maximum value for
+	// GetTopPathStatisticsByTraffic.NumberOfTopTrafficBotsPerPath.
+	maxTopTrafficBotsPerPath = 10
 )
 
 var (

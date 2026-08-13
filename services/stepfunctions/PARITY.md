@@ -187,7 +187,19 @@ ops:
   SendTaskSuccess: {wire: ok, errors: ok, state: ok, persist: ok}
   SendTaskFailure: {wire: ok, errors: ok, state: ok, persist: ok}
   SendTaskHeartbeat: {wire: ok, errors: ok, state: ok, persist: ok, note: "States.HeartbeatTimeout enforced against HeartbeatSeconds"}
-  DescribeMapRun: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeMapRun:
+    wire: ok
+    errors: ok
+    state: ok
+    persist: ok
+    note: >
+      ExecutionCounts (DescribeMapRunOutput) has no backing field in MapRun
+      (models.go:196-209), correctly so: AWS counts separate child
+      *executions*, which this emulator has no distributed-map model for --
+      iterations run in-process, not as separate Execution records. Same
+      structural gap already documented under DescribeExecution's MapRunArn
+      note above (bd: gopherstack-f5dc). ItemCounts (a real, distinct field)
+      is present and populated.
   ListMapRuns: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateMapRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "ToleratedFailureCount/Percentage on the MapRun *resource* API were already real; the ASL-definition-level Map state fields were fixed in a prior pass"}
   TestState: {wire: ok, errors: ok, state: ok, persist: n/a}

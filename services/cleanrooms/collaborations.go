@@ -241,13 +241,14 @@ func validChangeTypes() map[string]bool {
 // required-field/enum constraints (ChangeInput/Change/ChangeSpecification/
 // MemberChangeSpecification/CollaborationChangeSpecification -- all "This
 // member is required" fields verified against the SDK doc comments).
+//
+// types.ChangeInput (the real request shape) has no "types" member at all --
+// only the response type types.Change does, as a server-computed field (see
+// deriveChangeTypes) -- so a real client never sends it and this must not
+// require it.
 func validateChange(c Change) error {
 	if !validChangeSpecificationTypes()[c.SpecificationType] {
 		return fmt.Errorf("%w: invalid specificationType %q", ErrValidation, c.SpecificationType)
-	}
-
-	if len(c.Types) == 0 {
-		return fmt.Errorf("%w: types is required", ErrValidation)
 	}
 
 	for _, t := range c.Types {
@@ -270,6 +271,30 @@ func validateChange(c Change) error {
 	return nil
 }
 
+// deriveChangeTypes computes the required-on-response types.Change.Types
+// field from a change's specification, since a real client never supplies it
+// (see validateChange). This backend doesn't track prior member ability
+// state to distinguish grant-vs-revoke, so a MEMBER change is always
+// reported as an add, optionally paired with the results-ability grant its
+// memberAbilities imply.
+func deriveChangeTypes(c Change) []string {
+	switch c.SpecificationType {
+	case changeSpecTypeMember:
+		types := []string{"ADD_MEMBER"}
+		for _, a := range c.Specification.Member.MemberAbilities {
+			if a == "CAN_RECEIVE_RESULTS" {
+				types = append(types, "GRANT_RECEIVE_RESULTS_ABILITY")
+			}
+		}
+
+		return types
+	case changeSpecTypeCollaboration:
+		return []string{"EDIT_AUTO_APPROVED_CHANGE_TYPES"}
+	default:
+		return nil
+	}
+}
+
 func (b *InMemoryBackend) CreateCollaborationChangeRequest(
 	collaborationID string,
 	changes []Change,
@@ -280,9 +305,12 @@ func (b *InMemoryBackend) CreateCollaborationChangeRequest(
 		return nil, ErrValidation
 	}
 
-	for _, c := range changes {
+	for i, c := range changes {
 		if err := validateChange(c); err != nil {
 			return nil, err
+		}
+		if len(c.Types) == 0 {
+			changes[i].Types = deriveChangeTypes(c)
 		}
 	}
 

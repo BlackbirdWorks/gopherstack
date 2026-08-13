@@ -31,22 +31,32 @@ const (
 )
 
 // Response key constants (goconst).
+//
+// Each keyCollaboration* constant is a distinct wire key from its unprefixed
+// sibling (keyAnalysisTemplate, keyCAMAAssociation, keyIDNamespaceAssociation,
+// keyPrivacyBudgetTemplate): the collaboration-scoped Get op returns its
+// result under a "collaboration"-prefixed key, so sharing one constant
+// between both ops means one of them is always wrong.
 const (
-	keyCollaboration              = "collaboration"
-	keyAnalysisTemplate           = "analysisTemplate"
-	keyErrors                     = "errors"
-	keyCollaborationChangeRequest = "collaborationChangeRequest"
-	keyCAMAAssociation            = "configuredAudienceModelAssociation"
-	keyIDNamespaceAssociation     = "idNamespaceAssociation"
-	keyPrivacyBudgetTemplate      = "privacyBudgetTemplate"
-	keyMembership                 = "membership"
-	keyConfiguredTable            = "configuredTable"
-	keyConfiguredTableAssociation = "configuredTableAssociation"
-	keyProtectedQuery             = "protectedQuery"
-	keyProtectedJob               = "protectedJob"
-	keyIDMappingTable             = "idMappingTable"
-	keyAnalysisRule               = "analysisRule"
-	keyIntermediateTable          = "intermediateTable"
+	keyCollaboration                       = "collaboration"
+	keyAnalysisTemplate                    = "analysisTemplate"
+	keyCollaborationAnalysisTemplate       = "collaborationAnalysisTemplate"
+	keyErrors                              = "errors"
+	keyCollaborationChangeRequest          = "collaborationChangeRequest"
+	keyCAMAAssociation                     = "configuredAudienceModelAssociation"
+	keyCollaborationCAMAAssociation        = "collaborationConfiguredAudienceModelAssociation"
+	keyIDNamespaceAssociation              = "idNamespaceAssociation"
+	keyCollaborationIDNamespaceAssociation = "collaborationIdNamespaceAssociation"
+	keyPrivacyBudgetTemplate               = "privacyBudgetTemplate"
+	keyCollaborationPrivacyBudgetTemplate  = "collaborationPrivacyBudgetTemplate"
+	keyMembership                          = "membership"
+	keyConfiguredTable                     = "configuredTable"
+	keyConfiguredTableAssociation          = "configuredTableAssociation"
+	keyProtectedQuery                      = "protectedQuery"
+	keyProtectedJob                        = "protectedJob"
+	keyIDMappingTable                      = "idMappingTable"
+	keyAnalysisRule                        = "analysisRule"
+	keyIntermediateTable                   = "intermediateTable"
 )
 
 // Path segment count constants (mnd).

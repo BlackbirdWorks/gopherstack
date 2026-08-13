@@ -170,7 +170,7 @@ func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) erro
 		endTime = cborTime(input, "EndTime")
 	}
 
-	var contributors []AlarmContributor
+	var contributors []InsightRuleContributor
 	if bk, ok := h.Backend.(*InMemoryBackend); ok {
 		var innerErr error
 		func() {

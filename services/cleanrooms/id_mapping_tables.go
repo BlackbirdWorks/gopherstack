@@ -159,5 +159,5 @@ func (b *InMemoryBackend) PopulateIDMappingTable(
 		return nil, ErrNotFound
 	}
 
-	return map[string]any{"mappedJobIdentifier": uuid.NewString()}, nil
+	return map[string]any{"idMappingJobId": uuid.NewString()}, nil
 }

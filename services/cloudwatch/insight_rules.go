@@ -58,7 +58,7 @@ func topNContributors(
 	dimSums map[string]float64,
 	dimKeys map[string][]string,
 	maxN int,
-) []AlarmContributor {
+) []InsightRuleContributor {
 	type entry struct {
 		key string
 		sum float64
@@ -71,9 +71,9 @@ func topNContributors(
 	if len(entries) > maxN {
 		entries = entries[:maxN]
 	}
-	result := make([]AlarmContributor, 0, len(entries))
+	result := make([]InsightRuleContributor, 0, len(entries))
 	for _, e := range entries {
-		result = append(result, AlarmContributor{Keys: dimKeys[e.key], Sum: e.sum})
+		result = append(result, InsightRuleContributor{Keys: dimKeys[e.key], Sum: e.sum})
 	}
 
 	return result
@@ -87,7 +87,7 @@ func (b *InMemoryBackend) GetInsightRuleContributors(
 	startTime, endTime time.Time,
 	maxContributorCount int,
 	orderBy string,
-) ([]AlarmContributor, error) {
+) ([]InsightRuleContributor, error) {
 	if !b.insightRules.Has(ruleName) {
 		return nil, fmt.Errorf("%w: %s", ErrInsightRuleNotFound, ruleName)
 	}

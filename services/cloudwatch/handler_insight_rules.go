@@ -242,7 +242,7 @@ func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) e
 		endTime = t
 	}
 
-	var contributors []AlarmContributor
+	var contributors []InsightRuleContributor
 	if bk, ok := h.Backend.(*InMemoryBackend); ok {
 		var innerErr error
 		func() {

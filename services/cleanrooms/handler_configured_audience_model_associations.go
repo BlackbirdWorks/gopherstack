@@ -24,7 +24,7 @@ func (h *Handler) handleGetCollaborationConfiguredAudienceModelAssociation(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{keyCAMAAssociation: a}), nil
+	return mustJSON(map[string]any{keyCollaborationCAMAAssociation: a}), nil
 }
 
 func (h *Handler) handleListCollaborationConfiguredAudienceModelAssociations(
@@ -44,7 +44,7 @@ func (h *Handler) handleListCollaborationConfiguredAudienceModelAssociations(
 	if err != nil {
 		return nil, err
 	}
-	resp := map[string]any{"configuredAudienceModelAssociationSummaries": items}
+	resp := map[string]any{"collaborationConfiguredAudienceModelAssociationSummaries": items}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -60,9 +60,13 @@ func (h *Handler) handleCreateConfiguredAudienceModelAssociation(
 		Tags                       map[string]string `json:"tags"`
 		MembershipIdentifier       string            `json:"membershipIdentifier"`
 		ConfiguredAudienceModelArn string            `json:"configuredAudienceModelArn"`
-		Name                       string            `json:"name"`
-		Description                string            `json:"description"`
-		ManageResourcePolicies     bool              `json:"manageResourcePolicies"`
+		// Real wire key is configuredAudienceModelAssociationName, NOT "name"
+		// (UpdateConfiguredAudienceModelAssociationInput does use plain
+		// "name" -- verified against each op's own
+		// awsRestjson1_serializeOpDocument*Input, per gopherstack-sdk-shape).
+		Name                   string `json:"configuredAudienceModelAssociationName"`
+		Description            string `json:"description"`
+		ManageResourcePolicies bool   `json:"manageResourcePolicies"`
 	}
 	_ = json.Unmarshal(body, &req)
 	a, err := h.Backend.CreateConfiguredAudienceModelAssociation(

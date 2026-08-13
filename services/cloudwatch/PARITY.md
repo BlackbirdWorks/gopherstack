@@ -99,7 +99,29 @@ ops:
   DeleteMetricStream: {wire: ok, errors: ok, state: ok, persist: ok}
   StartMetricStreams: {wire: ok, errors: ok, state: ok, persist: ok}
   StopMetricStreams: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAlarmContributors: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeAlarmContributors:
+    wire: fixed
+    errors: ok
+    state: fixed
+    persist: ok
+    note: >
+      FIXED 2026-08-13 (bd gopherstack-kb66): both the CBOR (rpc-v2, the only
+      protocol this SDK version speaks) and legacy XML paths wrote
+      "Contributors"; the real wire key is "AlarmContributors"
+      (cloudwatch@v1.66.3 schemas/schemas.go:4033, types.AlarmContributor).
+      Deeper bug found while fixing the key: the backend's AlarmContributor
+      Go type used a Keys/Sum shape that belongs to the unrelated
+      GetInsightRuleReport contributor concept (types.InsightRuleContributor)
+      -- the two ops shared one Go struct despite having no relationship in
+      the real API, the same shared-type blind spot gopherstack-bv5d records
+      for cleanrooms. Split into two types: InsightRuleContributor (Keys/Sum,
+      GetInsightRuleReport's contributor calc, behavior unchanged) and a new
+      AlarmContributor (ContributorId/ContributorAttributes/StateReason/
+      StateTransitionedTimestamp, matching the real type). Composite-alarm
+      contributors now report the real child alarm's own StateReason/
+      StateTransitionedTimestamp rather than a fabricated Keys/Sum=1 tuple.
+      Proven with a real aws-sdk-go-v2 client round trip
+      (TestDescribeAlarmContributors_SDKRoundTrip).
   GetMetricWidgetImage: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "rendering-only op; PNG output not byte-compared against real AWS"}
 # Families audited as a group (when per-op is impractical):
 families:
