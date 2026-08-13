@@ -17,6 +17,58 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// TestAcceptAssociateDelegationRequest_UnknownID_NoSuchEntity covers
+// gopherstack-xh42: AcceptDelegationRequest and AssociateDelegationRequest
+// both declare NoSuchEntity (404) for an unknown DelegationRequestId in their
+// own deserializeOpError switch (api_op_AcceptDelegationRequest.go,
+// api_op_AssociateDelegationRequest.go: ConcurrentModification/NoSuchEntity/
+// ServiceFailure -- AssociateDelegationRequest additionally has InvalidInput),
+// but previously returned InvalidAction (400) instead, unlike the three
+// sibling ops (Reject/Send/UpdateDelegationRequest) already fixed in
+// 00f9a47ef. Driven through the real SDK client since the type of
+// AssociateDelegationRequestInput below has no PolicyArn field at all --
+// the real input carries only DelegationRequestId -- proving that field was
+// never reachable by a real caller.
+func TestAcceptAssociateDelegationRequest_UnknownID_NoSuchEntity(t *testing.T) {
+	t.Parallel()
+
+	t.Run("acceptdelegationrequest unknown id is nosuchentity", func(t *testing.T) {
+		t.Parallel()
+
+		b := NewInMemoryBackend()
+		h := NewHandler(b)
+		client := newDelegationTestClient(t, h)
+
+		_, err := client.AcceptDelegationRequest(t.Context(), &iamsdk.AcceptDelegationRequestInput{
+			DelegationRequestId: aws.String("does-not-exist"),
+		})
+		require.Error(t, err)
+
+		var apiErr smithy.APIError
+
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, "NoSuchEntity", apiErr.ErrorCode())
+	})
+
+	t.Run("associatedelegationrequest unknown id is nosuchentity", func(t *testing.T) {
+		t.Parallel()
+
+		b := NewInMemoryBackend()
+		h := NewHandler(b)
+		client := newDelegationTestClient(t, h)
+
+		_, err := client.AssociateDelegationRequest(t.Context(), &iamsdk.AssociateDelegationRequestInput{
+			DelegationRequestId: aws.String("does-not-exist"),
+		})
+		require.Error(t, err)
+
+		var apiErr smithy.APIError
+
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, "NoSuchEntity", apiErr.ErrorCode())
+	})
+}
+
 // newDelegationTestClient stands up the real aws-sdk-go-v2 IAM client against
 // an httptest server running this package's Handler, wired through the same
 // pkgs/service registry/router used in production.

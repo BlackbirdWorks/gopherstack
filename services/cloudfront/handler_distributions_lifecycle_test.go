@@ -529,12 +529,15 @@ func TestAssociateAlias_Idempotent(t *testing.T) {
 }
 
 // TestAssociateDistributionWebACL covers the AssociateDistributionWebACL operation.
+// Request bodies use the real AssociateDistributionWebACLRequest root and WebACLArn
+// member (cloudfront@v1.67.4 serializers.go:255) -- the previously shared
+// webACLAssociationXML{root: WebACLAssociation, field: WebACLId} matched neither.
 func TestAssociateDistributionWebACL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		setup      func(*testing.T, *cloudfront.Handler) string
-		check      func(*testing.T, *httptest.ResponseRecorder)
+		check      func(*testing.T, *cloudfront.Handler, *httptest.ResponseRecorder)
 		name       string
 		body       []byte
 		wantStatus int
@@ -542,7 +545,9 @@ func TestAssociateDistributionWebACL(t *testing.T) {
 		{
 			name: "associate_web_acl_success",
 			body: []byte(
-				`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/test/abc</WebACLId></WebACLAssociation>`,
+				`<AssociateDistributionWebACLRequest>` +
+					`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/test/abc</WebACLArn>` +
+					`</AssociateDistributionWebACLRequest>`,
 			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
@@ -553,18 +558,29 @@ func TestAssociateDistributionWebACL(t *testing.T) {
 				return d.ID
 			},
 			wantStatus: http.StatusOK,
-			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
+			check: func(t *testing.T, h *cloudfront.Handler, _ *httptest.ResponseRecorder) {
+				t.Helper()
+				got := h.Backend.ListDistributionsByWebACLID(
+					"arn:aws:wafv2:us-east-1:123:global/webacl/test/abc",
+				)
+				require.Len(t, got, 1)
+				assert.Equal(t, "ref-wacl-001", got[0].CallerReference)
+			},
 		},
 		{
 			name: "associate_web_acl_not_found",
-			body: []byte(`<WebACLAssociation><WebACLId>some-acl</WebACLId></WebACLAssociation>`),
+			body: []byte(
+				`<AssociateDistributionWebACLRequest>` +
+					`<WebACLArn>some-acl</WebACLArn>` +
+					`</AssociateDistributionWebACLRequest>`,
+			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
 
 				return "DOESNOTEXIST"
 			},
 			wantStatus: http.StatusNotFound,
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, _ *cloudfront.Handler, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				assert.Contains(t, rec.Body.String(), "NoSuchDistribution")
 			},
@@ -581,7 +597,26 @@ func TestAssociateDistributionWebACL(t *testing.T) {
 				return d.ID
 			},
 			wantStatus: http.StatusOK,
-			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
+			check:      func(t *testing.T, _ *cloudfront.Handler, _ *httptest.ResponseRecorder) { t.Helper() },
+		},
+		{
+			name: "associate_web_acl_wrong_root_is_malformed_xml",
+			body: []byte(
+				`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/wrong/abc</WebACLId></WebACLAssociation>`,
+			),
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-wacl-003", "wacl-dist3", true,
+					minimalDistConfig("ref-wacl-003", "wacl-dist3", true))
+				require.NoError(t, err)
+
+				return d.ID
+			},
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, _ *cloudfront.Handler, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "MalformedXML")
+			},
 		},
 	}
 
@@ -595,7 +630,7 @@ func TestAssociateDistributionWebACL(t *testing.T) {
 
 			rec := doXML(t, h, http.MethodPut, path, tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
-			tt.check(t, rec)
+			tt.check(t, h, rec)
 		})
 	}
 }

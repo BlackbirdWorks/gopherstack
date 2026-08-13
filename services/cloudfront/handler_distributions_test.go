@@ -574,7 +574,7 @@ func TestDisassociateWebACL(t *testing.T) {
 
 	// Associate web ACL
 	cfOK(t, h, http.MethodPut, prefix+"distribution/"+distID+"/associate-web-acl",
-		`<WebACLAssociation><WebACLId>waf-123</WebACLId></WebACLAssociation>`)
+		`<AssociateDistributionWebACLRequest><WebACLArn>waf-123</WebACLArn></AssociateDistributionWebACLRequest>`)
 
 	// Disassociate web ACL
 	disResp := cfOK(t, h, http.MethodPut, prefix+"distribution/"+distID+"/disassociate-web-acl", "")

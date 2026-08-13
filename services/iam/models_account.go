@@ -163,7 +163,6 @@ type DelegationRequest struct {
 	DelegationID         string                      `json:"DelegationId,omitempty"`
 	RedirectURL          string                      `json:"RedirectUrl,omitempty"`
 	Status               string                      `json:"Status,omitempty"`
-	PolicyArn            string                      `json:"PolicyArn,omitempty"`
 	Description          string                      `json:"Description,omitempty"`
 	NotificationChannel  string                      `json:"NotificationChannel,omitempty"`
 	RequestorWorkflowID  string                      `json:"RequestorWorkflowId,omitempty"`

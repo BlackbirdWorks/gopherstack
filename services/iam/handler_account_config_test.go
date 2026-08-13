@@ -315,7 +315,7 @@ func TestDelegationRequest_Backend(t *testing.T) {
 			require.NoError(t, err)
 
 			// Associate
-			err = b.AssociateDelegationRequest(req.DelegationID, "arn:aws:iam::123456789012:policy/ReadOnly")
+			err = b.AssociateDelegationRequest(req.DelegationID)
 			require.NoError(t, err)
 		})
 	}
@@ -333,7 +333,7 @@ func TestAssociateDelegationRequest_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := iam.NewInMemoryBackend()
-	err := b.AssociateDelegationRequest("non-existent-id", "arn:aws:iam::123:policy/Test")
+	err := b.AssociateDelegationRequest("non-existent-id")
 	require.Error(t, err)
 }
 

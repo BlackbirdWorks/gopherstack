@@ -267,10 +267,7 @@ func (h *Handler) iamNewOpsDelegationAndOIDCActions() map[string]iamActionFn {
 		},
 
 		"AssociateDelegationRequest": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.AssociateDelegationRequest(
-				vals.Get("DelegationRequestId"),
-				vals.Get("PolicyArn"),
-			); err != nil {
+			if err := h.Backend.AssociateDelegationRequest(vals.Get("DelegationRequestId")); err != nil {
 				return nil, err
 			}
 

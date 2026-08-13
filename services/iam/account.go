@@ -514,14 +514,15 @@ func (b *InMemoryBackend) DelegationRequestExists(delegationID string) bool {
 	return exists
 }
 
-// AcceptDelegationRequest accepts a delegation request (stub implementation).
+// AcceptDelegationRequest accepts a delegation request, granting the
+// requested temporary access.
 func (b *InMemoryBackend) AcceptDelegationRequest(delegationID string) error {
 	b.mu.Lock("AcceptDelegationRequest")
 	defer b.mu.Unlock()
 
 	req, exists := b.delegationRequests.Get(delegationID)
 	if !exists {
-		return fmt.Errorf("%w: delegation request %q not found", ErrInvalidAction, delegationID)
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
 	}
 
 	req.Status = "ACCEPTED"
@@ -530,18 +531,20 @@ func (b *InMemoryBackend) AcceptDelegationRequest(delegationID string) error {
 	return nil
 }
 
-// AssociateDelegationRequest associates a delegation request with a policy ARN (stub implementation).
-func (b *InMemoryBackend) AssociateDelegationRequest(delegationID, policyArn string) error {
+// AssociateDelegationRequest associates a delegation request with the
+// current identity. The real AssociateDelegationRequestInput carries only
+// DelegationRequestId (api_op_AssociateDelegationRequest.go) -- there is no
+// PolicyArn on the wire, so this does not take or store one. gopherstack has
+// no caller-identity plumbing to honestly populate the real ownerId/
+// ownerAccount side effect, so this validates the request exists and stops
+// there, same as AcceptDelegationRequest's precondition-enforcement gap.
+func (b *InMemoryBackend) AssociateDelegationRequest(delegationID string) error {
 	b.mu.Lock("AssociateDelegationRequest")
 	defer b.mu.Unlock()
 
-	req, exists := b.delegationRequests.Get(delegationID)
-	if !exists {
-		return fmt.Errorf("%w: delegation request %q not found", ErrInvalidAction, delegationID)
+	if _, exists := b.delegationRequests.Get(delegationID); !exists {
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
 	}
-
-	req.PolicyArn = policyArn
-	b.delegationRequests.Put(req)
 
 	return nil
 }
