@@ -185,7 +185,7 @@ type StorageBackend interface {
 	ModifyClientProperties(resourceID string, clientExperiencePolicy, logUploadEnabled, reconnectEnabled *string) error
 
 	// Directory modify ops
-	ModifyCertificateBasedAuthProperties(directoryID string, props map[string]string) error
+	ModifyCertificateBasedAuthProperties(directoryID string, props map[string]string, propertiesToDelete []string) error
 	ModifySamlProperties(directoryID string, props map[string]string) error
 	ModifySelfservicePermissions(directoryID string, props map[string]string) error
 	ModifyStreamingProperties(directoryID string, props map[string]string) error

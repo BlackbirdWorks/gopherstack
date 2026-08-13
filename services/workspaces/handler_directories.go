@@ -102,7 +102,7 @@ func (h *Handler) handleDeregisterWorkspaceDirectory(
 }
 
 type modifyWorkspaceCreationPropertiesInput struct {
-	DirectoryId                 string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	ResourceId                  string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	WorkspaceCreationProperties struct {
 		DefaultOu                       string `json:"DefaultOu"`
 		CustomSecurityGroupId           string `json:"CustomSecurityGroupId"` //nolint:revive,staticcheck // existing issue.
@@ -121,5 +121,5 @@ func (h *Handler) handleModifyWorkspaceCreationProperties(
 		"CustomSecurityGroupId": req.WorkspaceCreationProperties.CustomSecurityGroupId,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifyWorkspaceCreationProperties(req.DirectoryId, props)
+	return &emptyOutput{}, h.Backend.ModifyWorkspaceCreationProperties(req.ResourceId, props)
 }
