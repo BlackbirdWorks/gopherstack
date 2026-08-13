@@ -72,14 +72,34 @@ type GetOpsMetadataOutput struct {
 	OpsMetadata
 }
 
-// GetOpsSummaryInput is the request payload.
+// GetOpsSummaryInput is the request payload. The real GetOpsSummaryInput
+// (api_op_GetOpsSummary.go) also declares Aggregators, Filters,
+// MaxResults, NextToken, ResultAttributes and SyncName, but this backend's
+// GetOpsSummary (ops_items.go) always returns a single fixed
+// "AWS:OpsItem"/Count entity -- it has no queryable multi-type OpsData
+// dataset for Aggregators/ResultAttributes to project across or for Filters
+// to subset, unlike DescribeActivations/ListAssociations/etc, which filter
+// a real typed collection this backend already tracks. Left struct{}
+// deliberately (gopherstack-a250 triage): wiring these members would mean
+// inventing query semantics this backend has no honest state to back.
 type GetOpsSummaryInput struct{}
 
 // GetOpsSummaryOutput is the response payload.
 type GetOpsSummaryOutput struct{}
 
+// OpsMetadataFilterEntry filters ListOpsMetadata results by ResourceId
+// (api_op_ListOpsMetadata.go Filters member, types.OpsMetadataFilter).
+type OpsMetadataFilterEntry struct {
+	Key    string   `json:"Key,omitempty"`
+	Values []string `json:"Values,omitempty"`
+}
+
 // ListOpsMetadataInput is the request payload.
-type ListOpsMetadataInput struct{}
+type ListOpsMetadataInput struct {
+	MaxResults *int32                   `json:"MaxResults,omitempty"`
+	NextToken  string                   `json:"NextToken,omitempty"`
+	Filters    []OpsMetadataFilterEntry `json:"Filters,omitempty"`
+}
 
 // ListOpsMetadataOutput is the response payload.
 type ListOpsMetadataOutput struct{}

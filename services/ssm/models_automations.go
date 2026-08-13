@@ -6,8 +6,21 @@ type SendAutomationSignalOutput struct{}
 // StopAutomationExecutionOutput is the response for StopAutomationExecution.
 type StopAutomationExecutionOutput struct{}
 
+// AutomationExecutionFilterEntry filters DescribeAutomationExecutions
+// results by ExecutionId, ExecutionStatus or DocumentNamePrefix
+// (api_op_DescribeAutomationExecutions.go Filters member,
+// types.AutomationExecutionFilterKey).
+type AutomationExecutionFilterEntry struct {
+	Key    string   `json:"Key,omitempty"`
+	Values []string `json:"Values,omitempty"`
+}
+
 // DescribeAutomationExecutionsInput is the request for DescribeAutomationExecutions.
-type DescribeAutomationExecutionsInput struct{}
+type DescribeAutomationExecutionsInput struct {
+	MaxResults *int32                           `json:"MaxResults,omitempty"`
+	NextToken  string                           `json:"NextToken,omitempty"`
+	Filters    []AutomationExecutionFilterEntry `json:"Filters,omitempty"`
+}
 
 // DescribeAutomationExecutionsOutput is the response for DescribeAutomationExecutions.
 type DescribeAutomationExecutionsOutput struct{}

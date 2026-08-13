@@ -38,16 +38,33 @@ type DeregisterManagedInstanceInput struct {
 	InstanceID string `json:"InstanceId"`
 }
 
+// DescribeActivationsFilter filters DescribeActivations results by
+// ActivationIds, DefaultInstanceName or IamRole (api_op_DescribeActivations.go,
+// types.DescribeActivationsFilterKeys).
+type DescribeActivationsFilter struct {
+	FilterKey    string   `json:"FilterKey,omitempty"`
+	FilterValues []string `json:"FilterValues,omitempty"`
+}
+
 // DescribeActivationsInput is the request for DescribeActivations.
-type DescribeActivationsInput struct{}
+type DescribeActivationsInput struct {
+	MaxResults *int32                      `json:"MaxResults,omitempty"`
+	NextToken  string                      `json:"NextToken,omitempty"`
+	Filters    []DescribeActivationsFilter `json:"Filters,omitempty"`
+}
 
 // DescribeActivationsOutput is the response for DescribeActivations.
 type DescribeActivationsOutput struct {
+	NextToken      string       `json:"NextToken,omitempty"`
 	ActivationList []Activation `json:"ActivationList"`
 }
 
 // ListResourceDataSyncInput is the request payload.
-type ListResourceDataSyncInput struct{}
+type ListResourceDataSyncInput struct {
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	SyncType   string `json:"SyncType,omitempty"`
+}
 
 // ListResourceDataSyncOutput is the response payload.
 type ListResourceDataSyncOutput struct{}

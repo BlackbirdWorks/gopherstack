@@ -964,7 +964,7 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 	var fieldValue string
 
 	switch f.Key {
-	case "Name":
+	case filterKeyName:
 		fieldValue = meta.Name
 	case "Type":
 		fieldValue = meta.Type

@@ -139,11 +139,11 @@ func (b *InMemoryBackend) ListNodes(
 // fabricated value.
 func nodeAttributeValue(n NodeInfo, attr string) string {
 	switch attr {
-	case "InstanceId":
+	case filterKeyInstanceID:
 		return n.InstanceID
 	case "PlatformType":
 		return n.PlatformType
-	case "AgentVersion":
+	case filterKeyAgentVersion:
 		return n.AgentVersion
 	default:
 		return ""
@@ -156,7 +156,7 @@ func nodeAttributeValue(n NodeInfo, attr string) string {
 // since this backend has no real data to filter against).
 func matchesNodeFilter(n NodeInfo, f NodeFilter) bool {
 	value := nodeAttributeValue(n, f.Key)
-	if value == "" && f.Key != "InstanceId" && f.Key != "PlatformType" && f.Key != "AgentVersion" {
+	if value == "" && f.Key != filterKeyInstanceID && f.Key != "PlatformType" && f.Key != filterKeyAgentVersion {
 		return true
 	}
 
@@ -304,10 +304,50 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 	}, nil
 }
 
-// DescribeInstanceInformation returns information about managed instances from activations.
+// instanceInformationAttr returns the value of an InstanceInformation
+// attribute by its filter key name. Only the attributes InstanceInformation
+// itself tracks can be meaningfully filtered; every other key
+// (IamRole/ResourceType/AssociationStatus/...) returns "" and is treated as
+// unmatched by the caller unless the key itself is also unrecognized (see
+// matchesInstanceInformationFilter).
+func instanceInformationAttr(info InstanceInformation, key string) (string, bool) {
+	switch key {
+	case "InstanceIds", "ActivationIds":
+		return info.InstanceID, true
+	case filterKeyAgentVersion:
+		return info.AgentVersion, true
+	case "PingStatus":
+		return info.PingStatus, true
+	case "PlatformTypes":
+		return info.PlatformType, true
+	default:
+		return "", false
+	}
+}
+
+// matchesInstanceInformationFilter reports whether an instance satisfies a
+// single key/values filter. Unrecognized keys match every instance
+// (accept-and-echo, mirroring ListNodes' unknown-key handling,
+// instances.go); recognized keys require the tracked attribute to be one of
+// the supplied values.
+func matchesInstanceInformationFilter(info InstanceInformation, key string, values []string) bool {
+	value, tracked := instanceInformationAttr(info, key)
+	if !tracked {
+		return true
+	}
+
+	return slices.Contains(values, value)
+}
+
+// DescribeInstanceInformation returns information about managed instances
+// from activations, filtered by input.Filters/InstanceInformationFilterList
+// and paginated by input.MaxResults/NextToken -- real, optional
+// DescribeInstanceInformationInput members
+// (api_op_DescribeInstanceInformation.go) a literal struct{} input
+// previously discarded from every request.
 func (b *InMemoryBackend) DescribeInstanceInformation(
 	ctx context.Context,
-	_ *DescribeInstanceInformationInput,
+	input *DescribeInstanceInformationInput,
 ) (*DescribeInstanceInformationOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("DescribeInstanceInformation")
@@ -315,17 +355,47 @@ func (b *InMemoryBackend) DescribeInstanceInformation(
 
 	activations := b.activationsStore(region)
 	list := make([]InstanceInformation, 0, activations.Len())
+
 	for _, act := range activations.All() {
-		list = append(list, InstanceInformation{
+		info := InstanceInformation{
 			InstanceID:       act.ActivationID,
 			PingStatus:       "Online",
 			AgentVersion:     defaultAgentVersionSSM,
 			PlatformType:     platformTypeLinux,
 			RegistrationDate: act.CreatedDate,
-		})
+		}
+
+		matched := true
+
+		for _, f := range input.Filters {
+			if !matchesInstanceInformationFilter(info, f.Key, f.Values) {
+				matched = false
+
+				break
+			}
+		}
+
+		for _, f := range input.InstanceInformationFilterList {
+			if !matchesInstanceInformationFilter(info, f.Key, f.ValueSet) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			list = append(list, info)
+		}
 	}
 
-	return &DescribeInstanceInformationOutputFull{InstanceInformationList: list}, nil
+	var maxResults int
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(list, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeInstanceInformationOutputFull{InstanceInformationList: page, NextToken: next}, nil
 }
 
 // DescribeInstancePatchStates returns patch compliance state for instances.

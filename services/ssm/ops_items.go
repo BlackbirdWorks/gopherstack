@@ -208,10 +208,25 @@ func (b *InMemoryBackend) GetOpsSummary(
 	}, nil
 }
 
-// ListOpsMetadata returns all ops metadata entries.
+// matchesOpsMetadataFilter reports whether an OpsMetadata entry satisfies a
+// single key/values filter. Only ResourceId has backing state to filter on;
+// every other key matches every entry (accept-and-echo, mirroring ListNodes'
+// unknown-key handling, instances.go).
+func matchesOpsMetadataFilter(m OpsMetadata, f OpsMetadataFilterEntry) bool {
+	if f.Key != "ResourceId" {
+		return true
+	}
+
+	return slices.Contains(f.Values, m.ResourceID)
+}
+
+// ListOpsMetadata returns ops metadata entries, filtered by input.Filters
+// and paginated by input.MaxResults/NextToken -- real, optional
+// ListOpsMetadataInput members (api_op_ListOpsMetadata.go) a literal
+// struct{} input previously discarded from every request.
 func (b *InMemoryBackend) ListOpsMetadata(
 	ctx context.Context,
-	_ *ListOpsMetadataInput,
+	input *ListOpsMetadataInput,
 ) (*ListOpsMetadataOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListOpsMetadata")
@@ -219,15 +234,35 @@ func (b *InMemoryBackend) ListOpsMetadata(
 
 	opsMetadata := b.opsMetadataStore(region)
 	list := make([]OpsMetadata, 0, opsMetadata.Len())
+
 	for _, m := range opsMetadata.All() {
-		list = append(list, *m)
+		matched := true
+
+		for _, f := range input.Filters {
+			if !matchesOpsMetadataFilter(*m, f) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			list = append(list, *m)
+		}
 	}
 
 	sort.Slice(list, func(i, k int) bool {
 		return list[i].OpsMetadataArn < list[k].OpsMetadataArn
 	})
 
-	return &ListOpsMetadataOutputFull{OpsMetadataList: list}, nil
+	var maxResults int
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(list, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &ListOpsMetadataOutputFull{OpsMetadataList: page, NextToken: next}, nil
 }
 
 // opsItemMatchesFilters returns true when the item satisfies all provided filters.

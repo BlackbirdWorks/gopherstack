@@ -289,7 +289,7 @@ func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
 		switch f.Key {
 		case "DocumentType":
 			fieldValue = doc.DocumentType
-		case "Name":
+		case filterKeyName:
 			fieldValue = doc.Name
 		default:
 			continue

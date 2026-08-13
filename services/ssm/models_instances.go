@@ -16,8 +16,30 @@ type DescribeInstanceAssociationsStatusInput struct {
 // DescribeInstanceAssociationsStatusOutput is the response for DescribeInstanceAssociationsStatus.
 type DescribeInstanceAssociationsStatusOutput struct{}
 
+// InstanceInformationStringFilterEntry filters DescribeInstanceInformation
+// results by a free-form key (api_op_DescribeInstanceInformation.go Filters
+// member, types.InstanceInformationStringFilter).
+type InstanceInformationStringFilterEntry struct {
+	Key    string   `json:"Key,omitempty"`
+	Values []string `json:"Values,omitempty"`
+}
+
+// InstanceInformationFilterEntry filters DescribeInstanceInformation results
+// by the legacy InstanceInformationFilterList member (deprecated by the real
+// API in favor of Filters/InstanceInformationStringFilter above, but still a
+// live request field -- types.InstanceInformationFilter).
+type InstanceInformationFilterEntry struct {
+	Key      string   `json:"key,omitempty"`
+	ValueSet []string `json:"valueSet,omitempty"`
+}
+
 // DescribeInstanceInformationInput is the request for DescribeInstanceInformation.
-type DescribeInstanceInformationInput struct{}
+type DescribeInstanceInformationInput struct {
+	MaxResults                    *int32                                 `json:"MaxResults,omitempty"`
+	NextToken                     string                                 `json:"NextToken,omitempty"`
+	Filters                       []InstanceInformationStringFilterEntry `json:"Filters,omitempty"`
+	InstanceInformationFilterList []InstanceInformationFilterEntry       `json:"InstanceInformationFilterList,omitempty"`
+}
 
 // DescribeInstanceInformationOutput is the response for DescribeInstanceInformation.
 type DescribeInstanceInformationOutput struct{}
