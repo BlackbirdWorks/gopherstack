@@ -581,3 +581,49 @@ Gates: `go build ./...`, `go vet ./services/apigateway/...`, `go test -race
 ./services/apigateway/...` (0 issues) all pass. `go vet ./.` (repo root) also
 run since `handler.go`'s `applyStructuredPatch` call site's signature
 changed, though nothing outside `services/apigateway` calls it.
+
+## 2026-08-13 pass (gopherstack-l5ir): route reachability, apikeys/domainnames/usageplans/vpclinks/clientcerts remainder
+
+gopherstack-4nek verified the `/restapis` subtree (~90 of 124 ops) via a
+same-path collision check but explicitly left the `apikeys`, `domainnames`
+(+ `domainnameaccessassociations` + `basepathmappings`), `usageplans`
+(+ keys + usage), `vpclinks`, and `clientcertificates` routing in
+`handler.go`/`handler_router.go` unchecked -- roughly 30-41 ops depending on
+how the sub-families are counted. This pass extracted the real method+path
+for all 41 ops in that remainder from `apigateway@v1.42.4` serializers.go
+(`request.Method` + `httpbinding.SplitURI(...)` in each op's
+`awsRestjson1_serializeOp<Op>.HandleSerialize`) and diffed them against
+`parseAPIGWRESTPath`'s dispatch tree (`handler_router.go` plus the five
+per-family `parseAPIGW*Path` functions it delegates to).
+
+**Result: zero mismatches.** Every op, including `ImportApiKeys`/`CreateApiKey`
+sharing the bare `/apikeys` path and disambiguated only by a real `?mode=import`
+query flag -- the exact "bare flag" pattern that broke cloudfront's
+`CreateDistributionWithTags` -- was already correctly wired; the query-param
+check (`query.Get("mode") == modeImport`) was already present and correct.
+`RejectDomainNameAccessAssociation`'s own top-level path
+(`/rejectdomainnameaccessassociations`, sibling to `/domainnameaccessassociations`,
+not nested under it) was also already correctly routed.
+
+Architecturally this remainder (and the already-verified `/restapis` subtree)
+share a design that structurally resists the routing-bug class this campaign
+found elsewhere: `parseAPIGWRESTPath` is the single function used for BOTH
+real request dispatch AND `ExtractOperation`'s op-name resolution (`handler.go`'s
+`ExtractOperation` calls it directly), so there is no second, independently-
+maintained implementation of "what op does this path mean" to drift out of
+sync with the real dispatch tree -- the exact failure mode that caused most
+of opensearch's and lambda's bugs in this same campaign (a separate
+`ExtractOperation`/`IAMAction` implementation silently diverging from the
+real HTTP dispatch).
+
+Added as a permanent regression test, `TestExtractOperation_SDKRouteTable`
+(`handler_paths_sdk_diff_test.go`, one subtest per op, 41/41 pass) --
+converts the audit into a standing guarantee. No routing code changes were
+needed; no existing test encoded a wrong path. Gates (`go build`, `go vet`,
+`go test -race`, `go fix -diff`, `golangci-lint run`) all clean.
+
+Not touched by this pass: the already-verified `/restapis` subtree itself
+has no equivalent permanent `TestExtractOperation_SDKRouteTable`-style test
+committed (gopherstack-4nek's verification was a one-off collision check,
+not a committed test) -- a good candidate for a future pass, now that the
+pattern exists in this same file's sibling services.

@@ -13,6 +13,31 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// healthCheckSubPathOp resolves the /status and /lastfailurereason
+// sub-paths shared by extractHealthCheckOperation and iamActionForHealthCheck.
+// ok is true when path matched one of these suffixes at all (whether or not
+// method was valid for it), so the caller knows not to fall through to the
+// generic Get/Delete/Update switch.
+func healthCheckSubPathOp(path, method, getStatusOp, getReasonOp string) (string, bool) {
+	if strings.HasSuffix(path, route53StatusSuffix) {
+		if method == http.MethodGet {
+			return getStatusOp, true
+		}
+
+		return "", true
+	}
+
+	if strings.HasSuffix(path, route53LastFailureReasonSuffix) {
+		if method == http.MethodGet {
+			return getReasonOp, true
+		}
+
+		return "", true
+	}
+
+	return "", false
+}
+
 // extractHealthCheckOperation maps a health-check path+method to an operation name.
 // Returns "" when the path does not match any health check route.
 func extractHealthCheckOperation(path, method string) string {
@@ -27,13 +52,8 @@ func extractHealthCheckOperation(path, method string) string {
 		return ""
 	}
 
-	if method == http.MethodGet && strings.HasSuffix(path, route53StatusSuffix) {
-		return "GetHealthCheckStatus"
-	}
-
-	// Any non-GET request to the /status sub-path is not a valid health check operation.
-	if strings.HasSuffix(path, route53StatusSuffix) {
-		return ""
+	if op, ok := healthCheckSubPathOp(path, method, "GetHealthCheckStatus", "GetHealthCheckLastFailureReason"); ok {
+		return op
 	}
 
 	switch method {
@@ -62,13 +82,10 @@ func iamActionForHealthCheck(path, method string) string {
 		return ""
 	}
 
-	if method == http.MethodGet && strings.HasSuffix(path, route53StatusSuffix) {
-		return "route53:GetHealthCheckStatus"
-	}
-
-	// Any non-GET request to the /status sub-path is not a valid IAM-mapped operation.
-	if strings.HasSuffix(path, route53StatusSuffix) {
-		return ""
+	if op, ok := healthCheckSubPathOp(
+		path, method, "route53:GetHealthCheckStatus", "route53:GetHealthCheckLastFailureReason",
+	); ok {
+		return op
 	}
 
 	switch method {
@@ -103,6 +120,20 @@ func (h *Handler) routeHealthCheck(c *echo.Context, path, method string) error {
 
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			"unsupported method on health check status")
+	}
+
+	// GetHealthCheckLastFailureReason: GET .../healthcheck/{id}/lastfailurereason
+	// (api_op_GetHealthCheckLastFailureReason.go, route53@v1.65.6 serializers.go).
+	// Must be checked before the generic switch below, or a real request here
+	// silently resolves to GetHealthCheck instead (same real ID, wrong response
+	// shape -- gopherstack-l5ir).
+	if strings.HasSuffix(path, route53LastFailureReasonSuffix) {
+		if method == http.MethodGet {
+			return h.getHealthCheckLastFailureReason(c, path)
+		}
+
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on health check last failure reason")
 	}
 
 	switch method {

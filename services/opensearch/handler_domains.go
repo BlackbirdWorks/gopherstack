@@ -380,7 +380,54 @@ func (h *Handler) handleServiceSoftwareRoutes(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// POST /2021-01-01/opensearch/serviceSoftwareUpdate/start. Real clients
+	// always POST here with DomainName in the body (api_op_StartServiceSoftwareUpdate.go,
+	// opensearch@v1.75.4 serializers.go: literal path, no {DomainName} URL
+	// binding) -- gopherstack-l5ir.
+	if rest == "/start" && r.Method == http.MethodPost {
+		h.handleStartServiceSoftwareUpdate(w, r)
+
+		return
+	}
+
 	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+}
+
+// startServiceSoftwareUpdateRequest is the JSON request body for StartServiceSoftwareUpdate.
+type startServiceSoftwareUpdateRequest struct {
+	DomainName string `json:"DomainName"`
+	ScheduleAt string `json:"ScheduleAt"`
+}
+
+func (h *Handler) handleStartServiceSoftwareUpdate(w http.ResponseWriter, r *http.Request) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req startServiceSoftwareUpdateRequest
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+
+		return
+	}
+
+	opts, startErr := h.Backend.StartServiceSoftwareUpdate(req.DomainName, req.ScheduleAt)
+	if startErr != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", startErr.Error())
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		"ServiceSoftwareOptions": serviceSoftwareOptionsJSON{
+			UpdateStatus:    opts.UpdateStatus,
+			UpdateAvailable: opts.UpdateAvailable,
+			Description:     opts.Description,
+		},
+	})
 }
 
 // rollbackServiceSoftwareUpdateRequest is the JSON request body for

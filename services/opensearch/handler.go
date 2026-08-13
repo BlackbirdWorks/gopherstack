@@ -35,7 +35,38 @@ const (
 	openSearchInsightDetailsPath     = "/2021-01-01/opensearch/insight-details"
 	openSearchInsightFeedbackPath    = "/2021-01-01/opensearch/insight-feedback"
 	openSearchAppMigrationsPath      = "/2021-01-01/opensearch/app-migrations"
-	openSearchServiceName            = "OpenSearch"
+	// openSearchDomainInfoPath is DescribeDomains' real literal path
+	// (api_op_DescribeDomains.go, opensearch@v1.75.4 serializers.go: POST
+	// /2021-01-01/opensearch/domain-info, DomainNames in the body) -- handled as
+	// an exact-path check before dispatchDomainRoutes, not as a domain-prefix
+	// sub-route, because it is a sibling of openSearchPathPrefix's "domain" path
+	// segment, not nested under it (gopherstack-l5ir).
+	openSearchDomainInfoPath = "/2021-01-01/opensearch/domain-info"
+	// openSearchLegacyDomainPath is the un-prefixed root that ListDomainNames
+	// and ListPackagesForDomain still use (api_op_ListDomainNames.go /
+	// api_op_ListPackagesForDomain.go, opensearch@v1.75.4 serializers.go:
+	// "/2021-01-01/domain" and "/2021-01-01/domain/{DomainName}/packages" --
+	// no "/opensearch/" segment, unlike every other domain op) -- gopherstack-l5ir.
+	openSearchLegacyDomainPath = "/2021-01-01/domain"
+	// openSearchListApplicationsPath is ListApplications' real literal path
+	// (api_op_ListApplications.go, opensearch@v1.75.4 serializers.go: GET
+	// /2021-01-01/opensearch/list-applications) -- a sibling of, not nested
+	// under, openSearchApplicationPath -- gopherstack-l5ir.
+	openSearchListApplicationsPath = "/2021-01-01/opensearch/list-applications"
+	// openSearchReservedOfferingsPath and openSearchPurchaseReservedPath are
+	// DescribeReservedInstanceOfferings' and PurchaseReservedInstanceOffering's
+	// real literal paths (api_op_DescribeReservedInstanceOfferings.go /
+	// api_op_PurchaseReservedInstanceOffering.go, opensearch@v1.75.4
+	// serializers.go) -- siblings of, not nested under, openSearchReservedPath
+	// -- gopherstack-l5ir.
+	openSearchReservedOfferingsPath = "/2021-01-01/opensearch/reservedInstanceOfferings"
+	openSearchPurchaseReservedPath  = "/2021-01-01/opensearch/purchaseReservedInstanceOffering"
+	openSearchServiceName           = "OpenSearch"
+	// pathSuffixDescribe and pathSuffixUpdate are the fixed-literal-action
+	// path suffixes shared by several op families (DescribePackages/
+	// DescribeVpcEndpoints, UpdatePackage/UpdateVpcEndpoint, etc).
+	pathSuffixDescribe = "/describe"
+	pathSuffixUpdate   = "/update"
 	// pkgPathParts is the number of path segments after the associate prefix (PackageID/DomainName).
 	pkgPathParts = 2
 	// opUnknown is the sentinel returned when no operation can be determined from a request.
@@ -106,6 +137,10 @@ var openSearchPathPrefixes = []string{
 	openSearchInsightDetailsPath,
 	openSearchInsightFeedbackPath,
 	openSearchAppMigrationsPath,
+	openSearchLegacyDomainPath,
+	openSearchListApplicationsPath,
+	openSearchReservedOfferingsPath,
+	openSearchPurchaseReservedPath,
 }
 
 // isOpenSearchPath returns true when the given path belongs to the OpenSearch service.
@@ -136,6 +171,16 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 // ServeHTTP implements [http.Handler] for the OpenSearch service.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.handleTagRoutes(w, r) {
+		return
+	}
+
+	if r.URL.Path == openSearchDomainInfoPath && r.Method == http.MethodPost {
+		h.handleDescribeDomains(w, r)
+
+		return
+	}
+
+	if h.dispatchLegacyDomainRoutes(w, r) {
 		return
 	}
 
@@ -171,6 +216,8 @@ func (h *Handler) dispatchNonDomainCoreRoutes(w http.ResponseWriter, r *http.Req
 		h.handleServiceSoftwareRoutes(w, r)
 	case strings.HasPrefix(path, openSearchDefaultAppSettingPath):
 		h.handleDefaultApplicationSettingRoutes(w, r)
+	case path == openSearchListApplicationsPath:
+		h.handleListApplications(w, r)
 	case strings.HasPrefix(path, openSearchApplicationPath):
 		h.handleApplicationRoutes(w, r)
 	case strings.HasPrefix(path, openSearchVersionsPath):
@@ -195,6 +242,10 @@ func (h *Handler) dispatchNonDomainExtRoutes(w http.ResponseWriter, r *http.Requ
 		h.handleVpcEndpointsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchReservedPath):
 		h.handleReservedInstancesRoutes(w, r)
+	case path == openSearchReservedOfferingsPath:
+		h.handleReservedInstanceOfferings(w, r)
+	case path == openSearchPurchaseReservedPath:
+		h.handlePurchaseReservedInstanceOffering(w, r)
 	case strings.HasPrefix(path, openSearchInstanceTypeLimitsPath):
 		h.handleInstanceTypeLimitsRoutes(w, r)
 	case strings.HasPrefix(path, openSearchUpgradePath):
@@ -227,13 +278,6 @@ func (h *Handler) dispatchDomainRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bulk describe: GET /domain/describe → DescribeDomains.
-	if rest == "/describe" && r.Method == http.MethodGet {
-		h.handleDescribeDomains(w, r)
-
-		return
-	}
-
 	if !strings.HasPrefix(rest, "/") {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 
@@ -254,16 +298,65 @@ func (h *Handler) dispatchDomainRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// dispatchDomainRootRoutes handles POST/GET on the domain root.
+// dispatchDomainRootRoutes handles POST on the domain root (CreateDomain).
+// ListDomainNames is NOT here: real clients GET the un-prefixed
+// openSearchLegacyDomainPath, not this /opensearch/domain root -- see
+// dispatchLegacyDomainRoutes.
 func (h *Handler) dispatchDomainRootRoutes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		h.handleCreateDomain(w, r)
-	case http.MethodGet:
-		h.handleListDomainNames(w, r)
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+// dispatchLegacyDomainRoutes handles the un-prefixed openSearchLegacyDomainPath
+// root: ListDomainNames (GET, exact) and ListPackagesForDomain (GET
+// {DomainName}/packages). Returns false when the path doesn't belong here at
+// all, so the caller can fall through to the ordinary dispatch tree.
+func (h *Handler) dispatchLegacyDomainRoutes(w http.ResponseWriter, r *http.Request) bool {
+	path := r.URL.Path
+
+	switch {
+	case path == openSearchLegacyDomainPath:
+		if r.Method == http.MethodGet {
+			h.handleListDomainNames(w, r)
+		} else {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+		}
+
+		return true
+	case strings.HasPrefix(path, openSearchLegacyDomainPath+"/"):
+		rest := strings.TrimPrefix(path, openSearchLegacyDomainPath+"/")
+		if domainName, ok := strings.CutSuffix(rest, "/packages"); ok && r.Method == http.MethodGet {
+			h.handleListPackagesForDomainRoute(w, r, domainName)
+		} else {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+		}
+
+		return true
+	default:
+		return false
+	}
+}
+
+// handleListPackagesForDomainRoute serves ListPackagesForDomain.
+func (h *Handler) handleListPackagesForDomainRoute(w http.ResponseWriter, r *http.Request, domainName string) {
+	pkgs := h.Backend.ListPackagesForDomain(domainName)
+	outList := make([]domainPackageDetailsJSON, 0, len(pkgs))
+
+	for _, pkg := range pkgs {
+		outList = append(outList, domainPackageDetailsJSON{
+			PackageID:           pkg.PackageID,
+			DomainName:          domainName,
+			DomainPackageStatus: pkgStateActive,
+			PackageName:         pkg.PackageName,
+			PackageType:         pkg.PackageType,
+		})
+	}
+
+	h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: outList})
 }
 
 // dispatchDomainDeleteRoutes handles DELETE under a domain path.
@@ -276,7 +369,11 @@ func (h *Handler) dispatchDomainDeleteRoutes(w http.ResponseWriter, r *http.Requ
 	h.handleDeleteDomain(w, r, domainNameFromRest(rest))
 }
 
-// dispatchDomainPutRoutes handles PUT under a domain path (UpdateDomainConfig, UpdateIndex).
+// dispatchDomainPutRoutes handles PUT under a domain path (UpdateIndex,
+// UpdateScheduledAction, UpdateDataSource). UpdateDomainConfig is NOT here:
+// the real SDK sends POST, not PUT (api_op_UpdateDomainConfig.go /
+// opensearch@v1.75.4 serializers.go), so it is handled by handleConfigPostRoute
+// off the POST path instead -- gopherstack-l5ir.
 func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request, rest string) {
 	trimmed := domainNameFromRest(rest)
 
@@ -301,13 +398,12 @@ func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	name, ok := strings.CutSuffix(trimmed, "/config")
-	if !ok {
-		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+}
 
-		return
-	}
-
+// handleConfigPostRoute handles UpdateDomainConfig: POST {domainName}/config
+// (real method per the SDK serializer -- see dispatchDomainPutRoutes).
+func (h *Handler) handleConfigPostRoute(w http.ResponseWriter, r *http.Request, name string) {
 	body, _ := httputils.ReadBody(r)
 	var req domainJSON
 	if len(body) > 0 {
@@ -407,6 +503,9 @@ func (h *Handler) handleDomainSubRoutes(w http.ResponseWriter, r *http.Request, 
 	case strings.HasSuffix(trimmed, "/config/cancel"):
 		domainName := strings.TrimSuffix(trimmed, "/config/cancel")
 		h.handleCancelDomainConfigChange(w, r, domainName)
+	case strings.HasSuffix(trimmed, "/config"):
+		domainName := strings.TrimSuffix(trimmed, "/config")
+		h.handleConfigPostRoute(w, r, domainName)
 	default:
 		if h.dispatchDomainPostRoutesExtended(w, r, trimmed) {
 			return
@@ -429,18 +528,16 @@ func (h *Handler) dispatchDomainGetRoutesExtended(
 	return h.dispatchDomainGetResourceRoutes(w, r, trimmed)
 }
 
-// dispatchDomainGetStatusRoutes handles status/health/upgrade/vpc GET sub-routes on a domain.
-// Returns true if handled.
+// dispatchDomainGetStatusRoutes handles status/health/vpc GET sub-routes on a
+// domain. Upgrade history/status are NOT here: their real paths are nested
+// under openSearchUpgradePath, not the domain prefix -- see
+// dispatchUpgradeStatusRoutes.
 func (h *Handler) dispatchDomainGetStatusRoutes(
 	w http.ResponseWriter,
 	r *http.Request,
 	trimmed string,
 ) bool {
 	if h.dispatchDomainGetHealthRoutes(w, r, trimmed) {
-		return true
-	}
-
-	if h.dispatchDomainGetUpgradeRoutes(w, r, trimmed) {
 		return true
 	}
 
@@ -481,22 +578,11 @@ func (h *Handler) dispatchDomainGetResourceRoutes(
 			items = append(items, toDataSourceJSON(ds))
 		}
 		h.writeJSON(r, w, map[string]any{jsonKeyDataSources: items})
-	case strings.HasSuffix(trimmed, "/packages"):
-		domainName, _ := strings.CutSuffix(trimmed, "/packages")
-		pkgs := h.Backend.ListPackagesForDomain(domainName)
-		outList := make([]domainPackageDetailsJSON, 0, len(pkgs))
-		for _, pkg := range pkgs {
-			outList = append(outList, domainPackageDetailsJSON{
-				PackageID:           pkg.PackageID,
-				DomainName:          domainName,
-				DomainPackageStatus: pkgStateActive,
-				PackageName:         pkg.PackageName,
-				PackageType:         pkg.PackageType,
-			})
-		}
-		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: outList})
-	case strings.HasSuffix(trimmed, "/maintenance"):
-		domainName, _ := strings.CutSuffix(trimmed, "/maintenance")
+	// ListDomainMaintenances: GET {domainName}/domainMaintenances (plural,
+	// api_op_ListDomainMaintenances.go, opensearch@v1.75.4 serializers.go) --
+	// gopherstack-l5ir.
+	case strings.HasSuffix(trimmed, "/domainMaintenances"):
+		domainName, _ := strings.CutSuffix(trimmed, "/domainMaintenances")
 		maintenances, _ := h.Backend.ListDomainMaintenances(domainName)
 		if maintenances == nil {
 			maintenances = []*DomainMaintenance{}
@@ -538,9 +624,14 @@ func (h *Handler) dispatchDomainGetResourceByID(
 			return true
 		}
 		h.writeJSON(r, w, toDataSourceJSON(ds))
-	case strings.Contains(trimmed, "/maintenance/"):
-		domainName, maintenanceID, ok := strings.Cut(trimmed, "/maintenance/")
-		if !ok || maintenanceID == "" {
+	// GetDomainMaintenanceStatus: GET {domainName}/domainMaintenance
+	// (singular, api_op_GetDomainMaintenanceStatus.go, opensearch@v1.75.4
+	// serializers.go) -- the maintenance ID is a "maintenanceId" query
+	// param, not a URL segment -- gopherstack-l5ir.
+	case strings.HasSuffix(trimmed, "/domainMaintenance"):
+		domainName, _ := strings.CutSuffix(trimmed, "/domainMaintenance")
+		maintenanceID := r.URL.Query().Get("maintenanceId")
+		if maintenanceID == "" {
 			h.writeJSON(r, w, map[string]any{jsonKeyStatus: softwareUpdateCompleted})
 
 			return true
@@ -569,9 +660,11 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 	trimmed string,
 ) bool {
 	switch {
-	case strings.HasSuffix(trimmed, "/maintenance"):
-		// StartDomainMaintenance
-		domainName, _ := strings.CutSuffix(trimmed, "/maintenance")
+	// StartDomainMaintenance: POST {domainName}/domainMaintenance (singular,
+	// api_op_StartDomainMaintenance.go, opensearch@v1.75.4 serializers.go) --
+	// gopherstack-l5ir.
+	case strings.HasSuffix(trimmed, "/domainMaintenance"):
+		domainName, _ := strings.CutSuffix(trimmed, "/domainMaintenance")
 		body, _ := httputils.ReadBody(r)
 		var req struct {
 			Action string `json:"Action"`
@@ -599,30 +692,12 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 		}
 		_ = h.Backend.RevokeVpcEndpointAccess(domainName, req.Account)
 		w.WriteHeader(http.StatusOK)
-	case strings.HasSuffix(trimmed, "/serviceSoftwareUpdate"):
-		// StartServiceSoftwareUpdate
-		domainName, _ := strings.CutSuffix(trimmed, "/serviceSoftwareUpdate")
-		body, _ := httputils.ReadBody(r)
-		var sswReq struct {
-			DesiredStartTime *int64 `json:"DesiredStartTime"`
-			ScheduleAt       string `json:"ScheduleAt"`
-		}
-		if len(body) > 0 {
-			_ = json.Unmarshal(body, &sswReq)
-		}
-		opts, err := h.Backend.StartServiceSoftwareUpdate(domainName, sswReq.ScheduleAt)
-		if err != nil {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-
-			return true
-		}
-		h.writeJSON(r, w, map[string]any{
-			"ServiceSoftwareOptions": map[string]any{
-				"UpdateStatus":    opts.UpdateStatus,
-				"UpdateAvailable": opts.UpdateAvailable,
-				"Description":     opts.Description,
-			},
-		})
+	// CreateIndex: POST {domainName}/index, IndexName in the body -- unlike
+	// GetIndex/DeleteIndex/UpdateIndex, the real CreateIndex path has NO
+	// {IndexName} URL segment at all (api_op_CreateIndex.go,
+	// opensearch@v1.75.4: only DomainName is URI-bound) -- gopherstack-l5ir.
+	case strings.HasSuffix(trimmed, "/index"):
+		return h.handleCreateIndexRealRoute(w, r, trimmed)
 	case strings.Contains(trimmed, "/index/"):
 		return h.handleCreateIndexRoute(w, r, trimmed)
 	default:

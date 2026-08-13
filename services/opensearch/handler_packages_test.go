@@ -41,7 +41,7 @@ func TestOpenSearchHandler_DissociatePackage(t *testing.T) {
 	require.Equal(t, http.StatusOK, assocResp.StatusCode)
 
 	// Dissociate.
-	dissocResp := doRequest(t, h, http.MethodDelete,
+	dissocResp := doRequest(t, h, http.MethodPost,
 		"/2021-01-01/packages/dissociate/"+pkgID+"/dissoc-domain", nil)
 	defer dissocResp.Body.Close()
 
@@ -133,7 +133,7 @@ func TestListPackagesForDomain_ReturnsDomainPackageDetailsShape(t *testing.T) {
 	// shape (PackageID/DomainName/DomainPackageStatus/PackageName/PackageType),
 	// not raw Package objects.
 	lr := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/domain/list-pkg-domain/packages", nil)
+		"/2021-01-01/domain/list-pkg-domain/packages", nil)
 	defer lr.Body.Close()
 	require.Equal(t, http.StatusOK, lr.StatusCode)
 

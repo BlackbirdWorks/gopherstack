@@ -367,3 +367,54 @@ guidance. No dedicated `route53_parity_test.go` exists yet (the existing
 coverage is spread across `route53_test.go`/`route53_audit_test.go`/
 `route53_new_ops_test.go`/`route53_waiter_test.go`); creating one consolidated
 file is a housekeeping task for a future pass, not a correctness gap.
+
+## 2026-08-13 pass (gopherstack-l5ir): route reachability audit
+
+All 71 real route53 ops were extracted from `route53@v1.65.6` serializers.go
+(`request.Method` + `httpbinding.SplitURI(...)` in each op's
+`awsRestxml_serializeOp<Op>.HandleSerialize`) and diffed against `routeRequest`'s
+dispatch tree. Found and fixed **one** op that resolved to a plausible WRONG
+op rather than 404ing: `GetHealthCheckLastFailureReason`
+(`GET .../healthcheck/{id}/lastfailurereason`) fell through `routeHealthCheck`'s
+generic method switch (which only special-cased the `/status` suffix, not
+`/lastfailurereason`) and silently returned the full `HealthCheck` object --
+`GetHealthCheck`'s response shape, not the failure-reason response -- for
+every real client call. The implementation (`getHealthCheckLastFailureReason`)
+already existed and was already correct; it was simply unreachable. This is
+exactly the "resolves to a plausible wrong op, not a 404" class of bug that a
+route-table diff alone (as opposed to a real per-op resolution test) misses
+-- see gopherstack-4nek's cloudfront findings for the precedent. Fixed by
+checking the `/lastfailurereason` suffix before the generic switch, mirroring
+the existing `/status` handling. The dead `routeCompletenessLimits` branch
+that appeared to handle this path (but never could, since `routeRequest`'s
+top-level switch always routes any `/healthcheck/...` path to `routeHealthCheck`
+first) was removed and documented rather than left as a misleading no-op.
+`extractHealthCheckOperation`/`iamActionForHealthCheck` (ExtractOperation's
+and IAMAction's own, separate implementations of the same shape) carried the
+identical bug and were fixed identically.
+
+All other 70 ops, including every shared-path pair method-disambiguated on
+the same URL (the tags trio, hostedzone GET/DELETE/POST, trafficpolicy
+GET/DELETE/POST at both the `{Id}` and `{Id}/{Version}` depths, and
+GetGeoLocation/ListGeoLocations sharing one switch case across two literal
+paths, `/geolocation` vs `/geolocations`, disambiguated by a
+continentcode/countrycode/subdivisioncode query filter rather than a bare
+flag) were confirmed correctly routed already -- route53 was, like `mgn`
+audited in the same pass, essentially clean going in. No query-parameter- or
+flag-discriminated pair was found to be *mis*-disambiguated.
+
+`ExtractOperation`, previously covering roughly half of the 71 ops (many
+newer families -- CIDR sub-paths, traffic-policy `{Id}/{Version}` vs `{Id}`,
+TPInstance updates, info/limit endpoints -- fell through to `"Unknown"` even
+though the real HTTP dispatch handled them correctly), was extended to mirror
+`routeRequest`'s real dispatch tree op-for-op. This is now backed by
+`TestExtractOperation_SDKRouteTable` (`handler_paths_sdk_diff_test.go`, one
+subtest per op) -- 71/71 pass, and it is the permanent regression guard for
+this sweep rather than a one-off report. No existing test encoded the old
+wrong behavior (none tested `GetHealthCheckLastFailureReason` via HTTP at
+all), so no test corrections were needed beyond the new file.
+
+Gates: `go build`, `go vet`, `go test -race`, `go fix -diff` (no diff),
+`golangci-lint run` (0 findings, after decomposing 3 new `cyclop` violations
+and adding op-name constants for 6 new `goconst` violations the extended
+`ExtractOperation` introduced) all clean.

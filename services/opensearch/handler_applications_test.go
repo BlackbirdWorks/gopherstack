@@ -127,7 +127,7 @@ func TestApplications_HTTPHandler(t *testing.T) {
 			require.Equal(t, http.StatusOK, cr.StatusCode)
 
 			// List apps via HTTP.
-			lr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/application", nil)
+			lr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/list-applications", nil)
 			defer lr.Body.Close()
 			require.Equal(t, http.StatusOK, lr.StatusCode)
 

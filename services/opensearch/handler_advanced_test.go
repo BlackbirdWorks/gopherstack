@@ -26,15 +26,15 @@ func TestOpenSearch_UpgradeDomain(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// GetUpgradeStatus (GET /domain/{name}/upgrades)
+	// GetUpgradeStatus (GET /upgradeDomain/{name}/status)
 	resp = doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/domain/upgradedom/upgrades", nil)
+		"/2021-01-01/opensearch/upgradeDomain/upgradedom/status", nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
-	// GetUpgradeHistory (GET /domain/{name}/upgradeHistory)
+	// GetUpgradeHistory (GET /upgradeDomain/{name}/history)
 	resp = doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/domain/upgradedom/upgradeHistory", nil)
+		"/2021-01-01/opensearch/upgradeDomain/upgradedom/history", nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 }
@@ -95,7 +95,7 @@ func TestOpenSearchHandler_ListInstanceTypeDetails(t *testing.T) {
 
 	h := newTestHandler()
 
-	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/instanceTypeDetails", nil)
+	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/instanceTypeDetails/OpenSearch_2.11", nil)
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -191,7 +191,7 @@ func TestListInstanceTypeDetails_InstanceRoleAndSecurity(t *testing.T) {
 	h := newTestHandler()
 
 	resp := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/instanceTypeDetails", nil)
+		"/2021-01-01/opensearch/instanceTypeDetails/OpenSearch_2.11", nil)
 	defer resp.Body.Close()
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -583,7 +583,7 @@ func TestListInstanceTypeDetails_HTTPHandler(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
-	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/instanceTypeDetails", nil)
+	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/instanceTypeDetails/OpenSearch_2.11", nil)
 	defer resp.Body.Close()
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)

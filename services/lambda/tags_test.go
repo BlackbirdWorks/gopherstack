@@ -30,13 +30,13 @@ func TestTags_TagAndListAndUntag(t *testing.T) {
 
 	// Tag
 	tagRec := callInMemoryHandler(t, h, http.MethodPost,
-		"/2015-03-31/tags/"+fnARN,
+		"/2017-03-31/tags/"+fnARN,
 		`{"Tags":{"env":"prod","team":"platform"}}`)
 	assert.Equal(t, http.StatusNoContent, tagRec.Code)
 
 	// List tags
 	listRec := callInMemoryHandler(t, h, http.MethodGet,
-		"/2015-03-31/tags/"+fnARN, "")
+		"/2017-03-31/tags/"+fnARN, "")
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsOut map[string]any
@@ -47,12 +47,12 @@ func TestTags_TagAndListAndUntag(t *testing.T) {
 
 	// Untag
 	untagRec := callInMemoryHandler(t, h, http.MethodDelete,
-		"/2015-03-31/tags/"+fnARN+"?tagKeys=env", "")
+		"/2017-03-31/tags/"+fnARN+"?tagKeys=env", "")
 	assert.Equal(t, http.StatusNoContent, untagRec.Code)
 
 	// Verify removed
 	listRec2 := callInMemoryHandler(t, h, http.MethodGet,
-		"/2015-03-31/tags/"+fnARN, "")
+		"/2017-03-31/tags/"+fnARN, "")
 	require.Equal(t, http.StatusOK, listRec2.Code)
 
 	var tagsOut2 map[string]any

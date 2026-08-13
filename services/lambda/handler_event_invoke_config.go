@@ -93,7 +93,8 @@ func (h *Handler) handleDeleteFunctionEventInvokeConfig(c *echo.Context, name st
 	return c.NoContent(http.StatusNoContent)
 }
 
-// handleListFunctionEventInvokeConfigs handles GET /2015-03-31/functions/{name}/event-invoke-configs.
+// handleListFunctionEventInvokeConfigs handles
+// GET /2019-09-25/functions/{name}/event-invoke-config/list.
 func (h *Handler) handleListFunctionEventInvokeConfigs(c *echo.Context, name string) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {

@@ -498,7 +498,15 @@ beyond the capability's existence/name/status.
   (CreateIndex/DeleteIndex/GetIndex/UpdateIndex) were not touched or
   field-diffed this pass (they were not in the original 1-gap/8-deferred list
   this pass was scoped to fix). Not reclassified either direction; still
-  whatever state the prior pass left them in.
+  whatever state the prior pass left them in. UPDATE (gopherstack-l5ir,
+  see the "Route reachability sweep" note above): route-level (method+path)
+  correctness for every op in this list is now verified and permanently
+  tested -- five of them (GetDomainMaintenanceStatus, GetUpgradeHistory,
+  GetUpgradeStatus, ListDomainMaintenances, StartDomainMaintenance,
+  ListInstanceTypeDetails, CreateIndex) were actually unreachable/misrouted
+  and are now fixed. Field-level wire-shape diffing of these ops' request/
+  response bodies is still outstanding -- route correctness is not the same
+  claim as wire-shape completeness.
 - **VpcEndpoint's derived AvailabilityZones/VPCId, Application's Endpoint,
   and CancelDomainConfigChange's absence of per-property
   CancelledChangeProperties** are synthesized/omitted non-stub defaults (no
@@ -513,3 +521,74 @@ beyond the capability's existence/name/status.
   the 14 new ops against live AWS docs (applied uniformly to the rest by
   inference) -- see the `gaps` list and the SDK-bump/409-convention Notes
   above for the full reasoning.
+
+### Route reachability sweep (bd gopherstack-l5ir) -- 22 unreachable/misrouted ops found and fixed
+
+All 96 real classic-opensearch (control-plane) ops were extracted from
+`opensearch@v1.75.4` serializers.go (`request.Method` + `httpbinding.SplitURI(...)`
+in each op's `awsRestjson1_serializeOp<Op>.HandleSerialize`) and diffed against
+this service's route table -- the same method that found cloudfront's 35
+routing bugs (gopherstack-o31x). opensearch turned out to be a second genuine
+hotspot: **22 of 96 ops were unreachable or misrouted at their real path**,
+against zero in the 76 REST services swept before this pass. All 22 are fixed;
+`TestExtractOperation_SDKRouteTable` (`handler_paths_sdk_diff_test.go`, one
+subtest per op) is the permanent regression guard -- 96/96 pass.
+
+The bugs, by shape:
+
+1. **Sibling-path confusion (12 ops).** The real API mixes several distinct
+   path roots that gopherstack had collapsed onto one: `ListDomainNames`/
+   `ListPackagesForDomain` use the un-prefixed `/2021-01-01/domain` root (no
+   `/opensearch/` segment -- a historical holdover from the pre-rename
+   Elasticsearch Service API), not `/2021-01-01/opensearch/domain`.
+   `DescribeDomains` is `POST /2021-01-01/opensearch/domain-info`, not
+   `GET /domain/describe`. `ListApplications` is
+   `GET /2021-01-01/opensearch/list-applications`, a sibling of `/application`,
+   not nested under it. `DescribeReservedInstanceOfferings` is its own
+   `/reservedInstanceOfferings` path, not `/reservedInstances/offerings`.
+   `GetUpgradeHistory`/`GetUpgradeStatus` are `/upgradeDomain/{name}/history`
+   and `/upgradeDomain/{name}/status`, not nested under the domain prefix as
+   `/domain/{name}/upgradeHistory`/`/upgrades`. `StartDomainMaintenance`/
+   `ListDomainMaintenances`/`GetDomainMaintenanceStatus` all use the literal
+   segment `domainMaintenance`/`domainMaintenances` (camelCase, no `/`
+   separator from "domain"), not a bare `/maintenance` suffix -- the old
+   suffix check could never match since `"...Maintenance"` never contains the
+   substring `"/maintenance"`.
+2. **Wrong HTTP method (2 ops).** `UpdateDomainConfig` is POST, not PUT.
+   `DissociatePackage` is POST, not DELETE.
+3. **Whole-request-in-body ops routed as if ID were in the URL (5 ops).**
+   `UpdateVpcEndpoint` (`POST /vpcEndpoints/update`, `VpcEndpointId` in body,
+   no URL binding at all), `DescribePackages`/`UpdatePackage`/
+   `UpdatePackageScope` (`POST /packages/describe`|`update`|`updateScope`,
+   `PackageID` in body), and `CreateIndex` (`POST /domain/{name}/index`, no
+   `{IndexName}` URL segment -- unlike Get/Delete/UpdateIndex, which do carry
+   IndexName in the URL) were all wired as per-ID sub-resource routes reading
+   an identifier from the URL that real clients never put there. This is
+   exactly the "serializer has no real URL binding" shape gopherstack-4nek
+   flagged as the class every cloudfront bug shared.
+4. **Wrong query-vs-path binding (1 op).** `ListInstanceTypeDetails` reads
+   `EngineVersion` from a query param; the real op binds it as a URI label
+   (`GET /instanceTypeDetails/{EngineVersion}?instanceType=...`), so every
+   real request's engine version was silently dropped.
+5. **DescribeInboundConnections/DescribeOutboundConnections (2 ops).**
+   Real clients POST to `.../inboundConnection/search` and
+   `.../outboundConnection/search`; gopherstack served them off a bare GET on
+   the connection root instead.
+
+None of the 22 is discriminated by a query parameter or bare flag the way
+cloudfront's `?WithTags`/`Operation=Tag|Untag` were -- this hotspot's bugs are
+all path/method shape, not discriminator confusion. `ExtractOperation` was
+also rewritten in the same pass to mirror the corrected dispatch tree op-for-op
+(it was previously best-effort and silently wrong for most domain sub-routes,
+e.g. every GET under `/domain/{name}/...` falling through to `DescribeDomain`
+regardless of suffix) -- it now backs the permanent test directly. Existing
+tests that encoded the old wrong paths (PUT for UpdateDomainConfig, GET
+`/opensearch/domain` for ListDomainNames, `/maintenance` for the maintenance
+trio, etc.) were corrected to the real shapes, not preserved.
+
+**Not covered by this pass:** the 19 OpenSearch Serverless (AOSS) ops
+(`serverlessOperations()`) -- those belong to the separate
+`opensearchserverless` SDK client/protocol and were out of scope (see
+`items_still_open` above). The index/document *data-plane* sub-routes this
+emulator invents under `/index/{name}/_doc`, `/_search`, `/_count` are not
+real SDK control-plane operations and were left as-is.

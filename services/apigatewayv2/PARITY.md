@@ -358,6 +358,20 @@ Genuine bugs found and fixed in the `gopherstack-0xs7` follow-up pass (confirmed
     that fits "rejected because managed" -- guessing one would be the same fabrication risk this
     gap's original deferral (2026-07-05) correctly flagged.
 
+15. **Route reachability (bd gopherstack-l5ir).** Every one of the 103 real apigatewayv2 ops was
+    extracted from `apigatewayv2@v1.37.4` serializers.go (`request.Method` +
+    `httpbinding.SplitURI(...)` in each op's `awsRestjson1_serializeOp<Op>.HandleSerialize`) and
+    diffed against this service's route table. Zero mismatches -- all 103 method+path pairs
+    resolve to the correct op via `ExtractOperation`, including the shared-path/method-only
+    disambiguation used by `GetTags`/`TagResource`/`UntagResource` (all `/v2/tags/{ResourceArn}`)
+    and `PublishPortal`/`DisablePortal` (both `/v2/portals/{id}/publish`, POST vs DELETE) -- unlike
+    cloudfront's `TagResource`/`UntagResource` bug (both `POST /tagging` distinguished only by an
+    `Operation=` query param the router ignored), apigatewayv2's tag ops are genuinely
+    method-disambiguated in the real SDK, so switching on method here is correct, not a latent bug.
+    No op in this service is distinguished by a query parameter or bare flag. Added as a permanent
+    test, `TestExtractOperation_SDKRouteTable` in `handler_paths_sdk_diff_test.go` (one subtest per
+    op), rather than left as a one-off audit.
+
 Traps for the next auditor (don't re-flag):
 
 - `arnResourceType` (single `type/id` suffix) intentionally does NOT handle Stage ARNs — Stage

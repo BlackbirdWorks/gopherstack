@@ -69,8 +69,10 @@ func (h *Handler) handleCCInboundRoutes(w http.ResponseWriter, r *http.Request, 
 	const prefix = "/inboundConnection/"
 
 	switch {
-	// GET /inboundConnection → DescribeInboundConnections
-	case (rest == "/inboundConnection" || rest == "/inboundConnection/") && r.Method == http.MethodGet:
+	// POST /inboundConnection/search → DescribeInboundConnections. Real clients
+	// always POST here (api_op_DescribeInboundConnections.go, opensearch@v1.75.4
+	// serializers.go); a bare GET on /inboundConnection is never sent -- gopherstack-l5ir.
+	case rest == "/inboundConnection/search" && r.Method == http.MethodPost:
 		conns := h.Backend.DescribeInboundConnections()
 		items := make([]map[string]any, 0, len(conns))
 		for _, c := range conns {

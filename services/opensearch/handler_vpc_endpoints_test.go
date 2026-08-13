@@ -166,8 +166,8 @@ func TestVpcEndpoints_UpdateAndDelete(t *testing.T) {
 	epID := cOut["VpcEndpoint"].(map[string]any)["VpcEndpointId"].(string)
 
 	// Update the endpoint.
-	ur := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/vpcEndpoints/"+epID,
-		map[string]any{"VpcOptions": map[string]any{"SubnetIds": []string{"subnet-updated"}}})
+	ur := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/vpcEndpoints/update",
+		map[string]any{"VpcEndpointId": epID, "VpcOptions": map[string]any{"SubnetIds": []string{"subnet-updated"}}})
 	defer ur.Body.Close()
 	require.Equal(t, http.StatusOK, ur.StatusCode)
 

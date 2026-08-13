@@ -506,7 +506,7 @@ func TestListFunctionEventInvokeConfigs(t *testing.T) {
 				tt.setup(t, bk)
 			}
 
-			path := "/2015-03-31/functions/" + tt.funcName + "/event-invoke-configs"
+			path := "/2015-03-31/functions/" + tt.funcName + "/event-invoke-config/list"
 			rec := callHandler(t, h, http.MethodGet, path, "", nil)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
@@ -679,7 +679,7 @@ func TestFunctionEventInvokeConfig_PutGetUpdateDeleteList(t *testing.T) {
 
 	// List
 	rec = callInMemoryHandler(t, h, http.MethodGet,
-		"/2015-03-31/functions/"+fnName+"/event-invoke-configs", "{}")
+		"/2015-03-31/functions/"+fnName+"/event-invoke-config/list", "{}")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), fnName)
 
@@ -731,7 +731,7 @@ func TestEventInvokeConfig_Lifecycle(t *testing.T) {
 
 	// List configs
 	listRec := callInMemoryHandler(t, h, http.MethodGet,
-		"/2015-03-31/functions/eic-fn/event-invoke-configs", "")
+		"/2015-03-31/functions/eic-fn/event-invoke-config/list", "")
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListFunctionEventInvokeConfigsOutput

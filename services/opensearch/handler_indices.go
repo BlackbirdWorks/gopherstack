@@ -9,6 +9,42 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+// handleCreateIndexRealRoute serves the real CreateIndex op: POST
+// {domainName}/index, with IndexName carried in the body (not the URL) --
+// see the dispatchDomainPostRoutesExtended doc comment. Returns true always
+// (this path is always "handled", success or error).
+func (h *Handler) handleCreateIndexRealRoute(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	domainName, ok := strings.CutSuffix(trimmed, "/index")
+	if !ok {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+
+		return true
+	}
+
+	body, _ := httputils.ReadBody(r)
+
+	var req struct {
+		Mappings  map[string]any `json:"Mappings"`
+		Settings  map[string]any `json:"Settings"`
+		Aliases   map[string]any `json:"Aliases"`
+		IndexName string         `json:"IndexName"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	idx, err := h.Backend.CreateIndex(domainName, req.IndexName, req.Mappings, req.Settings, req.Aliases)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return true
+	}
+
+	h.writeJSON(r, w, toIndexResponseJSON(idx))
+
+	return true
+}
+
 // handleUpdateIndexRoute handles PUT {domainName}/index/{indexName}.
 func (h *Handler) handleUpdateIndexRoute(w http.ResponseWriter, r *http.Request, trimmed string) {
 	parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count

@@ -23,7 +23,7 @@ func TestFunctionRecursionConfig_PutGet(t *testing.T) {
 	// Put recursion config
 	rec := callInMemoryHandler(
 		t, h, http.MethodPut,
-		"/2024-08-28/functions/"+fnName+"/recursion-config",
+		"/2024-08-31/functions/"+fnName+"/recursion-config",
 		`{"RecursiveLoop":"Deny"}`,
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -31,7 +31,7 @@ func TestFunctionRecursionConfig_PutGet(t *testing.T) {
 
 	// Get recursion config
 	rec = callInMemoryHandler(t, h, http.MethodGet,
-		"/2024-08-28/functions/"+fnName+"/recursion-config", "{}")
+		"/2024-08-31/functions/"+fnName+"/recursion-config", "{}")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Deny")
 }
@@ -48,14 +48,14 @@ func TestFunctionScalingConfig_PutGet(t *testing.T) {
 	// Put scaling config
 	rec := callInMemoryHandler(
 		t, h, http.MethodPut,
-		"/2023-10-26/functions/"+fnName+"/scaling-config",
+		"/2025-11-30/functions/"+fnName+"/function-scaling-config",
 		`{"MaximumConcurrency":10}`,
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Get scaling config
 	rec = callInMemoryHandler(t, h, http.MethodGet,
-		"/2023-10-26/functions/"+fnName+"/scaling-config", "{}")
+		"/2025-11-30/functions/"+fnName+"/function-scaling-config", "{}")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
@@ -164,7 +164,7 @@ func TestRecursionConfig_GetDefault(t *testing.T) {
 	createFunctionForTest(t, h, "rec-fn")
 
 	rec := callInMemoryHandler(t, h, http.MethodGet,
-		"/2024-08-28/functions/rec-fn/recursion-config", "")
+		"/2024-08-31/functions/rec-fn/recursion-config", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cfg lambda.FunctionRecursionConfig
@@ -179,7 +179,7 @@ func TestRecursionConfig_Put_Allow(t *testing.T) {
 	createFunctionForTest(t, h, "rec-allow-fn")
 
 	putRec := callInMemoryHandler(t, h, http.MethodPut,
-		"/2024-08-28/functions/rec-allow-fn/recursion-config",
+		"/2024-08-31/functions/rec-allow-fn/recursion-config",
 		`{"RecursiveLoop":"Allow"}`)
 	require.Equal(t, http.StatusOK, putRec.Code)
 
@@ -195,11 +195,11 @@ func TestRecursionConfig_Put_Terminate(t *testing.T) {
 	createFunctionForTest(t, h, "rec-term-fn")
 
 	callInMemoryHandler(t, h, http.MethodPut,
-		"/2024-08-28/functions/rec-term-fn/recursion-config",
+		"/2024-08-31/functions/rec-term-fn/recursion-config",
 		`{"RecursiveLoop":"Allow"}`)
 
 	putRec := callInMemoryHandler(t, h, http.MethodPut,
-		"/2024-08-28/functions/rec-term-fn/recursion-config",
+		"/2024-08-31/functions/rec-term-fn/recursion-config",
 		`{"RecursiveLoop":"Terminate"}`)
 	require.Equal(t, http.StatusOK, putRec.Code)
 
@@ -265,7 +265,7 @@ func TestFunctionSettingsRoute_ErrorCases(t *testing.T) {
 			if tc.pathSuffix == "runtime-management-config" {
 				pathPrefix = "/2021-07-20/functions/"
 			} else {
-				pathPrefix = "/2024-08-28/functions/"
+				pathPrefix = "/2024-08-31/functions/"
 			}
 
 			rec := callInMemoryHandler(t, h, tc.method, pathPrefix+tc.fnName+"/"+tc.pathSuffix, tc.body)

@@ -22,7 +22,14 @@ const (
 )
 
 const (
-	opDeactivateKeySigningKey = "DeactivateKeySigningKey"
+	opDeactivateKeySigningKey     = "DeactivateKeySigningKey"
+	opAssociateVPCWithHostedZone  = "AssociateVPCWithHostedZone"
+	opCreateQueryLoggingConfig    = "CreateQueryLoggingConfig"
+	opCreateReusableDelegationSet = "CreateReusableDelegationSet"
+	opDisableHostedZoneDNSSEC     = "DisableHostedZoneDNSSEC"
+	opEnableHostedZoneDNSSEC      = "EnableHostedZoneDNSSEC"
+	opGetDNSSEC                   = "GetDNSSEC"
+	opUnknown                     = "Unknown"
 )
 
 const (
@@ -92,7 +99,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"ActivateKeySigningKey",
-		"AssociateVPCWithHostedZone",
+		opAssociateVPCWithHostedZone,
 		"ChangeCidrCollection",
 		"ChangeResourceRecordSets",
 		"ChangeTagsForResource",
@@ -100,8 +107,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateHealthCheck",
 		"CreateHostedZone",
 		"CreateKeySigningKey",
-		"CreateQueryLoggingConfig",
-		"CreateReusableDelegationSet",
+		opCreateQueryLoggingConfig,
+		opCreateReusableDelegationSet,
 		"CreateTrafficPolicy",
 		"CreateTrafficPolicyInstance",
 		"CreateTrafficPolicyVersion",
@@ -112,9 +119,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteKeySigningKey",
 		"DeleteTrafficPolicy",
 		"DeleteTrafficPolicyInstance",
-		"DisableHostedZoneDNSSEC",
-		"EnableHostedZoneDNSSEC",
-		"GetDNSSEC",
+		opDisableHostedZoneDNSSEC,
+		opEnableHostedZoneDNSSEC,
+		opGetDNSSEC,
 		"GetHealthCheck",
 		"GetHealthCheckStatus",
 		"GetHostedZone",
@@ -176,23 +183,31 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // ExtractOperation extracts a human-readable operation name from the request.
+// It mirrors routeRequest's real dispatch tree op-for-op (gopherstack-l5ir) so
+// TestExtractOperation_SDKRouteTable in handler_paths_sdk_diff_test.go can
+// exercise it directly against every real op's authoritative method+path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	method := c.Request().Method
 
-	switch {
-	case path == route53HostedZone && method == http.MethodPost:
-		return "CreateHostedZone"
-	case path == route53HostedZone && method == http.MethodGet:
-		return "ListHostedZones"
-	case strings.HasSuffix(path, route53RRSetSuffix) && method == http.MethodPost:
-		return "ChangeResourceRecordSets"
-	case strings.HasSuffix(path, route53RRSetSuffix) && method == http.MethodGet:
-		return "ListResourceRecordSets"
-	case method == http.MethodDelete && strings.HasPrefix(path, route53HZPrefix):
-		return "DeleteHostedZone"
-	case method == http.MethodGet && strings.HasPrefix(path, route53HZPrefix):
-		return "GetHostedZone"
+	if path == route53HostedZone {
+		return extractHostedZoneRootOp(method)
+	}
+
+	if strings.HasPrefix(path, route53HZPrefix) {
+		return extractHostedZoneOp(path, method)
+	}
+
+	if strings.HasPrefix(path, route53TagsPrefix) {
+		return extractTagsOperation(path, method)
+	}
+
+	if strings.HasPrefix(path, route53ChangePrefix) {
+		if method == http.MethodGet {
+			return "GetChange"
+		}
+
+		return opUnknown
 	}
 
 	if op := extractHealthCheckOperation(path, method); op != "" {
@@ -203,7 +218,255 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return op
 	}
 
-	return "Unknown"
+	if op := extractCompletenessOperation(c, path, method); op != "" {
+		return op
+	}
+
+	switch path {
+	case route53QueryLoggingRoot:
+		return extractQueryLoggingRootOp(method)
+	case route53DelegationSetRoot:
+		return extractDelegationSetRootOp(method)
+	}
+
+	return opUnknown
+}
+
+// extractHostedZoneRootOp handles POST/GET on the bare /hostedzone root.
+func extractHostedZoneRootOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return "CreateHostedZone"
+	case http.MethodGet:
+		return "ListHostedZones"
+	}
+
+	return opUnknown
+}
+
+// extractHostedZoneOp mirrors routeHostedZone: suffix-based sub-routes first
+// (rrset, VPC association, DNSSEC), then the generic Delete/Get/UpdateComment
+// fallback on the bare /hostedzone/{Id} path.
+func extractHostedZoneOp(path, method string) string {
+	if op := extractHostedZoneSuffixOp(path, method); op != "" {
+		return op
+	}
+
+	if op := extractHostedZoneDNSSECOp(path, method); op != "" {
+		return op
+	}
+
+	switch method {
+	case http.MethodDelete:
+		return "DeleteHostedZone"
+	case http.MethodGet:
+		return "GetHostedZone"
+	case http.MethodPost:
+		return "UpdateHostedZoneComment"
+	}
+
+	return opUnknown
+}
+
+// extractHostedZoneSuffixOp mirrors routeHostedZoneSuffix.
+func extractHostedZoneSuffixOp(path, method string) string {
+	switch {
+	case strings.HasSuffix(path, route53RRSetSuffix):
+		if method == http.MethodPost {
+			return "ChangeResourceRecordSets"
+		}
+
+		return "ListResourceRecordSets"
+	case strings.HasSuffix(path, route53AssociateVPCSuffix):
+		if method == http.MethodPost {
+			return opAssociateVPCWithHostedZone
+		}
+	case strings.HasSuffix(path, route53AuthorizeVPCSuffix):
+		if method == http.MethodGet {
+			return "ListVPCAssociationAuthorizations"
+		}
+
+		if method == http.MethodPost {
+			return "CreateVPCAssociationAuthorization"
+		}
+	case strings.HasSuffix(path, route53DeauthorizeVPCSuffix) && method == http.MethodPost:
+		return "DeleteVPCAssociationAuthorization"
+	case strings.HasSuffix(path, route53DisassociateVPCSuffix) && method == http.MethodPost:
+		return "DisassociateVPCFromHostedZone"
+	case strings.HasSuffix(path, route53FeaturesSuffix) && method == http.MethodPost:
+		return "UpdateHostedZoneFeatures"
+	}
+
+	return ""
+}
+
+// extractHostedZoneDNSSECOp mirrors routeHostedZoneDNSSEC.
+func extractHostedZoneDNSSECOp(path, method string) string {
+	switch {
+	case strings.HasSuffix(path, route53EnableDNSSECSuffix) && method == http.MethodPost:
+		return opEnableHostedZoneDNSSEC
+	case strings.HasSuffix(path, route53DisableDNSSECSuffix) && method == http.MethodPost:
+		return opDisableHostedZoneDNSSEC
+	case strings.HasSuffix(path, route53DNSSECSuffix) && method == http.MethodGet:
+		return opGetDNSSEC
+	}
+
+	return ""
+}
+
+// extractTagsOperation mirrors routeTags.
+func extractTagsOperation(path, method string) string {
+	rest := strings.TrimPrefix(path, route53TagsPrefix)
+	if method == http.MethodPost && !strings.Contains(rest, "/") {
+		return "ListTagsForResources"
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "ListTagsForResource"
+	case http.MethodPost:
+		return "ChangeTagsForResource"
+	}
+
+	return opUnknown
+}
+
+// extractQueryLoggingRootOp handles POST/GET on the bare /queryloggingconfig root.
+func extractQueryLoggingRootOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return opCreateQueryLoggingConfig
+	case http.MethodGet:
+		return "ListQueryLoggingConfigs"
+	}
+
+	return opUnknown
+}
+
+// extractDelegationSetRootOp handles POST/GET on the bare /delegationset root.
+func extractDelegationSetRootOp(method string) string {
+	switch method {
+	case http.MethodPost:
+		return opCreateReusableDelegationSet
+	case http.MethodGet:
+		return "ListReusableDelegationSets"
+	}
+
+	return opUnknown
+}
+
+// extractCompletenessOperation covers the GET-only info/limit endpoints and
+// the DelegationSet/QueryLoggingConfig by-ID routes -- the only branches of
+// routeCompleteness that are actually reachable (its VPC-association and
+// traffic-policy-comment cases are shadowed by routeHostedZone/routeNewOpsTP,
+// which always intercept those paths first in routeRequest's top-level
+// switch -- see routeCompletenessLimits' doc comment for the same trap on
+// GetHealthCheckLastFailureReason).
+func extractCompletenessOperation(c *echo.Context, path, method string) string {
+	if op := extractCompletenessInfoOp(c, path, method); op != "" {
+		return op
+	}
+
+	if op := extractCompletenessLimitsOp(path, method); op != "" {
+		return op
+	}
+
+	if op := extractCompletenessDelegationSetOp(path, method); op != "" {
+		return op
+	}
+
+	return extractCompletenessQueryLoggingOp(path, method)
+}
+
+// geoLocationQueryParamsSet reports whether any of GetGeoLocation's filter
+// query params are present -- the same signal routeCompletenessInfo uses to
+// disambiguate GetGeoLocation from ListGeoLocations when both share this
+// switch case (they resolve to different real paths, /geolocation vs
+// /geolocations, but the handler combines them into one case for brevity).
+func geoLocationQueryParamsSet(c *echo.Context) bool {
+	q := c.Request().URL.Query()
+
+	return q.Get("continentcode") != "" || q.Get("countrycode") != "" || q.Get("subdivisioncode") != ""
+}
+
+func extractCompletenessInfoOp(c *echo.Context, path, method string) string {
+	if method != http.MethodGet {
+		return ""
+	}
+
+	switch path {
+	case route53TestDNSAnswerPath:
+		return "TestDNSAnswer"
+	case route53CheckerIPRangesPath:
+		return "GetCheckerIpRanges"
+	case route53GeoLocationPath, route53GeoLocationsPath:
+		if geoLocationQueryParamsSet(c) {
+			return "GetGeoLocation"
+		}
+
+		return "ListGeoLocations"
+	case route53HealthCheckCountPath:
+		return "GetHealthCheckCount"
+	case route53HostedZoneCountPath:
+		return "GetHostedZoneCount"
+	case route53HostedZonesByNamePath:
+		return "ListHostedZonesByName"
+	case route53HostedZonesByVPCPath:
+		return "ListHostedZonesByVPC"
+	case route53TPInstancesByHZPath:
+		return "ListTrafficPolicyInstancesByHostedZone"
+	case route53TPInstancesByPolicyPath:
+		return "ListTrafficPolicyInstancesByPolicy"
+	}
+
+	return ""
+}
+
+func extractCompletenessLimitsOp(path, method string) string {
+	if method != http.MethodGet {
+		return ""
+	}
+
+	switch {
+	case strings.HasPrefix(path, route53AccountLimitPrefix):
+		return "GetAccountLimit"
+	case strings.HasPrefix(path, route53HostedZoneLimitPrefix):
+		return "GetHostedZoneLimit"
+	case strings.HasPrefix(path, route53ReusableDSLimitPrefix):
+		return "GetReusableDelegationSetLimit"
+	}
+
+	return ""
+}
+
+func extractCompletenessDelegationSetOp(path, method string) string {
+	if !strings.HasPrefix(path, route53DelegationSetRoot+"/") {
+		return ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetReusableDelegationSet"
+	case http.MethodDelete:
+		return "DeleteReusableDelegationSet"
+	}
+
+	return ""
+}
+
+func extractCompletenessQueryLoggingOp(path, method string) string {
+	if !strings.HasPrefix(path, route53QueryLoggingRoot+"/") {
+		return ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetQueryLoggingConfig"
+	case http.MethodDelete:
+		return "DeleteQueryLoggingConfig"
+	}
+
+	return ""
 }
 
 // extractNewOpsOperation maps the newer Route 53 operation paths to operation names.
@@ -221,6 +484,18 @@ func extractNewOpsOperation(path, method string) string {
 }
 
 func extractNewOpsPath(path string) string {
+	if op := extractNewOpsPathKSKDNSSECVPC(path); op != "" {
+		return op
+	}
+
+	if op := extractNewOpsPathCidrQueryLoggingDelegationSet(path); op != "" {
+		return op
+	}
+
+	return extractNewOpsPathTrafficPolicy(path)
+}
+
+func extractNewOpsPathKSKDNSSECVPC(path string) string {
 	switch {
 	case path == route53KSKRoot:
 		return "CreateKeySigningKey"
@@ -229,25 +504,48 @@ func extractNewOpsPath(path string) string {
 	case strings.HasSuffix(path, route53DeactivateSuffix):
 		return opDeactivateKeySigningKey
 	case strings.HasSuffix(path, route53EnableDNSSECSuffix):
-		return "EnableHostedZoneDNSSEC"
+		return opEnableHostedZoneDNSSEC
 	case strings.HasSuffix(path, route53DisableDNSSECSuffix):
-		return "DisableHostedZoneDNSSEC"
+		return opDisableHostedZoneDNSSEC
 	case strings.HasSuffix(path, route53AssociateVPCSuffix):
-		return "AssociateVPCWithHostedZone"
+		return opAssociateVPCWithHostedZone
+	}
+
+	return ""
+}
+
+func extractNewOpsPathCidrQueryLoggingDelegationSet(path string) string {
+	switch {
 	case path == route53CidrCollectionRoot:
 		return "CreateCidrCollection"
 	case strings.HasPrefix(path, route53CidrCollectionPrefix):
 		return "ChangeCidrCollection"
 	case path == route53QueryLoggingRoot:
-		return "CreateQueryLoggingConfig"
+		return opCreateQueryLoggingConfig
 	case path == route53DelegationSetRoot:
-		return "CreateReusableDelegationSet"
+		return opCreateReusableDelegationSet
+	}
+
+	return ""
+}
+
+func extractNewOpsPathTrafficPolicy(path string) string {
+	switch {
 	case path == route53TrafficPolicyRoot:
 		return "CreateTrafficPolicy"
 	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
+		// CreateTrafficPolicyVersion is POST /{Id} (no version segment);
+		// UpdateTrafficPolicyComment is POST /{Id}/{Version} -- mirrors
+		// routeTrafficPolicyVersion's strings.Contains(rest, "/") check.
+		if strings.Contains(strings.TrimPrefix(path, route53TrafficPolicyPrefix), "/") {
+			return "UpdateTrafficPolicyComment"
+		}
+
 		return "CreateTrafficPolicyVersion"
 	case path == route53TPInstanceRoot:
 		return "CreateTrafficPolicyInstance"
+	case strings.HasPrefix(path, route53TPInstancePrefix):
+		return "UpdateTrafficPolicyInstance"
 	}
 
 	return ""
@@ -256,11 +554,17 @@ func extractNewOpsPath(path string) string {
 func extractGetOpsPath(path string) string {
 	switch {
 	case strings.HasSuffix(path, route53DNSSECSuffix):
-		return "GetDNSSEC"
+		return opGetDNSSEC
 	case path == route53TrafficPoliciesRoot:
 		return "ListTrafficPolicies"
 	case strings.HasPrefix(path, route53TrafficPoliciesPrefix):
 		return "ListTrafficPolicyVersions"
+	case strings.HasPrefix(path, route53TrafficPolicyPrefix):
+		// GetTrafficPolicy is GET /{Id}/{Version} -- only reachable with a
+		// version segment (a bare /{Id} GET has no real op and 404s).
+		if strings.Contains(strings.TrimPrefix(path, route53TrafficPolicyPrefix), "/") {
+			return "GetTrafficPolicy"
+		}
 	case path == route53TPInstancesRoot:
 		return "ListTrafficPolicyInstances"
 	case path == route53TPInstanceCount:
@@ -269,6 +573,10 @@ func extractGetOpsPath(path string) string {
 		return "GetTrafficPolicyInstance"
 	case path == route53CidrCollectionRoot:
 		return "ListCidrCollections"
+	case strings.HasSuffix(path, "/cidrblocks") && strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return "ListCidrBlocks"
+	case strings.HasPrefix(path, route53CidrCollectionPrefix):
+		return "ListCidrLocations"
 	}
 
 	return ""
@@ -798,7 +1106,11 @@ func (h *Handler) routeCompletenessInfo(c *echo.Context, path, method string) (b
 	return false, nil
 }
 
-// routeCompletenessLimits handles limit and last-failure-reason endpoints.
+// routeCompletenessLimits handles limit endpoints. GetHealthCheckLastFailureReason
+// is NOT here despite matching route53LastFailureReasonSuffix: its real path
+// starts with route53HealthCheckPrefix, so routeRequest's top-level switch
+// always routes it to routeHealthCheck before this function is ever reached
+// -- see routeHealthCheck for the real dispatch (gopherstack-l5ir).
 func (h *Handler) routeCompletenessLimits(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case strings.HasPrefix(path, route53AccountLimitPrefix) && method == http.MethodGet:
@@ -807,8 +1119,6 @@ func (h *Handler) routeCompletenessLimits(c *echo.Context, path, method string) 
 		return true, h.getHostedZoneLimit(c, path)
 	case strings.HasPrefix(path, route53ReusableDSLimitPrefix) && method == http.MethodGet:
 		return true, h.getReusableDelegationSetLimit(c, path)
-	case strings.HasSuffix(path, route53LastFailureReasonSuffix) && method == http.MethodGet:
-		return true, h.getHealthCheckLastFailureReason(c, path)
 	}
 
 	return false, nil

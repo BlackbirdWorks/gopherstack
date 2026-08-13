@@ -71,7 +71,7 @@ func (h *Handler) handleRuntimeMgmtRoute(c *echo.Context, path, method string) e
 	}
 }
 
-// handleRecursionConfigRoute handles /2024-08-28/functions/{name}/recursion-config routes.
+// handleRecursionConfigRoute handles /2024-08-31/functions/{name}/recursion-config routes.
 //
 //nolint:dupl // similar get/put pattern shared with handleRuntimeMgmtRoute and handleScalingConfigRoute by design
 func (h *Handler) handleRecursionConfigRoute(c *echo.Context, path, method string) error {
@@ -132,7 +132,7 @@ func (h *Handler) handleRecursionConfigRoute(c *echo.Context, path, method strin
 	}
 }
 
-// handleScalingConfigRoute handles /2023-10-26/functions/{name}/scaling-config routes.
+// handleScalingConfigRoute handles /2025-11-30/functions/{name}/function-scaling-config routes.
 //
 //nolint:dupl // similar get/put pattern shared with handleRuntimeMgmtRoute by design
 func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string) error {
@@ -141,7 +141,7 @@ func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string)
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	rest, found := strings.CutPrefix(path, lambda2023ScalingPathPrefix)
+	rest, found := strings.CutPrefix(path, lambda2025ScalingPathPrefix)
 	if !found {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -149,7 +149,7 @@ func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string)
 	rest = strings.TrimPrefix(rest, "/")
 	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split name + suffix
 
-	if len(parts) < 2 || parts[1] != "scaling-config" {
+	if len(parts) < 2 || parts[1] != "function-scaling-config" {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
 

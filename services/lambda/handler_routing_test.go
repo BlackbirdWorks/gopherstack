@@ -157,10 +157,13 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			wantOp: "UpdateFunctionConfiguration",
 		},
 		{
+			// The real SDK operation name is "Invoke" (gopherstack-l5ir); "InvokeFunction"
+			// is the IAM *action* name for this same op, a documented AWS naming quirk
+			// -- see ExtractOperation's doc comment.
 			name:   "invoke",
 			method: http.MethodPost,
 			path:   "/2015-03-31/functions/my-func/invocations",
-			wantOp: "InvokeFunction",
+			wantOp: "Invoke",
 		},
 		{name: "unknown", method: http.MethodGet, path: "/2015-03-31/functions/my-func/unknown", wantOp: "Unknown"},
 		{
@@ -171,11 +174,12 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			wantOp: "ListLayers",
 		},
 		{
-			// Layer versions path: extractLayerOperation returns "" (n=2,lastSeg="" not in table) → "Unknown".
+			// gopherstack-l5ir: extractLayerOperation previously left lastSeg empty for
+			// n==2, so this real ListLayerVersions path never resolved. Fixed.
 			name:   "layer_versions_list",
 			method: http.MethodGet,
 			path:   "/2018-10-31/layers/my-layer/versions",
-			wantOp: "Unknown",
+			wantOp: "ListLayerVersions",
 		},
 		{
 			// Layer version get exercises extractLayerOperation with numParts==3 branch.

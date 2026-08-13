@@ -69,29 +69,45 @@ func (h *Handler) handleApplicationSubRoutes(
 	h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 }
 
-// handleApplicationRootRoutes handles /application and /application/ requests.
+// handleApplicationRootRoutes handles /application and /application/ requests
+// (CreateApplication only -- ListApplications is NOT here, see
+// handleListApplications).
 func (h *Handler) handleApplicationRootRoutes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		h.handleCreateApplication(w, r)
-	case http.MethodGet:
-		apps := h.Backend.ListApplications()
-		summaries := make([]map[string]any, 0, len(apps))
-		for _, app := range apps {
-			summaries = append(summaries, map[string]any{
-				"Id":                 app.ID,
-				jsonKeyAppName:       app.Name,
-				jsonKeyAppArn:        app.ARN,
-				jsonKeyStatus:        pkgStateActive,
-				"Endpoint":           applicationEndpoint(app.ID, h.Backend.Region()),
-				jsonKeyCreatedAt:     app.CreatedAt,
-				jsonKeyLastUpdatedAt: app.LastUpdatedAt,
-			})
-		}
-		h.writeJSON(r, w, map[string]any{"ApplicationSummaries": summaries})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+// handleListApplications serves ListApplications: GET
+// /2021-01-01/opensearch/list-applications (a sibling of, not nested under,
+// the /application prefix -- api_op_ListApplications.go, opensearch@v1.75.4
+// serializers.go) -- gopherstack-l5ir.
+func (h *Handler) handleListApplications(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+
+		return
+	}
+
+	apps := h.Backend.ListApplications()
+	summaries := make([]map[string]any, 0, len(apps))
+
+	for _, app := range apps {
+		summaries = append(summaries, map[string]any{
+			"Id":                 app.ID,
+			jsonKeyAppName:       app.Name,
+			jsonKeyAppArn:        app.ARN,
+			jsonKeyStatus:        pkgStateActive,
+			"Endpoint":           applicationEndpoint(app.ID, h.Backend.Region()),
+			jsonKeyCreatedAt:     app.CreatedAt,
+			jsonKeyLastUpdatedAt: app.LastUpdatedAt,
+		})
+	}
+
+	h.writeJSON(r, w, map[string]any{"ApplicationSummaries": summaries})
 }
 
 // handleDefaultApplicationSettingRoutes handles

@@ -13,9 +13,10 @@ func (h *Handler) handleCCOutboundRoutes(w http.ResponseWriter, r *http.Request,
 	const prefix = "/outboundConnection/"
 
 	switch {
-	// GET /outboundConnection → DescribeOutboundConnections
-	case (rest == "/outboundConnection" || rest == "/outboundConnection/") &&
-		r.Method == http.MethodGet:
+	// POST /outboundConnection/search → DescribeOutboundConnections. Real clients
+	// always POST here (api_op_DescribeOutboundConnections.go, opensearch@v1.75.4
+	// serializers.go); a bare GET on /outboundConnection is never sent -- gopherstack-l5ir.
+	case rest == "/outboundConnection/search" && r.Method == http.MethodPost:
 		conns := h.Backend.DescribeOutboundConnections()
 		items := make([]map[string]any, 0, len(conns))
 		for _, c := range conns {
