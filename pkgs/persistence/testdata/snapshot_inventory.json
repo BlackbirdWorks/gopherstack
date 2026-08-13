@@ -357,6 +357,8 @@
       "DistributionResponseHeadersPolicies map[string]string `json:\"distributionResponseHeadersPolicies,omitempty\"`",
       "DistributionTenantWebACLs map[string]string `json:\"distributionTenantWebACLs,omitempty\"`",
       "DistributionWebACLs map[string]string `json:\"distributionWebACLs,omitempty\"`",
+      "KeyValueDataETags map[string]string `json:\"keyValueDataETags,omitempty\"`",
+      "KeyValueStoreData map[string]map[string]string `json:\"keyValueStoreData,omitempty\"`",
       "ManagedCertificates map[string]*ManagedCertificateDetails `json:\"managedCertificates,omitempty\"`",
       "MonitoringSubscriptions map[string]*MonitoringSubscription `json:\"monitoringSubscriptions,omitempty\"`",
       "Region string `json:\"region\"`",
@@ -900,7 +902,9 @@
       "AccountAliases []string `json:\"accountAliases,omitempty\"`",
       "AccountID string `json:\"accountID,omitempty\"`",
       "Comprehensive *comprehensiveSnapshot `json:\"comprehensive,omitempty\"`",
+      "CurrentPassword string `json:\"currentPassword,omitempty\"`",
       "DeletedV1Policies map[string]bool `json:\"deletedV1Policies,omitempty\"`",
+      "GlobalEndpointTokenVersion string `json:\"globalEndpointTokenVersion,omitempty\"`",
       "GroupInlinePolicies map[string]map[string]string `json:\"groupInlinePolicies,omitempty\"`",
       "GroupMembers map[string][]string `json:\"groupMembers,omitempty\"`",
       "GroupPolicies map[string][]string `json:\"groupPolicies,omitempty\"`",
@@ -1040,6 +1044,7 @@
   "kinesis": {
     "fields": [
       "AccountID string `json:\"accountID\"`",
+      "MinimumThroughputBillingCommitment MinimumThroughputBillingCommitmentOutput `json:\"minimumThroughputBillingCommitment\"`",
       "OnDemandStreamCountLimit int `json:\"onDemandStreamCountLimit,omitempty\"`",
       "Region string `json:\"region\"`",
       "ResourcePolicies map[string]map[string]string `json:\"resourcePolicies,omitempty\"`",
@@ -1395,14 +1400,14 @@
       "InstanceLogContent map[string]map[string]string `json:\"instanceLogContent\"`",
       "InstanceLogFiles map[string][]DBLogFile `json:\"instanceLogFiles\"`",
       "InstanceReadyAt map[string]time.Time `json:\"instanceReadyAt\"`",
-      "InstanceRoles map[string][]string `json:\"instanceRoles\"`",
+      "InstanceRoles map[string]map[string]string `json:\"instanceRoles\"`",
       "ProxyTargets map[string][]DBProxyTarget `json:\"proxyTargets\"`",
       "Region string `json:\"region\"`",
       "SnapshotTenantDatabases map[string][]*DBSnapshotTenantDatabase `json:\"snapshotTenantDatabases\"`",
       "Tables map[string]json.RawMessage `json:\"tables\"`",
       "Tags map[string][]Tag `json:\"tags\"`"
     ],
-    "version": 1
+    "version": 2
   },
   "rdsdata": {
     "fields": [
