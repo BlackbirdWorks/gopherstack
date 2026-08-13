@@ -888,6 +888,25 @@ func resolveRunInstancesCount(count int) (int, error) {
 	return count, nil
 }
 
+// newOutpostReservedInstanceIDs pre-mints count instance IDs for an
+// Outpost capacity reservation. No capacity hint, matching the
+// non-outpost `instances` make in RunInstances below: a fixed
+// maxInstancesPerRunInstancesRequest reservation overshoots for small
+// counts, and a count-derived hint (even clamped) trips CodeQL
+// go/uncontrolled-allocation-size (alert #253; gopherstack-17sl found a
+// guard-then-use of count isn't recognized here either). count is only
+// used for the loop count, never the make() size (safe).
+//
+//nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+func newOutpostReservedInstanceIDs(count int) []string {
+	ids := make([]string, 0)
+	for range count {
+		ids = append(ids, newInstanceID())
+	}
+
+	return ids
+}
+
 // RunInstances creates one or more EC2 instance stubs.
 func (b *InMemoryBackend) RunInstances(
 	imageID, instanceType, subnetID string,
@@ -931,16 +950,7 @@ func (b *InMemoryBackend) RunInstances(
 	// ec2.Instance at all -- matches real RunInstances failing atomically.
 	var instanceIDs []string
 	if outpostArn != "" {
-		// Capacity is the compile-time constant maxInstancesPerRunInstancesRequest,
-		// not count, so the allocation size is never user-derived (CodeQL
-		// go/uncontrolled-allocation-size, alert #253; see gopherstack-17sl --
-		// a guard-then-use of count here was empirically NOT recognized by
-		// CodeQL in this codebase, so count is kept out of the make() size
-		// argument entirely rather than relying on the bound above it).
-		instanceIDs = make([]string, 0, maxInstancesPerRunInstancesRequest)
-		for range count {
-			instanceIDs = append(instanceIDs, newInstanceID())
-		}
+		instanceIDs = newOutpostReservedInstanceIDs(count)
 
 		if outpostsBk, ok := b.outpostsBackend(); ok {
 			if capErr := outpostsBk.ConsumeCapacity(outpostArn, instanceType, b.AccountID, instanceIDs); capErr != nil {
