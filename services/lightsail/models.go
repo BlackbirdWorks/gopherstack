@@ -711,6 +711,7 @@ type Distribution struct {
 	Tags                   *tags.Tags
 	Origin                 DistributionOrigin
 	Location               ResourceLocation
+	CacheBehaviorSettings  *CacheSettings
 	IPAddressType          string
 	DomainName             string
 	OriginPublicDNS        string
@@ -721,6 +722,8 @@ type Distribution struct {
 	BundleID               string
 	SupportCode            string
 	Arn                    string
+	DefaultCacheBehavior   CacheBehavior
+	CacheBehaviors         []CacheBehaviorPerPath
 	AlternativeDomainNames []string
 	IsEnabled              bool
 	AbleToUpdateBundle     bool
@@ -733,9 +736,81 @@ type DistributionOrigin struct {
 	ProtocolPolicy string
 }
 
+// CacheBehavior mirrors types.CacheBehavior -- Behavior is "cache" or
+// "dont-cache" (BehaviorEnum).
+type CacheBehavior struct {
+	Behavior string
+}
+
+// CacheBehaviorPerPath mirrors types.CacheBehaviorPerPath.
+type CacheBehaviorPerPath struct {
+	Behavior string
+	Path     string
+}
+
+// CacheSettings mirrors types.CacheSettings, the distribution's
+// CacheBehaviorSettings.
+type CacheSettings struct {
+	ForwardedCookies      *CookieObject
+	ForwardedHeaders      *HeaderObject
+	ForwardedQueryStrings *QueryStringObject
+	AllowedHTTPMethods    string
+	CachedHTTPMethods     string
+	DefaultTTL            int64
+	MaximumTTL            int64
+	MinimumTTL            int64
+}
+
+// CookieObject mirrors types.CookieObject.
+type CookieObject struct {
+	Option           string
+	CookiesAllowList []string
+}
+
+// HeaderObject mirrors types.HeaderObject.
+type HeaderObject struct {
+	Option           string
+	HeadersAllowList []string
+}
+
+// QueryStringObject mirrors types.QueryStringObject. Option is a pointer
+// because the real member is nullable tri-state (unset/false/true), not a
+// plain bool: per CreateDistribution's SDK doc comment, if option is true,
+// the distribution forwards all query strings regardless of
+// queryStringsAllowList.
+type QueryStringObject struct {
+	Option                *bool
+	QueryStringsAllowList []string
+}
+
 func (d *Distribution) clone() *Distribution {
 	cp := *d
 	cp.AlternativeDomainNames = cloneStrings(d.AlternativeDomainNames)
+	cp.CacheBehaviors = append([]CacheBehaviorPerPath(nil), d.CacheBehaviors...)
+
+	if d.CacheBehaviorSettings != nil {
+		settings := *d.CacheBehaviorSettings
+
+		if d.CacheBehaviorSettings.ForwardedCookies != nil {
+			cookies := *d.CacheBehaviorSettings.ForwardedCookies
+			cookies.CookiesAllowList = cloneStrings(cookies.CookiesAllowList)
+			settings.ForwardedCookies = &cookies
+		}
+
+		if d.CacheBehaviorSettings.ForwardedHeaders != nil {
+			headers := *d.CacheBehaviorSettings.ForwardedHeaders
+			headers.HeadersAllowList = cloneStrings(headers.HeadersAllowList)
+			settings.ForwardedHeaders = &headers
+		}
+
+		if d.CacheBehaviorSettings.ForwardedQueryStrings != nil {
+			qs := *d.CacheBehaviorSettings.ForwardedQueryStrings
+			qs.QueryStringsAllowList = cloneStrings(qs.QueryStringsAllowList)
+			settings.ForwardedQueryStrings = &qs
+		}
+
+		cp.CacheBehaviorSettings = &settings
+	}
 
 	return &cp
 }

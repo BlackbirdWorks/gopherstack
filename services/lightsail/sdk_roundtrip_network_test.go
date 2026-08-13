@@ -6,7 +6,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	lightsailsdk "github.com/aws/aws-sdk-go-v2/service/lightsail"
 	lightsailtypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/lightsail"
 )
 
 // TestLoadBalancerRoundTrip exercises family L+M end to end.
@@ -216,4 +219,97 @@ func TestDomainAndCertificateAndDistributionRoundTrip(t *testing.T) {
 
 	_, err = client.DeleteDomain(ctx, &lightsailsdk.DeleteDomainInput{DomainName: aws.String("example.com")})
 	require.NoError(t, err)
+}
+
+// TestCreateDistribution_RequiresDefaultCacheBehavior proves the server
+// rejects a CreateDistribution call missing DefaultCacheBehavior, matching
+// the real SDK's own client-side validateOpCreateDistributionInput
+// (validators.go: NewErrParamRequired("DefaultCacheBehavior")). The real
+// SDK client refuses to even send such a call, so this drives the handler
+// directly with a raw payload built by hand, bypassing the client-side
+// check the same way a non-Go SDK or curl would (gopherstack-jigw).
+func TestCreateDistribution_RequiresDefaultCacheBehavior(t *testing.T) {
+	t.Parallel()
+
+	backend := lightsail.NewInMemoryBackend(t.Context(), rtTestAccountID, rtTestRegion)
+	t.Cleanup(backend.Close)
+
+	_, err := backend.CreateBucket("dist-origin-bucket-novalidate", "small_1_0", false, nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreateDistribution(lightsail.CreateDistributionRequest{
+		Name: "dist-novalidate", BundleID: "small_1_0", OriginName: "dist-origin-bucket-novalidate",
+	})
+	require.Error(t, err)
+}
+
+// TestDistributionCacheBehaviorRoundTrip proves CreateDistribution's
+// required DefaultCacheBehavior, and its optional siblings
+// CacheBehaviorSettings/CacheBehaviors/ViewerMinimumTlsProtocolVersion,
+// actually reach backend state and are echoed back by GetDistributions --
+// not silently dropped (gopherstack-jigw). Also proves UpdateDistribution
+// replaces each of those fields when supplied.
+func TestDistributionCacheBehaviorRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	client := newTestClient(t)
+	ctx := t.Context()
+
+	_, err := client.CreateBucket(ctx, &lightsailsdk.CreateBucketInput{
+		BucketName: aws.String("cache-behavior-origin"), BundleId: aws.String("small_1_0"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDistribution(ctx, &lightsailsdk.CreateDistributionInput{
+		DistributionName: aws.String("cache-behavior-dist"), BundleId: aws.String("small_1_0"),
+		Origin:               &lightsailtypes.InputOrigin{Name: aws.String("cache-behavior-origin")},
+		DefaultCacheBehavior: &lightsailtypes.CacheBehavior{Behavior: lightsailtypes.BehaviorEnumCacheSetting},
+		CacheBehaviors: []lightsailtypes.CacheBehaviorPerPath{
+			{Behavior: lightsailtypes.BehaviorEnumDontCacheSetting, Path: aws.String("/api/*")},
+		},
+		CacheBehaviorSettings: &lightsailtypes.CacheSettings{
+			DefaultTTL: aws.Int64(86400),
+			ForwardedCookies: &lightsailtypes.CookieObject{
+				Option: lightsailtypes.ForwardValuesAllowList, CookiesAllowList: []string{"session-id"},
+			},
+		},
+		ViewerMinimumTlsProtocolVersion: lightsailtypes.ViewerMinimumTlsProtocolVersionEnumTLSv112016,
+	})
+	require.NoError(t, err)
+
+	distOut, err := client.GetDistributions(
+		ctx, &lightsailsdk.GetDistributionsInput{DistributionName: aws.String("cache-behavior-dist")},
+	)
+	require.NoError(t, err)
+	require.Len(t, distOut.Distributions, 1)
+
+	got := distOut.Distributions[0]
+	require.NotNil(t, got.DefaultCacheBehavior)
+	assert.Equal(t, lightsailtypes.BehaviorEnumCacheSetting, got.DefaultCacheBehavior.Behavior)
+	require.Len(t, got.CacheBehaviors, 1)
+	assert.Equal(t, "/api/*", aws.ToString(got.CacheBehaviors[0].Path))
+	require.NotNil(t, got.CacheBehaviorSettings)
+	assert.Equal(t, int64(86400), aws.ToInt64(got.CacheBehaviorSettings.DefaultTTL))
+	require.NotNil(t, got.CacheBehaviorSettings.ForwardedCookies)
+	assert.Equal(t, []string{"session-id"}, got.CacheBehaviorSettings.ForwardedCookies.CookiesAllowList)
+	assert.Equal(t,
+		string(lightsailtypes.ViewerMinimumTlsProtocolVersionEnumTLSv112016),
+		aws.ToString(got.ViewerMinimumTlsProtocolVersion),
+	)
+
+	_, err = client.UpdateDistribution(ctx, &lightsailsdk.UpdateDistributionInput{
+		DistributionName:     aws.String("cache-behavior-dist"),
+		DefaultCacheBehavior: &lightsailtypes.CacheBehavior{Behavior: lightsailtypes.BehaviorEnumDontCacheSetting},
+	})
+	require.NoError(t, err)
+
+	afterUpdate, err := client.GetDistributions(
+		ctx, &lightsailsdk.GetDistributionsInput{DistributionName: aws.String("cache-behavior-dist")},
+	)
+	require.NoError(t, err)
+	require.Len(t, afterUpdate.Distributions, 1)
+	require.NotNil(t, afterUpdate.Distributions[0].DefaultCacheBehavior)
+	assert.Equal(t,
+		lightsailtypes.BehaviorEnumDontCacheSetting, afterUpdate.Distributions[0].DefaultCacheBehavior.Behavior,
+	)
 }

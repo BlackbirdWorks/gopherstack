@@ -187,6 +187,10 @@ func (h *Handler) handleSetupInstanceHTTPS(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
+	// req.EmailAddress is real (SetupInstanceHttpsInput.EmailAddress) but
+	// write-only on the real wire too: no SetupHistoryEntry or other read API
+	// ever echoes it back (confirmed against types/types.go), so there is
+	// nothing for a real client to observe by dropping it here.
 	ops, setupErr := h.Backend.SetupInstanceHTTPS(req.InstanceName, req.CertificateProvider, req.DomainNames)
 	if setupErr != nil {
 		return nil, setupErr

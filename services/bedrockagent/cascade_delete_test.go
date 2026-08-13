@@ -197,7 +197,10 @@ func TestDeleteKnowledgeBaseCascades(t *testing.T) {
 	}
 
 	_, ingestErr := b.IngestKnowledgeBaseDocuments(ctx, kb.KnowledgeBaseID, ds.DataSourceID, []bedrockagent.KBDocument{
-		{DocID: "doc-1"},
+		{Identifier: bedrockagent.KBDocumentIdentifier{
+			DataSourceType: "CUSTOM",
+			Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-1"},
+		}},
 	})
 	if ingestErr != nil {
 		t.Fatalf("ingest docs: %v", ingestErr)
@@ -276,7 +279,10 @@ func TestDeleteDataSourceCascades(t *testing.T) {
 	}
 
 	_, ingestErr := b.IngestKnowledgeBaseDocuments(ctx, kb.KnowledgeBaseID, ds.DataSourceID, []bedrockagent.KBDocument{
-		{DocID: "doc-2"},
+		{Identifier: bedrockagent.KBDocumentIdentifier{
+			DataSourceType: "CUSTOM",
+			Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-2"},
+		}},
 	})
 	if ingestErr != nil {
 		t.Fatalf("ingest docs: %v", ingestErr)

@@ -158,10 +158,10 @@ type StorageBackend interface {
 		ctx context.Context, kbID, dataSourceID string, docs []KBDocument,
 	) ([]KBDocumentDetail, error)
 	GetKnowledgeBaseDocuments(
-		ctx context.Context, kbID, dataSourceID string, docIDs []string,
+		ctx context.Context, kbID, dataSourceID string, ids []KBDocumentIdentifier,
 	) ([]KBDocumentDetail, error)
 	DeleteKnowledgeBaseDocuments(
-		ctx context.Context, kbID, dataSourceID string, docIDs []string,
+		ctx context.Context, kbID, dataSourceID string, ids []KBDocumentIdentifier,
 	) ([]KBDocumentDetail, error)
 	ListKnowledgeBaseDocuments(
 		ctx context.Context, kbID, dataSourceID string, maxResults int, nextToken string,

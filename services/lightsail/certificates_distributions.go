@@ -58,13 +58,18 @@ func (b *InMemoryBackend) CreateCertificate(
 		b.mu.Lock("Certificate-async-issued")
 		defer b.mu.Unlock()
 
-		if c, found := b.certificates.Get(name); found && c.Status == CertificateStatusPendingValidation {
+		if c, found := b.certificates.Get(name); found &&
+			c.Status == CertificateStatusPendingValidation {
 			c.Status = CertificateStatusIssued
 			c.IssuedAt = nowUTC()
 		}
 	})
 
-	return b.newOperationsLocked(opTypeCreateCertificate, ResourceTypeCertificate, []string{name}), nil
+	return b.newOperationsLocked(
+		opTypeCreateCertificate,
+		ResourceTypeCertificate,
+		[]string{name},
+	), nil
 }
 
 // DeleteCertificate deletes the named certificate.
@@ -84,12 +89,19 @@ func (b *InMemoryBackend) DeleteCertificate(name string) ([]Operation, error) {
 	b.certificates.Delete(name)
 	b.unregisterNameLocked(name)
 
-	return b.newOperationsLocked(opTypeDeleteCertificate, ResourceTypeCertificate, []string{name}), nil
+	return b.newOperationsLocked(
+		opTypeDeleteCertificate,
+		ResourceTypeCertificate,
+		[]string{name},
+	), nil
 }
 
 // GetCertificates returns every certificate, optionally filtered by name,
 // paginated.
-func (b *InMemoryBackend) GetCertificates(name string, token string) (page.Page[*Certificate], error) {
+func (b *InMemoryBackend) GetCertificates(
+	name string,
+	token string,
+) (page.Page[*Certificate], error) {
 	b.mu.RLock("GetCertificates")
 	defer b.mu.RUnlock()
 
@@ -128,76 +140,150 @@ func (b *InMemoryBackend) resolveDistributionOrigin(originName string) (string, 
 	return "", false
 }
 
+// CreateDistributionRequest holds the parameters for CreateDistribution.
+// DefaultCacheBehavior is required on the real wire (api_op_CreateDistribution.go,
+// client-side-validated in validators.go's validateOpCreateDistributionInput)
+// -- a distribution with no cache configuration is not much of a
+// distribution, and the real response echoes it back, along with
+// CacheBehaviorSettings/CacheBehaviors/ViewerMinimumTlsProtocolVersion, via
+// GetDistributions.
+type CreateDistributionRequest struct {
+	CacheBehaviorSettings *CacheSettings
+	Tags                  map[string]string
+	Name                  string
+	BundleID              string
+	OriginName            string
+	IPAddressType         string
+	CertificateName       string
+	ViewerMinTLSVersion   string
+	DefaultCacheBehavior  CacheBehavior
+	CacheBehaviors        []CacheBehaviorPerPath
+}
+
 // CreateDistribution creates a new Distribution -- modeled global but its
 // Location.RegionName is always literally "us-east-1" regardless of this
 // backend's own configured region (PARITY.md 4.7).
-func (b *InMemoryBackend) CreateDistribution(
-	name, bundleID, originName, ipAddressType, certificateName string, userTags map[string]string,
-) ([]Operation, error) {
+func (b *InMemoryBackend) CreateDistribution(req CreateDistributionRequest) ([]Operation, error) {
+	if req.DefaultCacheBehavior.Behavior == "" {
+		return nil, validationError("DefaultCacheBehavior is required")
+	}
+
 	b.mu.Lock("CreateDistribution")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resolveDistributionOrigin(originName); !ok {
-		return nil, notFoundError("Distribution origin (Instance/Bucket/LoadBalancer)", originName)
+	if _, ok := b.resolveDistributionOrigin(req.OriginName); !ok {
+		return nil, notFoundError(
+			"Distribution origin (Instance/Bucket/LoadBalancer)",
+			req.OriginName,
+		)
 	}
 
-	if err := b.registerNameLocked(ResourceTypeDistribution, name); err != nil {
+	if err := b.registerNameLocked(ResourceTypeDistribution, req.Name); err != nil {
 		return nil, err
 	}
 
-	ipType := ipAddressType
+	ipType := req.IPAddressType
 	if ipType == "" {
 		ipType = ipAddressTypeDualStack
 	}
 
 	dist := &Distribution{
-		Name: name, Arn: b.distributionARN(name), SupportCode: newSupportCode(),
-		BundleID: bundleID, Status: "InProgress", DomainName: name + "." + randomHex() + ".cloudfront.net",
-		OriginPublicDNS: originName + ".origin.local", CertificateName: certificateName,
+		Name: req.Name, Arn: b.distributionARN(req.Name), SupportCode: newSupportCode(),
+		BundleID: req.BundleID, Status: "InProgress", DomainName: req.Name + "." + randomHex() + ".cloudfront.net",
+		OriginPublicDNS: req.OriginName + ".origin.local", CertificateName: req.CertificateName,
 		IPAddressType: ipType, IsEnabled: true, CreatedAt: nowUTC(),
 		Location: ResourceLocation{RegionName: distributionRegion},
-		Origin:   DistributionOrigin{Name: originName, RegionName: b.region, ProtocolPolicy: "http-only"},
-		Tags:     tags.New("lightsail.distribution." + name + ".tags"),
+		Origin: DistributionOrigin{
+			Name:           req.OriginName,
+			RegionName:     b.region,
+			ProtocolPolicy: "http-only",
+		},
+		DefaultCacheBehavior:  req.DefaultCacheBehavior,
+		CacheBehaviorSettings: req.CacheBehaviorSettings,
+		CacheBehaviors:        req.CacheBehaviors,
+		ViewerMinTLSVersion:   req.ViewerMinTLSVersion,
+		Tags:                  tags.New("lightsail.distribution." + req.Name + ".tags"),
 	}
-	dist.Tags.Merge(userTags)
+	dist.Tags.Merge(req.Tags)
 	b.distributions.Put(dist)
 
 	b.work.After("DistributionDeployed", asyncTransitionDelay, func() {
 		b.mu.Lock("Distribution-async-deployed")
 		defer b.mu.Unlock()
 
-		if d, found := b.distributions.Get(name); found && d.Status == "InProgress" {
+		if d, found := b.distributions.Get(req.Name); found && d.Status == "InProgress" {
 			d.Status = "Deployed"
 		}
 	})
 
-	ops := b.newOperationsLocked(opTypeCreateDistribution, ResourceTypeDistribution, []string{name})
+	ops := b.newOperationsLocked(
+		opTypeCreateDistribution,
+		ResourceTypeDistribution,
+		[]string{req.Name},
+	)
 
 	return ops, nil
 }
 
+// UpdateDistributionRequest holds the parameters for UpdateDistribution.
+// Origin is deliberately absent: the real UpdateDistributionInput.Origin
+// exists but this backend has no code path exercising it yet -- left as a
+// disclosed gap (PARITY.md) rather than half-wired.
+type UpdateDistributionRequest struct {
+	CacheBehaviorSettings *CacheSettings
+	DefaultCacheBehavior  *CacheBehavior
+	IsEnabled             *bool
+	Name                  string
+	CertificateName       string
+	ViewerMinTLSVersion   string
+	CacheBehaviors        []CacheBehaviorPerPath
+}
+
 // UpdateDistribution updates the named distribution's IsEnabled/
-// CertificateName -- other CacheBehavior fields are accepted and stored
-// verbatim without independently acting on cache behavior (this emulator
-// does not proxy real traffic through a Distribution).
-func (b *InMemoryBackend) UpdateDistribution(name, certificateName string, isEnabled *bool) (*Operation, error) {
+// CertificateName/cache-behavior fields. Each optional field, when
+// provided, replaces the distribution's existing value outright -- matching
+// CacheBehaviorSettings's own SDK doc comment ("will replace your
+// distribution's existing settings"). This emulator does not proxy real
+// traffic through a Distribution, so cache behavior is stored and echoed,
+// not enforced.
+func (b *InMemoryBackend) UpdateDistribution(req UpdateDistributionRequest) (*Operation, error) {
 	b.mu.Lock("UpdateDistribution")
 	defer b.mu.Unlock()
 
-	d, ok := b.distributions.Get(name)
+	d, ok := b.distributions.Get(req.Name)
 	if !ok {
-		return nil, notFoundError("Distribution", name)
+		return nil, notFoundError("Distribution", req.Name)
 	}
 
-	if certificateName != "" {
-		d.CertificateName = certificateName
+	if req.CertificateName != "" {
+		d.CertificateName = req.CertificateName
 	}
 
-	if isEnabled != nil {
-		d.IsEnabled = *isEnabled
+	if req.IsEnabled != nil {
+		d.IsEnabled = *req.IsEnabled
 	}
 
-	ops := b.newOperationsLocked(opTypeUpdateDistribution, ResourceTypeDistribution, []string{name})
+	if req.DefaultCacheBehavior != nil {
+		d.DefaultCacheBehavior = *req.DefaultCacheBehavior
+	}
+
+	if req.CacheBehaviorSettings != nil {
+		d.CacheBehaviorSettings = req.CacheBehaviorSettings
+	}
+
+	if req.CacheBehaviors != nil {
+		d.CacheBehaviors = req.CacheBehaviors
+	}
+
+	if req.ViewerMinTLSVersion != "" {
+		d.ViewerMinTLSVersion = req.ViewerMinTLSVersion
+	}
+
+	ops := b.newOperationsLocked(
+		opTypeUpdateDistribution,
+		ResourceTypeDistribution,
+		[]string{req.Name},
+	)
 
 	return &ops[0], nil
 }
@@ -258,7 +344,11 @@ func (b *InMemoryBackend) UpdateDistributionBundle(name, bundleID string) (*Oper
 
 	d.BundleID = bundleID
 
-	ops := b.newOperationsLocked(opTypeUpdateDistributionBundle, ResourceTypeDistribution, []string{name})
+	ops := b.newOperationsLocked(
+		opTypeUpdateDistributionBundle,
+		ResourceTypeDistribution,
+		[]string{name},
+	)
 
 	return &ops[0], nil
 }
@@ -276,7 +366,11 @@ func (b *InMemoryBackend) ResetDistributionCache(name string) (*Operation, time.
 	now := nowUTC()
 	b.distributionCacheResets[name] = now
 
-	ops := b.newOperationsLocked(opTypeResetDistributionCache, ResourceTypeDistribution, []string{name})
+	ops := b.newOperationsLocked(
+		opTypeResetDistributionCache,
+		ResourceTypeDistribution,
+		[]string{name},
+	)
 
 	return &ops[0], now, nil
 }
@@ -333,14 +427,20 @@ func (b *InMemoryBackend) AttachCertificateToDistribution(
 
 	d.CertificateName = certificateName
 
-	ops := b.newOperationsLocked(opTypeAttachCertToDistribution, ResourceTypeDistribution, []string{distributionName})
+	ops := b.newOperationsLocked(
+		opTypeAttachCertToDistribution,
+		ResourceTypeDistribution,
+		[]string{distributionName},
+	)
 
 	return &ops[0], nil
 }
 
 // DetachCertificateFromDistribution detaches whatever certificate is
 // attached to the named distribution.
-func (b *InMemoryBackend) DetachCertificateFromDistribution(distributionName string) (*Operation, error) {
+func (b *InMemoryBackend) DetachCertificateFromDistribution(
+	distributionName string,
+) (*Operation, error) {
 	b.mu.Lock("DetachCertificateFromDistribution")
 	defer b.mu.Unlock()
 
@@ -351,7 +451,11 @@ func (b *InMemoryBackend) DetachCertificateFromDistribution(distributionName str
 
 	d.CertificateName = ""
 
-	ops := b.newOperationsLocked(opTypeDetachCertFromDistribution, ResourceTypeDistribution, []string{distributionName})
+	ops := b.newOperationsLocked(
+		opTypeDetachCertFromDistribution,
+		ResourceTypeDistribution,
+		[]string{distributionName},
+	)
 
 	return &ops[0], nil
 }

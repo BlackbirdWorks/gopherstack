@@ -27,34 +27,184 @@ type originWire struct {
 	ProtocolPolicy string `json:"protocolPolicy,omitempty"`
 }
 
+// cacheBehaviorWire mirrors types.CacheBehavior.
+type cacheBehaviorWire struct {
+	Behavior string `json:"behavior,omitempty"`
+}
+
+// cacheBehaviorPerPathWire mirrors types.CacheBehaviorPerPath.
+type cacheBehaviorPerPathWire struct {
+	Behavior string `json:"behavior,omitempty"`
+	Path     string `json:"path,omitempty"`
+}
+
+// cookieObjectWire mirrors types.CookieObject.
+type cookieObjectWire struct {
+	Option           string   `json:"option,omitempty"`
+	CookiesAllowList []string `json:"cookiesAllowList,omitempty"`
+}
+
+// headerObjectWire mirrors types.HeaderObject.
+type headerObjectWire struct {
+	Option           string   `json:"option,omitempty"`
+	HeadersAllowList []string `json:"headersAllowList,omitempty"`
+}
+
+// queryStringObjectWire mirrors types.QueryStringObject. Option is *bool: a
+// real client can omit it (default forwarding), send false, or send true.
+type queryStringObjectWire struct {
+	Option                *bool    `json:"option,omitempty"`
+	QueryStringsAllowList []string `json:"queryStringsAllowList,omitempty"`
+}
+
+// cacheSettingsWire mirrors types.CacheSettings.
+type cacheSettingsWire struct {
+	ForwardedCookies      *cookieObjectWire      `json:"forwardedCookies,omitempty"`
+	ForwardedHeaders      *headerObjectWire      `json:"forwardedHeaders,omitempty"`
+	ForwardedQueryStrings *queryStringObjectWire `json:"forwardedQueryStrings,omitempty"`
+	AllowedHTTPMethods    string                 `json:"allowedHTTPMethods,omitempty"`
+	CachedHTTPMethods     string                 `json:"cachedHTTPMethods,omitempty"`
+	DefaultTTL            int64                  `json:"defaultTTL,omitempty"`
+	MaximumTTL            int64                  `json:"maximumTTL,omitempty"`
+	MinimumTTL            int64                  `json:"minimumTTL,omitempty"`
+}
+
+func cacheSettingsFromWire(w *cacheSettingsWire) *CacheSettings {
+	if w == nil {
+		return nil
+	}
+
+	cs := &CacheSettings{
+		AllowedHTTPMethods: w.AllowedHTTPMethods,
+		CachedHTTPMethods:  w.CachedHTTPMethods,
+		DefaultTTL:         w.DefaultTTL,
+		MaximumTTL:         w.MaximumTTL,
+		MinimumTTL:         w.MinimumTTL,
+	}
+
+	if w.ForwardedCookies != nil {
+		cs.ForwardedCookies = &CookieObject{
+			Option: w.ForwardedCookies.Option, CookiesAllowList: w.ForwardedCookies.CookiesAllowList,
+		}
+	}
+
+	if w.ForwardedHeaders != nil {
+		cs.ForwardedHeaders = &HeaderObject{
+			Option: w.ForwardedHeaders.Option, HeadersAllowList: w.ForwardedHeaders.HeadersAllowList,
+		}
+	}
+
+	if w.ForwardedQueryStrings != nil {
+		cs.ForwardedQueryStrings = &QueryStringObject{
+			Option:                w.ForwardedQueryStrings.Option,
+			QueryStringsAllowList: w.ForwardedQueryStrings.QueryStringsAllowList,
+		}
+	}
+
+	return cs
+}
+
+func cacheSettingsToWire(cs *CacheSettings) *cacheSettingsWire {
+	if cs == nil {
+		return nil
+	}
+
+	w := &cacheSettingsWire{
+		AllowedHTTPMethods: cs.AllowedHTTPMethods,
+		CachedHTTPMethods:  cs.CachedHTTPMethods,
+		DefaultTTL:         cs.DefaultTTL,
+		MaximumTTL:         cs.MaximumTTL,
+		MinimumTTL:         cs.MinimumTTL,
+	}
+
+	if cs.ForwardedCookies != nil {
+		w.ForwardedCookies = &cookieObjectWire{
+			Option: cs.ForwardedCookies.Option, CookiesAllowList: cs.ForwardedCookies.CookiesAllowList,
+		}
+	}
+
+	if cs.ForwardedHeaders != nil {
+		w.ForwardedHeaders = &headerObjectWire{
+			Option: cs.ForwardedHeaders.Option, HeadersAllowList: cs.ForwardedHeaders.HeadersAllowList,
+		}
+	}
+
+	if cs.ForwardedQueryStrings != nil {
+		w.ForwardedQueryStrings = &queryStringObjectWire{
+			Option:                cs.ForwardedQueryStrings.Option,
+			QueryStringsAllowList: cs.ForwardedQueryStrings.QueryStringsAllowList,
+		}
+	}
+
+	return w
+}
+
+func cacheBehaviorsPerPathFromWire(in []cacheBehaviorPerPathWire) []CacheBehaviorPerPath {
+	if in == nil {
+		return nil
+	}
+
+	out := make([]CacheBehaviorPerPath, len(in))
+	for i, w := range in {
+		out[i] = CacheBehaviorPerPath(w)
+	}
+
+	return out
+}
+
+func cacheBehaviorsPerPathToWire(in []CacheBehaviorPerPath) []cacheBehaviorPerPathWire {
+	if in == nil {
+		return nil
+	}
+
+	out := make([]cacheBehaviorPerPathWire, len(in))
+	for i, c := range in {
+		out[i] = cacheBehaviorPerPathWire(c)
+	}
+
+	return out
+}
+
 type distributionWire struct {
-	CreatedAt              *float64              `json:"createdAt,omitempty"`
-	Origin                 *originWire           `json:"origin,omitempty"`
-	Location               *resourceLocationWire `json:"location,omitempty"`
-	OriginPublicDNS        string                `json:"originPublicDNS,omitempty"`
-	Name                   string                `json:"name,omitempty"`
-	BundleID               string                `json:"bundleId,omitempty"`
-	DomainName             string                `json:"domainName,omitempty"`
-	IPAddressType          string                `json:"ipAddressType,omitempty"`
-	SupportCode            string                `json:"supportCode,omitempty"`
-	Arn                    string                `json:"arn,omitempty"`
-	CertificateName        string                `json:"certificateName,omitempty"`
-	Status                 string                `json:"status,omitempty"`
-	ResourceType           string                `json:"resourceType,omitempty"`
-	AlternativeDomainNames []string              `json:"alternativeDomainNames,omitempty"`
-	Tags                   []tagWire             `json:"tags,omitempty"`
-	AbleToUpdateBundle     bool                  `json:"ableToUpdateBundle,omitempty"`
-	IsEnabled              bool                  `json:"isEnabled,omitempty"`
+	CreatedAt              *float64                   `json:"createdAt,omitempty"`
+	Origin                 *originWire                `json:"origin,omitempty"`
+	Location               *resourceLocationWire      `json:"location,omitempty"`
+	DefaultCacheBehavior   *cacheBehaviorWire         `json:"defaultCacheBehavior,omitempty"`
+	CacheBehaviorSettings  *cacheSettingsWire         `json:"cacheBehaviorSettings,omitempty"`
+	OriginPublicDNS        string                     `json:"originPublicDNS,omitempty"`
+	Name                   string                     `json:"name,omitempty"`
+	BundleID               string                     `json:"bundleId,omitempty"`
+	DomainName             string                     `json:"domainName,omitempty"`
+	IPAddressType          string                     `json:"ipAddressType,omitempty"`
+	SupportCode            string                     `json:"supportCode,omitempty"`
+	Arn                    string                     `json:"arn,omitempty"`
+	CertificateName        string                     `json:"certificateName,omitempty"`
+	Status                 string                     `json:"status,omitempty"`
+	ResourceType           string                     `json:"resourceType,omitempty"`
+	ViewerMinTLSVersion    string                     `json:"viewerMinimumTlsProtocolVersion,omitempty"`
+	AlternativeDomainNames []string                   `json:"alternativeDomainNames,omitempty"`
+	CacheBehaviors         []cacheBehaviorPerPathWire `json:"cacheBehaviors,omitempty"`
+	Tags                   []tagWire                  `json:"tags,omitempty"`
+	AbleToUpdateBundle     bool                       `json:"ableToUpdateBundle,omitempty"`
+	IsEnabled              bool                       `json:"isEnabled,omitempty"`
 }
 
 func distributionToWire(d *Distribution) distributionWire {
+	var defaultCacheBehavior *cacheBehaviorWire
+	if d.DefaultCacheBehavior.Behavior != "" {
+		defaultCacheBehavior = &cacheBehaviorWire{Behavior: d.DefaultCacheBehavior.Behavior}
+	}
+
 	return distributionWire{
 		AbleToUpdateBundle:     d.AbleToUpdateBundle,
 		AlternativeDomainNames: d.AlternativeDomainNames,
 		Arn:                    d.Arn,
 		BundleID:               d.BundleID,
+		CacheBehaviors:         cacheBehaviorsPerPathToWire(d.CacheBehaviors),
+		CacheBehaviorSettings:  cacheSettingsToWire(d.CacheBehaviorSettings),
 		CertificateName:        d.CertificateName,
 		CreatedAt:              epochPtr(d.CreatedAt),
+		DefaultCacheBehavior:   defaultCacheBehavior,
 		DomainName:             d.DomainName,
 		IPAddressType:          d.IPAddressType,
 		IsEnabled:              d.IsEnabled,
@@ -65,23 +215,28 @@ func distributionToWire(d *Distribution) distributionWire {
 			RegionName:     d.Origin.RegionName,
 			ProtocolPolicy: d.Origin.ProtocolPolicy,
 		},
-		OriginPublicDNS: d.OriginPublicDNS,
-		ResourceType:    ResourceTypeDistribution,
-		Status:          d.Status,
-		SupportCode:     d.SupportCode,
-		Tags:            mapFromTags(d.Tags),
+		OriginPublicDNS:     d.OriginPublicDNS,
+		ResourceType:        ResourceTypeDistribution,
+		Status:              d.Status,
+		SupportCode:         d.SupportCode,
+		Tags:                mapFromTags(d.Tags),
+		ViewerMinTLSVersion: d.ViewerMinTLSVersion,
 	}
 }
 
 type createDistributionRequest struct {
-	BundleID         string `json:"bundleId"`
-	CertificateName  string `json:"certificateName,omitempty"`
-	DistributionName string `json:"distributionName"`
-	IPAddressType    string `json:"ipAddressType,omitempty"`
-	Origin           struct {
+	CacheBehaviorSettings           *cacheSettingsWire `json:"cacheBehaviorSettings,omitempty"`
+	BundleID                        string             `json:"bundleId"`
+	CertificateName                 string             `json:"certificateName,omitempty"`
+	DistributionName                string             `json:"distributionName"`
+	IPAddressType                   string             `json:"ipAddressType,omitempty"`
+	ViewerMinimumTLSProtocolVersion string             `json:"viewerMinimumTlsProtocolVersion,omitempty"`
+	Origin                          struct {
 		Name string `json:"name"`
 	} `json:"origin"`
-	Tags []tagWire `json:"tags,omitempty"`
+	DefaultCacheBehavior cacheBehaviorWire          `json:"defaultCacheBehavior"`
+	CacheBehaviors       []cacheBehaviorPerPathWire `json:"cacheBehaviors,omitempty"`
+	Tags                 []tagWire                  `json:"tags,omitempty"`
 }
 
 type distributionAndOpsResponse struct {
@@ -95,14 +250,18 @@ func (h *Handler) handleCreateDistribution(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	ops, createErr := h.Backend.CreateDistribution(
-		req.DistributionName,
-		req.BundleID,
-		req.Origin.Name,
-		req.IPAddressType,
-		req.CertificateName,
-		tagsFromWire(req.Tags),
-	)
+	ops, createErr := h.Backend.CreateDistribution(CreateDistributionRequest{
+		Name:                  req.DistributionName,
+		BundleID:              req.BundleID,
+		OriginName:            req.Origin.Name,
+		IPAddressType:         req.IPAddressType,
+		CertificateName:       req.CertificateName,
+		DefaultCacheBehavior:  CacheBehavior{Behavior: req.DefaultCacheBehavior.Behavior},
+		CacheBehaviorSettings: cacheSettingsFromWire(req.CacheBehaviorSettings),
+		CacheBehaviors:        cacheBehaviorsPerPathFromWire(req.CacheBehaviors),
+		ViewerMinTLSVersion:   req.ViewerMinimumTLSProtocolVersion,
+		Tags:                  tagsFromWire(req.Tags),
+	})
 	if createErr != nil {
 		return nil, createErr
 	}
@@ -122,9 +281,13 @@ type distributionNameRequest struct {
 }
 
 type updateDistributionRequest struct {
-	IsEnabled        *bool  `json:"isEnabled,omitempty"`
-	CertificateName  string `json:"certificateName,omitempty"`
-	DistributionName string `json:"distributionName"`
+	CacheBehaviorSettings           *cacheSettingsWire         `json:"cacheBehaviorSettings,omitempty"`
+	DefaultCacheBehavior            *cacheBehaviorWire         `json:"defaultCacheBehavior,omitempty"`
+	IsEnabled                       *bool                      `json:"isEnabled,omitempty"`
+	CertificateName                 string                     `json:"certificateName,omitempty"`
+	DistributionName                string                     `json:"distributionName"`
+	ViewerMinimumTLSProtocolVersion string                     `json:"viewerMinimumTlsProtocolVersion,omitempty"`
+	CacheBehaviors                  []cacheBehaviorPerPathWire `json:"cacheBehaviors,omitempty"`
 }
 
 func (h *Handler) handleUpdateDistribution(_ context.Context, body []byte) ([]byte, error) {
@@ -133,7 +296,20 @@ func (h *Handler) handleUpdateDistribution(_ context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	op, updateErr := h.Backend.UpdateDistribution(req.DistributionName, req.CertificateName, req.IsEnabled)
+	var defaultCacheBehavior *CacheBehavior
+	if req.DefaultCacheBehavior != nil {
+		defaultCacheBehavior = &CacheBehavior{Behavior: req.DefaultCacheBehavior.Behavior}
+	}
+
+	op, updateErr := h.Backend.UpdateDistribution(UpdateDistributionRequest{
+		Name:                  req.DistributionName,
+		CertificateName:       req.CertificateName,
+		IsEnabled:             req.IsEnabled,
+		DefaultCacheBehavior:  defaultCacheBehavior,
+		CacheBehaviorSettings: cacheSettingsFromWire(req.CacheBehaviorSettings),
+		CacheBehaviors:        cacheBehaviorsPerPathFromWire(req.CacheBehaviors),
+		ViewerMinTLSVersion:   req.ViewerMinimumTLSProtocolVersion,
+	})
 	if updateErr != nil {
 		return nil, updateErr
 	}
@@ -223,7 +399,11 @@ func (h *Handler) handleResetDistributionCache(_ context.Context, body []byte) (
 	ow := operationToWire(op)
 
 	return marshalResponse(
-		resetDistributionCacheResponse{CreateTime: epochPtr(resetTime), Operation: &ow, Status: "Reset"},
+		resetDistributionCacheResponse{
+			CreateTime: epochPtr(resetTime),
+			Operation:  &ow,
+			Status:     "Reset",
+		},
 	)
 }
 
@@ -232,7 +412,10 @@ type getDistributionLatestCacheResetResponse struct {
 	Status     string   `json:"status,omitempty"`
 }
 
-func (h *Handler) handleGetDistributionLatestCacheReset(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleGetDistributionLatestCacheReset(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
 	req, err := decodeBody[distributionNameRequest](body)
 	if err != nil {
 		return nil, err
@@ -243,7 +426,9 @@ func (h *Handler) handleGetDistributionLatestCacheReset(_ context.Context, body 
 		return nil, getErr
 	}
 
-	return marshalResponse(getDistributionLatestCacheResetResponse{CreateTime: epochPtr(t), Status: "Done"})
+	return marshalResponse(
+		getDistributionLatestCacheResetResponse{CreateTime: epochPtr(t), Status: "Done"},
+	)
 }
 
 type distributionMetricDataRequest struct {
@@ -266,7 +451,9 @@ func (h *Handler) handleGetDistributionMetricData(_ context.Context, body []byte
 		return nil, getErr
 	}
 
-	return marshalResponse(distributionMetricDataResponse{MetricData: []struct{}{}, MetricName: req.MetricName})
+	return marshalResponse(
+		distributionMetricDataResponse{MetricData: []struct{}{}, MetricName: req.MetricName},
+	)
 }
 
 type attachCertToDistributionRequest struct {
@@ -274,13 +461,19 @@ type attachCertToDistributionRequest struct {
 	DistributionName string `json:"distributionName"`
 }
 
-func (h *Handler) handleAttachCertificateToDistribution(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleAttachCertificateToDistribution(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
 	req, err := decodeBody[attachCertToDistributionRequest](body)
 	if err != nil {
 		return nil, err
 	}
 
-	op, attachErr := h.Backend.AttachCertificateToDistribution(req.DistributionName, req.CertificateName)
+	op, attachErr := h.Backend.AttachCertificateToDistribution(
+		req.DistributionName,
+		req.CertificateName,
+	)
 	if attachErr != nil {
 		return nil, attachErr
 	}
@@ -288,7 +481,10 @@ func (h *Handler) handleAttachCertificateToDistribution(_ context.Context, body 
 	return marshalResponse(opEnvelope(op))
 }
 
-func (h *Handler) handleDetachCertificateFromDistribution(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDetachCertificateFromDistribution(
+	_ context.Context,
+	body []byte,
+) ([]byte, error) {
 	req, err := decodeBody[distributionNameRequest](body)
 	if err != nil {
 		return nil, err
@@ -326,7 +522,9 @@ func certificateToWire(c *Certificate) certificateWire {
 	return certificateWire{
 		Arn: c.Arn, DomainName: c.DomainName, CertificateName: c.Name, Tags: mapFromTags(c.Tags),
 		CertificateDetail: &certificateDetailWire{
-			CreatedAt: epochPtr(c.CreatedAt), DomainName: c.DomainName, IssuedAt: epochPtr(c.IssuedAt),
+			CreatedAt: epochPtr(
+				c.CreatedAt,
+			), DomainName: c.DomainName, IssuedAt: epochPtr(c.IssuedAt),
 			Name: c.Name, NotAfter: epochPtr(c.NotAfter), NotBefore: epochPtr(c.NotBefore), Status: c.Status,
 			SubjectAlternativeNames: c.SubjectAlternativeNames, Tags: mapFromTags(c.Tags),
 		},
@@ -373,7 +571,9 @@ func (h *Handler) handleCreateCertificate(_ context.Context, body []byte) ([]byt
 		certWire = &w
 	}
 
-	return marshalResponse(certificateEnvelope{Certificate: certWire, Operations: operationsToWire(ops)})
+	return marshalResponse(
+		certificateEnvelope{Certificate: certWire, Operations: operationsToWire(ops)},
+	)
 }
 
 type certificateNameRequest struct {

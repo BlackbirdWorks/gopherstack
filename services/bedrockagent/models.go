@@ -31,7 +31,15 @@ const (
 	actionGroupEnabled    = "ENABLED"
 	collabEnabled         = "ENABLED"
 	docStatusIndexed      = "INDEXED"
+	docStatusNotFound     = "NOT_FOUND"
+	docStatusDeleting     = "DELETING"
 	defaultAgentVersion   = "DRAFT"
+
+	// dataSourceTypeCustom and dataSourceTypeS3 are the two
+	// ContentDataSourceType/DocumentIdentifier.DataSourceType values a real
+	// client can send for a knowledge base document.
+	dataSourceTypeCustom = "CUSTOM"
+	dataSourceTypeS3     = "S3"
 
 	bedrockAgentService = "bedrock"
 )
@@ -127,9 +135,46 @@ type PromptConfig struct {
 
 // KBDocument is a knowledge base document for ingestion.
 type KBDocument struct {
-	Metadata map[string]any
-	Content  map[string]any
-	DocID    string
+	Metadata   map[string]any
+	Identifier KBDocumentIdentifier
+}
+
+// KBDocumentIdentifier identifies a knowledge base document. Real AWS
+// (types.DocumentIdentifier) discriminates by DataSourceType: CUSTOM
+// documents are identified by Custom.ID, S3 documents by S3.URI -- there is
+// no flat string document ID on the wire.
+type KBDocumentIdentifier struct {
+	Custom         *KBCustomDocumentIdentifier `json:"custom,omitempty"`
+	S3             *KBS3Location               `json:"s3,omitempty"`
+	DataSourceType string                      `json:"dataSourceType"`
+}
+
+// key returns a stable identity for id, or "" if id doesn't carry the
+// sub-object its own DataSourceType requires (e.g. DataSourceType is CUSTOM
+// but Custom is nil).
+func (id KBDocumentIdentifier) key() string {
+	switch id.DataSourceType {
+	case dataSourceTypeCustom:
+		if id.Custom != nil && id.Custom.ID != "" {
+			return "custom:" + id.Custom.ID
+		}
+	case dataSourceTypeS3:
+		if id.S3 != nil && id.S3.URI != "" {
+			return "s3:" + id.S3.URI
+		}
+	}
+
+	return ""
+}
+
+// KBCustomDocumentIdentifier identifies a document in a custom data source.
+type KBCustomDocumentIdentifier struct {
+	ID string `json:"id"`
+}
+
+// KBS3Location identifies a document in an S3 data source by its URI.
+type KBS3Location struct {
+	URI string `json:"uri"`
 }
 
 // ---------------------------------------------------------------------------
@@ -471,11 +516,13 @@ type PromptVersion struct {
 }
 
 // KBDocumentDetail is the status of a knowledge base document operation.
+// Real AWS (types.KnowledgeBaseDocumentDetail) nests the document identity
+// under "identifier" -- there is no flat "documentId" member on the wire.
 type KBDocumentDetail struct {
-	DocumentID      string `json:"documentId"`
-	KnowledgeBaseID string `json:"knowledgeBaseId"`
-	DataSourceID    string `json:"dataSourceId"`
-	Status          string `json:"status"`
+	Identifier      KBDocumentIdentifier `json:"identifier"`
+	KnowledgeBaseID string               `json:"knowledgeBaseId"`
+	DataSourceID    string               `json:"dataSourceId"`
+	Status          string               `json:"status"`
 }
 
 // ResourcePolicy is the resource-based policy attached to a knowledge base
