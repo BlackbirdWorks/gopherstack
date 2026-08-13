@@ -39,11 +39,11 @@ func TestHandler_RestoreClusterOperations(t *testing.T) {
 				})
 			},
 			vals: url.Values{
-				"Action":                      {"RestoreDBClusterFromSnapshot"},
-				"Version":                     {"2014-10-31"},
-				"DBClusterSnapshotIdentifier": {"my-snap"},
-				"DBClusterIdentifier":         {"restored-cluster"},
-				"Engine":                      {"docdb"},
+				"Action":              {"RestoreDBClusterFromSnapshot"},
+				"Version":             {"2014-10-31"},
+				"SnapshotIdentifier":  {"my-snap"},
+				"DBClusterIdentifier": {"restored-cluster"},
+				"Engine":              {"docdb"},
 			},
 			wantStatus:   http.StatusOK,
 			wantContains: "restored-cluster",
@@ -51,10 +51,10 @@ func TestHandler_RestoreClusterOperations(t *testing.T) {
 		{
 			name: "restore_from_snapshot_not_found",
 			vals: url.Values{
-				"Action":                      {"RestoreDBClusterFromSnapshot"},
-				"Version":                     {"2014-10-31"},
-				"DBClusterSnapshotIdentifier": {"nonexistent"},
-				"DBClusterIdentifier":         {"restored-cluster"},
+				"Action":              {"RestoreDBClusterFromSnapshot"},
+				"Version":             {"2014-10-31"},
+				"SnapshotIdentifier":  {"nonexistent"},
+				"DBClusterIdentifier": {"restored-cluster"},
 			},
 			wantStatus:   http.StatusBadRequest,
 			wantContains: "DBClusterSnapshotNotFoundFault",
@@ -167,11 +167,11 @@ func TestRestoreCluster_FromSnapshot(t *testing.T) {
 				})
 			}
 			rr := doRequest(t, h, url.Values{
-				"Action":                      {"RestoreDBClusterFromSnapshot"},
-				"Version":                     {"2014-10-31"},
-				"DBClusterSnapshotIdentifier": {"restore-snap"},
-				"DBClusterIdentifier":         {"restored-cluster"},
-				"Engine":                      {"docdb"},
+				"Action":              {"RestoreDBClusterFromSnapshot"},
+				"Version":             {"2014-10-31"},
+				"SnapshotIdentifier":  {"restore-snap"},
+				"DBClusterIdentifier": {"restored-cluster"},
+				"Engine":              {"docdb"},
 			})
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
@@ -303,7 +303,7 @@ func TestRestoreDBClusterFromSnapshot_Errors(t *testing.T) {
 				"DBClusterIdentifier": {tt.clusterID},
 			}
 			if tt.snapshotID != "" {
-				vals.Set("DBClusterSnapshotIdentifier", tt.snapshotID)
+				vals.Set("SnapshotIdentifier", tt.snapshotID)
 			}
 			rr := doRequest(t, h, vals)
 			assert.Equal(t, tt.wantStatus, rr.Code)
@@ -400,10 +400,10 @@ func TestRestoreDBClusterFromSnapshot_InheritsEngineVersion(t *testing.T) {
 	b2CreateSnapshot(t, h, "ev-snap", "ev-source-cluster")
 
 	rr = doRequest(t, h, url.Values{
-		"Action":                      {"RestoreDBClusterFromSnapshot"},
-		"Version":                     {"2014-10-31"},
-		"DBClusterSnapshotIdentifier": {"ev-snap"},
-		"DBClusterIdentifier":         {"ev-restored"},
+		"Action":              {"RestoreDBClusterFromSnapshot"},
+		"Version":             {"2014-10-31"},
+		"SnapshotIdentifier":  {"ev-snap"},
+		"DBClusterIdentifier": {"ev-restored"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "5.0.0")

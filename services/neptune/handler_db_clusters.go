@@ -250,7 +250,7 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(
 	ctx context.Context,
 	vals url.Values,
 ) (any, error) {
-	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
+	snapshotID := vals.Get("SnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
 	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(ctx, snapshotID, clusterID)
 	if err != nil {

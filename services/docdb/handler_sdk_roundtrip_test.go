@@ -467,3 +467,41 @@ func Test_SDKRoundTrip_DescribeEventCategories(t *testing.T) {
 	require.NotEmpty(t, out.EventCategoriesMapList)
 	assert.NotEmpty(t, out.EventCategoriesMapList[0].EventCategories)
 }
+
+// Test_SDKRoundTrip_RestoreDBClusterFromSnapshot proves the real SDK client's
+// RestoreDBClusterFromSnapshotInput.SnapshotIdentifier reaches the backend.
+// The real serializer (awsAwsquery_serializeOpDocumentRestoreDBClusterFromSnapshotInput,
+// docdb@v1.51.4 serializers.go:5845) encodes the field as "SnapshotIdentifier";
+// the handler used to read "DBClusterSnapshotIdentifier" instead (that key is
+// valid for CreateDBClusterSnapshot/DescribeDBClusterSnapshots, not this op),
+// so every real client's snapshot ID was silently dropped and the restore
+// always failed with DBClusterSnapshotNotFoundFault.
+func Test_SDKRoundTrip_RestoreDBClusterFromSnapshot(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-restore-source"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDBClusterSnapshot(ctx, &docdbsdk.CreateDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String("rt-restore-snap"),
+		DBClusterIdentifier:         aws.String("rt-restore-source"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.RestoreDBClusterFromSnapshot(ctx, &docdbsdk.RestoreDBClusterFromSnapshotInput{
+		DBClusterIdentifier: aws.String("rt-restored"),
+		SnapshotIdentifier:  aws.String("rt-restore-snap"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBCluster)
+	assert.Equal(t, "rt-restored", aws.ToString(out.DBCluster.DBClusterIdentifier))
+}

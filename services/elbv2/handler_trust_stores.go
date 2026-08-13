@@ -190,7 +190,7 @@ func (h *Handler) handleModifyTrustStore(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
-	ts, err := h.Backend.ModifyTrustStore(tsArn, vals.Get("Name"))
+	ts, err := h.Backend.ModifyTrustStore(tsArn)
 	if err != nil {
 		return nil, err
 	}

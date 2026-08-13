@@ -258,3 +258,41 @@ func Test_SDKRoundTrip_DescribeGlobalClusters_ListsClusters(t *testing.T) {
 	require.Len(t, out.GlobalClusters, 1)
 	assert.Equal(t, "rt-gc", aws.ToString(out.GlobalClusters[0].GlobalClusterIdentifier))
 }
+
+// Test_SDKRoundTrip_RestoreDBClusterFromSnapshot proves the real SDK client's
+// RestoreDBClusterFromSnapshotInput.SnapshotIdentifier reaches the backend.
+// The real serializer (awsAwsquery_serializeOpDocumentRestoreDBClusterFromSnapshotInput,
+// neptune@v1.48.4 serializers.go:7631) encodes the field as "SnapshotIdentifier";
+// the handler used to read "DBClusterSnapshotIdentifier" instead (that key is
+// valid for CreateDBClusterSnapshot/DescribeDBClusterSnapshots, not this op),
+// so every real client's snapshot ID was silently dropped and the restore
+// always failed with DBClusterSnapshotNotFoundFault.
+func Test_SDKRoundTrip_RestoreDBClusterFromSnapshot(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-restore-source"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDBClusterSnapshot(ctx, &neptunesdk.CreateDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String("rt-restore-snap"),
+		DBClusterIdentifier:         aws.String("rt-restore-source"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.RestoreDBClusterFromSnapshot(ctx, &neptunesdk.RestoreDBClusterFromSnapshotInput{
+		DBClusterIdentifier: aws.String("rt-restored"),
+		SnapshotIdentifier:  aws.String("rt-restore-snap"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBCluster)
+	assert.Equal(t, "rt-restored", aws.ToString(out.DBCluster.DBClusterIdentifier))
+}

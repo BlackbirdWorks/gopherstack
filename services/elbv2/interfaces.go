@@ -42,7 +42,7 @@ type StorageBackend interface {
 	CreateTrustStore(name string, kvs []tags.KV) (*TrustStore, error)
 	DescribeTrustStores(arns []string, names []string) ([]TrustStore, error)
 	DeleteTrustStore(trustStoreArn string) error
-	ModifyTrustStore(trustStoreArn, name string) (*TrustStore, error)
+	ModifyTrustStore(trustStoreArn string) (*TrustStore, error)
 	AddTrustStoreRevocations(
 		trustStoreArn string,
 		contents []RevocationContentInput,

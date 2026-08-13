@@ -332,10 +332,10 @@ func TestDBClusterSnapshot_RestoreFromSnapshot(t *testing.T) {
 	})
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                      {"RestoreDBClusterFromSnapshot"},
-		"Version":                     {"2014-10-31"},
-		"DBClusterSnapshotIdentifier": {"restore-snap"},
-		"DBClusterIdentifier":         {"restore-dst"},
+		"Action":              {"RestoreDBClusterFromSnapshot"},
+		"Version":             {"2014-10-31"},
+		"SnapshotIdentifier":  {"restore-snap"},
+		"DBClusterIdentifier": {"restore-dst"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
@@ -541,10 +541,10 @@ func TestRestoreDBClusterFromSnapshot_CopiesEngineVersion(t *testing.T) {
 	backend.AddSnapshotInternal("src-snap", "src-cluster")
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                      {"RestoreDBClusterFromSnapshot"},
-		"Version":                     {"2014-10-31"},
-		"DBClusterSnapshotIdentifier": {"src-snap"},
-		"DBClusterIdentifier":         {"restored-cluster"},
+		"Action":              {"RestoreDBClusterFromSnapshot"},
+		"Version":             {"2014-10-31"},
+		"SnapshotIdentifier":  {"src-snap"},
+		"DBClusterIdentifier": {"restored-cluster"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "restored-cluster")
@@ -720,10 +720,10 @@ func TestRestoreDBClusterFromSnapshot(t *testing.T) {
 				})
 			}
 			rr := doRequest(t, h, url.Values{
-				"Action":                      {"RestoreDBClusterFromSnapshot"},
-				"Version":                     {"2014-10-31"},
-				"DBClusterSnapshotIdentifier": {tt.snapshotID},
-				"DBClusterIdentifier":         {tt.targetID},
+				"Action":              {"RestoreDBClusterFromSnapshot"},
+				"Version":             {"2014-10-31"},
+				"SnapshotIdentifier":  {tt.snapshotID},
+				"DBClusterIdentifier": {tt.targetID},
 			})
 			assert.Equal(t, tt.wantStatus, rr.Code, rr.Body.String())
 			assert.Contains(t, rr.Body.String(), tt.wantContains)

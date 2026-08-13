@@ -194,18 +194,19 @@ func (b *InMemoryBackend) DeleteSharedTrustStoreAssociation(trustStoreArn, resou
 	return nil
 }
 
-// ModifyTrustStore updates a trust store's name.
-func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn, name string) (*TrustStore, error) {
+// ModifyTrustStore looks up a trust store for ModifyTrustStoreInput, whose only
+// real fields are TrustStoreArn and the CA certificates bundle location
+// (CaCertificatesBundleS3Bucket/Key/ObjectVersion). This emulator does not model
+// bundle contents (no S3-backed storage to point at; see
+// GetTrustStoreCaCertificatesBundle's same documented gap), so this is a
+// validating no-op; see gopherstack-hl3h for wiring the bundle fields.
+func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn string) (*TrustStore, error) {
 	b.mu.Lock("ModifyTrustStore")
 	defer b.mu.Unlock()
 
 	ts, ok := b.trustStores.Get(trustStoreArn)
 	if !ok {
 		return nil, ErrTrustStoreNotFound
-	}
-
-	if name != "" {
-		ts.Name = name
 	}
 
 	cp := *ts

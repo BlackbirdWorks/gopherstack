@@ -190,7 +190,7 @@ func (h *Handler) handleFailoverDBCluster(ctx context.Context, vals url.Values) 
 }
 
 func (h *Handler) handleRestoreDBClusterFromSnapshot(ctx context.Context, vals url.Values) (any, error) {
-	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
+	snapshotID := vals.Get("SnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
 	engine := vals.Get("Engine")
 	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(ctx, snapshotID, clusterID, engine)

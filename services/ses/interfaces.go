@@ -35,7 +35,7 @@ type StorageBackend interface {
 	DescribeReceiptRule(ruleSetName, ruleName string) (ReceiptRule, error)
 	UpdateReceiptRule(ruleSetName string, rule ReceiptRule) error
 	ReorderReceiptRuleSet(ruleSetName string, ruleNames []string) error
-	SetReceiptRulePosition(ruleSetName, ruleName string, position int) error
+	SetReceiptRulePosition(ruleSetName, ruleName, after string) error
 	CreateReceiptFilter(filter ReceiptFilter) error
 	CreateConfigurationSetEventDestination(configSetName string, dest EventDestination) error
 	DeleteConfigurationSetEventDestination(configSetName, destName string) error

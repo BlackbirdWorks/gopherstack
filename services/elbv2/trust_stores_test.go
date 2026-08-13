@@ -273,7 +273,9 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 	require.Len(t, descTSResp.Result.TrustStores.Members, 1)
 	assert.Equal(t, "my-ts", descTSResp.Result.TrustStores.Members[0].Name)
 
-	// ModifyTrustStore — rename it.
+	// ModifyTrustStore — Name is not a real ModifyTrustStoreInput field (verified
+	// against elasticloadbalancingv2@v1.58.5 api_op_ModifyTrustStore.go); a real
+	// client never sends it. Sending it anyway must NOT rename the trust store.
 	modTSRec := doELBv2(t, h, url.Values{
 		"Action":        {"ModifyTrustStore"},
 		"Version":       {"2015-12-01"},
@@ -293,7 +295,7 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 	}
 	require.NoError(t, xml.Unmarshal(modTSRec.Body.Bytes(), &modTSResp))
 	require.Len(t, modTSResp.Result.TrustStores.Members, 1)
-	assert.Equal(t, "my-ts-renamed", modTSResp.Result.TrustStores.Members[0].Name)
+	assert.Equal(t, "my-ts", modTSResp.Result.TrustStores.Members[0].Name)
 
 	// DeleteSharedTrustStoreAssociation with no existing association returns
 	// AssociationNotFound (HTTP 400, AWS query-protocol status), matching AWS behavior.
@@ -425,17 +427,22 @@ func TestELBv2_DescribeTrustStores(t *testing.T) {
 	}
 }
 
-// TestELBv2_ModifyTrustStore validates trust store renaming.
+// TestELBv2_ModifyTrustStore validates ModifyTrustStore against the real
+// ModifyTrustStoreInput shape: TrustStoreArn is the only field this handler
+// reads. "Name" is not a real field (verified against
+// elasticloadbalancingv2@v1.58.5 api_op_ModifyTrustStore.go:33-49) and must
+// have no effect even if a caller sends it.
 func TestELBv2_ModifyTrustStore(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		setup      func(t *testing.T, h *elbv2.Handler) url.Values
+		checkResp  func(t *testing.T, rec *httptest.ResponseRecorder)
 		name       string
 		wantStatus int
 	}{
 		{
-			name: "rename_success",
+			name: "name_param_has_no_effect",
 			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
 				t.Helper()
 
@@ -466,6 +473,22 @@ func TestELBv2_ModifyTrustStore(t *testing.T) {
 				}
 			},
 			wantStatus: http.StatusOK,
+			checkResp: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+
+				var resp struct {
+					Result struct {
+						TrustStores struct {
+							Members []struct {
+								Name string `xml:"Name"`
+							} `xml:"member"`
+						} `xml:"TrustStores"`
+					} `xml:"ModifyTrustStoreResult"`
+				}
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+				require.Len(t, resp.Result.TrustStores.Members, 1)
+				assert.Equal(t, "orig-name", resp.Result.TrustStores.Members[0].Name)
+			},
 		},
 		{
 			name: "not_found",
@@ -476,7 +499,6 @@ func TestELBv2_ModifyTrustStore(t *testing.T) {
 					"Action":        {"ModifyTrustStore"},
 					"Version":       {"2015-12-01"},
 					"TrustStoreArn": {"arn:aws:elasticloadbalancing:us-east-1:123:truststore/nonexistent/abc"},
-					"Name":          {"new-name"},
 				}
 			},
 			wantStatus: http.StatusBadRequest,
@@ -489,7 +511,6 @@ func TestELBv2_ModifyTrustStore(t *testing.T) {
 				return url.Values{
 					"Action":  {"ModifyTrustStore"},
 					"Version": {"2015-12-01"},
-					"Name":    {"new-name"},
 				}
 			},
 			wantStatus: http.StatusBadRequest,
@@ -505,6 +526,10 @@ func TestELBv2_ModifyTrustStore(t *testing.T) {
 
 			rec := doELBv2(t, h, vals)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkResp != nil {
+				tt.checkResp(t, rec)
+			}
 		})
 	}
 }

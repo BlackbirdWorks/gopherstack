@@ -363,15 +363,9 @@ func (h *Handler) handleReorderReceiptRuleSet(vals url.Values, reqID string) (an
 func (h *Handler) handleSetReceiptRulePosition(vals url.Values, reqID string) (any, error) {
 	ruleSetName := vals.Get("RuleSetName")
 	ruleName := vals.Get("RuleName")
+	after := vals.Get("After")
 
-	position := 0
-	if s := vals.Get("Position"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil {
-			position = n
-		}
-	}
-
-	if err := h.Backend.SetReceiptRulePosition(ruleSetName, ruleName, position); err != nil {
+	if err := h.Backend.SetReceiptRulePosition(ruleSetName, ruleName, after); err != nil {
 		return nil, err
 	}
 
