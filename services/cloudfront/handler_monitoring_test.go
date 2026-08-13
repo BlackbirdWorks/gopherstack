@@ -16,7 +16,10 @@ func TestMonitoringSubscription_NotFound(t *testing.T) {
 	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 	const distID = "ENOSUBSCRIPTION"
-	path := prefix + "distribution/" + distID + "/monitoring-subscription"
+	// Real Create/Get/DeleteMonitoringSubscription use the PLURAL "distributions/"
+	// prefix (cloudfront@v1.67.4 serializers.go), unlike every other distribution
+	// sub-path which is singular.
+	path := prefix + "distributions/" + distID + "/monitoring-subscription"
 
 	getRec := doXML(t, h, http.MethodGet, path, nil)
 	assert.Equal(t, http.StatusNotFound, getRec.Code)
@@ -53,7 +56,10 @@ func TestMonitoringSubscription_CRUD(t *testing.T) {
 	h := newCFHandler(t)
 	const distID = "E1DIST123456"
 	const prefix = "/2020-05-31/"
-	path := prefix + "distribution/" + distID + "/monitoring-subscription"
+	// Real Create/Get/DeleteMonitoringSubscription use the PLURAL "distributions/"
+	// prefix (cloudfront@v1.67.4 serializers.go), unlike every other distribution
+	// sub-path which is singular.
+	path := prefix + "distributions/" + distID + "/monitoring-subscription"
 
 	// Create
 	body := `<MonitoringSubscription><RealtimeMetricsSubscriptionConfig>` +

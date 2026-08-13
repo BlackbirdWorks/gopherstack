@@ -10,8 +10,13 @@ import (
 )
 
 // extractMonitoringDistID extracts distribution ID from monitoring subscription path.
+// extractMonitoringDistID extracts the distribution ID from a monitoring-subscription
+// path. Real Create/Get/DeleteMonitoringSubscription use the PLURAL
+// "distributions/{DistributionId}/monitoring-subscription" (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOp{Create,Get,Delete}MonitoringSubscription's
+// SplitURI), unlike every other distribution sub-path which is singular.
 func extractMonitoringDistID(path string) string {
-	suffix := strings.TrimPrefix(path, cfPathPrefix+"distribution/")
+	suffix := strings.TrimPrefix(path, cfPathPrefix+"distributions/")
 
 	return strings.TrimSuffix(suffix, "/monitoring-subscription")
 }

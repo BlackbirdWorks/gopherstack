@@ -20,7 +20,10 @@ func TestGetManagedCertificateDetails_NotFound(t *testing.T) {
 	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
-	rec := doXML(t, h, http.MethodGet, prefix+"distribution-tenant/does-not-exist/managed-certificate-details", nil)
+	// Real GetManagedCertificateDetails is GET /2020-05-31/managed-certificate/{Identifier}
+	// (cloudfront@v1.67.4 serializers.go: awsRestxml_serializeOpGetManagedCertificateDetails's
+	// SplitURI), not nested under distribution-tenant.
+	rec := doXML(t, h, http.MethodGet, prefix+"managed-certificate/does-not-exist", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Contains(t, rec.Body.String(), "NoSuchDistributionTenant")
 }
@@ -41,7 +44,7 @@ func TestGetManagedCertificateDetails_StableACrossCalls(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	tenantID := extractXMLID(t, createRec.Body.String())
 
-	path := prefix + "distribution-tenant/" + tenantID + "/managed-certificate-details"
+	path := prefix + "managed-certificate/" + tenantID
 	first := doXML(t, h, http.MethodGet, path, nil)
 	require.Equal(t, http.StatusOK, first.Code)
 	require.Contains(t, first.Body.String(), "SUCCESS")
@@ -266,8 +269,10 @@ func TestDistributionTenantCRUD(t *testing.T) {
 		t.Errorf("get response missing domain: %s", getResp)
 	}
 
-	// List tenants
-	listResp := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant", "")
+	// List tenants is POST to the plural "distribution-tenants" path (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpListDistributionTenants's SplitURI); the bare
+	// singular GET is GetDistributionTenantByDomain instead.
+	listResp := cfOK(t, h, http.MethodPost, prefix+"distribution-tenants", "")
 	if !strings.Contains(listResp, "DistributionTenantList") {
 		t.Errorf("expected DistributionTenantList, got: %s", listResp)
 	}
@@ -295,7 +300,7 @@ func TestDistributionTenantCRUD(t *testing.T) {
 	}
 
 	// List should be empty after delete.
-	listAfter := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant", "")
+	listAfter := cfOK(t, h, http.MethodPost, prefix+"distribution-tenants", "")
 	if strings.Contains(listAfter, tenantID) {
 		t.Errorf("deleted tenant still in list: %s", listAfter)
 	}
@@ -314,8 +319,10 @@ func TestDistributionTenantByDomain(t *testing.T) {
 	</CreateDistributionTenantRequest>`
 	cfOK(t, h, http.MethodPost, prefix+"distribution-tenant", createBody)
 
-	// Get by domain
-	resp := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant-by-domain?domain=mysite.com", "")
+	// Get by domain is the bare GET "distribution-tenant" (Domain travels as a
+	// "?domain=" query value; cloudfront@v1.67.4 serializers.go:
+	// awsRestxml_serializeOpGetDistributionTenantByDomain's SplitURI).
+	resp := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant?domain=mysite.com", "")
 	if !strings.Contains(resp, "mysite.com") {
 		t.Errorf("expected domain in response, got: %s", resp)
 	}
@@ -380,7 +387,7 @@ func TestGetManagedCertificateDetails(t *testing.T) {
 	tenantID := extractXMLID(t, tenantResp)
 
 	// Get managed certificate details
-	resp := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant/"+tenantID+"/managed-certificate-details", "")
+	resp := cfOK(t, h, http.MethodGet, prefix+"managed-certificate/"+tenantID, "")
 	if !strings.Contains(resp, "ManagedCertificateDetails") {
 		t.Errorf("expected ManagedCertificateDetails, got: %s", resp)
 	}
@@ -473,7 +480,7 @@ func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
 
 			h := cloudfront.NewHandler(newTestBackend(t))
 			tenantID := tt.setup(h)
-			certPath := prefix + "distribution-tenant/" + tenantID + "/managed-certificate-details"
+			certPath := prefix + "managed-certificate/" + tenantID
 			rec := doTenantReq(t, h, http.MethodGet, certPath)
 
 			assert.Equal(t, tt.wantCode, rec.Code)

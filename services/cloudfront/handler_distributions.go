@@ -708,6 +708,29 @@ func (h *Handler) handleListDistributionsByResponseHeadersPolicyID(c *echo.Conte
 	return h.marshalDistributionList(c, dists)
 }
 
+// listDistributionsByRealtimeLogConfigBody decodes the ARN out of the request
+// body. Real ListDistributionsByRealtimeLogConfig is POST with no URI label
+// or query binding at all -- RealtimeLogConfigArn travels as an XML element
+// under the root ListDistributionsByRealtimeLogConfigRequest (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpDocumentListDistributionsByRealtimeLogConfigInput).
+type listDistributionsByRealtimeLogConfigBody struct {
+	RealtimeLogConfigArn string `xml:"RealtimeLogConfigArn"`
+}
+
+func extractRealtimeLogConfigArn(c *echo.Context) string {
+	body, err := readBody(c)
+	if err != nil {
+		return ""
+	}
+
+	var req listDistributionsByRealtimeLogConfigBody
+	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+		return ""
+	}
+
+	return req.RealtimeLogConfigArn
+}
+
 func (h *Handler) handleListDistributionsByRealtimeLogConfig(c *echo.Context, arn string) error {
 	dists := h.Backend.ListDistributionsByRealtimeLogConfigARN(arn)
 

@@ -184,12 +184,15 @@ func TestUpdateDomainAssociation_MoveToTenant(t *testing.T) {
 		t.Errorf("expected domain in response, got: %s", rr.Body.String())
 	}
 
-	// The tenant should now resolve by its newly-associated domain.
+	// The tenant should now resolve by its newly-associated domain. Real
+	// GetDistributionTenantByDomain is the bare GET "distribution-tenant"
+	// (Domain travels as a "?domain=" query value; cloudfront@v1.67.4
+	// serializers.go).
 	getResp := cfOK(
 		t,
 		h,
 		http.MethodGet,
-		tenantDomainPrefix+"distribution-tenant-by-domain?domain=secondary.example.com",
+		tenantDomainPrefix+"distribution-tenant?domain=secondary.example.com",
 		"",
 	)
 	if !strings.Contains(getResp, tenantID) {
@@ -394,7 +397,7 @@ func TestDistributionTenant_PersistenceRoundTrip(t *testing.T) {
 
 	// Tenant is retrievable by domain after restore (secondary index rebuilt).
 	byDomainRR := cfRequest(t, h2, http.MethodGet,
-		tenantDomainPrefix+"distribution-tenant-by-domain?domain=persist.example.com", "")
+		tenantDomainPrefix+"distribution-tenant?domain=persist.example.com", "")
 	if byDomainRR.Code != http.StatusOK || !strings.Contains(byDomainRR.Body.String(), tenantID) {
 		t.Errorf(
 			"expected tenant resolvable by domain after restore, got %d: %s",

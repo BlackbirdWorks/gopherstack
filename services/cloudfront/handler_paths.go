@@ -8,7 +8,11 @@ import (
 // parseCFPath maps HTTP method + path to (operationName, resourceID).
 //
 // parseCFPath maps an HTTP method + URL path to a CloudFront operation name and resource identifier.
-func parseCFPath(method, path, resourceParam string) (string, string) {
+// opParam is the request's "Operation" query value, used only to disambiguate
+// TagResource ("Operation=Tag") from UntagResource ("Operation=Untag") -- both
+// are POST /2020-05-31/tagging on the wire (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOp{Tag,Untag}Resource's SplitURI), never DELETE.
+func parseCFPath(method, path, resourceParam, opParam string) (string, string) {
 	suffix := strings.TrimPrefix(path, cfPathPrefix)
 
 	if op, id := parseCFDistributionPath(method, suffix, resourceParam); op != "" {
@@ -31,7 +35,54 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		return op, id
 	}
 
-	return parseCFPathCore(method, suffix, resourceParam)
+	if op, id := parseCFMonitoringSubscriptionPath(method, suffix); op != "" {
+		return op, id
+	}
+
+	if op, id := parseCFManagedCertificatePath(method, suffix); op != "" {
+		return op, id
+	}
+
+	return parseCFPathCore(method, suffix, resourceParam, opParam)
+}
+
+// parseCFMonitoringSubscriptionPath routes the monitoring-subscription trio.
+// Real path is PLURAL "/2020-05-31/distributions/{DistributionId}/monitoring-subscription"
+// (cloudfront@v1.67.4 serializers.go: awsRestxml_serializeOp{Create,Get,Delete}MonitoringSubscription's
+// SplitURI) -- singular "distribution/{Id}/monitoring-subscription" never matches a real client.
+func parseCFMonitoringSubscriptionPath(method, suffix string) (string, string) {
+	const suffixPart = "/monitoring-subscription"
+
+	if !strings.HasPrefix(suffix, "distributions/") || !strings.HasSuffix(suffix, suffixPart) {
+		return "", ""
+	}
+
+	id := strings.TrimSuffix(strings.TrimPrefix(suffix, "distributions/"), suffixPart)
+
+	switch method {
+	case http.MethodPost:
+		return opCreateMonitoringSubscription, id
+	case http.MethodGet:
+		return opGetMonitoringSubscription, id
+	case http.MethodDelete:
+		return opDeleteMonitoringSubscription, id
+	}
+
+	return "", ""
+}
+
+// parseCFManagedCertificatePath routes GetManagedCertificateDetails. Real
+// path is "/2020-05-31/managed-certificate/{Identifier}" (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpGetManagedCertificateDetails's
+// SplitURI) -- not nested under distribution-tenant.
+func parseCFManagedCertificatePath(method, suffix string) (string, string) {
+	const prefix = "managed-certificate/"
+
+	if method == http.MethodGet && strings.HasPrefix(suffix, prefix) {
+		return opGetManagedCertificateDetails, strings.TrimPrefix(suffix, prefix)
+	}
+
+	return "", ""
 }
 
 // parseCFDistributionPath routes distribution and distribution-tenant paths.
@@ -55,9 +106,11 @@ func parseCFDistributionCorePath(method, suffix, resourceParam string) (string, 
 	}
 
 	if rest, ok := strings.CutPrefix(suffix, "distribution-tenant/"); ok {
-		id := strings.TrimSuffix(rest, "/associate-web-acl")
-		if strings.HasSuffix(suffix, "/associate-web-acl") && method == http.MethodPut {
-			return opAssociateDistributionTenantWebACL, id
+		switch {
+		case strings.HasSuffix(suffix, "/associate-web-acl") && method == http.MethodPut:
+			return opAssociateDistributionTenantWebACL, strings.TrimSuffix(rest, "/associate-web-acl")
+		case strings.HasSuffix(suffix, "/disassociate-web-acl") && method == http.MethodPut:
+			return opDisassociateDistributionTenantWebACL, strings.TrimSuffix(rest, "/disassociate-web-acl")
 		}
 
 		return "", ""
@@ -350,15 +403,15 @@ func parseCFEncryptionKeyPath(method, suffix, resourceParam string) (string, str
 func parseCFFieldLevelEncryptionPath(method, suffix string) (string, string) {
 	if op, id := parseCFResourcePath(method, suffix, "field-level-encryption",
 		opCreateFieldLevelEncryptionConfig, opListFieldLevelEncryptionConfigs,
-		opGetFieldLevelEncryption, opUpdateFieldLevelEncryptionConfig, opDeleteFieldLevelEncryptionConfig,
-		opGetFieldLevelEncryptionConfig, ""); op != "" {
+		opGetFieldLevelEncryption, "", opDeleteFieldLevelEncryptionConfig,
+		opGetFieldLevelEncryptionConfig, opUpdateFieldLevelEncryptionConfig); op != "" {
 		return op, id
 	}
 
 	return parseCFResourcePath(method, suffix, "field-level-encryption-profile",
 		opCreateFieldLevelEncryptionProfile, opListFieldLevelEncryptionProfiles,
-		opGetFieldLevelEncryptionProfile, opUpdateFieldLevelEncryptionProfile, opDeleteFieldLevelEncryptionProfile,
-		opGetFieldLevelEncryptionProfileConfig, "")
+		opGetFieldLevelEncryptionProfile, "", opDeleteFieldLevelEncryptionProfile,
+		opGetFieldLevelEncryptionProfileConfig, opUpdateFieldLevelEncryptionProfile)
 }
 
 // parseCFResourcePath is a generic helper for simple resource CRUD + optional config.
@@ -481,8 +534,8 @@ func parseCFKVSDataPlanePath(method, suffix string) (string, string, string) {
 // parseCFPublicKeyRealtimePath routes public key and realtime log config paths.
 func parseCFPublicKeyRealtimePath(method, suffix string) (string, string) {
 	if op, id := parseCFResourcePath(method, suffix, "public-key",
-		opCreatePublicKey, opListPublicKeys, opGetPublicKey, opUpdatePublicKey, opDeletePublicKey,
-		opGetPublicKeyConfig, ""); op != "" {
+		opCreatePublicKey, opListPublicKeys, opGetPublicKey, "", opDeletePublicKey,
+		opGetPublicKeyConfig, opUpdatePublicKey); op != "" {
 		return op, id
 	}
 
@@ -552,7 +605,8 @@ func parseCFStreamingTrustVPCPath(method, suffix, resourceParam string) (string,
 }
 
 // parseCFStreamingDistributionPath routes streaming distribution paths, including the
-// CreateStreamingDistributionWithTags variant (POST .../streaming-distribution?Resource=WithTags).
+// CreateStreamingDistributionWithTags variant (POST .../streaming-distribution?WithTags,
+// resourceParam pre-resolved to resourceParamWithTags by cfResourceParam).
 func parseCFStreamingDistributionPath(method, suffix, resourceParam string) (string, string) {
 	const streamingDistributionResource = "streaming-distribution"
 
@@ -584,12 +638,14 @@ func parseCFConnectionPath(method, suffix, resourceParam string) (string, string
 }
 
 // parseCFConnectionFunctionPath routes connection function paths.
+// ListConnectionFunctions is POST to the plural "connection-functions" path
+// (cloudfront@v1.67.4 serializers.go: awsRestxml_serializeOpListConnectionFunctions's
+// SplitURI) -- there is no bare GET "connection-function" op.
 func parseCFConnectionFunctionPath(method, suffix string) (string, string) {
 	const prefix = "connection-function/"
-	const root = "connection-function"
 
 	switch {
-	case suffix == root && method == http.MethodGet:
+	case suffix == "connection-functions" && method == http.MethodPost:
 		return opListConnectionFunctions, ""
 	case strings.HasPrefix(suffix, prefix) && strings.HasSuffix(suffix, "/describe"):
 		id := strings.TrimSuffix(strings.TrimPrefix(suffix, prefix), "/describe")
@@ -619,15 +675,21 @@ func parseCFConnectionFunctionPath(method, suffix string) (string, string) {
 }
 
 // parseCFConnectionGroupPath routes connection group paths.
+// GetConnectionGroupByRoutingEndpoint is the bare GET "connection-group"
+// (RoutingEndpoint travels as a query value); ListConnectionGroups is POST
+// to the plural "connection-groups" path instead (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOp{GetConnectionGroupByRoutingEndpoint,
+// ListConnectionGroups}'s SplitURI) -- there is no
+// "connection-group-by-routing-endpoint" literal path in the real SDK.
 func parseCFConnectionGroupPath(method, suffix string) (string, string) {
 	const prefix = "connection-group/"
 	const root = "connection-group"
 
 	switch {
 	case suffix == root && method == http.MethodGet:
-		return opListConnectionGroups, ""
-	case suffix == "connection-group-by-routing-endpoint" && method == http.MethodGet:
 		return opGetConnectionGroupByRoutingEndpoint, ""
+	case suffix == "connection-groups" && method == http.MethodPost:
+		return opListConnectionGroups, ""
 	case strings.HasPrefix(suffix, prefix) && !strings.Contains(strings.TrimPrefix(suffix, prefix), "/"):
 		id := strings.TrimPrefix(suffix, prefix)
 		switch method {
@@ -666,8 +728,6 @@ func parseCFContinuousDeploymentPath(method, suffix, resourceParam string) (stri
 		case http.MethodDelete:
 			return opDeleteContinuousDeploymentPolicy, id
 		}
-	case suffix == "distribution-tenant-by-domain" && method == http.MethodGet:
-		return opGetDistributionTenantByDomain, ""
 	}
 
 	_ = resourceParam
@@ -675,52 +735,63 @@ func parseCFContinuousDeploymentPath(method, suffix, resourceParam string) (stri
 	return "", ""
 }
 
-// parseCFDistributionsByPath routes "distributions/by-*" paths.
+// parseCFDistributionsByPath routes "distributionsBy*" paths -- a single
+// camelCase path segment with no hyphens, verified per-op against
+// cloudfront@v1.67.4 serializers.go's SplitURI (e.g.
+// "/2020-05-31/distributionsByCachePolicyId/{CachePolicyId}"). There is no
+// "distributions/by-*" hyphenated variant anywhere in the real SDK; every
+// case below previously used that wrong shape and was unreachable by any
+// real client. Most filter identifiers are a {Param} URI label (returned as
+// the resource ID here); ListDistributionsByConnectionFunction and
+// ListDistributionsByTrustStore carry theirs as a query value instead (no
+// URI label at all -- see dispatchStubsDistributionListBy), and
+// ListDistributionsByRealtimeLogConfig carries its ARN/Name in the XML body.
 func parseCFDistributionsByPath(method, suffix string) (string, string) {
+	if method == http.MethodPost && suffix == "distributionsByRealtimeLogConfig" {
+		return opListDistributionsByRealtimeLogConfig, ""
+	}
+
 	if method != http.MethodGet {
 		return "", ""
 	}
 
 	switch {
-	case strings.HasPrefix(suffix, "distributions/by-cache-policy-id/"):
-		return opListDistributionsByCachePolicyID, strings.TrimPrefix(suffix, "distributions/by-cache-policy-id/")
-	case strings.HasPrefix(suffix, "distributions/by-origin-request-policy-id/"):
+	case strings.HasPrefix(suffix, "distributionsByAnycastIpListId/"):
+		return opListDistributionsByAnycastIPListID, strings.TrimPrefix(suffix, "distributionsByAnycastIpListId/")
+	case strings.HasPrefix(suffix, "distributionsByCachePolicyId/"):
+		return opListDistributionsByCachePolicyID, strings.TrimPrefix(suffix, "distributionsByCachePolicyId/")
+	case suffix == "distributionsByConnectionFunction":
+		return opListDistributionsByConnectionFunction, ""
+	case strings.HasPrefix(suffix, "distributionsByConnectionMode/"):
+		return opListDistributionsByConnectionMode, strings.TrimPrefix(suffix, "distributionsByConnectionMode/")
+	case strings.HasPrefix(suffix, "distributionsByKeyGroupId/"):
+		return opListDistributionsByKeyGroup, strings.TrimPrefix(suffix, "distributionsByKeyGroupId/")
+	case strings.HasPrefix(suffix, "distributionsByOriginRequestPolicyId/"):
 		return opListDistributionsByOriginRequestPol, strings.TrimPrefix(
 			suffix,
-			"distributions/by-origin-request-policy-id/",
+			"distributionsByOriginRequestPolicyId/",
 		)
-	case strings.HasPrefix(suffix, "distributions/by-response-headers-policy-id/"):
+	case strings.HasPrefix(suffix, "distributionsByOwnedResource/"):
+		return opListDistributionsByOwnedResource, strings.TrimPrefix(suffix, "distributionsByOwnedResource/")
+	case strings.HasPrefix(suffix, "distributionsByResponseHeadersPolicyId/"):
 		return opListDistributionsByResponseHeadersPol, strings.TrimPrefix(
 			suffix,
-			"distributions/by-response-headers-policy-id/",
+			"distributionsByResponseHeadersPolicyId/",
 		)
-	case strings.HasPrefix(suffix, "distributions/by-web-acl-id/"):
-		return opListDistributionsByWebACLID, strings.TrimPrefix(suffix, "distributions/by-web-acl-id/")
-	case strings.HasPrefix(suffix, "distributions/by-key-group/"):
-		return opListDistributionsByKeyGroup, strings.TrimPrefix(suffix, "distributions/by-key-group/")
-	case strings.HasPrefix(suffix, "distributions/by-realtime-log-config"):
-		return opListDistributionsByRealtimeLogConfig, ""
-	case strings.HasPrefix(suffix, "distributions/by-vpc-origin-id/"):
-		return opListDistributionsByVpcOriginID, strings.TrimPrefix(suffix, "distributions/by-vpc-origin-id/")
-	case strings.HasPrefix(suffix, "distributions/by-anycast-ip-list-id/"):
-		return opListDistributionsByAnycastIPListID, strings.TrimPrefix(suffix, "distributions/by-anycast-ip-list-id/")
-	case strings.HasPrefix(suffix, "distributions/by-connection-function/"):
-		return opListDistributionsByConnectionFunction, strings.TrimPrefix(
-			suffix,
-			"distributions/by-connection-function/",
-		)
-	case suffix == "distributions/by-connection-mode":
-		return opListDistributionsByConnectionMode, ""
-	case strings.HasPrefix(suffix, "distributions/by-trust-store-id/"):
-		return opListDistributionsByTrustStore, strings.TrimPrefix(suffix, "distributions/by-trust-store-id/")
+	case suffix == "distributionsByTrustStore":
+		return opListDistributionsByTrustStore, ""
+	case strings.HasPrefix(suffix, "distributionsByVpcOriginId/"):
+		return opListDistributionsByVpcOriginID, strings.TrimPrefix(suffix, "distributionsByVpcOriginId/")
+	case strings.HasPrefix(suffix, "distributionsByWebACLId/"):
+		return opListDistributionsByWebACLID, strings.TrimPrefix(suffix, "distributionsByWebACLId/")
 	}
 
 	return "", ""
 }
 
 // parseCFPathCore handles remaining distribution-tenant, create ops, tags, and resource policy paths.
-func parseCFPathCore(method, suffix, resourceParam string) (string, string) {
-	if op, id := parseCFCreateAndTagOps(method, suffix, resourceParam); op != "" {
+func parseCFPathCore(method, suffix, resourceParam, opParam string) (string, string) {
+	if op, id := parseCFCreateAndTagOps(method, suffix, resourceParam, opParam); op != "" {
 		return op, id
 	}
 
@@ -732,8 +803,8 @@ func parseCFPathCore(method, suffix, resourceParam string) (string, string) {
 }
 
 // parseCFCreateAndTagOps handles create operations and tagging.
-func parseCFCreateAndTagOps(method, suffix, resourceParam string) (string, string) {
-	if op, id := parseCFCreateAndTagCoreOps(method, suffix, resourceParam); op != "" {
+func parseCFCreateAndTagOps(method, suffix, resourceParam, opParam string) (string, string) {
+	if op, id := parseCFCreateAndTagCoreOps(method, suffix, resourceParam, opParam); op != "" {
 		return op, id
 	}
 
@@ -755,25 +826,29 @@ func parseCFCreateAndTagOps(method, suffix, resourceParam string) (string, strin
 }
 
 // parseCFCreateAndTagCoreOps handles create ops and tagging (without resource policy).
-// parseCFCreateAndTagCoreOps handles create ops and tagging (without resource policy).
-func parseCFCreateAndTagCoreOps(method, suffix, resourceParam string) (string, string) {
-	if op, id := parseCFTaggingOps(method, suffix, resourceParam); op != "" {
+func parseCFCreateAndTagCoreOps(method, suffix, resourceParam, opParam string) (string, string) {
+	if op, id := parseCFTaggingOps(method, suffix, resourceParam, opParam); op != "" {
 		return op, id
 	}
 
 	return parseCFCreateOps(method, suffix, resourceParam)
 }
 
-// parseCFTaggingOps handles tagging and distribution-with-tags creation.
-func parseCFTaggingOps(method, suffix, resourceParam string) (string, string) {
+// parseCFTaggingOps handles tagging and distribution-with-tags creation. Real
+// TagResource and UntagResource are both POST /2020-05-31/tagging,
+// disambiguated only by the "Operation=Tag"/"Operation=Untag" query value
+// (cloudfront@v1.67.4 serializers.go); a bare POST with no recognized
+// Operation value defaults to TagResource, and DELETE is never sent by a real
+// client for either.
+func parseCFTaggingOps(method, suffix, resourceParam, opParam string) (string, string) {
 	if suffix == "tagging" {
-		switch method {
-		case http.MethodGet:
+		switch {
+		case method == http.MethodGet:
 			return opListTagsForResource, resourceParam
-		case http.MethodPost:
-			return opTagResource, resourceParam
-		case http.MethodDelete:
+		case method == http.MethodPost && opParam == "Untag":
 			return opUntagResource, resourceParam
+		case method == http.MethodPost:
+			return opTagResource, resourceParam
 		}
 	}
 
@@ -807,8 +882,12 @@ func parseCFCreateOps(method, suffix, _ string) (string, string) {
 // parseCFDistributionTenantOps handles distribution-tenant CRUD operations.
 func parseCFDistributionTenantOps(method, suffix string) (string, string) {
 	// The real SDK sends ListDistributionTenants as POST /distribution-tenants (plural
-	// resource, POST method), distinct from the singular /distribution-tenant resource used
-	// by Create/Get/Update/Delete.
+	// resource, POST method) and GetDistributionTenantByDomain as GET on the bare
+	// singular /distribution-tenant resource (Domain travels as a "?domain="
+	// query value, cloudfront@v1.67.4 serializers.go:
+	// awsRestxml_serializeOpGetDistributionTenantByDomain's HttpBindings) --
+	// distinct from both the plural List path and the /distribution-tenant/{Id}
+	// path used by Get/Update/Delete.
 	if suffix == "distribution-tenants" && method == http.MethodPost {
 		return opListDistributionTenants, ""
 	}
@@ -818,7 +897,7 @@ func parseCFDistributionTenantOps(method, suffix string) (string, string) {
 		case http.MethodPost:
 			return opCreateDistributionTenant, ""
 		case http.MethodGet:
-			return opListDistributionTenants, ""
+			return opGetDistributionTenantByDomain, ""
 		}
 	}
 
@@ -855,21 +934,14 @@ func parseCFDistributionExtPath(method, suffix string) (string, string) {
 	return parseCFMiscPath(method, suffix)
 }
 
-// parseCFDistributionMonitoringOps handles distribution monitoring, staging, and disassociate paths.
+// parseCFDistributionMonitoringOps handles distribution staging and disassociate paths.
+// The monitoring-subscription trio is handled separately by
+// parseCFMonitoringSubscriptionPath, since it uses a plural "distributions/"
+// prefix unlike every path handled here.
 func parseCFDistributionMonitoringOps(method, suffix string) (string, string) {
 	inner := strings.TrimPrefix(suffix, "distribution/")
 
 	switch {
-	case strings.HasSuffix(inner, "/monitoring-subscription"):
-		id := strings.TrimSuffix(inner, "/monitoring-subscription")
-		switch method {
-		case http.MethodPost:
-			return opCreateMonitoringSubscription, id
-		case http.MethodGet:
-			return opGetMonitoringSubscription, id
-		case http.MethodDelete:
-			return opDeleteMonitoringSubscription, id
-		}
 	// Real path is /distribution/{Id}/promote-staging-config (cloudfront@v1.67.4
 	// serializers.go: awsRestxml_serializeOpUpdateDistributionWithStagingConfig's
 	// SplitURI) -- the previous "/staging" suffix never matched a real client's PUT,
@@ -878,23 +950,17 @@ func parseCFDistributionMonitoringOps(method, suffix string) (string, string) {
 		return opUpdateDistributionWithStagingConfig, strings.TrimSuffix(inner, "/promote-staging-config")
 	case strings.HasSuffix(inner, "/disassociate-web-acl") && method == http.MethodPut:
 		return opDisassociateDistributionWebACL, strings.TrimSuffix(inner, "/disassociate-web-acl")
-	case strings.Contains(inner, "/list-by-") && method == http.MethodGet:
-		return opListDistributionsByOwnedResource, ""
 	}
 
 	return "", ""
 }
 
 // parseCFDistributionTenantExtOps handles distribution-tenant extended paths.
+// GetManagedCertificateDetails is NOT nested here despite the name --
+// see parseCFManagedCertificatePath.
 func parseCFDistributionTenantExtOps(method, suffix string) (string, string) {
 	if strings.Contains(suffix, "/invalidation") {
 		return parseCFDistributionTenantInvalidation(method, suffix)
-	}
-
-	if strings.HasSuffix(suffix, "/managed-certificate-details") {
-		id := strings.TrimSuffix(strings.TrimPrefix(suffix, "distribution-tenant/"), "/managed-certificate-details")
-
-		return opGetManagedCertificateDetails, id
 	}
 
 	return "", ""
@@ -943,13 +1009,10 @@ func parseCFMiscPathSimple(method, suffix string) string {
 		{"domain-conflicts", http.MethodPost, opListDomainConflicts},
 		{"domain-association", http.MethodPost, opUpdateDomainAssociation},
 		{"verify-dns-configuration", http.MethodPost, opVerifyDNSConfiguration},
-		{"distributions/by-connection-mode", http.MethodGet, opListDistributionsByConnectionMode},
 		// cloudfront@v1.67.4 serializers.go awsRestxml_serializeOpListDistributionTenantsByCustomization:
 		// POST to "distribution-tenants-by-customization" (one hyphenated segment), not GET to
 		// "distribution-tenants/by-customization" (the old entry here never matched a real client).
 		{"distribution-tenants-by-customization", http.MethodPost, opListDistributionTenantsByCustom},
-		{"connection-group-by-routing-endpoint", http.MethodGet, opGetConnectionGroupByRoutingEndpoint},
-		{"distribution-tenant-by-domain", http.MethodGet, opGetDistributionTenantByDomain},
 	}
 
 	for _, m := range exact {
@@ -958,50 +1021,15 @@ func parseCFMiscPathSimple(method, suffix string) string {
 		}
 	}
 
-	if strings.HasPrefix(suffix, "distributions/by-trust-store-id/") {
-		return opListDistributionsByTrustStore
-	}
-
-	if strings.HasPrefix(suffix, "distributions/by-realtime-log-config") && method == http.MethodGet {
-		return opListDistributionsByRealtimeLogConfig
-	}
-
 	return ""
 }
 
 // parseCFMiscPathByDistribution handles prefix-based distribution listing paths.
+// The "distributions/by-*" ListDistributionsBy* family and
+// GetManagedCertificateDetails no longer live here -- see
+// parseCFDistributionsByPath and parseCFManagedCertificatePath, which route
+// their real camelCase paths.
 func parseCFMiscPathByDistribution(method, suffix string) (string, string) {
-	type prefixOp struct {
-		prefix string
-		op     string
-	}
-
-	prefixes := []prefixOp{
-		{"distributions/by-cache-policy-id/", opListDistributionsByCachePolicyID},
-		{"distributions/by-origin-request-policy-id/", opListDistributionsByOriginRequestPol},
-		{"distributions/by-response-headers-policy-id/", opListDistributionsByResponseHeadersPol},
-		{"distributions/by-web-acl-id/", opListDistributionsByWebACLID},
-		{"distributions/by-key-group/", opListDistributionsByKeyGroup},
-		{"distributions/by-vpc-origin-id/", opListDistributionsByVpcOriginID},
-		{"distributions/by-anycast-ip-list-id/", opListDistributionsByAnycastIPListID},
-		{"distributions/by-connection-function/", opListDistributionsByConnectionFunction},
-	}
-
-	if method == http.MethodGet {
-		for _, p := range prefixes {
-			if after, ok := strings.CutPrefix(suffix, p.prefix); ok {
-				return p.op, after
-			}
-		}
-	}
-
-	if strings.HasPrefix(suffix, "distribution-tenant/") && strings.HasSuffix(suffix, "/managed-certificate-details") {
-		id := strings.TrimPrefix(suffix, "distribution-tenant/")
-		id = strings.TrimSuffix(id, "/managed-certificate-details")
-
-		return opGetManagedCertificateDetails, id
-	}
-
 	if strings.HasPrefix(suffix, "distribution/") && strings.HasSuffix(suffix, "/function-associations") {
 		id := strings.TrimPrefix(suffix, "distribution/")
 		id = strings.TrimSuffix(id, "/function-associations")

@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -245,7 +248,7 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 				fle, err := h.Backend.CreateFieldLevelEncryption("upd-fle-cfg", "original", nil)
 				require.NoError(t, err)
 
-				return "/2020-05-31/field-level-encryption/" + fle.ID
+				return "/2020-05-31/field-level-encryption/" + fle.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
@@ -339,6 +342,96 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestUpdateFieldLevelEncryptionConfig_RealClient drives the real
+// aws-sdk-go-v2 client to prove UpdateFieldLevelEncryptionConfig is
+// reachable. Real UpdateFieldLevelEncryptionConfig PUTs to
+// /field-level-encryption/{Id}/config (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpUpdateFieldLevelEncryptionConfig's SplitURI);
+// gopherstack previously bound it to the bare /field-level-encryption/{Id}
+// path instead, so every real client call 404'd (gopherstack-o31x).
+func TestUpdateFieldLevelEncryptionConfig_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	fle, err := h.Backend.CreateFieldLevelEncryption("real-client-fle", "original", nil)
+	require.NoError(t, err)
+
+	updated, err := client.UpdateFieldLevelEncryptionConfig(t.Context(), &cfsdk.UpdateFieldLevelEncryptionConfigInput{
+		Id: aws.String(fle.ID),
+		FieldLevelEncryptionConfig: &types.FieldLevelEncryptionConfig{
+			CallerReference: aws.String("real-client-fle"),
+			Comment:         aws.String("updated"),
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.FieldLevelEncryption)
+	assert.Equal(t, "updated", aws.ToString(updated.FieldLevelEncryption.FieldLevelEncryptionConfig.Comment))
+}
+
+// TestUpdateFieldLevelEncryptionProfile_RealClient drives the real
+// aws-sdk-go-v2 client to prove UpdateFieldLevelEncryptionProfile is
+// reachable. Real UpdateFieldLevelEncryptionProfile PUTs to
+// /field-level-encryption-profile/{Id}/config (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpUpdateFieldLevelEncryptionProfile's
+// SplitURI); gopherstack previously bound it to the bare
+// /field-level-encryption-profile/{Id} path instead, so every real client
+// call 404'd (gopherstack-o31x).
+func TestUpdateFieldLevelEncryptionProfile_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	pk, err := h.Backend.CreatePublicKey(
+		"real-client-fle-profile-pk",
+		"real-client-fle-profile-pk",
+		"",
+		testRSA2048PublicKeyPEM,
+	)
+	require.NoError(t, err)
+
+	profile, err := h.Backend.CreateFieldLevelEncryptionProfile(
+		"real-client-fle-profile", "original", []cloudfront.EncryptionEntity{
+			{PublicKeyID: pk.ID, ProviderID: "prov", FieldPatterns: []string{"field1"}},
+		},
+	)
+	require.NoError(t, err)
+
+	updated, err := client.UpdateFieldLevelEncryptionProfile(
+		t.Context(),
+		&cfsdk.UpdateFieldLevelEncryptionProfileInput{
+			Id: aws.String(profile.ID),
+			FieldLevelEncryptionProfileConfig: &types.FieldLevelEncryptionProfileConfig{
+				CallerReference: aws.String("real-client-fle-profile"),
+				Name:            aws.String("real-client-fle-profile"),
+				Comment:         aws.String("updated"),
+				EncryptionEntities: &types.EncryptionEntities{
+					Quantity: aws.Int32(1),
+					Items: []types.EncryptionEntity{
+						{
+							PublicKeyId: aws.String(pk.ID),
+							ProviderId:  aws.String("prov"),
+							FieldPatterns: &types.FieldPatterns{
+								Quantity: aws.Int32(1),
+								Items:    []string{"field1"},
+							},
+						},
+					},
+				},
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, updated.FieldLevelEncryptionProfile)
+	assert.Equal(
+		t,
+		"updated",
+		aws.ToString(updated.FieldLevelEncryptionProfile.FieldLevelEncryptionProfileConfig.Comment),
+	)
 }
 
 // TestFieldLevelEncryptionProfileCRUD covers the full FLE Profile lifecycle via the HTTP handler.
@@ -449,7 +542,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 				p, err := h.Backend.CreateFieldLevelEncryptionProfile("old-fle-profile", "original", nil)
 				require.NoError(t, err)
 
-				return "/2020-05-31/field-level-encryption-profile/" + p.ID
+				return "/2020-05-31/field-level-encryption-profile/" + p.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {

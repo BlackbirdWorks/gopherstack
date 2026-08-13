@@ -86,7 +86,7 @@ func TestListDistributionTenantsByCustomization_RealSDKRequestShape(t *testing.T
 		otherID := createTenantForCustomizationTest(t, h, "cert-other.example.com")
 
 		certRec := doXML(
-			t, h, http.MethodGet, cfTenantPrefix+"distribution-tenant/"+matchedID+"/managed-certificate-details", nil,
+			t, h, http.MethodGet, cfTenantPrefix+"managed-certificate/"+matchedID, nil,
 		)
 		require.Equal(t, http.StatusOK, certRec.Code)
 		certBody := certRec.Body.String()

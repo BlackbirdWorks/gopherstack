@@ -34,7 +34,7 @@ func TestXMLUnmarshalErrorHandled(t *testing.T) {
 		{
 			name:   "create_monitoring_subscription",
 			method: http.MethodPost,
-			setup:  staticCFPath(prefix + "distribution/d1/monitoring-subscription"),
+			setup:  staticCFPath(prefix + "distributions/d1/monitoring-subscription"),
 		},
 		{
 			name:   "create_realtime_log_config",
@@ -69,7 +69,7 @@ func TestXMLUnmarshalErrorHandled(t *testing.T) {
 		{
 			name:   "update_field_level_encryption",
 			method: http.MethodPut,
-			setup:  staticCFPath(prefix + "field-level-encryption/x"),
+			setup:  staticCFPath(prefix + "field-level-encryption/x/config"),
 		},
 		{
 			name:   "create_field_level_encryption_profile",
@@ -79,7 +79,7 @@ func TestXMLUnmarshalErrorHandled(t *testing.T) {
 		{
 			name:   "update_field_level_encryption_profile",
 			method: http.MethodPut,
-			setup:  staticCFPath(prefix + "field-level-encryption-profile/x"),
+			setup:  staticCFPath(prefix + "field-level-encryption-profile/x/config"),
 		},
 		{
 			name:   "create_distribution_tenant",
@@ -134,17 +134,9 @@ func TestXMLUnmarshalErrorHandled(t *testing.T) {
 			setup:  staticCFPath(prefix + "public-key"),
 		},
 		{
-			// NOTE: real UpdatePublicKey PUTs to /public-key/{Id}/config
-			// (cloudfront@v1.67.4 serializers.go), but gopherstack's route table
-			// currently binds UpdatePublicKey to the bare /public-key/{Id} path
-			// instead and leaves the /config-suffixed PUT unmatched
-			// (handler_paths.go parseCFPublicKeyRealtimePath passes
-			// updateConfigOp=""). That routing gap is a separate, pre-existing
-			// bug (gopherstack-ob1g follow-up) -- this case exercises the path
-			// gopherstack actually serves today.
 			name:   "update_public_key",
 			method: http.MethodPut,
-			setup:  staticCFPath(prefix + "public-key/x"),
+			setup:  staticCFPath(prefix + "public-key/x/config"),
 		},
 		{
 			name:   "create_key_group",

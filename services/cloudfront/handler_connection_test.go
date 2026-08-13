@@ -51,16 +51,19 @@ func TestConnectionGroup_Full(t *testing.T) {
 		t.Errorf("expected generated routing endpoint, got: %s", getOut)
 	}
 
-	// GetByRoutingEndpoint (query param, not path segment).
+	// GetConnectionGroupByRoutingEndpoint is the bare GET "connection-group" (RoutingEndpoint
+	// travels as a query value; cloudfront@v1.67.4 serializers.go:
+	// awsRestxml_serializeOpGetConnectionGroupByRoutingEndpoint's SplitURI).
 	byEndpointOut := cfOK(
-		t, h, http.MethodGet, prefix+"connection-group-by-routing-endpoint?RoutingEndpoint="+routingEndpoint, "",
+		t, h, http.MethodGet, prefix+"connection-group?RoutingEndpoint="+routingEndpoint, "",
 	)
 	if extractXMLID(t, byEndpointOut) != id {
 		t.Errorf("get-by-routing-endpoint mismatch: %s", byEndpointOut)
 	}
 
-	// List.
-	listOut := cfOK(t, h, http.MethodGet, prefix+"connection-group", "")
+	// List is POST to the plural "connection-groups" path (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpListConnectionGroups's SplitURI).
+	listOut := cfOK(t, h, http.MethodPost, prefix+"connection-groups", "")
 	if !strings.Contains(listOut, id) {
 		t.Errorf("list missing id: %s", listOut)
 	}
@@ -89,7 +92,7 @@ func TestConnectionGroup_Full(t *testing.T) {
 
 	// Routing endpoint index must be cleaned up on delete.
 	afterDeleteRR := cfRequest(
-		t, h, http.MethodGet, prefix+"connection-group-by-routing-endpoint?RoutingEndpoint="+routingEndpoint, "",
+		t, h, http.MethodGet, prefix+"connection-group?RoutingEndpoint="+routingEndpoint, "",
 	)
 	if afterDeleteRR.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 after delete, got %d: %s", afterDeleteRR.Code, afterDeleteRR.Body.String())
@@ -131,7 +134,7 @@ func TestConnectionGroup_NotFound(t *testing.T) {
 	}
 
 	byEndpointRR := cfRequest(
-		t, h, http.MethodGet, prefix+"connection-group-by-routing-endpoint?RoutingEndpoint=nope.cloudfront.net", "",
+		t, h, http.MethodGet, prefix+"connection-group?RoutingEndpoint=nope.cloudfront.net", "",
 	)
 	if byEndpointRR.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 on get-by-routing-endpoint, got %d: %s", byEndpointRR.Code, byEndpointRR.Body.String())
@@ -262,7 +265,7 @@ func TestConnectionGroup_Persistence(t *testing.T) {
 
 	// The routing-endpoint index must still resolve after restore.
 	byEndpointOut := cfOK(
-		t, h2, http.MethodGet, prefix+"connection-group-by-routing-endpoint?RoutingEndpoint="+routingEndpoint, "",
+		t, h2, http.MethodGet, prefix+"connection-group?RoutingEndpoint="+routingEndpoint, "",
 	)
 	if extractXMLID(t, byEndpointOut) != id {
 		t.Errorf("expected routing endpoint index restored, got: %s", byEndpointOut)
@@ -325,8 +328,9 @@ func TestConnectionFunction_Full(t *testing.T) {
 		t.Errorf("expected describe to include comment, got: %s", describeOut)
 	}
 
-	// List.
-	listOut := cfOK(t, h, http.MethodGet, prefix+"connection-function", "")
+	// List is POST to the plural "connection-functions" path (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpListConnectionFunctions's SplitURI).
+	listOut := cfOK(t, h, http.MethodPost, prefix+"connection-functions", "")
 	if !strings.Contains(listOut, id) {
 		t.Errorf("list missing id: %s", listOut)
 	}
@@ -592,7 +596,17 @@ func TestListDistributionsByConnectionFunction(t *testing.T) {
 		`</DistributionConfig>`
 	cfOK(t, h, http.MethodPost, prefix+"distribution", distBody)
 
-	resp := cfOK(t, h, http.MethodGet, prefix+"distributions/by-connection-function/"+fnID, "")
+	// Real ListDistributionsByConnectionFunction is GET /2020-05-31/distributionsByConnectionFunction
+	// with ConnectionFunctionIdentifier as a query value, not a URI path segment
+	// (cloudfront@v1.67.4 serializers.go:
+	// awsRestxml_serializeOpHttpBindingsListDistributionsByConnectionFunctionInput).
+	resp := cfOK(
+		t,
+		h,
+		http.MethodGet,
+		prefix+"distributionsByConnectionFunction?ConnectionFunctionIdentifier="+fnID,
+		"",
+	)
 	if !strings.Contains(resp, "DistributionList") {
 		t.Errorf("expected DistributionList, got: %s", resp)
 	}
@@ -600,7 +614,10 @@ func TestListDistributionsByConnectionFunction(t *testing.T) {
 		t.Errorf("expected non-empty list, got: %s", resp)
 	}
 
-	empty := cfOK(t, h, http.MethodGet, prefix+"distributions/by-connection-function/nonexistent-fn", "")
+	empty := cfOK(
+		t, h, http.MethodGet,
+		prefix+"distributionsByConnectionFunction?ConnectionFunctionIdentifier=nonexistent-fn", "",
+	)
 	if !strings.Contains(empty, "<Quantity>0</Quantity>") {
 		t.Errorf("expected empty list for unrelated function, got: %s", empty)
 	}
@@ -627,8 +644,9 @@ func TestConnectionGroup_ListDistributionsByConnectionGroup(t *testing.T) {
 		t.Errorf("get mismatch: %s", out2)
 	}
 
-	// List
-	out3 := cfOK(t, h, http.MethodGet, prefix+"connection-group", "")
+	// List is POST to the plural "connection-groups" path (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpListConnectionGroups's SplitURI).
+	out3 := cfOK(t, h, http.MethodPost, prefix+"connection-groups", "")
 	if !strings.Contains(out3, id) {
 		t.Errorf("list missing id: %s", out3)
 	}
