@@ -282,6 +282,11 @@ type describeReplicationTableStatisticsInput struct {
 	ReplicationConfigArn *string `json:"ReplicationConfigArn"`
 	Marker               *string `json:"Marker"`
 	MaxRecords           *int32  `json:"MaxRecords"`
+	// Filters is accepted for wire-shape parity (real DescribeReplicationTableStatisticsInput
+	// carries []types.Filter) but is never applied: ReplicationTableStatistics is always
+	// empty in this emulation (see the handler doc below), so there is no per-table state
+	// for a filter to narrow.
+	Filters []filterEntry `json:"Filters"`
 }
 
 type describeReplicationTableStatisticsOutput struct {

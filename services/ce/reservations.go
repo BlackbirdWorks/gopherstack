@@ -13,7 +13,19 @@ import (
 func (b *InMemoryBackend) GetReservationUtilization(
 	start, end, granularity string,
 ) []ReservationUtilizationByTime {
-	b.mu.RLock("GetReservationUtilization")
+	return b.GetReservationUtilizationFiltered(start, end, granularity, nil)
+}
+
+// GetReservationUtilizationFiltered is GetReservationUtilization narrowed to
+// ledger entries whose Service is in serviceFilter (when non-empty), giving
+// GetReservationUtilizationInput.Filter's SERVICE dimension a real,
+// non-fabricated effect. Other documented Filter dimensions (AZ, PLATFORM,
+// TENANCY, ...) have no per-entry breakdown in this emulator's ledger and are
+// not applied.
+func (b *InMemoryBackend) GetReservationUtilizationFiltered(
+	start, end, granularity string, serviceFilter []string,
+) []ReservationUtilizationByTime {
+	b.mu.RLock("GetReservationUtilizationFiltered")
 	defer b.mu.RUnlock()
 
 	buckets := buildTimeBuckets(start, end, granularity)
@@ -22,9 +34,15 @@ func (b *InMemoryBackend) GetReservationUtilization(
 	for _, bucket := range buckets {
 		var total float64
 		for _, e := range b.costLedgerInBucket(bucket.start, bucket.end) {
-			if strings.Contains(e.Service, "Elastic Compute Cloud") {
-				total += e.BlendedCost
+			if !strings.Contains(e.Service, "Elastic Compute Cloud") {
+				continue
 			}
+
+			if len(serviceFilter) > 0 && !stringSliceContainsFold(serviceFilter, e.Service) {
+				continue
+			}
+
+			total += e.BlendedCost
 		}
 
 		purchased := total * riPurchasedCostRatio
@@ -59,7 +77,19 @@ func (b *InMemoryBackend) GetReservationUtilization(
 func (b *InMemoryBackend) GetReservationCoverage(
 	start, end, granularity string,
 ) []ReservationCoverageByTime {
-	b.mu.RLock("GetReservationCoverage")
+	return b.GetReservationCoverageFiltered(start, end, granularity, nil)
+}
+
+// GetReservationCoverageFiltered is GetReservationCoverage narrowed to ledger
+// entries whose Service is in serviceFilter (when non-empty), giving
+// GetReservationCoverageInput.Filter's SERVICE dimension a real,
+// non-fabricated effect. Other documented Filter dimensions (AZ, PLATFORM,
+// TENANCY, ...) have no per-entry breakdown in this emulator's ledger and are
+// not applied.
+func (b *InMemoryBackend) GetReservationCoverageFiltered(
+	start, end, granularity string, serviceFilter []string,
+) []ReservationCoverageByTime {
+	b.mu.RLock("GetReservationCoverageFiltered")
 	defer b.mu.RUnlock()
 
 	buckets := buildTimeBuckets(start, end, granularity)
@@ -68,6 +98,10 @@ func (b *InMemoryBackend) GetReservationCoverage(
 	for _, bucket := range buckets {
 		var total float64
 		for _, e := range b.costLedgerInBucket(bucket.start, bucket.end) {
+			if len(serviceFilter) > 0 && !stringSliceContainsFold(serviceFilter, e.Service) {
+				continue
+			}
+
 			total += e.BlendedCost
 		}
 

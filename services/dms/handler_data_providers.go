@@ -78,9 +78,10 @@ func (h *Handler) handleDeleteDataProvider(
 }
 
 type describeDataProvidersInput struct {
-	DataProviderIdentifier *string `json:"DataProviderIdentifier"`
-	Marker                 *string `json:"Marker"`
-	MaxRecords             *int32  `json:"MaxRecords"`
+	DataProviderIdentifier *string       `json:"DataProviderIdentifier"`
+	Marker                 *string       `json:"Marker"`
+	MaxRecords             *int32        `json:"MaxRecords"`
+	Filters                []filterEntry `json:"Filters"`
 }
 
 type describeDataProvidersOutput struct {
@@ -91,7 +92,12 @@ type describeDataProvidersOutput struct {
 func (h *Handler) handleDescribeDataProviders(
 	ctx context.Context, in *describeDataProvidersInput,
 ) (*describeDataProvidersOutput, error) {
-	list, err := h.Backend.DescribeDataProviders(ctx, ptrconv.String(in.DataProviderIdentifier))
+	identifier := ptrconv.String(in.DataProviderIdentifier)
+	if identifier == "" {
+		identifier = extractFilterValue(in.Filters, "data-provider-identifier")
+	}
+
+	list, err := h.Backend.DescribeDataProviders(ctx, identifier)
 	if err != nil {
 		return nil, err
 	}

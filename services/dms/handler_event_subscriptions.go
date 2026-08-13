@@ -107,7 +107,8 @@ func (h *Handler) handleDeleteEventSubscription(
 }
 
 type describeEventCategoriesInput struct {
-	SourceType *string `json:"SourceType"`
+	SourceType *string       `json:"SourceType"`
+	Filters    []filterEntry `json:"Filters"`
 }
 
 type describeEventCategoriesOutput struct {
@@ -150,6 +151,10 @@ func (h *Handler) handleDescribeEventCategories(
 	_ context.Context, in *describeEventCategoriesInput,
 ) (*describeEventCategoriesOutput, error) {
 	sourceType := ptrconv.String(in.SourceType)
+	if sourceType == "" {
+		sourceType = extractFilterValue(in.Filters, "source-type")
+	}
+
 	groups := dmsEventCategoryGroupList()
 	result := make([]eventCategoryGroupJSON, 0, len(groups))
 
@@ -171,9 +176,10 @@ func (h *Handler) handleDescribeEventCategories(
 }
 
 type describeEventSubscriptionsInput struct {
-	SubscriptionName *string `json:"SubscriptionName"`
-	Marker           *string `json:"Marker"`
-	MaxRecords       *int32  `json:"MaxRecords"`
+	SubscriptionName *string       `json:"SubscriptionName"`
+	Marker           *string       `json:"Marker"`
+	MaxRecords       *int32        `json:"MaxRecords"`
+	Filters          []filterEntry `json:"Filters"`
 }
 
 type describeEventSubscriptionsOutput struct {
@@ -184,7 +190,16 @@ type describeEventSubscriptionsOutput struct {
 func (h *Handler) handleDescribeEventSubscriptions(
 	ctx context.Context, in *describeEventSubscriptionsInput,
 ) (*describeEventSubscriptionsOutput, error) {
-	list, err := h.Backend.DescribeEventSubscriptions(ctx, ptrconv.String(in.SubscriptionName))
+	// EventSubscription has no distinct ARN in this emulation (see
+	// eventSubscriptionJSON), so event-subscription-arn and
+	// event-subscription-id both resolve against SubscriptionName, the only
+	// identifier that exists.
+	name := ptrconv.String(in.SubscriptionName)
+	if name == "" {
+		name = extractFilterValue(in.Filters, "event-subscription-arn", "event-subscription-id")
+	}
+
+	list, err := h.Backend.DescribeEventSubscriptions(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +219,9 @@ func (h *Handler) handleDescribeEventSubscriptions(
 }
 
 type describeEventsInput struct {
-	Marker     *string `json:"Marker"`
-	MaxRecords *int32  `json:"MaxRecords"`
+	Marker     *string       `json:"Marker"`
+	MaxRecords *int32        `json:"MaxRecords"`
+	Filters    []filterEntry `json:"Filters"`
 }
 
 type describeEventsOutput struct {
@@ -221,8 +237,15 @@ func (h *Handler) handleDescribeEvents(
 		return nil, err
 	}
 
+	// "The only valid filter is replication-instance-id" per DescribeEventsInput.
+	riFilter := extractFilterValue(in.Filters, "replication-instance-id")
+
 	all := make([]map[string]any, 0, len(list))
 	for _, e := range list {
+		if riFilter != "" && e.SourceIdentifier != riFilter {
+			continue
+		}
+
 		all = append(all, map[string]any{
 			"SourceIdentifier": e.SourceIdentifier,
 			"SourceType":       e.SourceType,

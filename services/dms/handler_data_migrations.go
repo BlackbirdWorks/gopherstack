@@ -100,9 +100,10 @@ func (h *Handler) handleDeleteDataMigration(
 }
 
 type describeDataMigrationsInput struct {
-	DataMigrationIdentifier *string `json:"DataMigrationIdentifier"`
-	Marker                  *string `json:"Marker"`
-	MaxRecords              *int32  `json:"MaxRecords"`
+	DataMigrationIdentifier *string       `json:"DataMigrationIdentifier"`
+	Marker                  *string       `json:"Marker"`
+	MaxRecords              *int32        `json:"MaxRecords"`
+	Filters                 []filterEntry `json:"Filters"`
 }
 
 type describeDataMigrationsOutput struct {
@@ -113,7 +114,12 @@ type describeDataMigrationsOutput struct {
 func (h *Handler) handleDescribeDataMigrations(
 	ctx context.Context, in *describeDataMigrationsInput,
 ) (*describeDataMigrationsOutput, error) {
-	list, err := h.Backend.DescribeDataMigrations(ctx, ptrconv.String(in.DataMigrationIdentifier))
+	identifier := ptrconv.String(in.DataMigrationIdentifier)
+	if identifier == "" {
+		identifier = extractFilterValue(in.Filters, "data-migration-identifier")
+	}
+
+	list, err := h.Backend.DescribeDataMigrations(ctx, identifier)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ package ce
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -64,8 +65,9 @@ func (h *Handler) handleGetSavingsPlanPurchaseRecommendationDetails(
 }
 
 type getSavingsPlansCoverageInput struct {
-	Filter      any               `json:"Filter"`
+	Filter      *ceExpression     `json:"Filter"`
 	TimePeriod  map[string]string `json:"TimePeriod"`
+	SortBy      *ceSortDefinition `json:"SortBy"`
 	Granularity string            `json:"Granularity"`
 	NextToken   string            `json:"NextToken"`
 	GroupBy     []groupBySpec     `json:"GroupBy"`
@@ -84,6 +86,14 @@ type getSavingsPlansCoverageOutput struct {
 	SavingsPlansCoverages []savingsPlanCoverage `json:"SavingsPlansCoverages"`
 }
 
+// handleGetSavingsPlansCoverage computes a single synthetic coverage entry
+// for the request's region -- this emulator has no per-REGION/SERVICE/
+// INSTANCE_FAMILY Savings Plans coverage breakdown to filter across (see
+// GetSavingsPlansUtilization), so Filter's only real (non-fabricated) effect
+// is on the REGION dimension: since the entry's Region is always ceRegion(ctx),
+// a REGION filter that excludes it correctly narrows the result to zero
+// items instead of silently ignoring the filter. SortBy on a single-item list
+// is documented as inert rather than implemented.
 func (h *Handler) handleGetSavingsPlansCoverage(
 	ctx context.Context,
 	in *getSavingsPlansCoverageInput,
@@ -98,13 +108,20 @@ func (h *Handler) handleGetSavingsPlansCoverage(
 		}
 	}
 
+	region := ceRegion(ctx)
+
+	if in.Filter != nil && in.Filter.Dimensions != nil && strings.EqualFold(in.Filter.Dimensions.Key, "REGION") &&
+		!stringSliceContainsFold(in.Filter.Dimensions.Values, region) {
+		return &getSavingsPlansCoverageOutput{SavingsPlansCoverages: []savingsPlanCoverage{}}, nil
+	}
+
 	spUtil := h.Backend.GetSavingsPlansUtilization(start, end)
 
 	coverages := []savingsPlanCoverage{
 		{
 			Attributes: map[string]string{
 				"SavingsPlansType": handlerSavingsPlansType,
-				"Region":           ceRegion(ctx),
+				"Region":           region,
 			},
 			Coverage: map[string]string{
 				"OnDemandCost":              spUtil.Savings.OnDemandCostEquivalent,
@@ -122,13 +139,14 @@ func (h *Handler) handleGetSavingsPlansCoverage(
 }
 
 type getSavingsPlansPurchaseRecommendationInput struct {
-	SavingsPlansType     string `json:"SavingsPlansType"`
-	TermInYears          string `json:"TermInYears"`
-	PaymentOption        string `json:"PaymentOption"`
-	LookbackPeriodInDays string `json:"LookbackPeriodInDays"`
-	AccountScope         string `json:"AccountScope"`
-	NextPageToken        string `json:"NextPageToken"`
-	PageSize             int    `json:"PageSize"`
+	Filter               *ceExpression `json:"Filter"`
+	SavingsPlansType     string        `json:"SavingsPlansType"`
+	TermInYears          string        `json:"TermInYears"`
+	PaymentOption        string        `json:"PaymentOption"`
+	LookbackPeriodInDays string        `json:"LookbackPeriodInDays"`
+	AccountScope         string        `json:"AccountScope"`
+	NextPageToken        string        `json:"NextPageToken"`
+	PageSize             int           `json:"PageSize"`
 }
 
 type savingsPlansPurchaseRecommendation struct {
@@ -146,10 +164,26 @@ type getSavingsPlansPurchaseRecommendationOutput struct {
 	NextPageToken          string                              `json:"NextPageToken,omitempty"`
 }
 
+// handleGetSavingsPlansPurchaseRecommendation always synthesizes exactly one
+// recommendation for the caller's own account (there is no multi-account
+// state in this emulator). Real GetSavingsPlansPurchaseRecommendation only
+// documents filtering by the LINKED_ACCOUNT dimension, so that is the one
+// Filter clause given a real (non-fabricated) effect here: an account that
+// doesn't match the filter genuinely gets no recommendation, rather than the
+// filter being silently accepted and ignored.
 func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 	ctx context.Context,
 	in *getSavingsPlansPurchaseRecommendationInput,
 ) (*getSavingsPlansPurchaseRecommendationOutput, error) {
+	if !matchesLinkedAccountFilter(in.Filter, awsmeta.Account(ctx)) {
+		return &getSavingsPlansPurchaseRecommendationOutput{
+			Metadata: map[string]string{
+				metadataRecommendationTotalCount: "0",
+				"GenerationTimestamp":            "2024-01-01T00:00:00Z",
+			},
+		}, nil
+	}
+
 	end := "2024-01-01"
 	start := "2023-10-01"
 
@@ -204,9 +238,9 @@ func (h *Handler) handleGetSavingsPlansPurchaseRecommendation(
 			},
 		},
 		Metadata: map[string]string{
-			"RecommendationTotalCount": "1",
-			"GenerationTimestamp":      "2024-01-01T00:00:00Z",
-			"AdditionalMetadata":       "lookback=30days",
+			metadataRecommendationTotalCount: "1",
+			"GenerationTimestamp":            "2024-01-01T00:00:00Z",
+			"AdditionalMetadata":             "lookback=30days",
 		},
 	}, nil
 }

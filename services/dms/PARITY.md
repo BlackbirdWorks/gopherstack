@@ -62,7 +62,7 @@ ops:
   MoveReplicationTask: {wire: ok, errors: ok, state: ok, persist: ok}
   ReloadTables: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- was a disguised no-op that echoed ReplicationTaskArn without validating anything; now requires TablesToReload, validates ReloadOption enum, 404s on an unknown task, and 400 InvalidResourceStateFault unless the task is currently RUNNING (matches the SDK doc: 'You can only use this operation with a task in the RUNNING state')"}
   ReloadReplicationTables: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass -- two bugs: (1) the request field was wrongly named ReplicationTaskArn instead of the real ReplicationConfigArn, silently discarding the client's ARN; (2) it never validated anything. Now requires TablesToReload, validates ReloadOption, 404s on an unknown replication config, and 400s unless the associated Replication is RUNNING"}
-  DescribeReplicationTableStatistics: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED 2026-08-11 -- request/response fields were copy-pasted from the sibling DescribeTableStatistics op (ReplicationTaskArn/TableStatistics) instead of this op's real fields (ReplicationConfigArn/ReplicationTableStatistics); the wrong request field meant the config ARN was silently discarded and the handler queried an arbitrary replication task instead. Now validates the config exists (404 if not) and echoes ReplicationConfigArn. Always returns an empty ReplicationTableStatistics list -- ReplicationConfig carries no TableMappings state in this emulation (see models.go), so per-table stats have no honest backend source; adding fabricated stats would be worse than an accurate empty list"}
+  DescribeReplicationTableStatistics: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED 2026-08-11 -- request/response fields were copy-pasted from the sibling DescribeTableStatistics op (ReplicationTaskArn/TableStatistics) instead of this op's real fields (ReplicationConfigArn/ReplicationTableStatistics); the wrong request field meant the config ARN was silently discarded and the handler queried an arbitrary replication task instead. Now validates the config exists (404 if not) and echoes ReplicationConfigArn. Always returns an empty ReplicationTableStatistics list -- ReplicationConfig carries no TableMappings state in this emulation (see models.go), so per-table stats have no honest backend source; adding fabricated stats would be worse than an accurate empty list. 2026-08-12 (gopherstack-o53q): Filters []types.Filter is now accepted on the wire for shape parity, but deliberately left inert and documented as such -- filtering an always-empty list has no observable effect, and there is no per-table state anywhere in this emulation for a filter to narrow."}
   CreateReplicationSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates ReplicationSubnetGroupDescription/SubnetIds as required (real API marks both required); SubnetIds accepted but not modeled (no VPC subnet emulation), matching pre-existing convention. FIXED 2026-07-31 -- the response wire shape emitted a ReplicationSubnetGroupArn field; the real ReplicationSubnetGroup type has no Arn field at all (subnet groups are referenced by identifier on the wire; a client must build the ARN itself from the deterministic arn:aws:dms:<region>:<account>:subgrp:<identifier> format to tag one). Field removed from the wire struct; the internal Go model still tracks an ARN for indexing/tagging lookups, which is correct -- only the JSON response was wrong"}
   DescribeReplicationSubnetGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "same Arn-field fix as CreateReplicationSubnetGroup (2026-07-31)"}
   ModifyReplicationSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "a real backend.ModifyReplicationSubnetGroup mutates and persists the description. Same Arn-field fix as CreateReplicationSubnetGroup (2026-07-31)"}
@@ -81,17 +81,17 @@ ops:
   BatchStartRecommendations: {wire: ok, errors: ok, state: ok, persist: ok, note: "seeds a recommendation per source endpoint; pre-existing, unchanged"}
   DescribeRecommendations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "recommendations are runtime-only (not in backendSnapshot); acceptable since Fleet Advisor overall is a low-value, AWS-EOL'd (May 2026) feature surface"}
   CreateDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeDataMigrations: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeDataMigrations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-12 (gopherstack-o53q) -- real DescribeDataMigrationsInput carries Filters []types.Filter, entirely absent from the request struct; a client's filter was silently dropped and the call returned success with the unfiltered list. Filters (data-migration-identifier) now merges with the existing DataMigrationIdentifier field and narrows the result."}
   ModifyDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
   StartDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
   StopDataMigration: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDataProvider: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeDataProviders: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeDataProviders: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-12 (gopherstack-o53q) -- same Filters-absent bug class as DescribeDataMigrations. Filters (data-provider-identifier) now merges with the existing DataProviderIdentifier field and narrows the result."}
   ModifyDataProvider: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was named DataProviderArn; the real ModifyDataProviderMessage field is DataProviderIdentifier, so every real client's identifier was silently discarded"}
   DeleteDataProvider: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- same DataProviderArn/DataProviderIdentifier bug as ModifyDataProvider"}
   CreateEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07-31 -- the response wire shape (eventSubscriptionJSON) used SubscriptionName and EventCategories, which are CreateEventSubscriptionMessage (request) field names; the real EventSubscription response type uses CustSubscriptionId and EventCategoriesList instead. A real SDK client deserializing the response got an empty subscription identifier and empty categories. Request-side field names (SubscriptionName/EventCategories on the input) were already correct and left unchanged -- the asymmetry between request and response field names is genuine AWS behavior, not a bug"}
-  DescribeEventSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CustSubscriptionId/EventCategoriesList fix as CreateEventSubscription (2026-07-31)"}
+  DescribeEventSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CustSubscriptionId/EventCategoriesList fix as CreateEventSubscription (2026-07-31). FIXED 2026-08-12 (gopherstack-o53q) -- real input also carries Filters []types.Filter (event-subscription-arn/event-subscription-id); EventSubscription has no distinct ARN in this emulation, so both filter names resolve against SubscriptionName, the only identifier that exists."}
   ModifyEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CustSubscriptionId/EventCategoriesList fix as CreateEventSubscription (2026-07-31)"}
   DeleteEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CustSubscriptionId/EventCategoriesList fix as CreateEventSubscription (2026-07-31)"}
   CreateInstanceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -103,27 +103,27 @@ ops:
   ModifyMigrationProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was named MigrationProjectArn; the real ModifyMigrationProjectMessage field is MigrationProjectIdentifier, so every real client's identifier was silently discarded"}
   DeleteMigrationProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- same MigrationProjectArn/MigrationProjectIdentifier bug as ModifyMigrationProject"}
   ImportCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-07-31 -- the backend stored CertificatePem on Import but the response wire shape (certificateJSON) never returned it, on Import or Describe, even though the real Certificate type carries CertificatePem. Now returned on both"}
-  DescribeCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CertificatePem fix as ImportCertificate (2026-07-31)"}
+  DescribeCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CertificatePem fix as ImportCertificate (2026-07-31). FIXED 2026-08-12 (gopherstack-o53q) -- real DescribeCertificatesInput carries Filters []types.Filter (certificate-arn/certificate-id), entirely absent from the request struct; a client's filter was silently dropped. Now narrows the returned list; proven with a multi-certificate test."}
   DeleteCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same CertificatePem fix as ImportCertificate (2026-07-31) -- certToJSON is shared by all three certificate ops"}
   DescribeAccountAttributes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "quota usage computed live from real counts"}
-  DescribeEvents: {wire: partial, errors: ok, state: ok, persist: n/a, note: "events recorded on Endpoint/ReplicationTask create/delete/start/stop, not persisted across restarts -- low value, matches many other services' event-log conventions"}
+  DescribeEvents: {wire: partial, errors: ok, state: ok, persist: n/a, note: "events recorded on Endpoint/ReplicationTask create/delete/start/stop, not persisted across restarts -- low value, matches many other services' event-log conventions. FIXED 2026-08-12 (gopherstack-o53q) -- real input also carries Filters []types.Filter; per the SDK doc 'the only valid filter is replication-instance-id', which is now applied against Event.SourceIdentifier and narrows the returned list."}
   DescribeOrderableReplicationInstances: {wire: ok, errors: ok, state: n/a, note: "static reference catalog, matches real AWS class list"}
   DescribeEngineVersions: {wire: ok, errors: ok, state: n/a, note: "static reference catalog"}
   DescribeEndpointTypes: {wire: ok, errors: ok, state: n/a, note: "static reference catalog"}
-  DescribeEventCategories: {wire: ok, errors: ok, state: n/a, note: "static reference catalog"}
+  DescribeEventCategories: {wire: ok, errors: ok, state: n/a, note: "static reference catalog. FIXED 2026-08-12 (gopherstack-o53q) -- real input also carries Filters []types.Filter alongside the existing SourceType field; a source-type filter value now falls back into the same lookup as the top-level SourceType field."}
   DescribeMetadataModel: {wire: ok, errors: ok, state: n/a, note: "FIXED this pass (gap #1) -- was an always-empty {} that only checked MigrationProjectIdentifier. Now requires MigrationProjectIdentifier/Origin/SelectionRules (all three are 'This member is required' on the real input) and returns the real {Definition, MetadataModelName, MetadataModelType, TargetMetadataModels} shape. Definition/MetadataModelName/MetadataModelType stay empty -- no schema-conversion engine exists to produce them, and the SDK doc explicitly says Definition 'might not be populated for some metadata models', so an empty-but-correctly-shaped response is not a stub (rule 4)."}
-  DescribeMetadataModelAssessments: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- wire content used invented field names (MigrationProjectIdentifier/SelectionRules) instead of the real SchemaConversionRequest shape (RequestIdentifier/MigrationProjectArn/Status); now correct. MigrationProjectIdentifier is now required, matching the real input"}
-  DescribeMetadataModelConversions: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
-  DescribeMetadataModelCreations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
-  DescribeMetadataModelExportsAsScript: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
-  DescribeMetadataModelExportsToTarget: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
-  DescribeMetadataModelImports: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments"}
+  DescribeMetadataModelAssessments: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- wire content used invented field names (MigrationProjectIdentifier/SelectionRules) instead of the real SchemaConversionRequest shape (RequestIdentifier/MigrationProjectArn/Status); now correct. MigrationProjectIdentifier is now required, matching the real input. FIXED 2026-08-12 (gopherstack-o53q) -- real input also carries Filters []types.Filter (request-id/status), absent from the request struct; a client's filter was silently dropped. listMetadataModelRequests now applies request-id/status filtering, shared by all six DescribeMetadataModel* list ops below."}
+  DescribeMetadataModelConversions: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments, including the 2026-08-12 Filters fix"}
+  DescribeMetadataModelCreations: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments, including the 2026-08-12 Filters fix"}
+  DescribeMetadataModelExportsAsScript: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments, including the 2026-08-12 Filters fix"}
+  DescribeMetadataModelExportsToTarget: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments, including the 2026-08-12 Filters fix"}
+  DescribeMetadataModelImports: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as DescribeMetadataModelAssessments, including the 2026-08-12 Filters fix"}
   DescribeMetadataModelChildren: {wire: ok, errors: ok, state: n/a, note: "FIXED this pass -- response field was named 'Items' with the wrong (request) shape; real field is MetadataModelChildren, a list of MetadataModelReference{MetadataModelName,SelectionRules}. Now requires MigrationProjectIdentifier/Origin/SelectionRules like DescribeMetadataModel. Always empty -- no child-model producer exists (there is no StartMetadataModelChildren op in the real API either; children only ever arise from a completed schema conversion)."}
   CancelMetadataModelConversion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- output was a flat {RequestIdentifier}; real shape is {Request: SchemaConversionRequest}. Cancelling an untracked request still succeeds (real AWS's Cancel ops are fire-and-forget), echoing a minimal SchemaConversionRequest"}
   CancelMetadataModelCreation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as CancelMetadataModelConversion"}
   DescribeConversionConfiguration: {wire: ok, errors: ok, state: n/a, note: "pre-existing, matches the real {ConversionConfiguration, MigrationProjectIdentifier} shape"}
   ModifyConversionConfiguration: {wire: ok, errors: ok, state: n/a, note: "pre-existing, matches the real shape; echoes the caller's ConversionConfiguration (no real schema-conversion config store)"}
-  DescribeExtensionPackAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- was hardcoded to always return an empty list, disconnected from StartExtensionPackAssociation. Now reads real extension-pack request rows"}
+  DescribeExtensionPackAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- was hardcoded to always return an empty list, disconnected from StartExtensionPackAssociation. Now reads real extension-pack request rows. FIXED 2026-08-12 (gopherstack-o53q) -- shares the same Filters (request-id/status) fix as DescribeMetadataModelAssessments via listMetadataModelRequests."}
   StartExtensionPackAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass -- was a disguised no-op returning a random UUID with no backend write, so the request was invisible to DescribeExtensionPackAssociations. Now records a real request row and requires MigrationProjectIdentifier"}
   GetTargetSelectionRules: {wire: ok, errors: ok, state: n/a, note: "FIXED this pass -- output was an invented {Rules: []} list shape; real output is a single TargetSelectionRules string. Now requires MigrationProjectIdentifier/SelectionRules and echoes the source rules as a best-effort identity mapping (no real schema-conversion engine to compute a genuine target counterpart)"}
   ExportMetadataModelAssessment: {wire: ok, errors: ok, state: n/a, note: "FIXED this pass -- PdfReport/CsvReport were missing the ObjectURL field (real ExportMetadataModelAssessmentResultEntry has both ObjectURL and S3ObjectKey); now both are legitimately omitted (optional pointer fields, no real S3 integration exists) instead of one being a fabricated empty string. MigrationProjectIdentifier/SelectionRules are now required"}
@@ -199,6 +199,34 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
   sagemaker's `PipelineDefinitionS3Location` and cloudformation's
   unsupported `AccountFilterType` values. The `Password` fix from
   2026-07-31 is unaffected and unchanged.
+
+- **2026-08-12 Filters-absent sweep (gopherstack-o53q)**: the gopherstack-7rq1
+  wire-field audit flagged 14 candidate Describe ops missing the real
+  optional `Filters []types.Filter` request member. All 14 were individually
+  read against `aws-sdk-go-v2/service/databasemigrationservice@v1.66.4`
+  (not assumed from the sibling pattern) and every one genuinely carries
+  `Filters` on the real input -- no false positives in this cluster, unlike
+  the 197-of-313 discard rate the parent audit found overall. Fixed via the
+  service's pre-existing `filterEntry`/`extractFilterValue` convention (see
+  `handler.go`, already used by `DescribeConnections`/`DescribeEndpoints`/
+  `DescribeReplicationInstances`/etc.): `DescribeCertificates`
+  (certificate-arn/certificate-id), `DescribeEventCategories` (source-type,
+  merged with the existing top-level field), `DescribeEventSubscriptions`
+  (event-subscription-arn/-id, both resolving to SubscriptionName since no
+  distinct ARN exists), `DescribeEvents` (replication-instance-id, matching
+  the SDK doc's "only valid filter"), `DescribeDataProviders`
+  (data-provider-identifier), `DescribeDataMigrations`
+  (data-migration-identifier), and the six schema-conversion Describe*
+  ops plus `DescribeExtensionPackAssociations` (request-id/status, applied
+  once in the shared `listMetadataModelRequests` helper). One op,
+  `DescribeReplicationTableStatistics`, genuinely has no state to filter --
+  `ReplicationTableStatistics` is always empty in this emulation (see its
+  note above) -- so `Filters` is accepted for wire-shape parity only, with no
+  filtering logic, documented rather than pretended. Every applied filter is
+  covered by a table-driven test in `handler_filters_test.go`;
+  `TestDescribeCertificatesFilterNarrows` proves genuine narrowing of a
+  multi-item result set (not just field parsing) by importing two
+  certificates and confirming the filtered response contains exactly one.
 
 - **Wire protocol**: `application/x-amz-json-1.1` (awsjson1.1), target prefix
   `AmazonDMSv20160101.<Action>`. All request/response bodies are flat JSON

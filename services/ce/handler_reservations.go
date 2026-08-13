@@ -2,14 +2,71 @@ package ce
 
 import (
 	"context"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// serviceDimensionFilter extracts the SERVICE dimension's Values from filter,
+// the one Dimensions key the reservation coverage/utilization ledger can
+// honor (see GetReservationCoverageFiltered/GetReservationUtilizationFiltered).
+func serviceDimensionFilter(filter *ceExpression) []string {
+	if filter == nil || filter.Dimensions == nil || !strings.EqualFold(filter.Dimensions.Key, "SERVICE") {
+		return nil
+	}
+
+	return filter.Dimensions.Values
+}
+
+// sortByTime reorders items by their TimePeriod.Start, honoring desc. Real
+// GetReservationCoverage/Utilization SortBy also supports several numeric
+// metric keys (OnDemandCost, CoverageHoursPercentage, ...); only the
+// documented "Time" key is applied here, so a request sorting by a numeric
+// key is accepted but left in natural (chronological) order rather than
+// fabricating a metric-based ordering.
+func sortByTime[T any](items []T, timePeriod func(T) map[string]string, desc bool) {
+	sort.SliceStable(items, func(i, j int) bool {
+		ti := timePeriod(items[i])[timePeriodKeyStart]
+		tj := timePeriod(items[j])[timePeriodKeyStart]
+
+		if desc {
+			return ti > tj
+		}
+
+		return ti < tj
+	})
+}
+
+// resolveCoverageTimeRange extracts start/end/granularity from a
+// GetReservationCoverage/Utilization-style request, applying the defaults
+// both operations share.
+func resolveCoverageTimeRange(timePeriod map[string]string, granularity string) (string, string, string) {
+	start, end := defaultStartDate, defaultEndDate
+
+	if timePeriod != nil {
+		if s := timePeriod["Start"]; s != "" {
+			start = s
+		}
+
+		if e := timePeriod["End"]; e != "" {
+			end = e
+		}
+	}
+
+	gran := granularity
+	if gran == "" {
+		gran = defaultGranularity
+	}
+
+	return start, end, gran
+}
+
 type getReservationCoverageInput struct {
-	Filter        any               `json:"Filter"`
+	Filter        *ceExpression     `json:"Filter"`
 	TimePeriod    map[string]string `json:"TimePeriod"`
+	SortBy        *ceSortDefinition `json:"SortBy"`
 	Granularity   string            `json:"Granularity"`
 	NextPageToken string            `json:"NextPageToken"`
 	GroupBy       []groupBySpec     `json:"GroupBy"`
@@ -25,22 +82,14 @@ func (h *Handler) handleGetReservationCoverage(
 	_ context.Context,
 	in *getReservationCoverageInput,
 ) (*getReservationCoverageOutput, error) {
-	start, end := defaultStartDate, defaultEndDate
-	if in.TimePeriod != nil {
-		if s := in.TimePeriod["Start"]; s != "" {
-			start = s
-		}
-		if e := in.TimePeriod["End"]; e != "" {
-			end = e
-		}
-	}
+	start, end, granularity := resolveCoverageTimeRange(in.TimePeriod, in.Granularity)
 
-	granularity := in.Granularity
-	if granularity == "" {
-		granularity = defaultGranularity
-	}
+	coverages := h.Backend.GetReservationCoverageFiltered(start, end, granularity, serviceDimensionFilter(in.Filter))
 
-	coverages := h.Backend.GetReservationCoverage(start, end, granularity)
+	if in.SortBy != nil && strings.EqualFold(in.SortBy.Key, "Time") {
+		sortByTime(coverages, func(c ReservationCoverageByTime) map[string]string { return c.TimePeriod },
+			sortDescending(in.SortBy.SortOrder))
+	}
 
 	var total *ReservationCoverageAgg
 	if len(coverages) > 0 {
@@ -55,19 +104,35 @@ func (h *Handler) handleGetReservationCoverage(
 }
 
 type getReservationPurchaseRecommendationInput struct {
-	Service              string `json:"Service"`
-	AccountScope         string `json:"AccountScope"`
-	LookbackPeriodInDays string `json:"LookbackPeriodInDays"`
-	TermInYears          string `json:"TermInYears"`
-	PaymentOption        string `json:"PaymentOption"`
-	NextPageToken        string `json:"NextPageToken"`
-	PageSize             int    `json:"PageSize"`
+	Filter               *ceExpression `json:"Filter"`
+	Service              string        `json:"Service"`
+	AccountScope         string        `json:"AccountScope"`
+	LookbackPeriodInDays string        `json:"LookbackPeriodInDays"`
+	TermInYears          string        `json:"TermInYears"`
+	PaymentOption        string        `json:"PaymentOption"`
+	NextPageToken        string        `json:"NextPageToken"`
+	PageSize             int           `json:"PageSize"`
 }
 
 type getReservationPurchaseRecommendationOutput struct {
 	NextPageToken   string                      `json:"NextPageToken,omitempty"`
 	Metadata        any                         `json:"Metadata,omitempty"`
 	Recommendations []ReservationRecommendation `json:"Recommendations"`
+}
+
+// matchesLinkedAccountFilter reports whether accountID satisfies filter's
+// LINKED_ACCOUNT Dimensions clause -- the only Dimensions key real AWS
+// documents for GetReservationPurchaseRecommendation's Filter. This emulator
+// is single-account (every recommendation is for b.accountID), so applying
+// this filter is a real, non-fabricated exclude/include decision: no filter
+// (or one that lists accountID) keeps the recommendation, any other
+// LINKED_ACCOUNT list excludes it.
+func matchesLinkedAccountFilter(filter *ceExpression, accountID string) bool {
+	if filter == nil || filter.Dimensions == nil || !strings.EqualFold(filter.Dimensions.Key, "LINKED_ACCOUNT") {
+		return true
+	}
+
+	return stringSliceContainsFold(filter.Dimensions.Values, accountID)
 }
 
 func (h *Handler) handleGetReservationPurchaseRecommendation(
@@ -78,6 +143,10 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 		in.Service, in.LookbackPeriodInDays, in.TermInYears, in.PaymentOption,
 	)
 
+	if !matchesLinkedAccountFilter(in.Filter, h.Backend.accountID) {
+		recs = nil
+	}
+
 	if recs == nil {
 		recs = []ReservationRecommendation{}
 	}
@@ -85,15 +154,16 @@ func (h *Handler) handleGetReservationPurchaseRecommendation(
 	return &getReservationPurchaseRecommendationOutput{
 		Recommendations: recs,
 		Metadata: map[string]string{
-			"RecommendationTotalCount": strconv.Itoa(len(recs)),
-			handlerCurrencyCode:        metricUnitUSD,
+			metadataRecommendationTotalCount: strconv.Itoa(len(recs)),
+			handlerCurrencyCode:              metricUnitUSD,
 		},
 	}, nil
 }
 
 type getReservationUtilizationInput struct {
-	Filter        any               `json:"Filter"`
+	Filter        *ceExpression     `json:"Filter"`
 	TimePeriod    map[string]string `json:"TimePeriod"`
+	SortBy        *ceSortDefinition `json:"SortBy"`
 	Granularity   string            `json:"Granularity"`
 	NextPageToken string            `json:"NextPageToken"`
 	GroupBy       []groupBySpec     `json:"GroupBy"`
@@ -109,22 +179,14 @@ func (h *Handler) handleGetReservationUtilization(
 	_ context.Context,
 	in *getReservationUtilizationInput,
 ) (*getReservationUtilizationOutput, error) {
-	start, end := defaultStartDate, defaultEndDate
-	if in.TimePeriod != nil {
-		if s := in.TimePeriod["Start"]; s != "" {
-			start = s
-		}
-		if e := in.TimePeriod["End"]; e != "" {
-			end = e
-		}
-	}
+	start, end, granularity := resolveCoverageTimeRange(in.TimePeriod, in.Granularity)
 
-	granularity := in.Granularity
-	if granularity == "" {
-		granularity = defaultGranularity
-	}
+	utils := h.Backend.GetReservationUtilizationFiltered(start, end, granularity, serviceDimensionFilter(in.Filter))
 
-	utils := h.Backend.GetReservationUtilization(start, end, granularity)
+	if in.SortBy != nil && strings.EqualFold(in.SortBy.Key, "Time") {
+		sortByTime(utils, func(u ReservationUtilizationByTime) map[string]string { return u.TimePeriod },
+			sortDescending(in.SortBy.SortOrder))
+	}
 
 	var total *ReservationUtilizationAgg
 	if len(utils) > 0 {

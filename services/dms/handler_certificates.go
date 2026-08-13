@@ -43,8 +43,9 @@ func (h *Handler) handleDeleteCertificate(
 }
 
 type describeCertificatesInput struct {
-	Marker     *string `json:"Marker"`
-	MaxRecords *int32  `json:"MaxRecords"`
+	Marker     *string       `json:"Marker"`
+	MaxRecords *int32        `json:"MaxRecords"`
+	Filters    []filterEntry `json:"Filters"`
 }
 
 type describeCertificatesOutput struct {
@@ -60,12 +61,23 @@ func (h *Handler) handleDescribeCertificates(
 		return nil, err
 	}
 
+	arnFilter := extractFilterValue(in.Filters, "certificate-arn")
+	idFilter := extractFilterValue(in.Filters, "certificate-id")
+
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].CertificateIdentifier < list[j].CertificateIdentifier
 	})
 
 	all := make([]certificateJSON, 0, len(list))
 	for _, cert := range list {
+		if arnFilter != "" && cert.CertificateArn != arnFilter {
+			continue
+		}
+
+		if idFilter != "" && cert.CertificateIdentifier != idFilter {
+			continue
+		}
+
 		all = append(all, certToJSON(cert))
 	}
 
