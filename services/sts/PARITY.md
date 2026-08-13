@@ -22,10 +22,11 @@ ops:
   GetAccessKeyInfo: {wire: ok, errors: ok, state: ok, persist: ok, note: "session lookup then well-formed-prefix fallback to backend account ID — re-verified correct"}
   DecodeAuthorizationMessage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "HMAC-signed self-issued messages verified; foreign base64 blobs decoded permissively for emulator usability — re-verified correct"}
 families:
-  trust-policy-evaluation: {status: ok, note: "Principal (AWS/Federated/Service/wildcard), Action (incl. wildcard glob), Effect Allow/Deny, Condition (StringEquals/StringLike/NotEquals/NotLike/Bool + IfExists, case-insensitive keys) implemented in trust_policy.go and verified against the statements in AssumeRole/WithSAML/WithWebIdentity. Bool operator + aws:multifactorauthpresent condition key added (gopherstack-41fl) for AssumeRole only -- AssumeRoleWithSAML/WithWebIdentity have no SerialNumber/TokenCode request members in the real API (federated identities cannot present MFA through those operations), so a Bool MFA condition in a trust policy assumed via those two ops remains unenforced by design, matching AWS's own operation surface, not a gap in this emulator."}
+  trust-policy-evaluation: {status: ok, note: "Principal (AWS/Federated/Service/wildcard), Action (incl. wildcard glob), Effect Allow/Deny, Condition (StringEquals/StringLike/StringEqualsIgnoreCase/StringNotEquals/StringNotLike/Bool/Null/ArnEquals/ArnLike/ArnNotEquals/ArnNotLike + IfExists, case-insensitive keys) implemented in trust_policy.go and verified against the statements in AssumeRole/WithSAML/WithWebIdentity. Bool operator + aws:multifactorauthpresent condition key added (gopherstack-41fl) for AssumeRole only -- AssumeRoleWithSAML/WithWebIdentity have no SerialNumber/TokenCode request members in the real API (federated identities cannot present MFA through those operations), so a Bool MFA condition in a trust policy assumed via those two ops remains unenforced by design, matching AWS's own operation surface, not a gap in this emulator. FIXED (gopherstack-yg95): conditionOperatorHolds's default branch returned true for every operator it did not model, and an unknown condition key also returned true (satisfied) unconditionally -- both meant a restrictive trust policy's condition could be silently ignored. Added Null (tests key presence via conditionValue's known result, not value -- must run before the generic unknown-key fallback or Null:false would always pass through it) and ArnEquals/ArnLike/ArnNotEquals/ArnNotLike (AWS documents ArnEquals/ArnLike as behaving identically, both wildcard-capable; this emulator reuses the same general-purpose glob matcher as StringLike rather than AWS's six-segment-aware ARN matching, since trust-policy ARN conditions in practice wildcard within one segment, e.g. role/prod-*). Confirmed the IfExists suffix stripping in normalizeConditionOp is correct for every operator it runs before: IfExists only changes absent-key handling, which happens uniformly at the single !known check, not per-operator -- Null is the one AWS-documented exception (no IfExists variant), handled by returning before that check. Numeric*/Date*/IpAddress/NotIpAddress/BinaryEquals remain unenforced: STRUCTURAL, not deferred -- this evaluator has no numeric, timestamp, source-IP, or binary-valued request-context anywhere (confirmed by inventory: the only condition keys ever populated are sts:ExternalId, aws:PrincipalArn, aws:MultiFactorAuthPresent, and WebIdentity's per-issuer :aud/:sub claims, all string- or bool-valued) -- there is no value to compare and adding the operator without a real value would be dead plumbing. DECISION: both fallback paths (unmodeled operator, unmodeled/unknown key) remain fail-open (permit) rather than flipping to fail-closed, but now log at WARN (services/sts/trust_policy.go's warnUnmodeledCondition) naming the specific operator/key, closing the 'silent' half of the bug without a behavioral break for existing callers whose trust policies carry a condition on a key this emulator cannot evaluate. This mirrors the file's pre-existing, deliberate 'enforce only what is positively known' design (see evaluateAssumeRoleTrust's and conditionValue's docstrings) rather than reversing it unilaterally; flipping the global default to fail-closed is flagged as a call that would benefit from explicit human sign-off, since the same permissive-mock philosophy is embedded by design throughout this same file (and, per pkgs-catalog.md's shared conventions, plausibly elsewhere in the emulator) rather than being local to this one bug."}
   session-tag-validation: {status: ok, note: "key/value length, charset, aws: reserved prefix, case-insensitive dup detection, MaxTagCount=50, transitive-tag merge on role chaining — verified correct; AssumeRoleWithSAML's TransitiveTagKeys (assertion-derived, previously never wired to the session at all) is now also propagated, closing a related chaining gap"}
   locking: {status: ok, note: "InMemoryBackend.mu is *lockmetrics.RWMutex (New(\"sts\")) per pkgs-catalog.md; every new lock path added this pass (GetWebIdentityToken/AssumeRoot CallerSession lookups, and this pass's checkOutboundWebIdentityFederationEnabled) reuses the existing LookupSession/RLock accessors — no new raw sync.Mutex, no lock ordering changes"}
 gaps:
+  - "STRUCTURAL (gopherstack-yg95): Numeric*/Date*/IpAddress/NotIpAddress/BinaryEquals trust-policy condition operators are unenforced for every condition key this evaluator carries, because none of those keys are numeric-, timestamp-, IP-, or binary-valued -- see the trust-policy-evaluation family note above for the full key inventory and the fail-open-plus-WARN-log decision. Not a deferred-effort gap: implementing any of these operators today would have nothing real to compare against."
   - "IMPOSSIBLE (re-confirmed gopherstack-yewt): JWTPayloadSizeExceededException (aws-sdk-go-v2/service/sts/types, dispatched specifically on GetWebIdentityToken's error branch) has no discoverable numeric threshold anywhere searched: (1) the generated SDK doc comment on the type itself says only 'The requested token payload size exceeds the maximum allowed size. Reduce the number of request tags...' -- no byte number; (2) aws-sdk-go-v2/service/sts@v1.44.0's validators.go's validateOpGetWebIdentityTokenInput only checks Audience/SigningAlgorithm required-ness and delegates Tags to validateTagListType (per-tag key/value length limits, not an aggregate payload-size limit) -- no length/size constraint of any kind is client-side-enforced for this op; (3) no botocore/smithy api-2.json model with a `length` trait for this newer STS operation was found in any locally-vendored SDK (aws-sdk-go v1.55.5's models/apis/sts predates GetWebIdentityToken entirely -- confirmed via `ls .../models/apis/sts` finding no api-2.json referencing this op); (4) WebSearch for 'JWTPayloadSizeExceededException STS GetWebIdentityToken maximum size bytes' returned only the same threshold-free doc comment, restated by boto3/re:Post/awsfundamentals.com sources, plus AWS's general (unrelated) guidance that STS credential/token sizes should never be assumed fixed. Implementing a threshold here would mean inventing an arbitrary number with no spec to verify it against -- the opposite of parity. Genuinely unimplementable without an undocumented number AWS does not publish. (bd: gopherstack-p05, follow-up -- OutboundWebIdentityFederationDisabledException, the other half of this original gap entry, WAS closed this pass, see GetWebIdentityToken above)"
   - "STALE ISSUE PREMISE (gopherstack-yewt re-triage): the follow-up issue's item (2), 'OutboundWebIdentityFederationDisabledException -- needs account-level settings model gopherstack lacks + no API to toggle,' is already fully resolved as of this same PARITY.md's GetWebIdentityToken row above (parity-3 phase 2) -- re-confirmed this pass by reading the actual code, not just this file: web_identity.go's checkOutboundWebIdentityFederationEnabled (called from GetWebIdentityToken, web_identity.go:365) gates on real state via services/iam/account.go's EnableOutboundWebIdentityFederation/DisableOutboundWebIdentityFederation/GetOutboundWebIdentityFederationInfo/OutboundWebIdentityFederationEnabled (all real methods, not stubs -- confirmed by reading their bodies), and both handler_test.go and web_identity_test.go carry OutboundWebIdentityFederationDisabledException regression coverage. No code change needed; the bd issue's premise predates the fix that already landed in this same file."
 deferred:
@@ -290,3 +291,67 @@ the `gaps` entry above for the specific four things checked (SDK doc comment,
 locally-vendored SDK, and a live web search) — none surfaced a byte-size
 number. Implementing a threshold here would mean inventing a number with
 nothing to verify it against.
+
+### Re-audit 2026-08-13 (gopherstack-yg95): trust-policy conditions failing open, general shape behind the MFA bug
+
+gopherstack-41fl (fixed in `89726ecb1`) turned out to be one instance of a
+broader bug in `conditionOperatorHolds`: its `default` case returned `true`
+for *any* operator the switch did not model, and a separate `!known` check
+earlier in the function returned `true` for *any* condition key
+`conditionValue` did not resolve. Both meant a trust policy written to
+restrict `AssumeRole` could have its restricting condition silently ignored.
+
+**Inventory first.** Grepped every place this evaluator ever populates a
+condition value (`conditionValue`'s two hardcoded cases plus every
+`conditionCtx` map literal in `assume_role.go`/`saml.go`/`web_identity.go`):
+`sts:ExternalId` (string, AssumeRole only), `aws:PrincipalArn` (string ARN,
+AssumeRole only), `aws:MultiFactorAuthPresent` (bool string, AssumeRole
+only), and per-issuer `{host}:aud`/`{host}:sub` (string, WebIdentity only,
+only added to the map when the JWT claim was actually present — this is the
+one place in the evaluator that already models true request-dependent key
+absence, not merely "unmodeled key type"). No key anywhere is numeric,
+timestamp, source-IP, or binary-valued, because nothing threads a request
+timestamp or client IP into `trustEval` at all — confirmed by grep, zero
+hits for `SourceIp`/`RemoteAddr`/`CurrentTime` in the package.
+
+**Implemented:** `Null` (presence-only, evaluated before the generic
+`!known` fallback so `Null:false` — key must be present — isn't defeated by
+that same fallback) and the `Arn*` family (`ArnEquals`/`ArnLike` identical
+and wildcard-capable per AWS docs, `ArnNotEquals`/`ArnNotLike` negated),
+reusing the existing glob matcher rather than AWS's six-segment-aware ARN
+matching. **Deliberately not implemented:** `Numeric*`, `Date*`,
+`IpAddress`/`NotIpAddress`, `BinaryEquals` — structural, no key of that
+value type exists to compare against; adding the operator without a real
+value to feed it would be dead plumbing that looks like enforcement and
+isn't.
+
+**Fail-open kept, not flipped, but no longer silent.** Both remaining
+fallback paths (truly unmodeled operator; unmodeled/unknown key) still
+permit by default — reversing that default repo-wide is a bigger call than
+this bug fix, since the same "enforce only what is positively known"
+posture is *documented as deliberate* elsewhere in this same file
+(`evaluateAssumeRoleTrust`'s and `conditionValue`'s existing doc comments),
+and flipping it would silently start denying `AssumeRole` calls for any
+existing caller whose policy happens to carry a condition on a
+structurally-unsupported key, even one unrelated to what that caller's test
+actually cares about. Instead, both paths now log at `WARN`
+(`warnUnmodeledCondition`, via `logger.Load(context.Background())` — no
+request-scoped context reaches this deep into trust-policy evaluation, same
+pattern used in `services/autoscaling/elbv2_targets.go`) naming the specific
+operator and key, so the gap is discoverable at runtime instead of silent —
+that was the actual harm named in the bug report. **Flagged for human
+review:** whether the emulator's trust-policy evaluator (and any sibling
+evaluator elsewhere in the repo built on the same permissive-mock
+philosophy) should default to fail-closed is a product-level tradeoff
+between "safe by default" and "doesn't silently break existing working
+setups," not a purely technical one — this pass implemented what could be
+implemented and made the remaining gap loud rather than making that call
+unilaterally.
+
+Also confirmed `normalizeConditionOp`'s `IfExists`-suffix stripping is
+correct for every operator that reaches it: `IfExists` only changes
+absent-key behavior, decided once at the single `!known` check rather than
+per-operator, so stripping the suffix before the per-operator switch cannot
+change any operator's present-key comparison semantics. `Null` is AWS's one
+documented exception (no `IfExists` variant — presence-testing is already
+its job) and is special-cased to run before that check entirely.
