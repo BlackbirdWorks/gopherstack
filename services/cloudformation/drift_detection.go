@@ -63,51 +63,43 @@ func (b *InMemoryBackend) DetectStackDrift(nameOrID string) (string, error) {
 	return detectionID, nil
 }
 
-// DetectStackResourceDrift initiates drift detection for a specific resource in a stack.
-// It compares the resource's deployed properties against the template (#12).
-func (b *InMemoryBackend) DetectStackResourceDrift(nameOrID, logicalID string) (string, error) {
+// DetectStackResourceDrift synchronously detects drift for a single resource in a
+// stack and returns its full StackResourceDrift record. Unlike DetectStackDrift,
+// this operation has no asynchronous detection-ID phase: AWS returns the drift
+// record directly (api_op_DetectStackResourceDrift.go, aws-sdk-go-v2 v1.76.1).
+func (b *InMemoryBackend) DetectStackResourceDrift(nameOrID, logicalID string) (*StackResourceDrift, error) {
 	b.mu.Lock("DetectStackResourceDrift")
 	defer b.mu.Unlock()
 
 	stack, ok := b.resolveStack(nameOrID)
 	if !ok {
-		return "", ErrStackNotFound
+		return nil, ErrStackNotFound
 	}
 
-	if _, exists := b.resources[stack.StackID][logicalID]; !exists {
-		return "", ErrResourceNotFound
+	deployedRes, exists := b.resources[stack.StackID][logicalID]
+	if !exists {
+		return nil, ErrResourceNotFound
 	}
 
-	resourceStatuses := b.compareStackResources(stack)
-	status, ok2 := resourceStatuses[logicalID]
+	b.compareStackResources(stack)
+
+	detail, ok2 := b.resourceDriftDetail[stack.StackID][logicalID]
 	if !ok2 {
-		status = driftStatusInSync
+		// Template failed to parse: fall back to reporting the live state as
+		// in-sync rather than fabricating a diff we can't compute.
+		detail = driftDetailFor(stack, deployedRes, nil, driftStatusInSync, nil)
+		if b.resourceDriftDetail[stack.StackID] == nil {
+			b.resourceDriftDetail[stack.StackID] = make(map[string]StackResourceDrift)
+		}
+		b.resourceDriftDetail[stack.StackID][logicalID] = detail
 	}
 
 	if b.resourceDriftStatus[stack.StackID] == nil {
 		b.resourceDriftStatus[stack.StackID] = make(map[string]string)
 	}
-	b.resourceDriftStatus[stack.StackID][logicalID] = status
+	b.resourceDriftStatus[stack.StackID][logicalID] = detail.StackResourceDriftStatus
 
-	overallStatus := driftStatusInSync
-	driftedCount := 0
-	if status != driftStatusInSync {
-		overallStatus = driftStatusDrifted
-		driftedCount = 1
-	}
-
-	detectionID := uuid.New().String()
-	b.driftDetections.Put(&DriftDetectionStatus{
-		StackID:                   stack.StackID,
-		StackDriftDetectionID:     detectionID,
-		StackDriftStatus:          overallStatus,
-		DetectionStatus:           detectionComplete,
-		DriftedStackResourceCount: driftedCount,
-		Timestamp:                 time.Now(),
-	})
-	b.driftByStackID[stack.StackID] = append(b.driftByStackID[stack.StackID], detectionID)
-
-	return detectionID, nil
+	return &detail, nil
 }
 
 // RecordResourceMutation records an out-of-band change to a deployed resource's

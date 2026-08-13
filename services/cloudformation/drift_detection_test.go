@@ -258,12 +258,10 @@ func TestDriftDetection_PerResource(t *testing.T) {
 		cloudformation.StackOptions{})
 	require.NoError(t, err)
 
-	detectionID, err := b.DetectStackResourceDrift("drift-perres", "MyBucket")
+	drift, err := b.DetectStackResourceDrift("drift-perres", "MyBucket")
 	require.NoError(t, err)
-	require.NotEmpty(t, detectionID)
-
-	status, err := b.DescribeStackDriftDetectionStatus(detectionID)
-	require.NoError(t, err)
-	assert.Equal(t, "IN_SYNC", status.StackDriftStatus)
-	assert.Equal(t, "DETECTION_COMPLETE", status.DetectionStatus)
+	assert.Equal(t, "MyBucket", drift.LogicalResourceID)
+	assert.Equal(t, "IN_SYNC", drift.StackResourceDriftStatus)
+	assert.NotEmpty(t, drift.StackID)
+	assert.NotEmpty(t, drift.ResourceType)
 }

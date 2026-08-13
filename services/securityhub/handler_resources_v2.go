@@ -49,40 +49,32 @@ func (h *Handler) handleGetResourcesV2(c *echo.Context, body map[string]any) err
 }
 
 func (h *Handler) handleGetResourcesStatisticsV2(c *echo.Context, body map[string]any) error {
-	var groupByAttributes []string
+	groupByFields := groupByFieldsFromRules(body[keyGroupByRules])
 
-	if raw, ok := body["GroupByAttributes"].([]any); ok {
-		for _, v := range raw {
-			if s, ok := v.(string); ok { //nolint:govet // existing issue.
-				groupByAttributes = append(groupByAttributes, s)
-			}
-		}
-	}
-
-	stats := h.Backend.GetResourcesStatisticsV2(groupByAttributes)
+	stats := h.Backend.GetResourcesStatisticsV2(groupByFields)
 
 	if stats == nil {
 		stats = []map[string]any{}
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ResourceStatistics": stats,
+		"GroupByResults": stats,
 	})
 }
 
 func (h *Handler) handleGetResourcesTrendsV2(c *echo.Context, body map[string]any) error {
-	groupByAttribute, _ := body["GroupByAttribute"].(string)
 	startTime, _ := body["StartTime"].(string)
 	endTime, _ := body["EndTime"].(string)
 
-	trends := h.Backend.GetResourcesTrendsV2(groupByAttribute, startTime, endTime)
+	trends := h.Backend.GetResourcesTrendsV2(startTime, endTime)
 
 	if trends == nil {
 		trends = []map[string]any{}
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"ResourcesTrends": trends,
+		"Granularity":   trendGranularity(startTime, endTime),
+		"TrendsMetrics": trends,
 	})
 }
 

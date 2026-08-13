@@ -145,17 +145,28 @@ func (b *InMemoryBackend) DeleteConnectorV2(connectorID string) error {
 	return ErrNotFound
 }
 
-func (b *InMemoryBackend) RegisterConnectorV2(connectorID string, provider map[string]any) (*ConnectorV2, error) {
+// RegisterConnectorV2 completes the OAuth 2.0 authorization-code flow the
+// real RegisterConnectorV2Input carries: AuthCode and AuthState, nothing
+// else (securityhub@v1.75.4 api_op_RegisterConnectorV2.go:26-40) -- there is
+// no ConnectorId input member at all. AuthState's on-wire content is opaque
+// to any real AWS client: it is minted server-side, handed back verbatim by
+// the OAuth provider, and only this backend ever inspects it. This backend's
+// convention is that AuthState IS the connector ID it was minted for, so
+// decoding it back to a connector is a direct lookup rather than a guess at
+// AWS's internal encoding. AuthCode is accepted (real clients must send it)
+// but not persisted: nothing in ConnectorV2 models it, and no RegisterConnectorV2
+// output field echoes it back either.
+func (b *InMemoryBackend) RegisterConnectorV2(_, authState string) (*ConnectorV2, error) {
 	b.mu.Lock("RegisterConnectorV2")
 	defer b.mu.Unlock()
 
 	var target *ConnectorV2
 
-	if c, ok := b.connectorsV2.Get(connectorID); ok {
+	if c, ok := b.connectorsV2.Get(authState); ok {
 		target = c
 	} else {
 		for _, conn := range b.connectorsV2.All() {
-			if conn.ConnectorArn == connectorID {
+			if conn.ConnectorArn == authState {
 				target = conn
 
 				break
@@ -167,14 +178,8 @@ func (b *InMemoryBackend) RegisterConnectorV2(connectorID string, provider map[s
 		return nil, ErrNotFound
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
 	target.ConnectorStatus = "REGISTERED"
-
-	if provider != nil {
-		target.Provider = provider
-	}
-
-	target.UpdatedAt = now
+	target.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	cp := *target
 
 	return &cp, nil

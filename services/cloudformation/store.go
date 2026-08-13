@@ -46,7 +46,7 @@ type StorageBackend interface {
 	ListAll() []*Stack
 	// Drift detection
 	DetectStackDrift(nameOrID string) (string, error)
-	DetectStackResourceDrift(nameOrID, logicalID string) (string, error)
+	DetectStackResourceDrift(nameOrID, logicalID string) (*StackResourceDrift, error)
 	DescribeStackDriftDetectionStatus(detectionID string) (*DriftDetectionStatus, error)
 	DescribeStackResourceDrifts(nameOrID string) ([]StackResourceDrift, error)
 	// Stack policy

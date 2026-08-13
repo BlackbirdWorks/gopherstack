@@ -99,7 +99,10 @@ func TestConnectorsV2(t *testing.T) {
 					name:   "register",
 					method: http.MethodPost,
 					path:   "/connectorsv2/register",
-					body:   map[string]any{"ConnectorId": "connector-v2-1"},
+					body: map[string]any{
+						"AuthCode":  "mock-oauth-code",
+						"AuthState": "connector-v2-1",
+					},
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
@@ -243,6 +246,111 @@ func TestTicketV2(t *testing.T) {
 	})
 }
 
+// TestGetConnectorV2_RoundTrip drives GetConnectorV2 through the real SDK
+// client. Before the fix, the handler dropped the required Health,
+// LastUpdatedAt and ProviderDetail members and emitted a fabricated
+// "UpdatedAt" key where the real key is "LastUpdatedAt" (securityhub@v1.75.4
+// api_op_GetConnectorV2.go:39-79) -- the SDK decoded a zero-value
+// GetConnectorV2Output for all four.
+func TestGetConnectorV2_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+	created, err := client.CreateConnectorV2(t.Context(), &securityhubsdk.CreateConnectorV2Input{
+		Name: aws.String("get-v2-connector"),
+		Provider: &securityhubtypes.ProviderConfigurationMemberJiraCloud{
+			Value: securityhubtypes.JiraCloudProviderConfiguration{ProjectKey: aws.String("SEC")},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetConnectorV2(t.Context(), &securityhubsdk.GetConnectorV2Input{
+		ConnectorId: created.ConnectorId,
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, out.ConnectorId,
+		"unfixed handler emits UpdatedAt where the real key is LastUpdatedAt; SDK decodes nothing")
+	assert.Equal(t, aws.ToString(created.ConnectorId), aws.ToString(out.ConnectorId))
+	assert.Equal(t, "get-v2-connector", aws.ToString(out.Name))
+	require.NotNil(t, out.CreatedAt)
+	require.NotNil(t, out.LastUpdatedAt, "LastUpdatedAt is required on the real wire")
+	require.NotNil(t, out.Health, "Health is required on the real wire")
+	assert.Equal(t, securityhubtypes.ConnectorStatus("ACTIVE"), out.Health.ConnectorStatus)
+	require.NotNil(t, out.Health.LastCheckedAt)
+	require.NotNil(t, out.ProviderDetail, "ProviderDetail is required on the real wire")
+
+	jira, ok := out.ProviderDetail.(*securityhubtypes.ProviderDetailMemberJiraCloud)
+	require.True(t, ok, "ProviderDetail should decode as the JiraCloud member echoed back from CreateConnectorV2")
+	assert.Equal(t, "SEC", aws.ToString(jira.Value.ProjectKey))
+}
+
+// TestRegisterConnectorV2_RoundTrip drives RegisterConnectorV2 through the
+// real SDK client. Before the fix, the handler read a fabricated
+// body["ConnectorId"] -- the real RegisterConnectorV2Input carries only
+// AuthCode and AuthState, no ConnectorId at all (securityhub@v1.75.4
+// api_op_RegisterConnectorV2.go:26-40) -- so a real client's request never
+// registered anything.
+func TestRegisterConnectorV2_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+	created, err := client.CreateConnectorV2(t.Context(), &securityhubsdk.CreateConnectorV2Input{
+		Name: aws.String("register-v2-connector"),
+		Provider: &securityhubtypes.ProviderConfigurationMemberJiraCloud{
+			Value: securityhubtypes.JiraCloudProviderConfiguration{ProjectKey: aws.String("SEC")},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.RegisterConnectorV2(t.Context(), &securityhubsdk.RegisterConnectorV2Input{
+		AuthCode:  aws.String("mock-oauth-code"),
+		AuthState: created.ConnectorId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ConnectorId)
+	assert.Equal(t, aws.ToString(created.ConnectorId), aws.ToString(out.ConnectorId))
+
+	got, err := client.GetConnectorV2(t.Context(), &securityhubsdk.GetConnectorV2Input{
+		ConnectorId: created.ConnectorId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.Health)
+	assert.Equal(t, securityhubtypes.ConnectorStatus("REGISTERED"), got.Health.ConnectorStatus)
+}
+
+// TestRegisterConnectorV2_MissingFields verifies AuthCode/AuthState are
+// enforced as required (both "This member is required" on the real
+// RegisterConnectorV2Input). The real SDK client validates this client-side
+// and refuses to send an incomplete request, so this drives the raw HTTP
+// handler directly to exercise the server-side ValidationException path.
+func TestRegisterConnectorV2_MissingFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{name: "missing authcode", body: map[string]any{"AuthState": "connector-v2-1"}},
+		{name: "missing authstate", body: map[string]any{"AuthCode": "mock-code"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/connectorsv2/register", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Equal(t, "ValidationException", rec.Header().Get("X-Amzn-Errortype"))
+		})
+	}
+}
+
 func TestHandler_ConnectorV2_UpdateNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -309,7 +417,8 @@ func TestHandler_RegisterConnectorV2_NotFound(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/connectorsv2/register", map[string]any{
-				"ConnectorId": "nonexistent-connector",
+				"AuthCode":  "mock-oauth-code",
+				"AuthState": "nonexistent-connector",
 			})
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})

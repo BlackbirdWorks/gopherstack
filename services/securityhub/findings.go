@@ -596,59 +596,103 @@ func parseHistoryTime(s string) (time.Time, bool) {
 	return t, true
 }
 
-func (b *InMemoryBackend) GetFindingStatisticsV2(groupByAttributes []string) []map[string]any {
+func (b *InMemoryBackend) GetFindingStatisticsV2(groupByFields []string) []map[string]any {
 	b.mu.RLock("GetFindingStatisticsV2")
 	defer b.mu.RUnlock()
 
-	type key struct{ attr, val string }
-	counts := make(map[key]int)
-
-	for _, finding := range b.findings {
-		for _, attr := range groupByAttributes {
-			val := ""
-			if v, ok := finding[attr]; ok {
-				val = fmt.Sprintf("%v", v)
-			}
-
-			counts[key{attr, val}]++
-		}
+	items := make([]map[string]any, 0, len(b.findings))
+	for _, f := range b.findings {
+		items = append(items, f)
 	}
 
-	var result []map[string]any
-
-	seen := make(map[string]map[string]any)
-
-	for k, count := range counts {
-		if existing, ok := seen[k.attr]; ok {
-			existing["Count"] = existing["Count"].(int) + count //nolint:errcheck // existing issue.
-		} else {
-			entry := map[string]any{
-				"GroupByAttribute": k.attr, //nolint:goconst // existing issue.
-				"GroupByValue":     k.val,
-				keyCount:           count,
-			}
-			seen[k.attr] = entry
-			result = append(result, entry)
-		}
-	}
-
-	return result
+	return groupByResults(items, groupByFields, ocsfStringFieldMap)
 }
 
-func (b *InMemoryBackend) GetFindingsTrendsV2(
-	groupByAttribute string,
-	startTime, endTime string,
-) []map[string]any {
+// SeverityTrendsCount bucket names GetFindingsTrendsV2 requires
+// (securityhub@v1.75.4 types/types.go:19025-19058).
+const (
+	trendBucketCritical      = "Critical"
+	trendBucketFatal         = "Fatal"
+	trendBucketHigh          = "High"
+	trendBucketInformational = "Informational"
+	trendBucketLow           = "Low"
+	trendBucketMedium        = "Medium"
+	trendBucketOther         = "Other"
+	trendBucketUnknown       = "Unknown"
+
+	severityLabelHigh   = "HIGH"
+	severityLabelMedium = "MEDIUM"
+)
+
+// severityTrendsBucket maps an ASFF SeverityLabel (types.SeverityLabel:
+// INFORMATIONAL/LOW/MEDIUM/HIGH/CRITICAL -- securityhub@v1.75.4
+// types/enums.go:1797-1806, the only severity vocabulary this backend's
+// findings carry, per findings_v2.go's ocsfStringFieldMap comment) onto one
+// of the eight SeverityTrendsCount bucket names above. ASFF has no FATAL
+// severity, so that bucket is always zero: there's no backing state to
+// derive it from, left inert rather than fabricated.
+func severityTrendsBucket(label string) string {
+	switch strings.ToUpper(label) {
+	case "CRITICAL":
+		return trendBucketCritical
+	case severityLabelHigh:
+		return trendBucketHigh
+	case severityLabelMedium:
+		return trendBucketMedium
+	case "LOW":
+		return trendBucketLow
+	case "INFORMATIONAL":
+		return trendBucketInformational
+	case "":
+		return trendBucketUnknown
+	default:
+		return trendBucketOther
+	}
+}
+
+// GetFindingsTrendsV2 returns a single TrendsMetricsResult data point
+// (Timestamp + TrendsValues.SeverityTrends -- securityhub@v1.75.4
+// types/types.go:19869-19896) aggregating every stored finding's severity.
+// The real GetFindingsTrendsV2Input has no GroupByAttribute member at all
+// (api_op_GetFindingsTrendsV2.go:22-46); this backend has no time-bucketed
+// analytics engine, so unlike the real per-Granularity series this always
+// returns one point for the whole store, timestamped at endTime.
+func (b *InMemoryBackend) GetFindingsTrendsV2(startTime, endTime string) []map[string]any {
+	b.mu.RLock("GetFindingsTrendsV2")
+	defer b.mu.RUnlock()
+
+	counts := map[string]int64{
+		trendBucketCritical: 0, trendBucketFatal: 0, trendBucketHigh: 0, trendBucketInformational: 0,
+		trendBucketLow: 0, trendBucketMedium: 0, trendBucketOther: 0, trendBucketUnknown: 0,
+	}
+
+	for _, finding := range b.findings {
+		label, _ := finding["SeverityLabel"].(string)
+		counts[severityTrendsBucket(label)]++
+	}
+
+	ts := endTime
+	if ts == "" {
+		ts = startTime
+	}
+
+	if ts == "" {
+		ts = time.Now().UTC().Format(time.RFC3339)
+	}
+
 	return []map[string]any{
 		{
-			"GroupByAttribute": groupByAttribute,
-			"DateRanges": []map[string]any{
-				{
-					"DateRange": map[string]any{
-						"StartDate": startTime,
-						"EndDate":   endTime,
-					},
-					"Count": len(b.findings),
+			"Timestamp": ts,
+			"TrendsValues": map[string]any{
+				"SeverityTrends": map[string]any{
+					trendBucketCritical:      counts[trendBucketCritical],
+					trendBucketFatal:         counts[trendBucketFatal],
+					trendBucketHigh:          counts[trendBucketHigh],
+					trendBucketInformational: counts[trendBucketInformational],
+					trendBucketLow:           counts[trendBucketLow],
+					trendBucketMedium:        counts[trendBucketMedium],
+					trendBucketOther:         counts[trendBucketOther],
+					trendBucketUnknown:       counts[trendBucketUnknown],
 				},
 			},
 		},

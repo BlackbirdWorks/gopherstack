@@ -944,9 +944,11 @@ func TestDriftDetection_ResourceLevel(t *testing.T) {
 	_, err := b.CreateStack(t.Context(), "rdrift", tmpl, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
-	detectionID, err := b.DetectStackResourceDrift("rdrift", "Q")
+	drift, err := b.DetectStackResourceDrift("rdrift", "Q")
 	require.NoError(t, err)
-	assert.NotEmpty(t, detectionID)
+	assert.Equal(t, "Q", drift.LogicalResourceID)
+	assert.Equal(t, "AWS::SQS::Queue", drift.ResourceType)
+	assert.Equal(t, "IN_SYNC", drift.StackResourceDriftStatus)
 }
 
 // ---- Resource event history ----------------------------------------------------

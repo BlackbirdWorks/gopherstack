@@ -162,7 +162,7 @@ func TestBackend_DetectStackResourceDrift(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			detectionID, err := b.DetectStackResourceDrift(tt.stackName, tt.logicalID)
+			drift, err := b.DetectStackResourceDrift(tt.stackName, tt.logicalID)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -171,7 +171,10 @@ func TestBackend_DetectStackResourceDrift(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.NotEmpty(t, detectionID)
+			assert.Equal(t, tt.logicalID, drift.LogicalResourceID)
+			assert.NotEmpty(t, drift.ResourceType)
+			assert.NotEmpty(t, drift.StackID)
+			assert.Equal(t, "IN_SYNC", drift.StackResourceDriftStatus)
 		})
 	}
 }

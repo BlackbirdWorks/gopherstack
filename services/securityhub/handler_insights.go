@@ -86,7 +86,7 @@ func (h *Handler) handleGetInsights(c *echo.Context, body map[string]any) error 
 		items[i] = map[string]any{
 			keyInsightArn:      ins.InsightArn,
 			keyName:            ins.Name,
-			"GroupByAttribute": ins.GroupByAttribute, //nolint:goconst // existing issue.
+			"GroupByAttribute": ins.GroupByAttribute,
 			"Filters":          ins.Filters,
 		}
 	}

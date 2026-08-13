@@ -79,7 +79,7 @@ func (h *Handler) handleGetConnectorV2(c *echo.Context, connectorID string) erro
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
-	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
+	return c.JSON(http.StatusOK, connectorV2ToGetResponse(conn))
 }
 
 func (h *Handler) handleListConnectorsV2(c *echo.Context) error {
@@ -146,15 +146,17 @@ func (h *Handler) handleDeleteConnectorV2(c *echo.Context, connectorID string) e
 }
 
 func (h *Handler) handleRegisterConnectorV2(c *echo.Context, body map[string]any) error {
-	connectorID, _ := body[keyConnectorID].(string)
+	authCode, _ := body["AuthCode"].(string)
+	authState, _ := body["AuthState"].(string)
 
-	var provider map[string]any
-
-	if p, ok := body["Provider"].(map[string]any); ok {
-		provider = p
+	if authCode == "" || authState == "" {
+		return typedErrorResponse(
+			c, http.StatusBadRequest, "ValidationException",
+			"AuthCode and AuthState are required",
+		)
 	}
 
-	conn, err := h.Backend.RegisterConnectorV2(connectorID, provider)
+	conn, err := h.Backend.RegisterConnectorV2(authCode, authState)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Connector V2 not found")
@@ -176,6 +178,36 @@ func connectorV2ToResponse(conn *ConnectorV2) map[string]any {
 		keyUpdatedAt:       conn.UpdatedAt,
 		keyConnectorStatus: conn.ConnectorStatus,
 		"Provider":         conn.Provider,
+	}
+}
+
+// connectorV2ToGetResponse builds the GetConnectorV2 wire shape: ConnectorId,
+// CreatedAt, Health, LastUpdatedAt, Name, ProviderDetail are all required per
+// the real GetConnectorV2Output (securityhub@v1.75.4
+// api_op_GetConnectorV2.go:39-79); ConnectorArn/Description are optional but
+// always populated here. Mirrors connectorToGetResponse's shape for the V1
+// CSPM Connector family (handler_connectors.go). Unlike CspmConnector,
+// ConnectorV2 tracks a single UpdatedAt timestamp rather than separate
+// LastUpdatedAt/HealthCheckedAt fields, so both LastUpdatedAt and
+// Health.LastCheckedAt reuse it: the two events coincide in this backend,
+// since ConnectorStatus only changes on Update/Register. ProviderDetail
+// echoes Provider verbatim -- ProviderConfiguration (the create-time input
+// union) and ProviderDetail (this get-time output union) share the same
+// member tags (Azure/JiraCloud/ServiceNow -- types.go:17161-17220), so the
+// stored value is already wire-correct for this key.
+func connectorV2ToGetResponse(conn *ConnectorV2) map[string]any {
+	return map[string]any{
+		keyConnectorID:  conn.ConnectorId,
+		keyConnectorArn: conn.ConnectorArn,
+		keyName:         conn.Name,
+		keyDescription:  conn.Description,
+		keyCreatedAt:    conn.CreatedAt,
+		"LastUpdatedAt": conn.UpdatedAt,
+		"Health": map[string]any{
+			keyConnectorStatus: conn.ConnectorStatus,
+			"LastCheckedAt":    conn.UpdatedAt,
+		},
+		"ProviderDetail": conn.Provider,
 	}
 }
 

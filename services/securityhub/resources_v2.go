@@ -1,8 +1,8 @@
 package securityhub
 
 import (
-	"fmt"
 	"maps"
+	"time"
 )
 
 func (b *InMemoryBackend) GetResourcesV2(
@@ -40,52 +40,37 @@ func (b *InMemoryBackend) GetResourcesV2(
 	return paginateSlice(all, nextToken, maxResults, maxDefaultResults)
 }
 
-func (b *InMemoryBackend) GetResourcesStatisticsV2(groupByAttributes []string) []map[string]any {
+func (b *InMemoryBackend) GetResourcesStatisticsV2(groupByFields []string) []map[string]any {
 	resources, _ := b.GetResourcesV2(nil, "", maxDefaultResults)
 
-	type key struct{ attr, val string }
-	counts := make(map[key]int)
-
-	for _, r := range resources {
-		for _, attr := range groupByAttributes {
-			val := ""
-			if v, ok := r[attr]; ok {
-				val = fmt.Sprintf("%v", v)
-			}
-
-			counts[key{attr, val}]++
-		}
-	}
-
-	var result []map[string]any //nolint:prealloc // existing issue.
-
-	for k, count := range counts {
-		result = append(result, map[string]any{
-			keyGroupByAttribute: k.attr,
-			"GroupByValue":      k.val,
-			keyCount:            count,
-		})
-	}
-
-	return result
+	return groupByResults(resources, groupByFields, nil)
 }
 
-func (b *InMemoryBackend) GetResourcesTrendsV2(
-	groupByAttribute string,
-	startTime, endTime string,
-) []map[string]any {
+// GetResourcesTrendsV2 returns a single ResourcesTrendsMetricsResult data
+// point (Timestamp + TrendsValues.ResourcesCount.AllResources --
+// securityhub@v1.75.4 types/types.go:18189-18203,18244-18252,18051-18059).
+// The real GetResourcesTrendsV2Input has no GroupByAttribute member
+// (api_op_GetResourcesTrendsV2.go:22-46); this backend has no time-bucketed
+// analytics engine, so unlike the real per-Granularity series this always
+// returns one point for the whole store, timestamped at endTime.
+func (b *InMemoryBackend) GetResourcesTrendsV2(startTime, endTime string) []map[string]any {
 	resources, _ := b.GetResourcesV2(nil, "", maxDefaultResults)
+
+	ts := endTime
+	if ts == "" {
+		ts = startTime
+	}
+
+	if ts == "" {
+		ts = time.Now().UTC().Format(time.RFC3339)
+	}
 
 	return []map[string]any{
 		{
-			keyGroupByAttribute: groupByAttribute,
-			"DateRanges": []map[string]any{
-				{
-					"DateRange": map[string]any{
-						"StartDate": startTime,
-						"EndDate":   endTime,
-					},
-					keyCount: len(resources),
+			"Timestamp": ts,
+			"TrendsValues": map[string]any{
+				"ResourcesCount": map[string]any{
+					"AllResources": len(resources),
 				},
 			},
 		},
