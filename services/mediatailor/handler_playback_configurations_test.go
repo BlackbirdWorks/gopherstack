@@ -463,10 +463,11 @@ func TestPutPlaybackConfiguration_AdsPersonalization(t *testing.T) {
 
 // TestPutPlaybackConfiguration_DualStackFieldsAbsent verifies
 // DualStackPlaybackEndpointPrefix/DualStackSessionInitializationEndpointPrefix
-// (response-only members with no PutPlaybackConfigurationInput counterpart)
-// are absent from the wire rather than a fabricated URL -- gopherstack has
-// no dual-stack endpoint to report, and an invented one a client might
-// actually dial is worse than an absent field.
+// and HlsConfiguration's own DualStackManifestEndpointPrefix (response-only
+// members with no PutPlaybackConfigurationInput counterpart) are absent from
+// the wire rather than a fabricated URL -- gopherstack has no dual-stack
+// endpoint to report, and an invented one a client might actually dial is
+// worse than an absent field.
 func TestPutPlaybackConfiguration_DualStackFieldsAbsent(t *testing.T) {
 	t.Parallel()
 
@@ -489,6 +490,12 @@ func TestPutPlaybackConfiguration_DualStackFieldsAbsent(t *testing.T) {
 
 		_, ok = resp["DualStackSessionInitializationEndpointPrefix"]
 		assert.False(t, ok, "DualStackSessionInitializationEndpointPrefix must be absent, not a fabricated URL")
+
+		hlsCfg, ok := resp["HlsConfiguration"].(map[string]any)
+		require.True(t, ok, "HlsConfiguration must be present")
+
+		_, ok = hlsCfg["DualStackManifestEndpointPrefix"]
+		assert.False(t, ok, "HlsConfiguration.DualStackManifestEndpointPrefix must be absent, not a fabricated URL")
 	}
 }
 

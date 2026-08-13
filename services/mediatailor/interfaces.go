@@ -191,6 +191,12 @@ type PlaybackConfiguration struct {
 	// endpoints not provisioned.
 	DualStackPlaybackEndpointPrefix              string
 	DualStackSessionInitializationEndpointPrefix string
+	// HlsDualStackManifestEndpointPrefix is HlsConfiguration's own response-only
+	// dual-stack member (no PutPlaybackConfigurationInput counterpart;
+	// aws-sdk-go-v2/service/mediatailor@v1.63.4 types/types.go:688). Same
+	// reasoning as the two fields above: never populated, absent rather than
+	// a fabricated dialable URL.
+	HlsDualStackManifestEndpointPrefix string
 }
 
 // PlaybackConfigurationLogConfiguration is the logging configuration for a

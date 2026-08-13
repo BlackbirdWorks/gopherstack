@@ -81,9 +81,15 @@ func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 	}
 
 	if cfg.HlsManifestEndpointPrefix != "" {
-		out["HlsConfiguration"] = map[string]any{
+		hlsCfg := map[string]any{
 			"ManifestEndpointPrefix": cfg.HlsManifestEndpointPrefix,
 		}
+
+		if cfg.HlsDualStackManifestEndpointPrefix != "" {
+			hlsCfg["DualStackManifestEndpointPrefix"] = cfg.HlsDualStackManifestEndpointPrefix
+		}
+
+		out["HlsConfiguration"] = hlsCfg
 	}
 
 	if cfg.LogConfiguration != nil {
