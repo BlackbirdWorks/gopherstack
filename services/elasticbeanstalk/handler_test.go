@@ -304,7 +304,8 @@ func TestHandler_CountHelpers_TrackResourceCreation(t *testing.T) {
 	assert.Equal(t, 3, h.Backend.ConfigTemplateCount())
 
 	postEBForm(t, h,
-		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0")
+		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0"+
+			"&PlatformDefinitionBundle.S3Bucket=my-bucket&PlatformDefinitionBundle.S3Key=my-key.zip")
 	assert.Equal(t, 1, h.Backend.PlatformVersionCount())
 }
 
@@ -324,7 +325,8 @@ func TestHandler_PersistenceRoundTrip(t *testing.T) {
 		"Version=2010-12-01&Action=CreateConfigurationTemplate"+
 			"&ApplicationName=persisted-app&TemplateName=tmpl1")
 	postEBForm(t, h,
-		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0")
+		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0"+
+			"&PlatformDefinitionBundle.S3Bucket=my-bucket&PlatformDefinitionBundle.S3Key=my-key.zip")
 
 	snap := h.Backend.Snapshot(t.Context())
 	require.NotNil(t, snap)

@@ -352,7 +352,12 @@ type describeEnvironmentResourcesResponse struct {
 	DescribeEnvironmentResourcesResult describeEnvironmentResourcesResult `xml:"DescribeEnvironmentResourcesResult"`
 }
 
-func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals url.Values) (any, error) {
+// resolveSingleEnvironment looks up the environment named by the request's
+// EnvironmentName/EnvironmentId form fields (at least one required, matching
+// every real EB op's documented "Condition: You must specify either this or
+// a[n] EnvironmentId/EnvironmentName" contract), returning ErrNotFound (wire:
+// InvalidParameterValue) when neither resolves to a real environment.
+func (h *Handler) resolveSingleEnvironment(ctx context.Context, vals url.Values) (*Environment, error) {
 	envName := vals.Get("EnvironmentName")
 	envID := vals.Get("EnvironmentId")
 	if envName == "" && envID == "" {
@@ -368,7 +373,15 @@ func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals u
 	if len(envs) == 0 {
 		return nil, fmt.Errorf("%w: environment not found", ErrNotFound)
 	}
-	env := envs[0]
+
+	return envs[0], nil
+}
+
+func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals url.Values) (any, error) {
+	env, err := h.resolveSingleEnvironment(ctx, vals)
+	if err != nil {
+		return nil, err
+	}
 	resources := environmentResourceDescType{
 		EnvironmentName:      env.EnvironmentName,
 		AutoScalingGroups:    []asgMemberType{{Name: env.EnvironmentName + "-asg"}},
@@ -633,6 +646,15 @@ func (h *Handler) handleListAvailableSolutionStacks(_ context.Context, _ url.Val
 	}, nil
 }
 
+// validEnvironmentInfoTypes are the InfoType values api_op_RequestEnvironmentInfo.go/
+// api_op_RetrieveEnvironmentInfo.go document (types.EnvironmentInfoType enum:
+// tail/bundle/analyze).
+var validEnvironmentInfoTypes = map[string]bool{ //nolint:gochecknoglobals // package-level constant set
+	"tail":    true,
+	"bundle":  true,
+	"analyze": true,
+}
+
 // requestEnvironmentInfoResponse is the XML response for RequestEnvironmentInfo.
 type requestEnvironmentInfoResponse struct {
 	XMLName          xml.Name         `xml:"RequestEnvironmentInfoResponse"`
@@ -640,7 +662,23 @@ type requestEnvironmentInfoResponse struct {
 	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleRequestEnvironmentInfo(_ context.Context, _ url.Values) (any, error) {
+// handleRequestEnvironmentInfo validates InfoType (required) and that the
+// named environment exists (real AWS: "If no such environment is found,
+// RequestEnvironmentInfo returns an InvalidParameterValue error"), then
+// no-ops. Real AWS compiles the environment's live EC2 instance logs (tail),
+// zips them (bundle), or forwards them to Amazon Bedrock for analysis
+// (analyze); this backend never models EC2 instances at all (see
+// DescribeInstancesHealth), so there is no genuine log content to produce --
+// a structural gap, not something to fake. RetrieveEnvironmentInfo's
+// documented-empty EnvironmentInfo list reflects that honestly.
+func (h *Handler) handleRequestEnvironmentInfo(ctx context.Context, vals url.Values) (any, error) {
+	if !validEnvironmentInfoTypes[vals.Get("InfoType")] {
+		return nil, fmt.Errorf("%w: InfoType must be one of tail, bundle, analyze", ErrInvalidParameter)
+	}
+	if _, err := h.resolveSingleEnvironment(ctx, vals); err != nil {
+		return nil, err
+	}
+
 	return &requestEnvironmentInfoResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-request-env-info"},
@@ -666,7 +704,18 @@ type retrieveEnvironmentInfoResponse struct {
 	RetrieveEnvironmentInfoResult retrieveEnvironmentInfoResult `xml:"RetrieveEnvironmentInfoResult"`
 }
 
-func (h *Handler) handleRetrieveEnvironmentInfo(_ context.Context, _ url.Values) (any, error) {
+// handleRetrieveEnvironmentInfo validates InfoType and environment existence
+// the same way handleRequestEnvironmentInfo does; see that doc comment for
+// why EnvironmentInfo always answers empty (structural gap: no EC2 instance
+// or log-tailing state is modeled by this backend).
+func (h *Handler) handleRetrieveEnvironmentInfo(ctx context.Context, vals url.Values) (any, error) {
+	if !validEnvironmentInfoTypes[vals.Get("InfoType")] {
+		return nil, fmt.Errorf("%w: InfoType must be one of tail, bundle, analyze", ErrInvalidParameter)
+	}
+	if _, err := h.resolveSingleEnvironment(ctx, vals); err != nil {
+		return nil, err
+	}
+
 	return &retrieveEnvironmentInfoResponse{
 		Xmlns: ebXMLNS,
 		RetrieveEnvironmentInfoResult: retrieveEnvironmentInfoResult{

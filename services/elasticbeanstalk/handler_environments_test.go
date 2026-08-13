@@ -622,3 +622,112 @@ func TestHandler_DescribeEnvironmentHealth_NotFoundError(t *testing.T) {
 	assert.NotContains(t, body, "Grey", "should not return Grey for missing env")
 	assert.NotContains(t, body, "Terminated", "should not return Terminated for missing env")
 }
+
+// TestHandler_RequestEnvironmentInfo proves InfoType and environment
+// existence are now genuinely validated instead of silently ignored
+// (reverting either check in handleRequestEnvironmentInfo makes the
+// corresponding case here fail).
+func TestHandler_RequestEnvironmentInfo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantXML    string
+		wantStatus int
+	}{
+		{
+			name:       "valid_tail",
+			body:       "Version=2010-12-01&Action=RequestEnvironmentInfo&InfoType=tail&EnvironmentName=info-env",
+			wantStatus: http.StatusOK, wantXML: "RequestEnvironmentInfoResponse",
+		},
+		{
+			name:       "missing_info_type",
+			body:       "Version=2010-12-01&Action=RequestEnvironmentInfo&EnvironmentName=info-env",
+			wantStatus: http.StatusBadRequest, wantXML: "InvalidParameterValue",
+		},
+		{
+			name:       "invalid_info_type",
+			body:       "Version=2010-12-01&Action=RequestEnvironmentInfo&InfoType=nonsense&EnvironmentName=info-env",
+			wantStatus: http.StatusBadRequest, wantXML: "InvalidParameterValue",
+		},
+		{
+			name:       "missing_environment",
+			body:       "Version=2010-12-01&Action=RequestEnvironmentInfo&InfoType=tail",
+			wantStatus: http.StatusBadRequest, wantXML: "InvalidParameterValue",
+		},
+		{
+			name:       "unknown_environment",
+			body:       "Version=2010-12-01&Action=RequestEnvironmentInfo&InfoType=tail&EnvironmentName=does-not-exist",
+			wantStatus: http.StatusBadRequest, wantXML: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			postEBForm(
+				t,
+				h,
+				"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=info-app&EnvironmentName=info-env",
+			)
+
+			rec := postEBForm(t, h, tt.body)
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tt.wantXML)
+		})
+	}
+}
+
+// TestHandler_RetrieveEnvironmentInfo mirrors TestHandler_RequestEnvironmentInfo's
+// InfoType/environment validation and proves the successful response's
+// EnvironmentInfo list stays empty (no EC2 instance or log-tailing state is
+// modeled by this backend -- see PARITY.md).
+func TestHandler_RetrieveEnvironmentInfo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantXML    string
+		wantStatus int
+	}{
+		{
+			name:       "valid_bundle",
+			body:       "Version=2010-12-01&Action=RetrieveEnvironmentInfo&InfoType=bundle&EnvironmentName=retrieve-env",
+			wantStatus: http.StatusOK,
+			wantXML:    "RetrieveEnvironmentInfoResponse",
+		},
+		{
+			name:       "missing_info_type",
+			body:       "Version=2010-12-01&Action=RetrieveEnvironmentInfo&EnvironmentName=retrieve-env",
+			wantStatus: http.StatusBadRequest, wantXML: "InvalidParameterValue",
+		},
+		{
+			name:       "unknown_environment",
+			body:       "Version=2010-12-01&Action=RetrieveEnvironmentInfo&InfoType=bundle&EnvironmentName=does-not-exist",
+			wantStatus: http.StatusBadRequest,
+			wantXML:    "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			postEBForm(t, h,
+				"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=retrieve-app&EnvironmentName=retrieve-env")
+
+			rec := postEBForm(t, h, tt.body)
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tt.wantXML)
+			if tt.wantStatus == http.StatusOK {
+				assert.NotContains(t, rec.Body.String(), "<member>",
+					"no log-tailing state is modeled; EnvironmentInfo must stay empty")
+			}
+		})
+	}
+}

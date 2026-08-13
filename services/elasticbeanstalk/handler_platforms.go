@@ -50,6 +50,22 @@ func (h *Handler) handleCreatePlatformVersion(ctx context.Context, vals url.Valu
 		return nil, fmt.Errorf("%w: PlatformVersion is required", ErrInvalidParameter)
 	}
 
+	// PlatformDefinitionBundle (an S3Location: This member is required) is
+	// validated for presence only -- this backend has no S3 cross-service
+	// wiring for elasticbeanstalk (unlike CreateApplicationVersion's
+	// SourceBundle, which is stored-but-unvalidated; see PARITY.md), and
+	// real AWS never echoes the bundle location back on any response type
+	// (PlatformSummary/PlatformDescription/Builder all lack an S3 field), so
+	// there is nothing to store or round-trip -- verifying the S3 object
+	// actually exists and building a platform from its contents is a
+	// genuine structural gap, not something to fake.
+	if vals.Get("PlatformDefinitionBundle.S3Bucket") == "" || vals.Get("PlatformDefinitionBundle.S3Key") == "" {
+		return nil, fmt.Errorf(
+			"%w: PlatformDefinitionBundle.S3Bucket and PlatformDefinitionBundle.S3Key are required",
+			ErrInvalidParameter,
+		)
+	}
+
 	tags := parseTagList(vals, "Tags.member")
 
 	pv, err := h.Backend.CreatePlatformVersion(ctx, platformName, platformVersion, tags)

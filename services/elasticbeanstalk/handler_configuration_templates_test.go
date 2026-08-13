@@ -388,7 +388,8 @@ func TestHandler_PersistenceRoundTrip_ConfigTemplateAndPlatformVersion(t *testin
 	rec2 := postEBForm(
 		t,
 		h,
-		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0.0",
+		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0.0"+
+			"&PlatformDefinitionBundle.S3Bucket=my-bucket&PlatformDefinitionBundle.S3Key=my-key.zip",
 	)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -496,4 +497,57 @@ func TestHandler_UpdateConfigurationTemplate_OptionSettingsAndRemoval(t *testing
 	assert.Contains(t, body, "<OptionName>MinSize</OptionName><Value>2</Value>")
 	// MaxSize removed.
 	assert.NotContains(t, body, "MaxSize")
+}
+
+// TestHandler_ValidateConfigurationSettings_ApplicationName proves
+// ApplicationName -- a required input this op previously dropped entirely --
+// is now genuinely validated for presence and application existence
+// (reverting the check in handleValidateConfigurationSettings makes the
+// "missing"/"unknown" cases here fail).
+func TestHandler_ValidateConfigurationSettings_ApplicationName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantXML    string
+		wantStatus int
+	}{
+		{
+			name: "known_application",
+			body: "Version=2010-12-01&Action=ValidateConfigurationSettings" +
+				"&ApplicationName=vcs-app&EnvironmentName=vcs-env",
+			wantStatus: http.StatusOK,
+			wantXML:    "ValidateConfigurationSettingsResponse",
+		},
+		{
+			name: "missing_application_name",
+			body: "Version=2010-12-01&Action=ValidateConfigurationSettings" +
+				"&EnvironmentName=vcs-env",
+			wantStatus: http.StatusBadRequest,
+			wantXML:    "InvalidParameterValue",
+		},
+		{
+			name: "unknown_application_name",
+			body: "Version=2010-12-01&Action=ValidateConfigurationSettings" +
+				"&ApplicationName=does-not-exist&EnvironmentName=vcs-env",
+			wantStatus: http.StatusBadRequest,
+			wantXML:    "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=vcs-app")
+			postEBForm(t, h,
+				"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=vcs-app&EnvironmentName=vcs-env")
+
+			rec := postEBForm(t, h, tt.body)
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tt.wantXML)
+		})
+	}
 }

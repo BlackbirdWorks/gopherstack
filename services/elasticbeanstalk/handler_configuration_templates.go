@@ -410,7 +410,19 @@ var knownNamespaces = map[string]bool{
 	nsRDSDBInstance:           true,
 }
 
-func (h *Handler) handleValidateConfigurationSettings(_ context.Context, vals url.Values) (any, error) {
+func (h *Handler) handleValidateConfigurationSettings(ctx context.Context, vals url.Values) (any, error) {
+	appName := vals.Get("ApplicationName")
+	if appName == "" {
+		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
+	}
+	if apps := h.Backend.DescribeApplications(ctx, []string{appName}); len(apps) == 0 {
+		// AWS: ApplicationName "the application that the configuration
+		// template or environment belongs to" -- same no-application-found
+		// -> InvalidParameterValue precedent as CreateApplicationVersion's
+		// AutoCreateApplication=false path (see application_versions.go).
+		return nil, fmt.Errorf("%w: no application found named %s", ErrInvalidParameter, appName)
+	}
+
 	messages := make([]validationMessage, 0)
 
 	// Validate option settings namespaces (improvement #13)
