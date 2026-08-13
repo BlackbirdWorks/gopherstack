@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -574,7 +576,13 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 	}
 }
 
-// TestAssociateDistributionTenantWebACL covers the AssociateDistributionTenantWebACL operation.
+// TestAssociateDistributionTenantWebACL covers the AssociateDistributionTenantWebACL
+// operation. Regression coverage for gopherstack-4ara: the request bodies below use the
+// real AssociateDistributionTenantWebACLRequest>WebACLArn shape (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpDocumentAssociateDistributionTenantWebACLInput),
+// not the previous invented WebACLAssociation>WebACLId shape this test used to send --
+// that invented body happened to match the pre-fix handler's (also wrong) expectation,
+// so this test passed even though every real client's request 400'd MalformedXML.
 func TestAssociateDistributionTenantWebACL(t *testing.T) {
 	t.Parallel()
 
@@ -589,15 +597,21 @@ func TestAssociateDistributionTenantWebACL(t *testing.T) {
 			name:     "associate_tenant_web_acl_success",
 			tenantID: "tenant-abc-123",
 			body: []byte(
-				`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/tenant/abc</WebACLId></WebACLAssociation>`,
+				`<AssociateDistributionTenantWebACLRequest>` +
+					`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/tenant/abc</WebACLArn>` +
+					`</AssociateDistributionTenantWebACLRequest>`,
 			),
 			wantStatus: http.StatusOK,
 			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
 		},
 		{
-			name:       "associate_tenant_web_acl_empty_tenant",
-			tenantID:   "",
-			body:       []byte(`<WebACLAssociation><WebACLId>some-acl</WebACLId></WebACLAssociation>`),
+			name:     "associate_tenant_web_acl_empty_tenant",
+			tenantID: "",
+			body: []byte(
+				`<AssociateDistributionTenantWebACLRequest>` +
+					`<WebACLArn>some-acl</WebACLArn>` +
+					`</AssociateDistributionTenantWebACLRequest>`,
+			),
 			wantStatus: http.StatusBadRequest,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -625,4 +639,36 @@ func TestAssociateDistributionTenantWebACL(t *testing.T) {
 			tt.check(t, rec)
 		})
 	}
+}
+
+// TestAssociateDistributionTenantWebACL_RealClient drives AssociateDistributionTenantWebACL
+// through the real aws-sdk-go-v2 CloudFront client (gopherstack-4ara), the only check that
+// cannot be fooled by a hand-typed body encoding the same wrong assumption as the handler.
+// Fails against the pre-fix root/field shape (confirmed by hand-reverting).
+func TestAssociateDistributionTenantWebACL_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	const prefix = "/2020-05-31/"
+
+	createBody := `<CreateDistributionTenantRequest>` +
+		`<DistributionId>dist-4ara-001</DistributionId>` +
+		`<Domain>gopherstack-4ara.example.com</Domain>` +
+		`</CreateDistributionTenantRequest>`
+	createRec := doXML(t, h, http.MethodPost, prefix+"distribution-tenant", []byte(createBody))
+	require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
+	tenantID := extractXMLID(t, createRec.Body.String())
+
+	client := newTestCloudFrontClient(t, h)
+	const webACLArn = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/real-client-acl/abc123"
+
+	_, err := client.AssociateDistributionTenantWebACL(t.Context(), &cfsdk.AssociateDistributionTenantWebACLInput{
+		Id:        aws.String(tenantID),
+		WebACLArn: aws.String(webACLArn),
+	})
+	require.NoError(t, err)
+
+	getRec := doXML(t, h, http.MethodGet, prefix+"distribution-tenant/"+tenantID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+	assert.Contains(t, getRec.Body.String(), webACLArn)
 }

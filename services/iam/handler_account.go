@@ -559,21 +559,56 @@ func (h *Handler) iamDelegationDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"RejectDelegationRequest": func(_ url.Values, reqID string) (any, error) {
+	}
+}
+
+// iamDelegationRequestMutationDispatch returns dispatch entries for the delegation-request
+// state-mutation ops (Reject/Send/UpdateDelegationRequest), split out of iamDelegationDispatch
+// to stay under the funlen budget.
+func (h *Handler) iamDelegationRequestMutationDispatch() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"RejectDelegationRequest": func(vals url.Values, reqID string) (any, error) {
+			delegationRequestID := vals.Get("DelegationRequestId")
+			if delegationRequestID == "" {
+				return nil, fmt.Errorf("%w: DelegationRequestId must not be empty", ErrInvalidInput)
+			}
+
+			if err := h.Backend.RejectDelegationRequest(delegationRequestID, vals.Get("Notes")); err != nil {
+				return nil, err
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "RejectDelegationRequestResponse"},
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"SendDelegationToken": func(_ url.Values, reqID string) (any, error) {
+		"SendDelegationToken": func(vals url.Values, reqID string) (any, error) {
+			delegationRequestID := vals.Get("DelegationRequestId")
+			if delegationRequestID == "" {
+				return nil, fmt.Errorf("%w: DelegationRequestId must not be empty", ErrInvalidInput)
+			}
+
+			if err := h.Backend.SendDelegationToken(delegationRequestID); err != nil {
+				return nil, err
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "SendDelegationTokenResponse"},
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"UpdateDelegationRequest": func(_ url.Values, reqID string) (any, error) {
+		"UpdateDelegationRequest": func(vals url.Values, reqID string) (any, error) {
+			delegationRequestID := vals.Get("DelegationRequestId")
+			if delegationRequestID == "" {
+				return nil, fmt.Errorf("%w: DelegationRequestId must not be empty", ErrInvalidInput)
+			}
+
+			if err := h.Backend.UpdateDelegationRequest(delegationRequestID, vals.Get("Notes")); err != nil {
+				return nil, err
+			}
+
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "UpdateDelegationRequestResponse"},
 				Xmlns:            iamXMLNS,

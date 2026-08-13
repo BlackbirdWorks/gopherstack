@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/iam/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,5 +124,121 @@ func TestDelegationRequestOps_RealWireKeys(t *testing.T) {
 			DelegationRequestId: aws.String(seeded.DelegationID),
 		})
 		require.NoError(t, err)
+	})
+}
+
+// seedDelegationRequestForMutationTests creates a real delegation request
+// directly against the backend, mirroring the fixture already used above.
+func seedDelegationRequestForMutationTests(t *testing.T, b *InMemoryBackend) *DelegationRequest {
+	t.Helper()
+
+	req, err := b.CreateDelegationRequest(CreateDelegationRequestInput{
+		OwnerAccountID:      "111122223333",
+		Description:         "test delegation",
+		NotificationChannel: "arn:aws:sns:us-east-1:000000000000:topic",
+		RequestorWorkflowID: "workflow-1",
+		SessionDuration:     3600,
+		PolicyTemplateArn:   "arn:aws:iam::aws:policy/ReadOnlyAccess",
+	})
+	require.NoError(t, err)
+
+	return req
+}
+
+// TestRejectSendUpdateDelegationRequest_MutateRealState covers
+// RejectDelegationRequest, SendDelegationToken and UpdateDelegationRequest
+// (handler_account.go), which previously ignored their required
+// DelegationRequestId entirely and returned success without reading or
+// mutating any stored delegation-request state -- the same undisclosed-drop
+// shape CreateDelegationRequest had before gopherstack-oxuf (38d3ee94b).
+// Driven through the real aws-sdk-go-v2 client so the wire keys asserted
+// against (DelegationRequestId, Notes) are what AWS actually sends, not what
+// the handler assumes.
+func TestRejectSendUpdateDelegationRequest_MutateRealState(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejectdelegationrequest_sets_rejected_and_stores_notes", func(t *testing.T) {
+		t.Parallel()
+
+		b := NewInMemoryBackend()
+		h := NewHandler(b)
+		client := newDelegationTestClient(t, h)
+		seeded := seedDelegationRequestForMutationTests(t, b)
+
+		_, err := client.RejectDelegationRequest(t.Context(), &iamsdk.RejectDelegationRequestInput{
+			DelegationRequestId: aws.String(seeded.DelegationID),
+			Notes:               aws.String("no longer needed"),
+		})
+		require.NoError(t, err)
+
+		stored, exists := b.delegationRequests.Get(seeded.DelegationID)
+		require.True(t, exists)
+		assert.Equal(t, "REJECTED", stored.Status)
+		assert.Equal(t, "no longer needed", stored.Notes)
+	})
+
+	t.Run("senddelegationtoken_sets_finalized", func(t *testing.T) {
+		t.Parallel()
+
+		b := NewInMemoryBackend()
+		h := NewHandler(b)
+		client := newDelegationTestClient(t, h)
+		seeded := seedDelegationRequestForMutationTests(t, b)
+
+		_, err := client.SendDelegationToken(t.Context(), &iamsdk.SendDelegationTokenInput{
+			DelegationRequestId: aws.String(seeded.DelegationID),
+		})
+		require.NoError(t, err)
+
+		stored, exists := b.delegationRequests.Get(seeded.DelegationID)
+		require.True(t, exists)
+		assert.Equal(t, "FINALIZED", stored.Status)
+	})
+
+	t.Run("updatedelegationrequest_sets_pending_approval_and_stores_notes", func(t *testing.T) {
+		t.Parallel()
+
+		b := NewInMemoryBackend()
+		h := NewHandler(b)
+		client := newDelegationTestClient(t, h)
+		seeded := seedDelegationRequestForMutationTests(t, b)
+
+		_, err := client.UpdateDelegationRequest(t.Context(), &iamsdk.UpdateDelegationRequestInput{
+			DelegationRequestId: aws.String(seeded.DelegationID),
+			Notes:               aws.String("adding more context"),
+		})
+		require.NoError(t, err)
+
+		stored, exists := b.delegationRequests.Get(seeded.DelegationID)
+		require.True(t, exists)
+		assert.Equal(t, "PENDING_APPROVAL", stored.Status)
+		assert.Equal(t, "adding more context", stored.Notes)
+	})
+
+	t.Run("unknown delegation request id is NoSuchEntity for all three", func(t *testing.T) {
+		t.Parallel()
+
+		b := NewInMemoryBackend()
+		h := NewHandler(b)
+		client := newDelegationTestClient(t, h)
+
+		_, rejectErr := client.RejectDelegationRequest(t.Context(), &iamsdk.RejectDelegationRequestInput{
+			DelegationRequestId: aws.String("does-not-exist"),
+		})
+		_, sendErr := client.SendDelegationToken(t.Context(), &iamsdk.SendDelegationTokenInput{
+			DelegationRequestId: aws.String("does-not-exist"),
+		})
+		_, updateErr := client.UpdateDelegationRequest(t.Context(), &iamsdk.UpdateDelegationRequestInput{
+			DelegationRequestId: aws.String("does-not-exist"),
+		})
+
+		for _, err := range []error{rejectErr, sendErr, updateErr} {
+			require.Error(t, err)
+
+			var apiErr smithy.APIError
+
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, "NoSuchEntity", apiErr.ErrorCode())
+		}
 	})
 }

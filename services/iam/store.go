@@ -216,6 +216,9 @@ type StorageBackend interface {
 	AcceptDelegationRequest(delegationID string) error
 	AssociateDelegationRequest(delegationID, policyArn string) error
 	DelegationRequestExists(delegationID string) bool
+	RejectDelegationRequest(delegationID, notes string) error
+	SendDelegationToken(delegationID string) error
+	UpdateDelegationRequest(delegationID, notes string) error
 
 	// Security Token Service preferences
 	SetSecurityTokenServicePreferences(globalEndpointTokenVersion string) error

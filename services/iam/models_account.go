@@ -160,16 +160,17 @@ type DelegationPolicyParameter struct {
 // gopherstack does not fabricate the LLM-generated summary itself.
 type DelegationRequest struct {
 	CreateDate           time.Time                   `json:"CreateDate"`
-	NotificationChannel  string                      `json:"NotificationChannel,omitempty"`
-	TargetAccountID      string                      `json:"TargetAccountId,omitempty"`
+	DelegationID         string                      `json:"DelegationId,omitempty"`
+	RedirectURL          string                      `json:"RedirectUrl,omitempty"`
 	Status               string                      `json:"Status,omitempty"`
 	PolicyArn            string                      `json:"PolicyArn,omitempty"`
 	Description          string                      `json:"Description,omitempty"`
-	DelegationID         string                      `json:"DelegationId,omitempty"`
+	NotificationChannel  string                      `json:"NotificationChannel,omitempty"`
 	RequestorWorkflowID  string                      `json:"RequestorWorkflowId,omitempty"`
-	RedirectURL          string                      `json:"RedirectUrl,omitempty"`
+	TargetAccountID      string                      `json:"TargetAccountId,omitempty"`
 	RequestMessage       string                      `json:"RequestMessage,omitempty"`
 	PolicyTemplateArn    string                      `json:"PolicyTemplateArn,omitempty"`
+	Notes                string                      `json:"Notes,omitempty"`
 	PermissionParameters []DelegationPolicyParameter `json:"PermissionParameters,omitempty"`
 	SessionDuration      int32                       `json:"SessionDuration,omitempty"`
 	OnlySendByOwner      bool                        `json:"OnlySendByOwner,omitempty"`

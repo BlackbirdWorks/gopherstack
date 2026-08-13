@@ -411,3 +411,42 @@ func TestGetHumanReadableSummary(t *testing.T) {
 		assert.Equal(t, "en", resp.GetHumanReadableSummaryResult.Locale)
 	})
 }
+
+// TestRejectSendUpdateDelegationRequest_DelegationRequestIdRequired covers
+// RejectDelegationRequest, SendDelegationToken and UpdateDelegationRequest
+// (handler_account.go), whose required DelegationRequestId
+// (api_op_RejectDelegationRequest.go:42, api_op_SendDelegationToken.go:44,
+// api_op_UpdateDelegationRequest.go:38) was silently ignored -- a request
+// missing it succeeded instead of being rejected. The real aws-sdk-go-v2
+// client refuses to send a nil required DelegationRequestId locally, so
+// this case (unlike the state-mutation coverage in
+// delegation_requests_whitebox_test.go) can only be reached by posting the
+// wire form directly, the same way CreateDelegationRequest's required-member
+// coverage above does.
+func TestRejectSendUpdateDelegationRequest_DelegationRequestIdRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+	}{
+		{name: "rejectdelegationrequest", action: "RejectDelegationRequest"},
+		{name: "senddelegationtoken", action: "SendDelegationToken"},
+		{name: "updatedelegationrequest", action: "UpdateDelegationRequest"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			rec := callIAM(t, h, tt.action, map[string]string{})
+
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errResp iam.ErrorResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, "InvalidInput", errResp.Error.Code)
+		})
+	}
+}

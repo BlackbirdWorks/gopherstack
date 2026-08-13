@@ -546,6 +546,66 @@ func (b *InMemoryBackend) AssociateDelegationRequest(delegationID, policyArn str
 	return nil
 }
 
+// RejectDelegationRequest denies a delegation request's requested temporary
+// access. Real RejectDelegationRequest (api_op_RejectDelegationRequest.go)
+// documents that a rejected request "cannot be accepted or updated later",
+// but declares no dedicated state-conflict error for violating that, so --
+// like AcceptDelegationRequest/AssociateDelegationRequest above -- this does
+// not enforce it.
+func (b *InMemoryBackend) RejectDelegationRequest(delegationID, notes string) error {
+	b.mu.Lock("RejectDelegationRequest")
+	defer b.mu.Unlock()
+
+	req, exists := b.delegationRequests.Get(delegationID)
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
+	}
+
+	req.Status = "REJECTED"
+	req.Notes = notes
+	b.delegationRequests.Put(req)
+
+	return nil
+}
+
+// SendDelegationToken transitions a delegation request to FINALIZED, per
+// api_op_SendDelegationToken.go's documented state machine ("must be in the
+// ACCEPTED state... After the SendDelegationToken API call is successful,
+// the request transitions to a FINALIZED state").
+func (b *InMemoryBackend) SendDelegationToken(delegationID string) error {
+	b.mu.Lock("SendDelegationToken")
+	defer b.mu.Unlock()
+
+	req, exists := b.delegationRequests.Get(delegationID)
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
+	}
+
+	req.Status = "FINALIZED"
+	b.delegationRequests.Put(req)
+
+	return nil
+}
+
+// UpdateDelegationRequest records additional Notes on a delegation request
+// and transitions it to PENDING_APPROVAL, per
+// api_op_UpdateDelegationRequest.go's doc comment.
+func (b *InMemoryBackend) UpdateDelegationRequest(delegationID, notes string) error {
+	b.mu.Lock("UpdateDelegationRequest")
+	defer b.mu.Unlock()
+
+	req, exists := b.delegationRequests.Get(delegationID)
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
+	}
+
+	req.Status = "PENDING_APPROVAL"
+	req.Notes = notes
+	b.delegationRequests.Put(req)
+
+	return nil
+}
+
 // ChangePassword changes the IAM user password, validating OldPassword against the
 // account's current password and NewPassword against the account password policy.
 // In real AWS, this operates on the currently authenticated user; this mock tracks a

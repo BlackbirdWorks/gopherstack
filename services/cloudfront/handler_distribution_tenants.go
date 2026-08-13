@@ -10,6 +10,21 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// associateDistributionTenantWebACLRequestXML models a real
+// AssociateDistributionTenantWebACLRequest body: root
+// AssociateDistributionTenantWebACLRequest with a single WebACLArn child
+// element (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpDocumentAssociateDistributionTenantWebACLInput). The
+// previous shared webACLAssociationXML{root: WebACLAssociation, field:
+// WebACLId} matched neither the real root nor the real field name (an ARN,
+// not an ID) -- since encoding/xml's Unmarshal errors when the root doesn't
+// match a tagged XMLName, every real client's request 400'd MalformedXML
+// (see PARITY.md gaps).
+type associateDistributionTenantWebACLRequestXML struct {
+	XMLName   xml.Name `xml:"AssociateDistributionTenantWebACLRequest"`
+	WebACLArn string   `xml:"WebACLArn"`
+}
+
 func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenantID string) error {
 	body, err := readBody(c)
 	if err != nil {
@@ -20,18 +35,18 @@ func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenan
 		return h.handleError(c, qErr)
 	}
 
-	var req webACLAssociationXML
+	var req associateDistributionTenantWebACLRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
 			return xmlResp(
 				c,
 				http.StatusBadRequest,
-				cfErrorXML("MalformedXML", "invalid WebACLAssociation XML"),
+				cfErrorXML("MalformedXML", "invalid AssociateDistributionTenantWebACLRequest XML"),
 			)
 		}
 	}
 
-	if assocErr := h.Backend.AssociateDistributionTenantWebACL(tenantID, req.WebACLID); assocErr != nil {
+	if assocErr := h.Backend.AssociateDistributionTenantWebACL(tenantID, req.WebACLArn); assocErr != nil {
 		return h.handleError(c, assocErr)
 	}
 

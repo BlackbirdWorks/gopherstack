@@ -222,11 +222,17 @@ func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 		RoutingEndpoint string   `xml:"RoutingEndpoint"`
 		Status          string   `xml:"Status"`
 	}
+	// Real ListConnectionGroupsOutput (api_op_ListConnectionGroups.go) is
+	// ConnectionGroups []ConnectionGroupSummary + NextMarker, no Quantity/Items
+	// wrapper: awsRestxml_deserializeOpDocumentListConnectionGroupsOutput reads
+	// a direct <ConnectionGroups> child holding repeated <ConnectionGroupSummary>
+	// elements (cloudfront@v1.67.4 deserializers.go), so the previous
+	// <ConnectionGroupList><Items>...</Items><Quantity>N</Quantity> shape left a
+	// real client decoding an always-empty list regardless of what was stored.
 	type cgList struct {
-		XMLName  xml.Name    `xml:"ConnectionGroupList"`
-		XMLNS    string      `xml:"xmlns,attr"`
-		Items    []cgSummary `xml:"Items>ConnectionGroupSummary"`
-		Quantity int         `xml:"Quantity"`
+		XMLName          xml.Name    `xml:"ListConnectionGroupsResult"`
+		XMLNS            string      `xml:"xmlns,attr"`
+		ConnectionGroups []cgSummary `xml:"ConnectionGroups>ConnectionGroupSummary"`
 	}
 	summaries := make([]cgSummary, 0, len(items))
 	for _, cg := range items {
@@ -235,7 +241,7 @@ func (h *Handler) handleListConnectionGroups(c *echo.Context) error {
 			RoutingEndpoint: cg.RoutingEndpoint, Status: cg.Status,
 		})
 	}
-	list := cgList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
+	list := cgList{XMLNS: cfNS, ConnectionGroups: summaries}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
@@ -370,11 +376,17 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 		Stage   string    `xml:"Stage"`
 		Status  string    `xml:"Status"`
 	}
+	// Real ListConnectionFunctionsOutput (api_op_ListConnectionFunctions.go) is
+	// ConnectionFunctions []ConnectionFunctionSummary + NextMarker, no
+	// Quantity/Items wrapper: awsRestxml_deserializeOpDocumentListConnectionFunctionsOutput
+	// reads a direct <ConnectionFunctions> child holding repeated
+	// <ConnectionFunctionSummary> elements (cloudfront@v1.67.4 deserializers.go), so the
+	// previous <ConnectionFunctionList><Items>...</Items><Quantity>N</Quantity> shape left
+	// a real client decoding an always-empty list regardless of what was stored.
 	type cfnList struct {
-		XMLName  xml.Name     `xml:"ConnectionFunctionList"`
-		XMLNS    string       `xml:"xmlns,attr"`
-		Items    []cfnSummary `xml:"Items>ConnectionFunctionSummary"`
-		Quantity int          `xml:"Quantity"`
+		XMLName             xml.Name     `xml:"ListConnectionFunctionsResult"`
+		XMLNS               string       `xml:"xmlns,attr"`
+		ConnectionFunctions []cfnSummary `xml:"ConnectionFunctions>ConnectionFunctionSummary"`
 	}
 	summaries := make([]cfnSummary, 0, len(items))
 	for _, fn := range items {
@@ -383,7 +395,7 @@ func (h *Handler) handleListConnectionFunctions(c *echo.Context) error {
 			Config: cfnConfig{Comment: fn.Comment, Runtime: fn.Runtime},
 		})
 	}
-	list := cfnList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
+	list := cfnList{XMLNS: cfNS, ConnectionFunctions: summaries}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)

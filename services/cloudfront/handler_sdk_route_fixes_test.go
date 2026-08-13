@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -146,12 +147,8 @@ func TestGetManagedCertificateDetails_RealClient(t *testing.T) {
 // it at all -- only the Associate variant was wired (gopherstack-o31x).
 //
 // Deliberately does not round-trip through AssociateDistributionTenantWebACL
-// first: that op has its own PRE-EXISTING wire-shape bug unrelated to
-// routing (services/cloudfront/handler_distributions.go's webACLAssociationXML
-// expects root element "WebACLAssociation" with a "WebACLId" field, but the
-// real request body is root "AssociateDistributionTenantWebACLRequest" with a
-// "WebACLArn" field -- cloudfront@v1.67.4 serializers.go:
-// awsRestxml_serializeOpDocumentAssociateDistributionTenantWebACLInput).
+// first (that op's own request wire-shape bug was fixed separately, see
+// TestAssociateDistributionTenantWebACL_RealClient, gopherstack-4ara).
 // DisassociateDistributionTenantWebACL's backend call is idempotent (map
 // delete, gopherstack-o31x), so reachability is provable standalone.
 func TestDisassociateDistributionTenantWebACL_RealClient(t *testing.T) {
@@ -239,15 +236,29 @@ func TestGetConnectionGroupByRoutingEndpoint_RealClient(t *testing.T) {
 	require.NotNil(t, byEndpoint.ConnectionGroup)
 	require.Equal(t, aws.ToString(created.ConnectionGroup.Id), aws.ToString(byEndpoint.ConnectionGroup.Id))
 
-	// ListConnectionGroups reachability only: its response wraps items under
-	// <ConnectionGroupList><Items>, but the real deserializer reads a
-	// top-level <ConnectionGroups> list directly (cloudfront@v1.67.4
-	// deserializers.go: awsRestxml_deserializeOpDocumentListConnectionGroupsOutput)
-	// -- a pre-existing wire-shape bug independent of this route fix, so the
-	// real client sees an empty (not erroring) list. Not fixed here; out of
-	// this pass's routing scope.
-	_, err = client.ListConnectionGroups(t.Context(), &cfsdk.ListConnectionGroupsInput{})
+	// ListConnectionGroups (gopherstack-4ara): the response now emits a
+	// top-level <ConnectionGroups> list directly, matching the real
+	// deserializer (cloudfront@v1.67.4 deserializers.go:
+	// awsRestxml_deserializeOpDocumentListConnectionGroupsOutput) instead of
+	// the previous <ConnectionGroupList><Items> wrapper the SDK could never
+	// populate a list from. Asserting the created group round-trips through
+	// List is the only proof: the SDK silently decodes an empty list from a
+	// wrong wrapper no matter what the raw XML holds.
+	listed, err := client.ListConnectionGroups(t.Context(), &cfsdk.ListConnectionGroupsInput{})
 	require.NoError(t, err)
+	require.NotEmpty(t, listed.ConnectionGroups)
+
+	var found bool
+
+	for _, cg := range listed.ConnectionGroups {
+		if aws.ToString(cg.Id) == aws.ToString(created.ConnectionGroup.Id) {
+			found = true
+
+			break
+		}
+	}
+
+	assert.True(t, found, "created connection group must appear in ListConnectionGroups")
 }
 
 // TestListConnectionFunctions_RealClient drives the real aws-sdk-go-v2 client
@@ -262,7 +273,7 @@ func TestListConnectionFunctions_RealClient(t *testing.T) {
 	h := newTestHandler(t)
 	client := newTestCloudFrontClient(t, h)
 
-	_, err := client.CreateConnectionFunction(t.Context(), &cfsdk.CreateConnectionFunctionInput{
+	created, err := client.CreateConnectionFunction(t.Context(), &cfsdk.CreateConnectionFunctionInput{
 		Name:                   aws.String("real-client-cfn"),
 		ConnectionFunctionCode: []byte("function handler() {}"),
 		ConnectionFunctionConfig: &types.FunctionConfig{
@@ -272,13 +283,27 @@ func TestListConnectionFunctions_RealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Reachability only: the response wraps items under
-	// <ConnectionFunctionList><Items>, but the real deserializer reads a
-	// top-level <ConnectionFunctions> list directly (cloudfront@v1.67.4
-	// deserializers.go: awsRestxml_deserializeOpDocumentListConnectionFunctionsOutput)
-	// -- a pre-existing wire-shape bug independent of this route fix, so the
-	// real client sees an empty (not erroring) list. Not fixed here; out of
-	// this pass's routing scope.
-	_, err = client.ListConnectionFunctions(t.Context(), &cfsdk.ListConnectionFunctionsInput{})
+	// ListConnectionFunctions (gopherstack-4ara): the response now emits a
+	// top-level <ConnectionFunctions> list directly, matching the real
+	// deserializer (cloudfront@v1.67.4 deserializers.go:
+	// awsRestxml_deserializeOpDocumentListConnectionFunctionsOutput) instead
+	// of the previous <ConnectionFunctionList><Items> wrapper the SDK could
+	// never populate a list from. Asserting the created function round-trips
+	// through List is the only proof: the SDK silently decodes an empty list
+	// from a wrong wrapper no matter what the raw XML holds.
+	listed, err := client.ListConnectionFunctions(t.Context(), &cfsdk.ListConnectionFunctionsInput{})
 	require.NoError(t, err)
+	require.NotEmpty(t, listed.ConnectionFunctions)
+
+	var found bool
+
+	for _, fn := range listed.ConnectionFunctions {
+		if aws.ToString(fn.Id) == aws.ToString(created.ConnectionFunctionSummary.Id) {
+			found = true
+
+			break
+		}
+	}
+
+	assert.True(t, found, "created connection function must appear in ListConnectionFunctions")
 }

@@ -46,7 +46,9 @@ func TestListDistributionTenantsByCustomization_RealSDKRequestShape(t *testing.T
 		matchedID := createTenantForCustomizationTest(t, h, "matched.example.com")
 		otherID := createTenantForCustomizationTest(t, h, "other.example.com")
 
-		assocBody := `<WebACLAssociation><WebACLId>` + webACLArn + `</WebACLId></WebACLAssociation>`
+		assocBody := `<AssociateDistributionTenantWebACLRequest>` +
+			`<WebACLArn>` + webACLArn + `</WebACLArn>` +
+			`</AssociateDistributionTenantWebACLRequest>`
 		assocRec := doXML(
 			t,
 			h,
@@ -56,7 +58,9 @@ func TestListDistributionTenantsByCustomization_RealSDKRequestShape(t *testing.T
 		)
 		require.Equal(t, http.StatusOK, assocRec.Code)
 
-		otherAssocBody := `<WebACLAssociation><WebACLId>` + otherWebACLArn + `</WebACLId></WebACLAssociation>`
+		otherAssocBody := `<AssociateDistributionTenantWebACLRequest>` +
+			`<WebACLArn>` + otherWebACLArn + `</WebACLArn>` +
+			`</AssociateDistributionTenantWebACLRequest>`
 		otherAssocRec := doXML(
 			t,
 			h,

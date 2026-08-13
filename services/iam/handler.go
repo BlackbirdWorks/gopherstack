@@ -887,6 +887,7 @@ func (h *Handler) iamCompletenessDispatchTable() map[string]iamActionFn {
 	maps.Copy(combined, h.iamDeleteServiceLinkedRoleDispatch())
 	maps.Copy(combined, h.iamOrgsDispatch())
 	maps.Copy(combined, h.iamDelegationDispatch())
+	maps.Copy(combined, h.iamDelegationRequestMutationDispatch())
 	maps.Copy(combined, h.iamOrgsReportDispatch())
 
 	return combined

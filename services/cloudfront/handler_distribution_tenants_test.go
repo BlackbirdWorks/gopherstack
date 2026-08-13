@@ -137,7 +137,9 @@ func TestListDistributionTenantsByCustomization_FiltersByWebACL(t *testing.T) {
 	tenantWithoutACL := createTestTenant(t, h, "dist-cust-2", "without-acl.example.com")
 
 	cfOK(t, h, http.MethodPut, tenantDomainPrefix+"distribution-tenant/"+tenantWithACL+"/associate-web-acl",
-		`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/x/1</WebACLId></WebACLAssociation>`)
+		`<AssociateDistributionTenantWebACLRequest>`+
+			`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/x/1</WebACLArn>`+
+			`</AssociateDistributionTenantWebACLRequest>`)
 
 	rr := cfRequest(
 		t,
@@ -369,7 +371,9 @@ func TestDistributionTenant_PersistenceRoundTrip(t *testing.T) {
 		h,
 		http.MethodPut,
 		tenantDomainPrefix+"distribution-tenant/"+tenantID+"/associate-web-acl",
-		`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/persist/1</WebACLId></WebACLAssociation>`,
+		`<AssociateDistributionTenantWebACLRequest>`+
+			`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/persist/1</WebACLArn>`+
+			`</AssociateDistributionTenantWebACLRequest>`,
 	)
 
 	invRR := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"distribution-tenant/"+tenantID+"/invalidation",
