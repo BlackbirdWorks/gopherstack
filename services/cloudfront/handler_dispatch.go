@@ -327,7 +327,7 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 	}
 }
 
-// dispatchKVSOps handles KVS control-plane and data-plane operations.
+// dispatchKVSOps handles KVS control-plane operations.
 func (h *Handler) dispatchKVSOps(c *echo.Context, operation, resource string) error {
 	switch operation {
 	case opDescribeKeyValueStore:
@@ -336,18 +336,6 @@ func (h *Handler) dispatchKVSOps(c *echo.Context, operation, resource string) er
 		return h.handleUpdateKeyValueStore(c, resource)
 	case opDeleteKeyValueStore:
 		return h.handleDeleteKeyValueStore(c, resource)
-	case opGetKVSKey:
-		kvsID, key, _ := strings.Cut(resource, "/")
-
-		return h.handleGetKVSKey(c, kvsID, key)
-	case opPutKVSKey:
-		kvsID, key, _ := strings.Cut(resource, "/")
-
-		return h.handlePutKVSKey(c, kvsID, key)
-	case opDeleteKVSKey:
-		kvsID, key, _ := strings.Cut(resource, "/")
-
-		return h.handleDeleteKVSKey(c, kvsID, key)
 	default:
 
 		return errNotDispatched
@@ -382,8 +370,6 @@ func (h *Handler) dispatchListCore(c *echo.Context, operation, resource string) 
 		return h.handleListResponseHeadersPolicies(c)
 	case opListTagsForResource:
 		return h.handleListTagsForResource(c)
-	case opListKVSKeys:
-		return h.handleListKVSKeys(c, resource)
 	default:
 
 		return errNotDispatched
@@ -442,8 +428,6 @@ func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) erro
 		return h.handleGetFunctionAssociations(c, resource)
 	case opSetFunctionAssociations:
 		return h.handleSetFunctionAssociations(c, resource)
-	case opUpdateKVSKeys:
-		return h.handleUpdateKVSKeys(c, resource)
 	default:
 
 		return errNotDispatched

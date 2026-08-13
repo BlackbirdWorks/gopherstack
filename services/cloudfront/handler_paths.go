@@ -479,56 +479,7 @@ func parseCFKeyAndLogPath(method, suffix string) (string, string) {
 		return op, id
 	}
 
-	if op, kvsID, key := parseCFKVSDataPlanePath(method, suffix); op != "" {
-		if key != "" {
-			return op, kvsID + "/" + key
-		}
-
-		return op, kvsID
-	}
-
 	return parseCFPublicKeyRealtimePath(method, suffix)
-}
-
-// parseCFKVSDataPlanePath routes KVS data-plane key operations.
-// Returns (op, kvsID, key) — key is empty for list/batch ops.
-func parseCFKVSDataPlanePath(method, suffix string) (string, string, string) {
-	const kvsPrefix = "key-value-store/"
-	if !strings.HasPrefix(suffix, kvsPrefix) {
-		return "", "", ""
-	}
-
-	rest := strings.TrimPrefix(suffix, kvsPrefix)
-	kvsID, after, ok := strings.Cut(rest, "/keys")
-	if !ok {
-		return "", "", ""
-	}
-
-	if after == "" || after == "/" {
-		switch method {
-		case http.MethodGet:
-			return opListKVSKeys, kvsID, ""
-		case http.MethodPost:
-			return opUpdateKVSKeys, kvsID, ""
-		}
-
-		return "", "", ""
-	}
-
-	if key, hasSlash := strings.CutPrefix(after, "/"); hasSlash {
-		if key != "" && !strings.Contains(key, "/") {
-			switch method {
-			case http.MethodGet:
-				return opGetKVSKey, kvsID, key
-			case http.MethodPut:
-				return opPutKVSKey, kvsID, key
-			case http.MethodDelete:
-				return opDeleteKVSKey, kvsID, key
-			}
-		}
-	}
-
-	return "", "", ""
 }
 
 // parseCFPublicKeyRealtimePath routes public key and realtime log config paths.

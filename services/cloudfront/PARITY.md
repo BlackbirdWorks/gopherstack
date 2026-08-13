@@ -1,7 +1,7 @@
 ---
 service: cloudfront
 sdk_module: aws-sdk-go-v2/service/cloudfront@v1.67.4
-sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.2]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys); see key_value_stores family
+sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) now live in services/cloudfrontkeyvaluestore (gopherstack-4ara, 2026-08-13) -- see that service's own PARITY.md
 last_audit_commit: PENDING (gopherstack-o31x route-table audit, worked in this session)
 last_audit_date: 2026-08-13
 overall: A            # gopherstack-o31x: first FULL route diff of all 167 real cloudfront
@@ -110,7 +110,7 @@ families:
   field_level_encryption: {status: ok, note: "Create/Update for config + profile now run validateQuantities and return the correct *AlreadyExists code (FieldLevelEncryptionConfigAlreadyExists / FieldLevelEncryptionProfileAlreadyExists) instead of DistributionAlreadyExists; FLEProfileInUse guard on profile delete pre-existed and is correct"}
   public_keys_key_groups: {status: ok, note: "CreatePublicKey/CreateKeyGroup/UpdateKeyGroup return PublicKeyAlreadyExists/KeyGroupAlreadyExists instead of DistributionAlreadyExists; PublicKeyInUse guard on public-key delete pre-existed and is correct; FIXED this pass (gopherstack-na4): DeleteKeyGroup now returns ResourceInUse (matching the real DeleteKeyGroup error list -- there is no dedicated KeyGroupInUse type) when the key group is referenced by a distribution's TrustedKeyGroups"}
   realtime_log_configs: {status: ok, note: "CreateRealtimeLogConfig returns RealtimeLogConfigAlreadyExists instead of DistributionAlreadyExists. See the CreateRealtimeLogConfig/GetRealtimeLogConfig/UpdateRealtimeLogConfig/DeleteRealtimeLogConfig op rows for the 2026-08-13 (gopherstack-nfka) wire and routing fixes -- this family note previously implied these ops were clean when they were not (missed by the 2026-07-23 audit)."}
-  key_value_stores: {status: ok, note: "control-plane Create/Update run validateQuantities (no-op, shape has no Quantity/Items pairs); data-plane GetKey/PutKeys/ListKeys correctly use the separate JSON protocol, out of scope for this XML-focused sweep. UPDATE (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): confirmed by name against aws-sdk-go-v2/service/cloudfrontkeyvaluestore that DeleteKey/GetKey/ListKeys/PutKey/UpdateKeys are exactly its 5 non-DescribeKeyValueStore ops (added to go.mod; pkgs/sdkcheck's reverse check was flagging these 5 as 'phantom' only because it compared them against cloudfrontsdk.Client instead of the data-plane client that owns them -- sdk_completeness_test.go now checks them separately against cfkvssdk.Client). No wire-shape field-diff done, naming/completeness only."}
+  key_value_stores: {status: ok, note: "control-plane Create/Update run validateQuantities (no-op, shape has no Quantity/Items pairs). RESOLVED 2026-08-13 (gopherstack-4ara): the data-plane GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys handlers previously living here were routed under this Handler's /2020-05-31/ RouteMatcher, which the real cloudfrontkeyvaluestore.Client never sends a request through -- structurally unreachable (see the removed 'gaps' entry below, and the Notes section's protocol paragraph). Removed from this service (handler_key_value_store.go, handler.go's op consts, handler_dispatch.go, handler_paths.go's parseCFKVSDataPlanePath) and reimplemented with correct routing/wire-shape in the new services/cloudfrontkeyvaluestore, wired via cli.go's wireCloudFrontKeyValueStore directly to this backend's keyValueStoreData/keyValueDataETags (the underlying state was always real; only the HTTP layer was wrong). This service's own control-plane CRUD (Create/Get/List/Delete/UpdateKeyValueStore) is unaffected and stays here. Persistence side-effect: keyValueStoreData/keyValueDataETags -- previously NOT in backendSnapshot at all -- are now persisted (cloudfrontSnapshotVersion bumped 1->2), and KeyValueStore gained a CreatedTime field (needed by the sibling service's DescribeKeyValueStore)."}
   vpc_origins: {status: ok, note: "Create/Update run validateQuantities (no-op for this shape). See the CreateVpcOrigin/UpdateVpcOrigin op rows for the 2026-08-13 (gopherstack-nfka) fix -- Arn/HTTPPort/HTTPSPort/OriginProtocolPolicy were previously dropped entirely, missed by the 2026-07-23 audit."}
   continuous_deployment_policy: {status: ok, note: "Create/Update run validateQuantities; If-Match already enforced"}
   invalidations_realtime_status: {status: ok, note: "background reconciler goroutine (runInvalidationReconciler) has a clean stopCh lifecycle via Close(); no leak"}
@@ -118,22 +118,11 @@ families:
   managed_policies: {status: ok, note: "NEW this pass (gopherstack-a9t): 7 managed cache policies, 8 managed origin request policies, and 5 managed response headers policies seeded at backend construction/Reset/Restore with their real, permanent, verified-against-live-AWS-docs IDs and configs (see managed_policies.go's doc comment for the exact verification method and the deliberately-omitted Amplify-internal policies). Managed=true policies reject Update/Delete with IllegalUpdate/IllegalDelete (400); List* honors the real Type=managed|custom query filter and each summary carries the correct <Type> element"}
   streaming_distributions: {status: ok, note: "FIXED this pass: CreateStreamingDistribution treated non-empty CallerReference reuse as unconditionally idempotent; real AWS returns StreamingDistributionAlreadyExists on any reuse regardless of content (verified against the live CreateStreamingDistribution API reference, same rule as CreateDistribution). FIXED 2026-08-13 (gopherstack-o31x): CreateStreamingDistributionWithTags had the exact same WithTags-flag routing bug as CreateDistributionWithTags (real bare \"?WithTags\" query flag misread as \"Resource=WithTags\") -- see that op row for the fix. Verified via TestCreateStreamingDistributionWithTags_RealClient, confirmed to fail pre-fix by reverting by hand."}
 gaps:
-  - "The 5 CloudFront KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/
-    UpdateKeys) are structurally unreachable by any real client, beyond the pre-existing
-    'different protocol' note in the key_value_stores family below. This Handler's
-    RouteMatcher only matches paths with prefix /2020-05-31/ (handler.go), but the real
-    cloudfrontkeyvaluestore.Client sends these 5 ops to paths with NO /2020-05-31/ prefix at
-    all (e.g. /key-value-stores/{KvsARN}/keys/{Key} -- cloudfrontkeyvaluestore@v1.15.4
-    serializers.go), REST-JSON not REST-XML, under a different SigV4 service scope. gopherstack
-    has no services/cloudfrontkeyvaluestore/ directory or any other registered RouteMatcher
-    that would claim that path, so a real client hitting these 5 ops gets whatever the
-    router's no-match fallback is, regardless of how gopherstack's own /2020-05-31/key-value-
-    store/{id}/keys/... sub-routing is implemented internally. Found 2026-08-13
-    (gopherstack-o31x) while scoping which of cloudfront's 167 ops the route diff should
-    cover; NOT fixed -- fixing it means standing up a new service (new SigV4 scope, new
-    protocol, new RouteMatcher), a different and larger task than a route-table diff. Filed
-    for a follow-up pass; TestSDKCompleteness's keyValueStoreDataPlaneOps split already
-    documents the split SDK-client ownership this gap builds on."
+  # RESOLVED 2026-08-13 (gopherstack-4ara): the 5 CloudFront KeyValueStore data-plane ops
+  # (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys), found structurally unreachable here by
+  # gopherstack-o31x (see the "Full route-table audit" note below for how it was found),
+  # are now implemented with correct routing/wire-shape in services/cloudfrontkeyvaluestore
+  # -- see that service's own PARITY.md and the key_value_stores family note above.
   # gopherstack-o31x closed the previous pass's one open gap plus 21 further routing
   # mismatches the full 167-op diff surfaced beyond it -- see the FIXED op rows above
   # (CreateDistributionWithTags, CreateStreamingDistributionWithTags, TagResource,
@@ -159,7 +148,6 @@ gaps:
   #    CreateCloudFrontOriginAccessIdentity op rows above for the exact behavior each has now.
 deferred:
   - "Distribution status InProgress->Deployed transition timer: FIXED this pass (gopherstack-k3fi) for Distribution specifically -- see UpdateDistribution's op row above. The other 5 resource kinds with their own InProgress/Deployed-shaped status semantics (DistributionTenant, StreamingDistribution, ConnectionGroup/ConnectionFunction, AnycastIPList, TrustStore) still persist InProgress indefinitely; still deferred, now for a narrower, more honest reason -- extending the same worker.Group timer to each is straightforward but out of this pass's scope, not blocked on anything."
-  - "KeyValueStore data-plane (GetKey/PutKeys/ListKeys, separate JSON protocol) -- explicitly out of scope per this task's op enumeration and the pre-existing note that it uses a different wire protocol (cloudfront-keyvaluestore), not REST-XML."
   - "Full per-op audit of DistributionConfig nested shape correctness (Origins/OriginGroups/CacheBehaviors/ViewerCertificate/Restrictions field-by-field) beyond the Quantity/Items validation and the pre-existing minimal-parse (RawConfig) model. This pass verified the specific sub-fields needed for the InUse-guard fixes (S3OriginConfig.OriginAccessIdentity path format, Origin.OriginAccessControlId, TrustedKeyGroups.Items) are correct, but a full field-by-field audit of the rest of DistributionConfig's ~60 nested types was not attempted -- RawConfig storage design predates this pass and was not restructured."
   - "ResponseHeadersPolicySecurityHeadersConfig is a flattened simplification of the real 5-sub-struct shape: XSSProtection is stored/emitted as a single string (matches only the real ReportUri sub-field) instead of the real ResponseHeadersPolicyXSSProtection{Override, Protection, ModeBlock, ReportUri} struct, and only ContentTypeOptions has a per-header Override flag modeled (STS/FrameOptions/ReferrerPolicy/ContentSecurityPolicy hardcode Override=false in every response, which happens to match every seeded managed policy's real Override:No default but is not read from request input for those four). Restructuring RHPSecurityHeaders to the full real shape is a breaking model change (cascades to persistence JSON tags and every existing test that constructs one) out of proportion to fix alongside this pass's other work; the CORS list fields and ContentTypeOptions/ContentSecurityPolicy value (the parts client code actually round-trips today) were fixed."
 leaks: {status: clean, note: "runInvalidationReconciler goroutine has a proper stopCh + Close() lifecycle; no unbounded maps found. This pass added b.work (*pkgs/worker.Group), the mgn/outposts-style scheduled-timer idiom used by scheduleDistributionDeployed -- Close() now also calls b.work.Stop(), which cancels every pending timer and joins its goroutines, so nothing outlives the backend. seedManagedPoliciesLocked (prior pass) does no allocation beyond the fixed ~20-entry seed tables and is called only at construction/Reset/Restore, never per-request."}
@@ -184,8 +172,9 @@ encoded the same invented request shape the pre-fix handler expected and had bee
 broken code indefinitely; both corrected to the real shape rather than preserved.
 
 **gopherstack-4ara (2026-08-13)**: fixed the two wire-shape gaps `gopherstack-o31x` deliberately
-left open (the KeyValueStore structural gap in the same issue is out of scope for this pass and
-remains open -- see `gaps:` above). (1) `AssociateDistributionTenantWebACL`'s request root/field
+left open (the KeyValueStore structural gap in the same issue was out of scope for that pass;
+now RESOLVED in a follow-up pass the same day -- see the `key_value_stores` family note above
+and services/cloudfrontkeyvaluestore/PARITY.md). (1) `AssociateDistributionTenantWebACL`'s request root/field
 were wrong (`WebACLAssociation`/`WebACLId` instead of the real `AssociateDistributionTenantWebACLRequest`/
 `WebACLArn`); the ACTUAL failure mode was every real client's request 400ing `MalformedXML`
 outright, not the silent-200-with-empty-state pattern the filing bd issue described by analogy to
@@ -313,9 +302,14 @@ for shapes that don't use the pattern, so it is always safe to add defensively.
   `aws-sdk-go-v2/service/cloudfront/types@v1.60.2` to match; this is the AWS-accurate
   fallback, not an oversight.
 
-**Protocol**: REST-XML throughout (control plane). KeyValueStore's data-plane
-(`handler_audit.go`, `GetKey`/`ListKeys`/`UpdateKeys`) correctly uses a separate JSON
-protocol matching the real `cloudfront-keyvaluestore` service -- do not "fix" it to XML.
+**Protocol**: REST-XML throughout (control plane only, as of gopherstack-4ara 2026-08-13).
+KeyValueStore's data plane (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore)
+uses a genuinely separate REST-JSON protocol and SDK client (`cloudfrontkeyvaluestore`) with its
+own unversioned path family (`/key-value-stores/...`, no `/2020-05-31/` prefix) -- it now lives
+entirely in services/cloudfrontkeyvaluestore, not here. Do not re-add data-plane handlers to
+this service; this Handler's RouteMatcher is anchored on `/2020-05-31/`, which the real
+cloudfrontkeyvaluestore client never sends a request through, so anything added here would be
+unreachable again (the exact bug gopherstack-4ara fixed).
 
 ---
 
@@ -454,8 +448,8 @@ one confirmed hotspot and the right next target.
 in the same `HandleSerialize` function body. This is authoritative by construction: it's the
 same code path the real SDK client runs to build a request, not a description of it. Extracted
 167 ops this way (all of cloudfront's control-plane operations; excludes the 5 KeyValueStore
-data-plane ops, which live in a structurally separate SDK client/protocol -- see the
-`key_value_stores` data-plane gap above).
+data-plane ops, which live in a structurally separate SDK client/protocol -- resolved
+2026-08-13 in services/cloudfrontkeyvaluestore, see the `key_value_stores` family note above).
 
 Then, instead of eyeballing the ~1000-line `handler_paths.go` route table by hand against that
 list, built `TestExtractOperation_SDKRouteTable` (`handler_paths_sdk_diff_test.go`): a
@@ -487,8 +481,10 @@ that could encode the same wrong assumption the handler makes), and every fix wa
 fail against its pre-fix shape by reverting the change by hand and re-running the test before
 restoring it -- the same discipline this pass's mandate required for Part 1. Two response-body
 wire-shape bugs (`AssociateDistributionTenantWebACL`'s request root/field names,
-`ListConnectionGroups`/`ListConnectionFunctions`' response list wrapper) and one structural
-gap (the KeyValueStore data-plane ops' host/protocol mismatch) were found as a second layer
-behind these routing fixes and are recorded as new `gaps` above rather than fixed here --
-wire-shape and structural-routing bugs are a different class of work than the method+path diff
-this pass's mandate scoped to.
+`ListConnectionGroups`/`ListConnectionFunctions`' response list wrapper) and one structural gap
+(the KeyValueStore data-plane ops' host/protocol mismatch) were found as a second layer behind
+these routing fixes and were deliberately NOT fixed here -- wire-shape and structural-routing
+bugs are a different class of work than the method+path diff this pass's mandate scoped to. All
+three were resolved in follow-up passes the same day: the two wire-shape bugs by gopherstack-4ara
+(see the Notes entry above), the KeyValueStore structural gap by a further gopherstack-4ara pass
+that split the data plane into services/cloudfrontkeyvaluestore.

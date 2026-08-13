@@ -34,11 +34,6 @@ const (
 	opCreateInvalidationForDistTenant       = "CreateInvalidationForDistributionTenant"
 	opCreateKeyGroup                        = "CreateKeyGroup"
 	opCreateKeyValueStore                   = "CreateKeyValueStore"
-	opGetKVSKey                             = "GetKey"
-	opPutKVSKey                             = "PutKey"
-	opDeleteKVSKey                          = "DeleteKey"
-	opListKVSKeys                           = "ListKeys"
-	opUpdateKVSKeys                         = "UpdateKeys"
 	opCreateMonitoringSubscription          = "CreateMonitoringSubscription"
 	opCreatePublicKey                       = "CreatePublicKey"
 	opCreateRealtimeLogConfig               = "CreateRealtimeLogConfig"
@@ -364,7 +359,6 @@ func stubSupportedOperationsA() []string {
 		opDeleteFieldLevelEncryptionProfile,
 		opDeleteKeyGroup,
 		opDeleteKeyValueStore,
-		opDeleteKVSKey,
 		opDeleteMonitoringSubscription,
 		opDeletePublicKey,
 		opDeleteRealtimeLogConfig,
@@ -391,7 +385,6 @@ func stubSupportedOperationsA() []string {
 		opGetInvalidationForDistTenant,
 		opGetKeyGroup,
 		opGetKeyGroupConfig,
-		opGetKVSKey,
 		opGetManagedCertificateDetails,
 		opGetMonitoringSubscription,
 		opGetPublicKey,
@@ -434,7 +427,6 @@ func stubSupportedOperationsB() []string {
 		opListInvalidationsForDistTenant,
 		opListKeyGroups,
 		opListKeyValueStores,
-		opListKVSKeys,
 		opListPublicKeys,
 		opListRealtimeLogConfigs,
 		opListStreamingDistributions,
@@ -454,8 +446,6 @@ func stubSupportedOperationsB() []string {
 		opUpdateFieldLevelEncryptionProfile,
 		opUpdateKeyGroup,
 		opUpdateKeyValueStore,
-		opUpdateKVSKeys,
-		opPutKVSKey,
 		opUpdatePublicKey,
 		opUpdateRealtimeLogConfig,
 		opUpdateStreamingDistribution,

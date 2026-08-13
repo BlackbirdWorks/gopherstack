@@ -34,6 +34,7 @@ func (b *InMemoryBackend) CreateKeyValueStore(name, comment string, tags map[str
 	}
 
 	id := uuid.NewString()
+	now := time.Now().UTC().Format(time.RFC3339)
 	kvs := &KeyValueStore{
 		ID:               id,
 		ARN:              b.keyValueStoreARN(id),
@@ -41,7 +42,8 @@ func (b *InMemoryBackend) CreateKeyValueStore(name, comment string, tags map[str
 		Comment:          comment,
 		ETag:             uuid.NewString(),
 		Status:           kvsStatusReady,
-		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
+		LastModifiedTime: now,
+		CreatedTime:      now,
 	}
 	if len(tags) > 0 {
 		kvs.Tags = maps.Clone(tags)

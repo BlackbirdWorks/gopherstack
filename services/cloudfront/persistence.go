@@ -21,6 +21,11 @@ import (
 // discards (rather than attempts to partially decode) any mismatch -- see Restore
 // below. Mirrors the services/sqs pilot (commit 0f09d77c), services/ec2 (commit
 // 12e611a4), and services/apigateway (commit 6da0334e).
+//
+// Do NOT bump this for an additive omitempty field. Restore discards ALL state
+// on a version mismatch, so a bump costs every user their persisted snapshot.
+// KeyValueStoreData/KeyValueDataETags were added in gopherstack-4ara without a
+// bump: a v1 snapshot decodes into them as nil and Restore already seeds both.
 const cloudfrontSnapshotVersion = 1
 
 // invalidationSnapshot is the DTO used ONLY for Snapshot/Restore of both
@@ -118,6 +123,12 @@ type backendSnapshot struct {
 	DistributionResponseHeadersPolicies map[string]string `json:"distributionResponseHeadersPolicies,omitempty"`
 	DistributionRealtimeLogConfigs      map[string]string `json:"distributionRealtimeLogConfigs,omitempty"`
 
+	// KeyValueStoreData/KeyValueDataETags hold the KVS data-plane key/value pairs
+	// (KVS ID -> key -> value, and KVS ID -> current data-plane ETag) served by
+	// the separate cloudfrontkeyvaluestore service via this backend.
+	KeyValueStoreData map[string]map[string]string `json:"keyValueStoreData,omitempty"`
+	KeyValueDataETags map[string]string            `json:"keyValueDataETags,omitempty"`
+
 	AccountID string `json:"accountId"`
 	Region    string `json:"region"`
 	Version   int    `json:"version"`
@@ -177,6 +188,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		DistributionOriginRequestPolicies:   b.distributionOriginRequestPolicies,
 		DistributionResponseHeadersPolicies: b.distributionResponseHeadersPolicies,
 		DistributionRealtimeLogConfigs:      b.distributionRealtimeLogConfigs,
+		KeyValueStoreData:                   b.keyValueStoreData,
+		KeyValueDataETags:                   b.keyValueDataETags,
 		AccountID:                           b.accountID,
 		Region:                              b.region,
 	}
@@ -298,6 +311,8 @@ func (b *InMemoryBackend) restoreAssociationMaps(snap *backendSnapshot) {
 	b.distributionOriginRequestPolicies = snap.DistributionOriginRequestPolicies
 	b.distributionResponseHeadersPolicies = snap.DistributionResponseHeadersPolicies
 	b.distributionRealtimeLogConfigs = snap.DistributionRealtimeLogConfigs
+	b.keyValueStoreData = snap.KeyValueStoreData
+	b.keyValueDataETags = snap.KeyValueDataETags
 }
 
 // backendIndexes holds the derived lookup indexes rebuilt from a snapshot.
@@ -632,6 +647,14 @@ func ensureNonNilDistributionPolicyMaps(snap *backendSnapshot) {
 
 	if snap.DistributionRealtimeLogConfigs == nil {
 		snap.DistributionRealtimeLogConfigs = make(map[string]string)
+	}
+
+	if snap.KeyValueStoreData == nil {
+		snap.KeyValueStoreData = make(map[string]map[string]string)
+	}
+
+	if snap.KeyValueDataETags == nil {
+		snap.KeyValueDataETags = make(map[string]string)
 	}
 }
 

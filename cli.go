@@ -99,6 +99,7 @@ import (
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cfkvsbackend "github.com/blackbirdworks/gopherstack/services/cloudfrontkeyvaluestore"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -3304,7 +3305,8 @@ func wireAppConfigDeployments(appconfigReg, appconfigdataReg service.Registerabl
 }
 
 // wireAppSyncAndStreamsIntegrations wires AppSync's Lambda and DynamoDB
-// resolvers, and DynamoDB Streams to the DynamoDB backend.
+// resolvers, DynamoDB Streams to the DynamoDB backend, and CloudFront
+// KeyValueStore to the CloudFront backend.
 func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
 	// Wire AppSync → Lambda for LAMBDA resolver execution.
 	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
@@ -3314,6 +3316,11 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
+
+	// Wire CloudFront KeyValueStore → CloudFront backend so the data-plane ops
+	// (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys/DescribeKeyValueStore) act on
+	// the same KVS stores the CloudFront control-plane ops manage.
+	wireCloudFrontKeyValueStore(byName["CloudFront"], byName["CloudFront KeyValueStore"])
 }
 
 // wireSchedulerAndPipesIntegrations wires the Scheduler and Pipes runners
@@ -3497,6 +3504,7 @@ func getRemainingServiceProviders() []service.Provider {
 		&cebackend.Provider{},
 		&cloudcontrolbackend.Provider{},
 		&cloudfrontbackend.Provider{},
+		&cfkvsbackend.Provider{},
 		&codeartifactbackend.Provider{},
 		&codebuildbackend.Provider{},
 		&codecommitbackend.Provider{},
@@ -11704,6 +11712,26 @@ func wireFISActionProviders(fisReg service.Registerable, services []service.Regi
 	}
 
 	setter.SetActionProviders(providers)
+}
+
+// wireCloudFrontKeyValueStore connects the CloudFront KeyValueStore data-plane
+// handler to the CloudFront in-memory backend, mirroring wireDynamoDBStreams
+// below: the KVS data-plane ops belong to a separate SDK module/protocol
+// (gopherstack-4ara) but act on the same KeyValueStore state CloudFront's own
+// control-plane ops (CreateKeyValueStore etc.) manage, so the handler is wired
+// directly to CloudFront's backend rather than owning a duplicate store.
+func wireCloudFrontKeyValueStore(cfReg, kvsReg service.Registerable) {
+	kvsH, ok := kvsReg.(*cfkvsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cfH, cfOk := cfReg.(*cloudfrontbackend.Handler)
+	if !cfOk {
+		return
+	}
+
+	kvsH.Backend = cfH.Backend
 }
 
 // wireDynamoDBStreams connects the DynamoDB Streams handler to the DynamoDB in-memory backend

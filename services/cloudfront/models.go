@@ -406,6 +406,10 @@ type KeyValueStore struct {
 	// LastModifiedTime is an RFC3339 timestamp (CloudFront is a REST-XML API, so
 	// timestamps are serialized as ISO-8601 strings, not epoch numbers).
 	LastModifiedTime string `json:"lastModifiedTime"`
+	// CreatedTime is an RFC3339 timestamp, set once at creation. Consumed by the
+	// separate cloudfrontkeyvaluestore data-plane service's DescribeKeyValueStore
+	// (whose real "Created" field is required) via GetKeyValueStore.
+	CreatedTime string `json:"createdTime"`
 }
 
 // VpcOriginEndpointConfig carries the required members of the real
