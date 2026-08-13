@@ -251,3 +251,41 @@ func TestIntegration_Bedrock_ProvisionedModelThroughput(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegration_Bedrock_GetAutomatedReasoningPolicy drives
+// CreateAutomatedReasoningPolicy -> GetAutomatedReasoningPolicy via the real
+// AWS SDK v2 client. GetAutomatedReasoningPolicyOutput requires
+// DefinitionHash, PolicyId, and Version; the SDK leaves each nil/zero-value
+// when the server names the field wrong or omits it, so decoded non-zero
+// values are the only proof the wire keys round-trip (gopherstack-lx5h).
+func TestIntegration_Bedrock_GetAutomatedReasoningPolicy(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createBedrockClient(t)
+	ctx := t.Context()
+
+	createOut, err := client.CreateAutomatedReasoningPolicy(ctx, &bedrocksvc.CreateAutomatedReasoningPolicyInput{
+		Name:        aws.String("integration-arp"),
+		Description: aws.String("integration test policy"),
+	})
+	require.NoError(t, err, "CreateAutomatedReasoningPolicy should succeed")
+	require.NotNil(t, createOut.PolicyArn)
+	policyARN := aws.ToString(createOut.PolicyArn)
+
+	getOut, err := client.GetAutomatedReasoningPolicy(ctx, &bedrocksvc.GetAutomatedReasoningPolicyInput{
+		PolicyArn: aws.String(policyARN),
+	})
+	require.NoError(t, err, "GetAutomatedReasoningPolicy should succeed")
+	assert.Equal(t, policyARN, aws.ToString(getOut.PolicyArn))
+	assert.Equal(t, "integration-arp", aws.ToString(getOut.Name))
+	assert.NotEmpty(t, aws.ToString(getOut.DefinitionHash), "definitionHash is a required response field")
+	assert.NotEmpty(t, aws.ToString(getOut.Version), "version is a required response field")
+	assert.NotEmpty(t, aws.ToString(getOut.PolicyId), "policyId is a required response field")
+	assert.Contains(
+		t,
+		policyARN,
+		aws.ToString(getOut.PolicyId),
+		"policyId should be the ARN's own embedded resource id, not a fabricated value",
+	)
+}
