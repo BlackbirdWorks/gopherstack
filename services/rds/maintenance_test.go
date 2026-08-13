@@ -18,6 +18,7 @@ func TestRDSBackend_ApplyPendingMaintenanceAction(t *testing.T) {
 		name        string
 		resourceID  string
 		applyAction string
+		optInType   string
 		wantErr     bool
 	}{
 		{
@@ -27,6 +28,7 @@ func TestRDSBackend_ApplyPendingMaintenanceAction(t *testing.T) {
 			},
 			resourceID:  "my-db",
 			applyAction: "system-update",
+			optInType:   "immediate",
 		},
 		{
 			name: "success_for_cluster",
@@ -35,12 +37,14 @@ func TestRDSBackend_ApplyPendingMaintenanceAction(t *testing.T) {
 			},
 			resourceID:  "my-cluster",
 			applyAction: "system-update",
+			optInType:   "next-maintenance",
 		},
 		{
 			name:        "resource_not_found",
 			setup:       func(_ *rds.InMemoryBackend) {},
 			resourceID:  "no-such-resource",
 			applyAction: "system-update",
+			optInType:   "immediate",
 			wantErr:     true,
 			wantErrIs:   rds.ErrInstanceNotFound,
 		},
@@ -49,6 +53,7 @@ func TestRDSBackend_ApplyPendingMaintenanceAction(t *testing.T) {
 			setup:       func(_ *rds.InMemoryBackend) {},
 			resourceID:  "",
 			applyAction: "system-update",
+			optInType:   "immediate",
 			wantErr:     true,
 			wantErrIs:   rds.ErrInvalidParameter,
 		},
@@ -59,6 +64,29 @@ func TestRDSBackend_ApplyPendingMaintenanceAction(t *testing.T) {
 			},
 			resourceID:  "my-db",
 			applyAction: "",
+			optInType:   "immediate",
+			wantErr:     true,
+			wantErrIs:   rds.ErrInvalidParameter,
+		},
+		{
+			name: "empty_opt_in_type",
+			setup: func(b *rds.InMemoryBackend) {
+				_, _ = b.CreateDBInstance("my-db", "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
+			},
+			resourceID:  "my-db",
+			applyAction: "system-update",
+			optInType:   "",
+			wantErr:     true,
+			wantErrIs:   rds.ErrInvalidParameter,
+		},
+		{
+			name: "invalid_opt_in_type",
+			setup: func(b *rds.InMemoryBackend) {
+				_, _ = b.CreateDBInstance("my-db", "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
+			},
+			resourceID:  "my-db",
+			applyAction: "system-update",
+			optInType:   "whenever-i-feel-like-it",
 			wantErr:     true,
 			wantErrIs:   rds.ErrInvalidParameter,
 		},
@@ -71,7 +99,7 @@ func TestRDSBackend_ApplyPendingMaintenanceAction(t *testing.T) {
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
 
-			result, err := b.ApplyPendingMaintenanceAction(tt.resourceID, tt.applyAction)
+			result, err := b.ApplyPendingMaintenanceAction(tt.resourceID, tt.applyAction, tt.optInType)
 
 			if tt.wantErr {
 				require.Error(t, err)

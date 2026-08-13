@@ -118,14 +118,32 @@ type storedCustomBundle struct {
 // Images
 // ---------------------------------------------------------------------------
 
+// ImageSource models the ImageSourceIdentifier tagged union
+// (workspaces@v1.73.1 types.go:739-770): exactly one field is populated,
+// mirroring whichever member the caller supplied on
+// ImportCustomWorkspaceImage.
+type ImageSource struct {
+	Ec2ImageID           string `json:"ec2ImageId,omitempty"`
+	Ec2ImportTaskID      string `json:"ec2ImportTaskId,omitempty"`
+	ImageBuildVersionArn string `json:"imageBuildVersionArn,omitempty"`
+}
+
 type storedImage struct {
-	Created       time.Time         `json:"created"`
-	Tags          map[string]string `json:"tags"`
-	ImageID       string            `json:"imageId"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	State         string            `json:"state"`
-	SourceImageID string            `json:"sourceImageId"`
+	Created     time.Time         `json:"created"`
+	Tags        map[string]string `json:"tags"`
+	ImageSource *ImageSource      `json:"imageSource,omitempty"`
+
+	ImageID                        string `json:"imageId"`
+	Name                           string `json:"name"`
+	Description                    string `json:"description"`
+	State                          string `json:"state"`
+	SourceImageID                  string `json:"sourceImageId"`
+	ComputeType                    string `json:"computeType,omitempty"`
+	InfrastructureConfigurationArn string `json:"infrastructureConfigurationArn,omitempty"`
+	OsVersion                      string `json:"osVersion,omitempty"`
+	Platform                       string `json:"platform,omitempty"`
+	Protocol                       string `json:"protocol,omitempty"`
+	IngestionProcess               string `json:"ingestionProcess,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 package securityhub_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -126,7 +127,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	connV2, err := b.CreateConnectorV2("my-connector", "desc", map[string]any{"k": "v"}, nil)
 	require.NoError(t, err)
 
-	ticketV2, err := b.CreateTicketV2(map[string]any{"k": "v"}, nil)
+	ticketV2, err := b.CreateTicketV2(connV2.ConnectorId, "finding-metadata-uid-1", "")
 	require.NoError(t, err)
 
 	recPolicy, err := b.GenerateRecommendedPolicyV2("metadata-uid-1")
@@ -279,7 +280,21 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "my-connector", gotConnV2.Name)
 
-	assert.NotEmpty(t, ticketV2.TicketConfigurationArn)
+	assert.NotEmpty(t, ticketV2.TicketId)
+	assert.Equal(t, connV2.ConnectorId, ticketV2.ConnectorId)
+	assert.Equal(t, "finding-metadata-uid-1", ticketV2.FindingMetadataUid)
+
+	var snapOut struct {
+		Tables map[string]json.RawMessage `json:"tables"`
+	}
+	require.NoError(t, json.Unmarshal(snap, &snapOut))
+
+	var restoredTickets []securityhub.TicketV2
+	require.NoError(t, json.Unmarshal(snapOut.Tables["ticketsV2"], &restoredTickets))
+	require.Len(t, restoredTickets, 1)
+	assert.Equal(t, ticketV2.TicketId, restoredTickets[0].TicketId)
+	assert.Equal(t, connV2.ConnectorId, restoredTickets[0].ConnectorId)
+	assert.Equal(t, "finding-metadata-uid-1", restoredTickets[0].FindingMetadataUid)
 
 	gotRecPolicy, err := b2.GetRecommendedPolicyV2(recPolicy.MetadataUid)
 	require.NoError(t, err)

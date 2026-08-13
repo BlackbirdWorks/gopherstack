@@ -189,7 +189,7 @@ type StorageBackend interface {
 	RegisterConnectorV2(connectorID string, provider map[string]any) (*ConnectorV2, error)
 
 	// Tickets V2
-	CreateTicketV2(ticketConfig map[string]any, tags map[string]string) (*TicketV2, error)
+	CreateTicketV2(connectorID, findingMetadataUID, mode string) (*TicketV2, error)
 
 	// Findings V2
 	GetFindingsV2(

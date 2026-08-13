@@ -175,15 +175,29 @@ type ReplicationSubnetGroup struct {
 	Region                            string
 }
 
+// DataProviderDescriptor mirrors the real AWS DataProviderDescriptor wire
+// shape (databasemigrationservice@v1.66.4 types.go:528-544): a resolved data
+// provider identity plus the caller's Secrets Manager pass-through fields.
+type DataProviderDescriptor struct {
+	DataProviderArn             string
+	DataProviderName            string
+	SecretsManagerAccessRoleArn string
+	SecretsManagerSecretId      string //nolint:revive,staticcheck // matches the AWS wire field name.
+}
+
 // MigrationProject represents a DMS migration project.
 type MigrationProject struct {
-	Tags                       *tags.Tags `json:"-"`
-	MigrationProjectName       string
-	MigrationProjectArn        string
-	MigrationProjectIdentifier string
-	Description                string
-	AccountID                  string
-	Region                     string
+	Tags                          *tags.Tags `json:"-"`
+	MigrationProjectName          string
+	MigrationProjectArn           string
+	MigrationProjectIdentifier    string
+	Description                   string
+	AccountID                     string
+	Region                        string
+	InstanceProfileArn            string
+	InstanceProfileName           string
+	SourceDataProviderDescriptors []DataProviderDescriptor
+	TargetDataProviderDescriptors []DataProviderDescriptor
 }
 
 // ReplicationConfig represents a DMS replication config.

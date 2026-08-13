@@ -31,11 +31,21 @@ type describeConnectionTypeInput struct {
 }
 
 // describeConnectionTypeOutput holds the result for DescribeConnectionType.
+// RestConfiguration is the one field RegisterConnectionType's input and this
+// op's real output share verbatim (glue@v1.152.0
+// api_op_DescribeConnectionType.go:76-79); ConnectionProperties and
+// ConnectorAuthenticationConfiguration are NOT echoed here even though
+// RegisterConnectionType requires them -- see RegisterConnectionTypeSpec's
+// doc comment for why. Category/Capabilities-as-[]string predate this fix
+// and are already a known mismatch against the real ConnectionType/
+// *types.Capabilities shapes -- not touched here (out of scope for the
+// required-member fix; tracked in PARITY.md).
 type describeConnectionTypeOutput struct {
-	ConnectionType string   `json:"ConnectionType"`
-	Description    string   `json:"Description,omitempty"`
-	Category       string   `json:"Category,omitempty"`
-	Capabilities   []string `json:"Capabilities,omitempty"`
+	RestConfiguration map[string]any `json:"RestConfiguration,omitempty"`
+	ConnectionType    string         `json:"ConnectionType"`
+	Description       string         `json:"Description,omitempty"`
+	Category          string         `json:"Category,omitempty"`
+	Capabilities      []string       `json:"Capabilities,omitempty"`
 }
 
 func (h *Handler) handleDescribeConnectionType(
@@ -52,10 +62,11 @@ func (h *Handler) handleDescribeConnectionType(
 	}
 
 	return &describeConnectionTypeOutput{
-		ConnectionType: info.ConnectionType,
-		Description:    info.Description,
-		Category:       info.Category,
-		Capabilities:   info.Capabilities,
+		RestConfiguration: info.RestConfiguration,
+		ConnectionType:    info.ConnectionType,
+		Description:       info.Description,
+		Category:          info.Category,
+		Capabilities:      info.Capabilities,
 	}, nil
 }
 
@@ -95,15 +106,24 @@ func (h *Handler) handleListConnectionTypes(
 }
 
 // registerConnectionTypeInput holds input for RegisterConnectionType.
+// ConnectionProperties/ConnectorAuthenticationConfiguration/RestConfiguration
+// are decoded as raw documents rather than fully typed structs -- see
+// RegisterConnectionTypeSpec's doc comment for why neither has an echo
+// target on the real API surface this backend exposes.
 type registerConnectionTypeInput struct {
-	ConnectionType string `json:"ConnectionType"`
-	Description    string `json:"Description,omitempty"`
+	ConnectionProperties                 map[string]any `json:"ConnectionProperties"`
+	ConnectorAuthenticationConfiguration map[string]any `json:"ConnectorAuthenticationConfiguration"`
+	RestConfiguration                    map[string]any `json:"RestConfiguration"`
+	ConnectionType                       string         `json:"ConnectionType"`
+	Description                          string         `json:"Description,omitempty"`
+	IntegrationType                      string         `json:"IntegrationType"`
 }
 
 // registerConnectionTypeOutput holds the result for RegisterConnectionType.
+// The real RegisterConnectionTypeOutput carries only ConnectionTypeArn
+// (glue@v1.152.0 api_op_RegisterConnectionType.go:79-84).
 type registerConnectionTypeOutput struct {
-	ConnectionType string `json:"ConnectionType"`
-	Status         string `json:"Status"`
+	ConnectionTypeArn string `json:"ConnectionTypeArn"`
 }
 
 func (h *Handler) handleRegisterConnectionType(
@@ -114,10 +134,15 @@ func (h *Handler) handleRegisterConnectionType(
 		return nil, fmt.Errorf("%w: ConnectionType is required", ErrValidation)
 	}
 
-	info, err := h.Backend.RegisterConnectionType(in.ConnectionType, in.Description)
+	info, err := h.Backend.RegisterConnectionType(in.ConnectionType, in.Description, RegisterConnectionTypeSpec{
+		IntegrationType:                      in.IntegrationType,
+		ConnectionProperties:                 in.ConnectionProperties,
+		ConnectorAuthenticationConfiguration: in.ConnectorAuthenticationConfiguration,
+		RestConfiguration:                    in.RestConfiguration,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &registerConnectionTypeOutput{ConnectionType: info.ConnectionType, Status: stateReady}, nil
+	return &registerConnectionTypeOutput{ConnectionTypeArn: info.ConnectionTypeArn}, nil
 }

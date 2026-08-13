@@ -686,6 +686,28 @@ type ConnectionTypeInfo struct {
 	Description string `json:"Description,omitempty"`
 	// Category groups connectors (e.g. "DATABASE", "SAAS", "STREAMING").
 	Category string `json:"Category,omitempty"`
+	// ConnectionTypeArn is the real RegisterConnectionTypeOutput field
+	// (glue@v1.152.0 api_op_RegisterConnectionType.go:79-84); only populated
+	// for custom (non-built-in) types, which are the only ones RegisterConnectionType
+	// can create.
+	ConnectionTypeArn string `json:"ConnectionTypeArn,omitempty"`
+	// IntegrationType is required on RegisterConnectionType (only "REST" is a
+	// legal value) but has no corresponding field on DescribeConnectionType's
+	// real output, so it is captured for completeness but never echoed back.
+	IntegrationType string `json:"IntegrationType,omitempty"`
+	// ConnectionProperties/ConnectorAuthenticationConfiguration are required on
+	// RegisterConnectionType but stored as opaque nested documents: neither has
+	// a matching field on the real DescribeConnectionTypeOutput
+	// (its ConnectionProperties is a differently-shaped map[string]Property,
+	// and its AuthenticationConfiguration is *types.AuthConfiguration, a
+	// distinct type from *types.ConnectorAuthenticationConfiguration) so there
+	// is no real echo target -- captured, never echoed.
+	ConnectionProperties                 map[string]any `json:"connectionProperties,omitempty"`
+	ConnectorAuthenticationConfiguration map[string]any `json:"connectorAuthenticationConfiguration,omitempty"`
+	// RestConfiguration IS the same type on both RegisterConnectionType's
+	// input and DescribeConnectionTypeOutput.RestConfiguration, so it is
+	// stored and echoed verbatim on describe.
+	RestConfiguration map[string]any `json:"restConfiguration,omitempty"`
 	// Capabilities lists supported connector capabilities.
 	Capabilities []string `json:"Capabilities,omitempty"`
 	// BuiltIn reports whether this is an AWS-managed (undeletable) type.

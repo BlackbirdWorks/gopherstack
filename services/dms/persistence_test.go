@@ -60,7 +60,10 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	require.NoError(t, err)
 	ids["certificateArn"] = cert.CertificateArn
 
-	mp, err := b.CreateMigrationProject(ctx, "mp-1", "", nil)
+	mp, err := b.CreateMigrationProject(ctx, "mp-1", "", ip.InstanceProfileName,
+		[]dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
+		[]dms.DataProviderDescriptorInput{{DataProviderIdentifier: dp.DataProviderName}},
+		nil)
 	require.NoError(t, err)
 	ids["migrationProjectArn"] = mp.MigrationProjectArn
 

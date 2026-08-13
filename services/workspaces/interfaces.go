@@ -104,10 +104,12 @@ type StorageBackend interface {
 	) (*storedImage, error)
 	DeleteWorkspaceImage(imageID string) error
 	ImportWorkspaceImage(
-		ec2ImageID, name, description string,
+		ec2ImageID, name, description, ingestionProcess string,
 		tags map[string]string,
 	) (string, error)
-	ImportCustomWorkspaceImage(name, description string) (*storedImage, error)
+	ImportCustomWorkspaceImage(
+		name, description string, spec customWorkspaceImageImportSpec,
+	) (*storedImage, error)
 	CreateUpdatedWorkspaceImage(
 		sourceImageID, name, description string,
 		tags map[string]string,

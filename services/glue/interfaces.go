@@ -19,7 +19,9 @@ type StorageBackend interface {
 	StopReconciler()
 
 	// Connection-type registry operations.
-	RegisterConnectionType(name, description string) (*ConnectionTypeInfo, error)
+	RegisterConnectionType(
+		name, description string, spec RegisterConnectionTypeSpec,
+	) (*ConnectionTypeInfo, error)
 	DeleteConnectionType(name string) error
 	ListConnectionTypes() []*ConnectionTypeInfo
 	DescribeConnectionType(name string) (*ConnectionTypeInfo, error)

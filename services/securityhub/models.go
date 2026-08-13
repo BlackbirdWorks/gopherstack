@@ -224,10 +224,21 @@ type CspmConnector struct {
 	ProviderName    string `json:"ProviderName"`
 }
 
-// TicketV2 represents a Security Hub V2 ticket configuration.
+// TicketV2 represents a Security Hub V2 ticket linking a third-party ITSM
+// ticket to a finding. TicketSrcUrl is left permanently empty: the real
+// field carries a URL into the caller's ITSM system, which this backend
+// never integrates with, so there is no real state to populate it from.
 type TicketV2 struct {
-	TicketConfigurationArn string `json:"TicketConfigurationArn"`
-	CreatedAt              string `json:"CreatedAt"`
+	//nolint:revive,staticcheck // matches the AWS wire field name, like ConnectorId below.
+	TicketId string `json:"TicketId"`
+	//nolint:revive,staticcheck // matches the AWS wire field name.
+	TicketSrcUrl string `json:"TicketSrcUrl"`
+	//nolint:revive,staticcheck // existing pattern in this file.
+	ConnectorId string `json:"ConnectorId"`
+	//nolint:revive,staticcheck // matches the AWS wire field name.
+	FindingMetadataUid string `json:"FindingMetadataUid"`
+	Mode               string `json:"Mode"`
+	CreatedAt          string `json:"CreatedAt"`
 }
 
 // RecommendedPolicyV2 represents a recommended IAM policy.

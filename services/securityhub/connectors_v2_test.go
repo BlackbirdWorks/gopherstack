@@ -5,8 +5,14 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	securityhubsdk "github.com/aws/aws-sdk-go-v2/service/securityhub"
+	securityhubtypes "github.com/aws/aws-sdk-go-v2/service/securityhub/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
 func TestConnectorsV2(t *testing.T) {
@@ -146,43 +152,95 @@ func TestConnectorsV2(t *testing.T) {
 	}
 }
 
+// TestTicketV2 drives CreateTicketV2 through the real aws-sdk-go-v2 client.
+// Before the fix, the handler read a fabricated "TicketConfiguration"/"Tags"
+// shape that doesn't exist on the real CreateTicketV2Input (only ConnectorId,
+// FindingMetadataUid, ClientToken and Mode do -- securityhub@v1.75.4
+// api_op_CreateTicketV2.go:31-49) and returned a fabricated
+// "TicketConfigurationArn" the real CreateTicketV2Output doesn't have either
+// (only TicketId, TicketSrcUrl -- api_op_CreateTicketV2.go:53-63). A real SDK
+// client round-tripped through that handler would deserialize a nil TicketId.
 func TestTicketV2(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body  any
-		check func(t *testing.T, code int, resp map[string]any)
-		name  string
-	}{
-		{
-			name: "CreateTicketV2 returns ARN",
-			body: map[string]any{
-				"TicketConfiguration": map[string]any{
-					"TicketDestination": "jira-project",
-				},
-			},
-			check: func(t *testing.T, code int, resp map[string]any) {
-				t.Helper()
-				assert.Equal(t, http.StatusOK, code)
-				arn, _ := resp["TicketConfigurationArn"].(string)
-				assert.NotEmpty(t, arn)
-				assert.Contains(t, arn, "ticket-v2")
-				assert.NotEmpty(t, resp["CreatedAt"])
-			},
-		},
-	}
+	t.Run("create ticket with connector and finding", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/ticketsv2", tc.body)
+		backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+		client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
 
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			tc.check(t, rec.Code, resp)
+		conn, err := client.CreateConnectorV2(t.Context(), &securityhubsdk.CreateConnectorV2Input{
+			Name: aws.String("ticket-test-connector"),
+			Provider: &securityhubtypes.ProviderConfigurationMemberJiraCloud{
+				Value: securityhubtypes.JiraCloudProviderConfiguration{ProjectKey: aws.String("SEC")},
+			},
 		})
-	}
+		require.NoError(t, err)
+
+		out, err := client.CreateTicketV2(t.Context(), &securityhubsdk.CreateTicketV2Input{
+			ConnectorId:        conn.ConnectorId,
+			FindingMetadataUid: aws.String("finding-metadata-uid-1"),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, out.TicketId, "CreateTicketV2Output.TicketId is required on the real wire")
+		assert.NotEmpty(t, *out.TicketId)
+	})
+
+	// The real SDK client validates ConnectorId/FindingMetadataUid client-side
+	// (validators.go's addOpCreateTicketV2ValidationMiddleware) and refuses to
+	// even send a request missing either -- so these two cases drive the raw
+	// HTTP handler directly to exercise the server-side ValidationException
+	// path a non-SDK caller (or a future SDK without that middleware) would
+	// still hit.
+	t.Run("missing connectorid rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, http.MethodPost, "/ticketsv2", map[string]any{
+			"FindingMetadataUid": "finding-metadata-uid-1",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, "ValidationException", rec.Header().Get("X-Amzn-Errortype"))
+	})
+
+	t.Run("missing findingmetadatauid rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createRec := doRequest(t, h, http.MethodPost, "/connectorsv2", map[string]any{
+			"Name":     "ticket-test-connector",
+			"Provider": map[string]any{"Type": "JIRA"},
+		})
+		require.Equal(t, http.StatusOK, createRec.Code)
+
+		var created map[string]any
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+		connectorID, _ := created["ConnectorId"].(string)
+		require.NotEmpty(t, connectorID)
+
+		rec := doRequest(t, h, http.MethodPost, "/ticketsv2", map[string]any{
+			"ConnectorId": connectorID,
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, "ValidationException", rec.Header().Get("X-Amzn-Errortype"))
+	})
+
+	t.Run("unknown connector rejected", func(t *testing.T) {
+		t.Parallel()
+
+		backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+		client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+		_, err := client.CreateTicketV2(t.Context(), &securityhubsdk.CreateTicketV2Input{
+			ConnectorId:        aws.String("nonexistent-connector"),
+			FindingMetadataUid: aws.String("finding-metadata-uid-1"),
+		})
+		require.Error(t, err)
+
+		var apiErr smithy.APIError
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, "ResourceNotFoundException", apiErr.ErrorCode())
+	})
 }
 
 func TestHandler_ConnectorV2_UpdateNotFound(t *testing.T) {

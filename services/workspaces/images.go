@@ -2,25 +2,51 @@ package workspaces
 
 import (
 	"maps"
+	"slices"
 	"time"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
+// imageImportSpec carries the extra fields ImportWorkspaceImage/
+// ImportCustomWorkspaceImage populate on top of createImageLocked's common
+// name/description/source/tags -- zero-valued for every other image-creating
+// op (CopyWorkspaceImage, CreateWorkspaceImage, CreateUpdatedWorkspaceImage),
+// none of which accept them on the real wire.
+type imageImportSpec struct {
+	ImageSource                    *ImageSource
+	ComputeType                    string
+	InfrastructureConfigurationArn string
+	OsVersion                      string
+	Platform                       string
+	Protocol                       string
+	IngestionProcess               string
+}
+
 func (b *InMemoryBackend) createImageLocked(
 	name, description, sourceImageID string,
 	tags map[string]string,
+	spec imageImportSpec,
 ) *storedImage {
 	id := b.nextID("wsi-")
 	stored := cloneTags(tags)
 	img := &storedImage{
-		ImageID:       id,
-		Name:          name,
-		Description:   description,
-		State:         "AVAILABLE",
-		SourceImageID: sourceImageID,
-		Created:       time.Now().UTC(),
-		Tags:          stored,
+		ImageID:                        id,
+		Name:                           name,
+		Description:                    description,
+		State:                          "AVAILABLE",
+		SourceImageID:                  sourceImageID,
+		Created:                        time.Now().UTC(),
+		Tags:                           stored,
+		ImageSource:                    spec.ImageSource,
+		ComputeType:                    spec.ComputeType,
+		InfrastructureConfigurationArn: spec.InfrastructureConfigurationArn,
+		OsVersion:                      spec.OsVersion,
+		Platform:                       spec.Platform,
+		Protocol:                       spec.Protocol,
+		IngestionProcess:               spec.IngestionProcess,
 	}
 	b.images.Put(img)
 	b.tags[id] = stored
@@ -48,7 +74,7 @@ func (b *InMemoryBackend) CopyWorkspaceImage(
 		return "", errImageNotFound
 	}
 
-	img := b.createImageLocked(name, description, sourceImageID, tags)
+	img := b.createImageLocked(name, description, sourceImageID, tags, imageImportSpec{})
 
 	return img.ImageID, nil
 }
@@ -72,7 +98,7 @@ func (b *InMemoryBackend) CreateWorkspaceImage(
 		return nil, ErrWorkspaceNotFound
 	}
 
-	img := b.createImageLocked(name, description, "", tags)
+	img := b.createImageLocked(name, description, "", tags, imageImportSpec{})
 
 	return img, nil
 }
@@ -92,26 +118,109 @@ func (b *InMemoryBackend) DeleteWorkspaceImage(imageID string) error {
 	return nil
 }
 
+// isValidIngestionProcess reports whether process is one of the pinned
+// SDK's known WorkspaceImageIngestionProcess values (workspaces@v1.73.1
+// types/enums.go:1550-1562).
+func isValidIngestionProcess(process string) bool {
+	return slices.Contains(
+		sdktypes.WorkspaceImageIngestionProcess("").Values(),
+		sdktypes.WorkspaceImageIngestionProcess(process),
+	)
+}
+
 // ImportWorkspaceImage imports an EC2 image as a workspace image.
+// IngestionProcess is required on the real ImportWorkspaceImageInput
+// (workspaces@v1.73.1 api_op_ImportWorkspaceImage.go:67).
 func (b *InMemoryBackend) ImportWorkspaceImage(
-	ec2ImageID, name, description string, tags map[string]string,
+	ec2ImageID, name, description, ingestionProcess string, tags map[string]string,
 ) (string, error) {
 	b.mu.Lock("ImportWorkspaceImage")
 	defer b.mu.Unlock()
 
-	img := b.createImageLocked(name, description, ec2ImageID, tags)
+	if ingestionProcess == "" {
+		return "", awserr.New("IngestionProcess is required", awserr.ErrInvalidParameter)
+	}
+
+	if !isValidIngestionProcess(ingestionProcess) {
+		return "", awserr.Newf("invalid IngestionProcess: %q", awserr.ErrInvalidParameter, ingestionProcess)
+	}
+
+	img := b.createImageLocked(name, description, ec2ImageID, tags, imageImportSpec{
+		IngestionProcess: ingestionProcess,
+	})
 
 	return img.ImageID, nil
 }
 
+// customWorkspaceImageImportSpec carries ImportCustomWorkspaceImage's
+// required members beyond name/description (workspaces@v1.73.1
+// api_op_ImportCustomWorkspaceImage.go:33-75: ComputeType, ImageSource,
+// InfrastructureConfigurationArn, OsVersion, Platform and Protocol are all
+// "This member is required").
+type customWorkspaceImageImportSpec struct {
+	ImageSource                    *ImageSource
+	ComputeType                    string
+	InfrastructureConfigurationArn string
+	OsVersion                      string
+	Platform                       string
+	Protocol                       string
+}
+
 // ImportCustomWorkspaceImage imports a custom workspace image.
 func (b *InMemoryBackend) ImportCustomWorkspaceImage(
-	name, description string,
+	name, description string, spec customWorkspaceImageImportSpec,
 ) (*storedImage, error) {
 	b.mu.Lock("ImportCustomWorkspaceImage")
 	defer b.mu.Unlock()
 
-	img := b.createImageLocked(name, description, "", nil)
+	if spec.ComputeType == "" {
+		return nil, awserr.New("ComputeType is required", awserr.ErrInvalidParameter)
+	}
+
+	if !slices.Contains(sdktypes.ImageComputeType("").Values(), sdktypes.ImageComputeType(spec.ComputeType)) {
+		return nil, awserr.Newf("invalid ComputeType: %q", awserr.ErrInvalidParameter, spec.ComputeType)
+	}
+
+	if spec.ImageSource == nil {
+		return nil, awserr.New("ImageSource is required", awserr.ErrInvalidParameter)
+	}
+
+	if spec.InfrastructureConfigurationArn == "" {
+		return nil, awserr.New("InfrastructureConfigurationArn is required", awserr.ErrInvalidParameter)
+	}
+
+	if spec.OsVersion == "" {
+		return nil, awserr.New("OsVersion is required", awserr.ErrInvalidParameter)
+	}
+
+	if !slices.Contains(sdktypes.OSVersion("").Values(), sdktypes.OSVersion(spec.OsVersion)) {
+		return nil, awserr.Newf("invalid OsVersion: %q", awserr.ErrInvalidParameter, spec.OsVersion)
+	}
+
+	if spec.Platform == "" {
+		return nil, awserr.New("Platform is required", awserr.ErrInvalidParameter)
+	}
+
+	if !slices.Contains(sdktypes.Platform("").Values(), sdktypes.Platform(spec.Platform)) {
+		return nil, awserr.Newf("invalid Platform: %q", awserr.ErrInvalidParameter, spec.Platform)
+	}
+
+	if spec.Protocol == "" {
+		return nil, awserr.New("Protocol is required", awserr.ErrInvalidParameter)
+	}
+
+	if !slices.Contains(sdktypes.CustomImageProtocol("").Values(), sdktypes.CustomImageProtocol(spec.Protocol)) {
+		return nil, awserr.Newf("invalid Protocol: %q", awserr.ErrInvalidParameter, spec.Protocol)
+	}
+
+	img := b.createImageLocked(name, description, "", nil, imageImportSpec{
+		ImageSource:                    spec.ImageSource,
+		ComputeType:                    spec.ComputeType,
+		InfrastructureConfigurationArn: spec.InfrastructureConfigurationArn,
+		OsVersion:                      spec.OsVersion,
+		Platform:                       spec.Platform,
+		Protocol:                       spec.Protocol,
+	})
 
 	return img, nil
 }
@@ -131,7 +240,7 @@ func (b *InMemoryBackend) CreateUpdatedWorkspaceImage(
 		return "", errImageNotFound
 	}
 
-	img := b.createImageLocked(name, description, sourceImageID, tags)
+	img := b.createImageLocked(name, description, sourceImageID, tags, imageImportSpec{})
 
 	return img.ImageID, nil
 }

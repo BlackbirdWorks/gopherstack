@@ -181,10 +181,26 @@ func TestHandler_ConnectionTypeLifecycle(t *testing.T) {
 
 	// Register a custom type.
 	reg := doGlueRequest(t, h, "RegisterConnectionType", map[string]any{
-		"ConnectionType": "AcmeConn",
-		"Description":    "Acme connector",
+		"ConnectionType":  "AcmeConn",
+		"Description":     "Acme connector",
+		"IntegrationType": "REST",
+		"ConnectionProperties": map[string]any{
+			"Url": map[string]any{"Name": "endpoint"},
+		},
+		"ConnectorAuthenticationConfiguration": map[string]any{
+			"AuthenticationTypes": []any{"BASIC"},
+		},
+		"RestConfiguration": map[string]any{
+			"ValidationEndpointConfiguration": map[string]any{"RequestMethod": "GET"},
+		},
 	})
 	require.Equal(t, http.StatusOK, reg.Code)
+
+	var regOut struct {
+		ConnectionTypeArn string `json:"ConnectionTypeArn"`
+	}
+	require.NoError(t, json.Unmarshal(reg.Body.Bytes(), &regOut))
+	assert.NotEmpty(t, regOut.ConnectionTypeArn, "RegisterConnectionType must return ConnectionTypeArn")
 
 	// It appears in ListConnectionTypes alongside built-ins.
 	list := doGlueRequest(t, h, "ListConnectionTypes", map[string]any{})
@@ -204,9 +220,20 @@ func TestHandler_ConnectionTypeLifecycle(t *testing.T) {
 	assert.Contains(t, names, "ACMECONN")
 	assert.Contains(t, names, "JDBC")
 
-	// Describe the custom type.
+	// Describe the custom type. RestConfiguration must round-trip: it's the
+	// one field RegisterConnectionType's input and DescribeConnectionType's
+	// real output share verbatim (glue@v1.152.0 api_op_DescribeConnectionType.go:76-79).
 	desc := doGlueRequest(t, h, "DescribeConnectionType", map[string]any{"ConnectionType": "AcmeConn"})
 	require.Equal(t, http.StatusOK, desc.Code)
+
+	var descOut struct {
+		RestConfiguration map[string]any `json:"RestConfiguration"`
+	}
+	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &descOut))
+	require.NotNil(t, descOut.RestConfiguration)
+	validationCfg, _ := descOut.RestConfiguration["ValidationEndpointConfiguration"].(map[string]any)
+	require.NotNil(t, validationCfg)
+	assert.Equal(t, "GET", validationCfg["RequestMethod"])
 
 	// Delete it, then a second delete is EntityNotFound.
 	del := doGlueRequest(t, h, "DeleteConnectionType", map[string]any{"ConnectionType": "AcmeConn"})

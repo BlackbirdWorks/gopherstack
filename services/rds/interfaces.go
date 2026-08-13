@@ -170,7 +170,7 @@ type StorageBackend interface {
 	) (*EventSubscription, error)
 
 	// Maintenance operations
-	ApplyPendingMaintenanceAction(resourceID, applyAction string) (string, error)
+	ApplyPendingMaintenanceAction(resourceID, applyAction, optInType string) (string, error)
 	BacktrackDBCluster(clusterID, backtrackTo string) (*DBClusterBacktrack, error)
 
 	// Security group operations

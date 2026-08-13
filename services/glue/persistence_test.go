@@ -133,7 +133,7 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, b.CreateIntegrationTableProperties("arn:aws:glue:resource1", "tbl1", nil, nil))
 	b.PutDataQualityStatisticAnnotation("profile1", "stat1", "INCLUDE")
 	require.NoError(t, b.CreateGlueIdentityCenterConfiguration("instance1"))
-	_, err = b.RegisterConnectionType("custom1", "a custom connector")
+	_, err = b.RegisterConnectionType("custom1", "a custom connector", fullRegisterConnectionTypeSpec())
 	require.NoError(t, err)
 
 	// Business glossary / asset catalog (parity-4).

@@ -1,6 +1,7 @@
 package glue_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -60,10 +61,22 @@ func TestDeleteConnectionType_CustomRoundTrip(t *testing.T) {
 	h := newTestHandler(t)
 
 	regRec := doGlueRequest(t, h, "RegisterConnectionType", map[string]any{
-		"ConnectionType": "MyCustomConn",
-		"Description":    "custom connector",
+		"ConnectionType":  "MyCustomConn",
+		"Description":     "custom connector",
+		"IntegrationType": "REST",
+		"ConnectionProperties": map[string]any{
+			"Url": map[string]any{"Name": "endpoint"},
+		},
+		"ConnectorAuthenticationConfiguration": map[string]any{
+			"AuthenticationTypes": []any{"BASIC"},
+		},
+		"RestConfiguration": map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, regRec.Code)
+
+	var regOut map[string]any
+	require.NoError(t, json.Unmarshal(regRec.Body.Bytes(), &regOut))
+	assert.NotEmpty(t, regOut["ConnectionTypeArn"], "RegisterConnectionType must return ConnectionTypeArn")
 
 	delRec := doGlueRequest(t, h, "DeleteConnectionType", map[string]any{"ConnectionType": "MyCustomConn"})
 	require.Equal(t, http.StatusOK, delRec.Code)

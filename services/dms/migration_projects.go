@@ -9,10 +9,48 @@ import (
 	"github.com/google/uuid"
 )
 
+// DataProviderDescriptorInput is the request-side shape of a data provider
+// descriptor entry within CreateMigrationProject's Source/TargetDataProviderDescriptors.
+type DataProviderDescriptorInput struct {
+	DataProviderIdentifier      string
+	SecretsManagerAccessRoleArn string
+	SecretsManagerSecretId      string //nolint:revive,staticcheck // matches the AWS wire field name.
+}
+
+// resolveDataProviderDescriptors resolves each entry's DataProviderIdentifier
+// (name or ARN) against the DataProvider store, preserving the caller's
+// Secrets Manager pass-through fields. Must hold b.mu.
+func (b *InMemoryBackend) resolveDataProviderDescriptors(
+	ctx context.Context, entries []DataProviderDescriptorInput,
+) ([]DataProviderDescriptor, error) {
+	out := make([]DataProviderDescriptor, 0, len(entries))
+
+	for _, e := range entries {
+		if e.DataProviderIdentifier == "" {
+			return nil, fmt.Errorf("%w: DataProviderIdentifier is required", ErrValidation)
+		}
+
+		dp := b.findDataProvider(ctx, e.DataProviderIdentifier)
+		if dp == nil {
+			return nil, fmt.Errorf("%w: data provider %s not found", ErrNotFound, e.DataProviderIdentifier)
+		}
+
+		out = append(out, DataProviderDescriptor{
+			DataProviderArn:             dp.DataProviderArn,
+			DataProviderName:            dp.DataProviderName,
+			SecretsManagerAccessRoleArn: e.SecretsManagerAccessRoleArn,
+			SecretsManagerSecretId:      e.SecretsManagerSecretId,
+		})
+	}
+
+	return out, nil
+}
+
 // CreateMigrationProject creates a migration project.
 func (b *InMemoryBackend) CreateMigrationProject(
 	ctx context.Context,
-	name, description string,
+	name, description, instanceProfileIdentifier string,
+	sourceDescriptors, targetDescriptors []DataProviderDescriptorInput,
 	kv map[string]string,
 ) (*MigrationProject, error) {
 	b.mu.Lock("CreateMigrationProject")
@@ -24,19 +62,50 @@ func (b *InMemoryBackend) CreateMigrationProject(
 		return nil, fmt.Errorf("%w: migration project %s already exists", ErrAlreadyExists, name)
 	}
 
+	if instanceProfileIdentifier == "" {
+		return nil, fmt.Errorf("%w: InstanceProfileIdentifier is required", ErrValidation)
+	}
+
+	ip := b.findInstanceProfile(ctx, instanceProfileIdentifier)
+	if ip == nil {
+		return nil, fmt.Errorf("%w: instance profile %s not found", ErrNotFound, instanceProfileIdentifier)
+	}
+
+	if sourceDescriptors == nil {
+		return nil, fmt.Errorf("%w: SourceDataProviderDescriptors is required", ErrValidation)
+	}
+
+	if targetDescriptors == nil {
+		return nil, fmt.Errorf("%w: TargetDataProviderDescriptors is required", ErrValidation)
+	}
+
+	sourceResolved, err := b.resolveDataProviderDescriptors(ctx, sourceDescriptors)
+	if err != nil {
+		return nil, err
+	}
+
+	targetResolved, err := b.resolveDataProviderDescriptors(ctx, targetDescriptors)
+	if err != nil {
+		return nil, err
+	}
+
 	projectARN := arn.Build("dms", region, b.accountID, "migration-project:"+uuid.NewString())
 	t := tags.New("dms.migration-project." + name + ".tags")
 	if len(kv) > 0 {
 		t.Merge(kv)
 	}
 	mp := &MigrationProject{
-		MigrationProjectName:       name,
-		MigrationProjectArn:        projectARN,
-		MigrationProjectIdentifier: name,
-		Description:                description,
-		AccountID:                  b.accountID,
-		Region:                     region,
-		Tags:                       t,
+		MigrationProjectName:          name,
+		MigrationProjectArn:           projectARN,
+		MigrationProjectIdentifier:    name,
+		Description:                   description,
+		AccountID:                     b.accountID,
+		Region:                        region,
+		InstanceProfileArn:            ip.InstanceProfileArn,
+		InstanceProfileName:           ip.InstanceProfileName,
+		SourceDataProviderDescriptors: sourceResolved,
+		TargetDataProviderDescriptors: targetResolved,
+		Tags:                          t,
 	}
 	b.migrationProjects.Put(mp)
 	cp := *mp

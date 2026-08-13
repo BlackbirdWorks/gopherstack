@@ -76,6 +76,7 @@ func TestWorkspaceImageCRUD(t *testing.T) { //nolint:paralleltest // existing is
 				"Ec2ImageId":       "ami-12345678",
 				"ImageName":        "imported",
 				"ImageDescription": "ec2 import",
+				"IngestionProcess": "BYOL_REGULAR",
 			},
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
@@ -90,8 +91,14 @@ func TestWorkspaceImageCRUD(t *testing.T) { //nolint:paralleltest // existing is
 			name: "ImportCustomWorkspaceImage",
 			op:   "ImportCustomWorkspaceImage",
 			body: map[string]any{
-				"ImageName":        "custom-img",
-				"ImageDescription": "custom",
+				"ImageName":                      "custom-img",
+				"ImageDescription":               "custom",
+				"ComputeType":                    "BASE",
+				"ImageSource":                    map[string]any{"Ec2ImageId": "ami-custom"},
+				"InfrastructureConfigurationArn": "arn:aws:imagebuilder:us-east-1:000000000000:infrastructure-configuration/test",
+				"OsVersion":                      "Windows_11",
+				"Platform":                       "WINDOWS",
+				"Protocol":                       "DCV",
 			},
 			check: func(t *testing.T, body []byte) {
 				t.Helper()

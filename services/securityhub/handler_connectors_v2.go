@@ -180,31 +180,36 @@ func connectorV2ToResponse(conn *ConnectorV2) map[string]any {
 }
 
 func (h *Handler) handleCreateTicketV2(c *echo.Context, body map[string]any) error {
-	var ticketConfig map[string]any
-
-	if tc, ok := body["TicketConfiguration"].(map[string]any); ok {
-		ticketConfig = tc
+	connectorID, _ := body["ConnectorId"].(string)
+	if connectorID == "" {
+		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", "ConnectorId is required")
 	}
 
-	var tags map[string]string
-
-	if t, ok := body["Tags"].(map[string]any); ok {
-		tags = make(map[string]string, len(t))
-
-		for k, v := range t {
-			tags[k], _ = v.(string)
-		}
+	findingMetadataUID, _ := body["FindingMetadataUid"].(string)
+	if findingMetadataUID == "" {
+		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", "FindingMetadataUid is required")
 	}
 
-	ticket, err := h.Backend.CreateTicketV2(ticketConfig, tags)
+	mode, _ := body["Mode"].(string)
+	if mode != "" && mode != "DRYRUN" {
+		return typedErrorResponse(c, http.StatusBadRequest, "ValidationException", "Mode must be DRYRUN")
+	}
+
+	ticket, err := h.Backend.CreateTicketV2(connectorID, findingMetadataUID, mode)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Connector V2 not found")
+		}
+
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"TicketConfigurationArn": ticket.TicketConfigurationArn,
-		keyCreatedAt:             ticket.CreatedAt,
-	})
+	resp := map[string]any{"TicketId": ticket.TicketId}
+	if ticket.TicketSrcUrl != "" {
+		resp["TicketSrcUrl"] = ticket.TicketSrcUrl
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // connectorsV2OpHandlers returns the Connectors V2 + Tickets V2 operation
