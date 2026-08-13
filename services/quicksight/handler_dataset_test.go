@@ -15,7 +15,7 @@ func TestQuickSight_DataSetExtras(t *testing.T) { //nolint:paralleltest // exist
 
 	// Need a dataset to exist first
 	rec := doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-		"DataSetId": "ds1", "Name": "Dataset1", "ImportMode": "SPICE",
+		"DataSetId": "ds1", "Name": "Dataset1", "ImportMode": "SPICE", "PhysicalTableMap": testPhysicalTableMap(),
 	})
 	require.True(t, rec.Code == http.StatusOK || rec.Code == http.StatusCreated, "create dataset: %d", rec.Code)
 
@@ -123,9 +123,10 @@ func TestQuickSight_DataSets(t *testing.T) {
 			method: http.MethodPost,
 			path:   accountPath("/data-sets"),
 			body: map[string]any{
-				"DataSetId":  "set1",
-				"Name":       "My Dataset",
-				"ImportMode": "SPICE",
+				"DataSetId":        "set1",
+				"Name":             "My Dataset",
+				"ImportMode":       "SPICE",
+				"PhysicalTableMap": testPhysicalTableMap(),
 			},
 			wantCode: http.StatusCreated,
 			check: func(t *testing.T, body map[string]any) {
@@ -140,17 +141,21 @@ func TestQuickSight_DataSets(t *testing.T) {
 			path:   accountPath("/data-sets"),
 			setup: func(h *quicksight.Handler) {
 				doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-					"DataSetId": "dup", "Name": "x",
+					"DataSetId": "dup", "Name": "x", "PhysicalTableMap": testPhysicalTableMap(),
 				})
 			},
-			body:     map[string]any{"DataSetId": "dup", "Name": "x"},
+			body:     map[string]any{"DataSetId": "dup", "Name": "x", "PhysicalTableMap": testPhysicalTableMap()},
 			wantCode: http.StatusConflict,
 		},
 		{
-			name:     "CreateDataSet default ImportMode is SPICE",
-			method:   http.MethodPost,
-			path:     accountPath("/data-sets"),
-			body:     map[string]any{"DataSetId": "set-default-mode", "Name": "x"},
+			name:   "CreateDataSet default ImportMode is SPICE",
+			method: http.MethodPost,
+			path:   accountPath("/data-sets"),
+			body: map[string]any{
+				"DataSetId":        "set-default-mode",
+				"Name":             "x",
+				"PhysicalTableMap": testPhysicalTableMap(),
+			},
 			wantCode: http.StatusCreated,
 			check: func(t *testing.T, body map[string]any) {
 				t.Helper()
@@ -164,6 +169,7 @@ func TestQuickSight_DataSets(t *testing.T) {
 			setup: func(h *quicksight.Handler) {
 				doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
 					"DataSetId": "set2", "Name": "S2", "ImportMode": "DIRECT_QUERY",
+					"PhysicalTableMap": testPhysicalTableMap(),
 				})
 			},
 			wantCode: http.StatusOK,
@@ -172,6 +178,7 @@ func TestQuickSight_DataSets(t *testing.T) {
 				ds, ok := body["DataSet"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "DIRECT_QUERY", ds["ImportMode"])
+				assert.Contains(t, ds, "PhysicalTableMap")
 			},
 		},
 		{
@@ -186,7 +193,7 @@ func TestQuickSight_DataSets(t *testing.T) {
 			path:   accountPath("/data-sets/set3"),
 			setup: func(h *quicksight.Handler) {
 				doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-					"DataSetId": "set3", "Name": "x",
+					"DataSetId": "set3", "Name": "x", "PhysicalTableMap": testPhysicalTableMap(),
 				})
 			},
 			wantCode: http.StatusOK,
@@ -198,9 +205,14 @@ func TestQuickSight_DataSets(t *testing.T) {
 			setup: func(h *quicksight.Handler) {
 				doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
 					"DataSetId": "set-spice-update", "Name": "x", "ImportMode": "SPICE",
+					"PhysicalTableMap": testPhysicalTableMap(),
 				})
 			},
-			body:     map[string]any{"Name": "renamed", "ImportMode": "SPICE"},
+			body: map[string]any{
+				"Name":             "renamed",
+				"ImportMode":       "SPICE",
+				"PhysicalTableMap": testPhysicalTableMap(),
+			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body map[string]any) {
 				t.Helper()
@@ -215,9 +227,14 @@ func TestQuickSight_DataSets(t *testing.T) {
 			setup: func(h *quicksight.Handler) {
 				doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
 					"DataSetId": "set-dq-update", "Name": "x", "ImportMode": "DIRECT_QUERY",
+					"PhysicalTableMap": testPhysicalTableMap(),
 				})
 			},
-			body:     map[string]any{"Name": "renamed", "ImportMode": "DIRECT_QUERY"},
+			body: map[string]any{
+				"Name":             "renamed",
+				"ImportMode":       "DIRECT_QUERY",
+				"PhysicalTableMap": testPhysicalTableMap(),
+			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body map[string]any) {
 				t.Helper()
@@ -232,7 +249,7 @@ func TestQuickSight_DataSets(t *testing.T) {
 			setup: func(h *quicksight.Handler) {
 				for _, id := range []string{"ls1", "ls2", "ls3"} {
 					doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-						"DataSetId": id, "Name": id,
+						"DataSetId": id, "Name": id, "PhysicalTableMap": testPhysicalTableMap(),
 					})
 				}
 			},
@@ -243,6 +260,30 @@ func TestQuickSight_DataSets(t *testing.T) {
 				require.True(t, ok)
 				assert.Len(t, items, 3)
 			},
+		},
+		{
+			// PhysicalTableMap is required (quicksight@v1.123.1
+			// api_op_CreateDataSet.go:55); the real SDK client refuses to
+			// even build this request (validators.go), so this raw-HTTP
+			// case is what proves the *server* enforces it too, not just
+			// the client.
+			name:     "CreateDataSet without PhysicalTableMap returns 400",
+			method:   http.MethodPost,
+			path:     accountPath("/data-sets"),
+			body:     map[string]any{"DataSetId": "set-no-tables", "Name": "x"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "UpdateDataSet without PhysicalTableMap returns 400",
+			method: http.MethodPut,
+			path:   accountPath("/data-sets/set-update-no-tables"),
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
+					"DataSetId": "set-update-no-tables", "Name": "x", "PhysicalTableMap": testPhysicalTableMap(),
+				})
+			},
+			body:     map[string]any{"Name": "renamed"},
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -269,7 +310,7 @@ func TestQuickSight_Ingestions(t *testing.T) {
 
 	createDataSet := func(h *quicksight.Handler, id string) {
 		doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-			"DataSetId": id, "Name": id,
+			"DataSetId": id, "Name": id, "PhysicalTableMap": testPhysicalTableMap(),
 		})
 	}
 
@@ -404,7 +445,7 @@ func TestQuickSight_CancelIngestion_CompletedAutoIngestion(t *testing.T) {
 	h := newTestHandler(t)
 
 	createRec := doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-		"DataSetId": "dset-completed", "Name": "x", "ImportMode": "SPICE",
+		"DataSetId": "dset-completed", "Name": "x", "ImportMode": "SPICE", "PhysicalTableMap": testPhysicalTableMap(),
 	})
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	createBody := parseBody(t, createRec)

@@ -112,7 +112,7 @@ func TestQuickSight_ExtendedResourcesPersistence(t *testing.T) {
 	)
 
 	require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-		"DataSetId": "ds1", "Name": "DataSet1", "ImportMode": "SPICE",
+		"DataSetId": "ds1", "Name": "DataSet1", "ImportMode": "SPICE", "PhysicalTableMap": testPhysicalTableMap(),
 	}).Code)
 	require.Equal(
 		t, http.StatusOK,

@@ -68,4 +68,18 @@ var (
 	// prefix), matching Qev2IdcApplication being a distinct resource.
 	ErrQev2IdcApplicationNotFound      = errors.New("Qev2IdcApplicationNotExists")
 	ErrQev2IdcApplicationAlreadyExists = errors.New("Qev2IdcApplicationAlreadyExists")
+	// ErrNamespaceRegistrationInvalidClusterState is returned by RegisterNamespace/
+	// DeregisterNamespace when the target cluster exists but isn't in a
+	// registerable state (ErrorCode() "InvalidClusterState", verified against
+	// InvalidClusterStateFault in types/errors.go). Deliberately distinct from
+	// ErrResizeNotCancellable, which carries the same wire text for an
+	// unrelated resize-cancellation meaning -- see errCodeSentinels, where
+	// resolveErrCode only needs the sentinel's Error() text to match, so two
+	// same-text sentinels for different call sites are fine.
+	ErrNamespaceRegistrationInvalidClusterState = errors.New("InvalidClusterState")
+	// ErrInvalidNamespace is returned by RegisterNamespace/DeregisterNamespace
+	// when NamespaceIdentifier doesn't resolve to a real cluster or Redshift
+	// Serverless namespace/workgroup (ErrorCode() "InvalidNamespaceFault",
+	// verified against InvalidNamespaceFault in types/errors.go).
+	ErrInvalidNamespace = errors.New("InvalidNamespaceFault")
 )

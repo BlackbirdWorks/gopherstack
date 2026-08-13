@@ -28,18 +28,20 @@ func TestQuickSight_CreateDataSet_AutoIngestion(t *testing.T) {
 		{
 			name: "SPICE dataset triggers a real, describable ingestion",
 			body: map[string]any{
-				"DataSetId":  "spice-set",
-				"Name":       "SpiceSet",
-				"ImportMode": "SPICE",
+				"DataSetId":        "spice-set",
+				"Name":             "SpiceSet",
+				"ImportMode":       "SPICE",
+				"PhysicalTableMap": testPhysicalTableMap(),
 			},
 			wantIngestion: true,
 		},
 		{
 			name: "DIRECT_QUERY dataset triggers no ingestion",
 			body: map[string]any{
-				"DataSetId":  "dq-set",
-				"Name":       "DQSet",
-				"ImportMode": "DIRECT_QUERY",
+				"DataSetId":        "dq-set",
+				"Name":             "DQSet",
+				"ImportMode":       "DIRECT_QUERY",
+				"PhysicalTableMap": testPhysicalTableMap(),
 			},
 			wantIngestion: false,
 		},

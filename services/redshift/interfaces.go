@@ -263,6 +263,17 @@ type StorageBackend interface {
 	DescribeQev2IdcApplications(appArn, marker string, maxRecords int) ([]Qev2IdcApplication, string, error)
 	ModifyQev2IdcApplication(appArn, idcDisplayName string) (*Qev2IdcApplication, error)
 
+	// Glue Data Catalog namespace registration operations. clusterIdentifier
+	// is set for the ProvisionedIdentifier union variant; serverlessNamespace/
+	// serverlessWorkgroup are both set for the ServerlessIdentifier variant --
+	// see namespace_registration.go's doc comment.
+	RegisterNamespace(
+		consumerIdentifiers []string, clusterIdentifier, serverlessNamespace, serverlessWorkgroup string,
+	) (*NamespaceRegistration, error)
+	DeregisterNamespace(
+		consumerIdentifiers []string, clusterIdentifier, serverlessNamespace, serverlessWorkgroup string,
+	) (*NamespaceRegistration, error)
+
 	// Lifecycle
 	Reset()
 	Region() string

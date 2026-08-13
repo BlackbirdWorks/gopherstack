@@ -93,9 +93,9 @@ overall: A            # the 32 ops the v1.112.0->v1.121.0 SDK bump added (Agent,
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateDataSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "was fabricating IngestionArn/IngestionId=\"auto\" for every ImportMode; fixed to only report an ingestion (a real, describable backend Ingestion record) when ImportMode is SPICE, matching CreateDataSetOutput's documented semantics"}
-  DescribeDataSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateDataSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now mirrors CreateDataSet -- when the resulting ImportMode is SPICE, UpdateDataSet creates a real, describable storedIngestion and reports IngestionArn/IngestionId in the response; omitted for DIRECT_QUERY. See TestQuickSight_DataSets/UpdateDataSet_on_{SPICE,DIRECT_QUERY}_dataset_*"}
+  CreateDataSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "was fabricating IngestionArn/IngestionId=\"auto\" for every ImportMode; fixed to only report an ingestion (a real, describable backend Ingestion record) when ImportMode is SPICE, matching CreateDataSetOutput's documented semantics. FIXED (gopherstack-2qk4, required-member sweep pass 3): PhysicalTableMap (api_op_CreateDataSet.go:55, required) was read nowhere in the service -- a dataset was created and reported success with no tables behind it. Now parsed/validated/stored/echoed for all 5 PhysicalTable union variants (RelationalTable, CustomSql, S3Source, FileSource, SaaSTable); LogicalTableMap (optional) parsed/stored/echoed too, except its DataTransforms member, which is stored and echoed as opaque JSON rather than modeled -- TransformOperation is a 10+-variant union this in-memory backend never evaluates. See types.go's PhysicalTable/LogicalTable doc comments and TestSDKRoundTrip_DataSetPhysicalTableMap."}
+  DescribeDataSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-2qk4): now returns PhysicalTableMap/LogicalTableMap (DataSet's full shape) alongside the previously-returned summary fields."}
+  UpdateDataSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now mirrors CreateDataSet -- when the resulting ImportMode is SPICE, UpdateDataSet creates a real, describable storedIngestion and reports IngestionArn/IngestionId in the response; omitted for DIRECT_QUERY. See TestQuickSight_DataSets/UpdateDataSet_on_{SPICE,DIRECT_QUERY}_dataset_*. FIXED (gopherstack-2qk4): PhysicalTableMap (api_op_UpdateDataSet.go:55, required -- this op doesn't support partial updates) had the same never-read bug as CreateDataSet; now required and replaces (not merges) the stored map, matching UpdateDataSet's full-replace contract. See TestSDKRoundTrip_UpdateDataSetPhysicalTableMap."}
   DeleteDataSet: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDataSets: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchDataSets: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -440,3 +440,42 @@ follow-up pass):**
   (confirmed against `api_op_DeleteTopic.go`), but this backend's existing
   `handleDeleteTopic` response omits it. `DeleteTopicV2`'s response correctly
   includes `Arn` rather than copying this omission forward.
+
+## required-member sweep pass 3 (gopherstack-2qk4)
+
+`CreateDataSet`/`UpdateDataSet` never read `PhysicalTableMap`, required at
+`quicksight@v1.123.1` `api_op_CreateDataSet.go:55` and
+`api_op_UpdateDataSet.go:55` -- the field that defines what a dataset's rows
+actually come from. Grepping the service for `PhysicalTableMap` or
+`LogicalTableMap` previously returned zero hits anywhere: not the handler, not
+the model, not storage. A dataset was created, reported success, and had
+nothing behind it.
+
+Fixed: `types.go` models `PhysicalTable` as a struct with one populated
+pointer per wire union member (`RelationalTable`, `CustomSql`/`CustomSQL` in
+Go, `S3Source`, `FileSource`, `SaaSTable`), each with its own real fields
+(`InputColumn`, `UploadSettings`, `TablePathElement`) rather than flattened
+onto `DataSet`. `dataset_physicaltable.go` parses/validates/stores/echoes the
+full map for `CreateDataSet`/`UpdateDataSet`/`DescribeDataSet`; `ListDataSets`/
+`SearchDataSets` correctly omit it, matching `DataSetSummary`'s (not `DataSet`'s)
+real shape. `LogicalTableMap` (optional) is modeled the same way for `Alias`/
+`Source` (`LogicalTableSource`, including a real `JoinInstruction`), but its
+`DataTransforms` member is left inert: `TransformOperation` is a 10+-variant
+union (`CastColumnTypeOperation`, `CreateColumnsOperation`,
+`FilterOperation`, `RenameColumnOperation`, ...) this in-memory backend never
+evaluates, so the caller's raw JSON is stored and echoed back verbatim
+instead of being lossily re-derived into typed structs nothing acts on --
+the same treatment `Dashboard`/`Analysis.Definition` already give other
+genuinely-open-ended blobs elsewhere in this package. `JoinInstruction`'s
+optional `LeftJoinKeyProperties`/`RightJoinKeyProperties` are similarly left
+unmodeled for the same reason (never applied, so no backing state either way).
+
+Both ops now reject a request with no physical tables (`ErrValidation`,
+`InvalidParameterValueException`) rather than silently accepting one, and
+`UpdateDataSet` replaces (not merges) the stored map on every call, matching
+its real full-replace contract ("Partial updates are not supported by this
+operation"). See `TestSDKRoundTrip_DataSetPhysicalTableMap` and
+`TestSDKRoundTrip_UpdateDataSetPhysicalTableMap` (`handler_sdk_roundtrip_test.go`),
+which drive the real `aws-sdk-go-v2` client end to end -- create with a
+populated `PhysicalTableMap`/`LogicalTableMap`, then describe and assert the
+exact typed union variant and field values round-trip, not just a 2xx.

@@ -85,6 +85,7 @@ type InMemoryBackend struct {
 	slEndpointAccesses     *store.Table[ServerlessEndpointAccess]
 	slLakehouseConfig      *store.Table[ServerlessLakehouseConfig]
 	endpointAccesses       *store.Table[EndpointAccess]
+	namespaceRegistrations *store.Table[NamespaceRegistration]
 	// clusterTransitions holds in-flight lifecycle state, intentionally never
 	// persisted (see Restore) and keyed externally by cluster ID.
 	clusterTransitions      map[string]*clusterTransition

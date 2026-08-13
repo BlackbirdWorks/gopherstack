@@ -42,7 +42,18 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	_, err = b.CreateDataSource(testAccountID, "ds1", "DataSource1", "MYSQL", nil, nil)
 	require.NoError(t, err)
 
-	_, _, err = b.CreateDataSet(testAccountID, "dset1", "DataSet1", "SPICE", nil, nil)
+	_, _, err = b.CreateDataSet(
+		testAccountID,
+		"dset1",
+		"DataSet1",
+		"SPICE",
+		nil,
+		nil,
+		map[string]quicksight.PhysicalTable{
+			"pt1": {RelationalTable: &quicksight.RelationalTable{DataSourceArn: "ds1", Name: "table1"}},
+		},
+		nil,
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateIngestion(testAccountID, "dset1", "ingest1")

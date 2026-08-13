@@ -820,6 +820,8 @@ var errCodeSentinels = []error{
 	ErrIdcApplicationAlreadyExists,
 	ErrQev2IdcApplicationNotFound,
 	ErrQev2IdcApplicationAlreadyExists,
+	ErrNamespaceRegistrationInvalidClusterState,
+	ErrInvalidNamespace,
 }
 
 func resolveErrCode(opErr error) (string, int) {

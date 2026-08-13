@@ -109,6 +109,8 @@ func slEndpointAccessesKeyFn(v *ServerlessEndpointAccess) string { return v.Endp
 
 func slLakehouseConfigKeyFn(v *ServerlessLakehouseConfig) string { return v.NamespaceName }
 
+func namespaceRegistrationsKeyFn(v *NamespaceRegistration) string { return v.NamespaceKey }
+
 // registerAllTables registers every converted resource map on b.registry
 // exactly once. It must be called during construction only (immediately
 // after b.registry is created), never on every Reset() -- store.Register
@@ -243,6 +245,11 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.slLakehouseConfig = store.Register(b.registry, "slLakehouseConfig", store.New(slLakehouseConfigKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.namespaceRegistrations = store.Register(
+			b.registry, "namespaceRegistrations", store.New(namespaceRegistrationsKeyFn),
+		)
 	},
 }
 

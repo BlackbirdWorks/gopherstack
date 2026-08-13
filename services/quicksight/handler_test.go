@@ -145,6 +145,26 @@ const (
 	testNamespace = "default"
 )
 
+// testPhysicalTableMap returns a minimal but real PhysicalTableMap body
+// fragment (one RelationalTable entry) for tests that only need a dataset to
+// exist, not to exercise PhysicalTableMap itself. CreateDataSet/UpdateDataSet
+// reject a request with no physical tables (quicksight@v1.123.1
+// api_op_CreateDataSet.go:55, api_op_UpdateDataSet.go:55: PhysicalTableMap is
+// required), so every test that creates/updates a dataset over HTTP needs one.
+func testPhysicalTableMap() map[string]any {
+	return map[string]any{
+		"pt1": map[string]any{
+			"RelationalTable": map[string]any{
+				"DataSourceArn": "arn:aws:quicksight:us-east-1:000000000000:datasource/ds1",
+				"Name":          "table1",
+				"InputColumns": []any{
+					map[string]any{"Name": "col1", "Type": "STRING"},
+				},
+			},
+		},
+	}
+}
+
 func newTestBackend(t *testing.T) *quicksight.InMemoryBackend {
 	t.Helper()
 
