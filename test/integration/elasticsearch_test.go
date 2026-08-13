@@ -8,9 +8,65 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	elasticsearchsdk "github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestIntegration_Elasticsearch_VpcEndpointList_NextToken drives
+// ListVpcEndpoints, ListVpcEndpointsForDomain, and ListVpcEndpointAccess via
+// the real AWS SDK v2 client. NextToken is a required response member on all
+// three outputs (deserializers.go's respective Output switches); this
+// backend never truncates, but a required *string left permanently nil
+// (instead of an always-present empty string) can panic a real client that
+// dereferences it unconditionally. A decoded non-nil NextToken is the only
+// proof the field round-trips at all (gopherstack-lx5h). Does not create an
+// actual VPC endpoint first: CreateVpcEndpoint's own VpcOptions request
+// shape has a separate, pre-existing bug (map[string]string instead of the
+// real {SecurityGroupIds,SubnetIds} struct, gopherstack-elsewhere) that
+// rejects a real SDK client's request body outright — out of this issue's
+// scope, reported separately. NextToken's presence does not depend on any
+// endpoints existing, so an empty result set still proves the fix.
+func TestIntegration_Elasticsearch_VpcEndpointList_NextToken(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createElasticsearchClient(t)
+	ctx := t.Context()
+
+	const domainName = "it-es-vpcendpoint-domain"
+
+	_, err := client.CreateElasticsearchDomain(ctx, &elasticsearchsdk.CreateElasticsearchDomainInput{
+		DomainName: aws.String(domainName),
+	})
+	require.NoError(t, err, "CreateElasticsearchDomain should succeed")
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteElasticsearchDomain(cleanupCtx, &elasticsearchsdk.DeleteElasticsearchDomainInput{
+			DomainName: aws.String(domainName),
+		})
+	})
+
+	listOut, err := client.ListVpcEndpoints(ctx, &elasticsearchsdk.ListVpcEndpointsInput{})
+	require.NoError(t, err, "ListVpcEndpoints should succeed")
+	assert.NotNil(t, listOut.NextToken, "NextToken is a required response member")
+
+	forDomainOut, err := client.ListVpcEndpointsForDomain(ctx, &elasticsearchsdk.ListVpcEndpointsForDomainInput{
+		DomainName: aws.String(domainName),
+	})
+	require.NoError(t, err, "ListVpcEndpointsForDomain should succeed")
+	assert.NotNil(t, forDomainOut.NextToken, "NextToken is a required response member")
+
+	accessOut, err := client.ListVpcEndpointAccess(ctx, &elasticsearchsdk.ListVpcEndpointAccessInput{
+		DomainName: aws.String(domainName),
+	})
+	require.NoError(t, err, "ListVpcEndpointAccess should succeed")
+	assert.NotNil(t, accessOut.NextToken, "NextToken is a required response member")
+}
 
 // doElasticsearchRequest performs a raw HTTP request against the Elasticsearch API.
 func doElasticsearchRequest(t *testing.T, method, path string, body any) (int, map[string]any) {

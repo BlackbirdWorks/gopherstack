@@ -136,6 +136,59 @@ func TestIntegration_GuardDuty_DetectorLifecycle(t *testing.T) {
 	}
 }
 
+// TestIntegration_GuardDuty_GetMemberDetectors drives
+// CreateMembers -> GetMemberDetectors via the real AWS SDK v2 client.
+// GetMemberDetectorsOutput requires MemberDataSourceConfigurations; the SDK
+// leaves it nil when the server names the field wrong, so a decoded
+// non-nil, non-empty slice is the only proof the real wire key
+// (deserializers.go: "members", not "memberDataSources") round-trips
+// (gopherstack-lx5h).
+func TestIntegration_GuardDuty_GetMemberDetectors(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	guardDutyDetectorMu.Lock()
+	t.Cleanup(guardDutyDetectorMu.Unlock)
+
+	ctx := t.Context()
+	client := createGuardDutyClient(t)
+
+	createOut, err := client.CreateDetector(ctx, &guarddutysdk.CreateDetectorInput{Enable: aws.Bool(true)})
+	require.NoError(t, err, "CreateDetector should succeed")
+	detectorID := aws.ToString(createOut.DetectorId)
+
+	cleanupCtx := context.WithoutCancel(ctx)
+	t.Cleanup(func() {
+		_, _ = client.DeleteDetector(
+			cleanupCtx,
+			&guarddutysdk.DeleteDetectorInput{DetectorId: aws.String(detectorID)},
+		)
+	})
+
+	const memberAccountID = "222222222222"
+
+	_, err = client.CreateMembers(ctx, &guarddutysdk.CreateMembersInput{
+		DetectorId: aws.String(detectorID),
+		AccountDetails: []guarddutytypes.AccountDetail{
+			{AccountId: aws.String(memberAccountID), Email: aws.String("member@example.com")},
+		},
+	})
+	require.NoError(t, err, "CreateMembers should succeed")
+
+	getOut, err := client.GetMemberDetectors(ctx, &guarddutysdk.GetMemberDetectorsInput{
+		DetectorId: aws.String(detectorID),
+		AccountIds: []string{memberAccountID},
+	})
+	require.NoError(t, err, "GetMemberDetectors should succeed")
+	require.Len(
+		t,
+		getOut.MemberDataSourceConfigurations,
+		1,
+		"real key is members, mapping to MemberDataSourceConfigurations",
+	)
+	assert.Equal(t, memberAccountID, aws.ToString(getOut.MemberDataSourceConfigurations[0].AccountId))
+}
+
 // TestIntegration_GuardDuty_FilterLifecycle drives detector→filter create→get→list→delete.
 func TestIntegration_GuardDuty_FilterLifecycle(t *testing.T) {
 	t.Parallel()

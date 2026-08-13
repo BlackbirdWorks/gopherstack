@@ -133,6 +133,13 @@ func TestIntegration_CodeCommit_MergeBranches(t *testing.T) {
 	)
 	assert.NotEmpty(t, aws.ToString(conflicts.SourceCommitId))
 	assert.NotEmpty(t, aws.ToString(conflicts.DestinationCommitId))
+	assert.NotNil(
+		t,
+		conflicts.ConflictMetadataList,
+		"conflictMetadataList is the real wire key (gopherstack-lx5h); an SDK client only "+
+			"decodes it into a non-nil empty slice when the server actually names the field "+
+			"conflictMetadataList — a wrong key like the previous \"conflicts\" leaves this nil",
+	)
 
 	squashOut, err := client.MergeBranchesBySquash(ctx, &codecommitsdk.MergeBranchesBySquashInput{
 		RepositoryName:             aws.String(repoName),
@@ -172,4 +179,91 @@ func TestIntegration_CodeCommit_MergeBranches(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Len(t, threeWayCommit.Commit.Parents, 2, "three-way merge commit must have two parents")
+}
+
+// TestIntegration_CodeCommit_EvaluatePullRequestApprovalRules drives
+// EvaluatePullRequestApprovalRules via the real AWS SDK v2 client. The real
+// EvaluatePullRequestApprovalRulesOutput wraps everything under a single
+// "evaluation" object (types.Evaluation), not an "evaluationResults" array —
+// the SDK silently drops an unrecognized top-level key and leaves
+// out.Evaluation nil, so a nil-vs-populated assertion on Evaluation is the
+// only way to prove the real wire key round-trips (gopherstack-lx5h).
+func TestIntegration_CodeCommit_EvaluatePullRequestApprovalRules(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createCodeCommitClient(t)
+	ctx := t.Context()
+
+	const repoName = "it-codecommit-evaluate-repo"
+
+	_, err := client.CreateRepository(ctx, &codecommitsdk.CreateRepositoryInput{
+		RepositoryName: aws.String(repoName),
+	})
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteRepository(cleanupCtx, &codecommitsdk.DeleteRepositoryInput{
+			RepositoryName: aws.String(repoName),
+		})
+	})
+
+	mainCommit, err := client.CreateCommit(ctx, &codecommitsdk.CreateCommitInput{
+		RepositoryName: aws.String(repoName),
+		BranchName:     aws.String("main"),
+		AuthorName:     aws.String("it"),
+		Email:          aws.String("it@example.com"),
+		CommitMessage:  aws.String("initial"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateBranch(ctx, &codecommitsdk.CreateBranchInput{
+		RepositoryName: aws.String(repoName),
+		BranchName:     aws.String("feature"),
+		CommitId:       mainCommit.CommitId,
+	})
+	require.NoError(t, err)
+
+	prOut, err := client.CreatePullRequest(ctx, &codecommitsdk.CreatePullRequestInput{
+		Title: aws.String("evaluate approval rules"),
+		Targets: []codecommittypes.Target{
+			{
+				RepositoryName:       aws.String(repoName),
+				SourceReference:      aws.String("feature"),
+				DestinationReference: aws.String("main"),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, prOut.PullRequest)
+	prID := aws.ToString(prOut.PullRequest.PullRequestId)
+	revisionID := aws.ToString(prOut.PullRequest.RevisionId)
+
+	_, err = client.CreatePullRequestApprovalRule(ctx, &codecommitsdk.CreatePullRequestApprovalRuleInput{
+		PullRequestId:    aws.String(prID),
+		ApprovalRuleName: aws.String("it-rule"),
+		ApprovalRuleContent: aws.String(
+			`{"Version":"2018-11-08","Statements":[{"Type":"Approvers","NumberOfApprovalsNeeded":1}]}`,
+		),
+	})
+	require.NoError(t, err)
+
+	evalOut, err := client.EvaluatePullRequestApprovalRules(ctx, &codecommitsdk.EvaluatePullRequestApprovalRulesInput{
+		PullRequestId: aws.String(prID),
+		RevisionId:    aws.String(revisionID),
+	})
+	require.NoError(t, err)
+	require.NotNil(
+		t,
+		evalOut.Evaluation,
+		"real key is \"evaluation\" (singular object); a wrong key like the previous "+
+			"\"evaluationResults\" array leaves this nil",
+	)
+	assert.Contains(t, evalOut.Evaluation.ApprovalRulesSatisfied, "it-rule")
+	assert.Empty(t, evalOut.Evaluation.ApprovalRulesNotSatisfied)
+	assert.True(t, evalOut.Evaluation.Approved)
+	assert.False(t, evalOut.Evaluation.Overridden)
 }
