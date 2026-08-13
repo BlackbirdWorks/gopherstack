@@ -486,18 +486,36 @@ func parseCFPublicKeyRealtimePath(method, suffix string) (string, string) {
 		return op, id
 	}
 
-	return parseCFResourcePath(
-		method,
-		suffix,
-		"realtime-log-config",
-		opCreateRealtimeLogConfig,
-		opListRealtimeLogConfigs,
-		opGetRealtimeLogConfig,
-		opUpdateRealtimeLogConfig,
-		opDeleteRealtimeLogConfig,
-		"",
-		"",
-	)
+	return parseCFRealtimeLogConfigPath(method, suffix)
+}
+
+// parseCFRealtimeLogConfigPath routes real-time log config paths. Unlike most
+// CloudFront resources, Get/Delete are POST RPC-style calls to their own
+// distinct paths and Update is a PUT to the base path -- none carry an ID path
+// segment. ARN or Name travels in the body instead
+// (api_op_{Get,Update,Delete}RealtimeLogConfig.go).
+func parseCFRealtimeLogConfigPath(method, suffix string) (string, string) {
+	switch suffix {
+	case "realtime-log-config":
+		switch method {
+		case http.MethodPost:
+			return opCreateRealtimeLogConfig, ""
+		case http.MethodGet:
+			return opListRealtimeLogConfigs, ""
+		case http.MethodPut:
+			return opUpdateRealtimeLogConfig, ""
+		}
+	case "get-realtime-log-config":
+		if method == http.MethodPost {
+			return opGetRealtimeLogConfig, ""
+		}
+	case "delete-realtime-log-config":
+		if method == http.MethodPost {
+			return opDeleteRealtimeLogConfig, ""
+		}
+	}
+
+	return "", ""
 }
 
 // parseCFStreamingTrustVPCPath routes streaming distribution, trust store, vpc origin, and anycast paths.
@@ -719,13 +737,16 @@ func parseCFCreateAndTagOps(method, suffix, resourceParam string) (string, strin
 		return op, id
 	}
 
-	if suffix == sfxResourcePolicy {
-		switch method {
-		case http.MethodGet:
+	// Real clients POST to three distinct RPC-style paths for resource-policy
+	// ops; ResourceArn travels in the body, never the URL (serializers.go:
+	// awsRestxml_serializeOp{Get,Put,Delete}ResourcePolicy HandleSerialize).
+	if method == http.MethodPost {
+		switch suffix {
+		case sfxGetResourcePolicy:
 			return opGetResourcePolicy, resourceParam
-		case http.MethodPost:
+		case sfxPutResourcePolicy:
 			return opPutResourcePolicy, resourceParam
-		case http.MethodDelete:
+		case sfxDeleteResourcePolicy:
 			return opDeleteResourcePolicy, resourceParam
 		}
 	}

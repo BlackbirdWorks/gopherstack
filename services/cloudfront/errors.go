@@ -100,8 +100,10 @@ var (
 	ErrKeyValueStoreNotFound = awserr.New("EntityNotFound", awserr.ErrNotFound)
 	// ErrVpcOriginNotFound is returned when a requested VPC origin does not exist.
 	ErrVpcOriginNotFound = awserr.New("NoSuchVpcOrigin", awserr.ErrNotFound)
-	// ErrResourcePolicyNotFound is returned when no resource policy has been put for a resource ARN.
-	ErrResourcePolicyNotFound = awserr.New("NoSuchResourcePolicy", awserr.ErrNotFound)
+	// ErrResourcePolicyNotFound is returned when no resource policy has been put for a
+	// resource ARN. Get/Put/DeleteResourcePolicy all declare EntityNotFound, not
+	// NoSuchResourcePolicy, in their deserializeOpError switch (deserializers.go).
+	ErrResourcePolicyNotFound = awserr.New("EntityNotFound", awserr.ErrNotFound)
 	// ErrMonitoringSubscriptionNotFound is returned when no monitoring subscription exists for a
 	// distribution.
 	ErrMonitoringSubscriptionNotFound = awserr.New("NoSuchMonitoringSubscription", awserr.ErrNotFound)

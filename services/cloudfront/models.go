@@ -375,12 +375,21 @@ type KeyGroup struct {
 	Items   []string `json:"items"`
 }
 
+// RealtimeLogEndPoint is the Kinesis destination logs are delivered to
+// (types.EndPoint / types.KinesisStreamConfig, cloudfront@v1.67.4 types/types.go:2988-3001,3969-3989).
+type RealtimeLogEndPoint struct {
+	StreamType string `json:"streamType"`
+	RoleARN    string `json:"roleArn"`
+	StreamARN  string `json:"streamArn"`
+}
+
 // RealtimeLogConfig represents a CloudFront Realtime Log Config.
 type RealtimeLogConfig struct {
-	ARN          string   `json:"arn"`
-	Name         string   `json:"name"`
-	Fields       []string `json:"fields"`
-	SamplingRate int64    `json:"samplingRate"`
+	ARN          string                `json:"arn"`
+	Name         string                `json:"name"`
+	Fields       []string              `json:"fields"`
+	EndPoints    []RealtimeLogEndPoint `json:"endPoints"`
+	SamplingRate int64                 `json:"samplingRate"`
 }
 
 // KeyValueStore represents a CloudFront Key Value Store.
@@ -399,13 +408,34 @@ type KeyValueStore struct {
 	LastModifiedTime string `json:"lastModifiedTime"`
 }
 
+// VpcOriginEndpointConfig carries the required members of the real
+// VpcOriginEndpointConfig (types/types.go:6987-7018) needed to create or
+// update a VpcOrigin. Arn is the ARN of the VPC interface endpoint or load
+// balancer the origin routes to -- the entire purpose of the resource.
+type VpcOriginEndpointConfig struct {
+	Name                 string
+	Arn                  string
+	OriginProtocolPolicy string
+	HTTPPort             int32
+	HTTPSPort            int32
+}
+
 // VpcOrigin represents a CloudFront VPC Origin.
+//
+// ARN is the VPC origin resource's own ARN (VpcOrigin.Arn, cloudfront@v1.67.4
+// types/types.go:6920). EndpointArn is a different, required field nested inside
+// VpcOriginEndpointConfig (types.go:6989-6992): the ARN of the VPC interface
+// endpoint or load balancer this origin actually routes to.
 type VpcOrigin struct {
-	Tags map[string]string `json:"tags,omitempty"`
-	ID   string            `json:"id"`
-	ARN  string            `json:"arn"`
-	Name string            `json:"name"`
-	ETag string            `json:"eTag"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	ID                   string            `json:"id"`
+	ARN                  string            `json:"arn"`
+	Name                 string            `json:"name"`
+	ETag                 string            `json:"eTag"`
+	EndpointArn          string            `json:"endpointArn"`
+	OriginProtocolPolicy string            `json:"originProtocolPolicy"`
+	HTTPPort             int32             `json:"httpPort"`
+	HTTPSPort            int32             `json:"httpsPort"`
 }
 
 // OriginRequestPolicyConfig carries optional full-config inputs for CreateOriginRequestPolicy.

@@ -12,6 +12,10 @@ import (
 // types.VpcOrigin): Id/Arn are siblings of VpcOriginEndpointConfig, not
 // nested inside it -- a real client reading Arn from inside
 // VpcOriginEndpointConfig (as this previously did) always got nil.
+//
+// VpcOriginEndpointConfig.Arn (types.go:6989-6992) is the ARN of the VPC
+// interface endpoint or load balancer this origin routes to -- distinct from
+// the top-level Arn, which is the VPC origin resource's own ARN.
 func vpcOriginResponseXML(origin *VpcOrigin) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<VpcOrigin xmlns="%s">`+
@@ -19,9 +23,14 @@ func vpcOriginResponseXML(origin *VpcOrigin) string {
 		`<Arn>%s</Arn>`+
 		`<VpcOriginEndpointConfig>`+
 		`<Name>%s</Name>`+
+		`<Arn>%s</Arn>`+
+		`<HTTPPort>%d</HTTPPort>`+
+		`<HTTPSPort>%d</HTTPSPort>`+
+		`<OriginProtocolPolicy>%s</OriginProtocolPolicy>`+
 		`</VpcOriginEndpointConfig>`+
 		`</VpcOrigin>`,
-		cfNS, origin.ID, origin.ARN, origin.Name)
+		cfNS, origin.ID, origin.ARN,
+		origin.Name, origin.EndpointArn, origin.HTTPPort, origin.HTTPSPort, origin.OriginProtocolPolicy)
 }
 
 // vpcOriginRequestFields is shared by Create and Update, whose real request
@@ -30,9 +39,29 @@ func vpcOriginResponseXML(origin *VpcOrigin) string {
 // serializers.go). A prior single struct fixed the root to
 // "VpcOriginRequest", which matched neither real root name, so
 // xml.Unmarshal silently failed on every field for any real client.
+//
+// Arn, HTTPPort, HTTPSPort, and OriginProtocolPolicy are also required members
+// of VpcOriginEndpointConfig (types.go:6987-7018) that a prior version of this
+// struct dropped entirely, so Arn -- the ARN of the VPC endpoint or ALB the
+// origin actually routes to -- was silently discarded on every real request.
 type vpcOriginRequestFields struct {
-	Name string  `xml:"VpcOriginEndpointConfig>Name"`
-	Tags tagsXML `xml:"Tags"`
+	Name                 string  `xml:"VpcOriginEndpointConfig>Name"`
+	Arn                  string  `xml:"VpcOriginEndpointConfig>Arn"`
+	OriginProtocolPolicy string  `xml:"VpcOriginEndpointConfig>OriginProtocolPolicy"`
+	Tags                 tagsXML `xml:"Tags"`
+	HTTPPort             int32   `xml:"VpcOriginEndpointConfig>HTTPPort"`
+	HTTPSPort            int32   `xml:"VpcOriginEndpointConfig>HTTPSPort"`
+}
+
+// endpointConfig converts the parsed request fields into a VpcOriginEndpointConfig.
+func (f vpcOriginRequestFields) endpointConfig() VpcOriginEndpointConfig {
+	return VpcOriginEndpointConfig{
+		Name:                 f.Name,
+		Arn:                  f.Arn,
+		OriginProtocolPolicy: f.OriginProtocolPolicy,
+		HTTPPort:             f.HTTPPort,
+		HTTPSPort:            f.HTTPSPort,
+	}
 }
 
 type createVpcOriginRequestXML struct {
@@ -64,7 +93,7 @@ func (h *Handler) handleCreateVpcOrigin(c *echo.Context) error {
 		req.Name = generateID()
 	}
 
-	origin, createErr := h.Backend.CreateVpcOrigin(req.Name, tagsXMLToMap(req.Tags))
+	origin, createErr := h.Backend.CreateVpcOrigin(req.endpointConfig(), tagsXMLToMap(req.Tags))
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -141,12 +170,24 @@ func (h *Handler) handleUpdateVpcOrigin(c *echo.Context, id string) error {
 		return h.handleError(c, getErr)
 	}
 
-	name := req.Name
-	if name == "" {
-		name = current.Name
+	cfg := req.endpointConfig()
+	if cfg.Name == "" {
+		cfg.Name = current.Name
+	}
+	if cfg.Arn == "" {
+		cfg.Arn = current.EndpointArn
+	}
+	if cfg.OriginProtocolPolicy == "" {
+		cfg.OriginProtocolPolicy = current.OriginProtocolPolicy
+	}
+	if cfg.HTTPPort == 0 {
+		cfg.HTTPPort = current.HTTPPort
+	}
+	if cfg.HTTPSPort == 0 {
+		cfg.HTTPSPort = current.HTTPSPort
 	}
 
-	origin, updateErr := h.Backend.UpdateVpcOrigin(id, name)
+	origin, updateErr := h.Backend.UpdateVpcOrigin(id, cfg)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}

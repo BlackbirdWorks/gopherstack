@@ -15,21 +15,43 @@ func (b *InMemoryBackend) vpcOriginARN(id string) string {
 	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("vpc-origin/%s", id))
 }
 
+// validateVpcOriginEndpointConfig checks the required members of VpcOriginEndpointConfig.
+func validateVpcOriginEndpointConfig(cfg VpcOriginEndpointConfig) error {
+	switch {
+	case cfg.Name == "":
+		return fmt.Errorf("%w: VpcOriginEndpointConfig.Name must not be empty", ErrValidation)
+	case cfg.Arn == "":
+		return fmt.Errorf("%w: VpcOriginEndpointConfig.Arn must not be empty", ErrValidation)
+	case cfg.OriginProtocolPolicy == "":
+		return fmt.Errorf("%w: VpcOriginEndpointConfig.OriginProtocolPolicy must not be empty", ErrValidation)
+	case cfg.HTTPPort <= 0:
+		return fmt.Errorf("%w: VpcOriginEndpointConfig.HTTPPort must be a positive port", ErrValidation)
+	case cfg.HTTPSPort <= 0:
+		return fmt.Errorf("%w: VpcOriginEndpointConfig.HTTPSPort must be a positive port", ErrValidation)
+	}
+
+	return nil
+}
+
 // CreateVpcOrigin creates a new CloudFront VPC Origin.
-func (b *InMemoryBackend) CreateVpcOrigin(name string, tags map[string]string) (*VpcOrigin, error) {
+func (b *InMemoryBackend) CreateVpcOrigin(cfg VpcOriginEndpointConfig, tags map[string]string) (*VpcOrigin, error) {
+	if err := validateVpcOriginEndpointConfig(cfg); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateVpcOrigin")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
-	}
-
 	id := generateID()
 	origin := &VpcOrigin{
-		ID:   id,
-		ARN:  b.vpcOriginARN(id),
-		Name: name,
-		ETag: uuid.NewString(),
+		ID:                   id,
+		ARN:                  b.vpcOriginARN(id),
+		Name:                 cfg.Name,
+		ETag:                 uuid.NewString(),
+		EndpointArn:          cfg.Arn,
+		OriginProtocolPolicy: cfg.OriginProtocolPolicy,
+		HTTPPort:             cfg.HTTPPort,
+		HTTPSPort:            cfg.HTTPSPort,
 	}
 	if len(tags) > 0 {
 		origin.Tags = maps.Clone(tags)
@@ -72,7 +94,11 @@ func (b *InMemoryBackend) ListVpcOrigins() []*VpcOrigin {
 }
 
 // UpdateVpcOrigin updates a VPC Origin.
-func (b *InMemoryBackend) UpdateVpcOrigin(id, name string) (*VpcOrigin, error) {
+func (b *InMemoryBackend) UpdateVpcOrigin(id string, cfg VpcOriginEndpointConfig) (*VpcOrigin, error) {
+	if err := validateVpcOriginEndpointConfig(cfg); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateVpcOrigin")
 	defer b.mu.Unlock()
 
@@ -81,7 +107,11 @@ func (b *InMemoryBackend) UpdateVpcOrigin(id, name string) (*VpcOrigin, error) {
 		return nil, fmt.Errorf("%w: vpc origin %s not found", ErrVpcOriginNotFound, id)
 	}
 
-	origin.Name = name
+	origin.Name = cfg.Name
+	origin.EndpointArn = cfg.Arn
+	origin.OriginProtocolPolicy = cfg.OriginProtocolPolicy
+	origin.HTTPPort = cfg.HTTPPort
+	origin.HTTPSPort = cfg.HTTPSPort
 	origin.ETag = uuid.NewString()
 	cp := *origin
 

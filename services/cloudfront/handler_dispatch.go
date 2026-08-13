@@ -304,11 +304,11 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 
 	switch operation {
 	case opGetRealtimeLogConfig:
-		return h.handleGetRealtimeLogConfig(c, resource)
+		return h.handleGetRealtimeLogConfig(c)
 	case opUpdateRealtimeLogConfig:
-		return h.handleUpdateRealtimeLogConfig(c, resource)
+		return h.handleUpdateRealtimeLogConfig(c)
 	case opDeleteRealtimeLogConfig:
-		return h.handleDeleteRealtimeLogConfig(c, resource)
+		return h.handleDeleteRealtimeLogConfig(c)
 	case opGetVpcOrigin:
 		return h.handleGetVpcOrigin(c, resource)
 	case opUpdateVpcOrigin:
@@ -795,7 +795,7 @@ func notFoundCodeExtended(err error) (string, bool) {
 	case errors.Is(err, ErrTrustStoreNotFound):
 		return "NoSuchTrustStore", true
 	case errors.Is(err, ErrResourcePolicyNotFound):
-		return "NoSuchResourcePolicy", true
+		return "EntityNotFound", true
 	case errors.Is(err, ErrMonitoringSubscriptionNotFound):
 		return "NoSuchMonitoringSubscription", true
 	}

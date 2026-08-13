@@ -24,13 +24,29 @@ func (b *InMemoryBackend) realtimeLogConfigARN(name string) string {
 	return arn.Build("cloudfront", "", b.accountID, fmt.Sprintf("realtime-log-config/%s", name))
 }
 
+// validateRealtimeLogEndPoints checks EndPoints, a required member of
+// CreateRealtimeLogConfigInput (api_op_CreateRealtimeLogConfig.go:37-43): the
+// Kinesis destination real-time logs are delivered to.
+func validateRealtimeLogEndPoints(endPoints []RealtimeLogEndPoint) error {
+	if len(endPoints) == 0 {
+		return fmt.Errorf("%w: EndPoints must not be empty", ErrValidation)
+	}
+
+	return nil
+}
+
 // CreateRealtimeLogConfig creates a new Realtime Log Config.
 func (b *InMemoryBackend) CreateRealtimeLogConfig(
 	name string,
 	samplingRate int64,
 	fields []string,
+	endPoints []RealtimeLogEndPoint,
 ) (*RealtimeLogConfig, error) {
 	if err := validateSamplingRate(samplingRate); err != nil {
+		return nil, err
+	}
+
+	if err := validateRealtimeLogEndPoints(endPoints); err != nil {
 		return nil, err
 	}
 
@@ -55,6 +71,7 @@ func (b *InMemoryBackend) CreateRealtimeLogConfig(
 		Name:         name,
 		SamplingRate: samplingRate,
 		Fields:       append([]string(nil), fields...),
+		EndPoints:    append([]RealtimeLogEndPoint(nil), endPoints...),
 	}
 	b.realtimeLogConfigs.Put(cfg)
 	b.realtimeLogConfigByName[name] = arn
@@ -118,8 +135,13 @@ func (b *InMemoryBackend) UpdateRealtimeLogConfig(
 	arn string,
 	samplingRate int64,
 	fields []string,
+	endPoints []RealtimeLogEndPoint,
 ) (*RealtimeLogConfig, error) {
 	if err := validateSamplingRate(samplingRate); err != nil {
+		return nil, err
+	}
+
+	if err := validateRealtimeLogEndPoints(endPoints); err != nil {
 		return nil, err
 	}
 
@@ -137,6 +159,7 @@ func (b *InMemoryBackend) UpdateRealtimeLogConfig(
 
 	cfg.SamplingRate = samplingRate
 	cfg.Fields = append([]string(nil), fields...)
+	cfg.EndPoints = append([]RealtimeLogEndPoint(nil), endPoints...)
 
 	return b.copyRealtimeLogConfig(cfg), nil
 }
@@ -160,6 +183,7 @@ func (b *InMemoryBackend) DeleteRealtimeLogConfig(arn string) error {
 func (b *InMemoryBackend) copyRealtimeLogConfig(cfg *RealtimeLogConfig) *RealtimeLogConfig {
 	cp := *cfg
 	cp.Fields = append([]string(nil), cfg.Fields...)
+	cp.EndPoints = append([]RealtimeLogEndPoint(nil), cfg.EndPoints...)
 
 	return &cp
 }

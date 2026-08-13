@@ -134,6 +134,12 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 		})
 		require.NoError(t, err)
 		requireTags(t, client, out.VpcOrigin.Arn)
+		require.NotNil(t, out.VpcOrigin.VpcOriginEndpointConfig)
+		assert.Equal(t,
+			"arn:aws:ec2:us-east-1:123456789012:vpc-endpoint/vpce-0123456789abcdef0",
+			aws.ToString(out.VpcOrigin.VpcOriginEndpointConfig.Arn),
+			"VpcOriginEndpointConfig.Arn -- the VPC endpoint/ALB this origin routes to -- must round-trip",
+		)
 	})
 
 	t.Run("createtruststore", func(t *testing.T) {

@@ -225,8 +225,14 @@ const (
 	opUpdateCloudFrontOAI = "UpdateCloudFrontOriginAccessIdentity"
 
 	// Path segment constants used in parseCFPath.
-	sfxDistribution   = "distribution"
-	sfxResourcePolicy = "resource-policy"
+	sfxDistribution = "distribution"
+
+	// Resource-policy ops are POST-only RPC-style calls to distinct paths
+	// (api_op_{Get,Put,Delete}ResourcePolicy.go), not REST verbs on a shared
+	// "resource-policy" resource.
+	sfxGetResourcePolicy    = "get-resource-policy"
+	sfxPutResourcePolicy    = "put-resource-policy"
+	sfxDeleteResourcePolicy = "delete-resource-policy"
 
 	// resourceParamWithTags is the Resource query-param value marking the *WithTags create variant.
 	resourceParamWithTags = "WithTags"
