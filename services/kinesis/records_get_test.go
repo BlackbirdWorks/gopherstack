@@ -632,8 +632,8 @@ func TestGetRecords_10MBCap_SingleLargeRecordAllowed(t *testing.T) {
 
 	// Increase the record size limit to 10 MiB first.
 	require.NoError(t, b.UpdateMaxRecordSize(context.Background(), &kinesis.UpdateMaxRecordSizeInput{
-		StreamName:         "single-big-record",
-		MaxRecordSizeBytes: 10_485_760,
+		StreamARN:          mustStreamARN(t, b, "single-big-record"),
+		MaxRecordSizeInKiB: 10_485_760 / 1024,
 	}))
 
 	tenMiB := make([]byte, 10_485_760)
@@ -683,8 +683,8 @@ func TestGetRecords_10MBCap_IteratorAdvancesCorrectly(t *testing.T) {
 
 	// Use UpdateMaxRecordSize to allow 6 MiB records (> default 1 MiB limit).
 	require.NoError(t, b.UpdateMaxRecordSize(context.Background(), &kinesis.UpdateMaxRecordSizeInput{
-		StreamName:         "cap-advance-stream",
-		MaxRecordSizeBytes: 10_485_760,
+		StreamARN:          mustStreamARN(t, b, "cap-advance-stream"),
+		MaxRecordSizeInKiB: 10_485_760 / 1024,
 	}))
 
 	// 4 MiB records × 3 = 12 MiB total: first call gets 2 (8MB), second call gets 1.
@@ -852,8 +852,8 @@ func TestGetRecords_10MBCap_ExactlyAtLimit(t *testing.T) {
 	}))
 
 	require.NoError(t, b.UpdateMaxRecordSize(context.Background(), &kinesis.UpdateMaxRecordSizeInput{
-		StreamName:         "exact-cap-stream",
-		MaxRecordSizeBytes: 10_485_760,
+		StreamARN:          mustStreamARN(t, b, "exact-cap-stream"),
+		MaxRecordSizeInKiB: 10_485_760 / 1024,
 	}))
 
 	// Two 5 MiB records = exactly 10 MiB; both should fit in one response.
@@ -964,8 +964,8 @@ func TestGetRecords_10MBCap_RecordsBeforeCapNotDropped(t *testing.T) {
 	}))
 
 	require.NoError(t, b.UpdateMaxRecordSize(context.Background(), &kinesis.UpdateMaxRecordSizeInput{
-		StreamName:         "precap-records",
-		MaxRecordSizeBytes: 10_485_760,
+		StreamARN:          mustStreamARN(t, b, "precap-records"),
+		MaxRecordSizeInKiB: 10_485_760 / 1024,
 	}))
 
 	// Put 3 small + 1 huge record (order matters for iteration).

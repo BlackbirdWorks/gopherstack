@@ -54,11 +54,16 @@ type StorageBackend interface {
 	TagResource(ctx context.Context, input *TagResourceInput) error
 	UntagResource(ctx context.Context, input *UntagResourceInput) error
 	UpdateStreamMode(ctx context.Context, input *UpdateStreamModeInput) error
-	UpdateAccountSettings(ctx context.Context, input *UpdateAccountSettingsInput) error
+	UpdateAccountSettings(ctx context.Context, input *UpdateAccountSettingsInput) (*UpdateAccountSettingsOutput, error)
 	UpdateMaxRecordSize(ctx context.Context, input *UpdateMaxRecordSizeInput) error
-	UpdateStreamWarmThroughput(ctx context.Context, input *UpdateStreamWarmThroughputInput) error
+	UpdateStreamWarmThroughput(
+		ctx context.Context,
+		input *UpdateStreamWarmThroughputInput,
+	) (*UpdateStreamWarmThroughputOutput, error)
 	DescribeAccountSettings(ctx context.Context) (*DescribeAccountSettingsOutput, error)
 	CountOpenShards(ctx context.Context) int
+	CountOnDemandStreams(ctx context.Context) int
+	OnDemandStreamCountLimit(ctx context.Context) int
 	ListAll(ctx context.Context) []StreamInfo
 }
 

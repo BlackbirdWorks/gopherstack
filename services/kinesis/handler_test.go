@@ -54,6 +54,19 @@ func doRequest(t *testing.T, h *kinesis.Handler, action string, body any) *httpt
 	return rec
 }
 
+// mustStreamARN resolves a stream's ARN via DescribeStream, for tests driving
+// backend inputs that identify a stream by ARN only (e.g.
+// UpdateMaxRecordSizeInput, whose real wire shape has no StreamName member --
+// kinesis@v1.46.4 api_op_UpdateMaxRecordSize.go:30-47).
+func mustStreamARN(t *testing.T, b *kinesis.InMemoryBackend, name string) string {
+	t.Helper()
+
+	desc, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: name})
+	require.NoError(t, err)
+
+	return desc.StreamARN
+}
+
 func newParityBackend(t *testing.T) *kinesis.InMemoryBackend {
 	t.Helper()
 

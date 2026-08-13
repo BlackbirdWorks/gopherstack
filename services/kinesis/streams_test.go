@@ -649,9 +649,7 @@ func TestCreateStream_OnDemandLimitEnforced(t *testing.T) {
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
 	// Set a tight limit of 2 ON_DEMAND streams.
-	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
-		OnDemandStreamCountLimit: 2,
-	}))
+	b.SetOnDemandStreamCountLimit(2)
 
 	// Create 2 ON_DEMAND streams (should succeed).
 	for i := range 2 {
@@ -677,9 +675,7 @@ func TestCreateStream_OnDemandLimit_ViaHandler(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
-		OnDemandStreamCountLimit: 1,
-	}))
+	b.SetOnDemandStreamCountLimit(1)
 
 	rec := doRequest(t, h, "CreateStream", map[string]any{
 		"StreamName":        "od-handler-1",
@@ -708,9 +704,7 @@ func TestCreateStream_ProvisionedNotAffectedByOnDemandLimit(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
-		OnDemandStreamCountLimit: 1,
-	}))
+	b.SetOnDemandStreamCountLimit(1)
 
 	// Fill the ON_DEMAND quota.
 	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
@@ -734,9 +728,7 @@ func TestCreateStream_OnDemandLimit_DeleteFreesSlot(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
-		OnDemandStreamCountLimit: 1,
-	}))
+	b.SetOnDemandStreamCountLimit(1)
 
 	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
 		StreamName: "od-del-stream",
@@ -768,9 +760,7 @@ func TestCreateStream_OnDemandLimit_AtBoundary(t *testing.T) {
 	h := newTestHandler(t)
 	b := h.Backend.(*kinesis.InMemoryBackend)
 
-	require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
-		OnDemandStreamCountLimit: 3,
-	}))
+	b.SetOnDemandStreamCountLimit(3)
 
 	for i := range 3 {
 		require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{

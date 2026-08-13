@@ -1,9 +1,9 @@
 ---
 service: kinesis
 sdk_module: aws-sdk-go-v2/service/kinesis@v1.46.4
-last_audit_commit: 2b2086c9
-last_audit_date: 2026-07-23
-overall: A            # this pass: closed 4 of the 5 open gaps for real (KMS KeyId validation, UpdateStreamMode auto-reshard, AT_TIMESTAMP required-Timestamp, ListShards true timestamp/AT_TRIM_HORIZON/AFTER_SHARD_ID filtering); deleted an invented "AT_SHARD_ID" ShardFilterType that doesn't exist in the real SDK; corrected a stale "Lambda ESM deferred" note (it's already wired in cli.go). Only remaining gap is KMSAccessDeniedException, honestly undeliverable without an IAM policy engine.
+last_audit_commit: 151c8d34f
+last_audit_date: 2026-08-13
+overall: A            # this pass (gopherstack-nbg8): the 2026-07-23 audit's "wire: ok" claim was false for DescribeAccountSettings/UpdateAccountSettings/UpdateMaxRecordSize/UpdateStreamWarmThroughput -- all four decoded wholly fabricated request/response shapes with no basis in the real SDK. Rebuilt all four around their real Input/Output shapes (MinimumThroughputBillingCommitmentInput/Output; MaxRecordSizeInKiB, not Bytes; WarmThroughputMiBps + the previously-unmodeled WarmThroughput Output object). Also found and fixed, while reading the whole operation rather than just the flagged field: DescribeLimits was silently dropping two of its four *required* output members (OnDemandStreamCount/OnDemandStreamCountLimit) -- also marked "wire: ok" -- and UpdateMaxRecordSize's Input had a StreamName field with no basis in the real shape (only StreamARN exists). This is the second and third time this service's manifest has positively claimed verification that was false (see gopherstack-3jqz for the first). Only remaining gap is KMSAccessDeniedException, honestly undeliverable without an IAM policy engine.
 ops:
   IncreaseStreamRetentionPeriod: {wire: ok, errors: ok, state: ok, persist: ok, note: "reverted 2b2086c9: that commit made equal-to-current RetentionPeriodHours return InvalidArgumentException (a strict reading of the aws-sdk-go-v2 doc comment 'Must be more than the current retention period'), which broke TestTerraform_Kinesis in CI -- terraform's aws_kinesis_stream resource issues IncreaseStreamRetentionPeriod even when the requested value already equals the stream's current retention (confirmed live: CreateStream -> 24h default -> Increase(48) OK -> a second Increase(48) against the already-48h stream 400'd with InvalidArgumentException before this fix). Real AWS tolerates the equal case rather than erroring on every no-drift re-apply, so restored equal-value == no-op success. Strictly-lower and out-of-[24,8760] values are still rejected."}
   DecreaseStreamRetentionPeriod: {wire: ok, errors: ok, state: ok, persist: ok, note: "reverted 2b2086c9, mirrored: equal-to-current RetentionPeriodHours is a no-op success again (not InvalidArgumentException), matching real AWS/terraform tolerance. Strictly-greater and below-24h-min values are still rejected."}
@@ -25,11 +25,11 @@ ops:
   UpdateShardCount: {wire: ok, errors: ok, state: ok, persist: ok, note: "double/half scaling window, parent/adjacent-parent lineage, old shards kept CLOSED verified"}
   EnableEnhancedMonitoring: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableEnhancedMonitoring: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeLimits: {wire: ok, errors: ok, state: ok, persist: n/a}
-  DescribeAccountSettings: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: OnDemandStreamCountLimit set via UpdateAccountSettings was never in backendSnapshot, silently reset to default on every restart"}
-  UpdateAccountSettings: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateMaxRecordSize: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateStreamWarmThroughput: {wire: ok, errors: ok, state: ok, persist: n/a, note: "intentional no-op (no throughput model to warm); existence-checked"}
+  DescribeLimits: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-nbg8: OnDemandStreamCount/OnDemandStreamCountLimit are both required output members (api_op_DescribeLimits.go:34-51, alongside ShardLimit/OpenShardCount) that were silently dropped -- a real client decoded zero values for both regardless of backend state. Wired to new CountOnDemandStreams (region-scoped, mirrors CountOpenShards) and OnDemandStreamCountLimit (the account-level ON_DEMAND cap CreateStream already enforced -- previously only reachable, incorrectly, through UpdateAccountSettings' fabricated shape below)."}
+  DescribeAccountSettings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-nbg8: the prior wire: ok claim was false. The real Output has exactly one member, MinimumThroughputBillingCommitment (api_op_DescribeAccountSettings.go:34-45); ShardLimit/OnDemandStreamCount/OnDemandStreamCountLimit were never real members of this op -- they belong to DescribeLimits (see above), suggesting the original audit confused the two sibling ops. Rebuilt around the real MinimumThroughputBillingCommitmentOutput shape (Status/StartedAt/EndedAt/EarliestAllowedEndAt, all epoch-seconds timestamps via pkgs/awstime.Epoch). This backend has no billing engine: no billing behaviour follows from an ENABLED commitment, and EarliestAllowedEndAt is never populated (it needs a commitment-window model this backend doesn't have -- see gaps). Status/StartedAt/EndedAt now persist across snapshot/restore."}
+  UpdateAccountSettings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-nbg8: the prior wire: ok claim was false. The real Input has exactly one, required, member, MinimumThroughputBillingCommitment (api_op_UpdateAccountSettings.go:42-51); ShardLimit/OnDemandStreamCount/OnDemandStreamCountLimit were fabricated with no basis in the real shape, so every real client's request was silently ignored. Now decodes and validates the real Status enum (ENABLED/DISABLED -> InvalidArgumentException otherwise), stores it as account-level state, and returns the real Output shape. The on-demand-stream cap this field used to (mis)configure is real internal state (CreateStream's checkOnDemandLimit via b.onDemandStreamCountLimit) -- real AWS manages it as a Service Quota, not via this op, so it moved to a Go-level-only SetOnDemandStreamCountLimit config knob (no wire equivalent, mirroring WithKMSValidator's cross-service config pattern) rather than being deleted."}
+  UpdateMaxRecordSize: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-nbg8: the prior wire: ok claim was false. Decoded a JSON key MaxRecordSizeBytes; the real (and only) required field is MaxRecordSizeInKiB (api_op_UpdateMaxRecordSize.go:30-47), and the unit is KiB, not bytes -- a real request left the value at zero, which the existing bounds check then always rejected with InvalidArgumentException (every real call 400'd). Also found while reading the whole operation, not just the flagged field: the real Input has no StreamName member at all -- only StreamARN, plus StreamId (reserved for future use, not modeled) -- but gopherstack was additionally decoding and consuming a fabricated StreamName field. Now resolves the stream from StreamARN only and converts the requested KiB value to bytes via bytesPerKiB before applying it to Stream.MaxRecordSizeBytes."}
+  UpdateStreamWarmThroughput: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-nbg8: the prior wire: ok claim was false, and 'intentional no-op' was not: the op decoded fabricated WriteCapacityUnits/ReadCapacityUnits fields with no basis in the real shape, so every real client's request silently no-op'd. The real required field is WarmThroughputMiBps (api_op_UpdateStreamWarmThroughput.go:63-70). Also unmodeled: the real Output (StreamARN/StreamName/WarmThroughput{CurrentMiBps,TargetMiBps}, api_op_UpdateStreamWarmThroughput.go:76-88) -- the handler returned an empty struct{}. Now decodes/validates WarmThroughputMiBps (bounds-checked against AWS's documented 10 GiBps default cap, maxWarmThroughputMiBps), stores it on Stream.WarmThroughputMiBps, and returns the real Output shape. Applied synchronously since this backend has no UPDATING transient-state model (unlike real AWS, which returns the stream to ACTIVE asynchronously) -- Current/Target always match on read; see gaps."}
   MergeShards: {wire: ok, errors: ok, state: ok, persist: ok, note: "adjacency check (either shard may be passed first), closed-parent lineage verified"}
   SplitShard: {wire: ok, errors: ok, state: ok, persist: ok, note: "NewStartingHashKey must be strictly inside parent range, verified"}
   StartStreamEncryption: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: KeyId is now required and format-validated (UUID/key ARN/alias ARN/alias name, matching the four shapes the SDK doc comment enumerates) -- InvalidArgumentException if malformed; optional KMSKeyValidator (WithKMSValidator, wired to the real kms backend by cli.go's wireKinesisKMS) additionally verifies the key exists and is usable, returning KMSNotFoundException/KMSDisabledException/KMSInvalidStateException -- all three are real types.KMSNotFoundException-class exceptions confirmed present in the SDK's StartStreamEncryption error set (deserializers.go), contradicting the previous audit's claim that no KMS-specific exception exists for this op. With no validator wired, only the format check applies (a well-formed but nonexistent KeyId is accepted, same permissive behavior as before)."}
@@ -55,12 +55,108 @@ gaps:
   - "AT_TRIM_HORIZON's trim-horizon instant is computed from the stream's RetentionPeriod but clamped to never predate the stream's own oldest tracked shard StartedAt (see trimHorizon in shards.go), so it degrades gracefully for young streams instead of AWS's true 'oldest data still available' semantics that would require tracking exactly when each record was trimmed, not just when its shard opened/closed. Close enough for shard-lineage filtering (the documented ShardFilter use case); would diverge from AWS in a scenario with partial mid-shard trimming, which this emulator's record ring-buffer model doesn't represent per-shard trim timestamps for."
   - "CORRECTED this pass: the previous gap entry claiming resource policies (PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy) are lost across a persistence restart was stale/incorrect. persistence.go's backendSnapshot already has a ResourcePolicies field wired into both Snapshot (line ~60) and Restore (line ~119), and TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip already exercises PutResourcePolicy through an actual snapshot/restore cycle and passes. No code change needed; this was a documentation-only correction (carried forward unchanged from the prior ledger)."
   - "CORRECTED this pass: the deferred entry below claiming Lambda event-source-mapping trigger wiring 'lives in cli.go per task constraints; not touched' was stale -- cli.go's wireKinesisLambda (called at cli.go:2657) already wires services/kinesis to services/lambda's event-source poller via kinesisReaderAdapter, and this has been true since before this pass. Moved out of deferred; documentation-only correction, no code changed for this item."
+  - "AccessDeniedException is declared in UpdateMaxRecordSize's and UpdateStreamWarmThroughput's error switches (deserializers.go's awsAwsjson11_deserializeOpErrorUpdateMaxRecordSize / ...UpdateStreamWarmThroughput both list it) but has no trigger path, for the same reason as KMSAccessDeniedException above: no IAM policy evaluation engine anywhere in gopherstack to produce an access-denied decision from. Not fabricated a fake rule for it; stays an honest gap. (gopherstack-nbg8)"
+  - "ResourceInUseException is declared for both UpdateMaxRecordSize and UpdateStreamWarmThroughput (real AWS returns it when the target stream isn't ACTIVE, e.g. mid-UPDATING from a concurrent operation) but is unreachable here: every stream in this backend is ACTIVE immediately on creation and stays so (no transient CREATING/UPDATING/DELETING window is modeled anywhere in kinesis, not just for these two ops), so there is never a state where the check could fire honestly. (gopherstack-nbg8)"
+  - "UpdateStreamWarmThroughput applies the requested WarmThroughputMiBps synchronously; real AWS documents this as asynchronous (stream goes UPDATING, then back to ACTIVE, 'could take a few minutes to complete' for a large stream). This backend has no transient-state model for any stream-level operation (see the ResourceInUseException gap above), so WarmThroughputObject.CurrentMiBps and TargetMiBps always match immediately on read instead of Current lagging Target during a scale-up window. (gopherstack-nbg8)"
 deferred:
   - "Enhanced fan-out SubscribeToShard real streaming cadence / HTTP2 push semantics beyond the polling emulation already in place"
 leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Close()'d on DeleteStream/Purge; SubscribeToShard polling goroutine bounded by subscribeToShardMaxIdlePolls (3) and a 5-minute deadline, exits on ctx.Done(); FIS throughput-fault goroutines bound to experiment ctx or scheduled cleanup, lazily evict on read; janitor retention sweep is a single ticker goroutine stopped via context cancellation, no per-stream goroutines; this pass's reshardTo/closeShard/KMSKeyValidator additions introduce no goroutines, tickers, or new lock-acquisition orderings -- KMS validation is a synchronous in-process call into the kms package's own locked backend while kinesis holds stream.mu, safe because kms never calls back into kinesis"}
 ---
 
 ## Notes
+
+### Account-settings and throughput ops decoded wholly fabricated shapes (this pass: gopherstack-nbg8)
+
+The 2026-07-23 audit claimed `wire: ok` for `DescribeAccountSettings`, `UpdateAccountSettings`,
+`UpdateMaxRecordSize`, and `UpdateStreamWarmThroughput`. All four were false, verified against the
+pinned `aws-sdk-go-v2/service/kinesis@v1.46.4` (resolved from `go.mod`, read only from that path under
+`$(go env GOMODCACHE)`; kinesis confirmed JSON-RPC 1.1, `awsAwsjson11_*` serializer prefix).
+
+**`UpdateAccountSettings` / `DescribeAccountSettings`.** The real `UpdateAccountSettingsInput`
+(`api_op_UpdateAccountSettings.go:42-51`) has exactly one member, `MinimumThroughputBillingCommitment
+*types.MinimumThroughputBillingCommitmentInput` (required), whose own only member is `Status`
+(`ENABLED`/`DISABLED`, `types/types.go:168-176`). `DescribeAccountSettingsInput` has *no* members at
+all, and `DescribeAccountSettingsOutput`/`UpdateAccountSettingsOutput` both echo a single
+`MinimumThroughputBillingCommitment *types.MinimumThroughputBillingCommitmentOutput`
+(`types/types.go:178-197`: `Status` required, plus optional `StartedAt`/`EndedAt`/`EarliestAllowedEndAt`
+timestamps). gopherstack instead modeled `ShardLimit`/`OnDemandStreamCount`/`OnDemandStreamCountLimit` --
+none of which are real members of *either* op. `ShardLimit`/`OnDemandStreamCount`/
+`OnDemandStreamCountLimit` are real, but they belong to the sibling op `DescribeLimits`
+(`api_op_DescribeLimits.go:34-51`, all four members required) -- the original audit appears to have
+conflated the two.
+
+Rebuilt around the real shape: `MinimumThroughputBillingCommitmentInput`/`Output` (Go-level, mirroring
+the SDK types), decoded/encoded via `Status` and epoch-seconds timestamps
+(`pkgs/awstime.Epoch`, confirmed against `deserializers.go:6758-6790` -- this protocol's Timestamp shape
+is `unixTimestamp`, a JSON number, not RFC3339). `UpdateAccountSettings` validates `Status` against the
+two real input values (`InvalidArgumentException` otherwise, matching the op's declared error switch:
+`InvalidArgumentException`/`LimitExceededException`/`ValidationException`), stamps `StartedAt` on a
+`DISABLED -> ENABLED` transition and `EndedAt` on `ENABLED -> DISABLED`, and persists across
+snapshot/restore. Per the task's fixing rule for a real-but-unbacked billing concept: this backend has no
+billing engine, so **no billing behaviour follows from `ENABLED`** -- it is state that is stored and
+echoed, nothing more. `EarliestAllowedEndAt` and the output-only `ENABLED_UNTIL_EARLIEST_ALLOWED_END`
+status are never produced, since computing them needs a commitment-window model this backend doesn't
+have (see `gaps`).
+
+`OnDemandStreamCountLimit` was real internal state (`CreateStream`'s `checkOnDemandLimit`, backing the
+actual per-account ON_DEMAND-stream cap), just reachable through the wrong op. There is no real AWS wire
+operation that lets a caller change it (AWS manages it as a Service Quota); it is now set via a
+Go-level-only `InMemoryBackend.SetOnDemandStreamCountLimit`, mirroring `WithKMSValidator`'s
+cross-service-config-outside-the-wire-protocol pattern, rather than deleted outright or left reachable
+through a fabricated field.
+
+**`UpdateMaxRecordSize`.** Decoded a JSON key `MaxRecordSizeBytes`; the real (and only required) field is
+`MaxRecordSizeInKiB` (`api_op_UpdateMaxRecordSize.go:30-47`), and the unit differs too -- KiB, not bytes
+-- so this was not a simple rename. A real client's request left the decoded value at its Go zero (0),
+which the backend's own bounds check (`< defaultMaxRecordSizeBytes || > absoluteMaxRecordSizeBytes`) then
+always rejected with `InvalidArgumentException`: **the op 400'd on every real call**, reproduced and
+confirmed via a hand-revert of the fix. Reading the whole operation (not just the flagged field) surfaced
+a second, independent fabrication: the real Input has **no `StreamName` member at all** -- only
+`StreamARN` and `StreamId` (the latter explicitly "Not Implemented. Reserved for future use" per the
+SDK's own doc comment) -- yet gopherstack was decoding and consuming a `StreamName` field with no basis
+in the real shape. Fixed by converting the requested KiB value to bytes (`bytesPerKiB`) before applying
+it to `Stream.MaxRecordSizeBytes` (kept as the internal representation; only the wire unit changed), and
+by resolving the target stream from `StreamARN` alone.
+
+**`UpdateStreamWarmThroughput`.** Decoded fabricated `WriteCapacityUnits`/`ReadCapacityUnits`; the real
+required field is `WarmThroughputMiBps` (`api_op_UpdateStreamWarmThroughput.go:63-70`), so a real client's
+request **silently no-op'd** -- reproduced and confirmed via hand-revert. The real Output
+(`StreamARN`/`StreamName`/`WarmThroughput *types.WarmThroughputObject{CurrentMiBps,TargetMiBps}`,
+`api_op_UpdateStreamWarmThroughput.go:76-88`) was entirely unmodeled: the handler returned an empty
+`struct{}{}`. Fixed: `WarmThroughputMiBps` is decoded, bounds-checked against AWS's documented default cap
+("you cannot scale to more than 10 GiBps for an on-demand stream", `maxWarmThroughputMiBps`), stored on
+`Stream.WarmThroughputMiBps`, and echoed in the real Output shape (`StreamARN`/`StreamName` resolved from
+the target stream, `WarmThroughput.CurrentMiBps`/`TargetMiBps` both set to the requested value). Applied
+synchronously, since this backend has no `UPDATING` transient-state model for any stream-level op (real
+AWS applies this asynchronously); see `gaps`.
+
+**`DescribeLimits`** (also flagged `wire: ok`, not itself in the reported bug but immediately adjacent):
+its real Output (`api_op_DescribeLimits.go:34-51`) has **four required members**
+(`ShardLimit`/`OpenShardCount`/`OnDemandStreamCount`/`OnDemandStreamCountLimit`); gopherstack modeled only
+the first two, so a real client decoded `0` for `OnDemandStreamCount`/`OnDemandStreamCountLimit`
+regardless of actual backend state -- the exact "required-member drop" bug class this campaign is
+hunting, found only because fixing the account-settings ops required tracing where the real
+`OnDemandStreamCount`/`OnDemandStreamCountLimit` concept actually belongs. Fixed by adding
+`InMemoryBackend.CountOnDemandStreams` (region-scoped, mirrors the existing `CountOpenShards` convention)
+and `InMemoryBackend.OnDemandStreamCountLimit`, both wired into `handleDescribeLimits`.
+
+**Test fallout.** Two existing tests encoded the fabricated shapes and asserted only a status code, not a
+real round trip: `TestKinesis_UpdateAccountSettings` sent an unrelated `ShardLevelMetrics` field (matching
+neither the fabricated nor the real shape) and asserted 200 only; `TestKinesis_UpdateStreamWarmThroughput`
+sent `ConsumersToPut`/`WriteProvisionedUnits` (matching neither shape either) and accepted `200-299 or
+400` as passing -- a test that could not fail. Both replaced with real-`aws-sdk-go-v2`-client round trips
+(`TestUpdateAccountSettings_RoundTrip`, `TestUpdateStreamWarmThroughput_RoundTrip`) that assert on decoded
+response fields, not just status. Five more tests only used
+`UpdateAccountSettingsInput.OnDemandStreamCountLimit` as a setup mechanism for the real
+`checkOnDemandLimit` behavior in `streams_test.go`/`persistence_test.go`/`persistence_roundtrip_test.go`;
+converted to `SetOnDemandStreamCountLimit`, preserving their actual assertions unchanged. Four
+`UpdateMaxRecordSize` call sites in `records_get_test.go` used the old `MaxRecordSizeBytes` field name and
+(for one) a `StreamName` the real op doesn't accept; converted to `MaxRecordSizeInKiB` plus
+`StreamARN` resolved via a new `mustStreamARN` test helper. New round-trip tests
+(`TestUpdateAccountSettings_RoundTrip`, `TestUpdateMaxRecordSize_RoundTrip`,
+`TestUpdateStreamWarmThroughput_RoundTrip`, `TestDescribeLimits_OnDemandStreamCount_RoundTrip`) were each
+verified to fail against the pre-fix code by hand-reverting the relevant wire-field rename/addition and
+re-running just that test, then restoring the fix.
 
 ### KMS KeyId validation (this pass: closed the KMSAccessDeniedException gap for real, minus the truly undeliverable part)
 

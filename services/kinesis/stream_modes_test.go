@@ -6,23 +6,67 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
+	kinesissdktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestKinesis_UpdateStreamWarmThroughput(t *testing.T) {
+// TestUpdateStreamWarmThroughput_RoundTrip drives UpdateStreamWarmThroughput
+// through the real aws-sdk-go-v2 client. Its real required Input field is
+// WarmThroughputMiBps (kinesis@v1.46.4 api_op_UpdateStreamWarmThroughput.go:63-70);
+// gopherstack used to decode fabricated WriteCapacityUnits/ReadCapacityUnits
+// fields that don't exist on the real Input at all, so a real client's
+// request silently no-op'd (gopherstack-nbg8). Proves the fix via the real
+// Output shape too (StreamARN/StreamName/WarmThroughput.Current+TargetMiBps,
+// api_op_UpdateStreamWarmThroughput.go:76-88), which was previously not
+// modeled at all (the handler returned an empty struct{}).
+func TestUpdateStreamWarmThroughput_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamName := "warm-throughput-stream"
+
+	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		StreamModeDetails: &kinesissdktypes.StreamModeDetails{
+			StreamMode: kinesissdktypes.StreamModeOnDemand,
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+
+	out, err := client.UpdateStreamWarmThroughput(t.Context(), &kinesissdk.UpdateStreamWarmThroughputInput{
+		StreamName:          aws.String(streamName),
+		WarmThroughputMiBps: aws.Int32(500),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.WarmThroughput)
+	assert.Equal(t, int32(500), aws.ToInt32(out.WarmThroughput.CurrentMiBps))
+	assert.Equal(t, int32(500), aws.ToInt32(out.WarmThroughput.TargetMiBps))
+	assert.Equal(t, aws.ToString(desc.StreamDescription.StreamARN), aws.ToString(out.StreamARN))
+	assert.Equal(t, streamName, aws.ToString(out.StreamName))
+}
+
+// TestUpdateStreamWarmThroughput_RequiredFieldRejected verifies the required
+// WarmThroughputMiBps member is enforced server-side (a raw/non-SDK client
+// could still omit it or send an out-of-range value).
+func TestUpdateStreamWarmThroughput_RequiredFieldRejected(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createKinesisStream(t, h, "warm-stream")
+	createKinesisStream(t, h, "warm-stream-missing")
 
 	rec := doRequest(t, h, "UpdateStreamWarmThroughput", map[string]any{
-		"StreamName":            "warm-stream",
-		"ConsumersToPut":        1,
-		"WriteProvisionedUnits": 100,
+		"StreamName": "warm-stream-missing",
 	})
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestUpdateStreamMode_ProvisionedToOnDemand(t *testing.T) {

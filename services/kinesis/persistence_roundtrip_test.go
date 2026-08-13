@@ -68,10 +68,14 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 		Policy:      `{"Version":"2012-10-17"}`,
 	}))
 
-	// Account-level setting persisted alongside the streams table.
-	require.NoError(t, original.UpdateAccountSettings(ctx, &UpdateAccountSettingsInput{
-		OnDemandStreamCountLimit: 42,
-	}))
+	// Account-level settings persisted alongside the streams table.
+	original.SetOnDemandStreamCountLimit(42)
+	_, err = original.UpdateAccountSettings(ctx, &UpdateAccountSettingsInput{
+		MinimumThroughputBillingCommitment: &MinimumThroughputBillingCommitmentInput{
+			Status: minimumThroughputBillingCommitmentEnabled,
+		},
+	})
+	require.NoError(t, err)
 
 	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
@@ -139,10 +143,16 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"Version":"2012-10-17"}`, policyOut.Policy)
 
-	// Account setting persisted alongside the streams table.
+	// Account settings persisted alongside the streams table.
+	assert.Equal(t, 42, fresh.OnDemandStreamCountLimit(ctx))
+
 	settingsOut, err := fresh.DescribeAccountSettings(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 42, settingsOut.OnDemandStreamCountLimit)
+	assert.Equal(
+		t, minimumThroughputBillingCommitmentEnabled,
+		settingsOut.MinimumThroughputBillingCommitment.Status,
+	)
+	assert.False(t, settingsOut.MinimumThroughputBillingCommitment.StartedAt.IsZero())
 }
 
 // TestInMemoryBackend_Restore_IncompatibleVersion_ResetsEmpty verifies the

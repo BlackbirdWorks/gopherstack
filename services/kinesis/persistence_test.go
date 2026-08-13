@@ -73,9 +73,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 }
 
 // TestInMemoryBackend_OnDemandStreamCountLimit_SurvivesRestore verifies that
-// UpdateAccountSettings' OnDemandStreamCountLimit is part of the persisted
-// snapshot and not lost across a restart, and that a snapshot taken before
-// any UpdateAccountSettings call restores the AWS default limit.
+// the account-level ON_DEMAND stream cap (set via SetOnDemandStreamCountLimit,
+// the Go-level replacement for the fabricated UpdateAccountSettings
+// OnDemandStreamCountLimit field -- see gopherstack-nbg8) is part of the
+// persisted snapshot and not lost across a restart, and that a snapshot taken
+// before any call restores the AWS default limit.
 func TestInMemoryBackend_OnDemandStreamCountLimit_SurvivesRestore(t *testing.T) {
 	t.Parallel()
 
@@ -88,9 +90,7 @@ func TestInMemoryBackend_OnDemandStreamCountLimit_SurvivesRestore(t *testing.T) 
 			name: "custom_limit_persists",
 			configure: func(t *testing.T, b *kinesis.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
-					OnDemandStreamCountLimit: 25,
-				}))
+				b.SetOnDemandStreamCountLimit(25)
 			},
 			wantLimit: 25,
 		},
@@ -114,9 +114,7 @@ func TestInMemoryBackend_OnDemandStreamCountLimit_SurvivesRestore(t *testing.T) 
 			restored := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 			require.NoError(t, restored.Restore(t.Context(), snap))
 
-			out, err := restored.DescribeAccountSettings(context.Background())
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantLimit, out.OnDemandStreamCountLimit)
+			assert.Equal(t, tt.wantLimit, restored.OnDemandStreamCountLimit(context.Background()))
 		})
 	}
 }

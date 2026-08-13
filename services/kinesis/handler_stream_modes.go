@@ -6,11 +6,27 @@ import (
 	"net/http"
 )
 
+// jsonUpdateStreamWarmThroughputReq mirrors UpdateStreamWarmThroughputInput
+// (api_op_UpdateStreamWarmThroughput.go:63-70). WarmThroughputMiBps is its
+// only required member.
 type jsonUpdateStreamWarmThroughputReq struct {
-	StreamName         string `json:"StreamName"`
-	StreamARN          string `json:"StreamARN"`
-	WriteCapacityUnits int64  `json:"WriteCapacityUnits"`
-	ReadCapacityUnits  int64  `json:"ReadCapacityUnits"`
+	StreamName          string `json:"StreamName"`
+	StreamARN           string `json:"StreamARN"`
+	WarmThroughputMiBps int    `json:"WarmThroughputMiBps"`
+}
+
+// jsonWarmThroughputObject mirrors types.WarmThroughputObject.
+type jsonWarmThroughputObject struct {
+	CurrentMiBps int `json:"CurrentMiBps"`
+	TargetMiBps  int `json:"TargetMiBps"`
+}
+
+// jsonUpdateStreamWarmThroughputResp mirrors UpdateStreamWarmThroughputOutput
+// (api_op_UpdateStreamWarmThroughput.go:76-88).
+type jsonUpdateStreamWarmThroughputResp struct {
+	StreamARN      string                   `json:"StreamARN"`
+	StreamName     string                   `json:"StreamName"`
+	WarmThroughput jsonWarmThroughputObject `json:"WarmThroughput"`
 }
 
 func (h *Handler) handleUpdateStreamMode(ctx context.Context, _ *http.Request, body []byte) (any, error) {
@@ -41,14 +57,21 @@ func (h *Handler) handleUpdateStreamWarmThroughput(
 		return nil, ErrInvalidArgument
 	}
 
-	if err := h.Backend.UpdateStreamWarmThroughput(ctx, &UpdateStreamWarmThroughputInput{
-		StreamName:         req.StreamName,
-		StreamARN:          req.StreamARN,
-		WriteCapacityUnits: req.WriteCapacityUnits,
-		ReadCapacityUnits:  req.ReadCapacityUnits,
-	}); err != nil {
+	out, err := h.Backend.UpdateStreamWarmThroughput(ctx, &UpdateStreamWarmThroughputInput{
+		StreamName:          req.StreamName,
+		StreamARN:           req.StreamARN,
+		WarmThroughputMiBps: req.WarmThroughputMiBps,
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	return struct{}{}, nil
+	return jsonUpdateStreamWarmThroughputResp{
+		StreamARN:  out.StreamARN,
+		StreamName: out.StreamName,
+		WarmThroughput: jsonWarmThroughputObject{
+			CurrentMiBps: out.WarmThroughput.CurrentMiBps,
+			TargetMiBps:  out.WarmThroughput.TargetMiBps,
+		},
+	}, nil
 }
