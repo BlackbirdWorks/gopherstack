@@ -30,6 +30,10 @@ overall: A            # RESTORED FROM A- (2026-07-25 follow-up pass, bd gopherst
                        # ModifyLakehouseConfiguration now read and validate ClusterIdentifier for
                        # real (ClusterNotFoundFault on a miss) -- see families.AquaConfiguration/
                        # families.LakehouseConfiguration below. Grade holds at A.
+                       # FIXED (2026-08-13, gopherstack-afi1, required-member sweep): CreateHsmConfiguration
+                       # dropped both required HSM secrets (HsmPartitionPassword, HsmServerPublicCertificate)
+                       # entirely -- neither reached the backend, whose signature had no parameters for
+                       # them. See families.HsmClientCertificate/HsmConfiguration below. Grade holds at A.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -60,7 +64,7 @@ families:
   SnapshotCopy: {status: ok, note: "Enable/Disable/ModifySnapshotCopyRetentionPeriod field-diffed, real state mutation confirmed, no changes needed"}
   AuthenticationProfile: {status: ok, note: "field-diffed against types.AuthenticationProfile (no Tags field on this type in the real SDK, confirmed), no changes needed"}
   ResourcePolicy: {status: ok, note: "FIXED THIS PASS: error code ErrResourcePolicyNotFound was a fabricated 'ResourcePolicyNotFound' string -- real GetResourcePolicy/PutResourcePolicy/DeleteResourcePolicy return ResourceNotFoundFault for a missing policy (confirmed against the op error-dispatch table in deserializers.go), now fixed."}
-  HsmClientCertificate/HsmConfiguration: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Create handlers previously passed nil for tags unconditionally (never parsing Tags.Tag.N.* from the request) and the wire never echoed them; both now parse via parseRedshiftTags and serialize via tagMapToKVList, verified against awsAwsquery_deserializeDocumentHsmClientCertificate/HsmConfiguration's Tags case. Also found and fixed while verifying: CreateHsmConfiguration read the IP address request param as 'HsmIPAddress' but the real wire param is case-different 'HsmIpAddress' (confirmed against awsAwsquery_serializeOpDocumentCreateHsmConfigurationInput) -- url.Values lookups are case-sensitive, so a real SDK client's HsmIpAddress was silently dropped on every call; fixed."}
+  HsmClientCertificate/HsmConfiguration: {status: ok, note: "Create/Delete/Describe field-diffed, real state mutation confirmed. FIXED 2026-08-08 (bd gopherstack-emho): Create handlers previously passed nil for tags unconditionally (never parsing Tags.Tag.N.* from the request) and the wire never echoed them; both now parse via parseRedshiftTags and serialize via tagMapToKVList, verified against awsAwsquery_deserializeDocumentHsmClientCertificate/HsmConfiguration's Tags case. Also found and fixed while verifying: CreateHsmConfiguration read the IP address request param as 'HsmIPAddress' but the real wire param is case-different 'HsmIpAddress' (confirmed against awsAwsquery_serializeOpDocumentCreateHsmConfigurationInput) -- url.Values lookups are case-sensitive, so a real SDK client's HsmIpAddress was silently dropped on every call; fixed. FIXED 2026-08-13 (gopherstack-afi1, required-member sweep): CreateHsmConfiguration also dropped both required HSM secrets -- HsmPartitionPassword and HsmServerPublicCertificate (api_op_CreateHsmConfiguration.go:64,70) -- entirely; the backend signature had no parameters for them at all. HsmConfiguration's real response shape (types/types.go:1118-1137) has no fields for either, so neither is echoed by real AWS either. Following this service's own existing precedent for CreateCluster's MasterUserPassword (handler.go:543-549,551: validated for shape/policy, never threaded into CreateCluster or persisted), both are now validated for presence in handleCreateHsmConfiguration and then discarded rather than passed to the backend or stored -- HsmPartitionPassword is a credential and is never logged, stored, or echoed in any response. Missing-required-member requests return InvalidParameterValue: this op's own deserializeOpErrorCreateHsmConfiguration switch declares only HsmConfigurationAlreadyExistsFault/HsmConfigurationQuotaExceededFault/InvalidTagFault/TagLimitExceededFault, no validation-style exception, so this follows the same ErrInvalidParameter convention already used for this handler's pre-existing HsmConfigurationIdentifier-required check."}
   CustomDomainAssociation: {status: ok, note: "field-diffed, no changes needed to Create/Delete/Describe/Modify wire shapes. FIXED: ErrCustomDomainAlreadyExists was a fabricated 'CustomDomainAssociationAlreadyExistsFault' code -- no such fault exists in the real SDK; the real conflict fault for CreateCustomDomainAssociation is CustomCnameAssociationFault (confirmed against the op's error-dispatch table), now fixed."}
   EndpointAccess: {status: ok, note: "FIXED THIS PASS (major param-shape bug): CreateEndpointAccess/ModifyEndpointAccess read/wrote a fabricated 'VpcId' parameter that does not exist anywhere in CreateEndpointAccessInput/ModifyEndpointAccessInput -- real requests carry SubnetGroupName/ResourceOwner/VpcSecurityGroupIds (Create) and VpcSecurityGroupIds only (Modify); VpcId on the response is *derived* from the subnet group, not settable directly. Rebuilt CreateEndpointAccess/ModifyEndpointAccess signatures and wire parsing/serialization around the real fields (SubnetGroupName, ResourceOwner, VpcSecurityGroupIds -> VpcSecurityGroups>VpcSecurityGroup list on the response), with VpcID derived via a ClusterSubnetGroup lookup when SubnetGroupName is known. VpcEndpoint (network interfaces) intentionally left unmodeled -- reconfirmed 2026-08-08: real types.VpcEndpoint.NetworkInterfaces needs AvailabilityZone/PrivateIpAddress/NetworkInterfaceId/SubnetId per ENI, none of which this backend's Subnet type carries (no CIDR/AZ data at all), and VpcEndpointId would have to be a fabricated ID with no real ENI allocation behind it -- left absent rather than invented, see items_still_open."}
   EndpointAuthorization: {status: ok, note: "AuthorizeEndpointAccess/RevokeEndpointAccess/DescribeEndpointAuthorization field-diffed against types.EndpointAuthorization, no changes needed"}
@@ -82,6 +86,27 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 ---
 
 ## Notes
+
+### 2026-08-13 pass: CreateHsmConfiguration dropped both HSM secrets (bd gopherstack-afi1)
+
+From the "five ops drop the fields that define what they do" required-member
+sweep. `handler_hsm.go:handleCreateHsmConfiguration`/
+`hsm.go:CreateHsmConfiguration` read/passed 4 of 6 required members --
+`HsmPartitionPassword` and `HsmServerPublicCertificate`
+(`api_op_CreateHsmConfiguration.go:64,70`) never reached the backend, whose
+signature had no parameters for them at all. See the
+`families.HsmClientCertificate/HsmConfiguration` entry above for the full
+fix/credential-handling detail. `TestHandler_CreateHsmConfiguration`'s
+`"success"`/`"duplicate"` cases and the setup calls in
+`TestHandler_DeleteHsmConfiguration`/`TestHandler_DescribeHsmConfigurations`
+previously omitted both fields entirely -- they would have passed identically
+whether or not the handler ever read them, encoding the same gap as the bug.
+All updated to supply both required fields (via a shared
+`hsmRequiredSecrets` body-suffix constant); added
+`"missing_partition_password"`/`"missing_server_public_certificate"` cases
+and an explicit assertion that the submitted secret value never appears
+anywhere in the response body, on every case in the table (not just the
+success path).
 
 ### 2026-08-13 pass: ModifyAquaConfiguration, ModifyLakehouseConfiguration (classic Redshift) (bd gopherstack-6xxt)
 

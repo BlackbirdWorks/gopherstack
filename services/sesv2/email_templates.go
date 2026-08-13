@@ -3,6 +3,7 @@ package sesv2
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -157,31 +158,57 @@ func (b *InMemoryBackend) TestRenderEmailTemplate(name, templateData string) (st
 		return "", fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
 	}
 
-	vars := map[string]string{}
-	if strings.TrimSpace(templateData) != "" {
-		raw := map[string]any{}
-		if err := json.Unmarshal([]byte(templateData), &raw); err != nil {
-			return "", fmt.Errorf("%w: TemplateData must be valid JSON", ErrInvalidInput)
-		}
-		for k, v := range raw {
-			vars[k] = fmt.Sprintf("%v", v)
-		}
-	}
-
-	renderVars := func(s string) string {
-		for k, v := range vars {
-			s = strings.ReplaceAll(s, "{{"+k+"}}", v)
-		}
-
-		return s
+	vars, err := parseTemplateVars(templateData)
+	if err != nil {
+		return "", err
 	}
 
 	subject, html, text := "", "", ""
 	if t.TemplateContent != nil {
-		subject = renderVars(t.TemplateContent.Subject)
-		html = renderVars(t.TemplateContent.HTML)
-		text = renderVars(t.TemplateContent.Text)
+		subject = renderTemplateVars(t.TemplateContent.Subject, vars)
+		html = renderTemplateVars(t.TemplateContent.HTML, vars)
+		text = renderTemplateVars(t.TemplateContent.Text, vars)
 	}
 
 	return strings.Join([]string{subject, html, text}, "\n---\n"), nil
+}
+
+// parseTemplateVars decodes a JSON object of template substitution variables,
+// the shape SES TemplateData/ReplacementTemplateData strings carry.
+func parseTemplateVars(data string) (map[string]string, error) {
+	vars := map[string]string{}
+	if strings.TrimSpace(data) == "" {
+		return vars, nil
+	}
+
+	raw := map[string]any{}
+	if err := json.Unmarshal([]byte(data), &raw); err != nil {
+		return nil, fmt.Errorf("%w: TemplateData must be valid JSON", ErrInvalidInput)
+	}
+
+	for k, v := range raw {
+		vars[k] = fmt.Sprintf("%v", v)
+	}
+
+	return vars, nil
+}
+
+// renderTemplateVars substitutes {{key}} placeholders in s using vars.
+func renderTemplateVars(s string, vars map[string]string) string {
+	for k, v := range vars {
+		s = strings.ReplaceAll(s, "{{"+k+"}}", v)
+	}
+
+	return s
+}
+
+// mergeTemplateVars layers overrides on top of defaults without mutating
+// either input map.
+func mergeTemplateVars(defaults, overrides map[string]string) map[string]string {
+	merged := make(map[string]string, len(defaults)+len(overrides))
+	maps.Copy(merged, defaults)
+
+	maps.Copy(merged, overrides)
+
+	return merged
 }

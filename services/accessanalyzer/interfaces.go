@@ -72,7 +72,7 @@ type StorageBackend interface {
 	ListPolicyGenerations(principalArn string) ([]*PolicyGeneration, error)
 
 	// Access previews
-	CreateAccessPreview(analyzerArn string) (*AccessPreview, error)
+	CreateAccessPreview(analyzerArn string, configurations map[string]json.RawMessage) (*AccessPreview, error)
 	GetAccessPreview(accessPreviewID string) (*AccessPreview, error)
 	ListAccessPreviews(analyzerArn string) ([]*AccessPreview, error)
 	ListAccessPreviewFindings(accessPreviewID string, maxResults int, nextToken string) ([]*Finding, string, error)

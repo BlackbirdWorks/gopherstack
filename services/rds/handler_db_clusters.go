@@ -666,7 +666,12 @@ func (h *Handler) handleRestoreDBClusterFromS3(vals url.Values) (any, error) {
 	engine := vals.Get("Engine")
 	masterUsername := vals.Get("MasterUsername")
 	s3Bucket := vals.Get("S3BucketName")
-	cluster, err := h.Backend.RestoreDBClusterFromS3(id, engine, masterUsername, s3Bucket)
+	s3IngestionRoleArn := vals.Get("S3IngestionRoleArn")
+	sourceEngine := vals.Get("SourceEngine")
+	sourceEngineVersion := vals.Get("SourceEngineVersion")
+	cluster, err := h.Backend.RestoreDBClusterFromS3(
+		id, engine, masterUsername, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion,
+	)
 	if err != nil {
 		return nil, err
 	}

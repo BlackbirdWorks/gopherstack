@@ -148,15 +148,55 @@ type bulkEmailEntry struct {
 	ReplacementTags         []messageTag             `json:"ReplacementTags"`
 }
 
-// SendBulkEmail sends bulk emails — records sent emails with actual recipients.
+// bulkEmailTemplate mirrors the subset of types.Template this emulator
+// supports: inline content or a reference to a stored EmailTemplate, plus
+// the default substitution data for {{var}} placeholders.
+type bulkEmailTemplate struct {
+	TemplateContent *EmailTemplateContent `json:"TemplateContent"`
+	TemplateData    string                `json:"TemplateData"`
+	TemplateName    string                `json:"TemplateName"`
+}
+
+// bulkEmailContent mirrors types.BulkEmailContent.
+type bulkEmailContent struct {
+	Template *bulkEmailTemplate `json:"Template"`
+}
+
+// SendBulkEmail sends bulk emails — records sent emails with actual recipients
+// and content rendered from DefaultContent, with each entry's
+// ReplacementEmailContent overriding substitution variables.
 func (b *InMemoryBackend) SendBulkEmail(
 	fromEmailAddress string,
+	defaultContent *bulkEmailContent,
 	bulkEmailEntries []bulkEmailEntry,
 ) ([]bulkEmailEntryResultOutput, error) {
+	if defaultContent == nil || defaultContent.Template == nil {
+		return nil, fmt.Errorf("%w: DefaultContent.Template is required", ErrInvalidInput)
+	}
+
+	baseSubject, baseHTML, baseText, defaultVars, err := b.resolveBulkTemplate(defaultContent.Template)
+	if err != nil {
+		return nil, err
+	}
+
 	results := make([]bulkEmailEntryResultOutput, 0, len(bulkEmailEntries))
 
 	for _, entry := range bulkEmailEntries {
-		msgID, _ := b.SendEmail(fromEmailAddress, entry.Destination.ToAddresses, "", "", "")
+		vars := defaultVars
+		if entry.ReplacementEmailContent != nil && entry.ReplacementEmailContent.ReplacementTemplate != nil {
+			replacementData := entry.ReplacementEmailContent.ReplacementTemplate.ReplacementTemplateData
+			overrides, parseErr := parseTemplateVars(replacementData)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			vars = mergeTemplateVars(defaultVars, overrides)
+		}
+
+		subject := renderTemplateVars(baseSubject, vars)
+		html := renderTemplateVars(baseHTML, vars)
+		text := renderTemplateVars(baseText, vars)
+
+		msgID, _ := b.SendEmail(fromEmailAddress, entry.Destination.ToAddresses, subject, html, text)
 		if msgID == "" {
 			msgID = "sesv2-bulk-" + uuid.New().String()
 		}
@@ -168,4 +208,40 @@ func (b *InMemoryBackend) SendBulkEmail(
 	}
 
 	return results, nil
+}
+
+// resolveBulkTemplate resolves a bulkEmailTemplate to its base
+// subject/HTML/text and default substitution vars. Inline TemplateContent
+// takes precedence over a stored TemplateName lookup, matching the SDK doc
+// for types.Template ("you will refer to this name ... unless you also
+// provide the full template content in the request").
+func (b *InMemoryBackend) resolveBulkTemplate(
+	tmpl *bulkEmailTemplate,
+) (string, string, string, map[string]string, error) {
+	vars, err := parseTemplateVars(tmpl.TemplateData)
+	if err != nil {
+		return "", "", "", nil, err
+	}
+
+	content := tmpl.TemplateContent
+	if content == nil {
+		if tmpl.TemplateName == "" {
+			return "", "", "", nil, fmt.Errorf(
+				"%w: Template must specify TemplateContent or TemplateName", ErrInvalidInput,
+			)
+		}
+
+		stored, lookupErr := b.GetEmailTemplate(tmpl.TemplateName)
+		if lookupErr != nil {
+			return "", "", "", nil, lookupErr
+		}
+
+		content = stored.TemplateContent
+	}
+
+	if content == nil {
+		return "", "", "", vars, nil
+	}
+
+	return content.Subject, content.HTML, content.Text, vars, nil
 }

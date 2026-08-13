@@ -142,7 +142,12 @@ type StorageBackend interface {
 	DescribeUsageReportSubscriptions() ([]*UsageReportSubscription, error)
 
 	// Themes
-	CreateThemeForStack(stackName string) (*Theme, error)
+	CreateThemeForStack(
+		stackName string,
+		faviconS3Location, organizationLogoS3Location S3Location,
+		themeStyling, titleText string,
+		footerLinks []ThemeFooterLink,
+	) (*Theme, error)
 	DeleteThemeForStack(stackName string) error
 	DescribeThemeForStack(stackName string) (*Theme, error)
 	UpdateThemeForStack(stackName string) (*Theme, error)
@@ -371,11 +376,25 @@ type UsageReportSubscription struct {
 	Schedule     string
 }
 
+// ThemeFooterLink mirrors appstream@v1.64.5 types.ThemeFooterLink: a link
+// displayed in the streaming application catalog page footer.
+type ThemeFooterLink struct {
+	DisplayName   string
+	FooterLinkURL string
+}
+
 // Theme holds visual customisation for a stack.
 type Theme struct {
-	CreatedTime time.Time
-	StackName   string
-	State       string
+	CreatedTime                time.Time
+	StackName                  string
+	State                      string
+	ThemeStyling               string
+	ThemeTitleText             string
+	ThemeFaviconURL            string
+	ThemeOrganizationLogoURL   string
+	FaviconS3Location          S3Location
+	OrganizationLogoS3Location S3Location
+	ThemeFooterLinks           []ThemeFooterLink
 }
 
 // User is an AppStream UserPool user.

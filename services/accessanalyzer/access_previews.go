@@ -1,14 +1,24 @@
 package accessanalyzer
 
 import (
+	"encoding/json"
+	"maps"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// CreateAccessPreview creates a new access preview.
-func (b *InMemoryBackend) CreateAccessPreview(analyzerArn string) (*AccessPreview, error) {
+// CreateAccessPreview creates a new access preview. Configurations is
+// required and must contain exactly one element (api_op_CreateAccessPreview.go:39-43).
+func (b *InMemoryBackend) CreateAccessPreview(
+	analyzerArn string,
+	configurations map[string]json.RawMessage,
+) (*AccessPreview, error) {
+	if len(configurations) != 1 {
+		return nil, ErrValidation
+	}
+
 	b.mu.Lock("CreateAccessPreview")
 	defer b.mu.Unlock()
 
@@ -28,10 +38,11 @@ func (b *InMemoryBackend) CreateAccessPreview(analyzerArn string) (*AccessPrevie
 
 	now := time.Now().UTC()
 	ap := &AccessPreview{
-		ID:          uuid.NewString(),
-		AnalyzerArn: analyzerArn,
-		Status:      AccessPreviewStatusCompleted,
-		CreatedAt:   now,
+		ID:             uuid.NewString(),
+		AnalyzerArn:    analyzerArn,
+		Status:         AccessPreviewStatusCompleted,
+		CreatedAt:      now,
+		Configurations: maps.Clone(configurations),
 	}
 
 	b.accessPreviews.Put(ap)

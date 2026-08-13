@@ -223,8 +223,12 @@ type StorageBackend interface {
 	ModifyCurrentDBClusterCapacity(clusterID string, capacity int) (*DBCluster, error)
 
 	// S3 restore operations
-	RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s3Bucket string) (*DBInstance, error)
-	RestoreDBClusterFromS3(id, engine, masterUsername, s3Bucket string) (*DBCluster, error)
+	RestoreDBInstanceFromS3(
+		id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+	) (*DBInstance, error)
+	RestoreDBClusterFromS3(
+		id, engine, masterUsername, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+	) (*DBCluster, error)
 
 	// Recommendation operations
 	ModifyDBRecommendation(recID, status string) (*DBRecommendation, error)

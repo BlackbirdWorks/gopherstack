@@ -704,7 +704,12 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 	engine := vals.Get("Engine")
 	dbInstanceClass := vals.Get("DBInstanceClass")
 	s3Bucket := vals.Get("S3BucketName")
-	inst, err := h.Backend.RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s3Bucket)
+	s3IngestionRoleArn := vals.Get("S3IngestionRoleArn")
+	sourceEngine := vals.Get("SourceEngine")
+	sourceEngineVersion := vals.Get("SourceEngineVersion")
+	inst, err := h.Backend.RestoreDBInstanceFromS3(
+		id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion,
+	)
 	if err != nil {
 		return nil, err
 	}

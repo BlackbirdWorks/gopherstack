@@ -90,7 +90,13 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	_, err = b.CreateUsageReportSubscription("DAILY", "usage-bucket")
 	require.NoError(t, err)
 
-	_, err = b.CreateThemeForStack("stack1")
+	_, err = b.CreateThemeForStack(
+		"stack1",
+		appstream.S3Location{S3Bucket: "theme-assets", S3Key: "favicon.ico"},
+		appstream.S3Location{S3Bucket: "theme-assets", S3Key: "logo.png"},
+		"BLUE", "Stack One Streaming",
+		[]appstream.ThemeFooterLink{{DisplayName: "Support", FooterLinkURL: "https://support.example.com"}},
+	)
 	require.NoError(t, err)
 
 	return b
@@ -169,6 +175,11 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	theme, err := fresh.DescribeThemeForStack("stack1")
 	require.NoError(t, err)
 	assert.Equal(t, "stack1", theme.StackName)
+	assert.Equal(t, "BLUE", theme.ThemeStyling,
+		"ThemeStyling must survive Snapshot/Restore, not just the initial create")
+	assert.Equal(t, "Stack One Streaming", theme.ThemeTitleText)
+	require.Len(t, theme.ThemeFooterLinks, 1)
+	assert.Equal(t, "Support", theme.ThemeFooterLinks[0].DisplayName)
 
 	ents, err := fresh.DescribeEntitlements("ent1", "stack1")
 	require.NoError(t, err)

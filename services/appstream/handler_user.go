@@ -379,13 +379,39 @@ type themeStackInput struct {
 	StackName string `json:"StackName"`
 }
 
+// themeFooterLinkJSON mirrors appstream@v1.64.5 types.ThemeFooterLink's wire
+// shape (serializers.go: serializeCBOR_ThemeFooterLink emits
+// {"DisplayName":..., "FooterLinkURL":...}).
+type themeFooterLinkJSON struct {
+	DisplayName   string `json:"DisplayName"`
+	FooterLinkURL string `json:"FooterLinkURL"`
+}
+
+type createThemeForStackInput struct {
+	StackName                  string                `json:"StackName"`
+	ThemeStyling               string                `json:"ThemeStyling"`
+	TitleText                  string                `json:"TitleText"`
+	FaviconS3Location          *s3LocationJSON       `json:"FaviconS3Location"`
+	OrganizationLogoS3Location *s3LocationJSON       `json:"OrganizationLogoS3Location"`
+	FooterLinks                []themeFooterLinkJSON `json:"FooterLinks"`
+}
+
 func (h *Handler) opCreateThemeForStack(_ context.Context, body []byte) (any, error) {
-	var req themeStackInput
+	var req createThemeForStackInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	th, err := h.Backend.CreateThemeForStack(req.StackName)
+	footerLinks := make([]ThemeFooterLink, 0, len(req.FooterLinks))
+	for _, l := range req.FooterLinks {
+		footerLinks = append(footerLinks, ThemeFooterLink(l))
+	}
+
+	th, err := h.Backend.CreateThemeForStack(
+		req.StackName,
+		req.FaviconS3Location.toModel(), req.OrganizationLogoS3Location.toModel(),
+		req.ThemeStyling, req.TitleText, footerLinks,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -464,9 +490,22 @@ func sessionToResponse(s *Session) map[string]any {
 }
 
 func themeToResponse(th *Theme) map[string]any {
+	footerLinks := make([]map[string]any, 0, len(th.ThemeFooterLinks))
+	for _, l := range th.ThemeFooterLinks {
+		footerLinks = append(footerLinks, map[string]any{
+			"DisplayName":   l.DisplayName, //nolint:goconst // existing issue.
+			"FooterLinkURL": l.FooterLinkURL,
+		})
+	}
+
 	return map[string]any{
-		"StackName":   th.StackName,
-		"State":       th.State,
-		"CreatedTime": awstime.Epoch(th.CreatedTime),
+		"StackName":                th.StackName,
+		"State":                    th.State,
+		"CreatedTime":              awstime.Epoch(th.CreatedTime),
+		"ThemeStyling":             th.ThemeStyling,
+		"ThemeTitleText":           th.ThemeTitleText,
+		"ThemeFaviconURL":          th.ThemeFaviconURL,
+		"ThemeOrganizationLogoURL": th.ThemeOrganizationLogoURL,
+		"ThemeFooterLinks":         footerLinks,
 	}
 }

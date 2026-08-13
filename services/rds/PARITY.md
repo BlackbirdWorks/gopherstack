@@ -134,7 +134,9 @@ ops:
   CopyDBSnapshot: {wire: ok, errors: ok, state: ok, persist: ok}
   RestoreDBInstanceFromDBSnapshot: {wire: ok, errors: ok, state: ok, persist: ok}
   RestoreDBInstanceToPointInTime: {wire: ok, errors: ok, state: ok, persist: ok}
+  RestoreDBInstanceFromS3: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "gopherstack-afi1: 3 of 7 required members -- S3IngestionRoleArn, SourceEngine, SourceEngineVersion (rds@v1.124.1 api_op_RestoreDBInstanceFromS3.go:84,91,100) -- were dropped by the handler (vals.Get only read DBInstanceIdentifier/Engine/DBInstanceClass/S3BucketName); Engine and DBInstanceClass were also unvalidated as required despite being so on the wire. All 7 now validated present (InvalidParameterValue -- this op's own deserializeOpError switch has no validation-style exception, same convention already used for the pre-existing DBInstanceIdentifier/S3BucketName checks). The 3 new fields describe the S3 ingestion source only; DBInstance's real response shape (types/types.go) has no members for them, so they're validated but not persisted -- nothing to echo them into."}
   CreateDBClusterSnapshot: {wire: ok, errors: ok, state: ok, persist: ok}
+  RestoreDBClusterFromS3: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "gopherstack-afi1: same bug class as RestoreDBInstanceFromS3 -- 3 of 7 required members (S3IngestionRoleArn, SourceEngine, SourceEngineVersion; rds@v1.124.1 api_op_RestoreDBClusterFromS3.go:90,97,105,114) were dropped by the handler; Engine and MasterUsername were also unvalidated as required. All 7 now validated present (InvalidParameterValue, same no-declared-validation-exception convention as RestoreDBInstanceFromS3's own deserializeOpError switch). Validated but not persisted -- DBCluster's real response shape has no members for the S3-ingestion-source fields."}
   CreateDBParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyDBParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ResetDBParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -263,6 +265,34 @@ deferred: []
 leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (DeleteDBClusterWithOptions in db_clusters.go) removed the cluster itself but did NOT cascade-delete its custom DB cluster endpoints or their tags — DescribeDBClusterEndpoints kept returning ghost rows pointing at a deleted cluster forever, and b.clusterEndpoints only ever shrank via an explicit DeleteDBClusterEndpoint call, so the map grew unboundedly across create/delete cycles in any long-running client (exactly the 'no ghost map rows after delete — cascade-clean instances/endpoints on cluster delete' invariant this audit was scoped to check). Fixed by adding deleteClusterEndpointsLocked (db_clusters.go), called from DeleteDBClusterWithOptions under the existing b.mu write lock, alongside the pre-existing tags/fisFailoverFaults/clusterRoles cleanup. Regression tests: TestDeleteDBCluster_CascadeDeletesClusterEndpoints (cluster_endpoints_test.go, verifies via DescribeDBClusterEndpoints) and a new cluster_endpoint_cascade_via_cluster_delete case added to the existing TestRDSBackend_TagsCleanedUpOnDelete table (tags_test.go). Separately re-verified this pass and still clean: the single reconciler goroutine (lifecycle.go:scheduleReconcilerLocked) is per-backend, started lazily, and exits its own loop once both instanceReadyAt and clusterReadyAt are empty (ticker.Stop() deferred); the two FIS fault-injection goroutines in fault_injection.go/handler_db_clusters.go are ctx-bound (one blocks on ctx.Done(), the other races a time.Timer against ctx.Done(), both Stop()/cleanup correctly). No time.Sleep/context.Background()-rooted unbounded goroutine patterns found in non-test files."}
 
 ## Notes
+
+- **2026-08-13 pass (gopherstack-afi1): RestoreDBInstanceFromS3/RestoreDBClusterFromS3
+  dropped 3 of 7 required members each.** From the "five ops drop the fields that define
+  what they do" required-member sweep. Both handlers read `vals.Get(...)` for only 4 of
+  each op's 7 required members -- `S3IngestionRoleArn`/`SourceEngine`/
+  `SourceEngineVersion` (identical field set on both ops) were never read at all, and
+  `Engine`/`DBInstanceClass`/`MasterUsername` (already read) were not validated as
+  required despite being so on the wire. Confirmed against the pinned
+  `aws-sdk-go-v2/service/rds@v1.124.1`'s query-protocol serializer
+  (`awsAwsquery_serializeOpDocumentRestoreDBInstanceFromS3Input`/
+  `...RestoreDBClusterFromS3Input` in `serializers.go`) for the exact case-sensitive
+  query-parameter names (`url.Values.Get` is case-sensitive exact-string for this
+  protocol) -- all seven per op match the Go SDK field names verbatim, no casing
+  surprises. Both real response shapes (`types.DBInstance`/`types.DBCluster`) have no
+  members for the three S3-ingestion-source fields, so they're validated present but not
+  persisted, matching this file's existing "no real state to echo into" convention (see
+  e.g. the `ApplyPendingMaintenanceAction`/`instance_iam_roles` families above). Added
+  `TestRestoreDBInstanceFromS3_RealSDKClient`/`TestRestoreDBClusterFromS3_RealSDKClient`
+  (`restore_from_s3_sdk_test.go`) driving the real `aws-sdk-go-v2/service/rds` client end
+  to end -- the existing backend-level table tests only ever exercised
+  `b.RestoreDB*FromS3` directly with hand-typed Go strings, which would pass identically
+  whether or not the handler's `vals.Get` keys actually matched the SDK's serialized
+  query-parameter names; the SDK-driven tests are what actually prove the wire names are
+  right. Both pre-existing table tests (`TestRestoreDBInstanceFromS3`/
+  `TestRestoreDBClusterFromS3`) previously didn't supply the three dropped fields at all
+  (nothing to, since the handler-level bug is specifically about the HTTP decode layer,
+  not the backend signature) -- extended to cover all seven required members individually
+  once the backend signature grew the three new required parameters.
 
 - Protocol: RDS uses the AWS Query (XML) protocol, version `2014-10-31`, XML namespace
   `http://rds.amazonaws.com/doc/2014-10-31/`. Every response wraps in

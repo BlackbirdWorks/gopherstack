@@ -60,6 +60,7 @@ type StorageBackend interface {
 	SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error)
 	SendBulkEmail(
 		fromEmailAddress string,
+		defaultContent *bulkEmailContent,
 		bulkEmailEntries []bulkEmailEntry,
 	) ([]bulkEmailEntryResultOutput, error)
 	SendCustomVerificationEmail(emailAddress, templateName string) (string, error)

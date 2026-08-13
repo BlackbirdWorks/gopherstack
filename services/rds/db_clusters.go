@@ -687,12 +687,34 @@ func (b *InMemoryBackend) ModifyCurrentDBClusterCapacity(clusterID string, capac
 }
 
 // RestoreDBClusterFromS3 restores a DB cluster from an S3 backup.
-func (b *InMemoryBackend) RestoreDBClusterFromS3(id, engine, masterUsername, s3Bucket string) (*DBCluster, error) {
+// s3IngestionRoleArn, sourceEngine and sourceEngineVersion are required
+// members of RestoreDBClusterFromS3Input (api_op_RestoreDBClusterFromS3.go:90,97,105,114)
+// describing the source backup; the real DBCluster response shape has no
+// fields for them (grepped types/types.go), so they're validated as
+// required but not persisted -- there's no real state to echo them into.
+func (b *InMemoryBackend) RestoreDBClusterFromS3(
+	id, engine, masterUsername, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+) (*DBCluster, error) {
 	if s3Bucket == "" {
 		return nil, fmt.Errorf("%w: s3BucketName is required", ErrInvalidParameter)
 	}
 	if id == "" {
 		return nil, fmt.Errorf("%w: dbClusterIdentifier is required", ErrInvalidParameter)
+	}
+	if engine == "" {
+		return nil, fmt.Errorf("%w: engine is required", ErrInvalidParameter)
+	}
+	if masterUsername == "" {
+		return nil, fmt.Errorf("%w: masterUsername is required", ErrInvalidParameter)
+	}
+	if s3IngestionRoleArn == "" {
+		return nil, fmt.Errorf("%w: s3IngestionRoleArn is required", ErrInvalidParameter)
+	}
+	if sourceEngine == "" {
+		return nil, fmt.Errorf("%w: sourceEngine is required", ErrInvalidParameter)
+	}
+	if sourceEngineVersion == "" {
+		return nil, fmt.Errorf("%w: sourceEngineVersion is required", ErrInvalidParameter)
 	}
 	b.mu.Lock("RestoreDBClusterFromS3")
 	defer b.mu.Unlock()

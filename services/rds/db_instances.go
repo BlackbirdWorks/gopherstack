@@ -973,12 +973,34 @@ func (b *InMemoryBackend) SwitchoverReadReplica(instanceID string) (*DBInstance,
 }
 
 // RestoreDBInstanceFromS3 restores a DB instance from an S3 backup.
-func (b *InMemoryBackend) RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s3Bucket string) (*DBInstance, error) {
+// s3IngestionRoleArn, sourceEngine and sourceEngineVersion are required
+// members of RestoreDBInstanceFromS3Input (api_op_RestoreDBInstanceFromS3.go:84,91,100)
+// describing the source backup; the real DBInstance response shape has no
+// fields for them (grepped types/types.go), so they're validated as
+// required but not persisted -- there's no real state to echo them into.
+func (b *InMemoryBackend) RestoreDBInstanceFromS3(
+	id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+) (*DBInstance, error) {
 	if s3Bucket == "" {
 		return nil, fmt.Errorf("%w: s3BucketName is required", ErrInvalidParameter)
 	}
 	if id == "" {
 		return nil, fmt.Errorf("%w: dbInstanceIdentifier is required", ErrInvalidParameter)
+	}
+	if engine == "" {
+		return nil, fmt.Errorf("%w: engine is required", ErrInvalidParameter)
+	}
+	if dbInstanceClass == "" {
+		return nil, fmt.Errorf("%w: dbInstanceClass is required", ErrInvalidParameter)
+	}
+	if s3IngestionRoleArn == "" {
+		return nil, fmt.Errorf("%w: s3IngestionRoleArn is required", ErrInvalidParameter)
+	}
+	if sourceEngine == "" {
+		return nil, fmt.Errorf("%w: sourceEngine is required", ErrInvalidParameter)
+	}
+	if sourceEngineVersion == "" {
+		return nil, fmt.Errorf("%w: sourceEngineVersion is required", ErrInvalidParameter)
 	}
 	b.mu.Lock("RestoreDBInstanceFromS3")
 	defer b.mu.Unlock()

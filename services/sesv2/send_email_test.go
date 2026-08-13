@@ -142,9 +142,51 @@ func TestSendBulkEmail(t *testing.T) {
 					"ToAddresses": []string{"to1@example.com"},
 				},
 			},
+			{
+				"Destination": map[string]any{
+					"ToAddresses": []string{"to2@example.com"},
+				},
+				"ReplacementEmailContent": map[string]any{
+					"ReplacementTemplate": map[string]any{
+						"ReplacementTemplateData": `{"name":"to2"}`,
+					},
+				},
+			},
 		},
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	emails := b.ListEmails()
+	require.Len(t, emails, 2)
+	assert.Equal(t, "Hello default", emails[0].Subject,
+		"DefaultContent's template must actually populate the sent email")
+	assert.Equal(t, "<html>Hi default</html>", emails[0].BodyHTML)
+	assert.Equal(t, "Hello to2", emails[1].Subject,
+		"per-entry ReplacementTemplateData must override the default vars")
+}
+
+// TestSendBulkEmailRequiresDefaultContent verifies that SendBulkEmail rejects
+// requests with no DefaultContent, since every real bulk email needs content
+// to send. The emulator previously accepted the request and recorded emails
+// with an empty subject and body no matter what the caller asked for.
+func TestSendBulkEmailRequiresDefaultContent(t *testing.T) {
+	t.Parallel()
+
+	h, b := newSESv2TestHandler(t)
+	_, err := b.CreateEmailIdentity("bulk-nocontent@example.com", "", nil)
+	require.NoError(t, err)
+
+	rec := doReq(t, h, http.MethodPost, "/v2/email/outbound-bulk-emails", map[string]any{
+		"FromEmailAddress": "bulk-nocontent@example.com",
+		"BulkEmailEntries": []map[string]any{
+			{
+				"Destination": map[string]any{
+					"ToAddresses": []string{"to1@example.com"},
+				},
+			},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestSendBulkEmailSDKRoundTrip drives SendBulkEmail through the real
@@ -212,6 +254,14 @@ func TestSendBulkEmailSDKRoundTrip(t *testing.T) {
 			for _, r := range out.BulkEmailEntryResults {
 				assert.NotEmpty(t, aws.ToString(r.MessageId))
 				assert.Equal(t, sesv2types.BulkEmailStatusSuccess, r.Status)
+			}
+
+			emails := h.Backend.ListEmails()
+			require.Len(t, emails, len(tt.entries))
+			for _, e := range emails {
+				assert.Equal(t, "Hi", e.Subject,
+					"DefaultContent.Template.TemplateContent must reach the recorded email")
+				assert.Equal(t, "body", e.BodyText)
 			}
 		})
 	}
