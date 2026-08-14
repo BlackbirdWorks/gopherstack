@@ -7,7 +7,6 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -44,19 +43,9 @@ func (h *Handler) routeQueryLogging(c *echo.Context, method string) error {
 func (h *Handler) createQueryLoggingConfig(c *echo.Context) error {
 	ctx := c.Request().Context()
 
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
-	}
-
 	var req xmlCreateQueryLoggingConfigRequest
-	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(
-			c,
-			http.StatusBadRequest,
-			"InvalidInput",
-			"failed to parse XML: "+err.Error(),
-		)
+	if ok, err := readXMLRequest(c, &req); !ok {
+		return err
 	}
 
 	cfg, err := h.Backend.CreateQueryLoggingConfig(req.HostedZoneID, req.CloudWatchLogsLogGroupArn)

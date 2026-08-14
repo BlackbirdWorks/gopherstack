@@ -37,8 +37,11 @@ func (h *Handler) handleRecordHandlerProgress(form url.Values, c *echo.Context) 
 
 func (h *Handler) handleGetHookResult(form url.Values, c *echo.Context) error {
 	status, _ := h.Backend.GetHookResult(form.Get("HookResultToken"))
+	// Real GetHookResultOutput's status member is "Status", not "HookStatus"
+	// (cloudformation@v1.76.1 deserializers.go:
+	// awsAwsquery_deserializeOpDocumentGetHookResultOutput).
 	type result struct {
-		HookStatus string `xml:"HookStatus"`
+		Status string `xml:"Status"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"GetHookResultResponse"`
@@ -49,19 +52,21 @@ func (h *Handler) handleGetHookResult(form url.Values, c *echo.Context) error {
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{HookStatus: status}, RequestID: uuid.New().String()},
+		response{Xmlns: cfnNS, Result: result{Status: status}, RequestID: uuid.New().String()},
 	)
 }
 
 func (h *Handler) handleListHookResults(form url.Values, c *echo.Context) error {
 	results, _ := h.Backend.ListHookResults(form.Get("HookResultToken"), form.Get("NextToken"))
+	// Real HookResultSummary members are "Status" and "HookStatusReason", not
+	// "HookStatus"/"ErrorCode" (cloudformation@v1.76.1 types/types.go:422).
 	type hookXML struct {
-		HookStatus string `xml:"HookStatus,omitempty"`
-		ErrorCode  string `xml:"ErrorCode,omitempty"`
+		Status           string `xml:"Status,omitempty"`
+		HookStatusReason string `xml:"HookStatusReason,omitempty"`
 	}
 	members := make([]hookXML, 0, len(results))
 	for _, r := range results {
-		members = append(members, hookXML{HookStatus: r.HookStatus, ErrorCode: r.ErrorCode})
+		members = append(members, hookXML{Status: r.HookStatus, HookStatusReason: r.ErrorCode})
 	}
 	type result struct {
 		HookResults []hookXML `xml:"HookResults>member"`

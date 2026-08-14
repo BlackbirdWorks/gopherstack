@@ -253,10 +253,14 @@ type listDelegationRequestsResponse struct {
 
 // ---- Organizations ----
 
-// listOrganizationsFeaturesResult contains the (always-empty, mock) organizations features list.
+// listOrganizationsFeaturesResult contains the (always-empty, mock)
+// organizations features list. Real ListOrganizationsFeaturesOutput's members
+// are "EnabledFeatures" and "OrganizationId", not "OrganizationFeatures"/
+// "RootId" (iam@v1.58.1 deserializers.go:
+// awsAwsquery_deserializeOpDocumentListOrganizationsFeaturesOutput).
 type listOrganizationsFeaturesResult struct {
-	RootID               string   `xml:"RootId,omitempty"`
-	OrganizationFeatures []string `xml:"OrganizationFeatures>member"`
+	OrganizationID  string   `xml:"OrganizationId,omitempty"`
+	EnabledFeatures []string `xml:"EnabledFeatures>member"`
 }
 
 // listOrganizationsFeaturesResponse is the XML response for ListOrganizationsFeatures.

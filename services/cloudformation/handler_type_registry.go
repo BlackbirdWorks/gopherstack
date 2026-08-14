@@ -400,14 +400,16 @@ func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
 
 func (h *Handler) handleListTypeVersions(form url.Values, c *echo.Context) error {
 	versionIDs, _ := h.Backend.ListTypeVersions(form.Get("TypeName"), form.Get("Type"))
+	// Real TypeVersionSummary's ARN member is "Arn", not "TypeArn"
+	// (cloudformation@v1.76.1 types/types.go:3578).
 	type versionXML struct {
-		TypeArn   string `xml:"TypeArn,omitempty"`
+		Arn       string `xml:"Arn,omitempty"`
 		VersionID string `xml:"VersionId,omitempty"`
 	}
 	members := make([]versionXML, 0, len(versionIDs))
 	typeArn := "arn:aws:cloudformation:::type/resource/" + form.Get("TypeName")
 	for _, v := range versionIDs {
-		members = append(members, versionXML{TypeArn: typeArn, VersionID: v})
+		members = append(members, versionXML{Arn: typeArn, VersionID: v})
 	}
 	type result struct {
 		TypeVersionSummaries []versionXML `xml:"TypeVersionSummaries>member"`

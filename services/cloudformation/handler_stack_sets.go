@@ -677,8 +677,11 @@ func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *ec
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
+	// Real ListStackSetAutoDeploymentTargetsOutput wraps the list under
+	// "Summaries", not "Targets" (cloudformation@v1.76.1 deserializers.go:
+	// awsAwsquery_deserializeOpDocumentListStackSetAutoDeploymentTargetsOutput).
 	type result struct {
-		Targets []AutoDeploymentTarget `xml:"Targets>member"`
+		Targets []AutoDeploymentTarget `xml:"Summaries>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackSetAutoDeploymentTargetsResponse"`

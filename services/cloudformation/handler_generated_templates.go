@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // dispatchGeneratedTemplateOps handles generated template CRUD operations.
@@ -279,15 +281,40 @@ func (h *Handler) handleListResourceScans(form url.Values, c *echo.Context) erro
 	)
 }
 
+// xmlResourceIdentifierEntry mirrors the Query-protocol map wire shape for
+// ScannedResource.ResourceIdentifier (cloudformation@v1.76.1 deserializers.go:
+// awsAwsquery_deserializeDocumentJazzResourceIdentifierPropertiesUnwrapped
+// reads "entry"/"key"/"value" -- Go's map marshaling doesn't produce that).
+type xmlResourceIdentifierEntry struct {
+	Key   string `xml:"key"`
+	Value string `xml:"value"`
+}
+
+type xmlScannedResource struct {
+	ResourceType       string                       `xml:"ResourceType,omitempty"`
+	ResourceIdentifier []xmlResourceIdentifierEntry `xml:"ResourceIdentifier>entry,omitempty"`
+	ManagedByStack     bool                         `xml:"ManagedByStack,omitempty"`
+}
+
 func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Context) error {
 	scanned, err := h.Backend.ListResourceScanResources(form.Get("ResourceScanId"), "")
 	if err != nil {
 		return h.xmlError(c, "ResourceScanNotFound", err.Error())
 	}
-	type resourceXML = ScannedResource
-	members := append([]resourceXML(nil), scanned...)
+	members := make([]xmlScannedResource, 0, len(scanned))
+	for _, s := range scanned {
+		entries := make([]xmlResourceIdentifierEntry, 0, len(s.ResourceIdentifier))
+		for _, k := range collections.SortedKeys(s.ResourceIdentifier) {
+			entries = append(entries, xmlResourceIdentifierEntry{Key: k, Value: s.ResourceIdentifier[k]})
+		}
+		members = append(members, xmlScannedResource{
+			ResourceType:       s.ResourceType,
+			ResourceIdentifier: entries,
+			ManagedByStack:     s.ManagedByStack,
+		})
+	}
 	type result struct {
-		Resources []resourceXML `xml:"Resources>member"`
+		Resources []xmlScannedResource `xml:"Resources>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListResourceScanResourcesResponse"`

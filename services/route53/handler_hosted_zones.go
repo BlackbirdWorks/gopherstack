@@ -132,9 +132,10 @@ type xmlHostedZone struct {
 }
 
 type xmlDelegationSet struct {
-	XMLName     xml.Name `xml:"DelegationSet"`
-	ID          string   `xml:"Id,omitempty"`
-	NameServers []string `xml:"NameServers>NameServer"`
+	XMLName         xml.Name `xml:"DelegationSet"`
+	ID              string   `xml:"Id,omitempty"`
+	CallerReference string   `xml:"CallerReference,omitempty"`
+	NameServers     []string `xml:"NameServers>NameServer"`
 }
 
 type xmlCreateHostedZoneResponse struct {
@@ -391,10 +392,27 @@ func (h *Handler) listHostedZonesByName(c *echo.Context) error {
 	})
 }
 
+// xmlHostedZoneOwner mirrors types.HostedZoneOwner (route53@v1.65.6
+// deserializers.go: awsRestxml_deserializeDocumentHostedZoneOwner).
+type xmlHostedZoneOwner struct {
+	OwningAccount string `xml:"OwningAccount,omitempty"`
+	OwningService string `xml:"OwningService,omitempty"`
+}
+
+// xmlHostedZoneSummary mirrors types.HostedZoneSummary (route53@v1.65.6
+// deserializers.go: awsRestxml_deserializeDocumentHostedZoneSummary) — its Id
+// field's wire element is "HostedZoneId", not "Id", and it carries a nested
+// Owner, unlike the full xmlHostedZone shape ListHostedZones/ByName return.
+type xmlHostedZoneSummary struct {
+	HostedZoneID string             `xml:"HostedZoneId"`
+	Name         string             `xml:"Name"`
+	Owner        xmlHostedZoneOwner `xml:"Owner"`
+}
+
 type listHZByVPCResponse struct {
-	XMLName     xml.Name        `xml:"ListHostedZonesByVPCResponse"`
-	Xmlns       string          `xml:"xmlns,attr"`
-	HostedZones []xmlHostedZone `xml:"HostedZoneSummaries>HostedZoneSummary"`
+	XMLName     xml.Name               `xml:"ListHostedZonesByVPCResponse"`
+	Xmlns       string                 `xml:"xmlns,attr"`
+	HostedZones []xmlHostedZoneSummary `xml:"HostedZoneSummaries>HostedZoneSummary"`
 }
 
 func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
@@ -410,13 +428,12 @@ func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
 
-	xmlZones := make([]xmlHostedZone, 0, len(zones))
+	xmlZones := make([]xmlHostedZoneSummary, 0, len(zones))
 	for _, z := range zones {
-		xmlZones = append(xmlZones, xmlHostedZone{
-			ID:              "/hostedzone/" + z.ID,
-			Name:            z.Name,
-			CallerReference: z.CallerReference,
-			Config:          xmlHostedZoneConfig{Comment: z.Comment},
+		xmlZones = append(xmlZones, xmlHostedZoneSummary{
+			HostedZoneID: "/hostedzone/" + z.ID,
+			Name:         z.Name,
+			Owner:        xmlHostedZoneOwner{OwningAccount: h.Backend.AccountID()},
 		})
 	}
 

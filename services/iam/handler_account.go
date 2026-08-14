@@ -458,8 +458,8 @@ func (h *Handler) iamOrgsDispatch() map[string]iamActionFn {
 				XMLName: xml.Name{Local: "ListOrganizationsFeaturesResponse"},
 				Xmlns:   iamXMLNS,
 				ListOrganizationsFeaturesResult: listOrganizationsFeaturesResult{
-					OrganizationFeatures: []string{},
-					RootID:               "",
+					EnabledFeatures: []string{},
+					OrganizationID:  "",
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

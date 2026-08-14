@@ -231,11 +231,19 @@ func (h *Handler) deleteCidrCollection(c *echo.Context, path string) error {
 	}{Xmlns: route53Namespace})
 }
 
+// xmlCidrBlockSummary mirrors types.CidrBlockSummary (route53@v1.65.6
+// deserializers.go: awsRestxml_deserializeDocumentCidrBlockSummary) — each
+// member nests CidrBlock and LocationName, it is never a bare string.
+type xmlCidrBlockSummary struct {
+	CidrBlock    string `xml:"CidrBlock"`
+	LocationName string `xml:"LocationName"`
+}
+
 type listCidrBlocksResponse struct {
-	XMLName     xml.Name `xml:"ListCidrBlocksResponse"`
-	Xmlns       string   `xml:"xmlns,attr"`
-	CidrBlocks  []string `xml:"CidrBlocks>member"`
-	IsTruncated bool     `xml:"IsTruncated"`
+	XMLName     xml.Name              `xml:"ListCidrBlocksResponse"`
+	Xmlns       string                `xml:"xmlns,attr"`
+	CidrBlocks  []xmlCidrBlockSummary `xml:"CidrBlocks>member"`
+	IsTruncated bool                  `xml:"IsTruncated"`
 }
 
 func (h *Handler) listCidrBlocks(c *echo.Context, path string) error {
@@ -249,18 +257,30 @@ func (h *Handler) listCidrBlocks(c *echo.Context, path string) error {
 		return handleBackendError(c, err)
 	}
 
+	summaries := make([]xmlCidrBlockSummary, 0, len(blocks))
+	for _, b := range blocks {
+		summaries = append(summaries, xmlCidrBlockSummary{CidrBlock: b, LocationName: locationName})
+	}
+
 	return writeXML(c, http.StatusOK, listCidrBlocksResponse{
 		Xmlns:       route53Namespace,
-		CidrBlocks:  blocks,
+		CidrBlocks:  summaries,
 		IsTruncated: false,
 	})
 }
 
+// xmlCidrLocationSummary mirrors types.LocationSummary (route53@v1.65.6
+// deserializers.go: awsRestxml_deserializeDocumentLocationSummary) — the
+// member nests LocationName, it is never a bare string.
+type xmlCidrLocationSummary struct {
+	LocationName string `xml:"LocationName"`
+}
+
 type listCidrLocationsResponse struct {
-	XMLName       xml.Name `xml:"ListCidrLocationsResponse"`
-	Xmlns         string   `xml:"xmlns,attr"`
-	CidrLocations []string `xml:"CidrLocations>member"`
-	IsTruncated   bool     `xml:"IsTruncated"`
+	XMLName       xml.Name                 `xml:"ListCidrLocationsResponse"`
+	Xmlns         string                   `xml:"xmlns,attr"`
+	CidrLocations []xmlCidrLocationSummary `xml:"CidrLocations>member"`
+	IsTruncated   bool                     `xml:"IsTruncated"`
 }
 
 func (h *Handler) listCidrLocations(c *echo.Context, path string) error {
@@ -273,9 +293,14 @@ func (h *Handler) listCidrLocations(c *echo.Context, path string) error {
 		return handleBackendError(c, err)
 	}
 
+	summaries := make([]xmlCidrLocationSummary, 0, len(locations))
+	for _, l := range locations {
+		summaries = append(summaries, xmlCidrLocationSummary{LocationName: l})
+	}
+
 	return writeXML(c, http.StatusOK, listCidrLocationsResponse{
 		Xmlns:         route53Namespace,
-		CidrLocations: locations,
+		CidrLocations: summaries,
 		IsTruncated:   false,
 	})
 }

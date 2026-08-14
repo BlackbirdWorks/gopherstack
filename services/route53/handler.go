@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -873,6 +874,21 @@ func writeXML(c *echo.Context, statusCode int, v any) error {
 	_, _ = c.Response().Write(data)
 
 	return nil
+}
+
+// readXMLRequest reads the request body and unmarshals it into v, writing a
+// 400 InvalidInput response and returning false when either step fails.
+func readXMLRequest(c *echo.Context, v any) (bool, error) {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return false, xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	if err = xml.Unmarshal(body, v); err != nil {
+		return false, xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	return true, nil
 }
 
 // xmlErrDetail is the nested error detail element in a Route53 error response.

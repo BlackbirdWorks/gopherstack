@@ -431,12 +431,15 @@ type AccountGateResult struct {
 	Status      string `xml:"Status,omitempty"` // SUCCEEDED / FAILED / SKIPPED
 }
 
-// ScannedResource represents a single resource discovered during a resource scan.
+// ScannedResource represents a single resource discovered during a resource
+// scan. ResourceIdentifier is a map (schema primary-identifier name -> value)
+// on the wire, not a scalar (cloudformation@v1.76.1 types/types.go:1470) --
+// it is marshaled separately in the handler, hence "xml:-" here.
 type ScannedResource struct {
-	ResourceType       string `xml:"ResourceType,omitempty"`
-	ResourceIdentifier string `xml:"ResourceIdentifier>member,omitempty"`
-	StackID            string `xml:"StackId,omitempty"`
-	ManagedByStack     bool   `xml:"ManagedByStack,omitempty"`
+	ResourceType       string            `xml:"ResourceType,omitempty"`
+	ResourceIdentifier map[string]string `xml:"-"`
+	StackID            string            `xml:"StackId,omitempty"`
+	ManagedByStack     bool              `xml:"ManagedByStack,omitempty"`
 }
 
 // ChangeSetHook holds a single hook invocation for a change set.

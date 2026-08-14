@@ -7,7 +7,6 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -37,19 +36,9 @@ func (h *Handler) routeDelegationSetRoot(c *echo.Context, method string) error {
 func (h *Handler) createReusableDelegationSet(c *echo.Context) error {
 	ctx := c.Request().Context()
 
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
-	}
-
 	var req xmlDelegationSetCreate
-	if err = xml.Unmarshal(body, &req); err != nil {
-		return xmlError(
-			c,
-			http.StatusBadRequest,
-			"InvalidInput",
-			"failed to parse XML: "+err.Error(),
-		)
+	if ok, err := readXMLRequest(c, &req); !ok {
+		return err
 	}
 
 	ds, err := h.Backend.CreateReusableDelegationSet(req.CallerReference, req.HostedZoneID)
@@ -62,8 +51,9 @@ func (h *Handler) createReusableDelegationSet(c *echo.Context) error {
 	resp := xmlReusableDelegationSetResponse{
 		Xmlns: route53Namespace,
 		DelegationSet: xmlDelegationSet{
-			ID:          ds.ID,
-			NameServers: ds.NameServers,
+			ID:              ds.ID,
+			CallerReference: ds.CallerReference,
+			NameServers:     ds.NameServers,
 		},
 	}
 
@@ -119,8 +109,9 @@ func (h *Handler) getReusableDelegationSet(c *echo.Context, path string) error {
 	return writeXML(c, http.StatusOK, getReusableDSResponse{
 		Xmlns: route53Namespace,
 		DelegationSet: xmlDelegationSet{
-			ID:          ds.ID,
-			NameServers: ds.NameServers,
+			ID:              ds.ID,
+			CallerReference: ds.CallerReference,
+			NameServers:     ds.NameServers,
 		},
 	})
 }
@@ -159,8 +150,9 @@ func (h *Handler) listReusableDelegationSets(c *echo.Context) error {
 	items := make([]xmlDelegationSet, 0, len(sets))
 	for _, ds := range sets {
 		items = append(items, xmlDelegationSet{
-			ID:          ds.ID,
-			NameServers: ds.NameServers,
+			ID:              ds.ID,
+			CallerReference: ds.CallerReference,
+			NameServers:     ds.NameServers,
 		})
 	}
 

@@ -192,7 +192,7 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 		for _, res := range b.resources[stack.StackID] {
 			items = append(items, ScannedResource{
 				ResourceType:       res.Type,
-				ResourceIdentifier: res.PhysicalID,
+				ResourceIdentifier: map[string]string{"Id": res.PhysicalID},
 				ManagedByStack:     true,
 				StackID:            stack.StackID,
 			})
@@ -204,7 +204,7 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 		items = []ScannedResource{
 			{
 				ResourceType:       resTypeS3Bucket,
-				ResourceIdentifier: "example-bucket",
+				ResourceIdentifier: map[string]string{"Id": "example-bucket"},
 				ManagedByStack:     false,
 			},
 		}
