@@ -50,8 +50,41 @@ type stopExecutionOutput struct {
 }
 
 type listExecutionsOutput struct {
-	NextToken  string      `json:"nextToken,omitempty"`
-	Executions []Execution `json:"executions"`
+	NextToken  string              `json:"nextToken,omitempty"`
+	Executions []executionListItem `json:"executions"`
+}
+
+// executionListItem mirrors AWS's ExecutionListItem, which -- unlike the
+// full Execution shape DescribeExecution returns -- has no input, output,
+// error, or cause (types.go, sfn@v1.45.4). ItemCount/MapRunArn are also
+// declared on ExecutionListItem but are not tracked on the domain Execution
+// struct here; that is a separate (missing-field, not over-wide) gap.
+type executionListItem struct {
+	RedriveDate            *float64 `json:"redriveDate,omitempty"`
+	StopDate               *float64 `json:"stopDate,omitempty"`
+	ExecutionArn           string   `json:"executionArn"`
+	Name                   string   `json:"name"`
+	StateMachineArn        string   `json:"stateMachineArn"`
+	Status                 string   `json:"status"`
+	StateMachineAliasArn   string   `json:"stateMachineAliasArn,omitempty"`
+	StateMachineVersionArn string   `json:"stateMachineVersionArn,omitempty"`
+	StartDate              float64  `json:"startDate"`
+	RedriveCount           int      `json:"redriveCount,omitempty"`
+}
+
+func newExecutionListItem(e *Execution) executionListItem {
+	return executionListItem{
+		ExecutionArn:           e.ExecutionArn,
+		Name:                   e.Name,
+		StartDate:              e.StartDate,
+		StateMachineArn:        e.StateMachineArn,
+		Status:                 e.Status,
+		RedriveCount:           e.RedriveCount,
+		RedriveDate:            e.RedriveDate,
+		StateMachineAliasArn:   e.StateMachineAliasArn,
+		StateMachineVersionArn: e.StateMachineVersionArn,
+		StopDate:               e.StopDate,
+	}
 }
 
 type getExecutionHistoryOutput struct {
@@ -195,7 +228,12 @@ func (h *Handler) handleListExecutions(b []byte) (any, error) {
 		return nil, err
 	}
 
-	return &listExecutionsOutput{Executions: execs, NextToken: next}, nil
+	items := make([]executionListItem, len(execs))
+	for i := range execs {
+		items[i] = newExecutionListItem(&execs[i])
+	}
+
+	return &listExecutionsOutput{Executions: items, NextToken: next}, nil
 }
 
 func (h *Handler) handleGetExecutionHistory(b []byte) (any, error) {

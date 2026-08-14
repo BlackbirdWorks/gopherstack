@@ -22,8 +22,30 @@ type updateMapRunInput struct {
 }
 
 type listMapRunsOutput struct {
-	NextToken string   `json:"nextToken,omitempty"`
-	MapRuns   []MapRun `json:"mapRuns"`
+	NextToken string           `json:"nextToken,omitempty"`
+	MapRuns   []mapRunListItem `json:"mapRuns"`
+}
+
+// mapRunListItem mirrors AWS's MapRunListItem, which -- unlike the full
+// MapRun shape DescribeMapRun returns -- has no status, itemCounts,
+// toleratedFailurePercentage, maxConcurrency, toleratedFailureCount,
+// redriveCount, or redriveDate (types.go, sfn@v1.45.4).
+type mapRunListItem struct {
+	StopDate        *float64 `json:"stopDate,omitempty"`
+	ExecutionArn    string   `json:"executionArn"`
+	MapRunArn       string   `json:"mapRunArn"`
+	StateMachineArn string   `json:"stateMachineArn"`
+	StartDate       float64  `json:"startDate"`
+}
+
+func newMapRunListItem(m *MapRun) mapRunListItem {
+	return mapRunListItem{
+		ExecutionArn:    m.ExecutionArn,
+		MapRunArn:       m.MapRunArn,
+		StartDate:       m.StartDate,
+		StateMachineArn: m.StateMachineArn,
+		StopDate:        m.StopDate,
+	}
 }
 
 // mapRunActions returns handler functions for Map Run operations.
@@ -52,7 +74,12 @@ func (h *Handler) mapRunActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &listMapRunsOutput{NextToken: next, MapRuns: runs}, nil
+			items := make([]mapRunListItem, len(runs))
+			for i := range runs {
+				items[i] = newMapRunListItem(&runs[i])
+			}
+
+			return &listMapRunsOutput{NextToken: next, MapRuns: items}, nil
 		},
 		"TestState": func(body []byte) (any, error) {
 			return h.handleTestState(body)

@@ -32,8 +32,25 @@ type listActivitiesInput struct {
 }
 
 type listActivitiesOutput struct {
-	NextToken  string     `json:"nextToken,omitempty"`
-	Activities []Activity `json:"activities"`
+	NextToken  string             `json:"nextToken,omitempty"`
+	Activities []activityListItem `json:"activities"`
+}
+
+// activityListItem mirrors AWS's ActivityListItem, which -- unlike the full
+// Activity shape DescribeActivity returns -- has no encryptionConfiguration
+// (types.go, sfn@v1.45.4).
+type activityListItem struct {
+	ActivityArn  string  `json:"activityArn"`
+	Name         string  `json:"name"`
+	CreationDate float64 `json:"creationDate"`
+}
+
+func newActivityListItem(a *Activity) activityListItem {
+	return activityListItem{
+		ActivityArn:  a.ActivityArn,
+		CreationDate: a.CreationDate,
+		Name:         a.Name,
+	}
 }
 
 type getActivityTaskInput struct {
@@ -155,7 +172,12 @@ func (h *Handler) handleListActivities(ctx context.Context, b []byte) (any, erro
 		return nil, err
 	}
 
-	return &listActivitiesOutput{Activities: acts, NextToken: next}, nil
+	items := make([]activityListItem, len(acts))
+	for i := range acts {
+		items[i] = newActivityListItem(&acts[i])
+	}
+
+	return &listActivitiesOutput{Activities: items, NextToken: next}, nil
 }
 
 func (h *Handler) handleSendTaskSuccess(b []byte) (any, error) {

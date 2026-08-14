@@ -55,8 +55,28 @@ type createStateMachineOutput struct {
 type deleteStateMachineOutput struct{}
 
 type listStateMachinesOutput struct {
-	NextToken     string         `json:"nextToken,omitempty"`
-	StateMachines []StateMachine `json:"stateMachines"`
+	NextToken     string                 `json:"nextToken,omitempty"`
+	StateMachines []stateMachineListItem `json:"stateMachines"`
+}
+
+// stateMachineListItem mirrors AWS's StateMachineListItem, which -- unlike
+// the full StateMachine shape DescribeStateMachine returns -- carries only
+// the four fields below (types.go, sfn@v1.45.4): no definition, roleArn,
+// status, revisionId, updatedDate, or tracing/logging/encryption config.
+type stateMachineListItem struct {
+	Name            string  `json:"name"`
+	StateMachineArn string  `json:"stateMachineArn"`
+	Type            string  `json:"type"`
+	CreationDate    float64 `json:"creationDate"`
+}
+
+func newStateMachineListItem(sm *StateMachine) stateMachineListItem {
+	return stateMachineListItem{
+		CreationDate:    sm.CreationDate,
+		Name:            sm.Name,
+		StateMachineArn: sm.StateMachineArn,
+		Type:            sm.Type,
+	}
 }
 
 type updateStateMachineOutput struct {

@@ -32,8 +32,24 @@ type listStateMachineAliasesInput struct {
 }
 
 type listStateMachineAliasesOutput struct {
-	NextToken           string                   `json:"nextToken,omitempty"`
-	StateMachineAliases []stateMachineAliasEntry `json:"stateMachineAliases"`
+	NextToken           string                      `json:"nextToken,omitempty"`
+	StateMachineAliases []stateMachineAliasListItem `json:"stateMachineAliases"`
+}
+
+// stateMachineAliasListItem mirrors AWS's StateMachineAliasListItem, which
+// -- unlike DescribeStateMachineAliasOutput (stateMachineAliasEntry above)
+// -- carries only the two fields below: no name, description,
+// routingConfiguration, or updateDate (types.go, sfn@v1.45.4).
+type stateMachineAliasListItem struct {
+	StateMachineAliasArn string  `json:"stateMachineAliasArn"`
+	CreationDate         float64 `json:"creationDate"`
+}
+
+func newStateMachineAliasListItem(a *StateMachineAlias) stateMachineAliasListItem {
+	return stateMachineAliasListItem{
+		CreationDate:         a.CreationDate,
+		StateMachineAliasArn: a.StateMachineAliasArn,
+	}
 }
 
 // stateMachineAliasEntry mirrors AWS's alias response shapes on the wire.
@@ -146,9 +162,9 @@ func (h *Handler) handleListStateMachineAliases(b []byte) (any, error) {
 		return nil, err
 	}
 
-	entries := make([]stateMachineAliasEntry, len(aliases))
+	entries := make([]stateMachineAliasListItem, len(aliases))
 	for i := range aliases {
-		entries[i] = *newStateMachineAliasEntry(&aliases[i])
+		entries[i] = newStateMachineAliasListItem(&aliases[i])
 	}
 
 	return &listStateMachineAliasesOutput{

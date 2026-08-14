@@ -75,16 +75,16 @@ ops:
       separate DescribeStateMachineVersion operation in the actual API (see
       notes; that op was fabricated in this emulator and has been deleted).
       Also now returns the new RevisionID field.
-  ListStateMachines: {wire: ok, errors: ok, state: ok, persist: ok, note: "page.Page[T] pagination"}
+  ListStateMachines: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full StateMachine struct per item, leaking definition/roleArn/status/revisionId/updatedDate/encryptionConfiguration/tracingConfiguration/loggingConfiguration -- real StateMachineListItem (types.go, sfn@v1.45.4) declares only creationDate/name/stateMachineArn/type. Prior 'wire: ok' verified required-field presence, not absence of extras. Now marshals a new stateMachineListItem view; page.Page[T] pagination unchanged."}
   DescribeStateMachineForExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   PublishStateMachineVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteStateMachineVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListStateMachineVersions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListStateMachineVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full StateMachineVersion struct per item, leaking stateMachineArn/name/definition/roleArn/type/status/description/revisionId -- real StateMachineVersionListItem (types.go, sfn@v1.45.4) declares only creationDate/stateMachineVersionArn. Now marshals a new stateMachineVersionListItem view."}
   CreateStateMachineAlias: {wire: ok, errors: ok, state: ok, persist: ok, note: "routingConfiguration weighted versions validated"}
   UpdateStateMachineAlias: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteStateMachineAlias: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeStateMachineAlias: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListStateMachineAliases: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListStateMachineAliases: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response reused stateMachineAliasEntry (the Describe/Create/Update shape), leaking name/description/routingConfiguration/updateDate -- real StateMachineAliasListItem (types.go, sfn@v1.45.4) declares only creationDate/stateMachineAliasArn. Now marshals a new, distinct stateMachineAliasListItem view; stateMachineAliasEntry stays as-is for Describe/Create/Update, which do carry all those fields."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -154,7 +154,19 @@ ops:
       TraceHeader (X-Ray passthrough, not even parsed as a StartExecution
       input), and InputDetails/OutputDetails (CloudWatchEventsExecutionDataDetails,
       always {truncated:false} in practice) remain absent.
-  ListExecutions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListExecutions:
+    wire: fixed
+    errors: ok
+    state: ok
+    persist: ok
+    note: >
+      FIXED (gopherstack-dv4s): response marshaled the full Execution
+      struct per item, leaking input/output/error/cause -- real
+      ExecutionListItem (types.go, sfn@v1.45.4) has no such fields. Now
+      marshals a new executionListItem view. NOTE: ExecutionListItem also
+      declares itemCount/mapRunArn, which the domain Execution struct here
+      does not track at all -- a separate missing-field gap (not
+      over-wide), left for a future pass.
   GetExecutionHistory: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass; TaskScheduled/TaskSucceeded/TaskFailed detail population fixed in a prior pass -- remaining gaps tracked at bd: gopherstack-996"}
   CreateActivity:
     wire: fixed
@@ -182,7 +194,7 @@ ops:
       entry in the handler's tags map. Added the same tagsMu-guarded
       cleanup DeleteStateMachine uses.
   DescribeActivity: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns EncryptionConfiguration (see CreateActivity)"}
-  ListActivities: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListActivities: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full Activity struct per item, leaking encryptionConfiguration -- real ActivityListItem (types.go, sfn@v1.45.4) declares only activityArn/creationDate/name. Now marshals a new activityListItem view."}
   GetActivityTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "long-poll with WaitTimeSeconds; task-token issuance"}
   SendTaskSuccess: {wire: ok, errors: ok, state: ok, persist: ok}
   SendTaskFailure: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -200,7 +212,7 @@ ops:
       structural gap already documented under DescribeExecution's MapRunArn
       note above (bd: gopherstack-f5dc). ItemCounts (a real, distinct field)
       is present and populated.
-  ListMapRuns: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListMapRuns: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full MapRun struct per item, leaking status/itemCounts/toleratedFailurePercentage/maxConcurrency/toleratedFailureCount/redriveCount/redriveDate -- real MapRunListItem (types.go, sfn@v1.45.4) declares only executionArn/mapRunArn/startDate/stateMachineArn/stopDate. Now marshals a new mapRunListItem view."}
   UpdateMapRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "ToleratedFailureCount/Percentage on the MapRun *resource* API were already real; the ASL-definition-level Map state fields were fixed in a prior pass"}
   TestState: {wire: ok, errors: ok, state: ok, persist: n/a}
 families:
@@ -284,6 +296,7 @@ gaps:
   - "TaskScheduledEventDetails/TaskSucceededEventDetails still omit resourceType/region/parameters/timeoutInSeconds/heartbeatInSeconds/outputDetails.truncated; no TaskSubmitted/TaskStarted history events for .sync/.waitForTaskToken (bd: gopherstack-996)"
   - "DescribeExecutionOutput missing RedriveStatus/RedriveStatusReason/MapRunArn/TraceHeader/InputDetails/OutputDetails (found this pass via SDK field-diff; StateMachineVersionArn/StateMachineAliasArn were fixed this pass, these were not, bd: gopherstack-f5dc)"
   - "Non-standard intrinsic functions (StringConcat, ArraySlice, MathSubtract, etc.) are accepted by this emulator but do not exist in real AWS Step Functions -- permissive superset, not a correctness bug against valid AWS definitions, but a definition that only works here would fail on real AWS (no bd filed; informational)"
+  - "ListExecutions' new executionListItem view (gopherstack-dv4s) omits itemCount/mapRunArn, which real ExecutionListItem declares (types.go, sfn@v1.45.4) -- the domain Execution struct never tracked either field, a missing-field gap distinct from the over-wide leak this pass fixed (bd: unfiled)"
 deferred: []
 leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execution's context via b.cancelFns; Wait/waitForRetry/execSem/semaphore all select on ctx.Done(); Map/Parallel goroutines (wg.Go) all respect ctx cancellation. FIXED this pass: DeleteActivity leaked a permanent h.tags tombstone entry per deleted activity (see ops.DeleteActivity). No new goroutines introduced this pass (resolveExecutionTarget/S3Reader wiring are synchronous, no new goroutines)."}
 ---
