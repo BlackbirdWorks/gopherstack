@@ -39,3 +39,6 @@ leaks: {status: clean|found, note: <goroutine/janitor/map/ctx findings>}
 Freeform: AWS-behavior specifics worth remembering (exact algorithms, wire quirks,
 error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and any
 "looks-wrong-but-correct" traps so the next auditor doesn't re-flag them.
+
+For this service's actual pinned protocol and decode case-sensitivity, don't guess —
+check `services/_PROTOCOLS.md` first.
