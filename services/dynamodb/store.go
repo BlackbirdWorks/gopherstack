@@ -233,11 +233,23 @@ const (
 //
 
 type Table struct {
-	StreamCreatedAt        time.Time `json:"StreamCreatedAt"`
-	CreationDateTime       time.Time `json:"CreationDateTime"`
-	kinesisEmitter         KinesisEmitter
-	pkIndex                map[string]int
-	pkskIndex              map[string]map[string]int
+	StreamCreatedAt  time.Time `json:"StreamCreatedAt"`
+	CreationDateTime time.Time `json:"CreationDateTime"`
+	kinesisEmitter   KinesisEmitter
+	pkIndex          map[string]int
+	pkskIndex        map[string]map[string]int
+	// gsiIndexes and lsiIndexes are keyed by IndexName; each maps that index's
+	// key value(s) to the set of item offsets sharing them (see
+	// secondary_index.go). Derived from Items + GlobalSecondaryIndexes/
+	// LocalSecondaryIndexes and rebuilt by rebuildIndexes -- never persisted,
+	// so adding them is not a snapshot-version change.
+	gsiIndexes map[string]*secondaryIndex
+	lsiIndexes map[string]*secondaryIndex
+	// activeSecondaryIndex is scratch space set on the throwaway snapshot
+	// Table built per-Query call (see snapshotTableForQuery); it holds a
+	// deep copy of the one GSI/LSI index the query targets, same role as
+	// itemsByOffset plays for primary-key queries.
+	activeSecondaryIndex   *secondaryIndex
 	itemsByOffset          map[int]map[string]any
 	mu                     *lockmetrics.RWMutex
 	activateTimer          *time.Timer
@@ -523,7 +535,8 @@ func BuildKeyString(item map[string]any, attrName string) string {
 	return dynamoattr.ToString(item[attrName])
 }
 
-// initializeIndexes creates empty index maps for a table.
+// initializeIndexes creates empty index maps for a table, including one
+// secondaryIndex per currently-defined GSI/LSI.
 func (t *Table) initializeIndexes() {
 	hasSortKey := len(t.KeySchema) > 1
 
@@ -531,6 +544,18 @@ func (t *Table) initializeIndexes() {
 		t.pkskIndex = make(map[string]map[string]int)
 	} else {
 		t.pkIndex = make(map[string]int)
+	}
+
+	t.gsiIndexes = make(map[string]*secondaryIndex, len(t.GlobalSecondaryIndexes))
+	for _, gsi := range t.GlobalSecondaryIndexes {
+		_, skDef := getPKAndSK(gsi.KeySchema)
+		t.gsiIndexes[gsi.IndexName] = newSecondaryIndex(skDef.AttributeName != "")
+	}
+
+	t.lsiIndexes = make(map[string]*secondaryIndex, len(t.LocalSecondaryIndexes))
+	for _, lsi := range t.LocalSecondaryIndexes {
+		_, skDef := getPKAndSK(lsi.KeySchema)
+		t.lsiIndexes[lsi.IndexName] = newSecondaryIndex(skDef.AttributeName != "")
 	}
 }
 
@@ -566,6 +591,8 @@ func (t *Table) rebuildIndexes() {
 		} else {
 			t.pkIndex[pkVal] = i
 		}
+
+		t.updateSecondaryIndexes(nil, 0, item, i)
 	}
 }
 

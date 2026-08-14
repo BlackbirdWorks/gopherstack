@@ -23,6 +23,8 @@ var errConditionalCheckFailed = errors.New("conditional check failed")
 type tableStateSnapshot struct {
 	pkIndex            map[string]int
 	pkskIndex          map[string]map[string]int
+	gsiIndexes         map[string]*secondaryIndex
+	lsiIndexes         map[string]*secondaryIndex
 	items              []map[string]any
 	itemSizes          []int
 	totalItemSizeBytes int64
@@ -1004,6 +1006,8 @@ func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableS
 			totalItemSizeBytes: t.totalItemSizeBytes,
 			pkIndex:            pkIdxCopy,
 			pkskIndex:          pkskIdxCopy,
+			gsiIndexes:         copySecondaryIndexMap(t.gsiIndexes),
+			lsiIndexes:         copySecondaryIndexMap(t.lsiIndexes),
 		}
 	}
 
@@ -1021,6 +1025,8 @@ func (db *InMemoryDB) rollbackTables(
 			t.totalItemSizeBytes = s.totalItemSizeBytes
 			t.pkIndex = s.pkIndex
 			t.pkskIndex = s.pkskIndex
+			t.gsiIndexes = s.gsiIndexes
+			t.lsiIndexes = s.lsiIndexes
 		}
 	}
 }

@@ -72,7 +72,7 @@ func (db *InMemoryDB) QueryWithContext(
 	idxName := aws.ToString(input.IndexName)
 
 	// Pre-parse PK value before locking so we can do a targeted index copy.
-	precomputedPKValue := preParseQueryPKValue(input, idxName)
+	precomputedPKValue := preParseQueryPKValue(input)
 	snapshotTable, billingMode, ttlAttr := db.snapshotTableForQuery(
 		table, idxName, precomputedPKValue,
 	)
@@ -148,12 +148,28 @@ func (db *InMemoryDB) snapshotTableForQuery(
 	// Copy only the index entries we actually need (#57).
 	pkIndexCopy, pkskIndexCopy := db.snapshotIndexForQuery(table, idxName, precomputedPKValue)
 
+	// A GSI/LSI query consults only the one named index, and (when the PK value
+	// is known) only that PK's entries within it -- same targeted-copy strategy
+	// as pkIndexCopy/pkskIndexCopy above, and for the same reason: copying every
+	// bucket of a GSI whose key is as selective as the base table's (e.g. one
+	// item per PK value) would be an O(table) copy on every query, defeating
+	// the point of indexing it.
+	activeSecondaryIndex := db.snapshotSecondaryIndexForQuery(table, idxName, precomputedPKValue)
+
 	var itemsCopy []map[string]any
 	var itemsByOffset map[int]map[string]any
 
-	if idxName == "" && precomputedPKValue != "" {
+	switch {
+	case idxName == "" && precomputedPKValue != "":
 		itemsByOffset = snapshotItemsByOffset(table, pkIndexCopy, pkskIndexCopy)
-	} else {
+	case idxName != "" && precomputedPKValue != "" && activeSecondaryIndex != nil:
+		// activeSecondaryIndex != nil here guarantees tryFilterUsingSecondaryIndex
+		// (item_ops_query.go) will independently re-derive this same non-empty PK
+		// value from the identical KeyConditionExpression and succeed -- it always
+		// returns ok=true in that case, so filterCandidatesScan's fallback (which
+		// needs the full table.Items, not this offset-scoped map) is never reached.
+		itemsByOffset = snapshotItemsByOffsetSet(table, activeSecondaryIndex.allOffsets())
+	default:
 		itemsCopy = make([]map[string]any, len(table.Items))
 		copy(itemsCopy, table.Items)
 	}
@@ -168,6 +184,7 @@ func (db *InMemoryDB) snapshotTableForQuery(
 		TTLAttribute:           ttlAttr,
 		pkIndex:                pkIndexCopy,
 		pkskIndex:              pkskIndexCopy,
+		activeSecondaryIndex:   activeSecondaryIndex,
 	}
 
 	return snapshotTable, billingMode, ttlAttr
@@ -248,7 +265,6 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 		parsedParts = append(parsedParts, pc)
 	}
 
-	// Try to use index for primary table queries (not GSI/LSI)
 	if idxName == "" {
 		candidates, ok := db.tryFilterUsingAuthoritativeIndex(
 			table,
@@ -257,6 +273,20 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 			keySchema,
 			pkExpr,
 			pkDef,
+			skDef,
+			parsedParts,
+			eav,
+		)
+		if ok {
+			return candidates, nil
+		}
+	} else {
+		candidates, ok := db.tryFilterUsingSecondaryIndex(
+			table,
+			input,
+			projection,
+			keySchema,
+			pkExpr,
 			skDef,
 			parsedParts,
 			eav,
@@ -335,6 +365,53 @@ func (db *InMemoryDB) filterUsingIndices(
 	}
 
 	return candidates
+}
+
+// tryFilterUsingSecondaryIndex serves a GSI/LSI Query directly from the
+// query's snapshotted secondary index (table.activeSecondaryIndex, populated
+// by snapshotTableForQuery) instead of scanning every item in the table.
+// Returns ok=false when the index can't be used for this expression (e.g. no
+// simple pk equality condition), so the caller falls back to
+// filterCandidatesScan -- slower, but always correct.
+func (db *InMemoryDB) tryFilterUsingSecondaryIndex(
+	table *Table,
+	input *dynamodb.QueryInput,
+	projection *models.Projection,
+	keySchema []models.KeySchemaElement,
+	pkExpr string,
+	skDef models.KeySchemaElement,
+	exprParts []*ParsedCondition,
+	eav map[string]any,
+) ([]map[string]any, bool) {
+	si := table.activeSecondaryIndex
+	if si == nil {
+		return nil, false
+	}
+
+	pkValue := extractPKValueFromExpression(pkExpr, eav, input.ExpressionAttributeNames)
+	if pkValue == "" {
+		return nil, false
+	}
+
+	offsets := si.offsetsForPK(pkValue, skDef.AttributeName != "")
+	if offsets == nil {
+		return nil, true // index key exists in schema but no items match it
+	}
+
+	indices := make([]int, 0, len(offsets))
+	for idx := range offsets {
+		indices = append(indices, idx)
+	}
+
+	candidates := db.filterUsingIndices(table, input, projection, indices, exprParts, eav)
+
+	// GSI/LSI queries must respect the index's declared projection -- see
+	// filterCandidatesScan, which applies the same projection on the scan path.
+	for i, c := range candidates {
+		candidates[i] = applyGSIProjection(c, *projection, table.KeySchema, keySchema)
+	}
+
+	return candidates, true
 }
 
 func extractPKValueFromExpression(
@@ -588,14 +665,13 @@ func inferSKType(candidates []map[string]any, skName string) string {
 
 // preParseQueryPKValue extracts the partition key value from a QueryInput's
 // KeyConditionExpression before taking any lock. Returns "" when the PK value
-// cannot be determined (unknown index, unparseable expression, etc.).
-// Only operates on primary-table queries (idxName == "") because GSI/LSI
-// queries do not use the primary index.
-func preParseQueryPKValue(input *dynamodb.QueryInput, idxName string) string {
-	if idxName != "" {
-		return ""
-	}
-
+// cannot be determined (unparseable expression, no equality condition, etc.).
+// The extraction itself is schema-agnostic -- KeyConditionExpression's first
+// AND-clause is always the partition key equality condition, whether the
+// query targets the base table or a GSI/LSI -- so the same helper scopes the
+// targeted index-snapshot copy for both (see snapshotIndexForQuery and
+// snapshotSecondaryIndexForQuery).
+func preParseQueryPKValue(input *dynamodb.QueryInput) string {
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	exprParts := dynamoattr.SplitANDConditions(aws.ToString(input.KeyConditionExpression))
 

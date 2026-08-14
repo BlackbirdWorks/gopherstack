@@ -171,6 +171,8 @@ func snapshotTxnTableStateRLocked(t *Table) tableStateSnapshot {
 		totalItemSizeBytes: t.totalItemSizeBytes,
 		pkIndex:            pkIdxCopy,
 		pkskIndex:          pkskIdxCopy,
+		gsiIndexes:         copySecondaryIndexMap(t.gsiIndexes),
+		lsiIndexes:         copySecondaryIndexMap(t.lsiIndexes),
 	}
 }
 
@@ -211,6 +213,8 @@ func restoreTxnTableStateLocked(t *Table, snap tableStateSnapshot) {
 	t.totalItemSizeBytes = snap.totalItemSizeBytes
 	t.pkIndex = snap.pkIndex
 	t.pkskIndex = snap.pkskIndex
+	t.gsiIndexes = snap.gsiIndexes
+	t.lsiIndexes = snap.lsiIndexes
 }
 
 // executeTransactionStatement converts one ParameterizedStatement to wire format,

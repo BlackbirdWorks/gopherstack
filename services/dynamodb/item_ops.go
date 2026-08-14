@@ -656,6 +656,13 @@ func snapshotItemsByOffset(
 		}
 	}
 
+	return snapshotItemsByOffsetSet(table, offsets)
+}
+
+// snapshotItemsByOffsetSet builds a sparse offset-keyed map containing only
+// the item pointers at the given offsets. The caller must already hold the
+// table read-lock when offsets was derived.
+func snapshotItemsByOffsetSet(table *Table, offsets map[int]struct{}) map[int]map[string]any {
 	result := make(map[int]map[string]any, len(offsets))
 
 	for idx := range offsets {

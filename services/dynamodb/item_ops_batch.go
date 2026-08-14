@@ -679,8 +679,12 @@ func (db *InMemoryDB) processBatchPutRequests(
 	table *Table,
 	requests []types.WriteRequest,
 	rim types.ReturnItemCollectionMetrics,
-) (map[int]bool, []types.ItemCollectionMetrics) {
-	modifiedIndices := make(map[int]bool)
+) (map[int]map[string]any, []types.ItemCollectionMetrics) {
+	// modifiedIndices maps each put's final item offset to its pre-write value
+	// (nil for a fresh insert); updateBatchIndexes needs the pre-write value to
+	// correctly retire stale GSI/LSI membership when a put changes a key
+	// attribute's value.
+	modifiedIndices := make(map[int]map[string]any)
 	trackMetrics := rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0
 
 	var metrics []types.ItemCollectionMetrics
@@ -705,9 +709,9 @@ func (db *InMemoryDB) processBatchPutRequests(
 			}
 		}
 
-		idx := db.handleBatchPutWithIndex(table, wireItem)
+		oldItem, idx := db.handleBatchPutWithIndex(table, wireItem)
 		if idx >= 0 {
-			modifiedIndices[idx] = true
+			modifiedIndices[idx] = oldItem
 		}
 	}
 
@@ -790,19 +794,26 @@ func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
 	table.rebuildIndexes()
 }
 
+// updateBatchIndexes incrementally updates every index (primary and
+// GSI/LSI) for the items BatchWriteItem just put in place, without
+// rebuilding the whole table (O(K) in the number of puts, not O(N) in table
+// size). modifiedIndices maps each modified item's final offset to its
+// pre-write value (nil for a freshly-inserted item) so secondary indexes can
+// correctly retire stale GSI/LSI membership when a put changes a key
+// attribute's value.
 func (db *InMemoryDB) updateBatchIndexes(
 	table *Table,
-	modifiedIndices map[int]bool,
+	modifiedIndices map[int]map[string]any,
 ) {
 	if len(modifiedIndices) == 0 {
 		return
 	}
 
-	// Incremental update: only rebuild indices for modified items (O(K) instead of O(N))
 	pkDef, skDef := getPKAndSK(table.KeySchema)
-	for idx := range modifiedIndices {
+	for idx, oldItem := range modifiedIndices {
 		if idx >= 0 && idx < len(table.Items) {
 			db.updateItemIndex(table, idx, pkDef, skDef)
+			table.updateSecondaryIndexes(oldItem, idx, table.Items[idx], idx)
 		}
 	}
 }
@@ -860,7 +871,11 @@ func validateBatchWriteRequest(req types.WriteRequest, table *Table) error {
 	return nil
 }
 
-func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) int {
+// handleBatchPutWithIndex writes item into table.Items (in place if it
+// matches an existing key, appended otherwise) and returns the item's
+// pre-write value (nil for a fresh insert) alongside its final offset, so the
+// caller can later feed both to updateBatchIndexes/updateSecondaryIndexes.
+func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) (map[string]any, int) {
 	// Reuse the same item-size calculator as PutItem (doPut) so table.itemSizes
 	// and table.totalItemSizeBytes stay in lockstep with table.Items regardless
 	// of which write path (PutItem vs BatchWriteItem) added the item. Without
@@ -877,7 +892,7 @@ func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any)
 		table.itemSizes[matchIndex] = itemSize
 		table.Items[matchIndex] = item
 
-		return matchIndex
+		return oldItem, matchIndex
 	}
 	// Capture stream event (INSERT) for the new item.
 	table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(item), "", "")
@@ -886,5 +901,5 @@ func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any)
 	table.itemSizes = append(table.itemSizes, itemSize)
 	table.totalItemSizeBytes += int64(itemSize)
 
-	return idx
+	return nil, idx
 }
