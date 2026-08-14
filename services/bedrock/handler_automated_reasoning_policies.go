@@ -624,7 +624,9 @@ func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"automatedReasoningPolicies": summaries})
+	// Real key is automatedReasoningPolicySummaries (bedrock@v1.66.4
+	// deserializers.go, awsRestjson1_deserializeOpDocumentListAutomatedReasoningPoliciesOutput).
+	return c.JSON(http.StatusOK, map[string]any{"automatedReasoningPolicySummaries": summaries})
 }
 
 type updateARPInput struct {
@@ -725,7 +727,9 @@ func (h *Handler) handleListARPBuildWorkflows(c *echo.Context, path string) erro
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"buildWorkflows": summaries})
+	// Real key is automatedReasoningPolicyBuildWorkflowSummaries (bedrock@v1.66.4
+	// deserializers.go, awsRestjson1_deserializeOpDocumentListAutomatedReasoningPolicyBuildWorkflowsOutput).
+	return c.JSON(http.StatusOK, map[string]any{"automatedReasoningPolicyBuildWorkflowSummaries": summaries})
 }
 
 func (h *Handler) handleDeleteARPBuildWorkflow(c *echo.Context, path string) error {

@@ -747,7 +747,7 @@ func TestHandler_GetListDeleteARPBuildWorkflow(t *testing.T) {
 
 	var listOut map[string]any
 	mustUnmarshal(t, recList, &listOut)
-	assert.Len(t, listOut["buildWorkflows"], 1)
+	assert.Len(t, listOut["automatedReasoningPolicyBuildWorkflowSummaries"], 1)
 
 	// Delete
 	recDel := doRequest(t, h, http.MethodDelete,
@@ -759,7 +759,7 @@ func TestHandler_GetListDeleteARPBuildWorkflow(t *testing.T) {
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/build-workflows", nil)
 	var listOut2 map[string]any
 	mustUnmarshal(t, recList2, &listOut2)
-	assert.Empty(t, listOut2["buildWorkflows"])
+	assert.Empty(t, listOut2["automatedReasoningPolicyBuildWorkflowSummaries"])
 }
 
 func TestHandler_GetListDeleteARPTestCase(t *testing.T) {
