@@ -7,6 +7,7 @@ package dynamodb
 import (
 	"context"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
@@ -137,4 +138,62 @@ func sdkAutoScalingSettingsDescription(t *autoScalingThroughput) *types.AutoScal
 		MaximumUnits:        t.MaxCapacity,
 		AutoScalingDisabled: &disabled,
 	}
+}
+
+// --- DescribeTableReplicaAutoScaling ---
+
+// replicaAutoScalingDescriptionsRLocked copies table.Replicas, along with the
+// table's write-capacity autoscaling settings (applied uniformly to every
+// replica -- this emulator doesn't model per-replica overrides), into the SDK
+// description type under a defer-protected table.mu.RLock.
+func replicaAutoScalingDescriptionsRLocked(table *Table) []types.ReplicaAutoScalingDescription {
+	table.mu.RLock(opDescribeTableReplicaAutoScaling)
+	defer table.mu.RUnlock()
+
+	var write *types.AutoScalingSettingsDescription
+	if table.AutoScaling != nil {
+		write = sdkAutoScalingSettingsDescription(table.AutoScaling.Write)
+	}
+
+	replicas := make([]types.ReplicaAutoScalingDescription, 0, len(table.Replicas))
+	for _, r := range table.Replicas {
+		region := r.RegionName
+		status := r.ReplicaStatus
+
+		replicas = append(replicas, types.ReplicaAutoScalingDescription{
+			RegionName:    &region,
+			ReplicaStatus: types.ReplicaStatus(status),
+			ReplicaProvisionedWriteCapacityAutoScalingSettings: write,
+		})
+	}
+
+	return replicas
+}
+
+// DescribeTableReplicaAutoScaling returns the autoscaling settings for a
+// table's replicas. It satisfies the StorageBackend interface using official
+// AWS SDK v2 types.
+func (db *InMemoryDB) DescribeTableReplicaAutoScaling(
+	ctx context.Context,
+	input *dynamodb.DescribeTableReplicaAutoScalingInput,
+) (*dynamodb.DescribeTableReplicaAutoScalingOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	if tableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	table, err := db.getTable(ctx, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	replicas := replicaAutoScalingDescriptionsRLocked(table)
+
+	return &dynamodb.DescribeTableReplicaAutoScalingOutput{
+		TableAutoScalingDescription: &types.TableAutoScalingDescription{
+			TableName:   &tableName,
+			TableStatus: types.TableStatus(models.TableStatusActive),
+			Replicas:    replicas,
+		},
+	}, nil
 }

@@ -1024,51 +1024,6 @@ func (db *InMemoryDB) collectExportSummariesRLocked(tableArn, requestRegion stri
 	return summaries
 }
 
-func (db *InMemoryDB) listExportsWire(
-	tableArn, nextToken string,
-	maxResults int,
-	requestRegion string,
-) *listExportsOutput {
-	summaries := db.collectExportSummariesRLocked(tableArn, requestRegion)
-
-	// Sort by ARN for deterministic ordering.
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].ExportArn < summaries[j].ExportArn
-	})
-
-	// Apply ExclusiveStart (NextToken is the last-seen ARN).
-	start := 0
-	if nextToken != "" {
-		for i, s := range summaries {
-			if s.ExportArn == nextToken {
-				start = i + 1
-
-				break
-			}
-		}
-	}
-	summaries = summaries[start:]
-
-	// Apply page cap.
-	const defaultMaxResults = 25
-
-	pageSize := defaultMaxResults
-	if maxResults > 0 {
-		pageSize = maxResults
-	}
-
-	var outNextToken string
-	if len(summaries) > pageSize {
-		outNextToken = summaries[pageSize-1].ExportArn
-		summaries = summaries[:pageSize]
-	}
-
-	return &listExportsOutput{
-		ExportSummaries: summaries,
-		NextToken:       outNextToken,
-	}
-}
-
 // storeImport persists an import record so it can be retrieved by DescribeImport/ListImports.
 func (db *InMemoryDB) storeImport(imp storedImport) {
 	db.mu.Lock("storeImport")

@@ -111,22 +111,6 @@ type autoScalingSettingsDescWire struct {
 	AutoScalingDisabled *bool  `json:"AutoScalingDisabled,omitempty"`
 }
 
-// autoScalingSettingsDescWireFromStored builds the wire description from the
-// persisted autoScalingThroughput, or nil if t is nil.
-func autoScalingSettingsDescWireFromStored(t *autoScalingThroughput) *autoScalingSettingsDescWire {
-	if t == nil {
-		return nil
-	}
-
-	disabled := t.Disabled
-
-	return &autoScalingSettingsDescWire{
-		MinimumUnits:        t.MinCapacity,
-		MaximumUnits:        t.MaxCapacity,
-		AutoScalingDisabled: &disabled,
-	}
-}
-
 // replicaAutoScalingDescWire is the wire format for
 // types.ReplicaAutoScalingDescription, trimmed to the members this emulator
 // tracks (GlobalSecondaryIndexes and the read-capacity settings are not
