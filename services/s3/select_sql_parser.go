@@ -75,7 +75,70 @@ func (p *sqlParser) parse() (*sqlQuery, error) {
 		return nil, err
 	}
 
+	if err = p.expectEOF(); err != nil {
+		return nil, err
+	}
+
+	if err = validateAggregateColumns(q); err != nil {
+		return nil, err
+	}
+
 	return q, nil
+}
+
+// validateAggregateColumns rejects a SELECT list that mixes an aggregate
+// function with a plain per-row column. This engine has no GROUP BY, so
+// aggregating collapses all rows into one - a plain column in that list is
+// ambiguous (which row's value would it be?). Evaluating it anyway silently
+// drops the plain column from the output instead of erroring.
+func validateAggregateColumns(q *sqlQuery) error {
+	if !q.hasAggregates() {
+		return nil
+	}
+
+	for _, col := range q.columns {
+		if !exprAggregateSafe(col.expr) {
+			return fmt.Errorf(
+				"%w: column %q must be part of an aggregate function", errNonAggregateColumn, columnName(col, 0),
+			)
+		}
+	}
+
+	return nil
+}
+
+// exprAggregateSafe reports whether expr is safe to select alongside an
+// aggregate function without a GROUP BY: an aggregate call itself, a
+// constant literal, or a CAST of one of those.
+func exprAggregateSafe(e sqlExpr) bool {
+	switch v := e.(type) {
+	case *sqlAggExpr:
+		return true
+	case *sqlLiteral:
+		return true
+	case *sqlCastExpr:
+		return exprAggregateSafe(v.inner)
+	default:
+		return false
+	}
+}
+
+// expectEOF errors if unconsumed tokens remain after the recognised clauses.
+// Without this, an unsupported trailing construct (JOIN, GROUP BY, HAVING,
+// UNION, a stray semicolon) is silently dropped and the query runs on
+// whatever prefix did parse, returning rows the client's full query would
+// not have matched.
+func (p *sqlParser) expectEOF() error {
+	tok, err := p.tok.next()
+	if err != nil {
+		return err
+	}
+
+	if tok.typ != tokEOF {
+		return fmt.Errorf("unexpected trailing input near %q: %w", tok.val, errUnexpectedToken)
+	}
+
+	return nil
 }
 
 // parseFromClause consumes the FROM clause, table name, and optional alias.
@@ -690,7 +753,8 @@ func isKeyword(s string) bool {
 	switch strings.ToUpper(s) {
 	case "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "LIKE", "IS", "NULL",
 		"LIMIT", "AS", "CAST", "BETWEEN", "IN", "TRUE", "FALSE",
-		"ORDER", "BY", "ASC", "DESC":
+		"ORDER", "BY", "ASC", "DESC",
+		"JOIN", "GROUP", "HAVING", "UNION":
 		return true
 	default:
 		return false

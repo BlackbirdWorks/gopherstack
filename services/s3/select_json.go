@@ -72,7 +72,7 @@ func evaluateJSONLinesQuery(
 		return 0, nil
 	}
 
-	resultBytes, err := serializeJSONQueryResults(resultRows, req.OutputSerialization)
+	resultBytes, err := serializeJSONQueryResults(query, resultRows, req.OutputSerialization)
 	if err != nil {
 		return 0, err
 	}
@@ -118,7 +118,7 @@ func evaluateJSONDocumentQuery(
 	}
 
 	if len(resultRows) > 0 {
-		resultBytes, serialErr := serializeJSONQueryResults(resultRows, req.OutputSerialization)
+		resultBytes, serialErr := serializeJSONQueryResults(query, resultRows, req.OutputSerialization)
 		if serialErr != nil {
 			return 0, serialErr
 		}
@@ -136,17 +136,24 @@ func evaluateJSONDocumentQuery(
 }
 
 func serializeJSONQueryResults(
+	query *sqlQuery,
 	resultRows []map[string]any,
 	out selectOutputSerialization,
 ) ([]byte, error) {
 	if out.CSV != nil {
-		return serializeJSONRowsAsCSV(resultRows, out.CSV)
+		return serializeJSONRowsAsCSV(query, resultRows, out.CSV)
 	}
 
 	return serializeJSONRows(resultRows, out.JSON)
 }
 
-func serializeJSONRowsAsCSV(rows []map[string]any, csvOut *selectCSVOutput) ([]byte, error) {
+// serializeJSONRowsAsCSV serializes JSON rows to CSV. Column order is only
+// known for an explicit SELECT list (csvOutputColumnOrder's selectAll=false
+// branch, the query itself). SELECT * over JSON input has no known field
+// order - json.Unmarshal into map[string]any discards it - so it falls back
+// to alphabetical via serializeCSVRows; a known, documented gap rather than
+// a fix attempted here.
+func serializeJSONRowsAsCSV(query *sqlQuery, rows []map[string]any, csvOut *selectCSVOutput) ([]byte, error) {
 	strRows := make([]map[string]string, 0, len(rows))
 
 	for _, row := range rows {
@@ -158,7 +165,7 @@ func serializeJSONRowsAsCSV(rows []map[string]any, csvOut *selectCSVOutput) ([]b
 		strRows = append(strRows, strRow)
 	}
 
-	buf := serializeCSVRows(strRows, csvOut)
+	buf := serializeCSVRows(strRows, csvOut, csvOutputColumnOrder(query, nil))
 
 	return buf, nil
 }

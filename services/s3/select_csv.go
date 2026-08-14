@@ -24,7 +24,7 @@ func evaluateCSVQuery(
 	fileHeaderInfo := csvFileHeaderInfo(csvIn)
 	r := newCSVReader(csvIn, data)
 
-	rows, err := readCSVRows(r, fileHeaderInfo)
+	rows, headers, err := readCSVRows(r, fileHeaderInfo)
 	if err != nil {
 		return 0, err
 	}
@@ -45,7 +45,9 @@ func evaluateCSVQuery(
 		return 0, nil
 	}
 
-	resultBytes, err := serializeCSVQueryResults(resultRows, req.OutputSerialization)
+	resultBytes, err := serializeCSVQueryResults(
+		resultRows, req.OutputSerialization, csvOutputColumnOrder(query, headers),
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -87,7 +89,10 @@ func newCSVReader(csvIn *selectCSVInput, data []byte) *csv.Reader {
 	return r
 }
 
-func readCSVRows(r *csv.Reader, fileHeaderInfo string) ([]map[string]string, error) {
+// readCSVRows returns the parsed rows plus the headers in their original file
+// order, so callers can reproduce that order in CSV output instead of
+// serializing rows as unordered Go maps (see csvOutputColumnOrder).
+func readCSVRows(r *csv.Reader, fileHeaderInfo string) ([]map[string]string, []string, error) {
 	var headers []string
 	var rows []map[string]string
 	firstRecord := true
@@ -99,7 +104,7 @@ func readCSVRows(r *csv.Reader, fileHeaderInfo string) ([]map[string]string, err
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("reading CSV: %w", err)
+			return nil, nil, fmt.Errorf("reading CSV: %w", err)
 		}
 
 		if firstRecord {
@@ -114,7 +119,7 @@ func readCSVRows(r *csv.Reader, fileHeaderInfo string) ([]map[string]string, err
 		rows = append(rows, csvRecordToMap(headers, rec))
 	}
 
-	return rows, nil
+	return rows, headers, nil
 }
 
 func csvRecordToMap(headers []string, rec []string) map[string]string {
@@ -145,14 +150,42 @@ func prepareCSVHeaders(fileHeaderInfo string, firstRecord []string) []string {
 func serializeCSVQueryResults(
 	resultRows []map[string]string,
 	out selectOutputSerialization,
+	order []string,
 ) ([]byte, error) {
 	if out.JSON != nil {
 		return serializeCSVRowsAsJSON(resultRows, out.JSON)
 	}
 
-	buf := serializeCSVRows(resultRows, out.CSV)
+	buf := serializeCSVRows(resultRows, out.CSV, order)
 
 	return buf, nil
+}
+
+// csvOutputColumnOrder returns the column order CSV output must use.
+//
+// CSV rows are stored as map[string]string, which has no iteration order, so
+// serializing them by ranging the map (or by encoding/csv's own sort) turns
+// "SELECT s.name, s.age FROM s3object s" into whatever order Go's map or a
+// sortedKeys() alphabetical fallback picks - previously that meant
+// "SELECT s.name, s.age" and "SELECT *" over a "name,age" header both came
+// back as "age,name", silently transposing the client's requested columns.
+//
+// An explicit SELECT list has a well-defined order (the query itself);
+// SELECT * uses the source CSV's header order when known. A nil/empty
+// return means the caller has no order information (JSON input's SELECT *,
+// since json.Unmarshal into map[string]any discards field order) and must
+// fall back to alphabetical - a known, documented gap, not a fix here.
+func csvOutputColumnOrder(q *sqlQuery, headers []string) []string {
+	if !q.selectAll {
+		order := make([]string, len(q.columns))
+		for i, col := range q.columns {
+			order[i] = columnName(col, i)
+		}
+
+		return order
+	}
+
+	return headers
 }
 
 func serializeCSVRowsAsJSON(rows []map[string]string, jsonOut *selectJSONOutput) ([]byte, error) {
@@ -176,8 +209,10 @@ func serializeCSVRowsAsJSON(rows []map[string]string, jsonOut *selectJSONOutput)
 	return buf.Bytes(), nil
 }
 
-// serializeCSVRows serializes result rows to CSV format.
-func serializeCSVRows(rows []map[string]string, csvOut *selectCSVOutput) []byte {
+// serializeCSVRows serializes result rows to CSV format using order as the
+// column order, falling back to sortedKeys per row when order is empty (see
+// csvOutputColumnOrder for when that happens and why).
+func serializeCSVRows(rows []map[string]string, csvOut *selectCSVOutput, order []string) []byte {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 
@@ -186,7 +221,11 @@ func serializeCSVRows(rows []map[string]string, csvOut *selectCSVOutput) []byte 
 	}
 
 	for _, row := range rows {
-		keys := sortedKeys(row)
+		keys := order
+		if len(keys) == 0 {
+			keys = sortedKeys(row)
+		}
+
 		record := make([]string, len(keys))
 
 		for i, k := range keys {
