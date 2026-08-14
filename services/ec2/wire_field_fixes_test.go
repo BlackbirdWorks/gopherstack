@@ -122,3 +122,130 @@ func TestCreateInstanceExportTask_RealWireKeys(t *testing.T) {
 	assert.Equal(t, "my-export-bucket", aws.ToString(out.ExportTask.ExportToS3Task.S3Bucket))
 	assert.Equal(t, types.ContainerFormatOva, out.ExportTask.ExportToS3Task.ContainerFormat)
 }
+
+// TestDescribeInstances_EbsOptimizedEnaSriovNetSupport_RealClient drives
+// ModifyInstanceAttribute then DescribeInstances through the real SDK client.
+// The real Instance deserializer (awsEc2query_deserializeDocumentInstance,
+// ec2@v1.319.1 deserializers.go) reads "ebsOptimized", "enaSupport", and
+// "sriovNetSupport" as top-level Instance fields. All three are tracked on
+// the backend's Instance model (store.go's EBSOptimized/EnaSupport/
+// SriovNetSupport, settable via ModifyInstanceAttribute and, for EnaSupport,
+// true by default from RunInstances) but were never wired into
+// DescribeInstances' instanceItem, so a real client always saw them as
+// false/empty regardless of the instance's actual state -- the right
+// instance count, blank contents for these three fields.
+func TestDescribeInstances_EbsOptimizedEnaSriovNetSupport_RealClient(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+	h := ec2.NewHandler(b)
+	client := newTestEC2Client(t, h)
+
+	instances, err := b.RunInstances("ami-test", "t3.micro", "", 1)
+	require.NoError(t, err)
+	instanceID := instances[0].ID
+
+	// AWS applies only one attribute per ModifyInstanceAttribute call, so
+	// EbsOptimized and SriovNetSupport each need their own request.
+	_, err = client.ModifyInstanceAttribute(t.Context(), &ec2sdk.ModifyInstanceAttributeInput{
+		InstanceId:   aws.String(instanceID),
+		EbsOptimized: &types.AttributeBooleanValue{Value: aws.Bool(true)},
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyInstanceAttribute(t.Context(), &ec2sdk.ModifyInstanceAttributeInput{
+		InstanceId:      aws.String(instanceID),
+		SriovNetSupport: &types.AttributeValue{Value: aws.String("simple")},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeInstances(t.Context(), &ec2sdk.DescribeInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Reservations, 1)
+	require.Len(t, out.Reservations[0].Instances, 1)
+
+	inst := out.Reservations[0].Instances[0]
+	assert.True(t, aws.ToBool(inst.EbsOptimized), "EbsOptimized decoded false - never emitted by DescribeInstances")
+	assert.True(t, aws.ToBool(inst.EnaSupport), "EnaSupport decoded false - never emitted by DescribeInstances")
+	assert.Equal(
+		t, "simple", aws.ToString(inst.SriovNetSupport),
+		"SriovNetSupport decoded empty - never emitted by DescribeInstances",
+	)
+}
+
+// TestDescribeSecurityGroups_IPPermissions_RealClient drives
+// AuthorizeSecurityGroupIngress/Egress then DescribeSecurityGroups through the
+// real SDK client. The real SecurityGroup deserializer
+// (awsEc2query_deserializeDocumentSecurityGroup, ec2@v1.319.1
+// deserializers.go) reads "ipPermissions" and "ipPermissionsEgress" as
+// top-level SecurityGroup fields. The backend fully tracks authorized rules
+// on SecurityGroup.IngressRules/EgressRules (confirmed working through the
+// separate DescribeSecurityGroupRules op), but the classic DescribeSecurityGroups
+// handler's sgItem never carried either field at all, so a real client's
+// IpPermissions/IpPermissionsEgress were always empty regardless of what was
+// authorized -- the right group count, completely blank rule contents.
+func TestDescribeSecurityGroups_IPPermissions_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	created, err := client.CreateSecurityGroup(t.Context(), &ec2sdk.CreateSecurityGroupInput{
+		GroupName:   aws.String("wire-field-fixes-sg"),
+		Description: aws.String("test sg for ipPermissions wiring"),
+	})
+	require.NoError(t, err)
+	groupID := aws.ToString(created.GroupId)
+
+	_, err = client.AuthorizeSecurityGroupIngress(t.Context(), &ec2sdk.AuthorizeSecurityGroupIngressInput{
+		GroupId: aws.String(groupID),
+		IpPermissions: []types.IpPermission{{
+			IpProtocol: aws.String("tcp"),
+			FromPort:   aws.Int32(22),
+			ToPort:     aws.Int32(22),
+			IpRanges:   []types.IpRange{{CidrIp: aws.String("203.0.113.0/24"), Description: aws.String("ssh")}},
+		}},
+	})
+	require.NoError(t, err)
+
+	_, err = client.AuthorizeSecurityGroupEgress(t.Context(), &ec2sdk.AuthorizeSecurityGroupEgressInput{
+		GroupId: aws.String(groupID),
+		IpPermissions: []types.IpPermission{{
+			IpProtocol: aws.String("tcp"),
+			FromPort:   aws.Int32(443),
+			ToPort:     aws.Int32(443),
+			IpRanges:   []types.IpRange{{CidrIp: aws.String("198.51.100.0/24")}},
+		}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeSecurityGroups(t.Context(), &ec2sdk.DescribeSecurityGroupsInput{
+		GroupIds: []string{groupID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.SecurityGroups, 1)
+
+	sg := out.SecurityGroups[0]
+	require.Len(t, sg.IpPermissions, 1, "IpPermissions empty - never emitted by DescribeSecurityGroups")
+	assert.Equal(t, "tcp", aws.ToString(sg.IpPermissions[0].IpProtocol))
+	assert.Equal(t, int32(22), aws.ToInt32(sg.IpPermissions[0].FromPort))
+	require.Len(t, sg.IpPermissions[0].IpRanges, 1)
+	assert.Equal(t, "203.0.113.0/24", aws.ToString(sg.IpPermissions[0].IpRanges[0].CidrIp))
+
+	require.NotEmpty(t, sg.IpPermissionsEgress, "IpPermissionsEgress empty - never emitted by DescribeSecurityGroups")
+
+	var foundEgress bool
+
+	for _, p := range sg.IpPermissionsEgress {
+		if aws.ToString(p.IpProtocol) == "tcp" && aws.ToInt32(p.FromPort) == 443 {
+			foundEgress = true
+
+			require.Len(t, p.IpRanges, 1)
+			assert.Equal(t, "198.51.100.0/24", aws.ToString(p.IpRanges[0].CidrIp))
+		}
+	}
+
+	assert.True(t, foundEgress, "authorized egress rule not found in IpPermissionsEgress")
+}

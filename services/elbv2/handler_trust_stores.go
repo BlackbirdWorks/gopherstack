@@ -353,11 +353,11 @@ func (h *Handler) handleGetTrustStoreRevocationContent(vals url.Values) (any, er
 }
 
 type xmlTrustStore struct {
-	TrustStoreArn       string `xml:"TrustStoreArn"`
-	Name                string `xml:"Name"`
-	Status              string `xml:"Status"`
-	NumberOfCaCerts     int    `xml:"NumberOfCaCerts"`
-	TotalRevokedEntries int64  `xml:"TotalRevokedEntries"`
+	TrustStoreArn          string `xml:"TrustStoreArn"`
+	Name                   string `xml:"Name"`
+	Status                 string `xml:"Status"`
+	NumberOfCaCertificates int    `xml:"NumberOfCaCertificates"`
+	TotalRevokedEntries    int64  `xml:"TotalRevokedEntries"`
 }
 
 type xmlTrustStoreList struct {
@@ -415,11 +415,11 @@ type describeTrustStoreAssociationsResponse struct {
 
 func toXMLTrustStore(ts *TrustStore) xmlTrustStore {
 	return xmlTrustStore{
-		TrustStoreArn:       ts.TrustStoreArn,
-		Name:                ts.Name,
-		Status:              ts.Status,
-		NumberOfCaCerts:     0,
-		TotalRevokedEntries: int64(len(ts.Revocations)),
+		TrustStoreArn:          ts.TrustStoreArn,
+		Name:                   ts.Name,
+		Status:                 ts.Status,
+		NumberOfCaCertificates: 0,
+		TotalRevokedEntries:    int64(len(ts.Revocations)),
 	}
 }
 

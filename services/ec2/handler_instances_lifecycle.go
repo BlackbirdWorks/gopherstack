@@ -519,6 +519,9 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		PublicIPAddress:       inst.PublicIPAddress,
 		PublicDNSName:         inst.PublicDNSName,
 		KeyName:               inst.KeyName,
+		SriovNetSupport:       inst.SriovNetSupport,
+		EBSOptimized:          inst.EBSOptimized,
+		EnaSupport:            inst.EnaSupport,
 		GroupSet:              instanceGroupSet{Items: groupItems},
 		TagSet:                instanceTagItemSet{Items: tagItems},
 		Placement: instancePlacementItem{
@@ -620,8 +623,11 @@ type instanceItem struct {
 	// StateTransitionReason is AWS's legacy free-text reason string, distinct
 	// from the structured StateReasonItem above.
 	StateTransitionReason string             `xml:"reason,omitempty"`
+	SriovNetSupport       string             `xml:"sriovNetSupport,omitempty"`
 	GroupSet              instanceGroupSet   `xml:"groupSet"`
 	TagSet                instanceTagItemSet `xml:"tagSet"`
+	EBSOptimized          bool               `xml:"ebsOptimized"`
+	EnaSupport            bool               `xml:"enaSupport"`
 }
 
 // instanceTagItem is the embedded per-instance tag entry in DescribeInstances

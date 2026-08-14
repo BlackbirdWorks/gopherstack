@@ -285,7 +285,7 @@ type RevocationContentInput struct {
 // TrustStore represents an ELBv2 trust store. CaCertificatesBundleS3* fields
 // are stored inertly -- this emulator has no real S3 to fetch the bundle
 // from (see GetTrustStoreCaCertificatesBundle's always-empty Location), so
-// they are recorded but never used to compute NumberOfCaCerts or content.
+// they are recorded but never used to compute NumberOfCaCertificates or content.
 type TrustStore struct {
 	Tags                                *tags.Tags             `json:"tags,omitempty"`
 	TrustStoreArn                       string                 `json:"trustStoreArn"`
