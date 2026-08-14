@@ -64,11 +64,22 @@ type acceptTransitGatewayMulticastDomainAssociationsResponse struct {
 	Associations tgwMulticastDomainAssociationSet `xml:"associations"`
 }
 
+type peeringTgwInfoItem struct {
+	TransitGatewayID string `xml:"transitGatewayId,omitempty"`
+}
+
+// tgwPeeringAttachmentItem mirrors the real TransitGatewayPeeringAttachment
+// wire shape (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeDocumentTransitGatewayPeeringAttachment): the
+// requester/accepter transit gateway IDs nest under requesterTgwInfo/
+// accepterTgwInfo, not flat top-level fields.
 type tgwPeeringAttachmentItem struct {
-	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId"`
-	RequesterTransitGatewayID  string `xml:"requesterTransitGatewayId,omitempty"`
-	AccepterTransitGatewayID   string `xml:"accepterTransitGatewayId,omitempty"`
-	State                      string `xml:"state"`
+	TransitGatewayAttachmentID string             `xml:"transitGatewayAttachmentId"`
+	RequesterTgwInfo           peeringTgwInfoItem `xml:"requesterTgwInfo"`
+	AccepterTgwInfo            peeringTgwInfoItem `xml:"accepterTgwInfo"`
+	State                      string             `xml:"state"`
+	CreationTime               string             `xml:"creationTime,omitempty"`
+	TagSet                     []simpleTagItem    `xml:"tagSet>item"`
 }
 
 type acceptTransitGatewayPeeringAttachmentResponse struct {
@@ -79,11 +90,13 @@ type acceptTransitGatewayPeeringAttachmentResponse struct {
 }
 
 type tgwVpcAttachmentItem struct {
-	TransitGatewayAttachmentID string   `xml:"transitGatewayAttachmentId"`
-	TransitGatewayID           string   `xml:"transitGatewayId,omitempty"`
-	VpcID                      string   `xml:"vpcId,omitempty"`
-	State                      string   `xml:"state"`
-	SubnetIDs                  []string `xml:"subnetIds>item,omitempty"`
+	TransitGatewayAttachmentID string          `xml:"transitGatewayAttachmentId"`
+	TransitGatewayID           string          `xml:"transitGatewayId,omitempty"`
+	VpcID                      string          `xml:"vpcId,omitempty"`
+	State                      string          `xml:"state"`
+	CreationTime               string          `xml:"creationTime,omitempty"`
+	SubnetIDs                  []string        `xml:"subnetIds>item,omitempty"`
+	TagSet                     []simpleTagItem `xml:"tagSet>item"`
 }
 
 type acceptTransitGatewayVpcAttachmentResponse struct {
@@ -113,11 +126,32 @@ type acceptVpcEndpointConnectionsResponse struct {
 	Unsuccessful vpcEndpointConnectionSet `xml:"unsuccessful"`
 }
 
+type vpcPeeringConnectionVpcInfoItem struct {
+	VpcID string `xml:"vpcId,omitempty"`
+}
+
+type vpcPeeringConnectionStatusItem struct {
+	Code string `xml:"code,omitempty"`
+}
+
+// vpcPeeringConnectionItem mirrors the real VpcPeeringConnection wire shape
+// (ec2@v1.319.1 deserializers.go, awsEc2query_deserializeDocumentVpcPeeringConnection):
+// the VPC IDs nest under requesterVpcInfo/accepterVpcInfo, and status is a
+// {code, message} object, not flat top-level fields.
 type vpcPeeringConnectionItem struct {
-	VpcPeeringConnectionID string `xml:"vpcPeeringConnectionId"`
-	RequesterVpcID         string `xml:"requesterVpcId,omitempty"`
-	AccepterVpcID          string `xml:"accepterVpcId,omitempty"`
-	State                  string `xml:"statusCode"`
+	VpcPeeringConnectionID string                          `xml:"vpcPeeringConnectionId"`
+	RequesterVpcInfo       vpcPeeringConnectionVpcInfoItem `xml:"requesterVpcInfo"`
+	AccepterVpcInfo        vpcPeeringConnectionVpcInfoItem `xml:"accepterVpcInfo"`
+	Status                 vpcPeeringConnectionStatusItem  `xml:"status"`
+}
+
+func toVpcPeeringConnectionItem(pc *VpcPeeringConnection) vpcPeeringConnectionItem {
+	return vpcPeeringConnectionItem{
+		VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
+		RequesterVpcInfo:       vpcPeeringConnectionVpcInfoItem{VpcID: pc.RequesterVpcID},
+		AccepterVpcInfo:        vpcPeeringConnectionVpcInfoItem{VpcID: pc.AccepterVpcID},
+		Status:                 vpcPeeringConnectionStatusItem{Code: pc.State},
+	}
 }
 
 type acceptVpcPeeringConnectionResponse struct {
@@ -297,12 +331,9 @@ func (h *Handler) handleAcceptTransitGatewayPeeringAttachment(
 	return &acceptTransitGatewayPeeringAttachmentResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		TransitGatewayPeeringAtt: tgwPeeringAttachmentItem{
-			TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
-			RequesterTransitGatewayID:  att.RequesterTransitGatewayID,
-			AccepterTransitGatewayID:   att.AccepterTransitGatewayID,
-			State:                      att.State,
-		},
+		TransitGatewayPeeringAtt: toTGWPeeringAttachmentItem(
+			att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID),
+		),
 	}, nil
 }
 
@@ -321,14 +352,9 @@ func (h *Handler) handleAcceptTransitGatewayVpcAttachment(
 	}
 
 	return &acceptTransitGatewayVpcAttachmentResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		TransitGatewayVpcAtt: tgwVpcAttachmentItem{
-			TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
-			TransitGatewayID:           att.TransitGatewayID,
-			VpcID:                      att.VpcID,
-			State:                      att.State,
-		},
+		Xmlns:                ec2XMLNS,
+		RequestID:            reqID,
+		TransitGatewayVpcAtt: tgwVpcAttachmentToItem(att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID)),
 	}, nil
 }
 
@@ -375,14 +401,9 @@ func (h *Handler) handleAcceptVpcPeeringConnection(vals url.Values, reqID string
 	}
 
 	return &acceptVpcPeeringConnectionResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		VpcPeeringConnection: vpcPeeringConnectionItem{
-			VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
-			RequesterVpcID:         pc.RequesterVpcID,
-			AccepterVpcID:          pc.AccepterVpcID,
-			State:                  pc.State,
-		},
+		Xmlns:                ec2XMLNS,
+		RequestID:            reqID,
+		VpcPeeringConnection: toVpcPeeringConnectionItem(pc),
 	}, nil
 }
 
@@ -598,13 +619,9 @@ func (h *Handler) handleDescribeVpcPeeringConnections(vals url.Values, reqID str
 	}
 
 	for _, pc := range connections {
-		resp.VpcPeeringConnections.Items = append(resp.VpcPeeringConnections.Items,
-			vpcPeeringConnectionItem{
-				VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
-				RequesterVpcID:         pc.RequesterVpcID,
-				AccepterVpcID:          pc.AccepterVpcID,
-				State:                  pc.State,
-			})
+		resp.VpcPeeringConnections.Items = append(
+			resp.VpcPeeringConnections.Items, toVpcPeeringConnectionItem(pc),
+		)
 	}
 
 	return resp, nil

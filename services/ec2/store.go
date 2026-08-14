@@ -223,10 +223,11 @@ type PayerResponsibilityEntry struct {
 
 // NetworkACL represents an EC2 network ACL.
 type NetworkACL struct {
-	ID             string   `json:"id,omitempty"`
-	VPCID          string   `json:"vpcID,omitempty"`
-	AssociationIDs []string `json:"associationIDs,omitempty"`
-	IsDefault      bool     `json:"isDefault,omitempty"`
+	ID             string      `json:"id,omitempty"`
+	VPCID          string      `json:"vpcID,omitempty"`
+	AssociationIDs []string    `json:"associationIDs,omitempty"`
+	Entries        []NACLEntry `json:"entries,omitempty"`
+	IsDefault      bool        `json:"isDefault,omitempty"`
 }
 
 // InstanceStateChange records the state transition for a single instance.

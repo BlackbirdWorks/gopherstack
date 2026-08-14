@@ -201,11 +201,13 @@ func (b *InMemoryBackend) DescribeNetworkAclsFiltered(vpcIDs []string) []*Networ
 		}
 
 		assocIDs := append([]string(nil), acl.AssociationIDs...)
+		entries := append([]NACLEntry(nil), acl.Entries...)
 		defaultACLs = append(defaultACLs, &NetworkACL{
 			ID:             acl.ID,
 			VPCID:          acl.VPCID,
 			IsDefault:      acl.IsDefault,
 			AssociationIDs: assocIDs,
+			Entries:        entries,
 		})
 	}
 

@@ -77,7 +77,7 @@ type clientVpnEndpointItem struct {
 	SplitTunnel          bool                        `xml:"splitTunnel,omitempty"`
 }
 
-func toManagedPrefixListItem(pl *ManagedPrefixList) managedPrefixListItem {
+func toManagedPrefixListItem(pl *ManagedPrefixList, tags map[string]string) managedPrefixListItem {
 	return managedPrefixListItem{
 		PrefixListID:   pl.PrefixListID,
 		PrefixListName: pl.PrefixListName,
@@ -87,6 +87,7 @@ func toManagedPrefixListItem(pl *ManagedPrefixList) managedPrefixListItem {
 		MaxEntries:     pl.MaxEntries,
 		Version:        pl.Version,
 		OwnerID:        pl.OwnerID,
+		TagSet:         tagItemsFromMap(tags),
 	}
 }
 
@@ -105,7 +106,7 @@ func (h *Handler) handleCreateManagedPrefixList(vals url.Values, reqID string) (
 
 	return &createManagedPrefixListResponse{
 		RequestID:  reqID,
-		PrefixList: toManagedPrefixListItem(pl),
+		PrefixList: toManagedPrefixListItem(pl, h.Backend.TagsForResource(pl.PrefixListID)),
 	}, nil
 }
 
@@ -128,7 +129,10 @@ func (h *Handler) handleDescribeManagedPrefixLists(vals url.Values, reqID string
 
 	resp := &describeManagedPrefixListsResponse{RequestID: reqID}
 	for _, pl := range pls {
-		resp.PrefixListSet.Items = append(resp.PrefixListSet.Items, toManagedPrefixListItem(pl))
+		resp.PrefixListSet.Items = append(
+			resp.PrefixListSet.Items,
+			toManagedPrefixListItem(pl, h.Backend.TagsForResource(pl.PrefixListID)),
+		)
 	}
 
 	return resp, nil
@@ -204,14 +208,15 @@ func (h *Handler) handleRestoreManagedPrefixListVersion(vals url.Values, reqID s
 // ---- ClientVPN handlers ----
 
 type managedPrefixListItem struct {
-	PrefixListID   string `xml:"prefixListId"`
-	PrefixListName string `xml:"prefixListName"`
-	PrefixListArn  string `xml:"prefixListArn"`
-	AddressFamily  string `xml:"addressFamily"`
-	State          string `xml:"state"`
-	OwnerID        string `xml:"ownerId"`
-	Version        int64  `xml:"version"`
-	MaxEntries     int    `xml:"maxEntries"`
+	PrefixListID   string          `xml:"prefixListId"`
+	PrefixListName string          `xml:"prefixListName"`
+	PrefixListArn  string          `xml:"prefixListArn"`
+	AddressFamily  string          `xml:"addressFamily"`
+	State          string          `xml:"state"`
+	OwnerID        string          `xml:"ownerId"`
+	TagSet         []simpleTagItem `xml:"tagSet>item"`
+	Version        int64           `xml:"version"`
+	MaxEntries     int             `xml:"maxEntries"`
 }
 
 // registerPrefixListsOps registers the PrefixLists operation handlers.

@@ -211,7 +211,7 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 
 	items := make([]networkACLItem, 0, len(acls))
 	for _, acl := range acls {
-		items = append(items, toNetworkACLItem(acl))
+		items = append(items, toNetworkACLItem(acl, h.Backend.TagsForResource(acl.ID)))
 	}
 
 	return &describeNetworkAclsResponse{
@@ -240,7 +240,14 @@ func filterNetworkACLsByIDs(acls []*NetworkACL, ids []string) []*NetworkACL {
 	return filtered
 }
 
-func toNetworkACLItem(acl *NetworkACL) networkACLItem {
+// networkACLEntryHasPortRange reports whether protocol carries a meaningful
+// PortRange in real AWS's NACL entry shape (tcp/udp only; icmp uses
+// IcmpTypeCode instead, and -1/other protocols carry neither).
+func networkACLEntryHasPortRange(protocol string) bool {
+	return protocol == "6" || protocol == "17"
+}
+
+func toNetworkACLItem(acl *NetworkACL, tags map[string]string) networkACLItem {
 	assocs := make([]networkACLAssocItem, 0, len(acl.AssociationIDs))
 	for _, aid := range acl.AssociationIDs {
 		assocs = append(assocs, networkACLAssocItem{
@@ -249,11 +256,29 @@ func toNetworkACLItem(acl *NetworkACL) networkACLItem {
 		})
 	}
 
+	entries := make([]networkACLEntryItem, 0, len(acl.Entries))
+	for _, e := range acl.Entries {
+		item := networkACLEntryItem{
+			CIDRBlock:  e.CIDRBlock,
+			RuleAction: e.RuleAction,
+			Protocol:   e.Protocol,
+			RuleNumber: e.RuleNumber,
+			Egress:     e.Egress,
+		}
+		if networkACLEntryHasPortRange(e.Protocol) {
+			item.PortRange = &networkACLPortRangeItem{From: e.FromPort, To: e.ToPort}
+		}
+
+		entries = append(entries, item)
+	}
+
 	return networkACLItem{
 		ID:           acl.ID,
 		VPCID:        acl.VPCID,
 		IsDefault:    acl.IsDefault,
 		Associations: networkACLAssocSet{Items: assocs},
+		Entries:      networkACLEntrySet{Items: entries},
+		TagSet:       tagItemsFromMap(tags),
 	}
 }
 
@@ -344,10 +369,30 @@ type networkACLAssocSet struct {
 	Items []networkACLAssocItem `xml:"item"`
 }
 
+type networkACLPortRangeItem struct {
+	From int `xml:"from"`
+	To   int `xml:"to"`
+}
+
+type networkACLEntryItem struct {
+	PortRange  *networkACLPortRangeItem `xml:"portRange,omitempty"`
+	CIDRBlock  string                   `xml:"cidrBlock,omitempty"`
+	RuleAction string                   `xml:"ruleAction"`
+	Protocol   string                   `xml:"protocol"`
+	RuleNumber int                      `xml:"ruleNumber"`
+	Egress     bool                     `xml:"egress"`
+}
+
+type networkACLEntrySet struct {
+	Items []networkACLEntryItem `xml:"item"`
+}
+
 type networkACLItem struct {
 	ID           string             `xml:"networkAclId"`
 	VPCID        string             `xml:"vpcId"`
 	Associations networkACLAssocSet `xml:"associationSet"`
+	Entries      networkACLEntrySet `xml:"entrySet"`
+	TagSet       []simpleTagItem    `xml:"tagSet>item"`
 	IsDefault    bool               `xml:"default"`
 }
 

@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/xml"
 	"net/url"
+	"time"
 )
 
 type createTransitGatewayPeeringAttachmentResponse struct {
@@ -20,10 +21,11 @@ type describeTransitGatewayPeeringAttachmentsResponse struct {
 }
 
 type tgwConnectItem struct {
-	TransitGatewayAttachmentID          string `xml:"transitGatewayAttachmentId"`
-	TransportTransitGatewayAttachmentID string `xml:"transportTransitGatewayAttachmentId"`
-	TransitGatewayID                    string `xml:"transitGatewayId"`
-	State                               string `xml:"state"`
+	TransitGatewayAttachmentID          string          `xml:"transitGatewayAttachmentId"`
+	TransportTransitGatewayAttachmentID string          `xml:"transportTransitGatewayAttachmentId"`
+	TransitGatewayID                    string          `xml:"transitGatewayId"`
+	State                               string          `xml:"state"`
+	TagSet                              []simpleTagItem `xml:"tagSet>item"`
 }
 
 type createTransitGatewayConnectResponse struct {
@@ -32,19 +34,35 @@ type createTransitGatewayConnectResponse struct {
 	TransitGatewayConnect tgwConnectItem `xml:"transitGatewayConnect"`
 }
 
+// describeTransitGatewayConnectsResponse's wrapper key is
+// "transitGatewayConnectSet" (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeOpDocumentDescribeTransitGatewayConnectsOutput) -
+// not "transitGatewayConnects", which the real deserializer never matches,
+// so a real client always saw an empty TransitGatewayConnects slice.
 type describeTransitGatewayConnectsResponse struct {
 	XMLName                xml.Name `xml:"DescribeTransitGatewayConnectsResponse"`
 	RequestID              string   `xml:"requestId"`
 	TransitGatewayConnects struct {
 		Items []tgwConnectItem `xml:"item"`
-	} `xml:"transitGatewayConnects"`
+	} `xml:"transitGatewayConnectSet"`
+}
+
+// tgwConnectPeerConfigurationItem mirrors the real
+// TransitGatewayConnectPeerConfiguration wire shape: PeerAddress and
+// InsideCidrBlocks nest under connectPeerConfiguration, not flat top-level
+// fields (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeDocumentTransitGatewayConnectPeerConfiguration).
+type tgwConnectPeerConfigurationItem struct {
+	PeerAddress      string   `xml:"peerAddress,omitempty"`
+	InsideCidrBlocks []string `xml:"insideCidrBlocks>item,omitempty"`
 }
 
 type tgwConnectPeerItem struct {
-	TransitGatewayConnectPeerID string `xml:"transitGatewayConnectPeerId"`
-	TransitGatewayAttachmentID  string `xml:"transitGatewayAttachmentId"`
-	State                       string `xml:"state"`
-	PeerAddress                 string `xml:"peerAddress"`
+	TransitGatewayConnectPeerID string                          `xml:"transitGatewayConnectPeerId"`
+	TransitGatewayAttachmentID  string                          `xml:"transitGatewayAttachmentId"`
+	State                       string                          `xml:"state"`
+	ConnectPeerConfiguration    tgwConnectPeerConfigurationItem `xml:"connectPeerConfiguration"`
+	TagSet                      []simpleTagItem                 `xml:"tagSet>item"`
 }
 
 type createTransitGatewayConnectPeerResponse struct {
@@ -53,12 +71,18 @@ type createTransitGatewayConnectPeerResponse struct {
 	TransitGatewayConnectPeer tgwConnectPeerItem `xml:"transitGatewayConnectPeer"`
 }
 
+// describeTransitGatewayConnectPeersResponse's wrapper key is
+// "transitGatewayConnectPeerSet" (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeOpDocumentDescribeTransitGatewayConnectPeersOutput)
+// - not "transitGatewayConnectPeers", which the real deserializer never
+// matches, so a real client always saw an empty TransitGatewayConnectPeers
+// slice.
 type describeTransitGatewayConnectPeersResponse struct {
 	XMLName                    xml.Name `xml:"DescribeTransitGatewayConnectPeersResponse"`
 	RequestID                  string   `xml:"requestId"`
 	TransitGatewayConnectPeers struct {
 		Items []tgwConnectPeerItem `xml:"item"`
-	} `xml:"transitGatewayConnectPeers"`
+	} `xml:"transitGatewayConnectPeerSet"`
 }
 
 type tgwPrefixListRefAttachmentItem struct {
@@ -119,13 +143,21 @@ type verifiedAccessEndpointItem struct {
 	EndpointType             string `xml:"endpointType,omitempty"`
 }
 
-func toTGWPeeringAttachmentItem(att *TransitGatewayPeeringAttachment) tgwPeeringAttachmentItem {
-	return tgwPeeringAttachmentItem{
+func toTGWPeeringAttachmentItem(
+	att *TransitGatewayPeeringAttachment, tags map[string]string,
+) tgwPeeringAttachmentItem {
+	item := tgwPeeringAttachmentItem{
 		TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
-		RequesterTransitGatewayID:  att.RequesterTransitGatewayID,
-		AccepterTransitGatewayID:   att.AccepterTransitGatewayID,
+		RequesterTgwInfo:           peeringTgwInfoItem{TransitGatewayID: att.RequesterTransitGatewayID},
+		AccepterTgwInfo:            peeringTgwInfoItem{TransitGatewayID: att.AccepterTransitGatewayID},
 		State:                      att.State,
+		TagSet:                     tagItemsFromMap(tags),
 	}
+	if !att.CreationTime.IsZero() {
+		item.CreationTime = att.CreationTime.Format(time.RFC3339)
+	}
+
+	return item
 }
 
 func (h *Handler) handleCreateTransitGatewayPeeringAttachment(
@@ -143,7 +175,7 @@ func (h *Handler) handleCreateTransitGatewayPeeringAttachment(
 
 	return &createTransitGatewayPeeringAttachmentResponse{
 		RequestID:                       reqID,
-		TransitGatewayPeeringAttachment: toTGWPeeringAttachmentItem(att),
+		TransitGatewayPeeringAttachment: toTGWPeeringAttachmentItem(att, nil),
 	}, nil
 }
 
@@ -174,7 +206,7 @@ func (h *Handler) handleDescribeTransitGatewayPeeringAttachments(
 	for _, att := range atts {
 		resp.TransitGatewayPeeringAttachments.Items = append(
 			resp.TransitGatewayPeeringAttachments.Items,
-			toTGWPeeringAttachmentItem(att),
+			toTGWPeeringAttachmentItem(att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID)),
 		)
 	}
 
@@ -183,18 +215,31 @@ func (h *Handler) handleDescribeTransitGatewayPeeringAttachments(
 
 // ---- TGW Connect handlers ----
 
-func toTGWConnectItem(conn *TransitGatewayConnect) tgwConnectItem {
+func toTGWConnectItem(conn *TransitGatewayConnect, tags map[string]string) tgwConnectItem {
 	return tgwConnectItem{
 		TransitGatewayAttachmentID:          conn.TransitGatewayAttachmentID,
 		TransportTransitGatewayAttachmentID: conn.TransportTransitGatewayAttachmentID,
 		TransitGatewayID:                    conn.TransitGatewayID,
 		State:                               conn.State,
+		TagSet:                              tagItemsFromMap(tags),
 	}
 }
 
 func (h *Handler) handleCreateTransitGatewayConnect(vals url.Values, reqID string) (any, error) {
 	transportID := vals.Get("TransportTransitGatewayAttachmentId")
+
+	// The real CreateTransitGatewayConnectInput has no TransitGatewayId
+	// parameter at all (api_op_CreateTransitGatewayConnect.go) - it is
+	// derived from the transport attachment. Prefer an explicit
+	// TransitGatewayId if a caller sends one (back-compat), otherwise look
+	// it up from the transport VPC attachment.
 	tgwID := vals.Get("TransitGatewayId")
+	if tgwID == "" {
+		transportAtts := h.Backend.DescribeTransitGatewayVpcAttachments([]string{transportID})
+		if len(transportAtts) == 1 {
+			tgwID = transportAtts[0].TransitGatewayID
+		}
+	}
 
 	conn, err := h.Backend.CreateTransitGatewayConnect(transportID, tgwID)
 	if err != nil {
@@ -203,7 +248,7 @@ func (h *Handler) handleCreateTransitGatewayConnect(vals url.Values, reqID strin
 
 	return &createTransitGatewayConnectResponse{
 		RequestID:             reqID,
-		TransitGatewayConnect: toTGWConnectItem(conn),
+		TransitGatewayConnect: toTGWConnectItem(conn, nil),
 	}, nil
 }
 
@@ -226,10 +271,26 @@ func (h *Handler) handleDescribeTransitGatewayConnects(vals url.Values, reqID st
 
 	resp := &describeTransitGatewayConnectsResponse{RequestID: reqID}
 	for _, conn := range conns {
-		resp.TransitGatewayConnects.Items = append(resp.TransitGatewayConnects.Items, toTGWConnectItem(conn))
+		resp.TransitGatewayConnects.Items = append(
+			resp.TransitGatewayConnects.Items,
+			toTGWConnectItem(conn, h.Backend.TagsForResource(conn.TransitGatewayAttachmentID)),
+		)
 	}
 
 	return resp, nil
+}
+
+func toTGWConnectPeerItem(peer *TransitGatewayConnectPeer, tags map[string]string) tgwConnectPeerItem {
+	return tgwConnectPeerItem{
+		TransitGatewayConnectPeerID: peer.TransitGatewayConnectPeerID,
+		TransitGatewayAttachmentID:  peer.TransitGatewayAttachmentID,
+		State:                       peer.State,
+		ConnectPeerConfiguration: tgwConnectPeerConfigurationItem{
+			PeerAddress:      peer.PeerAddress,
+			InsideCidrBlocks: peer.InsideCidrBlocks,
+		},
+		TagSet: tagItemsFromMap(tags),
+	}
 }
 
 func (h *Handler) handleCreateTransitGatewayConnectPeer(vals url.Values, reqID string) (any, error) {
@@ -243,13 +304,8 @@ func (h *Handler) handleCreateTransitGatewayConnectPeer(vals url.Values, reqID s
 	}
 
 	return &createTransitGatewayConnectPeerResponse{
-		RequestID: reqID,
-		TransitGatewayConnectPeer: tgwConnectPeerItem{
-			TransitGatewayConnectPeerID: peer.TransitGatewayConnectPeerID,
-			TransitGatewayAttachmentID:  peer.TransitGatewayAttachmentID,
-			State:                       peer.State,
-			PeerAddress:                 peer.PeerAddress,
-		},
+		RequestID:                 reqID,
+		TransitGatewayConnectPeer: toTGWConnectPeerItem(peer, nil),
 	}, nil
 }
 
@@ -277,12 +333,7 @@ func (h *Handler) handleDescribeTransitGatewayConnectPeers(
 	for _, peer := range peers {
 		resp.TransitGatewayConnectPeers.Items = append(
 			resp.TransitGatewayConnectPeers.Items,
-			tgwConnectPeerItem{
-				TransitGatewayConnectPeerID: peer.TransitGatewayConnectPeerID,
-				TransitGatewayAttachmentID:  peer.TransitGatewayAttachmentID,
-				State:                       peer.State,
-				PeerAddress:                 peer.PeerAddress,
-			},
+			toTGWConnectPeerItem(peer, h.Backend.TagsForResource(peer.TransitGatewayConnectPeerID)),
 		)
 	}
 

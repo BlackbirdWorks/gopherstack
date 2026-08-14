@@ -193,11 +193,12 @@ func (h *Handler) handleDisableTransitGatewayRouteTablePropagation(vals url.Valu
 }
 
 type tgwAttachmentSummaryItem struct {
-	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId"`
-	TransitGatewayID           string `xml:"transitGatewayId,omitempty"`
-	ResourceID                 string `xml:"resourceId,omitempty"`
-	ResourceType               string `xml:"resourceType,omitempty"`
-	State                      string `xml:"state"`
+	TransitGatewayAttachmentID string          `xml:"transitGatewayAttachmentId"`
+	TransitGatewayID           string          `xml:"transitGatewayId,omitempty"`
+	ResourceID                 string          `xml:"resourceId,omitempty"`
+	ResourceType               string          `xml:"resourceType,omitempty"`
+	State                      string          `xml:"state"`
+	TagSet                     []simpleTagItem `xml:"tagSet>item"`
 }
 
 type describeTransitGatewayAttachmentsResponse struct {
@@ -222,6 +223,7 @@ func (h *Handler) handleDescribeTransitGatewayAttachments(vals url.Values, reqID
 			ResourceID:                 att.ResourceID,
 			ResourceType:               att.ResourceType,
 			State:                      att.State,
+			TagSet:                     tagItemsFromMap(h.Backend.TagsForResource(att.TransitGatewayAttachmentID)),
 		})
 	}
 

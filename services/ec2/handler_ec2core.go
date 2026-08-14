@@ -74,6 +74,7 @@ type egressOnlyIGWAttachment struct {
 type egressOnlyIGWItem struct {
 	EgressOnlyInternetGatewayID string                    `xml:"egressOnlyInternetGatewayId"`
 	Attachments                 []egressOnlyIGWAttachment `xml:"attachmentSet>item"`
+	TagSet                      []simpleTagItem           `xml:"tagSet>item"`
 }
 
 type createEgressOnlyInternetGatewayResponse struct {
@@ -242,14 +243,19 @@ func (h *Handler) handleCreateEgressOnlyInternetGateway(
 	}
 
 	return &createEgressOnlyInternetGatewayResponse{
-		RequestID: reqID,
-		EgressOnlyInternetGateway: egressOnlyIGWItem{
-			EgressOnlyInternetGatewayID: igw.ID,
-			Attachments: []egressOnlyIGWAttachment{
-				{State: igw.State, VpcID: igw.VPCID},
-			},
-		},
+		RequestID:                 reqID,
+		EgressOnlyInternetGateway: toEgressOnlyIGWItem(igw, nil),
 	}, nil
+}
+
+func toEgressOnlyIGWItem(igw *EgressOnlyInternetGateway, tags map[string]string) egressOnlyIGWItem {
+	return egressOnlyIGWItem{
+		EgressOnlyInternetGatewayID: igw.ID,
+		Attachments: []egressOnlyIGWAttachment{
+			{State: igw.State, VpcID: igw.VPCID},
+		},
+		TagSet: tagItemsFromMap(tags),
+	}
 }
 
 func (h *Handler) handleDescribeEgressOnlyInternetGateways(
@@ -264,12 +270,7 @@ func (h *Handler) handleDescribeEgressOnlyInternetGateways(
 	for _, igw := range igws {
 		resp.EgressOnlyInternetGateways.Items = append(
 			resp.EgressOnlyInternetGateways.Items,
-			egressOnlyIGWItem{
-				EgressOnlyInternetGatewayID: igw.ID,
-				Attachments: []egressOnlyIGWAttachment{
-					{State: igw.State, VpcID: igw.VPCID},
-				},
-			},
+			toEgressOnlyIGWItem(igw, h.Backend.TagsForResource(igw.ID)),
 		)
 	}
 

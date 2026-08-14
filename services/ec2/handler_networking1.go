@@ -196,14 +196,20 @@ type getLaunchTemplateDataResponse struct {
 
 // ---- Handler implementations ----
 
-func tgwVpcAttachmentToItem(att *TransitGatewayVpcAttachment) tgwVpcAttachmentItem {
-	return tgwVpcAttachmentItem{
+func tgwVpcAttachmentToItem(att *TransitGatewayVpcAttachment, tags map[string]string) tgwVpcAttachmentItem {
+	item := tgwVpcAttachmentItem{
 		TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
 		TransitGatewayID:           att.TransitGatewayID,
 		VpcID:                      att.VpcID,
 		State:                      att.State,
 		SubnetIDs:                  att.SubnetIDs,
+		TagSet:                     tagItemsFromMap(tags),
 	}
+	if !att.CreationTime.IsZero() {
+		item.CreationTime = att.CreationTime.Format(time.RFC3339)
+	}
+
+	return item
 }
 
 func (h *Handler) handleCreateTransitGatewayVpcAttachment(
@@ -222,7 +228,7 @@ func (h *Handler) handleCreateTransitGatewayVpcAttachment(
 
 	return &createTransitGatewayVpcAttachmentResponse{
 		RequestID:  reqID,
-		Attachment: tgwVpcAttachmentToItem(att),
+		Attachment: tgwVpcAttachmentToItem(att, nil),
 	}, nil
 }
 
@@ -236,7 +242,10 @@ func (h *Handler) handleDescribeTransitGatewayVpcAttachments(
 	resp := &describeTransitGatewayVpcAttachmentsResponse{RequestID: reqID}
 
 	for _, att := range atts {
-		resp.AttachmentSet.Items = append(resp.AttachmentSet.Items, tgwVpcAttachmentToItem(att))
+		resp.AttachmentSet.Items = append(
+			resp.AttachmentSet.Items,
+			tgwVpcAttachmentToItem(att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID)),
+		)
 	}
 
 	return resp, nil

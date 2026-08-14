@@ -449,3 +449,596 @@ func TestDescribeImages_DisabledState_RealClient(t *testing.T) {
 		"State decoded available - DisableImage never reflected by DescribeImages",
 	)
 }
+
+// TestDescribeInternetGateways_TagSet_RealClient drives CreateInternetGateway
+// then CreateTags then DescribeInternetGateways through the real SDK client.
+// The real InternetGateway deserializer (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeDocumentInternetGateway) reads "tagSet" as a
+// top-level field. The backend already serves tag: filters for IGWs via
+// tagMatch (handler_filters.go, igwMatchesFilter's default case), but
+// igwItem never carried a TagSet field, so a real client's
+// InternetGateway.Tags was always empty.
+func TestDescribeInternetGateways_TagSet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	created, err := client.CreateInternetGateway(t.Context(), &ec2sdk.CreateInternetGatewayInput{})
+	require.NoError(t, err)
+	igwID := aws.ToString(created.InternetGateway.InternetGatewayId)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{igwID},
+		Tags:      []types.Tag{{Key: aws.String("Name"), Value: aws.String("wire-field-fixes-igw")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeInternetGateways(t.Context(), &ec2sdk.DescribeInternetGatewaysInput{
+		InternetGatewayIds: []string{igwID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.InternetGateways, 1)
+
+	require.NotEmpty(t, out.InternetGateways[0].Tags, "Tags empty - never emitted by DescribeInternetGateways")
+	assert.Equal(t, "Name", aws.ToString(out.InternetGateways[0].Tags[0].Key))
+	assert.Equal(t, "wire-field-fixes-igw", aws.ToString(out.InternetGateways[0].Tags[0].Value))
+}
+
+// TestDescribeVpcPeeringConnections_RealShape_RealClient drives
+// CreateVpcPeeringConnection then DescribeVpcPeeringConnections through the
+// real SDK client. The real VpcPeeringConnection deserializer (ec2@v1.319.1
+// deserializers.go, awsEc2query_deserializeDocumentVpcPeeringConnection)
+// nests the VPC IDs under requesterVpcInfo/accepterVpcInfo and the status
+// under status>code - vpcPeeringConnectionItem emitted flat
+// requesterVpcId/accepterVpcId/statusCode fields the real deserializer never
+// reads at all, so every field on a real client's VpcPeeringConnection was
+// empty. CreateVpcPeeringConnectionResponse (handler_vpcs.go) already used
+// the correct nested shape, which is what made this unambiguous.
+func TestDescribeVpcPeeringConnections_RealShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	requester, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.30.0.0/16")})
+	require.NoError(t, err)
+	accepter, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.31.0.0/16")})
+	require.NoError(t, err)
+
+	created, err := client.CreateVpcPeeringConnection(t.Context(), &ec2sdk.CreateVpcPeeringConnectionInput{
+		VpcId:     requester.Vpc.VpcId,
+		PeerVpcId: accepter.Vpc.VpcId,
+	})
+	require.NoError(t, err)
+	pcxID := aws.ToString(created.VpcPeeringConnection.VpcPeeringConnectionId)
+
+	out, err := client.DescribeVpcPeeringConnections(t.Context(), &ec2sdk.DescribeVpcPeeringConnectionsInput{
+		VpcPeeringConnectionIds: []string{pcxID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.VpcPeeringConnections, 1)
+
+	pcx := out.VpcPeeringConnections[0]
+	require.NotNil(t, pcx.RequesterVpcInfo, "RequesterVpcInfo nil - never emitted by DescribeVpcPeeringConnections")
+	require.NotNil(t, pcx.AccepterVpcInfo, "AccepterVpcInfo nil - never emitted by DescribeVpcPeeringConnections")
+	assert.Equal(t, aws.ToString(requester.Vpc.VpcId), aws.ToString(pcx.RequesterVpcInfo.VpcId))
+	assert.Equal(t, aws.ToString(accepter.Vpc.VpcId), aws.ToString(pcx.AccepterVpcInfo.VpcId))
+	require.NotNil(t, pcx.Status, "Status nil - never emitted by DescribeVpcPeeringConnections")
+	assert.Equal(t, "pending-acceptance", string(pcx.Status.Code))
+}
+
+// TestDescribeNetworkAcls_EntriesAndTags_RealClient drives CreateNetworkAcl
+// then CreateNetworkAclEntry then CreateTags then DescribeNetworkAcls
+// through the real SDK client. The real NetworkAcl deserializer
+// (ec2@v1.319.1 deserializers.go, awsEc2query_deserializeDocumentNetworkAcl)
+// reads "entrySet" and "tagSet" as top-level fields. The backend fully
+// tracks and enforces NACL entries (CreateNetworkAclEntry/
+// DeleteNetworkAclEntry/ReplaceNetworkAclEntry all mutate
+// StoredNetworkACL.Entries) and tags (generic CreateTags store, same as the
+// IGW/VPC/route-table cases), but networkACLItem never carried an entrySet
+// or tagSet field at all - a caller could create a rule and never see it
+// through DescribeNetworkAcls, the same class of bug as DescribeSecurityGroups
+// never emitting ipPermissions.
+func TestDescribeNetworkAcls_EntriesAndTags_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.32.0.0/16")})
+	require.NoError(t, err)
+
+	acl, err := client.CreateNetworkAcl(t.Context(), &ec2sdk.CreateNetworkAclInput{VpcId: vpc.Vpc.VpcId})
+	require.NoError(t, err)
+	aclID := aws.ToString(acl.NetworkAcl.NetworkAclId)
+
+	_, err = client.CreateNetworkAclEntry(t.Context(), &ec2sdk.CreateNetworkAclEntryInput{
+		NetworkAclId: aws.String(aclID),
+		RuleNumber:   aws.Int32(150),
+		Protocol:     aws.String("6"),
+		RuleAction:   types.RuleActionAllow,
+		CidrBlock:    aws.String("192.0.2.0/24"),
+		Egress:       aws.Bool(false),
+		PortRange:    &types.PortRange{From: aws.Int32(80), To: aws.Int32(80)},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{aclID},
+		Tags:      []types.Tag{{Key: aws.String("Name"), Value: aws.String("wire-field-fixes-acl")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeNetworkAcls(t.Context(), &ec2sdk.DescribeNetworkAclsInput{
+		NetworkAclIds: []string{aclID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.NetworkAcls, 1)
+
+	nacl := out.NetworkAcls[0]
+
+	require.NotEmpty(t, nacl.Entries, "Entries empty - never emitted by DescribeNetworkAcls")
+	var found bool
+	for _, e := range nacl.Entries {
+		if aws.ToInt32(e.RuleNumber) == 150 {
+			found = true
+			assert.Equal(t, "192.0.2.0/24", aws.ToString(e.CidrBlock))
+			assert.Equal(t, types.RuleActionAllow, e.RuleAction)
+			require.NotNil(t, e.PortRange, "PortRange nil for tcp rule")
+			assert.Equal(t, int32(80), aws.ToInt32(e.PortRange.From))
+		}
+	}
+	assert.True(t, found, "rule 150 not found in entrySet")
+
+	require.NotEmpty(t, nacl.Tags, "Tags empty - never emitted by DescribeNetworkAcls")
+	assert.Equal(t, "Name", aws.ToString(nacl.Tags[0].Key))
+}
+
+// TestDescribeCarrierGateways_TagSet_RealClient drives CreateCarrierGateway
+// then CreateTags then DescribeCarrierGateways through the real SDK client.
+// The real CarrierGateway deserializer (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeDocumentCarrierGateway) reads "tagSet" as a
+// top-level field. Carrier gateways are already taggable through the
+// generic CreateTags store (resourceExistsLocked recognizes
+// b.carrierGateways), but carrierGatewayItem never carried a TagSet field.
+func TestDescribeCarrierGateways_TagSet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.33.0.0/16")})
+	require.NoError(t, err)
+
+	created, err := client.CreateCarrierGateway(t.Context(), &ec2sdk.CreateCarrierGatewayInput{
+		VpcId: vpc.Vpc.VpcId,
+	})
+	require.NoError(t, err)
+	cagwID := aws.ToString(created.CarrierGateway.CarrierGatewayId)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{cagwID},
+		Tags:      []types.Tag{{Key: aws.String("Name"), Value: aws.String("wire-field-fixes-cagw")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeCarrierGateways(t.Context(), &ec2sdk.DescribeCarrierGatewaysInput{
+		CarrierGatewayIds: []string{cagwID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.CarrierGateways, 1)
+
+	require.NotEmpty(t, out.CarrierGateways[0].Tags, "Tags empty - never emitted by DescribeCarrierGateways")
+	assert.Equal(t, "Name", aws.ToString(out.CarrierGateways[0].Tags[0].Key))
+}
+
+// TestDescribeEgressOnlyInternetGateways_TagSet_RealClient drives
+// CreateEgressOnlyInternetGateway then CreateTags then
+// DescribeEgressOnlyInternetGateways through the real SDK client. The real
+// EgressOnlyInternetGateway deserializer (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeDocumentEgressOnlyInternetGateway) reads "tagSet"
+// as a top-level field; egressOnlyIGWItem never carried one, despite egress-
+// only IGWs already being taggable through the generic CreateTags store.
+func TestDescribeEgressOnlyInternetGateways_TagSet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.34.0.0/16")})
+	require.NoError(t, err)
+
+	created, err := client.CreateEgressOnlyInternetGateway(
+		t.Context(), &ec2sdk.CreateEgressOnlyInternetGatewayInput{VpcId: vpc.Vpc.VpcId},
+	)
+	require.NoError(t, err)
+	eigwID := aws.ToString(created.EgressOnlyInternetGateway.EgressOnlyInternetGatewayId)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{eigwID},
+		Tags:      []types.Tag{{Key: aws.String("Name"), Value: aws.String("wire-field-fixes-eigw")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeEgressOnlyInternetGateways(
+		t.Context(), &ec2sdk.DescribeEgressOnlyInternetGatewaysInput{EgressOnlyInternetGatewayIds: []string{eigwID}},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.EgressOnlyInternetGateways, 1)
+
+	require.NotEmpty(
+		t, out.EgressOnlyInternetGateways[0].Tags,
+		"Tags empty - never emitted by DescribeEgressOnlyInternetGateways",
+	)
+	assert.Equal(t, "Name", aws.ToString(out.EgressOnlyInternetGateways[0].Tags[0].Key))
+}
+
+// TestDescribeManagedPrefixLists_TagSet_RealClient drives
+// CreateManagedPrefixList then CreateTags then DescribeManagedPrefixLists
+// through the real SDK client. The real ManagedPrefixList deserializer
+// (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeDocumentManagedPrefixList) reads "tagSet" as a
+// top-level field; managed prefix lists are already taggable through the
+// generic CreateTags store, but managedPrefixListItem never carried one.
+func TestDescribeManagedPrefixLists_TagSet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	created, err := client.CreateManagedPrefixList(t.Context(), &ec2sdk.CreateManagedPrefixListInput{
+		PrefixListName: aws.String("wire-field-fixes-pl"),
+		AddressFamily:  aws.String("IPv4"),
+		MaxEntries:     aws.Int32(5),
+	})
+	require.NoError(t, err)
+	plID := aws.ToString(created.PrefixList.PrefixListId)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{plID},
+		Tags:      []types.Tag{{Key: aws.String("Name"), Value: aws.String("wire-field-fixes-pl-tag")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeManagedPrefixLists(t.Context(), &ec2sdk.DescribeManagedPrefixListsInput{
+		PrefixListIds: []string{plID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.PrefixLists, 1)
+
+	require.NotEmpty(t, out.PrefixLists[0].Tags, "Tags empty - never emitted by DescribeManagedPrefixLists")
+	assert.Equal(t, "Name", aws.ToString(out.PrefixLists[0].Tags[0].Key))
+}
+
+// TestDescribeTransitGatewayVpcAttachments_CreationTimeAndTags_RealClient
+// drives CreateTransitGateway, CreateVpc, CreateTransitGatewayVpcAttachment,
+// CreateTags then DescribeTransitGatewayVpcAttachments through the real SDK
+// client. The real TransitGatewayVpcAttachment deserializer (ec2@v1.319.1
+// deserializers.go,
+// awsEc2query_deserializeDocumentTransitGatewayVpcAttachment) reads
+// "creationTime" and "tagSet" as top-level fields. CreationTime is real,
+// backend-tracked state (TransitGatewayVpcAttachment.CreationTime, set at
+// creation) that tgwVpcAttachmentItem never emitted at all, and the
+// attachment is already taggable through the generic CreateTags store.
+func TestDescribeTransitGatewayVpcAttachments_CreationTimeAndTags_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	tgw, err := client.CreateTransitGateway(t.Context(), &ec2sdk.CreateTransitGatewayInput{})
+	require.NoError(t, err)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.35.0.0/16")})
+	require.NoError(t, err)
+	subnet, err := client.CreateSubnet(t.Context(), &ec2sdk.CreateSubnetInput{
+		VpcId:     vpc.Vpc.VpcId,
+		CidrBlock: aws.String("10.35.1.0/24"),
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateTransitGatewayVpcAttachment(
+		t.Context(), &ec2sdk.CreateTransitGatewayVpcAttachmentInput{
+			TransitGatewayId: tgw.TransitGateway.TransitGatewayId,
+			VpcId:            vpc.Vpc.VpcId,
+			SubnetIds:        []string{aws.ToString(subnet.Subnet.SubnetId)},
+		},
+	)
+	require.NoError(t, err)
+	attID := aws.ToString(created.TransitGatewayVpcAttachment.TransitGatewayAttachmentId)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{attID},
+		Tags:      []types.Tag{{Key: aws.String("Name"), Value: aws.String("wire-field-fixes-tgw-att")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeTransitGatewayVpcAttachments(
+		t.Context(), &ec2sdk.DescribeTransitGatewayVpcAttachmentsInput{TransitGatewayAttachmentIds: []string{attID}},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.TransitGatewayVpcAttachments, 1)
+
+	att := out.TransitGatewayVpcAttachments[0]
+	assert.NotNil(t, att.CreationTime, "CreationTime nil - never emitted by DescribeTransitGatewayVpcAttachments")
+	require.NotEmpty(t, att.Tags, "Tags empty - never emitted by DescribeTransitGatewayVpcAttachments")
+	assert.Equal(t, "Name", aws.ToString(att.Tags[0].Key))
+}
+
+// TestDescribeTransitGatewayPeeringAttachments_RealShape_RealClient drives
+// two CreateTransitGateway calls, CreateTransitGatewayPeeringAttachment then
+// DescribeTransitGatewayPeeringAttachments through the real SDK client. The
+// real TransitGatewayPeeringAttachment deserializer (ec2@v1.319.1
+// deserializers.go,
+// awsEc2query_deserializeDocumentTransitGatewayPeeringAttachment) nests the
+// requester/accepter transit gateway IDs under requesterTgwInfo/
+// accepterTgwInfo - tgwPeeringAttachmentItem emitted flat
+// requesterTransitGatewayId/accepterTransitGatewayId fields the real
+// deserializer never reads, so a real client's RequesterTgwInfo/
+// AccepterTgwInfo were always nil.
+func TestDescribeTransitGatewayPeeringAttachments_RealShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	requesterTGW, err := client.CreateTransitGateway(t.Context(), &ec2sdk.CreateTransitGatewayInput{})
+	require.NoError(t, err)
+	accepterTGW, err := client.CreateTransitGateway(t.Context(), &ec2sdk.CreateTransitGatewayInput{})
+	require.NoError(t, err)
+
+	created, err := client.CreateTransitGatewayPeeringAttachment(
+		t.Context(), &ec2sdk.CreateTransitGatewayPeeringAttachmentInput{
+			TransitGatewayId:     requesterTGW.TransitGateway.TransitGatewayId,
+			PeerTransitGatewayId: accepterTGW.TransitGateway.TransitGatewayId,
+			PeerAccountId:        aws.String("000000000000"),
+			PeerRegion:           aws.String("us-east-1"),
+		},
+	)
+	require.NoError(t, err)
+	attID := aws.ToString(created.TransitGatewayPeeringAttachment.TransitGatewayAttachmentId)
+
+	out, err := client.DescribeTransitGatewayPeeringAttachments(
+		t.Context(),
+		&ec2sdk.DescribeTransitGatewayPeeringAttachmentsInput{TransitGatewayAttachmentIds: []string{attID}},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.TransitGatewayPeeringAttachments, 1)
+
+	att := out.TransitGatewayPeeringAttachments[0]
+	require.NotNil(t, att.RequesterTgwInfo, "RequesterTgwInfo nil - never emitted by Describe...PeeringAttachments")
+	require.NotNil(t, att.AccepterTgwInfo, "AccepterTgwInfo nil - never emitted by Describe...PeeringAttachments")
+
+	wantRequester := aws.ToString(requesterTGW.TransitGateway.TransitGatewayId)
+	wantAccepter := aws.ToString(accepterTGW.TransitGateway.TransitGatewayId)
+	assert.Equal(t, wantRequester, aws.ToString(att.RequesterTgwInfo.TransitGatewayId))
+	assert.Equal(t, wantAccepter, aws.ToString(att.AccepterTgwInfo.TransitGatewayId))
+}
+
+// TestDescribeTransitGatewayAttachments_TagSet_RealClient drives
+// CreateTransitGateway, CreateVpc, CreateTransitGatewayVpcAttachment,
+// CreateTags then the unified DescribeTransitGatewayAttachments through the
+// real SDK client. The real TransitGatewayAttachment deserializer
+// (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeDocumentTransitGatewayAttachment) reads "tagSet" as
+// a top-level field. This op aggregates rows from the VPC/peering/connect/
+// clientVpn attachment maps, all individually taggable through the generic
+// CreateTags store, but tgwAttachmentSummaryItem never carried a TagSet
+// field.
+func TestDescribeTransitGatewayAttachments_TagSet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	tgw, err := client.CreateTransitGateway(t.Context(), &ec2sdk.CreateTransitGatewayInput{})
+	require.NoError(t, err)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.39.0.0/16")})
+	require.NoError(t, err)
+	subnet, err := client.CreateSubnet(t.Context(), &ec2sdk.CreateSubnetInput{
+		VpcId:     vpc.Vpc.VpcId,
+		CidrBlock: aws.String("10.39.1.0/24"),
+	})
+	require.NoError(t, err)
+
+	vpcAtt, err := client.CreateTransitGatewayVpcAttachment(
+		t.Context(), &ec2sdk.CreateTransitGatewayVpcAttachmentInput{
+			TransitGatewayId: tgw.TransitGateway.TransitGatewayId,
+			VpcId:            vpc.Vpc.VpcId,
+			SubnetIds:        []string{aws.ToString(subnet.Subnet.SubnetId)},
+		},
+	)
+	require.NoError(t, err)
+	attID := aws.ToString(vpcAtt.TransitGatewayVpcAttachment.TransitGatewayAttachmentId)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{attID},
+		Tags:      []types.Tag{{Key: aws.String("Name"), Value: aws.String("wire-field-fixes-tgw-summary")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeTransitGatewayAttachments(
+		t.Context(), &ec2sdk.DescribeTransitGatewayAttachmentsInput{TransitGatewayAttachmentIds: []string{attID}},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.TransitGatewayAttachments, 1)
+
+	require.NotEmpty(
+		t, out.TransitGatewayAttachments[0].Tags, "Tags empty - never emitted by DescribeTransitGatewayAttachments",
+	)
+	assert.Equal(t, "Name", aws.ToString(out.TransitGatewayAttachments[0].Tags[0].Key))
+}
+
+// TestCreateTransitGatewayConnect_RealClient drives CreateTransitGateway,
+// CreateVpc, CreateTransitGatewayVpcAttachment then
+// CreateTransitGatewayConnect through the real SDK client.
+// CreateTransitGatewayConnectInput has no TransitGatewayId field at all
+// (ec2@v1.319.1 api_op_CreateTransitGatewayConnect.go) - it is derived from
+// TransportTransitGatewayAttachmentId - but the handler required
+// vals.Get("TransitGatewayId"), a parameter no real client ever sends, so
+// every real CreateTransitGatewayConnect call failed with
+// InvalidParameterValue regardless of a valid transport attachment.
+func TestCreateTransitGatewayConnect_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	tgw, err := client.CreateTransitGateway(t.Context(), &ec2sdk.CreateTransitGatewayInput{})
+	require.NoError(t, err)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.38.0.0/16")})
+	require.NoError(t, err)
+	subnet, err := client.CreateSubnet(t.Context(), &ec2sdk.CreateSubnetInput{
+		VpcId:     vpc.Vpc.VpcId,
+		CidrBlock: aws.String("10.38.1.0/24"),
+	})
+	require.NoError(t, err)
+
+	vpcAtt, err := client.CreateTransitGatewayVpcAttachment(
+		t.Context(), &ec2sdk.CreateTransitGatewayVpcAttachmentInput{
+			TransitGatewayId: tgw.TransitGateway.TransitGatewayId,
+			VpcId:            vpc.Vpc.VpcId,
+			SubnetIds:        []string{aws.ToString(subnet.Subnet.SubnetId)},
+		},
+	)
+	require.NoError(t, err)
+
+	connectOpts := &types.CreateTransitGatewayConnectRequestOptions{Protocol: types.ProtocolValueGre}
+	out, err := client.CreateTransitGatewayConnect(t.Context(), &ec2sdk.CreateTransitGatewayConnectInput{
+		TransportTransitGatewayAttachmentId: vpcAtt.TransitGatewayVpcAttachment.TransitGatewayAttachmentId,
+		Options:                             connectOpts,
+	})
+	require.NoError(t, err, "real client never sends TransitGatewayId - handler must derive it")
+	assert.Equal(
+		t, aws.ToString(tgw.TransitGateway.TransitGatewayId),
+		aws.ToString(out.TransitGatewayConnect.TransitGatewayId),
+	)
+}
+
+// TestDescribeTransitGatewayConnects_WrapperKey_RealClient drives
+// CreateTransitGateway, CreateVpc, CreateTransitGatewayVpcAttachment,
+// CreateTransitGatewayConnect then DescribeTransitGatewayConnects through
+// the real SDK client. The real DescribeTransitGatewayConnectsOutput
+// deserializer (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeOpDocumentDescribeTransitGatewayConnectsOutput)
+// reads the collection under "transitGatewayConnectSet" -
+// describeTransitGatewayConnectsResponse emitted "transitGatewayConnects"
+// (missing the "Set" suffix), a key the real deserializer never matches, so
+// a real client's TransitGatewayConnects was always an empty slice
+// regardless of how many Connect attachments existed. Found via
+// TestDescribeTransitGatewayConnectPeers_RealShape_RealClient returning
+// zero items even before any ID filter was applied.
+func TestDescribeTransitGatewayConnects_WrapperKey_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	tgw, err := client.CreateTransitGateway(t.Context(), &ec2sdk.CreateTransitGatewayInput{})
+	require.NoError(t, err)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.37.0.0/16")})
+	require.NoError(t, err)
+	subnet, err := client.CreateSubnet(t.Context(), &ec2sdk.CreateSubnetInput{
+		VpcId:     vpc.Vpc.VpcId,
+		CidrBlock: aws.String("10.37.1.0/24"),
+	})
+	require.NoError(t, err)
+
+	vpcAtt, err := client.CreateTransitGatewayVpcAttachment(
+		t.Context(), &ec2sdk.CreateTransitGatewayVpcAttachmentInput{
+			TransitGatewayId: tgw.TransitGateway.TransitGatewayId,
+			VpcId:            vpc.Vpc.VpcId,
+			SubnetIds:        []string{aws.ToString(subnet.Subnet.SubnetId)},
+		},
+	)
+	require.NoError(t, err)
+
+	connectOpts := &types.CreateTransitGatewayConnectRequestOptions{Protocol: types.ProtocolValueGre}
+	connect, err := client.CreateTransitGatewayConnect(t.Context(), &ec2sdk.CreateTransitGatewayConnectInput{
+		TransportTransitGatewayAttachmentId: vpcAtt.TransitGatewayVpcAttachment.TransitGatewayAttachmentId,
+		Options:                             connectOpts,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{aws.ToString(connect.TransitGatewayConnect.TransitGatewayAttachmentId)},
+		Tags:      []types.Tag{{Key: aws.String("Name"), Value: aws.String("wire-field-fixes-tgw-connect")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeTransitGatewayConnects(t.Context(), &ec2sdk.DescribeTransitGatewayConnectsInput{})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.TransitGatewayConnects, "TransitGatewayConnects empty - wrong wrapper key")
+	require.NotEmpty(t, out.TransitGatewayConnects[0].Tags, "Tags empty - never emitted by Describe...Connects")
+	assert.Equal(t, "Name", aws.ToString(out.TransitGatewayConnects[0].Tags[0].Key))
+}
+
+// TestDescribeTransitGatewayConnectPeers_RealShape_RealClient drives
+// CreateTransitGateway, CreateVpc, CreateTransitGatewayVpcAttachment,
+// CreateTransitGatewayConnect, CreateTransitGatewayConnectPeer then
+// DescribeTransitGatewayConnectPeers through the real SDK client. The real
+// TransitGatewayConnectPeerConfiguration deserializer (ec2@v1.319.1
+// deserializers.go,
+// awsEc2query_deserializeDocumentTransitGatewayConnectPeerConfiguration)
+// nests PeerAddress and InsideCidrBlocks under connectPeerConfiguration -
+// tgwConnectPeerItem emitted a flat top-level peerAddress field the real
+// deserializer never reads, and never emitted insideCidrBlocks at all
+// despite the backend tracking it.
+func TestDescribeTransitGatewayConnectPeers_RealShape_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	tgw, err := client.CreateTransitGateway(t.Context(), &ec2sdk.CreateTransitGatewayInput{})
+	require.NoError(t, err)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.36.0.0/16")})
+	require.NoError(t, err)
+	subnet, err := client.CreateSubnet(t.Context(), &ec2sdk.CreateSubnetInput{
+		VpcId:     vpc.Vpc.VpcId,
+		CidrBlock: aws.String("10.36.1.0/24"),
+	})
+	require.NoError(t, err)
+
+	vpcAtt, err := client.CreateTransitGatewayVpcAttachment(
+		t.Context(), &ec2sdk.CreateTransitGatewayVpcAttachmentInput{
+			TransitGatewayId: tgw.TransitGateway.TransitGatewayId,
+			VpcId:            vpc.Vpc.VpcId,
+			SubnetIds:        []string{aws.ToString(subnet.Subnet.SubnetId)},
+		},
+	)
+	require.NoError(t, err)
+
+	connectOpts := &types.CreateTransitGatewayConnectRequestOptions{Protocol: types.ProtocolValueGre}
+	connect, err := client.CreateTransitGatewayConnect(t.Context(), &ec2sdk.CreateTransitGatewayConnectInput{
+		TransportTransitGatewayAttachmentId: vpcAtt.TransitGatewayVpcAttachment.TransitGatewayAttachmentId,
+		Options:                             connectOpts,
+	})
+	require.NoError(t, err)
+
+	peer, err := client.CreateTransitGatewayConnectPeer(t.Context(), &ec2sdk.CreateTransitGatewayConnectPeerInput{
+		TransitGatewayAttachmentId: connect.TransitGatewayConnect.TransitGatewayAttachmentId,
+		PeerAddress:                aws.String("192.0.2.10"),
+		InsideCidrBlocks:           []string{"169.254.100.0/29"},
+	})
+	require.NoError(t, err)
+	peerID := aws.ToString(peer.TransitGatewayConnectPeer.TransitGatewayConnectPeerId)
+
+	out, err := client.DescribeTransitGatewayConnectPeers(
+		t.Context(), &ec2sdk.DescribeTransitGatewayConnectPeersInput{TransitGatewayConnectPeerIds: []string{peerID}},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.TransitGatewayConnectPeers, 1)
+
+	cfg := out.TransitGatewayConnectPeers[0].ConnectPeerConfiguration
+	require.NotNil(t, cfg, "ConnectPeerConfiguration nil - never emitted by DescribeTransitGatewayConnectPeers")
+	assert.Equal(t, "192.0.2.10", aws.ToString(cfg.PeerAddress),
+		"PeerAddress empty - real deserializer reads connectPeerConfiguration>peerAddress, not a flat field")
+	require.NotEmpty(t, cfg.InsideCidrBlocks, "InsideCidrBlocks empty - never emitted by Describe...ConnectPeers")
+	assert.Equal(t, "169.254.100.0/29", cfg.InsideCidrBlocks[0])
+}

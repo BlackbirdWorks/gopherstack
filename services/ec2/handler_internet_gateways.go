@@ -14,6 +14,7 @@ type igwAttachmentItem struct {
 type igwItem struct {
 	InternetGatewayID string              `xml:"internetGatewayId"`
 	AttachmentSet     []igwAttachmentItem `xml:"attachmentSet>item"`
+	TagSet            []simpleTagItem     `xml:"tagSet>item"`
 }
 
 type igwItemSet struct {
@@ -55,7 +56,7 @@ type detachInternetGatewayResponse struct {
 	Return    bool     `xml:"return"`
 }
 
-func toIGWItem(igw *InternetGateway) igwItem {
+func toIGWItem(igw *InternetGateway, tags map[string]string) igwItem {
 	atts := make([]igwAttachmentItem, 0, len(igw.Attachments))
 	for _, att := range igw.Attachments {
 		atts = append(atts, igwAttachmentItem(att))
@@ -64,6 +65,7 @@ func toIGWItem(igw *InternetGateway) igwItem {
 	return igwItem{
 		InternetGatewayID: igw.ID,
 		AttachmentSet:     atts,
+		TagSet:            tagItemsFromMap(tags),
 	}
 }
 
@@ -76,7 +78,7 @@ func (h *Handler) handleCreateInternetGateway(_ url.Values, reqID string) (any, 
 	return &createInternetGatewayResponse{
 		Xmlns:           ec2XMLNS,
 		RequestID:       reqID,
-		InternetGateway: toIGWItem(igw),
+		InternetGateway: toIGWItem(igw, nil),
 	}, nil
 }
 
@@ -106,7 +108,7 @@ func (h *Handler) handleDescribeInternetGateways(vals url.Values, reqID string) 
 
 	items := make([]igwItem, 0, len(igws))
 	for _, igw := range igws {
-		items = append(items, toIGWItem(igw))
+		items = append(items, toIGWItem(igw, h.Backend.TagsForResource(igw.ID)))
 	}
 
 	return &describeInternetGatewaysResponse{

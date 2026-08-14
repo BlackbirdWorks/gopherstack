@@ -32,12 +32,13 @@ type reservedInstanceItem struct {
 	UsagePrice          float64 `xml:"usagePrice"`
 }
 
-func toCarrierGatewayItem(gw *CarrierGateway) carrierGatewayItem {
+func toCarrierGatewayItem(gw *CarrierGateway, tags map[string]string) carrierGatewayItem {
 	return carrierGatewayItem{
 		CarrierGatewayID: gw.CarrierGatewayID,
 		VpcID:            gw.VpcID,
 		State:            gw.State,
 		OwnerID:          gw.OwnerID,
+		TagSet:           tagItemsFromMap(tags),
 	}
 }
 
@@ -51,7 +52,7 @@ func (h *Handler) handleCreateCarrierGateway(vals url.Values, reqID string) (any
 
 	return &createCarrierGatewayResponse{
 		RequestID:      reqID,
-		CarrierGateway: toCarrierGatewayItem(gw),
+		CarrierGateway: toCarrierGatewayItem(gw, nil),
 	}, nil
 }
 
@@ -74,7 +75,9 @@ func (h *Handler) handleDescribeCarrierGateways(vals url.Values, reqID string) (
 
 	resp := &describeCarrierGatewaysResponse{RequestID: reqID}
 	for _, gw := range gateways {
-		resp.CarrierGateways.Items = append(resp.CarrierGateways.Items, toCarrierGatewayItem(gw))
+		resp.CarrierGateways.Items = append(
+			resp.CarrierGateways.Items, toCarrierGatewayItem(gw, h.Backend.TagsForResource(gw.CarrierGatewayID)),
+		)
 	}
 
 	return resp, nil
