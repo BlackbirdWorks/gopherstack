@@ -136,12 +136,15 @@ func (h *Handler) deleteReusableDelegationSet(c *echo.Context, path string) erro
 type listReusableDSResponse struct {
 	XMLName        xml.Name           `xml:"ListReusableDelegationSetsResponse"`
 	Xmlns          string             `xml:"xmlns,attr"`
+	Marker         string             `xml:"Marker"`
 	MaxItems       string             `xml:"MaxItems"`
 	DelegationSets []xmlDelegationSet `xml:"DelegationSets>DelegationSet"`
 	IsTruncated    bool               `xml:"IsTruncated"`
 }
 
 func (h *Handler) listReusableDelegationSets(c *echo.Context) error {
+	marker := c.Request().URL.Query().Get("marker")
+
 	sets, err := h.Backend.ListReusableDelegationSets()
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
@@ -158,6 +161,7 @@ func (h *Handler) listReusableDelegationSets(c *echo.Context) error {
 
 	return writeXML(c, http.StatusOK, listReusableDSResponse{
 		Xmlns:          route53Namespace,
+		Marker:         marker,
 		DelegationSets: items,
 		IsTruncated:    false,
 		MaxItems:       "100",

@@ -157,6 +157,7 @@ type xmlGetHostedZoneResponse struct {
 type xmlListHostedZonesResponse struct {
 	XMLName     xml.Name        `xml:"ListHostedZonesResponse"`
 	Xmlns       string          `xml:"xmlns,attr"`
+	Marker      string          `xml:"Marker"`
 	MaxItems    string          `xml:"MaxItems"`
 	NextMarker  string          `xml:"NextMarker,omitempty"`
 	HostedZones []xmlHostedZone `xml:"HostedZones>HostedZone"`
@@ -324,6 +325,7 @@ func (h *Handler) listHostedZones(c *echo.Context) error {
 
 	resp := xmlListHostedZonesResponse{
 		Xmlns:       route53Namespace,
+		Marker:      marker,
 		HostedZones: xmlZones,
 		IsTruncated: p.Next != "",
 		NextMarker:  p.Next,
@@ -431,12 +433,19 @@ type xmlHostedZoneSummary struct {
 type listHZByVPCResponse struct {
 	XMLName     xml.Name               `xml:"ListHostedZonesByVPCResponse"`
 	Xmlns       string                 `xml:"xmlns,attr"`
+	MaxItems    string                 `xml:"MaxItems"`
 	HostedZones []xmlHostedZoneSummary `xml:"HostedZoneSummaries>HostedZoneSummary"`
 }
 
 func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 	vpcID := c.Request().URL.Query().Get("vpcid")
 	vpcRegion := c.Request().URL.Query().Get("vpcregion")
+	maxItems := maxHZByVPC
+	if v := c.Request().URL.Query().Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
 
 	if vpcID == "" || vpcRegion == "" {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "vpcid and vpcregion are required")
@@ -459,6 +468,7 @@ func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, listHZByVPCResponse{
 		Xmlns:       route53Namespace,
 		HostedZones: xmlZones,
+		MaxItems:    strconv.Itoa(maxItems),
 	})
 }
 

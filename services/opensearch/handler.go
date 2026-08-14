@@ -83,6 +83,7 @@ const (
 	jsonKeyPackageStatus    = "PackageStatus"
 	jsonKeyVpcEndpointID    = "VpcEndpointId"
 	jsonKeyStatusCode       = "StatusCode"
+	jsonKeyNextToken        = "NextToken"
 	// jsonKeyAppName/jsonKeyAppArn/jsonKeyCreatedAt/jsonKeyLastUpdatedAt are
 	// lowerCamelCase for the newer Applications API (verified against
 	// GetApplication/UpdateApplication/ListApplications in opensearch's own

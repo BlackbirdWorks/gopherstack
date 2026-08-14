@@ -226,6 +226,7 @@ type xmlGetHealthCheckResponse struct {
 type xmlListHealthChecksResponse struct {
 	XMLName      xml.Name         `xml:"ListHealthChecksResponse"`
 	Xmlns        string           `xml:"xmlns,attr"`
+	Marker       string           `xml:"Marker"`
 	MaxItems     string           `xml:"MaxItems"`
 	NextMarker   string           `xml:"NextMarker,omitempty"`
 	HealthChecks []xmlHealthCheck `xml:"HealthChecks>HealthCheck"`
@@ -408,6 +409,7 @@ func (h *Handler) listHealthChecks(c *echo.Context) error {
 
 	return writeXML(c, http.StatusOK, xmlListHealthChecksResponse{
 		Xmlns:        route53Namespace,
+		Marker:       marker,
 		HealthChecks: xmlHCs,
 		IsTruncated:  p.Next != "",
 		NextMarker:   p.Next,

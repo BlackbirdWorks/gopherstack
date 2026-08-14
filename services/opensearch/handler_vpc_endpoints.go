@@ -176,7 +176,10 @@ func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Req
 		// Real key is "VpcEndpointSummaryList", not "VpcEndpoints" -- verified
 		// against ListVpcEndpointsOutput in api_op_ListVpcEndpoints.go
 		// (opensearch@v1.75.4), matching the sibling ListVpcEndpointsForDomain.
-		h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": summaries})
+		// NextToken is also a required member of that same struct; this backend
+		// is single-page, so it is always emitted empty rather than omitted
+		// (gopherstack-r80d).
+		h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": summaries, jsonKeyNextToken: ""})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -230,7 +233,10 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, r *http.Requ
 			r.Context(),
 			w,
 			http.StatusOK,
-			map[string]any{"VpcEndpointSummaryList": summaries},
+			// NextToken is a required member of ListVpcEndpointsForDomainOutput;
+			// this backend is single-page, so it is always emitted empty rather
+			// than omitted (gopherstack-r80d).
+			map[string]any{"VpcEndpointSummaryList": summaries, jsonKeyNextToken: ""},
 		)
 	case strings.HasSuffix(trimmed, "/listVpcEndpointAccess"):
 		// ListVpcEndpointAccess
@@ -243,7 +249,10 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, r *http.Requ
 			r.Context(),
 			w,
 			http.StatusOK,
-			map[string]any{"AuthorizedPrincipalList": principals},
+			// NextToken is a required member of ListVpcEndpointAccessOutput;
+			// this backend is single-page, so it is always emitted empty rather
+			// than omitted (gopherstack-r80d).
+			map[string]any{"AuthorizedPrincipalList": principals, jsonKeyNextToken: ""},
 		)
 	default:
 		return false

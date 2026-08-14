@@ -1015,6 +1015,7 @@ const (
 	maxHealthChecks    = 1000
 	maxHostedZoneCount = 10000
 	maxHZByName        = 300
+	maxHZByVPC         = 100
 	defaultLimitValue  = 500
 	defaultDSLimit     = 100
 )

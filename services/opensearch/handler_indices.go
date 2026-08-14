@@ -130,7 +130,7 @@ func (h *Handler) handleIndexGetRoute(w http.ResponseWriter, r *http.Request, tr
 
 			return true
 		}
-		h.writeJSON(r, w, toIndexResponseJSON(idx))
+		h.writeJSON(r, w, getIndexResponseJSON{IndexSchema: toIndexSchema(idx)})
 	default:
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "unsupported index operation")
 	}
@@ -159,6 +159,37 @@ func toIndexResponseJSON(idx *DomainIndex) indexResponseJSON {
 		Settings:      idx.Settings,
 		Aliases:       idx.Aliases,
 		DocumentCount: idx.DocumentCount,
+	}
+}
+
+// getIndexResponseJSON is the response for the real GetIndex op: IndexSchema
+// is its only field (api_op_GetIndex.go: "The JSON schema of the index
+// including mappings, settings, and semantic enrichment configuration.
+// This member is required."), an opaque smithy document.Interface value --
+// NOT the IndexName/IndexStatus/DocumentCount metadata shape
+// toIndexResponseJSON builds (that shape belongs to no real op; it predates
+// this fix and was reused here by mistake, leaving the real client's
+// required IndexSchema permanently nil).
+type getIndexResponseJSON struct {
+	IndexSchema any `json:"IndexSchema"`
+}
+
+// toIndexSchema builds GetIndexOutput.IndexSchema from a backend index. When
+// the index was created via the real CreateIndex/UpdateIndex path, the raw
+// schema document is stored verbatim on DomainIndex.IndexSchema and echoed
+// back unchanged. Indices created via the classic mappings/settings/aliases
+// path (handleCreateIndex) have no such raw document, so an equivalent one
+// is synthesized from the same real backend state using the wire field
+// names CreateIndex/UpdateIndex use for their own IndexSchema body.
+func toIndexSchema(idx *DomainIndex) any {
+	if idx.IndexSchema != nil {
+		return idx.IndexSchema
+	}
+
+	return map[string]any{
+		"Mappings": idx.Mappings,
+		"Settings": idx.Settings,
+		"Aliases":  idx.Aliases,
 	}
 }
 
