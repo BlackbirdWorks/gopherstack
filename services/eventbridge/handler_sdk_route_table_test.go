@@ -42,12 +42,20 @@ import (
 // separate Schemas AWS service, not EventBridge -- confirmed against the
 // pinned schemas@v1.37.4 serializers.go, which is REST-JSON 1
 // (awsRestjson1_ prefix, dispatched by HTTP method+path, never by
-// X-Amz-Target at all). No real Schemas SDK client can ever reach this
-// handler's dispatch table under these names; they are wired here only as
-// an internal-only convention. Excluded from this table for the same reason
-// rds excluded GetPerformanceInsightsMetrics and cognitoidp excluded
-// AdminSetUserMFASetting: real-looking names that cannot be driven by any
-// real pinned SDK client under this service's protocol.
+// X-Amz-Target at all). This table's target-header cases still exercise
+// them under the fabricated "AWSSchemas." X-Amz-Target prefix, an
+// internal-only convention no real Schemas client sends -- but that path is
+// NOT the only way to reach them any more (gopherstack-92ft): handler_schemas_rest.go
+// now ALSO routes all 17 by their real REST-JSON1 method+path, alongside
+// this JSON-RPC dispatch (both are kept; see
+// handler_schemas_rest_route_table_test.go's TestExtractOperation_SchemasRESTRouteTable,
+// which drives the real transport, and handler_schemas_real_client_test.go,
+// which drives the real pinned schemas SDK client end to end). Kept out of
+// THIS table (rather than duplicated into it) because this table's whole
+// point is validating the JSON-RPC target-header dispatch specifically, the
+// same reason rds excluded GetPerformanceInsightsMetrics and cognitoidp
+// excluded AdminSetUserMFASetting: names that don't belong to this
+// protocol's route table.
 //
 // Unlike Schemas, this package used to ALSO host a fabricated copy of the
 // Pipes API (CreatePipe/DeletePipe/DescribePipe/ListPipes/UpdatePipe) under
@@ -55,11 +63,6 @@ import (
 // a correctly-routed services/pipes directory already exists, covering all
 // 10 real Pipes ops (including these 5) by the real REST-JSON method+path
 // per pipes@v1.26.4 -- see services/pipes/handler_sdk_route_table_test.go.
-// Schemas has no such fallback anywhere in the repo, which is why its 17 ops
-// stay here, unreachable but documented, rather than being deleted outright:
-// deleting them would remove a capability, not just a duplicate. Properly
-// routing them by real HTTP method+path is a larger change (a second
-// dispatch mechanism alongside this JSON-RPC one) than this pass attempts.
 //
 // A further 4 dispatch-table keys (GetEventBusPolicy, PutEventBusPolicy,
 // DescribeSchemaVersion, ListCodeBindings) are wired in h.ops but appear in
