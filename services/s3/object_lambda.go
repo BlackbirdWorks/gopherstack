@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -217,8 +218,21 @@ func (h *S3Handler) handleWriteGetObjectResponse(
 		}
 	}
 
+	// X-Amz-Fwd-Status carries the Lambda's chosen response status (real SDK:
+	// serializers.go's awsRestxml_serializeOpHttpBindingsWriteGetObjectResponseInput
+	// binds WriteGetObjectResponseInput.StatusCode to this header) -- e.g. an
+	// access-control Lambda returning 403, or a redirecting Lambda returning
+	// 3xx. Previously hardcoded to 200 regardless of what the Lambda sent,
+	// silently discarding the Lambda's real status in every case but success.
+	statusCode := http.StatusOK
+	if fwd := r.Header.Get("X-Amz-Fwd-Status"); fwd != "" {
+		if n, convErr := strconv.Atoi(fwd); convErr == nil && n > 0 {
+			statusCode = n
+		}
+	}
+
 	ch <- objectLambdaResponse{
-		statusCode: http.StatusOK,
+		statusCode: statusCode,
 		headers:    fwdHeaders,
 		body:       body,
 	}

@@ -349,9 +349,12 @@ type ListMultipartUploadsResult struct {
 
 // MultipartUpload describes a single in-progress multipart upload.
 type MultipartUpload struct {
-	Initiated time.Time `xml:"Initiated"`
-	Key       string    `xml:"Key"`
-	UploadID  string    `xml:"UploadId"`
+	Initiated    time.Time `xml:"Initiated"`
+	Owner        *Owner    `xml:"Owner,omitempty"`
+	Initiator    *Owner    `xml:"Initiator,omitempty"`
+	Key          string    `xml:"Key"`
+	UploadID     string    `xml:"UploadId"`
+	StorageClass string    `xml:"StorageClass,omitempty"`
 }
 
 // ObjectLockConfiguration is the XML body for PutObjectLockConfiguration / GetObjectLockConfiguration.
@@ -477,11 +480,25 @@ type ReplicationConfiguration struct {
 
 // ReplicationRule is a single replication rule within a ReplicationConfiguration.
 type ReplicationRule struct {
+	Filter                  *ReplicationRuleFilter  `xml:"Filter,omitempty"`
 	Destination             ReplicationDestination  `xml:"Destination"`
 	DeleteMarkerReplication DeleteMarkerReplication `xml:"DeleteMarkerReplication"`
 	ID                      string                  `xml:"ID,omitempty"`
-	Prefix                  string                  `xml:"Prefix,omitempty"`
-	Status                  string                  `xml:"Status"`
+	// Prefix is the legacy (deprecated) top-level filter field. Modern
+	// configurations use Filter>Prefix instead -- see matchesReplicationRule
+	// in replication.go, which checks Filter first and falls back to this.
+	Prefix string `xml:"Prefix,omitempty"`
+	Status string `xml:"Status"`
+}
+
+// ReplicationRuleFilter identifies the subset of objects a replication rule
+// applies to. Real S3 requires exactly one of Prefix/Tag/And to be set (see
+// aws-sdk-go-v2/service/s3/types.ReplicationRuleFilter's doc comment); And-based
+// composite (multi-tag/prefix+tag) filters are not evaluated by this emulator
+// (see matchesReplicationRule) and are a documented gap.
+type ReplicationRuleFilter struct {
+	Prefix *string `xml:"Prefix,omitempty"`
+	Tag    *Tag    `xml:"Tag,omitempty"`
 }
 
 // DeleteMarkerReplication controls whether delete markers are replicated.

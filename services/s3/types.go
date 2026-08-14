@@ -136,6 +136,11 @@ type StoredMultipartUpload struct {
 	// (The SSE-C customer key inside sseInfo stays request-scoped — see
 	// sseInfo.SSECKeyB64 — so SSE-C uploads still require the key on Complete.)
 	SSE sseInfo `json:"sse"`
+	// StorageClass is the x-amz-storage-class header from CreateMultipartUpload
+	// (real S3 fixes storage class at session-init, same as SSE above). Applied
+	// to the resulting object version on CompleteMultipartUpload and reported
+	// back verbatim by ListMultipartUploads.
+	StorageClass string `json:"storageClass,omitempty"`
 	// closed is set to true by AbortMultipartUpload or CompleteMultipartUpload
 	// before the upload is removed from the index, so that concurrent UploadPart
 	// calls that already hold a pointer to this struct can detect the invalidation.

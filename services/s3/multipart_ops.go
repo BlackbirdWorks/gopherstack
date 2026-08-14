@@ -50,6 +50,7 @@ func (h *S3Handler) createMultipartUpload(
 		Bucket:               aws.String(bucketName),
 		Key:                  aws.String(key),
 		Tagging:              aws.String(tagging),
+		StorageClass:         types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 		ServerSideEncryption: types.ServerSideEncryption(sse.Algorithm),
 		SSEKMSKeyId:          ptrconv.NilIfEmpty(sse.KMSKeyID),
 		SSECustomerAlgorithm: ptrconv.NilIfEmpty(sse.SSECAlgorithm),
@@ -357,11 +358,19 @@ func (h *S3Handler) listMultipartUploads(
 	}
 
 	for _, u := range out.Uploads {
-		result.Uploads = append(result.Uploads, MultipartUpload{
-			Key:       encodeListKey(encodingType, aws.ToString(u.Key)),
-			UploadID:  aws.ToString(u.UploadId),
-			Initiated: aws.ToTime(u.Initiated),
-		})
+		mu := MultipartUpload{
+			Key:          encodeListKey(encodingType, aws.ToString(u.Key)),
+			UploadID:     aws.ToString(u.UploadId),
+			Initiated:    aws.ToTime(u.Initiated),
+			StorageClass: string(u.StorageClass),
+		}
+		if u.Owner != nil {
+			mu.Owner = &Owner{ID: aws.ToString(u.Owner.ID), DisplayName: aws.ToString(u.Owner.DisplayName)}
+		}
+		if u.Initiator != nil {
+			mu.Initiator = &Owner{ID: aws.ToString(u.Initiator.ID), DisplayName: aws.ToString(u.Initiator.DisplayName)}
+		}
+		result.Uploads = append(result.Uploads, mu)
 	}
 
 	for _, cp := range out.CommonPrefixes {

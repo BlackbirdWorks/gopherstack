@@ -88,14 +88,15 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	defer b.mu.Unlock()
 
 	b.uploads.Put(&StoredMultipartUpload{
-		UploadID:  uploadID,
-		Bucket:    bucketName,
-		Key:       key,
-		Parts:     make(map[int32]*StoredPart),
-		Initiated: time.Now().UTC(),
-		Tagging:   tagging,
-		SSE:       sse,
-		mu:        lockmetrics.New("s3.upload"),
+		UploadID:     uploadID,
+		Bucket:       bucketName,
+		Key:          key,
+		Parts:        make(map[int32]*StoredPart),
+		Initiated:    time.Now().UTC(),
+		Tagging:      tagging,
+		SSE:          sse,
+		StorageClass: string(input.StorageClass),
+		mu:           lockmetrics.New("s3.upload"),
 	})
 
 	return &s3.CreateMultipartUploadOutput{
@@ -208,16 +209,19 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, ErrNoSuchUpload
 	}
 
-	// Snapshot the upload's tagging + SSE before claiming (the upload is
-	// removed from the index during claim, so we must capture them first).
+	// Snapshot the upload's tagging + SSE + storage class before claiming (the
+	// upload is removed from the index during claim, so we must capture them
+	// first).
 	var tagging string
 	var sse sseInfo
+	var storageClass string
 	func() {
 		upload.mu.RLock("CompleteMultipartUpload.tagging")
 		defer upload.mu.RUnlock()
 
 		tagging = upload.Tagging
 		sse = upload.SSE
+		storageClass = upload.StorageClass
 	}()
 
 	// 2. Assemble and compress data. If this fails, the upload is untouched and
@@ -246,7 +250,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, err
 	}
 
-	versionID, err := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse)
+	versionID, err := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse, storageClass)
 	if err != nil {
 		return nil, err
 	}
@@ -447,6 +451,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 	assembled multipartAssemblyResult,
 	tagging string,
 	sse sseInfo,
+	storageClass string,
 ) (string, error) {
 	var obj *StoredObject
 	var newVersion *StoredObjectVersion
@@ -508,6 +513,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 			SSECKeyMD5:      sse.SSECKeyMD5,
 			EncryptionDEK:   dek,
 			EncryptionNonce: nonce,
+			StorageClass:    storageClass,
 		}
 
 		// Acquire obj.mu while bucket.mu is still held (the defer above releases
@@ -632,10 +638,24 @@ func (b *InMemoryBackend) collectAndSortUploads(bucketName, prefix string) []typ
 			continue
 		}
 
+		sc := u.StorageClass
+		if sc == "" {
+			sc = storageStandard
+		}
+
 		uploads = append(uploads, types.MultipartUpload{
-			Key:       aws.String(u.Key),
-			UploadId:  aws.String(u.UploadID),
-			Initiated: aws.Time(u.Initiated),
+			Key:          aws.String(u.Key),
+			UploadId:     aws.String(u.UploadID),
+			Initiated:    aws.Time(u.Initiated),
+			StorageClass: types.StorageClass(sc),
+			Owner: &types.Owner{
+				ID:          aws.String(gopherstackName),
+				DisplayName: aws.String(gopherstackName),
+			},
+			Initiator: &types.Initiator{
+				ID:          aws.String(gopherstackName),
+				DisplayName: aws.String(gopherstackName),
+			},
 		})
 	}
 

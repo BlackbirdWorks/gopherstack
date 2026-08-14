@@ -253,6 +253,69 @@ func TestS3BucketReplication_PrefixFilter(t *testing.T) {
 	assert.Error(t, err, "documents/report.pdf should NOT be replicated (prefix filter)")
 }
 
+// TestS3BucketReplication_FilterPrefix is a regression test: real S3 replication
+// rules express their prefix scope via the modern Rule>Filter>Prefix element,
+// not the deprecated top-level Rule>Prefix used by TestS3BucketReplication_PrefixFilter
+// above (confirmed against aws-sdk-go-v2/service/s3/types.ReplicationRule's doc
+// comment: "Prefix ... Deprecated: This member has been deprecated", superseded
+// by types.ReplicationRuleFilter.Prefix). Before this fix, model.go's
+// ReplicationRule had no Filter field at all, so a Filter-only rule's prefix was
+// silently ignored and the legacy (empty) top-level Prefix matched every key --
+// every object in the bucket was replicated regardless of the configured filter.
+func TestS3BucketReplication_FilterPrefix(t *testing.T) {
+	t.Parallel()
+
+	handler, bk := newTestHandler(t)
+
+	src := "repl-filter-prefix-src"
+	dst := "repl-filter-prefix-dst"
+
+	for _, b := range []string{src, dst} {
+		req := httptest.NewRequest(http.MethodPut, "/"+b, nil)
+		rec := httptest.NewRecorder()
+		serveS3Handler(handler, rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	enableVersioning(t, handler, src)
+
+	cfgXML := fmt.Sprintf(`<ReplicationConfiguration>
+<Role>arn:aws:iam::123456789012:role/repl</Role>
+<Rule>
+  <ID>filter-prefix-rule</ID>
+  <Status>Enabled</Status>
+  <Filter><Prefix>images/</Prefix></Filter>
+  <Destination><Bucket>arn:aws:s3:::%s</Bucket></Destination>
+</Rule>
+</ReplicationConfiguration>`, dst)
+
+	req := httptest.NewRequest(http.MethodPut, "/"+src+"?replication", strings.NewReader(cfgXML))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	for _, key := range []string{"images/photo.jpg", "documents/report.pdf"} {
+		req = httptest.NewRequest(http.MethodPut, "/"+src+"/"+key, strings.NewReader("data"))
+		rec = httptest.NewRecorder()
+		serveS3Handler(handler, rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// Deterministic happens-before boundary instead of require.Eventually: both
+	// PutObjects above scheduled a replication goroutine, and draining blocks
+	// until every one of them (matching or not) has finished, so the negative
+	// assertion below can't pass on a goroutine-scheduling race.
+	bk.DrainReplicationGoroutines()
+
+	imgKey := "images/photo.jpg"
+	_, err := bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{Bucket: &dst, Key: &imgKey})
+	require.NoError(t, err, "images/photo.jpg should be replicated to destination")
+
+	docKey := "documents/report.pdf"
+	_, err = bk.GetObject(t.Context(), &sdk_s3.GetObjectInput{Bucket: &dst, Key: &docKey})
+	assert.Error(t, err, "documents/report.pdf should NOT be replicated (Filter>Prefix scoped to images/)")
+}
+
 // TestS3BucketReplication_DeleteMarker verifies that deleting an object from
 // a versioned, replication-configured source bucket propagates a delete
 // marker to the destination bucket when DeleteMarkerReplication is enabled.

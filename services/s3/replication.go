@@ -35,6 +35,33 @@ func bucketNameFromARN(arn string) string {
 	return arn
 }
 
+// matchesReplicationRule reports whether key falls under rule's scope. Modern
+// replication configurations express the prefix as Filter>Prefix, not the
+// deprecated top-level Rule>Prefix (real S3 doc: "Prefix ... Deprecated: This
+// member has been deprecated" on types.ReplicationRule, superseded by
+// types.ReplicationRuleFilter.Prefix) -- a rule written with only Filter>Prefix
+// parsed a legacy top-level Prefix of "", which incorrectly matched every key
+// instead of only keys under the configured prefix.
+//
+// Filter>Tag and Filter>And (tag- or tag+prefix-based filtering) are not
+// evaluated here -- see the ReplicationRuleFilter doc comment in model.go and
+// the PARITY.md gap entry. Such a rule is treated as non-matching (skipped,
+// not replicated) rather than over-matching, since silently replicating
+// objects a real filter would have excluded is the more harmful failure mode.
+func matchesReplicationRule(rule ReplicationRule, key string) bool {
+	prefix := rule.Prefix
+	if rule.Filter != nil {
+		switch {
+		case rule.Filter.Prefix != nil:
+			prefix = *rule.Filter.Prefix
+		case rule.Filter.Tag != nil:
+			return false
+		}
+	}
+
+	return prefix == "" || strings.HasPrefix(key, prefix)
+}
+
 // triggerReplication asynchronously replicates a newly-written object to all
 // destination buckets configured in the source bucket's ReplicationConfiguration.
 // It is called after PutObject completes successfully.
@@ -95,7 +122,7 @@ func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, ke
 		if rule.Status != statusEnabled {
 			continue
 		}
-		if rule.Prefix != "" && !strings.HasPrefix(key, rule.Prefix) {
+		if !matchesReplicationRule(rule, key) {
 			continue
 		}
 		destBucket := bucketNameFromARN(rule.Destination.Bucket)
@@ -165,7 +192,7 @@ func (b *InMemoryBackend) triggerDeleteMarkerReplication(
 		if rule.DeleteMarkerReplication.Status != statusEnabled {
 			continue
 		}
-		if rule.Prefix != "" && !strings.HasPrefix(key, rule.Prefix) {
+		if !matchesReplicationRule(rule, key) {
 			continue
 		}
 		destBucket := bucketNameFromARN(rule.Destination.Bucket)

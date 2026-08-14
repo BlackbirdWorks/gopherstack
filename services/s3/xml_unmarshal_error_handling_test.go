@@ -16,13 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
 // newRealS3ClientTest stands up the real aws-sdk-go-v2 S3 client against an httptest
 // server running this package's Handler, wired through the same pkgs/service
 // registry/router used in production.
-func newRealS3ClientTest(t *testing.T) (*s3.S3Handler, *sdk_s3.Client) {
+func newRealS3ClientTest(t *testing.T) *sdk_s3.Client {
 	t.Helper()
 
 	handler, _ := newTestHandler(t)
@@ -44,12 +43,10 @@ func newRealS3ClientTest(t *testing.T) (*s3.S3Handler, *sdk_s3.Client) {
 	)
 	require.NoError(t, err)
 
-	client := sdk_s3.NewFromConfig(cfg, func(o *sdk_s3.Options) {
+	return sdk_s3.NewFromConfig(cfg, func(o *sdk_s3.Options) {
 		o.UsePathStyle = true
 		o.BaseEndpoint = aws.String(srv.URL)
 	})
-
-	return handler, client
 }
 
 // TestGetBucketAbac_RealClient is a regression test for gopherstack-ob1g: the real
@@ -64,7 +61,7 @@ func newRealS3ClientTest(t *testing.T) (*s3.S3Handler, *sdk_s3.Client) {
 func TestGetBucketAbac_RealClient(t *testing.T) {
 	t.Parallel()
 
-	_, client := newRealS3ClientTest(t)
+	client := newRealS3ClientTest(t)
 	bucket := "abac-real-client-bucket"
 
 	_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
