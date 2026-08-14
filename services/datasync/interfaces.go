@@ -305,9 +305,10 @@ type Task struct {
 
 // TaskListEntry is a task entry in a list response.
 type TaskListEntry struct {
-	TaskArn string
-	Name    string
-	Status  string
+	TaskArn  string
+	Name     string
+	Status   string
+	TaskMode string
 }
 
 // TaskExecution represents a DataSync task execution.
@@ -317,6 +318,7 @@ type TaskExecution struct {
 	Options                  map[string]any
 	TaskExecutionArn         string
 	Status                   string
+	TaskMode                 string
 	EstimatedFilesToTransfer int64
 	EstimatedBytesToTransfer int64
 	FilesTransferred         int64
@@ -327,6 +329,7 @@ type TaskExecution struct {
 type TaskExecutionListEntry struct {
 	TaskExecutionArn string
 	Status           string
+	TaskMode         string
 }
 
 // SasConfiguration holds Azure Blob SAS token configuration.

@@ -143,17 +143,27 @@ type QueryExecutionError struct {
 }
 
 // QueryExecutionStatistics holds statistics for a query execution.
+//
+// ReusedPreviousResult lives under ResultReuseInformation on the wire, not
+// flat on Statistics -- real ResultReuseInformation{ReusedPreviousResult}
+// (athena@v1.60.4 deserializers.go's awsAwsjson11_deserializeDocumentResultReuseInformation).
 type QueryExecutionStatistics struct {
-	DataManifestLocation             string  `json:"DataManifestLocation,omitempty"`
-	DpuCount                         float64 `json:"DpuCount,omitempty"`
-	EngineExecutionTimeInMillis      int64   `json:"EngineExecutionTimeInMillis,omitempty"`
-	DataScannedInBytes               int64   `json:"DataScannedInBytes,omitempty"`
-	QueryPlanningTimeInMillis        int64   `json:"QueryPlanningTimeInMillis,omitempty"`
-	QueryQueueTimeInMillis           int64   `json:"QueryQueueTimeInMillis,omitempty"`
-	ServicePreProcessingTimeInMillis int64   `json:"ServicePreProcessingTimeInMillis,omitempty"`
-	ServiceProcessingTimeInMillis    int64   `json:"ServiceProcessingTimeInMillis,omitempty"`
-	TotalExecutionTimeInMillis       int64   `json:"TotalExecutionTimeInMillis,omitempty"`
-	ReusedPreviousResult             bool    `json:"ReusedPreviousResult,omitempty"`
+	ResultReuseInformation           *ResultReuseInformation `json:"ResultReuseInformation,omitempty"`
+	DataManifestLocation             string                  `json:"DataManifestLocation,omitempty"`
+	DpuCount                         float64                 `json:"DpuCount,omitempty"`
+	EngineExecutionTimeInMillis      int64                   `json:"EngineExecutionTimeInMillis,omitempty"`
+	DataScannedInBytes               int64                   `json:"DataScannedInBytes,omitempty"`
+	QueryPlanningTimeInMillis        int64                   `json:"QueryPlanningTimeInMillis,omitempty"`
+	QueryQueueTimeInMillis           int64                   `json:"QueryQueueTimeInMillis,omitempty"`
+	ServicePreProcessingTimeInMillis int64                   `json:"ServicePreProcessingTimeInMillis,omitempty"`
+	ServiceProcessingTimeInMillis    int64                   `json:"ServiceProcessingTimeInMillis,omitempty"`
+	TotalExecutionTimeInMillis       int64                   `json:"TotalExecutionTimeInMillis,omitempty"`
+}
+
+// ResultReuseInformation reports whether a query execution reused a
+// previous result, nested under QueryExecutionStatistics on the wire.
+type ResultReuseInformation struct {
+	ReusedPreviousResult bool `json:"ReusedPreviousResult"`
 }
 
 // QueryExecution represents an Athena query execution.

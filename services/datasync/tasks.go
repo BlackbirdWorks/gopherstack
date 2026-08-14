@@ -185,9 +185,10 @@ func (b *InMemoryBackend) ListTasks(maxResults int32, nextToken string) ([]*Task
 	all := make([]*TaskListEntry, 0, len(sorted))
 	for _, t := range sorted {
 		all = append(all, &TaskListEntry{
-			TaskArn: t.TaskArn,
-			Name:    t.Name,
-			Status:  t.Status,
+			TaskArn:  t.TaskArn,
+			Name:     t.Name,
+			Status:   t.Status,
+			TaskMode: t.TaskMode,
 		})
 	}
 
@@ -236,6 +237,7 @@ func (b *InMemoryBackend) StartTaskExecution(taskArn string) (*TaskExecution, er
 	e := &storedTaskExecution{
 		TaskExecutionArn: execArn,
 		Status:           executionStatusLaunching,
+		TaskMode:         t.TaskMode,
 		StartTime:        now,
 	}
 
@@ -342,6 +344,7 @@ func (b *InMemoryBackend) ListTaskExecutions(
 		all = append(all, &TaskExecutionListEntry{
 			TaskExecutionArn: e.TaskExecutionArn,
 			Status:           e.Status,
+			TaskMode:         e.TaskMode,
 		})
 	}
 
