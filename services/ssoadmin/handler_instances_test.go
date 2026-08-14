@@ -21,7 +21,12 @@ func TestUpdateInstance(t *testing.T) {
 		"InstanceArn": instanceARN,
 		"Name":        "updated-instance",
 	})
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	require.Equal(t, http.StatusOK, rec.Code, "UpdateInstance: %s", rec.Body.String())
+
+	descRec := doRequest(t, h, "DescribeInstance", map[string]any{"InstanceArn": instanceARN})
+	require.Equal(t, http.StatusOK, descRec.Code)
+	descResp := parseResponse(t, descRec)
+	assert.Equal(t, "updated-instance", descResp["Name"], "UpdateInstance must persist the new Name")
 }
 
 // TestInstanceLazyActivation verifies instances transition CREATE_IN_PROGRESS → ACTIVE lazily.

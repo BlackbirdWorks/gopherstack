@@ -31,13 +31,42 @@ func TestHandshakeOps(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// ListHandshakesForOrganization
-	rec = doRequest(t, h, "ListHandshakesForOrganization", nil)
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	var inviteResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&inviteResp))
+	invited := inviteResp["Handshake"].(map[string]any)
+	handshakeID, ok := invited["Id"].(string)
+	require.True(t, ok, "InviteAccountToOrganization must return a Handshake.Id")
 
-	// ListHandshakesForAccount
-	rec = doRequest(t, h, "ListHandshakesForAccount", nil)
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	// ListHandshakesForOrganization must include the invite just created.
+	rec = doRequest(t, h, "ListHandshakesForOrganization", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.True(t, handshakeListContains(t, rec, handshakeID),
+		"ListHandshakesForOrganization must include the just-created handshake")
+
+	// ListHandshakesForAccount must include the same invite.
+	rec = doRequest(t, h, "ListHandshakesForAccount", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.True(t, handshakeListContains(t, rec, handshakeID),
+		"ListHandshakesForAccount must include the just-created handshake")
+}
+
+func handshakeListContains(t *testing.T, rec *httptest.ResponseRecorder, handshakeID string) bool {
+	t.Helper()
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+	handshakes, ok := resp["Handshakes"].([]any)
+	require.True(t, ok)
+
+	for _, h := range handshakes {
+		entry, entryOK := h.(map[string]any)
+		if entryOK && entry["Id"] == handshakeID {
+			return true
+		}
+	}
+
+	return false
 }
 
 // TestEnableAllFeatures tests that EnableAllFeatures returns a Handshake.

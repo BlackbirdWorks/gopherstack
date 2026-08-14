@@ -1041,9 +1041,27 @@ func TestListPermissions_Smoke(t *testing.T) {
 
 	// ListPermissions
 	rec := doRAMRequest(t, h, "/listpermissions", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	// ListPermissionVersions
-	rec = doRAMRequest(t, h, "/permissions/aws:aws:ram::aws:permission/AWSRAMDefaultPermissionVPC/versions", nil)
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	perms, ok := listResp["permissions"].([]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, perms, "ListPermissions must return the built-in AWS-managed permissions")
+
+	// ListPermissionVersions on a real built-in permission ARN.
+	rec = doRAMRequest(t, h, "/listpermissionversions", map[string]any{
+		"permissionArn": "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var versionsResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &versionsResp))
+	versions, ok := versionsResp["permissions"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, versions, "AWSRAMDefaultPermissionEC2Subnet must have at least one version")
+
+	v0, ok := versions[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "AWSRAMDefaultPermissionEC2Subnet", v0["name"])
 }

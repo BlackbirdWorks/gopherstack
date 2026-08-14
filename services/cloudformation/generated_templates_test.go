@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"encoding/xml"
 	"net/http"
 	"net/url"
 	"testing"
@@ -73,13 +74,20 @@ func TestCFN_ResourceScans(t *testing.T) {
 	rec := postForm(t, h, url.Values{
 		"Action": []string{"StartResourceScan"},
 	}.Encode())
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	require.True(t, rec.Code >= 200 && rec.Code < 300, "StartResourceScan: %d %s", rec.Code, rec.Body.String())
 
-	// ListResourceScans
+	var startResp struct {
+		ScanID string `xml:"StartResourceScanResult>ResourceScanId"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NotEmpty(t, startResp.ScanID, "StartResourceScan must return a ResourceScanId")
+
+	// ListResourceScans must include the scan just started.
 	rec = postForm(t, h, url.Values{
 		"Action": []string{"ListResourceScans"},
 	}.Encode())
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	require.True(t, rec.Code >= 200 && rec.Code < 300, "ListResourceScans: %d %s", rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), startResp.ScanID)
 }
 
 // TestUnsuffixedNotFoundCodes verifies that GeneratedTemplate and

@@ -452,8 +452,8 @@ func TestUnknownAction(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRAMRawRequest(t, h, http.MethodPost, "/unknownramaction", nil)
-	// Handler should return an error response (not panic).
-	assert.True(t, rec.Code == http.StatusBadRequest || rec.Code == http.StatusInternalServerError)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "unknown action")
 }
 
 // TestRefinement1_ErrInvalidJSON verifies that malformed JSON in body returns 400.
