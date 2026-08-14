@@ -13,11 +13,15 @@ func (h *AgentsHandler) dispatchAliasRoutes(
 	agentID, suffix, method string,
 	body []byte,
 ) error {
-	if suffix == suffixAgentAliases && (method == http.MethodPost || method == http.MethodPut) {
+	// ListAgentAliases is real bedrock-agent@v1.58.4 serializers.go:4134:
+	// POST .../agentaliases/; CreateAgentAlias is real serializers.go:599:
+	// PUT (the SAME path) -- method alone disambiguates them. GET is
+	// accepted too as harmless extra leniency for this package's own tests.
+	if suffix == suffixAgentAliases && method == http.MethodPut {
 		return h.handleCreateAgentAlias(c, agentID, body)
 	}
 
-	if suffix == suffixAgentAliases && method == http.MethodGet {
+	if suffix == suffixAgentAliases && (method == http.MethodPost || method == http.MethodGet) {
 		return h.handleListAgentAliases(c, agentID)
 	}
 

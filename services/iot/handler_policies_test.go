@@ -59,8 +59,8 @@ func TestAttachPrincipalPolicy_Handler(t *testing.T) {
 			t.Parallel()
 
 			h, _ := newRefHandler()
-			rec := doRefRequest(t, h, http.MethodPost, "/target-policies/my-policy", nil,
-				map[string]string{"x-amzn-iot-thingname": "my-thing"})
+			rec := doRefRequest(t, h, http.MethodPut, "/principal-policies/my-policy", nil,
+				map[string]string{"x-amzn-iot-principal": "arn:aws:iot:us-east-1:123456789012:cert/abc123"})
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}

@@ -10,6 +10,30 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// extractModelCopyImportOperation mirrors routeStubCopyImportOps's dispatch
+// order exactly, so ExtractOperation agrees with the real dispatch contract
+// for the ModelCopyJob/ModelImportJob families -- previously absent from
+// ExtractOperation's extractor list entirely (found by gopherstack-n1mb's
+// route table; Handler() itself already dispatched these correctly).
+func extractModelCopyImportOperation(path, method string) (string, bool) {
+	switch {
+	case path == modelCopyJobsPrefix && method == http.MethodPost:
+		return "CreateModelCopyJob", true
+	case path == modelCopyJobsPrefix && method == http.MethodGet:
+		return "ListModelCopyJobs", true
+	case strings.HasPrefix(path, modelCopyJobsPrefix+"/") && method == http.MethodGet:
+		return "GetModelCopyJob", true
+	case path == modelImportJobsPrefix && method == http.MethodPost:
+		return "CreateModelImportJob", true
+	case path == modelImportJobsPrefix && method == http.MethodGet:
+		return "ListModelImportJobs", true
+	case strings.HasPrefix(path, modelImportJobsPrefix+"/") && method == http.MethodGet:
+		return "GetModelImportJob", true
+	}
+
+	return "", false
+}
+
 // routeStubCopyImportOps handles model copy and import job operations backed by real state.
 func (h *Handler) routeStubCopyImportOps(c *echo.Context, path, method string) (bool, error) {
 	switch {

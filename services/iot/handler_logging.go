@@ -8,10 +8,10 @@ import (
 
 func resolveV2LoggingOps(path, method string) string {
 	switch {
-	case path == "/v2LoggingOptions" && method == http.MethodGet:
+	case path == pathV2LoggingOptions && method == http.MethodGet:
 
 		return opGetV2LoggingOptions
-	case path == "/v2LoggingOptions" && method == http.MethodPost:
+	case path == pathV2LoggingOptions && method == http.MethodPost:
 
 		return opSetV2LoggingOptions
 	case path == pathV2LoggingLevel && method == http.MethodPost:
@@ -23,10 +23,10 @@ func resolveV2LoggingOps(path, method string) string {
 	case path == pathV2LoggingLevel && method == http.MethodGet:
 
 		return opListV2LoggingLevels
-	case path == "/loggingOptions" && method == http.MethodGet:
+	case path == pathLoggingOptions && method == http.MethodGet:
 
 		return opGetLoggingOptions
-	case path == "/loggingOptions" && method == http.MethodPost:
+	case path == pathLoggingOptions && method == http.MethodPost:
 
 		return opSetLoggingOptions
 	}

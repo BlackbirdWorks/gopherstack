@@ -22,7 +22,7 @@ func TestAgentsHandler_AgentAliasLifecycle(t *testing.T) {
 	agentID := ag.AgentID
 
 	// Create alias.
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents/"+agentID+"/aliases", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/agents/"+agentID+"/aliases", map[string]any{
 		"agentAliasName": "my-alias",
 	})
 	assert.Equal(t, http.StatusAccepted, rec.Code)
@@ -65,7 +65,7 @@ func TestAgentsHandler_Alias_AgentNotFound(t *testing.T) {
 
 	h, _ := newTestAgentsHandler(t)
 
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents/nonexistent/aliases", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/agents/nonexistent/aliases", map[string]any{
 		"agentAliasName": "alias",
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -101,7 +101,7 @@ func TestAgentsHandler_AliasHistoryEvents(t *testing.T) {
 	require.NoError(t, err)
 	path := "/agents/" + agent.AgentID + "/aliases"
 
-	create := doAgentRequest(t, h, http.MethodPost, path, map[string]any{
+	create := doAgentRequest(t, h, http.MethodPut, path, map[string]any{
 		"agentAliasName":       "live",
 		"routingConfiguration": []map[string]string{{"agentVersion": "1"}},
 	})

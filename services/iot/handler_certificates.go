@@ -14,16 +14,39 @@ import (
 )
 
 func resolveCertificateOps(path, method string) string {
+	if op := resolveCertificateBareOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveCertificateIDOps(path, method)
+}
+
+func resolveCertificateBareOps(path, method string) string {
 	switch {
-	case path == "/certificates" && method == http.MethodGet:
+	case path == pathCertificates && method == http.MethodGet:
 
 		return opListCertificates
+	// CreateCertificateFromCsr's real path is bare POST /certificates
+	// (iot@v1.77.4 serializers.go), not POST /certificates/{id} -- found
+	// unreachable by gopherstack-n1mb's route table. The "/certificates/"
+	// prefixed shape is kept too as a non-canonical route wired for this
+	// package's own tests.
+	case path == pathCertificates && method == http.MethodPost:
+
+		return opCreateCertificateFromCsr
 	case path == "/certificate/register" && method == http.MethodPost:
 
 		return opRegisterCertificate
 	case path == "/certificate/register-no-ca" && method == http.MethodPost:
 
 		return opRegisterCertificateWithoutCA
+	}
+
+	return unknownOperation
+}
+
+func resolveCertificateIDOps(path, method string) string {
+	switch {
 	case strings.HasPrefix(path, "/certificates/") && method == http.MethodPost:
 
 		return opCreateCertificateFromCsr
@@ -404,10 +427,52 @@ func (h *Handler) handleDeleteCertificateProvider(c *echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// resolveCACertOps resolves the CA-certificate op family.
+//
+// The real wire shapes (iot@v1.77.4 serializers.go) use the SINGULAR
+// "/cacertificate" for everything except List (POST /cacertificate for
+// Register, GET/PUT/DELETE /cacertificate/{id} for Describe/Update/Delete),
+// and a wholly separate "/certificates-by-ca/{caCertificateId}" path for
+// ListCertificatesByCA -- gopherstack previously used a fictional PLURAL
+// "/cacertificates/{id}" shape for all four, and RouteMatcher never
+// recognized any "/cacertificate" (singular) or "/certificates-by-ca/"
+// prefix at all, so this entire sub-family (everything but ListCACertificates,
+// whose real path coincidentally IS plural) was unreachable by a real
+// client -- found by gopherstack-n1mb's route table. The old plural shapes
+// are kept too as non-canonical routes wired for this package's own tests
+// (handler_certificates_test.go).
 func resolveCACertOps(path, method string) string {
+	if op := resolveCACertCanonicalOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveCACertLegacyOps(path, method)
+}
+
+// resolveCACertCanonicalOps resolves the real (singular) wire shapes.
+func resolveCACertCanonicalOps(path, method string) string {
 	switch {
 	case path == "/cacertificates" && method == http.MethodGet:
 		return opListCACertificates
+	case path == "/cacertificate" && method == http.MethodPost:
+		return opRegisterCACertificate
+	case strings.HasPrefix(path, "/certificates-by-ca/") && method == http.MethodGet:
+		return opListCertificatesByCA
+	case strings.HasPrefix(path, "/cacertificate/") && method == http.MethodGet:
+		return opDescribeCACertificate
+	case strings.HasPrefix(path, "/cacertificate/") && method == http.MethodPut:
+		return opUpdateCACertificate
+	case strings.HasPrefix(path, "/cacertificate/") && method == http.MethodDelete:
+		return opDeleteCACertificate
+	}
+
+	return unknownOperation
+}
+
+// resolveCACertLegacyOps resolves the non-canonical plural shapes this
+// package's own tests still use.
+func resolveCACertLegacyOps(path, method string) string {
+	switch {
 	case path == "/cacertificate/register" && method == http.MethodPost:
 		return opRegisterCACertificate
 	case strings.HasPrefix(path, "/cacertificates/") && method == http.MethodGet:
@@ -447,8 +512,19 @@ func (h *Handler) handleRegisterCACertificate(c *echo.Context) error {
 	})
 }
 
+// caCertIDFromPath extracts the certificate ID from either the real
+// singular "/cacertificate/{id}" path or the non-canonical plural
+// "/cacertificates/{id}" path this package's own tests still use.
+func caCertIDFromPath(path string) string {
+	if id, ok := strings.CutPrefix(path, "/cacertificate/"); ok {
+		return id
+	}
+
+	return strings.TrimPrefix(path, "/cacertificates/")
+}
+
 func (h *Handler) handleDescribeCACertificate(c *echo.Context) error {
-	id := strings.TrimPrefix(c.Request().URL.Path, "/cacertificates/")
+	id := caCertIDFromPath(c.Request().URL.Path)
 	ca, err := h.Backend.DescribeCACertificate(id)
 	if err != nil {
 		return respondErr(c, err)
@@ -472,7 +548,7 @@ func (h *Handler) handleListCACertificates(c *echo.Context) error {
 }
 
 func (h *Handler) handleUpdateCACertificate(c *echo.Context) error {
-	id := strings.TrimPrefix(c.Request().URL.Path, "/cacertificates/")
+	id := caCertIDFromPath(c.Request().URL.Path)
 	var req struct {
 		NewStatus string `json:"newStatus"`
 	}
@@ -487,7 +563,7 @@ func (h *Handler) handleUpdateCACertificate(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteCACertificate(c *echo.Context) error {
-	id := strings.TrimPrefix(c.Request().URL.Path, "/cacertificates/")
+	id := caCertIDFromPath(c.Request().URL.Path)
 	if err := h.Backend.DeleteCACertificate(id); err != nil {
 		return respondErr(c, err)
 	}
@@ -496,9 +572,18 @@ func (h *Handler) handleDeleteCACertificate(c *echo.Context) error {
 }
 
 func (h *Handler) handleListCertificatesByCA(c *echo.Context) error {
-	// /cacertificates/{caCertificateId}/certificates
-	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/cacertificates/")
-	caID := strings.TrimSuffix(trimmed, "/certificates")
+	path := c.Request().URL.Path
+
+	var caID string
+	if id, ok := strings.CutPrefix(path, "/certificates-by-ca/"); ok {
+		// Real path: /certificates-by-ca/{caCertificateId}.
+		caID = id
+	} else {
+		// Non-canonical: /cacertificates/{caCertificateId}/certificates.
+		trimmed := strings.TrimPrefix(path, "/cacertificates/")
+		caID = strings.TrimSuffix(trimmed, "/certificates")
+	}
+
 	certs := h.Backend.ListCertificatesByCA(caID)
 	summaries := make([]map[string]any, len(certs))
 	for i, cert := range certs {
@@ -532,6 +617,16 @@ func resolveBatch3CertOps(path, method string) string {
 	case path == "/keys-and-certificate" && method == http.MethodPost:
 
 		return opCreateKeysAndCertificate
+	// TransferCertificate's real path is PATCH
+	// /transfer-certificate/{certificateId} (iot@v1.77.4 serializers.go),
+	// not ".../certificates/{id}/transfer" -- found unreachable by
+	// gopherstack-n1mb's route table (RouteMatcher never recognized
+	// "/transfer-certificate/" either; see matchCertificateTransferPath).
+	// The old shape is kept too as a non-canonical route wired for this
+	// package's own tests.
+	case strings.HasPrefix(path, "/transfer-certificate/") && method == http.MethodPatch:
+
+		return opTransferCertificate
 	case strings.HasPrefix(path, "/certificates/") &&
 		strings.HasSuffix(path, "/transfer") &&
 		method == http.MethodPatch:
@@ -582,9 +677,18 @@ func (h *Handler) handleCreateKeysAndCertificate(c *echo.Context) error {
 }
 
 func (h *Handler) handleTransferCertificate(c *echo.Context) error {
-	// PATCH /certificates/{certId}/transfer?targetAwsAccount=...
-	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/certificates/")
-	certID := strings.TrimSuffix(trimmed, "/transfer")
+	// Real: PATCH /transfer-certificate/{certId}?targetAwsAccount=...
+	// Legacy: PATCH /certificates/{certId}/transfer?targetAwsAccount=...
+	path := c.Request().URL.Path
+
+	var certID string
+	if id, ok := strings.CutPrefix(path, "/transfer-certificate/"); ok {
+		certID = id
+	} else {
+		trimmed := strings.TrimPrefix(path, "/certificates/")
+		certID = strings.TrimSuffix(trimmed, "/transfer")
+	}
+
 	targetAccount := c.Request().URL.Query().Get("targetAwsAccount")
 
 	var body struct {

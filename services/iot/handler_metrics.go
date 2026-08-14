@@ -24,8 +24,17 @@ func resolveFleetMetricOps(path, method string) string {
 	return unknownOperation
 }
 
+// resolveCustomMetricOps resolves the custom-metric op family.
+//
+// ListCustomMetrics' real path is GET /custom-metrics (plural, iot@v1.77.4
+// serializers.go) -- every other op in this family is correctly singular
+// "/custom-metric/{name}", but List was too, unreachable by a real client.
+// Found by gopherstack-n1mb's route table. The singular bare path is kept
+// too as a non-canonical route wired for this package's own tests.
 func resolveCustomMetricOps(path, method string) string {
 	switch {
+	case path == "/custom-metrics" && method == http.MethodGet:
+		return opListCustomMetrics
 	case path == "/custom-metric" && method == http.MethodGet:
 		return opListCustomMetrics
 	case strings.HasPrefix(path, "/custom-metric/") && method == http.MethodPost:

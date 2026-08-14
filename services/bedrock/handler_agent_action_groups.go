@@ -16,10 +16,13 @@ func (h *AgentsHandler) dispatchCanonicalActionGroupRoutes(
 		return c.JSON(http.StatusNotFound, agentErrResp("UnknownOperationException", "unknown action group operation"))
 	}
 
+	// ListAgentActionGroups is real bedrock-agent@v1.58.4 serializers.go:4026:
+	// POST .../actiongroups/. GET is accepted too as harmless extra leniency
+	// for this package's own tests.
 	switch {
 	case rest == "" && method == http.MethodPut:
 		return h.handleCreateAgentActionGroup(c, agentID, body)
-	case rest == "" && method == http.MethodGet:
+	case rest == "" && (method == http.MethodPost || method == http.MethodGet):
 		return h.handleListAgentActionGroups(c, agentID)
 	case strings.HasPrefix(rest, "/") && method == http.MethodGet:
 		return h.handleGetAgentActionGroup(c, agentID, strings.TrimPrefix(rest, "/"))

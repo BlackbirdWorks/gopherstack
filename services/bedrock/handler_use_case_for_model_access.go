@@ -8,6 +8,22 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// extractUseCaseForModelAccessOperation mirrors routeUseCaseForModelAccess's
+// dispatch order exactly, so ExtractOperation agrees with the real dispatch
+// contract -- previously absent from ExtractOperation's extractor list
+// entirely (found by gopherstack-n1mb's route table; Handler() itself
+// already dispatched these correctly).
+func extractUseCaseForModelAccessOperation(path, method string) (string, bool) {
+	switch {
+	case path == useCaseForModelAccessPath && method == http.MethodGet:
+		return "GetUseCaseForModelAccess", true
+	case path == useCaseForModelAccessPath && method == http.MethodPost:
+		return "PutUseCaseForModelAccess", true
+	}
+
+	return "", false
+}
+
 // routeUseCaseForModelAccess handles GetUseCaseForModelAccess and
 // PutUseCaseForModelAccess.
 //

@@ -408,6 +408,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		extractAdvancedPromptOptimizationJobOperation,
 		extractAccountDataRetentionOperation,
 		extractResourcePolicyOperation,
+		extractModelCopyImportOperation,
+		extractPromptRouterOperation,
+		extractEnforcedGuardrailConfigOperation,
+		extractUseCaseForModelAccessOperation,
+		extractFoundationModelStubOperation,
 	} {
 		if op, ok := fn(path, method); ok {
 			return op

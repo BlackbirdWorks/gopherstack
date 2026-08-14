@@ -13,6 +13,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// resolvePolicyVersionOps resolves DetachPolicy's non-canonical DELETE
+// route (see resolvePolicyAndCertOps's doc comment for the real POST one)
+// and ListAttachedPolicies.
+//
+// ListAttachedPolicies' real path is POST /attached-policies/{target}
+// (iot@v1.77.4 serializers.go), not the bare /attached-policies gopherstack
+// previously used -- found unreachable by gopherstack-n1mb's route table.
+// The bare path is kept too as a non-canonical route wired for this
+// package's own tests.
 func resolvePolicyVersionOps(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, "/target-policies/") && method == http.MethodDelete:
@@ -21,46 +30,75 @@ func resolvePolicyVersionOps(path, method string) string {
 	case path == "/attached-policies" && method == http.MethodPost:
 
 		return opListAttachedPolicies
+	case strings.HasPrefix(path, "/attached-policies/") && method == http.MethodPost:
+
+		return opListAttachedPolicies
 	}
 
 	return resolvePolicyVersionSubOps(path, method)
 }
 
+// resolvePolicyVersionSubOps resolves the policy-version op family.
+//
+// The real wire shape (iot@v1.77.4 serializers.go) uses the SINGULAR
+// "/policies/{policyName}/version[/{policyVersionId}]" for every op in this
+// family, including SetDefaultPolicyVersion (PATCH on the same
+// .../version/{id} path Get/Delete use -- no "/default" suffix at all) --
+// gopherstack previously used a fictional PLURAL "/versions" shape
+// throughout, plus an invented "/default" suffix for SetDefault, so this
+// entire family was unreachable by a real client. Found by
+// gopherstack-n1mb's route table. The old plural/"/default" shapes are kept
+// too as non-canonical routes wired for this package's own tests.
 func resolvePolicyVersionSubOps(path, method string) string {
 	if !strings.HasPrefix(path, "/policies/") {
 		return unknownOperation
 	}
 
-	hasVersionSlash := strings.Contains(path, "/versions/")
-	endsVersion := strings.HasSuffix(path, "/versions")
-	endsDefault := strings.HasSuffix(path, "/default")
+	shape := classifyPolicyVersionPath(path)
 
-	return resolvePolicyVersionByMethod(path, method, hasVersionSlash, endsVersion, endsDefault)
+	return resolvePolicyVersionByMethod(method, shape)
 }
 
-func resolvePolicyVersionByMethod(
-	path, method string,
-	hasVersionSlash, endsVersion, endsDefault bool,
-) string {
+// policyVersionPathShape describes the structural features of a
+// /policies/{name}/version... path, real or legacy, that
+// resolvePolicyVersionByMethod needs to pick an op.
+type policyVersionPathShape struct {
+	hasVersionID bool
+	isCollection bool
+	endsDefault  bool
+}
+
+func classifyPolicyVersionPath(path string) policyVersionPathShape {
+	return policyVersionPathShape{
+		hasVersionID: strings.Contains(path, "/version/") || strings.Contains(path, "/versions/"),
+		isCollection: strings.HasSuffix(path, "/version") || strings.HasSuffix(path, "/versions"),
+		endsDefault:  strings.HasSuffix(path, "/default"),
+	}
+}
+
+func resolvePolicyVersionByMethod(method string, shape policyVersionPathShape) string {
 	switch method {
 	case http.MethodGet:
-		if hasVersionSlash {
+		if shape.hasVersionID {
 			return opGetPolicyVersion
 		}
 
-		if endsVersion {
+		if shape.isCollection {
 			return opListPolicyVersions
 		}
 	case http.MethodDelete:
-		if hasVersionSlash {
+		if shape.hasVersionID {
 			return opDeletePolicyVersion
 		}
 	case http.MethodPatch:
-		if endsDefault {
+		// Real SetDefaultPolicyVersion PATCHes the same .../version/{id}
+		// path Get/Delete use; the "/default" suffix is the non-canonical
+		// legacy shape.
+		if shape.hasVersionID || shape.endsDefault {
 			return opSetDefaultPolicyVersion
 		}
 	case http.MethodPost:
-		if strings.Contains(path, "/versions") && !endsDefault {
+		if shape.isCollection {
 			return opCreatePolicyVersion
 		}
 	}
@@ -121,9 +159,15 @@ func (h *Handler) dispatchPolicyVersionOps(c *echo.Context, op string) (bool, er
 	return false, nil
 }
 
+// handleAttachPrincipalPolicy reads the policy name from the real
+// "/principal-policies/{policyName}" path and the principal from the real
+// "X-Amzn-Iot-Principal" header (iot@v1.77.4 serializers.go:668-669) --
+// gopherstack previously stripped "/target-policies/" (DetachPolicy's real
+// path, a genuine op-name mix-up; see resolvePolicyAndCertOps) and read the
+// wrong header. Fixed by gopherstack-n1mb's route table.
 func (h *Handler) handleAttachPrincipalPolicy(c *echo.Context) error {
-	policyName := strings.TrimPrefix(c.Request().URL.Path, "/target-policies/")
-	principal := c.Request().Header.Get(headerIoTThingName)
+	policyName := strings.TrimPrefix(c.Request().URL.Path, pathPrincipalPolicies+"/")
+	principal := c.Request().Header.Get("X-Amzn-Iot-Principal")
 
 	if err := h.Backend.AttachPrincipalPolicy(&AttachPrincipalPolicyInput{
 		PolicyName: policyName,
@@ -280,9 +324,39 @@ func (h *Handler) handleListAttachedPolicies(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"policies": out})
 }
 
+// policyVersionCollectionName extracts the policy name from a
+// "/policies/{name}/version" (real) or "/policies/{name}/versions" (legacy)
+// collection path.
+func policyVersionCollectionName(path string) string {
+	after := strings.TrimPrefix(path, "/policies/")
+	after = strings.TrimSuffix(after, "/versions")
+
+	return strings.TrimSuffix(after, "/version")
+}
+
+// policyVersionIDParts extracts the policy name and version ID from a
+// "/policies/{name}/version/{id}" (real) or "/policies/{name}/versions/{id}"
+// (legacy) path, optionally followed by "/default" (the legacy
+// SetDefaultPolicyVersion suffix).
+func policyVersionIDParts(path string) (string, string, bool) {
+	after := strings.TrimPrefix(path, "/policies/")
+	after = strings.TrimSuffix(after, "/default")
+
+	sep := "/version/"
+	if !strings.Contains(after, sep) {
+		sep = "/versions/"
+	}
+
+	parts := strings.SplitN(after, sep, maxPathSegments)
+	if len(parts) != maxPathSegments {
+		return "", "", false
+	}
+
+	return parts[0], parts[1], true
+}
+
 func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
-	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
-	policyName := strings.TrimSuffix(after, "/versions")
+	policyName := policyVersionCollectionName(c.Request().URL.Path)
 
 	var body struct {
 		PolicyDocument string `json:"policyDocument"`
@@ -318,14 +392,12 @@ func (h *Handler) handleCreatePolicyVersion(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetPolicyVersion(c *echo.Context) error {
-	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
-	parts := strings.SplitN(after, "/versions/", maxPathSegments)
-	if len(parts) != maxPathSegments {
+	policyName, versionID, ok := policyVersionIDParts(c.Request().URL.Path)
+	if !ok {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
 	}
 
-	policyName := parts[0]
-	pv, err := h.Backend.GetPolicyVersion(policyName, parts[1])
+	pv, err := h.Backend.GetPolicyVersion(policyName, versionID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -355,8 +427,7 @@ func (h *Handler) handleGetPolicyVersion(c *echo.Context) error {
 }
 
 func (h *Handler) handleListPolicyVersions(c *echo.Context) error {
-	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
-	policyName := strings.TrimSuffix(after, "/versions")
+	policyName := policyVersionCollectionName(c.Request().URL.Path)
 	versions, err := h.Backend.ListPolicyVersions(policyName)
 	if err != nil {
 		return h.handleError(c, err)
@@ -374,12 +445,11 @@ func (h *Handler) handleListPolicyVersions(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeletePolicyVersion(c *echo.Context) error {
-	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
-	parts := strings.SplitN(after, "/versions/", maxPathSegments)
-	if len(parts) != maxPathSegments {
+	policyName, versionID, ok := policyVersionIDParts(c.Request().URL.Path)
+	if !ok {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
 	}
-	if err := h.Backend.DeletePolicyVersion(parts[0], parts[1]); err != nil {
+	if err := h.Backend.DeletePolicyVersion(policyName, versionID); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -387,13 +457,11 @@ func (h *Handler) handleDeletePolicyVersion(c *echo.Context) error {
 }
 
 func (h *Handler) handleSetDefaultPolicyVersion(c *echo.Context) error {
-	after := strings.TrimPrefix(c.Request().URL.Path, "/policies/")
-	after = strings.TrimSuffix(after, "/default")
-	parts := strings.SplitN(after, "/versions/", maxPathSegments)
-	if len(parts) != maxPathSegments {
+	policyName, versionID, ok := policyVersionIDParts(c.Request().URL.Path)
+	if !ok {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: keyInvalidPath})
 	}
-	if err := h.Backend.SetDefaultPolicyVersion(parts[0], parts[1]); err != nil {
+	if err := h.Backend.SetDefaultPolicyVersion(policyName, versionID); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -500,21 +568,50 @@ func (h *Handler) dispatchPolicyPrincipalOps(c *echo.Context, op string) (bool, 
 	return false, nil
 }
 
-// resolvePolicyPrincipalPathOps resolves the principal/policy listing endpoints.
+// resolvePolicyPrincipalPathOps resolves the principal/policy listing
+// endpoints.
+//
+// Three real wire shapes (iot@v1.77.4 serializers.go) were wrong, found by
+// gopherstack-n1mb's route table: ListTargetsForPolicy is real POST, not
+// GET; ListPrincipalThings/ListPrincipalThingsV2's real paths are
+// "/principals/things"/"/principals/things-v2", not "/principal-things"/
+// "/principal-things-v2". The old shapes are kept too as non-canonical
+// routes wired for this package's own tests.
 func resolvePolicyPrincipalPathOps(path, method string) string {
+	if op := resolvePolicyPrincipalCanonicalOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolvePolicyPrincipalLegacyOps(path, method)
+}
+
+func resolvePolicyPrincipalCanonicalOps(path, method string) string {
 	switch {
 	case path == "/principal-policies" && method == http.MethodGet:
 		return opListPrincipalPolicies
 	case path == "/policy-principals" && method == http.MethodGet:
 		return opListPolicyPrincipals
+	case strings.HasPrefix(path, "/policy-targets/") && method == http.MethodPost:
+		return opListTargetsForPolicy
+	case path == "/principals/things" && method == http.MethodGet:
+		return opListPrincipalThings
+	case path == "/principals/things-v2" && method == http.MethodGet:
+		return opListPrincipalThingsV2
+	case path == "/effective-policies" && method == http.MethodPost:
+		return opGetEffectivePolicies
+	}
+
+	return unknownOperation
+}
+
+func resolvePolicyPrincipalLegacyOps(path, method string) string {
+	switch {
 	case strings.HasPrefix(path, "/policy-targets/") && method == http.MethodGet:
 		return opListTargetsForPolicy
 	case path == "/principal-things" && method == http.MethodGet:
 		return opListPrincipalThings
 	case path == "/principal-things-v2" && method == http.MethodGet:
 		return opListPrincipalThingsV2
-	case path == "/effective-policies" && method == http.MethodPost:
-		return opGetEffectivePolicies
 	}
 
 	return unknownOperation

@@ -52,6 +52,13 @@ const (
 	keyCertificates       = "certificates"
 	keyPolicies           = "policies"
 	keyThings             = "things"
+	pathCertificates      = "/certificates"
+	pathDestinations      = "/destinations"
+	pathV2LoggingOptions  = "/v2LoggingOptions"
+	pathLoggingOptions    = "/loggingOptions"
+	pathPackageConfig     = "/package-configuration"
+	pathRegistrationCode  = "/registrationcode"
+	pathEventConfigs      = "/event-configurations"
 )
 
 const (

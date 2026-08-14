@@ -112,7 +112,7 @@ func TestAccuracy_KBDocuments_IngestWithBDAParsingStrategy(t *testing.T) {
 
 	// Create data source with BDA parsing
 	dsRec := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 		map[string]any{
 			"name": "bda-source",

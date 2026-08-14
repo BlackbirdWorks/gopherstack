@@ -111,9 +111,9 @@ func resolvePackageOps(path, method string) string {
 	switch {
 	case path == "/packages" && method == http.MethodGet:
 		return opListPackages
-	case path == "/package-configuration" && method == http.MethodGet:
+	case path == pathPackageConfig && method == http.MethodGet:
 		return opGetPackageConfiguration
-	case path == "/package-configuration" && method == http.MethodPatch:
+	case path == pathPackageConfig && method == http.MethodPatch:
 		return opUpdatePackageConfiguration
 	}
 

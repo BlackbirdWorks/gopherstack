@@ -7,6 +7,26 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// extractFoundationModelStubOperation mirrors routeStubFoundationModelOps's
+// dispatch order exactly, so ExtractOperation agrees with the real dispatch
+// contract -- previously absent from ExtractOperation's extractor list
+// entirely (found by gopherstack-n1mb's route table; Handler() itself
+// already dispatched these correctly). CreateFoundationModelAgreement is
+// handled separately by extractCustomModelOperation (handler_custom_models.go),
+// which already covered it before this pass.
+func extractFoundationModelStubOperation(path, method string) (string, bool) {
+	switch {
+	case strings.HasPrefix(path, foundationModelAvailPath+"/") && method == http.MethodGet:
+		return "GetFoundationModelAvailability", true
+	case strings.HasPrefix(path, foundationModelAgreementOffersPath+"/") && method == http.MethodGet:
+		return "ListFoundationModelAgreementOffers", true
+	case path == deleteFoundationModelAgreementPath && method == http.MethodPost:
+		return "DeleteFoundationModelAgreement", true
+	}
+
+	return "", false
+}
+
 // routeStubFoundationModelOps handles foundation model availability and agreement operations.
 func (h *Handler) routeStubFoundationModelOps(c *echo.Context, path, method string, body []byte) (bool, error) {
 	switch {

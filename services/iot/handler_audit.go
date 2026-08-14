@@ -111,12 +111,32 @@ func (h *Handler) handleListAuditTasks(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{keyTasksField: summaries})
 }
 
+// resolveAuditSuppressionOps resolves the audit-suppression op family.
+//
+// Three of these were wrong against the real wire shape (iot@v1.77.4
+// serializers.go), found by gopherstack-n1mb's route table:
+// CreateAuditSuppression's real path is POST /audit/suppressions/create,
+// not the bare /audit/suppressions; DescribeAuditSuppression and
+// ListAuditSuppressions are both real POST (their filter fields are
+// carried in a JSON body), not GET. The old bare-path/GET shapes are kept
+// too as non-canonical routes wired for this package's own tests.
 func resolveAuditSuppressionOps(path, method string) string {
+	if op := resolveAuditSuppressionCRUDOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveAuditFindingOps(path, method)
+}
+
+func resolveAuditSuppressionCRUDOps(path, method string) string {
 	switch {
+	case path == "/audit/suppressions/create" && method == http.MethodPost:
+
+		return opCreateAuditSuppression
 	case path == "/audit/suppressions" && method == http.MethodPost:
 
 		return opCreateAuditSuppression
-	case path == "/audit/suppressions/describe" && method == http.MethodGet:
+	case path == "/audit/suppressions/describe" && (method == http.MethodPost || method == http.MethodGet):
 
 		return opDescribeAuditSuppression
 	case path == "/audit/suppressions/delete" && method == http.MethodPost:
@@ -125,9 +145,16 @@ func resolveAuditSuppressionOps(path, method string) string {
 	case path == "/audit/suppressions/update" && method == http.MethodPatch:
 
 		return opUpdateAuditSuppression
-	case path == "/audit/suppressions/list" && method == http.MethodGet:
+	case path == "/audit/suppressions/list" && (method == http.MethodPost || method == http.MethodGet):
 
 		return opListAuditSuppressions
+	}
+
+	return unknownOperation
+}
+
+func resolveAuditFindingOps(path, method string) string {
+	switch {
 	case strings.HasPrefix(path, "/audit/findings/") && method == http.MethodGet:
 
 		return opDescribeAuditFinding

@@ -8,23 +8,139 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// extractARPOperation mirrors routeARP's dispatch order exactly (same
+// predicates, same precedence) so ExtractOperation and Handler() never
+// disagree on an AutomatedReasoningPolicy op name. Previously this only
+// recognized the four POST-method ops (Create/Cancel/CreateTestCase/
+// CreateVersion); every GET/PATCH/DELETE op in the family -- correctly
+// dispatched by routeARP all along -- resolved to "Unknown" here, a
+// misclassification found by gopherstack-n1mb's route table (Handler()
+// itself was never broken, only this hand-duplicated extraction tree).
 func extractARPOperation(path, method string) (string, bool) {
-	if method != http.MethodPost {
+	if !strings.HasPrefix(path, automatedReasoningPrefix) {
 		return "", false
 	}
 
-	switch {
-	case path == automatedReasoningPrefix:
+	if path == automatedReasoningPrefix {
+		return extractARPRootOp(method)
+	}
+
+	if op, ok := extractARPBuildWorkflowOp(path, method); ok {
+		return op, true
+	}
+
+	if op, ok := extractARPTestCaseOp(path, method); ok {
+		return op, true
+	}
+
+	if op, ok := extractARPVersionExportOp(path, method); ok {
+		return op, true
+	}
+
+	return extractARPSingleItemOp(path, method)
+}
+
+func extractARPRootOp(method string) (string, bool) {
+	switch method {
+	case http.MethodPost:
 		return "CreateAutomatedReasoningPolicy", true
-	case isARPBuildWorkflowCancelPath(path):
+	case http.MethodGet:
+		return "ListAutomatedReasoningPolicies", true
+	}
+
+	return "", false
+}
+
+// extractARPBuildWorkflowOp mirrors routeARPBuildWorkflow (sub-resource then core).
+func extractARPBuildWorkflowOp(path, method string) (string, bool) {
+	if op, ok := extractARPBuildWorkflowSubResourceOp(path, method); ok {
+		return op, true
+	}
+
+	return extractARPBuildWorkflowCoreOp(path, method)
+}
+
+func extractARPBuildWorkflowSubResourceOp(path, method string) (string, bool) {
+	switch {
+	case isARPBuildWorkflowAnnotationsPath(path) && method == http.MethodGet:
+		return "GetAutomatedReasoningPolicyAnnotations", true
+	case isARPBuildWorkflowAnnotationsPath(path) && method == http.MethodPatch:
+		return "UpdateAutomatedReasoningPolicyAnnotations", true
+	case isARPBuildWorkflowScenariosPath(path) && method == http.MethodGet:
+		return "GetAutomatedReasoningPolicyNextScenario", true
+	case isARPBuildWorkflowTestCaseResultPath(path) && method == http.MethodGet:
+		return "GetAutomatedReasoningPolicyTestResult", true
+	case isARPBuildWorkflowTestResultsPath(path) && method == http.MethodGet:
+		return "ListAutomatedReasoningPolicyTestResults", true
+	case isARPBuildWorkflowTestWorkflowsPath(path) && method == http.MethodPost:
+		return "StartAutomatedReasoningPolicyTestWorkflow", true
+	}
+
+	return "", false
+}
+
+func extractARPBuildWorkflowCoreOp(path, method string) (string, bool) {
+	switch {
+	case isARPBuildWorkflowCancelPath(path) && method == http.MethodPost:
 		return "CancelAutomatedReasoningPolicyBuildWorkflow", true
-	case isARPTestCasesPath(path):
+	case isARPBuildWorkflowResultAssetsPath(path) && method == http.MethodGet:
+		return "GetAutomatedReasoningPolicyBuildWorkflowResultAssets", true
+	case isARPBuildWorkflowStartPath(path) && method == http.MethodPost:
+		return "StartAutomatedReasoningPolicyBuildWorkflow", true
+	case isARPBuildWorkflowSubPath(path) && method == http.MethodGet:
+		return "GetAutomatedReasoningPolicyBuildWorkflow", true
+	case isARPBuildWorkflowSubPath(path) && method == http.MethodDelete:
+		return "DeleteAutomatedReasoningPolicyBuildWorkflow", true
+	case isARPBuildWorkflowsPath(path) && method == http.MethodGet:
+		return "ListAutomatedReasoningPolicyBuildWorkflows", true
+	}
+
+	return "", false
+}
+
+func extractARPTestCaseOp(path, method string) (string, bool) {
+	switch {
+	case isARPTestCasesPath(path) && method == http.MethodPost:
 		return "CreateAutomatedReasoningPolicyTestCase", true
-	case isARPVersionsPath(path):
+	case isARPTestCasesPath(path) && method == http.MethodGet:
+		return "ListAutomatedReasoningPolicyTestCases", true
+	case isARPTestCaseSubPath(path) && method == http.MethodGet:
+		return "GetAutomatedReasoningPolicyTestCase", true
+	case isARPTestCaseSubPath(path) && method == http.MethodPatch:
+		return "UpdateAutomatedReasoningPolicyTestCase", true
+	case isARPTestCaseSubPath(path) && method == http.MethodDelete:
+		return "DeleteAutomatedReasoningPolicyTestCase", true
+	}
+
+	return "", false
+}
+
+func extractARPVersionExportOp(path, method string) (string, bool) {
+	switch {
+	case isARPVersionsPath(path) && method == http.MethodPost:
 		return "CreateAutomatedReasoningPolicyVersion", true
-	default:
+	case isARPExportPath(path) && method == http.MethodGet:
+		return "ExportAutomatedReasoningPolicyVersion", true
+	}
+
+	return "", false
+}
+
+func extractARPSingleItemOp(path, method string) (string, bool) {
+	if !strings.HasPrefix(path, automatedReasoningPrefix+"/") {
 		return "", false
 	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetAutomatedReasoningPolicy", true
+	case http.MethodPatch:
+		return "UpdateAutomatedReasoningPolicy", true
+	case http.MethodDelete:
+		return "DeleteAutomatedReasoningPolicy", true
+	}
+
+	return "", false
 }
 
 // isARPBuildWorkflowCancelPath matches /automated-reasoning-policies/{arn}/build-workflows/{id}/cancel.

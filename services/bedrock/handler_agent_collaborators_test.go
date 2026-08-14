@@ -17,7 +17,7 @@ func TestAgentCollaboratorCRUD(t *testing.T) {
 	h, _ := newTestAgentsHandler(t)
 
 	// Create agent
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/agents", map[string]any{
 		"agentName":            "collab-agent",
 		"foundationModel":      "amazon.titan-text-express-v1",
 		"agentResourceRoleArn": "arn:aws:iam::000000000000:role/role",
@@ -33,7 +33,7 @@ func TestAgentCollaboratorCRUD(t *testing.T) {
 	)
 
 	// Associate collaborator
-	rec = doAgentRequest(t, h, http.MethodPost, collabPath, map[string]any{
+	rec = doAgentRequest(t, h, http.MethodPut, collabPath, map[string]any{
 		"agentVersion":             "DRAFT",
 		"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/other",
 		"relayConversationHistory": "TO_COLLABORATOR",
@@ -91,7 +91,7 @@ func TestAccuracy_AgentCollaborator_RelayConversationHistoryPreserved(t *testing
 			require.NoError(t, err)
 
 			rec := doAgentRequest(
-				t, h, http.MethodPost,
+				t, h, http.MethodPut,
 				fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 				map[string]any{
 					"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/collab-agent",
@@ -130,7 +130,7 @@ func TestAccuracy_AgentCollaborator_UpdateRelayHistory(t *testing.T) {
 
 	// Associate with relay disabled
 	assocRec := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 		map[string]any{
 			"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/subagent",
@@ -175,7 +175,7 @@ func TestAccuracy_AgentCollaborator_SupervisorPattern(t *testing.T) {
 	// Associate two subagents
 	for i := range 2 {
 		rec := doAgentRequest(
-			t, h, http.MethodPost,
+			t, h, http.MethodPut,
 			fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 			map[string]any{
 				"collaboratorArn": fmt.Sprintf("arn:aws:bedrock:us-east-1:000000000000:agent/subagent-%d", i),
@@ -204,7 +204,7 @@ func TestAccuracy_AgentCollaborator_DisassociateRemovesFromList(t *testing.T) {
 
 	// Associate
 	rec := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", agent.AgentID),
 		map[string]any{
 			"collaboratorArn": "arn:aws:bedrock:us-east-1:000000000000:agent/temp-collab",

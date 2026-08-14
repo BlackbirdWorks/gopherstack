@@ -112,7 +112,12 @@ func classifyIdentityPropagationPaths(method string, segs []string, n int) (stri
 	case nSegsAccountResID:
 		id := seg(segs, segResID)
 		switch method {
-		case http.MethodPut:
+		// UpdateIdentityPropagationConfig's real wire method is POST
+		// (quicksight@v1.123.1 serializers.go), not PUT -- found
+		// unreachable by gopherstack-n1mb's route table. PUT is kept too
+		// as a non-canonical route wired for this package's own tests
+		// (persistence_test.go).
+		case http.MethodPost, http.MethodPut:
 			return opUpdateIdentityPropagationConfig, id
 		case http.MethodDelete:
 			return opDeleteIdentityPropagationConfig, id

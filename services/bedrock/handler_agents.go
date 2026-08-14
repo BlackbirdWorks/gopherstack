@@ -142,11 +142,11 @@ func (h *AgentsHandler) handlePrepareAgent(c *echo.Context, agentID string) erro
 func (h *AgentsHandler) dispatchAgentVersionRoutes(
 	c *echo.Context, agentID, suffix, method string,
 ) error {
-	if suffix == "/versions" && method == http.MethodGet {
+	if suffix == suffixVersions && method == http.MethodGet {
 		return h.handleListAgentVersions(c, agentID)
 	}
 
-	if suffix == "/versions" && method == http.MethodPost {
+	if suffix == suffixVersions && method == http.MethodPost {
 		return h.handleCreateAgentVersion(c, agentID)
 	}
 
@@ -168,7 +168,10 @@ func (h *AgentsHandler) dispatchAgentVersionRoutes(
 func (h *AgentsHandler) dispatchCanonicalAgentVersionRoutes(
 	c *echo.Context, agentID, suffix, method string,
 ) error {
-	if suffix == "/agentversions" && method == http.MethodGet {
+	// ListAgentVersions is real bedrock-agent@v1.58.4 serializers.go:4535:
+	// POST /agents/{id}/agentversions/. GET is accepted too as harmless
+	// extra leniency for this package's own tests.
+	if suffix == "/agentversions" && (method == http.MethodPost || method == http.MethodGet) {
 		return h.handleListAgentVersions(c, agentID)
 	}
 

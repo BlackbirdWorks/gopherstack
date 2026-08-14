@@ -148,7 +148,7 @@ func doAgentRequest(
 func createKBAndDS(t *testing.T, h *bedrock.AgentsHandler) (string, string) {
 	t.Helper()
 
-	kbResp := doAgentRequest(t, h, http.MethodPost, "/knowledgebases", map[string]any{
+	kbResp := doAgentRequest(t, h, http.MethodPut, "/knowledgebases", map[string]any{
 		"name":    "test-kb",
 		"roleArn": "arn:aws:iam::000000000000:role/kb-role",
 	})
@@ -159,7 +159,7 @@ func createKBAndDS(t *testing.T, h *bedrock.AgentsHandler) (string, string) {
 	kbID := kbBody["knowledgeBase"].(map[string]any)["knowledgeBaseId"].(string)
 
 	dsResp := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources", kbID),
 		map[string]any{"name": "test-ds"},
 	)
