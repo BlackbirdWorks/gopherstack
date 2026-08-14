@@ -167,7 +167,7 @@ with evidence · unknown-key behaviour · notes.
 | applicationautoscaling | applicationautoscaling | JSON-RPC 1.1 / `awsAwsjson11_` | v1.45.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | appmesh | appmesh | REST-JSON 1 / `awsRestjson1_` | v1.38.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | apprunner | apprunner | JSON-RPC 1.0 / `awsAwsjson10_` | v1.42.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
-| appstream | appstream | rpc-v2-cbor (hand-rolled bridge) / `deserializeCBOR_ (hand-written, not generated)` | v1.64.5 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
+| appstream | appstream | rpc-v2-cbor / `deserializeCBOR_*` (GENERATED, but under a non-`awsXxx_` scheme) | v1.64.5 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped | CORRECTED 2026-08-14: an earlier revision of this row called these functions hand-written. They are generated, present in the pinned SDK's own serializers.go and deserializers.go — just not under the `awsXxx_` prefix the other protocols use. What IS hand-rolled is gopherstack's own extraction off a `cbor.Map`, which is why this service is case-sensitive. |
 | appsync | appsync | REST-JSON 1 / `awsRestjson1_` | v1.56.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | athena | athena | JSON-RPC 1.1 / `awsAwsjson11_` | v1.60.4 | Case-sensitive (exact `case "Field":` / map-key match) | Silently dropped |  |
 | autoscaling | autoscaling | AWS Query (XML) / `awsAwsquery_` | v1.70.4 | Case-insensitive (`strings.EqualFold` on element/field name) | Silently dropped |  |
