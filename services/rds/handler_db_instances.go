@@ -331,28 +331,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		InstanceCreateTime:                instanceCreateTime,
 	}
 
-	if inst.DBInstanceStatus == instanceStatusModifying {
-		if pv := inst.PendingModifiedValues; pv != nil {
-			xpv := &xmlPendingModifiedValues{
-				DBInstanceClass:  pv.DBInstanceClass,
-				EngineVersion:    pv.EngineVersion,
-				AllocatedStorage: pv.AllocatedStorage,
-				Iops:             pv.Iops,
-			}
-			if pv.MultiAZChange != nil {
-				xpv.MultiAZ = *pv.MultiAZChange
-			}
-			result.PendingModifiedValues = xpv
-		} else {
-			result.PendingModifiedValues = &xmlPendingModifiedValues{}
-		}
-	}
-
-	if inst.DBParameterGroupName != "" {
-		result.DBParameterGroups = &xmlDBParamGroupsWrapper{
-			Status: &xmlDBParamGroupStatus{DBParameterGroupName: inst.DBParameterGroupName},
-		}
-	}
+	applyXMLInstanceGroups(inst, &result)
 
 	if len(inst.VpcSecurityGroups) > 0 {
 		members := make([]xmlVpcSecurityGroupMembership, 0, len(inst.VpcSecurityGroups))
@@ -384,8 +363,58 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 	return result
 }
 
+// applyXMLInstanceGroups fills the pending-modified-values, DB parameter
+// group, and option group membership fields of result from inst. Split out
+// of toXMLInstance to keep that function under the funlen limit.
+func applyXMLInstanceGroups(inst *DBInstance, result *xmlDBInstance) {
+	if inst.DBInstanceStatus == instanceStatusModifying {
+		if pv := inst.PendingModifiedValues; pv != nil {
+			xpv := &xmlPendingModifiedValues{
+				DBInstanceClass:  pv.DBInstanceClass,
+				EngineVersion:    pv.EngineVersion,
+				AllocatedStorage: pv.AllocatedStorage,
+				Iops:             pv.Iops,
+			}
+			if pv.MultiAZChange != nil {
+				xpv.MultiAZ = *pv.MultiAZChange
+			}
+			result.PendingModifiedValues = xpv
+		} else {
+			result.PendingModifiedValues = &xmlPendingModifiedValues{}
+		}
+	}
+
+	if inst.DBParameterGroupName != "" {
+		result.DBParameterGroups = &xmlDBParamGroupsWrapper{
+			Status: &xmlDBParamGroupStatus{DBParameterGroupName: inst.DBParameterGroupName},
+		}
+	}
+
+	if inst.OptionGroupName != "" {
+		result.OptionGroupMemberships = &xmlOptionGroupMembershipList{
+			Members: []xmlOptionGroupMembership{
+				{OptionGroupName: inst.OptionGroupName, Status: optionGroupMembershipStatusInSync},
+			},
+		}
+	}
+}
+
 type xmlDBParamGroupStatus struct {
 	DBParameterGroupName string `xml:"DBParameterGroupName,omitempty"`
+}
+
+// optionGroupMembershipStatusInSync is the status AWS reports for an option
+// group membership applied statically (no pending change), matching this
+// backend's always-apply-immediately option group model.
+const optionGroupMembershipStatusInSync = "in-sync"
+
+type xmlOptionGroupMembership struct {
+	OptionGroupName string `xml:"OptionGroupName"`
+	Status          string `xml:"Status"`
+}
+
+type xmlOptionGroupMembershipList struct {
+	Members []xmlOptionGroupMembership `xml:"OptionGroupMembership"`
 }
 
 type xmlDBParamGroupsWrapper struct {
@@ -431,6 +460,7 @@ type xmlDBInstance struct {
 	ReadReplicaDBInstanceIdentifiers  *xmlReadReplicaIdentifierList `xml:"ReadReplicaDBInstanceIdentifiers,omitempty"`
 	EnabledCloudwatchLogsExports      *xmlLogTypeList               `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	PendingModifiedValues             *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
+	OptionGroupMemberships            *xmlOptionGroupMembershipList `xml:"OptionGroupMemberships,omitempty"`
 	LicenseModel                      string                        `xml:"LicenseModel,omitempty"`
 	PreferredBackupWindow             string                        `xml:"PreferredBackupWindow,omitempty"`
 	DBInstanceClass                   string                        `xml:"DBInstanceClass"`

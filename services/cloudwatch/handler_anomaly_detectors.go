@@ -73,18 +73,28 @@ func (h *Handler) handleDescribeAnomalyDetectors(form url.Values, c *echo.Contex
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	type dimXML struct {
+		Name  string `xml:"Name"`
+		Value string `xml:"Value"`
+	}
 	type detectorXML struct {
-		Namespace  string `xml:"SingleMetricAnomalyDetector>Namespace"`
-		MetricName string `xml:"SingleMetricAnomalyDetector>MetricName"`
-		Stat       string `xml:"SingleMetricAnomalyDetector>Stat"`
-		StateValue string `xml:"StateValue"`
+		Namespace  string   `xml:"SingleMetricAnomalyDetector>Namespace"`
+		MetricName string   `xml:"SingleMetricAnomalyDetector>MetricName"`
+		Stat       string   `xml:"SingleMetricAnomalyDetector>Stat"`
+		StateValue string   `xml:"StateValue"`
+		Dimensions []dimXML `xml:"SingleMetricAnomalyDetector>Dimensions>member,omitempty"`
 	}
 	members := make([]detectorXML, 0, len(p.Data))
 	for _, d := range p.Data {
+		var dims []dimXML
+		for _, dim := range d.Dimensions {
+			dims = append(dims, dimXML(dim))
+		}
 		members = append(members, detectorXML{
 			Namespace:  d.Namespace,
 			MetricName: d.MetricName,
 			Stat:       d.Stat,
+			Dimensions: dims,
 			StateValue: d.StateValue,
 		})
 	}

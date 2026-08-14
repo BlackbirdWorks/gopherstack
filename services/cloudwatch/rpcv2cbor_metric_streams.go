@@ -35,6 +35,20 @@ func cborMetricStreamFilters(input cbor.Map, key string) []MetricStreamFilter {
 	return filters
 }
 
+// buildMetricStreamFiltersCBOR converts a []MetricStreamFilter to its wire
+// shape (cloudwatch@v1.66.3 schemas/schemas.go:3937-3939, MetricStreamFilter).
+func buildMetricStreamFiltersCBOR(filters []MetricStreamFilter) cbor.List {
+	out := make(cbor.List, 0, len(filters))
+	for _, f := range filters {
+		out = append(out, cbor.Map{
+			keyNamespace:  cbor.String(f.Namespace),
+			"MetricNames": cborStringList(f.MetricNames),
+		})
+	}
+
+	return out
+}
+
 func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 	name := cborStr(input, keyName)
 	if name == "" {
@@ -125,6 +139,12 @@ func (h *Handler) cborGetMetricStream(input cbor.Map, c *echo.Context) error {
 	}
 	if !stream.LastUpdateDate.IsZero() {
 		out["LastUpdateDate"] = cborFromTime(stream.LastUpdateDate)
+	}
+	if len(stream.IncludeFilters) > 0 {
+		out["IncludeFilters"] = buildMetricStreamFiltersCBOR(stream.IncludeFilters)
+	}
+	if len(stream.ExcludeFilters) > 0 {
+		out["ExcludeFilters"] = buildMetricStreamFiltersCBOR(stream.ExcludeFilters)
 	}
 
 	return writeCBOR(c, out)

@@ -105,6 +105,18 @@ func (b *InMemoryBackend) GetInsightRuleContributors(
 	return topNContributors(dimSums, dimKeys, maxContributorCount), nil
 }
 
+// managedInsightRuleName synthesizes a stable internal name for a managed
+// (service-linked) insight rule from its PutManagedInsightRules identity.
+// Real AWS's ManagedRule input has no RuleName member at all -- only
+// ResourceARN and TemplateName are required (aws-sdk-go-v2 cloudwatch@v1.66.3
+// types/types.go:1817) -- so a real client never sends one; this backend
+// still needs a stable key to store the rule under and to answer
+// ListManagedInsightRules' RuleState.RuleName with something consistent
+// across repeated Put calls for the same (ResourceARN, TemplateName) pair.
+func managedInsightRuleName(resourceARN, templateName string) string {
+	return resourceARN + "/" + templateName
+}
+
 // ListManagedInsightRules returns a paginated list of managed (service-linked) insight rules.
 // If resourceARN is non-empty only rules whose Arn matches are included; in the emulator the
 // ManagedRule flag is used as the primary discriminator.

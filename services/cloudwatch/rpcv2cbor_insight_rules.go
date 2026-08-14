@@ -257,8 +257,11 @@ func (h *Handler) cborListManagedInsightRules(input cbor.Map, c *echo.Context) e
 
 	rules := make(cbor.List, 0, len(p.Data))
 	for _, rule := range p.Data {
+		// rule.Definition holds the managed rule's TemplateName (set by
+		// PutManagedInsightRules); rule.Name is the RuleName, which belongs
+		// under the nested RuleState below, not here.
 		entry := cbor.Map{
-			"TemplateName": cbor.String(rule.Name),
+			"TemplateName": cbor.String(rule.Definition),
 		}
 		if rule.Arn != "" {
 			entry["ResourceARN"] = cbor.String(rule.Arn)
@@ -284,34 +287,21 @@ func (h *Handler) cborListManagedInsightRules(input cbor.Map, c *echo.Context) e
 }
 
 func (h *Handler) cborPutManagedInsightRules(input cbor.Map, c *echo.Context) error {
+	rulesRaw, ok := input["ManagedRules"]
+	if !ok {
+		return writeCBOR(c, buildInsightRuleFailureCBOR(nil))
+	}
+
+	rulesList, isList := rulesRaw.(cbor.List)
+	if !isList {
+		return writeCBOR(c, buildInsightRuleFailureCBOR(nil))
+	}
+
 	var failures []InsightRuleFailure
-
-	//nolint:nestif // nested CBOR decoding; structure mirrors the wire format
-	if rulesRaw, ok := input["ManagedRules"]; ok {
-		if rulesList, isList := rulesRaw.(cbor.List); isList {
-			for _, ruleRaw := range rulesList {
-				rule, isMap := ruleRaw.(cbor.Map)
-				if !isMap {
-					continue
-				}
-				ruleName := cborStr(rule, "RuleName")
-				if ruleName == "" {
-					continue
-				}
-
-				if err := h.Backend.PutInsightRule(&InsightRule{
-					Name:        ruleName,
-					State:       insightRuleStateEnabled,
-					Definition:  cborStr(rule, "TemplateName"),
-					Arn:         cborStr(rule, "ResourceARN"),
-					ManagedRule: true,
-				}); err != nil {
-					failures = append(failures, InsightRuleFailure{
-						RuleName:           ruleName,
-						FailureCode:        errCodeInternalFailure,
-						FailureDescription: err.Error(),
-					})
-				}
+	for _, ruleRaw := range rulesList {
+		if rule, isMap := ruleRaw.(cbor.Map); isMap {
+			if fail := h.putOneManagedInsightRule(rule); fail != nil {
+				failures = append(failures, *fail)
 			}
 		}
 	}
@@ -319,12 +309,48 @@ func (h *Handler) cborPutManagedInsightRules(input cbor.Map, c *echo.Context) er
 	return writeCBOR(c, buildInsightRuleFailureCBOR(failures))
 }
 
+// putOneManagedInsightRule creates a single managed insight rule from one
+// ManagedRules list entry, returning the resulting failure (or nil on
+// success). A real client never sends RuleName (ManagedRule has no such
+// member, only ResourceARN/TemplateName/Tags); a name is synthesized when
+// one isn't present so internal callers/tests can still pass an explicit
+// name.
+func (h *Handler) putOneManagedInsightRule(rule cbor.Map) *InsightRuleFailure {
+	resourceARN := cborStr(rule, "ResourceARN")
+	templateName := cborStr(rule, "TemplateName")
+	ruleName := cborStr(rule, "RuleName")
+	if ruleName == "" {
+		ruleName = managedInsightRuleName(resourceARN, templateName)
+	}
+	if ruleName == "" {
+		return nil
+	}
+
+	if err := h.Backend.PutInsightRule(&InsightRule{
+		Name:        ruleName,
+		State:       insightRuleStateEnabled,
+		Definition:  templateName,
+		Arn:         resourceARN,
+		ManagedRule: true,
+	}); err != nil {
+		return &InsightRuleFailure{
+			RuleName:           ruleName,
+			FailureCode:        errCodeInternalFailure,
+			FailureDescription: err.Error(),
+		}
+	}
+
+	return nil
+}
+
 // buildInsightRuleFailureCBOR builds a CBOR map for insight rule failure responses.
 func buildInsightRuleFailureCBOR(failures []InsightRuleFailure) cbor.Map {
 	failList := make(cbor.List, 0, len(failures))
 	for _, f := range failures {
 		failList = append(failList, cbor.Map{
-			"RuleName":           cbor.String(f.RuleName),
+			// Real member name is FailureResource, not RuleName
+			// (cloudwatch@v1.66.3 schemas/schemas.go:3271, PartialFailure).
+			"FailureResource":    cbor.String(f.RuleName),
 			"FailureCode":        cbor.String(f.FailureCode),
 			"FailureDescription": cbor.String(f.FailureDescription),
 		})

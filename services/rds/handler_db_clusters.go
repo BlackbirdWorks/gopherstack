@@ -296,6 +296,7 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		CopyTagsToSnapshot:              c.CopyTagsToSnapshot,
 		DeletionProtection:              c.DeletionProtection,
 		OptimizedWrites:                 c.OptimizedWrites,
+		HTTPEndpointEnabled:             c.HTTPEndpointEnabled,
 	}
 
 	if c.ServerlessV2ScalingConfig != nil {
@@ -451,6 +452,7 @@ type xmlDBCluster struct {
 	CopyTagsToSnapshot               bool                     `xml:"CopyTagsToSnapshot,omitempty"`
 	DeletionProtection               bool                     `xml:"DeletionProtection,omitempty"`
 	OptimizedWrites                  bool                     `xml:"OptimizedWritesEnabled,omitempty"`
+	HTTPEndpointEnabled              bool                     `xml:"HttpEndpointEnabled,omitempty"`
 }
 
 type xmlDBClusterList struct {
