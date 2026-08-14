@@ -59,7 +59,7 @@ func TestBackendDeepDiveOperations(t *testing.T) {
 				})
 
 			case "launch_template":
-				template, err := b.CreateLaunchTemplate("web-template", "ami-123", "t3.small")
+				template, err := b.CreateLaunchTemplate("web-template", "ami-123", "t3.small", nil)
 				require.NoError(t, err)
 				require.NotEmpty(t, template.ID)
 

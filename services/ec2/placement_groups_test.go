@@ -32,37 +32,37 @@ func TestPlacementGroupOperations(t *testing.T) {
 
 			switch tt.op {
 			case "create":
-				pg, err := b.CreatePlacementGroup("test-pg", "cluster")
+				pg, err := b.CreatePlacementGroup("test-pg", "cluster", nil)
 				require.NoError(t, err)
 				assert.Equal(t, "test-pg", pg.Name)
 				assert.Equal(t, "cluster", pg.Strategy)
 				assert.Equal(t, "available", pg.State)
 
 			case "create_bad_name":
-				_, err := b.CreatePlacementGroup("", "cluster")
+				_, err := b.CreatePlacementGroup("", "cluster", nil)
 				require.Error(t, err)
 
 			case "create_duplicate":
-				_, err := b.CreatePlacementGroup("dup-pg", "cluster")
+				_, err := b.CreatePlacementGroup("dup-pg", "cluster", nil)
 				require.NoError(t, err)
-				_, err = b.CreatePlacementGroup("dup-pg", "spread")
+				_, err = b.CreatePlacementGroup("dup-pg", "spread", nil)
 				require.Error(t, err)
 
 			case "describe_all":
-				_, err := b.CreatePlacementGroup("pg1", "cluster")
+				_, err := b.CreatePlacementGroup("pg1", "cluster", nil)
 				require.NoError(t, err)
 				pgs := b.DescribePlacementGroups(nil)
 				assert.NotEmpty(t, pgs)
 
 			case "describe_by_name":
-				_, err := b.CreatePlacementGroup("pg-named", "spread")
+				_, err := b.CreatePlacementGroup("pg-named", "spread", nil)
 				require.NoError(t, err)
 				pgs := b.DescribePlacementGroups([]string{"pg-named"})
 				require.Len(t, pgs, 1)
 				assert.Equal(t, "pg-named", pgs[0].Name)
 
 			case "delete":
-				_, err := b.CreatePlacementGroup("del-pg", "cluster")
+				_, err := b.CreatePlacementGroup("del-pg", "cluster", nil)
 				require.NoError(t, err)
 				err = b.DeletePlacementGroup("del-pg")
 				require.NoError(t, err)

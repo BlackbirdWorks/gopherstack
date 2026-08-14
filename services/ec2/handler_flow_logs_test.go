@@ -15,7 +15,7 @@ func TestGetFlowLogsIntegrationTemplateHTTP(t *testing.T) {
 
 	h := newTestHandler()
 
-	fls, err := h.Backend.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest")
+	fls, err := h.Backend.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest", nil)
 	require.NoError(t, err)
 	require.Len(t, fls, 1)
 
@@ -42,7 +42,7 @@ func TestHandlerDeleteFlowLogs(t *testing.T) {
 	vpc, err := b.CreateVpc("10.8.0.0/16")
 	require.NoError(t, err)
 
-	logs, err := b.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow")
+	logs, err := b.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow", nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 	logID := logs[0].FlowLogID

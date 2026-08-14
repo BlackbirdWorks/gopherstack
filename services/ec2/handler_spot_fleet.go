@@ -148,6 +148,7 @@ func (h *Handler) handleDescribeSpotFleetRequests(vals url.Values, reqID string)
 				LaunchSpecifications:            spotFleetLaunchSpecSet{Items: specs},
 			},
 			FulfilledCapacity: fmt.Sprintf("%g", fleet.FulfilledCapacity),
+			TagSet:            tagItemsFromMap(h.Backend.TagsForResource(fleet.SpotFleetRequestID)),
 		})
 	}
 
@@ -316,7 +317,7 @@ type spotFleetConfigItem struct {
 	ExcessCapacityTerminationPolicy string                 `xml:"excessCapacityTerminationPolicy,omitempty"`
 	IamFleetRole                    string                 `xml:"iamFleetRole,omitempty"`
 	Type                            string                 `xml:"type,omitempty"`
-	LaunchSpecifications            spotFleetLaunchSpecSet `xml:"launchSpecificationsSet"`
+	LaunchSpecifications            spotFleetLaunchSpecSet `xml:"launchSpecifications"`
 	TargetCapacity                  int                    `xml:"targetCapacity"`
 }
 
@@ -326,6 +327,7 @@ type spotFleetRequestConfigSetItem struct {
 	ActivityStatus         string              `xml:"activityStatus,omitempty"`
 	CreateTime             string              `xml:"createTime"`
 	FulfilledCapacity      string              `xml:"fulfilledCapacity,omitempty"`
+	TagSet                 []simpleTagItem     `xml:"tagSet>item"`
 	SpotFleetRequestConfig spotFleetConfigItem `xml:"spotFleetRequestConfig"`
 }
 

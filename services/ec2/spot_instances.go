@@ -33,6 +33,7 @@ type SpotInstanceRequest struct {
 // RequestSpotInstances creates a spot instance request and immediately fulfils it with a running instance.
 func (b *InMemoryBackend) RequestSpotInstances(
 	imageID, instanceType, subnetID, spotPrice string,
+	tags map[string]string,
 ) (*SpotInstanceRequest, error) {
 	if imageID == "" {
 		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
@@ -81,6 +82,7 @@ func (b *InMemoryBackend) RequestSpotInstances(
 		},
 	}
 	b.spotRequests.Put(req)
+	b.setTagsLocked(reqID, tags)
 
 	return req, nil
 }

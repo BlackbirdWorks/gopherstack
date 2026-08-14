@@ -23,6 +23,7 @@ type spotInstanceRequestItem struct {
 	SpotPrice             string             `xml:"spotPrice"`
 	Type                  string             `xml:"type"`
 	CreateTime            string             `xml:"createTime"`
+	TagSet                []simpleTagItem    `xml:"tagSet>item"`
 }
 
 type spotInstanceRequestSet struct {
@@ -78,7 +79,7 @@ type describeSpotPriceHistoryResponse struct {
 	SpotPriceHistorySet spotPriceHistorySet `xml:"spotPriceHistorySet"`
 }
 
-func toSpotRequestItem(req *SpotInstanceRequest) spotInstanceRequestItem {
+func toSpotRequestItem(req *SpotInstanceRequest, tags map[string]string) spotInstanceRequestItem {
 	return spotInstanceRequestItem{
 		SpotInstanceRequestID: req.ID,
 		InstanceID:            req.InstanceID,
@@ -91,6 +92,7 @@ func toSpotRequestItem(req *SpotInstanceRequest) spotInstanceRequestItem {
 			InstanceType: req.LaunchSpec.InstanceType,
 			SubnetID:     req.LaunchSpec.SubnetID,
 		},
+		TagSet: tagItemsFromMap(tags),
 	}
 }
 
@@ -111,7 +113,9 @@ func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any
 		)
 	}
 
-	req, err := h.Backend.RequestSpotInstances(imageID, instanceType, subnetID, spotPrice)
+	tags := parseTagSpecification(vals, "spot-instances-request")
+
+	req, err := h.Backend.RequestSpotInstances(imageID, instanceType, subnetID, spotPrice, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +124,9 @@ func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		SpotInstanceRequestSet: spotInstanceRequestSet{
-			Items: []spotInstanceRequestItem{toSpotRequestItem(req)},
+			Items: []spotInstanceRequestItem{
+				toSpotRequestItem(req, h.Backend.TagsForResource(req.ID)),
+			},
 		},
 	}, nil
 }
@@ -134,7 +140,7 @@ func (h *Handler) handleDescribeSpotInstanceRequests(vals url.Values, reqID stri
 
 	items := make([]spotInstanceRequestItem, 0, len(reqs))
 	for _, req := range reqs {
-		items = append(items, toSpotRequestItem(req))
+		items = append(items, toSpotRequestItem(req, h.Backend.TagsForResource(req.ID)))
 	}
 
 	return &describeSpotInstanceRequestsResponse{

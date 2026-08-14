@@ -13,7 +13,7 @@ func TestGetFlowLogsIntegrationTemplate(t *testing.T) {
 
 	b := newTestBackend()
 
-	fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket")
+	fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket", nil)
 	require.NoError(t, err)
 	require.Len(t, fls, 1)
 

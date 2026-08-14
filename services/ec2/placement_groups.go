@@ -19,7 +19,7 @@ type PlacementGroup struct {
 }
 
 // CreatePlacementGroup creates a new placement group.
-func (b *InMemoryBackend) CreatePlacementGroup(name, strategy string) (*PlacementGroup, error) {
+func (b *InMemoryBackend) CreatePlacementGroup(name, strategy string, tags map[string]string) (*PlacementGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
 	}
@@ -41,6 +41,7 @@ func (b *InMemoryBackend) CreatePlacementGroup(name, strategy string) (*Placemen
 		State:    stateAvailable,
 	}
 	b.placementGroups.Put(pg)
+	b.setTagsLocked(pg.Name, tags)
 
 	return pg, nil
 }

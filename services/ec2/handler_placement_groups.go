@@ -9,9 +9,10 @@ import (
 // ---- placement groups ----
 
 type placementGroupItem struct {
-	GroupName string `xml:"groupName"`
-	Strategy  string `xml:"strategy"`
-	State     string `xml:"state"`
+	GroupName string          `xml:"groupName"`
+	Strategy  string          `xml:"strategy"`
+	State     string          `xml:"state"`
+	TagSet    []simpleTagItem `xml:"tagSet>item"`
 }
 
 type placementGroupSet struct {
@@ -26,10 +27,10 @@ type describePlacementGroupsResponse struct {
 }
 
 type createPlacementGroupResponse struct {
-	XMLName   xml.Name `xml:"CreatePlacementGroupResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName        xml.Name           `xml:"CreatePlacementGroupResponse"`
+	Xmlns          string             `xml:"xmlns,attr"`
+	RequestID      string             `xml:"requestId"`
+	PlacementGroup placementGroupItem `xml:"placementGroup"`
 }
 
 type deletePlacementGroupResponse struct {
@@ -47,14 +48,22 @@ func (h *Handler) handleCreatePlacementGroup(vals url.Values, reqID string) (any
 		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
 	}
 
-	if _, err := h.Backend.CreatePlacementGroup(name, strategy); err != nil {
+	tags := parseTagSpecification(vals, "placement-group")
+
+	pg, err := h.Backend.CreatePlacementGroup(name, strategy, tags)
+	if err != nil {
 		return nil, err
 	}
 
 	return &createPlacementGroupResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Return:    true,
+		PlacementGroup: placementGroupItem{
+			GroupName: pg.Name,
+			Strategy:  pg.Strategy,
+			State:     pg.State,
+			TagSet:    tagItemsFromMap(h.Backend.TagsForResource(pg.Name)),
+		},
 	}, nil
 }
 
@@ -68,6 +77,7 @@ func (h *Handler) handleDescribePlacementGroups(vals url.Values, reqID string) (
 			GroupName: pg.Name,
 			Strategy:  pg.Strategy,
 			State:     pg.State,
+			TagSet:    tagItemsFromMap(h.Backend.TagsForResource(pg.Name)),
 		})
 	}
 

@@ -269,7 +269,7 @@ type describeSecurityGroupRulesResponse struct {
 }
 
 type launchTemplateVersionSet struct {
-	Items []launchTemplateItem `xml:"item"`
+	Items []launchTemplateVersionItem `xml:"item"`
 }
 
 // registerSecurityGroupsOps registers the SecurityGroups operation handlers.

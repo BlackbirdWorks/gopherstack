@@ -280,8 +280,9 @@ type Backend interface {
 
 	// ---- Launch template lifecycle ----
 
-	// DeleteLaunchTemplate removes a launch template by ID.
-	DeleteLaunchTemplate(id string) error
+	// DeleteLaunchTemplate removes a launch template by ID and returns the
+	// deleted template.
+	DeleteLaunchTemplate(id string) (*LaunchTemplate, error)
 
 	// DescribeLaunchTemplateVersions returns versions of a launch template.
 	DescribeLaunchTemplateVersions(id string) ([]*LaunchTemplate, error)
@@ -311,7 +312,7 @@ type Backend interface {
 	// ---- launch templates ----
 
 	// CreateLaunchTemplate creates a launch template.
-	CreateLaunchTemplate(name, imageID, instanceType string) (*LaunchTemplate, error)
+	CreateLaunchTemplate(name, imageID, instanceType string, tags map[string]string) (*LaunchTemplate, error)
 
 	// DescribeLaunchTemplates returns launch templates, optionally filtered by names.
 	DescribeLaunchTemplates(names []string) []*LaunchTemplate
@@ -352,6 +353,7 @@ type Backend interface {
 	// RequestSpotInstances creates a spot instance request (mock: immediately fulfilled).
 	RequestSpotInstances(
 		imageID, instanceType, subnetID, spotPrice string,
+		tags map[string]string,
 	) (*SpotInstanceRequest, error)
 
 	// DescribeSpotInstanceRequests returns spot requests, optionally filtered by IDs.
@@ -363,7 +365,7 @@ type Backend interface {
 	// ---- placement groups ----
 
 	// CreatePlacementGroup creates a new placement group.
-	CreatePlacementGroup(name, strategy string) (*PlacementGroup, error)
+	CreatePlacementGroup(name, strategy string, tags map[string]string) (*PlacementGroup, error)
 
 	// DescribePlacementGroups returns placement groups, optionally filtered by names.
 	DescribePlacementGroups(names []string) []*PlacementGroup
@@ -503,6 +505,7 @@ type Backend interface {
 	CreateFlowLogs(
 		resourceIDs []string,
 		trafficType, logDestinationType, logDestination string,
+		tags map[string]string,
 	) ([]*FlowLog, error)
 
 	// DescribeFlowLogs returns flow logs, optionally filtered by IDs.

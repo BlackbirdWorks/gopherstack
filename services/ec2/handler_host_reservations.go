@@ -74,6 +74,7 @@ type hostReservationItem struct {
 	HourlyPrice       string          `xml:"hourlyPrice"`
 	UpfrontPrice      string          `xml:"upfrontPrice"`
 	HostReservationID string          `xml:"hostReservationId"`
+	OfferingID        string          `xml:"offeringId,omitempty"`
 	Start             string          `xml:"start,omitempty"`
 	End               string          `xml:"end,omitempty"`
 	HostIDSet         []string        `xml:"hostIdSet>item"`
@@ -85,6 +86,7 @@ type hostReservationItem struct {
 func hostReservationToItem(hr *HostReservation, tags map[string]string) hostReservationItem {
 	item := hostReservationItem{
 		HostReservationID: hr.HostReservationID,
+		OfferingID:        hr.OfferingID,
 		InstanceFamily:    hr.InstanceFamily,
 		PaymentOption:     hr.PaymentOption,
 		CurrencyCode:      hr.CurrencyCode,
