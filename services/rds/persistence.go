@@ -21,12 +21,17 @@ import (
 // Bumped to 2: instanceRoles changed shape from map[string][]string (role ARNs, collapsing
 // different FeatureName associations together) to map[string]map[string]string (instance ID ->
 // FeatureName -> role ARN), matching AWS's per-feature role slots.
-const rdsSnapshotVersion = 2
+// Bumped to 3: clusterRoles changed shape from map[string][]string (bare role ARNs, with
+// FeatureName never stored at all) to map[string][]DBClusterRole (role ARN + FeatureName pairs)
+// so DescribeDBClusters can emit AssociatedRoles and a role ARN reused across two different
+// explicit FeatureName values no longer silently drops the second association -- see
+// gopherstack-1jkv and PARITY.md.
+const rdsSnapshotVersion = 3
 
 type backendSnapshot struct {
 	Tables                  map[string]json.RawMessage             `json:"tables"`
 	Tags                    map[string][]Tag                       `json:"tags"`
-	ClusterRoles            map[string][]string                    `json:"clusterRoles"`
+	ClusterRoles            map[string][]DBClusterRole             `json:"clusterRoles"`
 	InstanceRoles           map[string]map[string]string           `json:"instanceRoles"`
 	ProxyTargets            map[string][]DBProxyTarget             `json:"proxyTargets"`
 	InstanceReadyAt         map[string]time.Time                   `json:"instanceReadyAt"`
@@ -155,7 +160,7 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 	}
 
 	if snap.ClusterRoles == nil {
-		snap.ClusterRoles = make(map[string][]string)
+		snap.ClusterRoles = make(map[string][]DBClusterRole)
 	}
 
 	if snap.InstanceRoles == nil {

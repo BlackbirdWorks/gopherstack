@@ -156,8 +156,8 @@ type StorageBackend interface {
 	DownloadDBLogFilePortion(instanceID, logFileName, marker string, numberOfLines int) (LogFilePortion, error)
 
 	// IAM role operations
-	AddRoleToDBCluster(clusterID, roleARN string) error
-	RemoveRoleFromDBCluster(clusterID, roleARN string) error
+	AddRoleToDBCluster(clusterID, roleARN, featureName string) error
+	RemoveRoleFromDBCluster(clusterID, roleARN, featureName string) error
 	AddRoleToDBInstance(instanceID, roleARN, featureName string) error
 	RemoveRoleFromDBInstance(instanceID, roleARN, featureName string) error
 

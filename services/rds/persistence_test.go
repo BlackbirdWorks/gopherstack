@@ -60,7 +60,7 @@ func TestPersistence_SnapshotRestore_ExtendedFields(t *testing.T) {
 	_, err := b.CreateDBCluster("pg-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
 
-	err = b.AddRoleToDBCluster("pg-cluster", "arn:aws:iam::000000000000:role/MyRole")
+	err = b.AddRoleToDBCluster("pg-cluster", "arn:aws:iam::000000000000:role/MyRole", "")
 	require.NoError(t, err)
 
 	_, err = b.CreateDBInstance("my-db", "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
@@ -85,7 +85,7 @@ func TestPersistence_SnapshotRestore_ExtendedFields(t *testing.T) {
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify cluster role persisted.
-	err = b2.AddRoleToDBCluster("pg-cluster", "arn:aws:iam::000000000000:role/MyRole")
+	err = b2.AddRoleToDBCluster("pg-cluster", "arn:aws:iam::000000000000:role/MyRole", "")
 	require.NoError(t, err)
 
 	// Verify instance role persisted.
@@ -428,7 +428,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// representative sample of maps deliberately left raw (see store_setup.go)
-	require.NoError(t, b.AddRoleToDBCluster(cluster.DBClusterIdentifier, "arn:aws:iam::000000000000:role/cluster"))
+	require.NoError(t, b.AddRoleToDBCluster(cluster.DBClusterIdentifier, "arn:aws:iam::000000000000:role/cluster", ""))
 	require.NoError(t, b.AddRoleToDBInstance("inst1", "arn:aws:iam::000000000000:role/instance", "S3_INTEGRATION"))
 	b.AddDBSnapshotTenantDatabase("snap1", "inst1", "tenant1", "mysql")
 

@@ -69,6 +69,20 @@ type DBClusterMember struct {
 	IsClusterWriter             bool   `json:"isClusterWriter"`
 }
 
+// DBClusterRole associates an IAM role with a DB cluster for a feature slot
+// (rds@v1.124.1 types.go:1511, AssociatedRoles on DBCluster). Unlike the
+// instance-side FeatureName (required, fixed in gopherstack-i101),
+// FeatureName is optional here (api_op_AddRoleToDBCluster.go:39-43), so an
+// empty FeatureName means the client omitted it, not that AWS reported one
+// as empty -- see db_clusters.go's upsertClusterRole/removeClusterRole for how the
+// omitted case is handled. That handling is a documented placeholder, not
+// verified against real AWS; see gopherstack-1jkv and PARITY.md.
+type DBClusterRole struct {
+	RoleArn     string `json:"roleArn"`
+	FeatureName string `json:"featureName"`
+	Status      string `json:"status"`
+}
+
 // GlobalClusterMember represents a member cluster in a global cluster.
 type GlobalClusterMember struct {
 	DBClusterArn          string `json:"dbClusterArn"`
@@ -689,7 +703,7 @@ type InMemoryBackend struct {
 	clusterSnapshots          *store.Table[DBClusterSnapshot]
 	eventSubscriptions        *store.Table[EventSubscription]
 	globalClusters            *store.Table[GlobalCluster]
-	clusterRoles              map[string][]string
+	clusterRoles              map[string][]DBClusterRole
 	instanceRoles             map[string]map[string]string
 	exportTasks               *store.Table[ExportTask]
 	mu                        *lockmetrics.RWMutex

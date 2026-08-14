@@ -214,7 +214,7 @@ func TestDeleteDBClusterCascadeClusterRoles(t *testing.T) {
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddClusterInternal("my-cluster", "aurora-mysql")
 
-	err := b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000:role/R1")
+	err := b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000:role/R1", "")
 	require.NoError(t, err)
 	require.Equal(t, 1, rds.ClusterRoleCount(b, "my-cluster"))
 

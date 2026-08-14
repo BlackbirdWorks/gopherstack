@@ -460,8 +460,19 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(clusterID, sourceCluster
 	return &cp, nil
 }
 
-// AddRoleToDBCluster associates an IAM role with the given DB cluster.
-func (b *InMemoryBackend) AddRoleToDBCluster(clusterID, roleARN string) error {
+// clusterRoleStatusActive is the static Status value this emulator reports
+// for every DBClusterRole: the backend applies role associations
+// synchronously, so the PENDING/INVALID states real AWS's DBClusterRole.Status
+// can report (types.go:1522-1531) never apply here.
+const clusterRoleStatusActive = "ACTIVE"
+
+// AddRoleToDBCluster associates an IAM role with the given DB cluster for the
+// given feature (e.g. S3_INTEGRATION). Unlike the instance-side FeatureName
+// (required, fixed in gopherstack-i101), FeatureName is optional here
+// (rds@v1.124.1 api_op_AddRoleToDBCluster.go:39-43), so real AWS's behavior
+// when a client omits it on two different-role adds is unverified -- see
+// upsertClusterRole for the documented placeholder.
+func (b *InMemoryBackend) AddRoleToDBCluster(clusterID, roleARN, featureName string) error {
 	if clusterID == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -482,13 +493,58 @@ func (b *InMemoryBackend) AddRoleToDBCluster(clusterID, roleARN string) error {
 	// normalizeID; clusterRoles is a plain map with no normalization of its
 	// own.
 	canonicalID := cluster.DBClusterIdentifier
-	if slices.Contains(b.clusterRoles[canonicalID], roleARN) {
+	b.clusterRoles[canonicalID] = upsertClusterRole(b.clusterRoles[canonicalID], roleARN, featureName)
+
+	return nil
+}
+
+// upsertClusterRole adds roleARN under featureName, replacing any existing
+// association already using that featureName -- matching the "adding a
+// different role for a feature already in use replaces it" semantics
+// gopherstack-i101 established for the (required) instance-side FeatureName.
+//
+// featureName == "" means the client omitted the optional field. Real AWS's
+// behavior for two omitted-FeatureName adds is unverified (gopherstack-1jkv),
+// so this is a documented placeholder rather than a guess: within that
+// bucket, matching is by RoleArn too, so two different roles both added
+// without FeatureName coexist instead of the second silently discarding the
+// first (the collapse this function exists to avoid). This preserves the
+// pre-fix behavior for that specific bucket; only the previously-unkeyed
+// same-ARN-different-FeatureName case actually changes.
+func upsertClusterRole(roles []DBClusterRole, roleARN, featureName string) []DBClusterRole {
+	for i, r := range roles {
+		if r.FeatureName != featureName {
+			continue
+		}
+		if featureName == "" && r.RoleArn != roleARN {
+			continue
+		}
+		roles[i].RoleArn = roleARN
+		roles[i].Status = clusterRoleStatusActive
+
+		return roles
+	}
+
+	return append(roles, DBClusterRole{RoleArn: roleARN, FeatureName: featureName, Status: clusterRoleStatusActive})
+}
+
+// ClusterAssociatedRoles returns a copy of the IAM roles associated with the
+// given cluster (AssociatedRoles on DescribeDBClusters' DBCluster,
+// rds@v1.124.1 types.go:1511). Returns nil if the cluster does not exist.
+func (b *InMemoryBackend) ClusterAssociatedRoles(clusterID string) []DBClusterRole {
+	b.mu.RLock("ClusterAssociatedRoles")
+	defer b.mu.RUnlock()
+
+	cluster, exists := b.clusters.Get(normalizeID(clusterID))
+	if !exists {
 		return nil
 	}
 
-	b.clusterRoles[canonicalID] = append(b.clusterRoles[canonicalID], roleARN)
+	roles := b.clusterRoles[cluster.DBClusterIdentifier]
+	cp := make([]DBClusterRole, len(roles))
+	copy(cp, roles)
 
-	return nil
+	return cp
 }
 
 // BacktrackDBCluster backtracks an Aurora DB cluster to a specific time.
@@ -519,9 +575,12 @@ func (b *InMemoryBackend) BacktrackDBCluster(
 	return result, nil
 }
 
-// RemoveRoleFromDBCluster disassociates an IAM role from the given cluster.
-// Returns an error if the cluster does not exist. Removing a role that is not associated is a no-op.
-func (b *InMemoryBackend) RemoveRoleFromDBCluster(clusterID, roleARN string) error {
+// RemoveRoleFromDBCluster disassociates an IAM role from the given cluster's
+// feature slot. Returns an error if the cluster does not exist. Removing a
+// role that is not associated, or whose ARN doesn't match what's currently
+// associated with that FeatureName (including the omitted-FeatureName ""
+// bucket -- see upsertClusterRole), is a no-op.
+func (b *InMemoryBackend) RemoveRoleFromDBCluster(clusterID, roleARN, featureName string) error {
 	if clusterID == "" {
 		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -539,7 +598,9 @@ func (b *InMemoryBackend) RemoveRoleFromDBCluster(clusterID, roleARN string) err
 
 	canonicalID := cluster.DBClusterIdentifier
 	roles := b.clusterRoles[canonicalID]
-	idx := slices.Index(roles, roleARN)
+	idx := slices.IndexFunc(roles, func(r DBClusterRole) bool {
+		return r.FeatureName == featureName && r.RoleArn == roleARN
+	})
 	if idx >= 0 {
 		b.clusterRoles[canonicalID] = slices.Delete(roles, idx, idx+1)
 	}

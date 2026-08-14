@@ -101,7 +101,7 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 
 	return &createDBClusterResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
@@ -120,7 +120,7 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 	}, func(item DBCluster) xmlDBCluster {
 		cp := item
 
-		return toXMLCluster(&cp)
+		return toXMLCluster(&cp, h.Backend.ClusterAssociatedRoles(cp.DBClusterIdentifier))
 	})
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 
 	return &deleteDBClusterResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
@@ -199,7 +199,7 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 
 	return &modifyDBClusterResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
@@ -212,7 +212,7 @@ func (h *Handler) handleStartDBCluster(vals url.Values) (any, error) {
 
 	return &startDBClusterResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
@@ -225,7 +225,7 @@ func (h *Handler) handleStopDBCluster(vals url.Values) (any, error) {
 
 	return &stopDBClusterResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
@@ -240,7 +240,7 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, erro
 
 	return &restoreDBClusterFromSnapshotResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
@@ -254,11 +254,11 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, err
 
 	return &restoreDBClusterToPointInTimeResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
-func toXMLCluster(c *DBCluster) xmlDBCluster {
+func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 	var clusterCreateTime string
 	if !c.ClusterCreateTime.IsZero() {
 		clusterCreateTime = c.ClusterCreateTime.UTC().Format(time.RFC3339)
@@ -327,6 +327,19 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		x.AvailabilityZones = &xmlAvailabilityZoneList{Members: c.AvailabilityZones}
 	}
 
+	if len(roles) > 0 {
+		members := make([]xmlDBClusterRole, 0, len(roles))
+		for _, r := range roles {
+			members = append(members, xmlDBClusterRole{
+				FeatureName: r.FeatureName,
+				RoleArn:     r.RoleArn,
+				Status:      r.Status,
+			})
+		}
+
+		x.AssociatedRoles = &xmlDBClusterRoleList{Members: members}
+	}
+
 	return x
 }
 
@@ -378,6 +391,20 @@ type xmlDBClusterMember struct {
 	IsClusterWriter             bool   `xml:"IsClusterWriter"`
 }
 
+// xmlDBClusterRole is the wire shape of types.DBClusterRole (rds@v1.124.1
+// types.go:1511); FeatureName/RoleArn/Status element names and the wrapping
+// AssociatedRoles>DBClusterRole nesting are confirmed against
+// deserializers.go's awsAwsquery_deserializeDocumentDBClusterRole(s).
+type xmlDBClusterRole struct {
+	FeatureName string `xml:"FeatureName,omitempty"`
+	RoleArn     string `xml:"RoleArn"`
+	Status      string `xml:"Status"`
+}
+
+type xmlDBClusterRoleList struct {
+	Members []xmlDBClusterRole `xml:"DBClusterRole"`
+}
+
 type xmlDBClusterMemberList struct {
 	Members []xmlDBClusterMember `xml:"DBClusterMember"`
 }
@@ -391,6 +418,7 @@ type xmlDBCluster struct {
 	DBClusterMembers                 *xmlDBClusterMemberList  `xml:"DBClusterMembers,omitempty"`
 	EnabledCloudwatchLogsExports     *xmlLogTypeList          `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	AvailabilityZones                *xmlAvailabilityZoneList `xml:"AvailabilityZones,omitempty"`
+	AssociatedRoles                  *xmlDBClusterRoleList    `xml:"AssociatedRoles,omitempty"`
 	DBClusterIdentifier              string                   `xml:"DBClusterIdentifier"`
 	DBClusterArn                     string                   `xml:"DBClusterArn,omitempty"`
 	DBClusterResourceID              string                   `xml:"DbClusterResourceId,omitempty"`
@@ -481,8 +509,9 @@ type restoreDBClusterToPointInTimeResponse struct {
 func (h *Handler) handleAddRoleToDBCluster(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	roleARN := vals.Get("RoleArn")
+	featureName := vals.Get("FeatureName")
 
-	if err := h.Backend.AddRoleToDBCluster(clusterID, roleARN); err != nil {
+	if err := h.Backend.AddRoleToDBCluster(clusterID, roleARN, featureName); err != nil {
 		return nil, err
 	}
 
@@ -534,8 +563,9 @@ type backtrackDBClusterResponse struct {
 func (h *Handler) handleRemoveRoleFromDBCluster(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	roleARN := vals.Get("RoleArn")
+	featureName := vals.Get("FeatureName")
 
-	if err := h.Backend.RemoveRoleFromDBCluster(clusterID, roleARN); err != nil {
+	if err := h.Backend.RemoveRoleFromDBCluster(clusterID, roleARN, featureName); err != nil {
 		return nil, err
 	}
 
@@ -557,7 +587,7 @@ func (h *Handler) handleFailoverDBCluster(vals url.Values) (any, error) {
 
 	return &failoverDBClusterResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
@@ -570,7 +600,7 @@ func (h *Handler) handleRebootDBCluster(vals url.Values) (any, error) {
 
 	return &rebootDBClusterResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
@@ -624,7 +654,7 @@ func (h *Handler) handlePromoteReadReplicaDBCluster(vals url.Values) (any, error
 
 	return &promoteReadReplicaDBClusterResponse{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 
@@ -678,7 +708,7 @@ func (h *Handler) handleRestoreDBClusterFromS3(vals url.Values) (any, error) {
 
 	return &restoreDBClusterFromS3Response{
 		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster),
+		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
 	}, nil
 }
 

@@ -14,18 +14,19 @@ func TestRemoveRoleFromDBCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantErrIs error
-		setup     func(b *rds.InMemoryBackend)
-		name      string
-		clusterID string
-		roleARN   string
-		wantErr   bool
+		wantErrIs   error
+		setup       func(b *rds.InMemoryBackend)
+		name        string
+		clusterID   string
+		roleARN     string
+		featureName string
+		wantErr     bool
 	}{
 		{
 			name: "success_removes_role",
 			setup: func(b *rds.InMemoryBackend) {
 				b.AddClusterInternal("c1", "aurora")
-				_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1")
+				_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1", "")
 			},
 			clusterID: "c1",
 			roleARN:   "arn:aws:iam::000:role/R1",
@@ -37,6 +38,16 @@ func TestRemoveRoleFromDBCluster(t *testing.T) {
 			},
 			clusterID: "c2",
 			roleARN:   "arn:aws:iam::000:role/NotAttached",
+		},
+		{
+			name: "noop_when_feature_name_does_not_match",
+			setup: func(b *rds.InMemoryBackend) {
+				b.AddClusterInternal("c4", "aurora")
+				_ = b.AddRoleToDBCluster("c4", "arn:aws:iam::000:role/R1", "S3_INTEGRATION")
+			},
+			clusterID:   "c4",
+			roleARN:     "arn:aws:iam::000:role/R1",
+			featureName: "SQLSERVER_AUDIT",
 		},
 		{
 			name:      "cluster_not_found",
@@ -71,7 +82,7 @@ func TestRemoveRoleFromDBCluster(t *testing.T) {
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
 
-			err := b.RemoveRoleFromDBCluster(tt.clusterID, tt.roleARN)
+			err := b.RemoveRoleFromDBCluster(tt.clusterID, tt.roleARN, tt.featureName)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -93,11 +104,11 @@ func TestRemoveRoleFromDBCluster_RoleActuallyRemoved(t *testing.T) {
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddClusterInternal("c1", "aurora")
-	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1")
-	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R2")
+	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1", "")
+	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R2", "")
 	require.Equal(t, 2, rds.ClusterRoleCount(b, "c1"))
 
-	err := b.RemoveRoleFromDBCluster("c1", "arn:aws:iam::000:role/R1")
+	err := b.RemoveRoleFromDBCluster("c1", "arn:aws:iam::000:role/R1", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rds.ClusterRoleCount(b, "c1"))
@@ -204,7 +215,7 @@ func TestHTTP_RemoveRoleFromDBCluster(t *testing.T) {
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddClusterInternal("my-cluster", "aurora-mysql")
-	_ = b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000:role/R1")
+	_ = b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000:role/R1", "")
 	h := rds.NewHandler(b)
 
 	tests := []struct {
@@ -297,8 +308,8 @@ func TestClusterRoleCountAndInstanceRoleCount(t *testing.T) {
 	assert.Equal(t, 0, rds.ClusterRoleCount(b, "c1"))
 	assert.Equal(t, 0, rds.InstanceRoleCount(b, "i1"))
 
-	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1")
-	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R2")
+	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1", "")
+	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R2", "")
 	_ = b.AddRoleToDBInstance("i1", "arn:aws:iam::000:role/R3", "S3_INTEGRATION")
 
 	assert.Equal(t, 2, rds.ClusterRoleCount(b, "c1"))
@@ -311,8 +322,8 @@ func TestHTTP_RemoveRoleFromDBCluster_RoleActuallyRemoved(t *testing.T) {
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddClusterInternal("c1", "aurora")
-	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1")
-	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R2")
+	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R1", "")
+	_ = b.AddRoleToDBCluster("c1", "arn:aws:iam::000:role/R2", "")
 	h := rds.NewHandler(b)
 
 	require.Equal(t, 2, rds.ClusterRoleCount(b, "c1"))
@@ -332,12 +343,13 @@ func TestRDSBackend_AddRoleToDBCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		wantErrIs error
-		setup     func(b *rds.InMemoryBackend)
-		name      string
-		clusterID string
-		roleARN   string
-		wantErr   bool
+		wantErrIs   error
+		setup       func(b *rds.InMemoryBackend)
+		name        string
+		clusterID   string
+		roleARN     string
+		featureName string
+		wantErr     bool
 	}{
 		{
 			name: "success",
@@ -386,7 +398,15 @@ func TestRDSBackend_AddRoleToDBCluster(t *testing.T) {
 			name: "idempotent_duplicate",
 			setup: func(b *rds.InMemoryBackend) {
 				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil, rds.DBClusterOptions{})
-				_ = b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000000000000:role/MyRole")
+				_ = b.AddRoleToDBCluster("my-cluster", "arn:aws:iam::000000000000:role/MyRole", "")
+			},
+			clusterID: "my-cluster",
+			roleARN:   "arn:aws:iam::000000000000:role/MyRole",
+		},
+		{
+			name: "empty_feature_name_ok_since_optional",
+			setup: func(b *rds.InMemoryBackend) {
+				_, _ = b.CreateDBCluster("my-cluster", "aurora-postgresql", "", "", "", 0, nil, rds.DBClusterOptions{})
 			},
 			clusterID: "my-cluster",
 			roleARN:   "arn:aws:iam::000000000000:role/MyRole",
@@ -400,7 +420,7 @@ func TestRDSBackend_AddRoleToDBCluster(t *testing.T) {
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 			tt.setup(b)
 
-			err := b.AddRoleToDBCluster(tt.clusterID, tt.roleARN)
+			err := b.AddRoleToDBCluster(tt.clusterID, tt.roleARN, tt.featureName)
 
 			if tt.wantErr {
 				require.Error(t, err)

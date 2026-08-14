@@ -1395,7 +1395,7 @@
       "AccountID string `json:\"accountID\"`",
       "AutomatedBackups map[string]*DBInstanceAutomatedBackup `json:\"automatedBackups\"`",
       "ClusterReadyAt map[string]time.Time `json:\"clusterReadyAt\"`",
-      "ClusterRoles map[string][]string `json:\"clusterRoles\"`",
+      "ClusterRoles map[string][]DBClusterRole `json:\"clusterRoles\"`",
       "DefaultCACertificateID string `json:\"defaultCACertificateID\"`",
       "InstanceLogContent map[string]map[string]string `json:\"instanceLogContent\"`",
       "InstanceLogFiles map[string][]DBLogFile `json:\"instanceLogFiles\"`",
@@ -1407,7 +1407,7 @@
       "Tables map[string]json.RawMessage `json:\"tables\"`",
       "Tags map[string][]Tag `json:\"tags\"`"
     ],
-    "version": 2
+    "version": 3
   },
   "rdsdata": {
     "fields": [
