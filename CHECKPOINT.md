@@ -1,11 +1,16 @@
-# Checkpoint — wire-parity campaign, 2026-08-13
+# Checkpoint — wire-parity campaign, 2026-08-13/14
 
 Branch `chore/queue-2026-08-11`, PR #2417 (draft). Merged `origin/main` early;
 the only conflict was `.beads/issues.jsonl`, resolved with ours after checking
 that no field on their side was newer.
 
-Roughly 135 commits. 82 bd issues closed, 93 filed. Tree clean, all pushed,
+Roughly 185 commits. 155 bd issues closed, 140 filed. Tree clean, all pushed,
 full suite verified green.
+
+**The user later redirected to s3 and dynamodb specifically** — completeness,
+bug-freedom, optimization. Those two services then produced the session's worst
+bugs, including two that destroyed data. See "The severe classes" below; read
+that before anything else.
 
 ## What this session actually was
 
@@ -32,6 +37,80 @@ queue does not converge. Expect to choose a stopping point rather than reach one
 reads means the operation cannot work for any real client, and that is almost
 never defensible. Broad "absent field" sweeps produced 2,217 candidates and a
 handful of bugs; filtering to required-ness produced 654 and dozens.
+
+## The severe classes — found after the table above, and worse than anything in it
+
+Everything above is a *shape* problem: a field is missing, extra, or wrong. The
+classes below break the operation outright, and **none of the audits above could
+see any of them.** They were all found by driving a real `aws-sdk-go-v2` client.
+
+**1. Timestamp type mismatch breaks decode entirely.** Handler marshals a
+`time.Time`, `encoding/json` renders RFC3339, the deserializer wants a JSON
+number. The client returns a deserialization error and no data, on a 200. The
+inverse also occurs — numbers where the SDK declares `*string`. **Direction is
+per-family, not per-service:** glue's Schema Registry declares strings while the
+rest of glue takes epoch numbers. Read each member's own deserializer.
+Confirmed in glue and codecommit; restjson1 services here consistently declare
+ISO-8601 strings, so the bug concentrates in awsjson10/11.
+
+**2. Wrong response key returns 200, `err == nil`, and an empty slice.** No
+error, no log, nothing to assert on. The decode class at least *errors*; this
+has the alarm disconnected. ~35 instances across omics (10 of 11 list ops),
+appstream, inspector2, opensearch, organizations, medialive, cleanrooms, glue,
+codecommit. **appstream's was worst:** batch per-item errors under `Errors` where
+the real key is `errors`, so a partial batch failure read as total success.
+
+**3. Query-param subresource mis-keying falls through to a DIFFERENT op.** Not a
+404 — the request is misinterpreted. Two data-loss instances in s3:
+`?rename` vs `?renameObject` fell through to `PutObject` and overwrote the
+destination; `metadataTableConfiguration` vs `metadataTable` fell through to
+`DeleteBucket` and deleted the whole bucket, returning 204. **Now bounded:** only
+s3, cloudfront, lambda and apigateway dispatch this way; the other three verified
+correct.
+
+**4. Wire-layer field drops (dynamodb-specific architecture).** Hand-rolled
+`models.*Input/Output` structs sit between the body and the SDK types. A field
+can be declared on the SDK type, **computed correctly by the backend**, and still
+never reach the caller. 19 instances. Four places to lose it: undeclared on
+input, undeclared on output, declared but uncopied, or the handler bypasses the
+converters entirely (8 ops did).
+
+**In every one of these classes, an over-wide/required-member/route sweep passes
+clean.** If a future pass runs only the cuts in the table above, it will miss all
+four again.
+
+## Tests that pass while blind to the layer under test
+
+Four distinct forms found, all of which assert nothing false — they simply never
+touch where the bug lives. **A passing suite is not evidence in any of these
+classes.**
+
+1. **Raw-body test asserting a wrong key as correct.** 26 found. A raw-body
+   assertion proves the key you expect is present; it can never tell you the key
+   you expect is wrong.
+2. **Test builds the SDK struct by hand**, skipping the converter (dynamodb).
+3. **Test calls the backend method directly**, never crossing HTTP routing — this
+   is why `RenameObject` was unreachable for an unknown period *with* a
+   regression test passing.
+4. **Test calls the converter then overwrites the field** it claims to test.
+
+Corollary worth keeping: **a bug in an observation primitive constrains what
+other tests can check.** `HeadBucket` succeeds for a bucket mid-deletion, so the
+regression test for the bucket-deleting route had to assert via `ListBuckets`.
+
+## Measured, not asserted
+
+- **77% of operations (~4,750 of 6,151) are never touched by a real SDK client.**
+  That is a floor: one client call anywhere marks an op covered regardless of what
+  it asserts. codecommit *had* integration tests while its entire Comment family
+  returned undecodable bodies.
+- **GSI/LSI query was a full table scan**: 1.82ms at 10k items, 28ms at 100k,
+  against a flat 4.7µs for the primary key. Now flat ~5µs after real per-index
+  structures. The first attempt copied the index under lock and regressed to
+  O(table) — **the benchmark caught that; inspection did not.**
+- Grep cannot gate these classes. Measured miss rates: the manifest sweep found
+  6 of 7 real hits only under a *second* vocabulary; the timestamp sweep had ~20
+  false positives in 25 hits.
 
 ## Findings that generalise
 
@@ -209,8 +288,19 @@ Three, and none is an agent's call.
 
 ## Where to go next
 
-Bounded and ready: `gopherstack-1jkv` (rds cluster roles, blocked on real-AWS
-evidence), `gopherstack-a250` (56 empty-struct inputs, ~49 unverified),
+**Highest value, and it follows from the measured 77% figure:** the four severe
+classes are all invisible to shape audits and all found by a typed client. The
+single most useful next investment is probably not another cut — it is deciding
+what to do about `gopherstack-n3zi` (three quarters of ops never driven by a real
+client). Options are in that issue; none has been chosen.
+
+Still open from the severe classes: `6flj` (wrong-key sweep, ~145 services
+unswept, ~3 bugs per service audited so far — has NOT tapered), `qfdm`-adjacent
+timestamp work beyond the services already done, `rrtz` and `ajej` (dynamodb
+residuals, fully cited), `3nud`/`lv77` (s3, in flight at time of writing).
+
+Bounded and ready: `gopherstack-1jkv` (rds cluster roles — half fixed, the
+omitted-`FeatureName` case still blocked on real-AWS evidence),
 `gopherstack-8kzr`-adjacent cleanups.
 
 Open-ended, will not converge: `569k` (required inputs, six passes deep),
