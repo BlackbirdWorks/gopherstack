@@ -122,8 +122,9 @@ func TestHandler_GetCommentsForComparedCommit(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	comments := resp["commentsForComparedCommitData"].([]any)
-	assert.Len(t, comments, 1)
+	groups := resp["commentsForComparedCommitData"].([]any)
+	require.Len(t, groups, 1)
+	assert.Len(t, groups[0].(map[string]any)["comments"], 1)
 }
 
 func TestHandler_GetCommentsForComparedCommit_TableDriven(t *testing.T) {
@@ -163,8 +164,14 @@ func TestHandler_GetCommentsForComparedCommit_TableDriven(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			items := resp["commentsForComparedCommitData"].([]any)
-			assert.Len(t, items, tt.commentCount)
+			groups := resp["commentsForComparedCommitData"].([]any)
+			if tt.commentCount == 0 {
+				assert.Empty(t, groups)
+
+				return
+			}
+			require.Len(t, groups, 1)
+			assert.Len(t, groups[0].(map[string]any)["comments"], tt.commentCount)
 		})
 	}
 }
@@ -188,8 +195,9 @@ func TestHandler_GetCommentsForPullRequest(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	comments := resp["commentsForPullRequestData"].([]any)
-	assert.Len(t, comments, 1)
+	groups := resp["commentsForPullRequestData"].([]any)
+	require.Len(t, groups, 1)
+	assert.Len(t, groups[0].(map[string]any)["comments"], 1)
 }
 
 func TestHandler_GetCommentsForPullRequest_TableDriven(t *testing.T) {
@@ -227,8 +235,14 @@ func TestHandler_GetCommentsForPullRequest_TableDriven(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			items := resp["commentsForPullRequestData"].([]any)
-			assert.Len(t, items, tt.commentCount)
+			groups := resp["commentsForPullRequestData"].([]any)
+			if tt.commentCount == 0 {
+				assert.Empty(t, groups)
+
+				return
+			}
+			require.Len(t, groups, 1)
+			assert.Len(t, groups[0].(map[string]any)["comments"], tt.commentCount)
 		})
 	}
 }

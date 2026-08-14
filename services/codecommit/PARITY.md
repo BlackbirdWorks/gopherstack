@@ -1,15 +1,31 @@
 ---
 service: codecommit
 sdk_module: aws-sdk-go-v2/service/codecommit@v1.36.4
-last_audit_commit: 1d7169f66
-last_audit_date: 2026-08-07
-overall: A            # this pass: MergeBranchesBySquash/ByThreeWay now real distinct backend
-                      # methods (real parent-count semantics, TargetBranch/CommitMessage/AuthorName/
-                      # Email honored, specifier resolution+validation); GetMergeConflicts validates
-                      # required fields and resolves specifiers instead of echoing them; found and
-                      # fixed an inverted-boolean bug (GetMergeConflicts always reported
-                      # mergeable:false); SameFileContentException now returned by PutFile/CreateCommit.
-                      # See ops table + Notes below. Content-level merge/conflict diffing remains a gap.
+last_audit_commit: 1835ab406
+last_audit_date: 2026-08-13
+overall: A            # this pass (gopherstack-gvkf): the entire Comment family (8 ops — the 7
+                      # named in the bug plus DeleteCommentContent, found the same day) was
+                      # undecodable by a real typed client: Comment.CreationDate/LastModifiedDate
+                      # were stored and emitted as RFC3339 strings, but codecommit's own
+                      # deserializeDocumentComment requires a JSON number (epoch seconds). A raw
+                      # status-code/body test could not see this; only a typed SDK decode could.
+                      # Fixed by matching Repository/PullRequest/ApprovalRuleTemplate's existing
+                      # pattern (time.Time on the domain struct, .Unix() at the wire boundary).
+                      # SECOND bug found and fixed in the same family:
+                      # GetCommentsForComparedCommit/GetCommentsForPullRequest emitted a flat
+                      # []Comment where the real shape is []CommentsForComparedCommit /
+                      # []CommentsForPullRequest, each wrapping a nested "comments" list plus
+                      # repositoryName/afterCommitId/beforeCommitId — unknown top-level JSON keys
+                      # are silently dropped by the JSON-RPC protocol, so this failed silently
+                      # (empty Comments slice) rather than erroring. Both are now correct; see ops
+                      # table + Notes below. Prior pass: MergeBranchesBySquash/ByThreeWay now real
+                      # distinct backend methods (real parent-count semantics,
+                      # TargetBranch/CommitMessage/AuthorName/Email honored, specifier
+                      # resolution+validation); GetMergeConflicts validates required fields and
+                      # resolves specifiers instead of echoing them; found and fixed an
+                      # inverted-boolean bug (GetMergeConflicts always reported mergeable:false);
+                      # SameFileContentException now returned by PutFile/CreateCommit.
+                      # Content-level merge/conflict diffing remains a gap.
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRepository: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -76,16 +92,16 @@ ops:
   GetMergeOptions: {wire: ok, errors: ok, state: n/a, persist: n/a}
   DescribeMergeConflicts: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "was a disguised no-op that echoed the request and never checked the repository existed; now delegates to the same backend logic as BatchDescribeMergeConflicts with full validation"}
   BatchDescribeMergeConflicts: {wire: ok, errors: ok, state: partial, persist: n/a, note: "validates repo/params correctly; conflicts are always empty since files aren't diffed (see gaps, same root cause as GetMergeConflicts). NOT touched this pass — still echoes the raw specifier strings rather than resolving them (unlike GetMergeConflicts, fixed this pass); flagged as a smaller, lower-priority instance of the same pattern for a future pass, out of this pass's scope (issue was GetMergeConflicts specifically)."}
-  PostCommentForComparedCommit: {wire: ok, errors: ok, state: ok, persist: ok}
-  PostCommentForPullRequest: {wire: ok, errors: ok, state: ok, persist: ok}
-  PostCommentReply: {wire: ok, errors: fixed, state: ok, persist: ok, note: "parent-not-found now CommentDoesNotExistException, was RepositoryDoesNotExistException"}
-  GetComment: {wire: ok, errors: fixed, state: ok, persist: ok, note: "not-found now CommentDoesNotExistException, was RepositoryDoesNotExistException"}
-  GetCommentReactions: {wire: ok, errors: fixed, state: ok, persist: ok}
-  GetCommentsForComparedCommit: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetCommentsForPullRequest: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutCommentReaction: {wire: ok, errors: fixed, state: ok, persist: ok}
-  UpdateComment: {wire: ok, errors: fixed, state: ok, persist: ok}
-  DeleteCommentContent: {wire: ok, errors: fixed, state: ok, persist: ok}
+  PostCommentForComparedCommit: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — Comment.CreationDate/LastModifiedDate were RFC3339 strings; codecommit@v1.36.4 deserializers.go:20415,20430 requires a JSON number (smithytime.ParseEpochSeconds), so every response was undecodable by a real client (status 200, unreadable body). Now time.Time on the domain struct + .Unix() at the wire boundary, matching Repository/PullRequest/ApprovalRuleTemplate. Also now echoes repositoryName/afterCommitId/beforeCommitId at the top level (previously omitted; beforeCommitId was parsed from the request and silently discarded)"}
+  PostCommentForPullRequest: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same CreationDate/LastModifiedDate string-vs-JSON-number bug as PostCommentForComparedCommit. Also now echoes pullRequestId/repositoryName/afterCommitId/beforeCommitId at the top level (previously omitted; the backend still doesn't store afterCommitId/beforeCommitId per-comment, so these are echoed from the request, not read back from storage)"}
+  PostCommentReply: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same timestamp bug. errors: parent-not-found now CommentDoesNotExistException, was RepositoryDoesNotExistException"}
+  GetComment: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same timestamp bug. errors: not-found now CommentDoesNotExistException, was RepositoryDoesNotExistException"}
+  GetCommentReactions: {wire: ok, errors: fixed, state: ok, persist: ok, note: "operates on Reaction, not Comment — unaffected by gopherstack-gvkf"}
+  GetCommentsForComparedCommit: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — TWO bugs. (1) same Comment timestamp bug as the rest of the family. (2) SEPARATE, more severe bug: the real response is []CommentsForComparedCommit (deserializers.go:20763), each wrapping a nested \"comments\" array plus repositoryName/afterCommitId/beforeCommitId/afterBlobId/beforeBlobId/location — this emulator emitted a flat []Comment instead. Unknown top-level JSON keys are silently dropped by the JSON-RPC protocol (no decode error), so every real client got back a group with an empty Comments slice — total silent data loss, worse than a hard failure. Now wraps all matching comments into one group (repositoryName/afterCommitId always set, beforeCommitId when provided; afterBlobId/beforeBlobId/location omitted — not tracked by this backend, and are optional pointer fields in the real shape)"}
+  GetCommentsForPullRequest: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same two bugs as GetCommentsForComparedCommit: Comment timestamps, and flat []Comment instead of []CommentsForPullRequest (deserializers.go:20883) wrapping a nested \"comments\" list. Now wraps into one group with pullRequestId always set and repositoryName populated from the stored comments' RepoName when available; afterCommitId/beforeCommitId omitted (PostCommentForPullRequest doesn't persist them per-comment)"}
+  PutCommentReaction: {wire: ok, errors: fixed, state: ok, persist: ok, note: "operates on Reaction, not Comment — unaffected by gopherstack-gvkf"}
+  UpdateComment: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same timestamp bug. errors: unchanged from prior pass"}
+  DeleteCommentContent: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same timestamp bug via the shared commentToMap converter; not one of the 7 ops named in the original bug report, but calls the identical converter and was found broken the same way while auditing the rest of the family. errors: unchanged from prior pass"}
   GetDifferences: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "was a documented deferred item (nextToken/maxResults accepted but not enforced); now paginated via pkgs/page. Also fixed a wire-shape bug: this op is the one CodeCommit exception to lowercase pagination field names — both request and response use MaxResults/NextToken (capital), verified against the SDK's generated (de)serializers; the handler previously used lowercase and so real pagination requests/responses were silently no-ops"}
   GetRepositoryTriggers: {wire: ok, errors: ok, state: ok, persist: ok}
   PutRepositoryTriggers: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -103,6 +119,108 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snap
 ---
 
 ## Notes
+
+### Bugs fixed this pass (2026-08-13, HEAD 1835ab406) — gopherstack-gvkf
+
+1. **The entire `Comment` family (8 ops) returned an undecodable body to any
+   typed client.** `models.go` typed `Comment.CreationDate`/`LastModifiedDate`
+   as `string`, filled with `time.Now().UTC().Format(time.RFC3339)`
+   (`comments.go`) and emitted verbatim by the shared `commentToMap`
+   converter (`handler_comments.go`). The real deserializer
+   (`codecommit@v1.36.4 deserializers.go:20415,20430`, inside
+   `awsAwsjson11_deserializeDocumentComment`) requires a JSON *number* —
+   `smithytime.ParseEpochSeconds` — and falls through to `expected
+   CreationDate/LastModifiedDate to be a JSON Number, got string instead` on
+   anything else. Status 200, body no SDK client could read. Affects
+   `PostCommentForComparedCommit`, `PostCommentForPullRequest`,
+   `PostCommentReply`, `GetComment`, `GetCommentsForComparedCommit`,
+   `GetCommentsForPullRequest`, `UpdateComment` (the 7 ops the bug report
+   named), plus `DeleteCommentContent` (an 8th — same `commentToMap` call
+   path, found while auditing the rest of the family; its
+   `DeleteCommentContentOutput.Comment` shape is identical). This service
+   already got the pattern right elsewhere: `Repository`, `PullRequest`, and
+   `ApprovalRuleTemplate` all store `time.Time` and convert with `.Unix()` at
+   the wire boundary (`handler_repositories.go`, `handler_pull_requests.go`,
+   `handler_approval_rules.go`); only `Comment` was missed. Fixed by matching
+   that exact pattern rather than inventing a new one: `Comment.CreationDate`/
+   `LastModifiedDate` are now `time.Time`, `comments.go` sets them with
+   `time.Now().UTC()` (no `.Format`), and `commentToMap` emits `.Unix()`.
+   `Comment` is persisted through a DTO (`commentSnapshot` in
+   `persistence.go`, not the live struct — see "Traps for the next auditor"
+   below), so this is not a wire-format-only change: `commentSnapshot`'s own
+   `CreationDate`/`LastModifiedDate` were changed to `time.Time` too, to keep
+   `toCommentSnapshot`/`fromCommentSnapshot` a straight field copy.
+   `encoding/json` already renders `time.Time` as a quoted RFC3339-ish
+   string — the exact shape these fields already held on disk — so an
+   existing on-disk snapshot still decodes; `codecommitSnapshotVersion` did
+   **not** need to bump. Verified live: reverted the fix, rebuilt the
+   container image, and drove all 8 ops through the real `aws-sdk-go-v2`
+   client — every one failed with `deserialization failed ... expected
+   CreationDate to be a JSON Number, got string instead` (or
+   `LastModifiedDate`, depending which field decoded first); reapplied the
+   fix and the same 8 calls passed with real decoded timestamps
+   (`test/integration/codecommit_test.go`,
+   `TestIntegration_CodeCommit_CommentFamily`).
+
+2. **`GetCommentsForComparedCommit`/`GetCommentsForPullRequest` emitted the
+   wrong response shape entirely — a flat `[]Comment` instead of the real
+   nested wrapper.** The real shape (verified against
+   `codecommit@v1.36.4 deserializers.go:20763`/`20883`,
+   `awsAwsjson11_deserializeDocumentCommentsForComparedCommit`/
+   `...CommentsForPullRequest`) is `[]types.CommentsForComparedCommit` /
+   `[]types.CommentsForPullRequest`: each element wraps a nested `comments`
+   array plus `repositoryName`/`afterCommitId`/`beforeCommitId` (and
+   optional `afterBlobId`/`beforeBlobId`/`location`, not tracked by this
+   backend). This emulator's handlers instead put the flat, unwrapped
+   `Comment` objects directly under `commentsForComparedCommitData`/
+   `commentsForPullRequestData`. Unlike bug 1, this does **not** produce a
+   decode error — the JSON-RPC protocol silently drops unrecognized
+   top-level keys, so a real client's array element decodes successfully as
+   a `CommentsForComparedCommit`/`CommentsForPullRequest` with every field at
+   its zero value, including `Comments: nil`. Every comment posted through
+   this backend was therefore **silently unreachable** through either list
+   op — worse than a hard failure, since nothing in a raw-body or
+   status-code check (or even a naive `err == nil` typed-client check) would
+   catch it. Fixed: both handlers now group all matching comments into a
+   single wrapper object (this backend has no per-location grouping, and
+   each query is already scoped to one repository/commit or one pull
+   request, so one group is the correct AWS-shaped answer here) with
+   `repositoryName`/`afterCommitId` (compared-commit) or `pullRequestId`
+   (pull-request, backed by the stored comment's own `RepoName` for
+   `repositoryName` when available) always set, `beforeCommitId` set when
+   the caller provided it, and the real comments nested under `comments`.
+   Verified live the same way as bug 1: with the timestamp fix in place but
+   this fix reverted, `TestIntegration_CodeCommit_CommentFamily/get_comments_for_compared_commit`
+   and `.../get_comments_for_pull_request` failed on content, not on `err`:
+   `group.RepositoryName`/`group.AfterCommitId` decoded as `""` and
+   `group.Comments` as `[]` (`"[]" should have 1 item(s), but has 0`) even
+   though the call itself returned no error — exactly the silent-data-loss
+   signature described above.
+
+3. **Two smaller, related findings, left as documented gaps rather than
+   fixed this pass** (out of scope for a decode-correctness bug fix — both
+   are shape completeness, not shape correctness): `PostCommentForComparedCommit`
+   parses `beforeCommitId` from the request but the backend method signature
+   discards it (`comments.go`'s `PostCommentForComparedCommit(repoName, _,
+   afterCommitID, content string)`); `PostCommentForPullRequest` similarly
+   never stores `afterCommitId`/`beforeCommitId` per-comment. Both Post*
+   handlers now *echo* the caller-supplied values back in their top-level
+   `afterCommitId`/`beforeCommitId` response fields (real, optional members
+   of `PostCommentForComparedCommitOutput`/`PostCommentForPullRequestOutput`
+   that were previously omitted entirely), which is honest for the
+   just-posted response but means `GetCommentsForPullRequest`'s wrapper (bug
+   2's fix) cannot populate `afterCommitId`/`beforeCommitId` on later reads —
+   the backend has nowhere to read them back from. Also unaddressed:
+   `Comment`'s real wire shape additionally carries `clientRequestToken`,
+   `callerReactions`, and `reactionCounts` (`deserializers.go:20362` case
+   list), none of which this backend threads through — `reactionCounts`
+   would need `commentToMap` to gain backend access (reactions are tracked
+   separately in `InMemoryBackend.commentReactions`); `callerReactions`
+   presupposes a caller identity concept this backend doesn't model. All are
+   optional pointer/map fields in the real shape, so their absence doesn't
+   break decode the way bugs 1–2 did.
+
+Protocol: awsjson1.1, single POST endpoint, `X-Amz-Target: CodeCommit_20150413.<Op>`.
 
 ### Bugs fixed this pass (2026-08-07, HEAD 1d7169f66) — gopherstack-3bsb
 

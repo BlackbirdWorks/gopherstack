@@ -10,8 +10,8 @@ func commentToMap(c *Comment) map[string]any {
 		"commentId":         c.CommentID,
 		"content":           c.Content,
 		"authorArn":         c.AuthorARN,
-		"creationDate":      c.CreationDate,
-		keyLastModifiedDate: c.LastModifiedDate,
+		"creationDate":      c.CreationDate.Unix(),
+		keyLastModifiedDate: c.LastModifiedDate.Unix(),
 		"inReplyTo":         c.InReplyTo,
 		"deleted":           c.Deleted,
 	}
@@ -39,7 +39,10 @@ func (h *Handler) handlePostCommentForComparedCommit(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		keyComment: commentToMap(c),
+		keyComment:        commentToMap(c),
+		keyRepositoryName: req.RepositoryName,
+		keyAfterCommitID:  req.AfterCommitID,
+		"beforeCommitId":  req.BeforeCommitID,
 	}, nil
 }
 
@@ -64,7 +67,11 @@ func (h *Handler) handlePostCommentForPullRequest(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		keyComment: commentToMap(c),
+		keyComment:        commentToMap(c),
+		keyPullRequestID:  req.PullRequestID,
+		keyRepositoryName: req.RepositoryName,
+		keyAfterCommitID:  req.AfterCommitID,
+		"beforeCommitId":  req.BeforeCommitID,
 	}, nil
 }
 
@@ -129,13 +136,25 @@ func (h *Handler) handleGetCommentsForComparedCommit(body []byte) (any, error) {
 		return nil, err
 	}
 
-	items := make([]map[string]any, 0, len(comments))
-	for _, c := range comments {
-		items = append(items, commentToMap(c))
+	data := []map[string]any{}
+	if len(comments) > 0 {
+		items := make([]map[string]any, 0, len(comments))
+		for _, c := range comments {
+			items = append(items, commentToMap(c))
+		}
+		group := map[string]any{
+			keyRepositoryName: req.RepositoryName,
+			keyAfterCommitID:  req.AfterCommitID,
+			"comments":        items,
+		}
+		if req.BeforeCommitID != "" {
+			group["beforeCommitId"] = req.BeforeCommitID
+		}
+		data = append(data, group)
 	}
 
 	return map[string]any{
-		"commentsForComparedCommitData": items,
+		"commentsForComparedCommitData": data,
 	}, nil
 }
 
@@ -155,13 +174,24 @@ func (h *Handler) handleGetCommentsForPullRequest(body []byte) (any, error) {
 		return nil, err
 	}
 
-	items := make([]map[string]any, 0, len(comments))
-	for _, c := range comments {
-		items = append(items, commentToMap(c))
+	data := []map[string]any{}
+	if len(comments) > 0 {
+		items := make([]map[string]any, 0, len(comments))
+		for _, c := range comments {
+			items = append(items, commentToMap(c))
+		}
+		group := map[string]any{
+			keyPullRequestID: req.PullRequestID,
+			"comments":       items,
+		}
+		if comments[0].RepoName != "" {
+			group[keyRepositoryName] = comments[0].RepoName
+		}
+		data = append(data, group)
 	}
 
 	return map[string]any{
-		"commentsForPullRequestData": items,
+		"commentsForPullRequestData": data,
 	}, nil
 }
 

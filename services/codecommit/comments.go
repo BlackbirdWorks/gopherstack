@@ -20,7 +20,7 @@ func (b *InMemoryBackend) PostCommentForComparedCommit(repoName, _, afterCommitI
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC()
 	c := &Comment{
 		CommentID:        newCommentID(),
 		Content:          content,
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) PostCommentForPullRequest(prID, repoName, content stri
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC()
 	c := &Comment{
 		CommentID:        newCommentID(),
 		Content:          content,
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) PostCommentReply(inReplyTo, content string) (*Comment,
 		return nil, fmt.Errorf("%w: comment %s not found", ErrCommentNotFound, inReplyTo)
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC()
 	c := &Comment{
 		CommentID:        newCommentID(),
 		Content:          content,
@@ -146,7 +146,7 @@ func (b *InMemoryBackend) UpdateComment(commentID, content string) error {
 		return fmt.Errorf("%w: comment %s not found", ErrCommentNotFound, commentID)
 	}
 	c.Content = content
-	c.LastModifiedDate = time.Now().UTC().Format(time.RFC3339)
+	c.LastModifiedDate = time.Now().UTC()
 
 	return nil
 }
@@ -162,7 +162,7 @@ func (b *InMemoryBackend) DeleteCommentContent(commentID string) error {
 	}
 	c.Deleted = true
 	c.Content = ""
-	c.LastModifiedDate = time.Now().UTC().Format(time.RFC3339)
+	c.LastModifiedDate = time.Now().UTC()
 
 	return nil
 }

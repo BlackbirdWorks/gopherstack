@@ -32,7 +32,7 @@ func pullRequestToMap(pr *PullRequest) map[string]any {
 	}
 
 	return map[string]any{
-		"pullRequestId":      pr.PullRequestID,
+		keyPullRequestID:     pr.PullRequestID,
 		"title":              pr.Title,
 		"description":        pr.Description,
 		"authorArn":          pr.AuthorARN,
