@@ -290,6 +290,7 @@ type DashboardValidationMessage struct {
 
 // AnomalyDetector represents a CloudWatch anomaly detector.
 type AnomalyDetector struct {
+	ID         string      `json:"Id"`
 	Namespace  string      `json:"Namespace"`
 	MetricName string      `json:"MetricName"`
 	Stat       string      `json:"Stat"`

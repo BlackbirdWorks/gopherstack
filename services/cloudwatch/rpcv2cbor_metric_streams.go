@@ -71,11 +71,14 @@ func (h *Handler) cborPutMetricStream(input cbor.Map, c *echo.Context) error {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	if stream, err := h.Backend.GetMetricStream(name); err == nil {
-		h.applyCreationTags(input, stream.Arn)
+	stream, err := h.Backend.GetMetricStream(name)
+	if err != nil {
+		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	return writeCBOR(c, cbor.Map{})
+	h.applyCreationTags(input, stream.Arn)
+
+	return writeCBOR(c, cbor.Map{"Arn": cbor.String(stream.Arn)})
 }
 
 func (h *Handler) cborListMetricStreams(input cbor.Map, c *echo.Context) error {

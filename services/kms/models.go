@@ -647,9 +647,24 @@ type ImportKeyMaterialInput struct {
 	ValidTo         float64 `json:"ValidTo,omitempty"`
 }
 
+// ImportKeyMaterialOutput is the response payload for ImportKeyMaterial.
+// The real output also declares KeyMaterialId, part of the multi-key-material
+// rotation feature (aws-sdk-go-v2 kms@v1.55.4 api_op_ImportKeyMaterial.go);
+// this backend has no concept of multiple key-material generations per key,
+// so only KeyId — always present on the real wire response — is echoed back.
+type ImportKeyMaterialOutput struct {
+	KeyID string `json:"KeyId"`
+}
+
 // DeleteImportedKeyMaterialInput is the request payload for DeleteImportedKeyMaterial.
 type DeleteImportedKeyMaterialInput struct {
 	// KeyId identifies the EXTERNAL-origin key whose material should be deleted.
+	KeyID string `json:"KeyId"`
+}
+
+// DeleteImportedKeyMaterialOutput is the response payload for DeleteImportedKeyMaterial.
+// See ImportKeyMaterialOutput for why KeyMaterialId is not modeled.
+type DeleteImportedKeyMaterialOutput struct {
 	KeyID string `json:"KeyId"`
 }
 
@@ -722,6 +737,8 @@ type ReplicateKeyInput struct {
 // ReplicateKeyOutput is the response payload for ReplicateKey.
 type ReplicateKeyOutput struct {
 	ReplicaKeyMetadata KeyMetadata `json:"ReplicaKeyMetadata"`
+	ReplicaPolicy      string      `json:"ReplicaPolicy,omitempty"`
+	ReplicaTags        []Tag       `json:"ReplicaTags,omitempty"`
 }
 
 // RotateKeyOnDemandInput is the request payload for RotateKeyOnDemand.

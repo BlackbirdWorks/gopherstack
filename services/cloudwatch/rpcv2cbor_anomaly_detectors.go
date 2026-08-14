@@ -43,17 +43,18 @@ func (h *Handler) cborPutAnomalyDetector(input cbor.Map, c *echo.Context) error 
 		)
 	}
 
-	if err := h.Backend.PutAnomalyDetector(&AnomalyDetector{
+	detector := &AnomalyDetector{
 		Namespace:  namespace,
 		MetricName: metricName,
 		Stat:       stat,
 		Dimensions: dims,
 		StateValue: statusTrainedInsufficient,
-	}); err != nil {
+	}
+	if err := h.Backend.PutAnomalyDetector(detector); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	return writeCBOR(c, cbor.Map{})
+	return writeCBOR(c, cbor.Map{"AnomalyDetectorId": cbor.String(detector.ID)})
 }
 
 func (h *Handler) cborDeleteAnomalyDetector(input cbor.Map, c *echo.Context) error {
@@ -111,6 +112,9 @@ func (h *Handler) cborDescribeAnomalyDetectors(input cbor.Map, c *echo.Context) 
 		entry := cbor.Map{
 			keyStateValue:                 cbor.String(d.StateValue),
 			"SingleMetricAnomalyDetector": smad,
+		}
+		if d.ID != "" {
+			entry["AnomalyDetectorId"] = cbor.String(d.ID)
 		}
 		if len(d.Dimensions) > 0 {
 			dimList := make(cbor.List, 0, len(d.Dimensions))
