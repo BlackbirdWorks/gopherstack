@@ -267,7 +267,12 @@ func (b *InMemoryBackend) BucketsByRegion(region string) []types.Bucket {
 	return buckets
 }
 
-// CreateSession returns a stub session response for a bucket (S3 Express One Zone).
+// CreateSession returns a stub session response for a bucket (S3 Express One
+// Zone). It is a stub in more ways than the response body suggests: SessionMode
+// (the X-Amz-Create-Session-Mode header) is never read, IsDirectoryBucket is
+// never checked -- this emulator has no directory-bucket-vs-general-purpose
+// distinction at all -- and the returned SessionToken has no downstream effect;
+// nothing validates it on subsequent requests, so it authorizes nothing.
 func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (string, error) {
 	var err error
 	func() {

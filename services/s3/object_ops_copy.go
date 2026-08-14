@@ -355,7 +355,9 @@ func copyChangesAttributes(r *http.Request) bool {
 	return false
 }
 
-// handleRenameObject handles PUT /{bucket}/{key}?rename.
+// handleRenameObject handles PUT /{bucket}/{key}?renameObject -- the exact
+// query flag the pinned SDK serializes (serializers.go:9635,
+// httpbinding.SplitURI("/{Key+}?renameObject")), not "?rename".
 // AWS S3 sends the rename target via the x-amz-rename-source header (the
 // existing source key) and uses the request URL path as the destination key.
 // To match common usage we accept both forms: x-amz-rename-source as source,
@@ -392,6 +394,12 @@ func (h *S3Handler) handleRenameObject(
 
 	if srcKey == "" {
 		WriteError(ctx, w, r, ErrNoSuchKey)
+
+		return
+	}
+
+	if err := h.enforceRenameDestinationPreconditions(ctx, r, bucket, targetKey); err != nil {
+		WriteError(ctx, w, r, err)
 
 		return
 	}

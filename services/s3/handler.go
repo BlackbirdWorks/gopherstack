@@ -262,6 +262,11 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
+		// Set CORS headers on the actual response before any handler writes
+		// a status: preflight (OPTIONS) is handled separately below, this
+		// covers the GET/PUT/etc. a browser sends after a passing preflight.
+		h.applyCORSActualResponseHeaders(ctx, sw, requestWithCtx, bucketName)
+
 		// Enforce SigV4 region scoping: if the bucket exists in a region other
 		// than the one the request signed for, return 301 PermanentRedirect with
 		// the bucket's true region in the x-amz-bucket-region header (matching

@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -232,6 +234,40 @@ func (h *S3Handler) enforceDeleteObjectPreconditions(
 	}
 
 	if currentETagOf(out) != ifMatch {
+		return ErrPreconditionFailed
+	}
+
+	return nil
+}
+
+// enforceRenameDestinationPreconditions checks RenameObject's four
+// DestinationIf* conditionals against the rename target, which may or may
+// not already exist. See evaluateDestinationConditionals for header names
+// and per-condition semantics.
+func (h *S3Handler) enforceRenameDestinationPreconditions(
+	ctx context.Context, r *http.Request, bucketName, key string,
+) error {
+	if r.Header.Get(standardConditionals.ifMatch) == "" &&
+		r.Header.Get(standardConditionals.ifNoneMatch) == "" &&
+		r.Header.Get(standardConditionals.ifModifiedSince) == "" &&
+		r.Header.Get(standardConditionals.ifUnmodifiedSince) == "" {
+		return nil
+	}
+
+	out, err := h.Backend.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: &bucketName,
+		Key:    &key,
+	})
+	exists := err == nil
+
+	var etag string
+	var lastModified time.Time
+	if exists {
+		etag = aws.ToString(out.ETag)
+		lastModified = aws.ToTime(out.LastModified)
+	}
+
+	if _, ok := evaluateDestinationConditionals(r.Header, etag, lastModified, exists); !ok {
 		return ErrPreconditionFailed
 	}
 

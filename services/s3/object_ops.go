@@ -67,7 +67,7 @@ func (h *S3Handler) routeObjectPut(
 		h.putObjectRetention(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("legal-hold"):
 		h.putObjectLegalHold(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("rename"):
+	case r.URL.Query().Has("renameObject"):
 		h.handleRenameObject(ctx, w, r)
 	case r.URL.Query().Has("encryption") && key != "":
 		h.handleUpdateObjectEncryption(ctx, w, r)
