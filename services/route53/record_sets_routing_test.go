@@ -66,7 +66,7 @@ func TestWeightedRouting(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-wt-"+tt.name, "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-wt-"+tt.name, "", false, "", "", "")
 			require.NoError(t, err)
 
 			setID := ""
@@ -247,7 +247,7 @@ func TestRoutingPolicyMutualExclusion(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-rp-"+tt.name, "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-rp-"+tt.name, "", false, "", "", "")
 			require.NoError(t, err)
 
 			changes := []route53.Change{
@@ -268,7 +268,7 @@ func TestWeightedRecordsCoexist(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref-wcoexist", "", false, "")
+	hz, err := b.CreateHostedZone("example.com", "ref-wcoexist", "", false, "", "", "")
 	require.NoError(t, err)
 
 	// Create three weighted records for the same name+type.
@@ -346,7 +346,7 @@ func TestGeoRoutingAccepted(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", fmt.Sprintf("ref-geo-%d", i), "", false, "")
+			hz, err := b.CreateHostedZone("example.com", fmt.Sprintf("ref-geo-%d", i), "", false, "", "", "")
 			require.NoError(t, err)
 
 			changes := []route53.Change{

@@ -10,7 +10,12 @@ import (
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Hosted zone operations
-	CreateHostedZone(name, callerRef, comment string, private bool, delegationSetID string) (*HostedZone, error)
+	CreateHostedZone(
+		name, callerRef, comment string,
+		private bool,
+		delegationSetID string,
+		vpcID, vpcRegion string,
+	) (*HostedZone, error)
 	DeleteHostedZone(zoneID string) error
 	GetHostedZone(zoneID string) (*HostedZone, error)
 	ListHostedZones(marker string, maxItems int) (page.Page[HostedZone], error)

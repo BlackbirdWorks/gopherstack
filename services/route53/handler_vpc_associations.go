@@ -169,10 +169,24 @@ type deleteVPCAssocAuthRequest struct {
 	VPC     xmlVPC   `xml:"VPC"`
 }
 
+// deleteVPCAssociationAuthorization is reachable via two suffixes: the real
+// AWS wire path (POST .../deauthorizevpcassociation, route53@v1.65.6
+// serializers.go:2424) and a DELETE on .../authorizevpcassociation that
+// routeAuthorizeVPC also dispatches here. The suffix must be detected with
+// HasSuffix before trimming -- TrimSuffix silently no-ops (returns the
+// input unchanged, not empty) when the suffix doesn't match, so the
+// previous "trim with the wrong suffix, then check for empty" fallback
+// never actually took the deauthorizevpcassociation branch: it always fell
+// through with the untrimmed suffix still attached to zoneID, so every
+// call arriving via the real client's path got NoSuchHostedZone.
 func (h *Handler) deleteVPCAssociationAuthorization(c *echo.Context, path string) error {
-	zoneID := strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53AuthorizeVPCSuffix)
-	if zoneID == "" {
+	var zoneID string
+
+	switch {
+	case strings.HasSuffix(path, route53DeauthorizeVPCSuffix):
 		zoneID = strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53DeauthorizeVPCSuffix)
+	case strings.HasSuffix(path, route53AuthorizeVPCSuffix):
+		zoneID = strings.TrimSuffix(strings.TrimPrefix(path, route53HZPrefix), route53AuthorizeVPCSuffix)
 	}
 
 	body, err := httputils.ReadBody(c.Request())

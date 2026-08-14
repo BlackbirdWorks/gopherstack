@@ -38,11 +38,14 @@ func normaliseName(name string) string {
 // non-empty, the zone is linked to that reusable delegation set (which must
 // already exist, see ErrDelegationSetNotFound) and inherits its name
 // servers; otherwise the zone gets the default system-assigned name
-// servers.
+// servers. When private and vpcID is non-empty, the zone is associated with
+// that VPC as part of creation — the same as real AWS's CreateHostedZone
+// VPC member, which every typed client sends for a private zone.
 func (b *InMemoryBackend) CreateHostedZone(
 	name, callerRef, comment string,
 	private bool,
 	delegationSetID string,
+	vpcID, vpcRegion string,
 ) (*HostedZone, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidInput)
@@ -85,6 +88,13 @@ func (b *InMemoryBackend) CreateHostedZone(
 	}
 	b.zones.Put(zd)
 	seedZoneAutoRecords(zd, name, nameServers)
+
+	if private && vpcID != "" {
+		b.vpcAssociations[id] = append(b.vpcAssociations[id], vpcAssociation{
+			VPCID:     vpcID,
+			VPCRegion: vpcRegion,
+		})
+	}
 
 	// Register a synthetic INSYNC change so that GetChange on the zone-creation
 	// change ID (used by Terraform's waiter) returns INSYNC immediately.

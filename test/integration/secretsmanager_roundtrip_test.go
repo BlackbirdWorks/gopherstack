@@ -198,3 +198,80 @@ func TestIntegration_SecretsManager_UpdateSecretVersionStageRoundTrip(t *testing
 	assert.Contains(t, stages[v2], "AWSPREVIOUS", "v2 should have been demoted to AWSPREVIOUS")
 	assert.NotContains(t, stages[v2], "AWSCURRENT", "v2 should no longer carry AWSCURRENT")
 }
+
+// TestIntegration_SecretsManager_UpdateSecretRoundTrip drives UpdateSecret
+// through a real client -- flagged by gopherstack-n3zi as a high-traffic op
+// with zero typed-client coverage -- and reads the effect back via
+// DescribeSecret and GetSecretValue. It covers both of UpdateSecret's two
+// independent effects: updating Description (metadata-only, no new version)
+// and supplying a new SecretString (creates a version and moves AWSCURRENT,
+// demoting the prior version to AWSPREVIOUS -- the same mechanism
+// UpdateSecretVersionStage exercises explicitly).
+func TestIntegration_SecretsManager_UpdateSecretRoundTrip(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSecretsManagerClient(t)
+	ctx := t.Context()
+
+	secretName := "test-updatesecret-" + uuid.NewString()
+
+	createOut, err := client.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
+		Name:         aws.String(secretName),
+		SecretString: aws.String("original-value"),
+	})
+	require.NoError(t, err)
+	v1 := aws.ToString(createOut.VersionId)
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+		_, _ = client.DeleteSecret(cleanupCtx, &secretsmanager.DeleteSecretInput{
+			SecretId: aws.String(secretName), ForceDeleteWithoutRecovery: aws.Bool(true),
+		})
+	})
+
+	updateDescOut, err := client.UpdateSecret(ctx, &secretsmanager.UpdateSecretInput{
+		SecretId:    aws.String(secretName),
+		Description: aws.String("updated via UpdateSecret"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(createOut.ARN), aws.ToString(updateDescOut.ARN))
+	assert.Empty(t, aws.ToString(updateDescOut.VersionId), "description-only update should not create a version")
+
+	descOut, err := client.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(secretName)})
+	require.NoError(t, err)
+	assert.Equal(t, "updated via UpdateSecret", aws.ToString(descOut.Description))
+
+	updateValOut, err := client.UpdateSecret(ctx, &secretsmanager.UpdateSecretInput{
+		SecretId:     aws.String(secretName),
+		SecretString: aws.String("new-value"),
+	})
+	require.NoError(t, err)
+	v2 := aws.ToString(updateValOut.VersionId)
+	require.NotEmpty(t, v2)
+	require.NotEqual(t, v1, v2)
+
+	getOut, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(secretName)})
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		"new-value",
+		aws.ToString(getOut.SecretString),
+		"AWSCURRENT should be the version UpdateSecret just wrote",
+	)
+	assert.Equal(t, v2, aws.ToString(getOut.VersionId))
+
+	listOut, err := client.ListSecretVersionIds(ctx, &secretsmanager.ListSecretVersionIdsInput{
+		SecretId: aws.String(secretName),
+	})
+	require.NoError(t, err)
+
+	stagesByVersion := make(map[string][]string, len(listOut.Versions))
+	for _, v := range listOut.Versions {
+		stagesByVersion[aws.ToString(v.VersionId)] = v.VersionStages
+	}
+
+	assert.Contains(t, stagesByVersion[v2], "AWSCURRENT", "the new version should carry AWSCURRENT")
+	assert.Contains(t, stagesByVersion[v1], "AWSPREVIOUS", "the old version should have been demoted to AWSPREVIOUS")
+	assert.NotContains(t, stagesByVersion[v1], "AWSCURRENT", "the old version should no longer carry AWSCURRENT")
+}

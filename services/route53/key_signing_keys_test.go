@@ -148,7 +148,7 @@ func TestKeySigningKeyCount(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "", "", "")
 			require.NoError(t, err)
 
 			for _, name := range tt.kskNames {
@@ -191,7 +191,7 @@ func TestDuplicateKSK(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "", "", "")
 			require.NoError(t, err)
 
 			_, err = b.CreateKeySigningKey(
@@ -248,7 +248,7 @@ func TestDeleteZone_CascadesKSK(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "", "", "")
 			require.NoError(t, err)
 
 			_, err = b.CreateKeySigningKey(

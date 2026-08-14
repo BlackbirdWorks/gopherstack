@@ -22,7 +22,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *route53.InMemoryBackend) string {
-				zone, err := b.CreateHostedZone("example.com.", "ref-001", "test zone", false, "")
+				zone, err := b.CreateHostedZone("example.com.", "ref-001", "test zone", false, "", "", "")
 				if err != nil {
 					return ""
 				}
@@ -84,7 +84,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	b := route53.NewInMemoryBackend()
 
-	zone, err := b.CreateHostedZone("full-state.example.com.", "ref-full-zone", "full state zone", true, "")
+	zone, err := b.CreateHostedZone("full-state.example.com.", "ref-full-zone", "full state zone", true, "", "", "")
 	require.NoError(t, err)
 
 	changeID, err := b.ChangeResourceRecordSets(zone.ID, []route53.Change{
@@ -327,7 +327,7 @@ func TestTagsPersistAcrossSnapshotRestore(t *testing.T) {
 
 	original := route53.NewInMemoryBackend()
 
-	hz, err := original.CreateHostedZone("example.com", "ref-tags-persist", "", false, "")
+	hz, err := original.CreateHostedZone("example.com", "ref-tags-persist", "", false, "", "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, original.ChangeTagsForResource(
@@ -364,7 +364,7 @@ func TestSnapshotRestore_KSK(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "", "", "")
 			require.NoError(t, err)
 
 			_, err = b.CreateKeySigningKey(
@@ -401,7 +401,7 @@ func TestSnapshotRestore_VPCAssociation(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "", "", "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1"))
@@ -428,7 +428,7 @@ func TestSnapshotRestore_DelegationSetSourceUsed(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
+	hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "", "", "")
 	require.NoError(t, err)
 
 	_, err = b.CreateReusableDelegationSet("ds-ref-extract", hz.ID)

@@ -358,12 +358,12 @@ func TestCreateHostedZone_DuplicateCallerReference(t *testing.T) {
 
 			b := route53.NewInMemoryBackend()
 
-			first, err := b.CreateHostedZone("example.com", tt.ref, "first", false, "")
+			first, err := b.CreateHostedZone("example.com", tt.ref, "first", false, "", "", "")
 			require.NoError(t, err)
 
 			// Same CallerReference *and* identical other parameters is a safe
 			// retry: AWS returns the original zone.
-			second, err := b.CreateHostedZone(tt.name2, tt.ref, tt.comment, false, "")
+			second, err := b.CreateHostedZone(tt.name2, tt.ref, tt.comment, false, "", "", "")
 			require.NoError(t, err)
 
 			assert.Equal(t, first.ID, second.ID,
@@ -396,10 +396,10 @@ func TestCreateHostedZone_DuplicateCallerReference_DifferentParams(t *testing.T)
 
 			b := route53.NewInMemoryBackend()
 
-			_, err := b.CreateHostedZone("example.com", tt.ref, "first", false, "")
+			_, err := b.CreateHostedZone("example.com", tt.ref, "first", false, "", "", "")
 			require.NoError(t, err)
 
-			_, err = b.CreateHostedZone("other.com", tt.ref, "second", false, "")
+			_, err = b.CreateHostedZone("other.com", tt.ref, "second", false, "", "", "")
 			require.Error(t, err)
 			assert.ErrorIs(t, err, route53.ErrHostedZoneAlreadyExists)
 		})
@@ -423,10 +423,10 @@ func TestCreateHostedZone_UniqueCallerReference_CreatesNew(t *testing.T) {
 
 			b := route53.NewInMemoryBackend()
 
-			z1, err := b.CreateHostedZone("example.com", tt.ref1, "", false, "")
+			z1, err := b.CreateHostedZone("example.com", tt.ref1, "", false, "", "", "")
 			require.NoError(t, err)
 
-			z2, err := b.CreateHostedZone("example.com", tt.ref2, "", false, "")
+			z2, err := b.CreateHostedZone("example.com", tt.ref2, "", false, "", "", "")
 			require.NoError(t, err)
 
 			assert.NotEqual(t, z1.ID, z2.ID,
@@ -477,7 +477,7 @@ func TestDeleteEmptyZone_WithDefaultNSSOA_Succeeds(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", tt.ref, "", false, "")
+			hz, err := b.CreateHostedZone("example.com", tt.ref, "", false, "", "", "")
 			require.NoError(t, err)
 
 			err = b.DeleteHostedZone(hz.ID)
@@ -502,7 +502,7 @@ func TestPrivateZone(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-pvt-"+tt.name, "", tt.private, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-pvt-"+tt.name, "", tt.private, "", "", "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.private, hz.PrivateZone)
 
@@ -545,7 +545,7 @@ func TestZoneCount(t *testing.T) {
 			b := route53.NewInMemoryBackend()
 
 			for i := range tt.creates {
-				_, err := b.CreateHostedZone("example.com", "ref-"+string(rune('A'+i)), "", false, "")
+				_, err := b.CreateHostedZone("example.com", "ref-"+string(rune('A'+i)), "", false, "", "", "")
 				require.NoError(t, err)
 			}
 
@@ -610,7 +610,7 @@ func TestListHostedZonesByVPC(t *testing.T) {
 
 	b := route53.NewInMemoryBackend()
 
-	hz, err := b.CreateHostedZone("private.example.com", "ref", "", true, "")
+	hz, err := b.CreateHostedZone("private.example.com", "ref", "", true, "", "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1"))
