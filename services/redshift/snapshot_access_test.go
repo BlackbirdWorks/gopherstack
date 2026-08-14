@@ -100,9 +100,10 @@ func TestHandler_BatchDeleteClusterSnapshots(t *testing.T) {
 				)
 			},
 			body: "Action=BatchDeleteClusterSnapshots&Version=2012-12-01" +
-				"&Identifiers.SnapshotIdentifier.1=snap-del-1&Identifiers.SnapshotIdentifier.2=snap-del-2",
+				"&Identifiers.DeleteClusterSnapshotMessage.1.SnapshotIdentifier=snap-del-1" +
+				"&Identifiers.DeleteClusterSnapshotMessage.2.SnapshotIdentifier=snap-del-2",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"BatchDeleteClusterSnapshotsResponse"},
+			wantContains: []string{"BatchDeleteClusterSnapshotsResponse", "snap-del-1", "snap-del-2"},
 		},
 		{
 			name: "partial_success_with_errors",
@@ -112,7 +113,8 @@ func TestHandler_BatchDeleteClusterSnapshots(t *testing.T) {
 				)
 			},
 			body: "Action=BatchDeleteClusterSnapshots&Version=2012-12-01" +
-				"&Identifiers.SnapshotIdentifier.1=snap-del-3&Identifiers.SnapshotIdentifier.2=nonexistent",
+				"&Identifiers.DeleteClusterSnapshotMessage.1.SnapshotIdentifier=snap-del-3" +
+				"&Identifiers.DeleteClusterSnapshotMessage.2.SnapshotIdentifier=nonexistent",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"BatchDeleteClusterSnapshotsResponse", "ClusterSnapshotNotFound"},
 		},
@@ -309,8 +311,8 @@ func TestBatchDeleteClusterSnapshots_PartialSuccess(t *testing.T) {
 
 	rec := postRedshiftForm(t, h,
 		"Action=BatchDeleteClusterSnapshots&Version=2012-12-01"+
-			"&Identifiers.SnapshotIdentifier.1=snap-good"+
-			"&Identifiers.SnapshotIdentifier.2=snap-missing")
+			"&Identifiers.DeleteClusterSnapshotMessage.1.SnapshotIdentifier=snap-good"+
+			"&Identifiers.DeleteClusterSnapshotMessage.2.SnapshotIdentifier=snap-missing")
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()

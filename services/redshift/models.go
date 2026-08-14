@@ -256,6 +256,7 @@ type CustomDomainAssociation struct {
 	ClusterIdentifier          string `json:"clusterIdentifier"`
 	CustomDomainName           string `json:"customDomainName"`
 	CustomDomainCertificateArn string `json:"customDomainCertificateArn"`
+	CustomDomainCertExpiryTime string `json:"customDomainCertExpiryTime"`
 }
 
 // EndpointAccess represents a Redshift managed VPC endpoint.

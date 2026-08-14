@@ -7,12 +7,14 @@ import (
 
 // ---- AddPartner ----
 
+// addPartnerResponse has no ClusterIdentifier field: the real AddPartnerOutput
+// carries only DatabaseName and PartnerName (confirmed against
+// aws-sdk-go-v2/service/redshift@v1.65.4's api_op_AddPartner.go).
 type addPartnerResponse struct {
-	XMLName           xml.Name `xml:"AddPartnerResponse"`
-	Xmlns             string   `xml:"xmlns,attr"`
-	ClusterIdentifier string   `xml:"AddPartnerResult>ClusterIdentifier"`
-	DatabaseName      string   `xml:"AddPartnerResult>DatabaseName"`
-	PartnerName       string   `xml:"AddPartnerResult>PartnerName"`
+	XMLName      xml.Name `xml:"AddPartnerResponse"`
+	Xmlns        string   `xml:"xmlns,attr"`
+	DatabaseName string   `xml:"AddPartnerResult>DatabaseName"`
+	PartnerName  string   `xml:"AddPartnerResult>PartnerName"`
 }
 
 func (h *Handler) handleAddPartner(vals url.Values) (any, error) {
@@ -31,21 +33,21 @@ func (h *Handler) handleAddPartner(vals url.Values) (any, error) {
 	}
 
 	return &addPartnerResponse{
-		Xmlns:             redshiftXMLNS,
-		ClusterIdentifier: partner.ClusterIdentifier,
-		DatabaseName:      partner.DatabaseName,
-		PartnerName:       partner.PartnerName,
+		Xmlns:        redshiftXMLNS,
+		DatabaseName: partner.DatabaseName,
+		PartnerName:  partner.PartnerName,
 	}, nil
 }
 
 // ---- DeletePartner ----
 
+// deletePartnerResponse has no ClusterIdentifier field, matching the real
+// DeletePartnerOutput (see addPartnerResponse).
 type deletePartnerResponse struct {
-	XMLName           xml.Name `xml:"DeletePartnerResponse"`
-	Xmlns             string   `xml:"xmlns,attr"`
-	ClusterIdentifier string   `xml:"DeletePartnerResult>ClusterIdentifier"`
-	DatabaseName      string   `xml:"DeletePartnerResult>DatabaseName"`
-	PartnerName       string   `xml:"DeletePartnerResult>PartnerName"`
+	XMLName      xml.Name `xml:"DeletePartnerResponse"`
+	Xmlns        string   `xml:"xmlns,attr"`
+	DatabaseName string   `xml:"DeletePartnerResult>DatabaseName"`
+	PartnerName  string   `xml:"DeletePartnerResult>PartnerName"`
 }
 
 func (h *Handler) handleDeletePartner(vals url.Values) (any, error) {
@@ -63,10 +65,9 @@ func (h *Handler) handleDeletePartner(vals url.Values) (any, error) {
 	}
 
 	return &deletePartnerResponse{
-		Xmlns:             redshiftXMLNS,
-		ClusterIdentifier: clusterID,
-		DatabaseName:      databaseName,
-		PartnerName:       partnerName,
+		Xmlns:        redshiftXMLNS,
+		DatabaseName: databaseName,
+		PartnerName:  partnerName,
 	}, nil
 }
 
@@ -130,12 +131,13 @@ func (h *Handler) handleDescribePartners(vals url.Values) (any, error) {
 
 // ---- UpdatePartnerStatus ----
 
+// updatePartnerStatusResponse has no ClusterIdentifier field, matching the real
+// UpdatePartnerStatusOutput (see addPartnerResponse).
 type updatePartnerStatusResponse struct {
-	XMLName           xml.Name `xml:"UpdatePartnerStatusResponse"`
-	Xmlns             string   `xml:"xmlns,attr"`
-	ClusterIdentifier string   `xml:"UpdatePartnerStatusResult>ClusterIdentifier"`
-	DatabaseName      string   `xml:"UpdatePartnerStatusResult>DatabaseName"`
-	PartnerName       string   `xml:"UpdatePartnerStatusResult>PartnerName"`
+	XMLName      xml.Name `xml:"UpdatePartnerStatusResponse"`
+	Xmlns        string   `xml:"xmlns,attr"`
+	DatabaseName string   `xml:"UpdatePartnerStatusResult>DatabaseName"`
+	PartnerName  string   `xml:"UpdatePartnerStatusResult>PartnerName"`
 }
 
 func (h *Handler) handleUpdatePartnerStatus(vals url.Values) (any, error) {
@@ -156,9 +158,8 @@ func (h *Handler) handleUpdatePartnerStatus(vals url.Values) (any, error) {
 	}
 
 	return &updatePartnerStatusResponse{
-		Xmlns:             redshiftXMLNS,
-		ClusterIdentifier: p.ClusterIdentifier,
-		DatabaseName:      p.DatabaseName,
-		PartnerName:       p.PartnerName,
+		Xmlns:        redshiftXMLNS,
+		DatabaseName: p.DatabaseName,
+		PartnerName:  p.PartnerName,
 	}, nil
 }

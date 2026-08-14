@@ -1,6 +1,22 @@
 package redshift
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
+
+// customDomainCertExpiryDays is a fabricated-but-consistent validity window for a
+// custom domain association's certificate, mirroring Redshift Serverless's own
+// slCertExpiryDays (serverless.go) -- this backend does not do real ACM
+// certificate issuance for classic Redshift either.
+const customDomainCertExpiryDays = 365
+
+// newCustomDomainCertExpiry returns a fresh customDomainCertExpiryDays-out
+// expiry timestamp, formatted the way this backend's other RFC3339 wire
+// timestamps are.
+func newCustomDomainCertExpiry() string {
+	return time.Now().Add(customDomainCertExpiryDays * 24 * time.Hour).UTC().Format(time.RFC3339)
+}
 
 // CreateCustomDomainAssociation creates a custom domain name association for a cluster.
 func (b *InMemoryBackend) CreateCustomDomainAssociation(
@@ -31,6 +47,7 @@ func (b *InMemoryBackend) CreateCustomDomainAssociation(
 		ClusterIdentifier:          clusterID,
 		CustomDomainName:           customDomainName,
 		CustomDomainCertificateArn: customDomainCertificateArn,
+		CustomDomainCertExpiryTime: newCustomDomainCertExpiry(),
 	}
 	b.customDomains.Put(assoc)
 
@@ -119,6 +136,7 @@ func (b *InMemoryBackend) ModifyCustomDomainAssociation(
 	}
 
 	a.CustomDomainCertificateArn = customDomainCertificateArn
+	a.CustomDomainCertExpiryTime = newCustomDomainCertExpiry()
 	cp := *a
 
 	return &cp, nil

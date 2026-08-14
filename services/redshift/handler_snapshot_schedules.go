@@ -3,6 +3,8 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ---- CreateSnapshotSchedule ----
@@ -16,12 +18,16 @@ type xmlClusterScheduleAssoc struct {
 }
 
 // redshift@v1.65.4 deserializers.go:23753 wraps each entry in
-// <ClusterAssociatedToSchedule>, not <member>.
+// <ClusterAssociatedToSchedule>, not <member>. Tags (deserializers.go:43027,
+// generic TagList wrapped in <Tag>) was previously absent entirely, though this
+// backend already tracks SnapshotSchedule.Tags -- every schedule's tags were
+// silently dropped from Create/Modify/Describe responses.
 type xmlSnapshotSchedule struct {
 	ScheduleIdentifier     string                    `xml:"ScheduleIdentifier"`
 	Description            string                    `xml:"ScheduleDescription,omitempty"`
 	ScheduleDefinitions    []string                  `xml:"ScheduleDefinitions>ScheduleDefinition,omitempty"`
 	AssociatedClusters     []xmlClusterScheduleAssoc `xml:"AssociatedClusters>ClusterAssociatedToSchedule,omitempty"`
+	Tags                   []svcTags.KV              `xml:"Tags>Tag,omitempty"`
 	AssociatedClusterCount int                       `xml:"AssociatedClusterCount"`
 }
 
@@ -41,6 +47,7 @@ func snapshotScheduleToXML(s *SnapshotSchedule) xmlSnapshotSchedule {
 		Description:            s.Description,
 		ScheduleDefinitions:    s.ScheduleDefinitions,
 		AssociatedClusters:     assoc,
+		Tags:                   tagMapToKVList(s.Tags),
 		AssociatedClusterCount: len(s.AssociatedClusters),
 	}
 }

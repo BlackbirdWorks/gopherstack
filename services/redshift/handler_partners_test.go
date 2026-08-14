@@ -159,9 +159,13 @@ func TestBackend_AddPartner(t *testing.T) {
 	}
 }
 
-// ---- AddPartner response includes ClusterIdentifier ----
-
-func TestAddPartner_ResponseIncludesClusterIdentifier(t *testing.T) {
+// TestAddPartner_ResponseOmitsClusterIdentifier locks in that AddPartnerResponse
+// carries only DatabaseName and PartnerName. ClusterIdentifier is not a member of
+// the real AddPartnerOutput (confirmed against
+// aws-sdk-go-v2/service/redshift@v1.65.4/api_op_AddPartner.go) -- this backend
+// previously echoed it as an invented third field, entrenched by a test that
+// merely asserted the cluster id string appeared somewhere in the body.
+func TestAddPartner_ResponseOmitsClusterIdentifier(t *testing.T) {
 	t.Parallel()
 
 	h := newRedshiftHandler()
@@ -176,9 +180,11 @@ func TestAddPartner_ResponseIncludesClusterIdentifier(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, "AddPartnerResponse")
-	assert.Contains(t, body, "ap-cluster")
 	assert.Contains(t, body, "mydb")
 	assert.Contains(t, body, "mypartner")
+	assert.NotContains(t, body, "ap-cluster",
+		"AddPartnerOutput has no ClusterIdentifier member")
+	assert.NotContains(t, body, "<ClusterIdentifier>")
 }
 
 // TestPartner_WireFieldIsPartnerName locks in that the Partner family's request
@@ -237,7 +243,7 @@ func TestHandler_DeletePartner(t *testing.T) {
 			body: "Action=DeletePartner&Version=2012-12-01" +
 				"&ClusterIdentifier=dp-cluster&DatabaseName=mydb&PartnerName=mypartner",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DeletePartnerResponse", "dp-cluster"},
+			wantContains: []string{"DeletePartnerResponse", "mydb", "mypartner"},
 		},
 		{
 			name: "not_found",
@@ -357,7 +363,7 @@ func TestHandler_UpdatePartnerStatus(t *testing.T) {
 			body: "Action=UpdatePartnerStatus&Version=2012-12-01" +
 				"&ClusterIdentifier=ups-cluster&DatabaseName=db1&PartnerName=partner1&Status=Active&StatusMessage=ok",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"UpdatePartnerStatusResponse", "ups-cluster"},
+			wantContains: []string{"UpdatePartnerStatusResponse", "db1", "partner1"},
 		},
 		{
 			name: "not_found",
