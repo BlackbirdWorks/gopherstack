@@ -694,7 +694,13 @@ func FromSDKTransactGetItemsOutput(
 		})
 	}
 
+	cc := make([]ConsumedCapacity, len(output.ConsumedCapacity))
+	for i, c := range output.ConsumedCapacity {
+		cc[i] = *FromSDKConsumedCapacity(&c)
+	}
+
 	return &TransactGetItemsOutput{
-		Responses: responses,
+		Responses:        responses,
+		ConsumedCapacity: cc,
 	}
 }

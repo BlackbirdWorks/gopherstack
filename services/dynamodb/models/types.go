@@ -38,6 +38,8 @@ type AttributeDefinition struct {
 type CreateTableInput struct {
 	ProvisionedThroughput     any                    `json:"ProvisionedThroughput"`
 	StreamSpecification       any                    `json:"StreamSpecification,omitempty"`
+	SSESpecification          *SSESpecification      `json:"SSESpecification,omitempty"`
+	OnDemandThroughput        *OnDemandThroughput    `json:"OnDemandThroughput,omitempty"`
 	DeletionProtectionEnabled *bool                  `json:"DeletionProtectionEnabled,omitempty"`
 	TableName                 string                 `json:"TableName"`
 	BillingMode               string                 `json:"BillingMode,omitempty"`
@@ -47,6 +49,27 @@ type CreateTableInput struct {
 	GlobalSecondaryIndexes    []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes     []LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
 	Tags                      []Tag                  `json:"Tags,omitempty"`
+}
+
+// SSESpecification is the wire format for a table's server-side encryption
+// settings, mirrored on CreateTableInput and UpdateTableInput.
+type SSESpecification struct {
+	Enabled        *bool  `json:"Enabled,omitempty"`
+	KMSMasterKeyID string `json:"KMSMasterKeyId,omitempty"`
+	SSEType        string `json:"SSEType,omitempty"`
+}
+
+// OnDemandThroughput is the wire format for a table's on-demand max
+// read/write request units, mirrored on CreateTableInput and UpdateTableInput.
+type OnDemandThroughput struct {
+	MaxReadRequestUnits  *int64 `json:"MaxReadRequestUnits,omitempty"`
+	MaxWriteRequestUnits *int64 `json:"MaxWriteRequestUnits,omitempty"`
+}
+
+// TableClassSummaryDescription is the wire format for TableDescription's
+// TableClassSummary member.
+type TableClassSummaryDescription struct {
+	TableClass string `json:"TableClass,omitempty"`
 }
 
 type CreateTableOutput struct {
@@ -74,6 +97,8 @@ type TableDescription struct {
 	StreamSpecification       *StreamSpecificationInput         `json:"StreamSpecification,omitempty"`
 	BillingModeSummary        *BillingModeSummaryDescription    `json:"BillingModeSummary,omitempty"`
 	SSEDescription            *SSEDescription                   `json:"SSEDescription,omitempty"`
+	OnDemandThroughput        *OnDemandThroughput               `json:"OnDemandThroughput,omitempty"`
+	TableClassSummary         *TableClassSummaryDescription     `json:"TableClassSummary,omitempty"`
 	TableName                 string                            `json:"TableName"`
 	TableStatus               string                            `json:"TableStatus"`
 	TableArn                  string                            `json:"TableArn,omitempty"`
@@ -86,6 +111,8 @@ type TableDescription struct {
 	GlobalSecondaryIndexes    []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes     []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
 	Replicas                  []ReplicaDescription              `json:"Replicas,omitempty"`
+	CreationDateTime          float64                           `json:"CreationDateTime,omitempty"`
+	TableSizeBytes            int64                             `json:"TableSizeBytes"`
 	DeletionProtectionEnabled bool                              `json:"DeletionProtectionEnabled,omitempty"`
 	ItemCount                 int                               `json:"ItemCount"`
 }
@@ -152,7 +179,11 @@ type ProvisionedThroughput struct {
 type UpdateTableInput struct {
 	ProvisionedThroughput       *ProvisionedThroughput       `json:"ProvisionedThroughput,omitempty"`
 	StreamSpecification         *StreamSpecificationInput    `json:"StreamSpecification,omitempty"`
+	SSESpecification            *SSESpecification            `json:"SSESpecification,omitempty"`
+	DeletionProtectionEnabled   *bool                        `json:"DeletionProtectionEnabled,omitempty"`
 	TableName                   string                       `json:"TableName"`
+	BillingMode                 string                       `json:"BillingMode,omitempty"`
+	TableClass                  string                       `json:"TableClass,omitempty"`
 	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
 	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
 	ReplicaUpdates              []ReplicaUpdate              `json:"ReplicaUpdates,omitempty"`
