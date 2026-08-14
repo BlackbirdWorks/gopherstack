@@ -26,15 +26,20 @@ type describeEffectivePolicyResponse struct {
 
 // -- ListEffectivePolicyValidationErrors --
 
+// listEffectivePolicyValidationErrorsRequest's target member is "AccountId",
+// not "TargetId" -- verified against
+// awsAwsjson11_serializeOpDocumentListEffectivePolicyValidationErrorsInput
+// (organizations@v1.53.5 serializers.go), unlike its sibling
+// describeEffectivePolicyRequest, which genuinely uses "TargetId".
 type listEffectivePolicyValidationErrorsRequest struct {
 	PolicyType string `json:"PolicyType"`
-	TargetID   string `json:"TargetId,omitempty"`
+	AccountID  string `json:"AccountId,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
 }
 
 type listEffectivePolicyValidationErrorsResponse struct {
-	NextToken        string `json:"NextToken,omitempty"`
-	ValidationErrors []any  `json:"ValidationErrors"`
+	NextToken                       string `json:"NextToken,omitempty"`
+	EffectivePolicyValidationErrors []any  `json:"EffectivePolicyValidationErrors"`
 }
 
 // dispatchEffectivePolicy handles effective-policy operations.
@@ -89,10 +94,13 @@ func (h *Handler) handleListEffectivePolicyValidationErrors(c *echo.Context, bod
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "PolicyType is required")
 	}
 
-	errs, err := h.Backend.ListEffectivePolicyValidationErrors(req.PolicyType, req.TargetID)
+	errs, err := h.Backend.ListEffectivePolicyValidationErrors(req.PolicyType, req.AccountID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listEffectivePolicyValidationErrorsResponse{ValidationErrors: errs})
+	return c.JSON(
+		http.StatusOK,
+		listEffectivePolicyValidationErrorsResponse{EffectivePolicyValidationErrors: errs},
+	)
 }

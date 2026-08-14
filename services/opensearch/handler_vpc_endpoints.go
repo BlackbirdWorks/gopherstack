@@ -173,7 +173,10 @@ func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Req
 		for _, ep := range endpoints {
 			summaries = append(summaries, toVpcEndpointSummary(ep))
 		}
-		h.writeJSON(r, w, map[string]any{"VpcEndpoints": summaries})
+		// Real key is "VpcEndpointSummaryList", not "VpcEndpoints" -- verified
+		// against ListVpcEndpointsOutput in api_op_ListVpcEndpoints.go
+		// (opensearch@v1.75.4), matching the sibling ListVpcEndpointsForDomain.
+		h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": summaries})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}

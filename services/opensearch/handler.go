@@ -83,12 +83,21 @@ const (
 	jsonKeyPackageStatus    = "PackageStatus"
 	jsonKeyVpcEndpointID    = "VpcEndpointId"
 	jsonKeyStatusCode       = "StatusCode"
-	jsonKeyAppName          = "Name"
-	jsonKeyAppArn           = "Arn"
-	jsonKeyDomainConfig     = "DomainConfig"
-	jsonKeyDataSources      = "DataSources"
-	jsonKeyCreatedAt        = "CreatedAt"
-	jsonKeyLastUpdatedAt    = "LastUpdatedAt"
+	// jsonKeyAppName/jsonKeyAppArn/jsonKeyCreatedAt/jsonKeyLastUpdatedAt are
+	// lowerCamelCase for the newer Applications API (verified against
+	// GetApplication/UpdateApplication/ListApplications in opensearch's own
+	// deserializers.go) -- unlike jsonKeyDataSources below, which serves the
+	// older, PascalCase domain-scoped ListDataSources.
+	// jsonKeyStatusLower is the lowerCamel "status" key shared by the
+	// Applications and capability sub-APIs (as opposed to jsonKeyStatus
+	// above, which is PascalCase "Status" for the older Domain API).
+	jsonKeyStatusLower   = "status"
+	jsonKeyAppName       = "name"
+	jsonKeyAppArn        = "arn"
+	jsonKeyDomainConfig  = "DomainConfig"
+	jsonKeyDataSources   = "DataSources"
+	jsonKeyCreatedAt     = "createdAt"
+	jsonKeyLastUpdatedAt = "lastUpdatedAt"
 	// Index data-plane operation segments and document response keys.
 	indexOpDoc      = "_doc"
 	indexOpSearch   = "_search"

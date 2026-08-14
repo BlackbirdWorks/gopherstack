@@ -120,7 +120,7 @@ func TestVpcEndpoints_CreateAndList(t *testing.T) {
 
 	var lOut map[string]any
 	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
-	eps, ok := lOut["VpcEndpoints"].([]any)
+	eps, ok := lOut["VpcEndpointSummaryList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, eps, 1)
 }
@@ -144,7 +144,7 @@ func TestVpcEndpoints_ListOmitsGetOnlyFields(t *testing.T) {
 		{
 			name:    "list_vpc_endpoints",
 			path:    func(_, _ string) string { return "/2021-01-01/opensearch/vpcEndpoints" },
-			key:     "VpcEndpoints",
+			key:     "VpcEndpointSummaryList",
 			domName: "vpc-list-a",
 		},
 		{
@@ -258,7 +258,7 @@ func TestVpcEndpoints_UpdateAndDelete(t *testing.T) {
 	defer lr.Body.Close()
 	var lOut map[string]any
 	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
-	eps := lOut["VpcEndpoints"].([]any)
+	eps := lOut["VpcEndpointSummaryList"].([]any)
 	assert.Empty(t, eps)
 }
 

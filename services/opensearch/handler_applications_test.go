@@ -110,7 +110,7 @@ func TestApplications_HTTPHandler(t *testing.T) {
 		{
 			name:       "get_returns_real_app_data",
 			appName:    "real-app",
-			wantFields: []string{"Id", "Name", "Arn"},
+			wantFields: []string{"id", "name", "arn"},
 		},
 	}
 
@@ -142,7 +142,7 @@ func TestApplications_HTTPHandler(t *testing.T) {
 			for _, field := range tt.wantFields {
 				assert.Contains(t, first, field, "expected field %q in application list", field)
 			}
-			assert.Equal(t, tt.appName, first["Name"])
+			assert.Equal(t, tt.appName, first["name"])
 		})
 	}
 }
@@ -172,12 +172,12 @@ func TestApplications_GetAndUpdateWireShape(t *testing.T) {
 
 	var gOut map[string]any
 	require.NoError(t, json.NewDecoder(gr.Body).Decode(&gOut))
-	assert.Equal(t, "ACTIVE", gOut["Status"])
-	assert.NotEmpty(t, gOut["Endpoint"])
-	assert.NotEmpty(t, gOut["CreatedAt"])
-	assert.NotEmpty(t, gOut["LastUpdatedAt"])
+	assert.Equal(t, "ACTIVE", gOut["status"])
+	assert.NotEmpty(t, gOut["endpoint"])
+	assert.NotEmpty(t, gOut["createdAt"])
+	assert.NotEmpty(t, gOut["lastUpdatedAt"])
 
-	// UpdateApplication must not carry a Status field on the real API.
+	// UpdateApplication must not carry a status field on the real API.
 	ur := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/application/"+appID,
 		map[string]any{"AppConfigs": []any{}, "DataSources": []any{}})
 	defer ur.Body.Close()
@@ -185,9 +185,9 @@ func TestApplications_GetAndUpdateWireShape(t *testing.T) {
 
 	var uOut map[string]any
 	require.NoError(t, json.NewDecoder(ur.Body).Decode(&uOut))
-	assert.NotContains(t, uOut, "Status")
-	assert.NotEmpty(t, uOut["CreatedAt"])
-	assert.NotEmpty(t, uOut["LastUpdatedAt"])
+	assert.NotContains(t, uOut, "status")
+	assert.NotEmpty(t, uOut["createdAt"])
+	assert.NotEmpty(t, uOut["lastUpdatedAt"])
 }
 
 func TestOpenSearchHandler_CreateApplication(t *testing.T) {

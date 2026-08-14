@@ -97,11 +97,11 @@ func (h *Handler) handleListApplications(w http.ResponseWriter, r *http.Request)
 
 	for _, app := range apps {
 		summaries = append(summaries, map[string]any{
-			"Id":                 app.ID,
+			"id":                 app.ID,
 			jsonKeyAppName:       app.Name,
 			jsonKeyAppArn:        app.ARN,
-			jsonKeyStatus:        pkgStateActive,
-			"Endpoint":           applicationEndpoint(app.ID, h.Backend.Region()),
+			jsonKeyStatusLower:   pkgStateActive,
+			"endpoint":           applicationEndpoint(app.ID, h.Backend.Region()),
 			jsonKeyCreatedAt:     app.CreatedAt,
 			jsonKeyLastUpdatedAt: app.LastUpdatedAt,
 		})
@@ -173,10 +173,10 @@ func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		h.writeJSON(r, w, map[string]any{
-			"Id": app.ID, jsonKeyAppName: app.Name, jsonKeyAppArn: app.ARN,
-			"AppConfigs": app.AppConfigs, jsonKeyDataSources: app.DataSources,
-			jsonKeyStatus:        pkgStateActive,
-			"Endpoint":           applicationEndpoint(app.ID, h.Backend.Region()),
+			"id": app.ID, jsonKeyAppName: app.Name, jsonKeyAppArn: app.ARN,
+			"appConfigs": app.AppConfigs, "dataSources": app.DataSources,
+			jsonKeyStatusLower:   pkgStateActive,
+			"endpoint":           applicationEndpoint(app.ID, h.Backend.Region()),
 			jsonKeyCreatedAt:     app.CreatedAt,
 			jsonKeyLastUpdatedAt: app.LastUpdatedAt,
 		})
@@ -218,8 +218,8 @@ func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Reque
 		// UpdateApplicationOutput carries no Status field (unlike
 		// GetApplication/ListApplications) -- do not add one here.
 		h.writeJSON(r, w, map[string]any{
-			"Id": app.ID, jsonKeyAppName: app.Name, jsonKeyAppArn: app.ARN,
-			"AppConfigs": app.AppConfigs, jsonKeyDataSources: app.DataSources,
+			"id": app.ID, jsonKeyAppName: app.Name, jsonKeyAppArn: app.ARN,
+			"appConfigs": app.AppConfigs, "dataSources": app.DataSources,
 			jsonKeyCreatedAt:     app.CreatedAt,
 			jsonKeyLastUpdatedAt: app.LastUpdatedAt,
 		})

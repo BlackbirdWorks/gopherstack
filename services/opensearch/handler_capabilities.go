@@ -103,7 +103,7 @@ func (h *Handler) handleDeregisterCapability(
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"status": capabilityStatusDeleting})
+	h.writeJSON(r, w, map[string]any{jsonKeyStatusLower: capabilityStatusDeleting})
 }
 
 func (h *Handler) handleGetCapability(w http.ResponseWriter, r *http.Request, appID, capabilityName string) {
