@@ -52,7 +52,12 @@ func (h *Handler) dispatchRecommenders(c *echo.Context) error {
 		return h.handleGetRecommenderConfigurations(c)
 	}
 
-	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	return writeErrorResponse(
+		c,
+		http.StatusMethodNotAllowed,
+		"MethodNotAllowedException",
+		"method not allowed",
+	)
 }
 
 func (h *Handler) dispatchRecommenderByID(c *echo.Context, recommenderID string) error {
@@ -65,42 +70,81 @@ func (h *Handler) dispatchRecommenderByID(c *echo.Context, recommenderID string)
 		return h.handleDeleteRecommenderConfiguration(c, recommenderID)
 	}
 
-	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	return writeErrorResponse(
+		c,
+		http.StatusMethodNotAllowed,
+		"MethodNotAllowedException",
+		"method not allowed",
+	)
 }
 
 // handleCreateRecommenderConfiguration handles POST /v1/recommenders.
 func (h *Handler) handleCreateRecommenderConfiguration(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+		return writeErrorResponse(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"failed to read request body",
+		)
 	}
 
 	var req createRecommenderConfigRequest
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		return writeErrorResponse(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"invalid request body",
+		)
 	}
 
-	if strings.TrimSpace(req.Name) == "" {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Name is required")
+	if strings.TrimSpace(req.RecommendationProviderRoleArn) == "" {
+		return writeErrorResponse(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"RecommendationProviderRoleArn is required",
+		)
+	}
+
+	if strings.TrimSpace(req.RecommendationProviderURI) == "" {
+		return writeErrorResponse(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"RecommendationProviderUri is required",
+		)
 	}
 
 	r, backendErr := h.Backend.CreateRecommenderConfiguration(req)
 	if backendErr != nil {
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
+		return writeErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalServerErrorException",
+			backendErr.Error(),
+		)
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, recommenderConfigResponse{
-		Attributes:                    r.Attributes,
-		ID:                            r.ID,
-		Name:                          r.Name,
-		Description:                   r.Description,
-		RecommendationProviderIDType:  r.RecommendationProviderIDType,
-		RecommendationProviderRoleArn: r.RecommendationProviderRoleARN,
-		RecommendationProviderURI:     r.RecommendationProviderURI,
-		RecommendationsPerMessage:     r.RecommendationsPerMessage,
-		CreationDate:                  r.CreationDate,
-		LastModifiedDate:              r.LastModifiedDate,
-	})
+	httputils.WriteJSON(
+		c.Request().Context(),
+		c.Response(),
+		http.StatusCreated,
+		recommenderConfigResponse{
+			Attributes:                    r.Attributes,
+			ID:                            r.ID,
+			Name:                          r.Name,
+			Description:                   r.Description,
+			RecommendationProviderIDType:  r.RecommendationProviderIDType,
+			RecommendationProviderRoleArn: r.RecommendationProviderRoleARN,
+			RecommendationProviderURI:     r.RecommendationProviderURI,
+			RecommendationsPerMessage:     r.RecommendationsPerMessage,
+			CreationDate:                  r.CreationDate,
+			LastModifiedDate:              r.LastModifiedDate,
+		},
+	)
 
 	return nil
 }
@@ -117,10 +161,20 @@ func (h *Handler) handleGetRecommenderConfiguration(c *echo.Context, recommender
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())
 		}
 
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
+		return writeErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalServerErrorException",
+			err.Error(),
+		)
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toRecommenderConfigResponse(r))
+	httputils.WriteJSON(
+		c.Request().Context(),
+		c.Response(),
+		http.StatusOK,
+		toRecommenderConfigResponse(r),
+	)
 
 	return nil
 }
@@ -129,7 +183,12 @@ func (h *Handler) handleGetRecommenderConfiguration(c *echo.Context, recommender
 func (h *Handler) handleGetRecommenderConfigurations(c *echo.Context) error {
 	recommenders, err := h.Backend.GetRecommenderConfigurations()
 	if err != nil {
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
+		return writeErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalServerErrorException",
+			err.Error(),
+		)
 	}
 
 	items := make([]recommenderConfigResponse, 0, len(recommenders))
@@ -138,49 +197,95 @@ func (h *Handler) handleGetRecommenderConfigurations(c *echo.Context) error {
 		items = append(items, toRecommenderConfigResponse(r))
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, recommenderConfigsListResponse{Item: items})
+	httputils.WriteJSON(
+		c.Request().Context(),
+		c.Response(),
+		http.StatusOK,
+		recommenderConfigsListResponse{Item: items},
+	)
 
 	return nil
 }
 
 // handleUpdateRecommenderConfiguration handles PUT /v1/recommenders/{recommenderId}.
-func (h *Handler) handleUpdateRecommenderConfiguration(c *echo.Context, recommenderID string) error {
+func (h *Handler) handleUpdateRecommenderConfiguration(
+	c *echo.Context,
+	recommenderID string,
+) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+		return writeErrorResponse(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"failed to read request body",
+		)
 	}
 
 	var req createRecommenderConfigRequest
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		return writeErrorResponse(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"invalid request body",
+		)
 	}
 
 	r, backendErr := h.Backend.UpdateRecommenderConfiguration(recommenderID, req)
 	if backendErr != nil {
 		if errors.Is(backendErr, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", backendErr.Error())
+			return writeErrorResponse(
+				c,
+				http.StatusNotFound,
+				"NotFoundException",
+				backendErr.Error(),
+			)
 		}
 
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
+		return writeErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalServerErrorException",
+			backendErr.Error(),
+		)
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toRecommenderConfigResponse(r))
+	httputils.WriteJSON(
+		c.Request().Context(),
+		c.Response(),
+		http.StatusOK,
+		toRecommenderConfigResponse(r),
+	)
 
 	return nil
 }
 
 // handleDeleteRecommenderConfiguration handles DELETE /v1/recommenders/{recommenderId}.
-func (h *Handler) handleDeleteRecommenderConfiguration(c *echo.Context, recommenderID string) error {
+func (h *Handler) handleDeleteRecommenderConfiguration(
+	c *echo.Context,
+	recommenderID string,
+) error {
 	r, err := h.Backend.DeleteRecommenderConfiguration(recommenderID)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())
 		}
 
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
+		return writeErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalServerErrorException",
+			err.Error(),
+		)
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, toRecommenderConfigResponse(r))
+	httputils.WriteJSON(
+		c.Request().Context(),
+		c.Response(),
+		http.StatusOK,
+		toRecommenderConfigResponse(r),
+	)
 
 	return nil
 }
