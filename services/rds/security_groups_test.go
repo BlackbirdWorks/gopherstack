@@ -310,7 +310,11 @@ func TestRevokeDBSecurityGroupIngress(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.NotNil(t, got)
+			require.NotNil(t, got)
+
+			for _, r := range got.IPRanges {
+				assert.NotEqual(t, tt.cidrIP, r.CIDRIP, "revoked CIDR must not remain in IPRanges")
+			}
 		})
 	}
 }

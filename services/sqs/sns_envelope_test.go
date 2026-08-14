@@ -263,39 +263,159 @@ func TestSNS_SQS_Envelope_NonRaw_UnsubscribeURL(t *testing.T) {
 	assert.NotEmpty(t, env.UnsubscribeURL, "UnsubscribeURL must be present in non-raw envelope")
 }
 
-func TestFilterPolicyExactMatch(t *testing.T) {
-	t.Parallel()
-
-	b := newBackend(t)
-	_ = b
-
-	// matchesFilterPolicy is package-internal; test via JSON marshaling round-trip.
-	// We test indirectly through the HTTP filter policy mechanism by sending to
-	// a queue with a policy and checking delivery.
+// strAttr builds a single "type" String message attribute for filter-policy test cases.
+func strAttr(value string) map[string]snsbackend.MessageAttribute {
+	return map[string]snsbackend.MessageAttribute{"type": {DataType: "String", StringValue: value}}
 }
 
-func TestFilterPolicyHTTPRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	// Verify that the filter policy JSON operator shapes parse correctly.
-	// This tests the matchesFilterPolicy logic via the SQS delivery path.
-	// Full operator tests are in the unit test below.
+// numAttr builds a single "amount" Number message attribute for filter-policy test cases.
+func numAttr(value string) map[string]snsbackend.MessageAttribute {
+	return map[string]snsbackend.MessageAttribute{"amount": {DataType: "Number", StringValue: value}}
 }
 
+// TestFilterPolicyOperators drives every operator matchesFilterPolicy (services/sqs/sns_delivery.go)
+// supports through a real SNS publish -> SQS delivery, asserting delivery or non-delivery per case.
 func TestFilterPolicyOperators(t *testing.T) {
 	t.Parallel()
 
-	// We test matchesFilterPolicy indirectly through the SNS subscription
-	// delivery path. The function is unexported so we construct scenarios.
-	t.Run("prefix match", func(t *testing.T) {
-		t.Parallel()
+	tests := []struct {
+		attrs        map[string]snsbackend.MessageAttribute
+		filterPolicy string
+		name         string
+		wantDelivery bool
+	}{
+		{
+			name:         "prefix matches",
+			filterPolicy: `{"type": [{"prefix": "order-"}]}`,
+			attrs:        strAttr("order-123"),
+			wantDelivery: true,
+		},
+		{
+			name:         "prefix does not match",
+			filterPolicy: `{"type": [{"prefix": "order-"}]}`,
+			attrs:        strAttr("invoice-123"),
+			wantDelivery: false,
+		},
+		{
+			name:         "suffix matches",
+			filterPolicy: `{"type": [{"suffix": "-order"}]}`,
+			attrs:        strAttr("new-order"),
+			wantDelivery: true,
+		},
+		{
+			name:         "suffix does not match",
+			filterPolicy: `{"type": [{"suffix": "-order"}]}`,
+			attrs:        strAttr("new-invoice"),
+			wantDelivery: false,
+		},
+		{
+			name:         "equals-ignore-case matches",
+			filterPolicy: `{"type": [{"equals-ignore-case": "ORDER"}]}`,
+			attrs:        strAttr("order"),
+			wantDelivery: true,
+		},
+		{
+			name:         "equals-ignore-case does not match",
+			filterPolicy: `{"type": [{"equals-ignore-case": "ORDER"}]}`,
+			attrs:        strAttr("invoice"),
+			wantDelivery: false,
+		},
+		{
+			name:         "exists true matches when attribute present",
+			filterPolicy: `{"type": [{"exists": true}]}`,
+			attrs:        strAttr("anything"),
+			wantDelivery: true,
+		},
+		{
+			name:         "exists true excludes when attribute absent",
+			filterPolicy: `{"type": [{"exists": true}]}`,
+			attrs:        map[string]snsbackend.MessageAttribute{},
+			wantDelivery: false,
+		},
+		{
+			name:         "exists false matches when attribute absent",
+			filterPolicy: `{"type": [{"exists": false}]}`,
+			attrs:        map[string]snsbackend.MessageAttribute{},
+			wantDelivery: true,
+		},
+		{
+			name:         "anything-but list excludes listed value",
+			filterPolicy: `{"type": [{"anything-but": ["order"]}]}`,
+			attrs:        strAttr("order"),
+			wantDelivery: false,
+		},
+		{
+			name:         "anything-but list matches unlisted value",
+			filterPolicy: `{"type": [{"anything-but": ["order"]}]}`,
+			attrs:        strAttr("invoice"),
+			wantDelivery: true,
+		},
+		{
+			name:         "anything-but prefix excludes matching prefix",
+			filterPolicy: `{"type": [{"anything-but": {"prefix": "test-"}}]}`,
+			attrs:        strAttr("test-order"),
+			wantDelivery: false,
+		},
+		{
+			name:         "numeric equals matches",
+			filterPolicy: `{"amount": [{"numeric": ["=", 100]}]}`,
+			attrs:        numAttr("100"),
+			wantDelivery: true,
+		},
+		{
+			name:         "numeric equals does not match",
+			filterPolicy: `{"amount": [{"numeric": ["=", 100]}]}`,
+			attrs:        numAttr("50"),
+			wantDelivery: false,
+		},
+		{
+			name:         "numeric between matches",
+			filterPolicy: `{"amount": [{"numeric": [">", 0, "<", 100]}]}`,
+			attrs:        numAttr("50"),
+			wantDelivery: true,
+		},
+		{
+			name:         "numeric between excludes out-of-range value",
+			filterPolicy: `{"amount": [{"numeric": [">", 0, "<", 100]}]}`,
+			attrs:        numAttr("500"),
+			wantDelivery: false,
+		},
+	}
 
-		h, b := newHandlerWithBackend(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		// Create a queue.
-		qURL := createQueueForTest(t, b, "filter-prefix")
-		_ = h
-		_ = qURL
-		// Actual delivery test would require SNS setup; covered in integration tests.
-	})
+			snsBk, sqsBk := newWiredPair(t)
+
+			topic, err := snsBk.CreateTopic("filter-ops-topic", nil)
+			require.NoError(t, err)
+
+			_, err = sqsBk.CreateQueue(&sqs.CreateQueueInput{
+				QueueName: "filter-ops-queue",
+				Endpoint:  "localhost:8000",
+			})
+			require.NoError(t, err)
+
+			_, err = snsBk.Subscribe(topic.TopicArn, "sqs",
+				"arn:aws:sqs:us-east-1:000000000000:filter-ops-queue", tt.filterPolicy)
+			require.NoError(t, err)
+
+			_, err = snsBk.Publish(topic.TopicArn, "payload", "", "", tt.attrs)
+			require.NoError(t, err)
+
+			out, err := sqsBk.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            "http://localhost:8000/000000000000/filter-ops-queue",
+				MaxNumberOfMessages: 1,
+				WaitTimeSeconds:     0,
+			})
+			require.NoError(t, err)
+
+			if tt.wantDelivery {
+				assert.Len(t, out.Messages, 1, "message must be delivered when the filter policy matches")
+			} else {
+				assert.Empty(t, out.Messages, "message must not be delivered when the filter policy excludes it")
+			}
+		})
+	}
 }

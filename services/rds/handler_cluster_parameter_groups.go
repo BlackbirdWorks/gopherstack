@@ -206,9 +206,9 @@ type resetDBClusterParameterGroupResponse struct {
 }
 
 type describeEngineDefaultClusterParametersResponse struct {
-	XMLName    xml.Name           `xml:"DescribeEngineDefaultClusterParametersResponse"`
-	Xmlns      string             `xml:"xmlns,attr"`
-	Parameters xmlDBParameterList `xml:"DescribeEngineDefaultClusterParametersResult>EngineDefaults>Parameters"`
+	XMLName xml.Name       `xml:"DescribeEngineDefaultClusterParametersResponse"`
+	Xmlns   string         `xml:"xmlns,attr"`
+	Result  engineDefaults `xml:"DescribeEngineDefaultClusterParametersResult>EngineDefaults"`
 }
 
 func (h *Handler) handleDescribeEngineDefaultClusterParameters(vals url.Values) (any, error) {
@@ -223,7 +223,10 @@ func (h *Handler) handleDescribeEngineDefaultClusterParameters(vals url.Values) 
 	}
 
 	return &describeEngineDefaultClusterParametersResponse{
-		Xmlns:      rdsXMLNS,
-		Parameters: xmlDBParameterList{Members: members},
+		Xmlns: rdsXMLNS,
+		Result: engineDefaults{
+			DBParameterGroupFamily: family,
+			Parameters:             xmlDBParameterList{Members: members},
+		},
 	}, nil
 }

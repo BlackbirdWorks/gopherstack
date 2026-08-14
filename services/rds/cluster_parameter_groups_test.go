@@ -1,6 +1,7 @@
 package rds_test
 
 import (
+	"encoding/xml"
 	"net/http"
 	"net/url"
 	"testing"
@@ -632,6 +633,20 @@ func TestDescribeEngineDefaultClusterParameters(t *testing.T) {
 			b := newTestBackend(t)
 			got := b.DescribeEngineDefaultClusterParameters(tt.family)
 			assert.NotNil(t, got)
+
+			h := rds.NewHandler(b)
+			rec := postRDSForm(t, h, "Action=DescribeEngineDefaultClusterParameters&Version=2014-10-31"+
+				"&DBParameterGroupFamily="+url.QueryEscape(tt.family))
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			var resp struct {
+				Result struct {
+					DBParameterGroupFamily string `xml:"DBParameterGroupFamily"`
+				} `xml:"DescribeEngineDefaultClusterParametersResult>EngineDefaults"`
+			}
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.family, resp.Result.DBParameterGroupFamily,
+				"DescribeEngineDefaultClusterParameters must echo the requested family")
 		})
 	}
 }

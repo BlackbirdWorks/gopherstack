@@ -123,10 +123,25 @@ func TestBackend_UpdateConfigurationPolicy(t *testing.T) {
 			if tc.wantErrMsg != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrMsg)
-			} else {
-				require.NoError(t, err)
-				assert.NotNil(t, result)
+
+				return
 			}
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+
+			switch tc.updateField {
+			case "name":
+				assert.Equal(t, newName, result.Name)
+			case "desc":
+				assert.Equal(t, newDesc, result.Description)
+			case "policy":
+				assert.Equal(t, newPolicy, result.ConfigurationPolicy)
+			}
+
+			reread, err := b.GetConfigurationPolicy(identifier)
+			require.NoError(t, err)
+			assert.Equal(t, result, reread, "update must be visible on a subsequent read")
 		})
 	}
 }

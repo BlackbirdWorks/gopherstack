@@ -280,6 +280,9 @@ func TestInMemoryBackend_DescribeProtection(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, result)
+			assert.Equal(t, p.ID, result.ID)
+			assert.Equal(t, "test-prot", result.Name)
+			assert.Equal(t, "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-123", result.ResourceARN)
 		})
 	}
 }
