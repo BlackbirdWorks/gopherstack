@@ -640,6 +640,134 @@ func TestListVariantImportJobs_OmitsGetOnlyFields(t *testing.T) {
 	assert.Contains(t, job, "destinationName")
 }
 
+// TestOmicsStoreLists_OmitGetOnlyFields covers the three ListAnnotationStores/
+// ListVariantStores/ListAnnotationStoreVersions leaks named but not fixed in
+// e68817984 (gopherstack-dv4s): each backend marshaled its full Get-shaped
+// domain struct for List, which is narrower on the real wire. Fixtures set
+// every candidate leaked field to a nonempty value so a regression back to
+// marshaling the domain struct directly would actually be caught, not pass
+// vacuously against an empty fixture.
+func TestOmicsStoreLists_OmitGetOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// item creates the fixtures and returns the single list-response
+		// element as a raw decoded map.
+		item      func(t *testing.T, h *omics.Handler) map[string]any
+		forbidden []string
+		required  []string
+	}{
+		{
+			name: "annotation stores omit numVersions storeOptions and tags",
+			item: func(t *testing.T, h *omics.Handler) map[string]any {
+				t.Helper()
+
+				storeRec := doRequest(t, h, http.MethodPost, "/annotationStore", map[string]any{
+					"name":         "as-omit-test",
+					"storeFormat":  "VCF",
+					"tags":         map[string]any{"env": "test"},
+					"storeOptions": map[string]any{"tsvStoreOptions": map[string]any{}},
+				})
+				require.Equal(t, http.StatusCreated, storeRec.Code)
+
+				versionRec := doRequest(t, h, http.MethodPost, "/annotationStore/as-omit-test/version",
+					map[string]any{"versionName": "v1"})
+				require.Equal(t, http.StatusCreated, versionRec.Code)
+
+				listRec := doRequest(t, h, http.MethodPost, "/annotationStores", map[string]any{})
+				require.Equal(t, http.StatusOK, listRec.Code)
+
+				var resp struct {
+					Stores []map[string]any `json:"annotationStores"`
+				}
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.Len(t, resp.Stores, 1)
+
+				return resp.Stores[0]
+			},
+			forbidden: []string{"numVersions", "storeOptions", "tags"},
+			required:  []string{"status", "storeArn", "storeFormat"},
+		},
+		{
+			name: "variant stores omit tags",
+			item: func(t *testing.T, h *omics.Handler) map[string]any {
+				t.Helper()
+
+				storeRec := doRequest(t, h, http.MethodPost, "/variantStore", map[string]any{
+					"name":      "vs-omit-test",
+					"reference": map[string]any{"referenceArn": testReferenceArn},
+					"tags":      map[string]any{"env": "test"},
+				})
+				require.Equal(t, http.StatusCreated, storeRec.Code)
+
+				listRec := doRequest(t, h, http.MethodPost, "/variantStores", map[string]any{})
+				require.Equal(t, http.StatusOK, listRec.Code)
+
+				var resp struct {
+					Stores []map[string]any `json:"variantStores"`
+				}
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.Len(t, resp.Stores, 1)
+
+				return resp.Stores[0]
+			},
+			forbidden: []string{"tags"},
+			required:  []string{"status", "storeArn"},
+		},
+		{
+			name: "annotation store versions omit tags and storeName",
+			item: func(t *testing.T, h *omics.Handler) map[string]any {
+				t.Helper()
+
+				storeRec := doRequest(t, h, http.MethodPost, "/annotationStore", map[string]any{
+					"name": "asv-omit-test", "storeFormat": "VCF",
+				})
+				require.Equal(t, http.StatusCreated, storeRec.Code)
+
+				versionRec := doRequest(t, h, http.MethodPost, "/annotationStore/asv-omit-test/version",
+					map[string]any{"versionName": "v1", "tags": map[string]any{"env": "test"}})
+				require.Equal(t, http.StatusCreated, versionRec.Code)
+
+				listRec := doRequest(t, h, http.MethodPost, "/annotationStore/asv-omit-test/versions",
+					map[string]any{})
+				require.Equal(t, http.StatusOK, listRec.Code)
+
+				var resp struct {
+					Versions []map[string]any `json:"annotationStoreVersions"`
+				}
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.Len(t, resp.Versions, 1)
+
+				return resp.Versions[0]
+			},
+			// storeName is a phantom field present on Get too (not fixed
+			// here, see AnnotationStoreVersionSummary's doc comment), but
+			// the real List element never carries it regardless, so it
+			// still belongs on this List-specific forbidden list.
+			forbidden: []string{"tags", "storeName"},
+			required:  []string{"status", "versionArn", "versionName"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			item := tc.item(t, h)
+
+			for _, key := range tc.forbidden {
+				assert.NotContains(t, item, key)
+			}
+
+			for _, key := range tc.required {
+				assert.Contains(t, item, key)
+			}
+		})
+	}
+}
+
 // Test_SDKRoundTrip_CreateRunCache_CacheS3Uri proves RunCache's S3 location
 // decodes through the real SDK client's CacheS3Uri field. GetRunCacheOutput's
 // (and CreateRunCacheOutput's shared model's) real wire key is "cacheS3Uri"

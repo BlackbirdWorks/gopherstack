@@ -43,6 +43,31 @@ leaks: {status: clean, note: "no goroutines/timers/background workers in this se
 
 ## Notes
 
+- **2026-08-14 (gopherstack-dv4s batch five): over-wide List-response audit, 13/13
+  candidate ops verified clean, zero leaks.** All 13 List ops flagged by
+  matching real SDK Output element type names against
+  `Summary|Item|Brief|Entry|Ref|Preview|Metadata|Info`
+  (`ListByteMatchSets`/`ListGeoMatchSets`/`ListIPSets`/`ListRateBasedRules`/
+  `ListRegexMatchSets`/`ListRegexPatternSets`/`ListRuleGroups`/`ListRules`/
+  `ListSizeConstraintSets`/`ListSqlInjectionMatchSets`/
+  `ListSubscribedRuleGroups`/`ListWebACLs`/`ListXssMatchSets`) already use a
+  dedicated `*Summary` Go type per family, each hand-verified field-for-field
+  against the pinned `waf@v1.33.4` `types/types.go` declaration — every one
+  is an exact `{Id, Name}` pair (`SubscribedRuleGroupSummary` also carries
+  `MetricName`, matching `types.SubscribedRuleGroupSummary` exactly).
+  `ListRateBasedRules` is the one case worth naming: gopherstack's
+  `RateBasedRuleSummary` is a distinct Go type name, but the real
+  `ListRateBasedRulesOutput.Rules` is `[]types.RuleSummary` — the same
+  `{RuleId, Name}` shape WAF Classic reuses for plain Rules, confirmed by
+  reading `api_op_ListRateBasedRules.go` directly rather than assuming a
+  name match implied a type match. No shared Get/List converter exists
+  anywhere in this family (`handler_match_sets.go`'s file-level comment
+  explains the seven near-identical families were deliberately merged into
+  one file for a `dupl` lint reason, not a shared-conversion reason) — the
+  structural signal that has predicted a clean result everywhere else it
+  held (cleanrooms' membership-scope ops, most of the dv4s pass-4 services)
+  held again here.
+
 - **ChangeToken workflow was a complete no-op before this pass.** Every mutating backend
   method (Create/Update/Delete across all 12 resource families) accepted a `changeToken`
   parameter but discarded it via `_`; `CreateWebACL`'s interface didn't even have the

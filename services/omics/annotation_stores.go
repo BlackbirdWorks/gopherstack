@@ -144,6 +144,26 @@ func (b *InMemoryBackend) ListAnnotationStores(
 	return result, outToken, nil
 }
 
+// newAnnotationStoreSummary converts a persisted store record into the real
+// ListAnnotationStoresOutput element shape (see AnnotationStoreSummary's doc
+// comment for why List and Get differ).
+func newAnnotationStoreSummary(as *AnnotationStore) AnnotationStoreSummary {
+	return AnnotationStoreSummary{
+		CreationTime:   as.CreationTime,
+		UpdateTime:     as.UpdateTime,
+		Reference:      as.Reference,
+		SseConfig:      as.SseConfig,
+		StoreArn:       as.StoreArn,
+		ID:             as.ID,
+		Name:           as.Name,
+		Description:    as.Description,
+		StoreFormat:    as.StoreFormat,
+		Status:         as.Status,
+		StatusMessage:  as.StatusMessage,
+		StoreSizeBytes: as.StoreSizeBytes,
+	}
+}
+
 // UpdateAnnotationStore updates an annotation store.
 func (b *InMemoryBackend) UpdateAnnotationStore(
 	name, description string,
@@ -444,6 +464,23 @@ func (b *InMemoryBackend) ListAnnotationStoreVersions(
 	})
 
 	return result, outToken, nil
+}
+
+// newAnnotationStoreVersionSummary converts a persisted version record into
+// the real ListAnnotationStoreVersionsOutput element shape (see
+// AnnotationStoreVersionSummary's doc comment for why List and Get differ).
+func newAnnotationStoreVersionSummary(v *AnnotationStoreVersion) AnnotationStoreVersionSummary {
+	return AnnotationStoreVersionSummary{
+		CreationTime:     v.CreationTime,
+		UpdateTime:       v.UpdateTime,
+		VersionArn:       v.VersionArn,
+		StoreID:          v.StoreID,
+		VersionName:      v.VersionName,
+		Description:      v.Description,
+		Status:           v.Status,
+		StatusMessage:    v.StatusMessage,
+		VersionSizeBytes: v.VersionSizeBytes,
+	}
 }
 
 // UpdateAnnotationStoreVersion updates an annotation store version.

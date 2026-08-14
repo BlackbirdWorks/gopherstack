@@ -377,6 +377,26 @@ type AnnotationStore struct {
 	pollCount      int   // tracks CREATING→ACTIVE progression; not serialized
 }
 
+// AnnotationStoreSummary is the real ListAnnotationStoresOutput element
+// shape (types.AnnotationStoreItem, omics@v1.49.5 types.go:152-211) --
+// narrower than GetAnnotationStoreOutput: no numVersions, storeOptions or
+// tags. ListAnnotationStores previously marshaled AnnotationStore directly,
+// leaking all three (gopherstack-dv4s).
+type AnnotationStoreSummary struct {
+	CreationTime   time.Time      `json:"creationTime"`
+	UpdateTime     time.Time      `json:"updateTime"`
+	Reference      map[string]any `json:"reference,omitempty"`
+	SseConfig      map[string]any `json:"sseConfig,omitempty"`
+	StoreArn       string         `json:"storeArn"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description"`
+	StoreFormat    string         `json:"storeFormat"`
+	Status         string         `json:"status"`
+	StatusMessage  string         `json:"statusMessage"`
+	StoreSizeBytes int64          `json:"storeSizeBytes"`
+}
+
 // AnnotationStoreVersion represents a version of an annotation store.
 //
 // VersionArn is real GetAnnotationStoreVersionOutput/AnnotationStoreVersionItem
@@ -402,6 +422,25 @@ type AnnotationStoreVersion struct {
 	// "versionSizeBytes" (deserializers.go:6587). This backend does not
 	// track actual stored bytes -- always 0 rather than a fabricated number.
 	VersionSizeBytes int64 `json:"versionSizeBytes"`
+}
+
+// AnnotationStoreVersionSummary is the real ListAnnotationStoreVersionsOutput
+// element shape (types.AnnotationStoreVersionItem, omics@v1.49.5
+// types.go): narrower than GetAnnotationStoreVersionOutput -- no tags. It
+// also has no storeName member (AnnotationStoreVersion.StoreName is not a
+// real field on Get OR List; tracked separately, not fixed here since this
+// pass is scoped to the Get-into-List over-share class, not phantom fields
+// present on both sides -- gopherstack-dv4s).
+type AnnotationStoreVersionSummary struct {
+	CreationTime     time.Time `json:"creationTime"`
+	UpdateTime       time.Time `json:"updateTime"`
+	VersionArn       string    `json:"versionArn"`
+	StoreID          string    `json:"storeId"`
+	VersionName      string    `json:"versionName"`
+	Description      string    `json:"description"`
+	Status           string    `json:"status"`
+	StatusMessage    string    `json:"statusMessage"`
+	VersionSizeBytes int64     `json:"versionSizeBytes"`
 }
 
 // VersionDeleteError is an error item from a version delete operation.
@@ -525,6 +564,30 @@ type VariantStore struct {
 	// actual stored bytes -- always 0 rather than a fabricated number.
 	StoreSizeBytes int64 `json:"storeSizeBytes"`
 	pollCount      int   // tracks CREATING→ACTIVE progression; not serialized
+}
+
+// VariantStoreSummary is the real ListVariantStoresOutput element shape
+// (types.VariantStoreItem, omics@v1.49.5 types.go) -- narrower than
+// GetVariantStoreOutput: no tags. ListVariantStores previously marshaled
+// VariantStore directly, leaking it (gopherstack-dv4s).
+//
+// NOT fixed here: VariantStoreItem (like GetVariantStoreOutput) also
+// declares a required sseConfig member that VariantStore never tracks at
+// all -- CreateVariantStore has no request field for it. That is a
+// missing-member gap on both Get and List, the opposite bug class from the
+// one this pass targets, and fixing it needs real SSE-config plumbing this
+// backend doesn't have. Left absent rather than fabricated.
+type VariantStoreSummary struct {
+	CreationTime   time.Time      `json:"creationTime"`
+	UpdateTime     time.Time      `json:"updateTime"`
+	Reference      map[string]any `json:"reference,omitempty"`
+	StoreArn       string         `json:"storeArn"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description"`
+	Status         string         `json:"status"`
+	StatusMessage  string         `json:"statusMessage"`
+	StoreSizeBytes int64          `json:"storeSizeBytes"`
 }
 
 // VariantImportItem is a source item for a variant import job -- real

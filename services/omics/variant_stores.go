@@ -122,6 +122,24 @@ func (b *InMemoryBackend) ListVariantStores(
 	return result, outToken, nil
 }
 
+// newVariantStoreSummary converts a persisted store record into the real
+// ListVariantStoresOutput element shape (see VariantStoreSummary's doc
+// comment for why List and Get differ).
+func newVariantStoreSummary(vs *VariantStore) VariantStoreSummary {
+	return VariantStoreSummary{
+		CreationTime:   vs.CreationTime,
+		UpdateTime:     vs.UpdateTime,
+		Reference:      vs.Reference,
+		StoreArn:       vs.StoreArn,
+		ID:             vs.ID,
+		Name:           vs.Name,
+		Description:    vs.Description,
+		Status:         vs.Status,
+		StatusMessage:  vs.StatusMessage,
+		StoreSizeBytes: vs.StoreSizeBytes,
+	}
+}
+
 // UpdateVariantStore updates a variant store.
 func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*VariantStore, error) {
 	b.mu.Lock("UpdateVariantStore")

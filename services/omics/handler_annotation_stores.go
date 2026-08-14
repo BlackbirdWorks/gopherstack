@@ -70,7 +70,16 @@ func (h *Handler) handleListAnnotationStores(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"annotationStores": stores, keyNextToken: next})
+	// Real ListAnnotationStoresOutput's element (AnnotationStoreItem) has no
+	// numVersions/storeOptions/tags member -- narrower than
+	// GetAnnotationStoreOutput, so this doesn't marshal the domain structs
+	// directly (see AnnotationStoreSummary).
+	summaries := make([]AnnotationStoreSummary, 0, len(stores))
+	for _, as := range stores {
+		summaries = append(summaries, newAnnotationStoreSummary(as))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"annotationStores": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateAnnotationStore(c *echo.Context, name string) error {
@@ -245,9 +254,19 @@ func (h *Handler) handleListAnnotationStoreVersions(c *echo.Context, name string
 		return h.mapError(c, err)
 	}
 
+	// Real ListAnnotationStoreVersionsOutput's element
+	// (AnnotationStoreVersionItem) has no tags or storeName member --
+	// narrower than GetAnnotationStoreVersionOutput, so this doesn't
+	// marshal the domain structs directly (see
+	// AnnotationStoreVersionSummary).
+	summaries := make([]AnnotationStoreVersionSummary, 0, len(versions))
+	for _, v := range versions {
+		summaries = append(summaries, newAnnotationStoreVersionSummary(v))
+	}
+
 	return c.JSON(
 		http.StatusOK,
-		map[string]any{"annotationStoreVersions": versions, keyNextToken: next},
+		map[string]any{"annotationStoreVersions": summaries, keyNextToken: next},
 	)
 }
 

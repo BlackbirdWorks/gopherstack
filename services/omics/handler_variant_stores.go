@@ -60,7 +60,15 @@ func (h *Handler) handleListVariantStores(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"variantStores": stores, keyNextToken: next})
+	// Real ListVariantStoresOutput's element (VariantStoreItem) has no tags
+	// member -- narrower than GetVariantStoreOutput, so this doesn't
+	// marshal the domain structs directly (see VariantStoreSummary).
+	summaries := make([]VariantStoreSummary, 0, len(stores))
+	for _, vs := range stores {
+		summaries = append(summaries, newVariantStoreSummary(vs))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"variantStores": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateVariantStore(c *echo.Context, name string) error {
