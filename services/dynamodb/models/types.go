@@ -667,12 +667,18 @@ type BackupDescription struct {
 }
 
 // SourceTableDetails describes the source table at backup creation time.
+//
+// TableCreationDateTime is Unix epoch seconds, matching how the real
+// aws-sdk-go-v2 awsjson1_0 protocol serializes a *time.Time (see
+// BackupDetails.BackupCreationDateTime above).
 type SourceTableDetails struct {
-	TableName string             `json:"TableName"`
-	TableArn  string             `json:"TableArn,omitempty"`
-	TableID   string             `json:"TableId,omitempty"`
-	KeySchema []KeySchemaElement `json:"KeySchema"`
-	ItemCount int64              `json:"ItemCount,omitempty"`
+	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
+	TableName             string                `json:"TableName"`
+	TableArn              string                `json:"TableArn,omitempty"`
+	TableID               string                `json:"TableId,omitempty"`
+	KeySchema             []KeySchemaElement    `json:"KeySchema"`
+	TableCreationDateTime float64               `json:"TableCreationDateTime"`
+	ItemCount             int64                 `json:"ItemCount,omitempty"`
 }
 
 // DescribeBackupInput is the wire format for DescribeBackup.

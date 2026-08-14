@@ -788,12 +788,17 @@ func (db *InMemoryDB) BatchExecuteStatement(
 
 		result, err := runner.executeStatement(ctx, req)
 		if err != nil {
-			responses = append(responses, sdktypes.BatchStatementResponse{
+			resp := sdktypes.BatchStatementResponse{
 				Error: &sdktypes.BatchStatementError{
 					Code:    sdktypes.BatchStatementErrorCodeEnum("StatementError"),
 					Message: aws.String(err.Error()),
 				},
-			})
+			}
+			if tableName := extractPartiQLTableName(req.Statement); tableName != "" {
+				resp.TableName = aws.String(tableName)
+			}
+
+			responses = append(responses, resp)
 
 			continue
 		}

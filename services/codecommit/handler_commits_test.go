@@ -107,7 +107,9 @@ func TestHandler_CreateCommit_FilesAddedBlobID(t *testing.T) {
 		entry, entryOK := raw.(map[string]any)
 		require.True(t, entryOK)
 		blobID, _ := entry["blobId"].(string)
-		filePath, _ := entry["filePath"].(string)
+		// FileMetadata's real wire key is "absolutePath", not "filePath"
+		// (deserializers.go's awsAwsjson11_deserializeDocumentFileMetadata).
+		filePath, _ := entry["absolutePath"].(string)
 		assert.NotEmpty(t, blobID, "filesAdded[%s].blobId must be non-empty", filePath)
 		seen[filePath] = blobID
 	}
@@ -166,7 +168,10 @@ func TestHandler_CreateCommit_FilesDeletedBlobID(t *testing.T) {
 	require.Len(t, filesDeleted, 1)
 	deletedEntry, ok := filesDeleted[0].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "gone.txt", deletedEntry["filePath"])
+	// FileMetadata's real wire key is "absolutePath", not "filePath"
+	// (deserializers.go's awsAwsjson11_deserializeDocumentFileMetadata) --
+	// a client reading FilesDeleted[i].AbsolutePath previously always saw "".
+	assert.Equal(t, "gone.txt", deletedEntry["absolutePath"])
 	assert.Equal(t, addedBlobID, deletedEntry["blobId"],
 		"filesDeleted[].blobId must report the blob that was removed from the tree")
 }

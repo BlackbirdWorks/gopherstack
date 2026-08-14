@@ -331,7 +331,7 @@ func (h *Handler) handleCreatePullRequestApprovalRule(body []byte) (any, error) 
 
 	return map[string]any{
 		"approvalRule": map[string]any{
-			"approvalRuleId":      rule.RuleID,
+			keyApprovalRuleID:     rule.RuleID,
 			"approvalRuleName":    rule.RuleName,
 			"approvalRuleContent": rule.ApprovalRuleContent,
 		},
@@ -350,7 +350,14 @@ func (h *Handler) handleDeletePullRequestApprovalRule(body []byte) (any, error) 
 		return nil, fmt.Errorf("%w: pullRequestId and approvalRuleName are required", errInvalidRequest)
 	}
 
-	return map[string]any{}, h.Backend.DeletePullRequestApprovalRule(req.PullRequestID, req.ApprovalRuleName)
+	ruleID, err := h.Backend.DeletePullRequestApprovalRule(req.PullRequestID, req.ApprovalRuleName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		keyApprovalRuleID: ruleID,
+	}, nil
 }
 
 func (h *Handler) handleUpdatePullRequestApprovalRuleContent(body []byte) (any, error) {
@@ -366,9 +373,20 @@ func (h *Handler) handleUpdatePullRequestApprovalRuleContent(body []byte) (any, 
 		return nil, fmt.Errorf("%w: pullRequestId and approvalRuleName are required", errInvalidRequest)
 	}
 
-	return map[string]any{}, h.Backend.UpdatePullRequestApprovalRuleContent(
+	rule, err := h.Backend.UpdatePullRequestApprovalRuleContent(
 		req.PullRequestID, req.ApprovalRuleName, req.NewRuleContent,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"approvalRule": map[string]any{
+			keyApprovalRuleID:     rule.RuleID,
+			"approvalRuleName":    rule.RuleName,
+			"approvalRuleContent": rule.ApprovalRuleContent,
+		},
+	}, nil
 }
 
 func (h *Handler) handleDescribePullRequestEvents(body []byte) (any, error) {

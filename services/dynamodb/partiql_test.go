@@ -970,3 +970,70 @@ func TestBatchExecuteStatement_ConsistentRead_SurvivesWireConversion(t *testing.
 	require.NotNil(t, spy.lastConsistentRead, "ConsistentRead must survive the wire round-trip")
 	assert.True(t, *spy.lastConsistentRead)
 }
+
+// TestExecuteStatement_LastEvaluatedKey_SurvivesWireConversion verifies that
+// a paginated ExecuteStatement SELECT reports LastEvaluatedKey. The real
+// ExecuteStatementOutput carries LastEvaluatedKey (a Query/Scan-style key
+// map) as a field distinct from NextToken -- deserializers.go's
+// awsAwsjson10_deserializeOpDocumentExecuteStatementOutput switches on both
+// "LastEvaluatedKey" and "NextToken" as separate top-level keys. The wire
+// response previously declared only NextToken, so a client reading
+// output.LastEvaluatedKey always saw nil even with more pages available.
+func TestExecuteStatement_LastEvaluatedKey_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(dynamodb.NewInMemoryDB()))
+	keySchema, attrDefs := wireTestKeySchema()
+
+	_, err := client.CreateTable(t.Context(), &sdk.CreateTableInput{
+		TableName:            aws.String("es-lek-table"),
+		KeySchema:            keySchema,
+		AttributeDefinitions: attrDefs,
+		BillingMode:          types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	for i := range 3 {
+		_, err = client.PutItem(t.Context(), &sdk.PutItemInput{
+			TableName: aws.String("es-lek-table"),
+			Item: map[string]types.AttributeValue{
+				"id": &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d", i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ExecuteStatement(t.Context(), &sdk.ExecuteStatementInput{
+		Statement: aws.String(`SELECT * FROM "es-lek-table"`),
+		Limit:     aws.Int32(1),
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, out.Items, 1)
+	assert.NotEmpty(t, out.LastEvaluatedKey,
+		"LastEvaluatedKey must survive the wire round-trip when more pages remain")
+}
+
+// TestBatchExecuteStatement_ErrorTableName_SurvivesWireConversion verifies
+// that a failed statement's response reports the table name it targeted.
+// The real BatchStatementResponse.TableName ("the table name associated
+// with a failed PartiQL batch statement", types.go) was previously dropped
+// both by InMemoryDB.BatchExecuteStatement, which never computed it, and by
+// the wire handler, which never copied it even when present.
+func TestBatchExecuteStatement_ErrorTableName_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(dynamodb.NewInMemoryDB()))
+
+	out, err := client.BatchExecuteStatement(t.Context(), &sdk.BatchExecuteStatementInput{
+		Statements: []types.BatchStatementRequest{
+			{Statement: aws.String(`SELECT * FROM "does-not-exist"`)},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Responses, 1)
+
+	resp := out.Responses[0]
+	require.NotNil(t, resp.Error, "statement against a missing table must fail")
+	assert.Equal(t, "does-not-exist", aws.ToString(resp.TableName))
+}

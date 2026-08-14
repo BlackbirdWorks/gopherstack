@@ -165,7 +165,14 @@ func (h *Handler) handleDeleteApprovalRuleTemplate(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: approvalRuleTemplateName is required", errInvalidRequest)
 	}
 
-	return map[string]any{}, h.Backend.DeleteApprovalRuleTemplate(req.ApprovalRuleTemplateName)
+	templateID, err := h.Backend.DeleteApprovalRuleTemplate(req.ApprovalRuleTemplateName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"approvalRuleTemplateId": templateID,
+	}, nil
 }
 
 func (h *Handler) handleGetApprovalRuleTemplate(body []byte) (any, error) {

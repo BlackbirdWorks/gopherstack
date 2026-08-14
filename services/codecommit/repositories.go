@@ -266,17 +266,24 @@ func (b *InMemoryBackend) UpdateRepositoryName(oldName, newName string) error {
 	return nil
 }
 
-// UpdateRepositoryEncryptionKey sets the KMS key ID for a repository.
-func (b *InMemoryBackend) UpdateRepositoryEncryptionKey(name, kmsKeyID string) error {
+// UpdateRepositoryEncryptionKey sets the KMS key ID for a repository, returning
+// the repository ID and the KMS key ID that was previously in effect (the real
+// UpdateRepositoryEncryptionKeyOutput echoes RepositoryId, KmsKeyId and
+// OriginalKmsKeyId -- api_op_UpdateRepositoryEncryptionKey.go:49).
+func (b *InMemoryBackend) UpdateRepositoryEncryptionKey(
+	name, kmsKeyID string,
+) (string, string, error) {
 	b.mu.Lock("UpdateRepositoryEncryptionKey")
 	defer b.mu.Unlock()
 
 	r, ok := b.repositories.Get(name)
 	if !ok {
-		return fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
+		return "", "", fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
 	}
+
+	originalKmsKeyID := r.KmsKeyID
 	r.KmsKeyID = kmsKeyID
 	r.LastModifiedDate = time.Now().UTC()
 
-	return nil
+	return r.RepositoryID, originalKmsKeyID, nil
 }

@@ -94,10 +94,10 @@ func (h *Handler) handleGetFolder(body []byte) (any, error) {
 			fileMode = fileModeNormal
 		}
 		files = append(files, map[string]any{
-			"absolutePath": f.FilePath,
-			"relativePath": f.FilePath,
-			keyBlobID:      f.BlobID,
-			keyFileMode:    fileMode,
+			keyAbsolutePath: f.FilePath,
+			"relativePath":  f.FilePath,
+			keyBlobID:       f.BlobID,
+			keyFileMode:     fileMode,
 		})
 	}
 

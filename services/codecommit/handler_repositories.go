@@ -235,5 +235,16 @@ func (h *Handler) handleUpdateRepositoryEncryptionKey(body []byte) (any, error) 
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	return map[string]any{}, h.Backend.UpdateRepositoryEncryptionKey(req.RepositoryName, req.KmsKeyID)
+	repositoryID, originalKmsKeyID, err := h.Backend.UpdateRepositoryEncryptionKey(
+		req.RepositoryName, req.KmsKeyID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"repositoryId":     repositoryID,
+		"kmsKeyId":         req.KmsKeyID,
+		"originalKmsKeyId": originalKmsKeyID,
+	}, nil
 }

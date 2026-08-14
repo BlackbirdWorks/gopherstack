@@ -252,39 +252,53 @@ func (b *InMemoryBackend) CreatePullRequestApprovalRule(
 	return &cp, nil
 }
 
-// DeletePullRequestApprovalRule deletes an approval rule from a pull request.
-func (b *InMemoryBackend) DeletePullRequestApprovalRule(prID, ruleName string) error {
+// DeletePullRequestApprovalRule deletes an approval rule from a pull
+// request, returning its ID. The real DeletePullRequestApprovalRuleOutput
+// echoes ApprovalRuleId as a required field
+// (api_op_DeletePullRequestApprovalRule.go:48).
+func (b *InMemoryBackend) DeletePullRequestApprovalRule(prID, ruleName string) (string, error) {
 	b.mu.Lock("DeletePullRequestApprovalRule")
 	defer b.mu.Unlock()
 
 	if !b.pullRequests.Has(prID) {
-		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
-	}
-
-	if !b.prApprovalRules.Has(prApprovalRuleKey(prID, ruleName)) {
-		return fmt.Errorf("%w: approval rule %s not found on pull request %s", ErrApprovalRuleNotFound, ruleName, prID)
-	}
-	b.prApprovalRules.Delete(prApprovalRuleKey(prID, ruleName))
-
-	return nil
-}
-
-// UpdatePullRequestApprovalRuleContent updates the content of an approval rule on a pull request.
-func (b *InMemoryBackend) UpdatePullRequestApprovalRuleContent(prID, ruleName, content string) error {
-	b.mu.Lock("UpdatePullRequestApprovalRuleContent")
-	defer b.mu.Unlock()
-
-	if !b.pullRequests.Has(prID) {
-		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
+		return "", fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
 	rule, ok := b.prApprovalRules.Get(prApprovalRuleKey(prID, ruleName))
 	if !ok {
-		return fmt.Errorf("%w: approval rule %s not found on pull request %s", ErrApprovalRuleNotFound, ruleName, prID)
+		return "", fmt.Errorf(
+			"%w: approval rule %s not found on pull request %s", ErrApprovalRuleNotFound, ruleName, prID,
+		)
+	}
+	b.prApprovalRules.Delete(prApprovalRuleKey(prID, ruleName))
+
+	return rule.RuleID, nil
+}
+
+// UpdatePullRequestApprovalRuleContent updates the content of an approval
+// rule on a pull request, returning the updated rule. The real
+// UpdatePullRequestApprovalRuleContentOutput echoes the full ApprovalRule as
+// a required field (api_op_UpdatePullRequestApprovalRuleContent.go:82).
+func (b *InMemoryBackend) UpdatePullRequestApprovalRuleContent(
+	prID, ruleName, content string,
+) (*PullRequestApprovalRule, error) {
+	b.mu.Lock("UpdatePullRequestApprovalRuleContent")
+	defer b.mu.Unlock()
+
+	if !b.pullRequests.Has(prID) {
+		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
+	}
+
+	rule, ok := b.prApprovalRules.Get(prApprovalRuleKey(prID, ruleName))
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: approval rule %s not found on pull request %s", ErrApprovalRuleNotFound, ruleName, prID,
+		)
 	}
 	rule.ApprovalRuleContent = content
+	cp := *rule
 
-	return nil
+	return &cp, nil
 }
 
 // DescribePullRequestEvents returns events for a pull request.

@@ -99,26 +99,8 @@ func (h *DynamoDBHandler) deleteBackup(ctx context.Context, body []byte) (any, e
 		return nil, err
 	}
 
-	bd := out.BackupDescription
-
 	return &models.DeleteBackupOutput{
-		BackupDescription: models.BackupDescription{
-			BackupDetails: models.BackupDetails{
-				BackupArn:    aws.ToString(bd.BackupDetails.BackupArn),
-				BackupName:   aws.ToString(bd.BackupDetails.BackupName),
-				BackupStatus: string(bd.BackupDetails.BackupStatus),
-				BackupType:   string(bd.BackupDetails.BackupType),
-				BackupCreationDateTime: float64(
-					aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Unix(),
-				),
-				BackupSizeBytes: aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
-			},
-			SourceTableDetails: models.SourceTableDetails{
-				TableName: aws.ToString(bd.SourceTableDetails.TableName),
-				TableArn:  aws.ToString(bd.SourceTableDetails.TableArn),
-				TableID:   aws.ToString(bd.SourceTableDetails.TableId),
-			},
-		},
+		BackupDescription: buildBackupDescriptionFromSDK(out.BackupDescription),
 	}, nil
 }
 
@@ -552,6 +534,16 @@ func buildBackupDescriptionFromSDK(bd *sdktypes.BackupDescription) models.Backup
 			TableName: aws.ToString(bd.SourceTableDetails.TableName),
 			TableArn:  aws.ToString(bd.SourceTableDetails.TableArn),
 			TableID:   aws.ToString(bd.SourceTableDetails.TableId),
+			TableCreationDateTime: float64(
+				aws.ToTime(bd.SourceTableDetails.TableCreationDateTime).UTC().Unix(),
+			),
+		}
+
+		if pt := bd.SourceTableDetails.ProvisionedThroughput; pt != nil {
+			src.ProvisionedThroughput = models.ProvisionedThroughput{
+				ReadCapacityUnits:  pt.ReadCapacityUnits,
+				WriteCapacityUnits: pt.WriteCapacityUnits,
+			}
 		}
 
 		// Preserve key schema from SDK representation.
