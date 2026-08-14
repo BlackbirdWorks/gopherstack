@@ -395,6 +395,14 @@ func buildCreateTableOutput(
 			WriteCapacityUnits: &wcu,
 		},
 	}
+	// t.TableID is assigned once at creation, before newTable is published to
+	// db.tables, so it is immutable by the time buildCreateTableOutput runs --
+	// safe to read directly, same as t.TableArn above. DescribeTable already
+	// returns TableId (buildTableDescription); CreateTable's own response
+	// dropped it despite computing the same value.
+	if t.TableID != "" {
+		td.TableId = aws.String(t.TableID)
+	}
 	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
 
 	return &dynamodb.CreateTableOutput{TableDescription: td}

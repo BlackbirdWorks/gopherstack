@@ -731,9 +731,12 @@ type ListBackupsOutput struct {
 // RestoreTableFromBackupInput is the wire format for RestoreTableFromBackup.
 type RestoreTableFromBackupInput struct {
 	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
+	OnDemandThroughputOverride    *OnDemandThroughput    `json:"OnDemandThroughputOverride,omitempty"`
+	SSESpecificationOverride      *SSESpecification      `json:"SSESpecificationOverride,omitempty"`
 	BackupArn                     string                 `json:"BackupArn"`
 	TargetTableName               string                 `json:"TargetTableName"`
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
+	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
 }
 
 // RestoreTableFromBackupOutput is the wire format for RestoreTableFromBackup response.
@@ -752,9 +755,12 @@ type RestoreTableFromBackupOutput struct {
 type RestoreTableToPointInTimeInput struct {
 	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
 	RestoreDateTime               *float64               `json:"RestoreDateTime,omitempty"`
+	OnDemandThroughputOverride    *OnDemandThroughput    `json:"OnDemandThroughputOverride,omitempty"`
+	SSESpecificationOverride      *SSESpecification      `json:"SSESpecificationOverride,omitempty"`
 	SourceTableName               string                 `json:"SourceTableName"`
 	TargetTableName               string                 `json:"TargetTableName"`
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
+	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
 	UseLatestRestorableTime       bool                   `json:"UseLatestRestorableTime,omitempty"`
 }
 

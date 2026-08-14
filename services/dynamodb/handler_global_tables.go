@@ -68,16 +68,9 @@ type describeGlobalTableSettingsInput struct {
 	GlobalTableName string `json:"GlobalTableName"`
 }
 
-type replicaSettingsWire struct {
-	RegionName                           string `json:"RegionName"`
-	ReplicaStatus                        string `json:"ReplicaStatus,omitempty"`
-	ReplicaProvisionedReadCapacityUnits  int64  `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
-	ReplicaProvisionedWriteCapacityUnits int64  `json:"ReplicaProvisionedWriteCapacityUnits,omitempty"`
-}
-
 type describeGlobalTableSettingsOutput struct {
-	GlobalTableName string                `json:"GlobalTableName,omitempty"`
-	ReplicaSettings []replicaSettingsWire `json:"ReplicaSettings,omitempty"`
+	GlobalTableName string                    `json:"GlobalTableName,omitempty"`
+	ReplicaSettings []replicaSettingsDescWire `json:"ReplicaSettings,omitempty"`
 }
 
 type globalTableWire struct {
@@ -157,21 +150,9 @@ func (h *DynamoDBHandler) handleDescribeGlobalTableSettings(
 		return nil, err
 	}
 
-	replicaSettings := make([]replicaSettingsWire, 0, len(out.ReplicaSettings))
+	replicaSettings := make([]replicaSettingsDescWire, 0, len(out.ReplicaSettings))
 	for _, rs := range out.ReplicaSettings {
-		w := replicaSettingsWire{
-			RegionName:    ptrconv.String(rs.RegionName),
-			ReplicaStatus: string(rs.ReplicaStatus),
-		}
-		if rs.ReplicaProvisionedReadCapacityUnits != nil {
-			w.ReplicaProvisionedReadCapacityUnits = *rs.ReplicaProvisionedReadCapacityUnits
-		}
-
-		if rs.ReplicaProvisionedWriteCapacityUnits != nil {
-			w.ReplicaProvisionedWriteCapacityUnits = *rs.ReplicaProvisionedWriteCapacityUnits
-		}
-
-		replicaSettings = append(replicaSettings, w)
+		replicaSettings = append(replicaSettings, replicaSettingsDescWireFromSDK(rs))
 	}
 
 	return &describeGlobalTableSettingsOutput{
@@ -316,11 +297,48 @@ type updateGlobalTableSettingsInput struct {
 }
 
 type replicaSettingsDescWire struct {
-	ReplicaBillingModeSummary           *billingModeSummaryWire `json:"ReplicaBillingModeSummary,omitempty"`
-	ReplicaTableClassSummary            *tableClassSummaryWire  `json:"ReplicaTableClassSummary,omitempty"`
-	ReplicaProvisionedReadCapacityUnits *int64                  `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
-	RegionName                          string                  `json:"RegionName"`
-	ReplicaStatus                       string                  `json:"ReplicaStatus,omitempty"`
+	ReplicaBillingModeSummary            *billingModeSummaryWire `json:"ReplicaBillingModeSummary,omitempty"`
+	ReplicaTableClassSummary             *tableClassSummaryWire  `json:"ReplicaTableClassSummary,omitempty"`
+	ReplicaProvisionedReadCapacityUnits  *int64                  `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
+	ReplicaProvisionedWriteCapacityUnits *int64                  `json:"ReplicaProvisionedWriteCapacityUnits,omitempty"`
+	RegionName                           string                  `json:"RegionName"`
+	ReplicaStatus                        string                  `json:"ReplicaStatus,omitempty"`
+}
+
+// replicaSettingsDescWireFromSDK converts the SDK ReplicaSettingsDescription
+// to the wire shape. Shared by DescribeGlobalTableSettings and
+// UpdateGlobalTableSettings, which return the same type -- previously each
+// handler hand-rolled its own narrower conversion and only one of them
+// carried ReplicaBillingModeSummary/ReplicaTableClassSummary through to JSON.
+func replicaSettingsDescWireFromSDK(rs types.ReplicaSettingsDescription) replicaSettingsDescWire {
+	w := replicaSettingsDescWire{
+		RegionName:    ptrconv.String(rs.RegionName),
+		ReplicaStatus: string(rs.ReplicaStatus),
+	}
+
+	if rs.ReplicaBillingModeSummary != nil {
+		w.ReplicaBillingModeSummary = &billingModeSummaryWire{
+			BillingMode: string(rs.ReplicaBillingModeSummary.BillingMode),
+		}
+	}
+
+	if rs.ReplicaTableClassSummary != nil {
+		w.ReplicaTableClassSummary = &tableClassSummaryWire{
+			TableClass: string(rs.ReplicaTableClassSummary.TableClass),
+		}
+	}
+
+	if rs.ReplicaProvisionedReadCapacityUnits != nil {
+		rcu := *rs.ReplicaProvisionedReadCapacityUnits
+		w.ReplicaProvisionedReadCapacityUnits = &rcu
+	}
+
+	if rs.ReplicaProvisionedWriteCapacityUnits != nil {
+		wcu := *rs.ReplicaProvisionedWriteCapacityUnits
+		w.ReplicaProvisionedWriteCapacityUnits = &wcu
+	}
+
+	return w
 }
 
 type updateGlobalTableSettingsOutput struct {
@@ -365,29 +383,7 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(
 
 	wire := make([]replicaSettingsDescWire, 0, len(out.ReplicaSettings))
 	for _, rs := range out.ReplicaSettings {
-		w := replicaSettingsDescWire{
-			RegionName:    ptrconv.String(rs.RegionName),
-			ReplicaStatus: string(rs.ReplicaStatus),
-		}
-
-		if rs.ReplicaBillingModeSummary != nil {
-			w.ReplicaBillingModeSummary = &billingModeSummaryWire{
-				BillingMode: string(rs.ReplicaBillingModeSummary.BillingMode),
-			}
-		}
-
-		if rs.ReplicaTableClassSummary != nil {
-			w.ReplicaTableClassSummary = &tableClassSummaryWire{
-				TableClass: string(rs.ReplicaTableClassSummary.TableClass),
-			}
-		}
-
-		if rs.ReplicaProvisionedReadCapacityUnits != nil {
-			rcu := *rs.ReplicaProvisionedReadCapacityUnits
-			w.ReplicaProvisionedReadCapacityUnits = &rcu
-		}
-
-		wire = append(wire, w)
+		wire = append(wire, replicaSettingsDescWireFromSDK(rs))
 	}
 
 	return &updateGlobalTableSettingsOutput{

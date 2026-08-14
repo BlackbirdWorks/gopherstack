@@ -308,16 +308,30 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 		}
 	}
 
+	effectiveBilling := types.BillingModePayPerRequest
+	if gt.BillingMode != "" {
+		effectiveBilling = types.BillingMode(gt.BillingMode)
+	}
+
 	replicaSettings := make([]types.ReplicaSettingsDescription, 0, len(gt.ReplicationGroup))
 	for _, region := range gt.ReplicationGroup {
 		rcu, wcu := db.replicaTableCapacityRLocked(region, name)
 
-		replicaSettings = append(replicaSettings, types.ReplicaSettingsDescription{
+		desc := types.ReplicaSettingsDescription{
 			RegionName:                           &region,
 			ReplicaStatus:                        types.ReplicaStatusActive,
 			ReplicaProvisionedReadCapacityUnits:  &rcu,
 			ReplicaProvisionedWriteCapacityUnits: &wcu,
-		})
+			ReplicaBillingModeSummary:            &types.BillingModeSummary{BillingMode: effectiveBilling},
+		}
+
+		if rs, ok := gt.ReplicaSettings[region]; ok && rs != nil && rs.TableClass != "" {
+			desc.ReplicaTableClassSummary = &types.TableClassSummary{
+				TableClass: types.TableClass(rs.TableClass),
+			}
+		}
+
+		replicaSettings = append(replicaSettings, desc)
 	}
 
 	return &dynamodb.DescribeGlobalTableSettingsOutput{
@@ -607,7 +621,8 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 
 	name := *input.GlobalTableName
 
-	billingMode, replicationGroup, replicaSettings, exists := db.updateGlobalTableSettingsLocked(name, input)
+	billingMode, writeCapacityUnits, replicationGroup, replicaSettings, exists :=
+		db.updateGlobalTableSettingsLocked(name, input)
 	if !exists {
 		return nil, &Error{
 			Type:    errGlobalTableNotFoundType,
@@ -624,7 +639,7 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 	for _, region := range replicationGroup {
 		replicas = append(
 			replicas,
-			buildGlobalTableReplicaDesc(region, effectiveBilling, replicaSettings),
+			buildGlobalTableReplicaDesc(region, effectiveBilling, writeCapacityUnits, replicaSettings),
 		)
 	}
 
@@ -641,13 +656,13 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 func (db *InMemoryDB) updateGlobalTableSettingsLocked(
 	name string,
 	input *dynamodb.UpdateGlobalTableSettingsInput,
-) (string, []string, map[string]*StoredReplicaSettings, bool) {
+) (string, *int64, []string, map[string]*StoredReplicaSettings, bool) {
 	db.mu.Lock("UpdateGlobalTableSettings")
 	defer db.mu.Unlock()
 
 	gt, exists := db.globalTables.Get(name)
 	if !exists {
-		return "", nil, nil, false
+		return "", nil, nil, nil, false
 	}
 
 	applyGlobalTableSettingsMutation(gt, input)
@@ -655,7 +670,7 @@ func (db *InMemoryDB) updateGlobalTableSettingsLocked(
 	replicationGroup := make([]string, len(gt.ReplicationGroup))
 	copy(replicationGroup, gt.ReplicationGroup)
 
-	return gt.BillingMode, replicationGroup, gt.ReplicaSettings, true
+	return gt.BillingMode, gt.WriteCapacityUnits, replicationGroup, gt.ReplicaSettings, true
 }
 
 // applyGlobalTableSettingsMutation mutates gt with billing mode, write capacity, and
@@ -710,10 +725,15 @@ func applyReplicaSettingsUpdates(gt *StoredGlobalTable, updates []types.ReplicaS
 	}
 }
 
-// buildGlobalTableReplicaDesc constructs a ReplicaSettingsDescription for a single region.
+// buildGlobalTableReplicaDesc constructs a ReplicaSettingsDescription for a
+// single region. writeCapacityUnits is gt.WriteCapacityUnits (set from
+// UpdateGlobalTableSettingsInput.GlobalTableProvisionedWriteCapacityUnits,
+// which is a global -- not per-replica -- setting in the v1 API, so the same
+// value applies to every replica).
 func buildGlobalTableReplicaDesc(
 	region string,
 	billing types.BillingMode,
+	writeCapacityUnits *int64,
 	replicaSettings map[string]*StoredReplicaSettings,
 ) types.ReplicaSettingsDescription {
 	r := region
@@ -723,6 +743,11 @@ func buildGlobalTableReplicaDesc(
 		ReplicaBillingModeSummary: &types.BillingModeSummary{
 			BillingMode: billing,
 		},
+	}
+
+	if writeCapacityUnits != nil {
+		wcu := *writeCapacityUnits
+		desc.ReplicaProvisionedWriteCapacityUnits = &wcu
 	}
 
 	rs, ok := replicaSettings[region]

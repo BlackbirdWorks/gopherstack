@@ -72,22 +72,28 @@ type storedExport struct {
 
 // storedImport holds the fields needed to satisfy DescribeImport and ListImports.
 type storedImport struct {
-	CreatedAt          time.Time
-	StartTime          time.Time
-	EndTime            time.Time
-	ImportArn          string
-	ImportStatus       string
-	TableArn           string
-	S3Bucket           string
-	S3Prefix           string
-	InputFormat        string
-	InputCompression   string
-	FailureCode        string
-	FailureMessage     string
-	ImportedItemCount  int64
-	ProcessedItemCount int64
-	ProcessedSizeBytes int64
-	ErrorCount         int64
+	CreatedAt             time.Time
+	StartTime             time.Time
+	EndTime               time.Time
+	S3Prefix              string
+	InputFormat           string
+	TableArn              string
+	TableID               string
+	ClientToken           string
+	CloudWatchLogGroupArn string
+	S3Bucket              string
+	ImportArn             string
+	S3BucketOwner         string
+	ImportStatus          string
+	InputCompression      string
+	CsvDelimiter          string
+	FailureMessage        string
+	FailureCode           string
+	CsvHeaderList         []string
+	ImportedItemCount     int64
+	ProcessedItemCount    int64
+	ProcessedSizeBytes    int64
+	ErrorCount            int64
 }
 
 // autoScalingSettings records the last UpdateTableReplicaAutoScaling input
@@ -249,36 +255,37 @@ type Table struct {
 	// Table built per-Query call (see snapshotTableForQuery); it holds a
 	// deep copy of the one GSI/LSI index the query targets, same role as
 	// itemsByOffset plays for primary-key queries.
-	activeSecondaryIndex   *secondaryIndex
-	itemsByOffset          map[int]map[string]any
-	mu                     *lockmetrics.RWMutex
-	activateTimer          *time.Timer
-	Tags                   *tags.Tags                    `json:"Tags,omitempty"`
-	AutoScaling            *autoScalingSettings          `json:"AutoScaling,omitempty"`
-	OnDemandMaxWriteRRU    *int64                        `json:"OnDemandMaxWriteRRU,omitempty"`
-	OnDemandMaxReadRRU     *int64                        `json:"OnDemandMaxReadRRU,omitempty"`
-	ResourcePolicy         string                        `json:"ResourcePolicy,omitempty"`
-	ResourcePolicyRevision string                        `json:"ResourcePolicyRevision,omitempty"`
-	TTLAttribute           string                        `json:"TTLAttribute,omitempty"`
-	StreamViewType         string                        `json:"StreamViewType,omitempty"`
-	StreamARN              string                        `json:"StreamARN,omitempty"`
-	GlobalTableName        string                        `json:"GlobalTableName,omitempty"`
-	TableArn               string                        `json:"TableArn"`
-	Status                 string                        `json:"Status"`
-	TableID                string                        `json:"TableID"`
-	SSEType                string                        `json:"SSEType,omitempty"`
-	TableClass             string                        `json:"TableClass,omitempty"`
-	BillingMode            string                        `json:"BillingMode,omitempty"`
-	Name                   string                        `json:"Name"`
-	SSEKMSMasterKeyArn     string                        `json:"SSEKMSMasterKeyArn,omitempty"`
-	AttributeDefinitions   []models.AttributeDefinition  `json:"AttributeDefinitions"`
-	GlobalSecondaryIndexes []models.GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
-	Replicas               []models.ReplicaDescription   `json:"Replicas,omitempty"`
-	LocalSecondaryIndexes  []models.LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
-	KeySchema              []models.KeySchemaElement     `json:"KeySchema"`
-	KinesisDestinations    []KinesisDestinationEntry     `json:"KinesisDestinations,omitempty"`
-	Items                  []map[string]any              `json:"Items"`
-	itemSizes              []int
+	activeSecondaryIndex    *secondaryIndex
+	itemsByOffset           map[int]map[string]any
+	mu                      *lockmetrics.RWMutex
+	activateTimer           *time.Timer
+	Tags                    *tags.Tags                    `json:"Tags,omitempty"`
+	AutoScaling             *autoScalingSettings          `json:"AutoScaling,omitempty"`
+	OnDemandMaxWriteRRU     *int64                        `json:"OnDemandMaxWriteRRU,omitempty"`
+	OnDemandMaxReadRRU      *int64                        `json:"OnDemandMaxReadRRU,omitempty"`
+	ResourcePolicy          string                        `json:"ResourcePolicy,omitempty"`
+	ResourcePolicyRevision  string                        `json:"ResourcePolicyRevision,omitempty"`
+	TTLAttribute            string                        `json:"TTLAttribute,omitempty"`
+	StreamViewType          string                        `json:"StreamViewType,omitempty"`
+	StreamARN               string                        `json:"StreamARN,omitempty"`
+	GlobalTableName         string                        `json:"GlobalTableName,omitempty"`
+	TableArn                string                        `json:"TableArn"`
+	Status                  string                        `json:"Status"`
+	TableID                 string                        `json:"TableID"`
+	SSEType                 string                        `json:"SSEType,omitempty"`
+	TableClass              string                        `json:"TableClass,omitempty"`
+	BillingMode             string                        `json:"BillingMode,omitempty"`
+	Name                    string                        `json:"Name"`
+	SSEKMSMasterKeyArn      string                        `json:"SSEKMSMasterKeyArn,omitempty"`
+	ContributorInsightsMode string                        `json:"ContributorInsightsMode,omitempty"`
+	AttributeDefinitions    []models.AttributeDefinition  `json:"AttributeDefinitions"`
+	GlobalSecondaryIndexes  []models.GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
+	Replicas                []models.ReplicaDescription   `json:"Replicas,omitempty"`
+	LocalSecondaryIndexes   []models.LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
+	KeySchema               []models.KeySchemaElement     `json:"KeySchema"`
+	KinesisDestinations     []KinesisDestinationEntry     `json:"KinesisDestinations,omitempty"`
+	Items                   []map[string]any              `json:"Items"`
+	itemSizes               []int
 	// PITRSnapshots is the per-table PITR ring buffer (see pitrSnapshot). It must be
 	// exported with a json tag -- encoding/json silently skips unexported fields, so an
 	// unexported name here means every PITR snapshot is discarded on restart even

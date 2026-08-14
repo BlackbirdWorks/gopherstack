@@ -602,26 +602,46 @@ func (db *InMemoryDB) ImportTable(
 	tableName := aws.ToString(tcp.TableName)
 	region := getRegionFromContext(ctx, db)
 	account := accountFromContext(ctx, db)
-	importARN := arn.Build("dynamodb", region, account,
-		"table/import/"+uuid.New().String())
+	importID := uuid.New().String()
+	importARN := arn.Build("dynamodb", region, account, "table/import/"+importID)
 	tableARN := arn.Build("dynamodb", region, account, "table/"+tableName)
+	// CloudWatchLogGroupArn is AWS-generated (not caller-supplied) and this
+	// emulator writes no real CloudWatch logs; synthesize a plausible ARN
+	// under the same import ID so the field round-trips non-empty rather
+	// than silently dropping, matching how TableArn/ImportArn are built.
+	logGroupArn := arn.Build("logs", region, account, "log-group:/aws/dynamodb/imports/"+importID)
 	start := time.Now()
 
 	// Create the target table; surface CreateTable errors (e.g. ResourceInUse).
-	if _, err := db.CreateTable(ctx, createInputFromImportParams(tcp)); err != nil {
+	createOut, err := db.CreateTable(ctx, createInputFromImportParams(tcp))
+	if err != nil {
 		return nil, err
 	}
 
+	var tableID string
+	if createOut.TableDescription != nil {
+		tableID = aws.ToString(createOut.TableDescription.TableId)
+	}
+
 	rec := storedImport{
-		ImportArn:        importARN,
-		TableArn:         tableARN,
-		S3Bucket:         aws.ToString(input.S3BucketSource.S3Bucket),
-		S3Prefix:         aws.ToString(input.S3BucketSource.S3KeyPrefix),
-		InputFormat:      string(input.InputFormat),
-		InputCompression: string(input.InputCompressionType),
-		StartTime:        start,
-		CreatedAt:        start,
-		ImportStatus:     string(types.ImportStatusInProgress),
+		ImportArn:             importARN,
+		TableArn:              tableARN,
+		TableID:               tableID,
+		ClientToken:           aws.ToString(input.ClientToken),
+		CloudWatchLogGroupArn: logGroupArn,
+		S3Bucket:              aws.ToString(input.S3BucketSource.S3Bucket),
+		S3Prefix:              aws.ToString(input.S3BucketSource.S3KeyPrefix),
+		S3BucketOwner:         aws.ToString(input.S3BucketSource.S3BucketOwner),
+		InputFormat:           string(input.InputFormat),
+		InputCompression:      string(input.InputCompressionType),
+		StartTime:             start,
+		CreatedAt:             start,
+		ImportStatus:          string(types.ImportStatusInProgress),
+	}
+
+	if input.InputFormatOptions != nil && input.InputFormatOptions.Csv != nil {
+		rec.CsvDelimiter = aws.ToString(input.InputFormatOptions.Csv.Delimiter)
+		rec.CsvHeaderList = input.InputFormatOptions.Csv.HeaderList
 	}
 
 	db.storeImport(rec)
@@ -667,6 +687,41 @@ func createInputFromImportParams(tcp *types.TableCreationParameters) *dynamodb.C
 	}
 }
 
+// importSummaryFromRecord builds the SDK ImportSummary from a stored import.
+// ImportSummary is a narrower type than ImportTableDescription -- it carries
+// no TableId, ClientToken, item counts, or failure fields, so those are
+// deliberately left off here even though importDescriptionFromRecord below
+// sets them for Describe/ImportTable's fuller shape.
+func importSummaryFromRecord(rec storedImport) types.ImportSummary {
+	status := rec.ImportStatus
+	if status == "" {
+		status = string(types.ImportStatusCompleted)
+	}
+
+	s := types.ImportSummary{
+		ImportArn:    aws.String(rec.ImportArn),
+		ImportStatus: types.ImportStatus(status),
+		TableArn:     aws.String(rec.TableArn),
+		InputFormat:  types.InputFormat(rec.InputFormat),
+		S3BucketSource: &types.S3BucketSource{
+			S3Bucket:      aws.String(rec.S3Bucket),
+			S3KeyPrefix:   aws.String(rec.S3Prefix),
+			S3BucketOwner: ptrconv.NilIfEmpty(rec.S3BucketOwner),
+		},
+	}
+	if !rec.StartTime.IsZero() {
+		s.StartTime = aws.Time(rec.StartTime)
+	}
+	if !rec.EndTime.IsZero() {
+		s.EndTime = aws.Time(rec.EndTime)
+	}
+	if rec.CloudWatchLogGroupArn != "" {
+		s.CloudWatchLogGroupArn = aws.String(rec.CloudWatchLogGroupArn)
+	}
+
+	return s
+}
+
 // importDescriptionFromRecord builds the SDK description from a stored import.
 func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription {
 	desc := &types.ImportTableDescription{
@@ -679,8 +734,9 @@ func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription
 		ProcessedSizeBytes: aws.Int64(rec.ProcessedSizeBytes),
 		ErrorCount:         rec.ErrorCount,
 		S3BucketSource: &types.S3BucketSource{
-			S3Bucket:    aws.String(rec.S3Bucket),
-			S3KeyPrefix: aws.String(rec.S3Prefix),
+			S3Bucket:      aws.String(rec.S3Bucket),
+			S3KeyPrefix:   aws.String(rec.S3Prefix),
+			S3BucketOwner: ptrconv.NilIfEmpty(rec.S3BucketOwner),
 		},
 	}
 	if !rec.StartTime.IsZero() {
@@ -692,6 +748,23 @@ func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription
 	if rec.FailureCode != "" {
 		desc.FailureCode = aws.String(rec.FailureCode)
 		desc.FailureMessage = aws.String(rec.FailureMessage)
+	}
+	if rec.TableID != "" {
+		desc.TableId = aws.String(rec.TableID)
+	}
+	if rec.ClientToken != "" {
+		desc.ClientToken = aws.String(rec.ClientToken)
+	}
+	if rec.CloudWatchLogGroupArn != "" {
+		desc.CloudWatchLogGroupArn = aws.String(rec.CloudWatchLogGroupArn)
+	}
+	if rec.CsvDelimiter != "" || len(rec.CsvHeaderList) > 0 {
+		desc.InputFormatOptions = &types.InputFormatOptions{
+			Csv: &types.CsvOptions{
+				Delimiter:  ptrconv.NilIfEmpty(rec.CsvDelimiter),
+				HeaderList: rec.CsvHeaderList,
+			},
+		}
 	}
 
 	return desc
@@ -738,18 +811,7 @@ func (db *InMemoryDB) ListImports(
 			continue
 		}
 
-		importARN := imp.ImportArn
-		tableARN := imp.TableArn
-		status := imp.ImportStatus
-		if status == "" {
-			status = string(types.ImportStatusCompleted)
-		}
-		summaries = append(summaries, types.ImportSummary{
-			ImportArn:    &importARN,
-			ImportStatus: types.ImportStatus(status),
-			TableArn:     &tableARN,
-			InputFormat:  types.InputFormat(imp.InputFormat),
-		})
+		summaries = append(summaries, importSummaryFromRecord(imp))
 	}
 
 	var outNextToken *string

@@ -272,6 +272,8 @@ type restoredTableParams struct {
 	SSEType                string
 	SSEKMSMasterKeyArn     string
 	StreamViewType         string
+	OnDemandMaxReadRRU     *int64
+	OnDemandMaxWriteRRU    *int64
 	Items                  []map[string]any
 	KeySchema              []models.KeySchemaElement
 	AttributeDefinitions   []models.AttributeDefinition
@@ -315,6 +317,8 @@ func (db *InMemoryDB) installRestoredTable(
 		TableArn:               arn.Build("dynamodb", region, db.accountID, "table/"+tableName),
 		mu:                     lockmetrics.New("ddb.table." + tableName),
 		ProvisionedThroughput:  p.ProvisionedThroughput,
+		OnDemandMaxReadRRU:     p.OnDemandMaxReadRRU,
+		OnDemandMaxWriteRRU:    p.OnDemandMaxWriteRRU,
 	}
 	newTable.initializeIndexes()
 	newTable.rebuildIndexes()
@@ -346,6 +350,24 @@ func toSDKProvisionedThroughputOverride(pt *models.ProvisionedThroughput) *sdkty
 	}
 }
 
+// toSDKGSIOverride converts the wire-format GlobalSecondaryIndexOverride to
+// the SDK type, preserving the nil/empty distinction that
+// models.ToSDKGlobalSecondaryIndexes collapses: nil means the override was
+// omitted (restore keeps the source's GSIs), a non-nil empty slice means the
+// caller explicitly asked to exclude every GSI from the restored table.
+func toSDKGSIOverride(gsis []models.GlobalSecondaryIndex) []sdktypes.GlobalSecondaryIndex {
+	if gsis == nil {
+		return nil
+	}
+
+	out := models.ToSDKGlobalSecondaryIndexes(gsis)
+	if out == nil {
+		out = []sdktypes.GlobalSecondaryIndex{}
+	}
+
+	return out
+}
+
 func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.RestoreTableFromBackupInput
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -365,6 +387,9 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 		TargetTableName:               &req.TargetTableName,
 		BillingModeOverride:           sdktypes.BillingMode(req.BillingModeOverride),
 		ProvisionedThroughputOverride: toSDKProvisionedThroughputOverride(req.ProvisionedThroughputOverride),
+		GlobalSecondaryIndexOverride:  toSDKGSIOverride(req.GlobalSecondaryIndexOverride),
+		OnDemandThroughputOverride:    models.ToSDKOnDemandThroughput(req.OnDemandThroughputOverride),
+		SSESpecificationOverride:      models.ToSDKSSESpecification(req.SSESpecificationOverride),
 	})
 	if err != nil {
 		return nil, err
@@ -442,6 +467,9 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 		ProvisionedThroughputOverride: toSDKProvisionedThroughputOverride(req.ProvisionedThroughputOverride),
 		UseLatestRestorableTime:       aws.Bool(req.UseLatestRestorableTime),
 		RestoreDateTime:               toSDKRestoreDateTime(req.RestoreDateTime),
+		GlobalSecondaryIndexOverride:  toSDKGSIOverride(req.GlobalSecondaryIndexOverride),
+		OnDemandThroughputOverride:    models.ToSDKOnDemandThroughput(req.OnDemandThroughputOverride),
+		SSESpecificationOverride:      models.ToSDKSSESpecification(req.SSESpecificationOverride),
 	})
 	if err != nil {
 		return nil, err
@@ -473,6 +501,8 @@ func snapshotSourceForPITR(
 		SSEKMSMasterKeyArn:    sourceTable.SSEKMSMasterKeyArn,
 		StreamsEnabled:        sourceTable.StreamsEnabled,
 		StreamViewType:        sourceTable.StreamViewType,
+		OnDemandMaxReadRRU:    sourceTable.OnDemandMaxReadRRU,
+		OnDemandMaxWriteRRU:   sourceTable.OnDemandMaxWriteRRU,
 	}
 	p.KeySchema = make([]models.KeySchemaElement, len(sourceTable.KeySchema))
 	copy(p.KeySchema, sourceTable.KeySchema)

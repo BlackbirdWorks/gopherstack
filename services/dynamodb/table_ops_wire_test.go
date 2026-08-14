@@ -54,6 +54,35 @@ func TestCreateTable_SSESpecification_SurvivesWireConversion(t *testing.T) {
 	)
 }
 
+// TestCreateTable_TableId_ReturnedOnCreate verifies that CreateTable's own
+// response includes TableId. buildCreateTableOutput assigns t.TableID at
+// creation (used by DescribeTable) but never copied it into the
+// CreateTableOutput it builds in the same call, so a caller reading TableId
+// straight off the CreateTable response (rather than following up with
+// DescribeTable) always saw it empty. Found while fixing gopherstack-rrtz's
+// ImportTable TableId drop, which reads this same CreateTable response.
+func TestCreateTable_TableId_ReturnedOnCreate(t *testing.T) {
+	t.Parallel()
+
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(dynamodb.NewInMemoryDB()))
+	keySchema, attrDefs := wireTestKeySchema()
+
+	createOut, err := client.CreateTable(t.Context(), &dynamodbsdk.CreateTableInput{
+		TableName:            aws.String("table-id-table"),
+		KeySchema:            keySchema,
+		AttributeDefinitions: attrDefs,
+		BillingMode:          dynamodbtypes.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(createOut.TableDescription.TableId))
+
+	descOut, err := client.DescribeTable(t.Context(), &dynamodbsdk.DescribeTableInput{
+		TableName: aws.String("table-id-table"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(descOut.Table.TableId), aws.ToString(createOut.TableDescription.TableId))
+}
+
 // TestCreateTable_OnDemandThroughput_SurvivesWireConversion verifies that
 // CreateTable's OnDemandThroughput reaches the backend and is reflected back on
 // DescribeTable. models.CreateTableInput previously had no OnDemandThroughput

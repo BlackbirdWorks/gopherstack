@@ -507,6 +507,63 @@ func tableDescriptionToSDK(d models.TableDescription) *sdktypes.TableDescription
 	return td
 }
 
+// resolveGSIOverride returns the GSI list a restored table should use: a copy
+// of source when override is nil (omitted, meaning "keep the source's
+// GSIs"), or override converted to the wire type otherwise -- including an
+// explicit empty override, which means "restore with no GSIs at all".
+func resolveGSIOverride(
+	source []models.GlobalSecondaryIndex,
+	override []sdktypes.GlobalSecondaryIndex,
+) []models.GlobalSecondaryIndex {
+	if override == nil {
+		gsis := make([]models.GlobalSecondaryIndex, len(source))
+		copy(gsis, source)
+
+		return gsis
+	}
+
+	return models.FromSDKGlobalSecondaryIndexes(override)
+}
+
+// resolveSSEOverride applies SSESpecificationOverride to the source table's
+// encryption state, mirroring the CreateTable SSESpecification handling in
+// newTableFromCreateInput. override may be nil, matching an omitted request
+// member, in which case the source's encryption state passes through.
+func resolveSSEOverride(
+	enabled bool, sseType, kmsKeyArn string,
+	override *sdktypes.SSESpecification,
+) (bool, string, string) {
+	if override == nil {
+		return enabled, sseType, kmsKeyArn
+	}
+
+	newEnabled := override.Enabled == nil || aws.ToBool(override.Enabled)
+	if !newEnabled {
+		return false, "", ""
+	}
+
+	newType := string(override.SSEType)
+	if newType == "" {
+		newType = string(sdktypes.SSETypeKms)
+	}
+
+	return true, newType, aws.ToString(override.KMSMasterKeyId)
+}
+
+// resolveOnDemandThroughputOverride returns the on-demand throughput caps a
+// restored table should use: override when supplied, otherwise the source's
+// existing caps unchanged.
+func resolveOnDemandThroughputOverride(
+	sourceRead, sourceWrite *int64,
+	override *sdktypes.OnDemandThroughput,
+) (*int64, *int64) {
+	if override == nil {
+		return sourceRead, sourceWrite
+	}
+
+	return override.MaxReadRequestUnits, override.MaxWriteRequestUnits
+}
+
 // RestoreTableFromBackup creates a new table populated from an existing backup.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
 func (db *InMemoryDB) RestoreTableFromBackup(
@@ -544,8 +601,7 @@ func (db *InMemoryDB) RestoreTableFromBackup(
 		backup.ProvisionedThroughput, throughputOverride,
 	)
 
-	gsis := make([]models.GlobalSecondaryIndex, len(backup.GlobalSecondaryIndexes))
-	copy(gsis, backup.GlobalSecondaryIndexes)
+	gsis := resolveGSIOverride(backup.GlobalSecondaryIndexes, input.GlobalSecondaryIndexOverride)
 	lsis := make([]models.LocalSecondaryIndex, len(backup.LocalSecondaryIndexes))
 	copy(lsis, backup.LocalSecondaryIndexes)
 	keySchema := make([]models.KeySchemaElement, len(backup.KeySchema))
@@ -553,12 +609,21 @@ func (db *InMemoryDB) RestoreTableFromBackup(
 	attrDefs := make([]models.AttributeDefinition, len(backup.AttributeDefinitions))
 	copy(attrDefs, backup.AttributeDefinitions)
 
+	sseEnabled, sseType, sseKMSMasterKeyArn := resolveSSEOverride(
+		backup.SSEEnabled, backup.SSEType, backup.SSEKMSMasterKeyArn,
+		input.SSESpecificationOverride,
+	)
+	onDemandMaxReadRRU, onDemandMaxWriteRRU := resolveOnDemandThroughputOverride(
+		nil, nil, input.OnDemandThroughputOverride,
+	)
+
 	p := restoredTableParams{
 		Items: deepCopyItems(backup.Items), KeySchema: keySchema, AttributeDefinitions: attrDefs,
 		GlobalSecondaryIndexes: gsis, LocalSecondaryIndexes: lsis,
 		ProvisionedThroughput: provThroughput, BillingMode: billingMode,
-		SSEEnabled: backup.SSEEnabled, SSEType: backup.SSEType, SSEKMSMasterKeyArn: backup.SSEKMSMasterKeyArn,
+		SSEEnabled: sseEnabled, SSEType: sseType, SSEKMSMasterKeyArn: sseKMSMasterKeyArn,
 		StreamsEnabled: backup.StreamsEnabled, StreamViewType: backup.StreamViewType,
+		OnDemandMaxReadRRU: onDemandMaxReadRRU, OnDemandMaxWriteRRU: onDemandMaxWriteRRU,
 	}
 
 	newTable, newTableID, err := db.installRestoredTable(region, targetTableName, p)
@@ -566,17 +631,24 @@ func (db *InMemoryDB) RestoreTableFromBackup(
 		return nil, err
 	}
 
-	return &sdkdynamodb.RestoreTableFromBackupOutput{
-		TableDescription: tableDescriptionToSDK(models.TableDescription{
-			TableName: targetTableName, TableStatus: models.TableStatusActive,
-			TableArn: newTable.TableArn, TableID: newTableID,
-			KeySchema: keySchema, AttributeDefinitions: attrDefs,
-			GlobalSecondaryIndexes: buildGSIDescriptions(gsis, int64(len(p.Items))),
-			LocalSecondaryIndexes:  buildLSIDescriptions(lsis),
-			BillingModeSummary:     billingModeSummary(billingMode),
-			ItemCount:              len(p.Items),
-		}),
-	}, nil
+	td := tableDescriptionToSDK(models.TableDescription{
+		TableName: targetTableName, TableStatus: models.TableStatusActive,
+		TableArn: newTable.TableArn, TableID: newTableID,
+		KeySchema: keySchema, AttributeDefinitions: attrDefs,
+		GlobalSecondaryIndexes: buildGSIDescriptions(gsis, int64(len(p.Items))),
+		LocalSecondaryIndexes:  buildLSIDescriptions(lsis),
+		BillingModeSummary:     billingModeSummary(billingMode),
+		ItemCount:              len(p.Items),
+	})
+	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
+	if onDemandMaxReadRRU != nil || onDemandMaxWriteRRU != nil {
+		td.OnDemandThroughput = &sdktypes.OnDemandThroughput{
+			MaxReadRequestUnits:  onDemandMaxReadRRU,
+			MaxWriteRequestUnits: onDemandMaxWriteRRU,
+		}
+	}
+
+	return &sdkdynamodb.RestoreTableFromBackupOutput{TableDescription: td}, nil
 }
 
 // RestoreTableToPointInTime creates a new table populated from a PITR snapshot
@@ -634,6 +706,16 @@ func (db *InMemoryDB) RestoreTableToPointInTime(
 	p.Items = itemsCopy
 	p.BillingMode = billingMode
 	p.ProvisionedThroughput = provThroughput
+	p.GlobalSecondaryIndexes = resolveGSIOverride(p.GlobalSecondaryIndexes, input.GlobalSecondaryIndexOverride)
+
+	sseEnabled, sseType, sseKMSMasterKeyArn := resolveSSEOverride(
+		p.SSEEnabled, p.SSEType, p.SSEKMSMasterKeyArn, input.SSESpecificationOverride,
+	)
+	p.SSEEnabled, p.SSEType, p.SSEKMSMasterKeyArn = sseEnabled, sseType, sseKMSMasterKeyArn
+
+	p.OnDemandMaxReadRRU, p.OnDemandMaxWriteRRU = resolveOnDemandThroughputOverride(
+		p.OnDemandMaxReadRRU, p.OnDemandMaxWriteRRU, input.OnDemandThroughputOverride,
+	)
 
 	region := getRegionFromContext(ctx, db)
 	newTable, newTableID, installErr := db.installRestoredTable(region, targetTableName, p)
@@ -641,20 +723,27 @@ func (db *InMemoryDB) RestoreTableToPointInTime(
 		return nil, installErr
 	}
 
-	return &sdkdynamodb.RestoreTableToPointInTimeOutput{
-		TableDescription: tableDescriptionToSDK(models.TableDescription{
-			TableName: targetTableName, TableStatus: models.TableStatusActive,
-			TableArn: newTable.TableArn, TableID: newTableID,
-			KeySchema: p.KeySchema, AttributeDefinitions: p.AttributeDefinitions,
-			GlobalSecondaryIndexes: buildGSIDescriptions(
-				p.GlobalSecondaryIndexes,
-				int64(len(itemsCopy)),
-			),
-			LocalSecondaryIndexes: buildLSIDescriptions(p.LocalSecondaryIndexes),
-			BillingModeSummary:    billingModeSummary(billingMode),
-			ItemCount:             len(itemsCopy),
-		}),
-	}, nil
+	td := tableDescriptionToSDK(models.TableDescription{
+		TableName: targetTableName, TableStatus: models.TableStatusActive,
+		TableArn: newTable.TableArn, TableID: newTableID,
+		KeySchema: p.KeySchema, AttributeDefinitions: p.AttributeDefinitions,
+		GlobalSecondaryIndexes: buildGSIDescriptions(
+			p.GlobalSecondaryIndexes,
+			int64(len(itemsCopy)),
+		),
+		LocalSecondaryIndexes: buildLSIDescriptions(p.LocalSecondaryIndexes),
+		BillingModeSummary:    billingModeSummary(billingMode),
+		ItemCount:             len(itemsCopy),
+	})
+	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
+	if p.OnDemandMaxReadRRU != nil || p.OnDemandMaxWriteRRU != nil {
+		td.OnDemandThroughput = &sdktypes.OnDemandThroughput{
+			MaxReadRequestUnits:  p.OnDemandMaxReadRRU,
+			MaxWriteRequestUnits: p.OnDemandMaxWriteRRU,
+		}
+	}
+
+	return &sdkdynamodb.RestoreTableToPointInTimeOutput{TableDescription: td}, nil
 }
 
 // BatchExecuteStatement executes multiple PartiQL statements and returns their results.
