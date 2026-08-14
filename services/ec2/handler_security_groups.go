@@ -211,9 +211,15 @@ func (h *Handler) handleUpdateSGRuleDescriptionsEgress(vals url.Values, reqID st
 }
 
 func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string) (any, error) {
-	groupID := vals.Get("Filter.1.Value")
-	if groupID == "" {
-		groupID = vals.Get("GroupId")
+	// DescribeSecurityGroupRulesInput carries no top-level GroupId — the real
+	// client sends it as Filter.N.Name=group-id / Filter.N.Value.M, not
+	// Filter.1.Value (which is never a valid key: AWS query-list values are
+	// always indexed).
+	filters := parseEC2Filters(vals)
+
+	var groupID string
+	if values := filters["group-id"]; len(values) > 0 {
+		groupID = values[0]
 	}
 
 	rules, err := h.Backend.DescribeSecurityGroupRules(groupID)
@@ -449,7 +455,7 @@ func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (a
 
 	// Apply named filters: vpc-id, group-name, group-id.
 	filters := parseEC2Filters(vals)
-	groups = applySecurityGroupFilters(groups, filters)
+	groups = applySecurityGroupFilters(groups, filters, h.Backend)
 
 	items := make([]sgItem, 0, len(groups))
 	for _, sg := range groups {

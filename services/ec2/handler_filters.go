@@ -836,11 +836,12 @@ func anyEqual(target string, vals []string) bool {
 }
 
 // applySecurityGroupFilters filters security groups by named EC2 filter values.
-// Supported filter names: vpc-id, group-name, group-id.
-
-// applySecurityGroupFilters filters security groups by named EC2 filter values.
-// Supported filter names: vpc-id, group-name, group-id.
-func applySecurityGroupFilters(groups []*SecurityGroup, filters map[string][]string) []*SecurityGroup {
+// Supported filter names: vpc-id, group-name, group-id, tag:<key>.
+func applySecurityGroupFilters(
+	groups []*SecurityGroup,
+	filters map[string][]string,
+	b Backend,
+) []*SecurityGroup {
 	if len(filters) == 0 {
 		return groups
 	}
@@ -850,7 +851,7 @@ func applySecurityGroupFilters(groups []*SecurityGroup, filters map[string][]str
 groupLoop:
 	for _, sg := range groups {
 		for name, values := range filters {
-			if !sgMatchesFilter(sg, name, values) {
+			if !sgMatchesFilter(sg, name, values, b) {
 				continue groupLoop
 			}
 		}
@@ -862,9 +863,7 @@ groupLoop:
 }
 
 // sgMatchesFilter returns true if the security group matches any value in the filter.
-
-// sgMatchesFilter returns true if the security group matches any value in the filter.
-func sgMatchesFilter(sg *SecurityGroup, filterName string, values []string) bool {
+func sgMatchesFilter(sg *SecurityGroup, filterName string, values []string, b Backend) bool {
 	switch filterName {
 	case filterKeyVPCID:
 		return anyEqual(sg.VPCID, values)
@@ -872,6 +871,10 @@ func sgMatchesFilter(sg *SecurityGroup, filterName string, values []string) bool
 		return anyEqual(sg.Name, values)
 	case "group-id":
 		return anyEqual(sg.ID, values)
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(sg.ID, tagKey, values, b)
+		}
 	}
 
 	// Unknown filters: pass through (lenient).

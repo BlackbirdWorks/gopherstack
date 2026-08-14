@@ -96,11 +96,12 @@ func TestHTTP_DescribeSecurityGroupRules(t *testing.T) {
 
 	h := newHandler()
 
-	// use the default sg
+	// use the default sg — real AWS clients send filters as
+	// Filter.N.Name / Filter.N.Value.M, never a bare Filter.N.Value.
 	rec := postForm(
 		t,
 		h,
-		"Action=DescribeSecurityGroupRules&Version=2016-11-15&Filter.1.Value=sg-default",
+		"Action=DescribeSecurityGroupRules&Version=2016-11-15&Filter.1.Name=group-id&Filter.1.Value.1=sg-default",
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DescribeSecurityGroupRulesResponse")
