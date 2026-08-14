@@ -41,6 +41,7 @@ gaps:
   - "object_lambda: CreateAccessPointForObjectLambda and the whole Object Lambda *access point resource* (policy, configuration, ARN) genuinely belong to and ARE already fully implemented in services/s3control (object_lambda.go + handler_object_lambda.go + handler_object_lambda_test.go — verified: CreateAccessPointForObjectLambda, Get/Delete/List, Get/Put/DeleteAccessPointPolicyForObjectLambda, policy-status, and configuration are all real backend-state ops, not stubs). services/s3's own object_lambda.go (SetObjectLambdaConfig + WriteGetObjectResponse) is legitimately s3 DATA-PLANE surface — confirmed WriteGetObjectResponse is an aws-sdk-go-v2/service/s3 operation, not service/s3control — so it is NOT mis-scoped. What IS a real, disclosed limitation: GetObject only recognizes a Lambda wired in via the Go-only SetObjectLambdaConfig test hook, not via genuine access-point-ARN routing (calling GetObject with Bucket=<object-lambda-access-point-ARN>). Wiring that would require access-point-ARN parsing on every object route PLUS a live cross-service lookup into s3control's backend — and regular (non-Lambda) S3 Access Points have zero ARN-as-bucket routing support anywhere in this service either (grepped: no accesspoint/AccessPointARN handling exists in services/s3), so Object Lambda access points would be building ARN routing on a foundation that doesn't exist yet. This is a real, larger cross-service feature, not a diff-and-fix; left honestly open with the evidence above rather than attempted as a rushed partial wiring."
   - "SelectObjectContent's SQL engine internals (select_sql_parser.go/select_sql_tokenizer.go/select_sql_expr.go) were not re-diffed against the S3 Select SQL dialect spec this pass — only the request-handling wrapper (SSE-C headers) was fixed. The engine's existing extensive test coverage (select_test.go, select_advanced_test.go) was re-run and passes; no correctness re-audit of parser/expression-evaluator edge cases was performed."
   - "ListBuckets does not implement the bucket-region/prefix/continuation-token/max-buckets request parameters (filtering or pagination) — ListBucketsInput is always passed empty to the backend, and every bucket the account owns is always returned in one response. A deliberate, disclosed gap: real S3 also gates whether BucketRegion appears in the response on the request being 'paginated' (see the ListBuckets ops note above), which only matters once pagination exists. Adding real filtering/pagination here is a separate feature, not part of the BucketRegion display fix."
+  - "ListDirectoryBuckets is structurally unreachable from any real, unmodified aws-sdk-go-v2 client pointed at gopherstack's single local endpoint (gopherstack-0bq8, 2026-08-14). Confirmed against s3@v1.106.5: ListDirectoryBucketsInput.bindEndpointParams sets UseS3ExpressControlEndpoint, and real AWS distinguishes ListDirectoryBuckets from ListBuckets purely by literal hostname (s3express-control.<region>.amazonaws.com vs s3.<region>.amazonaws.com) — the request itself carries no query param, path segment, or header that differs (HttpBindings only sets continuation-token/max-directory-buckets, same shape family as ListBuckets' own params; the addIsExpressUserAgent middleware that tags S3-Express traffic keys off a Bucket field this op doesn't have). The router's isListDirectoryBucketsRequest checks a ?list-type=directory query key no real client ever sends — dead code, confirmed by cross-referencing every query-setting line in the op's own HttpBindings function — so every real ListDirectoryBuckets() call silently falls through to listBuckets (200 success, wrong bucket set: general-purpose buckets instead of directory buckets). Not fixed: there is no real discriminator available to key on when serving both operations from one endpoint (same structural class as the cloudfront KeyValueStore data-plane ops, which structurally can never reach that service's Handler either). Left as documented dead code rather than deleted or silently 'fixed' with another fabricated key, since it's the only way any test (including buckets_test.go's existing TestListDirectoryBuckets) can reach the op at all."
 leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replication goroutines WaitGroup-drained; Shutdown() cancels; object_lambda config now cleared on DeleteBucket (was previously leaking across bucket-name reuse — see 2026-07-24 section)}
 ---
 
@@ -207,3 +208,44 @@ by reading, not by a dedicated snapshot/restore test). `go build ./...`, `go vet
 ./services/s3/...`, `go test -race -count=1 ./services/s3/...`, `go fix -diff
 ./services/s3/...` (no diff), `golangci-lint run ./services/s3/...` (0 issues, no new
 `//nolint`s), and `go test -race -count=1 ./pkgs/...` all clean.
+
+## 2026-08-14 method/path-parameter route audit (gopherstack-0bq8)
+
+Scope: cross-checked all 112 s3@v1.106.5 operations' real HTTP method + path
+against the router's dispatch (`handler.go`'s method switch in
+handleBucketOperation/handleObjectOperation, then the query-param switches in
+`bucket_ops.go`/`object_ops.go`), extracting each op's `request.Method` and
+`httpbinding.SplitURI` argument straight from `serializers.go`. This is new
+ground beyond gopherstack-zr2u, which already swept every query-param
+subresource discriminator (and fixed 7 there) — this pass targeted HTTP
+method dispatch and path-parameter shape specifically, since s3's dispatch
+tree is method-switch-first (Go `switch` on `r.Method`, immune to
+cross-method bugs by construction) and s3 uses one path-parameter name
+(`Key`) throughout, so there is no GeneratedTemplateId/Name-class mismatch
+possible here.
+
+Hand-verified as already correct (worth recording so it isn't re-derived):
+CopyObject/UploadPartCopy are disambiguated from PutObject/UploadPart by the
+`X-Amz-Copy-Source` header (`uploadPart` in multipart_ops.go checks the
+header and delegates), not a fourth routing mechanism gone wrong;
+GetObjectAnnotation vs ListObjectAnnotations' shared GET route is correctly
+gated on the real `annotationName` query param; CreateBucketMetadataConfiguration/
+CreateBucketMetadataTableConfiguration are correctly POST (not PUT); the
+Get-vs-List split for analytics/intelligent-tiering/inventory/metrics
+sub-resources is correctly gated on `id` presence.
+
+One finding, structural rather than fixable — see the ListDirectoryBuckets
+gap entry above: the router's `list-type=directory` discriminator is dead
+code no real client ever sends, and ListDirectoryBuckets silently falls
+through to ListBuckets. Not a routing bug with a real fix, since real AWS's
+only discriminator (hostname) doesn't exist in gopherstack's single-endpoint
+architecture. Documented, not patched with another fake key.
+
+Not reached this pass: s3control (a separate SDK client/package,
+out of scope), and no attempt was made to re-verify the query-discriminator
+space zr2u already covered (per gopherstack-0bq8's explicit instruction not
+to re-derive that result).
+
+Gates: `go build ./services/s3/...`, `go vet ./services/s3/...`, `go test
+-race ./services/s3/...`, `go fix -diff ./services/s3/...` (no diff),
+`golangci-lint run ./services/s3/...` (0 issues) all clean.

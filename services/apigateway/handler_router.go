@@ -541,7 +541,11 @@ func parseAPIGWRestAPIsDepth5Plus(method string, segs []string, n int, apiID str
 func parseAPIGWRestAPIsStageDeep(method string, segs []string, n int, apiID string) (string, map[string]string, bool) {
 	stageParams := map[string]string{keyRestAPIID: apiID, keyStageName: segs[3]}
 
-	if n == 5 && segs[4] == "cache" && method == http.MethodDelete {
+	// FlushStageCache's real wire path is /restapis/{id}/stages/{name}/cache/data
+	// (apigateway@v1.42.4 serializers.go: awsRestjson1_serializeOpFlushStageCache's
+	// opPath), not the bare ".../cache" this used to check -- a real client's
+	// call never matched and fell through to Unknown (404).
+	if n == pathDepth6 && segs[4] == "cache" && segs[5] == "data" && method == http.MethodDelete {
 		return opFlushStageCache, stageParams, true
 	}
 

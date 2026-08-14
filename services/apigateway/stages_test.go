@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	apigatewaysdk "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -50,12 +52,51 @@ func TestFlushStageCache_NotFound(t *testing.T) {
 			}
 
 			rec := restRequest(t, h, http.MethodDelete,
-				fmt.Sprintf("/restapis/%s/stages/%s/cache", apiID, tt.stageName), "")
+				fmt.Sprintf("/restapis/%s/stages/%s/cache/data", apiID, tt.stageName), "")
 
 			assert.Equal(t, tt.wantCode, rec.Code,
 				"FlushStageCache on non-existent resource must return 404; body: %s", rec.Body.String())
 		})
 	}
+}
+
+// TestFlushStageCache_ReachableViaRealClient is a regression test for
+// gopherstack-0bq8: the router matched DELETE
+// /restapis/{id}/stages/{name}/cache (5 path segments), but the real SDK
+// sends DELETE /restapis/{id}/stages/{name}/cache/data (6 segments,
+// apigateway@v1.42.4 serializers.go:
+// awsRestjson1_serializeOpFlushStageCache's opPath). A real client's
+// FlushStageCache call never matched any router case and fell through to
+// the "Unknown" 404 sentinel. Drives the real aws-sdk-go-v2 client end to
+// end and asserts the call succeeds instead of 404ing.
+func TestFlushStageCache_ReachableViaRealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	client := newTestAPIGatewayClient(t, h)
+
+	api, err := client.CreateRestApi(t.Context(), &apigatewaysdk.CreateRestApiInput{
+		Name: aws.String("flush-cache-real-client-api"),
+	})
+	require.NoError(t, err)
+
+	depl, err := client.CreateDeployment(t.Context(), &apigatewaysdk.CreateDeploymentInput{
+		RestApiId: api.Id,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateStage(t.Context(), &apigatewaysdk.CreateStageInput{
+		RestApiId:    api.Id,
+		DeploymentId: depl.Id,
+		StageName:    aws.String("prod"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.FlushStageCache(t.Context(), &apigatewaysdk.FlushStageCacheInput{
+		RestApiId: api.Id,
+		StageName: aws.String("prod"),
+	})
+	require.NoError(t, err, "FlushStageCache must reach its own handler, not fall through to Unknown/404")
 }
 
 func TestStage_ClientCertificateId_Create(t *testing.T) {

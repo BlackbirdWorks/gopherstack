@@ -348,6 +348,22 @@ func (h *S3Handler) handleListDirectoryBuckets(
 }
 
 // isListDirectoryBucketsRequest returns true when the request targets ListDirectoryBuckets.
+//
+// "list-type=directory" is not a real signal: the pinned SDK
+// (s3@v1.106.5 api_op_ListDirectoryBuckets.go/serializers.go) never sends
+// it -- ListDirectoryBucketsInput.bindEndpointParams sets
+// UseS3ExpressControlEndpoint, and real AWS distinguishes the two ops
+// purely by literal hostname (s3express-control.<region>.amazonaws.com
+// vs s3.<region>.amazonaws.com), not by any query/path/header on the
+// request itself. Against gopherstack's single local endpoint (the only
+// way any client can reach it), a real ListDirectoryBuckets() call is
+// wire-identical to ListBuckets() -- no query param, path, or header
+// differs -- so this check can never be satisfied by an unmodified SDK
+// client and every real call silently falls through to listBuckets
+// instead (200 success, wrong bucket set). This is structural, not a
+// routing bug fixable by correcting a discriminator: there is no real one
+// to key on. Left as documented dead code (gopherstack-0bq8) rather than
+// deleted, since it is the only way to reach this op at all in tests.
 func isListDirectoryBucketsRequest(r *http.Request) bool {
 	return r.URL.Query().Get("list-type") == "directory"
 }
