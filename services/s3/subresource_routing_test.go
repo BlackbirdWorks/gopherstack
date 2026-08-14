@@ -169,19 +169,12 @@ func TestDeleteBucketMetadataTableConfiguration_DoesNotDeleteBucket(t *testing.T
 	require.NoError(t, err)
 
 	// The bucket itself must still exist: only its metadata table
-	// configuration should have been removed. ListBuckets (unlike this
-	// backend's HeadBucket, which has its own unrelated gap: it doesn't
-	// check DeletePending) filters out a bucket mid-deletion, so it reliably
-	// tells the two cases apart. Before the fix this failed because the
-	// DELETE fell through to DeleteBucket and marked the bucket pending.
-	listOut, err := client.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
-	require.NoError(t, err)
-
-	names := make([]string, 0, len(listOut.Buckets))
-	for _, b := range listOut.Buckets {
-		names = append(names, aws.ToString(b.Name))
-	}
-	assert.Contains(t, names, bucket,
+	// configuration should have been removed. HeadBucket now consults
+	// DeletePending (gopherstack-lv77), so it reliably tells the two cases
+	// apart. Before the fix this failed because the DELETE fell through to
+	// DeleteBucket and marked the bucket pending.
+	_, err = client.HeadBucket(t.Context(), &sdk_s3.HeadBucketInput{Bucket: aws.String(bucket)})
+	assert.NoError(t, err,
 		"bucket should still exist: DeleteBucketMetadataTableConfiguration must not fall through to DeleteBucket")
 }
 

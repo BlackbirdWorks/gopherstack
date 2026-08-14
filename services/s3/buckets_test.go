@@ -9,11 +9,61 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
+
+// TestHeadBucket_DeletePending is a regression test for gopherstack-lv77:
+// headBucket's handler called Backend.GetBucketMetadata, which never
+// consulted DeletePending, so HeadBucket reported success for a bucket mid
+// async deletion -- exactly the state a caller polling for delete
+// completion is watching for. newTestHandler never starts the janitor
+// (WithJanitor only wires it; nothing here calls StartWorker), so deleting
+// an already-empty bucket leaves it DeletePending indefinitely, giving a
+// stable window to assert HeadBucket reports it gone.
+func TestHeadBucket_DeletePending(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		deleteFirst    bool
+		wantStillExist bool
+	}{
+		{name: "bucket present", deleteFirst: false, wantStillExist: true},
+		{name: "bucket delete pending", deleteFirst: true, wantStillExist: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRealS3ClientTest(t)
+			bucket := "head-bucket-delete-pending"
+
+			_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
+			require.NoError(t, err)
+
+			if tt.deleteFirst {
+				_, err = client.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+				require.NoError(t, err)
+			}
+
+			_, err = client.HeadBucket(t.Context(), &sdk_s3.HeadBucketInput{Bucket: aws.String(bucket)})
+
+			if tt.wantStillExist {
+				assert.NoError(t, err)
+			} else {
+				var notFound *types.NotFound
+				require.ErrorAs(t, err, &notFound,
+					"a poller waiting for the bucket to disappear must see it gone, not indefinitely present")
+			}
+		})
+	}
+}
 
 // TestHandler_Regions verifies S3Handler.Regions() reflects the regions of
 // created buckets.

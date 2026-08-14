@@ -257,6 +257,10 @@ func (p *sqlParser) parseLimit() (int, error) {
 		return 0, fmt.Errorf("LIMIT value must be an integer: %w", convErr)
 	}
 
+	if n < 0 {
+		return 0, fmt.Errorf("%w: got %d", errNegativeLimit, n)
+	}
+
 	return n, nil
 }
 

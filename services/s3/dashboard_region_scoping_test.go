@@ -146,6 +146,39 @@ func TestDashboardRegionScoping_BucketAccessHonorsSelectedRegion(t *testing.T) {
 	})
 }
 
+// TestDashboardRegionScoping_BucketAccessDeletePendingSkipsRedirect is a
+// regression test for gopherstack-lv77: BucketRegion (which
+// enforceBucketRegion consults for the cross-region 301 signal) didn't check
+// DeletePending, so a cross-region request for a bucket mid-async-deletion
+// got a stale 301 pointing at the bucket's old region instead of falling
+// through to NoSuchBucket, like a request for a bucket that never existed.
+func TestDashboardRegionScoping_BucketAccessDeletePendingSkipsRedirect(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+	mustCreateBucketInRegion(t, handler, "dash-pending-bucket", "eu-west-1")
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/dash-pending-bucket", nil)
+	delReq = delReq.WithContext(awsmeta.Set(delReq.Context(), &awsmeta.Metadata{
+		Region:  "eu-west-1",
+		Account: awsmeta.DefaultAccount,
+	}))
+	delRec := httptest.NewRecorder()
+	serveS3Handler(handler, delRec, delReq)
+	require.Equal(t, http.StatusNoContent, delRec.Code)
+
+	req := httptest.NewRequest(http.MethodGet, "/dash-pending-bucket?location", nil)
+	req = req.WithContext(awsmeta.Set(req.Context(), &awsmeta.Metadata{
+		Region:  "ap-southeast-1",
+		Account: awsmeta.DefaultAccount,
+	}))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"a delete-pending bucket must not get a stale cross-region redirect")
+}
+
 // mustCreateBucketInRegion issues a CreateBucket request whose region is
 // carried via the awsmeta context (matching how the dashboard's real SigV4
 // requests carry region) and requires it to succeed.

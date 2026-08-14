@@ -302,16 +302,16 @@ func (b *InMemoryBackend) GetBucketMetadata(
 	bucketName string,
 ) (string, string, []types.Tag, error) {
 	var bucket *StoredBucket
-	var ok bool
+	var err error
 	func() {
 		b.mu.RLock("GetBucketMetadata")
 		defer b.mu.RUnlock()
 
-		bucket, ok = b.buckets.Get(bucketName)
+		bucket, err = b.getBucket(bucketName)
 	}()
 
-	if !ok {
-		return "", "", nil, ErrNoSuchBucket
+	if err != nil {
+		return "", "", nil, err
 	}
 
 	var region, lcXML string

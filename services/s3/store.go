@@ -266,13 +266,13 @@ func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
 }
 
 // BucketRegion returns the region a bucket is stored in, or "" if the bucket
-// does not exist. Safe for concurrent use.
+// does not exist or is pending async deletion. Safe for concurrent use.
 func (b *InMemoryBackend) BucketRegion(name string) string {
 	b.mu.RLock("BucketRegion")
 	defer b.mu.RUnlock()
 
-	bucket, ok := b.buckets.Get(name)
-	if !ok {
+	bucket, err := b.getBucket(name)
+	if err != nil {
 		return ""
 	}
 
