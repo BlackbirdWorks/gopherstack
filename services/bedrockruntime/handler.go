@@ -394,7 +394,18 @@ func pathToOperation(path, method string) string {
 }
 
 // modelPathOperation maps /model/{modelId}/... paths to operation names.
+// Gated on modelPathPrefix before the suffix switch below: without it,
+// InvokeGuardrailChecks's real wire path "/guardrail-checks/invoke" (POST)
+// also ends in "/invoke" and was misclassified as InvokeModel by
+// ExtractOperation, even though Handler() itself dispatched it correctly
+// (Handler()'s own switch checks path == guardrailChecksPath, not a bare
+// suffix). Runtime dispatch was never wrong; only the observability label
+// was.
 func modelPathOperation(path string) string {
+	if !strings.HasPrefix(path, modelPathPrefix) {
+		return ""
+	}
+
 	switch {
 	case strings.HasSuffix(path, "/invoke-with-response-stream"):
 		return opInvokeModelWithResponseStream
