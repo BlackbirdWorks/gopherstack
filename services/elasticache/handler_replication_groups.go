@@ -203,6 +203,10 @@ func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, f
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
 	}
+	if len(rgs.Data) == 0 {
+		return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+	}
+
 	rg := rgs.Data[0]
 	if err := h.Backend.DeleteReplicationGroup(ctx, id); err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
