@@ -680,16 +680,26 @@ func (b *InMemoryBackend) moveStagingLabel(secret *Secret, input *UpdateSecretVe
 		)
 	}
 
+	if input.VersionStage == StagingLabelCurrent {
+		// Moving AWSCURRENT demotes whoever held it to AWSPREVIOUS instead of
+		// just dropping the label (aws-sdk-go-v2/service/secretsmanager@v1.44.4
+		// api_op_UpdateSecretVersionStage.go doc: "Whenever you move AWSCURRENT,
+		// Secrets Manager automatically moves the label AWSPREVIOUS to the
+		// version that AWSCURRENT was removed from"). Reuses the same rotation
+		// PutSecretValue performs so both call sites agree.
+		b.rotateStagingLabels(secret)
+		targetVer.StagingLabels = append(removeLabel(targetVer.StagingLabels, StagingLabelCurrent), StagingLabelCurrent)
+		secret.CurrentVersionID = input.MoveToVersionID
+
+		return nil
+	}
+
 	// Strip the label from ALL versions — a staging label belongs to exactly one version.
 	for _, ver := range secret.Versions {
 		ver.StagingLabels = removeLabel(ver.StagingLabels, input.VersionStage)
 	}
 
 	targetVer.StagingLabels = append(targetVer.StagingLabels, input.VersionStage)
-
-	if input.VersionStage == StagingLabelCurrent {
-		secret.CurrentVersionID = input.MoveToVersionID
-	}
 
 	return nil
 }

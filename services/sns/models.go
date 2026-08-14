@@ -747,6 +747,17 @@ type snsListTagsResponse struct {
 
 // snsEmptyResponse is the XML response for tag mutation operations (TagResource, UntagResource).
 // The XMLName field is set dynamically per action.
+//
+// Result must be present even though TagResourceOutput/UntagResourceOutput carry no
+// members: unlike most empty-output SNS ops (DeleteTopic, Unsubscribe,
+// SetTopicAttributes), whose deserializers discard the response body outright, these
+// two explicitly call decoder.GetElement("TagResourceResult") /
+// GetElement("UntagResourceResult") and fail with "node not found" if it is absent
+// (sns@v1.42.4 deserializers.go:4469 and :4688). Result's XMLName is set dynamically
+// alongside the outer XMLName, per action.
 type snsEmptyResponse struct {
 	XMLName xml.Name `xml:""`
+	Result  struct {
+		XMLName xml.Name `xml:""`
+	}
 }

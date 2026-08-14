@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -31,6 +32,13 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	if attrs["Policy"] == "" {
 		attrs["Policy"] = defaultPolicyJSON
 	}
+
+	// AddPermission/RemovePermission mutate topic.Permissions, a store distinct
+	// from attrs["Policy"] set by SetTopicAttributes; merge the two here so a
+	// real client reading Policy back sees the statements AddPermission granted
+	// (previously topic.Permissions was written but never read anywhere,
+	// silently dropping every AddPermission call from the wire response).
+	attrs["Policy"] = mergePermissionsIntoPolicy(attrs["Policy"], topicArn, topic.Permissions)
 
 	// Populate computed attributes that AWS returns but we store dynamically.
 	if attrs["Owner"] == "" {
@@ -76,6 +84,127 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	attrs["SubscriptionsDeleted"] = "0"
 
 	return attrs, nil
+}
+
+// policyDocument mirrors the shape of an SNS access-control policy document
+// (docs.aws.amazon.com/sns/latest/dg/sns-access-policy-use-cases.html).
+type policyDocument struct {
+	Version   string            `json:"Version"`
+	ID        string            `json:"Id,omitempty"`
+	Statement []json.RawMessage `json:"Statement"`
+}
+
+// policyStatement is a single Allow statement built from an AddPermission grant.
+type policyStatement struct {
+	Principal any      `json:"Principal"`
+	Sid       string   `json:"Sid"`
+	Effect    string   `json:"Effect"`
+	Resource  string   `json:"Resource"`
+	Action    []string `json:"Action"`
+}
+
+// mergePermissionsIntoPolicy layers AddPermission-granted statements on top of
+// basePolicy (the raw Policy attribute set via SetTopicAttributes, or the
+// default empty-statement document). Statements are rebuilt from perms on
+// every call rather than persisted, so the merge is naturally idempotent:
+// a label present in perms always produces exactly one statement carrying
+// that label as its Sid, and any pre-existing statement sharing that Sid
+// (e.g. left over from a prior SetTopicAttributes) is superseded by it.
+func mergePermissionsIntoPolicy(basePolicy, topicArn string, perms map[string]*TopicPermission) string {
+	if len(perms) == 0 {
+		if basePolicy == "" {
+			return defaultPolicyJSON
+		}
+
+		return basePolicy
+	}
+
+	var doc policyDocument
+	if err := json.Unmarshal([]byte(basePolicy), &doc); err != nil || doc.Version == "" {
+		doc.Version = "2012-10-17"
+	}
+
+	labels := make([]string, 0, len(perms))
+	for label := range perms {
+		labels = append(labels, label)
+	}
+
+	sort.Strings(labels)
+
+	kept := make([]json.RawMessage, 0, len(doc.Statement))
+
+	for _, raw := range doc.Statement {
+		var sid struct {
+			Sid string `json:"Sid"`
+		}
+		if err := json.Unmarshal(raw, &sid); err == nil {
+			if _, isPermission := perms[sid.Sid]; isPermission {
+				continue
+			}
+		}
+
+		kept = append(kept, raw)
+	}
+
+	for _, label := range labels {
+		raw, err := json.Marshal(permissionStatement(topicArn, perms[label]))
+		if err != nil {
+			continue
+		}
+
+		kept = append(kept, raw)
+	}
+
+	doc.Statement = kept
+
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return basePolicy
+	}
+
+	return string(out)
+}
+
+// permissionStatement builds the IAM-style Allow statement AddPermission grants:
+// AWSAccountId values become "arn:aws:iam::<id>:root" principals (or the bare
+// "*" wildcard), and ActionName values are qualified with the "SNS:" prefix
+// AWS uses in the Policy attribute (docs.aws.amazon.com/sns/latest/dg/
+// sns-access-policy-use-cases.html example statements).
+func permissionStatement(topicArn string, perm *TopicPermission) policyStatement {
+	principals := make([]string, len(perm.AWSAccount))
+	for i, acct := range perm.AWSAccount {
+		if acct == "*" {
+			principals[i] = "*"
+
+			continue
+		}
+
+		principals[i] = "arn:aws:iam::" + acct + ":root"
+	}
+
+	actions := make([]string, len(perm.Actions))
+	for i, action := range perm.Actions {
+		if action == "*" || strings.Contains(action, ":") {
+			actions[i] = action
+
+			continue
+		}
+
+		actions[i] = "SNS:" + action
+	}
+
+	var principal any = map[string][]string{"AWS": principals}
+	if len(principals) == 1 && principals[0] == "*" {
+		principal = map[string]string{"AWS": "*"}
+	}
+
+	return policyStatement{
+		Sid:       perm.Label,
+		Effect:    "Allow",
+		Principal: principal,
+		Action:    actions,
+		Resource:  topicArn,
+	}
 }
 
 // isKnownTopicAttribute reports whether name is a settable SNS topic attribute.
