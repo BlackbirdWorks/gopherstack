@@ -60,10 +60,10 @@ func TestDescribeInboundIntegrations(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
-				Integrations []any `json:"Integrations"`
+				InboundIntegrations []any `json:"InboundIntegrations"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.GreaterOrEqual(t, len(out.Integrations), tc.wantMinCount)
+			assert.GreaterOrEqual(t, len(out.InboundIntegrations), tc.wantMinCount)
 		})
 	}
 }
@@ -210,10 +210,10 @@ func TestIntegration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var inboundOut struct {
-		Integrations []any `json:"Integrations"`
+		InboundIntegrations []any `json:"InboundIntegrations"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inboundOut))
-	assert.Len(t, inboundOut.Integrations, 1, "IntegrationArn filter should match the created integration")
+	assert.Len(t, inboundOut.InboundIntegrations, 1, "IntegrationArn filter should match the created integration")
 
 	// ModifyIntegration, addressed by ARN like a real client would (see
 	// resolveIntegrationName).

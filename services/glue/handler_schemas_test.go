@@ -429,7 +429,7 @@ func TestSchemaRegistry_SchemaVersion_CRUD(t *testing.T) {
 		"SchemaId": map[string]any{"RegistryName": "svr", "SchemaName": "sv-schema"},
 	})
 	require.Equal(t, http.StatusOK, listSchemaVersionsRec.Code)
-	assert.Contains(t, listSchemaVersionsRec.Body.String(), "SchemaVersions")
+	assert.Contains(t, listSchemaVersionsRec.Body.String(), "Schemas")
 
 	checkValidityRec := doGlueRequest(t, h, "CheckSchemaVersionValidity", map[string]any{
 		"DataFormat":       "AVRO",
@@ -988,12 +988,12 @@ func TestListSchemaVersions_OmitsGetOnlyFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		SchemaVersions []map[string]any `json:"SchemaVersions"`
+		Schemas []map[string]any `json:"Schemas"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	require.Len(t, out.SchemaVersions, 1)
+	require.Len(t, out.Schemas, 1)
 
-	item := out.SchemaVersions[0]
+	item := out.Schemas[0]
 	assert.ElementsMatch(t,
 		[]string{"SchemaVersionId", "SchemaArn", "Status", "VersionNumber", "CreatedTime"},
 		mapKeys(item),

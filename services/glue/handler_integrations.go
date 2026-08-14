@@ -161,13 +161,47 @@ type describeInboundIntegrationsInput struct {
 	IntegrationArn string `json:"IntegrationArn,omitempty"`
 	TargetArn      string `json:"TargetArn,omitempty"`
 	Marker         string `json:"Marker,omitempty"`
-	MaxRecords     int    `json:"MaxRecords,omitempty"`
+	MaxRecords     int32  `json:"MaxRecords,omitempty"`
 }
 
-// describeInboundIntegrationsOutput holds the result for DescribeInboundIntegrations.
+// defaultDescribeInboundIntegrationsLimit is used when
+// DescribeInboundIntegrationsInput.MaxRecords is unset.
+const defaultDescribeInboundIntegrationsLimit = 100
+
+// inboundIntegrationSummary mirrors types.InboundIntegration: CreateTime,
+// IntegrationArn, SourceArn, Status, TargetArn are all required members;
+// Errors and IntegrationConfig are real members with no backing state in
+// this backend's Integration model (models.go) and are omitted rather than
+// fabricated, matching integrationSummary above.
+//
+// CreateTime is an epoch float (via pkgs/awstime), not an RFC3339 string --
+// deserializeDocumentInboundIntegration (glue@v1.152.0 deserializers.go)
+// requires "CreateTime" to be a JSON Number ("expected IntegrationTimestamp
+// to be a JSON Number"), same as Integration.CreateTime.
+type inboundIntegrationSummary struct {
+	IntegrationArn string  `json:"IntegrationArn"`
+	SourceArn      string  `json:"SourceArn"`
+	Status         string  `json:"Status"`
+	TargetArn      string  `json:"TargetArn"`
+	CreateTime     float64 `json:"CreateTime"`
+}
+
+func toInboundIntegrationSummary(ig *Integration) inboundIntegrationSummary {
+	return inboundIntegrationSummary{
+		IntegrationArn: ig.IntegrationArn,
+		SourceArn:      ig.SourceArn,
+		Status:         ig.Status,
+		TargetArn:      ig.TargetArn,
+		CreateTime:     awstime.Epoch(ig.CreatedAt),
+	}
+}
+
+// describeInboundIntegrationsOutput holds the result for
+// DescribeInboundIntegrations. The real field is InboundIntegrations, not
+// Integrations (api_op_DescribeInboundIntegrations.go).
 type describeInboundIntegrationsOutput struct {
-	Marker       string `json:"Marker,omitempty"`
-	Integrations []any  `json:"Integrations"`
+	Marker              string                      `json:"Marker,omitempty"`
+	InboundIntegrations []inboundIntegrationSummary `json:"InboundIntegrations"`
 }
 
 func (h *Handler) handleDescribeInboundIntegrations(
@@ -176,17 +210,32 @@ func (h *Handler) handleDescribeInboundIntegrations(
 ) (*describeInboundIntegrationsOutput, error) {
 	all := h.Backend.ListIntegrations()
 
-	result := make([]any, 0, len(all))
+	matching := make([]*Integration, 0, len(all))
 	for _, ig := range all {
-		// Filter by IntegrationArn when specified.
 		if in.IntegrationArn != "" && ig.IntegrationArn != in.IntegrationArn {
 			continue
 		}
 
-		result = append(result, ig)
+		if in.TargetArn != "" && ig.TargetArn != in.TargetArn {
+			continue
+		}
+
+		matching = append(matching, ig)
 	}
 
-	return &describeInboundIntegrationsOutput{Integrations: result}, nil
+	limit := int(in.MaxRecords)
+	if limit <= 0 {
+		limit = defaultDescribeInboundIntegrationsLimit
+	}
+
+	page, next := paginateSlice(matching, in.Marker, limit)
+
+	result := make([]inboundIntegrationSummary, 0, len(page))
+	for _, ig := range page {
+		result = append(result, toInboundIntegrationSummary(ig))
+	}
+
+	return &describeInboundIntegrationsOutput{InboundIntegrations: result, Marker: next}, nil
 }
 
 // defaultDescribeIntegrationsLimit is used when DescribeIntegrationsInput.MaxRecords is unset.
