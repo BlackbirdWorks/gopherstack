@@ -49,16 +49,22 @@ func (h *Handler) handleCreateReceiptFilter(vals url.Values, reqID string) (any,
 	}, nil
 }
 
+type createReceiptRuleResult struct{}
+
 type createReceiptRuleResponse struct {
-	XMLName   xml.Name `xml:"CreateReceiptRuleResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                `xml:"CreateReceiptRuleResponse"`
+	Xmlns     string                  `xml:"xmlns,attr"`
+	Result    createReceiptRuleResult `xml:"CreateReceiptRuleResult"`
+	RequestID string                  `xml:"ResponseMetadata>RequestId"`
 }
 
+type createReceiptFilterResult struct{}
+
 type createReceiptFilterResponse struct {
-	XMLName   xml.Name `xml:"CreateReceiptFilterResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                  `xml:"CreateReceiptFilterResponse"`
+	Xmlns     string                    `xml:"xmlns,attr"`
+	Result    createReceiptFilterResult `xml:"CreateReceiptFilterResult"`
+	RequestID string                    `xml:"ResponseMetadata>RequestId"`
 }
 
 func (h *Handler) handleListReceiptFilters(reqID string) any {
@@ -238,10 +244,13 @@ type listReceiptFiltersResponse struct {
 	Result    listReceiptFiltersResult `xml:"ListReceiptFiltersResult"`
 }
 
+type deleteReceiptFilterResult struct{}
+
 type deleteReceiptFilterResponse struct {
-	XMLName   xml.Name `xml:"DeleteReceiptFilterResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                  `xml:"DeleteReceiptFilterResponse"`
+	Xmlns     string                    `xml:"xmlns,attr"`
+	Result    deleteReceiptFilterResult `xml:"DeleteReceiptFilterResult"`
+	RequestID string                    `xml:"ResponseMetadata>RequestId"`
 }
 
 type xmlS3Action struct {
@@ -309,10 +318,13 @@ type xmlReceiptRuleList struct {
 	Members []xmlReceiptRule `xml:"member"`
 }
 
+type deleteReceiptRuleResult struct{}
+
 type deleteReceiptRuleResponse struct {
-	XMLName   xml.Name `xml:"DeleteReceiptRuleResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                `xml:"DeleteReceiptRuleResponse"`
+	Xmlns     string                  `xml:"xmlns,attr"`
+	Result    deleteReceiptRuleResult `xml:"DeleteReceiptRuleResult"`
+	RequestID string                  `xml:"ResponseMetadata>RequestId"`
 }
 
 func (h *Handler) handleDescribeReceiptRule(vals url.Values, reqID string) (any, error) {

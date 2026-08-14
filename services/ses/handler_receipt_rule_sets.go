@@ -33,16 +33,22 @@ func (h *Handler) handleCloneReceiptRuleSet(vals url.Values, reqID string) (any,
 	}, nil
 }
 
+type createReceiptRuleSetResult struct{}
+
 type createReceiptRuleSetResponse struct {
-	XMLName   xml.Name `xml:"CreateReceiptRuleSetResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                   `xml:"CreateReceiptRuleSetResponse"`
+	Xmlns     string                     `xml:"xmlns,attr"`
+	Result    createReceiptRuleSetResult `xml:"CreateReceiptRuleSetResult"`
+	RequestID string                     `xml:"ResponseMetadata>RequestId"`
 }
 
+type cloneReceiptRuleSetResult struct{}
+
 type cloneReceiptRuleSetResponse struct {
-	XMLName   xml.Name `xml:"CloneReceiptRuleSetResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                  `xml:"CloneReceiptRuleSetResponse"`
+	Xmlns     string                    `xml:"xmlns,attr"`
+	Result    cloneReceiptRuleSetResult `xml:"CloneReceiptRuleSetResult"`
+	RequestID string                    `xml:"ResponseMetadata>RequestId"`
 }
 
 func (h *Handler) handleListReceiptRuleSets(reqID string) any {
@@ -163,16 +169,22 @@ type describeReceiptRuleSetResponse struct {
 	Result    describeReceiptRuleSetResult `xml:"DescribeReceiptRuleSetResult"`
 }
 
+type deleteReceiptRuleSetResult struct{}
+
 type deleteReceiptRuleSetResponse struct {
-	XMLName   xml.Name `xml:"DeleteReceiptRuleSetResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                   `xml:"DeleteReceiptRuleSetResponse"`
+	Xmlns     string                     `xml:"xmlns,attr"`
+	Result    deleteReceiptRuleSetResult `xml:"DeleteReceiptRuleSetResult"`
+	RequestID string                     `xml:"ResponseMetadata>RequestId"`
 }
 
+type setActiveReceiptRuleSetResult struct{}
+
 type setActiveReceiptRuleSetResponse struct {
-	XMLName   xml.Name `xml:"SetActiveReceiptRuleSetResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                      `xml:"SetActiveReceiptRuleSetResponse"`
+	Xmlns     string                        `xml:"xmlns,attr"`
+	Result    setActiveReceiptRuleSetResult `xml:"SetActiveReceiptRuleSetResult"`
+	RequestID string                        `xml:"ResponseMetadata>RequestId"`
 }
 
 type describeActiveReceiptRuleSetResult struct {

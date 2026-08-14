@@ -59,16 +59,22 @@ func (h *Handler) handleListConfigurationSets(vals url.Values, reqID string) any
 	}
 }
 
+type createConfigurationSetResult struct{}
+
 type createConfigurationSetResponse struct {
-	XMLName   xml.Name `xml:"CreateConfigurationSetResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                     `xml:"CreateConfigurationSetResponse"`
+	Xmlns     string                       `xml:"xmlns,attr"`
+	Result    createConfigurationSetResult `xml:"CreateConfigurationSetResult"`
+	RequestID string                       `xml:"ResponseMetadata>RequestId"`
 }
 
+type deleteConfigurationSetResult struct{}
+
 type deleteConfigurationSetResponse struct {
-	XMLName   xml.Name `xml:"DeleteConfigurationSetResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                     `xml:"DeleteConfigurationSetResponse"`
+	Xmlns     string                       `xml:"xmlns,attr"`
+	Result    deleteConfigurationSetResult `xml:"DeleteConfigurationSetResult"`
+	RequestID string                       `xml:"ResponseMetadata>RequestId"`
 }
 
 // xmlConfigurationSetMember mirrors types.ConfigurationSet, which on the
@@ -125,16 +131,22 @@ func (h *Handler) handleDeleteConfigurationSetTrackingOptions(vals url.Values, r
 	}, nil
 }
 
+type createConfigurationSetTrackingOptionsResult struct{}
+
 type createConfigurationSetTrackingOptionsResponse struct {
-	XMLName   xml.Name `xml:"CreateConfigurationSetTrackingOptionsResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                                    `xml:"CreateConfigurationSetTrackingOptionsResponse"`
+	Xmlns     string                                      `xml:"xmlns,attr"`
+	Result    createConfigurationSetTrackingOptionsResult `xml:"CreateConfigurationSetTrackingOptionsResult"`
+	RequestID string                                      `xml:"ResponseMetadata>RequestId"`
 }
 
+type deleteConfigurationSetTrackingOptionsResult struct{}
+
 type deleteConfigurationSetTrackingOptionsResponse struct {
-	XMLName   xml.Name `xml:"DeleteConfigurationSetTrackingOptionsResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                                    `xml:"DeleteConfigurationSetTrackingOptionsResponse"`
+	Xmlns     string                                      `xml:"xmlns,attr"`
+	Result    deleteConfigurationSetTrackingOptionsResult `xml:"DeleteConfigurationSetTrackingOptionsResult"`
+	RequestID string                                      `xml:"ResponseMetadata>RequestId"`
 }
 
 func (h *Handler) handleDescribeConfigurationSet(vals url.Values, reqID string) (any, error) {

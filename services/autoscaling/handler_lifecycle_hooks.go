@@ -105,18 +105,21 @@ func (h *Handler) handleDescribeLifecycleHooks(vals url.Values) (any, error) {
 type completeLifecycleActionResponse struct {
 	XMLName          xml.Name            `xml:"CompleteLifecycleActionResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"CompleteLifecycleActionResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 type deleteLifecycleHookResponse struct {
 	XMLName          xml.Name            `xml:"DeleteLifecycleHookResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"DeleteLifecycleHookResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 type putLifecycleHookResponse struct {
 	XMLName          xml.Name            `xml:"PutLifecycleHookResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"PutLifecycleHookResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
@@ -199,5 +202,6 @@ type describeLifecycleHookTypesResponse struct {
 type recordLifecycleActionHeartbeatResponse struct {
 	XMLName          xml.Name            `xml:"RecordLifecycleActionHeartbeatResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"RecordLifecycleActionHeartbeatResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }

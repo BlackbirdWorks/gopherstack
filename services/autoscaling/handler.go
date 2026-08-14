@@ -515,6 +515,14 @@ type xmlResponseMetadata struct {
 	RequestID string `xml:"RequestId"`
 }
 
+// emptyResultXML is the empty "<Op>Result" element real Autoscaling responses carry even
+// when the op's SDK output shape has no members. Their deserializers (e.g.
+// autoscaling@v1.70.4 deserializers.go) unconditionally call
+// decoder.GetElement("<Op>Result") for query-protocol ops that aren't among the ones
+// whose deserializer discards the body outright, so omitting the element fails
+// deserialization with "node not found" for every real SDK client.
+type emptyResultXML struct{}
+
 type autoscalingError struct {
 	Code    string `xml:"Code"`
 	Message string `xml:"Message"`

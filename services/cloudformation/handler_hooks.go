@@ -26,9 +26,11 @@ func (h *Handler) dispatchHookOps(action string, form url.Values, c *echo.Contex
 
 func (h *Handler) handleRecordHandlerProgress(form url.Values, c *echo.Context) error {
 	_ = h.Backend.RecordHandlerProgress(form.Get("BearerToken"), form.Get("OperationStatus"))
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"RecordHandlerProgressResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"RecordHandlerProgressResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 

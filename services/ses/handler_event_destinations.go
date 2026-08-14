@@ -39,16 +39,22 @@ func (h *Handler) handleDeleteConfigurationSetEventDestination(vals url.Values, 
 	}, nil
 }
 
+type createConfigurationSetEventDestinationResult struct{}
+
 type createConfigurationSetEventDestinationResponse struct {
-	XMLName   xml.Name `xml:"CreateConfigurationSetEventDestinationResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                                     `xml:"CreateConfigurationSetEventDestinationResponse"`
+	Xmlns     string                                       `xml:"xmlns,attr"`
+	Result    createConfigurationSetEventDestinationResult `xml:"CreateConfigurationSetEventDestinationResult"`
+	RequestID string                                       `xml:"ResponseMetadata>RequestId"`
 }
 
+type deleteConfigurationSetEventDestinationResult struct{}
+
 type deleteConfigurationSetEventDestinationResponse struct {
-	XMLName   xml.Name `xml:"DeleteConfigurationSetEventDestinationResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                                     `xml:"DeleteConfigurationSetEventDestinationResponse"`
+	Xmlns     string                                       `xml:"xmlns,attr"`
+	Result    deleteConfigurationSetEventDestinationResult `xml:"DeleteConfigurationSetEventDestinationResult"`
+	RequestID string                                       `xml:"ResponseMetadata>RequestId"`
 }
 
 func (h *Handler) handleUpdateConfigurationSetEventDestination(vals url.Values, reqID string) (any, error) {

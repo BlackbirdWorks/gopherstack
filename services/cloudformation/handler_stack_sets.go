@@ -215,9 +215,11 @@ func (h *Handler) handleDeleteStackSet(form url.Values, c *echo.Context) error {
 
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"DeleteStackSetResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeleteStackSetResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -670,9 +672,11 @@ func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) 
 
 		return h.xmlError(c, code, err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"StopStackSetOperationResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"StopStackSetOperationResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -749,9 +753,11 @@ func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo
 
 func (h *Handler) handleActivateOrganizationsAccess(c *echo.Context) error {
 	_ = h.Backend.ActivateOrganizationsAccess()
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"ActivateOrganizationsAccessResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"ActivateOrganizationsAccessResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -760,9 +766,11 @@ func (h *Handler) handleActivateOrganizationsAccess(c *echo.Context) error {
 
 func (h *Handler) handleDeactivateOrganizationsAccess(c *echo.Context) error {
 	_ = h.Backend.DeactivateOrganizationsAccess()
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"DeactivateOrganizationsAccessResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeactivateOrganizationsAccessResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 

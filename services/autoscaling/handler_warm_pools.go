@@ -80,12 +80,14 @@ func (h *Handler) handleDescribeWarmPool(vals url.Values) (any, error) {
 type putWarmPoolResponse struct {
 	XMLName          xml.Name            `xml:"PutWarmPoolResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"PutWarmPoolResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 type deleteWarmPoolResponse struct {
 	XMLName          xml.Name            `xml:"DeleteWarmPoolResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"DeleteWarmPoolResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 

@@ -376,14 +376,14 @@ type createTrustStoreResponse struct {
 }
 
 type deleteTrustStoreResponse struct {
-	Result           deleteResultXML     `xml:"DeleteTrustStoreResult"`
+	Result           emptyResultXML      `xml:"DeleteTrustStoreResult"`
 	XMLName          xml.Name            `xml:"DeleteTrustStoreResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 type deleteSharedTrustStoreAssociationResponse struct {
-	Result           deleteResultXML     `xml:"DeleteSharedTrustStoreAssociationResult"`
+	Result           emptyResultXML      `xml:"DeleteSharedTrustStoreAssociationResult"`
 	XMLName          xml.Name            `xml:"DeleteSharedTrustStoreAssociationResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
@@ -485,6 +485,7 @@ type addTrustStoreRevocationsResult struct {
 type removeTrustStoreRevocationsResponse struct {
 	XMLName          xml.Name            `xml:"RemoveTrustStoreRevocationsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"RemoveTrustStoreRevocationsResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 

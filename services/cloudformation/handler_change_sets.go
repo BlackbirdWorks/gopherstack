@@ -82,9 +82,11 @@ func (h *Handler) handleExecuteChangeSet(form url.Values, c *echo.Context) error
 		return h.xmlError(c, "ChangeSetNotFound", err.Error())
 	}
 
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"ExecuteChangeSetResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"ExecuteChangeSetResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -99,9 +101,11 @@ func (h *Handler) handleDeleteChangeSet(form url.Values, c *echo.Context) error 
 		return h.xmlError(c, "ChangeSetNotFound", err.Error())
 	}
 
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"DeleteChangeSetResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeleteChangeSetResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 

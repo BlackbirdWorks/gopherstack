@@ -132,5 +132,6 @@ type describeListenerCertificatesResponse struct {
 type removeListenerCertificatesResponse struct {
 	XMLName          xml.Name            `xml:"RemoveListenerCertificatesResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"RemoveListenerCertificatesResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }

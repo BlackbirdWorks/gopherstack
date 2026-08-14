@@ -233,9 +233,11 @@ func (h *Handler) handleDeactivateType(form url.Values, c *echo.Context) error {
 	if err := h.Backend.DeactivateType(form.Get("TypeName"), form.Get("TypeArn")); err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"DeactivateTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeactivateTypeResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -271,9 +273,11 @@ func (h *Handler) handleDeregisterType(form url.Values, c *echo.Context) error {
 	if err := h.Backend.DeregisterType(form.Get("Arn")); err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"DeregisterTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeregisterTypeResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -305,9 +309,11 @@ func (h *Handler) handleSetTypeDefaultVersion(form url.Values, c *echo.Context) 
 	if err := h.Backend.SetTypeDefaultVersion(form.Get("Arn"), form.Get("VersionId")); err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"SetTypeDefaultVersionResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"SetTypeDefaultVersionResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 

@@ -104,16 +104,22 @@ type xmlTemplate struct {
 	HTMLPart     string `xml:"HTMLPart,omitempty"`
 }
 
+type createTemplateResult struct{}
+
 type createTemplateResponse struct {
-	XMLName   xml.Name `xml:"CreateTemplateResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name             `xml:"CreateTemplateResponse"`
+	Xmlns     string               `xml:"xmlns,attr"`
+	Result    createTemplateResult `xml:"CreateTemplateResult"`
+	RequestID string               `xml:"ResponseMetadata>RequestId"`
 }
 
+type updateTemplateResult struct{}
+
 type updateTemplateResponse struct {
-	XMLName   xml.Name `xml:"UpdateTemplateResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name             `xml:"UpdateTemplateResponse"`
+	Xmlns     string               `xml:"xmlns,attr"`
+	Result    updateTemplateResult `xml:"UpdateTemplateResult"`
+	RequestID string               `xml:"ResponseMetadata>RequestId"`
 }
 
 type getTemplateResult struct {
@@ -153,10 +159,13 @@ type listTemplatesResponse struct {
 	Result    listTemplatesResult `xml:"ListTemplatesResult"`
 }
 
+type deleteTemplateResult struct{}
+
 type deleteTemplateResponse struct {
-	XMLName   xml.Name `xml:"DeleteTemplateResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name             `xml:"DeleteTemplateResponse"`
+	Xmlns     string               `xml:"xmlns,attr"`
+	Result    deleteTemplateResult `xml:"DeleteTemplateResult"`
+	RequestID string               `xml:"ResponseMetadata>RequestId"`
 }
 
 func (h *Handler) handleTestRenderTemplate(vals url.Values, reqID string) (any, error) {

@@ -425,12 +425,14 @@ type CheckIfPhoneNumberIsOptedOutResponse struct {
 // CreateSMSSandboxPhoneNumberResponse is the XML response for CreateSMSSandboxPhoneNumber.
 type CreateSMSSandboxPhoneNumberResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ CreateSMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	Result           snsEmptyResult   `xml:"CreateSMSSandboxPhoneNumberResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // DeleteSMSSandboxPhoneNumberResponse is the XML response for DeleteSMSSandboxPhoneNumber.
 type DeleteSMSSandboxPhoneNumberResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ DeleteSMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	Result           snsEmptyResult   `xml:"DeleteSMSSandboxPhoneNumberResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
@@ -533,18 +535,21 @@ type RemovePermissionResponse struct {
 // OptInPhoneNumberResponse is the XML response for OptInPhoneNumber.
 type OptInPhoneNumberResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ OptInPhoneNumberResponse"`
+	Result           snsEmptyResult   `xml:"OptInPhoneNumberResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // VerifySMSSandboxPhoneNumberResponse is the XML response for VerifySMSSandboxPhoneNumber.
 type VerifySMSSandboxPhoneNumberResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ VerifySMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	Result           snsEmptyResult   `xml:"VerifySMSSandboxPhoneNumberResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // SetSMSAttributesResponse is the XML response for SetSMSAttributes.
 type SetSMSAttributesResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ SetSMSAttributesResponse"`
+	Result           snsEmptyResult   `xml:"SetSMSAttributesResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
@@ -761,3 +766,8 @@ type snsEmptyResponse struct {
 		XMLName xml.Name `xml:""`
 	}
 }
+
+// snsEmptyResult is the same empty "<Op>Result" element as snsEmptyResponse.Result, for
+// ops whose response struct already has a fixed per-action XMLName (so snsEmptyResponse's
+// dynamic-XMLName approach isn't needed) but which still need a typed field to carry it.
+type snsEmptyResult struct{}
