@@ -122,14 +122,33 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 
 // ---- DescribeEventCategories ----
 
-type xmlEventInfoMap struct {
-	EventCategory     string   `xml:"EventCategory"`
-	SourceType        string   `xml:"SourceType"`
-	EventDescriptions []string `xml:"EventInfoMapList>EventInfoMap>EventDescription,omitempty"`
+// xmlEventInfo mirrors types.EventInfoMap (EventId, EventDescription,
+// EventCategories, Severity) -- confirmed against
+// awsAwsquery_deserializeDocumentEventInfoMap in the pinned SDK's
+// deserializers.go. EventCategories, not a bare EventCategory string, is
+// the real per-event field; it nests under each source type's own Events
+// list rather than sitting flat on the EventCategoriesMap.
+type xmlEventInfo struct {
+	EventID          string   `xml:"EventId,omitempty"`
+	EventDescription string   `xml:"EventDescription,omitempty"`
+	Severity         string   `xml:"Severity,omitempty"`
+	EventCategories  []string `xml:"EventCategories>EventCategory,omitempty"`
+}
+
+const eventSeverityInfo = "INFO"
+
+// xmlEventCategoriesMap mirrors types.EventCategoriesMap: SourceType plus a
+// nested Events list of xmlEventInfo -- confirmed against
+// awsAwsquery_deserializeDocumentEventCategoriesMap. gopherstack previously
+// emitted a flat EventCategory string here, which the real deserializer
+// does not recognize; Events was always empty for every source type.
+type xmlEventCategoriesMap struct {
+	SourceType string         `xml:"SourceType"`
+	Events     []xmlEventInfo `xml:"Events>EventInfoMap,omitempty"`
 }
 
 type xmlEventCategoriesResult struct {
-	EventCategoriesMapList []xmlEventInfoMap `xml:"EventCategoriesMapList>EventCategoriesMap"`
+	EventCategoriesMapList []xmlEventCategoriesMap `xml:"EventCategoriesMapList>EventCategoriesMap"`
 }
 
 type describeEventCategoriesResponse struct {
@@ -142,13 +161,63 @@ func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
 	return &describeEventCategoriesResponse{
 		Xmlns: redshiftXMLNS,
 		Result: xmlEventCategoriesResult{
-			EventCategoriesMapList: []xmlEventInfoMap{
-				{SourceType: keyResourceCluster, EventCategory: "maintenance"},
-				{SourceType: keyResourceCluster, EventCategory: "monitoring"},
-				{SourceType: keyResourceCluster, EventCategory: "security"},
-				{SourceType: "cluster-snapshot", EventCategory: "backup"},
-				{SourceType: "cluster-parameter-group", EventCategory: "configuration"},
-				{SourceType: "cluster-security-group", EventCategory: "configuration"},
+			EventCategoriesMapList: []xmlEventCategoriesMap{
+				{
+					SourceType: keyResourceCluster,
+					Events: []xmlEventInfo{
+						{
+							EventID:          "REDSHIFT-EVENT-2001",
+							EventDescription: "Cluster maintenance event",
+							EventCategories:  []string{"maintenance"},
+							Severity:         eventSeverityInfo,
+						},
+						{
+							EventID:          "REDSHIFT-EVENT-2002",
+							EventDescription: "Cluster monitoring event",
+							EventCategories:  []string{"monitoring"},
+							Severity:         eventSeverityInfo,
+						},
+						{
+							EventID:          "REDSHIFT-EVENT-2003",
+							EventDescription: "Cluster security event",
+							EventCategories:  []string{"security"},
+							Severity:         eventSeverityInfo,
+						},
+					},
+				},
+				{
+					SourceType: "cluster-snapshot",
+					Events: []xmlEventInfo{
+						{
+							EventID:          "REDSHIFT-EVENT-3001",
+							EventDescription: "Cluster snapshot backup event",
+							EventCategories:  []string{"backup"},
+							Severity:         eventSeverityInfo,
+						},
+					},
+				},
+				{
+					SourceType: "cluster-parameter-group",
+					Events: []xmlEventInfo{
+						{
+							EventID:          "REDSHIFT-EVENT-4001",
+							EventDescription: "Cluster parameter group configuration event",
+							EventCategories:  []string{"configuration"},
+							Severity:         eventSeverityInfo,
+						},
+					},
+				},
+				{
+					SourceType: "cluster-security-group",
+					Events: []xmlEventInfo{
+						{
+							EventID:          "REDSHIFT-EVENT-5001",
+							EventDescription: "Cluster security group configuration event",
+							EventCategories:  []string{"configuration"},
+							Severity:         eventSeverityInfo,
+						},
+					},
+				},
 			},
 		},
 	}, nil

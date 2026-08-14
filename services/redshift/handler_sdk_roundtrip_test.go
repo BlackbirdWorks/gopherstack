@@ -69,6 +69,7 @@ func TestSDKRoundTrip_ListWrapperFixes(t *testing.T) {
 		{testDescribeDataShares, "describe data shares"},
 		{testDescribeEndpointAuthorization, "describe endpoint authorization"},
 		{testDescribeUsageLimits, "describe usage limits"},
+		{testDescribeEventCategories, "describe event categories"},
 	}
 
 	for _, tc := range cases {
@@ -219,4 +220,32 @@ func testDescribeUsageLimits(t *testing.T, backend *redshift.InMemoryBackend, cl
 	require.NoError(t, err)
 	require.Len(t, out.UsageLimits, 1)
 	assert.Equal(t, "rt-ul-cluster", aws.ToString(out.UsageLimits[0].ClusterIdentifier))
+}
+
+// testDescribeEventCategories: the handler emitted a flat EventCategory
+// string on each EventCategoriesMap entry, but the real deserializer
+// (redshift@v1.65.4 deserializers.go:31075) has no such field -- category
+// names live in a nested Events list of EventInfoMap, each carrying its own
+// EventCategories. A real client always saw SourceType populated but Events
+// permanently empty.
+func testDescribeEventCategories(t *testing.T, _ *redshift.InMemoryBackend, client *redshiftsdk.Client) {
+	t.Helper()
+	ctx := t.Context()
+
+	out, err := client.DescribeEventCategories(ctx, &redshiftsdk.DescribeEventCategoriesInput{})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.EventCategoriesMapList)
+
+	var clusterEvents []string
+	for _, m := range out.EventCategoriesMapList {
+		if aws.ToString(m.SourceType) != "cluster" {
+			continue
+		}
+
+		for _, ev := range m.Events {
+			clusterEvents = append(clusterEvents, ev.EventCategories...)
+		}
+	}
+
+	assert.Contains(t, clusterEvents, "maintenance")
 }

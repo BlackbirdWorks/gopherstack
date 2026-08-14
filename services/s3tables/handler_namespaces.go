@@ -68,6 +68,7 @@ func (h *Handler) handleGetNamespace(ctx context.Context, r *http.Request, _ []b
 		keyCreatedAt:      ns.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 		keyCreatedBy:      ns.CreatedBy,
 		keyOwnerAccountID: ns.OwnerAccountID,
+		keyNamespaceID:    ns.NamespaceID,
 	})
 }
 
@@ -117,6 +118,7 @@ func (h *Handler) handleListNamespaces(ctx context.Context, r *http.Request, _ [
 			keyCreatedAt:      ns.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 			keyCreatedBy:      ns.CreatedBy,
 			keyOwnerAccountID: ns.OwnerAccountID,
+			keyNamespaceID:    ns.NamespaceID,
 		})
 	}
 
