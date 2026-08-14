@@ -421,3 +421,76 @@ func TestQuery_ConsumedCapacity(t *testing.T) {
 	assert.InDelta(t, eventual*2, *outConsistent.ConsumedCapacity.CapacityUnits, 1e-9,
 		"strongly-consistent query should report 2x the capacity")
 }
+
+// TestQuery_ReturnConsumedCapacity_SurvivesWireConversion verifies that
+// ToSDKQueryInput itself copies ReturnConsumedCapacity from the wire-format
+// models.QueryInput onto the SDK input struct. ToSDKQueryInput previously left
+// this field unset even though models.QueryInput declared it, so a real client's
+// "ReturnConsumedCapacity": "TOTAL" was silently dropped when parsed off the wire.
+// TestQuery_ConsistentRead_ConsumedCapacity above manually overwrites
+// sdkQuery.ReturnConsumedCapacity after calling ToSDKQueryInput, which is why it
+// never caught this: it bypasses the exact conversion step this test exercises.
+func TestQuery_ReturnConsumedCapacity_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createSimpleTestTable(t, db, "QueryCCWireTable")
+	_, err := db.PutItem(t.Context(), &awsdynamodb.PutItemInput{
+		TableName: aws.String("QueryCCWireTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+	})
+	require.NoError(t, err)
+
+	input := models.QueryInput{
+		TableName:                 "QueryCCWireTable",
+		KeyConditionExpression:    "pk = :pk",
+		ExpressionAttributeValues: map[string]any{":pk": map[string]any{"S": "p1"}},
+		ReturnConsumedCapacity:    "TOTAL",
+	}
+
+	sdkInput, convErr := models.ToSDKQueryInput(&input)
+	require.NoError(t, convErr)
+	require.Equal(t, types.ReturnConsumedCapacityTotal, sdkInput.ReturnConsumedCapacity)
+
+	out, queryErr := db.Query(t.Context(), sdkInput)
+	require.NoError(t, queryErr)
+	require.NotNil(t, out.ConsumedCapacity, "backend must populate ConsumedCapacity when requested")
+}
+
+// TestQuery_Select_SurvivesWireConversion verifies that ToSDKQueryInput copies
+// Select onto the SDK input, so a real client requesting Select=COUNT actually
+// gets the COUNT-only response (Items omitted). models.QueryInput previously had
+// no Select field at all.
+func TestQuery_Select_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createSimpleTestTable(t, db, "QuerySelectTable")
+	_, err := db.PutItem(t.Context(), &awsdynamodb.PutItemInput{
+		TableName: aws.String("QuerySelectTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+	})
+	require.NoError(t, err)
+
+	input := models.QueryInput{
+		TableName:                 "QuerySelectTable",
+		KeyConditionExpression:    "pk = :pk",
+		ExpressionAttributeValues: map[string]any{":pk": map[string]any{"S": "p1"}},
+		Select:                    "COUNT",
+	}
+
+	sdkInput, convErr := models.ToSDKQueryInput(&input)
+	require.NoError(t, convErr)
+	require.Equal(t, types.SelectCount, sdkInput.Select)
+
+	out, queryErr := db.Query(t.Context(), sdkInput)
+	require.NoError(t, queryErr)
+	assert.Empty(t, out.Items, "Select=COUNT must omit Items")
+	assert.Equal(t, int32(1), out.Count)
+}

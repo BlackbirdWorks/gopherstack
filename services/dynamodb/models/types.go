@@ -283,14 +283,18 @@ type UpdateItemOutput struct {
 }
 
 type GetItemInput struct {
+	ConsistentRead           *bool             `json:"ConsistentRead,omitempty"`
 	Key                      map[string]any    `json:"Key"`
 	ExpressionAttributeNames map[string]string `json:"ExpressionAttributeNames,omitempty"`
 	TableName                string            `json:"TableName"`
 	ProjectionExpression     string            `json:"ProjectionExpression,omitempty"`
+	ReturnConsumedCapacity   string            `json:"ReturnConsumedCapacity,omitempty"`
+	AttributesToGet          []string          `json:"AttributesToGet,omitempty"`
 }
 
 type GetItemOutput struct {
-	Item map[string]any `json:"Item,omitempty"`
+	ConsumedCapacity *ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
+	Item             map[string]any    `json:"Item,omitempty"`
 }
 
 type DeleteItemInput struct {
@@ -339,6 +343,7 @@ type QueryInput struct {
 	FilterExpression          string            `json:"FilterExpression,omitempty"`
 	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
 	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
+	Select                    string            `json:"Select,omitempty"`
 	Limit                     int32             `json:"Limit,omitempty"`
 	ConsistentRead            bool              `json:"ConsistentRead,omitempty"`
 }
@@ -378,6 +383,7 @@ type SearchResultItem struct {
 }
 
 type ScanInput struct {
+	ConsistentRead            *bool             `json:"ConsistentRead,omitempty"`
 	Limit                     *int32            `json:"Limit,omitempty"`
 	Segment                   *int32            `json:"Segment,omitempty"`
 	TotalSegments             *int32            `json:"TotalSegments,omitempty"`
@@ -388,19 +394,23 @@ type ScanInput struct {
 	IndexName                 string            `json:"IndexName,omitempty"`
 	FilterExpression          string            `json:"FilterExpression,omitempty"`
 	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
+	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
+	Select                    string            `json:"Select,omitempty"`
 }
 
 type ScanOutput struct {
-	LastEvaluatedKey map[string]any   `json:"LastEvaluatedKey,omitempty"`
-	Items            []map[string]any `json:"Items"`
-	Count            int              `json:"Count"`
-	ScannedCount     int              `json:"ScannedCount"`
+	ConsumedCapacity *ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
+	LastEvaluatedKey map[string]any    `json:"LastEvaluatedKey,omitempty"`
+	Items            []map[string]any  `json:"Items"`
+	Count            int               `json:"Count"`
+	ScannedCount     int               `json:"ScannedCount"`
 }
 
 // --- Batch Operations ---
 
 type BatchGetItemInput struct {
-	RequestItems map[string]KeysAndAttributes `json:"RequestItems"`
+	RequestItems           map[string]KeysAndAttributes `json:"RequestItems"`
+	ReturnConsumedCapacity string                       `json:"ReturnConsumedCapacity,omitempty"`
 }
 
 type KeysAndAttributes struct {
@@ -417,7 +427,9 @@ type BatchGetItemOutput struct {
 }
 
 type BatchWriteItemInput struct {
-	RequestItems map[string][]WriteRequest `json:"RequestItems"`
+	RequestItems                map[string][]WriteRequest `json:"RequestItems"`
+	ReturnConsumedCapacity      string                    `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics string                    `json:"ReturnItemCollectionMetrics,omitempty"`
 }
 
 type WriteRequest struct {

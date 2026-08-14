@@ -396,6 +396,69 @@ func TestTransactWriteItems_ConsumedCapacity(t *testing.T) {
 	require.NotEmpty(t, out.ConsumedCapacity, "ConsumedCapacity should be populated when requested")
 }
 
+// TestTransactWriteItems_ReturnItemCollectionMetrics_SurvivesWireConversion verifies
+// that ToSDKTransactWriteItemsInput actually copies ReturnItemCollectionMetrics from
+// the wire-format models.TransactWriteItemsInput onto the SDK input struct.
+// ToSDKTransactWriteItemsInput previously left this field unset (marked only by a
+// dangling "// ReturnItemCollectionMetrics" comment), so a real client's
+// "ReturnItemCollectionMetrics": "SIZE" was silently dropped when parsed off the
+// wire -- the backend always saw the zero value regardless of what was requested.
+// TestTransactWriteItems_ConsumedCapacity exercises this op via the SDK-typed input
+// directly, which bypasses this exact conversion step; this test goes through the
+// wire model instead, the same path a real client's JSON body takes.
+func TestTransactWriteItems_ReturnItemCollectionMetrics_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	_, err := db.CreateTable(t.Context(), &sdk.CreateTableInput{
+		TableName: aws.String("LsiTable"),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+			{AttributeName: aws.String("sk"), KeyType: types.KeyTypeRange},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+			{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
+			{AttributeName: aws.String("lsi_sk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		LocalSecondaryIndexes: []types.LocalSecondaryIndex{
+			{
+				IndexName: aws.String("lsi1"),
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+					{AttributeName: aws.String("lsi_sk"), KeyType: types.KeyTypeRange},
+				},
+				Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+			},
+		},
+		BillingMode: types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	input := models.TransactWriteItemsInput{
+		ReturnItemCollectionMetrics: "SIZE",
+		TransactItems: []models.TransactWriteItem{
+			{Put: &models.PutItemInput{
+				TableName: "LsiTable",
+				Item: map[string]any{
+					"pk":     map[string]any{"S": "user1"},
+					"sk":     map[string]any{"S": "ord1"},
+					"lsi_sk": map[string]any{"S": "ord1"},
+				},
+			}},
+		},
+	}
+
+	sdkInput, convErr := models.ToSDKTransactWriteItemsInput(&input)
+	require.NoError(t, convErr)
+	require.Equal(t, types.ReturnItemCollectionMetricsSize, sdkInput.ReturnItemCollectionMetrics)
+
+	out, writeErr := db.TransactWriteItems(t.Context(), sdkInput)
+	require.NoError(t, writeErr)
+	require.NotEmpty(t, out.ItemCollectionMetrics["LsiTable"],
+		"ItemCollectionMetrics must be populated when requested on an LSI table")
+}
+
 func TestTransactWriteItems_TokenNotCommittedOnFailure(t *testing.T) {
 	t.Parallel()
 

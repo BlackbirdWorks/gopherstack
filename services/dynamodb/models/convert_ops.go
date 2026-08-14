@@ -68,6 +68,9 @@ func ToSDKGetItemInput(input *GetItemInput) (*dynamodb.GetItemInput, error) {
 		Key:                      key,
 		ExpressionAttributeNames: input.ExpressionAttributeNames,
 		ProjectionExpression:     ptrconv.NilIfEmpty(input.ProjectionExpression),
+		AttributesToGet:          input.AttributesToGet,
+		ConsistentRead:           input.ConsistentRead,
+		ReturnConsumedCapacity:   types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
 	}, nil
 }
 
@@ -76,7 +79,10 @@ func FromSDKGetItemOutput(output *dynamodb.GetItemOutput) *GetItemOutput {
 	if len(output.Item) > 0 {
 		out.Item = FromSDKItem(output.Item)
 	}
-	// ConsumedCapacity missing in current types.go GetItemOutput
+	if output.ConsumedCapacity != nil {
+		out.ConsumedCapacity = FromSDKConsumedCapacity(output.ConsumedCapacity)
+	}
+
 	return out
 }
 
@@ -188,6 +194,9 @@ func ToSDKScanInput(input *ScanInput) (*dynamodb.ScanInput, error) {
 		Limit:                    input.Limit,
 		Segment:                  input.Segment,
 		TotalSegments:            input.TotalSegments,
+		ConsistentRead:           input.ConsistentRead,
+		ReturnConsumedCapacity:   types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
+		Select:                   types.Select(input.Select),
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
@@ -227,6 +236,10 @@ func FromSDKScanOutput(output *dynamodb.ScanOutput) *ScanOutput {
 		out.LastEvaluatedKey = FromSDKItem(output.LastEvaluatedKey)
 	}
 
+	if output.ConsumedCapacity != nil {
+		out.ConsumedCapacity = FromSDKConsumedCapacity(output.ConsumedCapacity)
+	}
+
 	return out
 }
 
@@ -239,6 +252,8 @@ func ToSDKQueryInput(input *QueryInput) (*dynamodb.QueryInput, error) {
 		ProjectionExpression:     ptrconv.NilIfEmpty(input.ProjectionExpression),
 		ExpressionAttributeNames: input.ExpressionAttributeNames,
 		ScanIndexForward:         input.ScanIndexForward,
+		ReturnConsumedCapacity:   types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
+		Select:                   types.Select(input.Select),
 	}
 
 	if input.Limit > 0 {
@@ -378,7 +393,8 @@ func ToSDKBatchGetItemInput(input *BatchGetItemInput) (*dynamodb.BatchGetItemInp
 	}
 
 	return &dynamodb.BatchGetItemInput{
-		RequestItems: requestItems,
+		RequestItems:           requestItems,
+		ReturnConsumedCapacity: types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
 	}, nil
 }
 
@@ -440,7 +456,9 @@ func ToSDKBatchWriteItemInput(input *BatchWriteItemInput) (*dynamodb.BatchWriteI
 	}
 
 	return &dynamodb.BatchWriteItemInput{
-		RequestItems: requestItems,
+		RequestItems:                requestItems,
+		ReturnConsumedCapacity:      types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
+		ReturnItemCollectionMetrics: types.ReturnItemCollectionMetrics(input.ReturnItemCollectionMetrics),
 	}, nil
 }
 
@@ -609,10 +627,10 @@ func ToSDKTransactWriteItemsInput(
 	}
 
 	return &dynamodb.TransactWriteItemsInput{
-		TransactItems:          items,
-		ClientRequestToken:     ptrconv.NilIfEmpty(input.ClientRequestToken),
-		ReturnConsumedCapacity: types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
-		// ReturnItemCollectionMetrics
+		TransactItems:               items,
+		ClientRequestToken:          ptrconv.NilIfEmpty(input.ClientRequestToken),
+		ReturnConsumedCapacity:      types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
+		ReturnItemCollectionMetrics: types.ReturnItemCollectionMetrics(input.ReturnItemCollectionMetrics),
 	}, nil
 }
 

@@ -567,6 +567,288 @@ func TestThrottler_UpdateItemExceedsCapacity(t *testing.T) {
 	}
 }
 
+// TestThrottler_BatchGetItemExceedsCapacity verifies that BatchGetItem consumes RCU
+// and returns ProvisionedThroughputExceededException when the read bucket is
+// exhausted, exactly as GetItem does. BatchGetItem previously never called the
+// throttler at all.
+func TestThrottler_BatchGetItemExceedsCapacity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		rcu     int64
+		numKeys int
+		wantErr bool
+	}{
+		{name: "within_capacity", rcu: 5, numKeys: 3, wantErr: false},
+		{name: "exceeds_capacity", rcu: 1, numKeys: 3, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := newThrottledDB(t, tt.rcu, 10)
+
+			keys := make([]map[string]types.AttributeValue, 0, tt.numKeys)
+			for i := range tt.numKeys {
+				k := string(rune('a' + i))
+				_, putErr := db.PutItem(t.Context(), &ddbsdk.PutItemInput{
+					TableName: aws.String("tbl"),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: k},
+					},
+				})
+				require.NoError(t, putErr)
+				keys = append(keys, map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: k},
+				})
+			}
+
+			_, err := db.BatchGetItem(t.Context(), &ddbsdk.BatchGetItemInput{
+				RequestItems: map[string]types.KeysAndAttributes{
+					"tbl": {Keys: keys},
+				},
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				var ddbErr *dynamodb.Error
+				require.ErrorAs(t, err, &ddbErr)
+				assert.Contains(t, ddbErr.Type, "ProvisionedThroughputExceededException")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestThrottler_BatchWriteItemExceedsCapacity verifies that BatchWriteItem consumes
+// WCU and returns ProvisionedThroughputExceededException when the write bucket is
+// exhausted, exactly as PutItem does. BatchWriteItem previously never called the
+// throttler at all.
+func TestThrottler_BatchWriteItemExceedsCapacity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wcu     int64
+		numPuts int
+		wantErr bool
+	}{
+		{name: "within_capacity", wcu: 5, numPuts: 3, wantErr: false},
+		{name: "exceeds_capacity", wcu: 1, numPuts: 3, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := newThrottledDB(t, 5, tt.wcu)
+
+			reqs := make([]types.WriteRequest, 0, tt.numPuts)
+			for i := range tt.numPuts {
+				k := string(rune('a' + i))
+				reqs = append(reqs, types.WriteRequest{
+					PutRequest: &types.PutRequest{
+						Item: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: k},
+						},
+					},
+				})
+			}
+
+			_, err := db.BatchWriteItem(t.Context(), &ddbsdk.BatchWriteItemInput{
+				RequestItems: map[string][]types.WriteRequest{"tbl": reqs},
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				var ddbErr *dynamodb.Error
+				require.ErrorAs(t, err, &ddbErr)
+				assert.Contains(t, ddbErr.Type, "ProvisionedThroughputExceededException")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestThrottler_TransactWriteItemsExceedsCapacity verifies that TransactWriteItems
+// consumes WCU and returns ProvisionedThroughputExceededException when the write
+// bucket is exhausted. TransactWriteItems previously never called the throttler at
+// all, unlike every non-transactional write path.
+func TestThrottler_TransactWriteItemsExceedsCapacity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wcu     int64
+		numPuts int
+		wantErr bool
+	}{
+		{name: "within_capacity", wcu: 5, numPuts: 3, wantErr: false},
+		{name: "exceeds_capacity", wcu: 1, numPuts: 3, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := newThrottledDB(t, 5, tt.wcu)
+
+			items := make([]types.TransactWriteItem, 0, tt.numPuts)
+			for i := range tt.numPuts {
+				k := string(rune('a' + i))
+				items = append(items, types.TransactWriteItem{
+					Put: &types.Put{
+						TableName: aws.String("tbl"),
+						Item: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: k},
+						},
+					},
+				})
+			}
+
+			_, err := db.TransactWriteItems(t.Context(), &ddbsdk.TransactWriteItemsInput{
+				TransactItems: items,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				var ddbErr *dynamodb.Error
+				require.ErrorAs(t, err, &ddbErr)
+				assert.Contains(t, ddbErr.Type, "ProvisionedThroughputExceededException")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestThrottler_TransactGetItemsExceedsCapacity verifies that TransactGetItems
+// consumes RCU and returns ProvisionedThroughputExceededException when the read
+// bucket is exhausted. TransactGetItems previously never called the throttler at
+// all, unlike every non-transactional read path.
+func TestThrottler_TransactGetItemsExceedsCapacity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		rcu     int64
+		numGets int
+		wantErr bool
+	}{
+		{name: "within_capacity", rcu: 5, numGets: 3, wantErr: false},
+		{name: "exceeds_capacity", rcu: 1, numGets: 3, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := newThrottledDB(t, tt.rcu, 10)
+
+			items := make([]types.TransactGetItem, 0, tt.numGets)
+			for i := range tt.numGets {
+				k := string(rune('a' + i))
+				_, putErr := db.PutItem(t.Context(), &ddbsdk.PutItemInput{
+					TableName: aws.String("tbl"),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: k},
+					},
+				})
+				require.NoError(t, putErr)
+				items = append(items, types.TransactGetItem{
+					Get: &types.Get{
+						TableName: aws.String("tbl"),
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: k},
+						},
+					},
+				})
+			}
+
+			_, err := db.TransactGetItems(t.Context(), &ddbsdk.TransactGetItemsInput{
+				TransactItems: items,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				var ddbErr *dynamodb.Error
+				require.ErrorAs(t, err, &ddbErr)
+				assert.Contains(t, ddbErr.Type, "ProvisionedThroughputExceededException")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestOnDemand_BatchAndTransactBypassThrottle verifies that PAY_PER_REQUEST tables
+// bypass throttling for BatchGetItem, BatchWriteItem, TransactWriteItems and
+// TransactGetItems, exactly as they already do for the single-item ops.
+func TestOnDemand_BatchAndTransactBypassThrottle(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	db.SetEnforceThroughput(true)
+	createOnDemandTestTable(t, db, "OnDemandBatch")
+
+	reqs := make([]types.WriteRequest, 0, 25)
+	for i := range 25 {
+		reqs = append(reqs, types.WriteRequest{
+			PutRequest: &types.PutRequest{
+				Item: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("k%d", i)},
+				},
+			},
+		})
+	}
+	_, err := db.BatchWriteItem(t.Context(), &ddbsdk.BatchWriteItemInput{
+		RequestItems: map[string][]types.WriteRequest{"OnDemandBatch": reqs},
+	})
+	require.NoError(t, err, "BatchWriteItem on PAY_PER_REQUEST table should not throttle")
+
+	keys := make([]map[string]types.AttributeValue, 0, 25)
+	for i := range 25 {
+		keys = append(keys, map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("k%d", i)},
+		})
+	}
+	_, err = db.BatchGetItem(t.Context(), &ddbsdk.BatchGetItemInput{
+		RequestItems: map[string]types.KeysAndAttributes{"OnDemandBatch": {Keys: keys}},
+	})
+	require.NoError(t, err, "BatchGetItem on PAY_PER_REQUEST table should not throttle")
+
+	twItems := make([]types.TransactWriteItem, 0, 25)
+	for i := range 25 {
+		twItems = append(twItems, types.TransactWriteItem{
+			Put: &types.Put{
+				TableName: aws.String("OnDemandBatch"),
+				Item: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("t%d", i)},
+				},
+			},
+		})
+	}
+	_, err = db.TransactWriteItems(t.Context(), &ddbsdk.TransactWriteItemsInput{TransactItems: twItems})
+	require.NoError(t, err, "TransactWriteItems on PAY_PER_REQUEST table should not throttle")
+
+	tgItems := make([]types.TransactGetItem, 0, 25)
+	for i := range 25 {
+		tgItems = append(tgItems, types.TransactGetItem{
+			Get: &types.Get{
+				TableName: aws.String("OnDemandBatch"),
+				Key: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("t%d", i)},
+				},
+			},
+		})
+	}
+	_, err = db.TransactGetItems(t.Context(), &ddbsdk.TransactGetItemsInput{TransactItems: tgItems})
+	require.NoError(t, err, "TransactGetItems on PAY_PER_REQUEST table should not throttle")
+}
+
 func TestOnDemand_WriteBypassesThrottle(t *testing.T) {
 	t.Parallel()
 	db := newInMemoryTestDB(t)
