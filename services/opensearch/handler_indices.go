@@ -23,10 +23,10 @@ type updateIndexRealRequest struct {
 	IndexSchema any `json:"IndexSchema"`
 }
 
-// createUpdateIndexResponseJSON is the response for the real CreateIndex/
-// UpdateIndex ops: Status is their only field (api_op_CreateIndex.go:62-73,
-// api_op_UpdateIndex.go:54-65).
-type createUpdateIndexResponseJSON struct {
+// indexStatusResponseJSON is the response for the real CreateIndex/UpdateIndex/
+// DeleteIndex ops: Status is their only field (api_op_CreateIndex.go:62-73,
+// api_op_UpdateIndex.go:54-65, api_op_DeleteIndex.go:44-53).
+type indexStatusResponseJSON struct {
 	Status string `json:"Status"`
 }
 
@@ -62,7 +62,7 @@ func (h *Handler) handleCreateIndexRealRoute(w http.ResponseWriter, r *http.Requ
 		return true
 	}
 
-	h.writeJSON(r, w, createUpdateIndexResponseJSON{Status: indexStatusCreated})
+	h.writeJSON(r, w, indexStatusResponseJSON{Status: indexStatusCreated})
 
 	return true
 }
@@ -88,7 +88,7 @@ func (h *Handler) handleUpdateIndexRoute(w http.ResponseWriter, r *http.Request,
 
 		return
 	}
-	h.writeJSON(r, w, createUpdateIndexResponseJSON{Status: indexStatusUpdated})
+	h.writeJSON(r, w, indexStatusResponseJSON{Status: indexStatusUpdated})
 }
 
 // handleIndexGetRoute handles GET routes under {domainName}/index/{indexName}:
@@ -363,13 +363,17 @@ func (h *Handler) handleIndexDeleteRoute(w http.ResponseWriter, r *http.Request,
 		return true
 	}
 
-	idx, err := h.Backend.DeleteIndex(sp.domain, sp.index)
-	if err != nil {
+	// Real DeleteIndexOutput has exactly one field, Status (types.IndexStatus,
+	// api_op_DeleteIndex.go:44-53) -- NOT the full index-metadata shape GetIndex
+	// returns, which toIndexResponseJSON was previously reused for here. A real
+	// client's out.Status was always empty, and the wrong keys (IndexName/
+	// Mappings/Settings/...) were sent instead.
+	if _, err := h.Backend.DeleteIndex(sp.domain, sp.index); err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return true
 	}
-	h.writeJSON(r, w, toIndexResponseJSON(idx))
+	h.writeJSON(r, w, indexStatusResponseJSON{Status: indexStatusDeleted})
 
 	return true
 }

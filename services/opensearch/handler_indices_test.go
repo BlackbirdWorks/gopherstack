@@ -112,3 +112,40 @@ func Test_SDKRoundTrip_UpdateIndex_IndexSchema(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "2", settings["number_of_replicas"])
 }
+
+// Test_SDKRoundTrip_DeleteIndex_Status proves DeleteIndexOutput carries the
+// required Status field (gopherstack-7185). DeleteIndexOutput's sole member is
+// Status (api_op_DeleteIndex.go:44-53, opensearch@v1.75.4); before the fix the
+// handler reused the GetIndex-shaped response (IndexName/Mappings/Settings/
+// Aliases/IndexStatus/DocumentCount), none of which is the real field, so a
+// real client's *DeleteIndexOutput.Status stayed the empty string even though
+// the index was genuinely deleted.
+func Test_SDKRoundTrip_DeleteIndex_Status(t *testing.T) {
+	t.Parallel()
+
+	backend := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+	h := opensearch.NewHandler(backend)
+	client := newTestOpenSearchClient(t, h)
+
+	_, err := client.CreateDomain(t.Context(), &opensearchsdk.CreateDomainInput{
+		DomainName: aws.String("index-delete-domain"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateIndex(t.Context(), &opensearchsdk.CreateIndexInput{
+		DomainName:  aws.String("index-delete-domain"),
+		IndexName:   aws.String("my-index"),
+		IndexSchema: document.NewLazyDocument(map[string]any{"settings": map[string]any{"number_of_shards": "1"}}),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DeleteIndex(t.Context(), &opensearchsdk.DeleteIndexInput{
+		DomainName: aws.String("index-delete-domain"),
+		IndexName:  aws.String("my-index"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.IndexStatusDeleted, out.Status)
+
+	_, err = backend.GetIndex("index-delete-domain", "my-index")
+	require.Error(t, err, "the index must actually be gone after delete")
+}

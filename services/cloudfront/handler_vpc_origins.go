@@ -222,5 +222,11 @@ func (h *Handler) handleDeleteVpcOrigin(c *echo.Context, id string) error {
 		return h.handleError(c, err)
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	// Unlike every other Delete op in this service, DeleteVpcOriginOutput is not empty:
+	// it carries ETag (header) and VpcOrigin (body), the just-deleted resource
+	// (cloudfront@v1.67.4 api_op_DeleteVpcOrigin.go:44-53). A 204 here silently dropped
+	// both for every real client.
+	c.Response().Header().Set("ETag", current.ETag)
+
+	return xmlResp(c, http.StatusOK, vpcOriginResponseXML(current))
 }

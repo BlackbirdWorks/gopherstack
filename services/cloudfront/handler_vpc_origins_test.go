@@ -199,8 +199,12 @@ func TestVpcOriginCRUD(t *testing.T) {
 
 				return map[string]string{"If-Match": origin.ETag}
 			},
-			wantStatus: http.StatusNoContent,
-			check:      nil,
+			wantStatus: http.StatusOK,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<VpcOrigin")
+				assert.NotEmpty(t, rec.Header().Get("ETag"))
+			},
 		},
 		{
 			name:   "get_vpc_origin_not_found",
@@ -372,6 +376,45 @@ func TestUpdateVpcOrigin_RealClient(t *testing.T) {
 	assert.Equal(t, int32(8080), aws.ToInt32(cfg.HTTPPort))
 	assert.Equal(t, int32(8443), aws.ToInt32(cfg.HTTPSPort))
 	assert.Equal(t, types.OriginProtocolPolicyHttpOnly, cfg.OriginProtocolPolicy)
+}
+
+// TestDeleteVpcOrigin_RealClient verifies DeleteVpcOriginOutput carries the deleted
+// VpcOrigin and its ETag, matching cloudfront@v1.67.4 api_op_DeleteVpcOrigin.go:44-53 --
+// unlike every other Delete op in this service, DeleteVpcOriginOutput is not empty. A
+// handler that answers with a bare 204 leaves both fields nil for a real client, even
+// though the delete genuinely happened.
+func TestDeleteVpcOrigin_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := client.CreateVpcOrigin(t.Context(), &cfsdk.CreateVpcOriginInput{
+		VpcOriginEndpointConfig: &types.VpcOriginEndpointConfig{
+			Name:                 aws.String("vpc-origin-delete-rc"),
+			Arn:                  aws.String("arn:aws:ec2:us-east-1:123456789012:vpc-endpoint/vpce-del1"),
+			HTTPPort:             aws.Int32(80),
+			HTTPSPort:            aws.Int32(443),
+			OriginProtocolPolicy: types.OriginProtocolPolicyHttpsOnly,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.VpcOrigin)
+
+	deleted, err := client.DeleteVpcOrigin(t.Context(), &cfsdk.DeleteVpcOriginInput{
+		Id:      created.VpcOrigin.Id,
+		IfMatch: created.ETag,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, deleted.VpcOrigin, "DeleteVpcOriginOutput.VpcOrigin must carry the deleted resource")
+	assert.Equal(t, aws.ToString(created.VpcOrigin.Id), aws.ToString(deleted.VpcOrigin.Id))
+	assert.Equal(
+		t, "vpc-origin-delete-rc", aws.ToString(deleted.VpcOrigin.VpcOriginEndpointConfig.Name),
+	)
+	assert.NotEmpty(t, aws.ToString(deleted.ETag), "DeleteVpcOriginOutput.ETag must be populated")
+
+	_, err = client.GetVpcOrigin(t.Context(), &cfsdk.GetVpcOriginInput{Id: created.VpcOrigin.Id})
+	require.Error(t, err, "the vpc origin must actually be gone after delete")
 }
 
 // TestUpdateVpcOrigin_MalformedBodyHandled verifies a malformed request body is

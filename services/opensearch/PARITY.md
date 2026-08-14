@@ -3,7 +3,9 @@ service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
 last_audit_commit: acb2e23f9  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
-last_audit_date: 2026-08-13
+last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delete/Modify ops
+                              # swept. 1 bug found and fixed (DeleteIndex response envelope --
+                              # see the `indices` family and items_still_open notes).
 overall: A            # RAISED from A- (parity-5, this pass). The two gaps that previously held the grade
                       # down -- AttachDataSource's workspaceConfiguration/workspaceId, and StartMigration's
                       # MigrationOptions.Workspace/ExportOptions/ConflictResolution -- are now built to the
@@ -549,7 +551,17 @@ beyond the capability's existence/name/status.
   and UpdateIndex are now field-diffed and fixed -- see the `indices` family
   above. GetIndex/DeleteIndex still reuse that same fix's response envelope
   but their own wire shape was not independently re-verified against
-  api_op_GetIndex.go/api_op_DeleteIndex.go this pass.
+  api_op_GetIndex.go/api_op_DeleteIndex.go this pass. UPDATE (gopherstack-7185,
+  2026-08-14): DeleteIndex now field-diffed and FIXED -- unlike GetIndex (whose
+  full index-metadata response shape is correct: DeleteIndexOutput's ONLY
+  member is Status, types.IndexStatus, api_op_DeleteIndex.go:44-53), DeleteIndex
+  was reusing that same GetIndex-shaped envelope (IndexName/Mappings/Settings/
+  Aliases/IndexStatus/DocumentCount), none of which is the real field, so a real
+  client's *DeleteIndexOutput.Status was always empty even though the index was
+  genuinely deleted. Now returns the same {"Status": "DELETED"} shape
+  CreateIndex/UpdateIndex already use. Proven via
+  Test_SDKRoundTrip_DeleteIndex_Status (handler_indices_test.go), which fails
+  against the pre-fix envelope.
 - **VpcEndpoint's derived AvailabilityZones/VPCId, Application's Endpoint,
   and CancelDomainConfigChange's absence of per-property
   CancelledChangeProperties** are synthesized/omitted non-stub defaults (no

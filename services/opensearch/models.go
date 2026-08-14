@@ -26,12 +26,13 @@ const (
 // PackageStatus has no ACTIVE value at all, only AVAILABLE.
 const pkgStatusAvailable = "AVAILABLE"
 
-// indexStatusCreated/indexStatusUpdated mirror types.IndexStatus, the sole
-// response field of the real CreateIndex/UpdateIndex ops (types/enums.go:620-627
-// in the pinned SDK).
+// indexStatusCreated/indexStatusUpdated/indexStatusDeleted mirror types.IndexStatus,
+// the sole response field of the real CreateIndex/UpdateIndex/DeleteIndex ops
+// (types/enums.go:620-627 in the pinned SDK).
 const (
 	indexStatusCreated = "CREATED"
 	indexStatusUpdated = "UPDATED"
+	indexStatusDeleted = "DELETED"
 )
 
 // reservedInstanceStateActive matches the documented (freeform, non-enum in

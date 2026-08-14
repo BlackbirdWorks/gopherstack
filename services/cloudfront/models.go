@@ -494,6 +494,18 @@ type DomainAssociationResult struct {
 	Domain               string
 	DistributionID       string
 	DistributionTenantID string
+	ETag                 string
+}
+
+// ResourceID returns whichever of DistributionID / DistributionTenantID is set, matching the
+// single ResourceId field on the real UpdateDomainAssociationOutput (cloudfront@v1.67.4
+// api_op_UpdateDomainAssociation.go:66-68), which does not distinguish the two on the wire.
+func (r DomainAssociationResult) ResourceID() string {
+	if r.DistributionTenantID != "" {
+		return r.DistributionTenantID
+	}
+
+	return r.DistributionID
 }
 
 // DistributionTenantUpdate carries the mutable fields accepted by UpdateDistributionTenant.

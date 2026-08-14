@@ -6,9 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
 const tenantDomainPrefix = "/2020-05-31/"
@@ -296,6 +300,36 @@ func TestUpdateDomainAssociation_ConflictAndValidation(t *testing.T) {
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rr.Code, rr.Body.String())
 	}
+}
+
+// TestUpdateDomainAssociation_RealClient verifies UpdateDomainAssociationOutput carries a single
+// ResourceId (matching the real DistributionId-or-DistributionTenantId union collapse, not two
+// separate elements) and a populated ETag header, matching cloudfront@v1.67.4
+// api_op_UpdateDomainAssociation.go:60-68.
+func TestUpdateDomainAssociation_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	tenant, err := client.CreateDistributionTenant(t.Context(), &cfsdk.CreateDistributionTenantInput{
+		DistributionId: aws.String("dist-rc-domain"),
+		Name:           aws.String("tenant-rc-domain"),
+		Domains:        []types.DomainItem{{Domain: aws.String("primary-rc.example.com")}},
+	})
+	require.NoError(t, err)
+	tenantID := aws.ToString(tenant.DistributionTenant.Id)
+
+	out, err := client.UpdateDomainAssociation(t.Context(), &cfsdk.UpdateDomainAssociationInput{
+		Domain: aws.String("secondary-rc.example.com"),
+		TargetResource: &types.DistributionResourceId{
+			DistributionTenantId: aws.String(tenantID),
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "secondary-rc.example.com", aws.ToString(out.Domain))
+	assert.Equal(t, tenantID, aws.ToString(out.ResourceId), "ResourceId must carry the target tenant, not be empty")
+	assert.NotEmpty(t, aws.ToString(out.ETag), "ETag header must be populated")
 }
 
 // TestVerifyDNSConfiguration_RealPerTenantStatus verifies that VerifyDNSConfiguration returns a

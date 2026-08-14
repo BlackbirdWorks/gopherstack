@@ -492,13 +492,20 @@ func (h *Handler) handleUpdateDomainAssociation(c *echo.Context) error {
 		return h.handleError(c, updateErr)
 	}
 
+	// Real UpdateDomainAssociationOutput carries a single ResourceId (not a
+	// DistributionId/DistributionTenantId split) plus ETag as a response header
+	// (cloudfront@v1.67.4 api_op_UpdateDomainAssociation.go:60-68,
+	// deserializers.go:23927-23938,23974). The previous DistributionId/
+	// DistributionTenantId elements and missing ETag header meant a real client's
+	// ResourceId/ETag were always empty.
+	c.Response().Header().Set("ETag", result.ETag)
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<DomainAssociation xmlns="%s">`+
+		`<UpdateDomainAssociationResult xmlns="%s">`+
 		`<Domain>%s</Domain>`+
-		`<DistributionId>%s</DistributionId>`+
-		`<DistributionTenantId>%s</DistributionTenantId>`+
-		`</DomainAssociation>`,
-		cfNS, result.Domain, result.DistributionID, result.DistributionTenantID)
+		`<ResourceId>%s</ResourceId>`+
+		`</UpdateDomainAssociationResult>`,
+		cfNS, result.Domain, result.ResourceID())
 
 	return xmlResp(c, http.StatusOK, resp)
 }

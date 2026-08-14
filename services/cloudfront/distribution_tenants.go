@@ -406,7 +406,7 @@ func (b *InMemoryBackend) updateDomainAssociationToTenant(
 	target.ETag = uuid.NewString()
 	b.distributionTenantsByDomain[domain] = targetTenantID
 
-	return &DomainAssociationResult{Domain: domain, DistributionTenantID: targetTenantID}, nil
+	return &DomainAssociationResult{Domain: domain, DistributionTenantID: targetTenantID, ETag: target.ETag}, nil
 }
 
 // updateDomainAssociationToDistribution reassigns domain to targetDistID's alias list. Must be
@@ -436,7 +436,7 @@ func (b *InMemoryBackend) updateDomainAssociationToDistribution(
 	d.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	d.ETag = uuid.NewString()
 
-	return &DomainAssociationResult{Domain: domain, DistributionID: targetDistID}, nil
+	return &DomainAssociationResult{Domain: domain, DistributionID: targetDistID, ETag: d.ETag}, nil
 }
 
 // VerifyDNSConfiguration checks the DNS status of every domain associated with identifier, which
