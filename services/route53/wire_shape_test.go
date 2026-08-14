@@ -151,3 +151,40 @@ func TestListReusableDelegationSets_WireShape(t *testing.T) {
 	require.Len(t, out.DelegationSets, 1)
 	assert.Equal(t, "reusable-ds-ref-1", aws.ToString(out.DelegationSets[0].CallerReference))
 }
+
+// TestGetDNSSEC_WireShape guards against gopherstack-m1gl: xmlKSK carries its
+// own struct-level XMLName ("KeySigningKey"), which silently overrides the
+// parent field's "member" tag when reused directly as GetDNSSEC's list item
+// type. The real KeySigningKeys member (route53@v1.65.6 deserializers.go:
+// awsRestxml_deserializeDocumentKeySigningKeys) is "member", not
+// "KeySigningKey" -- a real client decoded zero KSKs no matter how many
+// existed.
+func TestGetDNSSEC_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := route53.NewHandler(route53.NewInMemoryBackend())
+	client := newTestRoute53Client(t, h)
+
+	zone, err := client.CreateHostedZone(t.Context(), &route53sdk.CreateHostedZoneInput{
+		Name:            aws.String("dnssec-wire-shape.example.com."),
+		CallerReference: aws.String("dnssec-wire-shape-ref-1"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateKeySigningKey(t.Context(), &route53sdk.CreateKeySigningKeyInput{
+		HostedZoneId:            zone.HostedZone.Id,
+		CallerReference:         aws.String("ksk-caller-ref-1"),
+		Name:                    aws.String("wire-shape-ksk"),
+		KeyManagementServiceArn: aws.String("arn:aws:kms:us-east-1:123456789012:key/test-ksk"),
+		Status:                  aws.String("ACTIVE"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetDNSSEC(t.Context(), &route53sdk.GetDNSSECInput{
+		HostedZoneId: zone.HostedZone.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.KeySigningKeys, 1)
+	assert.Equal(t, "wire-shape-ksk", aws.ToString(out.KeySigningKeys[0].Name))
+	assert.Equal(t, "ACTIVE", aws.ToString(out.KeySigningKeys[0].Status))
+}

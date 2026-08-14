@@ -61,7 +61,7 @@ type xmlGetDNSSECResponse struct {
 	XMLName        xml.Name        `xml:"GetDNSSECResponse"`
 	Xmlns          string          `xml:"xmlns,attr"`
 	Status         xmlDNSSECStatus `xml:"Status"`
-	KeySigningKeys []xmlKSK        `xml:"KeySigningKeys>member"`
+	KeySigningKeys []xmlKSKMember  `xml:"KeySigningKeys>member"`
 }
 
 type xmlDNSSECStatus struct {
@@ -134,9 +134,9 @@ func (h *Handler) getHostedZoneDNSSEC(c *echo.Context, zoneID string) error {
 		serveSignature = "SIGNING"
 	}
 
-	xmlKSKs := make([]xmlKSK, 0, len(ksks))
+	xmlKSKs := make([]xmlKSKMember, 0, len(ksks))
 	for i := range ksks {
-		xmlKSKs = append(xmlKSKs, toXMLKSK(&ksks[i]))
+		xmlKSKs = append(xmlKSKs, toXMLKSKMember(&ksks[i]))
 	}
 
 	resp := xmlGetDNSSECResponse{

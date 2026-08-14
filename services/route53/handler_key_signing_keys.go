@@ -28,6 +28,26 @@ type xmlKSK struct {
 	KeyTag                   int      `xml:"KeyTag,omitempty"`
 }
 
+// xmlKSKMember mirrors xmlKSK's fields but without a struct-level XMLName,
+// for use as a list item under a parent-owned element name. xmlKSK's own
+// XMLName tag would otherwise silently override the parent field's tag
+// (route53@v1.65.6 deserializers.go: awsRestxml_deserializeDocumentKeySigningKeys
+// reads each item as "member", not "KeySigningKey").
+type xmlKSKMember struct {
+	Name                     string `xml:"Name"`
+	KMSArn                   string `xml:"KmsArn,omitempty"`
+	Status                   string `xml:"Status"`
+	SigningAlgorithmMnemonic string `xml:"SigningAlgorithmMnemonic,omitempty"`
+	DigestAlgorithmMnemonic  string `xml:"DigestAlgorithmMnemonic,omitempty"`
+	PublicKey                string `xml:"PublicKey,omitempty"`
+	DSRecord                 string `xml:"DSRecord,omitempty"`
+	DigestValue              string `xml:"DigestValue,omitempty"`
+	Flag                     int    `xml:"Flag,omitempty"`
+	SigningAlgorithmType     int    `xml:"SigningAlgorithmType,omitempty"`
+	DigestAlgorithmType      int    `xml:"DigestAlgorithmType,omitempty"`
+	KeyTag                   int    `xml:"KeyTag,omitempty"`
+}
+
 type xmlCreateKSKRequest struct {
 	XMLName                 xml.Name `xml:"CreateKeySigningKeyRequest"`
 	HostedZoneID            string   `xml:"HostedZoneId"`
@@ -85,8 +105,8 @@ func (h *Handler) routeKSK(c *echo.Context, path, method string) error {
 	)
 }
 
-func toXMLKSK(ksk *KeySigningKey) xmlKSK {
-	return xmlKSK{
+func toXMLKSKMember(ksk *KeySigningKey) xmlKSKMember {
+	return xmlKSKMember{
 		Name:                     ksk.Name,
 		KMSArn:                   ksk.KeyManagementServiceArn,
 		Status:                   ksk.Status,
@@ -99,6 +119,25 @@ func toXMLKSK(ksk *KeySigningKey) xmlKSK {
 		PublicKey:                ksk.PublicKey,
 		DigestValue:              ksk.DigestValue,
 		DSRecord:                 ksk.DSRecord,
+	}
+}
+
+func toXMLKSK(ksk *KeySigningKey) xmlKSK {
+	m := toXMLKSKMember(ksk)
+
+	return xmlKSK{
+		Name:                     m.Name,
+		KMSArn:                   m.KMSArn,
+		Status:                   m.Status,
+		SigningAlgorithmMnemonic: m.SigningAlgorithmMnemonic,
+		DigestAlgorithmMnemonic:  m.DigestAlgorithmMnemonic,
+		PublicKey:                m.PublicKey,
+		DSRecord:                 m.DSRecord,
+		DigestValue:              m.DigestValue,
+		Flag:                     m.Flag,
+		SigningAlgorithmType:     m.SigningAlgorithmType,
+		DigestAlgorithmType:      m.DigestAlgorithmType,
+		KeyTag:                   m.KeyTag,
 	}
 }
 
