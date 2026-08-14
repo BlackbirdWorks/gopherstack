@@ -114,8 +114,11 @@ func (h *Handler) handleGetCapacityProvider(c *echo.Context, bk *InMemoryBackend
 }
 
 // handleDeleteCapacityProvider handles DELETE /2025-11-30/capacity-providers/{name}.
+// Real AWS returns 200 with the deleted provider's state (CapacityProvider is a
+// required output member), not an empty 204.
 func (h *Handler) handleDeleteCapacityProvider(c *echo.Context, bk *InMemoryBackend, name string) error {
-	if err := bk.DeleteCapacityProvider(name); err != nil {
+	cp, err := bk.DeleteCapacityProvider(name)
+	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Capacity provider not found: "+name)
@@ -124,7 +127,7 @@ func (h *Handler) handleDeleteCapacityProvider(c *echo.Context, bk *InMemoryBack
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	return c.JSON(http.StatusOK, &DeleteCapacityProviderOutput{CapacityProvider: cp})
 }
 
 // handleUpdateCapacityProvider handles PUT /2025-11-30/capacity-providers/{name}.

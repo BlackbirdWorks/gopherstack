@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -280,6 +281,49 @@ func Test_SDKRoundTrip_UpdateCapacityProvider(t *testing.T) {
 	assert.Equal(t, "platform", updated.CapacityProvider.PropagateTags.ExplicitTags["team"])
 }
 
+// Test_SDKRoundTrip_DeleteCapacityProvider proves DeleteCapacityProvider
+// echoes the deleted provider's state back on the wire.
+// DeleteCapacityProviderOutput.CapacityProvider is required
+// (api_op_DeleteCapacityProvider.go:44-46), and real AWS returns HTTP 200
+// with that body -- not the empty 204 a delete op returns by default. The
+// real SDK's deserializer treats an empty 204 body as valid JSON-decode-EOF
+// and leaves CapacityProvider nil rather than erroring, so a handler that
+// forgets this required member produces a "successful" client call carrying
+// a zero value where AWS guarantees content.
+func Test_SDKRoundTrip_DeleteCapacityProvider(t *testing.T) {
+	t.Parallel()
+
+	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", capacityProviderTestRegion)
+	h := lambda.NewHandler(backend)
+	client := newTestLambdaClient(t, h)
+
+	_, err := client.CreateCapacityProvider(t.Context(), &lambdasdk.CreateCapacityProviderInput{
+		CapacityProviderName: aws.String("delete-cp"),
+		PermissionsConfig: &types.CapacityProviderPermissionsConfig{
+			CapacityProviderOperatorRoleArn: aws.String("arn:aws:iam::000000000000:role/cp-role"),
+		},
+		VpcConfig: &types.CapacityProviderVpcConfig{
+			SubnetIds:        []string{"subnet-1"},
+			SecurityGroupIds: []string{"sg-1"},
+		},
+	})
+	require.NoError(t, err)
+
+	deleted, err := client.DeleteCapacityProvider(t.Context(), &lambdasdk.DeleteCapacityProviderInput{
+		CapacityProviderName: aws.String("delete-cp"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, deleted.CapacityProvider)
+	require.NotNil(t, deleted.CapacityProvider.CapacityProviderArn)
+	assert.Contains(t, *deleted.CapacityProvider.CapacityProviderArn, "delete-cp")
+	assert.Equal(t, types.CapacityProviderStateActive, deleted.CapacityProvider.State)
+
+	_, err = client.GetCapacityProvider(t.Context(), &lambdasdk.GetCapacityProviderInput{
+		CapacityProviderName: aws.String("delete-cp"),
+	})
+	require.Error(t, err)
+}
+
 // Test_SDKRoundTrip_ListFunctionVersionsByCapacityProvider proves the real
 // wire shape of ListFunctionVersionsByCapacityProvider: FunctionVersions is a
 // list of {FunctionArn, State} objects (api_op_ListFunctionVersionsByCapacityProvider.go,
@@ -420,9 +464,15 @@ func TestCapacityProvider_GetDeleteUpdateList(t *testing.T) {
 	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
 	assert.Len(t, listOut.CapacityProviders, 1)
 
-	// Delete
+	// Delete — real AWS returns 200 with the deleted provider's state, not 204
+	// (DeleteCapacityProviderOutput.CapacityProvider is a required output member).
 	delRec := callInMemoryHandler(t, h, http.MethodDelete, "/2025-11-30/capacity-providers/test-cp", "")
-	assert.Equal(t, http.StatusNoContent, delRec.Code)
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	var deleteOut lambda.DeleteCapacityProviderOutput
+	require.NoError(t, json.NewDecoder(delRec.Body).Decode(&deleteOut))
+	require.NotNil(t, deleteOut.CapacityProvider)
+	assert.True(t, strings.HasSuffix(deleteOut.CapacityProvider.CapacityProviderArn, "capacity-provider:test-cp"))
 
 	// List after delete → empty
 	listRec2 := callInMemoryHandler(t, h, http.MethodGet, "/2025-11-30/capacity-providers", "")

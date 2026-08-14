@@ -811,6 +811,14 @@ type UpdateCapacityProviderOutput struct {
 	CapacityProvider *CapacityProvider `json:"CapacityProvider"`
 }
 
+// DeleteCapacityProviderOutput is the response for DeleteCapacityProvider.
+// CapacityProvider is required on the wire (api_op_DeleteCapacityProvider.go:44-46) —
+// unlike DeleteCodeSigningConfig/DeleteFunctionUrlConfig, AWS echoes the deleted
+// provider's state back with HTTP 200 rather than an empty 204.
+type DeleteCapacityProviderOutput struct {
+	CapacityProvider *CapacityProvider `json:"CapacityProvider"`
+}
+
 // ListCapacityProvidersOutput is the response for ListCapacityProviders.
 type ListCapacityProvidersOutput struct {
 	NextMarker        string              `json:"NextMarker,omitempty"`
