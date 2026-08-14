@@ -28,7 +28,7 @@ func TestParameterLabels(t *testing.T) {
 	// Label it
 	rec := doRequest(t, h, "LabelParameterVersion", `{"Name":"/my/param","Labels":["v1","stable"]}`)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assertBodyContains(t, rec, "AddedLabels")
+	assertBodyContains(t, rec, "ParameterVersion")
 
 	// Unlabel
 	rec = doRequest(t, h, "UnlabelParameterVersion", `{"Name":"/my/param","Labels":["v1"]}`)
@@ -54,8 +54,15 @@ func TestLabelParameterVersion_MaxTenLabels(t *testing.T) {
 			Labels: labels,
 		})
 		require.NoError(t, err)
-		assert.Len(t, out.AddedLabels, 10)
 		assert.Empty(t, out.InvalidLabels, "no labels should be invalid at exactly 10")
+
+		hist, err := b.GetParameterHistory(
+			context.Background(),
+			&ssm.GetParameterHistoryInput{Name: "/p/max10"},
+		)
+		require.NoError(t, err)
+		require.Len(t, hist.Parameters, 1)
+		assert.ElementsMatch(t, labels, hist.Parameters[0].Labels)
 	})
 
 	t.Run("11th label rejected as InvalidLabel", func(t *testing.T) {
@@ -82,8 +89,20 @@ func TestLabelParameterVersion_MaxTenLabels(t *testing.T) {
 			Labels: []string{"overflow"},
 		})
 		require.NoError(t, err)
-		assert.Empty(t, out.AddedLabels, "overflow label must not be added")
 		assert.Equal(t, []string{"overflow"}, out.InvalidLabels)
+
+		hist, err := b.GetParameterHistory(
+			context.Background(),
+			&ssm.GetParameterHistoryInput{Name: "/p/overflow"},
+		)
+		require.NoError(t, err)
+		require.Len(t, hist.Parameters, 1)
+		assert.NotContains(
+			t,
+			hist.Parameters[0].Labels,
+			"overflow",
+			"overflow label must not be attached",
+		)
 	})
 
 	t.Run("duplicate labels not double-counted toward limit", func(t *testing.T) {
@@ -107,7 +126,7 @@ func TestLabelParameterVersion_MaxTenLabels(t *testing.T) {
 		assert.Empty(t, out.InvalidLabels, "re-applying existing labels must not overflow")
 	})
 
-	t.Run("handler returns 200 with AddedLabels field", func(t *testing.T) {
+	t.Run("handler response omits the invented AddedLabels field", func(t *testing.T) {
 		t.Parallel()
 
 		h, b := newTestHandler(t)
@@ -116,7 +135,13 @@ func TestLabelParameterVersion_MaxTenLabels(t *testing.T) {
 		rec := doRequest(t, h, "LabelParameterVersion",
 			`{"Name":"/p/handler","Labels":["alpha","beta"]}`)
 		require.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "AddedLabels")
+		assert.Contains(t, rec.Body.String(), "ParameterVersion")
+		assert.NotContains(
+			t,
+			rec.Body.String(),
+			"AddedLabels",
+			"AddedLabels is not a real LabelParameterVersionOutput field (see aws-sdk-go-v2 api_op_LabelParameterVersion.go)",
+		)
 	})
 }
 
@@ -255,8 +280,14 @@ func TestLabelParameterVersion_RoundTrip(t *testing.T) {
 				Labels: tt.labels,
 			})
 			require.NoError(t, err)
-			assert.ElementsMatch(t, tt.labels, out.AddedLabels)
 			assert.Empty(t, out.InvalidLabels)
+
+			hist, err := b.GetParameterHistory(
+				context.TODO(), &ssm.GetParameterHistoryInput{Name: "/test/label-param"},
+			)
+			require.NoError(t, err)
+			require.Len(t, hist.Parameters, 1)
+			assert.ElementsMatch(t, tt.labels, hist.Parameters[0].Labels)
 		})
 	}
 }
@@ -288,7 +319,12 @@ func TestFull_ParameterStore_LabelParameterVersion(t *testing.T) {
 	t.Parallel()
 	h := newHandler()
 
-	postJSON(t, h, "PutParameter", map[string]any{"Name": "/lbl/p", "Type": "String", "Value": "v1"})
+	postJSON(
+		t,
+		h,
+		"PutParameter",
+		map[string]any{"Name": "/lbl/p", "Type": "String", "Value": "v1"},
+	)
 
 	code, out := postJSON(t, h, "LabelParameterVersion", map[string]any{
 		"Name":             "/lbl/p",
@@ -296,14 +332,29 @@ func TestFull_ParameterStore_LabelParameterVersion(t *testing.T) {
 		"Labels":           []string{"prod", "stable"},
 	})
 	assert.Equal(t, http.StatusOK, code)
-	added := out["AddedLabels"].([]any)
-	assert.Len(t, added, 2)
+	assert.InDelta(t, float64(1), out["ParameterVersion"], 0)
+	_, hasAddedLabels := out["AddedLabels"]
+	assert.False(
+		t,
+		hasAddedLabels,
+		"AddedLabels is not a real LabelParameterVersionOutput field (see aws-sdk-go-v2 api_op_LabelParameterVersion.go)",
+	)
+
+	_, hist := postJSON(t, h, "GetParameterHistory", map[string]any{"Name": "/lbl/p"})
+	params := hist["Parameters"].([]any)
+	require.Len(t, params, 1)
+	assert.ElementsMatch(t, []any{"prod", "stable"}, params[0].(map[string]any)["Labels"])
 }
 func TestFull_ParameterStore_UnlabelParameterVersion(t *testing.T) {
 	t.Parallel()
 	h := newHandler()
 
-	postJSON(t, h, "PutParameter", map[string]any{"Name": "/unlbl/p", "Type": "String", "Value": "v"})
+	postJSON(
+		t,
+		h,
+		"PutParameter",
+		map[string]any{"Name": "/unlbl/p", "Type": "String", "Value": "v"},
+	)
 	postJSON(t, h, "LabelParameterVersion", map[string]any{
 		"Name":             "/unlbl/p",
 		"ParameterVersion": int64(1),
@@ -326,7 +377,10 @@ func TestParameterLabels_VersionSpecific(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	// Create parameter (version 1).
-	_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/app/key", Value: "v1", Type: "String"})
+	_, err := b.PutParameter(
+		context.TODO(),
+		&ssm.PutParameterInput{Name: "/app/key", Value: "v1", Type: "String"},
+	)
 	require.NoError(t, err)
 
 	// Update to create version 2.
@@ -344,7 +398,7 @@ func TestParameterLabels_VersionSpecific(t *testing.T) {
 	})
 	rec := doRequest(t, h, "LabelParameterVersion", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "AddedLabels")
+	assert.Contains(t, rec.Body.String(), "ParameterVersion")
 
 	// Label version 2 with "latest".
 	body, _ = json.Marshal(map[string]any{
@@ -366,7 +420,10 @@ func TestParameterLabels_UnlabelSpecificVersion(t *testing.T) {
 
 	h, b := newTestHandler(t)
 
-	_, err := b.PutParameter(context.TODO(), &ssm.PutParameterInput{Name: "/app/ver", Value: "v1", Type: "String"})
+	_, err := b.PutParameter(
+		context.TODO(),
+		&ssm.PutParameterInput{Name: "/app/ver", Value: "v1", Type: "String"},
+	)
 	require.NoError(t, err)
 
 	// Add labels to version 1.

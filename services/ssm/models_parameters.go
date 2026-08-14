@@ -205,7 +205,6 @@ type DescribeParametersOutput struct {
 // LabelParameterVersionOutputFull extends the empty stub.
 type LabelParameterVersionOutputFull struct {
 	InvalidLabels []string `json:"InvalidLabels"`
-	AddedLabels   []string `json:"AddedLabels"`
 	// ParameterVersion is the version of the parameter the labels were attached
 	// to. AWS returns this so callers know which version a label-without-version
 	// request resolved to.

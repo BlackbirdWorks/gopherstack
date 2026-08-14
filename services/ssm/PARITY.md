@@ -69,7 +69,7 @@ ops:
   DeleteParameters: {wire: ok, errors: ok, state: ok, persist: ok}
   GetParametersByPath: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults 1-10 default 10 (matches AWS), recursive/non-recursive prefix matching, ParameterFilters proven correct"}
   DescribeParameters: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults 1-50 default 50 (matches AWS)"}
-  LabelParameterVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "10-label-per-version cap (appendLabelsWithLimit) and move-label-between-versions semantics proven correct"}
+  LabelParameterVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "10-label-per-version cap (appendLabelsWithLimit) and move-label-between-versions semantics proven correct; (2026-08-14, gopherstack-7185) FIXED -- LabelParameterVersionOutputFull serialized an invented AddedLabels field with no counterpart in aws-sdk-go-v2/service/ssm@v1.73.4's LabelParameterVersionOutput (InvalidLabels + ParameterVersion only, confirmed against api_op_LabelParameterVersion.go and the awsAwsjson11_deserializeOpDocumentLabelParameterVersionOutput case switch). Several existing tests asserted AddedLabels' presence, entrenching the wrong shape; corrected to verify actually-attached labels via GetParameterHistory instead."}
   UnlabelParameterVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDocument: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — DocumentDescription response was leaking the full Content body (see Notes)"}
   GetDocument: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — explicit $DEFAULT selector was conflated with $LATEST (see Notes)"}

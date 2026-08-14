@@ -18,7 +18,6 @@ func (b *InMemoryBackend) LabelParameterVersion(
 	if input.Name == "" {
 		return &LabelParameterVersionOutputFull{
 			InvalidLabels: []string{},
-			AddedLabels:   input.Labels,
 		}, nil
 	}
 
@@ -52,14 +51,13 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		parameterLabels[input.Name][v] = removeLabels(labels, input.Labels)
 	}
 
-	updatedLabels, addedLabels, invalidLabels := appendLabelsWithLimit(
+	updatedLabels, invalidLabels := appendLabelsWithLimit(
 		parameterLabels[input.Name][version], input.Labels,
 	)
 	parameterLabels[input.Name][version] = updatedLabels
 
 	return &LabelParameterVersionOutputFull{
 		InvalidLabels:    invalidLabels,
-		AddedLabels:      addedLabels,
 		ParameterVersion: version,
 	}, nil
 }
@@ -137,9 +135,9 @@ const maxLabelsPerVersion = 10
 
 // appendLabelsWithLimit appends newLabels to existing, skipping duplicates and
 // labels that would push the version over the maxLabelsPerVersion limit.
-// Returns (updated slice, actually-added labels, invalid labels that exceeded the limit).
-func appendLabelsWithLimit(existing, newLabels []string) ([]string, []string, []string) {
-	var added, invalid []string
+// Returns (updated slice, invalid labels that exceeded the limit).
+func appendLabelsWithLimit(existing, newLabels []string) ([]string, []string) {
+	var invalid []string
 
 	seen := make(map[string]bool, len(existing))
 
@@ -160,7 +158,6 @@ func appendLabelsWithLimit(existing, newLabels []string) ([]string, []string, []
 		}
 
 		existing = append(existing, l)
-		added = append(added, l)
 		seen[l] = true
 	}
 
@@ -168,9 +165,5 @@ func appendLabelsWithLimit(existing, newLabels []string) ([]string, []string, []
 		invalid = []string{}
 	}
 
-	if added == nil {
-		added = []string{}
-	}
-
-	return existing, added, invalid
+	return existing, invalid
 }
