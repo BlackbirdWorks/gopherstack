@@ -67,9 +67,9 @@ type CreateTransitGatewayParams struct {
 }
 
 // ModifyTransitGateway updates properties of a transit gateway.
-func (b *InMemoryBackend) ModifyTransitGateway(tgwID, description string) error {
+func (b *InMemoryBackend) ModifyTransitGateway(tgwID, description string) (*TransitGateway, error) {
 	if tgwID == "" {
-		return fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("ModifyTransitGateway")
@@ -77,13 +77,15 @@ func (b *InMemoryBackend) ModifyTransitGateway(tgwID, description string) error 
 
 	tgw, ok := b.transitGateways.Get(tgwID)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, tgwID)
+		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, tgwID)
 	}
 	if description != "" {
 		tgw.Description = description
 	}
 
-	return nil
+	cp := *tgw
+
+	return &cp, nil
 }
 
 // DescribeTransitGateways returns transit gateways, optionally filtered by IDs.

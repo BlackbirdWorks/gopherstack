@@ -126,16 +126,21 @@ func (h *Handler) handleCreateNetworkInsightsPath(vals url.Values, reqID string)
 	}, nil
 }
 
+type deleteNetworkInsightsPathResponse struct {
+	XMLName               xml.Name `xml:"DeleteNetworkInsightsPathResponse"`
+	RequestID             string   `xml:"requestId"`
+	NetworkInsightsPathID string   `xml:"networkInsightsPathId"`
+}
+
 func (h *Handler) handleDeleteNetworkInsightsPath(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("NetworkInsightsPathId")
 	if err := h.Backend.DeleteNetworkInsightsPath(id); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteNetworkInsightsPathResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteNetworkInsightsPathResponse{
+		RequestID:             reqID,
+		NetworkInsightsPathID: id,
 	}, nil
 }
 
@@ -179,16 +184,21 @@ func (h *Handler) handleStartNetworkInsightsAnalysis(vals url.Values, reqID stri
 	}, nil
 }
 
+type deleteNetworkInsightsAnalysisResponse struct {
+	XMLName                   xml.Name `xml:"DeleteNetworkInsightsAnalysisResponse"`
+	RequestID                 string   `xml:"requestId"`
+	NetworkInsightsAnalysisID string   `xml:"networkInsightsAnalysisId"`
+}
+
 func (h *Handler) handleDeleteNetworkInsightsAnalysis(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("NetworkInsightsAnalysisId")
 	if err := h.Backend.DeleteNetworkInsightsAnalysis(id); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAnalysisResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteNetworkInsightsAnalysisResponse{
+		RequestID:                 reqID,
+		NetworkInsightsAnalysisID: id,
 	}, nil
 }
 
@@ -242,11 +252,16 @@ func (h *Handler) handleDeleteNetworkInsightsAccessScope(
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAccessScopeResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteNetworkInsightsAccessScopeResponse{
+		RequestID:                    reqID,
+		NetworkInsightsAccessScopeID: id,
 	}, nil
+}
+
+type deleteNetworkInsightsAccessScopeResponse struct {
+	XMLName                      xml.Name `xml:"DeleteNetworkInsightsAccessScopeResponse"`
+	RequestID                    string   `xml:"requestId"`
+	NetworkInsightsAccessScopeID string   `xml:"networkInsightsAccessScopeId"`
 }
 
 func (h *Handler) handleDescribeNetworkInsightsAccessScopes(
@@ -323,11 +338,16 @@ func (h *Handler) handleDeleteNetworkInsightsAccessScopeAnalysis(
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteNetworkInsightsAccessScopeAnalysisResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteNetworkInsightsAccessScopeAnalysisResponse{
+		RequestID:                            reqID,
+		NetworkInsightsAccessScopeAnalysisID: id,
 	}, nil
+}
+
+type deleteNetworkInsightsAccessScopeAnalysisResponse struct {
+	XMLName                              xml.Name `xml:"DeleteNetworkInsightsAccessScopeAnalysisResponse"`
+	RequestID                            string   `xml:"requestId"`
+	NetworkInsightsAccessScopeAnalysisID string   `xml:"networkInsightsAccessScopeAnalysisId"`
 }
 
 func (h *Handler) handleDescribeNetworkInsightsAccessScopeAnalyses(

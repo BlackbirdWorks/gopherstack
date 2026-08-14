@@ -68,7 +68,7 @@ func (h *Handler) handleDeleteVpcEndpointServiceConfigurations(
 		return nil, err
 	}
 
-	return &deleteVpcEndpointServiceConfigurationsResponse{RequestID: reqID, Return: true}, nil
+	return &deleteVpcEndpointServiceConfigurationsResponse{RequestID: reqID}, nil
 }
 
 func (h *Handler) handleModifyVpcEndpointServiceConfiguration(

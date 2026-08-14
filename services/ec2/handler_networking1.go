@@ -91,6 +91,7 @@ type createFlowLogsResponse struct {
 	FlowLogIDs struct {
 		Items []string `xml:"item"`
 	} `xml:"flowLogIdSet"`
+	Unsuccessful []unsuccessfulItemXML `xml:"unsuccessful>item"`
 }
 
 type describeFlowLogsResponse struct {
@@ -102,9 +103,9 @@ type describeFlowLogsResponse struct {
 }
 
 type deleteFlowLogsResponse struct {
-	XMLName   xml.Name `xml:"DeleteFlowLogsResponse"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName      xml.Name              `xml:"DeleteFlowLogsResponse"`
+	RequestID    string                `xml:"requestId"`
+	Unsuccessful []unsuccessfulItemXML `xml:"unsuccessful>item"`
 }
 
 type dhcpConfigurationItem struct {
@@ -186,6 +187,9 @@ type deleteLaunchTemplateVersionsResponse struct {
 	SuccessfullyDeletedLaunchTemplateVersions struct {
 		Items []deletedLaunchTemplateVersionItem `xml:"item"`
 	} `xml:"successfullyDeletedLaunchTemplateVersionSet"`
+	UnsuccessfullyDeletedLaunchTemplateVersions struct {
+		Items []struct{} `xml:"item"`
+	} `xml:"unsuccessfullyDeletedLaunchTemplateVersionSet"`
 }
 
 type getLaunchTemplateDataResponse struct {
@@ -330,7 +334,7 @@ func (h *Handler) handleDeleteFlowLogs(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
-	return &deleteFlowLogsResponse{RequestID: reqID, Return: true}, nil
+	return &deleteFlowLogsResponse{RequestID: reqID}, nil
 }
 
 func dhcpOptsToItem(opts *DhcpOptions) dhcpOptionsItem {

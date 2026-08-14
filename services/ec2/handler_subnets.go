@@ -133,15 +133,30 @@ func (h *Handler) handleCreateSubnetCidrReservation(vals url.Values, reqID strin
 
 func (h *Handler) handleDeleteSubnetCidrReservation(vals url.Values, reqID string) (any, error) {
 	reservationID := vals.Get("SubnetCidrReservationId")
-	if err := h.Backend.DeleteSubnetCidrReservation(reservationID); err != nil {
+
+	reservation, err := h.Backend.DeleteSubnetCidrReservation(reservationID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteSubnetCidrReservationResponse"},
+	return &deleteSubnetCidrReservationResponse{
 		RequestID: reqID,
-		Return:    true,
+		DeletedSubnetCidrReservation: subnetCidrReservationItem{
+			SubnetCidrReservationID: reservation.SubnetCIDRReservationID,
+			SubnetID:                reservation.SubnetID,
+			Cidr:                    reservation.CIDR,
+			ReservationType:         reservation.ReservationType,
+			Description:             reservation.Description,
+			OwnerID:                 reservation.OwnerID,
+			State:                   reservation.State,
+		},
 	}, nil
+}
+
+type deleteSubnetCidrReservationResponse struct {
+	XMLName                      xml.Name                  `xml:"DeleteSubnetCidrReservationResponse"`
+	RequestID                    string                    `xml:"requestId"`
+	DeletedSubnetCidrReservation subnetCidrReservationItem `xml:"deletedSubnetCidrReservation"`
 }
 
 type getSubnetCidrReservationsResponse struct {

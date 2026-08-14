@@ -288,7 +288,7 @@ func TestClientVPN_FullRouteCycle(t *testing.T) {
 			"Description":          {r.description},
 		})
 		require.NoError(t, createErr)
-		assert.Contains(t, createResp, "<return>true</return>")
+		assert.Contains(t, createResp, "<status><code>creating</code></status>")
 	}
 
 	// describe shows both routes
@@ -492,7 +492,10 @@ func TestClientVpn_DescribeEndpointsXMLShape(t *testing.T) {
 		"ClientCidrBlock": {"10.0.0.0/22"},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, createResp, "<clientVpnEndpoint>")
+	// CreateClientVpnEndpointOutput is flat (clientVpnEndpointId, dnsName,
+	// status) - the <clientVpnEndpoint> wrapper belongs to Describe, not Create.
+	assert.Contains(t, createResp, "<clientVpnEndpointId>cvpn-endpoint-")
+	assert.NotContains(t, createResp, "<clientVpnEndpoint>")
 	assert.NotContains(t, createResp, "<clientVpnEndpointSet>")
 	assert.Contains(t, createResp, "<status><code>available</code></status>")
 

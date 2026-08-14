@@ -448,9 +448,9 @@ type describeVpcEndpointServiceConfigurationsResponse struct {
 }
 
 type deleteVpcEndpointServiceConfigurationsResponse struct {
-	XMLName   xml.Name `xml:"DeleteVpcEndpointServiceConfigurationsResponse"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName      xml.Name              `xml:"DeleteVpcEndpointServiceConfigurationsResponse"`
+	RequestID    string                `xml:"requestId"`
+	Unsuccessful []unsuccessfulItemXML `xml:"unsuccessful>item"`
 }
 
 type modifyVpcEndpointServiceConfigurationResponse struct {

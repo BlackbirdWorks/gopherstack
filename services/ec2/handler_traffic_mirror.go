@@ -163,16 +163,21 @@ func (h *Handler) handleCreateTrafficMirrorFilter(vals url.Values, reqID string)
 	}, nil
 }
 
+type deleteTrafficMirrorFilterResponse struct {
+	XMLName               xml.Name `xml:"DeleteTrafficMirrorFilterResponse"`
+	RequestID             string   `xml:"requestId"`
+	TrafficMirrorFilterID string   `xml:"trafficMirrorFilterId"`
+}
+
 func (h *Handler) handleDeleteTrafficMirrorFilter(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TrafficMirrorFilterId")
 	if err := h.Backend.DeleteTrafficMirrorFilter(id); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorFilterResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTrafficMirrorFilterResponse{
+		RequestID:             reqID,
+		TrafficMirrorFilterID: id,
 	}, nil
 }
 
@@ -191,6 +196,12 @@ func (h *Handler) handleDescribeTrafficMirrorFilters(vals url.Values, reqID stri
 	return resp, nil
 }
 
+type modifyTrafficMirrorFilterNetworkServicesResponse struct {
+	XMLName             xml.Name                `xml:"ModifyTrafficMirrorFilterNetworkServicesResponse"`
+	RequestID           string                  `xml:"requestId"`
+	TrafficMirrorFilter trafficMirrorFilterItem `xml:"trafficMirrorFilter"`
+}
+
 func (h *Handler) handleModifyTrafficMirrorFilterNetworkServices(
 	vals url.Values,
 	reqID string,
@@ -199,14 +210,14 @@ func (h *Handler) handleModifyTrafficMirrorFilterNetworkServices(
 	add := parseMemberList(vals, "AddNetworkService")
 	remove := parseMemberList(vals, "RemoveNetworkService")
 
-	if err := h.Backend.ModifyTrafficMirrorFilterNetworkServices(id, add, remove); err != nil {
+	f, err := h.Backend.ModifyTrafficMirrorFilterNetworkServices(id, add, remove)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTrafficMirrorFilterNetworkServicesResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &modifyTrafficMirrorFilterNetworkServicesResponse{
+		RequestID:           reqID,
+		TrafficMirrorFilter: toTrafficMirrorFilterItem(f),
 	}, nil
 }
 
@@ -289,16 +300,21 @@ func parseTrafficMirrorPortRangePair(vals url.Values) TrafficMirrorPortRangePair
 	return pair
 }
 
+type deleteTrafficMirrorFilterRuleResponse struct {
+	XMLName                   xml.Name `xml:"DeleteTrafficMirrorFilterRuleResponse"`
+	RequestID                 string   `xml:"requestId"`
+	TrafficMirrorFilterRuleID string   `xml:"trafficMirrorFilterRuleId"`
+}
+
 func (h *Handler) handleDeleteTrafficMirrorFilterRule(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TrafficMirrorFilterRuleId")
 	if err := h.Backend.DeleteTrafficMirrorFilterRule(id); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorFilterRuleResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTrafficMirrorFilterRuleResponse{
+		RequestID:                 reqID,
+		TrafficMirrorFilterRuleID: id,
 	}, nil
 }
 
@@ -324,19 +340,25 @@ func (h *Handler) handleDescribeTrafficMirrorFilterRules(
 	return resp, nil
 }
 
+type modifyTrafficMirrorFilterRuleResponse struct {
+	XMLName                 xml.Name                    `xml:"ModifyTrafficMirrorFilterRuleResponse"`
+	RequestID               string                      `xml:"requestId"`
+	TrafficMirrorFilterRule trafficMirrorFilterRuleItem `xml:"trafficMirrorFilterRule"`
+}
+
 func (h *Handler) handleModifyTrafficMirrorFilterRule(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TrafficMirrorFilterRuleId")
 	action := vals.Get("RuleAction")
 	description := vals.Get("Description")
 
-	if err := h.Backend.ModifyTrafficMirrorFilterRule(id, action, description); err != nil {
+	rule, err := h.Backend.ModifyTrafficMirrorFilterRule(id, action, description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTrafficMirrorFilterRuleResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &modifyTrafficMirrorFilterRuleResponse{
+		RequestID:               reqID,
+		TrafficMirrorFilterRule: toTrafficMirrorFilterRuleItem(rule),
 	}, nil
 }
 
@@ -381,16 +403,21 @@ func (h *Handler) handleCreateTrafficMirrorSession(vals url.Values, reqID string
 	}, nil
 }
 
+type deleteTrafficMirrorSessionResponse struct {
+	XMLName                xml.Name `xml:"DeleteTrafficMirrorSessionResponse"`
+	RequestID              string   `xml:"requestId"`
+	TrafficMirrorSessionID string   `xml:"trafficMirrorSessionId"`
+}
+
 func (h *Handler) handleDeleteTrafficMirrorSession(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TrafficMirrorSessionId")
 	if err := h.Backend.DeleteTrafficMirrorSession(id); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorSessionResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTrafficMirrorSessionResponse{
+		RequestID:              reqID,
+		TrafficMirrorSessionID: id,
 	}, nil
 }
 
@@ -409,20 +436,26 @@ func (h *Handler) handleDescribeTrafficMirrorSessions(vals url.Values, reqID str
 	return resp, nil
 }
 
+type modifyTrafficMirrorSessionResponse struct {
+	XMLName              xml.Name                 `xml:"ModifyTrafficMirrorSessionResponse"`
+	RequestID            string                   `xml:"requestId"`
+	TrafficMirrorSession trafficMirrorSessionItem `xml:"trafficMirrorSession"`
+}
+
 func (h *Handler) handleModifyTrafficMirrorSession(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TrafficMirrorSessionId")
 	targetID := vals.Get("TrafficMirrorTargetId")
 	filterID := vals.Get("TrafficMirrorFilterId")
 	description := vals.Get("Description")
 
-	if err := h.Backend.ModifyTrafficMirrorSession(id, targetID, filterID, description); err != nil {
+	s, err := h.Backend.ModifyTrafficMirrorSession(id, targetID, filterID, description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTrafficMirrorSessionResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &modifyTrafficMirrorSessionResponse{
+		RequestID:            reqID,
+		TrafficMirrorSession: toTrafficMirrorSessionItem(s),
 	}, nil
 }
 
@@ -457,16 +490,21 @@ func (h *Handler) handleCreateTrafficMirrorTarget(vals url.Values, reqID string)
 	}, nil
 }
 
+type deleteTrafficMirrorTargetResponse struct {
+	XMLName               xml.Name `xml:"DeleteTrafficMirrorTargetResponse"`
+	RequestID             string   `xml:"requestId"`
+	TrafficMirrorTargetID string   `xml:"trafficMirrorTargetId"`
+}
+
 func (h *Handler) handleDeleteTrafficMirrorTarget(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TrafficMirrorTargetId")
 	if err := h.Backend.DeleteTrafficMirrorTarget(id); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorTargetResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTrafficMirrorTargetResponse{
+		RequestID:             reqID,
+		TrafficMirrorTargetID: id,
 	}, nil
 }
 

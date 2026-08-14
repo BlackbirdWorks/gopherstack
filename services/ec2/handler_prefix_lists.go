@@ -112,15 +112,23 @@ func (h *Handler) handleCreateManagedPrefixList(vals url.Values, reqID string) (
 
 func (h *Handler) handleDeleteManagedPrefixList(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("PrefixListId")
-	if err := h.Backend.DeleteManagedPrefixList(id); err != nil {
+	tags := h.Backend.TagsForResource(id)
+
+	pl, err := h.Backend.DeleteManagedPrefixList(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteManagedPrefixListResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteManagedPrefixListResponse{
+		RequestID:  reqID,
+		PrefixList: toManagedPrefixListItem(pl, tags),
 	}, nil
+}
+
+type deleteManagedPrefixListResponse struct {
+	XMLName    xml.Name              `xml:"DeleteManagedPrefixListResponse"`
+	RequestID  string                `xml:"requestId"`
+	PrefixList managedPrefixListItem `xml:"prefixList"`
 }
 
 func (h *Handler) handleDescribeManagedPrefixLists(vals url.Values, reqID string) (any, error) {
@@ -179,30 +187,42 @@ func (h *Handler) handleModifyManagedPrefixList(vals url.Values, reqID string) (
 		removeEntries = append(removeEntries, PrefixListEntry{Cidr: cidr})
 	}
 
-	if err := h.Backend.ModifyManagedPrefixList(id, addEntries, removeEntries); err != nil {
+	pl, err := h.Backend.ModifyManagedPrefixList(id, addEntries, removeEntries)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyManagedPrefixListResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &modifyManagedPrefixListResponse{
+		RequestID:  reqID,
+		PrefixList: toManagedPrefixListItem(pl, h.Backend.TagsForResource(id)),
 	}, nil
+}
+
+type modifyManagedPrefixListResponse struct {
+	XMLName    xml.Name              `xml:"ModifyManagedPrefixListResponse"`
+	RequestID  string                `xml:"requestId"`
+	PrefixList managedPrefixListItem `xml:"prefixList"`
 }
 
 func (h *Handler) handleRestoreManagedPrefixListVersion(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("PrefixListId")
 	version := 0
 	parseIntValue(vals.Get("PreviousVersion"), &version)
-	if err := h.Backend.RestoreManagedPrefixListVersion(id, int64(version)); err != nil {
+	pl, err := h.Backend.RestoreManagedPrefixListVersion(id, int64(version))
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreManagedPrefixListVersionResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &restoreManagedPrefixListVersionResponse{
+		RequestID:  reqID,
+		PrefixList: toManagedPrefixListItem(pl, h.Backend.TagsForResource(id)),
 	}, nil
+}
+
+type restoreManagedPrefixListVersionResponse struct {
+	XMLName    xml.Name              `xml:"RestoreManagedPrefixListVersionResponse"`
+	RequestID  string                `xml:"requestId"`
+	PrefixList managedPrefixListItem `xml:"prefixList"`
 }
 
 // ---- ClientVPN handlers ----

@@ -11,8 +11,7 @@ type createFleetResponse struct {
 	XMLName   xml.Name             `xml:"CreateFleetResponse"`
 	RequestID string               `xml:"requestId"`
 	FleetID   string               `xml:"fleetId"`
-	FleetType string               `xml:"type,omitempty"`
-	Errors    fleetErrorSet        `xml:"errors"`
+	Errors    fleetErrorSet        `xml:"errorSet"`
 	Instances fleetInstanceItemSet `xml:"fleetInstanceSet"`
 }
 
@@ -71,7 +70,6 @@ func (h *Handler) handleCreateFleet(vals url.Values, reqID string) (any, error) 
 	return &createFleetResponse{
 		RequestID: reqID,
 		FleetID:   f.FleetID,
-		FleetType: fleetType,
 		Errors:    fleetErrorSet{Items: []fleetErrorItem{}},
 		Instances: fleetInstanceItemSet{Items: []fleetInstanceItem{}},
 	}, nil

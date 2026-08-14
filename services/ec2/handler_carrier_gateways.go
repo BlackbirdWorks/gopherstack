@@ -56,16 +56,22 @@ func (h *Handler) handleCreateCarrierGateway(vals url.Values, reqID string) (any
 	}, nil
 }
 
+type deleteCarrierGatewayResponse struct {
+	XMLName        xml.Name           `xml:"DeleteCarrierGatewayResponse"`
+	RequestID      string             `xml:"requestId"`
+	CarrierGateway carrierGatewayItem `xml:"carrierGateway"`
+}
+
 func (h *Handler) handleDeleteCarrierGateway(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("CarrierGatewayId")
-	if err := h.Backend.DeleteCarrierGateway(id); err != nil {
+	gw, err := h.Backend.DeleteCarrierGateway(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteCarrierGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteCarrierGatewayResponse{
+		RequestID:      reqID,
+		CarrierGateway: toCarrierGatewayItem(gw, nil),
 	}, nil
 }
 

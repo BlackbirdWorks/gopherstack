@@ -44,13 +44,16 @@ func TestCarrierGateway(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 
 	t.Run("delete gateway", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteCarrierGateway(gwID))
+		deleted, err := b.DeleteCarrierGateway(gwID)
+		require.NoError(t, err)
+		assert.Equal(t, gwID, deleted.CarrierGatewayID)
 		gws := b.DescribeCarrierGateways([]string{gwID})
 		assert.Empty(t, gws)
 	})
 
 	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.Error(t, b.DeleteCarrierGateway("cagw-nonexistent"))
+		_, err := b.DeleteCarrierGateway("cagw-nonexistent")
+		require.Error(t, err)
 	})
 
 	t.Run("create with empty vpc returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.

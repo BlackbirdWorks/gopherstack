@@ -536,21 +536,24 @@ func (b *InMemoryBackend) CreateInstanceConnectEndpoint(
 }
 
 // DeleteInstanceConnectEndpoint removes an Instance Connect Endpoint.
-func (b *InMemoryBackend) DeleteInstanceConnectEndpoint(id string) error {
+func (b *InMemoryBackend) DeleteInstanceConnectEndpoint(id string) (*InstanceConnectEndpoint, error) {
 	if id == "" {
-		return fmt.Errorf("%w: InstanceConnectEndpointId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: InstanceConnectEndpointId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteInstanceConnectEndpoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instanceConnectEndpoints.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrInstanceConnectEndpointNotFound, id)
+	ep, ok := b.instanceConnectEndpoints.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInstanceConnectEndpointNotFound, id)
 	}
+	cp := *ep
+	cp.State = "delete-complete"
 	b.instanceConnectEndpoints.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeInstanceConnectEndpoints returns endpoints, optionally filtered by IDs.
@@ -662,9 +665,9 @@ func (b *InMemoryBackend) DescribeInstanceEventWindows(ids []string) []*Instance
 }
 
 // ModifyInstanceEventWindow updates the cron expression for an event window.
-func (b *InMemoryBackend) ModifyInstanceEventWindow(id, name, cronExpression string) error {
+func (b *InMemoryBackend) ModifyInstanceEventWindow(id, name, cronExpression string) (*InstanceEventWindow, error) {
 	if id == "" {
-		return fmt.Errorf("%w: InstanceEventWindowId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: InstanceEventWindowId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("ModifyInstanceEventWindow")
@@ -672,7 +675,7 @@ func (b *InMemoryBackend) ModifyInstanceEventWindow(id, name, cronExpression str
 
 	ew, ok := b.instanceEventWindows.Get(id)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrInstanceEventWindowNotFound, id)
+		return nil, fmt.Errorf("%w: %s", ErrInstanceEventWindowNotFound, id)
 	}
 	if name != "" {
 		ew.Name = name
@@ -681,7 +684,9 @@ func (b *InMemoryBackend) ModifyInstanceEventWindow(id, name, cronExpression str
 		ew.CronExpression = cronExpression
 	}
 
-	return nil
+	cp := *ew
+
+	return &cp, nil
 }
 
 // ---- Spot Datafeed ----

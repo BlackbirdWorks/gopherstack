@@ -635,10 +635,13 @@ type describeDBClusterBacktracksResponse struct {
 }
 
 type modifyCurrentDBClusterCapacityResponse struct {
-	XMLName             xml.Name `xml:"ModifyCurrentDBClusterCapacityResponse"`
-	Xmlns               string   `xml:"xmlns,attr"`
-	DBClusterIdentifier string   `xml:"ModifyCurrentDBClusterCapacityResult>DBClusterIdentifier"`
-	CurrentCapacity     int      `xml:"ModifyCurrentDBClusterCapacityResult>CurrentCapacity"`
+	XMLName              xml.Name `xml:"ModifyCurrentDBClusterCapacityResponse"`
+	Xmlns                string   `xml:"xmlns,attr"`
+	DBClusterIdentifier  string   `xml:"ModifyCurrentDBClusterCapacityResult>DBClusterIdentifier"`
+	TimeoutAction        string   `xml:"ModifyCurrentDBClusterCapacityResult>TimeoutAction"`
+	CurrentCapacity      int      `xml:"ModifyCurrentDBClusterCapacityResult>CurrentCapacity"`
+	PendingCapacity      int      `xml:"ModifyCurrentDBClusterCapacityResult>PendingCapacity"`
+	SecondsBeforeTimeout int      `xml:"ModifyCurrentDBClusterCapacityResult>SecondsBeforeTimeout"`
 }
 
 type restoreDBClusterFromS3Response struct {
@@ -686,10 +689,25 @@ func (h *Handler) handleModifyCurrentDBClusterCapacity(vals url.Values) (any, er
 		return nil, err
 	}
 
+	secondsBeforeTimeout := 300
+	if v := vals.Get("SecondsBeforeTimeout"); v != "" {
+		if parsed, perr := strconv.Atoi(v); perr == nil {
+			secondsBeforeTimeout = parsed
+		}
+	}
+
+	timeoutAction := vals.Get("TimeoutAction")
+	if timeoutAction == "" {
+		timeoutAction = "ForceApplyCapacityChange"
+	}
+
 	return &modifyCurrentDBClusterCapacityResponse{
-		Xmlns:               rdsXMLNS,
-		DBClusterIdentifier: cluster.DBClusterIdentifier,
-		CurrentCapacity:     cluster.ServerlessCapacity,
+		Xmlns:                rdsXMLNS,
+		DBClusterIdentifier:  cluster.DBClusterIdentifier,
+		CurrentCapacity:      cluster.ServerlessCapacity,
+		PendingCapacity:      cluster.ServerlessCapacity,
+		SecondsBeforeTimeout: secondsBeforeTimeout,
+		TimeoutAction:        timeoutAction,
 	}, nil
 }
 

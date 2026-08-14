@@ -74,7 +74,9 @@ func TestVerifiedAccess(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 
 	t.Run("modify endpoint", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.ModifyVerifiedAccessEndpoint(endpointID, "updated endpoint"))
+		modified, err := b.ModifyVerifiedAccessEndpoint(endpointID, "updated endpoint")
+		require.NoError(t, err)
+		assert.Equal(t, "updated endpoint", modified.Description)
 		eps := b.DescribeVerifiedAccessEndpoints([]string{endpointID})
 		require.Len(t, eps, 1)
 		assert.Equal(t, "updated endpoint", eps[0].Description)
@@ -87,25 +89,33 @@ func TestVerifiedAccess(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 
 	t.Run("delete endpoint", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteVerifiedAccessEndpoint(endpointID))
+		deleted, err := b.DeleteVerifiedAccessEndpoint(endpointID)
+		require.NoError(t, err)
+		assert.Equal(t, endpointID, deleted.VerifiedAccessEndpointID)
 		eps := b.DescribeVerifiedAccessEndpoints(nil)
 		assert.Empty(t, eps)
 	})
 
 	t.Run("delete group", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteVerifiedAccessGroup(groupID))
+		deleted, err := b.DeleteVerifiedAccessGroup(groupID)
+		require.NoError(t, err)
+		assert.Equal(t, groupID, deleted.VerifiedAccessGroupID)
 		groups := b.DescribeVerifiedAccessGroups(nil)
 		assert.Empty(t, groups)
 	})
 
 	t.Run("delete trust provider", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteVerifiedAccessTrustProvider(trustProviderID))
+		deleted, err := b.DeleteVerifiedAccessTrustProvider(trustProviderID)
+		require.NoError(t, err)
+		assert.Equal(t, trustProviderID, deleted.VerifiedAccessTrustProviderID)
 		tps := b.DescribeVerifiedAccessTrustProviders(nil)
 		assert.Empty(t, tps)
 	})
 
 	t.Run("delete instance", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteVerifiedAccessInstance(instanceID))
+		deleted, err := b.DeleteVerifiedAccessInstance(instanceID)
+		require.NoError(t, err)
+		assert.Equal(t, instanceID, deleted.VerifiedAccessInstanceID)
 		instances := b.DescribeVerifiedAccessInstances(nil)
 		assert.Empty(t, instances)
 	})
@@ -140,7 +150,8 @@ func TestVerifiedAccess_InstanceCRUD(t *testing.T) {
 	require.Len(t, insts, 1)
 	assert.Equal(t, inst.VerifiedAccessInstanceID, insts[0].VerifiedAccessInstanceID)
 
-	require.NoError(t, b.DeleteVerifiedAccessInstance(inst.VerifiedAccessInstanceID))
+	_, err = b.DeleteVerifiedAccessInstance(inst.VerifiedAccessInstanceID)
+	require.NoError(t, err)
 	insts2 := b.DescribeVerifiedAccessInstances(nil)
 	assert.Empty(t, insts2)
 }
@@ -160,7 +171,8 @@ func TestVerifiedAccess_TrustProviderCRUD(t *testing.T) {
 	tps := b.DescribeVerifiedAccessTrustProviders([]string{tp.VerifiedAccessTrustProviderID})
 	require.Len(t, tps, 1)
 
-	require.NoError(t, b.DeleteVerifiedAccessTrustProvider(tp.VerifiedAccessTrustProviderID))
+	_, err = b.DeleteVerifiedAccessTrustProvider(tp.VerifiedAccessTrustProviderID)
+	require.NoError(t, err)
 }
 
 // TestVerifiedAccess_GroupCRUD verifies group lifecycle.
@@ -181,7 +193,8 @@ func TestVerifiedAccess_GroupCRUD(t *testing.T) {
 	grps := b.DescribeVerifiedAccessGroups([]string{grp.VerifiedAccessGroupID})
 	require.Len(t, grps, 1)
 
-	require.NoError(t, b.DeleteVerifiedAccessGroup(grp.VerifiedAccessGroupID))
+	_, err = b.DeleteVerifiedAccessGroup(grp.VerifiedAccessGroupID)
+	require.NoError(t, err)
 }
 
 // TestVerifiedAccess_EndpointCRUD verifies endpoint lifecycle.
@@ -205,7 +218,8 @@ func TestVerifiedAccess_EndpointCRUD(t *testing.T) {
 	eps := b.DescribeVerifiedAccessEndpoints([]string{ep.VerifiedAccessEndpointID})
 	require.Len(t, eps, 1)
 
-	require.NoError(t, b.DeleteVerifiedAccessEndpoint(ep.VerifiedAccessEndpointID))
+	_, err = b.DeleteVerifiedAccessEndpoint(ep.VerifiedAccessEndpointID)
+	require.NoError(t, err)
 }
 
 // ============================================================================

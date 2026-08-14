@@ -462,16 +462,23 @@ func (h *Handler) handleCreateInstanceConnectEndpoint(vals url.Values, reqID str
 	}, nil
 }
 
+type deleteInstanceConnectEndpointResponse struct {
+	XMLName                 xml.Name                    `xml:"DeleteInstanceConnectEndpointResponse"`
+	RequestID               string                      `xml:"requestId"`
+	InstanceConnectEndpoint instanceConnectEndpointItem `xml:"instanceConnectEndpoint"`
+}
+
 func (h *Handler) handleDeleteInstanceConnectEndpoint(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("InstanceConnectEndpointId")
-	if err := h.Backend.DeleteInstanceConnectEndpoint(id); err != nil {
+
+	ep, err := h.Backend.DeleteInstanceConnectEndpoint(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteInstanceConnectEndpointResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteInstanceConnectEndpointResponse{
+		RequestID:               reqID,
+		InstanceConnectEndpoint: toInstanceConnectEndpointItem(ep),
 	}, nil
 }
 
@@ -535,16 +542,29 @@ func (h *Handler) handleCreateInstanceEventWindow(vals url.Values, reqID string)
 	}, nil
 }
 
+type instanceEventWindowStateItem struct {
+	InstanceEventWindowID string `xml:"instanceEventWindowId"`
+	State                 string `xml:"state"`
+}
+
+type deleteInstanceEventWindowResponse struct {
+	XMLName                  xml.Name                     `xml:"DeleteInstanceEventWindowResponse"`
+	RequestID                string                       `xml:"requestId"`
+	InstanceEventWindowState instanceEventWindowStateItem `xml:"instanceEventWindowState"`
+}
+
 func (h *Handler) handleDeleteInstanceEventWindow(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("InstanceEventWindowId")
 	if err := h.Backend.DeleteInstanceEventWindow(id); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteInstanceEventWindowResponse"},
+	return &deleteInstanceEventWindowResponse{
 		RequestID: reqID,
-		Return:    true,
+		InstanceEventWindowState: instanceEventWindowStateItem{
+			InstanceEventWindowID: id,
+			State:                 stateDeleting,
+		},
 	}, nil
 }
 
@@ -563,18 +583,25 @@ func (h *Handler) handleDescribeInstanceEventWindows(vals url.Values, reqID stri
 	return resp, nil
 }
 
+type modifyInstanceEventWindowResponse struct {
+	XMLName             xml.Name                `xml:"ModifyInstanceEventWindowResponse"`
+	RequestID           string                  `xml:"requestId"`
+	InstanceEventWindow instanceEventWindowItem `xml:"instanceEventWindow"`
+}
+
 func (h *Handler) handleModifyInstanceEventWindow(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("InstanceEventWindowId")
 	name := vals.Get("Name")
 	cron := vals.Get("CronExpression")
-	if err := h.Backend.ModifyInstanceEventWindow(id, name, cron); err != nil {
+
+	ew, err := h.Backend.ModifyInstanceEventWindow(id, name, cron)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyInstanceEventWindowResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &modifyInstanceEventWindowResponse{
+		RequestID:           reqID,
+		InstanceEventWindow: toInstanceEventWindowItem(ew),
 	}, nil
 }
 

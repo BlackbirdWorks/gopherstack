@@ -184,15 +184,21 @@ func (h *Handler) handleDeleteTransitGatewayPeeringAttachment(
 	reqID string,
 ) (any, error) {
 	id := vals.Get("TransitGatewayAttachmentId")
-	if err := h.Backend.DeleteTransitGatewayPeeringAttachment(id); err != nil {
+	att, err := h.Backend.DeleteTransitGatewayPeeringAttachment(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayPeeringAttachmentResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTransitGatewayPeeringAttachmentResponse{
+		RequestID:                       reqID,
+		TransitGatewayPeeringAttachment: toTGWPeeringAttachmentItem(att, nil),
 	}, nil
+}
+
+type deleteTransitGatewayPeeringAttachmentResponse struct {
+	XMLName                         xml.Name                 `xml:"DeleteTransitGatewayPeeringAttachmentResponse"`
+	RequestID                       string                   `xml:"requestId"`
+	TransitGatewayPeeringAttachment tgwPeeringAttachmentItem `xml:"transitGatewayPeeringAttachment"`
 }
 
 func (h *Handler) handleDescribeTransitGatewayPeeringAttachments(
@@ -254,15 +260,21 @@ func (h *Handler) handleCreateTransitGatewayConnect(vals url.Values, reqID strin
 
 func (h *Handler) handleDeleteTransitGatewayConnect(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TransitGatewayAttachmentId")
-	if err := h.Backend.DeleteTransitGatewayConnect(id); err != nil {
+	conn, err := h.Backend.DeleteTransitGatewayConnect(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayConnectResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTransitGatewayConnectResponse{
+		RequestID:             reqID,
+		TransitGatewayConnect: toTGWConnectItem(conn, nil),
 	}, nil
+}
+
+type deleteTransitGatewayConnectResponse struct {
+	XMLName               xml.Name       `xml:"DeleteTransitGatewayConnectResponse"`
+	RequestID             string         `xml:"requestId"`
+	TransitGatewayConnect tgwConnectItem `xml:"transitGatewayConnect"`
 }
 
 func (h *Handler) handleDescribeTransitGatewayConnects(vals url.Values, reqID string) (any, error) {
@@ -311,15 +323,21 @@ func (h *Handler) handleCreateTransitGatewayConnectPeer(vals url.Values, reqID s
 
 func (h *Handler) handleDeleteTransitGatewayConnectPeer(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TransitGatewayConnectPeerId")
-	if err := h.Backend.DeleteTransitGatewayConnectPeer(id); err != nil {
+	peer, err := h.Backend.DeleteTransitGatewayConnectPeer(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayConnectPeerResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTransitGatewayConnectPeerResponse{
+		RequestID:                 reqID,
+		TransitGatewayConnectPeer: toTGWConnectPeerItem(peer, nil),
 	}, nil
+}
+
+type deleteTransitGatewayConnectPeerResponse struct {
+	XMLName                   xml.Name           `xml:"DeleteTransitGatewayConnectPeerResponse"`
+	RequestID                 string             `xml:"requestId"`
+	TransitGatewayConnectPeer tgwConnectPeerItem `xml:"transitGatewayConnectPeer"`
 }
 
 func (h *Handler) handleDescribeTransitGatewayConnectPeers(
@@ -367,15 +385,22 @@ func (h *Handler) handleDeleteTransitGatewayPrefixListReference(
 ) (any, error) {
 	routeTableID := vals.Get("TransitGatewayRouteTableId")
 	prefixListID := vals.Get("PrefixListId")
-	if err := h.Backend.DeleteTransitGatewayPrefixListReference(routeTableID, prefixListID); err != nil {
+
+	ref, err := h.Backend.DeleteTransitGatewayPrefixListReference(routeTableID, prefixListID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTransitGatewayPrefixListReferenceResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTransitGatewayPrefixListReferenceResponse{
+		RequestID:                         reqID,
+		TransitGatewayPrefixListReference: tgwPrefixListRefToItem(ref),
 	}, nil
+}
+
+type deleteTransitGatewayPrefixListReferenceResponse struct {
+	XMLName                           xml.Name             `xml:"DeleteTransitGatewayPrefixListReferenceResponse"`
+	RequestID                         string               `xml:"requestId"`
+	TransitGatewayPrefixListReference tgwPrefixListRefItem `xml:"transitGatewayPrefixListReference"`
 }
 
 func (h *Handler) handleGetTransitGatewayPrefixListReferences(

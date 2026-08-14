@@ -74,8 +74,6 @@ func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) 
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		ImageID:   image.ImageID,
-		Name:      image.Name,
-		State:     image.State,
 	}, nil
 }
 
@@ -290,8 +288,6 @@ type createImageResponse struct {
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
 	ImageID   string   `xml:"imageId"`
-	Name      string   `xml:"name"`
-	State     string   `xml:"imageState"`
 }
 
 type imageUsageReportItem struct {

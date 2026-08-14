@@ -32,10 +32,11 @@ func TestManagedPrefixList(t *testing.T) { //nolint:paralleltest // existing iss
 	})
 
 	t.Run("modify add entries", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		err := b.ModifyManagedPrefixList(plID, []ec2.PrefixListEntry{
+		modified, err := b.ModifyManagedPrefixList(plID, []ec2.PrefixListEntry{
 			{Cidr: "10.0.0.0/8", Description: "private"},
 		}, nil)
 		require.NoError(t, err)
+		assert.Equal(t, "modify-complete", modified.State)
 	})
 
 	t.Run("get entries returns added", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -46,20 +47,25 @@ func TestManagedPrefixList(t *testing.T) { //nolint:paralleltest // existing iss
 	})
 
 	t.Run("restore version", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.RestoreManagedPrefixListVersion(plID, 1))
+		restored, err := b.RestoreManagedPrefixListVersion(plID, 1)
+		require.NoError(t, err)
+		assert.Equal(t, "restore-complete", restored.State)
 		lists := b.DescribeManagedPrefixLists([]string{plID})
 		require.Len(t, lists, 1)
 		assert.Equal(t, "restore-complete", lists[0].State)
 	})
 
 	t.Run("delete prefix list", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteManagedPrefixList(plID))
+		deleted, err := b.DeleteManagedPrefixList(plID)
+		require.NoError(t, err)
+		assert.Equal(t, plID, deleted.PrefixListID)
 		lists := b.DescribeManagedPrefixLists(nil)
 		assert.Empty(t, lists)
 	})
 
 	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.Error(t, b.DeleteManagedPrefixList("pl-nonexistent"))
+		_, err := b.DeleteManagedPrefixList("pl-nonexistent")
+		require.Error(t, err)
 	})
 
 	t.Run("create with empty name returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -99,19 +105,21 @@ func TestManagedPrefixList_FullCycle(t *testing.T) {
 			assert.Equal(t, int64(1), pl.Version)
 
 			// add entries
-			require.NoError(t, b.ModifyManagedPrefixList(pl.PrefixListID, []ec2.PrefixListEntry{
+			_, err = b.ModifyManagedPrefixList(pl.PrefixListID, []ec2.PrefixListEntry{
 				{Cidr: "10.0.0.0/8", Description: "rfc1918-a"},
 				{Cidr: "172.16.0.0/12", Description: "rfc1918-b"},
-			}, nil))
+			}, nil)
+			require.NoError(t, err)
 
 			entries, err := b.GetManagedPrefixListEntries(pl.PrefixListID)
 			require.NoError(t, err)
 			assert.Len(t, entries, 2)
 
 			// remove one entry
-			require.NoError(t, b.ModifyManagedPrefixList(
+			_, err = b.ModifyManagedPrefixList(
 				pl.PrefixListID, nil, []ec2.PrefixListEntry{{Cidr: "10.0.0.0/8"}},
-			))
+			)
+			require.NoError(t, err)
 
 			entries2, err := b.GetManagedPrefixListEntries(pl.PrefixListID)
 			require.NoError(t, err)
@@ -119,7 +127,9 @@ func TestManagedPrefixList_FullCycle(t *testing.T) {
 			assert.Equal(t, "172.16.0.0/12", entries2[0].Cidr)
 
 			// delete the prefix list
-			require.NoError(t, b.DeleteManagedPrefixList(pl.PrefixListID))
+			deleted, err := b.DeleteManagedPrefixList(pl.PrefixListID)
+			require.NoError(t, err)
+			assert.Equal(t, pl.PrefixListID, deleted.PrefixListID)
 			lists := b.DescribeManagedPrefixLists([]string{pl.PrefixListID})
 			assert.Empty(t, lists)
 		})

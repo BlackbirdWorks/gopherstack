@@ -239,7 +239,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 				return cagw.CarrierGatewayID
 			},
 			deleteFn: func(b *ec2.InMemoryBackend, id string) error {
-				return b.DeleteCarrierGateway(id)
+				_, err := b.DeleteCarrierGateway(id)
+
+				return err
 			},
 		},
 		{

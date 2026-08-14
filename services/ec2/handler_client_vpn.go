@@ -6,9 +6,11 @@ import (
 )
 
 type createClientVpnEndpointResponse struct {
-	XMLName           xml.Name              `xml:"CreateClientVpnEndpointResponse"`
-	RequestID         string                `xml:"requestId"`
-	ClientVpnEndpoint clientVpnEndpointItem `xml:"clientVpnEndpoint"`
+	XMLName             xml.Name                    `xml:"CreateClientVpnEndpointResponse"`
+	RequestID           string                      `xml:"requestId"`
+	ClientVpnEndpointID string                      `xml:"clientVpnEndpointId"`
+	DNSName             string                      `xml:"dnsName"`
+	Status              clientVpnEndpointStatusItem `xml:"status"`
 }
 
 // describeClientVpnEndpointsResponse wraps the endpoint list directly under
@@ -217,9 +219,17 @@ func (h *Handler) handleCreateClientVpnEndpoint(vals url.Values, reqID string) (
 	}
 
 	return &createClientVpnEndpointResponse{
-		RequestID:         reqID,
-		ClientVpnEndpoint: toClientVpnEndpointItem(ep),
+		RequestID:           reqID,
+		ClientVpnEndpointID: ep.ClientVpnEndpointID,
+		DNSName:             ep.DNSName,
+		Status:              clientVpnEndpointStatusItem{Code: ep.Status},
 	}, nil
+}
+
+type deleteClientVpnEndpointResponse struct {
+	XMLName   xml.Name                    `xml:"DeleteClientVpnEndpointResponse"`
+	RequestID string                      `xml:"requestId"`
+	Status    clientVpnEndpointStatusItem `xml:"status"`
 }
 
 func (h *Handler) handleDeleteClientVpnEndpoint(vals url.Values, reqID string) (any, error) {
@@ -228,10 +238,9 @@ func (h *Handler) handleDeleteClientVpnEndpoint(vals url.Values, reqID string) (
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteClientVpnEndpointResponse"},
+	return &deleteClientVpnEndpointResponse{
 		RequestID: reqID,
-		Return:    true,
+		Status:    clientVpnEndpointStatusItem{Code: stateDeleting},
 	}, nil
 }
 
@@ -317,6 +326,16 @@ func (h *Handler) handleDescribeClientVpnTargetNetworks(vals url.Values, reqID s
 	return resp, nil
 }
 
+type clientVpnRouteStatusItem struct {
+	Code string `xml:"code"`
+}
+
+type createClientVpnRouteResponse struct {
+	XMLName   xml.Name                 `xml:"CreateClientVpnRouteResponse"`
+	RequestID string                   `xml:"requestId"`
+	Status    clientVpnRouteStatusItem `xml:"status"`
+}
+
 func (h *Handler) handleCreateClientVpnRoute(vals url.Values, reqID string) (any, error) {
 	endpointID := vals.Get("ClientVpnEndpointId")
 	cidr := vals.Get("DestinationCidrBlock")
@@ -325,11 +344,16 @@ func (h *Handler) handleCreateClientVpnRoute(vals url.Values, reqID string) (any
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "CreateClientVpnRouteResponse"},
+	return &createClientVpnRouteResponse{
 		RequestID: reqID,
-		Return:    true,
+		Status:    clientVpnRouteStatusItem{Code: "creating"},
 	}, nil
+}
+
+type deleteClientVpnRouteResponse struct {
+	XMLName   xml.Name                 `xml:"DeleteClientVpnRouteResponse"`
+	RequestID string                   `xml:"requestId"`
+	Status    clientVpnRouteStatusItem `xml:"status"`
 }
 
 func (h *Handler) handleDeleteClientVpnRoute(vals url.Values, reqID string) (any, error) {
@@ -339,10 +363,9 @@ func (h *Handler) handleDeleteClientVpnRoute(vals url.Values, reqID string) (any
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteClientVpnRouteResponse"},
+	return &deleteClientVpnRouteResponse{
 		RequestID: reqID,
-		Return:    true,
+		Status:    clientVpnRouteStatusItem{Code: stateDeleting},
 	}, nil
 }
 

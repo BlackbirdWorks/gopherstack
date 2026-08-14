@@ -30,17 +30,19 @@ func (b *InMemoryBackend) CreateCarrierGateway(vpcID string) (*CarrierGateway, e
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) DeleteCarrierGateway(id string) error {
+func (b *InMemoryBackend) DeleteCarrierGateway(id string) (*CarrierGateway, error) {
 	b.mu.Lock("DeleteCarrierGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.carrierGateways.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrCarrierGatewayNotFound, id)
+	gw, ok := b.carrierGateways.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrCarrierGatewayNotFound, id)
 	}
+	cp := *gw
 	b.carrierGateways.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) DescribeCarrierGateways(ids []string) []*CarrierGateway {

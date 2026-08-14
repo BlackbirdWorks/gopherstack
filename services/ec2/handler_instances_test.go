@@ -237,7 +237,9 @@ func TestInstanceConnectEndpoint(t *testing.T) { //nolint:paralleltest // existi
 	})
 
 	t.Run("delete endpoint", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteInstanceConnectEndpoint(epID))
+		deleted, err := b.DeleteInstanceConnectEndpoint(epID)
+		require.NoError(t, err)
+		assert.Equal(t, epID, deleted.InstanceConnectEndpointID)
 		eps := b.DescribeInstanceConnectEndpoints(nil)
 		assert.Empty(t, eps)
 	})
@@ -270,7 +272,10 @@ func TestInstanceEventWindow(t *testing.T) { //nolint:paralleltest // existing i
 	})
 
 	t.Run("modify window", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.ModifyInstanceEventWindow(ewID, "updated", "0 3 * * *"))
+		modified, err := b.ModifyInstanceEventWindow(ewID, "updated", "0 3 * * *")
+		require.NoError(t, err)
+		assert.Equal(t, "updated", modified.Name)
+		assert.Equal(t, "0 3 * * *", modified.CronExpression)
 	})
 
 	t.Run("delete window", func(t *testing.T) { //nolint:paralleltest // existing issue.

@@ -43,11 +43,17 @@ type getVerifiedAccessEndpointPolicyResponse struct {
 	PolicyEnabled  bool     `xml:"policyEnabled"`
 }
 
+type verifiedAccessSSESpecificationItem struct {
+	KmsKeyArn                 string `xml:"kmsKeyArn,omitempty"`
+	CustomerManagedKeyEnabled bool   `xml:"customerManagedKeyEnabled"`
+}
+
 type modifyVerifiedAccessEndpointPolicyResponse struct {
-	XMLName        xml.Name `xml:"ModifyVerifiedAccessEndpointPolicyResponse"`
-	RequestID      string   `xml:"requestId"`
-	PolicyDocument string   `xml:"policyDocument,omitempty"`
-	PolicyEnabled  bool     `xml:"policyEnabled"`
+	XMLName          xml.Name                           `xml:"ModifyVerifiedAccessEndpointPolicyResponse"`
+	RequestID        string                             `xml:"requestId"`
+	PolicyDocument   string                             `xml:"policyDocument,omitempty"`
+	SSESpecification verifiedAccessSSESpecificationItem `xml:"sseSpecification"`
+	PolicyEnabled    bool                               `xml:"policyEnabled"`
 }
 
 type getVerifiedAccessGroupPolicyResponse struct {
@@ -58,10 +64,11 @@ type getVerifiedAccessGroupPolicyResponse struct {
 }
 
 type modifyVerifiedAccessGroupPolicyResponse struct {
-	XMLName        xml.Name `xml:"ModifyVerifiedAccessGroupPolicyResponse"`
-	RequestID      string   `xml:"requestId"`
-	PolicyDocument string   `xml:"policyDocument,omitempty"`
-	PolicyEnabled  bool     `xml:"policyEnabled"`
+	XMLName          xml.Name                           `xml:"ModifyVerifiedAccessGroupPolicyResponse"`
+	RequestID        string                             `xml:"requestId"`
+	PolicyDocument   string                             `xml:"policyDocument,omitempty"`
+	SSESpecification verifiedAccessSSESpecificationItem `xml:"sseSpecification"`
+	PolicyEnabled    bool                               `xml:"policyEnabled"`
 }
 
 type verifiedAccessLogCloudWatchLogsXML struct {
