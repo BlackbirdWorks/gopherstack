@@ -111,35 +111,55 @@ func (b *InMemoryBackend) buildGeneratedTemplateBody(resourceIDs []string) strin
 	return marshalGeneratedTemplate(resources)
 }
 
-func (b *InMemoryBackend) UpdateGeneratedTemplate(id, name string) error {
+// resolveGeneratedTemplate looks up a generated template by its opaque ID
+// (what Create returns) or, failing that, by its human-assigned name -- real
+// AWS's GeneratedTemplateName request field documents accepting "the name or
+// Amazon Resource Name (ARN) of a generated template" (cloudformation@
+// v1.76.1 api_op_UpdateGeneratedTemplate.go), so callers that kept the name
+// instead of the returned ID must still resolve. Caller must hold the lock.
+func (b *InMemoryBackend) resolveGeneratedTemplate(idOrName string) (*GeneratedTemplate, bool) {
+	if gt, ok := b.generatedTemplates.Get(idOrName); ok {
+		return gt, true
+	}
+	for _, gt := range b.generatedTemplates.All() {
+		if gt.GeneratedTemplateName == idOrName {
+			return gt, true
+		}
+	}
+
+	return nil, false
+}
+
+func (b *InMemoryBackend) UpdateGeneratedTemplate(idOrName, name string) (*GeneratedTemplate, error) {
 	b.mu.Lock("UpdateGeneratedTemplate")
 	defer b.mu.Unlock()
-	gt, ok := b.generatedTemplates.Get(id)
+	gt, ok := b.resolveGeneratedTemplate(idOrName)
 	if !ok {
-		return ErrGeneratedTemplateNotFound
+		return nil, ErrGeneratedTemplateNotFound
 	}
 	if name != "" {
 		gt.GeneratedTemplateName = name
 	}
 
-	return nil
+	return gt, nil
 }
 
-func (b *InMemoryBackend) DeleteGeneratedTemplate(id string) error {
+func (b *InMemoryBackend) DeleteGeneratedTemplate(idOrName string) error {
 	b.mu.Lock("DeleteGeneratedTemplate")
 	defer b.mu.Unlock()
-	if !b.generatedTemplates.Has(id) {
+	gt, ok := b.resolveGeneratedTemplate(idOrName)
+	if !ok {
 		return ErrGeneratedTemplateNotFound
 	}
-	b.generatedTemplates.Delete(id)
+	b.generatedTemplates.Delete(gt.GeneratedTemplateID)
 
 	return nil
 }
 
-func (b *InMemoryBackend) DescribeGeneratedTemplate(id string) (*GeneratedTemplate, error) {
+func (b *InMemoryBackend) DescribeGeneratedTemplate(idOrName string) (*GeneratedTemplate, error) {
 	b.mu.RLock("DescribeGeneratedTemplate")
 	defer b.mu.RUnlock()
-	gt, ok := b.generatedTemplates.Get(id)
+	gt, ok := b.resolveGeneratedTemplate(idOrName)
 	if !ok {
 		return nil, ErrGeneratedTemplateNotFound
 	}
@@ -147,10 +167,10 @@ func (b *InMemoryBackend) DescribeGeneratedTemplate(id string) (*GeneratedTempla
 	return gt, nil
 }
 
-func (b *InMemoryBackend) GetGeneratedTemplate(id string) (string, error) {
+func (b *InMemoryBackend) GetGeneratedTemplate(idOrName string) (string, error) {
 	b.mu.RLock("GetGeneratedTemplate")
 	defer b.mu.RUnlock()
-	gt, ok := b.generatedTemplates.Get(id)
+	gt, ok := b.resolveGeneratedTemplate(idOrName)
 	if !ok {
 		return "", ErrGeneratedTemplateNotFound
 	}

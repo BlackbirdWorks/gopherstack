@@ -883,7 +883,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	assert.Equal(t, "CURRENT", inst.Status)
 
 	// Update set.
-	updated, err := b.UpdateStackSet("my-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
+	updated, _, err := b.UpdateStackSet("my-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", updated.Status)
 
@@ -1117,7 +1117,7 @@ func TestRollbackStack(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = b.RollbackStack(t.Context(), "rb-stack")
+	_, err = b.RollbackStack(t.Context(), "rb-stack")
 	require.NoError(t, err)
 }
 

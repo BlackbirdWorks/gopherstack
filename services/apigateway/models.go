@@ -65,16 +65,19 @@ type RestAPI struct {
 	CreatedDate               unixEpochTime          `json:"createdDate"`
 	EndpointConfiguration     *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
 	Tags                      *tags.Tags             `json:"tags,omitempty"`
-	Policy                    string                 `json:"policy,omitempty"`
-	Name                      string                 `json:"name"`
+	RootResourceID            string                 `json:"rootResourceId,omitempty"`
+	APIStatusMessage          string                 `json:"apiStatusMessage,omitempty"`
 	Description               string                 `json:"description,omitempty"`
 	ID                        string                 `json:"id"`
 	APIKeySource              string                 `json:"apiKeySource,omitempty"`
-	RootResourceID            string                 `json:"rootResourceId,omitempty"`
+	Policy                    string                 `json:"policy,omitempty"`
 	APIStatus                 string                 `json:"apiStatus,omitempty"`
-	APIStatusMessage          string                 `json:"apiStatusMessage,omitempty"`
+	Name                      string                 `json:"name"`
 	EndpointAccessMode        string                 `json:"endpointAccessMode,omitempty"`
+	SecurityPolicy            string                 `json:"securityPolicy,omitempty"`
+	Version                   string                 `json:"version,omitempty"`
 	BinaryMediaTypes          []string               `json:"binaryMediaTypes,omitempty"`
+	Warnings                  []string               `json:"warnings,omitempty"`
 	MinimumCompressionSize    int                    `json:"minimumCompressionSize,omitempty"`
 	DisableExecuteAPIEndpoint bool                   `json:"disableExecuteApiEndpoint,omitempty"`
 }
@@ -937,12 +940,13 @@ type ImportRestAPIInput struct {
 
 // VpcLink represents a VPC Link for private integrations.
 type VpcLink struct {
-	Tags        *tags.Tags `json:"tags,omitempty"`
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
-	Status      string     `json:"status"`
-	TargetARNs  []string   `json:"targetArns,omitempty"`
+	Tags          *tags.Tags `json:"tags,omitempty"`
+	ID            string     `json:"id"`
+	Name          string     `json:"name"`
+	Description   string     `json:"description,omitempty"`
+	Status        string     `json:"status"`
+	StatusMessage string     `json:"statusMessage,omitempty"`
+	TargetARNs    []string   `json:"targetArns,omitempty"`
 }
 
 // CreateVpcLinkInput is the input for CreateVpcLink.

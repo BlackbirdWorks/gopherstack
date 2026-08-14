@@ -150,7 +150,7 @@ func TestGeneratedTemplate_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "my-gen-tmpl", gt.GeneratedTemplateName)
 
-	err = b.UpdateGeneratedTemplate(gt.GeneratedTemplateID, "renamed-tmpl")
+	_, err = b.UpdateGeneratedTemplate(gt.GeneratedTemplateID, "renamed-tmpl")
 	require.NoError(t, err)
 
 	desc, err := b.DescribeGeneratedTemplate(gt.GeneratedTemplateID)
@@ -225,7 +225,7 @@ func TestTypeManagement_ActivateDeactivate(t *testing.T) {
 
 	b := newBackend()
 
-	err := b.ActivateType(
+	_, err := b.ActivateType(
 		"AWS::S3::Bucket",
 		"arn:aws:cloudformation:us-east-1::type/resource/AWS-S3-Bucket",
 	)
@@ -247,7 +247,7 @@ func TestTypeManagement_Configuration(t *testing.T) {
 	require.NoError(t, err)
 
 	config := `{"LoggingConfig":{"LogGroupName":"/aws/cloudformation/My-Test-Type"}}`
-	err = b.SetTypeConfiguration("My::Test::Type", config)
+	_, err = b.SetTypeConfiguration("My::Test::Type", config)
 	require.NoError(t, err)
 
 	result, errs, unprocessed := b.BatchDescribeTypeConfigurations(
@@ -444,7 +444,7 @@ func TestImportStacksToStackSet(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = b.ImportStacksToStackSet(
+	_, err = b.ImportStacksToStackSet(
 		"import-ss",
 		[]string{"arn:aws:cloudformation:us-east-1:123:stack/my-stack/abc"},
 	)
@@ -579,7 +579,7 @@ func TestRollbackStack_ChangesStatus(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = b.RollbackStack(t.Context(), "rb-change")
+	_, err = b.RollbackStack(t.Context(), "rb-change")
 	require.NoError(t, err)
 
 	// Stack should still be accessible.

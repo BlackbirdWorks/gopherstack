@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (b *InMemoryBackend) ActivateType(typeName, typeArn string) error {
+func (b *InMemoryBackend) ActivateType(typeName, typeArn string) (string, error) {
 	b.mu.Lock("ActivateType")
 	defer b.mu.Unlock()
 	key := typeArn
@@ -27,7 +27,7 @@ func (b *InMemoryBackend) ActivateType(typeName, typeArn string) error {
 		})
 	}
 
-	return nil
+	return key, nil
 }
 
 func (b *InMemoryBackend) DeactivateType(typeName, typeArn string) error {
@@ -100,17 +100,17 @@ func (b *InMemoryBackend) DeregisterType(typeArn string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) PublishType(typeName string) error {
+func (b *InMemoryBackend) PublishType(typeName string) (string, error) {
 	b.mu.Lock("PublishType")
 	defer b.mu.Unlock()
 	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
 	t, ok := b.typeRegistry.Get(typeArn)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
+		return "", fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
 	}
 	t.IsPublished = true
 
-	return nil
+	return typeArn, nil
 }
 
 func (b *InMemoryBackend) SetTypeDefaultVersion(typeArn, version string) error {
@@ -130,12 +130,12 @@ func (b *InMemoryBackend) SetTypeDefaultVersion(typeArn, version string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) SetTypeConfiguration(typeName, configuration string) error {
+func (b *InMemoryBackend) SetTypeConfiguration(typeName, configuration string) (string, error) {
 	b.mu.Lock("SetTypeConfiguration")
 	defer b.mu.Unlock()
 	b.typeConfigs[typeName] = configuration
 
-	return nil
+	return "arn:aws:cloudformation:::type-configuration/resource/" + typeName + "/default", nil
 }
 
 func (b *InMemoryBackend) BatchDescribeTypeConfigurations(

@@ -503,9 +503,14 @@ func TestRoute53_ActivateKeySigningKey(t *testing.T) {
 		wantCode     int
 	}{
 		{
-			name:         "activate_success",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"ActivateKeySigningKeyResponse", "ACTIVE"},
+			name:     "activate_success",
+			wantCode: http.StatusOK,
+			// ActivateKeySigningKeyOutput carries only ChangeInfo
+			// (route53@v1.65.6 deserializers.go:
+			// awsRestxml_deserializeOpDocumentActivateKeySigningKeyOutput) --
+			// the activated key's new status is verified via a follow-up
+			// GetDNSSEC below, not read back from this response.
+			wantContains: []string{"ActivateKeySigningKeyResponse", "ChangeInfo"},
 		},
 	}
 
@@ -535,6 +540,19 @@ func TestRoute53_ActivateKeySigningKey(t *testing.T) {
 			// Activate.
 			got := send(t, h, http.MethodPost, "/2013-04-01/keysigningkey/"+zoneID+"/testkey/activate", "")
 			assert.Equal(t, tt.wantCode, got.Code)
+
+			// The activated status is only observable via a subsequent
+			// GetDNSSEC -- the ActivateKeySigningKey response itself never
+			// carries the key (see wantContains comment above).
+			dnssecRec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID+"/dnssec", "")
+			require.Equal(t, http.StatusOK, dnssecRec.Code)
+			assert.Contains(t, dnssecRec.Body.String(), "ACTIVE")
+
+			// gopherstack-7185: the response used to echo a <KeySigningKey>
+			// element that real AWS never sends for this op. (The root
+			// element is itself named ActivateKeySigningKeyResponse, so this
+			// checks for the opening tag specifically.)
+			assert.NotContains(t, got.Body.String(), "<KeySigningKey>")
 
 			for _, s := range tt.wantContains {
 				assert.Contains(t, got.Body.String(), s)

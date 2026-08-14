@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
@@ -70,12 +71,39 @@ func (b *InMemoryBackend) GetTemplateSummary(templateBody, stackName string) (*T
 	}
 
 	resourceTypes := collections.SortedKeys(typesSet)
+	capabilities, capabilitiesReason := templateCapabilities(resourceTypes)
 
 	return &TemplateSummary{
-		Description:   tmpl.Description,
-		Parameters:    params,
-		ResourceTypes: resourceTypes,
+		Description:        tmpl.Description,
+		Parameters:         params,
+		ResourceTypes:      resourceTypes,
+		Capabilities:       capabilities,
+		CapabilitiesReason: capabilitiesReason,
+		DeclaredTransforms: tmpl.Transform,
 	}, nil
+}
+
+// templateCapabilities mirrors requireIAMCapability's "AWS::IAM::" detection
+// (stack_lifecycle.go) to report which capabilities a template needs and why,
+// matching ValidateTemplate/GetTemplateSummaryOutput's Capabilities and
+// CapabilitiesReason members (cloudformation@v1.76.1 deserializers.go:
+// awsAwsquery_deserializeOpDocumentValidateTemplateOutput).
+func templateCapabilities(resourceTypes []string) ([]string, string) {
+	var iamTypes []string
+
+	for _, rt := range resourceTypes {
+		if strings.HasPrefix(rt, "AWS::IAM::") {
+			iamTypes = append(iamTypes, rt)
+		}
+	}
+
+	if len(iamTypes) == 0 {
+		return nil, ""
+	}
+
+	reason := fmt.Sprintf("The following resource(s) require capabilities: [%s]", strings.Join(iamTypes, ", "))
+
+	return []string{"CAPABILITY_IAM"}, reason
 }
 
 // EstimateTemplateCost returns a mock cost estimation URL.

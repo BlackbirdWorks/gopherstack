@@ -19,27 +19,32 @@ func TestCFN_GeneratedTemplates(t *testing.T) {
 		"Action":                []string{"CreateGeneratedTemplate"},
 		"GeneratedTemplateName": []string{"my-gen-template"},
 	}.Encode())
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	require.True(t, rec.Code >= 200 && rec.Code < 300, "CreateGeneratedTemplate: %d %s", rec.Code, rec.Body.String())
 
 	// ListGeneratedTemplates
 	rec = postForm(t, h, url.Values{
 		"Action": []string{"ListGeneratedTemplates"},
 	}.Encode())
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	assert.True(t, rec.Code >= 200 && rec.Code < 300)
 
-	// DescribeGeneratedTemplate
+	// DescribeGeneratedTemplate -- gopherstack-7185: this and the three ops
+	// below used to read the wrong wire key ("GeneratedTemplateId" instead
+	// of "GeneratedTemplateName", the real request field), so every one of
+	// them 400'd for any real client and this test's old `|| rec.Code ==
+	// 400` masked it.
 	rec = postForm(t, h, url.Values{
 		"Action":                []string{"DescribeGeneratedTemplate"},
 		"GeneratedTemplateName": []string{"my-gen-template"},
 	}.Encode())
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	require.True(t, rec.Code >= 200 && rec.Code < 300, "DescribeGeneratedTemplate: %d %s", rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "my-gen-template")
 
 	// GetGeneratedTemplate
 	rec = postForm(t, h, url.Values{
 		"Action":                []string{"GetGeneratedTemplate"},
 		"GeneratedTemplateName": []string{"my-gen-template"},
 	}.Encode())
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	assert.True(t, rec.Code >= 200 && rec.Code < 300, "GetGeneratedTemplate: %d %s", rec.Code, rec.Body.String())
 
 	// UpdateGeneratedTemplate
 	rec = postForm(t, h, url.Values{
@@ -47,14 +52,16 @@ func TestCFN_GeneratedTemplates(t *testing.T) {
 		"GeneratedTemplateName":    []string{"my-gen-template"},
 		"NewGeneratedTemplateName": []string{"my-gen-template-v2"},
 	}.Encode())
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	require.True(t, rec.Code >= 200 && rec.Code < 300, "UpdateGeneratedTemplate: %d %s", rec.Code, rec.Body.String())
 
-	// DeleteGeneratedTemplate
+	// DeleteGeneratedTemplate -- addressed by name, matching real AWS
+	// (GeneratedTemplateName accepts "name or ARN"), not by the opaque ID
+	// UpdateGeneratedTemplate's response carries.
 	rec = postForm(t, h, url.Values{
 		"Action":                []string{"DeleteGeneratedTemplate"},
 		"GeneratedTemplateName": []string{"my-gen-template-v2"},
 	}.Encode())
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	assert.True(t, rec.Code >= 200 && rec.Code < 300, "DeleteGeneratedTemplate: %d %s", rec.Code, rec.Body.String())
 }
 
 func TestCFN_ResourceScans(t *testing.T) {

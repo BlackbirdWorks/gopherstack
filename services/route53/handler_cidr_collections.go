@@ -34,7 +34,6 @@ type xmlChangeCidrCollectionResponse struct {
 	XMLName xml.Name `xml:"ChangeCidrCollectionResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	ID      string   `xml:"Id"`
-	Version int64    `xml:"Version"`
 }
 
 type xmlCidrChangeEntry struct {
@@ -181,9 +180,8 @@ func (h *Handler) changeCidrCollection(c *echo.Context, path string) error {
 	logger.Load(ctx).DebugContext(ctx, "Route53 ChangeCidrCollection", "id", collectionID)
 
 	return writeXML(c, http.StatusOK, xmlChangeCidrCollectionResponse{
-		Xmlns:   route53Namespace,
-		ID:      col.ID,
-		Version: col.Version,
+		Xmlns: route53Namespace,
+		ID:    col.ID,
 	})
 }
 

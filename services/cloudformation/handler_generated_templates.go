@@ -86,21 +86,39 @@ func (h *Handler) handleCreateGeneratedTemplate(form url.Values, c *echo.Context
 }
 
 func (h *Handler) handleUpdateGeneratedTemplate(form url.Values, c *echo.Context) error {
-	id := form.Get("GeneratedTemplateId")
-	if err := h.Backend.UpdateGeneratedTemplate(id, form.Get("NewGeneratedTemplateName")); err != nil {
+	// The real wire key is "GeneratedTemplateName" for all of
+	// Update/Delete/Describe/GetGeneratedTemplate (cloudformation@v1.76.1
+	// serializers.go: awsAwsquery_serializeOpDocumentUpdateGeneratedTemplateInput
+	// and siblings) -- it accepts a name *or* ARN, not the literal
+	// "GeneratedTemplateId" gopherstack used to read, which real clients never
+	// send, making every one of these four ops unreachable.
+	id := form.Get("GeneratedTemplateName")
+	gt, err := h.Backend.UpdateGeneratedTemplate(id, form.Get("NewGeneratedTemplateName"))
+	if err != nil {
 		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
+	}
+	type result struct {
+		GeneratedTemplateID string `xml:"GeneratedTemplateId"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"UpdateGeneratedTemplateResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"UpdateGeneratedTemplateResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{GeneratedTemplateID: gt.GeneratedTemplateID},
+			RequestID: uuid.New().String(),
+		},
+	)
 }
 
 func (h *Handler) handleDeleteGeneratedTemplate(form url.Values, c *echo.Context) error {
-	if err := h.Backend.DeleteGeneratedTemplate(form.Get("GeneratedTemplateId")); err != nil {
+	if err := h.Backend.DeleteGeneratedTemplate(form.Get("GeneratedTemplateName")); err != nil {
 		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}
 	type response struct {
@@ -113,7 +131,7 @@ func (h *Handler) handleDeleteGeneratedTemplate(form url.Values, c *echo.Context
 }
 
 func (h *Handler) handleDescribeGeneratedTemplate(form url.Values, c *echo.Context) error {
-	gt, err := h.Backend.DescribeGeneratedTemplate(form.Get("GeneratedTemplateId"))
+	gt, err := h.Backend.DescribeGeneratedTemplate(form.Get("GeneratedTemplateName"))
 	if err != nil {
 		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}
@@ -137,7 +155,7 @@ func (h *Handler) handleDescribeGeneratedTemplate(form url.Values, c *echo.Conte
 }
 
 func (h *Handler) handleGetGeneratedTemplate(form url.Values, c *echo.Context) error {
-	body, err := h.Backend.GetGeneratedTemplate(form.Get("GeneratedTemplateId"))
+	body, err := h.Backend.GetGeneratedTemplate(form.Get("GeneratedTemplateName"))
 	if err != nil {
 		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}

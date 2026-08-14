@@ -226,9 +226,12 @@ type ParameterDeclaration struct {
 
 // TemplateSummary holds summary information about a CloudFormation template.
 type TemplateSummary struct {
-	Description   string                 `xml:"Description,omitempty"          json:"description,omitempty"`
-	Parameters    []ParameterDeclaration `xml:"Parameters>member,omitempty"    json:"parameters,omitempty"`
-	ResourceTypes []string               `xml:"ResourceTypes>member,omitempty" json:"resourceTypes,omitempty"`
+	Description        string                 `xml:"Description,omitempty"               json:"description,omitempty"`
+	CapabilitiesReason string                 `xml:"CapabilitiesReason,omitempty"        json:"capabilitiesReason,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
+	Parameters         []ParameterDeclaration `xml:"Parameters>member,omitempty"         json:"parameters,omitempty"`
+	ResourceTypes      []string               `xml:"ResourceTypes>member,omitempty"      json:"resourceTypes,omitempty"`
+	Capabilities       []string               `xml:"Capabilities>member,omitempty"       json:"capabilities,omitempty"`
+	DeclaredTransforms []string               `xml:"DeclaredTransforms>member,omitempty" json:"declaredTransforms,omitempty"` //nolint:lll // goimports struct-tag alignment exceeds line limit.
 }
 
 // AccountLimit holds a single CloudFormation account limit.

@@ -181,19 +181,26 @@ func (h *Handler) handleUpdateStackSet(form url.Values, c *echo.Context) error {
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
-	_, err := h.Backend.UpdateStackSet(
+	_, opID, err := h.Backend.UpdateStackSet(
 		name, form.Get("Description"), form.Get("TemplateBody"), parseStackSetOptions(form),
 	)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
+	type result struct {
+		OperationID string `xml:"OperationId"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"UpdateStackSetResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"UpdateStackSetResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()},
+	)
 }
 
 func (h *Handler) handleDeleteStackSet(form url.Values, c *echo.Context) error {
@@ -699,16 +706,24 @@ func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *ec
 func (h *Handler) handleImportStacksToStackSet(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
 	stackIDs := parseMemberList(form, "StackIds.")
-	if err := h.Backend.ImportStacksToStackSet(name, stackIDs); err != nil {
+	opID, err := h.Backend.ImportStacksToStackSet(name, stackIDs)
+	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+	}
+	type result struct {
+		OperationID string `xml:"OperationId"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ImportStacksToStackSetResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"ImportStacksToStackSetResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()},
+	)
 }
 
 func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo.Context) error {

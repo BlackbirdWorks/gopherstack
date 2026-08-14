@@ -55,6 +55,35 @@ func (h *Handler) dispatchStackOps(action string, form url.Values, c *echo.Conte
 	}
 }
 
+// writeCreateOrUpdateStackResponse writes the shared CreateStack/UpdateStack
+// response shape: both real outputs carry only OperationId and StackId
+// (cloudformation@v1.76.1 api_op_CreateStack.go / api_op_UpdateStack.go),
+// differing only in their XML root/result element names.
+func writeCreateOrUpdateStackResponse(c *echo.Context, responseElem, resultElem, stackID string) error {
+	type result struct {
+		XMLName     xml.Name
+		OperationID string `xml:"OperationId"`
+		StackID     string `xml:"StackId"`
+	}
+	type response struct {
+		XMLName   xml.Name
+		Xmlns     string `xml:"xmlns,attr"`
+		Result    result
+		RequestID string `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{
+		XMLName: xml.Name{Local: responseElem},
+		Xmlns:   cfnNS,
+		Result: result{
+			XMLName:     xml.Name{Local: resultElem},
+			OperationID: uuid.New().String(),
+			StackID:     stackID,
+		},
+		RequestID: uuid.New().String(),
+	})
+}
+
 func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
@@ -71,21 +100,7 @@ func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, code, msg)
 	}
 
-	type result struct {
-		StackID string `xml:"StackId"`
-	}
-	type response struct {
-		XMLName   xml.Name `xml:"CreateStackResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		Result    result   `xml:"CreateStackResult"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-	}
-
-	return writeXML(c, response{
-		Xmlns:     cfnNS,
-		Result:    result{StackID: stack.StackID},
-		RequestID: uuid.New().String(),
-	})
+	return writeCreateOrUpdateStackResponse(c, "CreateStackResponse", "CreateStackResult", stack.StackID)
 }
 
 func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
@@ -104,21 +119,7 @@ func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, code, msg)
 	}
 
-	type result struct {
-		StackID string `xml:"StackId"`
-	}
-	type response struct {
-		XMLName   xml.Name `xml:"UpdateStackResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		Result    result   `xml:"UpdateStackResult"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-	}
-
-	return writeXML(c, response{
-		Xmlns:     cfnNS,
-		Result:    result{StackID: stack.StackID},
-		RequestID: uuid.New().String(),
-	})
+	return writeCreateOrUpdateStackResponse(c, "UpdateStackResponse", "UpdateStackResult", stack.StackID)
 }
 
 func (h *Handler) handleDeleteStack(form url.Values, c *echo.Context) error {
@@ -390,16 +391,26 @@ func (h *Handler) handleRollbackStack(form url.Values, c *echo.Context) error {
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
-	if err := h.Backend.RollbackStack(c.Request().Context(), name); err != nil {
+	stack, err := h.Backend.RollbackStack(c.Request().Context(), name)
+	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
+	}
+	type result struct {
+		OperationID string `xml:"OperationId"`
+		StackID     string `xml:"StackId"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"RollbackStackResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"RollbackStackResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(c, response{
+		Xmlns:     cfnNS,
+		Result:    result{OperationID: uuid.New().String(), StackID: stack.StackID},
+		RequestID: uuid.New().String(),
+	})
 }
 
 func (h *Handler) handleDescribeEvents(form url.Values, c *echo.Context) error {

@@ -65,10 +65,9 @@ type xmlCreateKSKResponse struct {
 }
 
 type xmlActivateKSKResponse struct {
-	XMLName       xml.Name      `xml:"ActivateKeySigningKeyResponse"`
-	Xmlns         string        `xml:"xmlns,attr"`
-	ChangeInfo    xmlChangeInfo `xml:"ChangeInfo"`
-	KeySigningKey xmlKSK        `xml:"KeySigningKey"`
+	XMLName    xml.Name      `xml:"ActivateKeySigningKeyResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
 }
 
 func (h *Handler) routeKSKRoot(c *echo.Context, method string) error {
@@ -203,8 +202,7 @@ func (h *Handler) activateKeySigningKey(c *echo.Context, path string) error {
 	hostedZoneID := parts[0]
 	name := parts[1]
 
-	ksk, err := h.Backend.ActivateKeySigningKey(hostedZoneID, name)
-	if err != nil {
+	if _, err := h.Backend.ActivateKeySigningKey(hostedZoneID, name); err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -212,8 +210,7 @@ func (h *Handler) activateKeySigningKey(c *echo.Context, path string) error {
 		DebugContext(ctx, "Route53 ActivateKeySigningKey", "name", name, "zoneID", hostedZoneID)
 
 	return writeXML(c, http.StatusOK, xmlActivateKSKResponse{
-		Xmlns:         route53Namespace,
-		KeySigningKey: toXMLKSK(ksk),
+		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			ID:          "/change/C" + hostedZoneID,
 			Status:      statusInsync,

@@ -177,8 +177,11 @@ func (h *Handler) handleSetSecurityGroups(vals url.Values) (any, error) {
 	}
 
 	return &setSecurityGroupsResponse{
-		Xmlns:            elbv2XMLNS,
-		Result:           setSecurityGroupsResult{SecurityGroupIDs: xmlStringList{Members: members}},
+		Xmlns: elbv2XMLNS,
+		Result: setSecurityGroupsResult{
+			SecurityGroupIDs:                 xmlStringList{Members: members},
+			EnforceInboundRulesOnPrivateLink: "off",
+		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-sgs"},
 	}, nil
 }
@@ -208,8 +211,12 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 	}
 
 	return &setSubnetsResponse{
-		Xmlns:            elbv2XMLNS,
-		Result:           setSubnetsResult{AvailabilityZones: xmlAZMappingList{Members: azMembers}},
+		Xmlns: elbv2XMLNS,
+		Result: setSubnetsResult{
+			AvailabilityZones:            xmlAZMappingList{Members: azMembers},
+			IPAddressType:                lb.IPAddressType,
+			EnablePrefixForIpv6SourceNat: "off",
+		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-subnets"},
 	}, nil
 }
@@ -424,7 +431,8 @@ type describeLoadBalancerAttributesResponse struct {
 }
 
 type setSecurityGroupsResult struct {
-	SecurityGroupIDs xmlStringList `xml:"SecurityGroupIds"`
+	EnforceInboundRulesOnPrivateLink string        `xml:"EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic,omitempty"`
+	SecurityGroupIDs                 xmlStringList `xml:"SecurityGroupIds"`
 }
 
 type setSecurityGroupsResponse struct {
@@ -435,7 +443,9 @@ type setSecurityGroupsResponse struct {
 }
 
 type setSubnetsResult struct {
-	AvailabilityZones xmlAZMappingList `xml:"AvailabilityZones"`
+	IPAddressType                string           `xml:"IpAddressType,omitempty"`
+	EnablePrefixForIpv6SourceNat string           `xml:"EnablePrefixForIpv6SourceNat,omitempty"`
+	AvailabilityZones            xmlAZMappingList `xml:"AvailabilityZones"`
 }
 
 type setSubnetsResponse struct {

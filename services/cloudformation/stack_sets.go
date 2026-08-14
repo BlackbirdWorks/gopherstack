@@ -79,12 +79,12 @@ func (b *InMemoryBackend) CreateStackSet(
 func (b *InMemoryBackend) UpdateStackSet(
 	name, description, templateBody string,
 	opts StackSetOptions,
-) (*StackSet, error) {
+) (*StackSet, string, error) {
 	b.mu.Lock("UpdateStackSet")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets.Get(name)
 	if !ok {
-		return nil, ErrStackSetNotFound
+		return nil, "", ErrStackSetNotFound
 	}
 	if description != "" {
 		ss.Description = description
@@ -119,9 +119,9 @@ func (b *InMemoryBackend) UpdateStackSet(
 	if opts.ManagedExecution != nil {
 		ss.ManagedExecution = opts.ManagedExecution
 	}
-	b.recordStackSetOperation(name, "UPDATE")
+	opID := b.recordStackSetOperation(name, "UPDATE")
 
-	return ss, nil
+	return ss, opID, nil
 }
 
 func (b *InMemoryBackend) DeleteStackSet(name string) error {
@@ -440,12 +440,12 @@ func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
 	return targets, nil
 }
 
-func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs []string) error {
+func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs []string) (string, error) {
 	b.mu.Lock("ImportStacksToStackSet")
 	defer b.mu.Unlock()
 	ss, ok := b.stackSets.Get(stackSetName)
 	if !ok {
-		return ErrStackSetNotFound
+		return "", ErrStackSetNotFound
 	}
 	opID := b.recordStackSetOperation(stackSetName, "IMPORT")
 	for _, stackID := range stackIDs {
@@ -474,7 +474,7 @@ func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs [
 		})
 	}
 
-	return nil
+	return opID, nil
 }
 
 func (b *InMemoryBackend) ActivateOrganizationsAccess() error {
