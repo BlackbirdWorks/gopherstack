@@ -49,7 +49,10 @@ var stubAMIs = []AMIStub{
 	},
 }
 
-// DescribeImages returns stub AMIs.
+// DescribeImages returns stub AMIs, with State overridden to "disabled" for
+// any image DisableImage was called on -- DisableImage/EnableImage track
+// disabled state in b.imageDisabled rather than on the AMIStub itself, since
+// stubAMIs is a shared package-level slice.
 func (b *InMemoryBackend) DescribeImages() []AMIStub {
 	b.mu.RLock("DescribeImages")
 	defer b.mu.RUnlock()
@@ -59,6 +62,12 @@ func (b *InMemoryBackend) DescribeImages() []AMIStub {
 	for _, img := range b.images.All() {
 		cp := *img
 		images = append(images, cp)
+	}
+
+	for i := range images {
+		if b.imageDisabled[images[i].ImageID] {
+			images[i].State = stateDisabledImg
+		}
 	}
 
 	return images

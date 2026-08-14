@@ -249,3 +249,203 @@ func TestDescribeSecurityGroups_IPPermissions_RealClient(t *testing.T) {
 
 	assert.True(t, foundEgress, "authorized egress rule not found in IpPermissionsEgress")
 }
+
+// TestDescribeVpcs_TagSet_RealClient drives CreateVpc then CreateTags then
+// DescribeVpcs through the real SDK client. The real Vpc deserializer
+// (awsEc2query_deserializeDocumentVpc, ec2@v1.319.1 deserializers.go) reads
+// "tagSet" as a top-level Vpc field, and DescribeVpcClassicLink already
+// builds its response with h.Backend.TagsForResource(vpc.ID) -- proof the
+// backend tracks VPC tags correctly. But vpcItem (DescribeVpcs/CreateVpc)
+// never carried a TagSet field at all, so a real client's Vpc.Tags was
+// always empty regardless of what had been tagged.
+func TestDescribeVpcs_TagSet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	created, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{
+		CidrBlock: aws.String("10.20.0.0/16"),
+	})
+	require.NoError(t, err)
+	vpcID := aws.ToString(created.Vpc.VpcId)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{vpcID},
+		Tags:      []types.Tag{{Key: aws.String("Name"), Value: aws.String("wire-field-fixes-vpc")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeVpcs(t.Context(), &ec2sdk.DescribeVpcsInput{
+		VpcIds: []string{vpcID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Vpcs, 1)
+
+	require.NotEmpty(t, out.Vpcs[0].Tags, "Tags empty - never emitted by DescribeVpcs")
+	assert.Equal(t, "Name", aws.ToString(out.Vpcs[0].Tags[0].Key))
+	assert.Equal(t, "wire-field-fixes-vpc", aws.ToString(out.Vpcs[0].Tags[0].Value))
+}
+
+// TestDescribeRouteTables_TagSet_RealClient drives CreateRouteTable then
+// CreateTags then DescribeRouteTables through the real SDK client. The real
+// RouteTable deserializer (awsEc2query_deserializeDocumentRouteTable,
+// ec2@v1.319.1 deserializers.go) reads "tagSet" as a top-level RouteTable
+// field. The backend tracks and consults route table tags for tag: filters
+// (routeTableMatchesFilter's default case, handler_filters.go), but
+// routeTableItem never carried a TagSet field at all, so a real client's
+// RouteTable.Tags was always empty.
+func TestDescribeRouteTables_TagSet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.21.0.0/16")})
+	require.NoError(t, err)
+
+	rt, err := client.CreateRouteTable(t.Context(), &ec2sdk.CreateRouteTableInput{
+		VpcId: vpc.Vpc.VpcId,
+	})
+	require.NoError(t, err)
+	rtID := aws.ToString(rt.RouteTable.RouteTableId)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{rtID},
+		Tags:      []types.Tag{{Key: aws.String("Env"), Value: aws.String("wire-field-fixes")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeRouteTables(t.Context(), &ec2sdk.DescribeRouteTablesInput{
+		RouteTableIds: []string{rtID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.RouteTables, 1)
+
+	require.NotEmpty(t, out.RouteTables[0].Tags, "Tags empty - never emitted by DescribeRouteTables")
+	assert.Equal(t, "Env", aws.ToString(out.RouteTables[0].Tags[0].Key))
+	assert.Equal(t, "wire-field-fixes", aws.ToString(out.RouteTables[0].Tags[0].Value))
+}
+
+// TestDescribeAddresses_TagSet_RealClient drives AllocateAddress then
+// CreateTags then DescribeAddresses through the real SDK client. The real
+// Address deserializer (awsEc2query_deserializeDocumentAddress, ec2@v1.319.1
+// deserializers.go) reads "tagSet" as a top-level Address field. The backend
+// tracks and consults address tags for tag: filters (addressMatchesFilter's
+// default case, handler_filters.go), but addressItem never carried a TagSet
+// field at all, so a real client's Address.Tags was always empty.
+func TestDescribeAddresses_TagSet_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	alloc, err := client.AllocateAddress(t.Context(), &ec2sdk.AllocateAddressInput{})
+	require.NoError(t, err)
+	allocID := aws.ToString(alloc.AllocationId)
+
+	_, err = client.CreateTags(t.Context(), &ec2sdk.CreateTagsInput{
+		Resources: []string{allocID},
+		Tags:      []types.Tag{{Key: aws.String("Owner"), Value: aws.String("wire-field-fixes")}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeAddresses(t.Context(), &ec2sdk.DescribeAddressesInput{
+		AllocationIds: []string{allocID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Addresses, 1)
+
+	require.NotEmpty(t, out.Addresses[0].Tags, "Tags empty - never emitted by DescribeAddresses")
+	assert.Equal(t, "Owner", aws.ToString(out.Addresses[0].Tags[0].Key))
+	assert.Equal(t, "wire-field-fixes", aws.ToString(out.Addresses[0].Tags[0].Value))
+}
+
+// TestDescribeNetworkInterfaces_PublicIpDnsNameOptions_RealClient drives
+// ModifyPublicIpDnsNameOptions then DescribeNetworkInterfaces through the
+// real SDK client. The real NetworkInterface deserializer
+// (awsEc2query_deserializeDocumentNetworkInterface, ec2@v1.319.1
+// deserializers.go) reads "publicIpDnsNameOptions" as a top-level
+// NetworkInterface field wrapping "dnsHostnameType"
+// (awsEc2query_deserializeDocumentPublicIpDnsNameOptions). The backend
+// tracks this on NetworkInterface.PublicDNSHostnameType, settable via the
+// real ModifyPublicIpDnsNameOptions op, but networkInterfaceItem never
+// carried the field, so a real client never saw the hostname type it had
+// just set.
+func TestDescribeNetworkInterfaces_PublicIpDnsNameOptions_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	vpc, err := client.CreateVpc(t.Context(), &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.22.0.0/16")})
+	require.NoError(t, err)
+
+	subnet, err := client.CreateSubnet(t.Context(), &ec2sdk.CreateSubnetInput{
+		VpcId:     vpc.Vpc.VpcId,
+		CidrBlock: aws.String("10.22.1.0/24"),
+	})
+	require.NoError(t, err)
+
+	eni, err := client.CreateNetworkInterface(t.Context(), &ec2sdk.CreateNetworkInterfaceInput{
+		SubnetId: subnet.Subnet.SubnetId,
+	})
+	require.NoError(t, err)
+	eniID := aws.ToString(eni.NetworkInterface.NetworkInterfaceId)
+
+	_, err = client.ModifyPublicIpDnsNameOptions(t.Context(), &ec2sdk.ModifyPublicIpDnsNameOptionsInput{
+		NetworkInterfaceId: aws.String(eniID),
+		HostnameType:       types.PublicIpDnsOptionPublicDualStackDnsName,
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeNetworkInterfaces(t.Context(), &ec2sdk.DescribeNetworkInterfacesInput{
+		NetworkInterfaceIds: []string{eniID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.NetworkInterfaces, 1)
+
+	opts := out.NetworkInterfaces[0].PublicIpDnsNameOptions
+	require.NotNil(t, opts, "PublicIpDnsNameOptions nil - never emitted by DescribeNetworkInterfaces")
+	assert.Equal(
+		t, "public-dual-stack-dns-name", aws.ToString(opts.DnsHostnameType),
+		"DnsHostnameType decoded empty - never emitted by DescribeNetworkInterfaces",
+	)
+}
+
+// TestDescribeImages_DisabledState_RealClient drives RegisterImage then
+// DisableImage then DescribeImages through the real SDK client. Real AWS's
+// ImageState enum includes "disabled" (types.ImageStateDisabled,
+// ec2@v1.319.1 types/enums.go), and DisableImage/EnableImage are real
+// settable state on this backend (b.imageDisabled), but DescribeImages built
+// its response from AMIStub.State directly without ever consulting
+// b.imageDisabled, so a real client's Image.State stayed "available" after
+// DisableImage.
+func TestDescribeImages_DisabledState_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	reg, err := client.RegisterImage(t.Context(), &ec2sdk.RegisterImageInput{
+		Name: aws.String("wire-field-fixes-ami"),
+	})
+	require.NoError(t, err)
+	imageID := aws.ToString(reg.ImageId)
+
+	_, err = client.DisableImage(t.Context(), &ec2sdk.DisableImageInput{
+		ImageId: aws.String(imageID),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeImages(t.Context(), &ec2sdk.DescribeImagesInput{
+		ImageIds: []string{imageID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Images, 1)
+
+	assert.Equal(
+		t, types.ImageStateDisabled, out.Images[0].State,
+		"State decoded available - DisableImage never reflected by DescribeImages",
+	)
+}

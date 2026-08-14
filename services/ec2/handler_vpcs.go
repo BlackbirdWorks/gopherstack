@@ -270,7 +270,7 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 
 	items := make([]vpcItem, 0, len(vpcs))
 	for _, v := range vpcs {
-		items = append(items, toVPCItem(v))
+		items = append(items, toVPCItem(v, h.Backend.TagsForResource(v.ID)))
 	}
 
 	return &describeVpcsResponse{
@@ -345,7 +345,8 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
-	if tags := parseTagSpecification(vals, resourceTypeVPC); len(tags) > 0 {
+	tags := parseTagSpecification(vals, resourceTypeVPC)
+	if len(tags) > 0 {
 		if err = h.Backend.CreateTags([]string{v.ID}, tags); err != nil {
 			return nil, err
 		}
@@ -354,7 +355,7 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 	return &createVpcResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Vpc:       toVPCItem(v),
+		Vpc:       toVPCItem(v, tags),
 	}, nil
 }
 
@@ -375,7 +376,7 @@ func (h *Handler) handleDeleteVpc(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
-func toVPCItem(v *VPC) vpcItem {
+func toVPCItem(v *VPC, tags map[string]string) vpcItem {
 	isDefault := ec2BooleanFalse
 	if v.IsDefault {
 		isDefault = ec2BooleanTrue
@@ -386,14 +387,16 @@ func toVPCItem(v *VPC) vpcItem {
 		CIDRBlock: v.CIDRBlock,
 		IsDefault: isDefault,
 		State:     stateAvailable,
+		TagSet:    tagItemsFromMap(tags),
 	}
 }
 
 type vpcItem struct {
-	VpcID     string `xml:"vpcId"`
-	CIDRBlock string `xml:"cidrBlock"`
-	IsDefault string `xml:"isDefault"`
-	State     string `xml:"state"`
+	VpcID     string          `xml:"vpcId"`
+	CIDRBlock string          `xml:"cidrBlock"`
+	IsDefault string          `xml:"isDefault"`
+	State     string          `xml:"state"`
+	TagSet    []simpleTagItem `xml:"tagSet>item"`
 }
 
 type vpcItemSet struct {
