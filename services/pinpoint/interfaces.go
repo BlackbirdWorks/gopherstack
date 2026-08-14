@@ -106,7 +106,7 @@ type StorageBackend interface {
 	UpdateEndpoint(appID, endpointID string, req updateEndpointRequest) (*Endpoint, error)
 	DeleteEndpoint(appID, endpointID string) (*Endpoint, error)
 	GetUserEndpoints(appID, userID string) ([]*Endpoint, error)
-	DeleteUserEndpoints(appID, userID string) error
+	DeleteUserEndpoints(appID, userID string) ([]*Endpoint, error)
 	UpdateEndpointsBatch(appID string, endpoints map[string]updateEndpointRequest) error
 
 	// EventStream operations

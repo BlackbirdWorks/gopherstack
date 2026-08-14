@@ -32,6 +32,7 @@ ops:
   UpdateEmailChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "added missing OrchestrationSendingRoleArn field vs EmailChannelRequest/EmailChannelResponse"}
   GetCampaignVersion: {wire: ok, errors: ok, state: ok, persist: n/a, note: "was silently falling back to the CURRENT campaign when the requested version number wasn't in history, instead of 404 NotFoundException; AWS's own resource docs for /v1/apps/{appId}/campaigns/{campaignId}/versions/{version} document 404 NotFoundException as the response when \"the specified resource was not found\" — fixed to always 404 on an unknown version. Locked by TestGetCampaignVersion_UnknownVersionNotFound"}
   GetSegmentVersion: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same fallback bug and fix as GetCampaignVersion. Locked by TestGetSegmentVersion_UnknownVersionNotFound"}
+  DeleteUserEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-r80d batch 5: DeleteUserEndpointsOutput.EndpointsResponse is required (pinpoint@v1.42.4 api_op_DeleteUserEndpoints.go:44-51) and the wire is the entire body deserialized directly into it (deserializers.go:5482), not a wrapper key. The handler wrote a bare 204 No Content; the real client's decoder treats the empty body as EOF (tolerated, deserializers.go:5472) so the call succeeded with EndpointsResponse left nil — same empty-body class as batch one's lambda DeleteCapacityProvider. Fixed to return the deleted endpoints as EndpointsResponse.Item with a 200 body, matching the sibling DeleteEndpoint (singular)'s existing pattern. Locked by TestDeleteUserEndpoints_EndpointsResponse_RealClient"}
   # ops carried forward unchanged from the 2026-07-12 pass (files not touched this pass, still trusted):
   GetJourneyExecutionMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fix from prior pass; now covered by full-state persistence too"}
   GetJourneyExecutionActivityMetrics: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -52,7 +53,7 @@ families:
   App: {status: ok, note: "unchanged this pass; last verified 2026-07-12"}
   Campaign: {status: ok, note: "unchanged this pass except GetCampaignVersion fallback-to-current bug (see ops)"}
   Segment: {status: ok, note: "unchanged this pass except GetSegmentVersion fallback-to-current bug (see ops)"}
-  Endpoint: {status: ok, note: "unchanged this pass; now participates in full persistence (see Persistence section)"}
+  Endpoint: {status: ok, note: "gopherstack-r80d batch 5 fixed DeleteUserEndpoints (bare 204 dropped the required EndpointsResponse — see ops); prior 'unchanged, still trusted' note was stale for this one op. Rest of the family unchanged, now participates in full persistence (see Persistence section)"}
   EventStream: {status: ok, note: "unchanged this pass; now participates in full persistence"}
   Channels: {status: ok, note: "SMS channel PromotionalMessagesPerSecond/TransactionalMessagesPerSecond request-side hygiene fix + Email channel OrchestrationSendingRoleArn field addition this pass (see ops); all 10 channel types re-diffed against GCM/APNS/Email/SMS/ADM/Baidu/Voice *ChannelRequest types, no other gaps found. Now participates in full persistence"}
   Tags: {status: ok, note: "unchanged this pass"}

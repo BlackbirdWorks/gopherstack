@@ -98,18 +98,23 @@ func (b *InMemoryBackend) GetUserEndpoints(appID, userID string) ([]*Endpoint, e
 	return endpoints, nil
 }
 
-// DeleteUserEndpoints deletes all endpoints for a user in an application.
-func (b *InMemoryBackend) DeleteUserEndpoints(appID, userID string) error {
+// DeleteUserEndpoints deletes all endpoints for a user in an application,
+// returning the deleted endpoints (AWS's DeleteUserEndpointsOutput requires
+// a populated EndpointsResponse echoing what was removed).
+func (b *InMemoryBackend) DeleteUserEndpoints(appID, userID string) ([]*Endpoint, error) {
 	b.mu.Lock("DeleteUserEndpoints")
 	defer b.mu.Unlock()
 
+	var deleted []*Endpoint
+
 	for _, e := range b.endpoints.All() {
 		if e.ApplicationID == appID && e.UserID == userID {
+			deleted = append(deleted, cloneEndpoint(e))
 			b.endpoints.Delete(e.ApplicationID + "/" + e.ID)
 		}
 	}
 
-	return nil
+	return deleted, nil
 }
 
 // applyEndpointFields merges request fields into an Endpoint.

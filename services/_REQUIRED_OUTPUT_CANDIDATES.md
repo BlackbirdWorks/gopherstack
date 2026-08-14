@@ -133,11 +133,43 @@ from the ranked table) as future batches clear more of it.
 | verifiedpermissions | 87 | 34 | 0 (clean; last hand-audited 2026-08-10 with an integration suite) | gopherstack-r80d batch 4 |
 | grafana | 34 | 25 | 0 (clean; last hand-audited 2026-08-06 with an integration suite) | gopherstack-r80d batch 4 |
 | identitystore | 25 | 19 | 0 (clean; last hand-audited 2026-07-25) | gopherstack-r80d batch 4 |
+| pinpoint | 120 | 122 | yes (1: `DeleteUserEndpoints` empty-body 204) | gopherstack-r80d batch 5 |
 
-11 services settled, 727 required output fields read end to end, 12 bugs
-found across the first 8 (per gopherstack-r80d's brief); the three added
-this batch (verifiedpermissions, grafana, identitystore) came back clean —
-0 new bugs.
+12 services settled, 847 required output fields read end to end, 13 bugs
+found across the first 9 (per gopherstack-r80d's brief); verifiedpermissions,
+grafana and identitystore (batch 4) came back clean; pinpoint (batch 5) added
+one more of the empty-body-204 class first seen in lambda's
+`DeleteCapacityProvider` (batch 1).
+
+### Why pinpoint's density is 120/122 and not a new bug class
+
+Read end to end (all 122 ops, all 120 required fields) — see
+`services/pinpoint/PARITY.md`'s `ops:`/`families:` sections for the
+per-op/per-family detail this table intentionally doesn't duplicate.
+**pinpoint's near-universal density is a structural artefact of its Smithy
+model, not evidence of many small bugs**: virtually every pinpoint
+`<Op>Output` has exactly one top-level member (e.g. `ApplicationResponse`,
+`EndpointsResponse`, `MessageBody`), and that member is *the entire HTTP
+body* via an httpPayload-style binding — confirmed by reading the generated
+op-level `HandleDeserialize` (not the `awsRestjson1_deserializeOpDocument*`
+helper, which exists but is unused for the top-level op; e.g.
+`deserializers.go:6928` is dead for this purpose) for `GetApp`
+(`deserializers.go:6821-6852`, calls
+`awsRestjson1_deserializeDocumentApplicationResponse` directly on the whole
+decoded body, no wrapper key) and `DeleteUserEndpoints`
+(`deserializers.go:5461-5482`, same pattern for `EndpointsResponse`). So the
+per-op check collapses to one question — does the handler ever return a
+non-body (empty/wrong-shape) success — not many per-op scalar checks the
+way route53 or (going by field:op ratio) bedrock likely are. Confirmed
+every other handler in the package writes a non-nil JSON body on every
+success path (grepped every `WriteJSON`/`WriteHeader` call site in
+`services/pinpoint/handler_*.go`); `DeleteUserEndpoints` was the sole
+exception, matching the empty-body-204 class exactly (lambda's
+`DeleteCapacityProvider`, batch 1). The Go SDK's decoder tolerates an empty
+body as `io.EOF` (not an error), so the call "succeeds" with a nil pointer
+where `EndpointsResponse` is required — confirmed via a real-client test
+that fails against the un-reverted handler and passes against the fix
+(`services/pinpoint/wire_output_required_r80d_test.go`).
 
 ## Ranked candidates (services not yet examined for this bug class)
 
@@ -152,7 +184,6 @@ against a pinned `aws-sdk-go-v2` module; opsworks/qldb/qldbsession excluded
  182  omics                     ops=107  ops-with-required=40
  172  bedrock                   ops=108  ops-with-required=58
  154  bedrockagent              ops=75   ops-with-required=66
- 120  pinpoint                  ops=122  ops-with-required=120
   94  resiliencehub             ops=63   ops-with-required=55
   88  cleanrooms                ops=100  ops-with-required=83
   69  transfer                  ops=71   ops-with-required=52
@@ -240,6 +271,7 @@ Notes on the top of this table for the next batch:
 - **bedrock**/**bedrockagent** together are 326 required fields across 183
   ops — the single highest-yield pair remaining, but also the largest
   reading commitment after sagemaker.
-- **pinpoint** is unusual: 120 of its 122 ops carry at least one required
-  field (vs. e.g. quicksight's 39 of 277) — expect a lot of small,
-  repetitive checks rather than a few dense ones.
+- **pinpoint settled (batch 5)** — see the settled-services table above for
+  why its 120/122 density was structural (single httpPayload-style body
+  member per op), not many per-op scalar checks. Don't re-derive; one bug
+  found (`DeleteUserEndpoints`).
