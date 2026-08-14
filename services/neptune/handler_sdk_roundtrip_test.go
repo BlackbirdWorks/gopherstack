@@ -8,6 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	neptunesdk "github.com/aws/aws-sdk-go-v2/service/neptune"
+	"github.com/aws/aws-sdk-go-v2/service/neptune/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -295,4 +296,115 @@ func Test_SDKRoundTrip_RestoreDBClusterFromSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out.DBCluster)
 	assert.Equal(t, "rt-restored", aws.ToString(out.DBCluster.DBClusterIdentifier))
+}
+
+// Test_SDKRoundTrip_CreateDBSubnetGroup_SubnetIds proves the real SDK client's
+// SubnetIds actually reach the backend. The real serializer
+// (awsAwsquery_serializeDocumentSubnetIdentifierList, neptune@v1.48.4
+// serializers.go:5174-5175) encodes each element as
+// "SubnetIds.SubnetIdentifier.N", not the generic "SubnetIds.member.N" the
+// handler used to parse -- so every subnet ID a real client sent was silently
+// dropped.
+func Test_SDKRoundTrip_CreateDBSubnetGroup_SubnetIds(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+
+	out, err := client.CreateDBSubnetGroup(t.Context(), &neptunesdk.CreateDBSubnetGroupInput{
+		DBSubnetGroupName:        aws.String("rt-subnet-group"),
+		DBSubnetGroupDescription: aws.String("roundtrip test"),
+		SubnetIds:                []string{"subnet-aaaa1111", "subnet-bbbb2222"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBSubnetGroup)
+
+	gotIDs := make([]string, 0, len(out.DBSubnetGroup.Subnets))
+	for _, s := range out.DBSubnetGroup.Subnets {
+		gotIDs = append(gotIDs, aws.ToString(s.SubnetIdentifier))
+	}
+	require.ElementsMatch(t, []string{"subnet-aaaa1111", "subnet-bbbb2222"}, gotIDs)
+}
+
+// Test_SDKRoundTrip_CreateDBCluster_VpcSecurityGroupIds proves the real SDK
+// client's VpcSecurityGroupIds actually reach the backend. The real
+// serializer (awsAwsquery_serializeDocumentVpcSecurityGroupIdList,
+// neptune@v1.48.4 serializers.go:5213-5214) encodes each element as
+// "VpcSecurityGroupIds.VpcSecurityGroupId.N", not the generic
+// "VpcSecurityGroupIds.member.N" the handler used to parse.
+func Test_SDKRoundTrip_CreateDBCluster_VpcSecurityGroupIds(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+
+	out, err := client.CreateDBCluster(t.Context(), &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-sg-cluster"),
+		Engine:              aws.String("neptune"),
+		VpcSecurityGroupIds: []string{"sg-11112222", "sg-33334444"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBCluster)
+
+	gotIDs := make([]string, 0, len(out.DBCluster.VpcSecurityGroups))
+	for _, sg := range out.DBCluster.VpcSecurityGroups {
+		gotIDs = append(gotIDs, aws.ToString(sg.VpcSecurityGroupId))
+	}
+	require.ElementsMatch(t, []string{"sg-11112222", "sg-33334444"}, gotIDs)
+}
+
+// Test_SDKRoundTrip_CreateDBCluster_AvailabilityZones proves the real SDK
+// client's AvailabilityZones actually reach the backend. The real serializer
+// (awsAwsquery_serializeDocumentAvailabilityZones, neptune@v1.48.4
+// serializers.go:4930-4931) encodes each AZ as
+// "AvailabilityZones.AvailabilityZone.N", not the generic
+// "AvailabilityZones.member.N" the handler used to parse.
+func Test_SDKRoundTrip_CreateDBCluster_AvailabilityZones(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+
+	out, err := client.CreateDBCluster(t.Context(), &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-az-cluster2"),
+		Engine:              aws.String("neptune"),
+		AvailabilityZones:   []string{"us-east-1a", "us-east-1b"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBCluster)
+	require.ElementsMatch(t, []string{"us-east-1a", "us-east-1b"}, out.DBCluster.AvailabilityZones)
+}
+
+// Test_SDKRoundTrip_DescribeDBClusters_EngineFilter proves the real SDK
+// client's DescribeDBClustersInput.Filters actually narrows results. The real
+// serializer (awsAwsquery_serializeDocumentFilterList, neptune@v1.48.4
+// serializers.go:5000-5001) wraps each Filters entry in "Filter" (not
+// "member") and each entry's Values in "Value"
+// (awsAwsquery_serializeDocumentFilterValueList, serializers.go:5012-5013) --
+// so the "engine" filter a real client sent was silently ignored and every
+// cluster was always returned regardless of engine.
+func Test_SDKRoundTrip_DescribeDBClusters_EngineFilter(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-filter-cluster"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDBClusters(ctx, &neptunesdk.DescribeDBClustersInput{
+		Filters: []types.Filter{
+			{Name: aws.String("engine"), Values: []string{"does-not-exist"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.DBClusters, "engine filter should have excluded the neptune cluster")
 }

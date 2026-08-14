@@ -820,21 +820,21 @@ func TestCreateDBCluster_VpcSecurityGroupIds(t *testing.T) {
 		{
 			name: "single_sg",
 			vals: url.Values{
-				"Action":                       {"CreateDBCluster"},
-				"Version":                      {"2014-10-31"},
-				"DBClusterIdentifier":          {"sg-cluster"},
-				"VpcSecurityGroupIds.member.1": {"sg-11111111"},
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"sg-cluster"},
+				"VpcSecurityGroupIds.VpcSecurityGroupId.1": {"sg-11111111"},
 			},
 			wantContains: []string{"sg-11111111", "VpcSecurityGroupMembership"},
 		},
 		{
 			name: "multiple_sgs",
 			vals: url.Values{
-				"Action":                       {"CreateDBCluster"},
-				"Version":                      {"2014-10-31"},
-				"DBClusterIdentifier":          {"sg-cluster-multi"},
-				"VpcSecurityGroupIds.member.1": {"sg-aaaa"},
-				"VpcSecurityGroupIds.member.2": {"sg-bbbb"},
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"sg-cluster-multi"},
+				"VpcSecurityGroupIds.VpcSecurityGroupId.1": {"sg-aaaa"},
+				"VpcSecurityGroupIds.VpcSecurityGroupId.2": {"sg-bbbb"},
 			},
 			wantContains: []string{"sg-aaaa", "sg-bbbb"},
 		},
@@ -866,12 +866,12 @@ func TestCreateDBCluster_AvailabilityZones(t *testing.T) {
 		{
 			name: "single_az",
 			vals: url.Values{
-				"Action":                     {"CreateDBCluster"},
-				"Version":                    {"2014-10-31"},
-				"DBClusterIdentifier":        {"az-cluster"},
-				"AvailabilityZones.member.1": {"us-east-1a"},
+				"Action":                               {"CreateDBCluster"},
+				"Version":                              {"2014-10-31"},
+				"DBClusterIdentifier":                  {"az-cluster"},
+				"AvailabilityZones.AvailabilityZone.1": {"us-east-1a"},
 			},
-			wantContains: []string{"az-cluster"},
+			wantContains: []string{"az-cluster", "us-east-1a"},
 		},
 		{
 			name: "no_azs",

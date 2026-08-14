@@ -21,12 +21,12 @@ func TestHandler_DBSubnetGroups(t *testing.T) {
 		{
 			name: "create_subnet_group",
 			vals: url.Values{
-				"Action":                   {"CreateDBSubnetGroup"},
-				"Version":                  {"2014-10-31"},
-				"DBSubnetGroupName":        {"test-sg"},
-				"DBSubnetGroupDescription": {"test subnet group"},
-				"SubnetIds.member.1":       {"subnet-00000000"},
-				"SubnetIds.member.2":       {"subnet-11111111"},
+				"Action":                       {"CreateDBSubnetGroup"},
+				"Version":                      {"2014-10-31"},
+				"DBSubnetGroupName":            {"test-sg"},
+				"DBSubnetGroupDescription":     {"test subnet group"},
+				"SubnetIds.SubnetIdentifier.1": {"subnet-00000000"},
+				"SubnetIds.SubnetIdentifier.2": {"subnet-11111111"},
 			},
 			wantStatus:   http.StatusOK,
 			wantContains: "test-sg",
@@ -101,14 +101,14 @@ func TestDBSubnetGroup_CreateAllFields(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {"full-sg"},
-		"DBSubnetGroupDescription": {"Full test subnet group"},
-		"VpcId":                    {"vpc-12345678"},
-		"SubnetIds.member.1":       {"subnet-aaaa0001"},
-		"SubnetIds.member.2":       {"subnet-bbbb0002"},
-		"SubnetIds.member.3":       {"subnet-cccc0003"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"full-sg"},
+		"DBSubnetGroupDescription":     {"Full test subnet group"},
+		"VpcId":                        {"vpc-12345678"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-aaaa0001"},
+		"SubnetIds.SubnetIdentifier.2": {"subnet-bbbb0002"},
+		"SubnetIds.SubnetIdentifier.3": {"subnet-cccc0003"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
@@ -125,11 +125,11 @@ func TestDBSubnetGroup_ModifyDescription(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {"mod-sg"},
-		"DBSubnetGroupDescription": {"original desc"},
-		"SubnetIds.member.1":       {"subnet-0001"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"mod-sg"},
+		"DBSubnetGroupDescription":     {"original desc"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-0001"},
 	})
 
 	rr := doRequest(t, h, url.Values{
@@ -147,18 +147,18 @@ func TestDBSubnetGroup_DescribeByName(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {"desc-by-name-sg"},
-		"DBSubnetGroupDescription": {"test"},
-		"SubnetIds.member.1":       {"subnet-xyz"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"desc-by-name-sg"},
+		"DBSubnetGroupDescription":     {"test"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-xyz"},
 	})
 	doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {"other-sg"},
-		"DBSubnetGroupDescription": {"other"},
-		"SubnetIds.member.1":       {"subnet-abc"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"other-sg"},
+		"DBSubnetGroupDescription":     {"other"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-abc"},
 	})
 
 	rr := doRequest(t, h, url.Values{
@@ -190,16 +190,16 @@ func TestDBSubnetGroup_CreateAlreadyExists(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, url.Values{
-		"Action":             {"CreateDBSubnetGroup"},
-		"Version":            {"2014-10-31"},
-		"DBSubnetGroupName":  {"dup-sg"},
-		"SubnetIds.member.1": {"subnet-001"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"dup-sg"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-001"},
 	})
 	rr := doRequest(t, h, url.Values{
-		"Action":             {"CreateDBSubnetGroup"},
-		"Version":            {"2014-10-31"},
-		"DBSubnetGroupName":  {"dup-sg"},
-		"SubnetIds.member.1": {"subnet-001"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"dup-sg"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-001"},
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	assert.Contains(t, rr.Body.String(), "DBSubnetGroupAlreadyExists")
@@ -210,10 +210,10 @@ func TestDBSubnetGroup_SubnetGroupStatusComplete(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":             {"CreateDBSubnetGroup"},
-		"Version":            {"2014-10-31"},
-		"DBSubnetGroupName":  {"status-sg"},
-		"SubnetIds.member.1": {"subnet-001"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"status-sg"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-001"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "Complete")
@@ -226,13 +226,13 @@ func TestTags_OnSubnetGroup(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {"tagged-sg"},
-		"DBSubnetGroupDescription": {"tagged"},
-		"SubnetIds.member.1":       {"subnet-001"},
-		"Tags.Tag.1.Key":           {"Env"},
-		"Tags.Tag.1.Value":         {"test"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"tagged-sg"},
+		"DBSubnetGroupDescription":     {"tagged"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-001"},
+		"Tags.Tag.1.Key":               {"Env"},
+		"Tags.Tag.1.Value":             {"test"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 }
@@ -299,11 +299,11 @@ func TestDescribeDBSubnetGroups_ByName(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {"sg-byname"},
-		"DBSubnetGroupDescription": {"test"},
-		"SubnetIds.member.1":       {"subnet-1"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"sg-byname"},
+		"DBSubnetGroupDescription":     {"test"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-1"},
 	})
 
 	rr := doRequest(t, h, url.Values{

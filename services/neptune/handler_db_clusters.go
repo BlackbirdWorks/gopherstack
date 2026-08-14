@@ -46,9 +46,14 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 		StorageEncrypted:                vals.Get("StorageEncrypted") == formTrue,
 		DeletionProtection:              vals.Get("DeletionProtection") == formTrue,
 		CopyTagsToSnapshot:              vals.Get("CopyTagsToSnapshot") == formTrue,
-		VpcSecurityGroupIDs:             parseMemberList(vals, "VpcSecurityGroupIds.member"),
-		AvailabilityZones:               parseMemberList(vals, "AvailabilityZones.member"),
-		ServerlessV2ScalingConfig:       sv2,
+		// Real wire keys: "VpcSecurityGroupIds.VpcSecurityGroupId.N" and
+		// "AvailabilityZones.AvailabilityZone.N", not the generic
+		// ".member.N" (awsAwsquery_serializeDocumentVpcSecurityGroupIdList/
+		// awsAwsquery_serializeDocumentAvailabilityZones,
+		// neptune@v1.48.4 serializers.go:5213-5214, 4930-4931).
+		VpcSecurityGroupIDs:       parseMemberList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		AvailabilityZones:         parseMemberList(vals, "AvailabilityZones.AvailabilityZone"),
+		ServerlessV2ScalingConfig: sv2,
 	}
 	if s := vals.Get("BackupRetentionPeriod"); s != "" {
 		if v, err := strconv.Atoi(s); err == nil {
@@ -145,8 +150,9 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 		DeletionProtectionSet:           rawDel != "",
 		CopyTagsToSnapshot:              rawCopy == formTrue,
 		CopyTagsToSnapshotSet:           rawCopy != "",
-		VpcSecurityGroupIDs:             parseMemberList(vals, "VpcSecurityGroupIds.member"),
-		ServerlessV2ScalingConfig:       sv2,
+		// See handleCreateDBCluster for the wire-key citation.
+		VpcSecurityGroupIDs:       parseMemberList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		ServerlessV2ScalingConfig: sv2,
 	}
 	rawBRP := vals.Get("BackupRetentionPeriod")
 	if rawBRP != "" {
@@ -320,6 +326,8 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	for _, m := range c.DBClusterMembers {
 		memberItems = append(memberItems, xmlDBClusterMember(m))
 	}
+	azItems := make([]string, 0, len(c.AvailabilityZones))
+	azItems = append(azItems, c.AvailabilityZones...)
 	vpcSGs := make([]xmlVpcSecurityGroupMembership, 0, len(c.VpcSecurityGroupIDs))
 	for _, sgID := range c.VpcSecurityGroupIDs {
 		vpcSGs = append(
@@ -365,6 +373,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		DBClusterMembers:                xmlDBClusterMemberList{Members: memberItems},
 		VpcSecurityGroups:               xmlVpcSecurityGroupMembershipList{Members: vpcSGs},
 		AssociatedRoles:                 xmlDBRoleList{Members: roles},
+		AvailabilityZones:               xmlAvailabilityZoneList{Members: azItems},
 	}
 	if c.ServerlessV2ScalingConfig != nil {
 		x.ServerlessV2ScalingConfiguration = &xmlServerlessV2ScalingConfiguration{
@@ -423,11 +432,19 @@ type xmlDBRoleList struct {
 	Members []xmlDBRole `xml:"DBClusterRole"`
 }
 
+// xmlAvailabilityZoneList matches awsAwsquery_deserializeDocumentAvailabilityZones
+// (neptune@v1.48.4 deserializers.go:11432), which reads each member as a bare
+// <AvailabilityZone> text element, not a <member> wrapper.
+type xmlAvailabilityZoneList struct {
+	Members []string `xml:"AvailabilityZone"`
+}
+
 type xmlDBCluster struct {
 	ServerlessV2ScalingConfiguration *xmlSV2Ref                        `xml:"ServerlessV2ScalingConfiguration,omitempty"`
 	MasterUserManagedSecret          *xmlMasterUserManagedSecret       `xml:"MasterUserManagedSecret,omitempty"`
 	VpcSecurityGroups                xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups,omitempty"`
 	AssociatedRoles                  xmlDBRoleList                     `xml:"AssociatedRoles,omitempty"`
+	AvailabilityZones                xmlAvailabilityZoneList           `xml:"AvailabilityZones,omitempty"`
 	DBClusterIdentifier              string                            `xml:"DBClusterIdentifier"`
 	DBClusterArn                     string                            `xml:"DBClusterArn,omitempty"`
 	DBClusterResourceID              string                            `xml:"DbClusterResourceId,omitempty"`

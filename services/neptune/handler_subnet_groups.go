@@ -77,10 +77,15 @@ func (h *Handler) handleModifyDBSubnetGroup(ctx context.Context, vals url.Values
 	}, nil
 }
 
+// parseSubnetIDMembers reads SubnetIds off a CreateDBSubnetGroup/
+// ModifyDBSubnetGroup request. The real serializer
+// (awsAwsquery_serializeDocumentSubnetIdentifierList, neptune@v1.48.4
+// serializers.go:5174-5175) wraps each entry in "SubnetIdentifier", not the
+// generic "member".
 func parseSubnetIDMembers(vals url.Values) []string {
 	var ids []string
 	for i := 1; ; i++ {
-		sid := vals.Get(fmt.Sprintf("SubnetIds.member.%d", i))
+		sid := vals.Get(fmt.Sprintf("SubnetIds.SubnetIdentifier.%d", i))
 		if sid == "" {
 			return ids
 		}

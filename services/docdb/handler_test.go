@@ -710,11 +710,11 @@ func b2CreateInstance(t *testing.T, h *docdb.Handler, instanceID, clusterID stri
 func b2CreateSubnetGroup(t *testing.T, h *docdb.Handler, name string) {
 	t.Helper()
 	rr := doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {name},
-		"DBSubnetGroupDescription": {"test"},
-		"SubnetIds.SubnetId.1":     {"subnet-aaa"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {name},
+		"DBSubnetGroupDescription":     {"test"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-aaa"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code, "create subnet group %s: %s", name, rr.Body.String())
 }

@@ -153,10 +153,10 @@ func TestHandler_SupportedNetworkTypes_AbsentFromWire(t *testing.T) {
 		{
 			name: "subnet_group_supported_network_types_absent",
 			vals: url.Values{
-				"Action":             {"CreateDBSubnetGroup"},
-				"Version":            {"2014-10-31"},
-				"DBSubnetGroupName":  {"nt-subgrp"},
-				"SubnetIds.member.1": {"subnet-abc123"},
+				"Action":                       {"CreateDBSubnetGroup"},
+				"Version":                      {"2014-10-31"},
+				"DBSubnetGroupName":            {"nt-subgrp"},
+				"SubnetIds.SubnetIdentifier.1": {"subnet-abc123"},
 			},
 		},
 		{

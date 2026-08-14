@@ -350,16 +350,21 @@ func parseMemberList(vals url.Values, prefix string) []string {
 	}
 }
 
-// parseNeptuneFilterValue scans AWS form-encoded Filters.member.N.Name/Values.member.1
-// and returns the first value for the named filter, or "".
+// parseNeptuneFilterValue scans AWS form-encoded Filters.Filter.N.Name/Values.Value.1
+// and returns the first value for the named filter, or "". The real serializer
+// (awsAwsquery_serializeDocumentFilterList, neptune@v1.48.4 serializers.go:5000-5001)
+// wraps Filters entries in "Filter", not the generic "member"; each entry's Values
+// list (awsAwsquery_serializeDocumentFilterValueList, serializers.go:5012-5013) is
+// wrapped in "Value". Both DescribeDBClusters/DescribeDBInstances and
+// DescribePendingMaintenanceActions share this FilterList shape.
 func parseNeptuneFilterValue(vals url.Values, filterName string) string {
 	for i := 1; ; i++ {
-		name := vals.Get(fmt.Sprintf("Filters.member.%d.Name", i))
+		name := vals.Get(fmt.Sprintf("Filters.Filter.%d.Name", i))
 		if name == "" {
 			return ""
 		}
 		if name == filterName {
-			return vals.Get(fmt.Sprintf("Filters.member.%d.Values.member.1", i))
+			return vals.Get(fmt.Sprintf("Filters.Filter.%d.Values.Value.1", i))
 		}
 	}
 }
