@@ -614,43 +614,6 @@ type PutEventBusPolicyInput struct {
 	Policy       string `json:"Policy"`
 }
 
-// Pipe represents an EventBridge Pipe.
-type Pipe struct {
-	CreationTime     time.Time `json:"CreationTime"`
-	LastModifiedTime time.Time `json:"LastModifiedTime"`
-	Arn              string    `json:"Arn"`
-	CurrentState     string    `json:"CurrentState"`
-	Description      string    `json:"Description,omitempty"`
-	DesiredState     string    `json:"DesiredState"`
-	EnrichmentArn    string    `json:"EnrichmentArn,omitempty"`
-	Name             string    `json:"Name"`
-	RoleArn          string    `json:"RoleArn"`
-	SourceArn        string    `json:"SourceArn"`
-	StateReason      string    `json:"StateReason,omitempty"`
-	TargetArn        string    `json:"TargetArn"`
-}
-
-// CreatePipeInput is the input for CreatePipe.
-type CreatePipeInput struct {
-	Description   string `json:"Description,omitempty"`
-	DesiredState  string `json:"DesiredState,omitempty"`
-	EnrichmentArn string `json:"EnrichmentArn,omitempty"`
-	Name          string `json:"Name"`
-	RoleArn       string `json:"RoleArn"`
-	SourceArn     string `json:"SourceArn"`
-	TargetArn     string `json:"TargetArn"`
-}
-
-// UpdatePipeInput is the input for UpdatePipe.
-type UpdatePipeInput struct {
-	Description   string `json:"Description,omitempty"`
-	DesiredState  string `json:"DesiredState,omitempty"`
-	EnrichmentArn string `json:"EnrichmentArn,omitempty"`
-	Name          string `json:"Name"`
-	RoleArn       string `json:"RoleArn,omitempty"`
-	TargetArn     string `json:"TargetArn,omitempty"`
-}
-
 // ---------------------------------------------------------------------------
 // Schema Registry models
 // ---------------------------------------------------------------------------

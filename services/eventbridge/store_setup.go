@@ -32,20 +32,20 @@ package eventbridge
 // many regions/parents exist -- see preRegisterSnapshotTables in
 // persistence.go.
 //
-// pipes, registries, and schemas are NOT region-scoped at all -- a single
-// InMemoryBackend instance holds one global Pipe/SchemaRegistry/Schema
+// registries and schemas are NOT region-scoped at all -- a single
+// InMemoryBackend instance holds one global SchemaRegistry/Schema
 // catalogue -- and, unlike every resource above, were NEVER part of
 // backendSnapshot before this conversion (see persistence.go's history):
-// CreatePipe/CreateRegistry/CreateSchema state has always been silently lost
-// across a Restore. Preserving that existing (if surprising) behavior
-// byte-for-byte means these three must NOT start round-tripping through
-// Snapshot/Restore just because they gained a *store.Table. They are
-// therefore registered on b.auxRegistry, a second, never-snapshotted
-// *store.Registry that exists solely so getOrCreateTable/
-// getOrCreateGlobalTable still have somewhere to register them (and so a
-// construction-time bug that double-registers one still panics) -- see
-// accessors.go's pipesTable/registriesTable/schemasTableFor. b.registry, by
-// contrast, is the one persistence.go drives via SnapshotAll/RestoreAll.
+// CreateRegistry/CreateSchema state has always been silently lost across a
+// Restore. Preserving that existing (if surprising) behavior byte-for-byte
+// means these two must NOT start round-tripping through Snapshot/Restore
+// just because they gained a *store.Table. They are therefore registered on
+// b.auxRegistry, a second, never-snapshotted *store.Registry that exists
+// solely so getOrCreateTable/getOrCreateGlobalTable still have somewhere to
+// register them (and so a construction-time bug that double-registers one
+// still panics) -- see accessors.go's registriesTable/schemasTableFor.
+// b.registry, by contrast, is the one persistence.go drives via
+// SnapshotAll/RestoreAll.
 //
 // # What is NOT converted here, and why
 //
@@ -82,7 +82,6 @@ func archiveKeyFn(v *Archive) string                       { return v.ArchiveNam
 func connectionKeyFn(v *Connection) string                 { return v.Name }
 func endpointKeyFn(v *Endpoint) string                     { return v.Name }
 func partnerEventSourceKeyFn(v *PartnerEventSource) string { return v.Name }
-func pipeKeyFn(v *Pipe) string                             { return v.Name }
 func schemaRegistryKeyFn(v *SchemaRegistry) string         { return v.RegistryName }
 func schemaKeyFn(v *Schema) string                         { return v.SchemaName }
 
@@ -139,7 +138,7 @@ func getOrCreateNestedTable[V any](
 }
 
 // getOrCreateGlobalTable is [getOrCreateTable] for resources with no
-// region/parent dimension at all (pipes, registries, schemas): a single
+// region/parent dimension at all (registries, schemas): a single
 // *store.Table[V] field on the backend, registered lazily on first access.
 func getOrCreateGlobalTable[V any](
 	reg *store.Registry,
@@ -170,7 +169,7 @@ func getOrCreateGlobalTable[V any](
 // preRegisterSnapshotTables since region never contains "/" but bus/rule
 // names may).
 //
-// pipes, registries, and schemas are deliberately absent: they live on
+// registries and schemas are deliberately absent: they live on
 // b.auxRegistry, not b.registry, and never appear in a Tables blob -- see the
 // package doc above.
 //

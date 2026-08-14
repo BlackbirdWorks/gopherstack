@@ -219,11 +219,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		// internal-only via policyActions() in the dispatch table below for
 		// any existing direct callers, but no real AWS SDK client can invoke
 		// them, so they must not be advertised as supported here.
-		"CreatePipe",
-		"DeletePipe",
-		"DescribePipe",
-		"ListPipes",
-		"UpdatePipe",
 		// Schema Registry operations.
 		"CreateRegistry",
 		"DeleteRegistry",
@@ -360,7 +355,6 @@ func (h *Handler) newOpsActions() map[string]actionFn {
 	maps.Copy(table, h.extendedEndpointActions())
 	maps.Copy(table, h.eventBusManagementActions())
 	maps.Copy(table, h.policyActions())
-	maps.Copy(table, h.pipesActions())
 	maps.Copy(table, h.registryActions())
 	maps.Copy(table, h.schemaActions())
 	maps.Copy(table, h.schemaVersionActions())

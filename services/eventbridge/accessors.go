@@ -219,12 +219,6 @@ func (b *InMemoryBackend) partnerSourcesTable(region string) *store.Table[Partne
 	return getOrCreateTable(b.registry, &b.tableMu, b.partnerSources, "partnerSources", region, partnerEventSourceKeyFn)
 }
 
-// pipesTable returns the backend's single, global *store.Table[Pipe], lazily
-// creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) pipesTable() *store.Table[Pipe] {
-	return getOrCreateGlobalTable(b.auxRegistry, &b.tableMu, &b.pipes, "pipes", pipeKeyFn)
-}
-
 // registriesTable returns the backend's single, global
 // *store.Table[SchemaRegistry], lazily creating and registering it. Callers
 // must hold b.mu.
@@ -433,11 +427,6 @@ func paginateN[T any](all []T, nextToken string, limit int) ([]T, string) {
 	}
 
 	return all[startIdx:end], outToken
-}
-
-// pipeARN builds an ARN for an EventBridge Pipe.
-func (b *InMemoryBackend) pipeARN(name string) string {
-	return arn.Build("events", b.region, b.accountID, "pipe/"+name)
 }
 
 func (b *InMemoryBackend) registryARN(name string) string {

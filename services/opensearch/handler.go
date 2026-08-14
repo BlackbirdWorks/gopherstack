@@ -167,9 +167,22 @@ func isOpenSearchPath(path string) bool {
 	return false
 }
 
-// RouteMatcher returns a matcher that selects OpenSearch requests by path prefix.
+// RouteMatcher returns a matcher that selects OpenSearch requests by path
+// prefix (classic control-plane, REST-JSON) or by the real AOSS
+// X-Amz-Target prefix (JSON-RPC 1.0, always POST /) -- see
+// openSearchServerlessTargetPrefix's doc comment (gopherstack-92ft). The
+// target prefix alone fully discriminates AOSS requests: X-Amz-Target
+// values are unique per AWS service by construction (SSM's and
+// Personalize's RouteMatchers scope on target prefix the same way, with no
+// SigV4 check), unlike iot/iotdataplane's shared generic path segments
+// (gopherstack-61i8) where SigV4 scoping was needed to break a real
+// ambiguity.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
+		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), openSearchServerlessTargetPrefix) {
+			return true
+		}
+
 		return isOpenSearchPath(c.Request().URL.Path)
 	}
 }
@@ -467,6 +480,10 @@ func domainNameFromRest(rest string) string {
 
 // Handle satisfies the Echo handler interface.
 func (h *Handler) Handle(c *echo.Context) error {
+	if op, ok := strings.CutPrefix(c.Request().Header.Get("X-Amz-Target"), openSearchServerlessTargetPrefix); ok {
+		return h.handleServerlessJSONRPC(c, op)
+	}
+
 	h.ServeHTTP(c.Response(), c.Request())
 
 	return nil
@@ -489,7 +506,7 @@ func (h *Handler) writeError(
 ) {
 	ctx := r.Context()
 	logger.Load(ctx).ErrorContext(r.Context(), "opensearch error", "code", code, "message", message)
-	w.Header().Set("x-amzn-ErrorType", code)
+	w.Header().Set("X-Amzn-Errortype", code)
 	httputils.WriteJSON(ctx, w, status, errorResponseJSON{Message: message})
 }
 

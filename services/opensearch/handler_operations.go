@@ -199,6 +199,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Region} }
 // per-family handler files, so this function's correctness is exercised by
 // TestExtractOperation_SDKRouteTable in handler_paths_sdk_diff_test.go.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if op, ok := strings.CutPrefix(c.Request().Header.Get("X-Amz-Target"), openSearchServerlessTargetPrefix); ok {
+		return op
+	}
+
 	path := c.Request().URL.Path
 	method := c.Request().Method
 

@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
@@ -128,7 +127,6 @@ func extractRegionFromAuth(r *http.Request, defaultRegion string) string {
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DynamoDBHandler struct {
 	Backend       StorageBackend
-	Streams       StreamsBackend
 	janitor       *Janitor
 	janitorCancel context.CancelFunc
 	janitorDone   chan struct{}
@@ -141,10 +139,6 @@ func NewHandler(backend StorageBackend) *DynamoDBHandler {
 	h := &DynamoDBHandler{
 		Backend:       backend,
 		DefaultRegion: config.DefaultRegion,
-	}
-
-	if sb, ok := backend.(StreamsBackend); ok {
-		h.Streams = sb
 	}
 
 	return h
@@ -521,8 +515,6 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		return h.dispatchItemOps(ctx, action, body)
 	case opTransactWriteItems, opTransactGetItems:
 		return h.dispatchTransactOps(ctx, action, body)
-	case "DescribeStream", "GetShardIterator", "GetRecords", "ListStreams":
-		return h.dispatchStreamsOps(ctx, action, body)
 	case "ExecuteStatement":
 		return h.handleExecuteStatement(ctx, body)
 	case "BatchExecuteStatement":
@@ -860,92 +852,6 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
-}
-
-func (h *DynamoDBHandler) dispatchStreamsOps(
-	ctx context.Context,
-	action string,
-	body []byte,
-) (any, error) {
-	if h.Streams == nil {
-		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
-	}
-
-	log := logger.Load(ctx)
-	log.DebugContext(ctx, "DynamoDB Streams request", "action", action)
-
-	switch action {
-	case "DescribeStream":
-		return handleStreamsDescribeStream(ctx, body, h.Streams.DescribeStream)
-	case "GetShardIterator":
-		return handleStreamsOp(ctx, body, h.Streams.GetShardIterator)
-	case "GetRecords":
-		return handleStreamsGetRecords(ctx, body, h.Streams.GetRecords)
-	case "ListStreams":
-		return handleStreamsOp(ctx, body, h.Streams.ListStreams)
-	default:
-		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
-	}
-}
-
-func handleStreamsOp[In any, Out any](
-	ctx context.Context,
-	body []byte,
-	op func(context.Context, *In) (*Out, error),
-) (any, error) {
-	var input In
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
-			return nil, err
-		}
-	}
-
-	return op(ctx, &input)
-}
-
-func handleStreamsGetRecords(
-	ctx context.Context,
-	body []byte,
-	op func(context.Context, *dynamodbstreams.GetRecordsInput) (*dynamodbstreams.GetRecordsOutput, error),
-) (any, error) {
-	var input dynamodbstreams.GetRecordsInput
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
-			return nil, err
-		}
-	}
-
-	out, err := op(ctx, &input)
-	if err != nil {
-		return nil, err
-	}
-
-	wireOut, err := ToWireGetRecordsOutput(out)
-	if err != nil {
-		return nil, err
-	}
-
-	return wireOut, nil
-}
-
-func handleStreamsDescribeStream(
-	ctx context.Context,
-	body []byte,
-	op func(context.Context, *dynamodbstreams.DescribeStreamInput) (*dynamodbstreams.DescribeStreamOutput, error),
-) (any, error) {
-	var input dynamodbstreams.DescribeStreamInput
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
-			return nil, err
-		}
-	}
-
-	out, err := op(ctx, &input)
-	if err != nil {
-		return nil, err
-	}
-
-	return ToWireDescribeStreamOutput(out), nil
 }
 
 // validateTableNameFromBody extracts "TableName" from the JSON body and checks it

@@ -3,7 +3,6 @@ package dynamodb_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -51,125 +50,6 @@ func newStreamEnabledHandler(t *testing.T) (*dynamodb.DynamoDBHandler, string) {
 	require.True(t, ok)
 
 	return dynamodb.NewHandler(db), table.StreamARN
-}
-
-// doStreamsRequest sends a POST request with a DynamoDBStreams X-Amz-Target header.
-func doStreamsRequest(
-	t *testing.T,
-	handler *dynamodb.DynamoDBHandler,
-	action string,
-	body string,
-) *httptest.ResponseRecorder {
-	t.Helper()
-
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(body))
-	req.Header.Set("X-Amz-Target", "DynamoDBStreams_20120810."+action)
-	w := httptest.NewRecorder()
-
-	echoHandler := handler.Handler()
-	_ = serveEchoHandler(echoHandler, w, req)
-
-	return w
-}
-
-func TestHandler_StreamsDispatch(t *testing.T) {
-	t.Parallel()
-
-	t.Run("ListStreams returns stream for table", func(t *testing.T) {
-		t.Parallel()
-
-		handler, _ := newStreamEnabledHandler(t)
-		w := doStreamsRequest(t, handler, "ListStreams", `{"TableName":"StreamHandlerTable"}`)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "StreamHandlerTable")
-	})
-
-	t.Run("DescribeStream returns shard info", func(t *testing.T) {
-		t.Parallel()
-
-		handler, arn := newStreamEnabledHandler(t)
-		w := doStreamsRequest(t, handler, "DescribeStream", `{"StreamArn":"`+arn+`"}`)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "StreamHandlerTable")
-	})
-
-	t.Run("GetShardIterator returns iterator", func(t *testing.T) {
-		t.Parallel()
-
-		handler, arn := newStreamEnabledHandler(t)
-		body := `{"StreamArn":"` + arn + `","ShardId":"` + dynamodb.StreamShardID + `","ShardIteratorType":"TRIM_HORIZON"}`
-		w := doStreamsRequest(t, handler, "GetShardIterator", body)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "ShardIterator")
-	})
-
-	t.Run("GetRecords returns INSERT record", func(t *testing.T) {
-		t.Parallel()
-
-		handler, arn := newStreamEnabledHandler(t)
-
-		// First, DescribeStream to get the Shard ID
-		wDesc := doStreamsRequest(t, handler, "DescribeStream", `{"StreamArn":"`+arn+`"}`)
-		assert.Equal(t, http.StatusOK, wDesc.Code)
-		var descResp struct {
-			StreamDescription struct {
-				Shards []struct {
-					ShardID string `json:"ShardId"`
-				} `json:"Shards"`
-			} `json:"StreamDescription"`
-		}
-		require.NoError(t, json.Unmarshal(wDesc.Body.Bytes(), &descResp))
-		require.NotEmpty(t, descResp.StreamDescription.Shards)
-		shardID := descResp.StreamDescription.Shards[0].ShardID
-
-		// Then, GetShardIterator to get the iterator token
-		iterReq := fmt.Sprintf(`{"StreamArn":"%s","ShardId":"%s","ShardIteratorType":"TRIM_HORIZON"}`, arn, shardID)
-		wIter := doStreamsRequest(t, handler, "GetShardIterator", iterReq)
-		assert.Equal(t, http.StatusOK, wIter.Code)
-		var iterResp struct {
-			ShardIterator string `json:"ShardIterator"`
-		}
-		require.NoError(t, json.Unmarshal(wIter.Body.Bytes(), &iterResp))
-		require.NotEmpty(t, iterResp.ShardIterator)
-
-		w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"`+iterResp.ShardIterator+`"}`)
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "Records")
-		assert.Contains(t, w.Body.String(), "INSERT")
-	})
-
-	t.Run("UnknownStreamsAction returns UnknownOperationException", func(t *testing.T) {
-		t.Parallel()
-
-		handler, _ := newStreamEnabledHandler(t)
-		w := doStreamsRequest(t, handler, "NoSuchOp", `{}`)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.Contains(t, w.Body.String(), "UnknownOperationException")
-	})
-}
-
-// TestHandler_StreamsNilBackend ensures that when Streams is nil the dispatch
-// returns an unknown-operation error for all streams actions.
-func TestHandler_StreamsNilBackend(t *testing.T) {
-	t.Parallel()
-
-	db := dynamodb.NewInMemoryDB()
-	h := dynamodb.NewHandler(db)
-	h.Streams = nil // simulate non-streams-capable backend
-
-	for _, action := range []string{"ListStreams", "DescribeStream", "GetShardIterator", "GetRecords"} {
-		t.Run(action, func(t *testing.T) {
-			t.Parallel()
-
-			w := doStreamsRequest(t, h, action, `{}`)
-			assert.Equal(t, http.StatusBadRequest, w.Code)
-			assert.Contains(t, w.Body.String(), "UnknownOperationException")
-		})
-	}
 }
 
 func TestHandler_HandlerUtilities(t *testing.T) {
@@ -397,16 +277,6 @@ func TestHandler_ExportAndDescribeExport(t *testing.T) {
 		`{"ExportArn":"arn:aws:dynamodb:us-east-1:123456789012:table/T/export/does-not-exist"}`)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "ExportNotFoundException")
-}
-
-// TestHandler_GetRecords_InvalidIterator verifies the error path in handleStreamsGetRecords.
-func TestHandler_GetRecords_InvalidIterator(t *testing.T) {
-	t.Parallel()
-
-	handler, _ := newStreamEnabledHandler(t)
-	w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"BAD_NO_COLON"}`)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // TestHandler_DescribeTable_ReturnsStreamFields verifies that DescribeTable includes

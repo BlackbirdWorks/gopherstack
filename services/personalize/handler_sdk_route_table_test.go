@@ -43,26 +43,20 @@ import (
 // / "/personalize-ranking" / "/action-recommendations" with no target
 // header (confirmed by reading personalizeruntime@v1.36.4/serializers.go:
 // httpbinding.SplitURI("/recommendations") etc., zero
-// `SetHeader("X-Amz-Target")` call sites in the file). gopherstack instead
-// dispatches these two ops through the SAME X-Amz-Target mechanism as the
-// control plane, under a fabricated "AmazonPersonalizeRuntime.<Op>" prefix
-// no real AWS client ever sends (handler.go's
-// personalizeRuntimeTargetPrefix) -- this package's own existing tests
-// (handler_test.go's personalizeRuntimeDo) drive that same fabricated
-// header, so they pass without exercising anything resembling the real
-// wire protocol. This is the same shape of risk 8e86e7f64 flagged in
-// eventbridge (a target prefix no real client sends, undetected because
-// ExtractOperation never validates the prefix) -- except here RouteMatcher
-// DOES require the prefix, so the effect is stronger: RouteMatcher requires
-// an "AmazonPersonalize(Runtime)?." X-Amz-Target prefix to match at all,
-// and a real personalizeruntime request carries no X-Amz-Target header,
-// so it would never even reach this Handler. Rewiring these two ops onto
-// real REST-JSON1 path routing is a distinct, larger change (new
-// path-based RouteMatcher/ExtractOperation logic) out of scope for this
-// dispatch-key table, so it is recorded here rather than fixed. A third
-// real personalizeruntime op, GetActionRecommendations, is not implemented
-// at all (see sdk_completeness_test.go), so there is no dispatch key for it
-// to table either way.
+// `SetHeader("X-Amz-Target")` call sites in the file). gopherstack ALSO
+// still dispatches these two ops through the SAME X-Amz-Target mechanism as
+// the control plane, under a fabricated "AmazonPersonalizeRuntime.<Op>"
+// prefix no real AWS client ever sends (handler.go's
+// personalizeRuntimeTargetPrefix, kept for the existing fabricated-path
+// tests) -- but RouteMatcher/ExtractOperation/Handler() now ALSO route the
+// real REST-JSON1 literal paths ("/recommendations",
+// "/personalize-ranking") directly, so a real personalizeruntime client
+// reaches the handler too (see gopherstack-92ft and
+// handler_runtime_real_client_test.go's TestPersonalizeRuntime_RealSDKClient,
+// which drives the real SDK client and would 404 without that routing). A
+// third real personalizeruntime op, GetActionRecommendations, is still not
+// implemented at all (see sdk_completeness_test.go), so there is no
+// dispatch key for it to table either way.
 //
 // Regenerate by grepping serializers.go for every
 // `SetHeader("X-Amz-Target").String("AmazonPersonalize.` and pulling the

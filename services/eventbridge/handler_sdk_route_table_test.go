@@ -33,25 +33,33 @@ import (
 //
 // This table covers all 57 real EventBridge ops (eventbridge@v1.48.4).
 //
-// h.GetSupportedOperations() reports 79 entries, not 57 --
-// 22 of them (CreatePipe/DeletePipe/DescribePipe/ListPipes/UpdatePipe, and
-// 17 Schema-Registry-shaped ops: CreateRegistry, DeleteRegistry,
-// DescribeRegistry, ListRegistries, UpdateRegistry, CreateSchema,
-// DeleteSchema, DescribeSchema, ListSchemas, SearchSchemas, UpdateSchema,
-// ListSchemaVersions, DeleteSchemaVersion, GetDiscoveredSchema,
-// PutCodeBinding, DescribeCodeBinding, GetCodeBindingSource) are real
-// operation names, but they belong to the separate Pipes and Schemas AWS
-// services, not EventBridge -- confirmed against the pinned pipes@v1.26.4
-// and schemas@v1.37.4 serializers.go, both of which are REST-JSON 1
+// h.GetSupportedOperations() reports 74 entries, not 57 -- 17 of them
+// (CreateRegistry, DeleteRegistry, DescribeRegistry, ListRegistries,
+// UpdateRegistry, CreateSchema, DeleteSchema, DescribeSchema, ListSchemas,
+// SearchSchemas, UpdateSchema, ListSchemaVersions, DeleteSchemaVersion,
+// GetDiscoveredSchema, PutCodeBinding, DescribeCodeBinding,
+// GetCodeBindingSource) are real operation names, but they belong to the
+// separate Schemas AWS service, not EventBridge -- confirmed against the
+// pinned schemas@v1.37.4 serializers.go, which is REST-JSON 1
 // (awsRestjson1_ prefix, dispatched by HTTP method+path, never by
-// X-Amz-Target at all). No real Pipes or Schemas SDK client can ever reach
-// this handler's dispatch table under these names; they are wired here only
-// as an internal-only convention (a dedicated services/pipes directory
-// separately hosts the real, correctly-protocolled Pipes API). Excluded from
-// this table for the same reason rds excluded GetPerformanceInsightsMetrics
-// and cognitoidp excluded AdminSetUserMFASetting: real-looking names that
-// cannot be driven by any real pinned SDK client under this service's
-// protocol.
+// X-Amz-Target at all). No real Schemas SDK client can ever reach this
+// handler's dispatch table under these names; they are wired here only as
+// an internal-only convention. Excluded from this table for the same reason
+// rds excluded GetPerformanceInsightsMetrics and cognitoidp excluded
+// AdminSetUserMFASetting: real-looking names that cannot be driven by any
+// real pinned SDK client under this service's protocol.
+//
+// Unlike Schemas, this package used to ALSO host a fabricated copy of the
+// Pipes API (CreatePipe/DeletePipe/DescribePipe/ListPipes/UpdatePipe) under
+// the same unreachable convention. That copy was deleted (gopherstack-92ft):
+// a correctly-routed services/pipes directory already exists, covering all
+// 10 real Pipes ops (including these 5) by the real REST-JSON method+path
+// per pipes@v1.26.4 -- see services/pipes/handler_sdk_route_table_test.go.
+// Schemas has no such fallback anywhere in the repo, which is why its 17 ops
+// stay here, unreachable but documented, rather than being deleted outright:
+// deleting them would remove a capability, not just a duplicate. Properly
+// routing them by real HTTP method+path is a larger change (a second
+// dispatch mechanism alongside this JSON-RPC one) than this pass attempts.
 //
 // A further 4 dispatch-table keys (GetEventBusPolicy, PutEventBusPolicy,
 // DescribeSchemaVersion, ListCodeBindings) are wired in h.ops but appear in

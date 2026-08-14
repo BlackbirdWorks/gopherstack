@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -18,6 +19,21 @@ const (
 	personalizeTargetPrefix        = "AmazonPersonalize."
 	personalizeRuntimeTargetPrefix = "AmazonPersonalizeRuntime."
 	personalizeContentType         = "application/x-amz-json-1.1"
+
+	// personalizeRuntimeRecommendationsPath and personalizeRuntimeRankingPath are
+	// GetRecommendations' and GetPersonalizedRanking's real literal paths
+	// (personalizeruntime@v1.36.4 serializers.go:
+	// httpbinding.SplitURI("/recommendations") /
+	// httpbinding.SplitURI("/personalize-ranking"), zero
+	// SetHeader("X-Amz-Target") call sites in the file -- personalizeruntime is
+	// REST-JSON1, not JSON-RPC like classic Personalize). No other registered
+	// service claims either literal path.
+	personalizeRuntimeRecommendationsPath = "/recommendations"
+	personalizeRuntimeRankingPath         = "/personalize-ranking"
+	// personalizeRuntimeContentType is the real REST-JSON1 wire content type
+	// (serializers.go: restEncoder.SetHeader("Content-Type").String("application/json")),
+	// distinct from classic Personalize's JSON-RPC 1.1 content type above.
+	personalizeRuntimeContentType = "application/json"
 
 	keyDatasetGroupArn          = "datasetGroupArn"
 	keyDatasetArn               = "datasetArn"
@@ -85,24 +101,49 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // MatchPriority returns header matching priority.
 func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
-// RouteMatcher matches Personalize and Personalize Runtime X-Amz-Target headers.
+// RouteMatcher matches Personalize's fabricated X-Amz-Target headers
+// (classic Personalize's real dispatch mechanism, and the
+// AmazonPersonalizeRuntime prefix no real client ever sends) plus
+// personalizeruntime's real REST-JSON1 literal paths -- see
+// personalizeRuntimeRecommendationsPath/personalizeRuntimeRankingPath.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
+		if strings.HasPrefix(target, personalizeTargetPrefix) ||
+			strings.HasPrefix(target, personalizeRuntimeTargetPrefix) {
+			return true
+		}
 
-		return strings.HasPrefix(target, personalizeTargetPrefix) ||
-			strings.HasPrefix(target, personalizeRuntimeTargetPrefix)
+		return runtimeRESTOpForPath(c.Request().URL.Path) != ""
 	}
 }
 
-// ExtractOperation returns the operation name from the request target.
+// runtimeRESTOpForPath returns the Personalize Runtime operation name for a
+// real personalizeruntime REST-JSON1 literal path, or "" if path isn't one.
+func runtimeRESTOpForPath(path string) string {
+	switch path {
+	case personalizeRuntimeRecommendationsPath:
+		return "GetRecommendations"
+	case personalizeRuntimeRankingPath:
+		return "GetPersonalizedRanking"
+	default:
+		return ""
+	}
+}
+
+// ExtractOperation returns the operation name from the request target, or
+// (for a real personalizeruntime request, which carries no X-Amz-Target at
+// all) from the literal REST path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
 	if op, ok := strings.CutPrefix(target, personalizeRuntimeTargetPrefix); ok {
 		return op
 	}
+	if target != "" {
+		return strings.TrimPrefix(target, personalizeTargetPrefix)
+	}
 
-	return strings.TrimPrefix(target, personalizeTargetPrefix)
+	return runtimeRESTOpForPath(c.Request().URL.Path)
 }
 
 // ExtractResource returns an empty string (no generic resource identifier).
@@ -121,11 +162,71 @@ func (h *Handler) GetSupportedOperations() []string {
 // Handler returns the Echo HTTP handler.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if op := runtimeRESTOpForPath(c.Request().URL.Path); op != "" {
+			return h.handleRuntimeREST(c, op)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()), h.Name(), personalizeContentType,
 			h.GetSupportedOperations(), h.dispatch, h.handleError,
 		)
 	}
+}
+
+// handleRuntimeREST serves a real personalizeruntime REST-JSON1 request
+// (POST /recommendations or POST /personalize-ranking, no X-Amz-Target).
+// It reuses dispatch's existing body-decode/op-call/marshal path -- the
+// wire field names personalizeruntime@v1.36.4 serializes are identical to
+// what dispatch already produces (verified against serializers.go/
+// deserializers.go), so only the envelope (path/method/content-type/error
+// header) differs from the JSON-RPC transport HandleTarget serves above.
+func (h *Handler) handleRuntimeREST(c *echo.Context, action string) error {
+	if c.Request().Method != http.MethodPost {
+		return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	out, dispatchErr := h.dispatch(c.Request().Context(), action, body)
+	if dispatchErr != nil {
+		return h.handleRuntimeRESTError(c, dispatchErr)
+	}
+
+	c.Response().Header().Set("Content-Type", personalizeRuntimeContentType)
+
+	return c.JSONBlob(http.StatusOK, out)
+}
+
+// handleRuntimeRESTError writes a REST-JSON1 error envelope: the real
+// protocol signals the error code via the X-Amzn-ErrorType header
+// (personalizeruntime@v1.36.4 deserializers.go's
+// awsRestjson1_deserializeOpErrorGetRecommendations reads
+// response.Header.Get("X-Amzn-ErrorType") first, falling back to a body
+// field only if the header is absent) rather than JSON-RPC's "__type" body
+// field that handleError below writes.
+func (h *Handler) handleRuntimeRESTError(c *echo.Context, err error) error {
+	errType := "InternalServerException"
+	status := http.StatusInternalServerError
+
+	switch {
+	case errors.Is(err, ErrNotFound):
+		errType, status = "ResourceNotFoundException", http.StatusBadRequest
+	case errors.Is(err, ErrValidation):
+		errType, status = "InvalidInputException", http.StatusBadRequest
+	}
+
+	c.Response().Header().Set("Content-Type", personalizeRuntimeContentType)
+	c.Response().Header().Set("X-Amzn-ErrorType", errType)
+
+	payload, marshalErr := json.Marshal(map[string]string{"message": err.Error()})
+	if marshalErr != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	return c.JSONBlob(status, payload)
 }
 
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
