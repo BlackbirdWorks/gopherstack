@@ -31,6 +31,7 @@ type generateServiceLastAccessedDetailsResponse struct {
 type getSLADWithEntitiesResult struct {
 	JobStatus         string   `xml:"JobStatus"`
 	JobCreationDate   string   `xml:"JobCreationDate"`
+	JobCompletionDate string   `xml:"JobCompletionDate"`
 	EntityDetailsList []string `xml:"EntityDetailsList>member"`
 	IsTruncated       bool     `xml:"IsTruncated"`
 }

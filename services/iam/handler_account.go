@@ -662,12 +662,15 @@ func (h *Handler) iamOrgsReportDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"GetServiceLastAccessedDetailsWithEntities": func(_ url.Values, reqID string) (any, error) {
+			now := isoTime(time.Now())
+
 			return &getServiceLastAccessedDetailsWithEntitiesResponse{
 				XMLName: xml.Name{Local: "GetServiceLastAccessedDetailsWithEntitiesResponse"},
 				Xmlns:   iamXMLNS,
 				GetServiceLastAccessedDetailsWithEntitiesResult: getSLADWithEntitiesResult{
 					JobStatus:         jobStatusCompleted,
-					JobCreationDate:   isoTime(time.Now()),
+					JobCreationDate:   now,
+					JobCompletionDate: now,
 					EntityDetailsList: []string{},
 					IsTruncated:       false,
 				},
