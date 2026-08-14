@@ -173,6 +173,8 @@ func (b *InMemoryBackend) deleteSubResourcesLocked(agentID, version string) {
 }
 
 // ListAgentVersions returns paginated agent version summaries.
+//
+//nolint:dupl // structurally mirrors ListFlowVersions but filters a distinct table/type
 func (b *InMemoryBackend) ListAgentVersions(
 	_ context.Context, agentID string, maxResults int, nextToken string,
 ) ([]*AgentVersionSummary, string, error) {

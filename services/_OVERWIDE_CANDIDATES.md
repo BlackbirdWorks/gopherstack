@@ -100,6 +100,9 @@ batches clear more of it.
 
 | Service | Result | Ref |
 |---|---|---|
+| cloudformation | 15/15 candidates read individually against `cloudformation@v1.76.1` types.go. Every op already had a dedicated inline/`type Foo` Summary — no over-wide leak found. Two side findings, neither fits this bug class so neither was fixed here: (1) `ListStackInstanceResourceDrifts` shares the `StackResourceDrift` Go struct with `DescribeStackResourceDrifts` (the Describe-vs-List shared-converter signal fired), and that struct declares `ExpectedProperties`/`ActualProperties` which real `types.StackInstanceResourceDriftsSummary` doesn't have — but the List backend method (`stack_instances.go` `ListStackInstanceResourceDrifts`) only ever populates StackID/LogicalResourceID/StackResourceDriftStatus, so those two fields are structurally always empty and, with `omitempty`, never reach the wire; not a live leak, no fixture could fail against it, not fixed. (2) `ListStackInstances`' dedicated `instXML` emits a `StackSetName` field that doesn't exist on either the real full `StackInstance` type or `StackInstanceSummary` — a phantom-field bug (wrong shape), not a Get-field leak; not fixed under this issue, same disposition as kafka's `ListNodes` (gopherstack-mk3t). | this session |
+| vpclattice | 14/14 candidates read against `vpclattice@v1.25.5` types.go. Every op uses a dedicated hand-built `*Summary` type declared once in `interfaces.go`, each verified field-by-field a strict subset of its real SDK counterpart (never a superset) — both at the Go-struct layer and at the `*ToJSON` wire-serialization layer (`serviceSummaryToJSON`, `listenerSummaryToJSON`, etc., each with its own function distinct from the Get-shaped `*ToJSON`). Zero leaks. | this session |
+| bedrockagent | 13/13 candidates read against `bedrockagent@v1.58.4` types.go. 2 confirmed leaks, both fixed (see below); 11 clean. The shared-converter grep (checking each backend `List*` method's return type for a dedicated `*Summary` vs. the full Get type) found both leaks in under a minute, before any field-by-field read — `ListAgentKnowledgeBases` returned `[]*AgentKnowledgeBase` (Get-shaped) and `ListFlowVersions` built `*FlowVersionSummary` but the struct itself over-declared fields matching `FlowVersion` (Get-shaped). `ListAgentCollaborators`/`ListIngestionJobs` also lacked a dedicated Summary type but were verified clean field-by-field — the shared Go struct happens to already track exactly the real Summary's field set (gopherstack never modeled the one extra Get-only field either type has: `ClientToken`, `FailureReasons`), so absence of a dedicated type name is a necessary-but-not-sufficient signal, not proof of a leak. Side finding, not fixed (different bug class, same disposition as kafka's `ListNodes`): `AgentCollaborator` carries a `CollaboratorStatus` field that doesn't exist on real `AgentCollaborator` or `AgentCollaboratorSummary` at all — a phantom field present identically on both Get and List, not a Get-only leak. | this session, gopherstack-dv4s |
 | omics | 5/5 leaking ops fixed. The 3 left open by e68817984 (ListAnnotationStores/ListVariantStores/ListAnnotationStoreVersions) were closed this session — see below | e68817984, this session |
 | stepfunctions | 6/6 List ops leaking, fixed | a1bc521e6 |
 | forecast | 12/12 List ops leaking, fixed | aad4fa967 |
@@ -160,16 +163,17 @@ examined for this bug class (table above); `route53`, `iam` and
 the ranked table below — a future session clear of the conflict should
 pick them up.
 
-## Ranked candidates, unexamined (75 services, 301 candidate ops)
+## Ranked candidates, unexamined (72 services, 259 candidate ops)
 
-Regenerated fresh for this batch by `cmd/overwidecandidates`,
-filtered against the "already examined" table above.
+Regenerated fresh for batch five by `cmd/overwidecandidates`, filtered
+against the "already examined" table above. Batch six (this session) cleared
+cloudformation, vpclattice and bedrockagent (42 ops) off the top of this
+list without a tool re-run — the counts below are stale by exactly those
+three rows; a future session should either skip them by hand (as done here)
+or regenerate.
 
 | Service | Candidate ops | Ops (real SDK Output struct declares a narrow Summary-shaped slice) |
 |---|---|---|
-| cloudformation | 15 | ListChangeSets, ListGeneratedTemplates, ListHookResults, ListResourceScans, ListStackInstanceResourceDrifts, ListStackInstances, ListStackRefactors, ListStackResources, ListStackSetAutoDeploymentTargets, ListStackSetOperationResults, ListStackSetOperations, ListStackSets, ListStacks, ListTypeVersions, ListTypes |
-| vpclattice | 14 | ListAccessLogSubscriptions, ListDomainVerifications, ListListeners, ListResourceConfigurations, ListResourceEndpointAssociations, ListResourceGateways, ListRules, ListServiceNetworkResourceAssociations, ListServiceNetworkServiceAssociations, ListServiceNetworkVpcAssociations, ListServiceNetworks, ListServices, ListTargetGroups, ListTargets |
-| bedrockagent | 13 | ListAgentActionGroups, ListAgentAliases, ListAgentCollaborators, ListAgentKnowledgeBases, ListAgentVersions, ListAgents, ListDataSources, ListFlowAliases, ListFlowVersions, ListFlows, ListIngestionJobs, ListKnowledgeBases, ListPrompts |
 | ssm | 10 | ListAssociationVersions, ListCloudConnectors, ListComplianceItems, ListComplianceSummaries, ListDocumentVersions, ListOpsItemEvents, ListOpsItemRelatedItems, ListOpsMetadata, ListResourceComplianceSummaries, ListResourceDataSync |
 | athena | 9 | ListCalculationExecutions, ListDataCatalogs, ListExecutors, ListNotebookMetadata, ListNotebookSessions, ListPreparedStatements, ListSessions, ListTableMetadata, ListWorkGroups |
 | appmesh | 8 | ListGatewayRoutes, ListMeshes, ListRoutes, ListTagsForResource, ListVirtualGateways, ListVirtualNodes, ListVirtualRouters, ListVirtualServices |

@@ -143,9 +143,11 @@ func (b *InMemoryBackend) DisassociateAgentKnowledgeBase(
 }
 
 // ListAgentKnowledgeBases returns paginated agent–KB associations.
+//
+//nolint:dupl // structurally mirrors ListAgentActionGroups but filters a distinct table/type
 func (b *InMemoryBackend) ListAgentKnowledgeBases(
 	_ context.Context, agentID, agentVersion string, maxResults int, nextToken string,
-) ([]*AgentKnowledgeBase, string, error) {
+) ([]*AgentKnowledgeBaseSummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -153,11 +155,16 @@ func (b *InMemoryBackend) ListAgentKnowledgeBases(
 	ids := tableIDs(group, func(a *AgentKnowledgeBase) string { return a.KnowledgeBaseID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
-	out := make([]*AgentKnowledgeBase, 0, len(ids))
+	out := make([]*AgentKnowledgeBaseSummary, 0, len(ids))
 
 	for _, id := range ids {
 		assoc, _ := b.agentKBAssocs.Get(agKBKey(agentID, agentVersion, id))
-		out = append(out, agKBCopy(assoc))
+		out = append(out, &AgentKnowledgeBaseSummary{
+			UpdatedAt:       assoc.UpdatedAt,
+			KnowledgeBaseID: assoc.KnowledgeBaseID,
+			KBState:         assoc.KBState,
+			Description:     assoc.Description,
+		})
 	}
 
 	return out, outToken, nil

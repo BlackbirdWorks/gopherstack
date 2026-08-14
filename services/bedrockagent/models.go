@@ -343,6 +343,16 @@ type AgentKnowledgeBase struct {
 	Description     string    `json:"description,omitempty"`
 }
 
+// AgentKnowledgeBaseSummary is used in list responses. Real
+// types.AgentKnowledgeBaseSummary (bedrockagent@v1.58.4, types/types.go) has
+// no AgentId/AgentVersion/CreatedAt members -- those are Get-only.
+type AgentKnowledgeBaseSummary struct {
+	UpdatedAt       time.Time `json:"updatedAt"`
+	KnowledgeBaseID string    `json:"knowledgeBaseId"`
+	KBState         string    `json:"knowledgeBaseState"`
+	Description     string    `json:"description,omitempty"`
+}
+
 // DataSource is a knowledge base data source.
 type DataSource struct {
 	CreatedAt               time.Time      `json:"createdAt"`
@@ -431,15 +441,15 @@ type FlowVersion struct {
 	Description string         `json:"description,omitempty"`
 }
 
-// FlowVersionSummary is used in list responses.
+// FlowVersionSummary is used in list responses. Real types.FlowVersionSummary
+// (bedrockagent@v1.58.4, types/types.go) has no Name/Description members --
+// those are Get-only, carried on FlowVersion instead.
 type FlowVersionSummary struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	Arn         string    `json:"arn"`
-	FlowID      string    `json:"id"`
-	Name        string    `json:"name"`
-	Status      string    `json:"status"`
-	Version     string    `json:"version"`
-	Description string    `json:"description,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	Arn       string    `json:"arn"`
+	FlowID    string    `json:"id"`
+	Status    string    `json:"status"`
+	Version   string    `json:"version"`
 }
 
 // FlowAliasRouting maps a flow alias to a specific flow version.

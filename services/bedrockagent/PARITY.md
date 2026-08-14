@@ -153,7 +153,13 @@ ops:
     UpdateAgentActionGroup."}
   ListAgentKnowledgeBases: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was totally unreachable: POST (real wire method) had no case at all and
-    404'd — fixed"}
+    404'd — fixed. SEPARATELY (gopherstack-dv4s, over-wide sweep): the prior
+    'wire: fixed' only verified reachability, never checked for extra fields —
+    the handler reused the full AgentKnowledgeBase struct (Get shape) for List,
+    leaking agentId/agentVersion/createdAt. Real types.AgentKnowledgeBaseSummary
+    (bedrockagent@v1.58.4, types/types.go) declares only knowledgeBaseId,
+    knowledgeBaseState, updatedAt, description. Fixed with a dedicated
+    AgentKnowledgeBaseSummary type."}
   CreateDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -203,7 +209,14 @@ ops:
   CreateFlowVersion: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same FlowStatus casing fix"}
   GetFlowVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFlowVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFlowVersions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFlowVersions: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "(gopherstack-dv4s, over-wide sweep) prior 'wire: ok' only checked
+    required fields were present, never that extras were absent. The
+    FlowVersionSummary builder leaked name/description, which real
+    types.FlowVersionSummary (bedrockagent@v1.58.4, types/types.go) does not
+    declare (only arn, createdAt, id, status, version) — those two members
+    live on the full FlowVersion (Get) type, not the List summary. Fixed by
+    narrowing FlowVersionSummary itself, which is dedicated to this op only."}
   CreateFlowAlias: {wire: fixed, errors: ok, state: fixed, persist: ok,
     note: "invented 'tags' wire field removed (real CreateFlowAliasOutput has
     no tags member); that field was tags' only storage before, so also added

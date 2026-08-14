@@ -96,7 +96,7 @@ type StorageBackend interface {
 	) error
 	ListAgentKnowledgeBases(
 		ctx context.Context, agentID, agentVersion string, maxResults int, nextToken string,
-	) ([]*AgentKnowledgeBase, string, error)
+	) ([]*AgentKnowledgeBaseSummary, string, error)
 
 	// Data source operations.
 	CreateDataSource(ctx context.Context, kbID string, cfg DataSourceConfig) (*DataSource, error)
