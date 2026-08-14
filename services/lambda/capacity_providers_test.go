@@ -280,6 +280,49 @@ func Test_SDKRoundTrip_UpdateCapacityProvider(t *testing.T) {
 	assert.Equal(t, "platform", updated.CapacityProvider.PropagateTags.ExplicitTags["team"])
 }
 
+// Test_SDKRoundTrip_ListFunctionVersionsByCapacityProvider proves the real
+// wire shape of ListFunctionVersionsByCapacityProvider: FunctionVersions is a
+// list of {FunctionArn, State} objects (api_op_ListFunctionVersionsByCapacityProvider.go,
+// types.FunctionVersionsByCapacityProviderListItem), not bare ARN strings,
+// and the response also carries a top-level CapacityProviderArn. Before the
+// fix, the handler emitted a flat []string under FunctionVersions and never
+// set CapacityProviderArn at all -- the real SDK's deserializer would fail to
+// decode each string element as the required object shape.
+func Test_SDKRoundTrip_ListFunctionVersionsByCapacityProvider(t *testing.T) {
+	t.Parallel()
+
+	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", capacityProviderTestRegion)
+	h := lambda.NewHandler(backend)
+	client := newTestLambdaClient(t, h)
+
+	created, err := client.CreateCapacityProvider(t.Context(), &lambdasdk.CreateCapacityProviderInput{
+		CapacityProviderName: aws.String("list-versions-cp"),
+		PermissionsConfig: &types.CapacityProviderPermissionsConfig{
+			CapacityProviderOperatorRoleArn: aws.String("arn:aws:iam::000000000000:role/cp-role"),
+		},
+		VpcConfig: &types.CapacityProviderVpcConfig{
+			SubnetIds:        []string{"subnet-1"},
+			SecurityGroupIds: []string{"sg-1"},
+		},
+	})
+	require.NoError(t, err)
+
+	const versionArn = "arn:aws:lambda:us-east-1:000000000000:function:fn:1"
+	require.NoError(t, backend.SeedCapacityProviderFunctionVersions("list-versions-cp", versionArn))
+
+	listed, err := client.ListFunctionVersionsByCapacityProvider(
+		t.Context(),
+		&lambdasdk.ListFunctionVersionsByCapacityProviderInput{
+			CapacityProviderName: aws.String("list-versions-cp"),
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, *created.CapacityProvider.CapacityProviderArn, *listed.CapacityProviderArn)
+	require.Len(t, listed.FunctionVersions, 1)
+	assert.Equal(t, versionArn, *listed.FunctionVersions[0].FunctionArn)
+	assert.Equal(t, types.StateActive, listed.FunctionVersions[0].State)
+}
+
 // TestCapacityProvider_MissingRequiredFields verifies that
 // CreateCapacityProvider rejects requests missing any of the three
 // wire-required fields (CapacityProviderName, PermissionsConfig, VpcConfig).

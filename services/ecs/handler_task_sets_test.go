@@ -390,14 +390,15 @@ func TestECS_DescribeTaskSets(t *testing.T) {
 			wantLen:  1,
 		},
 		{
-			name: "task set ARN not found",
+			name: "task set ARN not found reports as failure, not an error",
 			setup: func(h *ecs.Handler) (string, string, []string) {
 				createTestServiceForTaskSet(t, h, "dts-notfound-cluster", "dts-notfound-svc")
 
 				return "dts-notfound-cluster", "dts-notfound-svc",
 					[]string{"arn:aws:ecs:us-east-1:000000000000:task-set/x/y/ecs-svc-nonexistent"}
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusOK,
+			wantLen:  0,
 		},
 	}
 
@@ -591,13 +592,25 @@ func TestECS_DeleteTaskSet(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			if tt.wantCode == http.StatusOK {
-				// Confirm deletion.
+				// Confirm deletion: the deleted task set now comes back as a
+				// failure entry, not a whole-request error (DescribeTaskSets
+				// reports missing IDs per-item, like its describe siblings).
 				rec2 := doECSRequest(t, h, "DescribeTaskSets", map[string]any{
 					"cluster":  input["cluster"],
 					"service":  input["service"],
 					"taskSets": []string{tsArn},
 				})
-				assert.Equal(t, http.StatusBadRequest, rec2.Code)
+				require.Equal(t, http.StatusOK, rec2.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+
+				sets, _ := resp["taskSets"].([]any)
+				assert.Empty(t, sets)
+
+				failures, _ := resp["failures"].([]any)
+				require.Len(t, failures, 1)
+				assert.Equal(t, tsArn, failures[0].(map[string]any)["arn"])
 			}
 		})
 	}
@@ -933,4 +946,78 @@ func TestCreateTaskSet_CapacityProviderStrategy_Roundtrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
 	strategy := out["taskSet"].(map[string]any)["capacityProviderStrategy"].([]any)
 	require.Len(t, strategy, 2)
+}
+
+// TestDescribeTaskSets_FailureSemantics proves that a task set ID requested
+// but not found is reported per-item in the "failures" wire field, matching
+// every sibling batch-describe op (DescribeClusters, DescribeServices,
+// DescribeTasks), rather than failing the whole request. Real
+// DescribeTaskSetsOutput always carries a "failures" member; previously it
+// was entirely absent from the wire shape and a single unknown ID aborted
+// the call with a 400.
+func TestDescribeTaskSets_FailureSemantics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown reported as failure not an error", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createTestServiceForTaskSet(t, h, "dts-fail-cluster", "dts-fail-svc")
+
+		rec := doECSRequest(t, h, "DescribeTaskSets", map[string]any{
+			"cluster":  "dts-fail-cluster",
+			"service":  "dts-fail-svc",
+			"taskSets": []string{"arn:aws:ecs:us-east-1:000000000000:task-set/x/y/ghost"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+		sets, _ := resp["taskSets"].([]any)
+		assert.Empty(t, sets)
+
+		failures, _ := resp["failures"].([]any)
+		require.Len(t, failures, 1)
+
+		f := failures[0].(map[string]any)
+		assert.Equal(t, "arn:aws:ecs:us-east-1:000000000000:task-set/x/y/ghost", f["arn"])
+		assert.Equal(t, "MISSING", f["reason"])
+	})
+
+	t.Run("mix of found and missing", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		tdArn := createTestServiceForTaskSet(t, h, "dts-fail-mix-cluster", "dts-fail-mix-svc")
+
+		createResp := doECSRequest(t, h, "CreateTaskSet", map[string]any{
+			"cluster":        "dts-fail-mix-cluster",
+			"service":        "dts-fail-mix-svc",
+			"taskDefinition": tdArn,
+		})
+		require.Equal(t, http.StatusOK, createResp.Code)
+
+		var created map[string]any
+		require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+		realArn := created["taskSet"].(map[string]any)["taskSetArn"].(string)
+
+		rec := doECSRequest(t, h, "DescribeTaskSets", map[string]any{
+			"cluster":  "dts-fail-mix-cluster",
+			"service":  "dts-fail-mix-svc",
+			"taskSets": []string{realArn, "arn:aws:ecs:us-east-1:000000000000:task-set/x/y/ghost"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+		sets, _ := resp["taskSets"].([]any)
+		require.Len(t, sets, 1)
+		assert.Equal(t, realArn, sets[0].(map[string]any)["taskSetArn"])
+
+		failures, _ := resp["failures"].([]any)
+		require.Len(t, failures, 1)
+		assert.Equal(t, "arn:aws:ecs:us-east-1:000000000000:task-set/x/y/ghost", failures[0].(map[string]any)["arn"])
+	})
 }

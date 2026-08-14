@@ -153,7 +153,7 @@ func TestECS_DeleteService_CleansUpTaskSets(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	sets, err := backend.DescribeTaskSets("svccleanup-cluster", svc2.ServiceArn, nil)
+	sets, _, err := backend.DescribeTaskSets("svccleanup-cluster", svc2.ServiceArn, nil)
 	require.NoError(t, err)
 	assert.Empty(t, sets, "no stale task sets after service delete+recreate")
 }

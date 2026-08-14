@@ -715,9 +715,12 @@ type UpdateUsagePlanInput struct {
 }
 
 // APIStageAssociation associates a usage plan with a specific REST API stage.
+// The real wire field is "apiId" (types.ApiStage in the SDK), not "restApiId" --
+// UsagePlan and Resource/Stage/Deployment/Model/Authorizer all key off the
+// REST API differently, so this is not a shared convention to assume from them.
 type APIStageAssociation struct {
 	Throttle  map[string]*ThrottleSettings `json:"throttle,omitempty"`
-	RestAPIID string                       `json:"restApiId,omitempty"`
+	RestAPIID string                       `json:"apiId,omitempty"`
 	Stage     string                       `json:"stage,omitempty"`
 }
 

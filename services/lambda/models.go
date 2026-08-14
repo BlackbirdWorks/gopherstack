@@ -121,7 +121,7 @@ type FunctionConfiguration struct {
 	VpcConfig                    *VpcConfig              `json:"VpcConfig,omitempty"`
 	TracingConfig                *TracingConfig          `json:"TracingConfig,omitempty"`
 	DeadLetterConfig             *DeadLetterConfig       `json:"DeadLetterConfig,omitempty"`
-	ImageConfig                  *ImageConfig            `json:"ImageConfig,omitempty"`
+	ImageConfigResponse          *ImageConfigResponse    `json:"ImageConfigResponse,omitempty"`
 	Tags                         map[string]string       `json:"Tags,omitempty"`
 	SnapStart                    *SnapStartResponse      `json:"SnapStart,omitempty"`
 	ImageURI                     string                  `json:"ImageUri,omitempty"`
@@ -207,6 +207,15 @@ type ImageConfig struct {
 	Command          []string `json:"Command,omitempty"`
 	WorkingDirectory string   `json:"WorkingDirectory,omitempty"`
 	EntryPoint       []string `json:"EntryPoint,omitempty"`
+}
+
+// ImageConfigResponse wraps ImageConfig on FunctionConfiguration and
+// FunctionVersion: the real wire response nests the container image config
+// one level under ImageConfigResponse (api_op_GetFunctionConfiguration.go),
+// unlike CreateFunctionInput/UpdateFunctionCodeInput, which accept ImageConfig
+// as a bare top-level request field.
+type ImageConfigResponse struct {
+	ImageConfig *ImageConfig `json:"ImageConfig,omitempty"`
 }
 
 // UpdateFunctionCodeInput holds the request body for UpdateFunctionCode.
@@ -303,31 +312,31 @@ type ListFunctionURLConfigsOutput struct {
 
 // FunctionVersion holds an immutable snapshot of a Lambda function configuration at publish time.
 type FunctionVersion struct {
-	DurableConfig     *DurableConfig      `json:"DurableConfig,omitempty"`
-	Environment       *EnvironmentConfig  `json:"Environment,omitempty"`
-	VpcConfig         *VpcConfig          `json:"VpcConfig,omitempty"`
-	TracingConfig     *TracingConfig      `json:"TracingConfig,omitempty"`
-	FileSystemConfigs []*FileSystemConfig `json:"FileSystemConfigs,omitempty"`
-	DeadLetterConfig  *DeadLetterConfig   `json:"DeadLetterConfig,omitempty"`
-	ImageConfig       *ImageConfig        `json:"ImageConfig,omitempty"`
-	SnapStart         *SnapStartResponse  `json:"SnapStart,omitempty"`
-	FunctionArn       string              `json:"FunctionArn"`
-	FunctionName      string              `json:"FunctionName"`
-	RevisionID        string              `json:"RevisionId"`
-	ImageURI          string              `json:"ImageUri,omitempty"`
-	PackageType       string              `json:"PackageType"`
-	Role              string              `json:"Role"`
-	Runtime           string              `json:"Runtime,omitempty"`
-	CreatedAt         string              `json:"LastModified"`
-	Handler           string              `json:"Handler,omitempty"`
-	State             FunctionState       `json:"State"`
-	Description       string              `json:"Description"`
-	Version           string              `json:"Version"`
-	CodeSha256        string              `json:"CodeSha256,omitempty"`
-	Layers            []*FunctionLayer    `json:"Layers,omitempty"`
-	MemorySize        int                 `json:"MemorySize"`
-	Timeout           int                 `json:"Timeout"`
-	CodeSize          int64               `json:"CodeSize"`
+	DurableConfig       *DurableConfig       `json:"DurableConfig,omitempty"`
+	Environment         *EnvironmentConfig   `json:"Environment,omitempty"`
+	VpcConfig           *VpcConfig           `json:"VpcConfig,omitempty"`
+	TracingConfig       *TracingConfig       `json:"TracingConfig,omitempty"`
+	FileSystemConfigs   []*FileSystemConfig  `json:"FileSystemConfigs,omitempty"`
+	DeadLetterConfig    *DeadLetterConfig    `json:"DeadLetterConfig,omitempty"`
+	ImageConfigResponse *ImageConfigResponse `json:"ImageConfigResponse,omitempty"`
+	SnapStart           *SnapStartResponse   `json:"SnapStart,omitempty"`
+	FunctionArn         string               `json:"FunctionArn"`
+	FunctionName        string               `json:"FunctionName"`
+	RevisionID          string               `json:"RevisionId"`
+	ImageURI            string               `json:"ImageUri,omitempty"`
+	PackageType         string               `json:"PackageType"`
+	Role                string               `json:"Role"`
+	Runtime             string               `json:"Runtime,omitempty"`
+	CreatedAt           string               `json:"LastModified"`
+	Handler             string               `json:"Handler,omitempty"`
+	State               FunctionState        `json:"State"`
+	Description         string               `json:"Description"`
+	Version             string               `json:"Version"`
+	CodeSha256          string               `json:"CodeSha256,omitempty"`
+	Layers              []*FunctionLayer     `json:"Layers,omitempty"`
+	MemorySize          int                  `json:"MemorySize"`
+	Timeout             int                  `json:"Timeout"`
+	CodeSize            int64                `json:"CodeSize"`
 }
 
 // ListVersionsByFunctionOutput is the response for ListVersionsByFunction.

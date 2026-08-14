@@ -104,13 +104,14 @@ type describeTaskSetsInput struct {
 
 type describeTaskSetsOutput struct {
 	TaskSets []taskSetView `json:"taskSets"`
+	Failures []failureView `json:"failures"`
 }
 
 func (h *Handler) handleDescribeTaskSets(
 	_ context.Context,
 	in *describeTaskSetsInput,
 ) (*describeTaskSetsOutput, error) {
-	sets, err := h.Backend.DescribeTaskSets(in.Cluster, in.Service, in.TaskSets)
+	sets, failures, err := h.Backend.DescribeTaskSets(in.Cluster, in.Service, in.TaskSets)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +142,12 @@ func (h *Handler) handleDescribeTaskSets(
 		views = append(views, v)
 	}
 
-	return &describeTaskSetsOutput{TaskSets: views}, nil
+	failViews := make([]failureView, 0, len(failures))
+	for _, f := range failures {
+		failViews = append(failViews, failureView(f))
+	}
+
+	return &describeTaskSetsOutput{TaskSets: views, Failures: failViews}, nil
 }
 
 type updateTaskSetInput struct {

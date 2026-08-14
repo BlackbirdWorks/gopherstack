@@ -318,7 +318,7 @@ type Tag struct {
 // ManagedScaling configures managed scaling for an ASG-backed capacity provider.
 type ManagedScaling struct {
 	Status                    string `json:"status,omitempty"`
-	TargetCapacityPercent     int    `json:"targetCapacityPercent,omitempty"`
+	TargetCapacityPercent     int    `json:"targetCapacity,omitempty"`
 	MinimumScalingStepSize    int    `json:"minimumScalingStepSize,omitempty"`
 	MaximumScalingStepSize    int    `json:"maximumScalingStepSize,omitempty"`
 	InstanceWarmupPeriod      int    `json:"instanceWarmupPeriod,omitempty"`

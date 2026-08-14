@@ -227,7 +227,7 @@ func assertContainerInstanceRestored(t *testing.T, b *InMemoryBackend, f fullSta
 func assertTaskSetRestored(t *testing.T, b *InMemoryBackend, f fullStateFixture) {
 	t.Helper()
 
-	taskSets, err := b.DescribeTaskSets("full-state-cluster", "full-state-svc", []string{f.taskSetArn})
+	taskSets, _, err := b.DescribeTaskSets("full-state-cluster", "full-state-svc", []string{f.taskSetArn})
 	if err != nil || len(taskSets) != 1 {
 		t.Fatalf("DescribeTaskSets: got %d task sets, err=%v, want 1 task set", len(taskSets), err)
 	}
