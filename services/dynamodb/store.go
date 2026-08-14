@@ -293,11 +293,12 @@ type Table struct {
 	streamSeq                  int64
 	StreamHead                 int `json:"StreamHead,omitempty"`
 	streamTrimSeq              int64
-	PITREnabled                bool `json:"PITREnabled,omitempty"`
-	SSEEnabled                 bool `json:"SSEEnabled,omitempty"`
-	StreamsEnabled             bool `json:"StreamsEnabled"`
-	DeletionProtectionEnabled  bool `json:"DeletionProtectionEnabled"`
-	ContributorInsightsEnabled bool `json:"ContributorInsightsEnabled,omitempty"`
+	PITREnabled                bool  `json:"PITREnabled,omitempty"`
+	RecoveryPeriodInDays       int32 `json:"RecoveryPeriodInDays,omitempty"`
+	SSEEnabled                 bool  `json:"SSEEnabled,omitempty"`
+	StreamsEnabled             bool  `json:"StreamsEnabled"`
+	DeletionProtectionEnabled  bool  `json:"DeletionProtectionEnabled"`
+	ContributorInsightsEnabled bool  `json:"ContributorInsightsEnabled,omitempty"`
 }
 
 func NewInMemoryDB() *InMemoryDB {

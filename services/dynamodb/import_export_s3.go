@@ -889,9 +889,8 @@ func (db *InMemoryDB) DescribeExport(
 // ListExports returns export summaries filtered by request region and,
 // optionally, TableArn. It satisfies the StorageBackend interface using
 // official AWS SDK v2 types -- ExportSummary only carries ExportArn,
-// ExportStatus and ExportType, so callers wanting the fuller wire summary
-// this emulator has historically returned pair this with per-ARN
-// DescribeExport calls (see (*DynamoDBHandler).listExports).
+// ExportStatus and ExportType, and (*DynamoDBHandler).listExports emits
+// exactly that; it no longer widens this with per-ARN DescribeExport calls.
 func (db *InMemoryDB) ListExports(
 	ctx context.Context,
 	input *dynamodb.ListExportsInput,

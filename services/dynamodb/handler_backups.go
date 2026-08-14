@@ -26,6 +26,7 @@ type pointInTimeRecoveryDescription struct {
 	// disabled or no snapshots exist yet.
 	EarliestRestorableDateTime float64 `json:"EarliestRestorableDateTime,omitempty"`
 	LatestRestorableDateTime   float64 `json:"LatestRestorableDateTime,omitempty"`
+	RecoveryPeriodInDays       int32   `json:"RecoveryPeriodInDays,omitempty"`
 }
 
 type continuousBackupsDescriptionFields struct {
@@ -55,6 +56,7 @@ func continuousBackupsOutputFromSDK(
 	if d.PointInTimeRecoveryDescription != nil {
 		pitr := d.PointInTimeRecoveryDescription
 		desc.PointInTimeRecoveryStatus = string(pitr.PointInTimeRecoveryStatus)
+		desc.RecoveryPeriodInDays = aws.ToInt32(pitr.RecoveryPeriodInDays)
 		if pitr.EarliestRestorableDateTime != nil {
 			desc.EarliestRestorableDateTime = float64(pitr.EarliestRestorableDateTime.Unix())
 		}
@@ -93,7 +95,8 @@ func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []
 
 // pointInTimeRecoverySpec holds the PITR enable/disable setting.
 type pointInTimeRecoverySpec struct {
-	PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
+	RecoveryPeriodInDays       *int32 `json:"RecoveryPeriodInDays,omitempty"`
+	PointInTimeRecoveryEnabled bool   `json:"PointInTimeRecoveryEnabled"`
 }
 
 type updateContinuousBackupsInput struct {
@@ -117,6 +120,7 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 		TableName: &req.TableName,
 		PointInTimeRecoverySpecification: &sdktypes.PointInTimeRecoverySpecification{
 			PointInTimeRecoveryEnabled: &pitrEnabled,
+			RecoveryPeriodInDays:       req.PointInTimeRecoverySpecification.RecoveryPeriodInDays,
 		},
 	})
 	if err != nil {
@@ -156,9 +160,28 @@ type exportTableToPointInTimeOutput struct {
 	ExportDescription exportDescriptionFields `json:"ExportDescription"`
 }
 
+// exportSummaryFields is the wire shape of types.ExportSummary (see
+// deserializers.go's awsAwsjson10_deserializeDocumentExportSummary), which
+// carries only ExportArn, ExportStatus and ExportType -- unlike
+// exportDescriptionFields, which mirrors the much richer ExportDescription
+// returned by ExportTableToPointInTime/DescribeExport.
+type exportSummaryFields struct {
+	ExportArn    string `json:"ExportArn,omitempty"`
+	ExportStatus string `json:"ExportStatus,omitempty"`
+	ExportType   string `json:"ExportType,omitempty"`
+}
+
+func exportSummaryFieldsFromSDK(s sdktypes.ExportSummary) exportSummaryFields {
+	return exportSummaryFields{
+		ExportArn:    aws.ToString(s.ExportArn),
+		ExportStatus: string(s.ExportStatus),
+		ExportType:   string(s.ExportType),
+	}
+}
+
 type listExportsOutput struct {
-	NextToken       string                    `json:"NextToken,omitempty"`
-	ExportSummaries []exportDescriptionFields `json:"ExportSummaries"`
+	NextToken       string                `json:"NextToken,omitempty"`
+	ExportSummaries []exportSummaryFields `json:"ExportSummaries"`
 }
 
 // exportDescFieldsFromSDK converts the SDK ExportDescription into the wire shape.
@@ -277,27 +300,12 @@ func (h *DynamoDBHandler) listExports(ctx context.Context, body []byte) (any, er
 	}
 
 	// ExportSummary (the official SDK shape) carries only ExportArn,
-	// ExportStatus and ExportType. This emulator's ListExports has always
-	// returned the fuller per-export detail below, so each summary ARN is
-	// paired with a DescribeExport call to reconstruct it -- both are
-	// StorageBackend methods, so no backend type assertion is needed here.
-	summaries := make([]exportDescriptionFields, 0, len(out.ExportSummaries))
-
+	// ExportStatus and ExportType -- the backend already returns exactly
+	// that (see (*InMemoryDB).ListExports), so no per-ARN DescribeExport
+	// call is needed to fill this out.
+	summaries := make([]exportSummaryFields, 0, len(out.ExportSummaries))
 	for _, s := range out.ExportSummaries {
-		descOut, descErr := h.Backend.DescribeExport(ctx, &sdkdynamodb.DescribeExportInput{
-			ExportArn: s.ExportArn,
-		})
-		if descErr != nil {
-			continue
-		}
-
-		d := exportDescFieldsFromSDK(descOut.ExportDescription)
-		// ListExports summaries omit manifest/failure detail; DescribeExport
-		// carries the full record, so trim back to the summary shape.
-		d.ExportManifest = ""
-		d.FailureCode = ""
-		d.FailureMessage = ""
-		summaries = append(summaries, d)
+		summaries = append(summaries, exportSummaryFieldsFromSDK(s))
 	}
 
 	return &listExportsOutput{

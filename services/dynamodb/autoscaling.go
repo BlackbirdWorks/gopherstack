@@ -107,10 +107,11 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 
 	for _, r := range replicas {
 		region := r.RegionName
+		status := r.ReplicaStatus
 
 		replicaDescs = append(replicaDescs, types.ReplicaAutoScalingDescription{
 			RegionName:    &region,
-			ReplicaStatus: types.ReplicaStatusActive,
+			ReplicaStatus: types.ReplicaStatus(status),
 			ReplicaProvisionedWriteCapacityAutoScalingSettings: sdkAutoScalingSettingsDescription(write),
 		})
 	}
@@ -142,11 +143,12 @@ func sdkAutoScalingSettingsDescription(t *autoScalingThroughput) *types.AutoScal
 
 // --- DescribeTableReplicaAutoScaling ---
 
-// replicaAutoScalingDescriptionsRLocked copies table.Replicas, along with the
-// table's write-capacity autoscaling settings (applied uniformly to every
-// replica -- this emulator doesn't model per-replica overrides), into the SDK
-// description type under a defer-protected table.mu.RLock.
-func replicaAutoScalingDescriptionsRLocked(table *Table) []types.ReplicaAutoScalingDescription {
+// replicaAutoScalingDescriptionsRLocked copies table.Status and table.Replicas,
+// along with the table's write-capacity autoscaling settings (applied
+// uniformly to every replica -- this emulator doesn't model per-replica
+// overrides), into the SDK description type under a defer-protected
+// table.mu.RLock.
+func replicaAutoScalingDescriptionsRLocked(table *Table) (string, []types.ReplicaAutoScalingDescription) {
 	table.mu.RLock(opDescribeTableReplicaAutoScaling)
 	defer table.mu.RUnlock()
 
@@ -167,7 +169,7 @@ func replicaAutoScalingDescriptionsRLocked(table *Table) []types.ReplicaAutoScal
 		})
 	}
 
-	return replicas
+	return table.Status, replicas
 }
 
 // DescribeTableReplicaAutoScaling returns the autoscaling settings for a
@@ -187,12 +189,12 @@ func (db *InMemoryDB) DescribeTableReplicaAutoScaling(
 		return nil, err
 	}
 
-	replicas := replicaAutoScalingDescriptionsRLocked(table)
+	tableStatus, replicas := replicaAutoScalingDescriptionsRLocked(table)
 
 	return &dynamodb.DescribeTableReplicaAutoScalingOutput{
 		TableAutoScalingDescription: &types.TableAutoScalingDescription{
 			TableName:   &tableName,
-			TableStatus: types.TableStatus(models.TableStatusActive),
+			TableStatus: types.TableStatus(tableStatus),
 			Replicas:    replicas,
 		},
 	}, nil

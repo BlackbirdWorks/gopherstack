@@ -337,14 +337,31 @@ const (
 	continuousBackupsStatusDisabled = "DISABLED"
 )
 
-// pitrStateRLocked returns whether PITR is enabled and, when enabled with at
-// least one snapshot taken, the earliest/latest restorable timestamps, under
-// a defer-protected table.mu.RLock.
-func pitrStateRLocked(table *Table) (bool, time.Time, time.Time) {
+// continuousBackupsStatusForExistingTable is always ENABLED. Verified against
+// api_op_UpdateContinuousBackups.go: UpdateContinuousBackupsInput has exactly
+// two members, TableName and PointInTimeRecoverySpecification -- there is no
+// field anywhere in the SDK that lets a caller set ContinuousBackupsStatus
+// itself, only the nested PointInTimeRecoveryStatus (via
+// PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled). The two are
+// genuinely distinct fields; only PointInTimeRecoveryStatus is derived here,
+// from table.PITREnabled.
+const continuousBackupsStatusForExistingTable = sdktypes.ContinuousBackupsStatus(continuousBackupsStatusEnabled)
+
+// defaultRecoveryPeriodInDays matches PointInTimeRecoverySpecification's
+// documented default (types.go): "If no value is provided, the value will
+// default to 35".
+const defaultRecoveryPeriodInDays int32 = 35
+
+// pitrStateRLocked returns whether PITR is enabled, the configured recovery
+// period, and, when enabled with at least one snapshot taken, the
+// earliest/latest restorable timestamps, under a defer-protected
+// table.mu.RLock.
+func pitrStateRLocked(table *Table) (bool, int32, time.Time, time.Time) {
 	table.mu.RLock(opDescribeContinuousBackups)
 	defer table.mu.RUnlock()
 
 	pitrEnabled := table.PITREnabled
+	recoveryPeriodInDays := table.RecoveryPeriodInDays
 
 	var earliest, latest time.Time
 	// EarliestRestorableDateTime tracks the oldest available snapshot.
@@ -355,12 +372,13 @@ func pitrStateRLocked(table *Table) (bool, time.Time, time.Time) {
 		latest = time.Now().UTC()
 	}
 
-	return pitrEnabled, earliest, latest
+	return pitrEnabled, recoveryPeriodInDays, earliest, latest
 }
 
-// setPITREnabledLocked sets table.PITREnabled and, when disabling, releases
-// the snapshot ring, under a defer-protected table.mu.Lock.
-func setPITREnabledLocked(table *Table, pitrEnabled bool) {
+// setPITREnabledLocked sets table.PITREnabled and table.RecoveryPeriodInDays
+// and, when disabling, releases the snapshot ring, under a defer-protected
+// table.mu.Lock. recoveryPeriodInDays is ignored when disabling.
+func setPITREnabledLocked(table *Table, pitrEnabled bool, recoveryPeriodInDays int32) {
 	table.mu.Lock(opUpdateContinuousBackups)
 	defer table.mu.Unlock()
 
@@ -369,7 +387,12 @@ func setPITREnabledLocked(table *Table, pitrEnabled bool) {
 		// Releasing memory the moment the feature is turned off keeps the
 		// per-table footprint tight; re-enabling starts a fresh ring.
 		table.PITRSnapshots = nil
+		table.RecoveryPeriodInDays = 0
+
+		return
 	}
+
+	table.RecoveryPeriodInDays = recoveryPeriodInDays
 }
 
 // DescribeContinuousBackups returns the PITR settings for a table.
@@ -388,13 +411,14 @@ func (db *InMemoryDB) DescribeContinuousBackups(
 		return nil, err
 	}
 
-	pitrEnabled, earliest, latest := pitrStateRLocked(table)
+	pitrEnabled, recoveryPeriodInDays, earliest, latest := pitrStateRLocked(table)
 
 	desc := &sdktypes.PointInTimeRecoveryDescription{
 		PointInTimeRecoveryStatus: sdktypes.PointInTimeRecoveryStatusDisabled,
 	}
 	if pitrEnabled {
 		desc.PointInTimeRecoveryStatus = sdktypes.PointInTimeRecoveryStatusEnabled
+		desc.RecoveryPeriodInDays = aws.Int32(recoveryPeriodInDays)
 		if !earliest.IsZero() {
 			desc.EarliestRestorableDateTime = aws.Time(earliest)
 			desc.LatestRestorableDateTime = aws.Time(latest)
@@ -403,7 +427,7 @@ func (db *InMemoryDB) DescribeContinuousBackups(
 
 	return &sdkdynamodb.DescribeContinuousBackupsOutput{
 		ContinuousBackupsDescription: &sdktypes.ContinuousBackupsDescription{
-			ContinuousBackupsStatus:        sdktypes.ContinuousBackupsStatusEnabled,
+			ContinuousBackupsStatus:        continuousBackupsStatusForExistingTable,
 			PointInTimeRecoveryDescription: desc,
 		},
 	}, nil
@@ -421,8 +445,19 @@ func (db *InMemoryDB) UpdateContinuousBackups(
 	}
 
 	pitrEnabled := false
-	if input.PointInTimeRecoverySpecification != nil {
-		pitrEnabled = aws.ToBool(input.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled)
+	recoveryPeriodInDays := defaultRecoveryPeriodInDays
+	if spec := input.PointInTimeRecoverySpecification; spec != nil {
+		pitrEnabled = aws.ToBool(spec.PointInTimeRecoveryEnabled)
+		if spec.RecoveryPeriodInDays != nil {
+			recoveryPeriodInDays = *spec.RecoveryPeriodInDays
+		}
+	}
+
+	const minRecoveryPeriodInDays = 1
+
+	const maxRecoveryPeriodInDays = 35
+	if recoveryPeriodInDays < minRecoveryPeriodInDays || recoveryPeriodInDays > maxRecoveryPeriodInDays {
+		return nil, NewValidationException("RecoveryPeriodInDays must be between 1 and 35")
 	}
 
 	table, err := db.getTable(ctx, tableName)
@@ -430,19 +465,20 @@ func (db *InMemoryDB) UpdateContinuousBackups(
 		return nil, err
 	}
 
-	setPITREnabledLocked(table, pitrEnabled)
+	setPITREnabledLocked(table, pitrEnabled, recoveryPeriodInDays)
 
-	pitrStatus := sdktypes.PointInTimeRecoveryStatusDisabled
+	desc := &sdktypes.PointInTimeRecoveryDescription{
+		PointInTimeRecoveryStatus: sdktypes.PointInTimeRecoveryStatusDisabled,
+	}
 	if pitrEnabled {
-		pitrStatus = sdktypes.PointInTimeRecoveryStatusEnabled
+		desc.PointInTimeRecoveryStatus = sdktypes.PointInTimeRecoveryStatusEnabled
+		desc.RecoveryPeriodInDays = aws.Int32(recoveryPeriodInDays)
 	}
 
 	return &sdkdynamodb.UpdateContinuousBackupsOutput{
 		ContinuousBackupsDescription: &sdktypes.ContinuousBackupsDescription{
-			ContinuousBackupsStatus: sdktypes.ContinuousBackupsStatusEnabled,
-			PointInTimeRecoveryDescription: &sdktypes.PointInTimeRecoveryDescription{
-				PointInTimeRecoveryStatus: pitrStatus,
-			},
+			ContinuousBackupsStatus:        continuousBackupsStatusForExistingTable,
+			PointInTimeRecoveryDescription: desc,
 		},
 	}, nil
 }
