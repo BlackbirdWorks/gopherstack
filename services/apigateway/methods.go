@@ -197,12 +197,15 @@ func (b *InMemoryBackend) TestInvokeMethod(input TestInvokeMethodInput) (*TestIn
 		body = `{"statusCode": 200}`
 	}
 
+	hdrs := map[string]string{"Content-Type": contentTypeJSON}
+
 	return &TestInvokeMethodOutput{
-		Status:  http.StatusOK,
-		Body:    body,
-		Latency: 1,
-		Log:     "Test invocation (mock)",
-		Headers: map[string]string{"Content-Type": contentTypeJSON},
+		Status:            http.StatusOK,
+		Body:              body,
+		Latency:           1,
+		Log:               "Test invocation (mock)",
+		Headers:           hdrs,
+		MultiValueHeaders: singleToMultiValueHeaders(hdrs),
 	}, nil
 }
 

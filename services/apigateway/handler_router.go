@@ -452,6 +452,14 @@ func parseAPIGWRestAPIsDepth4AuthVal(method string, segs []string, apiID string)
 			return opUpdateAuthorizer, params, true
 		case http.MethodDelete:
 			return opDeleteAuthorizer, params, true
+		case http.MethodPost:
+			// TestInvokeAuthorizer's real wire path is POST on this SAME
+			// depth-4 URL (apigateway@v1.42.4 serializers.go:
+			// awsRestjson1_serializeOpTestInvokeAuthorizer's opPath is
+			// "/restapis/{restApiId}/authorizers/{authorizerId}", no
+			// "/invocations" suffix) -- before this, a real client's
+			// TestInvokeAuthorizer call 404'd outright; nothing routed here.
+			return opTestInvokeAuthorizer, params, true
 		}
 	case apiGWSegValidators:
 		params := map[string]string{keyRestAPIID: apiID, keyRequestValidatorID: segs[3]}

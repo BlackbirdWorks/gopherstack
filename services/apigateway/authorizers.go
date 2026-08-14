@@ -39,6 +39,7 @@ func (b *InMemoryBackend) CreateAuthorizer(restAPIID string, input CreateAuthori
 		AuthorizerCredentials:        input.AuthorizerCredentials,
 		IdentitySource:               input.IdentitySource,
 		IdentityValidationExpression: input.IdentityValidationExpression,
+		AuthType:                     input.AuthType,
 		AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
 		ProviderARNs:                 input.ProviderARNs,
 	}
@@ -113,6 +114,9 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 	if input.AuthorizerCredentials != "" {
 		auth.AuthorizerCredentials = input.AuthorizerCredentials
 	}
+	if input.AuthType != "" {
+		auth.AuthType = input.AuthType
+	}
 	// IdentitySource is a *string so an explicit PATCH "remove" (a pointer to
 	// "") is distinguishable from the field being absent from this PATCH.
 	if input.IdentitySource != nil {
@@ -169,11 +173,9 @@ func (b *InMemoryBackend) TestInvokeAuthorizer(input TestInvokeAuthorizerInput) 
 	}
 
 	return &TestInvokeAuthorizerOutput{
-		PrincipalID:         "test-principal",
-		AuthorizationStatus: http.StatusOK,
-		ClientStatus:        http.StatusOK,
-		Latency:             1,
-		Log:                 "Test authorizer invocation (mock)",
-		Context:             map[string]string{"principalId": "test-principal"},
+		PrincipalID:  "test-principal",
+		ClientStatus: http.StatusOK,
+		Latency:      1,
+		Log:          "Test authorizer invocation (mock)",
 	}, nil
 }

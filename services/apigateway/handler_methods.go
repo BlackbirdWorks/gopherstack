@@ -12,6 +12,23 @@ type testInvokeMethodHandlerInput struct {
 	TestInvokeMethodInput
 }
 
+// singleToMultiValueHeaders derives TestInvokeMethodOutput's multiValueHeaders
+// member from a single-valued header map, matching real API Gateway's
+// behavior when a backend integration response supplies only single-valued
+// headers (see types.TestInvokeMethodOutput.MultiValueHeaders in the SDK).
+func singleToMultiValueHeaders(headers map[string]string) map[string][]string {
+	if len(headers) == 0 {
+		return nil
+	}
+
+	out := make(map[string][]string, len(headers))
+	for k, v := range headers {
+		out[k] = []string{v}
+	}
+
+	return out
+}
+
 type putMethodInput struct {
 	RequestParameters  map[string]bool   `json:"requestParameters,omitempty"`
 	RequestModels      map[string]string `json:"requestModels,omitempty"`
@@ -182,12 +199,15 @@ func (h *Handler) testInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMeth
 
 	if integration == nil {
 		// No integration: return empty 200.
+		hdrs := map[string]string{headerContentType: contentTypeJSON}
+
 		return &TestInvokeMethodOutput{
-			Status:  http.StatusOK,
-			Body:    "{}",
-			Latency: 1,
-			Log:     "Test invocation: no integration configured",
-			Headers: map[string]string{headerContentType: contentTypeJSON},
+			Status:            http.StatusOK,
+			Body:              "{}",
+			Latency:           1,
+			Log:               "Test invocation: no integration configured",
+			Headers:           hdrs,
+			MultiValueHeaders: singleToMultiValueHeaders(hdrs),
 		}, nil
 	}
 
@@ -204,12 +224,15 @@ func (h *Handler) testInvokeMethod(input TestInvokeMethodInput) (*TestInvokeMeth
 			}
 		}
 
+		mockHdrs := map[string]string{headerContentType: contentTypeJSON}
+
 		return &TestInvokeMethodOutput{
-			Status:  http.StatusOK,
-			Body:    body,
-			Latency: 1,
-			Log:     "Test invocation: MOCK integration",
-			Headers: map[string]string{headerContentType: contentTypeJSON},
+			Status:            http.StatusOK,
+			Body:              body,
+			Latency:           1,
+			Log:               "Test invocation: MOCK integration",
+			Headers:           mockHdrs,
+			MultiValueHeaders: singleToMultiValueHeaders(mockHdrs),
 		}, nil
 
 	case IntegrationTypeAWSProxy, "AWS":
@@ -249,6 +272,13 @@ func (h *Handler) invokeLambdaTestMethod(
 		syntheticReq.Header.Set(k, v)
 	}
 
+	for k, vs := range input.MultiValueHeaders {
+		syntheticReq.Header.Del(k)
+		for _, v := range vs {
+			syntheticReq.Header.Add(k, v)
+		}
+	}
+
 	event, buildErr := BuildProxyEvent(syntheticReq, input.RestAPIID, "test-invoke", resource.Path, rawPath, nil)
 	if buildErr != nil {
 		return nil, fmt.Errorf("test invoke: failed to build proxy event: %w", buildErr)
@@ -267,12 +297,15 @@ func (h *Handler) invokeLambdaTestMethod(
 // because TestInvokeMethod always returns a (possibly error-body) output, never a Go error.
 func lambdaTestOutput(respBytes []byte, invokeErr error) *TestInvokeMethodOutput {
 	if invokeErr != nil {
+		errHdrs := map[string]string{headerContentType: contentTypeJSON}
+
 		return &TestInvokeMethodOutput{
-			Status:  http.StatusBadGateway,
-			Body:    `{"message":"Lambda invocation failed"}`,
-			Latency: 1,
-			Log:     "Test invocation: Lambda error: " + invokeErr.Error(),
-			Headers: map[string]string{headerContentType: contentTypeJSON},
+			Status:            http.StatusBadGateway,
+			Body:              `{"message":"Lambda invocation failed"}`,
+			Latency:           1,
+			Log:               "Test invocation: Lambda error: " + invokeErr.Error(),
+			Headers:           errHdrs,
+			MultiValueHeaders: singleToMultiValueHeaders(errHdrs),
 		}
 	}
 
@@ -289,20 +322,24 @@ func lambdaTestOutput(respBytes []byte, invokeErr error) *TestInvokeMethodOutput
 		}
 
 		return &TestInvokeMethodOutput{
-			Status:  sc,
-			Body:    lambdaResp.Body,
-			Latency: 1,
-			Log:     "Test invocation: AWS_PROXY Lambda integration",
-			Headers: hdrs,
+			Status:            sc,
+			Body:              lambdaResp.Body,
+			Latency:           1,
+			Log:               "Test invocation: AWS_PROXY Lambda integration",
+			Headers:           hdrs,
+			MultiValueHeaders: singleToMultiValueHeaders(hdrs),
 		}
 	}
 
+	rawHdrs := map[string]string{headerContentType: contentTypeJSON}
+
 	return &TestInvokeMethodOutput{
-		Status:  http.StatusOK,
-		Body:    string(respBytes),
-		Latency: 1,
-		Log:     "Test invocation: Lambda raw response",
-		Headers: map[string]string{headerContentType: contentTypeJSON},
+		Status:            http.StatusOK,
+		Body:              string(respBytes),
+		Latency:           1,
+		Log:               "Test invocation: Lambda raw response",
+		Headers:           rawHdrs,
+		MultiValueHeaders: singleToMultiValueHeaders(rawHdrs),
 	}
 }
 

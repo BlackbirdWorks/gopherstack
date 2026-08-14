@@ -82,8 +82,8 @@ func TestAPIGateway_UpdateUsage_RESTRoute(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	items, _ := resp["items"].(map[string]any)
-	require.Contains(t, items, key.ID)
+	values, _ := resp["values"].(map[string]any)
+	require.Contains(t, values, key.ID, "real wire key is \"values\", not \"items\"")
 
 	// GetUsage must reflect the same override afterward.
 	usage, err := backend.GetUsage(apigateway.GetUsageInput{UsagePlanID: plan.ID})

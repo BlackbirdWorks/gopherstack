@@ -203,16 +203,34 @@ type Stage struct {
 	// DocumentationVersion associates this stage with a snapshot of API
 	// documentation (types.Stage.DocumentationVersion in the SDK).
 	DocumentationVersion string `json:"documentationVersion,omitempty"`
-	TracingEnabled       bool   `json:"tracingEnabled,omitempty"`
-	CacheClusterEnabled  bool   `json:"cacheClusterEnabled,omitempty"`
+	// WebACLARN is the ARN of the WAF WebACL associated with this stage
+	// (types.Stage.WebAclArn in the SDK). Real AWS associates a WebACL via
+	// WAFv2's AssociateWebACL against the stage's ARN, not through any
+	// apigateway API -- this emulator has no WAFv2 cross-service wiring, so
+	// the field is always empty (and thus omitted), matching an account with
+	// no WAF association.
+	WebACLARN           string `json:"webAclArn,omitempty"`
+	TracingEnabled      bool   `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled bool   `json:"cacheClusterEnabled,omitempty"`
+}
+
+// MethodSnapshot records one method's authorization settings as captured by
+// a deployment's APISummary (aws-sdk-go-v2/service/apigateway/types.MethodSnapshot).
+type MethodSnapshot struct {
+	AuthorizationType string `json:"authorizationType,omitempty"`
+	APIKeyRequired    bool   `json:"apiKeyRequired,omitempty"`
 }
 
 // Deployment represents a REST API deployment.
 type Deployment struct {
-	CreatedDate unixEpochTime `json:"createdDate"`
-	ID          string        `json:"id"`
-	RestAPIID   string        `json:"-"`
-	Description string        `json:"description,omitempty"`
+	// APISummary is a snapshot, taken at deployment time, of every resource
+	// path's methods (types.Deployment.ApiSummary in the SDK), keyed
+	// resourcePath -> httpMethod.
+	APISummary  map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
+	CreatedDate unixEpochTime                        `json:"createdDate"`
+	ID          string                               `json:"id"`
+	RestAPIID   string                               `json:"-"`
+	Description string                               `json:"description,omitempty"`
 }
 
 // PutMethodInput is the input for PutMethod.
@@ -269,6 +287,10 @@ type Authorizer struct {
 	AuthorizerCredentials        string `json:"authorizerCredentials,omitempty"`
 	IdentitySource               string `json:"identitySource,omitempty"`
 	IdentityValidationExpression string `json:"identityValidationExpression,omitempty"`
+	// AuthType is an optional, customer-defined field used only in OpenAPI
+	// import/export, with no functional effect (types.Authorizer.AuthType /
+	// CreateAuthorizerInput.AuthType in the SDK).
+	AuthType string `json:"authType,omitempty"`
 	// RestAPIID identifies the owning REST API. It is internal storage-layer
 	// identity (composite key for the backend's flat store.Table[Authorizer]),
 	// never part of the wire response, matching the same json:"-" convention
@@ -286,6 +308,7 @@ type CreateAuthorizerInput struct {
 	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
 	IdentitySource               string   `json:"identitySource,omitempty"`
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	AuthType                     string   `json:"authType,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
@@ -301,6 +324,7 @@ type UpdateAuthorizerInput struct {
 	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
 	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	AuthType                     string   `json:"authType,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
@@ -663,7 +687,13 @@ type UpdateRestAPIInput struct {
 	Policy                    string                 `json:"policy,omitempty"`
 	APIKeySource              string                 `json:"apiKeySource,omitempty"`
 	EndpointAccessMode        string                 `json:"endpointAccessMode,omitempty"`
-	BinaryMediaTypes          []string               `json:"binaryMediaTypes,omitempty"`
+	// SecurityPolicy is documented by patch-operations.html's UpdateRestApi
+	// table ("/securityPolicy") but, before this fix, had no matching field
+	// on UpdateRestAPIInput at all -- json.Unmarshal silently dropped the
+	// PATCH-flattened "securityPolicy" key, so the PATCH returned 200 with
+	// the unmodified RestApi (see PARITY.md's 2026-08-11 gopherstack-6q5h note).
+	SecurityPolicy   string   `json:"securityPolicy,omitempty"`
+	BinaryMediaTypes []string `json:"binaryMediaTypes,omitempty"`
 }
 
 // UpdateDeploymentInput is the input for UpdateDeployment.
@@ -684,22 +714,26 @@ type UpdateResourceInput struct {
 
 // TestInvokeMethodInput is the input for TestInvokeMethod.
 type TestInvokeMethodInput struct {
-	Headers             map[string]string `json:"headers,omitempty"`
-	StageVariables      map[string]string `json:"stageVariables,omitempty"`
-	PathWithQueryString string            `json:"pathWithQueryString,omitempty"`
-	Body                string            `json:"body,omitempty"`
-	RestAPIID           string            `json:"restApiId"`
-	ResourceID          string            `json:"resourceId"`
-	HTTPMethod          string            `json:"httpMethod"`
+	Headers             map[string]string   `json:"headers,omitempty"`
+	MultiValueHeaders   map[string][]string `json:"multiValueHeaders,omitempty"`
+	StageVariables      map[string]string   `json:"stageVariables,omitempty"`
+	PathWithQueryString string              `json:"pathWithQueryString,omitempty"`
+	Body                string              `json:"body,omitempty"`
+	RestAPIID           string              `json:"restApiId"`
+	ResourceID          string              `json:"resourceId"`
+	HTTPMethod          string              `json:"httpMethod"`
 }
 
-// TestInvokeMethodOutput is the output from TestInvokeMethod.
+// TestInvokeMethodOutput is the output from TestInvokeMethod. MultiValueHeaders
+// is a real, separate wire member (types.TestInvokeMethodOutput.MultiValueHeaders
+// in the SDK), not derivable by a real client from Headers alone.
 type TestInvokeMethodOutput struct {
-	Headers map[string]string `json:"headers,omitempty"`
-	Log     string            `json:"log,omitempty"`
-	Body    string            `json:"body,omitempty"`
-	Status  int               `json:"status"`
-	Latency int64             `json:"latency"`
+	Headers           map[string]string   `json:"headers,omitempty"`
+	MultiValueHeaders map[string][]string `json:"multiValueHeaders,omitempty"`
+	Log               string              `json:"log,omitempty"`
+	Body              string              `json:"body,omitempty"`
+	Status            int                 `json:"status"`
+	Latency           int64               `json:"latency"`
 }
 
 // UpdateUsagePlanInput is the input for UpdateUsagePlan. ProductCode is a
@@ -868,15 +902,18 @@ type TestInvokeAuthorizerInput struct {
 }
 
 // TestInvokeAuthorizerOutput is the output from TestInvokeAuthorizer.
+// Authorization is a map[string][]string on the real wire
+// (types.TestInvokeAuthorizerOutput.Authorization in the SDK) -- it carries
+// the authorization response's headers, not a status code. There is no
+// "context" member on the real wire at all.
 type TestInvokeAuthorizerOutput struct {
-	Claims              map[string]string `json:"claims,omitempty"`
-	Context             map[string]string `json:"context,omitempty"`
-	Log                 string            `json:"log,omitempty"`
-	PrincipalID         string            `json:"principalId"`
-	PolicyDocument      string            `json:"policy,omitempty"`
-	ClientStatus        int               `json:"clientStatus"`
-	Latency             int64             `json:"latency"`
-	AuthorizationStatus int               `json:"authorization"`
+	Claims         map[string]string   `json:"claims,omitempty"`
+	Authorization  map[string][]string `json:"authorization,omitempty"`
+	Log            string              `json:"log,omitempty"`
+	PrincipalID    string              `json:"principalId"`
+	PolicyDocument string              `json:"policy,omitempty"`
+	ClientStatus   int                 `json:"clientStatus"`
+	Latency        int64               `json:"latency"`
 }
 
 // GatewayResponse represents a gateway response configuration.
@@ -923,9 +960,12 @@ type GetUsageInput struct {
 	Limit       int    `json:"limit,omitempty"`
 }
 
-// UsageData represents the usage data response.
+// UsageData represents the usage data response. The real wire key for Items
+// is "values", not "items" (types.Usage.Items in the SDK,
+// awsRestjson1_deserializeOpDocumentGetUsageOutput/UpdateUsageOutput both
+// read key "values" into it) -- a real client's Items was always empty.
 type UsageData struct {
-	Items       map[string][]any `json:"items"`
+	Items       map[string][]any `json:"values"`
 	StartDate   string           `json:"startDate"`
 	EndDate     string           `json:"endDate"`
 	UsagePlanID string           `json:"usagePlanId"`

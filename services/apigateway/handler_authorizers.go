@@ -13,6 +13,7 @@ type createAuthorizerInput struct {
 	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
 	IdentitySource               string   `json:"identitySource,omitempty"`
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	AuthType                     string   `json:"authType,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
@@ -41,6 +42,7 @@ type updateAuthorizerInput struct {
 	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
 	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	AuthType                     string   `json:"authType,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
@@ -73,6 +75,7 @@ func (h *Handler) createAuthorizerAction(b []byte) (int, any, error) {
 		AuthorizerCredentials:        input.AuthorizerCredentials,
 		IdentitySource:               input.IdentitySource,
 		IdentityValidationExpression: input.IdentityValidationExpression,
+		AuthType:                     input.AuthType,
 		AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
 		ProviderARNs:                 input.ProviderARNs,
 	})
@@ -121,6 +124,7 @@ func (h *Handler) updateAuthorizerAction(b []byte) (int, any, error) {
 		AuthorizerCredentials:        input.AuthorizerCredentials,
 		IdentitySource:               input.IdentitySource,
 		IdentityValidationExpression: input.IdentityValidationExpression,
+		AuthType:                     input.AuthType,
 		AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
 		ProviderARNs:                 input.ProviderARNs,
 	})
