@@ -337,20 +337,26 @@ func (b *InMemoryBackend) CreateAppBlockBuilderStreamingURL(
 	return url, expires, nil
 }
 
-// AssociateAppBlockBuilderAppBlock links a builder to an app block.
-// appBlockID accepts either the app block Name or its Arn -- real AWS's
-// AssociateAppBlockBuilderAppBlock request carries the AppBlockArn.
-func (b *InMemoryBackend) AssociateAppBlockBuilderAppBlock(builderName, appBlockID string) error {
+// AssociateAppBlockBuilderAppBlock links a builder to an app block and
+// returns the association. appBlockID accepts either the app block Name or
+// its Arn -- real AWS's AssociateAppBlockBuilderAppBlock request carries the
+// AppBlockArn. The real AssociateAppBlockBuilderAppBlockOutput carries the
+// AppBlockBuilderAppBlockAssociation itself
+// (deserializeCBOR_AssociateAppBlockBuilderAppBlockOutput in the pinned
+// appstream SDK's deserializers.go), not an empty envelope.
+func (b *InMemoryBackend) AssociateAppBlockBuilderAppBlock(
+	builderName, appBlockID string,
+) (*AppBlockBuilderAppBlockAssociation, error) {
 	b.mu.Lock("AssociateAppBlockBuilderAppBlock")
 	defer b.mu.Unlock()
 
 	if !b.appBlockBuilders.Has(builderName) {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 
 	ab, ok := b.findAppBlock(appBlockID)
 	if !ok {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 
 	if b.appBlockBuilderAssoc[builderName] == nil {
@@ -359,7 +365,11 @@ func (b *InMemoryBackend) AssociateAppBlockBuilderAppBlock(builderName, appBlock
 
 	b.appBlockBuilderAssoc[builderName][ab.Name] = true
 
-	return nil
+	return &AppBlockBuilderAppBlockAssociation{
+		AppBlockBuilderName: builderName,
+		AppBlockArn:         ab.Arn,
+		State:               associationStateActive,
+	}, nil
 }
 
 // DisassociateAppBlockBuilderAppBlock removes a builder-appblock link.
@@ -426,7 +436,7 @@ func (b *InMemoryBackend) DescribeAppBlockBuilderAppBlockAssociations(
 			result = append(result, &AppBlockBuilderAppBlockAssociation{
 				AppBlockBuilderName: bName,
 				AppBlockArn:         ab.Arn,
-				State:               "ASSOCIATED",
+				State:               associationStateActive,
 			})
 		}
 	}

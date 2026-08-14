@@ -204,20 +204,23 @@ func (b *InMemoryBackend) DescribeAppLicenseUsage() ([]map[string]string, error)
 	return []map[string]string{}, nil
 }
 
-// AssociateApplicationFleet links an application to a fleet. appID accepts
-// either the application Name or its Arn -- real AWS's
-// AssociateApplicationFleet request carries the ApplicationArn.
-func (b *InMemoryBackend) AssociateApplicationFleet(appID, fleetName string) error {
+// AssociateApplicationFleet links an application to a fleet and returns the
+// association. appID accepts either the application Name or its Arn -- real
+// AWS's AssociateApplicationFleet request carries the ApplicationArn. The
+// real AssociateApplicationFleetOutput carries the ApplicationFleetAssociation
+// itself (deserializeCBOR_AssociateApplicationFleetOutput in the pinned
+// appstream SDK's deserializers.go), not an empty envelope.
+func (b *InMemoryBackend) AssociateApplicationFleet(appID, fleetName string) (*ApplicationFleetAssociation, error) {
 	b.mu.Lock("AssociateApplicationFleet")
 	defer b.mu.Unlock()
 
 	app, ok := b.findApplication(appID)
 	if !ok {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 
 	if !b.fleets.Has(fleetName) {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 
 	if b.appFleetAssoc[app.Name] == nil {
@@ -226,7 +229,11 @@ func (b *InMemoryBackend) AssociateApplicationFleet(appID, fleetName string) err
 
 	b.appFleetAssoc[app.Name][fleetName] = true
 
-	return nil
+	return &ApplicationFleetAssociation{
+		ApplicationArn: app.Arn,
+		FleetName:      fleetName,
+		State:          associationStateActive,
+	}, nil
 }
 
 // DisassociateApplicationFleet removes an application-fleet link. appID
@@ -293,7 +300,7 @@ func (b *InMemoryBackend) DescribeApplicationFleetAssociations(
 			result = append(result, &ApplicationFleetAssociation{
 				ApplicationArn: app.Arn,
 				FleetName:      fName,
-				State:          "ASSOCIATED",
+				State:          associationStateActive,
 			})
 		}
 	}

@@ -55,7 +55,7 @@ type StorageBackend interface {
 
 	// AppBlockBuilder-AppBlock associations. appBlockID accepts either the
 	// app block Name or its Arn (real AWS's request carries AppBlockArn).
-	AssociateAppBlockBuilderAppBlock(builderName, appBlockID string) error
+	AssociateAppBlockBuilderAppBlock(builderName, appBlockID string) (*AppBlockBuilderAppBlockAssociation, error)
 	DisassociateAppBlockBuilderAppBlock(builderName, appBlockID string) error
 	DescribeAppBlockBuilderAppBlockAssociations(
 		builderName, appBlockID string,
@@ -72,7 +72,7 @@ type StorageBackend interface {
 
 	// Application-Fleet associations. appID accepts either the application
 	// Name or its Arn (real AWS's request carries ApplicationArn).
-	AssociateApplicationFleet(appID, fleetName string) error
+	AssociateApplicationFleet(appID, fleetName string) (*ApplicationFleetAssociation, error)
 	DisassociateApplicationFleet(appID, fleetName string) error
 	DescribeApplicationFleetAssociations(appID, fleetName string) ([]*ApplicationFleetAssociation, error)
 
@@ -108,7 +108,7 @@ type StorageBackend interface {
 	CopyImage(sourceName, destName, destRegion, description string) (*Image, error)
 	CreateImportedImage(name, description string, tags map[string]string) (*Image, error)
 	CreateUpdatedImage(imageName, newImageName, description string) (*Image, error)
-	DeleteImage(name string) error
+	DeleteImage(name string) (*Image, error)
 	DescribeImages(names []string) ([]*Image, error)
 	UpdateImagePermissions(imageName, accountID string, allowFleet, allowImageBuilder bool) error
 	DeleteImagePermissions(imageName, accountID string) error
@@ -116,7 +116,7 @@ type StorageBackend interface {
 
 	// ImageBuilders
 	CreateImageBuilder(name, description, platform, instanceType string, tags map[string]string) (*ImageBuilder, error)
-	DeleteImageBuilder(name string) (string, error)
+	DeleteImageBuilder(name string) (*ImageBuilder, error)
 	DescribeImageBuilders(names []string) ([]*ImageBuilder, error)
 	StartImageBuilder(name, appstreamAgentVersion string) error
 	StopImageBuilder(name string) (*ImageBuilder, error)

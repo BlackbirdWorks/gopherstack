@@ -395,7 +395,11 @@ func (b *InMemoryBackend) StartCodeSecurityScan(resourceID string) (map[string]a
 	}
 	b.codeSecurityScans[scanID] = scan
 
-	return map[string]any{"scanId": scanID}, nil
+	// Real StartCodeSecurityScanOutput carries both scanId and status
+	// (awsRestjson1_deserializeOpDocumentStartCodeSecurityScanOutput in the
+	// pinned inspector2 SDK's deserializers.go) -- omitting status left a
+	// real client's Status field always empty.
+	return map[string]any{"scanId": scanID, keyStatus: "IN_PROGRESS"}, nil
 }
 
 // GetCodeSecurityScan returns status of a code security scan.

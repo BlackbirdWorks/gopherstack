@@ -173,14 +173,27 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	// Batch associate
+	// Batch associate. Real BatchAssociateCodeSecurityScanConfigurationInput
+	// carries no top-level scanConfigurationArn -- each item in
+	// associateConfigurationRequests carries its own resource/
+	// scanConfigurationArn (confirmed against
+	// awsRestjson1_serializeOpDocumentBatchAssociateCodeSecurityScanConfigurationInput
+	// in the pinned inspector2 SDK's serializers.go), and resource is a
+	// {"projectId": ...} object, not a bare string.
 	rec = auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/batch/associate", map[string]any{
-		"scanConfigurationArn": cfgARN,
 		"associateConfigurationRequests": []any{
-			map[string]any{"resource": "arn:aws:codecommit:us-east-1:123456789012:my-repo"},
+			map[string]any{
+				"resource":             map[string]any{"projectId": "my-repo"},
+				"scanConfigurationArn": cfgARN,
+			},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
+
+	var batchAssocResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchAssocResp))
+	successful, _ := batchAssocResp["successfulAssociations"].([]any)
+	assert.Len(t, successful, 1)
 
 	// List associations
 	rec = auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/associations/list", map[string]any{
@@ -193,11 +206,13 @@ func TestCodeSecurityScanConfigurationLifecycle(t *testing.T) {
 	assocs, _ := assocResp["associations"].([]any)
 	assert.Len(t, assocs, 1)
 
-	// Batch disassociate
+	// Batch disassociate. Same real-shape correction as batch associate above.
 	rec = auditDo(t, h, http.MethodPost, "/codesecurity/scan-configuration/batch/disassociate", map[string]any{
-		"scanConfigurationArn": cfgARN,
 		"disassociateConfigurationRequests": []any{
-			map[string]any{"resource": "arn:aws:codecommit:us-east-1:123456789012:my-repo"},
+			map[string]any{
+				"resource":             map[string]any{"projectId": "my-repo"},
+				"scanConfigurationArn": cfgARN,
+			},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

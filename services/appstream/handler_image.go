@@ -84,11 +84,12 @@ func (h *Handler) opDeleteImage(_ context.Context, body []byte) (any, error) {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	if err := h.Backend.DeleteImage(req.Name); err != nil {
+	img, err := h.Backend.DeleteImage(req.Name)
+	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return map[string]any{"Image": imageToResponse(img)}, nil
 }
 
 type describeImagesInput struct {
@@ -234,17 +235,12 @@ func (h *Handler) opDeleteImageBuilder(_ context.Context, body []byte) (any, err
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	imageName, err := h.Backend.DeleteImageBuilder(req.Name)
+	ib, err := h.Backend.DeleteImageBuilder(req.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	resp := map[string]any{"Name": req.Name}
-	if imageName != "" {
-		resp["ImageName"] = imageName
-	}
-
-	return map[string]any{"ImageBuilder": resp}, nil
+	return map[string]any{"ImageBuilder": imageBuilderToResponse(ib)}, nil
 }
 
 type describeImageBuildersInput struct {

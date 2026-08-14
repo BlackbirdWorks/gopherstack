@@ -245,21 +245,26 @@ func (b *InMemoryBackend) CreateUpdatedImage(imageName, newImageName, descriptio
 	return img.toImage(), nil
 }
 
-// DeleteImage removes an image.
-func (b *InMemoryBackend) DeleteImage(name string) error {
+// DeleteImage removes an image and returns the deleted image. Real AWS's
+// DeleteImageOutput carries the deleted Image
+// (deserializeCBOR_DeleteImageOutput in the pinned appstream SDK's
+// deserializers.go), not an empty envelope.
+func (b *InMemoryBackend) DeleteImage(name string) (*Image, error) {
 	b.mu.Lock("DeleteImage")
 	defer b.mu.Unlock()
 
 	img, ok := b.images.Get(name)
 	if !ok {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
+
+	deleted := img.toImage()
 
 	delete(b.tags, img.Arn)
 	b.images.Delete(name)
 	b.imagePermissions.Delete(name)
 
-	return nil
+	return deleted, nil
 }
 
 // findImage resolves id against Name (the primary key used by
@@ -421,22 +426,27 @@ func (b *InMemoryBackend) CreateImageBuilder(
 	return ib.toImageBuilder(), nil
 }
 
-// DeleteImageBuilder removes an image builder and returns the image name (if any).
-func (b *InMemoryBackend) DeleteImageBuilder(name string) (string, error) {
+// DeleteImageBuilder removes an image builder and returns the deleted image
+// builder. Real AWS's DeleteImageBuilderOutput carries the deleted
+// ImageBuilder (deserializeCBOR_DeleteImageBuilderOutput in the pinned
+// appstream SDK's deserializers.go), not an empty envelope or a stripped-down
+// Name/ImageName-only shape.
+func (b *InMemoryBackend) DeleteImageBuilder(name string) (*ImageBuilder, error) {
 	b.mu.Lock("DeleteImageBuilder")
 	defer b.mu.Unlock()
 
 	ib, ok := b.imageBuilders.Get(name)
 	if !ok {
-		return "", ErrNotFound
+		return nil, ErrNotFound
 	}
 
-	imageName := ib.ImageName
+	deleted := ib.toImageBuilder()
+
 	delete(b.tags, ib.Arn)
 	b.imageBuilders.Delete(name)
 	delete(b.softwareAssoc, name)
 
-	return imageName, nil
+	return deleted, nil
 }
 
 // DescribeImageBuilders returns image builders, optionally filtered by name.

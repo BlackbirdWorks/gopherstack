@@ -185,7 +185,8 @@ func TestExtendedStateSnapshotRestore(t *testing.T) {
 					"integration", "arn:aws:s3:::source", "arn:aws:redshift:us-east-1:123456789012:cluster/target", nil,
 				)
 				require.NoError(t, err)
-				require.NoError(t, b.CreateGlueIdentityCenterConfiguration("instance"))
+				_, err = b.CreateGlueIdentityCenterConfiguration("instance")
+				require.NoError(t, err)
 			},
 			check: func(t *testing.T, b *glue.InMemoryBackend) {
 				t.Helper()

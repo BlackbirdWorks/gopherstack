@@ -140,11 +140,15 @@ func (h *Handler) opAssociateApplicationFleet(_ context.Context, body []byte) (a
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	if err := h.Backend.AssociateApplicationFleet(req.ApplicationArn, req.FleetName); err != nil {
+	assoc, err := h.Backend.AssociateApplicationFleet(req.ApplicationArn, req.FleetName)
+	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return map[string]any{"ApplicationFleetAssociation": map[string]any{
+		"ApplicationArn": assoc.ApplicationArn,
+		keyFleetName:     assoc.FleetName,
+	}}, nil
 }
 
 func (h *Handler) opDisassociateApplicationFleet(_ context.Context, body []byte) (any, error) {
@@ -182,7 +186,7 @@ func (h *Handler) opDescribeApplicationFleetAssociations(_ context.Context, body
 	for _, a := range assocs {
 		resp = append(resp, map[string]any{
 			"ApplicationArn": a.ApplicationArn,
-			"FleetName":      a.FleetName,
+			keyFleetName:     a.FleetName,
 			"State":          a.State, //nolint:goconst // existing issue.
 		})
 	}
@@ -492,14 +496,14 @@ func (h *Handler) opUpdateDirectoryConfig(_ context.Context, body []byte) (any, 
 
 func applicationToResponse(app *Application) map[string]any {
 	return map[string]any{
-		"Name":        app.Name,        //nolint:goconst // existing issue.
-		"Arn":         app.Arn,         //nolint:goconst // existing issue.
-		"DisplayName": app.DisplayName, //nolint:goconst // existing issue.
-		"Description": app.Description, //nolint:goconst // existing issue.
-		"LaunchPath":  app.LaunchPath,
-		"AppBlockArn": app.AppBlockArn,
-		"Platforms":   app.Platforms,
-		"CreatedTime": awstime.Epoch(app.CreatedTime), //nolint:goconst // existing issue.
+		"Name":         app.Name,        //nolint:goconst // existing issue.
+		"Arn":          app.Arn,         //nolint:goconst // existing issue.
+		"DisplayName":  app.DisplayName, //nolint:goconst // existing issue.
+		"Description":  app.Description, //nolint:goconst // existing issue.
+		"LaunchPath":   app.LaunchPath,
+		keyAppBlockArn: app.AppBlockArn,
+		"Platforms":    app.Platforms,
+		"CreatedTime":  awstime.Epoch(app.CreatedTime), //nolint:goconst // existing issue.
 		"IconS3Location": map[string]any{
 			"S3Bucket": app.IconS3Location.S3Bucket,
 			"S3Key":    app.IconS3Location.S3Key,

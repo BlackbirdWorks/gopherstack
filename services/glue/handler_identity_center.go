@@ -9,11 +9,26 @@ type createIdentityCenterConfigurationInput struct {
 	InstanceArn string `json:"InstanceArn,omitempty"`
 }
 
+// createIdentityCenterConfigurationOutput holds the result for
+// CreateGlueIdentityCenterConfiguration. Real
+// CreateGlueIdentityCenterConfigurationOutput carries ApplicationArn
+// (confirmed against
+// awsAwsjson11_deserializeOpDocumentCreateGlueIdentityCenterConfigurationOutput
+// in the pinned glue SDK's deserializers.go), not an empty envelope.
+type createIdentityCenterConfigurationOutput struct {
+	ApplicationArn string `json:"ApplicationArn,omitempty"`
+}
+
 func (h *Handler) handleCreateGlueIdentityCenterConfiguration(
 	_ context.Context,
 	in *createIdentityCenterConfigurationInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.CreateGlueIdentityCenterConfiguration(in.InstanceArn)
+) (*createIdentityCenterConfigurationOutput, error) {
+	cfg, err := h.Backend.CreateGlueIdentityCenterConfiguration(in.InstanceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createIdentityCenterConfigurationOutput{ApplicationArn: cfg.ApplicationARN}, nil
 }
 
 // deleteIdentityCenterConfigurationInput holds input for DeleteGlueIdentityCenterConfiguration.
@@ -29,9 +44,16 @@ func (h *Handler) handleDeleteGlueIdentityCenterConfiguration(
 // getIdentityCenterConfigurationInput holds input for GetGlueIdentityCenterConfiguration.
 type getIdentityCenterConfigurationInput struct{}
 
-// getIdentityCenterConfigurationOutput holds the result for GetGlueIdentityCenterConfiguration.
+// getIdentityCenterConfigurationOutput holds the result for
+// GetGlueIdentityCenterConfiguration. Real
+// GetGlueIdentityCenterConfigurationOutput also carries ApplicationArn
+// (confirmed against
+// awsAwsjson11_deserializeOpDocumentGetGlueIdentityCenterConfigurationOutput
+// in the pinned glue SDK's deserializers.go), the same field
+// CreateGlueIdentityCenterConfigurationOutput carries.
 type getIdentityCenterConfigurationOutput struct {
-	InstanceArn string `json:"InstanceArn"`
+	InstanceArn    string `json:"InstanceArn"`
+	ApplicationArn string `json:"ApplicationArn,omitempty"`
 }
 
 func (h *Handler) handleGetGlueIdentityCenterConfiguration(
@@ -43,7 +65,10 @@ func (h *Handler) handleGetGlueIdentityCenterConfiguration(
 		return &getIdentityCenterConfigurationOutput{}, nil
 	}
 
-	return &getIdentityCenterConfigurationOutput{InstanceArn: cfg.InstanceARN}, nil
+	return &getIdentityCenterConfigurationOutput{
+		InstanceArn:    cfg.InstanceARN,
+		ApplicationArn: cfg.ApplicationARN,
+	}, nil
 }
 
 // updateIdentityCenterConfigurationInput holds input for UpdateGlueIdentityCenterConfiguration.

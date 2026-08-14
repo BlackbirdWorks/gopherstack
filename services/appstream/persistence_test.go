@@ -39,7 +39,8 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	_, err = b.CreateAppBlockBuilder("builder1", "a builder", "WINDOWS", "stream.standard.medium", nil)
 	require.NoError(t, err)
 
-	require.NoError(t, b.AssociateAppBlockBuilderAppBlock("builder1", "appblock1"))
+	_, err = b.AssociateAppBlockBuilderAppBlock("builder1", "appblock1")
+	require.NoError(t, err)
 
 	_, err = b.CreateApplication(
 		"app1", "App One", "an app", "C:\\app.exe", "", []string{"WINDOWS"},
@@ -48,7 +49,8 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, b.AssociateApplicationFleet("app1", "fleet1"))
+	_, err = b.AssociateApplicationFleet("app1", "fleet1")
+	require.NoError(t, err)
 
 	_, err = b.CreateEntitlement("ent1", "stack1", "an entitlement", "ALL", nil)
 	require.NoError(t, err)

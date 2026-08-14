@@ -16,12 +16,15 @@ import (
 )
 
 const (
-	appstreamTargetPrefix = "PhotonAdminProxyService."
-	appstreamContentType  = "application/x-amz-json-1.1"
-	keyTags               = "Tags"
-	keyStreamingURL       = "StreamingURL"
-	keyExpires            = "Expires"
-	keyStatus             = "Status"
+	appstreamTargetPrefix  = "PhotonAdminProxyService."
+	appstreamContentType   = "application/x-amz-json-1.1"
+	keyTags                = "Tags"
+	keyStreamingURL        = "StreamingURL"
+	keyExpires             = "Expires"
+	keyStatus              = "Status"
+	keyAppBlockArn         = "AppBlockArn"
+	keyFleetName           = "FleetName"
+	associationStateActive = "ASSOCIATED"
 )
 
 // Handler serves AppStream 2.0 JSON operations.

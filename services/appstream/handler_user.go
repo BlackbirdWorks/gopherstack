@@ -479,7 +479,7 @@ func userToResponse(u *User) map[string]any {
 func sessionToResponse(s *Session) map[string]any {
 	return map[string]any{
 		"Id":                 s.ID,
-		"FleetName":          s.FleetName,
+		keyFleetName:         s.FleetName,
 		"StackName":          s.StackName,
 		"UserId":             s.UserID,
 		"State":              s.State, //nolint:goconst // existing issue.

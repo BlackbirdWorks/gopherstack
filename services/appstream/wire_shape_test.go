@@ -156,3 +156,140 @@ func TestSDKRoundTrip_CreateUpdatedImage_ImageWireKey(t *testing.T) {
 	require.NotNil(t, out.Image, "CreateUpdatedImageOutput.Image must decode a non-nil Image")
 	assert.Equal(t, "updated-img", aws.ToString(out.Image.Name))
 }
+
+// TestSDKRoundTrip_DeleteImage_ImageWireKey proves DeleteImage returns the
+// deleted Image rather than an empty envelope. Real AWS's DeleteImageOutput
+// carries the deleted Image under "Image" (deserializeCBOR_DeleteImageOutput
+// in deserializers.go) -- the same empty-envelope bug class as ec2's
+// DeleteLaunchTemplate.
+func TestSDKRoundTrip_DeleteImage_ImageWireKey(t *testing.T) {
+	t.Parallel()
+
+	h := appstream.NewHandler(appstream.NewInMemoryBackend("123456789012", "us-east-1"))
+	client := newTestAppStreamClient(t, h)
+
+	_, err := client.CreateImportedImage(t.Context(), &appstreamsdk.CreateImportedImageInput{
+		Name: aws.String("del-img"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DeleteImage(t.Context(), &appstreamsdk.DeleteImageInput{
+		Name: aws.String("del-img"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.Image, "DeleteImageOutput.Image must decode a non-nil Image")
+	assert.Equal(t, "del-img", aws.ToString(out.Image.Name))
+}
+
+// TestSDKRoundTrip_DeleteImageBuilder_ImageBuilderWireKey proves
+// DeleteImageBuilder returns the full deleted ImageBuilder shape rather than
+// an empty envelope or a stripped-down Name/ImageName-only object. Real
+// AWS's DeleteImageBuilderOutput carries the deleted ImageBuilder under
+// "ImageBuilder" (deserializeCBOR_DeleteImageBuilderOutput in
+// deserializers.go).
+func TestSDKRoundTrip_DeleteImageBuilder_ImageBuilderWireKey(t *testing.T) {
+	t.Parallel()
+
+	h := appstream.NewHandler(appstream.NewInMemoryBackend("123456789012", "us-east-1"))
+	client := newTestAppStreamClient(t, h)
+
+	_, err := client.CreateImageBuilder(t.Context(), &appstreamsdk.CreateImageBuilderInput{
+		Name:         aws.String("del-builder"),
+		InstanceType: aws.String("stream.standard.medium"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DeleteImageBuilder(t.Context(), &appstreamsdk.DeleteImageBuilderInput{
+		Name: aws.String("del-builder"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ImageBuilder, "DeleteImageBuilderOutput.ImageBuilder must decode a non-nil ImageBuilder")
+	assert.Equal(t, "del-builder", aws.ToString(out.ImageBuilder.Name))
+	assert.Equal(t, "stream.standard.medium", aws.ToString(out.ImageBuilder.InstanceType))
+}
+
+// TestSDKRoundTrip_AssociateApplicationFleet_AssociationWireKey proves
+// AssociateApplicationFleet returns the created association rather than an
+// empty envelope. Real AWS's AssociateApplicationFleetOutput carries the
+// ApplicationFleetAssociation under "ApplicationFleetAssociation"
+// (deserializeCBOR_AssociateApplicationFleetOutput in deserializers.go).
+func TestSDKRoundTrip_AssociateApplicationFleet_AssociationWireKey(t *testing.T) {
+	t.Parallel()
+
+	h := appstream.NewHandler(appstream.NewInMemoryBackend("123456789012", "us-east-1"))
+	client := newTestAppStreamClient(t, h)
+
+	_, err := client.CreateApplication(t.Context(), &appstreamsdk.CreateApplicationInput{
+		Name:       aws.String("assoc-app"),
+		LaunchPath: aws.String("/app/assoc-app"),
+		IconS3Location: &types.S3Location{
+			S3Bucket: aws.String("icon-bucket"),
+			S3Key:    aws.String("icons/assoc-app.png"),
+		},
+		Platforms:        []types.PlatformType{types.PlatformTypeWindowsServer2019},
+		AppBlockArn:      aws.String("arn:aws:appstream:us-east-1:123456789012:app-block/assoc-app-block"),
+		InstanceFamilies: []string{"GENERAL_PURPOSE"},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateFleet(t.Context(), &appstreamsdk.CreateFleetInput{
+		Name:         aws.String("assoc-fleet"),
+		InstanceType: aws.String("stream.standard.medium"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.AssociateApplicationFleet(t.Context(), &appstreamsdk.AssociateApplicationFleetInput{
+		ApplicationArn: aws.String("assoc-app"),
+		FleetName:      aws.String("assoc-fleet"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ApplicationFleetAssociation,
+		"AssociateApplicationFleetOutput.ApplicationFleetAssociation must decode non-nil")
+	assert.Equal(t, "assoc-fleet", aws.ToString(out.ApplicationFleetAssociation.FleetName))
+}
+
+// TestSDKRoundTrip_AssociateAppBlockBuilderAppBlock_AssociationWireKey
+// proves AssociateAppBlockBuilderAppBlock returns the created association
+// rather than an empty envelope. Real AWS's
+// AssociateAppBlockBuilderAppBlockOutput carries the
+// AppBlockBuilderAppBlockAssociation under
+// "AppBlockBuilderAppBlockAssociation"
+// (deserializeCBOR_AssociateAppBlockBuilderAppBlockOutput in
+// deserializers.go).
+func TestSDKRoundTrip_AssociateAppBlockBuilderAppBlock_AssociationWireKey(t *testing.T) {
+	t.Parallel()
+
+	h := appstream.NewHandler(appstream.NewInMemoryBackend("123456789012", "us-east-1"))
+	client := newTestAppStreamClient(t, h)
+
+	_, err := client.CreateAppBlock(t.Context(), &appstreamsdk.CreateAppBlockInput{
+		Name: aws.String("assoc-appblock"),
+		SourceS3Location: &types.S3Location{
+			S3Bucket: aws.String("appblock-bucket"),
+			S3Key:    aws.String("appblocks/assoc-appblock.zip"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateAppBlockBuilder(t.Context(), &appstreamsdk.CreateAppBlockBuilderInput{
+		Name:         aws.String("assoc-builder"),
+		InstanceType: aws.String("stream.standard.medium"),
+		Platform:     types.AppBlockBuilderPlatformTypeWindowsServer2019,
+		VpcConfig: &types.VpcConfig{
+			SubnetIds: []string{"subnet-1", "subnet-2"},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.AssociateAppBlockBuilderAppBlock(
+		t.Context(),
+		&appstreamsdk.AssociateAppBlockBuilderAppBlockInput{
+			AppBlockBuilderName: aws.String("assoc-builder"),
+			AppBlockArn:         aws.String("assoc-appblock"),
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, out.AppBlockBuilderAppBlockAssociation,
+		"AssociateAppBlockBuilderAppBlockOutput.AppBlockBuilderAppBlockAssociation must decode non-nil")
+	assert.Equal(t, "assoc-builder", aws.ToString(out.AppBlockBuilderAppBlockAssociation.AppBlockBuilderName))
+}

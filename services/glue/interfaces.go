@@ -456,7 +456,7 @@ type StorageBackend interface {
 	) error
 
 	// GlueIdentityCenter operations.
-	CreateGlueIdentityCenterConfiguration(instanceARN string) error
+	CreateGlueIdentityCenterConfiguration(instanceARN string) (*IdentityCenterConfig, error)
 	GetGlueIdentityCenterConfiguration() (*IdentityCenterConfig, error)
 	UpdateGlueIdentityCenterConfiguration(instanceARN string) error
 	DeleteGlueIdentityCenterConfiguration() error

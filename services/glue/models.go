@@ -656,8 +656,9 @@ type Integration struct {
 
 // IdentityCenterConfig represents the Glue Identity Center configuration.
 type IdentityCenterConfig struct {
-	InstanceARN string `json:"InstanceArn,omitempty"`
-	Status      string `json:"Status"`
+	InstanceARN    string `json:"InstanceArn,omitempty"`
+	ApplicationARN string `json:"ApplicationArn,omitempty"`
+	Status         string `json:"Status"`
 }
 
 // IntegrationResourceProperty stores resource-level properties for a Zero-ETL integration.
