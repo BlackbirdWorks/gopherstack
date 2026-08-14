@@ -49,7 +49,10 @@ func (h *S3Handler) ServeWebsite(c *echo.Context) error {
 		)
 	}
 
-	if loc, code, ok := applyWebsiteRoutingRules(cfg.RoutingRules, key, c.Request().Host); ok {
+	// Pre-fetch phase: only unconditional or KeyPrefixEquals-only rules apply
+	// here. Rules bound to HttpErrorCodeReturnedEquals must not fire before an
+	// actual fetch error occurs (see routingRuleMatches).
+	if loc, code, ok := applyWebsiteRoutingRules(cfg.RoutingRules, key, c.Request().Host, ""); ok {
 		return c.Redirect(code, loc)
 	}
 
@@ -61,6 +64,12 @@ func (h *S3Handler) ServeWebsite(c *echo.Context) error {
 	})
 	if getErr == nil {
 		return serveWebsiteObject(c, out, http.StatusOK)
+	}
+
+	// Post-error phase: rules bound to HttpErrorCodeReturnedEquals="404" apply
+	// now that GetObject has actually failed to resolve the key.
+	if loc, code, ok := applyWebsiteRoutingRules(cfg.RoutingRules, key, c.Request().Host, "404"); ok {
+		return c.Redirect(code, loc)
 	}
 
 	if cfg.ErrorDocument != nil && cfg.ErrorDocument.Key != "" {
@@ -90,15 +99,17 @@ func websiteRedirectAllURL(redir *WebsiteRedirectAll, key string) string {
 }
 
 // applyWebsiteRoutingRules evaluates routing rules against the given key and host.
+// errorCode is "" during the pre-fetch phase (only unconditional/prefix-only
+// rules are eligible) or a status code like "404" during the post-fetch error
+// phase (only rules bound to that HttpErrorCodeReturnedEquals are eligible).
 // Returns the redirect location, HTTP status code, and true if a rule matched.
-func applyWebsiteRoutingRules(rules []WebsiteRoutingRule, key, reqHost string) (string, int, bool) {
+func applyWebsiteRoutingRules(rules []WebsiteRoutingRule, key, reqHost, errorCode string) (string, int, bool) {
 	for _, rule := range rules {
-		cond := rule.Condition
-		if cond != nil && cond.KeyPrefixEquals != "" &&
-			!strings.HasPrefix(key, cond.KeyPrefixEquals) {
+		if !routingRuleMatches(rule, key, errorCode) {
 			continue
 		}
 
+		cond := rule.Condition
 		redir := rule.Redirect
 		if !websiteRuleHasRedirect(redir) {
 			continue
@@ -120,6 +131,35 @@ func applyWebsiteRoutingRules(rules []WebsiteRoutingRule, key, reqHost string) (
 	}
 
 	return "", 0, false
+}
+
+// routingRuleMatches reports whether rule applies to key given the current
+// phase. AWS's Condition.HttpErrorCodeReturnedEquals doc (aws-sdk-go-v2
+// types.Condition): "Required when parent element Condition is specified and
+// sibling KeyPrefixEquals is not specified. If both are specified, then both
+// must be true for the redirect to be applied" — i.e. an error-code condition
+// only ever matches in response to that specific fetch error, never
+// unconditionally. Previously this codebase modeled the field but never
+// checked it, so a rule scoped solely to "on 404, redirect" matched and
+// redirected every single request, whether or not the object existed.
+func routingRuleMatches(rule WebsiteRoutingRule, key, errorCode string) bool {
+	cond := rule.Condition
+
+	if errorCode == "" {
+		if cond != nil && cond.HTTPErrorCodeReturnedEquals != "" {
+			return false
+		}
+	} else {
+		if cond == nil || cond.HTTPErrorCodeReturnedEquals != errorCode {
+			return false
+		}
+	}
+
+	if cond != nil && cond.KeyPrefixEquals != "" && !strings.HasPrefix(key, cond.KeyPrefixEquals) {
+		return false
+	}
+
+	return true
 }
 
 // websiteRuleHasRedirect reports whether a routing rule redirect spec is non-empty.

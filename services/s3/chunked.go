@@ -213,25 +213,58 @@ func (c *chunkedReader) advanceChunk() error {
 	return nil
 }
 
-// readHeaderLine reads a single CRLF-terminated framing line (chunk header or
-// trailer), returning it without the terminator.
+// readHeaderLine reads a single CRLF-terminated framing line (chunk header),
+// returning it without the terminator.
 func (c *chunkedReader) readHeaderLine() (string, error) {
-	line, err := c.br.ReadString('\n')
+	line, err := c.readBoundedLine()
 	if err != nil {
 		return "", errMalformedChunkedBody
 	}
-	if len(line) > maxChunkHeaderLine {
-		return "", errMalformedChunkedBody
-	}
 
-	return strings.TrimRight(line, "\r\n"), nil
+	return line, nil
+}
+
+// readBoundedLine reads a single CRLF- (or bare LF-)terminated line, capped at
+// maxChunkHeaderLine bytes, returning it without the terminator. A clean EOF
+// with no bytes read is reported as io.EOF; any other failure (including a
+// line that exceeds the cap) is errMalformedChunkedBody.
+//
+// bufio.Reader.ReadString('\n') buffers unboundedly while searching for the
+// delimiter (its cap only applies to a single internal read, not the
+// accumulated line) — a client sending framing bytes with no '\n' would grow
+// that buffer without limit. Reading byte-by-byte and erroring out past
+// maxChunkHeaderLine is what actually enforces the cap this function's
+// hostile-client contract promises.
+func (c *chunkedReader) readBoundedLine() (string, error) {
+	buf := make([]byte, 0, maxChunkHeaderLine)
+
+	for {
+		b, err := c.br.ReadByte()
+		if err != nil {
+			if errors.Is(err, io.EOF) && len(buf) == 0 {
+				return "", io.EOF
+			}
+
+			return "", errMalformedChunkedBody
+		}
+		if b == '\n' {
+			return strings.TrimRight(string(buf), "\r"), nil
+		}
+		buf = append(buf, b)
+		if len(buf) > maxChunkHeaderLine {
+			return "", errMalformedChunkedBody
+		}
+	}
 }
 
 // consumeTrailers drains any trailer headers that follow the terminal chunk
 // (present only for the *-TRAILER variants), up to the final empty line.
+// Reads through the same bounded, byte-at-a-time line reader as
+// readHeaderLine (see its doc comment) so an unterminated trailer line can't
+// force unbounded buffering either.
 func (c *chunkedReader) consumeTrailers() error {
 	for {
-		line, err := c.br.ReadString('\n')
+		line, err := c.readBoundedLine()
 		if err != nil {
 			// Some clients omit the closing CRLF after a signed (non-trailer)
 			// zero chunk; treat a clean EOF as a successful end of stream.
@@ -241,7 +274,7 @@ func (c *chunkedReader) consumeTrailers() error {
 
 			return errMalformedChunkedBody
 		}
-		if strings.TrimRight(line, "\r\n") == "" {
+		if line == "" {
 			return nil
 		}
 	}

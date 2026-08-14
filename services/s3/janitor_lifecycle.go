@@ -49,15 +49,19 @@ func (r *lifecycleRule) prefix() string {
 }
 
 type lifecycleFilter struct {
-	And    *lifecycleFilterAnd `xml:"And"`
-	Tag    *lifecycleTag       `xml:"Tag"`
-	Prefix string              `xml:"Prefix"`
+	And                   *lifecycleFilterAnd `xml:"And"`
+	Tag                   *lifecycleTag       `xml:"Tag"`
+	ObjectSizeGreaterThan *int64              `xml:"ObjectSizeGreaterThan"`
+	ObjectSizeLessThan    *int64              `xml:"ObjectSizeLessThan"`
+	Prefix                string              `xml:"Prefix"`
 }
 
-// lifecycleFilterAnd combines multiple filter conditions (Prefix + Tags).
+// lifecycleFilterAnd combines multiple filter conditions (Prefix + Tags + size bounds).
 type lifecycleFilterAnd struct {
-	Prefix string         `xml:"Prefix"`
-	Tags   []lifecycleTag `xml:"Tag"`
+	ObjectSizeGreaterThan *int64         `xml:"ObjectSizeGreaterThan"`
+	ObjectSizeLessThan    *int64         `xml:"ObjectSizeLessThan"`
+	Prefix                string         `xml:"Prefix"`
+	Tags                  []lifecycleTag `xml:"Tag"`
 }
 
 // lifecycleTag is a key/value pair used in lifecycle rule tag filters.
@@ -87,6 +91,19 @@ func (f *lifecycleFilter) andPrefix() string {
 	}
 
 	return ""
+}
+
+// sizeBounds returns the effective ObjectSizeGreaterThan/ObjectSizeLessThan
+// bounds for the rule. And takes precedence over the top-level fields, mirroring
+// AWS's "Filter has exactly one of Prefix, Tag, ObjectSizeGreaterThan,
+// ObjectSizeLessThan, or And" scoping (aws-sdk-go-v2 types.LifecycleRuleFilter).
+// Nil bounds are unconstrained.
+func (f *lifecycleFilter) sizeBounds() (*int64, *int64) {
+	if f.And != nil {
+		return f.And.ObjectSizeGreaterThan, f.And.ObjectSizeLessThan
+	}
+
+	return f.ObjectSizeGreaterThan, f.ObjectSizeLessThan
 }
 
 type lifecycleExpiration struct {
@@ -242,6 +259,7 @@ func (j *Janitor) applyLifecycleRule(
 ) int {
 	prefix := rule.prefix()
 	tagFilters := rule.Filter.tags()
+	sizeMin, sizeMax := rule.Filter.sizeBounds()
 	evicted := 0
 
 	if rule.Expiration.Days != nil && rule.Expiration.Date == "" {
@@ -251,6 +269,7 @@ func (j *Janitor) applyLifecycleRule(
 			bucketName,
 			prefix,
 			tagFilters,
+			sizeMin, sizeMax,
 			tagsByKey,
 			expireBefore,
 		)
@@ -264,6 +283,7 @@ func (j *Janitor) applyLifecycleRule(
 				bucketName,
 				prefix,
 				tagFilters,
+				sizeMin, sizeMax,
 				tagsByKey,
 				expireDate,
 			)
@@ -274,7 +294,9 @@ func (j *Janitor) applyLifecycleRule(
 		noncurrentBefore := now.Add(
 			-time.Duration(*rule.NoncurrentVersionExpiration.NoncurrentDays) * 24 * time.Hour,
 		)
-		evicted += j.evictNoncurrentVersions(bucket, prefix, noncurrentBefore)
+		evicted += j.evictNoncurrentVersions(
+			bucket, bucketName, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, noncurrentBefore,
+		)
 	}
 
 	if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
@@ -286,8 +308,11 @@ func (j *Janitor) applyLifecycleRule(
 		j.abortStaleMultipartUploads(bucketName, abortBefore)
 	}
 
-	j.applyTransitions(bucket, prefix, tagFilters, tagsByKey, rule.ID, rule.Transitions, now)
-	j.applyNoncurrentTransitions(bucket, prefix, rule.ID, rule.NoncurrentVersionTransitions, now)
+	j.applyTransitions(bucket, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, rule.ID, rule.Transitions, now)
+	j.applyNoncurrentTransitions(
+		bucket, bucketName, prefix, tagFilters, sizeMin, sizeMax, tagsByKey,
+		rule.ID, rule.NoncurrentVersionTransitions, now,
+	)
 
 	return evicted
 }
@@ -298,6 +323,7 @@ func (j *Janitor) applyTransitions(
 	bucket *StoredBucket,
 	prefix string,
 	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
 	tagsByKey map[string][]types.Tag,
 	ruleID string,
 	transitions []lifecycleTransition,
@@ -305,7 +331,7 @@ func (j *Janitor) applyTransitions(
 ) {
 	for _, tr := range transitions {
 		if tr.Days > 0 && tr.StorageClass != "" {
-			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, ruleID,
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, ruleID,
 				tr.StorageClass, now, time.Duration(tr.Days)*24*time.Hour, "")
 		}
 	}
@@ -316,7 +342,7 @@ func (j *Janitor) applyTransitions(
 		}
 		transitionDate, parseErr := parseLifecycleDate(tr.Date)
 		if parseErr == nil && now.After(transitionDate) {
-			j.applyStorageClassTransitions(bucket, prefix, tagFilters, tagsByKey, ruleID,
+			j.applyStorageClassTransitions(bucket, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, ruleID,
 				tr.StorageClass, now, 0, tr.Date)
 		}
 	}
@@ -325,7 +351,10 @@ func (j *Janitor) applyTransitions(
 // applyNoncurrentTransitions processes NoncurrentVersionTransition entries for a lifecycle rule.
 func (j *Janitor) applyNoncurrentTransitions(
 	bucket *StoredBucket,
-	prefix string,
+	bucketName, prefix string,
+	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
+	tagsByKey map[string][]types.Tag,
 	ruleID string,
 	transitions []lifecycleNoncurrentTransition,
 	now time.Time,
@@ -334,8 +363,10 @@ func (j *Janitor) applyNoncurrentTransitions(
 		if tr.NoncurrentDays <= 0 || tr.StorageClass == "" {
 			continue
 		}
-		j.applyNoncurrentStorageClassTransitions(bucket, prefix, ruleID, tr.StorageClass, now,
-			time.Duration(tr.NoncurrentDays)*24*time.Hour)
+		j.applyNoncurrentStorageClassTransitions(
+			bucket, bucketName, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, ruleID, tr.StorageClass, now,
+			time.Duration(tr.NoncurrentDays)*24*time.Hour,
+		)
 	}
 }
 
@@ -348,10 +379,13 @@ func (j *Janitor) evictExpiredObjects(
 	bucket *StoredBucket,
 	bucketName, prefix string,
 	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
 	tagsByKey map[string][]types.Tag,
 	expireBefore time.Time,
 ) int {
-	evicted := j.collectExpiredKeys(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
+	evicted := j.collectExpiredKeys(
+		bucket, bucketName, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, expireBefore,
+	)
 	if len(evicted) == 0 {
 		return 0
 	}
@@ -367,6 +401,7 @@ func (j *Janitor) collectExpiredKeys(
 	bucket *StoredBucket,
 	bucketName, prefix string,
 	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
 	tagsByKey map[string][]types.Tag,
 	expireBefore time.Time,
 ) []string {
@@ -380,7 +415,7 @@ func (j *Janitor) collectExpiredKeys(
 			continue
 		}
 
-		if !isExpiredAndMatches(obj, key, bucketName, tagFilters, tagsByKey, expireBefore) {
+		if !isExpiredAndMatches(obj, key, bucketName, tagFilters, sizeMin, sizeMax, tagsByKey, expireBefore) {
 			continue
 		}
 
@@ -393,7 +428,7 @@ func (j *Janitor) collectExpiredKeys(
 }
 
 // isExpiredAndMatches returns true when the object's latest version has expired
-// before expireBefore and satisfies the tag filters (if any).
+// before expireBefore and satisfies the tag and object-size filters (if any).
 // Returns false if the latest version is protected by object lock (legal hold or
 // active retention period) — lifecycle rules must not override WORM protection.
 // obj.mu is acquired internally so callers need not hold it.
@@ -401,20 +436,22 @@ func isExpiredAndMatches(
 	obj *StoredObject,
 	key, bucketName string,
 	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
 	tagsByKey map[string][]types.Tag,
 	expireBefore time.Time,
 ) bool {
-	// Acquire obj.mu once to read both the modification time and the version ID
+	// Acquire obj.mu once to read the modification time, version ID, and size
 	// atomically; reading LatestVersionID without obj.mu would race with writers
 	// (PutObject/DeleteObject) that update it under obj.mu.Lock.
 	var latestMod time.Time
 	var latestVID string
+	var latestSize int64
 	var locked bool
 	func() {
 		obj.mu.RLock("isExpiredAndMatches")
 		defer obj.mu.RUnlock()
 
-		latestMod, latestVID = latestVersionModAndID(obj)
+		latestMod, latestVID, latestSize = latestVersionInfo(obj)
 		locked = isLatestVersionLocked(obj)
 	}()
 
@@ -424,6 +461,10 @@ func isExpiredAndMatches(
 
 	// Object lock (WORM) takes precedence over lifecycle rules.
 	if locked {
+		return false
+	}
+
+	if !objectMatchesSize(latestSize, sizeMin, sizeMax) {
 		return false
 	}
 
@@ -460,16 +501,16 @@ func isLatestVersionLocked(obj *StoredObject) bool {
 	return false
 }
 
-// latestVersionModAndID returns the LastModified time and VersionID of the latest
-// non-deleted version. Must be called with obj.mu held.
-func latestVersionModAndID(obj *StoredObject) (time.Time, string) {
+// latestVersionInfo returns the LastModified time, VersionID, and Size of the
+// latest non-deleted version. Must be called with obj.mu held.
+func latestVersionInfo(obj *StoredObject) (time.Time, string, int64) {
 	for _, ver := range obj.Versions {
 		if ver.IsLatest && !ver.Deleted {
-			return ver.LastModified, ver.VersionID
+			return ver.LastModified, ver.VersionID, ver.Size
 		}
 	}
 
-	return time.Time{}, ""
+	return time.Time{}, "", 0
 }
 
 // cleanupEvictedTags removes tag entries for evicted keys from b.tags.
@@ -522,6 +563,21 @@ func objectMatchesTags(objTags []types.Tag, filters []lifecycleTag) bool {
 func tagMatchesFilter(t types.Tag, f lifecycleTag) bool {
 	return t.Key != nil && *t.Key == f.Key &&
 		t.Value != nil && *t.Value == f.Value
+}
+
+// objectMatchesSize returns true when size satisfies the optional exclusive lower
+// (min) and upper (max) bounds from a rule's ObjectSizeGreaterThan/ObjectSizeLessThan
+// filter. Nil bounds are unconstrained.
+func objectMatchesSize(size int64, minSize, maxSize *int64) bool {
+	if minSize != nil && size <= *minSize {
+		return false
+	}
+
+	if maxSize != nil && size >= *maxSize {
+		return false
+	}
+
+	return true
 }
 
 // GetExpirationHeader calculates the x-amz-expiration header for an object
@@ -613,7 +669,12 @@ func isNoncurrentVersionLocked(ver *StoredObjectVersion) bool {
 }
 
 // evictNoncurrentVersions deletes non-latest object versions (noncurrent versions)
-// from the bucket that match the prefix and were superseded before noncurrentBefore.
+// from the bucket that match the rule's prefix, tag, and object-size filters and
+// were superseded before noncurrentBefore. The rule Filter scopes the whole rule
+// (aws-sdk-go-v2 types.LifecycleRule doc: "The Filter is used to identify objects
+// that a Lifecycle Rule applies to"), so the same tag/size filters that gate
+// current-version actions must also gate noncurrent-version eviction — otherwise a
+// rule scoped to a tag or size subset deletes noncurrent versions of every object.
 // Returns the number of noncurrent versions deleted.
 //
 // Performance: object keys are collected under a fast RLock pass. Each object is
@@ -622,7 +683,10 @@ func isNoncurrentVersionLocked(ver *StoredObjectVersion) bool {
 // between objects instead of being blocked for the full duration.
 func (j *Janitor) evictNoncurrentVersions(
 	bucket *StoredBucket,
-	prefix string,
+	bucketName, prefix string,
+	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
+	tagsByKey map[string][]types.Tag,
 	noncurrentBefore time.Time,
 ) int {
 	// Phase 1: collect candidate keys under read lock.
@@ -633,7 +697,9 @@ func (j *Janitor) evictNoncurrentVersions(
 	// Phase 2: process one object at a time, holding bucket write lock only briefly
 	// per object so concurrent operations are not blocked for the entire sweep.
 	for _, key := range keys {
-		evicted += evictNoncurrentVersionsForKeyLocked(bucket, key, noncurrentBefore)
+		evicted += evictNoncurrentVersionsForKeyLocked(
+			bucket, bucketName, key, tagFilters, sizeMin, sizeMax, tagsByKey, noncurrentBefore,
+		)
 	}
 
 	return evicted
@@ -662,7 +728,14 @@ func collectBucketKeysWithPrefixLocked(bucket *StoredBucket, prefix string) []st
 // object under a brief bucket.mu.Lock (phase 2 of evictNoncurrentVersions' sweep,
 // see its doc comment), returning the number of versions evicted. Extracted so
 // the locked region is a plain function body rather than a function literal.
-func evictNoncurrentVersionsForKeyLocked(bucket *StoredBucket, key string, noncurrentBefore time.Time) int {
+func evictNoncurrentVersionsForKeyLocked(
+	bucket *StoredBucket,
+	bucketName, key string,
+	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
+	tagsByKey map[string][]types.Tag,
+	noncurrentBefore time.Time,
+) int {
 	bucket.mu.Lock("S3Janitor.evictNoncurrentVersions.obj")
 	defer bucket.mu.Unlock()
 
@@ -672,7 +745,9 @@ func evictNoncurrentVersionsForKeyLocked(bucket *StoredBucket, key string, noncu
 		return 0
 	}
 
-	evicted, isEmpty := evictObjectNoncurrentVersionsLocked(obj, noncurrentBefore)
+	evicted, isEmpty := evictObjectNoncurrentVersionsLocked(
+		obj, bucketName, key, tagFilters, sizeMin, sizeMax, tagsByKey, noncurrentBefore,
+	)
 
 	if isEmpty {
 		delete(bucket.Objects, key)
@@ -683,11 +758,20 @@ func evictNoncurrentVersionsForKeyLocked(bucket *StoredBucket, key string, noncu
 }
 
 // evictObjectNoncurrentVersionsLocked deletes obj's noncurrent versions last
-// modified before noncurrentBefore, under obj.mu.Lock. Returns the number
+// modified before noncurrentBefore and matching the rule's tag/size filters
+// (each noncurrent version is matched against its own tags, keyed by its own
+// versionID — tags are per-version in S3), under obj.mu.Lock. Returns the number
 // evicted and whether obj now has zero versions left. Extracted from
 // evictNoncurrentVersionsForKeyLocked so the locked region is a plain function
 // body rather than a function literal.
-func evictObjectNoncurrentVersionsLocked(obj *StoredObject, noncurrentBefore time.Time) (int, bool) {
+func evictObjectNoncurrentVersionsLocked(
+	obj *StoredObject,
+	bucketName, key string,
+	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
+	tagsByKey map[string][]types.Tag,
+	noncurrentBefore time.Time,
+) (int, bool) {
 	obj.mu.Lock("S3Janitor.evictNoncurrentVersions.versions")
 	defer obj.mu.Unlock()
 
@@ -698,10 +782,23 @@ func evictObjectNoncurrentVersionsLocked(obj *StoredObject, noncurrentBefore tim
 			continue
 		}
 
-		if ver.LastModified.Before(noncurrentBefore) {
-			delete(obj.Versions, vid)
-			evicted++
+		if !ver.LastModified.Before(noncurrentBefore) {
+			continue
 		}
+
+		if !objectMatchesSize(ver.Size, sizeMin, sizeMax) {
+			continue
+		}
+
+		if len(tagFilters) > 0 {
+			objTags := tagsByKey[bucketName+"/"+key+"/"+vid]
+			if !objectMatchesTags(objTags, tagFilters) {
+				continue
+			}
+		}
+
+		delete(obj.Versions, vid)
+		evicted++
 	}
 
 	return evicted, len(obj.Versions) == 0
@@ -717,6 +814,7 @@ func (j *Janitor) applyStorageClassTransitions(
 	bucket *StoredBucket,
 	prefix string,
 	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
 	tagsByKey map[string][]types.Tag,
 	ruleID, targetClass string,
 	now time.Time,
@@ -737,6 +835,12 @@ func (j *Janitor) applyStorageClassTransitions(
 		}
 
 		if !strings.HasPrefix(ver.Key, prefix) {
+			obj.mu.Unlock()
+
+			continue
+		}
+
+		if !objectMatchesSize(ver.Size, sizeMin, sizeMax) {
 			obj.mu.Unlock()
 
 			continue
@@ -791,52 +895,118 @@ func (j *Janitor) applyStorageClassTransitions(
 //
 // Performance: uses RLock on the bucket because we only modify per-object version fields,
 // which are protected by obj.mu. This allows concurrent reads of the bucket during the sweep.
+// noncurrentTransitionParams bundles the rule-derived matching/target state
+// for applyNoncurrentStorageClassTransitions, so the per-object and
+// per-version helpers below don't each carry the full parameter list.
+type noncurrentTransitionParams struct {
+	now             time.Time
+	tagsByKey       map[string][]types.Tag
+	sizeMin         *int64
+	sizeMax         *int64
+	bucketName      string
+	prefix          string
+	ruleID          string
+	targetClass     string
+	tagFilters      []lifecycleTag
+	noncurrentAfter time.Duration
+}
+
 func (j *Janitor) applyNoncurrentStorageClassTransitions(
 	bucket *StoredBucket,
-	prefix, ruleID, targetClass string,
+	bucketName, prefix string,
+	tagFilters []lifecycleTag,
+	sizeMin, sizeMax *int64,
+	tagsByKey map[string][]types.Tag,
+	ruleID, targetClass string,
 	now time.Time,
 	noncurrentAfter time.Duration,
 ) {
 	bucket.mu.RLock("applyNoncurrentStorageClassTransitions")
 	defer bucket.mu.RUnlock()
 
+	p := noncurrentTransitionParams{
+		bucketName:      bucketName,
+		prefix:          prefix,
+		tagFilters:      tagFilters,
+		sizeMin:         sizeMin,
+		sizeMax:         sizeMax,
+		tagsByKey:       tagsByKey,
+		ruleID:          ruleID,
+		targetClass:     targetClass,
+		now:             now,
+		noncurrentAfter: noncurrentAfter,
+	}
+
 	for _, obj := range bucket.Objects {
 		obj.mu.Lock("applyNoncurrentSCT-obj")
-
-		for vid, ver := range obj.Versions {
-			if vid == obj.LatestVersionID || ver.Deleted {
-				continue
-			}
-
-			if !strings.HasPrefix(ver.Key, prefix) {
-				continue
-			}
-
-			if now.Sub(ver.LastModified) < noncurrentAfter {
-				continue
-			}
-
-			fromClass := ver.StorageClass
-			if fromClass == "" {
-				fromClass = storageStandard
-			}
-
-			if fromClass != targetClass {
-				ver.StorageClass = targetClass
-				ver.StorageClassTransitions = append(
-					ver.StorageClassTransitions,
-					StorageClassTransition{
-						TransitionedAt: now,
-						FromClass:      fromClass,
-						ToClass:        targetClass,
-						RuleID:         ruleID,
-					},
-				)
-			}
-		}
-
+		transitionObjectNoncurrentVersions(obj, p)
 		obj.mu.Unlock()
 	}
+}
+
+// transitionObjectNoncurrentVersions applies p's storage-class transition to
+// every matching noncurrent version of obj. Must be called with obj.mu held.
+func transitionObjectNoncurrentVersions(obj *StoredObject, p noncurrentTransitionParams) {
+	for vid, ver := range obj.Versions {
+		if vid == obj.LatestVersionID || ver.Deleted {
+			continue
+		}
+
+		if !noncurrentVersionMatchesRule(ver, vid, p) {
+			continue
+		}
+
+		transitionVersionStorageClass(ver, p.targetClass, p.ruleID, p.now)
+	}
+}
+
+// noncurrentVersionMatchesRule reports whether ver (with version id vid)
+// satisfies p's prefix, age, size, and tag filters.
+func noncurrentVersionMatchesRule(ver *StoredObjectVersion, vid string, p noncurrentTransitionParams) bool {
+	if !strings.HasPrefix(ver.Key, p.prefix) {
+		return false
+	}
+
+	if p.now.Sub(ver.LastModified) < p.noncurrentAfter {
+		return false
+	}
+
+	if !objectMatchesSize(ver.Size, p.sizeMin, p.sizeMax) {
+		return false
+	}
+
+	if len(p.tagFilters) > 0 {
+		objTags := p.tagsByKey[p.bucketName+"/"+ver.Key+"/"+vid]
+		if !objectMatchesTags(objTags, p.tagFilters) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// transitionVersionStorageClass moves ver to targetClass and records the
+// transition, unless it is already there. Must be called with obj.mu held.
+func transitionVersionStorageClass(ver *StoredObjectVersion, targetClass, ruleID string, now time.Time) {
+	fromClass := ver.StorageClass
+	if fromClass == "" {
+		fromClass = storageStandard
+	}
+
+	if fromClass == targetClass {
+		return
+	}
+
+	ver.StorageClass = targetClass
+	ver.StorageClassTransitions = append(
+		ver.StorageClassTransitions,
+		StorageClassTransition{
+			TransitionedAt: now,
+			FromClass:      fromClass,
+			ToClass:        targetClass,
+			RuleID:         ruleID,
+		},
+	)
 }
 
 // parseLifecycleDate parses a lifecycle date string. It tries RFC3339Nano
