@@ -481,6 +481,36 @@ func TestSDKRoundTrip_ListMaterializedViewRefreshTaskRuns_ScopesByTable(t *testi
 	require.Len(t, out.MaterializedViewRefreshTaskRuns, 1)
 }
 
+// TestSDKRoundTrip_ListSchemas_ScopesByRegistry proves ListSchemasInput.RegistryId
+// actually excludes schemas belonging to a different registry (glue@v1.152.0
+// api_op_ListSchemas.go: "When the RegistryId is not provided, all the
+// schemas across registries will be part of the API response") rather than
+// being discarded -- gopherstack-q4qt found this op outside the earlier
+// pagination sweep's candidate list precisely because it already took a real
+// RegistryId, so it needed its own verification that the field is honored.
+func TestSDKRoundTrip_ListSchemas_ScopesByRegistry(t *testing.T) {
+	t.Parallel()
+
+	backend := glue.NewInMemoryBackend(testAccountID, testRegion)
+	_, err := backend.CreateRegistry("reg-a", "", nil)
+	require.NoError(t, err)
+	_, err = backend.CreateRegistry("reg-b", "", nil)
+	require.NoError(t, err)
+	_, _, err = backend.CreateSchema("reg-a", "schema-in-a", "JSON", "", "", "", nil)
+	require.NoError(t, err)
+	_, _, err = backend.CreateSchema("reg-b", "schema-in-b", "JSON", "", "", "", nil)
+	require.NoError(t, err)
+
+	client := newTestGlueClient(t, glue.NewHandler(backend))
+
+	out, err := client.ListSchemas(t.Context(), &gluesdk.ListSchemasInput{
+		RegistryId: &types.RegistryId{RegistryName: aws.String("reg-a")},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Schemas, 1, "RegistryId must exclude the sibling registry's schema, not just accept the field")
+	assert.Equal(t, "schema-in-a", aws.ToString(out.Schemas[0].SchemaName))
+}
+
 // TestSDKRoundTrip_DataQualityRuns_StartedFilterAndRulesetName proves
 // ListDataQualityRuleRecommendationRuns/ListDataQualityRulesetEvaluationRuns'
 // StartedAfter and, for evaluation runs, RulesetName actually narrow the

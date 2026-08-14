@@ -712,9 +712,16 @@ func (h *Handler) handleListRegistries(
 	return &listRegistriesOutput{Registries: items, NextToken: next}, nil
 }
 
+// defaultListSchemaVersionsLimit is used when ListSchemaVersionsInput.MaxResults
+// is unset, matching the real API's documented default (api_op_ListSchemaVersions.go:
+// "If the value is not supplied, this will be defaulted to 25 per page.").
+const defaultListSchemaVersionsLimit = 25
+
 // listSchemaVersionsInput holds input for ListSchemaVersions.
 type listSchemaVersionsInput struct {
-	SchemaID *schemaIDInput `json:"SchemaId"`
+	SchemaID   *schemaIDInput `json:"SchemaId"`
+	NextToken  string         `json:"NextToken,omitempty"`
+	MaxResults int32          `json:"MaxResults,omitempty"`
 }
 
 // schemaVersionListItem mirrors types.SchemaVersionListItem: SchemaVersionId,
@@ -736,7 +743,8 @@ type schemaVersionListItem struct {
 // field is Schemas, not SchemaVersions (api_op_ListSchemaVersions.go); the
 // wrong key meant a real client silently decoded to an empty slice.
 type listSchemaVersionsOutput struct {
-	Schemas []*schemaVersionListItem `json:"Schemas"`
+	NextToken string                   `json:"NextToken,omitempty"`
+	Schemas   []*schemaVersionListItem `json:"Schemas"`
 }
 
 func (h *Handler) handleListSchemaVersions(
@@ -751,8 +759,15 @@ func (h *Handler) handleListSchemaVersions(
 
 	versions := h.Backend.ListSchemaVersions(registryName, schemaName)
 
-	items := make([]*schemaVersionListItem, 0, len(versions))
-	for _, v := range versions {
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListSchemaVersionsLimit
+	}
+
+	page, next := paginateSlice(versions, in.NextToken, limit)
+
+	items := make([]*schemaVersionListItem, 0, len(page))
+	for _, v := range page {
 		items = append(items, &schemaVersionListItem{
 			SchemaVersionID: v.SchemaVersionID,
 			SchemaArn:       v.SchemaARN,
@@ -762,12 +777,19 @@ func (h *Handler) handleListSchemaVersions(
 		})
 	}
 
-	return &listSchemaVersionsOutput{Schemas: items}, nil
+	return &listSchemaVersionsOutput{Schemas: items, NextToken: next}, nil
 }
+
+// defaultListSchemasLimit is used when ListSchemasInput.MaxResults is unset,
+// matching the real API's documented default (api_op_ListSchemas.go: "If the
+// value is not supplied, this will be defaulted to 25 per page.").
+const defaultListSchemasLimit = 25
 
 // listSchemasInput holds input for ListSchemas.
 type listSchemasInput struct {
 	RegistryID *registryIDInput `json:"RegistryId"`
+	NextToken  string           `json:"NextToken,omitempty"`
+	MaxResults int32            `json:"MaxResults,omitempty"`
 }
 
 // schemaListItem mirrors types.SchemaListItem: SchemaName, SchemaArn,
@@ -792,7 +814,8 @@ type schemaListItem struct {
 
 // listSchemasOutput holds the result for ListSchemas.
 type listSchemasOutput struct {
-	Schemas []*schemaListItem `json:"Schemas"`
+	NextToken string            `json:"NextToken,omitempty"`
+	Schemas   []*schemaListItem `json:"Schemas"`
 }
 
 func (h *Handler) handleListSchemas(
@@ -806,8 +829,15 @@ func (h *Handler) handleListSchemas(
 
 	schemas := h.Backend.ListSchemas(registryName)
 
-	items := make([]*schemaListItem, 0, len(schemas))
-	for _, s := range schemas {
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListSchemasLimit
+	}
+
+	page, next := paginateSlice(schemas, in.NextToken, limit)
+
+	items := make([]*schemaListItem, 0, len(page))
+	for _, s := range page {
 		items = append(items, &schemaListItem{
 			SchemaName:   s.SchemaName,
 			SchemaArn:    s.SchemaARN,
@@ -819,7 +849,7 @@ func (h *Handler) handleListSchemas(
 		})
 	}
 
-	return &listSchemasOutput{Schemas: items}, nil
+	return &listSchemasOutput{Schemas: items, NextToken: next}, nil
 }
 
 // putSchemaVersionMetadataInput holds input for PutSchemaVersionMetadata.

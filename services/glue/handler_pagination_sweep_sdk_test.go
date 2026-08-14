@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
+	"github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -22,7 +23,7 @@ type pageLister func(
 // totalPaginationCases is the number of ops covered across every
 // paginationCases* helper below -- used only to preallocate the combined
 // slice in TestSDKRoundTrip_ListPagination.
-const totalPaginationCases = 29
+const totalPaginationCases = 31
 
 // paginationCase is one op fixed under gopherstack-awzv: seed populates a
 // fresh backend with more than pageSize items, and list drives the real SDK
@@ -56,6 +57,7 @@ func TestSDKRoundTrip_ListPagination(t *testing.T) {
 	cases = append(cases, paginationCasesDataQuality()...)
 	cases = append(cases, paginationCasesComputeAndCode()...)
 	cases = append(cases, paginationCasesOpsAndMisc()...)
+	cases = append(cases, paginationCasesSchemaRegistry()...)
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -736,6 +738,65 @@ func paginationCasesOpsAndMisc() []paginationCase {
 				require.NoError(t, err)
 
 				return len(out.Workflows), out.NextToken
+			},
+		},
+	}
+}
+
+// paginationCasesSchemaRegistry covers ListSchemas/ListSchemaVersions, fixed
+// under gopherstack-q4qt: both real ops declare MaxResults/NextToken
+// (glue@v1.152.0 api_op_ListSchemas.go / api_op_ListSchemaVersions.go) but,
+// unlike the gopherstack-awzv sweep's 29 empty-struct-input ops, these two
+// already took a real RegistryId/SchemaId and so were never swept -- every
+// call returned every stored item in one unbounded response.
+func paginationCasesSchemaRegistry() []paginationCase {
+	return []paginationCase{
+		{
+			name: "list schemas",
+			want: 3,
+			seed: func(t *testing.T, b *glue.InMemoryBackend) {
+				t.Helper()
+				for _, n := range []string{"sch1", "sch2", "sch3"} {
+					_, _, err := b.CreateSchema("", n, "JSON", "", "", "", nil)
+					require.NoError(t, err)
+				}
+			},
+			list: func(t *testing.T, ctx context.Context, c *gluesdk.Client, pageSize int32, token *string) (int, *string) {
+				t.Helper()
+				out, err := c.ListSchemas(
+					ctx, &gluesdk.ListSchemasInput{MaxResults: aws.Int32(pageSize), NextToken: token},
+				)
+				require.NoError(t, err)
+
+				return len(out.Schemas), out.NextToken
+			},
+		},
+		{
+			name: "list schema versions",
+			want: 3,
+			seed: func(t *testing.T, b *glue.InMemoryBackend) {
+				t.Helper()
+				_, _, err := b.CreateSchema("", "versioned-schema", "JSON", "NONE", "", "", nil)
+				require.NoError(t, err)
+
+				for range 3 {
+					_, verErr := b.RegisterSchemaVersion("", "versioned-schema", `{"type":"object"}`)
+					require.NoError(t, verErr)
+				}
+			},
+			list: func(t *testing.T, ctx context.Context, c *gluesdk.Client, pageSize int32, token *string) (int, *string) {
+				t.Helper()
+				out, err := c.ListSchemaVersions(
+					ctx,
+					&gluesdk.ListSchemaVersionsInput{
+						SchemaId:   &types.SchemaId{SchemaName: aws.String("versioned-schema")},
+						MaxResults: aws.Int32(pageSize),
+						NextToken:  token,
+					},
+				)
+				require.NoError(t, err)
+
+				return len(out.Schemas), out.NextToken
 			},
 		},
 	}
