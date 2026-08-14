@@ -237,7 +237,12 @@ func (h *Handler) handleCompleteMultipartReadSetUpload(
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, rs)
+	// Real CompleteMultipartReadSetUploadOutput's only member is "readSetId"
+	// (deserializers.go's awsRestjson1_deserializeOpDocumentCompleteMultipartReadSetUploadOutput)
+	// -- a different key from GetReadSetMetadataOutput's "id" for the same
+	// underlying resource. Marshaling the shared ReadSetMetadata struct here
+	// left a real client's ReadSetId always nil.
+	return c.JSON(http.StatusOK, map[string]any{"readSetId": rs.ID})
 }
 
 func (h *Handler) handleListMultipartReadSetUploads(c *echo.Context, storeID string) error {

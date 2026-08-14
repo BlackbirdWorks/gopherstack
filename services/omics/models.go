@@ -617,7 +617,7 @@ type Share struct {
 	ShareID             string     `json:"shareId"`
 	ResourceARN         string     `json:"resourceArn"`
 	PrincipalSubscriber string     `json:"principalSubscriber"`
-	Name                string     `json:"name"`
+	Name                string     `json:"shareName"`
 	Status              string     `json:"status"`
 }
 
@@ -629,7 +629,7 @@ type RunCache struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Description     string            `json:"description,omitempty"`
-	CacheS3Location string            `json:"cacheS3Location"`
+	CacheS3Location string            `json:"cacheS3Uri"`
 	Status          string            `json:"status"`
 }
 

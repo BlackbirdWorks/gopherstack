@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -637,4 +638,121 @@ func TestListVariantImportJobs_OmitsGetOnlyFields(t *testing.T) {
 	)
 	assert.Contains(t, job, "status")
 	assert.Contains(t, job, "destinationName")
+}
+
+// Test_SDKRoundTrip_CreateRunCache_CacheS3Uri proves RunCache's S3 location
+// decodes through the real SDK client's CacheS3Uri field. GetRunCacheOutput's
+// (and CreateRunCacheOutput's shared model's) real wire key is "cacheS3Uri"
+// (deserializers.go:9853) -- the request body key for the same value is the
+// unrelated "cacheS3Location" (serializers.go:1334). Before the fix the
+// backend tagged its RunCache.CacheS3Location Go field "cacheS3Location" on
+// the wire too, so a real client's CacheS3Uri was always nil.
+func Test_SDKRoundTrip_CreateRunCache_CacheS3Uri(t *testing.T) {
+	t.Parallel()
+
+	backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := omics.NewHandler(backend)
+	client := newTestOmicsClient(t, h)
+
+	created, err := client.CreateRunCache(t.Context(), &omicssdk.CreateRunCacheInput{
+		Name:            aws.String("cache-uri-test"),
+		CacheS3Location: aws.String("s3://my-bucket/cache"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.Id)
+
+	got, err := client.GetRunCache(t.Context(), &omicssdk.GetRunCacheInput{Id: created.Id})
+	require.NoError(t, err)
+	require.NotNil(t, got.CacheS3Uri, "CacheS3Uri must decode from the real \"cacheS3Uri\" wire key")
+	assert.Equal(t, "s3://my-bucket/cache", *got.CacheS3Uri)
+}
+
+// Test_SDKRoundTrip_CreateShare_ShareName proves Share's name decodes through
+// the real SDK client's ShareName field. Real ShareDetails/CreateShareOutput
+// wire key is "shareName" (deserializers.go:3062, deserializers.go:26670) --
+// before the fix the backend's shared Share model tagged this field "name",
+// so a real client's ShareName was always nil on GetShare/ListShares, and
+// CreateShareOutput's own ShareName was likewise always empty.
+func Test_SDKRoundTrip_CreateShare_ShareName(t *testing.T) {
+	t.Parallel()
+
+	backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := omics.NewHandler(backend)
+	client := newTestOmicsClient(t, h)
+
+	created, err := client.CreateShare(t.Context(), &omicssdk.CreateShareInput{
+		ResourceArn:         aws.String("arn:aws:omics:us-east-1:000000000000:annotationStore/share-name-test"),
+		PrincipalSubscriber: aws.String("123456789012"),
+		ShareName:           aws.String("my-share"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.ShareId)
+	require.NotNil(t, created.ShareName, "CreateShareOutput.ShareName must decode from the real \"shareName\" wire key")
+	assert.Equal(t, "my-share", *created.ShareName)
+
+	got, err := client.GetShare(t.Context(), &omicssdk.GetShareInput{ShareId: created.ShareId})
+	require.NoError(t, err)
+	require.NotNil(t, got.Share)
+	require.NotNil(t, got.Share.ShareName, "ShareDetails.ShareName must decode from the real \"shareName\" wire key")
+	assert.Equal(t, "my-share", *got.Share.ShareName)
+}
+
+// Test_SDKRoundTrip_CompleteMultipartReadSetUpload_ReadSetId proves the
+// created read set's ID decodes through the real SDK client's ReadSetId
+// field, and chains it into a real GetReadSetMetadata call -- exactly the
+// create-then-reference pattern a dropped identifier silently breaks. Real
+// CompleteMultipartReadSetUploadOutput's only member is "readSetId"
+// (deserializers.go's awsRestjson1_deserializeOpDocumentCompleteMultipartReadSetUploadOutput),
+// a different key from GetReadSetMetadataOutput's "id" for the same
+// resource. Before the fix the backend marshaled the shared ReadSetMetadata
+// struct (tagged "id") directly as the Complete response, so a real
+// client's ReadSetId was always nil.
+func Test_SDKRoundTrip_CompleteMultipartReadSetUpload_ReadSetId(t *testing.T) {
+	t.Parallel()
+
+	backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := omics.NewHandler(backend)
+	client := newTestOmicsClient(t, h)
+
+	store, err := client.CreateSequenceStore(t.Context(), &omicssdk.CreateSequenceStoreInput{
+		Name: aws.String("seq-store-complete-test"),
+	})
+	require.NoError(t, err)
+
+	upload, err := client.CreateMultipartReadSetUpload(t.Context(), &omicssdk.CreateMultipartReadSetUploadInput{
+		SequenceStoreId: store.Id,
+		Name:            aws.String("rs-complete-test"),
+		SourceFileType:  types.FileTypeFastq,
+		SubjectId:       aws.String("subject-1"),
+		SampleId:        aws.String("sample-1"),
+	})
+	require.NoError(t, err)
+
+	part, err := client.UploadReadSetPart(t.Context(), &omicssdk.UploadReadSetPartInput{
+		SequenceStoreId: store.Id,
+		UploadId:        upload.UploadId,
+		PartNumber:      aws.Int32(1),
+		PartSource:      types.ReadSetPartSourceSource1,
+		Payload:         strings.NewReader("hello omics"),
+	})
+	require.NoError(t, err)
+
+	completed, err := client.CompleteMultipartReadSetUpload(t.Context(), &omicssdk.CompleteMultipartReadSetUploadInput{
+		SequenceStoreId: store.Id,
+		UploadId:        upload.UploadId,
+		Parts: []types.CompleteReadSetUploadPartListItem{
+			{PartNumber: aws.Int32(1), PartSource: types.ReadSetPartSourceSource1, Checksum: part.Checksum},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, completed.ReadSetId, "ReadSetId must decode from the real \"readSetId\" wire key")
+	assert.NotEmpty(t, *completed.ReadSetId)
+
+	got, err := client.GetReadSetMetadata(t.Context(), &omicssdk.GetReadSetMetadataInput{
+		SequenceStoreId: store.Id,
+		Id:              completed.ReadSetId,
+	})
+	require.NoError(t, err, "the id returned by Complete must resolve via a real GetReadSetMetadata call")
+	require.NotNil(t, got.Id)
+	assert.Equal(t, *completed.ReadSetId, *got.Id)
 }
