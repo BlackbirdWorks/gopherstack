@@ -306,7 +306,7 @@ type replicationGroupXML struct {
 	SnapshotWindow             string                 `xml:"SnapshotWindow,omitempty"`
 	PreferredMaintenanceWindow string                 `xml:"PreferredMaintenanceWindow,omitempty"`
 	EngineVersion              string                 `xml:"EngineVersion,omitempty"`
-	CreatedAt                  string                 `xml:"CreatingDate,omitempty"`
+	CreatedAt                  string                 `xml:"ReplicationGroupCreateTime,omitempty"`
 	KmsKeyID                   string                 `xml:"KmsKeyId,omitempty"`
 	NotificationTopicArn       string                 `xml:"NotificationTopicArn,omitempty"`
 	TransitEncryptionMode      string                 `xml:"TransitEncryptionMode,omitempty"`

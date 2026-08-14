@@ -209,6 +209,7 @@ type SecretListEntry struct {
 	Description                    string                               `json:"Description,omitempty"`
 	KmsKeyID                       string                               `json:"KmsKeyId,omitempty"`
 	RotationLambdaARN              string                               `json:"RotationLambdaARN,omitempty"`
+	PrimaryRegion                  string                               `json:"PrimaryRegion,omitempty"`
 	Type                           string                               `json:"Type,omitempty"`
 	ExternalSecretRotationRoleArn  string                               `json:"ExternalSecretRotationRoleArn,omitempty"`
 	Tags                           []Tag                                `json:"Tags,omitempty"`

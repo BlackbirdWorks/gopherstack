@@ -96,6 +96,7 @@ type KeyMetadata struct {
 	Origin                      string                    `json:"Origin,omitempty"`
 	KeySpec                     string                    `json:"KeySpec,omitempty"`
 	KeyID                       string                    `json:"KeyId"`
+	AWSAccountID                string                    `json:"AWSAccountId,omitempty"`
 	CustomerMasterKeySpec       string                    `json:"CustomerMasterKeySpec,omitempty"`
 	MultiRegionKeyType          string                    `json:"MultiRegionKeyType,omitempty"`
 	ExpirationModel             string                    `json:"ExpirationModel,omitempty"`

@@ -184,6 +184,7 @@ type ParameterMetadata struct {
 	AllowedPattern   string  `json:"AllowedPattern,omitempty"`
 	DataType         string  `json:"DataType,omitempty"`
 	Policies         string  `json:"Policies,omitempty"`
+	ARN              string  `json:"ARN,omitempty"`
 	LastModifiedDate float64 `json:"LastModifiedDate"`
 	Version          int64   `json:"Version"`
 }

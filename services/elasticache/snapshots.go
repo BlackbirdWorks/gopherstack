@@ -52,6 +52,7 @@ func (b *InMemoryBackend) CreateSnapshot(
 		snap.Engine = c.Engine
 		snap.EngineVersion = c.EngineVersion
 		snap.NodeType = c.NodeType
+		snap.SourceClusterCreatedAt = c.CreatedAt
 	}
 
 	if replicationGroupID != "" {

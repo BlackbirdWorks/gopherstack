@@ -115,7 +115,7 @@ func (b *InMemoryBackend) ReplicateKey(
 	// return the full MultiRegionConfiguration.
 	sourceKey.ReplicaKeyIDs = append(sourceKey.ReplicaKeyIDs, replica.KeyID)
 
-	return &ReplicateKeyOutput{ReplicaKeyMetadata: keyToMetadata(replica)}, nil
+	return &ReplicateKeyOutput{ReplicaKeyMetadata: b.keyToMetadata(replica)}, nil
 }
 
 // UpdatePrimaryRegion promotes the replica in PrimaryRegion to be the new primary

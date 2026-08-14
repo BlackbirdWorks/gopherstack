@@ -194,7 +194,7 @@ func (b *InMemoryBackend) CreateKey(
 	}
 
 	out := &CreateKeyOutput{
-		KeyMetadata: keyToMetadata(key),
+		KeyMetadata: b.keyToMetadata(key),
 	}
 
 	return out, nil
@@ -221,7 +221,7 @@ func (b *InMemoryBackend) DescribeKey(
 		return nil, err
 	}
 
-	meta := keyToMetadata(key)
+	meta := b.keyToMetadata(key)
 	meta.MultiRegionConfiguration = b.buildMultiRegionConfig(ctx, key)
 
 	return &DescribeKeyOutput{KeyMetadata: meta}, nil
@@ -401,7 +401,7 @@ func (b *InMemoryBackend) CancelKeyDeletion(
 }
 
 // keyToMetadata converts a Key to its KeyMetadata representation.
-func keyToMetadata(k *Key) KeyMetadata {
+func (b *InMemoryBackend) keyToMetadata(k *Key) KeyMetadata {
 	origin := k.Origin
 	if origin == "" {
 		origin = KeyOriginAWSKMS
@@ -409,6 +409,7 @@ func keyToMetadata(k *Key) KeyMetadata {
 
 	meta := KeyMetadata{
 		KeyID:                 k.KeyID,
+		AWSAccountID:          b.accountID,
 		Arn:                   k.Arn,
 		Description:           k.Description,
 		KeyState:              k.KeyState,

@@ -872,6 +872,7 @@ func (b *InMemoryBackend) DescribeParameters(
 	input *DescribeParametersInput,
 ) (*DescribeParametersOutput, error) {
 	region := getRegion(ctx)
+	account := awsmeta.Account(ctx)
 
 	b.mu.RLock("DescribeParameters")
 	defer b.mu.RUnlock()
@@ -891,6 +892,7 @@ func (b *InMemoryBackend) DescribeParameters(
 			AllowedPattern:   p.AllowedPattern,
 			DataType:         p.DataType,
 			Policies:         p.Policies,
+			ARN:              parameterARN(region, account, p.Name),
 		})
 	}
 
