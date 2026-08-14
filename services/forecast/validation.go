@@ -122,11 +122,11 @@ var createFKSpecs = map[resourceKind]fkFieldSpec{
 	kindDatasetImportJob:        {field: "DatasetArn", targetKinds: []resourceKind{kindDataset}},
 	kindPredictorBacktestExport: {field: fieldPredictorArn, targetKinds: []resourceKind{kindPredictor}},
 	kindForecast:                {field: fieldPredictorArn, targetKinds: []resourceKind{kindPredictor}},
-	kindForecastExport:          {field: "ForecastArn", targetKinds: []resourceKind{kindForecast}},
+	kindForecastExport:          {field: fieldForecastArn, targetKinds: []resourceKind{kindForecast}},
 	kindExplainabilityExport:    {field: "ExplainabilityArn", targetKinds: []resourceKind{kindExplainability}},
-	kindExplainability:          {field: "ResourceArn", targetKinds: []resourceKind{kindPredictor, kindForecast}},
-	kindMonitor:                 {field: "ResourceArn", targetKinds: []resourceKind{kindPredictor}},
-	kindWhatIfAnalysis:          {field: "ForecastArn", targetKinds: []resourceKind{kindForecast}},
+	kindExplainability:          {field: fieldResourceArn, targetKinds: []resourceKind{kindPredictor, kindForecast}},
+	kindMonitor:                 {field: fieldResourceArn, targetKinds: []resourceKind{kindPredictor}},
+	kindWhatIfAnalysis:          {field: fieldForecastArn, targetKinds: []resourceKind{kindForecast}},
 	kindWhatIfForecast:          {field: "WhatIfAnalysisArn", targetKinds: []resourceKind{kindWhatIfAnalysis}},
 	kindWhatIfForecastExport: {
 		field: "WhatIfForecastArns", targetKinds: []resourceKind{kindWhatIfForecast},
@@ -178,6 +178,13 @@ var requiredPresenceFields = map[string][]string{
 // fieldDestination is the DataDestination field name shared by every
 // Create*ExportJob operation's required output-location member.
 const fieldDestination = "Destination"
+
+// fieldForecastArn and fieldResourceArn are ARN-reference field names shared
+// across multiple FK specs, summary allowlists and generic dispatch lookups.
+const (
+	fieldForecastArn = "ForecastArn"
+	fieldResourceArn = "ResourceArn"
+)
 
 // validateRequiredPresenceFields rejects a Create* request missing one of
 // requiredPresenceFields[action]. It only checks presence (data[field] !=
