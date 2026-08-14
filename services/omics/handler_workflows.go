@@ -70,7 +70,7 @@ func (h *Handler) handleListWorkflows(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"workflows": workflows, keyNextToken: next})
+	return c.JSON(http.StatusOK, map[string]any{keyItems: workflows, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateWorkflow(c *echo.Context, id string) error {
@@ -148,7 +148,7 @@ func (h *Handler) handleListWorkflowVersions(c *echo.Context, workflowID string)
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"workflowVersions": versions, keyNextToken: next})
+	return c.JSON(http.StatusOK, map[string]any{keyItems: versions, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateWorkflowVersion(

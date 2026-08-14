@@ -160,7 +160,10 @@ func (h *Handler) handleListAnnotationImportJobs(c *echo.Context) error {
 		summaries = append(summaries, newAnnotationImportJobSummary(job))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: summaries, keyNextToken: next})
+	// Real ListAnnotationImportJobsOutput wraps the list under
+	// "annotationImportJobs", not the generic "importJobs" ListReferenceImportJobs/
+	// ListReadSetImportJobs use (deserializers.go awsRestjson1_deserializeOpDocumentListAnnotationImportJobsOutput).
+	return c.JSON(http.StatusOK, map[string]any{"annotationImportJobs": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleCancelAnnotationImportJob(c *echo.Context, jobID string) error {

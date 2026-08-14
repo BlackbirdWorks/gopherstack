@@ -105,12 +105,12 @@ func Test_ListRunBatches_UsesMaxItemsNotMaxResultsQueryParam(t *testing.T) {
 
 	var ignoredResp map[string]any
 	require.NoError(t, json.Unmarshal(ignoredRec.Body.Bytes(), &ignoredResp))
-	assert.Len(t, ignoredResp["runBatches"].([]any), 3, "maxResults must not cap ListBatch")
+	assert.Len(t, ignoredResp["items"].([]any), 3, "maxResults must not cap ListBatch")
 
 	limitedRec := doRequest(t, h, http.MethodGet, "/runBatch?maxItems=1", nil)
 	require.Equal(t, http.StatusOK, limitedRec.Code)
 
 	var limitedResp map[string]any
 	require.NoError(t, json.Unmarshal(limitedRec.Body.Bytes(), &limitedResp))
-	assert.Len(t, limitedResp["runBatches"].([]any), 1, "maxItems must cap ListBatch")
+	assert.Len(t, limitedResp["items"].([]any), 1, "maxItems must cap ListBatch")
 }

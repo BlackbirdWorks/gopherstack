@@ -146,7 +146,10 @@ func (h *Handler) handleListVariantImportJobs(c *echo.Context) error {
 		summaries = append(summaries, newVariantImportJobSummary(job))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: summaries, keyNextToken: next})
+	// Real ListVariantImportJobsOutput wraps the list under "variantImportJobs",
+	// not the generic "importJobs" ListReferenceImportJobs/ListReadSetImportJobs
+	// use (deserializers.go awsRestjson1_deserializeOpDocumentListVariantImportJobsOutput).
+	return c.JSON(http.StatusOK, map[string]any{"variantImportJobs": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleCancelVariantImportJob(c *echo.Context, jobID string) error {

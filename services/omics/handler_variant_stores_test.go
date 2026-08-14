@@ -113,7 +113,7 @@ func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	jobs, ok := resp["importJobs"].([]any)
+	jobs, ok := resp["variantImportJobs"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, jobs)
 
@@ -122,7 +122,7 @@ func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	jobs2, ok := resp2["importJobs"].([]any)
+	jobs2, ok := resp2["variantImportJobs"].([]any)
 	require.True(t, ok)
 	require.Len(t, jobs2, 1)
 }

@@ -402,3 +402,25 @@ func TestPopulateIdMappingTable(t *testing.T) {
 	const emptyJobIDMsg = "empty IdMappingJobId means the handler is still emitting mappedJobIdentifier"
 	assert.NotEmpty(t, aws.ToString(out.IdMappingJobId), emptyJobIDMsg)
 }
+
+// TestListMembers_MemberSummaries proves ListMembers decodes through the
+// real SDK client. The handler wrapped its list under "memberList" -- the
+// real key (cleanrooms@v1.49.4 deserializers.go
+// awsRestjson1_deserializeOpDocumentListMembersOutput) is "memberSummaries";
+// "memberList" is an unrelated wire key from ProtectedQuery.Participants
+// (UpdateProtectedQueryOutput). The SDK deserializer's switch never matched
+// "memberList", so MemberSummaries silently decoded nil with err == nil.
+func TestListMembers_MemberSummaries(t *testing.T) {
+	t.Parallel()
+
+	client := newRoundTripTestClient(t)
+	ctx := t.Context()
+	collabID, _ := createCollaborationAndMembership(t, client)
+
+	listOut, listErr := client.ListMembers(ctx, &cleanroomssdk.ListMembersInput{
+		CollaborationIdentifier: aws.String(collabID),
+	})
+	require.NoError(t, listErr)
+	require.NotEmpty(t, listOut.MemberSummaries, "ListMembersOutput.MemberSummaries must decode a non-empty slice")
+	assert.Equal(t, "creator", aws.ToString(listOut.MemberSummaries[0].DisplayName))
+}

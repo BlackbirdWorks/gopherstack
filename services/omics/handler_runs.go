@@ -63,7 +63,7 @@ func (h *Handler) handleListRunGroups(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runGroups": groups, keyNextToken: next})
+	return c.JSON(http.StatusOK, map[string]any{keyItems: groups, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateRunGroup(c *echo.Context, id string) error {
@@ -176,7 +176,7 @@ func (h *Handler) handleListRuns(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runs": runs, keyNextToken: next})
+	return c.JSON(http.StatusOK, map[string]any{keyItems: runs, keyNextToken: next})
 }
 
 func (h *Handler) handleGetRunTask(c *echo.Context, runID, taskID string) error {
@@ -197,7 +197,7 @@ func (h *Handler) handleListRunTasks(c *echo.Context, runID string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"tasks": tasks, keyNextToken: next})
+	return c.JSON(http.StatusOK, map[string]any{keyItems: tasks, keyNextToken: next})
 }
 
 func (h *Handler) handleCreateRunCache(c *echo.Context) error {
@@ -244,7 +244,7 @@ func (h *Handler) handleListRunCaches(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runCaches": caches, keyNextToken: next})
+	return c.JSON(http.StatusOK, map[string]any{keyItems: caches, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateRunCache(c *echo.Context, id string) error {
@@ -497,7 +497,7 @@ func (h *Handler) handleListRunBatches(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runBatches": items, keyNextToken: next})
+	return c.JSON(http.StatusOK, map[string]any{keyItems: items, keyNextToken: next})
 }
 
 // handleDeleteRunBatch implements real AWS DeleteRunBatch: POST /runBatch/delete

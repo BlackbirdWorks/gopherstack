@@ -574,7 +574,7 @@ func TestListAnnotationImportJobs_OmitsGetOnlyFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp struct {
-		ImportJobs []map[string]any `json:"importJobs"`
+		ImportJobs []map[string]any `json:"annotationImportJobs"`
 	}
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
 	require.Len(t, resp.ImportJobs, 1)
@@ -622,7 +622,7 @@ func TestListVariantImportJobs_OmitsGetOnlyFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp struct {
-		ImportJobs []map[string]any `json:"importJobs"`
+		ImportJobs []map[string]any `json:"variantImportJobs"`
 	}
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
 	require.Len(t, resp.ImportJobs, 1)

@@ -52,7 +52,7 @@ func (h *Handler) handleListConfigurations(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"configurations": cfgs, keyNextToken: next})
+	return c.JSON(http.StatusOK, map[string]any{keyItems: cfgs, keyNextToken: next})
 }
 
 func (h *Handler) handlePutS3AccessPolicy(c *echo.Context, arn string) error {

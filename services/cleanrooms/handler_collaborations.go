@@ -109,7 +109,12 @@ func (h *Handler) handleListMembers(
 	if err != nil {
 		return nil, err
 	}
-	resp := map[string]any{"memberList": items}
+	// Real ListMembersOutput wraps the list under "memberSummaries", not
+	// "memberList" ("memberList" is ProtectedQuery.Participants' unrelated wire
+	// key, per UpdateProtectedQueryOutput) -- confirmed against
+	// cleanrooms@v1.49.4 deserializers.go
+	// awsRestjson1_deserializeOpDocumentListMembersOutput.
+	resp := map[string]any{"memberSummaries": items}
 	if next != "" {
 		resp["nextToken"] = next
 	}
