@@ -126,7 +126,7 @@ func TestAppStream_Images(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
-				perms := resp["SharedImagePermissions"].([]any)
+				perms := resp["SharedImagePermissionsList"].([]any)
 				assert.Len(t, perms, 1)
 			},
 		},
@@ -267,7 +267,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			},
 			body: map[string]any{
 				"ImageBuilderName": "sw-ib",
-				"Software":         []string{"pkg-a", "pkg-b"},
+				"SoftwareNames":    []string{"pkg-a", "pkg-b"},
 			},
 			wantCode: http.StatusOK,
 		},
@@ -278,16 +278,17 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 				createImageBuilder(t, h, "list-sw-ib")
 				rec := doRequest(t, h, "AssociateSoftwareToImageBuilder", map[string]any{
 					"ImageBuilderName": "list-sw-ib",
-					"Software":         []string{"pkg-x"},
+					"SoftwareNames":    []string{"pkg-x"},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
-			body:     map[string]any{"ImageBuilderName": "list-sw-ib"},
+			body:     map[string]any{"AssociatedResource": "list-sw-ib"},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
+				assert.Equal(t, "list-sw-ib", resp["AssociatedResource"])
 				assocs := resp["SoftwareAssociations"].([]any)
 				assert.Len(t, assocs, 1)
 			},
@@ -299,13 +300,13 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 				createImageBuilder(t, h, "dis-sw-ib")
 				rec := doRequest(t, h, "AssociateSoftwareToImageBuilder", map[string]any{
 					"ImageBuilderName": "dis-sw-ib",
-					"Software":         []string{"pkg-z"},
+					"SoftwareNames":    []string{"pkg-z"},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			body: map[string]any{
 				"ImageBuilderName": "dis-sw-ib",
-				"Software":         []string{"pkg-z"},
+				"SoftwareNames":    []string{"pkg-z"},
 			},
 			wantCode: http.StatusOK,
 		},

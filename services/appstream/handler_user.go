@@ -165,7 +165,7 @@ func (h *Handler) opBatchAssociateUserStack( //nolint:dupl // existing issue.
 		})
 	}
 
-	return map[string]any{"Errors": errResp}, nil
+	return map[string]any{"errors": errResp}, nil
 }
 
 func (h *Handler) opBatchDisassociateUserStack( //nolint:dupl // existing issue.
@@ -205,7 +205,7 @@ func (h *Handler) opBatchDisassociateUserStack( //nolint:dupl // existing issue.
 		})
 	}
 
-	return map[string]any{"Errors": errResp}, nil
+	return map[string]any{"errors": errResp}, nil
 }
 
 type describeUserStackAssociationsInput struct {
@@ -470,7 +470,7 @@ func userToResponse(u *User) map[string]any {
 		"FirstName":          u.FirstName,
 		"LastName":           u.LastName,
 		"AuthenticationType": u.AuthenticationType,
-		"Status":             u.Status,
+		keyStatus:            u.Status,
 		"Enabled":            u.Enabled,
 		"CreatedTime":        awstime.Epoch(u.CreatedTime), //nolint:goconst // existing issue.
 	}

@@ -544,7 +544,7 @@ func directoryConfigToResponse(dc *DirectoryConfig) map[string]any {
 	if certAuth.CertificateAuthorityArn != "" || certAuth.Status != "" {
 		resp["CertificateBasedAuthProperties"] = map[string]any{
 			"CertificateAuthorityArn": certAuth.CertificateAuthorityArn,
-			"Status":                  certAuth.Status,
+			keyStatus:                 certAuth.Status,
 		}
 	}
 

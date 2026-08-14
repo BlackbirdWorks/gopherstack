@@ -231,7 +231,7 @@ func TestAppStream_UserStackAssociations(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
-				errs := resp["Errors"].([]any)
+				errs := resp["errors"].([]any)
 				assert.Empty(t, errs)
 			},
 		},
@@ -252,7 +252,7 @@ func TestAppStream_UserStackAssociations(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
-				errs := resp["Errors"].([]any)
+				errs := resp["errors"].([]any)
 				assert.Len(t, errs, 1)
 			},
 		},

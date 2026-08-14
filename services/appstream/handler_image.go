@@ -71,7 +71,7 @@ func (h *Handler) opCreateUpdatedImage(_ context.Context, body []byte) (any, err
 		return nil, err
 	}
 
-	return map[string]any{"Image": imageToResponse(img)}, nil
+	return map[string]any{"image": imageToResponse(img)}, nil
 }
 
 type deleteImageInput struct {
@@ -186,17 +186,17 @@ func (h *Handler) opDescribeImagePermissions(_ context.Context, body []byte) (an
 	resp := make([]any, 0, len(perms))
 	for _, p := range perms {
 		resp = append(resp, map[string]any{
-			"SharedAccountId": p.SharedAccountID,
-			"ImagePermissions": map[string]any{
-				"AllowFleet":        p.ImagePermissions.AllowFleet,
-				"AllowImageBuilder": p.ImagePermissions.AllowImageBuilder,
+			"sharedAccountId": p.SharedAccountID,
+			"imagePermissions": map[string]any{
+				"allowFleet":        p.ImagePermissions.AllowFleet,
+				"allowImageBuilder": p.ImagePermissions.AllowImageBuilder,
 			},
 		})
 	}
 
 	return map[string]any{
-		"Name":                   req.Name, //nolint:goconst // existing issue.
-		"SharedImagePermissions": resp,
+		"Name":                       req.Name, //nolint:goconst // existing issue.
+		"SharedImagePermissionsList": resp,
 	}, nil
 }
 
@@ -344,7 +344,7 @@ func (h *Handler) opCreateImageBuilderStreamingURL(_ context.Context, body []byt
 
 type associateSoftwareInput struct {
 	ImageBuilderName string   `json:"ImageBuilderName"`
-	Software         []string `json:"Software"`
+	Software         []string `json:"SoftwareNames"`
 }
 
 func (h *Handler) opAssociateSoftwareToImageBuilder(_ context.Context, body []byte) (any, error) {
@@ -374,7 +374,7 @@ func (h *Handler) opDisassociateSoftwareFromImageBuilder(_ context.Context, body
 }
 
 type describeSoftwareAssociationsInput struct {
-	ImageBuilderName string `json:"ImageBuilderName"`
+	AssociatedResource string `json:"AssociatedResource"`
 }
 
 func (h *Handler) opDescribeSoftwareAssociations(_ context.Context, body []byte) (any, error) {
@@ -383,7 +383,7 @@ func (h *Handler) opDescribeSoftwareAssociations(_ context.Context, body []byte)
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	assocs, err := h.Backend.DescribeSoftwareAssociations(req.ImageBuilderName)
+	assocs, err := h.Backend.DescribeSoftwareAssociations(req.AssociatedResource)
 	if err != nil {
 		return nil, err
 	}
@@ -391,12 +391,15 @@ func (h *Handler) opDescribeSoftwareAssociations(_ context.Context, body []byte)
 	resp := make([]any, 0, len(assocs))
 	for _, a := range assocs {
 		resp = append(resp, map[string]any{
-			"ImageBuilderName": a.ImageBuilderName,
-			"Software":         a.Software,
+			"SoftwareName": a.Software,
+			keyStatus:      "INSTALLED",
 		})
 	}
 
-	return map[string]any{"SoftwareAssociations": resp}, nil
+	return map[string]any{
+		"AssociatedResource":   req.AssociatedResource,
+		"SoftwareAssociations": resp,
+	}, nil
 }
 
 type startSoftwareDeploymentInput struct {

@@ -21,6 +21,7 @@ const (
 	keyTags               = "Tags"
 	keyStreamingURL       = "StreamingURL"
 	keyExpires            = "Expires"
+	keyStatus             = "Status"
 )
 
 // Handler serves AppStream 2.0 JSON operations.
