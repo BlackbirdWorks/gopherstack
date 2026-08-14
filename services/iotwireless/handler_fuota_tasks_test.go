@@ -545,9 +545,7 @@ func TestHandler_FuotaTasks_FullLifecycle(t *testing.T) {
 	var createResp map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
 	fuotaID, _ := createResp["Id"].(string)
-	if fuotaID == "" {
-		t.Skip("fuota task creation not returning ID")
-	}
+	require.NotEmpty(t, fuotaID, "CreateFuotaTask must return an Id")
 
 	// GetFuotaTask.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/fuota-tasks/"+fuotaID, "")

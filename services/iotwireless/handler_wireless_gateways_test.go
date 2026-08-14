@@ -323,9 +323,7 @@ func TestHandler_WirelessGatewayAndDestinationUpdates(t *testing.T) {
 	var createResp map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
 	gwID, _ := createResp["Id"].(string)
-	if gwID == "" {
-		t.Skip("gateway creation not returning ID")
-	}
+	require.NotEmpty(t, gwID, "CreateWirelessGateway must return an Id")
 
 	// UpdateWirelessGateway.
 	rec = doIoTWRequest(t, h, http.MethodPatch, "/wireless-gateways/"+gwID,
