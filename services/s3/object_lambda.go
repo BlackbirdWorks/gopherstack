@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -174,7 +175,7 @@ func (h *S3Handler) handleObjectLambdaGetObject(
 	}
 }
 
-// handleWriteGetObjectResponse handles POST /?writeGetObjectResponse.
+// handleWriteGetObjectResponse handles POST /WriteGetObjectResponse.
 // It reads the transformed body and delivers it to the pending GetObject channel.
 func (h *S3Handler) handleWriteGetObjectResponse(
 	ctx context.Context,
@@ -266,7 +267,12 @@ func (d *inMemoryNotificationDispatcher) InvokeFunction(
 	return d.targets.LambdaInvoker.InvokeFunction(ctx, name, invocationType, payload)
 }
 
-// isWriteGetObjectResponseRequest returns true when the request targets WriteGetObjectResponse.
+// isWriteGetObjectResponseRequest returns true when the request targets
+// WriteGetObjectResponse: POST to the literal path "/WriteGetObjectResponse"
+// with no query string, per s3@v1.106.5 serializers.go:
+// awsRestxml_serializeOpWriteGetObjectResponse (httpbinding.SplitURI("/WriteGetObjectResponse")).
+// The real SDK never sends a ?writeGetObjectResponse query parameter.
 func isWriteGetObjectResponseRequest(r *http.Request) bool {
-	return r.URL.Query().Has("writeGetObjectResponse")
+	return r.Method == http.MethodPost &&
+		strings.TrimPrefix(r.URL.Path, "/") == "WriteGetObjectResponse"
 }

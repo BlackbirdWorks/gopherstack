@@ -115,7 +115,8 @@ func (h *S3Handler) deleteBucketMetadataTableConfiguration(
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleUpdateBucketMetadataInventoryTableConfig handles PUT /{bucket}?metadataInventoryTableConfiguration.
+// handleUpdateBucketMetadataInventoryTableConfig handles PUT /{bucket}?metadataInventoryTable
+// (s3@v1.106.5 serializers.go: awsRestxml_serializeOpUpdateBucketMetadataInventoryTableConfiguration).
 // Persists the inventory table configuration so it survives round-trips, matching real S3 behaviour.
 func (h *S3Handler) handleUpdateBucketMetadataInventoryTableConfig(
 	ctx context.Context,
@@ -145,7 +146,8 @@ func (h *S3Handler) handleUpdateBucketMetadataInventoryTableConfig(
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleUpdateBucketMetadataJournalTableConfig handles PUT /{bucket}?metadataJournalTableConfiguration.
+// handleUpdateBucketMetadataJournalTableConfig handles PUT /{bucket}?metadataJournalTable
+// (s3@v1.106.5 serializers.go: awsRestxml_serializeOpUpdateBucketMetadataJournalTableConfiguration).
 // Persists the journal table configuration so it survives round-trips, matching real S3 behaviour.
 func (h *S3Handler) handleUpdateBucketMetadataJournalTableConfig(
 	ctx context.Context,

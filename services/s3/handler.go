@@ -239,6 +239,21 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
+		// WriteGetObjectResponse targets a literal path ("/WriteGetObjectResponse",
+		// no query -- s3@v1.106.5 serializers.go:
+		// awsRestxml_serializeOpWriteGetObjectResponse) rather than a normal
+		// /{bucket}/{key} request, so it must be intercepted before bucket-name
+		// resolution: the path segment "WriteGetObjectResponse" contains
+		// uppercase letters and fails IsValidBucketName, which previously made
+		// resolveBucketAndKey reject every real WriteGetObjectResponse call with
+		// 400 InvalidBucketName before this handler's own dead ?writeGetObjectResponse
+		// query check ever ran.
+		if isWriteGetObjectResponseRequest(requestWithCtx) {
+			h.handleWriteGetObjectResponse(ctx, sw, requestWithCtx)
+
+			return nil
+		}
+
 		bucketName, key, ok := h.resolveBucketAndKey(ctx, sw, requestWithCtx)
 
 		if !ok {
@@ -350,7 +365,9 @@ func (h *S3Handler) Name() string {
 }
 
 // handleRootRequest dispatches requests whose path resolved to an empty
-// bucket name: ListBuckets, ListDirectoryBuckets, or WriteGetObjectResponse.
+// bucket name: ListBuckets or ListDirectoryBuckets. WriteGetObjectResponse is
+// intercepted earlier in Handler, before bucket-name resolution -- see
+// isWriteGetObjectResponseRequest.
 // Pulled out of Handler so its cognitive complexity stays below the linter
 // cap.
 func (h *S3Handler) handleRootRequest(
@@ -359,12 +376,6 @@ func (h *S3Handler) handleRootRequest(
 	r *http.Request,
 ) {
 	if r.Method != http.MethodGet {
-		if r.Method == http.MethodPost && isWriteGetObjectResponseRequest(r) {
-			h.handleWriteGetObjectResponse(ctx, sw, r)
-
-			return
-		}
-
 		WriteError(ctx, sw, r, ErrMethodNotAllowed)
 
 		return

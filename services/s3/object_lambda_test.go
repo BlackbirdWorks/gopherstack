@@ -43,7 +43,7 @@ func (l *staticObjectLambda) InvokeFunction(
 		return nil, 0, err
 	}
 
-	wgorURL := l.serverURL + "/?writeGetObjectResponse"
+	wgorURL := l.serverURL + "/WriteGetObjectResponse"
 	wgorReq, err := http.NewRequest(http.MethodPost, wgorURL, strings.NewReader(l.responseBody))
 	if err != nil {
 		return nil, 0, err

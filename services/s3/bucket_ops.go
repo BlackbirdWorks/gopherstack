@@ -107,7 +107,7 @@ func (h *S3Handler) routeBucketDeleteExtra(
 		h.deleteBucketInventoryConfiguration(ctx, w, r, bucket)
 	case r.URL.Query().Has("metadataConfiguration"):
 		h.deleteBucketMetadataConfiguration(ctx, w, r, bucket)
-	case r.URL.Query().Has("metadataTableConfiguration"):
+	case r.URL.Query().Has("metadataTable"):
 		h.deleteBucketMetadataTableConfiguration(ctx, w, r, bucket)
 	case r.URL.Query().Has("metrics"):
 		h.deleteBucketMetricsConfiguration(ctx, w, r, bucket)
@@ -141,10 +141,6 @@ func (h *S3Handler) routeBucketPut(
 		h.putBucketLifecycleConfiguration(ctx, w, r, bucket)
 	case q.Has("tagging"):
 		h.putBucketTagging(ctx, w, r, bucket)
-	case q.Has("metadataConfiguration"):
-		h.createBucketMetadataConfiguration(ctx, w, r, bucket)
-	case q.Has("metadataTableConfiguration"):
-		h.createBucketMetadataTableConfiguration(ctx, w, r, bucket)
 	default:
 		if !h.routeBucketPutExtra(ctx, w, r, bucket) {
 			h.createBucket(ctx, w, r, bucket)
@@ -220,9 +216,9 @@ func (h *S3Handler) routeBucketPutConfig(
 		h.handlePutBucketAbac(ctx, w, r)
 	case q.Has("requestPayment"):
 		h.handlePutBucketRequestPayment(ctx, w, r)
-	case q.Has("metadataInventoryTableConfiguration"):
+	case q.Has("metadataInventoryTable"):
 		h.handleUpdateBucketMetadataInventoryTableConfig(ctx, w, r)
-	case q.Has("metadataJournalTableConfiguration"):
+	case q.Has("metadataJournalTable"):
 		h.handleUpdateBucketMetadataJournalTableConfig(ctx, w, r)
 	default:
 		return false
@@ -237,8 +233,25 @@ func (h *S3Handler) routeBucketPost(
 	r *http.Request,
 	bucket string,
 ) {
-	if r.URL.Query().Has("delete") {
+	q := r.URL.Query()
+
+	if q.Has("delete") {
 		h.deleteObjects(ctx, w, r, bucket)
+
+		return
+	}
+
+	// CreateBucketMetadataConfiguration and CreateBucketMetadataTableConfiguration
+	// are POST, not PUT, per the pinned SDK (s3@v1.106.5 serializers.go:
+	// awsRestxml_serializeOpCreateBucketMetadataConfiguration /
+	// ...CreateBucketMetadataTableConfiguration both set request.Method = "POST").
+	if q.Has("metadataConfiguration") {
+		h.createBucketMetadataConfiguration(ctx, w, r, bucket)
+
+		return
+	}
+	if q.Has("metadataTable") {
+		h.createBucketMetadataTableConfiguration(ctx, w, r, bucket)
 
 		return
 	}
@@ -332,7 +345,7 @@ func (h *S3Handler) routeBucketGetExtra(
 	switch {
 	case q.Has("metadataConfiguration"):
 		h.getBucketMetadataConfiguration(ctx, w, r, bucket)
-	case q.Has("metadataTableConfiguration"):
+	case q.Has("metadataTable"):
 		h.getBucketMetadataTableConfiguration(ctx, w, r, bucket)
 	case q.Has("session"):
 		h.createSession(ctx, w, r, bucket)
