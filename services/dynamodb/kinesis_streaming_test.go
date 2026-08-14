@@ -474,3 +474,94 @@ func buildEnableKinesisInput(
 
 	return in
 }
+
+// TestEnableKinesisStreamingDestination_ConfigEcho_SurvivesWireConversion
+// verifies that EnableKinesisStreamingDestinationOutput.EnableKinesisStreamingConfiguration
+// is populated in the response. The backend already computes the effective
+// precision (defaulting to MILLISECOND) and stores it on the destination, but
+// enableKinesisOutput never declared the field, so it was silently dropped on
+// every call.
+func TestEnableKinesisStreamingDestination_ConfigEcho_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(dynamodb.NewInMemoryDB()))
+	keySchema, attrDefs := wireTestKeySchema()
+
+	_, err := client.CreateTable(t.Context(), &sdk.CreateTableInput{
+		TableName:            aws.String("ekc-table"),
+		KeySchema:            keySchema,
+		AttributeDefinitions: attrDefs,
+		BillingMode:          types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/ekc-stream"
+
+	out, err := client.EnableKinesisStreamingDestination(t.Context(), &sdk.EnableKinesisStreamingDestinationInput{
+		TableName: aws.String("ekc-table"),
+		StreamArn: aws.String(streamARN),
+		EnableKinesisStreamingConfiguration: &types.EnableKinesisStreamingConfiguration{
+			ApproximateCreationDateTimePrecision: types.ApproximateCreationDateTimePrecisionMicrosecond,
+		},
+	})
+	require.NoError(t, err)
+
+	require.NotNil(
+		t,
+		out.EnableKinesisStreamingConfiguration,
+		"EnableKinesisStreamingConfiguration must survive the wire round-trip",
+	)
+	assert.Equal(
+		t,
+		types.ApproximateCreationDateTimePrecisionMicrosecond,
+		out.EnableKinesisStreamingConfiguration.ApproximateCreationDateTimePrecision,
+	)
+}
+
+// TestUpdateKinesisStreamingDestination_ConfigEcho_SurvivesWireConversion
+// verifies that UpdateKinesisStreamingDestinationOutput.UpdateKinesisStreamingConfiguration
+// is populated in the response. updateKinesisStreamingDestinationOutput never
+// declared the field, even though the backend already persists the requested
+// precision on the destination.
+func TestUpdateKinesisStreamingDestination_ConfigEcho_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(dynamodb.NewInMemoryDB()))
+	keySchema, attrDefs := wireTestKeySchema()
+
+	_, err := client.CreateTable(t.Context(), &sdk.CreateTableInput{
+		TableName:            aws.String("ukc-table"),
+		KeySchema:            keySchema,
+		AttributeDefinitions: attrDefs,
+		BillingMode:          types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/ukc-stream"
+
+	_, err = client.EnableKinesisStreamingDestination(
+		t.Context(),
+		buildEnableKinesisInput("ukc-table", streamARN, ""),
+	)
+	require.NoError(t, err)
+
+	out, err := client.UpdateKinesisStreamingDestination(t.Context(), &sdk.UpdateKinesisStreamingDestinationInput{
+		TableName: aws.String("ukc-table"),
+		StreamArn: aws.String(streamARN),
+		UpdateKinesisStreamingConfiguration: &types.UpdateKinesisStreamingConfiguration{
+			ApproximateCreationDateTimePrecision: types.ApproximateCreationDateTimePrecisionMicrosecond,
+		},
+	})
+	require.NoError(t, err)
+
+	require.NotNil(
+		t,
+		out.UpdateKinesisStreamingConfiguration,
+		"UpdateKinesisStreamingConfiguration must survive the wire round-trip",
+	)
+	assert.Equal(
+		t,
+		types.ApproximateCreationDateTimePrecisionMicrosecond,
+		out.UpdateKinesisStreamingConfiguration.ApproximateCreationDateTimePrecision,
+	)
+}

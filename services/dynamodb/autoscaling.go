@@ -67,12 +67,12 @@ func throughputFromUpdate(u *types.AutoScalingSettingsUpdate) *autoScalingThroug
 }
 
 // applyAutoScalingSettingsLocked sets table.AutoScaling from input and
-// snapshots the table's name, status, and replica list, all under a single
-// defer-protected table.mu.Lock.
+// snapshots the table's name, status, replica list, and the just-applied
+// write-capacity settings, all under a single defer-protected table.mu.Lock.
 func applyAutoScalingSettingsLocked(
 	table *Table,
 	input *dynamodb.UpdateTableReplicaAutoScalingInput,
-) (string, string, []models.ReplicaDescription) {
+) (string, string, []models.ReplicaDescription, *autoScalingThroughput) {
 	table.mu.Lock("UpdateTableReplicaAutoScaling")
 	defer table.mu.Unlock()
 
@@ -80,7 +80,7 @@ func applyAutoScalingSettingsLocked(
 	replicas := make([]models.ReplicaDescription, len(table.Replicas))
 	copy(replicas, table.Replicas)
 
-	return table.Name, table.Status, replicas
+	return table.Name, table.Status, replicas, table.AutoScaling.Write
 }
 
 // --- UpdateTableReplicaAutoScaling ---
@@ -100,7 +100,7 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 		return nil, err
 	}
 
-	tableName, tableStatus, replicas := applyAutoScalingSettingsLocked(table, input)
+	tableName, tableStatus, replicas, write := applyAutoScalingSettingsLocked(table, input)
 
 	replicaDescs := make([]types.ReplicaAutoScalingDescription, 0, len(replicas))
 
@@ -110,6 +110,7 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 		replicaDescs = append(replicaDescs, types.ReplicaAutoScalingDescription{
 			RegionName:    &region,
 			ReplicaStatus: types.ReplicaStatusActive,
+			ReplicaProvisionedWriteCapacityAutoScalingSettings: sdkAutoScalingSettingsDescription(write),
 		})
 	}
 
@@ -120,4 +121,20 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 			Replicas:    replicaDescs,
 		},
 	}, nil
+}
+
+// sdkAutoScalingSettingsDescription converts a persisted autoScalingThroughput
+// into the SDK description type, or nil if t is nil (no settings configured).
+func sdkAutoScalingSettingsDescription(t *autoScalingThroughput) *types.AutoScalingSettingsDescription {
+	if t == nil {
+		return nil
+	}
+
+	disabled := t.Disabled
+
+	return &types.AutoScalingSettingsDescription{
+		MinimumUnits:        t.MinCapacity,
+		MaximumUnits:        t.MaxCapacity,
+		AutoScalingDisabled: &disabled,
+	}
 }

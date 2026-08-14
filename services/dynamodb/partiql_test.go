@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -873,4 +874,99 @@ func TestPartiQL_UpdateREMOVE(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestExecuteStatement_Limit_SurvivesWireConversion verifies that
+// ExecuteStatementInput's structured Limit field (distinct from a "LIMIT n"
+// clause embedded in the statement text) reaches the backend. executeStatementRequest
+// previously had no Limit field at all, so a real client's page-size request
+// was silently ignored and every matching row was always returned.
+func TestExecuteStatement_Limit_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(dynamodb.NewInMemoryDB()))
+	keySchema, attrDefs := wireTestKeySchema()
+
+	_, err := client.CreateTable(t.Context(), &sdk.CreateTableInput{
+		TableName:            aws.String("es-limit-table"),
+		KeySchema:            keySchema,
+		AttributeDefinitions: attrDefs,
+		BillingMode:          types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	for i := range 5 {
+		_, err = client.PutItem(t.Context(), &sdk.PutItemInput{
+			TableName: aws.String("es-limit-table"),
+			Item: map[string]types.AttributeValue{
+				"id": &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d", i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ExecuteStatement(t.Context(), &sdk.ExecuteStatementInput{
+		Statement: aws.String(`SELECT * FROM "es-limit-table"`),
+		Limit:     aws.Int32(2),
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, out.Items, 2, "the structured Limit field must survive the wire round-trip")
+}
+
+// batchExecStatementSpy wraps InMemoryDB and records the ConsistentRead flag
+// each BatchExecuteStatement call actually receives. This in-memory backend
+// always reads the latest state whether or not ConsistentRead is set, so
+// there is no externally observable behavior difference to assert on --
+// the spy lets the test prove the value reached the backend at all, while
+// still driving the real SDK client through the real wire handler.
+type batchExecStatementSpy struct {
+	*dynamodb.InMemoryDB
+
+	lastConsistentRead *bool
+}
+
+func (s *batchExecStatementSpy) BatchExecuteStatement(
+	ctx context.Context,
+	input *sdk.BatchExecuteStatementInput,
+) (*sdk.BatchExecuteStatementOutput, error) {
+	if len(input.Statements) > 0 {
+		s.lastConsistentRead = input.Statements[0].ConsistentRead
+	}
+
+	return s.InMemoryDB.BatchExecuteStatement(ctx, input)
+}
+
+// TestBatchExecuteStatement_ConsistentRead_SurvivesWireConversion verifies
+// that a per-statement ConsistentRead flag reaches the backend.
+// batchStatementRequest previously had no ConsistentRead field at all, even
+// though InMemoryDB.BatchExecuteStatement already forwards
+// types.BatchStatementRequest.ConsistentRead correctly once it arrives.
+func TestBatchExecuteStatement_ConsistentRead_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	spy := &batchExecStatementSpy{InMemoryDB: dynamodb.NewInMemoryDB()}
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(spy))
+	keySchema, attrDefs := wireTestKeySchema()
+
+	_, err := client.CreateTable(t.Context(), &sdk.CreateTableInput{
+		TableName:            aws.String("besc-table"),
+		KeySchema:            keySchema,
+		AttributeDefinitions: attrDefs,
+		BillingMode:          types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	_, err = client.BatchExecuteStatement(t.Context(), &sdk.BatchExecuteStatementInput{
+		Statements: []types.BatchStatementRequest{
+			{
+				Statement:      aws.String(`SELECT * FROM "besc-table" WHERE id = 'x'`),
+				ConsistentRead: aws.Bool(true),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, spy.lastConsistentRead, "ConsistentRead must survive the wire round-trip")
+	assert.True(t, *spy.lastConsistentRead)
 }

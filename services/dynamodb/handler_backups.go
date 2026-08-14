@@ -411,8 +411,9 @@ type describeTableReplicaAutoScalingInput struct {
 }
 
 type replicaAutoScalingDescription struct {
-	RegionName    string `json:"RegionName"`
-	ReplicaStatus string `json:"ReplicaStatus"`
+	WriteCapAutoScaling *autoScalingSettingsDescWire `json:"ReplicaProvisionedWriteCapacityAutoScalingSettings,omitempty"`
+	RegionName          string                       `json:"RegionName"`
+	ReplicaStatus       string                       `json:"ReplicaStatus"`
 }
 
 type tableAutoScalingDescription struct {
@@ -425,17 +426,25 @@ type describeTableReplicaAutoScalingOutput struct {
 	TableAutoScalingDescription tableAutoScalingDescription `json:"TableAutoScalingDescription"`
 }
 
-// replicaAutoScalingDescriptionsRLocked copies table.Replicas into the wire
-// shape under a defer-protected table.mu.RLock.
+// replicaAutoScalingDescriptionsRLocked copies table.Replicas, along with the
+// table's write-capacity autoscaling settings (applied uniformly to every
+// replica -- this emulator doesn't model per-replica overrides), into the
+// wire shape under a defer-protected table.mu.RLock.
 func replicaAutoScalingDescriptionsRLocked(table *Table) []replicaAutoScalingDescription {
 	table.mu.RLock(opDescribeTableReplicaAutoScaling)
 	defer table.mu.RUnlock()
 
+	var write *autoScalingSettingsDescWire
+	if table.AutoScaling != nil {
+		write = autoScalingSettingsDescWireFromStored(table.AutoScaling.Write)
+	}
+
 	replicas := make([]replicaAutoScalingDescription, 0, len(table.Replicas))
 	for _, r := range table.Replicas {
 		replicas = append(replicas, replicaAutoScalingDescription{
-			RegionName:    r.RegionName,
-			ReplicaStatus: r.ReplicaStatus,
+			RegionName:          r.RegionName,
+			ReplicaStatus:       r.ReplicaStatus,
+			WriteCapAutoScaling: write,
 		})
 	}
 

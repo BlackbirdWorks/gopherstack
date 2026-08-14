@@ -258,6 +258,7 @@ type Table struct {
 	OnDemandMaxWriteRRU    *int64                        `json:"OnDemandMaxWriteRRU,omitempty"`
 	OnDemandMaxReadRRU     *int64                        `json:"OnDemandMaxReadRRU,omitempty"`
 	ResourcePolicy         string                        `json:"ResourcePolicy,omitempty"`
+	ResourcePolicyRevision string                        `json:"ResourcePolicyRevision,omitempty"`
 	TTLAttribute           string                        `json:"TTLAttribute,omitempty"`
 	StreamViewType         string                        `json:"StreamViewType,omitempty"`
 	StreamARN              string                        `json:"StreamARN,omitempty"`

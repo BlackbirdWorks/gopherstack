@@ -52,9 +52,10 @@ type enableKinesisInput struct {
 }
 
 type enableKinesisOutput struct {
-	TableName         string `json:"TableName,omitempty"`
-	StreamArn         string `json:"StreamArn,omitempty"`
-	DestinationStatus string `json:"DestinationStatus,omitempty"`
+	StreamingConfig   *enableKinesisStreamingConfigWire `json:"EnableKinesisStreamingConfiguration,omitempty"`
+	TableName         string                            `json:"TableName,omitempty"`
+	StreamArn         string                            `json:"StreamArn,omitempty"`
+	DestinationStatus string                            `json:"DestinationStatus,omitempty"`
 }
 
 func (h *DynamoDBHandler) handleDescribeKinesisStreamingDestination(
@@ -116,6 +117,36 @@ func (h *DynamoDBHandler) handleDisableKinesisStreamingDestination(
 	}, nil
 }
 
+// toSDKEnableKinesisStreamingConfig converts the wire precision config to the
+// SDK type, or nil if w is nil (an omitted request member).
+func toSDKEnableKinesisStreamingConfig(
+	w *enableKinesisStreamingConfigWire,
+) *types.EnableKinesisStreamingConfiguration {
+	if w == nil {
+		return nil
+	}
+
+	return &types.EnableKinesisStreamingConfiguration{
+		ApproximateCreationDateTimePrecision: types.ApproximateCreationDateTimePrecision(
+			w.ApproximateCreationDateTimePrecision,
+		),
+	}
+}
+
+// fromSDKEnableKinesisStreamingConfig converts the SDK precision config to the
+// wire type, or nil if c is nil.
+func fromSDKEnableKinesisStreamingConfig(
+	c *types.EnableKinesisStreamingConfiguration,
+) *enableKinesisStreamingConfigWire {
+	if c == nil {
+		return nil
+	}
+
+	return &enableKinesisStreamingConfigWire{
+		ApproximateCreationDateTimePrecision: string(c.ApproximateCreationDateTimePrecision),
+	}
+}
+
 func (h *DynamoDBHandler) handleEnableKinesisStreamingDestination(
 	ctx context.Context,
 	body []byte,
@@ -125,21 +156,11 @@ func (h *DynamoDBHandler) handleEnableKinesisStreamingDestination(
 		return nil, err
 	}
 
-	enableInput := &sdkDDB.EnableKinesisStreamingDestinationInput{
-		TableName: &req.TableName,
-		StreamArn: &req.StreamArn,
-	}
-
-	if req.StreamingConfig != nil {
-		precision := types.ApproximateCreationDateTimePrecision(
-			req.StreamingConfig.ApproximateCreationDateTimePrecision,
-		)
-		enableInput.EnableKinesisStreamingConfiguration = &types.EnableKinesisStreamingConfiguration{
-			ApproximateCreationDateTimePrecision: precision,
-		}
-	}
-
-	out, err := h.Backend.EnableKinesisStreamingDestination(ctx, enableInput)
+	out, err := h.Backend.EnableKinesisStreamingDestination(ctx, &sdkDDB.EnableKinesisStreamingDestinationInput{
+		TableName:                           &req.TableName,
+		StreamArn:                           &req.StreamArn,
+		EnableKinesisStreamingConfiguration: toSDKEnableKinesisStreamingConfig(req.StreamingConfig),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -148,6 +169,7 @@ func (h *DynamoDBHandler) handleEnableKinesisStreamingDestination(
 		TableName:         ptrconv.String(out.TableName),
 		StreamArn:         ptrconv.String(out.StreamArn),
 		DestinationStatus: string(out.DestinationStatus),
+		StreamingConfig:   fromSDKEnableKinesisStreamingConfig(out.EnableKinesisStreamingConfiguration),
 	}, nil
 }
 
@@ -164,9 +186,40 @@ type updateKinesisStreamingDestinationInput struct {
 }
 
 type updateKinesisStreamingDestinationOutput struct {
-	TableName         string `json:"TableName"`
-	StreamArn         string `json:"StreamArn"`
-	DestinationStatus string `json:"DestinationStatus"`
+	StreamingConfig   *updateKinesisStreamingConfigWire `json:"UpdateKinesisStreamingConfiguration,omitempty"`
+	TableName         string                            `json:"TableName"`
+	StreamArn         string                            `json:"StreamArn"`
+	DestinationStatus string                            `json:"DestinationStatus"`
+}
+
+// toSDKUpdateKinesisStreamingConfig converts the wire precision config to the
+// SDK type, or nil if w is nil (an omitted request member).
+func toSDKUpdateKinesisStreamingConfig(
+	w *updateKinesisStreamingConfigWire,
+) *types.UpdateKinesisStreamingConfiguration {
+	if w == nil {
+		return nil
+	}
+
+	return &types.UpdateKinesisStreamingConfiguration{
+		ApproximateCreationDateTimePrecision: types.ApproximateCreationDateTimePrecision(
+			w.ApproximateCreationDateTimePrecision,
+		),
+	}
+}
+
+// fromSDKUpdateKinesisStreamingConfig converts the SDK precision config to the
+// wire type, or nil if c is nil.
+func fromSDKUpdateKinesisStreamingConfig(
+	c *types.UpdateKinesisStreamingConfiguration,
+) *updateKinesisStreamingConfigWire {
+	if c == nil {
+		return nil
+	}
+
+	return &updateKinesisStreamingConfigWire{
+		ApproximateCreationDateTimePrecision: string(c.ApproximateCreationDateTimePrecision),
+	}
 }
 
 func (h *DynamoDBHandler) handleUpdateKinesisStreamingDestination(
@@ -178,21 +231,11 @@ func (h *DynamoDBHandler) handleUpdateKinesisStreamingDestination(
 		return nil, err
 	}
 
-	updateInput := &sdkDDB.UpdateKinesisStreamingDestinationInput{
-		TableName: &req.TableName,
-		StreamArn: &req.StreamArn,
-	}
-
-	if req.StreamingConfig != nil {
-		precision := types.ApproximateCreationDateTimePrecision(
-			req.StreamingConfig.ApproximateCreationDateTimePrecision,
-		)
-		updateInput.UpdateKinesisStreamingConfiguration = &types.UpdateKinesisStreamingConfiguration{
-			ApproximateCreationDateTimePrecision: precision,
-		}
-	}
-
-	out, err := h.Backend.UpdateKinesisStreamingDestination(ctx, updateInput)
+	out, err := h.Backend.UpdateKinesisStreamingDestination(ctx, &sdkDDB.UpdateKinesisStreamingDestinationInput{
+		TableName:                           &req.TableName,
+		StreamArn:                           &req.StreamArn,
+		UpdateKinesisStreamingConfiguration: toSDKUpdateKinesisStreamingConfig(req.StreamingConfig),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -201,5 +244,6 @@ func (h *DynamoDBHandler) handleUpdateKinesisStreamingDestination(
 		TableName:         ptrconv.String(out.TableName),
 		StreamArn:         ptrconv.String(out.StreamArn),
 		DestinationStatus: string(out.DestinationStatus),
+		StreamingConfig:   fromSDKUpdateKinesisStreamingConfig(out.UpdateKinesisStreamingConfiguration),
 	}, nil
 }

@@ -153,10 +153,20 @@ func (db *InMemoryDB) EnableKinesisStreamingDestination(
 
 	addOrUpdateKinesisDestinationLocked(table, streamARN, precision)
 
+	effectivePrecision := precision
+	if effectivePrecision == "" {
+		effectivePrecision = string(types.ApproximateCreationDateTimePrecisionMillisecond)
+	}
+
 	return &dynamodb.EnableKinesisStreamingDestinationOutput{
 		TableName:         &tableName,
 		StreamArn:         &streamARN,
 		DestinationStatus: types.DestinationStatusEnabling,
+		EnableKinesisStreamingConfiguration: &types.EnableKinesisStreamingConfiguration{
+			ApproximateCreationDateTimePrecision: types.ApproximateCreationDateTimePrecision(
+				effectivePrecision,
+			),
+		},
 	}, nil
 }
 
@@ -213,7 +223,7 @@ func (db *InMemoryDB) UpdateKinesisStreamingDestination(
 		precision = &p
 	}
 
-	found := updateKinesisDestinationPrecisionLocked(table, streamARN, precision)
+	found, effectivePrecision := updateKinesisDestinationPrecisionLocked(table, streamARN, precision)
 	if !found {
 		return nil, &Error{
 			Type:    errResourceNotFoundExceptionType,
@@ -221,18 +231,31 @@ func (db *InMemoryDB) UpdateKinesisStreamingDestination(
 		}
 	}
 
+	if effectivePrecision == "" {
+		effectivePrecision = string(types.ApproximateCreationDateTimePrecisionMillisecond)
+	}
+
 	return &dynamodb.UpdateKinesisStreamingDestinationOutput{
 		TableName:         &tableName,
 		StreamArn:         &streamARN,
 		DestinationStatus: types.DestinationStatusActive,
+		UpdateKinesisStreamingConfiguration: &types.UpdateKinesisStreamingConfiguration{
+			ApproximateCreationDateTimePrecision: types.ApproximateCreationDateTimePrecision(
+				effectivePrecision,
+			),
+		},
 	}, nil
 }
 
 // updateKinesisDestinationPrecisionLocked finds the destination matching
 // streamARN and, if precision is non-nil, updates its Precision field, all
 // under a defer-protected table.mu.Lock. Reports whether a matching
-// destination was found.
-func updateKinesisDestinationPrecisionLocked(table *Table, streamARN string, precision *string) bool {
+// destination was found, along with its current (possibly just-updated) precision.
+func updateKinesisDestinationPrecisionLocked(
+	table *Table,
+	streamARN string,
+	precision *string,
+) (bool, string) {
 	table.mu.Lock("UpdateKinesisStreamingDestination")
 	defer table.mu.Unlock()
 
@@ -241,12 +264,12 @@ func updateKinesisDestinationPrecisionLocked(table *Table, streamARN string, pre
 	})
 
 	if idx < 0 {
-		return false
+		return false, ""
 	}
 
 	if precision != nil {
 		table.KinesisDestinations[idx].Precision = *precision
 	}
 
-	return true
+	return true, table.KinesisDestinations[idx].Precision
 }

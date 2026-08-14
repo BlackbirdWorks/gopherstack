@@ -82,7 +82,13 @@ var (
 const minRegexMatch = 2
 
 // executeStatementRequest is the wire format for ExecuteStatement.
+//
+// Limit is the SDK's structured page-size field (dynamodb.ExecuteStatementInput.Limit,
+// serialized as a top-level "Limit" JSON integer -- see serializers.go's
+// awsAwsjson10_serializeOpDocumentExecuteStatementInput), distinct from a
+// "LIMIT n" clause embedded in the Statement text itself.
 type executeStatementRequest struct {
+	Limit          *int32           `json:"Limit,omitempty"`
 	Statement      string           `json:"Statement"`
 	NextToken      string           `json:"NextToken,omitempty"`
 	Parameters     []map[string]any `json:"Parameters,omitempty"`
@@ -99,9 +105,15 @@ type executeStatementResponse struct {
 }
 
 // batchStatementRequest is one statement entry inside BatchExecuteStatement.
+//
+// ConsistentRead mirrors types.BatchStatementRequest.ConsistentRead (see
+// serializers.go's awsAwsjson10_serializeDocumentBatchStatementRequest). The
+// backend's BatchExecuteStatement already forwards it correctly once it
+// arrives; without this field it never left the wire request.
 type batchStatementRequest struct {
-	Statement  string           `json:"Statement"`
-	Parameters []map[string]any `json:"Parameters,omitempty"`
+	Statement      string           `json:"Statement"`
+	Parameters     []map[string]any `json:"Parameters,omitempty"`
+	ConsistentRead bool             `json:"ConsistentRead,omitempty"`
 }
 
 // batchExecuteStatementRequest is the wire format for BatchExecuteStatement.
@@ -242,8 +254,9 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(
 		}
 
 		sdkStmts = append(sdkStmts, types.BatchStatementRequest{
-			Statement:  aws.String(s.Statement),
-			Parameters: sdkParams,
+			Statement:      aws.String(s.Statement),
+			Parameters:     sdkParams,
+			ConsistentRead: aws.Bool(s.ConsistentRead),
 		})
 		originalIdx = append(originalIdx, i)
 	}
@@ -311,6 +324,11 @@ func (r *partiQLRunner) executePartiQLSelect(
 	whereClause := partiqlExtractWhere(substituted)
 	filterExpr, eav := partiqlSubstituteLiterals(whereClause, eav)
 	limit := partiqlExtractLimit(substituted)
+	// The structured Limit field (set via the SDK request, not statement text)
+	// takes precedence when present, matching real ExecuteStatementInput.Limit.
+	if req.Limit != nil && *req.Limit > 0 {
+		limit = int(*req.Limit)
+	}
 	colList := partiqlExtractColumns(substituted)
 	scanIndexForward := partiqlExtractScanIndexForward(substituted)
 
