@@ -1328,3 +1328,146 @@ func TestIntegration_ECS_TaskProtection(t *testing.T) {
 	assert.Len(t, getOut.ProtectedTasks, 1)
 	assert.True(t, getOut.ProtectedTasks[0].ProtectionEnabled)
 }
+
+// TestIntegration_ECS_RunTask_ContainerNetworkBindings round-trips a task
+// definition with a port mapping through RunTask and DescribeTasks, verifying
+// the nested containers[].networkBindings shape (bindIP/containerPort/hostPort/
+// protocol) that a list-only sweep would never exercise.
+func TestIntegration_ECS_RunTask_ContainerNetworkBindings(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	clusterName := "netbind-cluster-" + suffix
+	family := "netbind-task-" + suffix
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	regOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String(family),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{
+				Name:      aws.String("web"),
+				Image:     aws.String("nginx:latest"),
+				Essential: aws.Bool(true),
+				PortMappings: []ecstypes.PortMapping{
+					{
+						ContainerPort: aws.Int32(8080),
+						HostPort:      aws.Int32(30080),
+						Protocol:      ecstypes.TransportProtocolTcp,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	runOut, err := client.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(clusterName),
+		TaskDefinition: regOut.TaskDefinition.TaskDefinitionArn,
+		Count:          aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, runOut.Tasks, 1)
+
+	taskArn := aws.ToString(runOut.Tasks[0].TaskArn)
+
+	descOut, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(clusterName),
+		Tasks:   []string{taskArn},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.Tasks, 1)
+	require.Len(t, descOut.Tasks[0].Containers, 1)
+
+	container := descOut.Tasks[0].Containers[0]
+	assert.Equal(t, "web", aws.ToString(container.Name))
+	assert.Equal(t, "RUNNING", aws.ToString(container.LastStatus))
+	require.Len(t, container.NetworkBindings, 1)
+
+	binding := container.NetworkBindings[0]
+	assert.Equal(t, int32(8080), aws.ToInt32(binding.ContainerPort))
+	assert.Equal(t, int32(30080), aws.ToInt32(binding.HostPort))
+	assert.Equal(t, ecstypes.TransportProtocolTcp, binding.Protocol)
+	assert.Equal(t, "0.0.0.0", aws.ToString(binding.BindIP))
+}
+
+// TestIntegration_ECS_Service_LoadBalancers_Deployments round-trips a service
+// created with a load balancer target group through CreateService and
+// DescribeServices, verifying the service-level loadBalancers list and the
+// nested deployments[] entry AWS returns alongside it.
+func TestIntegration_ECS_Service_LoadBalancers_Deployments(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	clusterName := "lb-svc-cluster-" + suffix
+	family := "lb-svc-task-" + suffix
+	serviceName := "lb-svc-" + suffix
+	targetGroupArn := "arn:aws:elasticloadbalancing:us-east-1:000000000000:targetgroup/tg-" + suffix + "/0123456789abcdef"
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	regOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String(family),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{
+				Name:      aws.String("web"),
+				Image:     aws.String("nginx:latest"),
+				Essential: aws.Bool(true),
+				PortMappings: []ecstypes.PortMapping{
+					{ContainerPort: aws.Int32(80), Protocol: ecstypes.TransportProtocolTcp},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateService(ctx, &ecs.CreateServiceInput{
+		Cluster:        aws.String(clusterName),
+		ServiceName:    aws.String(serviceName),
+		TaskDefinition: regOut.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:   aws.Int32(1),
+		LoadBalancers: []ecstypes.LoadBalancer{
+			{
+				TargetGroupArn: aws.String(targetGroupArn),
+				ContainerName:  aws.String("web"),
+				ContainerPort:  aws.Int32(80),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	descOut, err := client.DescribeServices(ctx, &ecs.DescribeServicesInput{
+		Cluster:  aws.String(clusterName),
+		Services: []string{serviceName},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.Services, 1)
+
+	svc := descOut.Services[0]
+	require.Len(t, svc.LoadBalancers, 1)
+	assert.Equal(t, targetGroupArn, aws.ToString(svc.LoadBalancers[0].TargetGroupArn))
+	assert.Equal(t, "web", aws.ToString(svc.LoadBalancers[0].ContainerName))
+	assert.Equal(t, int32(80), aws.ToInt32(svc.LoadBalancers[0].ContainerPort))
+
+	require.NotEmpty(t, svc.Deployments)
+	assert.Equal(
+		t,
+		aws.ToString(regOut.TaskDefinition.TaskDefinitionArn),
+		aws.ToString(svc.Deployments[0].TaskDefinition),
+	)
+	assert.Equal(t, int32(1), svc.Deployments[0].DesiredCount)
+}

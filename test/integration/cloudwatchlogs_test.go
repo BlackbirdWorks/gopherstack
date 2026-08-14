@@ -586,3 +586,115 @@ func TestIntegration_CloudWatchLogs_Insights_Extended(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegration_CloudWatchLogs_MetricFilter_RoundTrip round-trips a metric
+// filter's transformations through PutMetricFilter and DescribeMetricFilters,
+// verifying the nested metricTransformations[] list item fields (namespace,
+// name, value, default value, dimensions) that feed real CloudWatch Alarms.
+// No prior real-client test exercises this family at all.
+func TestIntegration_CloudWatchLogs_MetricFilter_RoundTrip(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createCloudWatchLogsClient(t)
+	ctx := t.Context()
+
+	groupName := "/test/metric-filter-" + uuid.NewString()[:8]
+	filterName := "filter-" + uuid.NewString()[:8]
+
+	_, err := client.CreateLogGroup(ctx, &cloudwatchlogssdk.CreateLogGroupInput{
+		LogGroupName: aws.String(groupName),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteLogGroup(cleanupCtx, &cloudwatchlogssdk.DeleteLogGroupInput{
+			LogGroupName: aws.String(groupName),
+		})
+	})
+
+	_, err = client.PutMetricFilter(ctx, &cloudwatchlogssdk.PutMetricFilterInput{
+		LogGroupName:  aws.String(groupName),
+		FilterName:    aws.String(filterName),
+		FilterPattern: aws.String(`{ $.latency > 100 }`),
+		MetricTransformations: []cwlogstypes.MetricTransformation{
+			{
+				MetricNamespace: aws.String("IntegrationTest"),
+				MetricName:      aws.String("HighLatencyCount"),
+				MetricValue:     aws.String("1"),
+				DefaultValue:    aws.Float64(0),
+				Dimensions: map[string]string{
+					"Service": "api",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	descOut, err := client.DescribeMetricFilters(ctx, &cloudwatchlogssdk.DescribeMetricFiltersInput{
+		LogGroupName: aws.String(groupName),
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.MetricFilters, 1)
+
+	mf := descOut.MetricFilters[0]
+	assert.Equal(t, filterName, aws.ToString(mf.FilterName))
+	assert.Equal(t, `{ $.latency > 100 }`, aws.ToString(mf.FilterPattern))
+	require.Len(t, mf.MetricTransformations, 1)
+
+	tr := mf.MetricTransformations[0]
+	assert.Equal(t, "IntegrationTest", aws.ToString(tr.MetricNamespace))
+	assert.Equal(t, "HighLatencyCount", aws.ToString(tr.MetricName))
+	assert.Equal(t, "1", aws.ToString(tr.MetricValue))
+	require.NotNil(t, tr.DefaultValue)
+	assert.InDelta(t, 0.0, *tr.DefaultValue, 0.0001)
+	assert.Equal(t, map[string]string{"Service": "api"}, tr.Dimensions)
+}
+
+// TestIntegration_CloudWatchLogs_ResourcePolicy_RoundTrip round-trips an
+// account-level resource policy through PutResourcePolicy and
+// DescribeResourcePolicies, verifying the raw policyDocument text survives
+// unmangled — this family gates cross-account log delivery and has never
+// been driven by a real client before.
+func TestIntegration_CloudWatchLogs_ResourcePolicy_RoundTrip(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createCloudWatchLogsClient(t)
+	ctx := t.Context()
+
+	policyName := "policy-" + uuid.NewString()[:8]
+	policyDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+		`"Principal":{"Service":"es.amazonaws.com"},` +
+		`"Action":"logs:PutLogEvents","Resource":"*"}]}`
+
+	_, err := client.PutResourcePolicy(ctx, &cloudwatchlogssdk.PutResourcePolicyInput{
+		PolicyName:     aws.String(policyName),
+		PolicyDocument: aws.String(policyDoc),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteResourcePolicy(cleanupCtx, &cloudwatchlogssdk.DeleteResourcePolicyInput{
+			PolicyName: aws.String(policyName),
+		})
+	})
+
+	descOut, err := client.DescribeResourcePolicies(ctx, &cloudwatchlogssdk.DescribeResourcePoliciesInput{})
+	require.NoError(t, err)
+
+	var found *cwlogstypes.ResourcePolicy
+
+	for i := range descOut.ResourcePolicies {
+		if aws.ToString(descOut.ResourcePolicies[i].PolicyName) == policyName {
+			found = &descOut.ResourcePolicies[i]
+
+			break
+		}
+	}
+
+	require.NotNil(t, found, "expected policy %q in DescribeResourcePolicies output", policyName)
+	assert.JSONEq(t, policyDoc, aws.ToString(found.PolicyDocument))
+}

@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -373,4 +374,118 @@ func TestIntegration_StepFunctions_FullExecution(t *testing.T) {
 				"StateEnteredEventDetails.Name should be the state name only, not 'Enrich(Pass)'")
 		}
 	}
+}
+
+// TestIntegration_StepFunctions_ActivityTaskRoundTrip exercises the
+// activity-worker path end to end: CreateActivity, a Task state whose
+// Resource is the activity ARN, StartExecution, GetActivityTask (the real
+// long-poll dequeue), SendTaskSuccess, then verifies both DescribeExecution's
+// output and the TaskSucceeded history event carry the worker's real output —
+// not just a 200. This path is never exercised by a dispatch-level sweep
+// because it requires a worker to actually poll and respond.
+func TestIntegration_StepFunctions_ActivityTaskRoundTrip(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createStepFunctionsClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+
+	actOut, err := client.CreateActivity(ctx, &sfnsdk.CreateActivityInput{
+		Name: aws.String("worker-activity-" + suffix),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(actOut.ActivityArn))
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteActivity(cleanupCtx, &sfnsdk.DeleteActivityInput{
+			ActivityArn: actOut.ActivityArn,
+		})
+	})
+
+	definition := fmt.Sprintf(`{
+		"StartAt": "DoWork",
+		"States": {
+			"DoWork": {
+				"Type": "Task",
+				"Resource": %q,
+				"End": true
+			}
+		}
+	}`, aws.ToString(actOut.ActivityArn))
+
+	smOut, err := client.CreateStateMachine(ctx, &sfnsdk.CreateStateMachineInput{
+		Name:       aws.String("activity-sm-" + suffix),
+		Definition: aws.String(definition),
+		RoleArn:    aws.String("arn:aws:iam::000000000000:role/test"),
+		Type:       sfntypes.StateMachineTypeStandard,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStateMachine(cleanupCtx, &sfnsdk.DeleteStateMachineInput{
+			StateMachineArn: smOut.StateMachineArn,
+		})
+	})
+
+	execOut, err := client.StartExecution(ctx, &sfnsdk.StartExecutionInput{
+		StateMachineArn: smOut.StateMachineArn,
+		Name:            aws.String("exec-" + suffix),
+		Input:           aws.String(`{"work":"item-42"}`),
+	})
+	require.NoError(t, err)
+
+	taskOut, err := client.GetActivityTask(ctx, &sfnsdk.GetActivityTaskInput{
+		ActivityArn: actOut.ActivityArn,
+		WorkerName:  aws.String("test-worker"),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(taskOut.TaskToken))
+	assert.JSONEq(t, `{"work":"item-42"}`, aws.ToString(taskOut.Input))
+
+	_, err = client.SendTaskSuccess(ctx, &sfnsdk.SendTaskSuccessInput{
+		TaskToken: taskOut.TaskToken,
+		Output:    aws.String(`{"result":"done-42"}`),
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		desc, descErr := client.DescribeExecution(ctx, &sfnsdk.DescribeExecutionInput{
+			ExecutionArn: execOut.ExecutionArn,
+		})
+		if descErr != nil {
+			return false
+		}
+
+		return string(desc.Status) == "SUCCEEDED"
+	}, 10*time.Second, 200*time.Millisecond, "execution should succeed after SendTaskSuccess")
+
+	descOut, err := client.DescribeExecution(ctx, &sfnsdk.DescribeExecutionInput{
+		ExecutionArn: execOut.ExecutionArn,
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"result":"done-42"}`, aws.ToString(descOut.Output))
+
+	histOut, err := client.GetExecutionHistory(ctx, &sfnsdk.GetExecutionHistoryInput{
+		ExecutionArn: execOut.ExecutionArn,
+	})
+	require.NoError(t, err)
+
+	var foundTaskSucceeded bool
+
+	for _, ev := range histOut.Events {
+		if ev.Type == sfntypes.HistoryEventTypeTaskSucceeded {
+			require.NotNil(t, ev.TaskSucceededEventDetails)
+			assert.JSONEq(t, `{"result":"done-42"}`, aws.ToString(ev.TaskSucceededEventDetails.Output))
+
+			foundTaskSucceeded = true
+		}
+	}
+
+	assert.True(t, foundTaskSucceeded, "expected a TaskSucceeded history event carrying the worker's output")
 }
