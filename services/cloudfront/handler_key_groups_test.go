@@ -510,6 +510,29 @@ func TestUpdatePublicKey_RealClient(t *testing.T) {
 	assert.Equal(t, "updated", aws.ToString(updated.PublicKey.PublicKeyConfig.Comment))
 }
 
+// TestListKeyGroups_RealClient drives ListKeyGroups through the real aws-sdk-go-v2 CloudFront
+// client. The real deserializer (awsRestxml_deserializeDocumentKeyGroupSummary, case
+// "KeyGroup") wraps a single nested KeyGroup child in each KeyGroupSummary; a KeyGroupSummary
+// with Id/Name/Comment flattened directly onto it (the pre-fix shape, confirmed by
+// hand-reverting) decodes to a KeyGroupSummary.KeyGroup that is nil for every item -- the right
+// item count, entirely blank content.
+func TestListKeyGroups_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, err := h.Backend.CreateKeyGroup("real-client-kg", "kg comment", nil)
+	require.NoError(t, err)
+
+	client := newTestCloudFrontClient(t, h)
+
+	listed, err := client.ListKeyGroups(t.Context(), &cfsdk.ListKeyGroupsInput{})
+	require.NoError(t, err)
+	require.NotNil(t, listed.KeyGroupList)
+	require.Len(t, listed.KeyGroupList.Items, 1)
+	require.NotNil(t, listed.KeyGroupList.Items[0].KeyGroup)
+	assert.Equal(t, "real-client-kg", aws.ToString(listed.KeyGroupList.Items[0].KeyGroup.KeyGroupConfig.Name))
+}
+
 // TestKeyGroupCRUD covers the full Key Group lifecycle via the HTTP handler.
 func TestKeyGroupCRUD(t *testing.T) {
 	t.Parallel()

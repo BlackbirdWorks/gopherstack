@@ -247,17 +247,29 @@ func (h *Handler) handleDeleteDistributionTenant(c *echo.Context, id string) err
 	return c.NoContent(http.StatusNoContent)
 }
 
-// tenantSummaryXML is the list-view representation of a DistributionTenant.
+// domainResultXML is a single entry of a DistributionTenantSummary's Domains list. The real
+// deserializer (awsRestxml_deserializeDocumentDomainResultList) wraps each entry in <member>,
+// not <Item>, matching distributionTenantXML's hand-built Domains XML below.
+type domainResultXML struct {
+	Domain string `xml:"Domain"`
+	Status string `xml:"Status"`
+}
+
+// tenantSummaryXML is the list-view representation of a DistributionTenant. Domains must be a
+// <Domains><member>...</member></Domains> list (types.DistributionTenantSummary.Domains,
+// awsRestxml_deserializeDocumentDistributionTenantSummary): a flat <Domain> field here decodes
+// to an always-empty Domains slice on a real client, even though the singular
+// distributionTenantXML above already emits the list correctly.
 type tenantSummaryXML struct {
-	XMLName           xml.Name `xml:"DistributionTenantSummary"`
-	ID                string   `xml:"Id"`
-	ARN               string   `xml:"Arn"`
-	DistributionID    string   `xml:"DistributionId"`
-	Name              string   `xml:"Name,omitempty"`
-	Domain            string   `xml:"Domain"`
-	ConnectionGroupID string   `xml:"ConnectionGroupId,omitempty"`
-	Status            string   `xml:"Status"`
-	Enabled           bool     `xml:"Enabled"`
+	XMLName           xml.Name          `xml:"DistributionTenantSummary"`
+	ID                string            `xml:"Id"`
+	ARN               string            `xml:"Arn"`
+	DistributionID    string            `xml:"DistributionId"`
+	Name              string            `xml:"Name,omitempty"`
+	ConnectionGroupID string            `xml:"ConnectionGroupId,omitempty"`
+	Status            string            `xml:"Status"`
+	Domains           []domainResultXML `xml:"Domains>member"`
+	Enabled           bool              `xml:"Enabled"`
 }
 
 // tenantListXML models the real ListDistributionTenants response shape (see
@@ -285,12 +297,17 @@ type tenantListResultXML struct {
 func tenantsToSummaryList(tenants []*DistributionTenant) tenantListResultXML {
 	summaries := make([]tenantSummaryXML, 0, len(tenants))
 	for _, t := range tenants {
+		domains := make([]domainResultXML, 0, len(t.Domains))
+		for _, d := range t.Domains {
+			domains = append(domains, domainResultXML{Domain: d, Status: "Active"})
+		}
+
 		summaries = append(summaries, tenantSummaryXML{
 			ID:                t.ID,
 			ARN:               t.ARN,
 			DistributionID:    t.DistributionID,
 			Name:              t.Name,
-			Domain:            t.Domain,
+			Domains:           domains,
 			ConnectionGroupID: t.ConnectionGroupID,
 			Enabled:           t.Enabled,
 			Status:            t.Status,

@@ -158,11 +158,14 @@ func (h *Handler) handleDeletePublicKey(c *echo.Context, id string) error {
 // --- Key Group handlers ---
 
 func keyGroupResponseXML(kg *KeyGroup) string {
+	// Items entries are <PublicKey>, not <Key> (awsRestxml_deserializeDocumentPublicKeyIdList,
+	// cloudfront@v1.67.4 deserializers.go): a real client decodes KeyGroupConfig.Items as
+	// always-empty against the wrong tag, matching keyGroupConfigResponseXML below.
 	var sb strings.Builder
 	for _, item := range kg.Items {
-		sb.WriteString("<Key>")
-		sb.WriteString(item)
-		sb.WriteString("</Key>")
+		sb.WriteString("<PublicKey>")
+		sb.WriteString(xmlEscape(item))
+		sb.WriteString("</PublicKey>")
 	}
 	itemsXML := sb.String()
 
@@ -228,16 +231,31 @@ func (h *Handler) handleGetKeyGroup(c *echo.Context, id string) error {
 	return xmlResp(c, http.StatusOK, keyGroupResponseXML(kg))
 }
 
-//nolint:dupl // list handlers for different CloudFront resource types share XML list structure
+// kgConfigXML is types.KeyGroupConfig on the wire (awsRestxml_deserializeDocumentKeyGroupConfig).
+type kgConfigXML struct {
+	Name    string   `xml:"Name"`
+	Comment string   `xml:"Comment,omitempty"`
+	Items   []string `xml:"Items>PublicKey"`
+}
+
+// kgXML is types.KeyGroup on the wire (awsRestxml_deserializeDocumentKeyGroup).
+type kgXML struct {
+	ID     string      `xml:"Id"`
+	Config kgConfigXML `xml:"KeyGroupConfig"`
+}
+
+// kgSummaryXML is types.KeyGroupSummary: a KeyGroupSummary element wraps a single nested
+// <KeyGroup> child (awsRestxml_deserializeDocumentKeyGroupSummary case "KeyGroup"), not the
+// KeyGroup's fields flattened directly onto KeyGroupSummary -- a real client decodes
+// KeyGroupSummary.KeyGroup as nil for every item against the flattened shape, giving the right
+// item count with entirely blank content.
+type kgSummaryXML struct {
+	XMLName  xml.Name `xml:"KeyGroupSummary"`
+	KeyGroup kgXML    `xml:"KeyGroup"`
+}
+
 func (h *Handler) handleListKeyGroups(c *echo.Context) error {
 	items := h.Backend.ListKeyGroups()
-
-	type kgSummaryXML struct {
-		XMLName xml.Name `xml:"KeyGroupSummary"`
-		ID      string   `xml:"Id"`
-		Name    string   `xml:"Name"`
-		Comment string   `xml:"Comment"`
-	}
 
 	type kgListXML struct {
 		XMLName     xml.Name       `xml:"KeyGroupList"`
@@ -250,7 +268,12 @@ func (h *Handler) handleListKeyGroups(c *echo.Context) error {
 
 	summaries := make([]kgSummaryXML, 0, len(items))
 	for _, kg := range items {
-		summaries = append(summaries, kgSummaryXML{ID: kg.ID, Name: kg.Name, Comment: kg.Comment})
+		summaries = append(summaries, kgSummaryXML{
+			KeyGroup: kgXML{
+				ID:     kg.ID,
+				Config: kgConfigXML{Name: kg.Name, Comment: kg.Comment, Items: kg.Items},
+			},
+		})
 	}
 
 	list := kgListXML{XMLNS: cfNS, MaxItems: maxItems, Quantity: len(summaries), Items: summaries}

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -100,6 +102,33 @@ func TestContinuousDeploymentPolicy_IfMatchEnforcement(t *testing.T) {
 	goodDelete := doXMLWithHeaders(t, h, http.MethodDelete, prefix+"continuous-deployment-policy/"+id, nil,
 		map[string]string{"If-Match": newETag})
 	assert.Equal(t, http.StatusNoContent, goodDelete.Code)
+}
+
+// TestListContinuousDeploymentPolicies_RealClient drives ListContinuousDeploymentPolicies
+// through the real aws-sdk-go-v2 CloudFront client. The real deserializer
+// (awsRestxml_deserializeDocumentContinuousDeploymentPolicySummary, case
+// "ContinuousDeploymentPolicy") wraps a single nested ContinuousDeploymentPolicy child in each
+// summary; a summary with Id/Enabled flattened directly onto it (the pre-fix shape, confirmed
+// by hand-reverting) decodes to a Summary.ContinuousDeploymentPolicy that is nil for every item
+// -- the right item count, entirely blank content.
+func TestListContinuousDeploymentPolicies_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	created, err := h.Backend.CreateContinuousDeploymentPolicy(true, "staging.example.com")
+	require.NoError(t, err)
+
+	client := newTestCloudFrontClient(t, h)
+
+	listed, err := client.ListContinuousDeploymentPolicies(
+		t.Context(), &cfsdk.ListContinuousDeploymentPoliciesInput{},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, listed.ContinuousDeploymentPolicyList)
+	require.Len(t, listed.ContinuousDeploymentPolicyList.Items, 1)
+	item := listed.ContinuousDeploymentPolicyList.Items[0]
+	require.NotNil(t, item.ContinuousDeploymentPolicy)
+	assert.Equal(t, created.ID, aws.ToString(item.ContinuousDeploymentPolicy.Id))
 }
 
 // ---------------------------------------------------------------------------

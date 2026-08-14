@@ -739,3 +739,32 @@ func TestAssociateDistributionTenantWebACL_RealClient(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 	assert.Contains(t, getRec.Body.String(), webACLArn)
 }
+
+// TestListDistributionTenants_Domains_RealClient drives ListDistributionTenants through the
+// real aws-sdk-go-v2 CloudFront client and asserts DistributionTenantSummary.Domains is
+// populated. The real deserializer (awsRestxml_deserializeDocumentDistributionTenantSummary,
+// case "Domains") reads a <Domains><member><Domain>.../><Status>.../</member></Domains> list;
+// a flat Domain field on tenantSummaryXML (the pre-fix shape, confirmed by hand-reverting)
+// decodes to an always-empty Domains slice with the right item COUNT but blank content, even
+// though the singular GetDistributionTenant path already emitted the list correctly.
+func TestListDistributionTenants_Domains_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	const prefix = "/2020-05-31/"
+
+	createBody := `<CreateDistributionTenantRequest>` +
+		`<DistributionId>dist-domains-001</DistributionId>` +
+		`<Domain>list-domains.example.com</Domain>` +
+		`</CreateDistributionTenantRequest>`
+	createRec := doXML(t, h, http.MethodPost, prefix+"distribution-tenant", []byte(createBody))
+	require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
+
+	client := newTestCloudFrontClient(t, h)
+
+	listed, err := client.ListDistributionTenants(t.Context(), &cfsdk.ListDistributionTenantsInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.DistributionTenantList, 1)
+	require.Len(t, listed.DistributionTenantList[0].Domains, 1)
+	assert.Equal(t, "list-domains.example.com", aws.ToString(listed.DistributionTenantList[0].Domains[0].Domain))
+}
