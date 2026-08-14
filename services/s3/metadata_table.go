@@ -177,3 +177,31 @@ func (b *InMemoryBackend) UpdateBucketMetadataJournalTableConfig(
 
 	return nil
 }
+
+// UpdateBucketMetadataAnnotationTableConfig stores the annotation table
+// configuration XML for an S3 Metadata configuration (real key
+// "metadataAnnotationTable" -- verified against s3@v1.106.5 serializers.go:
+// awsRestxml_serializeOpUpdateBucketMetadataAnnotationTableConfiguration's
+// httpbinding.SplitURI("/?metadataAnnotationTable")). There is no dedicated
+// Get op for this sub-config in the pinned SDK; it is exposed to the caller,
+// if at all, nested inside GetBucketMetadataConfiguration's body, matching
+// how the sibling inventory/journal table configs already behave here.
+func (b *InMemoryBackend) UpdateBucketMetadataAnnotationTableConfig(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
+	b.mu.RLock("UpdateBucketMetadataAnnotationTableConfig")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("UpdateBucketMetadataAnnotationTableConfig")
+	defer bucket.mu.Unlock()
+
+	bucket.MetadataAnnotationTableConfig = configXML
+
+	return nil
+}

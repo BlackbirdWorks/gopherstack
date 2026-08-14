@@ -18,38 +18,39 @@ const NullVersion = "null"
 // all regions, mirroring real S3's global bucket-namespace). Region never changes
 // after creation (S3 has no "move bucket to another region" operation).
 type StoredBucket struct {
-	CreationDate                 time.Time                `json:"creationDate"`
-	Objects                      map[string]*StoredObject `json:"objects,omitempty"`
-	mu                           *lockmetrics.RWMutex
-	Region                       string                       `json:"region,omitempty"`
-	WebsiteConfig                string                       `json:"websiteConfig,omitempty"`
-	PublicAccessBlockConfig      string                       `json:"publicAccessBlockConfig,omitempty"`
-	LifecycleConfig              string                       `json:"lifecycleConfig,omitempty"`
-	NotificationConfig           string                       `json:"notificationConfig,omitempty"`
-	ObjectLockConfig             string                       `json:"objectLockConfig,omitempty"`
-	Policy                       string                       `json:"policy,omitempty"`
-	EncryptionConfig             string                       `json:"encryptionConfig,omitempty"`
-	CORSConfig                   string                       `json:"corsConfig,omitempty"`
-	OwnershipControlsConfig      string                       `json:"ownershipControlsConfig,omitempty"`
-	LoggingConfig                string                       `json:"loggingConfig,omitempty"`
-	ReplicationConfig            string                       `json:"replicationConfig,omitempty"`
-	AnalyticsConfigs             map[string]string            `json:"analyticsConfigs,omitempty"`
-	IntelligentTieringConfigs    map[string]string            `json:"intelligentTieringConfigs,omitempty"`
-	InventoryConfigs             map[string]string            `json:"inventoryConfigs,omitempty"`
-	MetadataConfig               string                       `json:"metadataConfig,omitempty"`
-	MetadataTableConfig          string                       `json:"metadataTableConfig,omitempty"`
-	AbacConfig                   string                       `json:"abacConfig,omitempty"`
-	MetadataInventoryTableConfig string                       `json:"metadataInventoryTableConfig,omitempty"`
-	MetadataJournalTableConfig   string                       `json:"metadataJournalTableConfig,omitempty"`
-	MetricsConfigs               map[string]string            `json:"metricsConfigs,omitempty"`
-	Versioning                   types.BucketVersioningStatus `json:"versioning,omitempty"`
-	Name                         string                       `json:"name"`
-	ACL                          string                       `json:"acl,omitempty"`
-	AccelerateStatus             string                       `json:"accelerateStatus,omitempty"`
-	RequestPaymentPayer          string                       `json:"requestPaymentPayer,omitempty"`
-	Tags                         []types.Tag                  `json:"tags,omitempty"`
-	DeletePending                bool                         `json:"deletePending,omitempty"`
-	IsDirectoryBucket            bool                         `json:"isDirectoryBucket,omitempty"`
+	CreationDate                  time.Time                `json:"creationDate"`
+	Objects                       map[string]*StoredObject `json:"objects,omitempty"`
+	mu                            *lockmetrics.RWMutex
+	Region                        string                       `json:"region,omitempty"`
+	WebsiteConfig                 string                       `json:"websiteConfig,omitempty"`
+	PublicAccessBlockConfig       string                       `json:"publicAccessBlockConfig,omitempty"`
+	LifecycleConfig               string                       `json:"lifecycleConfig,omitempty"`
+	NotificationConfig            string                       `json:"notificationConfig,omitempty"`
+	ObjectLockConfig              string                       `json:"objectLockConfig,omitempty"`
+	Policy                        string                       `json:"policy,omitempty"`
+	EncryptionConfig              string                       `json:"encryptionConfig,omitempty"`
+	CORSConfig                    string                       `json:"corsConfig,omitempty"`
+	OwnershipControlsConfig       string                       `json:"ownershipControlsConfig,omitempty"`
+	LoggingConfig                 string                       `json:"loggingConfig,omitempty"`
+	ReplicationConfig             string                       `json:"replicationConfig,omitempty"`
+	AnalyticsConfigs              map[string]string            `json:"analyticsConfigs,omitempty"`
+	IntelligentTieringConfigs     map[string]string            `json:"intelligentTieringConfigs,omitempty"`
+	InventoryConfigs              map[string]string            `json:"inventoryConfigs,omitempty"`
+	MetadataConfig                string                       `json:"metadataConfig,omitempty"`
+	MetadataTableConfig           string                       `json:"metadataTableConfig,omitempty"`
+	AbacConfig                    string                       `json:"abacConfig,omitempty"`
+	MetadataInventoryTableConfig  string                       `json:"metadataInventoryTableConfig,omitempty"`
+	MetadataJournalTableConfig    string                       `json:"metadataJournalTableConfig,omitempty"`
+	MetadataAnnotationTableConfig string                       `json:"metadataAnnotationTableConfig,omitempty"`
+	MetricsConfigs                map[string]string            `json:"metricsConfigs,omitempty"`
+	Versioning                    types.BucketVersioningStatus `json:"versioning,omitempty"`
+	Name                          string                       `json:"name"`
+	ACL                           string                       `json:"acl,omitempty"`
+	AccelerateStatus              string                       `json:"accelerateStatus,omitempty"`
+	RequestPaymentPayer           string                       `json:"requestPaymentPayer,omitempty"`
+	Tags                          []types.Tag                  `json:"tags,omitempty"`
+	DeletePending                 bool                         `json:"deletePending,omitempty"`
+	IsDirectoryBucket             bool                         `json:"isDirectoryBucket,omitempty"`
 	// ObjectLockEnabled records whether CreateBucket was called with
 	// x-amz-bucket-object-lock-enabled: true. Real S3 requires this at bucket
 	// creation before PutObjectLockConfiguration will accept a configuration
@@ -67,19 +68,25 @@ type StoredObject struct {
 
 // StoredObjectVersion represents a specific version of an S3 object.
 type StoredObjectVersion struct {
-	LastModified      time.Time         `json:"lastModified"`
-	RetainUntil       time.Time         `json:"retainUntil"`
-	RestoreExpiry     time.Time         `json:"restoreExpiry,omitzero"`
-	ChecksumSHA1      *string           `json:"checksumSHA1,omitempty"`
-	Metadata          map[string]string `json:"metadata,omitempty"`
-	ChecksumSHA256    *string           `json:"checksumSHA256,omitempty"`
-	ChecksumCRC32     *string           `json:"checksumCRC32,omitempty"`
-	ChecksumCRC32C    *string           `json:"checksumCRC32C,omitempty"`
-	ChecksumCRC64NVME *string           `json:"checksumCRC64NVME,omitempty"`
-	SSEAlgorithm      string            `json:"sseAlgorithm,omitempty"`
-	SSEKMSKeyID       string            `json:"sseKMSKeyID,omitempty"`
-	SSECAlgorithm     string            `json:"sseCAlgorithm,omitempty"`
-	SSECKeyMD5        string            `json:"sseCKeyMD5,omitempty"`
+	LastModified  time.Time         `json:"lastModified"`
+	RetainUntil   time.Time         `json:"retainUntil"`
+	RestoreExpiry time.Time         `json:"restoreExpiry,omitzero"`
+	ChecksumSHA1  *string           `json:"checksumSHA1,omitempty"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
+	// Annotations holds this version's named annotations, keyed by name.
+	// Additive/omitempty: annotations attach to a specific object version and
+	// are not independently versioned (PutObjectAnnotation/DeleteObjectAnnotation
+	// docs, s3@v1.106.5 api_op_DeleteObjectAnnotation.go) -- deleting one is
+	// permanent, there is no delete marker.
+	Annotations       map[string]*StoredAnnotation `json:"annotations,omitempty"`
+	ChecksumSHA256    *string                      `json:"checksumSHA256,omitempty"`
+	ChecksumCRC32     *string                      `json:"checksumCRC32,omitempty"`
+	ChecksumCRC32C    *string                      `json:"checksumCRC32C,omitempty"`
+	ChecksumCRC64NVME *string                      `json:"checksumCRC64NVME,omitempty"`
+	SSEAlgorithm      string                       `json:"sseAlgorithm,omitempty"`
+	SSEKMSKeyID       string                       `json:"sseKMSKeyID,omitempty"`
+	SSECAlgorithm     string                       `json:"sseCAlgorithm,omitempty"`
+	SSECKeyMD5        string                       `json:"sseCKeyMD5,omitempty"`
 	// EncryptionDEK is the AES-256 DEK generated on PUT for SSE-S3/SSE-KMS
 	// objects (SSE-C keeps none -- the customer re-supplies it on GET). MUST
 	// persist: dropping it on snapshot/restore leaves the object permanently
@@ -106,6 +113,21 @@ type StoredObjectVersion struct {
 	Deleted                 bool                     `json:"deleted,omitempty"`
 	LegalHold               bool                     `json:"legalHold,omitempty"`
 	OngoingRestore          bool                     `json:"ongoingRestore,omitempty"`
+}
+
+// StoredAnnotation represents a single named annotation attached to an
+// object version (PutObjectAnnotation / GetObjectAnnotation / ListObjectAnnotations).
+type StoredAnnotation struct {
+	LastModified      time.Time               `json:"lastModified"`
+	Name              string                  `json:"name"`
+	ETag              string                  `json:"etag"`
+	ChecksumAlgorithm types.ChecksumAlgorithm `json:"checksumAlgorithm,omitempty"`
+	ChecksumCRC32     *string                 `json:"checksumCRC32,omitempty"`
+	ChecksumCRC32C    *string                 `json:"checksumCRC32C,omitempty"`
+	ChecksumSHA1      *string                 `json:"checksumSHA1,omitempty"`
+	ChecksumSHA256    *string                 `json:"checksumSHA256,omitempty"`
+	ChecksumCRC64NVME *string                 `json:"checksumCRC64NVME,omitempty"`
+	Payload           []byte                  `json:"payload"`
 }
 
 // StorageClassTransition records a single storage class change applied by a lifecycle rule.

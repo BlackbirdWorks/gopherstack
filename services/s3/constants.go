@@ -28,4 +28,16 @@ const (
 	errSignatureMismatch      = "SignatureDoesNotMatch"
 	actionGetObjectLower      = "s3:getobject"
 	errMalformedPolicy        = "MalformedPolicy"
+
+	// maxAnnotationsPerObject is the documented per-object annotation cap
+	// (s3@v1.106.5 api_op_PutObjectAnnotation.go doc comment: "Each object can
+	// have up to 1,000 annotations.").
+	maxAnnotationsPerObject = 1000
+	// maxAnnotationNameBytes is PutObjectAnnotationInput.AnnotationName's
+	// documented max length ("Maximum length of 512 bytes.").
+	maxAnnotationNameBytes = 512
+	// defaultMaxAnnotationResults is ListObjectAnnotations' page size when the
+	// caller doesn't specify MaxAnnotationResults, capped at the same 1,000
+	// ceiling as maxAnnotationsPerObject.
+	defaultMaxAnnotationResults = 1000
 )

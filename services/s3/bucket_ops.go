@@ -220,6 +220,8 @@ func (h *S3Handler) routeBucketPutConfig(
 		h.handleUpdateBucketMetadataInventoryTableConfig(ctx, w, r)
 	case q.Has("metadataJournalTable"):
 		h.handleUpdateBucketMetadataJournalTableConfig(ctx, w, r)
+	case q.Has("metadataAnnotationTable"):
+		h.handleUpdateBucketMetadataAnnotationTableConfig(ctx, w, r)
 	default:
 		return false
 	}

@@ -146,6 +146,37 @@ func (h *S3Handler) handleUpdateBucketMetadataInventoryTableConfig(
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleUpdateBucketMetadataAnnotationTableConfig handles PUT /{bucket}?metadataAnnotationTable
+// (s3@v1.106.5 serializers.go: awsRestxml_serializeOpUpdateBucketMetadataAnnotationTableConfiguration).
+// Persists the annotation table configuration so it survives round-trips, matching real S3 behaviour.
+func (h *S3Handler) handleUpdateBucketMetadataAnnotationTableConfig(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	h.setOperation(ctx, "UpdateBucketMetadataAnnotationTableConfiguration")
+
+	bucket, _, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" {
+		WriteError(ctx, w, r, ErrNoSuchBucket)
+
+		return
+	}
+
+	body, _ := httputils.ReadBody(r)
+
+	if err := h.Backend.UpdateBucketMetadataAnnotationTableConfig(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 // handleUpdateBucketMetadataJournalTableConfig handles PUT /{bucket}?metadataJournalTable
 // (s3@v1.106.5 serializers.go: awsRestxml_serializeOpUpdateBucketMetadataJournalTableConfiguration).
 // Persists the journal table configuration so it survives round-trips, matching real S3 behaviour.
