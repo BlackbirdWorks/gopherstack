@@ -110,12 +110,14 @@ type listResourcesReq struct {
 }
 
 type resourceSummaryResp struct {
-	ID          string `json:"Id"`
-	Name        string `json:"Name"`
-	Email       string `json:"Email,omitempty"`
-	Type        string `json:"Type"`
-	State       string `json:"State"`
-	Description string `json:"Description,omitempty"`
+	ID           string `json:"Id"`
+	Name         string `json:"Name"`
+	Email        string `json:"Email,omitempty"`
+	Type         string `json:"Type"`
+	State        string `json:"State"`
+	Description  string `json:"Description,omitempty"`
+	EnabledDate  int64  `json:"EnabledDate,omitempty"`
+	DisabledDate int64  `json:"DisabledDate,omitempty"`
 }
 
 type listResourcesResp struct {
@@ -140,14 +142,21 @@ func (h *Handler) handleListResources(_ context.Context, req *listResourcesReq) 
 
 	summaries := make([]resourceSummaryResp, 0, len(resources))
 	for _, r := range resources {
-		summaries = append(summaries, resourceSummaryResp{
+		s := resourceSummaryResp{
 			ID:          r.ResourceID,
 			Name:        r.Name,
 			Email:       r.Email,
 			Type:        r.ResourceType,
 			State:       r.State,
 			Description: r.Description,
-		})
+		}
+		if !r.EnabledDate.IsZero() {
+			s.EnabledDate = r.EnabledDate.Unix()
+		}
+		if !r.DisabledDate.IsZero() {
+			s.DisabledDate = r.DisabledDate.Unix()
+		}
+		summaries = append(summaries, s)
 	}
 
 	return &listResourcesResp{Resources: summaries, NextToken: next}, nil

@@ -106,10 +106,12 @@ type listGroupsReq struct {
 }
 
 type groupSummaryResp struct {
-	ID    string `json:"Id"`
-	Name  string `json:"Name"`
-	Email string `json:"Email,omitempty"`
-	State string `json:"State"`
+	ID           string `json:"Id"`
+	Name         string `json:"Name"`
+	Email        string `json:"Email,omitempty"`
+	State        string `json:"State"`
+	EnabledDate  int64  `json:"EnabledDate,omitempty"`
+	DisabledDate int64  `json:"DisabledDate,omitempty"`
 }
 
 type listGroupsResp struct {
@@ -134,7 +136,14 @@ func (h *Handler) handleListGroups(_ context.Context, req *listGroupsReq) (*list
 
 	summaries := make([]groupSummaryResp, 0, len(groups))
 	for _, g := range groups {
-		summaries = append(summaries, groupSummaryResp{ID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State})
+		s := groupSummaryResp{ID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State}
+		if !g.EnabledDate.IsZero() {
+			s.EnabledDate = g.EnabledDate.Unix()
+		}
+		if !g.DisabledDate.IsZero() {
+			s.DisabledDate = g.DisabledDate.Unix()
+		}
+		summaries = append(summaries, s)
 	}
 
 	return &listGroupsResp{Groups: summaries, NextToken: next}, nil

@@ -200,12 +200,14 @@ type listUsersReq struct {
 }
 
 type userSummaryResp struct {
-	ID          string `json:"Id"`
-	Name        string `json:"Name"`
-	Email       string `json:"Email,omitempty"`
-	DisplayName string `json:"DisplayName,omitempty"`
-	State       string `json:"State"`
-	UserRole    string `json:"UserRole,omitempty"`
+	ID           string `json:"Id"`
+	Name         string `json:"Name"`
+	Email        string `json:"Email,omitempty"`
+	DisplayName  string `json:"DisplayName,omitempty"`
+	State        string `json:"State"`
+	UserRole     string `json:"UserRole,omitempty"`
+	EnabledDate  int64  `json:"EnabledDate,omitempty"`
+	DisabledDate int64  `json:"DisabledDate,omitempty"`
 }
 
 type listUsersResp struct {
@@ -232,14 +234,21 @@ func (h *Handler) handleListUsers(_ context.Context, req *listUsersReq) (*listUs
 
 	summaries := make([]userSummaryResp, 0, len(users))
 	for _, u := range users {
-		summaries = append(summaries, userSummaryResp{
+		s := userSummaryResp{
 			ID:          u.UserID,
 			Name:        u.Name,
 			Email:       u.Email,
 			DisplayName: u.DisplayName,
 			State:       u.State,
 			UserRole:    u.Role,
-		})
+		}
+		if !u.EnabledDate.IsZero() {
+			s.EnabledDate = u.EnabledDate.Unix()
+		}
+		if !u.DisabledDate.IsZero() {
+			s.DisabledDate = u.DisabledDate.Unix()
+		}
+		summaries = append(summaries, s)
 	}
 
 	return &listUsersResp{Users: summaries, NextToken: next}, nil

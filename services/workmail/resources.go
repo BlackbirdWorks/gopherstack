@@ -172,6 +172,8 @@ func (b *InMemoryBackend) ListResources(
 			ResourceType: r.ResourceType,
 			State:        r.State,
 			Description:  r.Description,
+			EnabledDate:  r.EnabledDate,
+			DisabledDate: r.DisabledDate,
 		})
 	}
 	sort.Slice(rs, func(i, j int) bool { return rs[i].Name < rs[j].Name })

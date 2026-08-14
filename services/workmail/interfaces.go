@@ -279,12 +279,14 @@ type User struct {
 
 // UserSummary is a summary of a WorkMail user.
 type UserSummary struct {
-	UserID      string
-	Name        string
-	Email       string
-	DisplayName string
-	State       string
-	Role        string
+	EnabledDate  time.Time
+	DisabledDate time.Time
+	UserID       string
+	Name         string
+	Email        string
+	DisplayName  string
+	State        string
+	Role         string
 }
 
 // UserFilter mirrors aws-sdk-go-v2/service/workmail/types.ListUsersFilters,
@@ -353,10 +355,12 @@ type Group struct {
 
 // GroupSummary is a summary of a WorkMail group.
 type GroupSummary struct {
-	GroupID string
-	Name    string
-	Email   string
-	State   string
+	EnabledDate  time.Time
+	DisabledDate time.Time
+	GroupID      string
+	Name         string
+	Email        string
+	State        string
 }
 
 // GroupFilter mirrors aws-sdk-go-v2/service/workmail/types.ListGroupsFilters.
@@ -395,6 +399,8 @@ type Resource struct {
 
 // ResourceSummary is a summary of a WorkMail resource.
 type ResourceSummary struct {
+	EnabledDate  time.Time
+	DisabledDate time.Time
 	ResourceID   string
 	Name         string
 	Email        string

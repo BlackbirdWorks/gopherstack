@@ -40,15 +40,22 @@ func (h *Handler) handleGetPersonalAccessTokenMetadata(
 		return nil, err
 	}
 
-	return &personalAccessTokenMetadataResp{
+	resp := &personalAccessTokenMetadataResp{
 		PersonalAccessTokenId: tok.TokenID,
 		UserId:                tok.UserID,
 		Name:                  tok.Name,
 		DateCreated:           tok.DateCreated.Unix(),
-		DateLastUsed:          tok.DateLastUsed.Unix(),
 		ExpiresTime:           tok.ExpiresTime.Unix(),
 		Scopes:                tok.Scopes,
-	}, nil
+	}
+	// DateLastUsed is optional on the wire; a token never used must omit it
+	// rather than serialize the zero time.Time's Unix() (a large negative
+	// number that would silently defeat the omitempty tag).
+	if !tok.DateLastUsed.IsZero() {
+		resp.DateLastUsed = tok.DateLastUsed.Unix()
+	}
+
+	return resp, nil
 }
 
 type listPersonalAccessTokensReq struct {
@@ -86,15 +93,18 @@ func (h *Handler) handleListPersonalAccessTokens(
 	}
 	result := make([]personalAccessTokenSummaryJSON, 0, len(tokens))
 	for _, tok := range tokens {
-		result = append(result, personalAccessTokenSummaryJSON{
+		item := personalAccessTokenSummaryJSON{
 			PersonalAccessTokenId: tok.TokenID,
 			UserId:                tok.UserID,
 			Name:                  tok.Name,
 			DateCreated:           tok.DateCreated.Unix(),
-			DateLastUsed:          tok.DateLastUsed.Unix(),
 			ExpiresTime:           tok.ExpiresTime.Unix(),
 			Scopes:                tok.Scopes,
-		})
+		}
+		if !tok.DateLastUsed.IsZero() {
+			item.DateLastUsed = tok.DateLastUsed.Unix()
+		}
+		result = append(result, item)
 	}
 
 	return &listPersonalAccessTokensResp{PersonalAccessTokenSummaries: result, NextToken: next}, nil

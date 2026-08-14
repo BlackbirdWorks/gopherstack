@@ -71,6 +71,19 @@ type describeStateMachineForExecutionInput struct {
 	ExecutionArn string `json:"executionArn"`
 }
 
+// describeStateMachineForExecutionOutput mirrors AWS's
+// DescribeStateMachineForExecutionOutput shape, which -- unlike StateMachine
+// -- has no creationDate and names its only timestamp "updateDate" rather
+// than "updatedDate".
+type describeStateMachineForExecutionOutput struct {
+	EncryptionConfiguration *EncryptionConfiguration `json:"encryptionConfiguration,omitempty"`
+	Definition              string                   `json:"definition"`
+	Name                    string                   `json:"name"`
+	RoleArn                 string                   `json:"roleArn"`
+	StateMachineArn         string                   `json:"stateMachineArn"`
+	UpdateDate              float64                  `json:"updateDate"`
+}
+
 func (h *Handler) executionActions() map[string]actionFn {
 	return map[string]actionFn{
 		"StartExecution":                   h.handleStartExecution,
@@ -104,7 +117,19 @@ func (h *Handler) handleDescribeStateMachineForExecution(b []byte) (any, error) 
 		return nil, err
 	}
 
-	return h.Backend.DescribeStateMachineForExecution(input.ExecutionArn)
+	sm, err := h.Backend.DescribeStateMachineForExecution(input.ExecutionArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeStateMachineForExecutionOutput{
+		EncryptionConfiguration: sm.EncryptionConfiguration,
+		Definition:              sm.Definition,
+		Name:                    sm.Name,
+		RoleArn:                 sm.RoleArn,
+		StateMachineArn:         sm.StateMachineArn,
+		UpdateDate:              sm.UpdatedDate,
+	}, nil
 }
 
 func (h *Handler) handleStartExecution(b []byte) (any, error) {
