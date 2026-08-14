@@ -70,9 +70,15 @@ func extractCCSOperation(path, method string) string {
 	return extractCCSOutboundOp(path, method)
 }
 
-// extractCCSInboundOp handles inbound CCS operations.
+// extractCCSInboundOp handles inbound CCS operations. elasticsearchCCSInboundSearch
+// ("/2015-01-01/es/ccs/inboundConnection/search") is itself prefixed by
+// elasticsearchCCSInbound+"/", so extractCCSOperation always routes it here
+// rather than to extractCCSOutboundOp -- its case must live in this switch
+// or it is unreachable.
 func extractCCSInboundOp(path, method string) string {
 	switch {
+	case path == elasticsearchCCSInboundSearch && method == http.MethodPost:
+		return "DescribeInboundCrossClusterSearchConnections"
 	case strings.HasSuffix(path, "/accept") && method == http.MethodPut:
 		return "AcceptInboundCrossClusterSearchConnection"
 	case strings.HasSuffix(path, "/reject") && method == http.MethodPut:
@@ -87,8 +93,6 @@ func extractCCSInboundOp(path, method string) string {
 // extractCCSOutboundOp handles outbound CCS operations.
 func extractCCSOutboundOp(path, method string) string {
 	switch {
-	case path == elasticsearchCCSInboundSearch && method == http.MethodPost:
-		return "DescribeInboundCrossClusterSearchConnections"
 	case path == elasticsearchCCSOutbound && method == http.MethodPost:
 		return "CreateOutboundCrossClusterSearchConnection"
 	case strings.HasPrefix(path, elasticsearchCCSOutbound+"/") && method == http.MethodDelete:
