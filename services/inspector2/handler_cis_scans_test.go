@@ -44,7 +44,7 @@ func firstScanArn(t *testing.T, h *inspector2.Handler, cfgARN string) string {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	scans, _ := resp["cisScans"].([]any)
+	scans, _ := resp["scans"].([]any)
 
 	for _, raw := range scans {
 		s, _ := raw.(map[string]any)
@@ -72,7 +72,7 @@ func TestCisScans_CreatedConfigMaterializesScan(t *testing.T) {
 
 	var empty map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty))
-	scans, _ := empty["cisScans"].([]any)
+	scans, _ := empty["scans"].([]any)
 	assert.Empty(t, scans)
 
 	// Creating a config materializes exactly one scan referencing it.
@@ -80,7 +80,7 @@ func TestCisScans_CreatedConfigMaterializesScan(t *testing.T) {
 
 	rec = auditDo(t, h, http.MethodPost, "/cis/scan/list", map[string]any{})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty))
-	scans, _ = empty["cisScans"].([]any)
+	scans, _ = empty["scans"].([]any)
 	require.Len(t, scans, 1)
 
 	entry, _ := scans[0].(map[string]any)
@@ -199,7 +199,7 @@ func TestCisScans_DeleteConfigRemovesScans(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	scans, _ := resp["cisScans"].([]any)
+	scans, _ := resp["scans"].([]any)
 	assert.Empty(t, scans)
 }
 
@@ -587,7 +587,7 @@ func TestCisSessionOps(t *testing.T) {
 				assert.Equal(t, http.StatusOK, code)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				scans, _ := resp["cisScans"].([]any)
+				scans, _ := resp["scans"].([]any)
 				assert.Empty(t, scans)
 			},
 		},
