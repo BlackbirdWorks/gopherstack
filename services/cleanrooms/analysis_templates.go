@@ -35,6 +35,24 @@ func toAnalysisTemplateSummary(t *AnalysisTemplate) *AnalysisTemplateSummary {
 	}
 }
 
+// toCollaborationAnalysisTemplateSummary builds the collaboration-scoped
+// shape, which carries creatorAccountId in place of the membership-scoped
+// membershipArn/membershipId (see CollaborationAnalysisTemplateSummary).
+func toCollaborationAnalysisTemplateSummary(
+	t *AnalysisTemplate, creatorAccountID string,
+) *CollaborationAnalysisTemplateSummary {
+	return &CollaborationAnalysisTemplateSummary{
+		Arn:              t.Arn,
+		CollaborationArn: t.CollaborationArn,
+		CollaborationID:  t.CollaborationID,
+		CreatorAccountID: creatorAccountID,
+		ID:               t.ID,
+		Name:             t.Name,
+		CreateTime:       t.CreateTime,
+		UpdateTime:       t.UpdateTime,
+	}
+}
+
 func (b *InMemoryBackend) CreateAnalysisTemplate(
 	membershipID, name, description, format string,
 	source map[string]any,
@@ -168,17 +186,20 @@ func (b *InMemoryBackend) GetCollaborationAnalysisTemplate(
 
 func (b *InMemoryBackend) ListCollaborationAnalysisTemplates(
 	collaborationID, maxResults, nextToken string,
-) ([]*AnalysisTemplateSummary, string, error) {
+) ([]*CollaborationAnalysisTemplateSummary, string, error) {
 	b.mu.RLock("ListCollaborationAnalysisTemplates")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations.Get(collaborationID); !ok {
+	collab, ok := b.collaborations.Get(collaborationID)
+	if !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listNestedItems(
 		b.analysisTemplates.All(),
 		func(t *AnalysisTemplate) bool { return t.CollaborationID == collaborationID },
-		toAnalysisTemplateSummary,
-		func(a, c *AnalysisTemplateSummary) bool {
+		func(t *AnalysisTemplate) *CollaborationAnalysisTemplateSummary {
+			return toCollaborationAnalysisTemplateSummary(t, collab.CreatorAccountID)
+		},
+		func(a, c *CollaborationAnalysisTemplateSummary) bool {
 			return a.ID < c.ID
 		},
 		maxResults, nextToken,

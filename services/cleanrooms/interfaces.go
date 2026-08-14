@@ -121,7 +121,7 @@ type StorageBackend interface {
 	GetCollaborationAnalysisTemplate(collaborationID, templateArn string) (*AnalysisTemplate, error)
 	ListCollaborationAnalysisTemplates(
 		collaborationID, maxResults, nextToken string,
-	) ([]*AnalysisTemplateSummary, string, error)
+	) ([]*CollaborationAnalysisTemplateSummary, string, error)
 	BatchGetCollaborationAnalysisTemplate(
 		collaborationID string,
 		templateArns []string,
@@ -186,13 +186,13 @@ type StorageBackend interface {
 	) ([]*PrivacyBudget, string, error)
 	ListCollaborationPrivacyBudgets(
 		collaborationID, privacyBudgetType, maxResults, nextToken string,
-	) ([]*PrivacyBudget, string, error)
+	) ([]*CollaborationPrivacyBudgetSummary, string, error)
 	GetCollaborationPrivacyBudgetTemplate(
 		collaborationID, templateID string,
 	) (*PrivacyBudgetTemplate, error)
 	ListCollaborationPrivacyBudgetTemplates(
 		collaborationID, maxResults, nextToken string,
-	) ([]*PrivacyBudgetTemplateSummary, string, error)
+	) ([]*CollaborationPrivacyBudgetTemplateSummary, string, error)
 	PreviewPrivacyImpact(membershipID string, parameters map[string]any) (map[string]any, error)
 
 	// IDMappingTable operations.
@@ -233,7 +233,7 @@ type StorageBackend interface {
 	) (*IDNamespaceAssociation, error)
 	ListCollaborationIDNamespaceAssociations(
 		collaborationID, maxResults, nextToken string,
-	) ([]*IDNamespaceAssociationSummary, string, error)
+	) ([]*CollaborationIDNamespaceAssociationSummary, string, error)
 
 	// ConfiguredAudienceModelAssociation operations.
 	CreateConfiguredAudienceModelAssociation(
@@ -256,7 +256,7 @@ type StorageBackend interface {
 	) (*ConfiguredAudienceModelAssociation, error)
 	ListCollaborationConfiguredAudienceModelAssociations(
 		collaborationID, maxResults, nextToken string,
-	) ([]*ConfiguredAudienceModelAssociationSummary, string, error)
+	) ([]*CollaborationConfiguredAudienceModelAssociationSummary, string, error)
 
 	// CollaborationChangeRequest operations.
 	CreateCollaborationChangeRequest(

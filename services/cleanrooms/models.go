@@ -326,6 +326,22 @@ type AnalysisTemplateSummary struct {
 	UpdateTime                 float64 `json:"updateTime,omitempty"`
 }
 
+// CollaborationAnalysisTemplateSummary is the wire shape for
+// ListCollaborationAnalysisTemplates (types.CollaborationAnalysisTemplateSummary).
+// Unlike AnalysisTemplateSummary it carries creatorAccountId, not
+// membershipArn/membershipId -- there is no single membership at
+// collaboration scope.
+type CollaborationAnalysisTemplateSummary struct {
+	Arn              string  `json:"arn"`
+	CollaborationArn string  `json:"collaborationArn"`
+	CollaborationID  string  `json:"collaborationId"`
+	CreatorAccountID string  `json:"creatorAccountId"`
+	ID               string  `json:"id"`
+	Name             string  `json:"name"`
+	CreateTime       float64 `json:"createTime,omitempty"`
+	UpdateTime       float64 `json:"updateTime,omitempty"`
+}
+
 type BatchError struct {
 	Arn     string `json:"arn,omitempty"`
 	Name    string `json:"name,omitempty"`
@@ -485,6 +501,21 @@ type PrivacyBudgetTemplateSummary struct {
 	UpdateTime                      float64 `json:"updateTime,omitempty"`
 }
 
+// CollaborationPrivacyBudgetTemplateSummary is the wire shape for
+// ListCollaborationPrivacyBudgetTemplates
+// (types.CollaborationPrivacyBudgetTemplateSummary). Carries
+// creatorAccountId, not membershipArn/membershipId.
+type CollaborationPrivacyBudgetTemplateSummary struct {
+	Arn               string  `json:"arn"`
+	CollaborationArn  string  `json:"collaborationArn"`
+	CollaborationID   string  `json:"collaborationId"`
+	CreatorAccountID  string  `json:"creatorAccountId"`
+	PrivacyBudgetType string  `json:"privacyBudgetType"`
+	ID                string  `json:"id"`
+	CreateTime        float64 `json:"createTime,omitempty"`
+	UpdateTime        float64 `json:"updateTime,omitempty"`
+}
+
 // PrivacyBudget is the wire shape returned by ListPrivacyBudgets/
 // ListCollaborationPrivacyBudgets (real AWS name: PrivacyBudgetSummary).
 // Verified against awsRestjson1_deserializeDocumentPrivacyBudgetSummary: real
@@ -517,6 +548,22 @@ type PrivacyBudget struct {
 	PrivacyBudgetTemplateID         string         `json:"privacyBudgetTemplateId"`
 	CreateTime                      float64        `json:"createTime,omitempty"`
 	UpdateTime                      float64        `json:"updateTime,omitempty"`
+}
+
+// CollaborationPrivacyBudgetSummary is the wire shape for
+// ListCollaborationPrivacyBudgets (types.CollaborationPrivacyBudgetSummary).
+// Carries creatorAccountId, not membershipArn/membershipId.
+type CollaborationPrivacyBudgetSummary struct {
+	Budget                   map[string]any `json:"budget,omitempty"`
+	ID                       string         `json:"id"`
+	PrivacyBudgetTemplateArn string         `json:"privacyBudgetTemplateArn"`
+	PrivacyBudgetTemplateID  string         `json:"privacyBudgetTemplateId"`
+	CollaborationArn         string         `json:"collaborationArn"`
+	CollaborationID          string         `json:"collaborationId"`
+	CreatorAccountID         string         `json:"creatorAccountId"`
+	PrivacyBudgetType        string         `json:"type"`
+	CreateTime               float64        `json:"createTime,omitempty"`
+	UpdateTime               float64        `json:"updateTime,omitempty"`
 }
 
 // IDMappingTable is the wire shape for CreateIdMappingTable/GetIdMappingTable
@@ -604,6 +651,23 @@ type IDNamespaceAssociationSummary struct {
 	UpdateTime                       float64        `json:"updateTime,omitempty"`
 }
 
+// CollaborationIDNamespaceAssociationSummary is the wire shape for
+// ListCollaborationIdNamespaceAssociations
+// (types.CollaborationIdNamespaceAssociationSummary). Carries
+// creatorAccountId, not membershipArn/membershipId.
+type CollaborationIDNamespaceAssociationSummary struct {
+	InputReferenceConfig     map[string]any `json:"inputReferenceConfig,omitempty"`
+	InputReferenceProperties map[string]any `json:"inputReferenceProperties,omitempty"`
+	Arn                      string         `json:"arn"`
+	CollaborationArn         string         `json:"collaborationArn"`
+	CollaborationID          string         `json:"collaborationId"`
+	CreatorAccountID         string         `json:"creatorAccountId"`
+	Name                     string         `json:"name"`
+	ID                       string         `json:"id"`
+	CreateTime               float64        `json:"createTime,omitempty"`
+	UpdateTime               float64        `json:"updateTime,omitempty"`
+}
+
 // ConfiguredAudienceModelAssociation is the wire shape for
 // CreateConfiguredAudienceModelAssociation (Summary is its List shape). Verified against
 // awsRestjson1_deserializeDocumentConfiguredAudienceModelAssociation
@@ -642,6 +706,21 @@ type ConfiguredAudienceModelAssociationSummary struct {
 	CollaborationID                              string  `json:"collaborationId"`
 	CreateTime                                   float64 `json:"createTime,omitempty"`
 	UpdateTime                                   float64 `json:"updateTime,omitempty"`
+}
+
+// CollaborationConfiguredAudienceModelAssociationSummary is the wire shape
+// for ListCollaborationConfiguredAudienceModelAssociations
+// (types.CollaborationConfiguredAudienceModelAssociationSummary). Carries
+// creatorAccountId, not membershipArn/membershipId.
+type CollaborationConfiguredAudienceModelAssociationSummary struct {
+	Arn              string  `json:"arn"`
+	CollaborationArn string  `json:"collaborationArn"`
+	CollaborationID  string  `json:"collaborationId"`
+	CreatorAccountID string  `json:"creatorAccountId"`
+	Name             string  `json:"name"`
+	ID               string  `json:"id"`
+	CreateTime       float64 `json:"createTime,omitempty"`
+	UpdateTime       float64 `json:"updateTime,omitempty"`
 }
 
 // MemberChangeSpecification is the MEMBER-typed ChangeSpecification union member.
