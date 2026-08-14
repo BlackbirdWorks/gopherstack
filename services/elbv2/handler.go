@@ -469,6 +469,13 @@ type xmlResponseMetadata struct {
 	RequestID string `xml:"RequestId"`
 }
 
+// deleteResultXML is the empty "<Op>Result" element real ELBv2 Delete* responses carry.
+// Their deserializers (e.g. elasticloadbalancingv2@v1.58.5 deserializers.go:1277)
+// unconditionally call decoder.GetElement("<Op>Result") even though the result member
+// has no fields, so omitting the element entirely fails deserialization with "node not
+// found" for every real SDK client.
+type deleteResultXML struct{}
+
 type xmlStringValue struct {
 	Value string `xml:",chardata"`
 }

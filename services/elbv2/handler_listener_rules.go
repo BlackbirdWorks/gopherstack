@@ -662,6 +662,7 @@ type createRuleResponse struct {
 }
 
 type deleteRuleResponse struct {
+	Result           deleteResultXML     `xml:"DeleteRuleResult"`
 	XMLName          xml.Name            `xml:"DeleteRuleResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`

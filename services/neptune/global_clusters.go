@@ -103,6 +103,14 @@ func (b *InMemoryBackend) DeleteGlobalCluster(
 			globalClusterID,
 		)
 	}
+
+	if gc.DeletionProtection {
+		return nil, fmt.Errorf(
+			"%w: cannot delete protected global cluster %s, disable deletion protection first",
+			ErrInvalidGlobalClusterState, globalClusterID,
+		)
+	}
+
 	cp := *gc
 	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
 	copy(cp.GlobalClusterMembers, gc.GlobalClusterMembers)

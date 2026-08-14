@@ -366,6 +366,13 @@ func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
 		return ErrLoadBalancerNotFound
 	}
 
+	if lb.Attributes[attrDeletionProtectionEnabled] == attrValueTrue {
+		return fmt.Errorf(
+			"%w: load balancer cannot be deleted because deletion protection is enabled",
+			ErrOperationNotPermitted,
+		)
+	}
+
 	// Cascade: delete all listeners and their rules. The index lookups are
 	// copied into fresh slices first because Table.Delete mutates the very
 	// index groups Index.Get returns; iterating the live group while deleting

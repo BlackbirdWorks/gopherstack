@@ -647,6 +647,7 @@ type createListenerResponse struct {
 }
 
 type deleteListenerResponse struct {
+	Result           deleteResultXML     `xml:"DeleteListenerResult"`
 	XMLName          xml.Name            `xml:"DeleteListenerResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`

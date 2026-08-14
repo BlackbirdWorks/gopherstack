@@ -382,6 +382,7 @@ type createTargetGroupResponse struct {
 }
 
 type deleteTargetGroupResponse struct {
+	Result           deleteResultXML     `xml:"DeleteTargetGroupResult"`
 	XMLName          xml.Name            `xml:"DeleteTargetGroupResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`

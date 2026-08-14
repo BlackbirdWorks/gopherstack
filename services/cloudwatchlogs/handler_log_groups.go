@@ -239,7 +239,8 @@ func (h *Handler) handlePutLogGroupDeletionProtection(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		if err := b.SetLogGroupDeletionProtection(in.LogGroupIdentifier, in.DeletionProtected); err != nil {
+		name := normalizeLogGroupIdentifier(in.LogGroupIdentifier)
+		if err := b.SetLogGroupDeletionProtection(name, in.DeletionProtected); err != nil {
 			return nil, err
 		}
 	}

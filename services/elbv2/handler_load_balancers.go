@@ -382,6 +382,7 @@ type createLoadBalancerResponse struct {
 }
 
 type deleteLoadBalancerResponse struct {
+	Result           deleteResultXML     `xml:"DeleteLoadBalancerResult"`
 	XMLName          xml.Name            `xml:"DeleteLoadBalancerResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`

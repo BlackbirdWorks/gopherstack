@@ -94,6 +94,9 @@ var (
 	ErrAccountSubscriptionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrAccountSubscriptionAlreadyExists is returned when an account is already subscribed.
 	ErrAccountSubscriptionAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
+	// ErrAccountTerminationProtectionEnabled is returned by DeleteAccountSubscription when the
+	// account's TerminationProtectionEnabled setting is true.
+	ErrAccountTerminationProtectionEnabled = awserr.New("PreconditionNotMetException", awserr.ErrInvalidParameter)
 	// ErrAccountCustomizationNotFound is returned when an account (or namespace) customization
 	// does not exist.
 	ErrAccountCustomizationNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)

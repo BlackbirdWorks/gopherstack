@@ -306,6 +306,7 @@ func neptuneErrorCode(opErr error) string {
 		{ErrInvalidDBInstanceStateFault, "InvalidDBInstanceState"},
 		{ErrInvalidDBClusterSnapshotStateFault, "InvalidDBClusterSnapshotStateFault"},
 		{ErrSnapshotRequired, "InvalidParameterCombination"},
+		{ErrInvalidGlobalClusterState, "InvalidGlobalClusterStateFault"},
 	}
 	for _, m := range mappings {
 		if errors.Is(opErr, m.sentinel) {

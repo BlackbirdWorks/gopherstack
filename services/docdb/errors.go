@@ -41,4 +41,5 @@ var (
 	ErrUnknownAction                  = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 	ErrInvalidClusterState            = awserr.New("InvalidDBClusterStateFault", awserr.ErrInvalidParameter)
 	ErrInvalidInstanceState           = awserr.New("InvalidDBInstanceState", awserr.ErrInvalidParameter)
+	ErrInvalidGlobalClusterState      = awserr.New("InvalidGlobalClusterStateFault", awserr.ErrInvalidParameter)
 )

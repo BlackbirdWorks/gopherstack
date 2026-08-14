@@ -90,6 +90,13 @@ func (b *InMemoryBackend) DeleteLogGroup(ctx context.Context, name string) error
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, name)
 	}
 
+	if entry, ok := b.deletionProtected.Get(name); ok && entry.Protected {
+		return fmt.Errorf(
+			"%w: Log group %s is protected from deletion. Disable deletion protection first",
+			ErrOperationAborted, name,
+		)
+	}
+
 	b.groupDelete(region, name)
 	b.deleteStreamsInGroup(region, name)
 	b.deleteSubscriptionFiltersInGroup(region, name)
