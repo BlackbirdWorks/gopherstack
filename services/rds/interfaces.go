@@ -245,7 +245,11 @@ type StorageBackend interface {
 	) []ReservedDBInstancesOffering
 
 	// DB Proxy operations
-	CreateDBProxy(name, engineFamily, roleARN string, auth []UserAuthConfig) (*DBProxy, error)
+	CreateDBProxy(
+		name, engineFamily, roleARN string,
+		auth []UserAuthConfig,
+		vpcSubnetIDs, vpcSecurityGroupIDs []string,
+	) (*DBProxy, error)
 	DeleteDBProxy(name string) (*DBProxy, error)
 	DescribeDBProxies(name string) ([]DBProxy, error)
 	ModifyDBProxy(

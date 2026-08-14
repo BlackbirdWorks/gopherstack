@@ -96,7 +96,11 @@ type DBProxyEndpoint struct {
 }
 
 // CreateDBProxy creates a new RDS DB proxy.
-func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth []UserAuthConfig) (*DBProxy, error) {
+func (b *InMemoryBackend) CreateDBProxy(
+	name, engineFamily, roleARN string,
+	auth []UserAuthConfig,
+	vpcSubnetIDs, vpcSecurityGroupIDs []string,
+) (*DBProxy, error) {
 	b.mu.Lock("CreateDBProxy")
 	defer b.mu.Unlock()
 
@@ -105,16 +109,18 @@ func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth
 	}
 
 	proxy := &DBProxy{
-		DBProxyName:       name,
-		DBProxyARN:        arn.Build("rds", b.region, b.accountID, fmt.Sprintf("db-proxy:prx-%s", name)),
-		Status:            instanceStatusAvailable,
-		Endpoint:          fmt.Sprintf("%s.proxy-%s.%s.rds.amazonaws.com", name, proxyRandSuffix(), b.region),
-		EngineFamily:      engineFamily,
-		RoleARN:           roleARN,
-		Auth:              auth,
-		IdleClientTimeout: proxyDefaultIdleClientTimeout,
-		CreatedDate:       time.Now(),
-		UpdatedDate:       time.Now(),
+		DBProxyName:         name,
+		DBProxyARN:          arn.Build("rds", b.region, b.accountID, fmt.Sprintf("db-proxy:prx-%s", name)),
+		Status:              instanceStatusAvailable,
+		Endpoint:            fmt.Sprintf("%s.proxy-%s.%s.rds.amazonaws.com", name, proxyRandSuffix(), b.region),
+		EngineFamily:        engineFamily,
+		RoleARN:             roleARN,
+		Auth:                auth,
+		VpcSubnetIDs:        vpcSubnetIDs,
+		VpcSecurityGroupIDs: vpcSecurityGroupIDs,
+		IdleClientTimeout:   proxyDefaultIdleClientTimeout,
+		CreatedDate:         time.Now(),
+		UpdatedDate:         time.Now(),
 		ConnectionPoolConfig: ConnectionPoolConfig{
 			MaxConnectionsPercent:     proxyDefaultMaxConnectionsPct,
 			MaxIdleConnectionsPercent: proxyDefaultMaxIdleConnectionsPct,

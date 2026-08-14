@@ -14,7 +14,7 @@ func TestProxyTargetGroup_DefaultCreated(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("proxy1", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil)
+	_, err := b.CreateDBProxy("proxy1", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil)
 	require.NoError(t, err)
 
 	groups, err := b.DescribeDBProxyTargetGroups("proxy1", "")
@@ -27,7 +27,7 @@ func TestProxyTargetGroup_Modify(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("proxy2", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil)
+	_, err := b.CreateDBProxy("proxy2", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil)
 	require.NoError(t, err)
 
 	tg, err := b.ModifyDBProxyTargetGroup("proxy2", "default", rds.ConnectionPoolConfig{
@@ -41,7 +41,7 @@ func TestProxyTargets_RegisterByInstance(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("proxy3", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil)
+	_, err := b.CreateDBProxy("proxy3", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateDBInstance(
@@ -69,7 +69,7 @@ func TestProxyTargets_Deregister(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("proxy4", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil)
+	_, err := b.CreateDBProxy("proxy4", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.RegisterDBProxyTargets("proxy4", "default", []string{"inst-1"}, nil)
@@ -137,7 +137,7 @@ func TestProxyEndpoint_CRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("ep-proxy", "POSTGRESQL", "arn:aws:iam::123:role/r", nil)
+	_, err := b.CreateDBProxy("ep-proxy", "POSTGRESQL", "arn:aws:iam::123:role/r", nil, nil, nil)
 	require.NoError(t, err)
 
 	ep, err := b.CreateDBProxyEndpoint(
@@ -166,7 +166,7 @@ func TestProxyEndpoint_Modify(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("ep-proxy2", "MYSQL", "arn:aws:iam::123:role/r", nil)
+	_, err := b.CreateDBProxy("ep-proxy2", "MYSQL", "arn:aws:iam::123:role/r", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateDBProxyEndpoint(
@@ -187,7 +187,7 @@ func TestProxyEndpoint_ListFiltered(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("ep-proxy3", "POSTGRESQL", "arn:aws:iam::123:role/r", nil)
+	_, err := b.CreateDBProxy("ep-proxy3", "POSTGRESQL", "arn:aws:iam::123:role/r", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateDBProxyEndpoint("ep-proxy3", "ep-a", "READ_ONLY", nil, nil)
@@ -259,7 +259,7 @@ func TestModifyDBProxyCopied(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend(t)
 	_, err := b.CreateDBProxy("my-proxy", "POSTGRESQL", "arn:aws:iam::123456789012:role/proxy-role",
-		[]rds.UserAuthConfig{{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:s1"}})
+		[]rds.UserAuthConfig{{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:s1"}}, nil, nil)
 	require.NoError(t, err)
 	requireTLS := true
 	proxy1, err := b.ModifyDBProxy("my-proxy", &requireTLS, nil, nil)

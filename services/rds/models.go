@@ -497,6 +497,7 @@ type Event struct {
 	Message          string    `json:"message"`
 	SourceIdentifier string    `json:"sourceIdentifier"`
 	SourceType       string    `json:"sourceType"`
+	SourceArn        string    `json:"sourceArn,omitempty"`
 }
 
 // IPRange represents a CIDR IP range authorized for a DB security group.

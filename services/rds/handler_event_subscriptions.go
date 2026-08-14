@@ -18,17 +18,22 @@ func (h *Handler) handleAddSourceIdentifierToSubscription(vals url.Values) (any,
 
 	return &addSourceIdentifierToSubscriptionResponse{
 		Xmlns:             rdsXMLNS,
-		EventSubscription: toXMLEventSubscription(sub),
+		EventSubscription: toXMLEventSubscription(sub, h.Backend.AccountID()),
 	}, nil
 }
 
-func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
+// toXMLEventSubscription builds the wire shape for an EventSubscription.
+// CustomerAwsId is the caller's account ID (rds@v1.124.1 deserializers.go's
+// EventSubscription EqualFold list) -- not per-subscription state, so it's
+// passed in rather than stored on the domain struct.
+func toXMLEventSubscription(sub *EventSubscription, accountID string) xmlEventSubscription {
 	ids := make([]string, len(sub.SourceIDs))
 	copy(ids, sub.SourceIDs)
 	cats := make([]string, len(sub.EventCategories))
 	copy(cats, sub.EventCategories)
 
 	return xmlEventSubscription{
+		CustomerAwsID:        accountID,
 		CustSubscriptionID:   sub.SubscriptionName,
 		SnsTopicArn:          sub.SnsTopicArn,
 		EventSubscriptionArn: sub.EventSubscriptionArn,
@@ -49,6 +54,7 @@ type xmlEventCategoryList struct {
 }
 
 type xmlEventSubscription struct {
+	CustomerAwsID        string               `xml:"CustomerAwsId,omitempty"`
 	CustSubscriptionID   string               `xml:"CustSubscriptionId"`
 	SnsTopicArn          string               `xml:"SnsTopicArn,omitempty"`
 	EventSubscriptionArn string               `xml:"EventSubscriptionArn,omitempty"`
@@ -76,7 +82,7 @@ func (h *Handler) handleRemoveSourceIdentifierFromSubscription(vals url.Values) 
 
 	return &removeSourceIdentifierFromSubscriptionResponse{
 		Xmlns:             rdsXMLNS,
-		EventSubscription: toXMLEventSubscription(sub),
+		EventSubscription: toXMLEventSubscription(sub, h.Backend.AccountID()),
 	}, nil
 }
 
@@ -103,7 +109,7 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 
 	return &createEventSubscriptionResponse{
 		Xmlns:             rdsXMLNS,
-		EventSubscription: toXMLEventSubscription(sub),
+		EventSubscription: toXMLEventSubscription(sub, h.Backend.AccountID()),
 	}, nil
 }
 
@@ -116,7 +122,7 @@ func (h *Handler) handleDeleteEventSubscription(vals url.Values) (any, error) {
 
 	return &deleteEventSubscriptionResponse{
 		Xmlns:             rdsXMLNS,
-		EventSubscription: toXMLEventSubscription(sub),
+		EventSubscription: toXMLEventSubscription(sub, h.Backend.AccountID()),
 	}, nil
 }
 
@@ -126,9 +132,10 @@ func (h *Handler) handleDescribeEventSubscriptions(vals url.Values) (any, error)
 	if err != nil {
 		return nil, err
 	}
+	accountID := h.Backend.AccountID()
 	members := make([]xmlEventSubscription, 0, len(subs))
 	for i := range subs {
-		members = append(members, toXMLEventSubscription(&subs[i]))
+		members = append(members, toXMLEventSubscription(&subs[i], accountID))
 	}
 
 	return &describeEventSubscriptionsResponse{
@@ -156,7 +163,7 @@ func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
 
 	return &modifyEventSubscriptionResponse{
 		Xmlns:             rdsXMLNS,
-		EventSubscription: toXMLEventSubscription(sub),
+		EventSubscription: toXMLEventSubscription(sub, h.Backend.AccountID()),
 	}, nil
 }
 
@@ -185,6 +192,7 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 			SourceType:       ev.SourceType,
 			Message:          ev.Message,
 			Date:             ev.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			SourceArn:        ev.SourceArn,
 		}
 	})
 	if err != nil {
@@ -248,6 +256,7 @@ type xmlEvent struct {
 	SourceType       string `xml:"SourceType,omitempty"`
 	Message          string `xml:"Message,omitempty"`
 	Date             string `xml:"Date,omitempty"`
+	SourceArn        string `xml:"SourceArn,omitempty"`
 }
 
 type xmlEventList struct {

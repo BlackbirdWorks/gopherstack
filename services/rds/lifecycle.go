@@ -143,6 +143,7 @@ func (b *InMemoryBackend) publishInstanceEventLocked(id, msg string) {
 		Message:          msg,
 		SourceIdentifier: id,
 		SourceType:       "db-instance",
+		SourceArn:        b.rdsARN("db", id),
 		CreatedAt:        time.Now(),
 	}
 

@@ -700,6 +700,7 @@ func (b *InMemoryBackend) publishClusterEventLocked(clusterID, msg string) {
 		Message:          msg,
 		SourceIdentifier: clusterID,
 		SourceType:       "db-cluster",
+		SourceArn:        b.rdsARN("cluster", clusterID),
 		CreatedAt:        time.Now(),
 	}
 	b.events = append(b.events, event)

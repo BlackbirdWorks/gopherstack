@@ -412,7 +412,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	// reservedInstances / recommendations / proxies / proxyTargetGroups / proxyEndpoints / customEngineVersions
 	_, err = b.PurchaseReservedDBInstancesOffering("offering1", "ri1", 1)
 	require.NoError(t, err)
-	_, err = b.CreateDBProxy("proxy1", "MYSQL", "arn:aws:iam::000000000000:role/proxy", nil)
+	_, err = b.CreateDBProxy("proxy1", "MYSQL", "arn:aws:iam::000000000000:role/proxy", nil, nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreateDBProxyEndpoint("proxy1", "proxyep1", "", nil, nil)
 	require.NoError(t, err)
