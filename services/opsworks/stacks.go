@@ -293,24 +293,31 @@ func (b *InMemoryBackend) DescribeStackSummary(stackID string) (*StackSummary, e
 }
 
 // DescribeStackProvisioningParameters returns provisioning parameters for a
-// stack. The real DescribeStackProvisioningParametersOutput has only
-// AgentInstallerUrl and Parameters members (confirmed against
-// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_DescribeStackProvisioningParameters.go)
-// -- no StackArn -- so this returns just the params map, not the stack's ARN.
-func (b *InMemoryBackend) DescribeStackProvisioningParameters(stackID string) (map[string]string, error) {
+// stack. The real DescribeStackProvisioningParametersOutput has
+// AgentInstallerUrl and Parameters as two SEPARATE members (confirmed
+// against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_DescribeStackProvisioningParameters.go) -- no StackArn, so this
+// returns just the two, not the stack's ARN.
+//
+// Parameters is returned empty rather than fabricated: AWS's real Parameters
+// map holds internal agent-bootstrap config (e.g. agent_installer_base_url,
+// instance_service_endpoint, ops_works_region, charlie_public_key), none of
+// which this backend tracks. AgentInstallerUrl itself is NOT one of those
+// keys -- a previous version of this method put "AgentInstallerUrl" inside
+// Parameters too, duplicating the dedicated top-level field under a
+// fabricated key.
+func (b *InMemoryBackend) DescribeStackProvisioningParameters(stackID string) (string, map[string]string, error) {
 	b.mu.RLock("DescribeStackProvisioningParameters")
 	defer b.mu.RUnlock()
 
 	if !b.stacks.Has(stackID) {
-		return nil, ErrStackNotFound
+		return "", nil, ErrStackNotFound
 	}
 
-	params := map[string]string{
-		"AgentInstallerUrl": fmt.Sprintf(
-			"https://opsworks-instance-agent.s3.amazonaws.com/latest/install/%s",
-			b.region,
-		),
-	}
+	agentInstallerURL := fmt.Sprintf(
+		"https://opsworks-instance-agent.s3.amazonaws.com/latest/install/%s",
+		b.region,
+	)
 
-	return params, nil
+	return agentInstallerURL, map[string]string{}, nil
 }

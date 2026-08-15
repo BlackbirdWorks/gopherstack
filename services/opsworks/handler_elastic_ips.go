@@ -6,18 +6,21 @@ import (
 	"fmt"
 )
 
-// handleRegisterElasticIP handles RegisterElasticIp requests.
+// handleRegisterElasticIP handles RegisterElasticIp requests. The real
+// RegisterElasticIpInput has no "Region" member -- only ElasticIp and
+// StackId, both required (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_RegisterElasticIp.go).
 func (h *Handler) handleRegisterElasticIP(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		ElasticIP string `json:"ElasticIp"`
-		Region    string `json:"Region"`
+		StackID   string `json:"StackId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	eip, err := h.Backend.RegisterElasticIP(req.ElasticIP, req.Region)
+	eip, err := h.Backend.RegisterElasticIP(req.ElasticIP, req.StackID)
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +84,7 @@ func (h *Handler) handleDisassociateElasticIP(_ context.Context, body []byte) (a
 func (h *Handler) handleDescribeElasticIps(_ context.Context, body []byte) (any, error) {
 	var req struct {
 		InstanceID string   `json:"InstanceId"`
+		StackID    string   `json:"StackId"`
 		Ips        []string `json:"Ips"`
 	}
 
@@ -90,7 +94,7 @@ func (h *Handler) handleDescribeElasticIps(_ context.Context, body []byte) (any,
 		}
 	}
 
-	eips, err := h.Backend.DescribeElasticIps(req.InstanceID, req.Ips)
+	eips, err := h.Backend.DescribeElasticIps(req.StackID, req.InstanceID, req.Ips)
 	if err != nil {
 		return nil, err
 	}

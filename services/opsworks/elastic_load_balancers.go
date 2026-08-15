@@ -1,6 +1,9 @@
 package opsworks
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // AttachElasticLoadBalancer attaches an ELB to a layer.
 func (b *InMemoryBackend) AttachElasticLoadBalancer(elbName, layerID string) error {
@@ -35,14 +38,23 @@ func (b *InMemoryBackend) DetachElasticLoadBalancer(elbName, _ string) error {
 	return nil
 }
 
-// DescribeElasticLoadBalancers returns ELBs optionally filtered by stack/layer.
-func (b *InMemoryBackend) DescribeElasticLoadBalancers(stackID, _ string) ([]*ElasticLoadBalancer, error) {
+// DescribeElasticLoadBalancers returns ELBs optionally filtered by stack
+// and/or layer. LayerIds is a real, plural DescribeElasticLoadBalancersInput
+// filter member (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_DescribeElasticLoadBalancers.go) -- a previous version of this
+// method discarded it entirely.
+func (b *InMemoryBackend) DescribeElasticLoadBalancers(
+	stackID string, layerIDs []string,
+) ([]*ElasticLoadBalancer, error) {
 	b.mu.RLock("DescribeElasticLoadBalancers")
 	defer b.mu.RUnlock()
 
 	result := make([]*ElasticLoadBalancer, 0)
 	for _, e := range b.elasticLBs.All() {
 		if stackID != "" && e.StackID != stackID {
+			continue
+		}
+		if len(layerIDs) > 0 && !slices.Contains(layerIDs, e.LayerID) {
 			continue
 		}
 		result = append(result, e.toElasticLoadBalancer())

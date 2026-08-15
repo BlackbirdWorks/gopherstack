@@ -214,14 +214,14 @@ func (h *Handler) handleDescribeStackProvisioningParameters(_ context.Context, b
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	params, err := h.Backend.DescribeStackProvisioningParameters(req.StackID)
+	agentInstallerURL, params, err := h.Backend.DescribeStackProvisioningParameters(req.StackID)
 	if err != nil {
 		return nil, err
 	}
 
 	return map[string]any{
 		"Parameters":        params,
-		"AgentInstallerUrl": params["AgentInstallerUrl"],
+		"AgentInstallerUrl": agentInstallerURL,
 	}, nil
 }
 

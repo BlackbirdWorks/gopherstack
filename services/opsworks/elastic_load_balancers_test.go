@@ -55,6 +55,36 @@ func TestElasticLoadBalancers(t *testing.T) {
 			},
 		},
 		{
+			// DescribeElasticLoadBalancersInput.LayerIds is a real, plural
+			// filter member (confirmed against
+			// aws-sdk-go-v2/service/opsworks@v1.31.0's
+			// api_op_DescribeElasticLoadBalancers.go) -- a previous version
+			// of the backend discarded this filter entirely.
+			name: "DescribeElasticLoadBalancers filters by LayerIds",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				stackID := createTestStack(t, h)
+				layer1 := createTestLayer(t, h, stackID)
+				layer2 := createTestLayer(t, h, stackID)
+				doTarget(t, h, "AttachElasticLoadBalancer", map[string]any{
+					"ElasticLoadBalancerName": "elb-one",
+					"LayerId":                 layer1,
+				})
+				doTarget(t, h, "AttachElasticLoadBalancer", map[string]any{
+					"ElasticLoadBalancerName": "elb-two",
+					"LayerId":                 layer2,
+				})
+
+				rec := doTarget(t, h, "DescribeElasticLoadBalancers", map[string]any{
+					"LayerIds": []string{layer2},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				elbs := parseJSON(t, rec.Body.Bytes())["ElasticLoadBalancers"].([]any)
+				require.Len(t, elbs, 1)
+				assert.Equal(t, "elb-two", elbs[0].(map[string]any)["ElasticLoadBalancerName"])
+			},
+		},
+		{
 			name: "DetachElasticLoadBalancer removes ELB",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()

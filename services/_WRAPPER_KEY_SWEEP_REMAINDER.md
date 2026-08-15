@@ -1,6 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**82 of 162 services swept, 80 remain** (apigatewayv2, workmail, wafv2, ce,
+**83 of 162 services swept, 79 remain** (opsworks added this session,
+2026-08-15, see its own section at the end of this file; apigatewayv2, workmail, wafv2, ce,
 waf, vpclattice, emr, eventbridge, kafka, route53resolver, appsync,
 workspaces, lakeformation, elasticsearch, and now rekognition all added this
 session, in parallel, by different sessions — see each service's own section
@@ -5589,3 +5590,131 @@ op failure for real clients (#1), one a fifth instance of the "real key
 from the wrong side" pattern (#3)). 82 of 162 services swept, 80 remain.
 Per the ranked table, `directoryservice` (80 ops, 25 L+D+G, `direct`) is
 next largest -- re-check `git status` before picking it.
+
+## opsworks (this session, 2026-08-15)
+
+Assigned directly (gopherstack-6flj, `directoryservice` held by a live
+sibling all session -- confirmed unbuildable mid-refactor via `git status`,
+never touched). A prior session's opsworks pass had already been killed
+mid-verification by an API session limit and stashed (`stash@{0}`, message
+"wip: killed by session limit") rather than committed -- built but failed
+`TestElasticIps/RegisterElasticIp_without_StackId_returns_400`, nothing
+hand-reverted. Per gopherstack-t0gq's recommendation, swept fresh; the stash
+was read via `git stash show`/`git diff stash@{0}^1 stash@{0}` read-only as
+a hint and never popped/applied/dropped.
+
+**Resolved the ambiguous test (closes gopherstack-t0gq for opsworks):**
+`RegisterElasticIp_without_StackId_returns_400` does not exist at `HEAD`
+(`git show HEAD:services/opsworks/elastic_ips_test.go | grep StackId` --
+zero hits), so the stashed session's 200-instead-of-400 failure was not it
+breaking a pre-existing test. It was a *new* test that correctly found a
+real, previously-missing gap: `RegisterElasticIpInput.StackId` is
+`"This member is required"` (confirmed
+`aws-sdk-go-v2/service/opsworks@v1.31.0`'s `api_op_RegisterElasticIp.go`,
+read from the module cache), and the pre-stash `HEAD` code never validated
+it -- it also accepted a fabricated `Region` field the real input doesn't
+have at all. Verdict: **(b)**, new test correctly failing, not (a).
+
+**SDK availability:** `aws-sdk-go-v2/service/opsworks@v1.31.0` sits in the
+local module cache but is confirmed **absent** from `go.mod`/`go.sum` (`grep
+opsworks go.mod go.sum` -- no hits). No `go get`/`go.mod` edit made; every
+wire-shape claim below cites the cached module source directly, per this
+package's own `sdk_completeness_test.go` convention for SDK-less services.
+
+**Protocol:** `awsAwsjson11` exclusively. Case-sensitive plain Go `switch
+key { case "Xxx": }` on decoded JSON keys (confirmed reading several
+`awsAwsjson11_deserializeDocument*` functions directly), not
+`smithyxml.EqualFold`. All `EqualFold` hits in this SDK version are in
+`errorCode` matching only, never a body-field switch. No second client to
+confuse with (`go.mod`/`go.sum` have zero opsworks references).
+
+**Router:** single top-level `X-Amz-Target` prefix match, one flat
+`buildOps()` dispatch map, no second-layer router to desync --
+`sdk_completeness_test.go` already asserts `GetSupportedOperations()` and
+the dispatch table match exactly.
+
+**Phantom ops:** none -- all 74 `GetSupportedOperations()` names diffed 1:1
+against every `api_op_*.go` file in the pinned module cache; no gopherstack
+op missing from the real SDK and no real SDK op missing from gopherstack.
+
+**4 real bugs found and fixed**, none previously flagged in this service's
+own `PARITY.md` `gaps`/`deferred`:
+
+1. `RegisterElasticIp` (discarded input + missing validation + fabricated
+   member): fabricated `Region` request field (no such real member) replaced
+   with the real, required `StackId`; empty `StackId` now rejected
+   (`ValidationException`), matching this service's established
+   validate-then-existence-check pattern used elsewhere in the same package.
+2. `DescribeElasticIps`: real `StackId` filter member entirely discarded --
+   every call ignored it. Now honored.
+3. `DescribeElasticLoadBalancers`: real, plural `LayerIds` filter member
+   truncated to its first element by the handler, then discarded outright by
+   the backend (parameter literally named `_`). Now filters against the full
+   list.
+4. `DescribeStackProvisioningParameters`: the real, dedicated top-level
+   `AgentInstallerUrl` member was correctly emitted, but also duplicated
+   under a fabricated `"AgentInstallerUrl"` key inside the free-form
+   `Parameters` map -- a key no real response ever carries there. `Parameters`
+   now returns empty (honest -- unmodeled) instead of an invented key.
+
+`ElasticIP`/`storedElasticIP` gained an internal-only `StackID` field for
+(1)/(2) -- deliberately never serialized on the wire, since the real
+`types.ElasticIp` has no `StackId` member. `storedElasticIP` doubles as the
+snapshot/restore persistence DTO; the field was added (not retagged), so old
+snapshots restore unchanged.
+
+**Layer-1/2 sibling sweep:** all 24 `List`/`Describe`/`Get` ops had their
+top-level wrapper key diffed against the real deserializer's own top-level
+case list -- all correct. All 21 per-item `*ToJSON` conversion functions
+were field-diffed against their real deserializer's `case "Xxx":` list --
+every field gopherstack emits uses the real key name. The large remaining
+gaps (most of `App`/`Layer`/`Instance`/`Stack`/`Volume`/`Deployment`'s
+optional surface) are all pre-existing, already-documented structural gaps
+in this service's own `PARITY.md` (`deferred`/`gaps` sections) -- the
+backend's domain structs genuinely don't track those values, so none of
+this is a "value already held but never emitted" bug. One new structural
+gap found and disclosed (not fixed, added to `PARITY.md`):
+`ElasticLoadBalancer` responses omit `AvailabilityZones`/`Ec2InstanceIds`/
+`SubnetIds`/`VpcId` -- same class, no VPC/subnet/EC2-instance model in this
+backend to source them from.
+
+**Tests:** 3 new (`RegisterElasticIp_without_StackId_returns_400`,
+`DescribeElasticIps_filters_by_StackId`,
+`DescribeElasticLoadBalancers_filters_by_LayerIds`) plus 1 new assertion in
+the existing `TestDescribeStackProvisioningParameters`. All 4 fixes
+hand-reverted individually and confirmed to fail with the predicted symptom
+before being restored byte-identical (no git-mutating commands used, since
+this session's hard constraint banned even `git checkout --`; reverted and
+restored via direct file edits instead): (1) `StackId` validation removed ->
+404 instead of 400 (falls through to the stack-existence check instead of
+the required-field check -- still not 400, confirming the gap, though a
+different wrong code than the stashed session originally observed); (2)
+`StackId` filter removed -> 2 IPs returned instead of 1; (3) `LayerIds`
+filter removed -> 2 ELBs returned instead of 1; (4) fabricated
+`Parameters.AgentInstallerUrl` re-added -> assertion failed as predicted.
+
+**Real-client test ratio:** 0 before and after (SDK not a `go.mod`
+dependency; documented exception, matches this repo's pattern for other
+unpinned services).
+
+Gates: scoped `go build`/`go vet ./services/opsworks/...` clean; full `go
+build ./...`/`go vet ./...` clean (interface signature changes propagate;
+`directoryservice` was a live sibling mid-edit throughout, confirmed via
+repeated `git status`, never touched -- its transient build breaks during
+this session were its own concurrent edits, not caused by this pass); `go
+test -race -count=1 ./services/opsworks/...` and `./pkgs/...` green; `go fix
+-diff` clean; `golangci-lint run ./services/opsworks/...` 0 issues (1
+`golines` line-length finding fixed by hand); 0 cyclop/gocyclo/gocognit/
+funlen nolints (grep-confirmed).
+
+No subagents used. No git-mutating commands run -- orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/opsworks/*` files and this remainder file touched.
+
+opsworks's List/Describe/Get families are now fully swept for this issue
+(24/24 ops layer-1 clean; 4 bugs found and fixed at layer 2/5, all
+discarded-input/missing-validation/fabricated-member class, none previously
+documented). 83 of 162 services swept, 79 remain. `directoryservice` (80
+ops, 25 L+D+G, `direct`) remains the next largest -- re-check `git status`
+before picking it (it was still a live, uncommitted sibling as of this
+session's end).
