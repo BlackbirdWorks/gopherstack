@@ -164,6 +164,7 @@ type StorageBackend interface {
 		allowAssociationToShareableServiceNetwork bool,
 		portRanges []string,
 		definition *ResourceConfigurationDefinition,
+		customDomainName, domainVerificationID, groupDomain string,
 		tags map[string]string,
 	) (*ResourceConfiguration, error)
 	GetResourceConfiguration(id string) (*ResourceConfiguration, error)
@@ -284,12 +285,13 @@ type ServiceNetwork struct {
 
 // ServiceNetworkSummary is a service network entry for list responses.
 type ServiceNetworkSummary struct {
-	CreatedAt                  time.Time
-	ARN                        string
-	ID                         string
-	Name                       string
-	NumberOfAssociatedServices int64
-	NumberOfAssociatedVPCs     int64
+	CreatedAt                                time.Time
+	ARN                                      string
+	ID                                       string
+	Name                                     string
+	NumberOfAssociatedServices               int64
+	NumberOfAssociatedVPCs                   int64
+	NumberOfAssociatedResourceConfigurations int64
 }
 
 // ServiceNetworkServiceAssociation is a service-to-service-network association.
@@ -456,10 +458,11 @@ type WeightedTargetGroup struct {
 
 // RuleMatch is the match conditions for a listener rule.
 type RuleMatch struct {
-	HTTPMethod     string         `json:"httpMethod,omitempty"`
-	PathMatchType  string         `json:"pathMatchType,omitempty"`
-	PathMatchValue string         `json:"pathMatchValue,omitempty"`
-	HeaderMatches  []*HeaderMatch `json:"headerMatches,omitempty"`
+	HTTPMethod        string         `json:"httpMethod,omitempty"`
+	PathMatchType     string         `json:"pathMatchType,omitempty"`
+	PathMatchValue    string         `json:"pathMatchValue,omitempty"`
+	HeaderMatches     []*HeaderMatch `json:"headerMatches,omitempty"`
+	PathCaseSensitive bool           `json:"pathCaseSensitive,omitempty"`
 }
 
 // HeaderMatch is an HTTP header match condition.
@@ -561,13 +564,14 @@ type AccessLogSubscription struct {
 
 // AccessLogSubscriptionSummary is a summary for list responses.
 type AccessLogSubscriptionSummary struct {
-	CreatedAt      time.Time
-	LastUpdatedAt  time.Time
-	ARN            string
-	ID             string
-	ResourceARN    string
-	ResourceID     string
-	DestinationARN string
+	CreatedAt             time.Time
+	LastUpdatedAt         time.Time
+	ARN                   string
+	ID                    string
+	ResourceARN           string
+	ResourceID            string
+	DestinationARN        string
+	ServiceNetworkLogType string
 }
 
 // AuthPolicy represents an auth policy on a VPC Lattice resource.
@@ -645,14 +649,18 @@ type ResourceConfiguration struct {
 // ResourceConfigurationSummary is a resource configuration entry for list
 // responses.
 type ResourceConfigurationSummary struct {
-	CreatedAt         time.Time
-	LastUpdatedAt     time.Time
-	ARN               string
-	ID                string
-	Name              string
-	Type              string
-	Status            string
-	ResourceGatewayID string
+	CreatedAt                    time.Time
+	LastUpdatedAt                time.Time
+	ARN                          string
+	ID                           string
+	Name                         string
+	Type                         string
+	Status                       string
+	ResourceGatewayID            string
+	ResourceConfigurationGroupID string
+	CustomDomainName             string
+	GroupDomain                  string
+	DomainVerificationID         string
 }
 
 // ServiceNetworkResourceAssociation associates a resource configuration with

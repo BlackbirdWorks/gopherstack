@@ -193,7 +193,11 @@ func (b *InMemoryBackend) ListServiceNetworks(
 			continue
 		}
 
-		all = append(all, sn.toSummary())
+		summary := sn.toSummary()
+		summary.NumberOfAssociatedServices = b.countSNSAs(sn.ID)
+		summary.NumberOfAssociatedVPCs = b.countSNVAs(sn.ID)
+		summary.NumberOfAssociatedResourceConfigurations = b.countSNRAs(sn.ID)
+		all = append(all, summary)
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })

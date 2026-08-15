@@ -32,13 +32,16 @@ func (b *InMemoryBackend) resolveResourceConfigurationID(identifier string) (str
 // both optional and, when non-empty, must resolve to an existing resource
 // gateway / GROUP-type resource configuration respectively -- a CHILD
 // configuration inherits its ResourceGatewayId from the parent GROUP, per
-// CreateResourceConfigurationInput's doc comment.
+// CreateResourceConfigurationInput's doc comment. groupDomain, when
+// non-empty, is stored directly (real API: settable on GROUP-type create);
+// a CHILD with no explicit groupDomain inherits its parent GROUP's value.
 func (b *InMemoryBackend) CreateResourceConfiguration(
 	ctx context.Context,
 	name, resourceType, protocol, resourceGatewayIdentifier, resourceConfigurationGroupIdentifier string,
 	allowAssociationToShareableServiceNetwork bool,
 	portRanges []string,
 	definition *ResourceConfigurationDefinition,
+	customDomainName, domainVerificationID, groupDomain string,
 	tags map[string]string,
 ) (*ResourceConfiguration, error) {
 	if name == "" || resourceType == "" {
@@ -52,11 +55,15 @@ func (b *InMemoryBackend) CreateResourceConfiguration(
 		return nil, ErrAlreadyExists
 	}
 
-	resourceGatewayID, groupID, groupDomain, err := b.resolveResourceConfigurationParents(
+	resourceGatewayID, groupID, inheritedGroupDomain, err := b.resolveResourceConfigurationParents(
 		resourceType, resourceGatewayIdentifier, resourceConfigurationGroupIdentifier,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if groupDomain == "" {
+		groupDomain = inheritedGroupDomain
 	}
 
 	now := time.Now().UTC()
@@ -73,6 +80,8 @@ func (b *InMemoryBackend) CreateResourceConfiguration(
 		ResourceGatewayID:            resourceGatewayID,
 		ResourceConfigurationGroupID: groupID,
 		GroupDomain:                  groupDomain,
+		CustomDomainName:             customDomainName,
+		DomainVerificationID:         domainVerificationID,
 		PortRanges:                   append([]string(nil), portRanges...),
 		Definition:                   definition,
 		AllowShareableAssoc:          allowAssociationToShareableServiceNetwork,

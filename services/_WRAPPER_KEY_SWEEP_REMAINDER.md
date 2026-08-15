@@ -1,8 +1,9 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**72 of 162 services swept, 90 remain** (apigatewayv2, workmail, wafv2, ce,
-and now waf all added this session, in parallel, by different sessions — see
-each service's own section at the end of this file for full detail).
+**73 of 162 services swept, 89 remain** (apigatewayv2, workmail, wafv2, ce,
+waf, and now vpclattice all added this session, in parallel, by different
+sessions — see each service's own section at the end of this file for full
+detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -105,7 +106,8 @@ quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
-**waf** (this session), **wafv2** (this session), **workmail** (this session).
+**vpclattice** (this session), **waf** (this session), **wafv2** (this
+session), **workmail** (this session).
 
 One service still has real, extensive wire-shape work under **other** issue
 classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
@@ -114,7 +116,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (92 of 162), ranked by List+Describe+Get op count
+## Unswept (89 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -129,14 +131,14 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 90 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 89 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
-apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, and waf's 34 removed,
-all swept prior to/this session): **1,185** candidate ops.
+apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34, and
+vpclattice's 30 removed, all swept prior to/this session): **1,155**
+candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| vpclattice | 73 | 16 | 0 | 14 | 30 | direct |
 | eventbridge | 74 | 16 | 12 | 2 | 30 | direct |
 | emr | 65 | 13 | 8 | 9 | 30 | direct |
 | route53resolver | 30 | 16 | 0 | 14 | 30 | manual (range target unresolved by tool) |
@@ -3213,3 +3215,264 @@ table, vpclattice (30, `direct`) is next largest but is the live sibling's
 own territory (confirmed via `git status`); eventbridge (30, `direct`) or
 emr (30, `direct`) are the next candidates that don't collide — re-check
 `git status` for live sibling territory before picking either.
+
+## vpclattice (this session)
+
+Chosen as the largest unswept service that no live sibling held: `ce`
+(uncommitted modified files, confirmed via `git status`) and `waf` (per this
+session's brief, and independently confirmed by waf's own session notes
+above, which found vpclattice's in-progress edits and picked waf instead)
+were both occupied. `waf` (34 L+D+G) is nominally larger than vpclattice's
+30, but was off-limits; of the remaining 30-tier candidates (vpclattice,
+eventbridge, emr, route53resolver, all 30), vpclattice was picked first and
+turned out self-contained (single-protocol REST/JSON, no cross-service
+split).
+
+PROTOCOL: confirmed `awsRestjson1_` from vpclattice@v1.25.5's
+`deserializers.go` function-prefix grep (only prefix present). Case-sensitive
+body-field switches (`switch key { case "...": }`), confirmed by inspecting
+`ListAccessLogSubscriptions`'/`GetAccessLogSubscription`'s deserializers
+directly. All 400 `EqualFold` hits in `deserializers.go` are `errorCode`
+matches inside the per-op `deserializeOpError*` functions (spot-checked the
+first 5 and the last 5) — none are in a body-field switch, so casing is a
+non-issue by construction here, like guardduty/pinpoint before it.
+
+**Second client**: none. Only `vpclatticesdk "github.com/aws/aws-sdk-go-v2/service/vpclattice"`
+is imported anywhere in this repo outside `services/vpclattice` itself
+(cli.go, gendocs, teststack, and the terraform/integration test suites all
+use the one client).
+
+**Dead-deserializer trap checked and found NOT to apply** — traced
+`ListServices`'s generated `HandleDeserialize` (deserializers.go:10816)
+directly: it decodes the body into `shape` and calls
+`awsRestjson1_deserializeOpDocumentListServicesOutput(&output, shape)`
+itself (deserializers.go:10861); no dead `OpDocument...Output` wrapper sits
+unreached between them for this op, and the same pattern was confirmed for
+`GetAccessLogSubscription`/`ListAccessLogSubscriptions` before trusting any
+other op's `OpDocument...Output` case list as the real, reached
+deserializer.
+
+Read all 30 L+D+G ops' response shapes against their own
+`awsRestjson1_deserializeOpDocument<Op>Output`/`deserializeDocument<Type>`
+case lists (file+line via per-op grep dumps), plus the paired
+`serializeOpDocument*Input` functions for every op whose request side was
+touched by a fix.
+
+**Sibling/version pairs**: no V1/V2 pair exists for vpclattice itself, but
+one clear in-file sibling trap was found and fixed (`RuleAction`'s
+`ForwardAction`/`FixedResponseAction` handling was already fully correct —
+`ruleActionToJSON`/`extractRuleAction` match the real union shape exactly —
+while `RuleMatch`'s `PathMatch` handling, in the very same function
+(`ruleMatchToJSON`), used the wrong wrapper key. The correct sibling
+(`action`) sat right next to the broken one (`match`) in the same file with
+no cross-reference between them). Also reported as already-correct:
+`Target`/`TargetSummary`/`TargetFailure` (targets.go),
+`ListTagsForResource` (tags.go), `Listener`/`ListenerSummary`
+(listeners.go), `ServiceNetworkVpcAssociation` family, `ResourceEndpointAssociation`/
+`ServiceNetworkVpcEndpointAssociation` (deliberately, honestly empty —
+this backend has no EC2 VPC-endpoint cross-service modeling, matching the
+real API's "AWS auto-creates these, vpc-lattice itself has no Create op"
+shape; already correctly documented in-code before this session).
+
+**9 real bugs found and fixed, spanning all three layers:**
+
+1. **`AccessLogSubscription`/`AccessLogSubscriptionSummary` —
+   `serviceNetworkLogType` tracked by the backend on every create but never
+   emitted by either `GetAccessLogSubscription` or
+   `ListAccessLogSubscriptions`** (real, non-required member on both
+   `GetAccessLogSubscriptionOutput` and `types.AccessLogSubscriptionSummary`,
+   deserializers.go). `AccessLogSubscriptionSummary` didn't even have a
+   struct field for it. Fixed both.
+2. **`RuleMatch.PathMatch` — wrapper-key bug, broken in both directions,
+   total functional loss.** `extractPathMatch` (request) and
+   `ruleMatchToJSON` (response) both used `"path"`; the real wire key on
+   both sides is `"pathMatch"` (serializers.go:6541,
+   `awsRestjson1_serializeDocumentHttpMatch`; confirmed same key on the
+   response deserializer). A real client's path-match rule condition was
+   silently discarded on create (gopherstack never recognized `"pathMatch"`
+   in the request) and never echoed back on Get/List regardless. This is
+   the flagship "wrong key AND it breaks the write path too" finding this
+   session, sitting beside the already-correct `RuleAction` sibling in the
+   same function.
+3. **`HeaderMatch.CaseSensitive`/new `RuleMatch.PathCaseSensitive` — real
+   fields, completely unwired on both sides.** `HeaderMatch.CaseSensitive`
+   existed on the struct but neither `extractHeaderMatches` (request) nor
+   `ruleMatchToJSON` (response) touched it; `PathMatch.CaseSensitive` had no
+   backing field in `RuleMatch` at all. Confirmed real, same-key
+   (`"caseSensitive"`) on both request and response for both `HeaderMatch`
+   and `PathMatch` (serializers.go:6408/6582). Fixed by wiring both
+   directions for `HeaderMatch` and adding the missing field + wiring for
+   `PathMatch`.
+4. **`ListServiceNetworks` — association counts always 0.**
+   `NumberOfAssociatedServices`/`NumberOfAssociatedVPCs` were computed
+   fresh only inside `GetServiceNetwork` (mutating the returned struct);
+   `ListServiceNetworks`'s `toSummary()` never recomputed them, so every
+   list item reported 0 regardless of real associations even though
+   `GetServiceNetwork` on the identical object reported correctly. Fixed by
+   computing `countSNSAs`/`countSNVAs` in the List loop too, without relying
+   on `GetServiceNetwork`'s side-effecting mutation (which also mutates a
+   shared stored pointer under an `RLock` — a pre-existing, separate
+   concurrency wart, flagged here but not fixed since it's outside this
+   issue's wire-shape scope).
+5. **`ServiceNetworkSummary` missing `numberOfAssociatedResourceConfigurations`
+   entirely.** Real, non-required `ServiceNetworkSummary`-only member (not
+   on Get, confirmed by comparing both real deserializer case lists). The
+   backend already had `countSNRAs()`, used only for a delete-precondition
+   check, never wired to the wire. Fixed: added the field, wired into the
+   same `ListServiceNetworks` loop as #4.
+6. **`ServiceSummary` missing `lastUpdatedAt`.** Tracked
+   (`ServiceSummary.LastUpdatedAt`, already correctly emitted by
+   `GetService`'s `serviceToJSON`) but `serviceSummaryToJSON` never emitted
+   it — every `ListServices` item had a nil `LastUpdatedAt` for a real
+   client regardless of backend state.
+7. **`HealthCheckConfig` — `protocolVersion` never echoed, `matcher`
+   (`Matcher.HttpCode`) completely unwired on both sides.**
+   `HealthCheckConfig.ProtocolVersion` was parsed on create/update but
+   `healthCheckToJSON` never emitted it back. `MatcherHTTPCode` had a
+   struct field with no request-parsing or response-emitting code at all.
+   Confirmed real wire shape `{"matcher": {"httpCode": "..."}}` both
+   directions (serializers.go:6489-6494). Fixed both.
+8. **`ResourceConfigurationSummary` missing
+   `customDomainName`/`groupDomain`/`domainVerificationId`/
+   `resourceConfigurationGroupId` entirely** — all four real,
+   non-required `ResourceConfigurationSummary` members
+   (deserializers.go), all four already present on
+   `ResourceConfiguration`/`GetResourceConfigurationOutput` and correctly
+   emitted there (except `domainVerificationId`, see #9). The struct had no
+   fields for them and `toSummary()` dropped them. Fixed: added fields,
+   wired `toSummary()`, extracted the inline `ListResourceConfigurations`
+   map into a shared `resourceConfigurationSummaryToJSON` helper mirroring
+   `resourceConfigurationToJSON`'s existing conditional-emit pattern.
+9. **`CreateResourceConfiguration` discarded three real, directly-settable
+   request members entirely: `customDomainName`/
+   `domainVerificationIdentifier`/`groupDomain`** (confirmed against
+   `CreateResourceConfigurationInput`'s real fields and
+   `serializers.go:433/438/443` — `awsRestjson1_serializeOpDocumentCreateResourceConfigurationInput`).
+   `handleCreateResourceConfiguration` never read any of the three from the
+   body at all, so a real client supplying them had them silently dropped
+   — the same "discarded input" shape this issue's brief called out for
+   apigatewayv2's `CreateProductPage`. This also explains why `GroupDomain`
+   looked permanently unreachable at first: a GROUP-type resource
+   configuration's own `GroupDomain` was never settable at all, so every
+   CHILD that later inherited it also got `""`. Fixed by threading all
+   three through `CreateResourceConfiguration`'s backend signature
+   (`groupDomain`, when explicitly given, wins; otherwise CHILD still
+   inherits its GROUP parent's value, unchanged). **Also found and fixed
+   along the way**: `GetResourceConfiguration`'s own `resourceConfigurationToJSON`
+   never emitted `domainVerificationId` either (a distinct omission from
+   #8's List-only gap, caught only once the round-trip test exercised Get
+   after fixing the Create-side discard) — the real
+   `GetResourceConfigurationOutput` always includes it (non-required).
+
+**Over-wide/secret/ARN fields**: none found. No response in this service
+carries a secret, credential, or an ARN the caller couldn't already derive
+from the resource it just created/looked up.
+
+**Backend-tracked-but-unemitted (lead question 2) hits**: #1, #4, #5, #6,
+and #9's `domainVerificationId` gap on Get — five separate instances of
+"the backend already had the value on hand and simply never wrote it to
+the response," the most of any single layer this session.
+
+**Real-client test ratio**: 1 of 52 existing test functions in
+`services/vpclattice` drove a real SDK client end-to-end before this
+session (`TestGetService_UnknownServiceSurfacesResourceNotFoundException`
+in `handler_error_type_test.go`, via its `newTestVPCLatticeClient` helper).
+`TestSDKCompleteness` also imports the real SDK package but only reflects
+over its method set for op-name completeness, same non-count as every
+other service's `TestSDKCompleteness`. The other 50 test functions drive
+the handler directly over raw `map[string]any` bodies/responses, which by
+construction cannot catch a wrong wire key. This session added 7 more
+real-client tests, bringing it to roughly 8 of 59 (~14%).
+
+**Ratifying test found and fixed**: 1 — `TestRule_CRUD` built its
+`CreateRule` request body with `"path": {"match": {"exact": "/api"}}`
+(the pre-fix bug's own key) and never asserted the match round-tripped on
+the follow-up `GetRule`, so it passed cleanly against broken code purely
+because it never checked. Rewritten to use the real `"pathMatch"` key with
+`"caseSensitive": true` and to assert the full match structure survives
+the round trip through `GetRule`.
+
+**Phantom ops**: none. All 73 op-name string literals in
+`GetSupportedOperations` (74 including the `opUnknown` sentinel) map to a
+real `api_op_<Name>.go` file in vpclattice@v1.25.5, verified by script
+against every `op*` constant in `handler.go`.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>Output`/`deserializeDocument<Type>`/
+`serializeOpDocument*Input` function actually reached from that op's own
+`HandleDeserialize`, file+line, never a doc comment or an assumption.
+
+**Disclosed, not fixed** (structural gaps needing new backend modeling this
+session judged too speculative to fabricate, each independently verified
+absent from the backend's tracked state):
+- `ServiceNetworkServiceAssociation`/`ServiceNetworkVpcAssociation`/
+  `ServiceNetworkResourceAssociation`'s `failureCode`/`failureMessage`
+  (and SNRA's `domainVerificationStatus`/`isManagedAssociation`/
+  `privateDnsEntry`/`dnsEntry`) — no failure-state or managed-association
+  simulation anywhere in this backend; every association reaches ACTIVE
+  deterministically.
+- `Service`'s `idleTimeoutSeconds`/`failureCode`/`failureMessage` — no
+  backing field or create/update parameter for any of the three.
+- `ServiceNetwork`'s `sharingConfig` — no RAM/cross-account-sharing model.
+- `ResourceGateway`'s `managedBy`/`serviceManaged` — no
+  ownership/ManagedBy-Firewall-Manager-style concept; every gateway here is
+  self-managed by construction, which is what these fields would say
+  anyway, but synthesizing the exact enum/bool without a real source felt
+  like more invention than the gap warranted for a one-session pass.
+- `RuleGroup`... n/a (vpclattice has no `RuleGroup` type; not to be
+  confused with wafv2's finding in the same file this session).
+- `DomainVerification`/`DomainVerificationSummary`'s `tags`/
+  `txtMethodConfig` — no TXT-record verification-detail modeling.
+  `lastVerifiedTime` **was** fixed on the List side (`handleListDomainVerifications`'s
+  inline map never emitted it despite `GetDomainVerification` already doing
+  so conditionally) but stays genuinely untested: nothing in this backend
+  ever sets `LastVerifiedTime` on any Create/Update path (always nil), so
+  the fix is a structural correctness match against Get's existing
+  conditional-emit pattern, not something a black-box test can currently
+  observe as non-nil.
+- `ResourceConfigurationSummary`/`ResourceConfiguration`'s `amazonManaged` —
+  no AWS-managed resource-configuration concept in this backend (every
+  resource configuration here is user-created).
+
+Tests: 7 new real-SDK-client tests in the new
+`services/vpclattice/wire_field_fixes_test.go`
+(`TestAccessLogSubscription_ServiceNetworkLogType`,
+`TestRule_PathMatchWireKeyAndCaseSensitive`,
+`TestListServiceNetworks_AssociationCounts`, `TestListServices_LastUpdatedAt`,
+`TestTargetGroup_HealthCheck_ProtocolVersionAndMatcher`,
+`TestListResourceConfigurations_GroupId`,
+`TestResourceConfiguration_CustomDomainNameAndDomainVerificationId`), plus
+the `TestRule_CRUD` ratifying-test rewrite in `handler_rules_test.go`. Every
+fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint — reverts done by re-editing the exact prior
+text and restoring it afterward, diffed byte-identical against the
+pre-revert file each time), confirmed to fail with the exact predicted
+symptom quoted in-code above (empty `ServiceNetworkLogType`, nil
+`PathMatch`, both association counts falling back to 0, nil `LastUpdatedAt`,
+empty `ProtocolVersion`/missing `Matcher`, empty `GroupDomain`/
+`CustomDomainName`/`DomainVerificationId`) before being restored.
+`resource_gateway_family_test.go`'s one direct backend call site was updated
+for `CreateResourceConfiguration`'s three new trailing parameters (no
+behavior change, positional-argument-count only).
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to `services/vpclattice`),
+`go fix -diff` (no diff), `golangci-lint run` (0 issues after a `golines`
+reformat on one new test's line length; no cyclop/gocyclo/gocognit/funlen
+nolints added or present) all green. `go test -race ./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all `services/vpclattice` changes
+uncommitted — orchestrator must commit/push); `services/ce` (a live
+sibling's uncommitted work, confirmed via `git status` at the start) and
+`services/waf` (per this session's brief, independently confirmed by waf's
+own session notes found in this same file) both confirmed untouched
+throughout; two new commits (`baa7502c3` ce, `b0f93c529` waf) landed on
+this branch mid-session from those sibling sessions — noticed via `git log`,
+did not conflict with or require touching anything outside
+`services/vpclattice`; no `gendocs`/`make docs` run.
+
+vpclattice's List/Describe/Get families are now fully swept for this issue
+(30/30 ops verified against the real deserializer/serializer). 73 of 162
+services swept, 89 remain. Per the ranked table, eventbridge and emr (30
+each, `direct`) are the next candidates — re-check `git status` for live
+sibling territory before picking either.

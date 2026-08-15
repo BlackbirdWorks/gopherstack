@@ -29,7 +29,7 @@ func TestNewResourceFamiliesSurviveSnapshotRestore(t *testing.T) {
 		ArnValue: "arn:aws:rds:us-east-1:000000000000:db:mydb",
 	}
 
-	rc, err := b.CreateResourceConfiguration(ctx, "rc-persist", "ARN", "", "", "", false, nil, def, nil)
+	rc, err := b.CreateResourceConfiguration(ctx, "rc-persist", "ARN", "", "", "", false, nil, def, "", "", "", nil)
 	require.NoError(t, err)
 
 	sn, err := b.CreateServiceNetwork(ctx, "sn-persist", "", nil)

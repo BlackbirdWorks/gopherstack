@@ -158,9 +158,10 @@ func targetGroupConfigToJSON(c *TargetGroupConfig) map[string]any {
 }
 
 func healthCheckToJSON(hc *HealthCheckConfig) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"enabled":                    hc.Enabled,
 		keyProtocol:                  hc.Protocol,
+		"protocolVersion":            hc.ProtocolVersion,
 		"path":                       hc.Path,
 		keyPort:                      hc.Port,
 		"healthyThresholdCount":      hc.HealthyThresholdCount,
@@ -168,6 +169,12 @@ func healthCheckToJSON(hc *HealthCheckConfig) map[string]any {
 		"healthCheckIntervalSeconds": hc.HealthCheckIntervalSeconds,
 		"healthCheckTimeoutSeconds":  hc.HealthCheckTimeoutSeconds,
 	}
+
+	if hc.MatcherHTTPCode != "" {
+		m["matcher"] = map[string]any{"httpCode": hc.MatcherHTTPCode}
+	}
+
+	return m
 }
 
 // ------- TargetGroup body extraction helpers -------
@@ -203,6 +210,11 @@ func extractHealthCheckConfig(raw map[string]any) *HealthCheckConfig {
 	hc.ProtocolVersion, _ = raw["protocolVersion"].(string)
 	hc.Path, _ = raw["path"].(string)
 	hc.Port = bodyInt32(raw, keyPort)
+
+	if matcher, ok2 := raw["matcher"].(map[string]any); ok2 {
+		hc.MatcherHTTPCode, _ = matcher["httpCode"].(string)
+	}
+
 	hc.HealthyThresholdCount = bodyInt32(raw, "healthyThresholdCount")
 	hc.UnhealthyThresholdCount = bodyInt32(raw, "unhealthyThresholdCount")
 	hc.HealthCheckIntervalSeconds = bodyInt32(raw, "healthCheckIntervalSeconds")

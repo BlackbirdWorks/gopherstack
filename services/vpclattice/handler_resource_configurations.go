@@ -25,12 +25,16 @@ func (h *Handler) handleCreateResourceConfiguration(c *echo.Context, body map[st
 	allowShare, _ := body["allowAssociationToShareableServiceNetwork"].(bool)
 	portRanges := bodyStringSlice(body, "portRanges")
 	definition := extractResourceConfigurationDefinition(body)
+	customDomainName, _ := body["customDomainName"].(string)
+	domainVerificationID, _ := body["domainVerificationIdentifier"].(string)
+	groupDomain, _ := body["groupDomain"].(string)
 
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
 	rc, err := h.Backend.CreateResourceConfiguration(
-		ctx, name, resourceType, protocol, rgID, groupID, allowShare, portRanges, definition, tags,
+		ctx, name, resourceType, protocol, rgID, groupID, allowShare, portRanges, definition,
+		customDomainName, domainVerificationID, groupDomain, tags,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -94,16 +98,7 @@ func (h *Handler) handleListResourceConfigurations(c *echo.Context) error {
 
 	summaries := make([]any, 0, len(items))
 	for _, rc := range items {
-		summaries = append(summaries, map[string]any{
-			keyARN:              rc.ARN,
-			"id":                rc.ID,
-			keyName:             rc.Name,
-			keyType:             rc.Type,
-			keyStatus:           rc.Status,
-			"resourceGatewayId": rc.ResourceGatewayID,
-			keyCreatedAt:        rc.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-			keyLastUpdatedAt:    rc.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		})
+		summaries = append(summaries, resourceConfigurationSummaryToJSON(rc))
 	}
 
 	resp := map[string]any{keyItems: summaries}
@@ -112,6 +107,43 @@ func (h *Handler) handleListResourceConfigurations(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// resourceConfigurationSummaryToJSON builds a ListResourceConfigurations
+// item. Real ResourceConfigurationSummary also carries
+// customDomainName/groupDomain/domainVerificationId/
+// resourceConfigurationGroupId (deserializers.go), all already tracked on
+// the backend's ResourceConfiguration -- previously dropped here even
+// though GetResourceConfiguration already emitted them.
+func resourceConfigurationSummaryToJSON(rc *ResourceConfigurationSummary) map[string]any {
+	m := map[string]any{
+		keyARN:              rc.ARN,
+		"id":                rc.ID,
+		keyName:             rc.Name,
+		keyType:             rc.Type,
+		keyStatus:           rc.Status,
+		"resourceGatewayId": rc.ResourceGatewayID,
+		keyCreatedAt:        rc.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:    rc.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+	}
+
+	if rc.ResourceConfigurationGroupID != "" {
+		m["resourceConfigurationGroupId"] = rc.ResourceConfigurationGroupID
+	}
+
+	if rc.CustomDomainName != "" {
+		m["customDomainName"] = rc.CustomDomainName
+	}
+
+	if rc.GroupDomain != "" {
+		m["groupDomain"] = rc.GroupDomain
+	}
+
+	if rc.DomainVerificationID != "" {
+		m["domainVerificationId"] = rc.DomainVerificationID
+	}
+
+	return m
 }
 
 // ------- ResourceConfiguration JSON serialization -------
@@ -144,6 +176,10 @@ func resourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
 
 	if rc.GroupDomain != "" {
 		m["groupDomain"] = rc.GroupDomain
+	}
+
+	if rc.DomainVerificationID != "" {
+		m["domainVerificationId"] = rc.DomainVerificationID
 	}
 
 	if def := resourceConfigurationDefinitionToJSON(rc.Definition); def != nil {
