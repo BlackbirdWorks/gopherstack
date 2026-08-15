@@ -118,7 +118,7 @@ func (h *Handler) handleRoutingRulesCollection(c *echo.Context, method, domainNa
 			return writeErr(c, http.StatusInternalServerError, err.Error())
 		}
 
-		return c.JSON(http.StatusOK, listRoutingRulesOutput{Items: rules})
+		return c.JSON(http.StatusOK, listRoutingRulesOutput{RoutingRules: rules})
 	}
 
 	return writeErr(c, http.StatusNotFound, msgNotFound)

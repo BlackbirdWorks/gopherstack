@@ -124,7 +124,8 @@ func TestHandler_CreatePortal(t *testing.T) {
 				var portal apigatewayv2.Portal
 				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &portal))
 				assert.NotEmpty(t, portal.PortalID)
-				assert.Equal(t, "ACTIVE", portal.Status)
+				assert.Empty(t, portal.PublishStatus)
+				require.NotNil(t, portal.LastModified)
 				require.NotNil(t, portal.Authorization)
 				require.NotNil(t, portal.EndpointConfiguration)
 				assert.NotEmpty(t, portal.EndpointConfiguration.PortalDefaultDomainName)

@@ -101,12 +101,13 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 	defer b.mu.Unlock()
 
 	id := randomID()
+	now := isoTime{time.Now()}
 	portal := &Portal{
 		PortalID:      id,
 		PortalArn:     "arn:aws:apigateway:" + defaultRegion + "::/portals/" + id,
 		LogoURI:       input.LogoURI,
+		LastModified:  &now,
 		Tags:          copyTags(input.Tags),
-		Status:        "ACTIVE",
 		Authorization: input.Authorization,
 		PortalContent: input.PortalContent,
 		EndpointConfiguration: endpointConfigurationResponseFromRequest(
@@ -154,11 +155,13 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 	defer b.mu.Unlock()
 
 	id := randomID()
+	now := isoTime{time.Now()}
 	product := &PortalProduct{
 		PortalProductID:  id,
 		PortalProductArn: "arn:aws:apigateway:" + defaultRegion + "::/portalproducts/" + id,
 		DisplayName:      input.DisplayName,
 		Description:      input.Description,
+		LastModified:     &now,
 		Tags:             copyTags(input.Tags),
 	}
 
@@ -172,7 +175,7 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 // CreateProductPage creates a new product page for a portal product.
 func (b *InMemoryBackend) CreateProductPage(
 	portalProductID string,
-	_ CreateProductPageInput,
+	input CreateProductPageInput,
 ) (*ProductPage, error) {
 	b.mu.Lock("CreateProductPage")
 	defer b.mu.Unlock()
@@ -186,6 +189,7 @@ func (b *InMemoryBackend) CreateProductPage(
 	page := &ProductPage{
 		ProductPageID:   id,
 		PortalProductID: portalProductID,
+		DisplayContent:  input.DisplayContent,
 		LastModified:    &now,
 	}
 
@@ -233,6 +237,7 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 		PortalProductID:           portalProductID,
 		LastModified:              &now,
 		RestEndpointIdentifier:    input.RestEndpointIdentifier,
+		DisplayContent:            input.DisplayContent,
 	}
 
 	b.productREPages.Put(page)
@@ -409,8 +414,11 @@ func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput)
 		p.LogoURI = input.LogoURI
 	}
 	if input.Status != "" {
-		p.Status = input.Status
+		p.PublishStatus = input.Status
 	}
+
+	now := isoTime{time.Now()}
+	p.LastModified = &now
 
 	cp := *p
 
@@ -444,6 +452,9 @@ func (b *InMemoryBackend) UpdatePortalProduct(
 	if input.Description != "" {
 		pp.Description = input.Description
 	}
+
+	now := isoTime{time.Now()}
+	pp.LastModified = &now
 
 	cp := *pp
 

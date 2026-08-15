@@ -1,7 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**67 of 162 services swept, 95 remain** (personalize added this session — see
-its own section at the end of this file for full detail).
+**68 of 162 services swept, 94 remain** (apigatewayv2 added this session —
+see its own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -90,15 +90,16 @@ again — several have explicit "already checked, don't re-flag" notes (e.g.
 route53's `ListHostedZonesByVPC` XMLName quirk, cloudfront's root-tag
 non-bug, rds's `GlobalClusterMember` shared-name non-bug).
 
-apigateway, appstream, athena, autoscaling, awsconfig, backup, bedrock,
+apigateway, **apigatewayv2** (this session), appstream, athena, autoscaling,
+awsconfig, backup, bedrock,
 bedrockagent, cleanrooms, cloudformation, cloudfront,
 cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
-**cognitoidp** (this session), datasync, dlm, dynamodbstreams, ec2, ecs, eks,
+cognitoidp, datasync, dlm, dynamodbstreams, ec2, ecs, eks,
 elasticache, elbv2, forecast,
 glue, guardduty, iam, identitystore, inspector2, iot,
 iotwireless, kms, lambda, lightsail, macie2, medialive,
 mgn, networkmanager, networkmonitor, omics,
-opensearch, organizations, **personalize** (this session), pinpoint,
+opensearch, organizations, personalize, pinpoint,
 quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
@@ -126,13 +127,13 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 95 (networkmanager's 38, securityhub's
-47, macie2's 40, s3's 45, cognitoidp's 37, and personalize's 39 removed, all
-swept prior to/this session): **1,355** candidate ops.
+Sum of the L+D+G column across all 94 (networkmanager's 38, securityhub's
+47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39, and
+apigatewayv2's 37 removed, all swept prior to/this session): **1,318**
+candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| apigatewayv2 | 103 | 5 | 0 | 32 | 37 | direct |
 | workmail | 97 | 18 | 9 | 9 | 36 | dynamic-fallback |
 | waf | 113 | 16 | 0 | 18 | 34 | dynamic-fallback |
 | wafv2 | 59 | 13 | 3 | 16 | 32 | direct |
@@ -2125,3 +2126,239 @@ classic JSON-RPC control plane and the restjson1 runtime client). 67 of 162
 services swept, 95 remain. Per the ranked table, apigatewayv2 (37, `direct`
 resolution) is the next largest unswept candidate — re-check `git status`
 for live sibling territory before picking.
+
+## apigatewayv2 (this session)
+
+Chosen as the next-largest unswept candidate per the ranked table (37
+L+D+G: 5 List/0 Describe/32 Get). `git status` at start showed a live
+sibling session mid-flight on `services/personalize` (4 modified files plus
+an untracked `wire_field_fixes_test.go`) — avoided entirely, never touched.
+Own enumeration of `GetSupportedOperations`' literal slice (handler.go:133,
+`direct` resolution, no chasing needed) confirms 37 L+D+G ops exactly
+matching the table: 32 `Get*`, 5 `List*` (routing rules, portals, portal
+products, product pages, product REST endpoint pages), 0 `Describe*`.
+
+**PROTOCOL**: `awsRestjson1_` confirmed as the sole prefix in
+apigatewayv2@v1.37.4's `deserializers.go` (grep for
+`awsRestjson1_|awsAwsjson1[01]_|awsEc2query_|awsAwsquery_` found only the
+first). Case-sensitive. Of 337 `EqualFold` hits, exactly 3 lack `errorCode`
+on the same line, and all three are `case strings.EqualFold(jtv, "NaN"|
+"Infinity"|"-Infinity"):` inside numeric-field decode branches
+(deserializers.go:22828-22834) — body-field casing is a non-issue by
+construction, same shape as every other restjson1 service this issue has
+swept so far.
+
+**Dead-deserializer trap checked and found NOT to apply**: traced
+`(*awsRestjson1_deserializeOpGetApis).HandleDeserialize` in full
+(deserializers.go:6984) — it decodes the body into `shape` and calls
+`awsRestjson1_deserializeOpDocumentGetApisOutput(&output, shape)` directly
+(line 7020); no dead `OpDocument...Output` wrapper sits between them, the
+same pattern guardduty/networkmanager/securityhub already confirmed for
+restjson1 in this codebase.
+
+Dumped every op's own `awsRestjson1_deserializeOpDocument<Op>Output` case
+list via a per-op awk script (file+line implicit) for all 5 List ops plus
+the 12 collection-returning `Get*` ops, and every major shared nested type
+(API, Stage, Route, Integration, Deployment, Authorizer, DomainName,
+APIMapping, IntegrationResponse, Model, VpcLink, RouteResponse, RoutingRule,
+Portal/PortalSummary, PortalProduct/PortalProductSummary,
+ProductPage/ProductPageSummaryNoBody,
+ProductRestEndpointPage/ProductRestEndpointPageSummaryNoBody) against
+`types.go`.
+
+**6 real bugs found and fixed**, spanning several of this issue's variants:
+
+1. **`ListRoutingRules` — wrapper key, flagship pattern, the one true
+   layer-1 finding in this service.** Every other List/Get collection op in
+   this service wraps its items under `"items"`; `ListRoutingRulesOutput`
+   alone uses `"routingRules"` (confirmed at
+   apigatewayv2@v1.37.4's api_op_ListRoutingRules.go:56 and
+   deserializers.go's `awsRestjson1_deserializeOpDocumentListRoutingRulesOutput`
+   case list — `case "routingRules":`, no `"items"` case at all).
+   gopherstack's `listRoutingRulesOutput` reused the same `Items
+   []RoutingRule json:"items"` shape as every sibling. A real client's typed
+   `.RoutingRules` field was always empty regardless of backend state. Zero
+   prior test coverage of any kind on this op's handler response shape (only
+   backend-level tests existed). Fixed by renaming the field/tag to
+   `RoutingRules json:"routingRules"`.
+2. **`Portal.PublishStatus` — wrong key AND wrong semantic together, three
+   bugs stacked on one field.** gopherstack emitted the portal's publish
+   lifecycle under `"status"`; the real `GetPortalOutput`/`PortalSummary`
+   member is `"publishStatus"` (types.PublishStatus, six-value enum:
+   PUBLISHED/PUBLISH_IN_PROGRESS/PUBLISH_FAILED/DISABLE_IN_PROGRESS/
+   DISABLE_FAILED/DISABLED). Two more bugs riding along: (a) `CreatePortal`
+   seeded every new portal with `"ACTIVE"` — a value that exists nowhere in
+   the real enum, invented outright; fixed by leaving it unset (omitted)
+   until first published/disabled, since nothing in the real enum
+   represents "never published" either. (b) gopherstack's own
+   `UpdatePortalInput` (the real op has no such member at all,
+   confirmed against api_op_UpdatePortal.go) exposed `Status` on the
+   wire-decoded PATCH body — any real client could set publish state through
+   a plain UpdatePortal call, which the real API doesn't allow; fixed by
+   tagging it `json:"-"` (kept as an internal-only Go field for
+   handlePublishPortal/handleDisablePortal to pass through the same
+   `UpdatePortal` backend method). A ratifying test
+   (`TestHandler_CreatePortal`) explicitly asserted `"ACTIVE"` as the
+   correct value — rewritten to assert the field is empty on creation.
+3. **`Portal.LastModified`/`PortalProduct.LastModified` — backend never
+   tracked at all, a sibling trap against this service's own
+   `ProductPage`/`ProductRestEndpointPage`, which already track and emit
+   `LastModified` correctly via the identical `isoTime`-at-create/update
+   idiom three structs away in the same file.** Real, required
+   `PortalSummary`/`PortalProductSummary` members
+   (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's types.go), also present
+   (non-required) on `GetPortalOutput`/`GetPortalProductOutput`. Fixed by
+   mirroring the existing sibling pattern onto both structs and their
+   Create/Update backend methods.
+4. **`CreateProductPageInput.DisplayContent` — request side, total data
+   loss on every call, the highest-severity finding this session.** Real
+   `CreateProductPageInput.DisplayContent` (`*types.DisplayContent{Body,
+   Title}`) is **required** on every real `CreateProductPage` call
+   (api_op_CreateProductPage.go). gopherstack's `CreateProductPageInput` had
+   no field for it at all, and the backend method's own signature discarded
+   the whole input with `_ CreateProductPageInput` — every product page was
+   created empty regardless of what a real client sent, and the field could
+   never be set at all (`UpdateProductPage` was the only way to populate
+   it). Fixed by adding the field (opaque `map[string]any` passthrough,
+   matching the treatment `ProductPage.DisplayContent` already uses) and
+   wiring it through `CreateProductPage`.
+5. **`CreateProductRestEndpointPageInput.DisplayContent` — same shape,
+   optional field this time, and a genuine same-service sibling trap:
+   `UpdateProductRestEndpointPage` already accepts and stores this exact
+   field correctly on `ProductRestEndpointPage.DisplayContent`three
+   functions away; `CreateProductRestEndpointPage` never did.** Real,
+   optional `CreateProductRestEndpointPageInput.DisplayContent`
+   (`*types.EndpointDisplayContent`, api_op_CreateProductRestEndpointPage.go).
+   Fixed the same way as #4.
+
+**Value the backend already holds that never reached the wire**: none beyond
+#3 above (LastModified was tracked nowhere for Portal/PortalProduct, so this
+is more "never tracked" than "tracked but unwired" — the closer parallel to
+this issue's usual "one field away" pattern is #4/#5, where
+`ProductPage`/`ProductRestEndpointPage.DisplayContent` already existed as a
+struct field and was already correctly read back by Get/List/Update, just
+never accepted on Create).
+
+**Over-wide field / secret check**: none found. Checked every
+Authorizer/DomainName/VpcLink field for anything credential-shaped
+(`AuthorizerCredentialsArn`, mutual-TLS truststore fields, VPC link security
+group/subnet IDs) — all are ARNs/IDs a caller already owns or supplied
+themselves, not secrets a caller couldn't otherwise see. **`Portal.LogoURI`
+is emitted on every Get/List response but has no real backing member on
+`GetPortalOutput`/`PortalSummary` at all** (real `LogoUri` exists only on
+the `CreatePortalInput`/`UpdatePortalInput` request side) — a fabricated
+response field, but harmless: a real typed client has no field to decode it
+into, and it carries no secret or unauthorized data (same non-bug class as
+rds's previously-disclosed `StorageOptimized`). Not removed, per this
+campaign's established precedent that pulling a field a client could still
+be reading via raw JSON isn't a parity improvement.
+
+**Sibling/version pairs checked**: no V1/V2 pairs exist in this service
+(that's cognitoidp/securityhub's shape). The real sibling-trap shape here
+was intra-service Create/Update asymmetry (#5) and cross-struct field-parity
+gaps (#3) rather than a duplicated type pair. No dispatch-registration
+traps: `GetSupportedOperations` returns one flat literal slice
+(handler.go:133), no `maps.Copy`-family override pattern like cognitoidp's.
+
+**Request side**: checked as part of every fix above (#2's request-side
+fabricated field, #4/#5's request-side data loss). No additional
+request-only asymmetry found spot-checking the largest Create inputs
+(CreateApi, CreateAuthorizer, CreateIntegration, CreateDomainName,
+CreateVpcLink) against their real `serializeOpDocument<Op>Input` functions —
+all clean.
+
+**Ratifying tests**: 1 found and fixed — `TestHandler_CreatePortal` asserted
+`portal.Status == "ACTIVE"` by unmarshaling into gopherstack's own `Portal`
+struct (not the real SDK type), so it only proved internal
+handler/model self-consistency, not real-AWS shape compliance; passed
+cleanly against every bug in #2 simultaneously. Rewritten to assert
+`PublishStatus` is empty and `LastModified` is set.
+
+**Tests are NOT exercising a real client for most of this service**: only 3
+of 36 test files (`handler_create_tags_test.go`,
+`handler_export_api_sdk_test.go`, `sdk_completeness_test.go`) import the real
+`aws-sdk-go-v2/service/apigatewayv2` client at all; the other 33 build raw
+HTTP requests and unmarshal into gopherstack's own hand-defined structs.
+None of the 3 real-client files touched `ListRoutingRules`, `Portal`, or
+either product-page Create op before this session — all 5 fixes above had
+zero real-client coverage.
+
+**Phantom ops**: none found. All 37 L+D+G op-name string literals in
+`GetSupportedOperations` correspond to a real `api_op_*.go` file in
+apigatewayv2@v1.37.4 (spot-checked the full 92-op literal slice, not just
+the L+D+G subset).
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>Output`/`api_op_*.go` struct definition,
+file+line, confirmed reached from that op's own `HandleDeserialize`, never a
+doc comment.
+
+6 real-SDK-client tests added in
+`services/apigatewayv2/wire_field_fixes_test.go`
+(`TestListRoutingRules_WireKey`, `TestPortal_PublishStatusWireKeyAndLifecycle`,
+`TestPortalProduct_LastModified`, `TestCreateProductPage_DisplayContent`
+drive the real typed SDK client; `TestCreateProductRestEndpointPage_DisplayContent`
+drives raw HTTP against gopherstack's own types deliberately — the real
+`CreateProductRestEndpointPageInput.DisplayContent` request type
+(`*types.EndpointDisplayContent`) and `GetProductRestEndpointPageOutput.DisplayContent`
+response type (`*types.EndpointDisplayContentResponse`) are genuinely
+different shapes, and gopherstack stores/echoes both as an opaque
+`map[string]any` passthrough — the same simplification
+`UpdateProductRestEndpointPage` already uses, matched here for parity
+between the two ops rather than fought with a mismatched typed assertion).
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint), confirmed to fail with the exact predicted
+symptom (`out.RoutingRules` empty-slice-length assertion; `PUBLISHED`
+vs `""` on `GetPortalOutput.PublishStatus`; nil `LastModified` on both
+structs; nil `.DisplayContent` on `CreateProductPageOutput`; nil map key on
+the raw REST-endpoint-page JSON), then restored and diffed byte-identical
+against the pre-revert file before moving to the next.
+
+**Disclosed, not fixed** (real gaps needing new backend modeling this
+session judged too speculative to fabricate):
+- `PortalSummary`/`GetPortalOutput`'s `IncludedPortalProductArns`,
+  `PublishStatus`'s non-DISABLED/PUBLISHED transitional states
+  (`*_IN_PROGRESS`/`*_FAILED`), `LastPublished`/`LastPublishedDescription`,
+  `Preview`, `RumAppMonitorName`, `StatusException` — this backend has zero
+  concept of portal-product association or a publish pipeline beyond the
+  binary published/disabled toggle already fixed in #2; gopherstack's own
+  `CreatePortalInput`/`UpdatePortalInput` don't even accept
+  `IncludedPortalProductArns` from a real client, so there's nothing to
+  round-trip yet.
+- `GetPortalProductOutput.DisplayOrder` (`*types.DisplayOrder{Contents
+  []Section, OverviewPageArn, ProductPageArns}`) — real, accepted on both
+  Create/Update requests, but a nested multi-field type with no existing
+  backend concept to source it from; not modeled.
+- `ProductRestEndpointPageSummaryNoBody`'s `Endpoint`/`Status`/`TryItState`/
+  `OperationName`/`StatusException` — `ListProductRestEndpointPages` reuses
+  the full `ProductRestEndpointPage` struct rather than the real narrower
+  summary shape, but since unknown JSON fields are silently ignored by a
+  real client's typed decode, the only observable gap is genuinely-missing
+  fields, not extras; these four are real members with no backing model
+  state (this backend doesn't simulate REST-endpoint-page publish/try-it
+  lifecycle).
+- Same reasoning for `PortalSummary`/`PortalProductSummary`/
+  `ProductPageSummaryNoBody` vs. gopherstack's List responses reusing the
+  full item type: harmless extra fields, not a parity bug by itself (same
+  non-bug class as rds's `StorageOptimized`), only the missing-required-field
+  gaps above are real.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to
+`services/apigatewayv2`), `go fix -diff` (no diff), `fieldalignment` (0
+findings), `golangci-lint run` (0 issues; no cyclop/gocyclo/gocognit/funlen
+nolints added or present) all green. `go test -race ./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all `services/apigatewayv2` changes
+uncommitted — orchestrator must commit/push). `services/personalize`
+(live sibling session at start) and `services/workmail` (a second sibling
+session that started mid-flight — 3 modified files observed via `git
+status` partway through this session) both confirmed untouched throughout.
+
+apigatewayv2's List/Describe/Get families are now fully swept for this
+issue (37/37 ops verified against the real deserializer/serializer). 68 of
+162 services swept, 94 remain. Per the ranked table, workmail (36,
+`dynamic-fallback`) is next largest but is a live sibling session's
+territory as of this session's own `git status` check; waf (34,
+`dynamic-fallback`) or wafv2 (32, `direct`) are the next candidates least
+likely to collide — re-check `git status` before picking.

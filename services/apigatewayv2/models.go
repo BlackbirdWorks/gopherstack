@@ -428,11 +428,15 @@ type UpdateRouteResponseInput struct {
 	ModelSelectionExpression string            `json:"modelSelectionExpression,omitempty"`
 }
 
-// UpdatePortalInput is the input for UpdatePortal (PATCH).
+// UpdatePortalInput is the input for UpdatePortal (PATCH). Status is
+// internal-only (set by handlePublishPortal/handleDisablePortal, never by a
+// real client -- the real UpdatePortalInput has no such member, confirmed
+// against api_op_UpdatePortal.go) and must never be JSON-decoded from a
+// request body.
 type UpdatePortalInput struct {
 	Tags    map[string]string `json:"tags,omitempty"`
 	LogoURI string            `json:"logoUri,omitempty"`
-	Status  string            `json:"status,omitempty"`
+	Status  string            `json:"-"`
 }
 
 // UpdatePortalProductInput is the input for UpdatePortalProduct (PATCH).
@@ -669,16 +673,21 @@ type PortalContent struct {
 	Description string       `json:"description,omitempty"`
 }
 
-// Portal represents an API Gateway v2 portal.
+// Portal represents an API Gateway v2 portal. PublishStatus's wire key is
+// "publishStatus", not "status" -- confirmed against
+// aws-sdk-go-v2/service/apigatewayv2@v1.37.4's GetPortalOutput/PortalSummary
+// (types.PublishStatus: PUBLISHED/PUBLISH_IN_PROGRESS/PUBLISH_FAILED/
+// DISABLE_IN_PROGRESS/DISABLE_FAILED/DISABLED -- no "ACTIVE" value exists).
 type Portal struct {
 	Authorization         *Authorization                 `json:"authorization,omitempty"`
 	EndpointConfiguration *EndpointConfigurationResponse `json:"endpointConfiguration,omitempty"`
 	PortalContent         *PortalContent                 `json:"portalContent,omitempty"`
+	LastModified          *isoTime                       `json:"lastModified,omitempty"`
 	Tags                  map[string]string              `json:"tags,omitempty"`
 	PortalID              string                         `json:"portalId"`
 	PortalArn             string                         `json:"portalArn,omitempty"`
 	LogoURI               string                         `json:"logoUri,omitempty"`
-	Status                string                         `json:"status,omitempty"`
+	PublishStatus         string                         `json:"publishStatus,omitempty"`
 }
 
 // CreatePortalInput is the input for CreatePortal.
@@ -690,8 +699,11 @@ type CreatePortalInput struct {
 	LogoURI               string                        `json:"logoUri,omitempty"`
 }
 
-// PortalProduct represents a portal product.
+// PortalProduct represents a portal product. LastModified is a real,
+// required PortalProductSummary member (aws-sdk-go-v2/service/
+// apigatewayv2@v1.37.4's types.go) this backend previously never tracked.
 type PortalProduct struct {
+	LastModified     *isoTime          `json:"lastModified,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	PortalProductID  string            `json:"portalProductId"`
 	PortalProductArn string            `json:"portalProductArn,omitempty"`
@@ -714,9 +726,14 @@ type ProductPage struct {
 	PortalProductID string         `json:"-"`
 }
 
-// CreateProductPageInput is the input for CreateProductPage.
+// CreateProductPageInput is the input for CreateProductPage. DisplayContent
+// is a real, required CreateProductPageInput member
+// (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_CreateProductPage.go)
+// this backend previously dropped entirely -- the handler decoded a request
+// body into this struct, which had no field to receive it.
 type CreateProductPageInput struct {
-	PortalProductID string `json:"-"`
+	DisplayContent  map[string]any `json:"displayContent,omitempty"`
+	PortalProductID string         `json:"-"`
 }
 
 // IdentifierParts mirrors types.IdentifierParts (types.go:551): all four
@@ -746,9 +763,16 @@ type ProductRestEndpointPage struct {
 	PortalProductID           string                  `json:"-"`
 }
 
-// CreateProductRestEndpointPageInput is the input for CreateProductRestEndpointPage.
+// CreateProductRestEndpointPageInput is the input for
+// CreateProductRestEndpointPage. DisplayContent is a real, optional member
+// (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's
+// api_op_CreateProductRestEndpointPage.go) this backend previously dropped
+// entirely, even though the sibling UpdateProductRestEndpointPage already
+// accepts and stores it correctly on the same ProductRestEndpointPage.DisplayContent
+// field.
 type CreateProductRestEndpointPageInput struct {
 	RestEndpointIdentifier *RestEndpointIdentifier `json:"restEndpointIdentifier"`
+	DisplayContent         map[string]any          `json:"displayContent,omitempty"`
 	PortalProductID        string                  `json:"-"`
 }
 
@@ -918,10 +942,15 @@ type listVpcLinksOutput struct {
 	Items     []VpcLink `json:"items"`
 }
 
-// listRoutingRulesOutput is the response body for ListRoutingRules.
+// listRoutingRulesOutput is the response body for ListRoutingRules. Unlike
+// every other List/Get collection op in this service, the real
+// ListRoutingRulesOutput wraps its items under "routingRules", not "items"
+// (confirmed at aws-sdk-go-v2/service/apigatewayv2@v1.37.4's
+// api_op_ListRoutingRules.go:56 and deserializers.go's
+// awsRestjson1_deserializeOpDocumentListRoutingRulesOutput case list).
 type listRoutingRulesOutput struct {
-	NextToken string        `json:"nextToken,omitempty"`
-	Items     []RoutingRule `json:"items"`
+	NextToken    string        `json:"nextToken,omitempty"`
+	RoutingRules []RoutingRule `json:"routingRules"`
 }
 
 // getTagsOutput is the response body for GetTags.
