@@ -68,6 +68,7 @@ func (b *InMemoryBackend) DescribeOrganizationConfiguration(detectorID string) (
 func (b *InMemoryBackend) UpdateOrganizationConfiguration(
 	detectorID string,
 	autoEnable bool,
+	autoEnableOrganizationMembers string,
 	features []OrgFeature,
 ) error {
 	b.mu.Lock("UpdateOrganizationConfiguration")
@@ -84,6 +85,10 @@ func (b *InMemoryBackend) UpdateOrganizationConfiguration(
 	}
 
 	existing.AutoEnable = autoEnable
+	if autoEnableOrganizationMembers != "" {
+		existing.AutoEnableOrganizationMembers = autoEnableOrganizationMembers
+	}
+
 	if features != nil {
 		existing.Features = features
 	}

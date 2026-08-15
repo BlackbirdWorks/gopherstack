@@ -33,9 +33,14 @@ type StorageBackend interface {
 	GetFindingsStatistics(detectorID string, query FindingStatisticsQuery) (map[string]any, error)
 	UpdateFindingsFeedback(detectorID string, findingIDs []string, feedback string) error
 
-	CreateIPSet(detectorID, name, format, location string, activate bool, tags map[string]string) (*IPSet, error)
+	CreateIPSet(
+		detectorID, name, format, location string,
+		activate bool,
+		tags map[string]string,
+		expectedBucketOwner string,
+	) (*IPSet, error)
 	GetIPSet(detectorID, ipSetID string) (*IPSet, error)
-	UpdateIPSet(detectorID, ipSetID, name, location string, activate *bool) error
+	UpdateIPSet(detectorID, ipSetID, name, location string, activate *bool, expectedBucketOwner string) error
 	DeleteIPSet(detectorID, ipSetID string) error
 	ListIPSets(detectorID string) ([]string, error)
 
@@ -43,9 +48,10 @@ type StorageBackend interface {
 		detectorID, name, format, location string,
 		activate bool,
 		tags map[string]string,
+		expectedBucketOwner string,
 	) (*ThreatIntelSet, error)
 	GetThreatIntelSet(detectorID, setID string) (*ThreatIntelSet, error)
-	UpdateThreatIntelSet(detectorID, setID, name, location string, activate *bool) error
+	UpdateThreatIntelSet(detectorID, setID, name, location string, activate *bool, expectedBucketOwner string) error
 	DeleteThreatIntelSet(detectorID, setID string) error
 	ListThreatIntelSets(detectorID string) ([]string, error)
 
@@ -82,7 +88,12 @@ type StorageBackend interface {
 	DisableOrganizationAdminAccount(adminAccountID string) error
 	ListOrganizationAdminAccounts() []*OrgAdminAccount
 	DescribeOrganizationConfiguration(detectorID string) (*OrgConfig, error)
-	UpdateOrganizationConfiguration(detectorID string, autoEnable bool, features []OrgFeature) error
+	UpdateOrganizationConfiguration(
+		detectorID string,
+		autoEnable bool,
+		autoEnableOrganizationMembers string,
+		features []OrgFeature,
+	) error
 	GetOrganizationStatistics() map[string]any
 
 	// Publishing destinations

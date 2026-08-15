@@ -35,6 +35,7 @@ func (b *InMemoryBackend) CreateFilter(
 		DetectorID:      detectorID,
 		CreatedAt:       now,
 		UpdatedAt:       now,
+		Version:         1,
 	}
 	b.filters.Put(f)
 
@@ -98,6 +99,7 @@ func (b *InMemoryBackend) UpdateFilter(
 	}
 
 	f.UpdatedAt = time.Now().UTC()
+	f.Version++
 
 	return f, nil
 }

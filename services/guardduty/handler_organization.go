@@ -117,25 +117,35 @@ func (h *Handler) handleDescribeOrganizationConfiguration(detectorID string) (an
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{
+	resp := map[string]any{
 		"autoEnable":                cfg.AutoEnable,
 		"memberAccountLimitReached": cfg.MemberAccountLimitReached,
 		"dataSources":               cfg.DataSources,
 		"features":                  cfg.Features, //nolint:goconst // existing issue.
-	}, http.StatusOK, nil
+	}
+
+	if cfg.AutoEnableOrganizationMembers != "" {
+		resp["autoEnableOrganizationMembers"] = cfg.AutoEnableOrganizationMembers
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateOrganizationConfiguration(detectorID string, body []byte) (int, error) {
 	var req struct {
-		Features   []OrgFeature `json:"features"`
-		AutoEnable bool         `json:"autoEnable"`
+		AutoEnableOrganizationMembers string       `json:"autoEnableOrganizationMembers"`
+		Features                      []OrgFeature `json:"features"`
+		AutoEnable                    bool         `json:"autoEnable"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
-	if err := h.Backend.UpdateOrganizationConfiguration(detectorID, req.AutoEnable, req.Features); err != nil {
+	err := h.Backend.UpdateOrganizationConfiguration(
+		detectorID, req.AutoEnable, req.AutoEnableOrganizationMembers, req.Features,
+	)
+	if err != nil {
 		return http.StatusNotFound, err
 	}
 

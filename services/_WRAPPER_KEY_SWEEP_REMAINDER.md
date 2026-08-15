@@ -77,7 +77,7 @@ rather than a range over a literal table:
   member diff there is thorough enough that this issue's own prior notes
   already listed ssm as layer-1 swept).
 
-## Swept (60 of 162) — do not re-sweep without reading the cited work first
+## Swept (61 of 162) — do not re-sweep without reading the cited work first
 
 Every op in these services has had at least one full layer-1 (wrapper key)
 pass; most also have layer-2 (nesting) and layer-3 (backend-tracked-but-
@@ -89,9 +89,9 @@ non-bug, rds's `GlobalClusterMember` shared-name non-bug).
 
 apigateway, appstream, athena, autoscaling, awsconfig, backup, bedrock,
 bedrockagent, cleanrooms, cloudformation, cloudfront,
-cloudfrontkeyvaluestore, cloudwatch, **cloudwatchlogs** (this session),
-codebuild, codecommit, datasync, dlm, dynamodbstreams, ec2, ecs, eks,
-elasticache, elbv2, forecast, glue, iam, identitystore, inspector2, iot,
+cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
+datasync, dlm, dynamodbstreams, ec2, ecs, eks, elasticache, elbv2, forecast,
+glue, **guardduty** (this session), iam, identitystore, inspector2, iot,
 iotwireless, kms, lambda, lightsail, medialive, mgn, networkmonitor, omics,
 opensearch, organizations, pinpoint, quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3control, s3tables,
@@ -104,7 +104,7 @@ backend-logic fixes) but **no 6flj-specific wrapper-key pass on record** —
 s3 and dynamodb. They are listed in the unswept table below on purpose;
 don't assume "heavily worked on" means "settled for this issue."
 
-## Unswept (102 of 162), ranked by List+Describe+Get op count
+## Unswept (101 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -119,15 +119,14 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 102 (cloudwatchlogs's 48 removed, swept
-this session): **1,641** candidate ops.
+Sum of the L+D+G column across all 101 (guardduty's 40 removed, swept this
+session): **1,601** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
 | securityhub | 116 | 15 | 8 | 24 | 47 | dynamic-fallback |
 | s3 | 115 | 12 | 0 | 33 | 45 | chased |
 | macie2 | 81 | 15 | 3 | 22 | 40 | direct |
-| guardduty | 90 | 16 | 3 | 21 | 40 | direct |
 | personalize | 77 | 18 | 18 | 3 | 39 | dynamic-fallback |
 | networkmanager | 186 | 10 | 1 | 28 | 39 | chased |
 | cognitoidp | 129 | 14 | 10 | 13 | 37 | chased |
@@ -683,3 +682,211 @@ L+D+G ops) is next largest, but a sibling session is actively working
 there per this session's own observation — s3 (45, `chased` resolution,
 flagged as "heavily worked under other issues but not 6flj-swept") or
 macie2/guardduty (40 each) are the next candidates that don't collide.
+
+## guardduty (this session)
+
+Chosen as the largest unswept service that doesn't collide with the three
+services flagged off-limits by this session's own hard constraints
+(`securityhub`, `inspector2`, `macie2` all had a live sibling session's
+uncommitted changes, confirmed via `git status` before starting — left
+untouched, verified again at the end). Of the remaining candidates, s3 (45
+L+D+G ops) was passed over for guardduty (40 ops) because s3's own remainder
+note already flags it as large/complex/heavily-touched-under-other-issues
+without a dedicated 6flj pass, a poor fit for "settle completely" in one
+session; guardduty, by contrast, is a single self-contained REST/JSON
+service with no cross-service protocol split, a realistic target to fully
+close out.
+
+PROTOCOL: confirmed `awsRestjson1_` from guardduty@v1.85.4's
+`deserializers.go` function-prefix grep (only prefix present — no
+`awsAwsjson1{0,1}_`/`awsEc2query_`/`awsAwsquery_`). Case-sensitive, like
+pinpoint/cloudwatchlogs. All 230 `EqualFold` hits in `deserializers.go` are
+either `errorCode` matching in the per-op `deserializeOpError*` functions
+(~204) or float special-value parsing (`case strings.EqualFold(jtv, "NaN"):`
+/ `"Infinity"` / `"-Infinity"`, ~26, all inside numeric-field decode
+branches) — grepped and spot-checked line-by-line; none are in a body-field
+`switch key { case "...": }` block, so this service's body-field casing is a
+non-issue by construction, not something that needed a live near-miss to
+disprove.
+
+**Dead-deserializer trap checked and found NOT to apply** — traced
+`HandleDeserialize` for `ListDetectors` (deserializers.go:8551) directly:
+it decodes the body into `shape` and calls
+`awsRestjson1_deserializeOpDocumentListDetectorsOutput(&output, shape)`
+(deserializers.go:8592) itself; no dead `OpDocument...Output` wrapper
+switch sits between them for this op, unlike pinpoint's restjson1 shape.
+Confirmed this is the general pattern (not spot luck) by reading the
+generated `type awsRestjson1_deserializeOp<Op> struct{}`/`HandleDeserialize`
+body for `ListDetectors` in full before trusting any other op's
+`OpDocument...Output` case list as the real, reached deserializer.
+
+Read all 40 L+D+G ops' response shapes against their own
+`awsRestjson1_deserializeOpDocument<Op>Output` case list (file+line via a
+per-op grep dump, not hand-transcription), plus the paired
+`serializeOp*Input`/`types.go` struct definitions for every op whose
+request or response carries a member gopherstack's handler didn't emit or
+read.
+
+**This service already had substantial prior work under other issue
+classes** (g8k9 backend-tracked-but-unemitted, 21my per-item nesting, m1gl,
+h910/ctaz, plus a documented "parity-4" wire-shape audit in
+`handler_wireshape_test.go` that fixed 4 bugs: ThreatEntitySet/
+TrustedEntitySet missing timestamps, MalwareProtectionPlan's
+string-vs-epoch CreatedAt, DescribePublishingDestination's wrong key +
+missing tags, GetMalwareScan's wrong-shape mixing) — visible throughout the
+handler files as citing comments against the real SDK. That prior work is
+why most of the 40 ops (33 of 40) came back genuinely clean: every
+Get/List/Describe wrapper key, and every per-item nested shape spot-checked
+against its real deserializer case list, matched. The remainder below is
+what that prior work had not yet reached.
+
+**3 real bugs found and fixed, all layer-3 (backend already tracked the
+data; the handler just never emitted/accepted it) and all following the
+same sibling-trap shape: an older shape pair (IPSet/ThreatIntelSet, plain
+Filter) missing a field that a newer sibling shape in the same service
+(ThreatEntitySet/TrustedEntitySet) already modeled correctly:**
+
+1. **`GetFilter` — missing `createdAt`/`updatedAt`/`version`, three stacked
+   gaps on one op.** `Filter.CreatedAt`/`UpdatedAt` were already tracked by
+   `CreateFilter`/`UpdateFilter` (filters.go) but `handleGetFilter` never
+   emitted either (real `GetFilterOutput.CreatedAt`/`UpdatedAt`, epoch-
+   seconds numbers per `awsRestjson1_deserializeOpDocumentGetFilterOutput`'s
+   `smithytime.ParseEpochSeconds` call, confirmed non-required but always
+   populated once the lifecycle-metadata feature is on, which this backend
+   always has). `version` ("Every time the filter is updated, the version
+   increments by 1", real doc comment on `GetFilterOutput.Version`) had no
+   backing field in the `Filter` model at all. Fixed: added
+   `Filter.Version int64`, initialized to 1 in `CreateFilter`, incremented
+   in `UpdateFilter`, all three emitted in `handleGetFilter`.
+2. **`CreateIPSet`/`UpdateIPSet`/`GetIPSet` and `CreateThreatIntelSet`/
+   `UpdateThreatIntelSet`/`GetThreatIntelSet` — `expectedBucketOwner`
+   accepted nowhere, tracked nowhere, emitted nowhere.** Real
+   `CreateIPSetInput`/`UpdateIPSetInput`/`GetIPSetOutput` (and the
+   ThreatIntelSet equivalents) all carry `ExpectedBucketOwner`
+   (serializers.go:748 request side, confirmed same key both directions:
+   `expectedBucketOwner`). gopherstack's `IPSet`/`ThreatIntelSet` structs
+   had no field for it, silently dropping a value a real client supplied on
+   create or update — a genuine sibling trap, since the newer
+   `ThreatEntitySet`/`TrustedEntitySet` types in the same file set
+   (`entity_sets.go`/`handler_entity_sets.go`) already modeled this exact
+   field correctly end-to-end (request parse → backend field → conditional
+   response emit). Fixed by mirroring that existing pattern onto the older
+   pair: added `ExpectedBucketOwner` to both models, threaded it through
+   `CreateIPSet`/`UpdateIPSet`/`CreateThreatIntelSet`/`UpdateThreatIntelSet`
+   backend signatures and their handlers.
+3. **`DescribeOrganizationConfiguration`/`UpdateOrganizationConfiguration`
+   — missing `autoEnableOrganizationMembers`, the non-deprecated
+   replacement for `autoEnable`.** Real
+   `UpdateOrganizationConfigurationInput`/
+   `DescribeOrganizationConfigurationOutput` both carry it (NEW/ALL/NONE,
+   confirmed same key both directions in serializers.go:7823/
+   deserializers.go:3513); the real API doc directly says "we recommend
+   using AutoEnableOrganizationMembers" over the deprecated `AutoEnable` —
+   this is not a legacy/optional corner, it's the primary modern field. A
+   real client setting it via `UpdateOrganizationConfiguration` had the
+   value silently dropped, and `DescribeOrganizationConfiguration` never
+   echoed it back regardless. Fixed: added `OrgConfig.AutoEnableOrganizationMembers`,
+   threaded through the backend method's signature and both handlers.
+
+**Everything else came back clean**, including two internal near-duplicate
+pairs that looked like sibling-trap candidates but weren't:
+`scanToDescribeMap`/`scanToListMalwareScansMap` (DescribeMalwareScans vs
+ListMalwareScans genuinely return two different real shapes, `types.Scan`
+vs `types.MalwareScan` — already correctly modeled as two separate
+converters with a citing comment from prior work) and `GetMalwareScan`
+(deliberately a third, richer shape again, already correct). `GetMembers`/
+`ListMembers`/`GetMemberDetectors` all correctly use the real `members` key
+(a prior-session comment already flags this as a fixed near-miss against
+`GetMemberDetectors`' the wrong `memberDataSources` guess).
+
+**Request side**: checked as part of every fix above — all three are
+request+response pairs (the field was missing on both sides, not just one),
+confirmed by reading both the `serializeOp*Input`/`serializeDocument*`
+functions and the `deserializeOpDocument*Output` functions for each. No
+request-only or response-only asymmetry found beyond what's listed.
+
+**Ratifying tests**: none found. No existing test in `filters_test.go`,
+`ip_sets_test.go`, `threat_intel_sets_test.go`, or `organization_test.go`
+asserted `createdAt`/`updatedAt`/`version`/`expectedBucketOwner`/
+`autoEnableOrganizationMembers` at all in either direction — these three
+gaps had zero prior coverage (not a wrong assertion staying green, simply
+never exercised), consistent with this repo's ~77% never-driven-by-a-real-
+client baseline.
+
+**Phantom ops**: none. Extracted all 90 op-name string literals from
+`GetSupportedOperations`' backing consts (excluding the `opUnknown =
+"Unknown"` sentinel) and confirmed an `api_op_<Name>.go` file exists for
+every one in guardduty@v1.85.4.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>Output`/`serializeOp*Input` function
+actually reached from that op's own `HandleDeserialize`, file+line, or the
+real `types.go`/`api_op_*.go` struct definition for request-side gaps,
+never a doc comment or an assumption.
+
+**Disclosed, not fixed** (structural/optional-field gaps needing new
+backend modeling that this session judged too speculative to fabricate,
+each independently verified absent from the backend's tracked state):
+- `GetDetector`/`DescribeOrganizationConfiguration`'s deprecated
+  `dataSources`/`DataSourceConfigurationsResult` legacy member (superseded
+  by `features`, not tracked anywhere in this backend's `Detector`/
+  `OrgConfig` models — a different concept from `OrgConfig.DataSources`,
+  which is a distinct field already correctly modeled and emitted).
+- `GetMemberDetectors`' per-item `dataSources`/`features` — the backend's
+  member-detector map only ever emits `accountId`/`detectorId`/an
+  always-empty `features` list; real `MemberDataSourceConfiguration` has
+  more, but this backend has no per-member feature-status model to source
+  it from honestly.
+- `GetThreatEntitySet`/`GetTrustedEntitySet`'s `errorDetails` — a real,
+  optional member only populated when `Status` is an error state; this
+  backend's entity sets only ever reach ACTIVE/INACTIVE, so it's correctly
+  never emitted rather than fabricated.
+- `GetMalwareScan`'s `scanConfiguration`/`scannedResources`/
+  `scanResultDetails` — already-disclosed gaps from the prior parity-4
+  pass, re-verified still absent from the `MalwareScan` backend model, not
+  newly found here.
+- `GetFindingsStatistics`'s `nextToken` — the real op supports pagination
+  for grouped statistics; this backend computes and returns the full
+  grouped list in one call with no pagination cursor concept.
+- `ListMalwareProtectionPlans`' per-item `arn` field: gopherstack emits it
+  alongside `malwareProtectionPlanId`, but the real
+  `MalwareProtectionPlanSummary` type (types.go:2639) has only
+  `MalwareProtectionPlanId` — a harmless extra field a real client silently
+  ignores (same class as rds's previously-noted `StorageOptimized`), not
+  fixed since removing a field a client could already be reading isn't a
+  parity improvement.
+
+3 real-SDK-client tests added in `services/guardduty/wire_field_fixes_test.go`
+(`TestGetFilter_TimestampsAndVersion`, table-driven
+`TestIPSetAndThreatIntelSet_ExpectedBucketOwner` covering both IPSet and
+ThreatIntelSet, `TestOrganizationConfiguration_AutoEnableOrganizationMembers`),
+all built on the existing `newTestGuardDutyClient` real-SDK-client helper
+(`handler_create_tags_test.go`) rather than a new one. Every fix hand-
+reverted individually (no git, per this session's hard no-git-mutation
+constraint), confirmed to fail with the exact predicted symptom (nil
+timestamp field / stale version int / empty-string ExpectedBucketOwner /
+empty-string AutoEnableOrganizationMembers, each quoted from the actual
+test failure output), then restored and diffed byte-identical against the
+pre-revert file before moving to the next.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to
+`services/guardduty`), `go fix -diff` (no diff), `golangci-lint run` (0
+issues after a `golines` line-length fix on one call site and a
+`fieldalignment` reorder on `OrgConfig` and one inline request struct — no
+cyclop/gocyclo/gocognit/funlen nolints added) all green. `go test -race
+./pkgs/...` green. Per this session's hard constraints: no subagents used,
+no git-mutating commands run (all changes uncommitted — orchestrator must
+commit/push), `services/securityhub`/`services/inspector2`/
+`services/macie2` untouched (confirmed via `git status` before starting and
+again at the end — three sibling sessions' in-progress work there, none of
+it mine).
+
+guardduty's List/Describe/Get families are now fully swept for this issue
+(40/40 ops verified against the real deserializer/serializer). 61 of 162
+services swept, 101 remain. Per the ranked table, securityhub (47 L+D+G
+ops) is next largest but still flagged as a live sibling session's
+territory as of this session's own `git status` check — s3 (45,
+`chased` resolution) or macie2 (40, but also currently a live sibling
+session's territory as of this check) are the next candidates; re-check
+`git status` for `services/securityhub`/`services/macie2` before picking
+either, since both were mid-flight elsewhere as of this session.

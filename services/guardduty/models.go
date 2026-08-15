@@ -38,6 +38,9 @@ type Filter struct {
 	Action          string            `json:"action"`
 	DetectorID      string            `json:"-"`
 	Rank            int32             `json:"rank"`
+	// Version mirrors real GetFilterOutput.Version ("Every time the filter
+	// is updated, the version increments by 1").
+	Version int64 `json:"version"`
 }
 
 // Finding represents a GuardDuty finding.
@@ -86,6 +89,10 @@ type IPSet struct {
 	Status     string            `json:"status"`
 	Tags       map[string]string `json:"tags,omitempty"`
 	DetectorID string            `json:"-"`
+	// ExpectedBucketOwner mirrors real GetIPSetOutput.ExpectedBucketOwner:
+	// present only if supplied at creation or update time (CreateIPSetInput/
+	// UpdateIPSetInput both carry it).
+	ExpectedBucketOwner string `json:"expectedBucketOwner,omitempty"`
 }
 
 // ThreatIntelSet represents a GuardDuty threat intelligence set.
@@ -99,6 +106,9 @@ type ThreatIntelSet struct {
 	Status           string            `json:"status"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	DetectorID       string            `json:"-"`
+	// ExpectedBucketOwner mirrors real GetThreatIntelSetOutput.ExpectedBucketOwner,
+	// same as IPSet.ExpectedBucketOwner above.
+	ExpectedBucketOwner string `json:"expectedBucketOwner,omitempty"`
 }
 
 // Member represents a GuardDuty member account.
@@ -143,13 +153,12 @@ type OrgAdminAccount struct {
 
 // OrgConfig holds org-level GuardDuty configuration.
 type OrgConfig struct {
-	DataSources map[string]any `json:"dataSources"`
-	// detectorID is the store.Table composite-key qualifier (see
-	// orgConfigTableKeyFn in store_setup.go); see AdminAccount.detectorID.
-	detectorID                string
-	Features                  []OrgFeature `json:"features"`
-	AutoEnable                bool         `json:"autoEnable"`
-	MemberAccountLimitReached bool         `json:"memberAccountLimitReached"`
+	DataSources                   map[string]any `json:"dataSources"`
+	detectorID                    string
+	AutoEnableOrganizationMembers string       `json:"autoEnableOrganizationMembers,omitempty"`
+	Features                      []OrgFeature `json:"features"`
+	AutoEnable                    bool         `json:"autoEnable"`
+	MemberAccountLimitReached     bool         `json:"memberAccountLimitReached"`
 }
 
 // OrgFeature holds org-level feature configuration.
