@@ -340,6 +340,8 @@ func (b *InMemoryBackend) StartJobRunWithOptions(
 		)
 	}
 
+	b.advanceStates(time.Now())
+
 	b.mu.Lock("StartJobRun")
 	defer b.mu.Unlock()
 
@@ -444,6 +446,8 @@ func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
 // BatchStopJobRun stops multiple job runs by setting their state to STOPPING.
 // Only RUNNING or STARTING runs can be stopped.
 func (b *InMemoryBackend) BatchStopJobRun(jobName string, runIDs []string) []BatchStopJobRunError {
+	b.advanceStates(time.Now())
+
 	b.mu.Lock("BatchStopJobRun")
 	defer b.mu.Unlock()
 

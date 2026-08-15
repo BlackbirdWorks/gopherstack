@@ -474,10 +474,12 @@ type GetSMSSandboxAccountStatusResponse struct {
 
 // XMLOriginationPhone is the XML representation of an origination phone number.
 type XMLOriginationPhone struct {
-	PhoneNumber        string   `xml:"PhoneNumber"`
-	Iso2CountryCode    string   `xml:"Iso2CountryCode"`
-	RouteType          string   `xml:"RouteType"`
-	NumberCapabilities []string `xml:"NumberCapabilities>member"`
+	CreatedAt          *time.Time `xml:"CreatedAt,omitempty"`
+	PhoneNumber        string     `xml:"PhoneNumber"`
+	Iso2CountryCode    string     `xml:"Iso2CountryCode"`
+	RouteType          string     `xml:"RouteType"`
+	Status             string     `xml:"Status,omitempty"`
+	NumberCapabilities []string   `xml:"NumberCapabilities>member"`
 }
 
 // ListOriginationNumbersResult holds the result of ListOriginationNumbers.
