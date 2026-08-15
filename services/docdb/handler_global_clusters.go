@@ -137,16 +137,22 @@ type xmlGlobalClusterMemberList struct {
 	Members []xmlGlobalClusterMember `xml:"GlobalClusterMember"`
 }
 
+// xmlGlobalCluster mirrors the real types.GlobalCluster response shape
+// (confirmed against awsAwsquery_deserializeDocumentGlobalCluster,
+// docdb@v1.51.4 deserializers.go). Note: SourceDBClusterIdentifier is a
+// CreateGlobalClusterInput REQUEST member only -- the real GlobalCluster
+// response type has no such member -- so gc.SourceDBClusterID (retained on
+// the backend model for CreateGlobalCluster's own membership bootstrap) is
+// deliberately not emitted here.
 type xmlGlobalCluster struct {
-	GlobalClusterIdentifier   string                     `xml:"GlobalClusterIdentifier"`
-	SourceDBClusterIdentifier string                     `xml:"SourceDBClusterIdentifier,omitempty"`
-	Engine                    string                     `xml:"Engine,omitempty"`
-	EngineVersion             string                     `xml:"EngineVersion,omitempty"`
-	GlobalClusterArn          string                     `xml:"GlobalClusterArn,omitempty"`
-	Status                    string                     `xml:"Status"`
-	GlobalClusterMembers      xmlGlobalClusterMemberList `xml:"GlobalClusterMembers"`
-	StorageEncrypted          bool                       `xml:"StorageEncrypted"`
-	DeletionProtection        bool                       `xml:"DeletionProtection"`
+	GlobalClusterIdentifier string                     `xml:"GlobalClusterIdentifier"`
+	Engine                  string                     `xml:"Engine,omitempty"`
+	EngineVersion           string                     `xml:"EngineVersion,omitempty"`
+	GlobalClusterArn        string                     `xml:"GlobalClusterArn,omitempty"`
+	Status                  string                     `xml:"Status"`
+	GlobalClusterMembers    xmlGlobalClusterMemberList `xml:"GlobalClusterMembers"`
+	StorageEncrypted        bool                       `xml:"StorageEncrypted"`
+	DeletionProtection      bool                       `xml:"DeletionProtection"`
 }
 
 type createGlobalClusterResponse struct {
@@ -199,14 +205,13 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 	}
 
 	return xmlGlobalCluster{
-		GlobalClusterIdentifier:   gc.GlobalClusterIdentifier,
-		SourceDBClusterIdentifier: gc.SourceDBClusterID,
-		Engine:                    gc.Engine,
-		EngineVersion:             gc.EngineVersion,
-		GlobalClusterArn:          gc.GlobalClusterArn,
-		Status:                    gc.Status,
-		GlobalClusterMembers:      xmlGlobalClusterMemberList{Members: members},
-		StorageEncrypted:          gc.StorageEncrypted,
-		DeletionProtection:        gc.DeletionProtection,
+		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
+		Engine:                  gc.Engine,
+		EngineVersion:           gc.EngineVersion,
+		GlobalClusterArn:        gc.GlobalClusterArn,
+		Status:                  gc.Status,
+		GlobalClusterMembers:    xmlGlobalClusterMemberList{Members: members},
+		StorageEncrypted:        gc.StorageEncrypted,
+		DeletionProtection:      gc.DeletionProtection,
 	}
 }

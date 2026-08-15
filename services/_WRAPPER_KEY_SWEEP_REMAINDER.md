@@ -9479,3 +9479,196 @@ now fully swept; `elasticbeanstalk`/`docdb`/`batch` (17 each) are next,
 and `docdb` was seen live under a concurrent sibling this session (see
 above) -- re-run `go run ./cmd/opcensus` and re-check `git status` before
 picking, as usual.
+
+## docdb (this session, 2026-08-15)
+
+BATCH: `docdb`. Read this file's header/tail, ran `go run ./cmd/opcensus`
+fresh, read `bd show gopherstack-6flj` (comments, not just notes), read
+`git show 4719d4c94` (codedeploy, the pass immediately prior). Started on
+`accessanalyzer` first (the service this issue's own tracking explicitly
+named next, 18 L+D+G, sole service at that tier) but a live sibling started
+editing the exact same service mid-investigation -- `git status` showed
+`findings.go`/`handler_findings.go`/`handler_findings_test.go`/`interfaces.go`
+gain uncommitted changes partway through a read-only pass with zero edits
+made yet. Occupancy overrode the pick: hand-reverted the two speculative
+edits already made (`handler_analyzed_resources.go`,
+`models.go`), confirmed byte-identical via `git diff` (both files dropped
+out of `git status` entirely), and moved to the next tier.
+
+TIE-BREAK at the 17-op tier: `elasticbeanstalk` and `docdb` tied exactly on
+both stated criteria -- 11 distinct resource-family `handler_*.go` files
+each, 17 L+D+G ops each, both free per `git status`. Broken on total op
+count (a secondary signal this file's own "prefer large counts" guidance
+supports): `docdb` 55 total ops vs `elasticbeanstalk`'s 47. Picked `docdb`.
+
+Protocol: genuine `awsAwsquery`/XML (confirmed via the `deserializers.go`
+function prefix, `awsAwsquery_deserializeOp*`, not `awsRestjson1_`/
+`awsAwsjson1*`), decode is case-INSENSITIVE (`strings.EqualFold`) -- a
+casing near-miss alone is not a bug here, only a wrong/missing/fabricated
+member name. Scripted key extraction both directions: response
+(`deserializers.go`, `EqualFold("Name", ...)` calls) and request
+(`serializers.go`, `.Key("Name")` calls), same paren-balance-aware Python
+walker used elsewhere in this campaign, adapted for the XML-decoder
+function signature. Diffed against every `handler_*.go` wire/decode struct
+across all 11 op families (clusters, instances, subnet groups, cluster
+parameter groups + default-parameter catalog, cluster snapshots + snapshot
+attributes, engine versions, certificates, global clusters, events, tags,
+pending maintenance).
+
+5 DERIVED fixes (from state the backend already tracked elsewhere, not
+invented) and 2 FABRICATED wire fields removed -- full detail, citations,
+and the 9-item disclosed-gap list in `services/docdb/PARITY.md`'s own new
+pass section (search `gopherstack-6flj pass (2026-08-15)`), summary here:
+
+1. `DBInstance.InstanceCreateTime` was declared on no backend field at all
+   despite its sibling `DBCluster.ClusterCreateTime` already tracking the
+   equivalent -- added, mirroring the existing pattern.
+2. `DBClusterSnapshot` on `CreateDBClusterSnapshot`: 5 real members
+   (`AvailabilityZones`/`KmsKeyId`/`MasterUsername`/`Port`/
+   `ClusterCreateTime`) were never copied from the source `DBCluster`
+   record already in hand at creation time.
+3. Same 5 fields on `CopyDBClusterSnapshot`, copied from the source
+   *snapshot* record instead (Copy has no direct cluster reference).
+4. `DBClusterSnapshot.SourceDBClusterSnapshotArn` on `CopyDBClusterSnapshot`
+   -- the source snapshot's own ARN was already in hand.
+5. `CopyDBClusterSnapshot`'s `CopyTags`/`Tags` request members were parsed
+   by neither the handler nor the backend at all -- a real discarded-input
+   bug: a real client's `CopyTags=true` ("copy the source's tags to the
+   target") request was a silent no-op. Fixed; an explicit `Tags` value
+   takes precedence over `CopyTags` when both are given, since the SDK doc
+   comment states no precedence rule for the combination -- disclosed as an
+   interpretation, not a confirmed AWS rule.
+
+Fabricated (over-wide) fields, both **raw-body-only observable** (a real
+client's generated deserializer silently ignores unknown elements, so
+neither was independently observable via the typed SDK client -- proven by
+a raw-XML-body test instead, per this issue's own precedent for this exact
+shape of bug):
+1. `DBClusterSnapshot` emitted a bare `DBClusterArn` that
+   `types.DBClusterSnapshot` does not have (only `DBClusterSnapshotArn`,
+   confirmed against `awsAwsquery_deserializeDocumentDBClusterSnapshot`).
+2. `GlobalCluster`'s response emitted `SourceDBClusterIdentifier`, which is
+   a `CreateGlobalClusterInput` REQUEST member only -- the real response
+   type `types.GlobalCluster` has no such member (confirmed against
+   `awsAwsquery_deserializeDocumentGlobalCluster`).
+
+Both fabricated fields derive from real ARN-shaped backend state (not
+credential/secret-shaped), so this is over-wide-field hygiene, not a
+real-data leak -- neither backend model field was removed, only the wire
+emission (both model fields are still used internally elsewhere in the
+same files).
+
+9 real gaps DISCLOSED, not fabricated -- kept in a separate list from the
+5 derived fixes above, each because it's a real, optional response (or, for
+one, request) member with zero backing state anywhere in this backend, and
+inventing a plausible value would be exactly what this issue's
+derive-or-disclose rule forbids: `DBCluster`'s 11 unmodeled newer-SDK
+members (IAM role association, Secrets-Manager-managed credentials,
+IO-optimized storage tiering, dual-stack networking, DocDB Serverless v2 --
+all distinct unimplemented features) plus its dead-but-declared
+`ReadReplicaIdentifiers` (cloned in copy functions, never set by anything --
+no create-as-replica code path exists at all, so this isn't a
+tracked-but-unemitted bug, it's scaffolding for a feature that was never
+built); `DBInstance`'s 7 unmodeled members (Performance Insights,
+read-replica status, a synthetic resource-id scheme); `DBClusterSnapshot`'s
+`VpcId` (plausibly resolvable via an extra `DBSubnetGroup` lookup, not
+attempted) and `StorageType`; `DBSubnetGroup.SupportedNetworkTypes`;
+`Parameter.AllowedValues`/`MinimumEngineVersion` (no authoritative source
+for the static built-in catalog's correct per-parameter values -- guessing
+would be invention); `Certificate.CertificateArn` (a well-known real ARN
+format, but no in-repo precedent confirms it -- checked `services/rds`,
+which has no `DescribeCertificates` at all -- so disclosed rather than
+reconstructed from memory); `GlobalCluster`'s 4 unmodeled members. Also
+disclosed as a **systemic, service-wide** gap rather than fixed piecemeal:
+every one of the 16 `Describe*`/`List*` ops that accepts a request-side
+`Filters` member (confirmed via the serializer script) parses it nowhere in
+this handler -- implementing AWS's generic `Name`/`Values` filter-matching
+semantics is a distinct feature (a small filter-matching engine), not a
+per-op wire-shape fix, so left disclosed for all 16 rather than
+half-implemented for a subset.
+
+Symmetric pair checked separately, confirmed a real (if slightly odd)
+symmetry rather than a trap missed: `DBCluster.ReplicationSourceIdentifier`
+(real, echoed) vs. `ReadReplicaIdentifiers` (real, declared+cloned but never
+set) -- both always empty for the same root cause (no create-as-replica
+code path exists anywhere), but only one is wired to the wire at all, even
+though nothing can populate either. Confirmed via `grep`, not assumed.
+
+Go kinds checked: `AvailabilityZones` (`[]string`, not a bare string or a
+map) on both `DBCluster` and the now-fixed `DBClusterSnapshot`; `Tags`
+(`map[string]string` via the generic per-ARN tags store, not inlined on the
+resource types themselves -- confirmed `DBCluster`'s own response has no
+`TagList` member at all per the deserializer, consistent across every
+DocDB-native resource except `GlobalCluster`, whose real response type does
+have one -- disclosed above, not fixed). No flat-map-where-real-shape-is-
+array or nested-shape-emitted-flat bugs found in this service.
+
+Required-member diffs: every field this pass added or removed is optional
+on the real type (none of the 5 derived fixes nor the 2 removed fabricated
+fields are `// This member is required.` per the SDK's own doc comments) --
+scoped explicitly, not assumed.
+
+Empty/204 responses: not applicable -- docdb's query/XML protocol always
+returns a `200` with a `*Response`/`*Result` body, even for void ops
+(`DeleteDBSubnetGroup` etc. return an empty `*Response` wrapper, not `204`),
+consistent with every other op in this service; not a gap.
+
+Persistence: all 5 derived fields are plain `string`/`[]string`/`int` with
+real `json:` tags on `DBInstance`/`DBClusterSnapshot`, round-tripping for
+free through the existing generic `regionalDTO[T]`-wrapped
+`store.Table[T]` Snapshot/Restore (verified by reading `persistence.go`'s
+registration for both tables -- no DTO or special-casing needed, matching
+this service's own established pattern for every other plain field). No
+retag risk: neither struct doubles as anything other than its own
+persisted/wire DTO.
+
+Discarded inputs: `CopyDBClusterSnapshot`'s `CopyTags`/`Tags` (fixed, #5
+above); the service-wide `Filters` member on 16 ops (disclosed, not fixed,
+see above); `StartResourceScan`-equivalent n/a for this service.
+`DescribeCertificates`/`DescribeDBEngineVersions` are static catalogs with
+no per-request state to discard beyond their own documented filters, which
+were already correctly applied (verified, not assumed).
+
+Second client: none -- one `*docdbsdk.Client` construction path in this
+package's tests, confirmed via `grep -rn NewFromConfig`.
+
+Router: `Action=`/`Version=` form-param dispatch (query protocol), not a
+path-segment router -- structurally immune to the router-swallowing bug
+class this issue tracks for REST-style services.
+
+Phantom ops: not separately re-verified this pass (out of scope -- this
+pass's script targeted field-set extraction, not the op-name list itself;
+the 2026-07-31 audit's `ops:` table already covers every op in
+`GetSupportedOperations` 1:1 against the pinned SDK's `api_op_*.go` files).
+
+TESTS: 3 new real-`aws-sdk-go-v2`-client round-trip tests
+(`handler_sdk_roundtrip_test.go`) for the 5 derived fixes, plus 2 raw-body
+tests (`handler_db_cluster_snapshots_test.go`/`handler_global_clusters_test.go`)
+for the 2 fabricated-field removals, disclosed as raw-body-only per the
+reasoning above. All 6 fixes hand-reverted individually (no git-mutating
+commands, including `checkout --`), each confirmed to fail with the exact
+predicted symptom (missing/nil field for the derived fixes, `0` tags copied
+and an empty `SourceDBClusterSnapshotArn` for the discarded-input fix, the
+fabricated element literally present in the raw XML body for the two
+removals), then restored and confirmed **byte-identical** against a saved
+pre-revert `git diff` snapshot (`diff` produced zero output).
+
+GATES: `go build` (scoped `./services/docdb/...` clean throughout; full
+`go build ./...` clean, since `CopyDBClusterSnapshot`'s signature grew 2
+params); `go vet` clean; `go test -race ./services/docdb/...` and
+`./pkgs/...` green; `go fix -diff` empty; `golangci-lint run
+./services/docdb/...` **0 issues** (no fieldalignment findings needing a
+scratch-copy `-fix` this pass). Zero `//nolint:cyclop/gocyclo/gocognit/funlen`
+added.
+
+No subagents used. No git-mutating commands run -- orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/docdb/*` and this file touched from the `docdb` pick onward --
+`services/accessanalyzer/*` (live sibling, since finished and appended its
+own section above) never touched after the hand-revert.
+
+`docdb`'s Describe/List families are now fully swept for this issue (17/17
+L+D+G ops, all 11 resource families, layer-1/2/3 clean). **99 of 162
+services swept, 63 remain.** Per the ranked table, `elasticbeanstalk` and
+`batch` (17 each) are the two remaining services at this tier; re-run
+`go run ./cmd/opcensus` and re-check `git status` before picking, as usual.

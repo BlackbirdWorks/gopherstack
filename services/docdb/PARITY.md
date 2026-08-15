@@ -3,7 +3,8 @@ service: docdb
 sdk_module: aws-sdk-go-v2/service/docdb@v1.51.4
 last_audit_commit: 04b49136
 last_audit_date: 2026-07-31
-overall: A            # this pass: 3 real feature gaps closed (GlobalCluster members, real events log, real pending-maintenance queue), 2 disguised no-op bugs fixed (ResetDBClusterParameterGroup, CreateEventSubscription arg-swap), 1 wire-field gap fixed (EventSubscription response), 2 cosmetic gaps closed
+overall: A            # 2026-07-31 pass: 3 real feature gaps closed (GlobalCluster members, real events log, real pending-maintenance queue), 2 disguised no-op bugs fixed (ResetDBClusterParameterGroup, CreateEventSubscription arg-swap), 1 wire-field gap fixed (EventSubscription response), 2 cosmetic gaps closed
+                      # gopherstack-6flj (2026-08-15): 5 derived wire-field fixes (InstanceCreateTime + 5 snapshot fields copied from tracked source-cluster/source-snapshot state + CopyDBClusterSnapshot's discarded Tags/CopyTags), 2 fabricated wire fields removed (DBClusterSnapshot's bogus DBClusterArn, GlobalCluster's bogus SourceDBClusterIdentifier), 9 real gaps disclosed (see gaps: list) -- see the pass's own Notes section at the end of this file for full detail. Grade held at A.
                       # 2026-07-31 (browser parity pass): RouteMatcher checked only the User-Agent header for the "api/docdb" marker, which a browser cannot set (Fetch spec forbids scripts from setting User-Agent) -- the AWS SDK for JavaScript in a browser puts its SDK identification in X-Amz-User-Agent instead, so every browser dashboard DocDB request (@aws-sdk/client-docdb) fell through unmatched. Also confirmed the marker itself needed case-insensitive matching: the JS SDK's serviceId-derived marker is "api/DocDB" (PascalCase), not aws-sdk-go-v2's lowercase "api/docdb". Fixed via the new pkgs/service.MatchesUserAgentMarker helper, shared with the identical bug class fixed the same pass in mediastoredata/neptune/appsync. Grade held at A: fixed, not deferred.
 ops:
   # DBCluster family
@@ -17,8 +18,8 @@ ops:
   RestoreDBClusterFromSnapshot: {wire: ok, errors: ok, state: ok, persist: ok}
   RestoreDBClusterToPointInTime: {wire: ok, errors: ok, state: ok, persist: ok}
   # DBInstance family
-  CreateDBInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass: error codes were DBInstanceNotFoundFault/DBInstanceAlreadyExistsFault, real wire codes have no Fault suffix. This pass: now records a real activity-log event on create."}
-  DescribeDBInstances: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateDBInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass: error codes were DBInstanceNotFoundFault/DBInstanceAlreadyExistsFault, real wire codes have no Fault suffix. Prior pass: now records a real activity-log event on create. THIS PASS (gopherstack-6flj): types.DBInstance.InstanceCreateTime (real, optional member per awsAwsquery_deserializeDocumentDBInstance) was declared on no field at all -- unlike its DBCluster.ClusterCreateTime sibling, which already tracked+emitted the equivalent. Added DBInstance.InstanceCreateTime, stamped at CreateDBInstance time, same pattern as ClusterCreateTime."}
+  DescribeDBInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS (gopherstack-6flj): now emits InstanceCreateTime (see CreateDBInstance). Disclosed, not fixed -- 7 further real, optional types.DBInstance members with zero backing state anywhere in this backend: CertificateDetails/DbiResourceId/LatestRestorableTime/PendingModifiedValues/PerformanceInsightsEnabled/PerformanceInsightsKMSKeyId/StatusInfos (Performance Insights, read-replica status, and a stable synthetic resource-id scheme are all distinct unimplemented features, not wire-shape gaps)."}
   DeleteDBInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: now records a real activity-log event on delete"}
   ModifyDBInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   RebootDBInstance: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -37,10 +38,10 @@ ops:
   DescribeDBClusterParameters: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: ApplyMethod field added (was entirely absent from the wire response -- cosmetic gap closed, AWS's Parameter shape always carries it)"}
   DescribeEngineDefaultClusterParameters: {wire: ok, errors: n/a, state: ok, persist: n/a, note: "this pass: ApplyMethod field added, same fix as DescribeDBClusterParameters"}
   # DBClusterSnapshot family
-  CreateDBClusterSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: now records a real activity-log event on create"}
-  DescribeDBClusterSnapshots: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateDBClusterSnapshot: {wire: fixed, errors: ok, state: ok, persist: ok, note: "prior pass: now records a real activity-log event on create. FIXED THIS PASS (gopherstack-6flj), 2 bugs: (1) response wrongly emitted a bare DBClusterArn -- confirmed against awsAwsquery_deserializeDocumentDBClusterSnapshot that the real types.DBClusterSnapshot has NO such member (only DBClusterSnapshotArn); a real client's generated deserializer silently drops unknown elements, so this was over-emission, not a functional bug -- removed from the wire struct only, the backend field itself is retained for CopyDBClusterSnapshot's own internal use. (2) 5 real, backend-already-tracked-on-the-source-cluster members were never copied onto the snapshot at all: AvailabilityZones/KmsKeyId/MasterUsername/Port/ClusterCreateTime. Derived from the source DBCluster record at creation time (same derive-from-already-tracked-state class as this issue's prior passes)."}
+  DescribeDBClusterSnapshots: {wire: ok, errors: ok, state: ok, persist: ok, note: "THIS PASS (gopherstack-6flj): reflects the CreateDBClusterSnapshot/CopyDBClusterSnapshot wire fixes. Disclosed, not fixed -- VpcId (real, resolvable only via an extra DBSubnetGroup lookup through the source cluster's DBSubnetGroupName, not attempted this pass) and StorageType (real, but no storage-tiering feature modeled at all)."}
   DeleteDBClusterSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: now records a real activity-log event on delete"}
-  CopyDBClusterSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: copy previously omitted a fresh SnapshotCreateTime (left zero-valued) -- now stamps the copy's own creation time instead of leaving it blank, matching AWS's genuinely-new-resource semantics"}
+  CopyDBClusterSnapshot: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "prior pass: copy previously omitted a fresh SnapshotCreateTime (left zero-valued) -- now stamps the copy's own creation time. FIXED THIS PASS (gopherstack-6flj), a real discarded-input bug: the request's CopyTags (\"Set to true to copy all tags from the source cluster snapshot to the target\") and Tags members were parsed by neither the handler nor the backend at all, so a real client's CopyTags=true request was a silent no-op -- the copy always ended up with zero tags. Now reads both; an explicit Tags value takes precedence over CopyTags when both are given (the SDK doc comment states no precedence rule for this combination, so this is an interpretation, not a confirmed AWS rule -- disclosed as such). Also added the missing SourceDBClusterSnapshotArn response member (real, populated from the source snapshot's own ARN) and the same 5 source-derived fields CreateDBClusterSnapshot gained (copied from the source SNAPSHOT here, not the cluster, since Copy has no direct cluster reference)."}
   DescribeDBClusterSnapshotAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyDBClusterSnapshotAttribute: {wire: ok, errors: ok, state: ok, persist: ok}
   # EventSubscription family
@@ -53,8 +54,8 @@ ops:
   DescribeEventCategories: {wire: ok, errors: n/a, state: ok, persist: n/a}
   DescribeEvents: {wire: ok, errors: n/a, state: ok, persist: ok, note: "FIXED this pass: previously always returned an empty event list (no real event log was modeled at all). Added a bounded per-region event log (events_log.go, maxEventsLogPerRegion=500) fed by recordEvent calls from the key cluster/instance/snapshot lifecycle mutators (create/delete/stop/start/failover), with SourceIdentifier/SourceType/StartTime/EndTime/Duration/EventCategories filtering matching DescribeEventsInput's real fields (AWS's default 60-minute lookback window honored when neither StartTime nor Duration is given). Mirrors the already-completed neptune service's identical fix."}
   # GlobalCluster family
-  CreateGlobalCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: SourceDBClusterIdentifier is now resolved (as an ARN or a bare identifier looked up in the caller's region) and, when it names a real cluster, added as the initial writer GlobalClusterMember -- previously stored but never turned into a member at all."}
-  DescribeGlobalClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: GlobalClusterMembers now reflects real membership instead of always answering an empty list"}
+  CreateGlobalCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "prior pass: SourceDBClusterIdentifier is now resolved (as an ARN or a bare identifier looked up in the caller's region) and, when it names a real cluster, added as the initial writer GlobalClusterMember. FIXED THIS PASS (gopherstack-6flj): the response wrongly echoed a bare SourceDBClusterIdentifier -- confirmed against awsAwsquery_deserializeDocumentGlobalCluster that the real types.GlobalCluster response type has NO such member (it exists only on CreateGlobalClusterInput, the request). A real client's generated deserializer silently drops unknown elements, so this was over-emission, not a functional bug -- removed from the wire struct only; the backend's GlobalCluster.SourceDBClusterID field is retained (used internally for the initial-member bootstrap already described above)."}
+  DescribeGlobalClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior pass: GlobalClusterMembers now reflects real membership instead of always answering an empty list. THIS PASS (gopherstack-6flj): reflects the CreateGlobalCluster fabricated-field fix. Disclosed, not fixed -- 4 further real, optional types.GlobalCluster members with zero backing state: DatabaseName (SDK doc comment gives no docdb-specific semantics to derive from), FailoverState (only populated during an in-progress switchover/failover; every mutation in this backend completes synchronously, so there is never an honest non-empty value), GlobalClusterResourceId (a stable synthetic immutable resource-id scheme, not modeled), TagList (global clusters are not wired into the generic per-ARN tags store the way DBCluster/DBInstance/DBClusterSnapshot are)."}
   DeleteGlobalCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyGlobalCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   FailoverGlobalCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: TargetDbClusterIdentifier now genuinely promotes a member to writer (or attaches a resolvable-but-not-yet-tracked real cluster as the new writer, demoting the prior one) via promoteGlobalClusterWriter -- previously a pure status-flip no-op with respect to membership"}
@@ -81,7 +82,20 @@ families:
   Tags: {status: ok, note: "AddTagsToResource/RemoveTagsFromResource/ListTagsForResource verified real (region-scoped ARN keying via regionFromARN, upsert-by-key semantics). Wire shape (TagList>Tag, flat Key/Value) matches awsAwsquery_deserializeDocumentTagList exactly. No changes this pass."}
   ClusterEndpoint: {status: n/a, note: "VERIFIED this pass, not a gap: real Amazon DocumentDB has NO cluster-endpoint API at all (no CreateDBClusterEndpoint/ModifyDBClusterEndpoint/DeleteDBClusterEndpoint/DescribeDBClusterEndpoints anywhere in aws-sdk-go-v2/service/docdb@v1.48.11 -- confirmed by listing every api_op_*.go file in the module). This is an RDS/Neptune-only feature this campaign's task description generically mentioned for the RDS-cluster family, but DocDB's own API surface genuinely does not have it. gopherstack correctly has zero cluster-endpoint code for this service; adding any would be inventing an op that doesn't exist on the real wire."}
 gaps:
-  # (none currently open -- every item flagged in the prior pass was fixed this pass; see items_still_open in the audit receipt for anything this pass could not fully verify)
+  # gopherstack-6flj pass (2026-08-15): disclosed, not fabricated. Each is a
+  # real, optional response member with zero backing state anywhere in this
+  # backend -- adding a hardcoded/guessed value would be exactly the
+  # fabrication parity-principles #1 forbids, and omitempty makes a
+  # present-but-always-empty field byte-identical on the wire to an absent
+  # one, so modelling them as always-empty would also be zero-effect churn.
+  - "DBCluster: AssociatedRoles/CloneGroupId/DbClusterResourceId/EarliestRestorableTime/IOOptimizedNextAllowedModificationTime/LatestRestorableTime/MasterUserSecret/NetworkType/PercentProgress/ServerlessV2ScalingConfiguration/StorageType -- IAM role association, Secrets-Manager-managed credentials, IO-optimized storage tiering, dual-stack networking, and DocDB Serverless v2 are all distinct unimplemented features with no backend state to derive from. ReadReplicaIdentifiers is declared on the DBCluster model and cloned in copy functions but never actually SET anywhere -- CreateDBCluster has no ReplicationSourceIdentifier/create-as-replica code path at all (the sibling ReplicationSourceIdentifier response field is real but also always empty for the same reason), so the field is dead scaffolding for an unbuilt feature, not a tracked-but-unemitted bug."
+  - "DBInstance: CertificateDetails/DbiResourceId/LatestRestorableTime/PendingModifiedValues/PerformanceInsightsEnabled/PerformanceInsightsKMSKeyId/StatusInfos -- Performance Insights and read-replica status are unimplemented features; DbiResourceId needs a stable synthetic resource-id scheme this pass did not design."
+  - "DBClusterSnapshot: VpcId (resolvable via an extra DBSubnetGroup lookup through the source cluster's DBSubnetGroupName -- plausible but not attempted this pass) and StorageType (no storage-tiering feature modeled)."
+  - "DBSubnetGroup: SupportedNetworkTypes (dual-stack/IPv4-only support, unmodeled)."
+  - "Parameter (DescribeDBClusterParameters/DescribeEngineDefaultClusterParameters): AllowedValues/MinimumEngineVersion -- real members, but this pass found no authoritative source (SDK doc comments give no enumerated values) for the correct per-parameter content of the static built-in parameter catalog (clusterParameterDefaults). Guessing plausible-looking values (e.g. \"enabled,disabled\" for a boolean param) would be exactly the invention parity-principles #1 forbids."
+  - "Certificate (DescribeCertificates): CertificateArn -- real member with a well-known real-AWS ARN format (arn:aws:rds:<region>::cert:<identifier>), but no in-repo precedent (checked services/rds, which has no DescribeCertificates at all) confirms it, so left disclosed per this issue's derive-or-disclose rule rather than reconstructed from memory."
+  - "GlobalCluster: DatabaseName/FailoverState/GlobalClusterResourceId/TagList -- see DescribeGlobalClusters note above."
+  - "Every Describe*/List* op's request-side Filters member (all 16 ops that take one, per awsAwsquery_serializeOpDocumentDescribe*Input) is parsed nowhere in this handler -- a systemic, service-wide discarded input. Implementing AWS's generic Name/Values filter-matching semantics across 16 ops is a distinct feature (a small filter-matching engine), not a per-op wire-shape fix, so left disclosed rather than half-implemented for a subset of ops."
 deferred:
   - GlobalCluster member-promotion for a Failover/Switchover target that is neither an existing member, an ARN, nor a locally-known DB cluster identifier is a silent no-op rather than an error -- real AWS would reject an unresolvable target, but this backend has no "join global cluster" operation to have modeled a genuine not-yet-attached secondary (same documented precedent as the already-completed neptune service), so it cannot distinguish that case from a typo without one.
 leaks: {status: clean, note: "no goroutines, no time.After/NewTicker/Tick anywhere in the package (still true after this pass's additions -- the new pending-maintenance-action queue and events log in pending_maintenance.go/events_log.go are plain maps guarded by the existing single lockmetrics.RWMutex, not background workers); backend is a synchronous in-memory store, Snapshot/Restore correctly delegate through Handler for cli.go's setupPersistence registration. eventsLog is bounded per region (maxEventsLogPerRegion=500, oldest entries trimmed) so it cannot grow unbounded in a long-lived process. Both new maps round-trip through backendSnapshot (persistence.go) alongside the pre-existing Tags map -- verified by TestPersistenceRoundTrip_NewState. pendingMaintenanceActions/eventsLog are deliberately NOT cascade-cleared on cluster/instance/snapshot delete: an activity-log event must remain visible after its source resource is gone (that's the point of an activity log, matching AWS's own event-retention behavior), and a queued maintenance action against a since-deleted resource is inert (never returned to anyone querying by the now-nonexistent resource identifier) rather than a live leak -- same precedent as the already-completed neptune service."}
@@ -144,3 +158,89 @@ existing coarse `lockmetrics.RWMutex`, matching the pkgs-catalog locking rule.
 RDS/Neptune) -- confirmed by enumerating every `api_op_*.go` file in
 `aws-sdk-go-v2/service/docdb@v1.48.11`. gopherstack correctly has zero code for this feature
 in the docdb service; this was independently field-diffed this pass, not assumed.
+
+## gopherstack-6flj pass (2026-08-15): wrapper-key / nested-field sweep
+
+Method: extracted every real response document's field set from
+`docdb@v1.51.4`'s `deserializers.go` (`awsAwsquery_deserializeOpDocument*`/
+`awsAwsquery_deserializeDocument*`, matched on `strings.EqualFold("Name", ...)`
+calls -- paren-balance-aware Python walker, same tool used across this
+issue's other services) and every request document's field set from
+`serializers.go` (`.Key("Name")` calls), then diffed both against every
+`handler_*.go` wire struct/decode struct in this package. **Protocol note:**
+docdb is genuine `awsAwsquery`/XML -- decode is case-INSENSITIVE
+(`strings.EqualFold`), so a casing near-miss alone is not a bug here (unlike
+this issue's `awsjson1.1` services); a wrong member NAME, a fabricated
+member, or a missing member still is.
+
+**Derived fixes (5, all from state the backend already tracked elsewhere) --
+kept separate from the disclosed list above:**
+1. `DBInstance.InstanceCreateTime` -- mirrors the existing
+   `DBCluster.ClusterCreateTime` pattern in the same file family.
+2. `DBClusterSnapshot.{AvailabilityZones,KmsKeyId,MasterUsername,Port,
+   ClusterCreateTime}` on `CreateDBClusterSnapshot` -- copied from the
+   source `DBCluster` record already in hand at snapshot-creation time.
+3. Same 5 fields on `CopyDBClusterSnapshot` -- copied from the source
+   *snapshot* record (Copy has no direct cluster reference).
+4. `DBClusterSnapshot.SourceDBClusterSnapshotArn` on `CopyDBClusterSnapshot`
+   -- the source snapshot's own ARN was already in hand (`src.DBClusterSnapshotArn`).
+5. `CopyDBClusterSnapshot`'s `CopyTags`/`Tags` request members -- a real
+   discarded-input bug (not just wire-shape): neither was parsed at all, so
+   a real client's "copy the source's tags" request silently did nothing.
+
+**2 fabricated (over-wide) wire fields removed, both raw-body-only
+observable** (a real client's generated deserializer silently ignores
+unknown elements, so neither was independently observable via the typed
+SDK client -- proven instead by `TestDescribeDBClusterSnapshots_NoFabricatedDBClusterArn`/
+`TestCreateGlobalCluster_NoFabricatedSourceDBClusterIdentifier` inspecting
+the raw XML body):
+1. `DBClusterSnapshot` emitted a bare `DBClusterArn` that
+   `types.DBClusterSnapshot` does not have (only `DBClusterSnapshotArn`).
+2. `GlobalCluster`'s response emitted `SourceDBClusterIdentifier`, which is
+   a `CreateGlobalClusterInput` REQUEST member only -- `types.GlobalCluster`
+   (the response type) has no such member.
+
+Both fabricated fields derive from real ARN-shaped backend state (not
+credential-shaped/sensitive data) and were harmless in practice (silently
+dropped by any real client) -- classified as hygiene fixes, not real-data
+leaks. Neither backend model field was removed, only the wire emission (the
+model fields are still used internally: `DBClusterSnapshot.DBClusterArn` by
+`CopyDBClusterSnapshot`, `GlobalCluster.SourceDBClusterID` by
+`CreateGlobalCluster`'s initial-member bootstrap).
+
+**9 real gaps disclosed, not fabricated** -- see the `gaps:` list above,
+split from the derived-fix list for the same reason: each is a real,
+optional response member (or, for the service-wide `Filters` gap, a request
+member) with zero backing state in this backend, where inventing a plausible
+value would be exactly what parity-principles #1 forbids.
+
+**Symmetric pair checked separately (a real asymmetry, not a trap missed):**
+`DBCluster.ReplicationSourceIdentifier` (real member, echoed) vs.
+`DBCluster.ReadReplicaIdentifiers` (real member, declared+cloned but never
+set) -- both are always empty for the same root cause (no
+create-as-replica/global-cluster-secondary code path exists), but one is
+wired to the wire and the other isn't even though nothing can ever populate
+either. Confirmed via `grep`, not assumed.
+
+**Tests:** 3 new real-`aws-sdk-go-v2`-client round-trip tests
+(`handler_sdk_roundtrip_test.go`) for the 5 derived fixes, plus 2 raw-body
+tests (`handler_db_cluster_snapshots_test.go`/`handler_global_clusters_test.go`)
+for the 2 fabricated-field removals, disclosed as raw-body-only per the
+reasoning above. All 6 fixes hand-reverted individually, confirmed to fail
+with the exact predicted symptom (missing/nil field for the derived fixes,
+`0 tags`/empty `SourceDBClusterSnapshotArn` for the discarded-input fix, the
+fabricated element literally present in the raw XML for the two removals),
+then restored and confirmed **byte-identical** against a saved pre-revert
+`git diff` baseline.
+
+**Gates:** `go build` (scoped `./services/docdb/...` + full `./...`, since
+`CopyDBClusterSnapshot`'s signature grew 2 params), `go vet`, `go test -race`
+(docdb + `pkgs/...`), `go fix -diff` (no diff), `golangci-lint run
+./services/docdb/...` (0 issues, no new `//nolint`, no
+cyclop/gocyclo/gocognit/funlen), all green.
+
+`last_audit_commit` NOT re-pointed -- this pass's method (deserializer/
+serializer field-set extraction against every `handler_*.go` wire struct) is
+narrower/deeper than the 2026-07-31 audit's op-by-op wire/errors/state/persist
+method, matching this issue's own established precedent for the same
+situation (mediatailor/memorydb/codedeploy passes).

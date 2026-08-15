@@ -63,7 +63,9 @@ func (h *Handler) handleDeleteDBClusterSnapshot(ctx context.Context, vals url.Va
 func (h *Handler) handleCopyDBClusterSnapshot(ctx context.Context, vals url.Values) (any, error) {
 	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
 	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
-	snap, err := h.Backend.CopyDBClusterSnapshot(ctx, sourceSnapshotID, targetSnapshotID)
+	tags := parseTags(vals)
+	copyTagsFromSource := vals.Get("CopyTags") == stringTrue
+	snap, err := h.Backend.CopyDBClusterSnapshot(ctx, sourceSnapshotID, targetSnapshotID, tags, copyTagsFromSource)
 	if err != nil {
 		return nil, err
 	}
@@ -137,34 +139,53 @@ func (h *Handler) handleModifyDBClusterSnapshotAttribute(ctx context.Context, va
 	}, nil
 }
 
+// toXMLClusterSnapshot builds the real types.DBClusterSnapshot wire shape
+// (confirmed against awsAwsquery_deserializeDocumentDBClusterSnapshot,
+// docdb@v1.51.4 deserializers.go). Note: the real type has NO DBClusterArn
+// member at all -- only DBClusterSnapshotArn -- so snap.DBClusterArn
+// (retained on the backend model for CopyDBClusterSnapshot's own internal
+// use) is deliberately not emitted here.
 func toXMLClusterSnapshot(snap *DBClusterSnapshot) xmlDBClusterSnapshot {
+	azs := make([]string, len(snap.AvailabilityZones))
+	copy(azs, snap.AvailabilityZones)
+
 	return xmlDBClusterSnapshot{
 		DBClusterSnapshotIdentifier: snap.DBClusterSnapshotIdentifier,
 		DBClusterIdentifier:         snap.DBClusterIdentifier,
-		DBClusterArn:                snap.DBClusterArn,
 		DBClusterSnapshotArn:        snap.DBClusterSnapshotArn,
+		SourceDBClusterSnapshotArn:  snap.SourceDBClusterSnapshotArn,
 		Engine:                      snap.Engine,
 		Status:                      snap.Status,
 		SnapshotType:                snap.SnapshotType,
 		SnapshotCreateTime:          snap.SnapshotCreateTime,
+		ClusterCreateTime:           snap.ClusterCreateTime,
 		EngineVersion:               snap.EngineVersion,
+		KmsKeyID:                    snap.KmsKeyID,
+		MasterUsername:              snap.MasterUsername,
+		AvailabilityZones:           xmlAvailabilityZoneList{Members: azs},
+		Port:                        snap.Port,
 		PercentProgress:             snap.PercentProgress,
 		StorageEncrypted:            snap.StorageEncrypted,
 	}
 }
 
 type xmlDBClusterSnapshot struct {
-	DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
-	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
-	DBClusterArn                string `xml:"DBClusterArn,omitempty"`
-	DBClusterSnapshotArn        string `xml:"DBClusterSnapshotArn,omitempty"`
-	Engine                      string `xml:"Engine"`
-	Status                      string `xml:"Status"`
-	SnapshotType                string `xml:"SnapshotType,omitempty"`
-	SnapshotCreateTime          string `xml:"SnapshotCreateTime,omitempty"`
-	EngineVersion               string `xml:"EngineVersion,omitempty"`
-	PercentProgress             int    `xml:"PercentProgress"`
-	StorageEncrypted            bool   `xml:"StorageEncrypted"`
+	DBClusterSnapshotIdentifier string                  `xml:"DBClusterSnapshotIdentifier"`
+	DBClusterIdentifier         string                  `xml:"DBClusterIdentifier"`
+	DBClusterSnapshotArn        string                  `xml:"DBClusterSnapshotArn,omitempty"`
+	SourceDBClusterSnapshotArn  string                  `xml:"SourceDBClusterSnapshotArn,omitempty"`
+	Engine                      string                  `xml:"Engine"`
+	Status                      string                  `xml:"Status"`
+	SnapshotType                string                  `xml:"SnapshotType,omitempty"`
+	SnapshotCreateTime          string                  `xml:"SnapshotCreateTime,omitempty"`
+	ClusterCreateTime           string                  `xml:"ClusterCreateTime,omitempty"`
+	EngineVersion               string                  `xml:"EngineVersion,omitempty"`
+	KmsKeyID                    string                  `xml:"KmsKeyId,omitempty"`
+	MasterUsername              string                  `xml:"MasterUsername,omitempty"`
+	AvailabilityZones           xmlAvailabilityZoneList `xml:"AvailabilityZones"`
+	Port                        int                     `xml:"Port"`
+	PercentProgress             int                     `xml:"PercentProgress"`
+	StorageEncrypted            bool                    `xml:"StorageEncrypted"`
 }
 
 type xmlDBClusterSnapshotList struct {

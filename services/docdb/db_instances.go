@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 )
 
 func (b *InMemoryBackend) CreateDBInstance(
@@ -84,6 +85,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		Tags:                    copyTags(tags),
 		CACertificateIdentifier: caCertID,
 		CopyTagsToSnapshot:      copyTagsToSnapshot,
+		InstanceCreateTime:      time.Now().UTC().Format(time.RFC3339),
 	}
 	b.instancePut(inst)
 	if len(tags) > 0 {

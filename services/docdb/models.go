@@ -185,6 +185,7 @@ type DBInstance struct {
 	DBSubnetGroupName            string            `json:"dbSubnetGroupName"`
 	PreferredMaintenanceWindow   string            `json:"preferredMaintenanceWindow"`
 	CACertificateIdentifier      string            `json:"caCertificateIdentifier"`
+	InstanceCreateTime           string            `json:"instanceCreateTime"`
 	EnabledCloudwatchLogsExports []string          `json:"enabledCloudwatchLogsExports"`
 	Port                         int               `json:"port"`
 	PromotionTier                int               `json:"promotionTier"`
@@ -233,13 +234,23 @@ type DBClusterSnapshot struct {
 	DBClusterIdentifier         string            `json:"dbClusterIdentifier"`
 	DBClusterArn                string            `json:"dbClusterArn"`
 	DBClusterSnapshotArn        string            `json:"dbClusterSnapshotArn"`
-	Engine                      string            `json:"engine"`
-	Status                      string            `json:"status"`
-	EngineVersion               string            `json:"engineVersion"`
-	SnapshotType                string            `json:"snapshotType"`
-	SnapshotCreateTime          string            `json:"snapshotCreateTime"`
-	PercentProgress             int               `json:"percentProgress"`
-	StorageEncrypted            bool              `json:"storageEncrypted"`
+	// SourceDBClusterSnapshotArn is only ever non-empty on a snapshot
+	// created via CopyDBClusterSnapshot (the copy's own source); a
+	// directly-created snapshot (CreateDBClusterSnapshot) has no source
+	// snapshot of its own, matching real types.DBClusterSnapshot.
+	SourceDBClusterSnapshotArn string   `json:"sourceDBClusterSnapshotArn"`
+	Engine                     string   `json:"engine"`
+	Status                     string   `json:"status"`
+	EngineVersion              string   `json:"engineVersion"`
+	SnapshotType               string   `json:"snapshotType"`
+	SnapshotCreateTime         string   `json:"snapshotCreateTime"`
+	ClusterCreateTime          string   `json:"clusterCreateTime"`
+	KmsKeyID                   string   `json:"kmsKeyId"`
+	MasterUsername             string   `json:"masterUsername"`
+	AvailabilityZones          []string `json:"availabilityZones"`
+	Port                       int      `json:"port"`
+	PercentProgress            int      `json:"percentProgress"`
+	StorageEncrypted           bool     `json:"storageEncrypted"`
 }
 
 type EventSubscription struct {

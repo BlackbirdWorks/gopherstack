@@ -166,6 +166,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		PreferredMaintenanceWindow:   inst.PreferredMaintenanceWindow,
 		CACertificateIdentifier:      inst.CACertificateIdentifier,
 		CopyTagsToSnapshot:           inst.CopyTagsToSnapshot,
+		InstanceCreateTime:           inst.InstanceCreateTime,
 		EnabledCloudwatchLogsExports: xmlLogTypeList{Members: logTypes},
 	}
 }
@@ -183,6 +184,7 @@ type xmlDBInstance struct {
 	DBSubnetGroupName            string         `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
 	PreferredMaintenanceWindow   string         `xml:"PreferredMaintenanceWindow,omitempty"`
 	CACertificateIdentifier      string         `xml:"CACertificateIdentifier,omitempty"`
+	InstanceCreateTime           string         `xml:"InstanceCreateTime,omitempty"`
 	EnabledCloudwatchLogsExports xmlLogTypeList `xml:"EnabledCloudwatchLogsExports"`
 	StorageEncrypted             bool           `xml:"StorageEncrypted"`
 	AutoMinorVersionUpgrade      bool           `xml:"AutoMinorVersionUpgrade"`

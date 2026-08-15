@@ -187,6 +187,40 @@ func TestDescribeGlobalClusters_RealData(t *testing.T) {
 	}
 }
 
+// TestCreateGlobalCluster_NoFabricatedSourceDBClusterIdentifier confirms the
+// GlobalCluster wire response no longer includes a bare
+// <SourceDBClusterIdentifier> element. That name is a real
+// CreateGlobalClusterInput REQUEST member only -- the real response type
+// types.GlobalCluster has no such member (confirmed against
+// awsAwsquery_deserializeDocumentGlobalCluster, docdb@v1.51.4/deserializers.go).
+// A real client's generated deserializer silently ignores unknown elements,
+// so this is not independently observable via the typed SDK client; it can
+// only be caught by inspecting the raw XML body directly, as this test does.
+func TestCreateGlobalCluster_NoFabricatedSourceDBClusterIdentifier(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"gc-source-check"},
+		"Engine":              {"docdb"},
+	})
+
+	rr := doRequest(t, h, url.Values{
+		"Action":                    {"CreateGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"gc-arn-check"},
+		"SourceDBClusterIdentifier": {"gc-source-check"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	body := rr.Body.String()
+	assert.Contains(t, body, "<GlobalClusterIdentifier>gc-arn-check</GlobalClusterIdentifier>")
+	assert.NotContains(t, body, "<SourceDBClusterIdentifier>",
+		"types.GlobalCluster has no SourceDBClusterIdentifier member; emitting one is fabricated wire content")
+}
+
 func TestHandler_GlobalClusterMutations(t *testing.T) {
 	t.Parallel()
 
