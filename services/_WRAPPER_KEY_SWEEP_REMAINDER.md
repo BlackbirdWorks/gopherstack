@@ -1,8 +1,8 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**71 of 162 services swept, 91 remain** (apigatewayv2, workmail, wafv2, and
-ce all added this session, in parallel, by different sessions — see each
-service's own section at the end of this file for full detail).
+**72 of 162 services swept, 90 remain** (apigatewayv2, workmail, wafv2, ce,
+and now waf all added this session, in parallel, by different sessions — see
+each service's own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -105,7 +105,7 @@ quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
-**wafv2** (this session), **workmail** (this session).
+**waf** (this session), **wafv2** (this session), **workmail** (this session).
 
 One service still has real, extensive wire-shape work under **other** issue
 classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
@@ -129,14 +129,13 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 91 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 90 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
-apigatewayv2's 37, workmail's 36, wafv2's 32, and ce's 31 removed, all swept
-prior to/this session): **1,219** candidate ops.
+apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, and waf's 34 removed,
+all swept prior to/this session): **1,185** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| waf | 113 | 16 | 0 | 18 | 34 | dynamic-fallback |
 | vpclattice | 73 | 16 | 0 | 14 | 30 | direct |
 | eventbridge | 74 | 16 | 12 | 2 | 30 | direct |
 | emr | 65 | 13 | 8 | 9 | 30 | direct |
@@ -3028,3 +3027,189 @@ swept, 91 remain. Per the ranked table, waf (34, `dynamic-fallback`) is
 still next largest and still not independently re-verified clean per this
 issue's own op-by-op standard (see wafv2's note above) — re-check `git
 status` for live sibling territory before picking.
+
+## waf (this session)
+
+Chosen as the largest unswept service per the ranked table (34 L+D+G ops: 16
+List/0 Describe/18 Get, `dynamic-fallback` resolution — resolved directly by
+reading `buildOps()`'s literal map in `handler.go`, which returns exactly 16
+`List*`/18 `Get*` op names, confirming the table's count exactly). `git
+status` was clean at the start (no sibling anywhere) and again mid-session
+(no local edits of my own — this batch found zero bugs, see below); a check
+near the end of the session showed a sibling had since started on
+`services/vpclattice/` (10 modified files) — confirmed not colliding with
+`services/waf/`, left untouched.
+
+**This service's own `wafv2` sibling note explicitly flagged its "waf
+already swept, 13 candidates, clean" claim as unverified** — no citation for
+it exists in this file or in `bd show gopherstack-6flj`'s comments. That "13
+candidates" claim traces to a *different* issue class
+(`services/waf/PARITY.md`'s 2026-08-14 note, gopherstack-dv4s: an
+over-wide-response-leak audit of 13 List ops' summary-type field sets, not
+this issue's List+Describe+Get wrapper-key/nesting sweep). The two audits
+overlap in which ops they touched but check different things; this session
+did not trust either claim and independently re-verified all 34 ops from
+scratch against the pinned SDK.
+
+PROTOCOL: confirmed `awsAwsjson11_` (JSON-RPC 1.1) — sole prefix in
+waf@v1.33.4's `deserializers.go`, `X-Amz-Target: AWSWAF_20150824.<Op>`
+confirmed in both the SDK's `serializers.go` and gopherstack's own
+`handler.go` (`wafTargetPrefix`). Case-sensitive body-field decode. All 375
+`EqualFold` hits in `deserializers.go` are `errorCode` matches in
+`deserializeOpError*` functions (this SDK version has no float-special-value
+fields at all, so unlike every other service swept this session there isn't
+even a `NaN`/`Infinity` category to spot-check) — zero hits in a body-field
+`switch key {}` block, confirmed by grep with `errorCode` excluded returning
+0 lines. **Second client**: none — grepped the whole service for a second
+`waf.NewFromConfig`/`wafsdk.` import path; only `wafsdk` (`aws-sdk-go-v2/
+service/waf`) is used anywhere, no separate `wafregional` module is even
+pinned in `go.mod` (AWS WAF Classic's regional variant is a distinct legacy
+API gopherstack doesn't model at all — out of scope, not a gap).
+
+**Dead-deserializer trap checked and found NOT to apply** — traced
+`HandleDeserialize` for `ListWebACLs` directly
+(waf@v1.33.4/deserializers.go:7147): it decodes the body into `shape` and
+calls `awsAwsjson11_deserializeOpDocumentListWebACLsOutput(&output, shape)`
+itself (deserializers.go:7187) — the `OpDocument*Output` function **is** the
+real, reached deserializer, same JSON-RPC-1.1 shape as every other
+`awsAwsjson1{0,1}` service this campaign has swept.
+
+Read all 34 L+D+G ops' response shapes against their own
+`awsAwsjson11_deserializeOpDocument<Op>Output` case list (file+line via a
+per-op grep dump), every nested-type deserializer they call into (all 12
+resource families' full-detail type plus its dedicated `*Summary` type,
+`WafAction`/`WafOverrideAction`/`Predicate`/`FieldToMatch`/
+`IPSetDescriptor`/`ByteMatchTuple`/`SizeConstraint`/
+`SqlInjectionMatchTuple`/`XssMatchTuple`/`GeoMatchConstraint`/
+`ExcludedRule`/`RegexMatchTuple`/`TagInfoForResource`/`Tag`/
+`SampledHTTPRequest`/`TimeWindow`/`HTTPRequest`/`HTTPHeader`/
+`LoggingConfiguration` — 27 distinct real types total), and the paired
+`serializeOp*Input` for every Create/Update/Delete/Put sibling (34 more ops)
+whose request carries a field the handler reads or could discard.
+
+**0 bugs found.** Every wrapper key on all 16 List ops matches the real
+`ListXxxOutput` case list exactly (`WebACLs`/`Rules`/`IPSets`/
+`ByteMatchSets`/`SizeConstraintSets`/`SqlInjectionMatchSets`/
+`XssMatchSets`/`GeoMatchSets`/`Rules` again for `ListRateBasedRules`
+(confirmed the real op reuses the plain `Rules` key, not a
+`RateBasedRules`-named one)/`RegexPatternSets`/`RegexMatchSets`/
+`RuleGroups`/`ActivatedRules`/`RuleGroups` again for
+`ListSubscribedRuleGroups`/`LoggingConfigurations`/`TagInfoForResource`).
+Every wrapper key on all 18 Get ops matches too (`ChangeToken`/
+`ChangeTokenStatus`/`WebACL`/`Rule`/`IPSet`/`ByteMatchSet`/
+`SizeConstraintSet`/`SqlInjectionMatchSet`/`XssMatchSet`/`GeoMatchSet`/
+`Rule` again for `GetRateBasedRule` (real `GetRateBasedRuleOutput.Rule` is
+typed `*types.RateBasedRule`, not a "RateBasedRule"-named key — confirmed
+against `api_op_GetRateBasedRule.go` directly, not assumed)/`ManagedKeys`/
+`RegexPatternSet`/`RegexMatchSet`/`RuleGroup`/`LoggingConfiguration`/
+`Policy`/`PopulationSize`+`SampledRequests`+`TimeWindow`). Every one of the
+27 nested types' field sets matches the real deserializer's case list
+field-for-field, including the two places this issue's brief predicted a
+trap and didn't find one:
+- **`RuleGroup` (full, 3 fields: `RuleGroupId`/`Name`/`MetricName`) vs
+  `RuleGroupSummary` (2 fields, no `MetricName`)** — a genuine
+  version/detail-vs-summary pair, correctly differentiated as two distinct
+  Go types in `models.go`, each matching its own real deserializer exactly.
+  No V1/V2 pair exists in this service at all (WAF Classic has no
+  generational split within itself — that's wafv2's relationship to this
+  service, already checked from wafv2's side and re-confirmed from waf's
+  side this session: no wafv2-shaped field or convention appears anywhere
+  in waf's types).
+- **`GetRateBasedRuleManagedKeysInput`/`Output`'s `NextMarker`** — parsed on
+  the request side but never applied to pagination, which looked at first
+  read like the discarded-input variant this issue's brief calls out
+  (`_ SomeInput` class). Checked against the real SDK's own doc comment
+  before flagging: `GetRateBasedRuleManagedKeysInput.NextMarker` is
+  documented "A null value and not currently used. Do not include this in
+  your request," and the output's `NextMarker` carries the identical
+  doc-commented caveat. Genuinely vestigial on both sides in real AWS itself
+  — discarding it is correct behavior, not a bug. Already correctly
+  disclosed in `services/waf/PARITY.md`'s `structural_gaps` (`ManagedKeys`
+  list itself stays empty, `gopherstack-smld`) for the unrelated reason that
+  gopherstack has no live request-rate-tracking subsystem to source real
+  managed keys from.
+
+**Sibling-trap / near-duplicate shapes checked, all clean**: the 7
+near-identical match-set families (`ByteMatchSet`/`SizeConstraintSet`/
+`SqlInjectionMatchSet`/`XssMatchSet`/`GeoMatchSet`/`RegexPatternSet`/
+`RegexMatchSet`, deliberately merged into one `handler_match_sets.go` per an
+existing file-level comment citing a `dupl` lint reason) each have their own
+correctly-keyed wrapper and correctly-shaped summary/full types — no
+copy-paste-from-a-sibling mistake found in any of the seven. `Rule`/
+`RateBasedRule` (share the `Predicate`/`MatchPredicates` shape) both
+correct, distinctly. `LoggingConfiguration` is the same Go type on both
+`GetLoggingConfiguration` and `ListLoggingConfigurations`' per-item
+shape (no separate summary type exists in the real API either — confirmed,
+not assumed).
+
+**Over-wide field / secret check**: none of the response types carry
+anything beyond their real member set — no fabricated fields found anywhere
+in this sweep (contrast wafv2's session, which found several harmless
+fabricated fields in the sibling service; waf itself has none). No
+credential/ARN-bearing field exists in any WAF Classic response type at
+all.
+
+**Discarded input**: none beyond the already-covered, genuinely-vestigial
+`GetRateBasedRuleManagedKeys` `NextMarker` case above. Spot-checked every
+Create/Update op's request struct against its real `serializeOp*Input`
+field list (`CreateWebACL`/`UpdateWebACL`/`CreateRule`/`UpdateRule`/
+`CreateRuleGroup`/`UpdateRuleGroup`/`CreateIPSet`/`UpdateIPSet`/
+`CreateRateBasedRule`/`UpdateRateBasedRule`/`PutLoggingConfiguration`/
+`PutPermissionPolicy`/`CreateWebACLMigrationStack`) — every field the real
+input carries is read and threaded through to the backend; `CreateIPSet`
+correctly does *not* accept `IPSetDescriptors` (real
+`CreateIPSetInput` has no such member either — descriptors are added only
+via `UpdateIPSet`, confirmed against `api_op_CreateIPSet.go`).
+
+**Real-client test ratio: 1 of 90 test functions (about 1.1%) drives a real
+SDK client end-to-end** (`TestCreateOps_TagsRoundTrip` in
+`handler_create_tags_test.go`). `TestSDKCompleteness`
+(`sdk_completeness_test.go`) also imports `wafsdk` but only reflects over
+its method set for op-name completeness — it never sends a request or
+decodes a response, so it doesn't count toward wire-shape coverage. Every
+other test in the other 24 files calls the handler directly or decodes into
+gopherstack's own request/response structs, which cannot detect a wrong
+wire key by construction. This is the same "worst yet" territory as ce's
+1.4% and mwaa's 0% — despite this session's read coming back clean, the
+suite itself offers almost no defense against a future wire-shape
+regression here.
+
+**Ratifying tests**: not applicable — no bug was found for one to ratify.
+Existing tests were read for the ratifying-test check anyway (in case one
+of them asserted a shape gopherstack doesn't actually emit, which would
+itself be a symptom of a missed bug) — none did.
+
+**Phantom ops**: none. `TestSDKCompleteness` (existing, passed before and
+after this session, since nothing changed) already confirms every op in
+`GetSupportedOperations()` is either a real `wafsdk.Client` method or
+explicitly listed as not implemented (the `notImplemented` slice is empty —
+all ops implemented).
+
+**False-positive rate**: n/a — zero findings reported, so there is nothing
+to be a false positive. Every "checked, clean" claim above cites the real
+`deserializeOpDocument<Type>Output`/`deserializeDocument<Type>`/
+`serializeOpDocument<Type>Input` function or the real `api_op_*.go` doc
+comment, file+line or file name, never an assumption.
+
+**No fixes, so nothing to hand-revert.** `go build`/`go vet`/`go test
+-race` all green for `services/waf` with zero changes made (sanity-checked
+the existing baseline rather than skipping verification just because
+nothing changed). No `golangci-lint`/`go fix -diff` run since there is no
+diff to lint — matches this campaign's established precedent for a
+clean-sweep batch with zero code changes (identitystore/
+resourcegroupstaggingapi/servicediscovery, sqs/sns).
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (moot — no code changes made, only
+this remainder file was edited), `services/vpclattice` (a sibling session's
+territory, discovered mid-session via `git status`, 10 files modified)
+confirmed untouched throughout; no `gendocs`/`make docs` run.
+
+waf's List/Describe/Get families are now fully swept for this issue (34/34
+ops verified against the real deserializer/serializer, independently of
+either of the two secondhand "already clean" claims this session found and
+declined to trust). 72 of 162 services swept, 90 remain. Per the ranked
+table, vpclattice (30, `direct`) is next largest but is the live sibling's
+own territory (confirmed via `git status`); eventbridge (30, `direct`) or
+emr (30, `direct`) are the next candidates that don't collide — re-check
+`git status` for live sibling territory before picking either.
