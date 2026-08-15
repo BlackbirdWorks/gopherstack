@@ -88,6 +88,44 @@ leaks: {status: clean, note: "no new goroutines/janitors added this pass; all ne
 
 ## Notes
 
+**2026-08-15 (gopherstack-3gbe):** investigated whether Lake Formation
+shares Omics' (gopherstack-keee) client-side host-prefix-rewrite
+reachability gap. It does: **5 ops**, two literal prefixes, confirmed
+against the pinned `lakeformation@v1.50.4` module -- `query-`
+(StartQueryPlanning `api_op_StartQueryPlanning.go:143`, GetQueryState
+`api_op_GetQueryState.go:149`, GetQueryStatistics
+`api_op_GetQueryStatistics.go:137`, GetWorkUnits
+`api_op_GetWorkUnits.go:242`) and `data-` (GetWorkUnitResults
+`api_op_GetWorkUnitResults.go:143`) -- exactly matching gopherstack-3gbe's
+filing.
+
+No routing/auth code needed changing. `Handler.RouteMatcher`
+(`handler.go:193`) matches on `URL.Path` alone, gated on the SigV4 service
+name (already SigV4-scoped and confirmed clean in
+`services/_ROUTE_COLLISIONS.md`), and `ExtractOperation` (`handler.go:208`)
+is just the path with its leading slash stripped -- the host-prefix rewrite
+only ever touches `Host`, never `Path`, so it structurally can't create a
+route-table collision here. The reachability gap is a pure client-side
+DNS/dial failure, same as Omics.
+
+Found (not introduced) an existing host-prefix workaround:
+`handler_work_unit_results_sdk_test.go`'s `disableDataHostPrefix` is applied
+to the whole SDK client via `o.APIOptions`, so
+`TestGetWorkUnitResults_WorkUnitID_RoundTrip` disables the rewrite for
+*every* op it calls (StartQueryPlanning and GetWorkUnits too, both
+`query-`, not just GetWorkUnitResults's `data-`) -- it does not exercise a
+real, unmodified client, the same class of gap `disableAnalyticsHostPrefix`
+was for Omics before gopherstack-keee. Added
+`host_prefix_reachability_test.go` following
+`services/omics/host_prefix_reachability_test.go`'s before/after pattern: a
+before-fix test proving the unmodified client can't dial either prefix, and
+an after-fix test that drives StartQueryPlanning -> GetQueryStatistics ->
+GetWorkUnits -> GetWorkUnitResults through a redial-to-the-real-listener
+transport, leaving the SDK's real, un-disabled rewrite intact on the wire
+for both prefixes, and asserts the full round trip succeeds with correctly
+decoded values. Gates green: build, vet, race, `go fix -diff` (no diff),
+golangci-lint (0 findings).
+
 **2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 61 ops' real
 method+path directly from `lakeformation@v1.50.4` serializers.go and drove
 them through `ExtractOperation` via the new

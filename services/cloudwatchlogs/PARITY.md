@@ -138,6 +138,45 @@ leaks: {status: clean, note: "Only one goroutine spawn site (scheduleFilterDeliv
 
 ## Notes
 
+**2026-08-15 (gopherstack-3gbe):** investigated whether CloudWatch Logs
+shares Omics' (gopherstack-keee) client-side host-prefix-rewrite
+reachability gap. It does: **2 ops, one literal prefix, `stream-`**
+(GetLogObject `api_op_GetLogObject.go:161`, StartLiveTail
+`api_op_StartLiveTail.go:225`), confirmed against the pinned
+`cloudwatchlogs@v1.81.1` module, exactly matching gopherstack-3gbe's filing.
+
+No routing/auth code needed changing. `Handler.RouteMatcher`
+(`handler.go:228`) matches on the `X-Amz-Target` header prefix
+`"Logs_20140328."`, never `Host` or `Path`, so header-based dispatch is
+structurally immune to the path-collision class this bug family could
+otherwise cause. The reachability gap is a pure client-side DNS/dial
+failure, same as Omics.
+
+**This family is not the same shape as the other four services in
+gopherstack-3gbe's filing.** Both real GetLogObject and StartLiveTail
+responses are Smithy event streams (`GetLogObjectEventStream` /
+`StartLiveTailResponseStream`), and this handler deliberately returns a
+plain unary JSON body instead of real event-stream framing --
+`handleStartLiveTail`'s existing doc comment already documents this as "a
+streaming (HTTP/2 event-stream) operation that cannot be meaningfully
+emulated over the standard unary JSON response". Confirmed live this pass:
+once the dial problem is solved, an unmodified client's happy-path
+StartLiveTail call still fails client-side with `unexpected output result
+type: <nil>`, because the SDK's event-stream deserializer has nothing to
+unpack. That is a separate, pre-existing, already-documented gap, not a
+host-prefix-reachability bug -- out of scope here.
+
+Added `host_prefix_reachability_test.go`: a before-fix test proving the
+unmodified client can't dial either op, and an after-fix test that, via a
+redial-to-the-real-listener transport (real, un-disabled rewrite left
+intact on the wire), proves the request *does* reach gopherstack and gets
+correctly authenticated/routed/validated -- both ops return the
+correctly-typed AWS error (InvalidParameterException /
+ResourceNotFoundException) for bad/missing input, decoded via the SDK's
+ordinary unary-JSON error path, which is unaffected by the happy path's
+event-stream gap. Gates green: build, vet, race, `go fix -diff` (no diff),
+golangci-lint (0 findings).
+
 - **2026-07-25 (parity-4 SDK-bump pass): implemented 10 new operations that appeared when
   the vendored aws-sdk-go-v2/service/cloudwatchlogs module was bumped from v1.64.0 to
   v1.80.0 -- three new families: lookup tables (CreateLookupTable/GetLookupTable/

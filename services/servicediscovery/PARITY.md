@@ -61,6 +61,34 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 
 ## Notes
 
+**2026-08-15 (gopherstack-3gbe):** investigated whether Cloud Map shares
+Omics' (gopherstack-keee) client-side host-prefix-rewrite reachability gap.
+It does: **2 ops, one literal prefix, `data-`** (DiscoverInstances
+`api_op_DiscoverInstances.go:186`, DiscoverInstancesRevision
+`api_op_DiscoverInstancesRevision.go:146`), confirmed against the pinned
+`servicediscovery@v1.43.4` module, exactly matching gopherstack-3gbe's
+filing.
+
+No routing/auth code needed changing. `Handler.RouteMatcher`
+(`handler.go:151`) matches on the `X-Amz-Target` header prefix
+`"Route53AutoNaming_v20170314."`, never `Host` or `Path`, so header-based
+dispatch is structurally immune to the path-collision class this bug family
+could otherwise cause. The reachability gap is a pure client-side DNS/dial
+failure, same as Omics.
+
+servicediscovery already had a real-SDK-client round trip
+(`handler_create_tags_test.go`), but it never exercised DiscoverInstances or
+DiscoverInstancesRevision, so this family's real-client reachability had
+never been proven either way. Added `host_prefix_reachability_test.go`
+following `services/omics/host_prefix_reachability_test.go`'s before/after
+pattern: a before-fix test proving the unmodified client can't dial, and an
+after-fix test that drives CreateHttpNamespace -> CreateService ->
+RegisterInstance -> DiscoverInstances/DiscoverInstancesRevision through a
+redial-to-the-real-listener transport, leaving the SDK's real, un-disabled
+`data-` rewrite intact on the wire, and asserts the full round trip succeeds
+with correctly decoded values. Gates green: build, vet, race, `go fix -diff`
+(no diff), golangci-lint (0 findings).
+
 **Route matcher**: `X-Amz-Target: Route53AutoNaming_v20170314.<Op>` confirmed against
 `aws-sdk-go-v2/service/servicediscovery@v1.43.4/serializers.go` (`SetHeader("X-Amz-Target").String("Route53AutoNaming_v20170314.<Op>")`
 for every operation; re-verified against the currently pinned v1.43.4 this pass -- a prior

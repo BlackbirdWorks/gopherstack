@@ -303,6 +303,33 @@ leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execut
 
 ## Notes
 
+**2026-08-15 (gopherstack-3gbe):** investigated whether Step Functions
+shares Omics' (gopherstack-keee) client-side host-prefix-rewrite
+reachability gap. It does: **2 ops, one literal prefix, `sync-`** (TestState
+`api_op_TestState.go:265`, StartSyncExecution
+`api_op_StartSyncExecution.go:232`), confirmed against the pinned
+`sfn@v1.45.4` module, exactly matching gopherstack-3gbe's filing.
+
+No routing/auth code needed changing. `Handler.RouteMatcher`
+(`handler.go:160`) matches on the `X-Amz-Target` header prefix
+(`"AmazonStates."` or `"AWSStepFunctions."`), never `Host` or `Path`, so
+header-based dispatch is structurally immune to the path-collision class
+this bug family could otherwise cause. The reachability gap is a pure
+client-side DNS/dial failure, same as Omics.
+
+stepfunctions already had a real-SDK-client round trip
+(`wire_updatedate_test.go`), but it never exercised TestState or
+StartSyncExecution, so this family's real-client reachability had never
+been proven either way. Added `host_prefix_reachability_test.go` following
+`services/omics/host_prefix_reachability_test.go`'s before/after pattern: a
+before-fix test proving the unmodified client can't dial either op, and an
+after-fix test that drives TestState directly and StartSyncExecution (via
+CreateStateMachine of an EXPRESS state machine, since StartSyncExecution is
+EXPRESS-only) through a redial-to-the-real-listener transport, leaving the
+SDK's real, un-disabled `sync-` rewrite intact on the wire, and asserts both
+succeed with correctly decoded values. Gates green: build, vet, race,
+`go fix -diff` (no diff), golangci-lint (0 findings).
+
 **This pass's brief was to deep-audit the 3 previously "spot-checked only"
 deferred families by actually field-diffing them against
 aws-sdk-go-v2/service/sfn v1.40.8 types, not just re-asserting "appeared
