@@ -172,7 +172,7 @@ func matchElasticsearchCorePaths(path string) bool {
 		path == elasticsearchServiceRole ||
 		strings.HasPrefix(path, elasticsearchSoftwareUpdate) ||
 		strings.HasPrefix(path, elasticsearchCCSInbound) ||
-		path == elasticsearchCCSOutbound ||
+		strings.HasPrefix(path, elasticsearchCCSOutbound) ||
 		path == elasticsearchVpcEndpoints ||
 		strings.HasPrefix(path, elasticsearchVpcEndpoints+"/")
 }

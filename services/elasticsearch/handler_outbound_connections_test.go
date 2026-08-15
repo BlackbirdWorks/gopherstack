@@ -27,25 +27,28 @@ func TestElasticsearchHandler_CreateOutboundCrossClusterSearchConnection(t *test
 			name: "success",
 			body: map[string]any{
 				"ConnectionAlias": "my-connection",
-				"LocalDomainInfo": map[string]any{
+				"SourceDomainInfo": map[string]any{
 					"OwnerId":    "123456789012",
 					"DomainName": "local-domain",
 					"Region":     "us-east-1",
 				},
-				"RemoteDomainInfo": map[string]any{
+				"DestinationDomainInfo": map[string]any{
 					"OwnerId":    "999999999999",
 					"DomainName": "remote-domain",
 					"Region":     "eu-west-1",
 				},
 			},
-			wantCode:     http.StatusOK,
-			wantContains: []string{"CrossClusterSearchConnectionId", "my-connection", "VALIDATING"},
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"CrossClusterSearchConnectionId", "my-connection", "VALIDATING",
+				"SourceDomainInfo", "local-domain", "DestinationDomainInfo", "remote-domain",
+			},
 		},
 		{
 			name: "no_alias",
 			body: map[string]any{
-				"LocalDomainInfo":  map[string]any{"DomainName": "local"},
-				"RemoteDomainInfo": map[string]any{"DomainName": "remote"},
+				"SourceDomainInfo":      map[string]any{"DomainName": "local"},
+				"DestinationDomainInfo": map[string]any{"DomainName": "remote"},
 			},
 			wantCode: http.StatusBadRequest,
 		},

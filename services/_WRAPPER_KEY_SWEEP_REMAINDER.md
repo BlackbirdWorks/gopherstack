@@ -1,10 +1,10 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**80 of 162 services swept, 82 remain** (apigatewayv2, workmail, wafv2, ce,
+**82 of 162 services swept, 80 remain** (apigatewayv2, workmail, wafv2, ce,
 waf, vpclattice, emr, eventbridge, kafka, route53resolver, appsync,
-workspaces, and now lakeformation all added this session, in parallel, by
-different sessions — see each service's own section at the end of this file
-for full detail).
+workspaces, lakeformation, elasticsearch, and now rekognition all added this
+session, in parallel, by different sessions — see each service's own section
+at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -112,7 +112,8 @@ s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
 **vpclattice** (this session), **waf** (this session), **wafv2** (this
 session), **workmail** (this session), **workspaces** (this session),
-**lakeformation** (this session).
+**lakeformation** (this session), **elasticsearch** (this session),
+**rekognition** (this session).
 
 One service still has real, extensive wire-shape work under **other** issue
 classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
@@ -121,7 +122,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (82 of 162), ranked by List+Describe+Get op count
+## Unswept (80 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -136,17 +137,16 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 82 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 80 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
 apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34,
 vpclattice's 30, emr's 30, eventbridge's 30, kafka's 29,
-route53resolver's 30, appsync's 28, workspaces's 27, and lakeformation's 26
-removed, all swept prior to/this session): **955** candidate ops.
+route53resolver's 30, appsync's 28, workspaces's 27, lakeformation's 26,
+elasticsearch's 25, and rekognition's 25 removed, all swept prior to/this
+session): **905** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| rekognition | 75 | 9 | 5 | 11 | 25 | dynamic-fallback |
-| elasticsearch | 51 | 9 | 12 | 4 | 25 | direct |
 | directoryservice | 80 | 6 | 17 | 2 | 25 | direct |
 | opsworks | 74 | 1 | 22 | 1 | 24 | direct |
 | codeartifact | 48 | 12 | 5 | 7 | 24 | direct |
@@ -5139,3 +5139,227 @@ prior `PARITY.md` claim disproved and corrected). 80 of 162 services swept,
 82 remain. Per the ranked table, `rekognition` (75 ops, 25 L+D+G,
 `dynamic-fallback`) is next largest -- re-check `git status` before picking
 it in case a sibling is already there.
+
+## elasticsearch (this session, 2026-08-15)
+
+Chosen as the largest unswept service not held by a live sibling: `rekognition`
+(75 ops, 25 L+D+G) was mid-edit throughout this session (`services/rekognition/
+{collections,datasets,handler_collections,handler_datasets,handler_projects,
+interfaces,models,projects}.go` modified, uncommitted, per `git status` at
+start and re-checked before every edit batch), a `CreateProject` signature
+change that breaks the full-repo build per this session's assignment note.
+`elasticsearch` (51 total ops, 25 L+D+G, `direct` resolution) is tied with
+`rekognition`/`directoryservice` at 25 and was picked next since it doesn't
+collide.
+
+PROTOCOL: `awsRestjson1_` exclusively, single client
+(`elasticsearchservice@v1.45.4`, matches `go.mod`). Case-sensitive: 242
+`EqualFold` hits in `deserializers.go`, all float `NaN`/`Infinity` special
+parsing (`strings.EqualFold(jtv, "NaN"|"Infinity"|"-Infinity")`), none in a
+body-field-key switch, none `errorCode` either (this service's error-code
+matching uses `restjson.SanitizeErrorCode`/`GetErrorInfo`, not `EqualFold`).
+Dead-deserializer trap checked against `ListDomainNames` and does NOT apply
+(`HandleDeserialize` calls the real `OpDocument...Output` function directly,
+e.g. `deserializers.go:5458` -> `:5529`). All 25 L+D+G ops resolved `direct`
+(literal `GetSupportedOperations` slice) and all had their real
+`awsRestjson1_deserializeOpDocument<Op>Output` top-level key list pulled and
+diffed against the handler.
+
+DEEP PRIOR COVERAGE, MIXED RESULT (route53resolver/lakeformation-style split):
+this service carried an A grade off six prior focused passes
+(`gopherstack-p2mx`/`lx5h`/`4gzs`/`toz8` plus two dated 2026-07-24/2026-08-10),
+which had already fixed real bugs in `CancelDomainConfigChange`'s borrowed
+response shape, `CreateVpcEndpoint`/`UpdateVpcEndpoint`'s flat-map
+`VpcOptions`, and several `List*`/`Delete*VpcEndpoint*` required-`NextToken`
+gaps -- all independently re-verified clean this pass, plus every other L+D+G
+op's top-level wrapper key (`ListDomainNames`, `ListTags`,
+`DescribeElasticsearchDomain(s)`, `DescribeElasticsearchDomainConfig`,
+`DescribeElasticsearchInstanceTypeLimits`, `DescribeReservedElasticsearch
+Instance(Offerings)`, `GetCompatibleElasticsearchVersions`,
+`GetPackageVersionHistory`, `GetUpgradeHistory`, package/domain-package list
+ops). All held clean. The 3 real bugs found were in the one op-family none of
+the six prior passes' notes mention at all: outbound cross-cluster-search
+connections.
+
+3 real bugs found and fixed, all in `CreateOutboundCrossClusterSearchConnection`
+/`DescribeOutboundCrossClusterSearchConnections`/
+`DeleteOutboundCrossClusterSearchConnection` (`services/elasticsearch/
+handler_outbound_connections.go`, `handler.go`):
+
+1. SIBLING-COPY ON THE REQUEST SIDE (matches lakeformation's flagship pattern
+   last pass), also on the response: `outboundConnectionJSON`/
+   `createOutboundConnectionRequest` used `LocalDomainInfo`/`RemoteDomainInfo`
+   -- names copied from this package's own internal `OutboundConnection`
+   struct (`models.go`, itself the snapshot/persistence DTO, left untouched)
+   -- instead of the real wire names `SourceDomainInfo`/`DestinationDomainInfo`
+   (confirmed both directions: `serializers.go:802`'s
+   `awsRestjson1_serializeOpDocumentCreateOutboundCrossClusterSearchConnectionInput`
+   and `deserializers.go:13122`'s
+   `awsRestjson1_deserializeDocumentOutboundCrossClusterSearchConnection`, both
+   required members on the real Input). Every real client's create request had
+   both required domain-info fields silently ignored (empty domain info stored
+   both ends), and every response's `SourceDomainInfo`/`DestinationDomainInfo`
+   stayed nil. SIBLING CHECK: the in-file/in-package sibling
+   `InboundConnection` type (`handler_inbound_connections.go`) already used the
+   correct `SourceDomainInfo`/`DestinationDomainInfo` names throughout --
+   reporting per this issue's "report siblings you check and find already
+   correct" instruction.
+
+2. GENERATIONAL/FAMILY SHAPE MISMATCH: `CreateOutboundCrossClusterSearchConnectionOutput`
+   is flat at the response root (`ConnectionAlias`/`ConnectionStatus`/
+   `CrossClusterSearchConnectionId`/`SourceDomainInfo`/`DestinationDomainInfo`
+   as direct top-level keys, confirmed `api_op_CreateOutboundCrossCluster
+   SearchConnection.go:53-73` and `deserializers.go:1253`'s case list) --
+   unlike its `Delete`/`Accept`/`Reject` siblings, which all genuinely DO wrap
+   their connection in `{"CrossClusterSearchConnection": {...}}`
+   (`deserializers.go:41`+ each, confirmed for all three). The handler wrapped
+   `Create`'s response the same way as those three siblings, so a real
+   client's entire response was nested one level too deep to ever decode --
+   `ConnectionAlias`/`ConnectionStatus`/`CrossClusterSearchConnectionId`
+   included, not just the domain-info fields from bug 1. Fixed by emitting
+   `outboundConnectionJSON` flat for `Create` only, keeping the
+   `keyCrossClusterSearchConnection` wrapper for `Delete` (already correct).
+
+3. ROUTING BUG (not a wire-shape bug -- a genuine "op unreachable" gap,
+   `handler.go`'s `matchElasticsearchCorePaths`): `path ==
+   elasticsearchCCSOutbound` was an exact-match check against the bare
+   `/2015-01-01/es/ccs/outboundConnection` path, unlike its `Inbound` sibling
+   two lines above (`strings.HasPrefix(path, elasticsearchCCSInbound)`). Any
+   path with a suffix -- `DescribeOutboundCrossClusterSearchConnections`'s
+   real path `.../outboundConnection/search`
+   (`serializers.go:2013`'s hardcoded `httpbinding.SplitURI`) and
+   `DeleteOutboundCrossClusterSearchConnection`'s `.../outboundConnection/
+   {id}` -- never matched `matchElasticsearchPath`, so the *top-level*
+   service router never even dispatched the request to this handler at all: a
+   404 from the generic router before `ServeHTTP`'s own internal dispatch
+   (`h.ops` map / `handlePrefixRoutes`) ever ran. This was invisible to every
+   existing raw-body test in this package because those call `h.ServeHTTP`
+   directly, bypassing the top-level `RouteMatcher` gate entirely -- only a
+   real end-to-end SDK-client test routed through
+   `service.NewServiceRouter(...).RouteHandler()` (this package's own
+   `newTestElasticsearchClient` helper, `handler_sdk_roundtrip_test.go`)
+   could observe it. Fixed: `strings.HasPrefix`, matching `Inbound`'s
+   pattern -- also fixes `DeleteOutboundCrossClusterSearchConnection`'s
+   routing as a side effect (same prefix), proven in the same test.
+
+DISCLOSED, NOT FIXED (2, both genuine structural gaps, not values the backend
+already holds and fails to emit):
+- `GetUpgradeStatus.UpgradeName` (real, optional `*string`,
+  `api_op_GetUpgradeStatus.go`) -- this backend tracks no upgrade-name/
+  upgrade-history state anywhere (`GetUpgradeHistory` always returns empty,
+  `domain_lifecycle.go`), so there is no honest value to source it from.
+- `PackageDetails.AvailablePackageVersion` and `DomainPackageDetails.
+  PackageVersion`/`ReferencePath`/`LastUpdated` (all real members,
+  `types.go`) -- this backend's `Package` model (`models.go`) has no
+  version-history or reference-path concept at all, matching how
+  `ErrorDetails` on both types is already handled the same way (documented in
+  `packageJSON`'s existing doc comment).
+
+Both added to `services/elasticsearch/PARITY.md`'s `gaps:` list.
+
+SIBLINGS CHECKED, ALREADY CORRECT (report per this issue's instruction):
+`InboundConnection` (see bug 1 above); `Delete`/`Accept`/`Reject`
+`InboundCrossClusterSearchConnection` and `DeleteOutboundCrossCluster
+SearchConnection` (all four correctly use the `CrossClusterSearchConnection`
+wrapper -- confirmed against each op's own `Output` struct and deserializer,
+not assumed from the `Create` bug); `DescribeVpcEndpoints`'s
+`VpcEndpoints`/`VpcEndpointErrors` two-key wrapper; `ListVpcEndpoints`/
+`ListVpcEndpointsForDomain`/`ListVpcEndpointAccess`'s `VpcEndpointSummaryList`/
+`AuthorizedPrincipalList` (already fixed by the prior `gopherstack-lx5h`
+pass, re-verified); `DescribeElasticsearchInstanceTypeLimits`'s
+`LimitsByRole` nesting (`Limits{InstanceLimits{InstanceCountLimits{...}}}`);
+`PurchaseReservedElasticsearchInstanceOffering` request/response field
+names; `PackageDetails.PackageID` (genuinely all-caps `PackageID`, not
+`PackageId` -- checked as a plausible casing trap, confirmed real via
+`deserializers.go`'s own case list, not a bug).
+
+No real-key-from-wrong-type found this pass. No over-wide/leaked-data fields
+found (this service has none of the client-secret/ARN/env-var shaped fields
+the campaign's leak-sorting note describes). No discarded inputs found beyond
+what bugs 1/2 above already cover (both are the same request fields, counted
+once).
+
+RATIFYING TEST FOUND AND FIXED: 1.
+`TestElasticsearchHandler_CreateOutboundCrossClusterSearchConnection`'s
+`success` case sent `LocalDomainInfo`/`RemoteDomainInfo` in the raw request
+body and only asserted `CrossClusterSearchConnectionId`/alias/status were
+present in the response -- never the domain-info values themselves, so it
+passed against the unfixed code despite exercising the exact wrong keys (the
+"assertion too weak to fail" trap). Rewritten to send the real
+`SourceDomainInfo`/`DestinationDomainInfo` keys and assert
+`local-domain`/`remote-domain` actually appear in the response body; this
+version does fail against the unfixed code (see below).
+
+Every one of the 3 fixes hand-reverted individually (no git, per this
+session's hard no-git-mutation constraint) and confirmed to fail with the
+exact predicted symptom before being restored byte-identical
+(`diff` against a pre-fix backup copy in the scratchpad dir):
+1. routing prefix reverted to `path == elasticsearchCCSOutbound` ->
+   `Test_SDKRoundTrip_CreateOutboundCrossClusterSearchConnection_DomainInfo`
+   failed with `DescribeOutboundCrossClusterSearchConnections ... 404 ...
+   UnknownError: Not Found`, exactly as predicted.
+2. `Create`'s response re-wrapped in `{"CrossClusterSearchConnection": ...}`
+   -> the same test failed with `out.CrossClusterSearchConnectionId` nil
+   ("must be at the response root, not nested"), exactly as predicted.
+3. `SourceDomainInfo`/`DestinationDomainInfo` reverted to `Local`/
+   `RemoteDomainInfo` (both the wire struct field/tag and the request-decode
+   call sites) -> both the rewritten raw-body test (`does not contain
+   "SourceDomainInfo"`/`"local-domain"`) and the SDK round-trip test
+   (`out.SourceDomainInfo` nil, "must round-trip, not be silently dropped")
+   failed exactly as predicted.
+
+REAL-CLIENT TEST RATIO: 2 pre-existing real-SDK-client tests
+(`handler_sdk_roundtrip_test.go`'s `Test_SDKRoundTrip_CancelDomainConfigChange`/
+`Test_SDKRoundTrip_CreateVpcEndpoint_VpcOptions`, reusing its
+`newTestElasticsearchClient` helper) out of ~51 ops before this pass, rest
+raw-body. Added `services/elasticsearch/wire_field_fixes_test.go`: 1 new
+real-SDK-client test (`Test_SDKRoundTrip_CreateOutboundCrossClusterSearch
+Connection_DomainInfo`) that round-trips `Create` -> `Describe` -> `Delete`
+through the real client, covering all 3 fixes end-to-end (the routing bug in
+particular is only observable this way, not via a raw-body test that calls
+`h.ServeHTTP` directly).
+
+PHANTOM OPS: none checked explicitly this pass beyond the pre-existing
+`sdk_completeness_test.go` (unchanged, still passing). FALSE-POSITIVE RATE: 0
+among reported bugs -- every finding cites the real
+`api_op_*.go`/`serializers.go`/`deserializers.go` file and line.
+
+PERSISTENCE CHECK: `outboundConnectionJSON`/`createOutboundConnectionRequest`
+are wire-only structs (`handler_outbound_connections.go`), fully distinct
+from the internal `OutboundConnection` struct (`models.go`) that IS the
+snapshot/persistence DTO (`store.Table[regionalDTO[OutboundConnection]]`,
+`persistence.go`). `models.go` was not touched -- its own
+`LocalDomainInfo`/`RemoteDomainInfo` field names and lowercase JSON tags are
+internal-only and orthogonal to the wire bug; renaming them was unnecessary
+and out of scope.
+
+GATES: `go build ./services/elasticsearch/...` (no backend method signature
+changes -- scoped build only, per this session's "sibling breaks the
+full-repo build" note), `go vet`, `go test -race` (both scoped and
+`./pkgs/...`), `go fix -diff` (no diff), `golangci-lint run
+./services/elasticsearch/...` (1 `golines` finding introduced by a long
+`require.NotNil` line in the new test, fixed; 0 issues after, no
+cyclop/gocyclo/gocognit/funlen nolints added). `fieldalignment` flagged 5
+pre-existing findings in `domainConfigFields`/`domainJSON`/`domainStatusJSON`
+and two test-local structs, none touching this pass's changed files/structs
+-- left alone (golangci-lint itself reports 0 issues, so this repo's config
+doesn't enforce fieldalignment as a hard gate; not introduced by this pass).
+
+`services/elasticsearch/PARITY.md` updated: 3 ops rows (`wire: ok` ->
+`wire: fixed` with citations), 2 new `gaps:` entries, `overall`/
+`last_audit_date` refreshed.
+
+No subagents used (Read/Grep/Bash/Edit only, per this session's hard
+constraint). No git-mutating commands run -- orchestrator must commit/push.
+`git status` re-checked at start and before every edit batch; only
+`services/elasticsearch/*` touched by this session (confirmed via `git
+status --porcelain` throughout -- the `rekognition` sibling's file list grew
+but was never touched by this session).
+
+elasticsearch's List/Describe/Get families are now fully swept for this
+issue (25/25 ops layer-1 clean; 3 real bugs found and fixed in the
+outbound-cross-cluster-search-connection family, one of them a total
+routing-level unreachability, not just a wire-shape mismatch). 81 of 162
+services swept, 81 remain. Per the ranked table, `directoryservice` (80
+ops, 25 L+D+G, `direct`) is next largest not held by the `rekognition`
+sibling -- re-check `git status` before picking either.

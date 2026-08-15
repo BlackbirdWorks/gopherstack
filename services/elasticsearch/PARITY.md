@@ -7,8 +7,20 @@
 service: elasticsearch
 sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.45.4
 last_audit_commit: 8dc21e834
-last_audit_date: 2026-08-13
-overall: A            # gopherstack-p2mx pass: fixed CancelDomainConfigChange's borrowed-shape response and
+last_audit_date: 2026-08-15
+overall: A            # gopherstack-6flj pass (2026-08-15): the outbound cross-cluster-search-connection
+                       # family -- adjacent territory none of the 6 prior audits' notes mention -- had 3 real
+                       # bugs: CreateOutboundCrossClusterSearchConnection's request/response used
+                       # LocalDomainInfo/RemoteDomainInfo (copied from this package's own internal struct)
+                       # instead of the real SourceDomainInfo/DestinationDomainInfo (sibling InboundConnection
+                       # already had it right); CreateOutboundCrossClusterSearchConnectionOutput was wrapped
+                       # in {"CrossClusterSearchConnection": ...} like its Delete/Accept/Reject siblings, but
+                       # the real Create output is flat at the response root; and the top-level route matcher
+                       # used `path == elasticsearchCCSOutbound` (exact match) instead of a prefix check like
+                       # its Inbound sibling, so DescribeOutboundCrossClusterSearchConnections and
+                       # DeleteOutboundCrossClusterSearchConnection were unroutable by any real client -- a
+                       # 404 before the handler ever ran. All three fixed; see Notes. Prior gopherstack-p2mx
+                       # pass: fixed CancelDomainConfigChange's borrowed-shape response and
                        # CreateVpcEndpoint/UpdateVpcEndpoint's VpcOptions map[string]string that made every
                        # real-SDK-client request 400 -- see Notes. Route audit (51/51) reconfirmed, no new
                        # routing bugs. VPCOptions VPCId/AvailabilityZones and Processing remain documented gaps
@@ -31,7 +43,7 @@ ops:
   DeleteElasticsearchServiceRole: {wire: ok, errors: ok, state: ok, persist: n/a}
   UpgradeElasticsearchDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUpgradeHistory: {wire: ok, errors: ok, state: ok, persist: n/a, note: "no upgrade-history state tracked; always returns empty list"}
-  GetUpgradeStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always reports SUCCEEDED; no async upgrade state"}
+  GetUpgradeStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always reports SUCCEEDED; no async upgrade state. Disclosed gap (gopherstack-6flj): real UpgradeName (*string, optional, api_op_GetUpgradeStatus.go) is never emitted -- this backend has no upgrade-name/upgrade-history state at all (GetUpgradeHistory always returns empty), so there is no honest value to source it from; a fabricated 'Upgrade to X' string would be invented state. Not fixed -- see gaps"}
   DescribeDomainAutoTunes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always empty; no auto-tune state modeled"}
   DescribeDomainChangeProgress: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always COMPLETED; changes apply synchronously"}
   GetCompatibleElasticsearchVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -56,9 +68,9 @@ ops:
   AuthorizeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   RevokeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   ListVpcEndpointAccess: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — same required-NextToken gap and fix as ListVpcEndpoints (ListVpcEndpointAccessOutput, deserializers.go). Prior wire: ok was false"}
-  CreateOutboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeOutboundCrossClusterSearchConnections: {wire: ok, errors: ok, state: ok, persist: n/a}
-  DeleteOutboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateOutboundCrossClusterSearchConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-6flj) -- request/response SourceDomainInfo/DestinationDomainInfo were tagged LocalDomainInfo/RemoteDomainInfo (sibling-copy from this package's own internal OutboundConnection struct); both are required request members with no matching wire key, so a real client's connection was always created with empty domain info on both ends. ALSO -- the response was wrapped in {CrossClusterSearchConnection: ...} like Delete/Accept/Reject, but CreateOutboundCrossClusterSearchConnectionOutput is genuinely flat at the response root (api_op_CreateOutboundCrossClusterSearchConnection.go/deserializers.go:1253); every field was nested one level too deep to ever decode. Prior wire: ok was false on both counts. Sibling InboundConnection already used the correct SourceDomainInfo/DestinationDomainInfo names throughout -- report per this issue's sibling-check instruction"}
+  DescribeOutboundCrossClusterSearchConnections: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-6flj) -- same SourceDomainInfo/DestinationDomainInfo rename as Create above. ALSO a routing bug: matchElasticsearchCorePaths used `path == elasticsearchCCSOutbound` (exact match against the bare path), so the real op's path (.../outboundConnection/search) never matched and every real client's call 404'd before reaching the handler at all -- unlike the correctly prefix-matched Inbound sibling. Now `strings.HasPrefix`, matching Inbound's pattern. Prior wire: ok was false"}
+  DeleteOutboundCrossClusterSearchConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-6flj) -- same SourceDomainInfo/DestinationDomainInfo rename and same routing-prefix fix as the two rows above (.../outboundConnection/{id} also never matched the exact-match core-path check). Prior wire: ok was false"}
   AcceptInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   RejectInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -67,6 +79,15 @@ ops:
   DescribeReservedElasticsearchInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   PurchaseReservedElasticsearchInstanceOffering: {wire: ok, errors: ok, state: ok, persist: ok}
 gaps:                     # known divergences NOT fixed — link bd issue ids
+  - "GetUpgradeStatus.UpgradeName (gopherstack-6flj, 2026-08-15): real, optional *string member \
+     never emitted -- no upgrade-name/upgrade-history state is tracked anywhere in this backend \
+     (GetUpgradeHistory always returns empty), so there is no honest source value; fabricating a \
+     plausible name would be invented state, not parity."
+  - "PackageDetails.AvailablePackageVersion and DomainPackageDetails.PackageVersion/ReferencePath/ \
+     LastUpdated (gopherstack-6flj, 2026-08-15): real members with no backing state at all in this \
+     backend's Package model (models.go) -- a structural modeling gap, not a value the backend \
+     already holds and fails to emit. ErrorDetails on both types already handled the same way \
+     (see packageJSON's doc comment)."
   - "Domains never transition through a Processing/creating state -- CreateElasticsearchDomain \
      returns Processing=false / DomainProcessingStatus=Active immediately, and Endpoint is \
      populated synchronously too, so every field a real client would poll on (Processing, \
