@@ -13,9 +13,9 @@ func TestEndpoint_CRUD(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus(context.Background(), "primary-bus", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "primary-bus"})
 	require.NoError(t, err)
-	_, err = b.CreateEventBus(context.Background(), "secondary-bus", "")
+	_, err = b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "secondary-bus"})
 	require.NoError(t, err)
 
 	primaryARN := "arn:aws:events:us-east-1:123456789012:event-bus/primary-bus"

@@ -9,8 +9,19 @@ import (
 	"time"
 )
 
+// CreateEventBusParams holds the input for CreateEventBus.
+type CreateEventBusParams struct {
+	DeadLetterConfig *DeadLetterConfig
+	LogConfig        *LogConfig
+	Name             string
+	Description      string
+	KmsKeyIdentifier string
+}
+
 // CreateEventBus creates a new event bus.
-func (b *InMemoryBackend) CreateEventBus(ctx context.Context, name, description string) (*EventBus, error) {
+func (b *InMemoryBackend) CreateEventBus(ctx context.Context, params CreateEventBusParams) (*EventBus, error) {
+	name := params.Name
+	description := params.Description
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
@@ -62,6 +73,9 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, name, description 
 		Name:             name,
 		Arn:              b.busARN(region, name),
 		Description:      description,
+		DeadLetterConfig: params.DeadLetterConfig,
+		KmsKeyIdentifier: params.KmsKeyIdentifier,
+		LogConfig:        params.LogConfig,
 		CreatedTime:      now,
 		LastModifiedTime: now,
 	}
@@ -173,6 +187,9 @@ func (b *InMemoryBackend) UpdateEventBus(ctx context.Context, input UpdateEventB
 	}
 
 	bus.Description = input.Description
+	bus.DeadLetterConfig = input.DeadLetterConfig
+	bus.KmsKeyIdentifier = input.KmsKeyIdentifier
+	bus.LogConfig = input.LogConfig
 	bus.LastModifiedTime = time.Now()
 
 	cp := *bus

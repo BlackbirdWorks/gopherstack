@@ -6,9 +6,12 @@ import (
 )
 
 type createEventBusInput struct {
-	Tags        map[string]string `json:"Tags,omitempty"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+	LogConfig        *LogConfig        `json:"LogConfig,omitempty"`
+	Name             string            `json:"Name"`
+	Description      string            `json:"Description"`
+	KmsKeyIdentifier string            `json:"KmsKeyIdentifier,omitempty"`
 }
 
 type deleteEventBusInput struct {
@@ -26,8 +29,11 @@ type describeEventBusInput struct {
 }
 
 type createEventBusOutput struct {
-	EventBusArn string `json:"EventBusArn"`
-	Description string `json:"Description,omitempty"`
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+	LogConfig        *LogConfig        `json:"LogConfig,omitempty"`
+	EventBusArn      string            `json:"EventBusArn"`
+	Description      string            `json:"Description,omitempty"`
+	KmsKeyIdentifier string            `json:"KmsKeyIdentifier,omitempty"`
 }
 
 type deleteEventBusOutput struct{}
@@ -72,6 +78,30 @@ func (h *Handler) eventBusToResponse(ctx context.Context, bus *EventBus) *eventB
 	return resp
 }
 
+// describeEventBusResponse is DescribeEventBus' response shape: real
+// DescribeEventBusOutput (eventbridge@v1.48.4 deserializers.go) additionally
+// has DeadLetterConfig/KmsKeyIdentifier/LogConfig, absent from the real plain
+// "EventBus" type ListEventBuses uses (see eventBusResponse above).
+type describeEventBusResponse struct {
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+	LogConfig        *LogConfig        `json:"LogConfig,omitempty"`
+	KmsKeyIdentifier string            `json:"KmsKeyIdentifier,omitempty"`
+	eventBusResponse
+}
+
+func (h *Handler) eventBusToDescribeResponse(ctx context.Context, bus *EventBus) *describeEventBusResponse {
+	if bus == nil {
+		return nil
+	}
+
+	return &describeEventBusResponse{
+		eventBusResponse: *h.eventBusToResponse(ctx, bus),
+		DeadLetterConfig: bus.DeadLetterConfig,
+		KmsKeyIdentifier: bus.KmsKeyIdentifier,
+		LogConfig:        bus.LogConfig,
+	}
+}
+
 func (h *Handler) eventBusActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateEventBus":   h.handleCreateEventBus,
@@ -86,7 +116,13 @@ func (h *Handler) handleCreateEventBus(ctx context.Context, b []byte) (any, erro
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	bus, err := h.Backend.CreateEventBus(ctx, input.Name, input.Description)
+	bus, err := h.Backend.CreateEventBus(ctx, CreateEventBusParams{
+		Name:             input.Name,
+		Description:      input.Description,
+		DeadLetterConfig: input.DeadLetterConfig,
+		KmsKeyIdentifier: input.KmsKeyIdentifier,
+		LogConfig:        input.LogConfig,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +130,13 @@ func (h *Handler) handleCreateEventBus(ctx context.Context, b []byte) (any, erro
 		h.setTags(bus.Arn, input.Tags)
 	}
 
-	return &createEventBusOutput{EventBusArn: bus.Arn, Description: bus.Description}, nil
+	return &createEventBusOutput{
+		EventBusArn:      bus.Arn,
+		Description:      bus.Description,
+		DeadLetterConfig: bus.DeadLetterConfig,
+		KmsKeyIdentifier: bus.KmsKeyIdentifier,
+		LogConfig:        bus.LogConfig,
+	}, nil
 }
 
 func (h *Handler) handleDeleteEventBus(ctx context.Context, b []byte) (any, error) {
@@ -142,7 +184,7 @@ func (h *Handler) handleDescribeEventBus(ctx context.Context, b []byte) (any, er
 		return nil, err
 	}
 
-	return h.eventBusToResponse(ctx, bus), nil
+	return h.eventBusToDescribeResponse(ctx, bus), nil
 }
 
 // eventBusManagementActions returns the UpdateEventBus, PutPermission and
@@ -161,10 +203,20 @@ func (h *Handler) eventBusManagementActions() map[string]actionFn {
 			}
 
 			return &struct {
-				Arn         string `json:"Arn"`
-				Description string `json:"Description,omitempty"`
-				Name        string `json:"Name"`
-			}{Arn: bus.Arn, Description: bus.Description, Name: bus.Name}, nil
+				DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+				LogConfig        *LogConfig        `json:"LogConfig,omitempty"`
+				Arn              string            `json:"Arn"`
+				Description      string            `json:"Description,omitempty"`
+				KmsKeyIdentifier string            `json:"KmsKeyIdentifier,omitempty"`
+				Name             string            `json:"Name"`
+			}{
+				Arn:              bus.Arn,
+				Description:      bus.Description,
+				Name:             bus.Name,
+				DeadLetterConfig: bus.DeadLetterConfig,
+				KmsKeyIdentifier: bus.KmsKeyIdentifier,
+				LogConfig:        bus.LogConfig,
+			}, nil
 		},
 		"PutPermission": func(ctx context.Context, b []byte) (any, error) {
 			var input PutPermissionInput

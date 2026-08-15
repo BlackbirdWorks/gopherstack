@@ -158,7 +158,7 @@ func TestReplay_ListWithPrefix(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	replays, _, err := b.ListReplays(context.Background(), "prod-", "")
+	replays, _, err := b.ListReplays(context.Background(), "prod-", "", "", "")
 	require.NoError(t, err)
 	assert.Len(t, replays, 2)
 }
@@ -232,7 +232,7 @@ func TestReplayCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "my-replay", got.ReplayName)
 
-		replays, _, err := b.ListReplays(context.Background(), "my-", "")
+		replays, _, err := b.ListReplays(context.Background(), "my-", "", "", "")
 		require.NoError(t, err)
 		assert.Len(t, replays, 1)
 

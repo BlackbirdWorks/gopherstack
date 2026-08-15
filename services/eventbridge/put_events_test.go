@@ -183,7 +183,7 @@ func TestPutEvents_NamedBus(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus(context.Background(), "named-bus", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "named-bus"})
 	require.NoError(t, err)
 
 	results, err := b.PutEvents(context.Background(), []eventbridge.EventEntry{

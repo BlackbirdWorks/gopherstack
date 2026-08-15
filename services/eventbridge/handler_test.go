@@ -331,7 +331,10 @@ func TestHandler_ResourceLimitExceededMapsTo400(t *testing.T) {
 
 	// Create 200 buses directly.
 	for i := range 200 {
-		_, err := b.CreateEventBus(context.Background(), fmt.Sprintf("bus-%d", i), "")
+		_, err := b.CreateEventBus(
+			context.Background(),
+			eventbridge.CreateEventBusParams{Name: fmt.Sprintf("bus-%d", i)},
+		)
 		require.NoError(t, err)
 	}
 

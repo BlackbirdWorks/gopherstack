@@ -17,7 +17,7 @@ func TestArchiveJanitor_PrunesArchivedEvents(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus(context.Background(), "my-bus", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "my-bus"})
 	require.NoError(t, err)
 
 	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/my-bus"
@@ -50,7 +50,7 @@ func TestArchiveJanitor_RetentionDaysZeroNeverExpires(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus(context.Background(), "bus2", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "bus2"})
 	require.NoError(t, err)
 
 	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/bus2"
@@ -78,7 +78,7 @@ func TestTags_Archive(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.CreateEventBus(context.Background(), "tagged-bus", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "tagged-bus"})
 	require.NoError(t, err)
 
 	archive, err := b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
@@ -104,7 +104,7 @@ func TestArchive_CRUD(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus(context.Background(), "src-bus", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "src-bus"})
 	require.NoError(t, err)
 
 	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/src-bus"
@@ -132,7 +132,7 @@ func TestArchive_CRUD(t *testing.T) {
 	assert.Equal(t, 14, updated.RetentionDays)
 	assert.Equal(t, "important events", updated.Description)
 
-	archives, _, err := b.ListArchives(context.Background(), "my-", "")
+	archives, _, err := b.ListArchives(context.Background(), "my-", "", "", "")
 	require.NoError(t, err)
 	assert.Len(t, archives, 1)
 
@@ -159,7 +159,7 @@ func TestArchive_CapturesMatchingEvents(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus(context.Background(), "capture-bus", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "capture-bus"})
 	require.NoError(t, err)
 
 	busARN := "arn:aws:events:us-east-1:123456789012:event-bus/capture-bus"
@@ -301,7 +301,7 @@ func TestArchiveCRUD(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "rt-archive", got.ArchiveName)
 
-		archives, _, err := b.ListArchives(context.Background(), "rt-", "")
+		archives, _, err := b.ListArchives(context.Background(), "rt-", "", "", "")
 		require.NoError(t, err)
 		assert.Len(t, archives, 1)
 

@@ -5,11 +5,23 @@ import (
 	"encoding/json"
 )
 
+// createEndpointOutput matches real CreateEndpointOutput
+// (eventbridge@v1.48.4 deserializers.go): Arn/EventBuses/Name/
+// ReplicationConfig/RoleArn/RoutingConfig/State -- notably NOT EndpointId or
+// EndpointUrl, which the real op does not return synchronously (a client
+// must call DescribeEndpoint separately for those). EndpointID/EndpointURL
+// were previously emitted here as invented fields (harmless -- no real
+// field to decode them into) while EventBuses/Name/ReplicationConfig/
+// RoleArn/RoutingConfig, all already known from the just-created backend
+// object, were dropped.
 type createEndpointOutput struct {
-	Arn         string `json:"Arn"`
-	EndpointID  string `json:"EndpointId"`
-	EndpointURL string `json:"EndpointUrl"`
-	State       string `json:"State"`
+	ReplicationConfig *ReplicationConfig `json:"ReplicationConfig,omitempty"`
+	RoutingConfig     *RoutingConfig     `json:"RoutingConfig,omitempty"`
+	Arn               string             `json:"Arn"`
+	Name              string             `json:"Name"`
+	RoleArn           string             `json:"RoleArn,omitempty"`
+	State             string             `json:"State"`
+	EventBuses        []EndpointEventBus `json:"EventBuses,omitempty"`
 }
 
 // endpointResponse is the handler-level DTO for Endpoint objects. Timestamps
@@ -73,10 +85,13 @@ func (h *Handler) endpointActions() map[string]actionFn {
 			}
 
 			return &createEndpointOutput{
-				Arn:         ep.Arn,
-				EndpointID:  ep.EndpointID,
-				EndpointURL: ep.EndpointURL,
-				State:       ep.State,
+				Arn:               ep.Arn,
+				Name:              ep.Name,
+				State:             ep.State,
+				RoleArn:           ep.RoleArn,
+				EventBuses:        ep.EventBuses,
+				ReplicationConfig: ep.ReplicationConfig,
+				RoutingConfig:     ep.RoutingConfig,
 			}, nil
 		},
 	}
@@ -142,16 +157,31 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 				return nil, err
 			}
 
+			// Real UpdateEndpointOutput (eventbridge@v1.48.4 deserializers.go)
+			// has Arn/EndpointId/EndpointUrl/EventBuses/Name/ReplicationConfig/
+			// RoleArn/RoutingConfig/State -- EventBuses/Name/ReplicationConfig/
+			// RoleArn/RoutingConfig were previously dropped despite being
+			// already known from the just-updated backend object.
 			return &struct {
-				Arn         string `json:"Arn"`
-				EndpointID  string `json:"EndpointId"`
-				EndpointURL string `json:"EndpointUrl"`
-				State       string `json:"State"`
+				ReplicationConfig *ReplicationConfig `json:"ReplicationConfig,omitempty"`
+				RoutingConfig     *RoutingConfig     `json:"RoutingConfig,omitempty"`
+				Arn               string             `json:"Arn"`
+				EndpointID        string             `json:"EndpointId"`
+				EndpointURL       string             `json:"EndpointUrl"`
+				Name              string             `json:"Name"`
+				RoleArn           string             `json:"RoleArn,omitempty"`
+				State             string             `json:"State"`
+				EventBuses        []EndpointEventBus `json:"EventBuses,omitempty"`
 			}{
-				Arn:         ep.Arn,
-				EndpointID:  ep.EndpointID,
-				EndpointURL: ep.EndpointURL,
-				State:       ep.State,
+				Arn:               ep.Arn,
+				EndpointID:        ep.EndpointID,
+				EndpointURL:       ep.EndpointURL,
+				Name:              ep.Name,
+				State:             ep.State,
+				RoleArn:           ep.RoleArn,
+				EventBuses:        ep.EventBuses,
+				ReplicationConfig: ep.ReplicationConfig,
+				RoutingConfig:     ep.RoutingConfig,
 			}, nil
 		},
 	}

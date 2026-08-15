@@ -1,9 +1,9 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**74 of 162 services swept, 88 remain** (apigatewayv2, workmail, wafv2, ce,
-waf, vpclattice, and now emr all added this session, in parallel, by
-different sessions — see each service's own section at the end of this file
-for full detail).
+**75 of 162 services swept, 87 remain** (apigatewayv2, workmail, wafv2, ce,
+waf, vpclattice, emr, and now eventbridge all added this session, in
+parallel, by different sessions — see each service's own section at the end
+of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -97,7 +97,8 @@ awsconfig, backup, bedrock,
 bedrockagent, **ce** (this session), cleanrooms, cloudformation, cloudfront,
 cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
 cognitoidp, datasync, dlm, dynamodbstreams, ec2, ecs, eks,
-elasticache, elbv2, **emr** (this session), forecast,
+elasticache, elbv2, **emr** (this session), **eventbridge** (this session),
+forecast,
 glue, guardduty, iam, identitystore, inspector2, iot,
 iotwireless, kms, lambda, lightsail, macie2, medialive,
 mgn, networkmanager, networkmonitor, omics,
@@ -116,7 +117,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (88 of 162), ranked by List+Describe+Get op count
+## Unswept (87 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -131,15 +132,14 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 88 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 87 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
 apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34,
-vpclattice's 30, and emr's 30 removed, all swept prior to/this session):
-**1,125** candidate ops.
+vpclattice's 30, emr's 30, and eventbridge's 30 removed, all swept prior
+to/this session): **1,095** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| eventbridge | 74 | 16 | 12 | 2 | 30 | direct |
 | route53resolver | 30 | 16 | 0 | 14 | 30 | manual (range target unresolved by tool) |
 | kafka | 64 | 15 | 11 | 3 | 29 | direct |
 | appsync | 74 | 13 | 0 | 15 | 28 | direct |
@@ -3841,3 +3841,239 @@ swept, 88 remain. Per the ranked table, eventbridge (30, `direct`) is the
 next candidate — it is the live sibling's own territory as of this session's
 last check, so re-confirm `git status` before picking it; if still occupied,
 `route53resolver` (30, `manual`) is the next non-colliding option.
+
+## eventbridge (this session)
+
+Picked as the next-largest unswept service tied with emr (30 L+D+G each,
+both `direct` resolution). Started reconnaissance on emr first per this
+issue's own most-recent note; **mid-investigation, before any edit,
+`git status` showed a live sibling had appeared with 10 modified files
+under `services/emr/`**, including the *exact* `Step.Config`/`HadoopJarStep`
+wrapper-key bug this session had independently just derived from the real
+SDK deserializer (same finding, same file, same fix). Backed out
+immediately (read-only investigation only, zero edits made) and switched to
+eventbridge, the only other tied candidate. The sibling later committed as
+`fdad98d4c fix(emr): DescribeStep returned nil JAR details to every real
+client`, confirming the near-collision was real, not a false alarm. Two
+independent sessions deriving the identical bug from the same deserializer
+read is itself informative: it's not a subtle miss, it's the kind of error
+this class systematically produces.
+
+**Own enumeration of `GetSupportedOperations()` (handler_dispatch.go)
+confirms 74 total ops, 30 L+D+G (16 List/12 Describe/2 Get)** exactly
+matching the ranked table.
+
+**PROTOCOL, second client, EqualFold, dead-deserializer trap**: eventbridge
+core ops are `awsAwsjson11_` (JSON-RPC 1.1), case-sensitive; all 184
+`EqualFold` hits in eventbridge@v1.48.4/deserializers.go are NaN/Infinity
+float parsing, zero in body-field key switches. **Second client confirmed**:
+17 of the 74 ops ("Schema Registry operations", `opCreateRegistry` through
+`opGetCodeBindingSource`) are real `schemas@v1.37.4` operations, a genuinely
+different service with its own `awsRestjson1_` protocol and its own
+endpoint — routed in this repo via `handler_schemas_rest.go`'s REST-path
+translation layer in front of an internal fabricated JSON-RPC dispatch
+table (`handler_registries.go`/`handler_schemas.go`). Dead-deserializer trap
+checked for both protocols and does **not** apply to either — traced
+`HandleDeserialize` to the real
+`awsAwsjson11_deserializeOpDocument<Op>Output`/
+`awsRestjson1_deserializeOpDocument<Op>Output` functions directly for
+several ops on each side.
+
+**Schemas REST layer: already correct, verified not assumed.** Went in
+expecting a repeat of the `services/emr` "wrong casing" class, since
+`schemas@v1.37.4`'s `DescribeRegistryOutput`/`RegistrySummary`/`Schema`
+types wrap tags under the case-sensitive restjson1 key `"tags"` (lowercase)
+while this package's own *internal* `SchemaRegistry.Tags` model struct uses
+`"Tags"` (capital, used only by the fabricated JSON-RPC dispatch table no
+real client ever reaches). Read `handler_schemas_rest.go` in full expecting
+to find the leak; instead found it already has its own separate,
+deliberately narrower REST-only response DTOs
+(`registryRESTOutput`/`registrySummaryRESTOutput`/`schemaRESTOutput`/
+`schemaSummaryRESTOutput`/etc., lines ~345-520) with correct lowercase
+`json:"tags,omitempty"` tags and a doc comment already citing the exact real
+case-sensitivity distinction. **Sibling-pair check that came back clean**:
+the internal fabricated-path type and the real REST-path type look like a
+casing bug on a first read of `models.go` alone, but are two intentionally
+separate types that never cross — confirmed by tracing `registryToREST`'s
+conversion function, not assumed. Not touched further; this is a genuine
+"correct sibling, verified rather than trusted" result, matching this
+issue's request to report those.
+
+**6 real bugs found and fixed, all in the core eventbridge (non-Schemas)
+surface**, none of them casing (JSON-RPC eventbridge decodes case-sensitive,
+but every finding here is a distinct wrong/missing key or dropped input,
+not a case near-miss):
+
+1. **CreateEventBus/UpdateEventBus discarded DeadLetterConfig/
+   KmsKeyIdentifier/LogConfig entirely** (request side) and never echoed
+   them on Create/Describe/Update (response side) — all three are real,
+   directly-settable `CreateEventBusInput`/`UpdateEventBusInput` members
+   (eventbridge@v1.48.4 `api_op_CreateEventBus.go`/`api_op_UpdateEventBus.go`)
+   confirmed present on `DescribeEventBusOutput`
+   (`deserializers.go`'s case list) but absent from the real plain
+   `"EventBus"` type `ListEventBuses` uses — the fourth instance of this
+   campaign's "directly-settable request fields silently discarded" class
+   (after apigatewayv2/CreateProductPage, ce/StartCommitmentPurchaseAnalysis,
+   vpclattice/CreateResourceConfiguration), doubled with a Describe/List
+   asymmetry this campaign also tracks separately. `EventSourceName`
+   (partner-event-bus matching) confirmed real but **disclosed, not fixed**:
+   implementing it correctly would require a partner-source-to-bus linkage
+   this backend's `PartnerEventSource` model has no slot for at all, and
+   guessing at the accept-flow semantics risked the "fabricated behavior"
+   trap this campaign also flags.
+2. **`Step`... not applicable here** (emr's bug, not eventbridge's — noted
+   only to be explicit this session's 6 findings are eventbridge-only).
+3. **`ListArchives`/`ListReplays` silently ignored their real `EventSourceArn`
+   and `State` filter request fields** (`api_op_ListArchives.go`/
+   `api_op_ListReplays.go`, both confirmed real, non-deprecated members) —
+   every call returned every archive/replay in the account regardless of
+   the filter, a functional discarded-input bug a raw-body wrapper-key
+   check alone would never catch (the *key itself* isn't wrong, the value
+   is silently unused). Fixed by threading both fields through to the
+   backend and filtering.
+4. **`CreateArchive`/`UpdateArchive` discarded `KmsKeyIdentifier`** (real,
+   directly-settable member on both inputs) and never echoed it on
+   Describe — same shape as finding #1, smaller radius.
+5. **`DescribeReplay` never emitted `ReplayArn`** despite the backend
+   already computing and storing it (used correctly by `CancelReplay`'s and
+   `StartReplay`'s own outputs, sitting right next to the gap) — a real
+   `DescribeReplayOutput.ReplayArn` was always empty regardless of which
+   replay was described. Backend-already-holds-it, lead-question-2 class.
+6. **`CreateEndpoint`/`UpdateEndpoint` outputs dropped `EventBuses`/`Name`/
+   `ReplicationConfig`/`RoleArn`/`RoutingConfig`** — all five real members
+   (confirmed against `deserializers.go`'s case lists for both ops) already
+   known from the backend object the handler had *just* built/updated, and
+   `CreateEndpointOutput` additionally emitted `EndpointId`/`EndpointUrl` —
+   fields the **real op does not return at all** (harmless: no field in the
+   real typed output to decode them into; a genuine client must call
+   `DescribeEndpoint` separately for those, confirmed via the real
+   deserializer's case list, not assumed from field-name plausibility).
+7. **`Target.BatchParameters.RetryStrategy` absent from the model entirely**
+   — a real, non-deprecated member (`types.BatchRetryStrategy`,
+   `eventbridge@v1.48.4 types.go:159`) silently dropped on `PutTargets` and
+   never echoed by `ListTargetsByRule`, discovered by diffing every nested
+   `Target.*Parameters` struct field-for-field against the real deserializer
+   (`EcsParameters`/`RedshiftDataParameters`/`RunCommandParameters`/
+   `SageMakerPipelineParameters`/`KinesisParameters`/`InputTransformer`/
+   `AppSyncParameters`/`SqsParameters`/`HttpParameters` all came back fully
+   correct — only `BatchParameters` had a gap). Because `PutTargets` stores
+   the whole parsed `Target` struct verbatim and `ListTargetsByRule` emits
+   it back unchanged, this fix is a pure model addition with zero handler
+   logic required — cheapest fix this session.
+
+**Sibling/shared-DTO trap, found independently three more times beyond
+Connection (below)**: `EventBus`/`Archive`/`ApiDestination` each reused one
+handler-level DTO struct for **both** their List item and their
+Describe/Create/Update response, when the real AWS shapes for those two
+paths genuinely differ (EventBus's own real List item type happened to
+already match exactly — verified, not assumed, so left alone; Archive's
+real List item lacks `ArchiveArn`/`Description`/`EventPattern`/
+`KmsKeyIdentifier`; ApiDestination's lacks `Description`). Both were
+harmless (a real typed List client can't decode into fields the shared
+struct over-provided; no secret involved), but incorrect against the real
+wire shape, so both were split into narrower `archiveSummary`/
+`apiDestinationSummary` List-only types, following the pattern
+`handler_replays.go`'s `replayListResponse`/`describeReplayResponse` split
+already established correctly **before** this session (a genuine
+already-correct in-package sibling, reported per this issue's request, not
+a bug).
+
+**Connection: checked hardest for the flagship secret-leak pattern
+(cognitoidp's ClientSecret precedent) — confirmed CLEAN, not a bug.**
+`connectionResponse.AuthParameters` looked, on first read of
+`handler_connections.go` alone, like it assigned the backend's raw
+`Connection.AuthParameters` (a struct whose `BasicAuthParameters.Password`/
+`APIKeyAuthParameters.APIKeyValue`/`OAuthParameters.ClientParameters.
+ClientSecret` fields are real, plaintext-capable members) straight onto the
+wire — the same shape as the cognitoidp bug this campaign already found.
+Reading `connections.go`'s `CreateConnection`/`UpdateConnection` disproved
+it: the backend already stores a *masked* copy in the exported
+`AuthParameters` field (`maskConnectionAuthParameters`, redacting all three
+secrets down to Username/ApiKeyName/ClientID, matching the real
+`ConnectionAuthResponseParameters` shape field-for-field) and the real
+plaintext separately in an unexported `authSecret` field never touched by
+any handler. Also checked and confirmed already-correct: per-field
+`IsValueSecret` redaction on nested header/body/query HTTP parameters
+(`maskHTTPParameters`). This is exactly the kind of would-be false positive
+this issue's "flag anything you cannot verify, and trace it" instruction
+exists to catch — reported as a verified-clean result, not a bug, and
+nothing was changed in `connections.go`'s redaction logic. Two smaller real
+gaps *were* found and fixed alongside this check: `DeauthorizeConnection`/
+`UpdateConnection` outputs dropped `CreationTime`/`LastAuthorizedTime`
+(both already known from the backend object), and `ListConnections`
+reused the same over-wide `connectionResponse` DTO as EventBus/Archive/
+ApiDestination above (split into `connectionSummary`, matching the real
+narrower `Connection` list-item type — no secret was actually exposed by
+this one either, since `AuthParameters` was already masked before it ever
+reached the List path, but the shape itself was still wrong).
+
+**Ratifying tests: none found needing correction.** No existing test in
+this service asserted any of the six bugs' pre-fix shapes as correct —
+`endpoints_test.go`'s existing `TestEndpoint_CRUD` only checked
+`DescribeEndpoint`, never `CreateEndpoint`/`UpdateEndpoint`'s own output,
+which is exactly why finding #6 went unnoticed. Zero found in the "wrong
+key"/"wrong value"/"too-weak-to-fail" shapes this campaign tracks.
+
+**Phantom ops: none** — `sdk_completeness_test.go` already reflects over
+both `eventbridgesdk.Client` and `schemassdk.Client` method sets and passed
+before and after. **False-positive rate: 0** — every finding above cites
+the real deserializer/serializer case list or `types.go`/`api_op_*.go`
+member list, file+line where checked.
+
+**Real-client test ratio**: before this session, the only real-SDK-client
+tests in this large (74-op) service were 2 narrowly-scoped ones
+(`handler_partner_source_accounts_sdk_test.go`,
+`handler_schemas_real_client_test.go`) — thin relative to the surface,
+consistent with this campaign's "coverage does not predict bugs" finding
+either way. Added 6 new real-SDK-client tests in
+`services/eventbridge/wire_field_fixes_test.go` (reusing the existing
+`newTestEventBridgeClient` helper), one per finding above (findings #3 and
+part of #1/#6 combined get one test apiece where they share a code path).
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint), confirmed to fail against the unfixed code
+with the exact predicted symptom (quoted per-fix: nil `DeadLetterConfig`;
+unfiltered 2-item list instead of 1; empty `ReplayArn`; empty `Name/`
+zero-length `EventBuses`; nil `BatchParameters.RetryStrategy`; **and one
+assertion strengthened mid-verification** — `DeauthorizeConnection`'s
+`CreationTime` check was originally `!IsZero()`, which a Go epoch-0 decode
+satisfies trivially since Unix 1970 is not the Go zero time, so the revert
+didn't fail it; rewritten to assert exact equality against the known
+creation time, which then correctly caught the regression as 1970-01-01 vs
+the real value), then restored and confirmed passing again.
+
+One pre-existing, unrelated build break discovered and **not** fixed:
+`services/cloudformation/resources_wafv2.go:120` fails to compile against
+the current `services/wafv2` `CreateRuleGroup` signature (missing 2
+arguments) — traced via `git log` to `c1fce7ded fix(wafv2): ListAPIKeys
+wrapper key, and RuleGroup discarded CustomResponseBodies`, a different
+session's wafv2 sweep this same day that changed the backend signature
+without updating this CloudFormation caller. `go build ./...` fails on this
+alone; `go build ./services/eventbridge/... ./services/cloudformation/...
+./pkgs/...` (scoped, per this session's own hard-constraint guidance)
+confirms it is the *only* other failure and is untouched by anything in
+this session's diff. **Flagged for whoever owns the wafv2 sweep, not
+fixed** — out of this session's scope. This session's own regression in the
+same file (a `CreateEventBus` call site broken by finding #1's signature
+change) *was* fixed, and is a separate, one-line, in-scope change.
+
+Gates: `go build`/`go vet`/`go test -race`/`go fix -diff` (no diff) all
+green for `services/eventbridge`. `golangci-lint run` initially found a
+`dupl` pairing (`ListArchives`/`ListReplays`, introduced by finding #3's
+matching filter logic) and a `fieldalignment` hit on the new `EventBus`
+fields — both fixed (the `dupl` pair by factoring a shared generic
+`filterNamedItems`/`listNamedItems` helper into `accessors.go` rather than
+a `//nolint:dupl`; fieldalignment via the `fieldalignment -fix` tool, whose
+auto-fix silently stripped one doc comment in the process — caught by
+diffing before/after and restored by hand). 0 issues after. No
+cyclop/gocyclo/gocognit/funlen nolints added. `go test -race ./pkgs/...`
+green.
+
+No subagents used (Read/Grep/Bash only, per this session's hard
+constraint). No git-mutating commands run — orchestrator must commit/push.
+`git status` re-checked repeatedly through the session; no further sibling
+collisions after the emr near-miss at the start.
+
+75 of 162 services swept, 87 remain. Per the ranked table, the next
+candidates are `route53resolver` (30, `manual`, unresolved by
+`cmd/opcensus`, hand-counted) and `kafka` (29, `direct`) — re-check
+`git status` before picking either.

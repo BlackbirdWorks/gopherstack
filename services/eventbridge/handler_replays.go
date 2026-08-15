@@ -30,11 +30,15 @@ type replayListResponse struct {
 }
 
 // describeReplayResponse is the handler-level DTO for DescribeReplay, which
-// additionally echoes Destination and Description -- both real
-// DescribeReplayOutput members absent from types.Replay/ListReplaysOutput.
+// additionally echoes ReplayArn, Destination, and Description -- all three
+// real DescribeReplayOutput members absent from types.Replay/
+// ListReplaysOutput. ReplayArn was previously dropped here even though the
+// backend tracks it (used by CancelReplay/StartReplay's own outputs) --
+// a real client's DescribeReplayOutput.ReplayArn was always empty.
 type describeReplayResponse struct {
 	Destination *ReplayDestination `json:"Destination,omitempty"`
 	Description string             `json:"Description,omitempty"`
+	ReplayArn   string             `json:"ReplayArn,omitempty"`
 	replayListResponse
 }
 
@@ -70,6 +74,7 @@ func replayToDescribeResponse(r *Replay) *describeReplayResponse {
 		replayListResponse: replayToListResponse(r),
 		Description:        r.Description,
 		Destination:        r.Destination,
+		ReplayArn:          r.ReplayArn,
 	}
 }
 
@@ -116,13 +121,17 @@ func (h *Handler) extendedReplayActions() map[string]actionFn {
 		},
 		"ListReplays": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
-				NamePrefix string `json:"NamePrefix"`
-				NextToken  string `json:"NextToken"`
+				NamePrefix     string `json:"NamePrefix"`
+				EventSourceArn string `json:"EventSourceArn"`
+				State          string `json:"State"`
+				NextToken      string `json:"NextToken"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			replays, next, err := h.Backend.ListReplays(ctx, input.NamePrefix, input.NextToken)
+			replays, next, err := h.Backend.ListReplays(
+				ctx, input.NamePrefix, input.EventSourceArn, input.State, input.NextToken,
+			)
 			if err != nil {
 				return nil, err
 			}

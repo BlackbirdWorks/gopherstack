@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"encoding/base64"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -397,6 +399,49 @@ func parseNextToken(token string) int {
 	}
 
 	return idx
+}
+
+// filterNamedItems is shared by ListArchives and ListReplays: both filter a
+// table of pointer-typed rows by an optional name prefix plus two optional
+// exact-match fields (EventSourceArn/State), differing only in field
+// accessors -- factored out so the two loops aren't near-duplicates.
+func filterNamedItems[T any](
+	items []*T,
+	namePrefix, eventSourceArn, state string,
+	name, source, itemState func(*T) string,
+) []T {
+	out := make([]T, 0, len(items))
+
+	for _, item := range items {
+		if namePrefix != "" && !strings.HasPrefix(name(item), namePrefix) {
+			continue
+		}
+		if eventSourceArn != "" && source(item) != eventSourceArn {
+			continue
+		}
+		if state != "" && itemState(item) != state {
+			continue
+		}
+		out = append(out, *item)
+	}
+
+	return out
+}
+
+// listNamedItems is shared by ListArchives and ListReplays: both filter,
+// sort, and paginate a store.Table the same way, differing only in field
+// accessors and sort key -- factored out so the two callers are thin
+// wrappers instead of near-duplicate functions.
+func listNamedItems[T any](
+	table *store.Table[T],
+	namePrefix, eventSourceArn, state, nextToken string,
+	name, source, itemState func(*T) string,
+	less func(a, b T) bool,
+) ([]T, string) {
+	all := filterNamedItems(table.All(), namePrefix, eventSourceArn, state, name, source, itemState)
+	sort.Slice(all, func(i, j int) bool { return less(all[i], all[j]) })
+
+	return paginate(all, nextToken)
 }
 
 // paginate applies offset-based pagination to a pre-sorted slice with the default

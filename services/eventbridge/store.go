@@ -95,7 +95,7 @@ type ruleIndexKey struct {
 
 // StorageBackend is the interface for an EventBridge in-memory store.
 type StorageBackend interface {
-	CreateEventBus(ctx context.Context, name, description string) (*EventBus, error)
+	CreateEventBus(ctx context.Context, params CreateEventBusParams) (*EventBus, error)
 	DeleteEventBus(ctx context.Context, name string) error
 	ListEventBuses(ctx context.Context, namePrefix, nextToken string, limit int) ([]EventBus, string, error)
 	DescribeEventBus(ctx context.Context, name string) (*EventBus, error)
@@ -126,7 +126,7 @@ type StorageBackend interface {
 	DeleteAPIDestination(ctx context.Context, name string) error
 	DeleteArchive(ctx context.Context, name string) error
 	DescribeArchive(ctx context.Context, name string) (*Archive, error)
-	ListArchives(ctx context.Context, namePrefix, nextToken string) ([]Archive, string, error)
+	ListArchives(ctx context.Context, namePrefix, eventSourceArn, state, nextToken string) ([]Archive, string, error)
 	UpdateArchive(ctx context.Context, input UpdateArchiveInput) (*Archive, error)
 	DeleteConnection(ctx context.Context, name string) error
 	DescribeConnection(ctx context.Context, name string) (*Connection, error)
@@ -147,7 +147,7 @@ type StorageBackend interface {
 	ListPartnerEventSourceAccounts(ctx context.Context, eventSourceName string) ([]PartnerEventSourceAccountInfo, error)
 	PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
 	DescribeReplay(ctx context.Context, name string) (*Replay, error)
-	ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error)
+	ListReplays(ctx context.Context, namePrefix, eventSourceArn, state, nextToken string) ([]Replay, string, error)
 	StartReplay(ctx context.Context, input StartReplayInput) (*Replay, error)
 	ListRuleNamesByTarget(ctx context.Context, targetARN, eventBusName, nextToken string) ([]string, string, error)
 	TestEventPattern(ctx context.Context, pattern, event string) (bool, error)

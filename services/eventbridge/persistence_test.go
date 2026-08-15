@@ -42,7 +42,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *eventbridge.InMemoryBackend) string {
-				bus, err := b.CreateEventBus(context.Background(), "test-bus", "")
+				bus, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "test-bus"})
 				if err != nil {
 					return ""
 				}
@@ -102,7 +102,10 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	original := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	// Custom event bus.
-	_, err := original.CreateEventBus(ctx, "custom-bus", "a custom bus")
+	_, err := original.CreateEventBus(
+		ctx,
+		eventbridge.CreateEventBusParams{Name: "custom-bus", Description: "a custom bus"},
+	)
 	require.NoError(t, err)
 
 	// Resource-based policy on the custom bus (busePolicies is not

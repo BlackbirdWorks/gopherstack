@@ -12,10 +12,16 @@ type createConnectionOutput struct {
 	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
+// deauthorizeConnectionOutput matches real DeauthorizeConnectionOutput
+// (eventbridge@v1.48.4 deserializers.go): also has CreationTime and
+// LastAuthorizedTime, both already known from the backend's Connection
+// object and previously dropped here.
 type deauthorizeConnectionOutput struct {
-	ConnectionArn    string  `json:"ConnectionArn"`
-	ConnectionState  string  `json:"ConnectionState"`
-	LastModifiedTime float64 `json:"LastModifiedTime"`
+	ConnectionArn      string  `json:"ConnectionArn"`
+	ConnectionState    string  `json:"ConnectionState"`
+	CreationTime       float64 `json:"CreationTime"`
+	LastAuthorizedTime float64 `json:"LastAuthorizedTime,omitempty"`
+	LastModifiedTime   float64 `json:"LastModifiedTime"`
 }
 
 // connectionResponse is the handler-level DTO for Connection objects.
@@ -58,6 +64,41 @@ func connectionToResponse(c *Connection) *connectionResponse {
 	return r
 }
 
+// connectionSummary is ListConnections' item shape (real "Connection" type,
+// eventbridge@v1.48.4 deserializers.go's awsAwsjson11_deserializeDocumentConnection
+// case list): no AuthParameters, Description, or SecretArn at all, unlike
+// DescribeConnection/UpdateConnection's connectionResponse above.
+// AuthParameters is already redacted by maskConnectionAuthParameters before
+// it ever reaches connectionResponse (see connections.go), so omitting it
+// here is a shape fix, not a secret-exposure fix.
+type connectionSummary struct {
+	ConnectionArn      string  `json:"ConnectionArn"`
+	AuthorizationType  string  `json:"AuthorizationType"`
+	ConnectionState    string  `json:"ConnectionState"`
+	Name               string  `json:"Name"`
+	StateReason        string  `json:"StateReason,omitempty"`
+	CreationTime       float64 `json:"CreationTime"`
+	LastAuthorizedTime float64 `json:"LastAuthorizedTime,omitempty"`
+	LastModifiedTime   float64 `json:"LastModifiedTime"`
+}
+
+func connectionToSummary(c *Connection) connectionSummary {
+	s := connectionSummary{
+		ConnectionArn:     c.ConnectionArn,
+		AuthorizationType: c.AuthorizationType,
+		ConnectionState:   c.ConnectionState,
+		CreationTime:      timeToEpochSeconds(c.CreationTime),
+		LastModifiedTime:  timeToEpochSeconds(c.LastModifiedTime),
+		Name:              c.Name,
+		StateReason:       c.StateReason,
+	}
+	if !c.LastAuthorizedTime.IsZero() {
+		s.LastAuthorizedTime = timeToEpochSeconds(c.LastAuthorizedTime)
+	}
+
+	return s
+}
+
 // connectionActions returns the CreateConnection and DeauthorizeConnection actions.
 func (h *Handler) connectionActions() map[string]actionFn {
 	return map[string]actionFn{
@@ -90,11 +131,17 @@ func (h *Handler) connectionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &deauthorizeConnectionOutput{
+			out := &deauthorizeConnectionOutput{
 				ConnectionArn:    conn.ConnectionArn,
 				ConnectionState:  conn.ConnectionState,
+				CreationTime:     timeToEpochSeconds(conn.CreationTime),
 				LastModifiedTime: timeToEpochSeconds(conn.LastModifiedTime),
-			}, nil
+			}
+			if !conn.LastAuthorizedTime.IsZero() {
+				out.LastAuthorizedTime = timeToEpochSeconds(conn.LastAuthorizedTime)
+			}
+
+			return out, nil
 		},
 	}
 }
@@ -140,14 +187,14 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			connResponses := make([]connectionResponse, len(conns))
+			connResponses := make([]connectionSummary, len(conns))
 			for i, c := range conns {
-				connResponses[i] = *connectionToResponse(&c)
+				connResponses[i] = connectionToSummary(&c)
 			}
 
 			return &struct {
-				NextToken   string               `json:"NextToken,omitempty"`
-				Connections []connectionResponse `json:"Connections"`
+				NextToken   string              `json:"NextToken,omitempty"`
+				Connections []connectionSummary `json:"Connections"`
 			}{Connections: connResponses, NextToken: next}, nil
 		},
 		"UpdateConnection": func(ctx context.Context, b []byte) (any, error) {
@@ -160,17 +207,26 @@ func (h *Handler) extendedConnectionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return &struct {
-				ConnectionArn    string  `json:"ConnectionArn"`
-				ConnectionState  string  `json:"ConnectionState"`
-				CreationTime     float64 `json:"CreationTime"`
-				LastModifiedTime float64 `json:"LastModifiedTime"`
+			// Real UpdateConnectionOutput also has LastAuthorizedTime,
+			// already known from the backend's Connection object and
+			// previously dropped here.
+			out := &struct {
+				ConnectionArn      string  `json:"ConnectionArn"`
+				ConnectionState    string  `json:"ConnectionState"`
+				CreationTime       float64 `json:"CreationTime"`
+				LastAuthorizedTime float64 `json:"LastAuthorizedTime,omitempty"`
+				LastModifiedTime   float64 `json:"LastModifiedTime"`
 			}{
 				ConnectionArn:    conn.ConnectionArn,
 				ConnectionState:  conn.ConnectionState,
 				CreationTime:     timeToEpochSeconds(conn.CreationTime),
 				LastModifiedTime: timeToEpochSeconds(conn.LastModifiedTime),
-			}, nil
+			}
+			if !conn.LastAuthorizedTime.IsZero() {
+				out.LastAuthorizedTime = timeToEpochSeconds(conn.LastAuthorizedTime)
+			}
+
+			return out, nil
 		},
 	}
 }

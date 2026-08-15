@@ -114,7 +114,10 @@ func TestHandler_UpdateEventBus(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.CreateEventBus(context.Background(), "describable-bus", "old desc")
+	_, err := b.CreateEventBus(
+		context.Background(),
+		eventbridge.CreateEventBusParams{Name: "describable-bus", Description: "old desc"},
+	)
 	require.NoError(t, err)
 
 	rec := auditMakeRequest(t, h, e, "UpdateEventBus", map[string]any{

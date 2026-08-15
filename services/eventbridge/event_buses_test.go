@@ -20,11 +20,14 @@ func TestCreateEventBus_EnforcesLimit(t *testing.T) {
 
 	const limit = 200
 	for i := range limit {
-		_, err := b.CreateEventBus(context.Background(), fmt.Sprintf("bus-%d", i), "")
+		_, err := b.CreateEventBus(
+			context.Background(),
+			eventbridge.CreateEventBusParams{Name: fmt.Sprintf("bus-%d", i)},
+		)
 		require.NoError(t, err, "bus %d should be created", i)
 	}
 
-	_, err := b.CreateEventBus(context.Background(), "bus-overflow", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "bus-overflow"})
 	require.ErrorIs(t, err, eventbridge.ErrResourceLimitExceeded)
 }
 
@@ -209,7 +212,10 @@ func TestEventBus_UpdateDescription(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus(context.Background(), "update-me", "original")
+	_, err := b.CreateEventBus(
+		context.Background(),
+		eventbridge.CreateEventBusParams{Name: "update-me", Description: "original"},
+	)
 	require.NoError(t, err)
 
 	updated, err := b.UpdateEventBus(context.Background(), eventbridge.UpdateEventBusInput{
@@ -225,7 +231,10 @@ func TestEventBus_ListPagination(t *testing.T) {
 	b := newBackend()
 
 	for i := range 5 {
-		_, err := b.CreateEventBus(context.Background(), fmt.Sprintf("page-bus-%d", i), "")
+		_, err := b.CreateEventBus(
+			context.Background(),
+			eventbridge.CreateEventBusParams{Name: fmt.Sprintf("page-bus-%d", i)},
+		)
 		require.NoError(t, err)
 	}
 
@@ -238,7 +247,7 @@ func TestEventBus_DeleteCleansUpRulesAndTargets(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	_, err := b.CreateEventBus(context.Background(), "to-delete", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "to-delete"})
 	require.NoError(t, err)
 
 	_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{
@@ -294,7 +303,7 @@ func TestCreateEventBus_RejectsAWSPrefix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.CreateEventBus(context.Background(), tt.busName, "")
+			_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: tt.busName})
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 			} else {
@@ -311,7 +320,7 @@ func TestCreateEventBus_RejectsLongName(t *testing.T) {
 	for i := range longName {
 		longName[i] = 'x'
 	}
-	_, err := b.CreateEventBus(context.Background(), string(longName), "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: string(longName)})
 	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 }
 
@@ -457,7 +466,10 @@ func TestListEventBuses_RespectsLimit(t *testing.T) {
 
 			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			for i := range tt.busCount {
-				_, err := b.CreateEventBus(context.Background(), strings.Repeat("a", i+1)+"-bus", "")
+				_, err := b.CreateEventBus(
+					context.Background(),
+					eventbridge.CreateEventBusParams{Name: strings.Repeat("a", i+1) + "-bus"},
+				)
 				require.NoError(t, err)
 			}
 
@@ -480,7 +492,10 @@ func TestListEventBuses_TokenIsOpaque(t *testing.T) {
 
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	for i := range 5 {
-		_, err := b.CreateEventBus(context.Background(), strings.Repeat("z", i+1)+"-bus", "")
+		_, err := b.CreateEventBus(
+			context.Background(),
+			eventbridge.CreateEventBusParams{Name: strings.Repeat("z", i+1) + "-bus"},
+		)
 		require.NoError(t, err)
 	}
 
@@ -504,7 +519,10 @@ func TestListEventBuses_PaginationFollowsToken(t *testing.T) {
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	// Create 5 buses; default bus makes 6 total.
 	for i := range 5 {
-		_, err := b.CreateEventBus(context.Background(), strings.Repeat("b", i+1)+"-bus", "")
+		_, err := b.CreateEventBus(
+			context.Background(),
+			eventbridge.CreateEventBusParams{Name: strings.Repeat("b", i+1) + "-bus"},
+		)
 		require.NoError(t, err)
 	}
 
@@ -540,16 +558,16 @@ func TestCreateEventBus_QuotaIsPerAccount(t *testing.T) {
 	westCtx := regionCtx("us-west-2")
 
 	for i := range 100 {
-		_, err := b.CreateEventBus(eastCtx, strings.Repeat("e", i+1)+"-east", "")
+		_, err := b.CreateEventBus(eastCtx, eventbridge.CreateEventBusParams{Name: strings.Repeat("e", i+1) + "-east"})
 		require.NoError(t, err)
 	}
 	for i := range 100 {
-		_, err := b.CreateEventBus(westCtx, strings.Repeat("w", i+1)+"-west", "")
+		_, err := b.CreateEventBus(westCtx, eventbridge.CreateEventBusParams{Name: strings.Repeat("w", i+1) + "-west"})
 		require.NoError(t, err)
 	}
 
 	// 201st bus in any region must fail — quota is per-account.
-	_, err := b.CreateEventBus(eastCtx, "one-too-many", "")
+	_, err := b.CreateEventBus(eastCtx, eventbridge.CreateEventBusParams{Name: "one-too-many"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, eventbridge.ErrResourceLimitExceeded)
 }
