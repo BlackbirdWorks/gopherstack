@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/xml"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 )
@@ -163,8 +164,11 @@ type getSubnetCidrReservationsResponse struct {
 	XMLName                    xml.Name `xml:"GetSubnetCidrReservationsResponse"`
 	RequestID                  string   `xml:"requestId"`
 	SubnetIpv4CidrReservations struct {
-		Items []subnetCidrReservationItem2 `xml:"item"`
-	} `xml:"subnetIpv4CidrReservations"`
+		Items []subnetCidrReservationItem `xml:"item"`
+	} `xml:"subnetIpv4CidrReservationSet"`
+	SubnetIpv6CidrReservations struct {
+		Items []subnetCidrReservationItem `xml:"item"`
+	} `xml:"subnetIpv6CidrReservationSet"`
 }
 
 type sgForVpcItem struct {
@@ -182,16 +186,22 @@ func (h *Handler) handleGetSubnetCidrReservations(vals url.Values, reqID string)
 
 	resp := &getSubnetCidrReservationsResponse{RequestID: reqID}
 	for _, r := range reservations {
-		resp.SubnetIpv4CidrReservations.Items = append(
-			resp.SubnetIpv4CidrReservations.Items,
-			subnetCidrReservationItem2{
-				SubnetCidrReservationID: r.SubnetCIDRReservationID,
-				SubnetID:                r.SubnetID,
-				Cidr:                    r.CIDR,
-				ReservationType:         r.ReservationType,
-				State:                   r.State,
-			},
-		)
+		item := subnetCidrReservationItem{
+			SubnetCidrReservationID: r.SubnetCIDRReservationID,
+			SubnetID:                r.SubnetID,
+			Cidr:                    r.CIDR,
+			ReservationType:         r.ReservationType,
+			Description:             r.Description,
+			OwnerID:                 r.OwnerID,
+			State:                   r.State,
+		}
+
+		ip, _, parseErr := net.ParseCIDR(r.CIDR)
+		if parseErr == nil && ip.To4() == nil {
+			resp.SubnetIpv6CidrReservations.Items = append(resp.SubnetIpv6CidrReservations.Items, item)
+		} else {
+			resp.SubnetIpv4CidrReservations.Items = append(resp.SubnetIpv4CidrReservations.Items, item)
+		}
 	}
 
 	return resp, nil

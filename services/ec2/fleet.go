@@ -31,18 +31,28 @@ func (b *InMemoryBackend) CreateFleet(fleetType string, totalTargetCapacity int)
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) DeleteFleets(ids []string) []string {
+// FleetDeletionResult mirrors the real DeleteFleetSuccessItem: the state the
+// fleet was in immediately before deletion, alongside its ID. AWS's real
+// shape has no plain fleetState member for this op, only
+// currentFleetState/previousFleetState (types.go, DeleteFleetSuccessItem).
+type FleetDeletionResult struct {
+	FleetID            string
+	PreviousFleetState string
+}
+
+func (b *InMemoryBackend) DeleteFleets(ids []string) []FleetDeletionResult {
 	b.mu.Lock("DeleteFleets")
 	defer b.mu.Unlock()
 
-	var deleted []string
+	var deleted []FleetDeletionResult
 
 	for _, id := range ids {
 		if f, ok := b.fleets.Get(id); ok {
+			prev := f.FleetState
 			f.FleetState = tgwRouteStateDeleted
 			b.fleets.Delete(id)
 			delete(b.tags, id)
-			deleted = append(deleted, id)
+			deleted = append(deleted, FleetDeletionResult{FleetID: id, PreviousFleetState: prev})
 		}
 	}
 

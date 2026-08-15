@@ -428,14 +428,6 @@ type getInstanceTypesFromReqsResponse struct {
 	} `xml:"instanceTypeSet"`
 }
 
-type subnetCidrReservationItem2 struct {
-	SubnetCidrReservationID string `xml:"subnetCidrReservationId"`
-	SubnetID                string `xml:"subnetId"`
-	Cidr                    string `xml:"cidr"`
-	ReservationType         string `xml:"reservationType"`
-	State                   string `xml:"state,omitempty"`
-}
-
 func toInstanceConnectEndpointItem(ep *InstanceConnectEndpoint) instanceConnectEndpointItem {
 	return instanceConnectEndpointItem{
 		InstanceConnectEndpointID: ep.InstanceConnectEndpointID,

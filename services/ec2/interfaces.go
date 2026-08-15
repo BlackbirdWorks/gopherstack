@@ -1538,7 +1538,7 @@ type Backend interface {
 
 	// ---- batch5: EC2 Fleet ----
 	CreateFleet(fleetType string, totalTargetCapacity int) (*Fleet, error)
-	DeleteFleets(ids []string) []string
+	DeleteFleets(ids []string) []FleetDeletionResult
 	DescribeFleets(ids []string) []*Fleet
 	ModifyFleet(id string, totalTargetCapacity int, excessPolicy string) error
 

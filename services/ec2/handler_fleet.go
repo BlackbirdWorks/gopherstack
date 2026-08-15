@@ -15,11 +15,19 @@ type createFleetResponse struct {
 	Instances fleetInstanceItemSet `xml:"fleetInstanceSet"`
 }
 
+// deleteFleetSuccessItem mirrors the real DeleteFleetSuccessItem shape, which
+// has no plain fleetState member -- only currentFleetState/previousFleetState.
+type deleteFleetSuccessItem struct {
+	FleetID            string `xml:"fleetId"`
+	CurrentFleetState  string `xml:"currentFleetState"`
+	PreviousFleetState string `xml:"previousFleetState,omitempty"`
+}
+
 type deleteFleetsResponse struct {
 	XMLName                  xml.Name `xml:"DeleteFleetsResponse"`
 	RequestID                string   `xml:"requestId"`
 	SuccessfulFleetDeletions struct {
-		Items []fleetItem `xml:"item"`
+		Items []deleteFleetSuccessItem `xml:"item"`
 	} `xml:"successfulFleetDeletionSet"`
 	UnsuccessfulFleetDeletions struct {
 		Items []struct{} `xml:"item"`
@@ -80,10 +88,11 @@ func (h *Handler) handleDeleteFleets(vals url.Values, reqID string) (any, error)
 	deleted := h.Backend.DeleteFleets(ids)
 
 	resp := &deleteFleetsResponse{RequestID: reqID}
-	for _, id := range deleted {
-		resp.SuccessfulFleetDeletions.Items = append(resp.SuccessfulFleetDeletions.Items, fleetItem{
-			FleetID:    id,
-			FleetState: "deleted",
+	for _, d := range deleted {
+		resp.SuccessfulFleetDeletions.Items = append(resp.SuccessfulFleetDeletions.Items, deleteFleetSuccessItem{
+			FleetID:            d.FleetID,
+			CurrentFleetState:  tgwRouteStateDeleted,
+			PreviousFleetState: d.PreviousFleetState,
 		})
 	}
 
@@ -126,7 +135,7 @@ func (h *Handler) handleDescribeFleetHistory(_ url.Values, reqID string) (any, e
 		RequestID      string   `xml:"requestId"`
 		HistoryRecords struct {
 			Items []struct{} `xml:"item"`
-		} `xml:"historyRecords"`
+		} `xml:"historyRecordSet"`
 	}
 
 	return &describeFleetHistoryResponse{RequestID: reqID}, nil

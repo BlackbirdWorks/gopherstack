@@ -103,7 +103,7 @@ type describeTrafficMirrorTargetsResponse struct {
 type fleetItem struct {
 	FleetID                         string `xml:"fleetId"`
 	FleetState                      string `xml:"fleetState"`
-	FleetType                       string `xml:"fleetType,omitempty"`
+	FleetType                       string `xml:"type,omitempty"`
 	ExcessCapacityTerminationPolicy string `xml:"excessCapacityTerminationPolicy,omitempty"`
 	TotalTargetCapacity             int    `xml:"targetCapacitySpecification>totalTargetCapacity"`
 }
