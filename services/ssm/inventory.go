@@ -3,6 +3,7 @@ package ssm
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -209,9 +210,13 @@ func (b *InMemoryBackend) ListInventoryEntries(
 
 	var entries []map[string]string
 
+	var captureTime, schemaVersion string
+
 	for _, item := range items {
 		if item.TypeName == input.TypeName {
 			entries = append(entries, item.Content...)
+			captureTime = item.CaptureTime
+			schemaVersion = item.SchemaVersion
 
 			break
 		}
@@ -230,9 +235,11 @@ func (b *InMemoryBackend) ListInventoryEntries(
 
 	if startIdx >= len(entries) {
 		return &ListInventoryEntriesOutput{
-			InstanceID: input.InstanceID,
-			TypeName:   input.TypeName,
-			Entries:    []map[string]string{},
+			InstanceID:    input.InstanceID,
+			TypeName:      input.TypeName,
+			CaptureTime:   captureTime,
+			SchemaVersion: schemaVersion,
+			Entries:       []map[string]string{},
 		}, nil
 	}
 
@@ -247,14 +254,24 @@ func (b *InMemoryBackend) ListInventoryEntries(
 	}
 
 	return &ListInventoryEntriesOutput{
-		InstanceID: input.InstanceID,
-		TypeName:   input.TypeName,
-		NextToken:  nextToken,
-		Entries:    entries[startIdx:end],
+		InstanceID:    input.InstanceID,
+		TypeName:      input.TypeName,
+		NextToken:     nextToken,
+		CaptureTime:   captureTime,
+		SchemaVersion: schemaVersion,
+		Entries:       entries[startIdx:end],
 	}, nil
 }
 
-// DeleteInventory removes all inventory for the given TypeName across all instances.
+// DeleteInventory removes all inventory for the given TypeName across all
+// instances.
+//
+// DryRun (real member, api_op_DeleteInventory.go: "view a summary of the
+// deletion request without deleting any data") previously had no Go struct
+// field at all, so a caller validating a delete before committing to it got
+// a real, irreversible delete instead -- more permissive than AWS, which
+// would delete nothing. Now honored: DryRun computes and returns the same
+// summary without mutating the store or recording a deletion job.
 func (b *InMemoryBackend) DeleteInventory(
 	ctx context.Context,
 	input *DeleteInventoryInput,
@@ -268,20 +285,36 @@ func (b *InMemoryBackend) DeleteInventory(
 	removed := 0
 
 	for instanceID, items := range store {
-		filtered := items[:0]
 		for _, item := range items {
-			if item.TypeName != input.TypeName {
-				filtered = append(filtered, item)
-			} else {
+			if item.TypeName == input.TypeName {
 				removed++
 			}
 		}
 
-		if len(filtered) == 0 {
-			delete(store, instanceID)
-		} else {
-			store[instanceID] = filtered
+		if !input.DryRun {
+			filtered := items[:0]
+			for _, item := range items {
+				if item.TypeName != input.TypeName {
+					filtered = append(filtered, item)
+				}
+			}
+
+			if len(filtered) == 0 {
+				delete(store, instanceID)
+			} else {
+				store[instanceID] = filtered
+			}
 		}
+	}
+
+	summary := &InventoryDeletionSummary{
+		TotalCount:     removed,
+		RemainingCount: 0,
+		SummaryItems:   []any{},
+	}
+
+	if input.DryRun {
+		return &DeleteInventoryOutput{TypeName: input.TypeName, DeletionSummary: summary}, nil
 	}
 
 	cleanupEmptyInnerMap(b.inventory, region)
@@ -294,11 +327,7 @@ func (b *InMemoryBackend) DeleteInventory(
 		LastStatus:        "Complete",
 		LastStatusMessage: "The inventory deletion has completed.",
 		DeletionStartTime: UnixTimeFloat(time.Now()),
-		DeletionSummary: &InventoryDeletionSummary{
-			TotalCount:     removed,
-			RemainingCount: 0,
-			SummaryItems:   []any{},
-		},
+		DeletionSummary:   summary,
 	}
 	b.inventoryDeletions[region] = append(b.inventoryDeletions[region], deletion)
 
@@ -333,30 +362,73 @@ func (b *InMemoryBackend) DescribeInventoryDeletions(
 	}, nil
 }
 
+// validatePutComplianceItemsInput enforces PutComplianceItems' required
+// members (api_op_PutComplianceItems.go): ResourceId, ResourceType,
+// ComplianceType, ExecutionSummary (with its own required ExecutionTime),
+// and each item's Severity/Status (types.ComplianceItemEntry).
+func validatePutComplianceItemsInput(input *PutComplianceItemsInput) error {
+	if input.ResourceID == "" {
+		return fmt.Errorf("%w: ResourceId is required", ErrValidationException)
+	}
+
+	if input.ResourceType == "" {
+		return fmt.Errorf("%w: ResourceType is required", ErrValidationException)
+	}
+
+	if input.ComplianceType == "" {
+		return fmt.Errorf("%w: ComplianceType is required", ErrValidationException)
+	}
+
+	if input.ExecutionSummary == nil {
+		return fmt.Errorf("%w: ExecutionSummary is required", ErrValidationException)
+	}
+
+	if input.ExecutionSummary.ExecutionTime == 0 {
+		return fmt.Errorf("%w: ExecutionSummary.ExecutionTime is required", ErrValidationException)
+	}
+
+	for _, item := range input.Items {
+		if item.Severity == "" {
+			return fmt.Errorf("%w: Items[].Severity is required", ErrValidationException)
+		}
+
+		if item.Status == "" {
+			return fmt.Errorf("%w: Items[].Status is required", ErrValidationException)
+		}
+	}
+
+	return nil
+}
+
 // PutComplianceItems stores compliance items for a resource.
-// It fails if ResourceID is empty AND Items are provided.
+//
+// UploadType (COMPLETE/PARTIAL) is accepted but not evaluated: real AWS's
+// PARTIAL mode only overwrites the items for one association (requiring
+// SyncCompliance=MANUAL) while leaving other associations' compliance data
+// for the same resource untouched. This backend always applies COMPLETE
+// semantics (replaces every item for ResourceId), a real behavioral gap
+// disclosed in PARITY.md rather than rushed -- it needs compliance storage
+// reshaped to key by association, not just ResourceId.
 func (b *InMemoryBackend) PutComplianceItems(
 	ctx context.Context,
 	input *PutComplianceItemsInput,
 ) (*PutComplianceItemsOutput, error) {
-	if input.ResourceID == "" && len(input.Items) > 0 {
-		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidationException)
-	}
-
-	if input.ResourceID == "" {
-		return &PutComplianceItemsOutput{}, nil
+	if err := validatePutComplianceItemsInput(input); err != nil {
+		return nil, err
 	}
 
 	region := getRegion(ctx)
 	b.mu.Lock("PutComplianceItems")
 	defer b.mu.Unlock()
 
-	// Tag each item with ResourceId/ResourceType from the input envelope.
+	// Tag each item with ResourceId/ResourceType/ExecutionSummary from the
+	// input envelope.
 	newItems := make([]ComplianceItem, 0, len(input.Items))
 	for _, item := range input.Items {
 		ci := item
 		ci.ResourceID = input.ResourceID
 		ci.ResourceType = input.ResourceType
+		ci.ExecutionSummary = input.ExecutionSummary
 
 		if ci.ComplianceType == "" {
 			ci.ComplianceType = input.ComplianceType
@@ -386,11 +458,11 @@ func (b *InMemoryBackend) ListComplianceItems(
 
 	for _, items := range b.compliance[region] {
 		for _, item := range items {
-			if input.ResourceID != "" && item.ResourceID != input.ResourceID {
+			if len(input.ResourceIDs) > 0 && !slices.Contains(input.ResourceIDs, item.ResourceID) {
 				continue
 			}
 
-			if input.ResourceType != "" && item.ResourceType != input.ResourceType {
+			if len(input.ResourceTypes) > 0 && !slices.Contains(input.ResourceTypes, item.ResourceType) {
 				continue
 			}
 

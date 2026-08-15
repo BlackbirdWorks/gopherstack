@@ -31,10 +31,19 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 	// body -- Runbooks and SyncSource/SyncType respectively are required and
 	// were previously dropped entirely. See TestChangeRequest
 	// (automations_test.go) and TestResourceDataSync_CRUD (activations_test.go).
+	// DeleteResourcePolicy and PutResourcePolicy are also NOT listed here
+	// (gopherstack-enpq): both now correctly reject an empty body --
+	// ResourceArn/PolicyId/PolicyHash (Delete) and ResourceArn/Policy (Put)
+	// are required and were previously dropped entirely. See
+	// TestResourcePolicies_RequiredFields in resource_policies_test.go.
+	// PutComplianceItems is also NOT listed here (gopherstack-enpq): it now
+	// correctly rejects an empty body -- ResourceId/ResourceType/
+	// ComplianceType/ExecutionSummary (with ExecutionSummary.ExecutionTime)
+	// are all required and were previously dropped entirely. See
+	// TestPutComplianceItems_RequiredFields in inventory_test.go.
 	ops := []string{
 		"CreateResourceDataSync",
 		"DeleteInventory",
-		"DeleteResourcePolicy",
 		"DeregisterManagedInstance",
 		"DescribeActivations",
 		"DescribeAssociationExecutionTargets",
@@ -90,9 +99,7 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"ListOpsMetadata",
 		"ListResourceComplianceSummaries",
 		"ListResourceDataSync",
-		"PutComplianceItems",
 		"PutInventory",
-		"PutResourcePolicy",
 		"RegisterDefaultPatchBaseline",
 		"ResetServiceSetting",
 		"ResumeSession",

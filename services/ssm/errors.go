@@ -33,8 +33,12 @@ var (
 	ErrResourceDataSyncNotFound    = errors.New("ResourceDataSyncNotFoundException")
 	ErrAutomationExecutionNotFound = errors.New("AutomationExecutionNotFoundException")
 	ErrExecutionPreviewNotFound    = errors.New("ExecutionPreviewNotFoundException")
-	ErrResourcePolicyNotFound      = errors.New("ResourcePolicyInvalidRequest")
-	ErrResourceDataSyncExists      = errors.New("ResourceDataSyncAlreadyExistsException")
+	// ErrResourcePolicyNotFound and ErrResourcePolicyConflict are the two real
+	// exceptions declared for PutResourcePolicy/DeleteResourcePolicy
+	// (ssm@v1.73.4 types/errors.go) around a PolicyId/PolicyHash mismatch.
+	ErrResourcePolicyNotFound = errors.New("ResourcePolicyNotFoundException")
+	ErrResourcePolicyConflict = errors.New("ResourcePolicyConflictException")
+	ErrResourceDataSyncExists = errors.New("ResourceDataSyncAlreadyExistsException")
 )
 var (
 	// ErrInventoryNotFound is returned when inventory for a type is not found.
