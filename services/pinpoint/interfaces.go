@@ -25,7 +25,7 @@ type StorageBackend interface {
 	UpdateCampaign(appID, campaignID string, req updateCampaignRequest) (*Campaign, error)
 	DeleteCampaign(appID, campaignID string) (*Campaign, error)
 	GetCampaignActivities(appID, campaignID string) (*campaignActivitiesResponse, error)
-	GetCampaignDateRangeKpi(appID, campaignID, kpiName string) (*kpiResult, error)
+	GetCampaignDateRangeKpi(appID, campaignID, kpiName, startTime, endTime string) (*kpiResult, error)
 	GetCampaignVersion(appID, campaignID string, version int) (*Campaign, error)
 	GetCampaignVersions(appID, campaignID string) ([]*Campaign, error)
 
@@ -71,7 +71,7 @@ type StorageBackend interface {
 	UpdateJourney(appID, journeyID string, req updateJourneyRequest) (*Journey, error)
 	UpdateJourneyState(appID, journeyID, state string) (*Journey, error)
 	DeleteJourney(appID, journeyID string) (*Journey, error)
-	GetJourneyDateRangeKpi(appID, journeyID, kpiName string) (*kpiResult, error)
+	GetJourneyDateRangeKpi(appID, journeyID, kpiName, startTime, endTime string) (*kpiResult, error)
 	GetJourneyExecutionMetrics(appID, journeyID string) (*journeyExecutionMetricsResponse, error)
 	GetJourneyExecutionActivityMetrics(
 		appID, journeyID, activityID string,
@@ -121,7 +121,7 @@ type StorageBackend interface {
 	GetAllChannels(appID string) map[string]*Channel
 
 	// Analytics
-	GetApplicationDateRangeKpi(appID, kpiName string) (*kpiResult, error)
+	GetApplicationDateRangeKpi(appID, kpiName, startTime, endTime string) (*kpiResult, error)
 
 	// Messaging
 	SendMessages(appID string, req sendMessagesRequest) (*messageResponse, error)

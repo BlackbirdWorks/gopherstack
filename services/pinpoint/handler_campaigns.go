@@ -231,7 +231,9 @@ func (h *Handler) handleGetCampaignActivities(c *echo.Context, appID, campaignID
 
 // handleGetCampaignDateRangeKpi handles GET /v1/apps/{appId}/campaigns/{campaignId}/kpis/daterange/{kpiName}.
 func (h *Handler) handleGetCampaignDateRangeKpi(c *echo.Context, appID, campaignID, kpiName string) error {
-	resp, err := h.Backend.GetCampaignDateRangeKpi(appID, campaignID, kpiName)
+	start, end := parseKPIDateRange(c)
+
+	resp, err := h.Backend.GetCampaignDateRangeKpi(appID, campaignID, kpiName, start, end)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())

@@ -46,27 +46,7 @@ func (h *Handler) handleGetApplicationSettings(c *echo.Context, appID string) er
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	resp := appSettingsResponse{
-		ApplicationID:            appID,
-		LastModifiedDate:         settings.LastModifiedDate,
-		CampaignHook:             settings.CampaignHook,
-		Limits:                   settings.Limits,
-		QuietTime:                settings.QuietTime,
-		CloudWatchMetricsEnabled: settings.CloudWatchMetrics,
-		EventTaggingEnabled:      settings.EventTaggingEnabled,
-	}
-
-	if resp.CampaignHook == nil {
-		resp.CampaignHook = map[string]any{}
-	}
-
-	if resp.Limits == nil {
-		resp.Limits = map[string]any{}
-	}
-
-	if resp.QuietTime == nil {
-		resp.QuietTime = map[string]any{}
-	}
+	resp := toAppSettingsResponse(appID, settings)
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
 
@@ -84,6 +64,7 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 		CampaignHook        map[string]any `json:"CampaignHook"`
 		Limits              map[string]any `json:"Limits"`
 		QuietTime           map[string]any `json:"QuietTime"`
+		JourneyLimits       map[string]any `json:"JourneyLimits"`
 		CloudWatchMetrics   bool           `json:"CloudWatchMetricsEnabled"`
 		EventTaggingEnabled bool           `json:"EventTaggingEnabled"`
 	}
@@ -98,6 +79,7 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 		CampaignHook:        incoming.CampaignHook,
 		Limits:              incoming.Limits,
 		QuietTime:           incoming.QuietTime,
+		JourneyLimits:       incoming.JourneyLimits,
 		CloudWatchMetrics:   incoming.CloudWatchMetrics,
 		EventTaggingEnabled: incoming.EventTaggingEnabled,
 	}
@@ -111,12 +93,23 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", updateErr.Error())
 	}
 
+	resp := toAppSettingsResponse(appID, settings)
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+
+	return nil
+}
+
+// toAppSettingsResponse converts stored settings to the wire format, filling
+// CampaignHook/Limits/QuietTime/JourneyLimits with non-nil empty objects.
+func toAppSettingsResponse(appID string, settings *storedAppSettings) appSettingsResponse {
 	resp := appSettingsResponse{
 		ApplicationID:            appID,
 		LastModifiedDate:         settings.LastModifiedDate,
 		CampaignHook:             settings.CampaignHook,
 		Limits:                   settings.Limits,
 		QuietTime:                settings.QuietTime,
+		JourneyLimits:            settings.JourneyLimits,
 		CloudWatchMetricsEnabled: settings.CloudWatchMetrics,
 		EventTaggingEnabled:      settings.EventTaggingEnabled,
 	}
@@ -133,14 +126,18 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 		resp.QuietTime = map[string]any{}
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	if resp.JourneyLimits == nil {
+		resp.JourneyLimits = map[string]any{}
+	}
 
-	return nil
+	return resp
 }
 
 // handleGetApplicationDateRangeKpi handles GET /v1/apps/{appId}/kpis/daterange/{kpiName}.
 func (h *Handler) handleGetApplicationDateRangeKpi(c *echo.Context, appID, kpiName string) error {
-	resp, err := h.Backend.GetApplicationDateRangeKpi(appID, kpiName)
+	start, end := parseKPIDateRange(c)
+
+	resp, err := h.Backend.GetApplicationDateRangeKpi(appID, kpiName, start, end)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())

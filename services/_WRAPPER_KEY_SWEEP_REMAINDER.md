@@ -77,7 +77,7 @@ rather than a range over a literal table:
   member diff there is thorough enough that this issue's own prior notes
   already listed ssm as layer-1 swept).
 
-## Swept (58 of 162) — do not re-sweep without reading the cited work first
+## Swept (59 of 162) — do not re-sweep without reading the cited work first
 
 Every op in these services has had at least one full layer-1 (wrapper key)
 pass; most also have layer-2 (nesting) and layer-3 (backend-tracked-but-
@@ -93,9 +93,10 @@ cloudfrontkeyvaluestore, cloudwatch, codebuild, codecommit, datasync, dlm,
 dynamodbstreams, ec2, ecs, eks, elasticache, elbv2, forecast, glue, iam,
 identitystore, inspector2, iot, iotwireless, kms, lambda, lightsail,
 medialive, mgn, networkmonitor, omics, opensearch, organizations,
-quicksight, rds, redshift, resiliencehub, resourcegroupstaggingapi, route53,
-s3control, s3tables, sagemaker, secretsmanager, servicediscovery, ses,
-sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer.
+**pinpoint** (this session), quicksight, rds, redshift, resiliencehub,
+resourcegroupstaggingapi, route53, s3control, s3tables, sagemaker,
+secretsmanager, servicediscovery, ses, sesv2, sns, sqs, ssm, ssoadmin,
+stepfunctions, transfer.
 
 Two services have real, extensive wire-shape work under **other** issue
 classes (gopherstack-enpq's required-member diff, gopherstack-h910/ctaz's
@@ -103,7 +104,7 @@ backend-logic fixes) but **no 6flj-specific wrapper-key pass on record** —
 s3 and dynamodb. They are listed in the unswept table below on purpose;
 don't assume "heavily worked on" means "settled for this issue."
 
-## Unswept (104 of 162), ranked by List+Describe+Get op count
+## Unswept (103 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -118,11 +119,11 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 104: **1,742** candidate ops.
+Sum of the L+D+G column across all 103 (pinpoint's 53 removed, swept this
+session): **1,689** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| pinpoint | 122 | 4 | 0 | 49 | 53 | chased |
 | cloudwatchlogs | 118 | 11 | 19 | 18 | 48 | chased |
 | securityhub | 116 | 15 | 8 | 24 | 47 | dynamic-fallback |
 | s3 | 115 | 12 | 0 | 33 | 45 | chased |
@@ -332,3 +333,148 @@ confirmed to fail with the exact predicted symptom, then restored and
 diffed byte-identical against the pre-revert file. Gates (build/vet/race/
 `go fix -diff`/golangci-lint 0 issues, no cyclop/gocyclo/gocognit/funlen
 nolints) all green for `services/awsconfig` and `go test -race ./pkgs/...`.
+
+## pinpoint (this session)
+
+Chosen as the largest unswept service in the ranked table (53 L+D+G ops: 4
+List/0 Describe/49 Get) once s3/dynamodb/pinpoint's caveats were accounted
+for. Protocol: restjson1, confirmed at pinpoint@v1.42.4 deserializers.go's
+`awsRestjson1_deserializeOp*` function prefix and its plain `switch key {
+case "Foo":` bodies (no `strings.EqualFold` anywhere in the body-field
+switches — 843 `EqualFold` hits in the file are all header/query-param
+matching, not body deserialization) — case-sensitive, like awsconfig.
+
+**Methodology trap hit and recovered from before any wrong fix landed**:
+every op also has a generated-but-DEAD `awsRestjson1_deserializeOpDocumentX
+Output` function with a `case "XResponse":` wrapper switch. These are never
+called — `HandleDeserialize` for every op in this service instead feeds the
+whole decoded body directly into `awsRestjson1_deserializeDocumentX(&output.X,
+shape)`, bypassing the wrapper. Confirmed by reading `HandleDeserialize`
+itself (not the OpDocument function) for a dozen ops spanning apps,
+campaigns, segments, journeys, templates, channels, endpoints, event
+streams, recommenders, export/import jobs. Net effect: gopherstack's
+existing flat/unwrapped response bodies are already correct — there is no
+service-wide top-level wrapper bug here. **Any future JSON-protocol sweep
+must check the real `HandleDeserialize` body, not grep an
+`OpDocument...Output` function name and assume it's reachable** — this is
+the JSON-protocol analogue of cloudfront's root-tag non-bug from an earlier
+batch.
+
+5 real bugs found and fixed, all layer-2/3 (correct outer shape, wrong
+nesting or missing required members) — every one verified against the
+`awsRestjson1_deserializeDocument<Type>` function actually invoked from the
+op's own `HandleDeserialize`:
+
+1. `GetExportJob`/`GetExportJobs`/`GetImportJob`/`GetImportJobs` (+
+   `GetSegmentExportJobs`/`GetSegmentImportJobs`, sharing the same response
+   type): `ExportJobResponse`/`ImportJobResponse` emitted `RoleArn`/
+   `S3UrlPrefix`/`S3Url`/`Format` flat at the top level; the real shape
+   nests all of it one level under `Definition` (`types.ExportJobResource`/
+   `types.ImportJobResource`, confirmed at deserializers.go's `case
+   "Definition":`) — a real client's typed `.Definition` field was `nil`
+   regardless of what was persisted. Also dropped a fabricated top-level
+   `Arn` field: confirmed absent from both `types.ExportJobResponse`/
+   `types.ImportJobResponse` and their real deserializer case lists.
+2. `GetApplicationDateRangeKpi`/`GetCampaignDateRangeKpi`/
+   `GetJourneyDateRangeKpi`: shared `kpiResult` type never emitted
+   `StartTime`/`EndTime`, both `"This member is required."` on all three
+   real `*DateRangeKpiResponse` types even though the request's
+   `start-time`/`end-time` query params are themselves optional. Fixed by
+   parsing the query params (RFC3339) with a 7-day-trailing default when
+   absent, echoed back always.
+3. `GetJourneyExecutionMetrics`/`GetJourneyExecutionActivityMetrics`/
+   `GetJourneyRunExecutionMetrics`/`GetJourneyRunExecutionActivityMetrics`:
+   all four response types never emitted `LastEvaluatedTime`, `"This member
+   is required."` on every one (pinpoint@v1.42.4 types/types.go). Fixed by
+   populating with the current time at response construction (synthetic —
+   this backend has no real evaluation-cadence concept).
+4. `GetJourneyRuns`: per-item `JourneyRunResponse` never emitted
+   `CreationTime`/`LastUpdateTime`, both required on the real type — a real
+   client's run items had `RunId`/`Status` but nil times. Also dropped
+   `ApplicationId`/`JourneyId` from the per-item JSON tags: confirmed the
+   real `JourneyRunResponse`'s field set is only
+   `CreationTime/LastUpdateTime/RunId/Status` (app/journey identity comes
+   from the URL path, not the item), so these were harmless-but-fabricated
+   extra fields.
+5. `GetApplicationSettings`: `ApplicationSettingsResource` never emitted
+   `JourneyLimits` at all (a real member, `*ApplicationSettingsJourneyLimits`)
+   even though its sibling document-shaped members — `CampaignHook`,
+   `Limits`, `QuietTime` — were already round-tripped correctly. Fixed by
+   adding the same opaque-passthrough-map treatment already used for the
+   other three.
+
+**Request side**: checked as part of finding #1 (export/import job
+`Definition` fields serialize flat on the request side too — confirmed
+correct there via `awsRestjson1_serializeOpHttpBindingsCreateExportJobInput`
++ `awsRestjson1_serializeDocumentExportJobRequest`, so only the response
+needed the nesting fix, not both directions this time).
+
+**Ratifying tests found and fixed**: 2 —
+`TestExportJobFieldsPersisted`/`TestImportJobFieldsPersisted` in
+`export_import_jobs_test.go` were raw-map (`map[string]any`) assertions on
+`resp["RoleArn"]`/`resp["S3UrlPrefix"]`/`resp["Arn"]` at the top level —
+exactly the flat pre-fix shape — plus asserted `resp["Arn"]` as
+`NotEmpty` (the fabricated field). Rewritten as real-SDK-client tests
+(`_RealClient` suffix) asserting through `.Definition.RoleArn` etc., which
+cannot pass against the unfixed flat shape.
+
+**Phantom ops**: none found — every op string returned by
+`GetSupportedOperations`'s per-family helper functions corresponds to a real
+op in pinpoint@v1.42.4's `api_op_*.go` files (spot-checked all 53 L+D+G
+ops plus every Create/Update/Delete counterpart touched by the fixes above).
+
+**False-positive rate**: 0 among reported bugs — every finding cited the
+real `awsRestjson1_deserializeDocument<Type>` function actually reached from
+`HandleDeserialize`, file+line, never a doc comment or the dead
+`OpDocument...Output` function.
+
+**Disclosed, not fixed** (structural/optional-field gaps — each would need
+new backend modeling, not a rename, and none silently drops data the
+backend already tracks):
+- `CampaignResponse` missing `DefaultState`/`Description`/`HoldoutPercent`
+  — not tracked anywhere in the `Campaign` model or its Create/Update
+  request types.
+- `ActivityResponse` (nested in `GetCampaignActivities`'s `Item`) is
+  severely under-modeled — only `ApplicationId`/`CampaignId`/`Id` of 14 real
+  fields are present; `End`/`ExecutionMetrics`/`Result`/`ScheduledStart`/
+  `Start`/`State`/`SuccessfulEndpointCount`/`TimezonesCompletedCount`/
+  `TimezonesTotalCount`/`TotalEndpointCount`/`TreatmentId` would all require
+  simulating campaign execution progress, which this backend doesn't do (one
+  stub activity record is created at campaign creation and never
+  progresses).
+- `JourneyResponse` missing `JourneyChannelSettings`/`SendingSchedule`/
+  `TimezoneEstimationMethods`.
+- `EmailTemplateResponse` missing `Headers` ([]MessageHeader) — not
+  accepted on the request side either.
+- `RecommenderConfigurationResponse` missing
+  `RecommendationsDisplayName`/`RecommendationTransformerUri` — same,
+  absent from the create/update request wire types too.
+- `EventStream` missing `ExternalId`/`LastUpdatedBy`.
+- `Channel` (shared by all 11 channel Get ops + `GetChannels`) missing
+  `Id`/`LastModifiedBy` — both are non-required (deprecated/backward-compat
+  only) real members; skipped rather than fabricate a plausible-looking but
+  unverified value for the deprecated `Id` convention.
+- `ExportJobResource.SegmentId`/`SegmentVersion` — the backend's `ExportJob`
+  model has no slot for these (unlike `ImportJob`, which already tracks
+  `SegmentID` from its generated segment and is wired through correctly).
+
+Tests: 6 real-SDK-client tests
+(`services/pinpoint/export_import_jobs_test.go`'s two `_RealClient` rewrites,
+`services/pinpoint/wire_field_fixes_test.go`'s 4 new tests). Every fix
+hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint), confirmed to fail with the exact predicted
+symptom — either a compile error (`kpiResult.StartTime`/`EndTime` proven
+load-bearing: 6 call sites across 3 backend functions failed to compile
+without them) or a runtime assertion failure quoting the exact empty/nil
+value — then restored and diffed byte-identical against the pre-revert
+file.
+
+Gates: `go build`/`go vet` (scoped to `services/pinpoint` and
+`cmd/opcensus` — a sibling session's in-progress `services/securityhub`
+work left the full-repo build broken with `undefined: keyProcessingResult`,
+confirmed untouched by this session via `git status` and left alone per
+this session's instructions), `go test -race`, `go fix -diff` (no diff),
+`fieldalignment -fix` (one real hit, `exportJobResponse`, auto-fixed),
+golangci-lint (0 issues after that + a `nonamedreturns` fix on the new
+`parseKPIDateRange` helper; no cyclop/gocyclo/gocognit/funlen nolints
+added) all green for `services/pinpoint`. `go test -race ./pkgs/...` green.

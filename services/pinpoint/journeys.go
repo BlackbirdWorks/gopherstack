@@ -232,12 +232,15 @@ func (b *InMemoryBackend) UpdateJourneyState(appID, journeyID, state string) (*J
 	j.LastModifiedDate = nowRFC3339()
 
 	if state == journeyStateActive {
+		runNow := nowRFC3339()
 		runKey := appID + "/" + journeyID
 		b.journeyRuns[runKey] = append(b.journeyRuns[runKey], &journeyRun{
-			RunID:         uuid.NewString(),
-			JourneyID:     journeyID,
-			ApplicationID: appID,
-			Status:        "SCHEDULED",
+			RunID:          uuid.NewString(),
+			JourneyID:      journeyID,
+			ApplicationID:  appID,
+			Status:         "SCHEDULED",
+			CreationTime:   runNow,
+			LastUpdateTime: runNow,
 		})
 	}
 
@@ -262,7 +265,7 @@ func (b *InMemoryBackend) DeleteJourney(appID, journeyID string) (*Journey, erro
 
 // GetJourneyDateRangeKpi returns stub KPI data for a journey.
 func (b *InMemoryBackend) GetJourneyDateRangeKpi(
-	appID, journeyID, kpiName string,
+	appID, journeyID, kpiName, startTime, endTime string,
 ) (*kpiResult, error) {
 	b.mu.RLock("GetJourneyDateRangeKpi")
 	defer b.mu.RUnlock()
@@ -276,6 +279,8 @@ func (b *InMemoryBackend) GetJourneyDateRangeKpi(
 		ApplicationID: appID,
 		JourneyID:     journeyID,
 		KpiName:       kpiName,
+		StartTime:     startTime,
+		EndTime:       endTime,
 		KpiResult:     kpiRows{Rows: []kpiRow{}},
 	}, nil
 }
@@ -301,6 +306,7 @@ func (b *InMemoryBackend) GetJourneyExecutionMetrics(
 		Metrics: map[string]string{
 			"TotalRuns": strconv.Itoa(len(runs)),
 		},
+		LastEvaluatedTime: nowRFC3339(),
 	}, nil
 }
 
@@ -327,6 +333,7 @@ func (b *InMemoryBackend) GetJourneyExecutionActivityMetrics(
 			"TotalRuns":  strconv.Itoa(len(runs)),
 			"ActivityId": activityID,
 		},
+		LastEvaluatedTime: nowRFC3339(),
 	}, nil
 }
 
@@ -370,6 +377,7 @@ func (b *InMemoryBackend) GetJourneyRunExecutionMetrics(
 		Metrics: map[string]string{
 			"RunId": runID,
 		},
+		LastEvaluatedTime: nowRFC3339(),
 	}, nil
 }
 
@@ -394,5 +402,6 @@ func (b *InMemoryBackend) GetJourneyRunExecutionActivityMetrics(
 			"RunId":      runID,
 			"ActivityId": activityID,
 		},
+		LastEvaluatedTime: nowRFC3339(),
 	}, nil
 }

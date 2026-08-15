@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -26,6 +27,11 @@ const (
 
 	templateSubPathParts = 2
 	unknownOperation     = "Unknown"
+
+	// kpiDefaultRangeDays is the trailing window used to synthesise
+	// StartTime/EndTime when a GetXxxDateRangeKpi request omits the
+	// (optional) start-time/end-time query params.
+	kpiDefaultRangeDays = 7
 
 	// sub-path segment constants used throughout dispatch helpers.
 	subPathJobsExport       = "jobs/export"
@@ -592,6 +598,34 @@ func makeNextToken(offset int) *string {
 	tok := base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 
 	return &tok
+}
+
+// parseKPIDateRange parses the start-time/end-time query params shared by
+// GetApplicationDateRangeKpi, GetCampaignDateRangeKpi, and
+// GetJourneyDateRangeKpi (confirmed at pinpoint@v1.42.4 serializers.go's
+// awsRestjson1_serializeOpHttpBindingsGetApplicationDateRangeKpiInput,
+// which sets "start-time"/"end-time" as optional query params). The real
+// *DateRangeKpiResponse types mark StartTime/EndTime as required members
+// regardless, so this always returns a value: the request-supplied range
+// when parseable, else a trailing kpiDefaultRangeDays window ending now.
+func parseKPIDateRange(c *echo.Context) (string, string) {
+	now := time.Now().UTC()
+	startT := now.AddDate(0, 0, -kpiDefaultRangeDays)
+	endT := now
+
+	if v := c.QueryParam("start-time"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			startT = t
+		}
+	}
+
+	if v := c.QueryParam("end-time"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			endT = t
+		}
+	}
+
+	return startT.UTC().Format(time.RFC3339), endT.UTC().Format(time.RFC3339)
 }
 
 // ──────────────────────────────────────────────────

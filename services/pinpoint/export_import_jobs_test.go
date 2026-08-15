@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	pinpointsdk "github.com/aws/aws-sdk-go-v2/service/pinpoint"
+	"github.com/aws/aws-sdk-go-v2/service/pinpoint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -184,46 +187,86 @@ func TestCreateImportJobMissingFormat(t *testing.T) {
 // Job response field persistence
 // ──────────────────────────────────────────────────
 
-func TestExportJobFieldsPersisted(t *testing.T) {
+// TestExportJobFieldsPersisted_RealClient covers gopherstack-6flj: real
+// ExportJobResponse (pinpoint@v1.42.4 types.ExportJobResponse) nests
+// RoleArn/S3UrlPrefix under a Definition member (types.ExportJobResource);
+// there is no top-level Arn member at all. A prior version emitted
+// RoleArn/S3UrlPrefix flat at the top level and fabricated an Arn field --
+// a real client's deserializer would silently drop both, since
+// ExportJobResponse's own field switch has no top-level "RoleArn"/
+// "S3UrlPrefix"/"Arn" cases (only "Definition", confirmed at
+// deserializers.go's awsRestjson1_deserializeDocumentExportJobResponse).
+func TestExportJobFieldsPersisted_RealClient(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
-	appID := createTestApp(t, h, "export-fields-app")
+	client := newTestPinpointClient(t, h)
 
-	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/jobs/export",
-		map[string]any{
-			"RoleArn":     "arn:aws:iam::123:role/my-role",
-			"S3UrlPrefix": "s3://my-bucket/prefix",
-		})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	appOut, err := client.CreateApp(t.Context(), &pinpointsdk.CreateAppInput{
+		CreateApplicationRequest: &types.CreateApplicationRequest{Name: aws.String("export-fields-app")},
+	})
+	require.NoError(t, err)
+	appID := aws.ToString(appOut.ApplicationResponse.Id)
 
-	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-	assert.Equal(t, "arn:aws:iam::123:role/my-role", resp["RoleArn"])
-	assert.Equal(t, "s3://my-bucket/prefix", resp["S3UrlPrefix"])
-	assert.NotEmpty(t, resp["Arn"])
+	out, err := client.CreateExportJob(t.Context(), &pinpointsdk.CreateExportJobInput{
+		ApplicationId: aws.String(appID),
+		ExportJobRequest: &types.ExportJobRequest{
+			RoleArn:     aws.String("arn:aws:iam::123:role/my-role"),
+			S3UrlPrefix: aws.String("s3://my-bucket/prefix"),
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ExportJobResponse.Definition)
+	assert.Equal(t, "arn:aws:iam::123:role/my-role", aws.ToString(out.ExportJobResponse.Definition.RoleArn))
+	assert.Equal(t, "s3://my-bucket/prefix", aws.ToString(out.ExportJobResponse.Definition.S3UrlPrefix))
+
+	getOut, err := client.GetExportJob(t.Context(), &pinpointsdk.GetExportJobInput{
+		ApplicationId: aws.String(appID),
+		JobId:         out.ExportJobResponse.Id,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.ExportJobResponse.Definition)
+	assert.Equal(t, "arn:aws:iam::123:role/my-role", aws.ToString(getOut.ExportJobResponse.Definition.RoleArn))
+	assert.Equal(t, "s3://my-bucket/prefix", aws.ToString(getOut.ExportJobResponse.Definition.S3UrlPrefix))
 }
 
-func TestImportJobFieldsPersisted(t *testing.T) {
+// TestImportJobFieldsPersisted_RealClient is the same nesting bug as
+// TestExportJobFieldsPersisted_RealClient, for ImportJobResponse/
+// types.ImportJobResource.
+func TestImportJobFieldsPersisted_RealClient(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
-	appID := createTestApp(t, h, "import-fields-app")
+	client := newTestPinpointClient(t, h)
 
-	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/jobs/import",
-		map[string]any{
-			"RoleArn": "arn:aws:iam::123:role/my-import-role",
-			"S3Url":   "s3://my-bucket/data.csv",
-			"Format":  "CSV",
-		})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	appOut, err := client.CreateApp(t.Context(), &pinpointsdk.CreateAppInput{
+		CreateApplicationRequest: &types.CreateApplicationRequest{Name: aws.String("import-fields-app")},
+	})
+	require.NoError(t, err)
+	appID := aws.ToString(appOut.ApplicationResponse.Id)
 
-	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-	assert.Equal(t, "arn:aws:iam::123:role/my-import-role", resp["RoleArn"])
-	assert.Equal(t, "s3://my-bucket/data.csv", resp["S3Url"])
-	assert.Equal(t, "CSV", resp["Format"])
-	assert.NotEmpty(t, resp["Arn"])
+	out, err := client.CreateImportJob(t.Context(), &pinpointsdk.CreateImportJobInput{
+		ApplicationId: aws.String(appID),
+		ImportJobRequest: &types.ImportJobRequest{
+			RoleArn: aws.String("arn:aws:iam::123:role/my-import-role"),
+			S3Url:   aws.String("s3://my-bucket/data.csv"),
+			Format:  types.FormatCsv,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ImportJobResponse.Definition)
+	assert.Equal(t, "arn:aws:iam::123:role/my-import-role", aws.ToString(out.ImportJobResponse.Definition.RoleArn))
+	assert.Equal(t, "s3://my-bucket/data.csv", aws.ToString(out.ImportJobResponse.Definition.S3Url))
+	assert.Equal(t, types.FormatCsv, out.ImportJobResponse.Definition.Format)
+
+	getOut, err := client.GetImportJob(t.Context(), &pinpointsdk.GetImportJobInput{
+		ApplicationId: aws.String(appID),
+		JobId:         out.ImportJobResponse.Id,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.ImportJobResponse.Definition)
+	assert.Equal(t, "arn:aws:iam::123:role/my-import-role", aws.ToString(getOut.ImportJobResponse.Definition.RoleArn))
+	assert.Equal(t, "s3://my-bucket/data.csv", aws.ToString(getOut.ImportJobResponse.Definition.S3Url))
 }
 
 // ──────────────────────────────────────────────────

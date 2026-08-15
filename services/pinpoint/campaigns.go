@@ -256,7 +256,7 @@ func (b *InMemoryBackend) DeleteCampaign(appID, campaignID string) (*Campaign, e
 
 // GetCampaignDateRangeKpi returns stub KPI data for a campaign.
 func (b *InMemoryBackend) GetCampaignDateRangeKpi(
-	appID, campaignID, kpiName string,
+	appID, campaignID, kpiName, startTime, endTime string,
 ) (*kpiResult, error) {
 	b.mu.RLock("GetCampaignDateRangeKpi")
 	defer b.mu.RUnlock()
@@ -270,6 +270,8 @@ func (b *InMemoryBackend) GetCampaignDateRangeKpi(
 		ApplicationID: appID,
 		CampaignID:    campaignID,
 		KpiName:       kpiName,
+		StartTime:     startTime,
+		EndTime:       endTime,
 		KpiResult:     kpiRows{Rows: []kpiRow{}},
 	}, nil
 }
