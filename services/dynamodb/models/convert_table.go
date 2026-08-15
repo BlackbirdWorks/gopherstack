@@ -452,6 +452,7 @@ func FromSDKGlobalSecondaryIndexDescriptions(
 	for i, gsi := range gsis {
 		out[i] = GlobalSecondaryIndexDescription{
 			IndexName:   ptrconv.String(gsi.IndexName),
+			IndexArn:    ptrconv.String(gsi.IndexArn),
 			IndexStatus: string(gsi.IndexStatus),
 			KeySchema:   FromSDKKeySchema(gsi.KeySchema),
 			Projection:  FromSDKProjection(gsi.Projection),
@@ -461,7 +462,9 @@ func FromSDKGlobalSecondaryIndexDescriptions(
 					ptrconv.Int64(gsi.ProvisionedThroughput.WriteCapacityUnits),
 				),
 			},
-			ItemCount: int(ptrconv.Int64(gsi.ItemCount)),
+			ItemCount:      int(ptrconv.Int64(gsi.ItemCount)),
+			IndexSizeBytes: ptrconv.Int64(gsi.IndexSizeBytes),
+			Backfilling:    ptrconv.Bool(gsi.Backfilling),
 		}
 	}
 
@@ -478,6 +481,7 @@ func FromSDKLocalSecondaryIndexDescriptions(
 	for i, lsi := range lsis {
 		out[i] = LocalSecondaryIndexDescription{
 			IndexName:      ptrconv.String(lsi.IndexName),
+			IndexArn:       ptrconv.String(lsi.IndexArn),
 			KeySchema:      FromSDKKeySchema(lsi.KeySchema),
 			Projection:     FromSDKProjection(lsi.Projection),
 			IndexSizeBytes: ptrconv.Int64(lsi.IndexSizeBytes),

@@ -635,8 +635,8 @@ func (db *InMemoryDB) RestoreTableFromBackup(
 		TableName: targetTableName, TableStatus: models.TableStatusActive,
 		TableArn: newTable.TableArn, TableID: newTableID,
 		KeySchema: keySchema, AttributeDefinitions: attrDefs,
-		GlobalSecondaryIndexes: buildGSIDescriptions(gsis, int64(len(p.Items))),
-		LocalSecondaryIndexes:  buildLSIDescriptions(lsis),
+		GlobalSecondaryIndexes: buildGSIDescriptions(gsis, int64(len(p.Items)), newTable.TableArn),
+		LocalSecondaryIndexes:  buildLSIDescriptions(lsis, newTable.TableArn),
 		BillingModeSummary:     billingModeSummary(billingMode),
 		ItemCount:              len(p.Items),
 	})
@@ -730,8 +730,9 @@ func (db *InMemoryDB) RestoreTableToPointInTime(
 		GlobalSecondaryIndexes: buildGSIDescriptions(
 			p.GlobalSecondaryIndexes,
 			int64(len(itemsCopy)),
+			newTable.TableArn,
 		),
-		LocalSecondaryIndexes: buildLSIDescriptions(p.LocalSecondaryIndexes),
+		LocalSecondaryIndexes: buildLSIDescriptions(p.LocalSecondaryIndexes, newTable.TableArn),
 		BillingModeSummary:    billingModeSummary(billingMode),
 		ItemCount:             len(itemsCopy),
 	})

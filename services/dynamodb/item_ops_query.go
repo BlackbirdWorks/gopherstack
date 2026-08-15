@@ -63,6 +63,12 @@ func (db *InMemoryDB) QueryWithContext(
 		return nil, err
 	}
 
+	if err := validateProjectionParams(
+		aws.ToString(input.ProjectionExpression), input.AttributesToGet,
+	); err != nil {
+		return nil, err
+	}
+
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
@@ -585,7 +591,7 @@ func (db *InMemoryDB) collectQueryPage(
 	limit := int(aws.ToInt32(input.Limit))
 
 	projector, _ := ParseProjector(
-		aws.ToString(input.ProjectionExpression),
+		resolveProjection(aws.ToString(input.ProjectionExpression), input.AttributesToGet),
 		input.ExpressionAttributeNames,
 	)
 

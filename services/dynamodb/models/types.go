@@ -144,11 +144,14 @@ type GlobalSecondaryIndex struct {
 
 type GlobalSecondaryIndexDescription struct {
 	IndexName             string                           `json:"IndexName"`
+	IndexArn              string                           `json:"IndexArn"`
 	IndexStatus           string                           `json:"IndexStatus"`
 	Projection            Projection                       `json:"Projection"`
 	KeySchema             []KeySchemaElement               `json:"KeySchema"`
 	ProvisionedThroughput ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	ItemCount             int                              `json:"ItemCount"`
+	IndexSizeBytes        int64                            `json:"IndexSizeBytes"`
+	Backfilling           bool                             `json:"Backfilling,omitempty"`
 }
 
 type LocalSecondaryIndex struct {
@@ -159,6 +162,7 @@ type LocalSecondaryIndex struct {
 
 type LocalSecondaryIndexDescription struct {
 	IndexName      string             `json:"IndexName"`
+	IndexArn       string             `json:"IndexArn"`
 	KeySchema      []KeySchemaElement `json:"KeySchema"`
 	Projection     Projection         `json:"Projection"`
 	IndexSizeBytes int64              `json:"IndexSizeBytes"`
@@ -365,16 +369,17 @@ type StreamRecord struct {
 
 type QueryInput struct {
 	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ScanIndexForward          *bool             `json:"ScanIndexForward,omitempty"`
 	ExclusiveStartKey         map[string]any    `json:"ExclusiveStartKey,omitempty"`
-	TableName                 string            `json:"TableName"`
-	IndexName                 string            `json:"IndexName,omitempty"`
+	ScanIndexForward          *bool             `json:"ScanIndexForward,omitempty"`
+	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
 	KeyConditionExpression    string            `json:"KeyConditionExpression"`
-	FilterExpression          string            `json:"FilterExpression,omitempty"`
 	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
 	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
 	Select                    string            `json:"Select,omitempty"`
+	FilterExpression          string            `json:"FilterExpression,omitempty"`
+	IndexName                 string            `json:"IndexName,omitempty"`
+	TableName                 string            `json:"TableName"`
+	AttributesToGet           []string          `json:"AttributesToGet,omitempty"`
 	Limit                     int32             `json:"Limit,omitempty"`
 	ConsistentRead            bool              `json:"ConsistentRead,omitempty"`
 }
@@ -415,18 +420,19 @@ type SearchResultItem struct {
 
 type ScanInput struct {
 	ConsistentRead            *bool             `json:"ConsistentRead,omitempty"`
-	Limit                     *int32            `json:"Limit,omitempty"`
-	Segment                   *int32            `json:"Segment,omitempty"`
-	TotalSegments             *int32            `json:"TotalSegments,omitempty"`
-	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
 	ExclusiveStartKey         map[string]any    `json:"ExclusiveStartKey,omitempty"`
-	TableName                 string            `json:"TableName"`
-	IndexName                 string            `json:"IndexName,omitempty"`
+	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	TotalSegments             *int32            `json:"TotalSegments,omitempty"`
+	Segment                   *int32            `json:"Segment,omitempty"`
+	Limit                     *int32            `json:"Limit,omitempty"`
 	FilterExpression          string            `json:"FilterExpression,omitempty"`
-	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
-	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
 	Select                    string            `json:"Select,omitempty"`
+	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
+	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
+	IndexName                 string            `json:"IndexName,omitempty"`
+	TableName                 string            `json:"TableName"`
+	AttributesToGet           []string          `json:"AttributesToGet,omitempty"`
 }
 
 type ScanOutput struct {
@@ -726,6 +732,7 @@ type BackupSummary struct {
 	TableArn               string  `json:"TableArn,omitempty"`
 	TableID                string  `json:"TableId,omitempty"`
 	BackupCreationDateTime float64 `json:"BackupCreationDateTime"`
+	BackupSizeBytes        int64   `json:"BackupSizeBytes,omitempty"`
 }
 
 // ListBackupsOutput is the wire format for ListBackups response.

@@ -192,6 +192,7 @@ func collectBackupSummaries(
 			TableName:              b.TableName,
 			TableArn:               b.TableArn,
 			TableID:                b.TableID,
+			BackupSizeBytes:        b.SizeBytes,
 		})
 	}
 

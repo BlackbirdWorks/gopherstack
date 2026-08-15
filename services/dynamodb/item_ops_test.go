@@ -385,8 +385,8 @@ func TestItemOps_Scan(t *testing.T) {
 	tests := []struct {
 		setup    func(*dynamodb.InMemoryDB)
 		validate func(*testing.T, any, error)
-		input    models.ScanInput
 		name     string
+		input    models.ScanInput
 	}{
 		{
 			name: "Success",
