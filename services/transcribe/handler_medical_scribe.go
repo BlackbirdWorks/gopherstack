@@ -21,20 +21,19 @@ type medicalScribeOutputLocations struct {
 }
 
 type medicalScribeJobOutput struct {
-	Settings                       *MedicalScribeSettings           `json:"Settings,omitempty"`
-	Media                          *Media                           `json:"Media,omitempty"`
-	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings  `json:"ClinicalNoteGenerationSettings,omitempty"`
-	MedicalScribeOutput            *medicalScribeOutputLocations    `json:"MedicalScribeOutput,omitempty"`
-	Tags                           []transcribeTag                  `json:"Tags,omitempty"`
-	CreationTime                   *float64                         `json:"CreationTime,omitempty"`
-	StartTime                      *float64                         `json:"StartTime,omitempty"`
-	CompletionTime                 *float64                         `json:"CompletionTime,omitempty"`
-	MedicalScribeJobName           string                           `json:"MedicalScribeJobName"`
-	MedicalScribeJobStatus         string                           `json:"MedicalScribeJobStatus"`
-	LanguageCode                   string                           `json:"LanguageCode,omitempty"`
-	DataAccessRoleArn              string                           `json:"DataAccessRoleArn,omitempty"`
-	FailureReason                  string                           `json:"FailureReason,omitempty"`
-	ChannelDefinitions             []MedicalScribeChannelDefinition `json:"ChannelDefinitions,omitempty"`
+	Settings               *MedicalScribeSettings           `json:"Settings,omitempty"`
+	Media                  *Media                           `json:"Media,omitempty"`
+	MedicalScribeOutput    *medicalScribeOutputLocations    `json:"MedicalScribeOutput,omitempty"`
+	Tags                   []transcribeTag                  `json:"Tags,omitempty"`
+	CreationTime           *float64                         `json:"CreationTime,omitempty"`
+	StartTime              *float64                         `json:"StartTime,omitempty"`
+	CompletionTime         *float64                         `json:"CompletionTime,omitempty"`
+	MedicalScribeJobName   string                           `json:"MedicalScribeJobName"`
+	MedicalScribeJobStatus string                           `json:"MedicalScribeJobStatus"`
+	LanguageCode           string                           `json:"LanguageCode,omitempty"`
+	DataAccessRoleArn      string                           `json:"DataAccessRoleArn,omitempty"`
+	FailureReason          string                           `json:"FailureReason,omitempty"`
+	ChannelDefinitions     []MedicalScribeChannelDefinition `json:"ChannelDefinitions,omitempty"`
 }
 
 // buildMedicalScribeOutputLocations synthesizes the S3 result locations for a
@@ -58,16 +57,15 @@ func buildMedicalScribeOutputLocations(job *MedicalScribeJob) *medicalScribeOutp
 
 func buildMedicalScribeJobOutput(job *MedicalScribeJob) *medicalScribeJobOutput {
 	out := &medicalScribeJobOutput{
-		MedicalScribeJobName:           job.MedicalScribeJobName,
-		MedicalScribeJobStatus:         job.MedicalScribeJobStatus,
-		LanguageCode:                   job.LanguageCode,
-		DataAccessRoleArn:              job.DataAccessRoleArn,
-		FailureReason:                  job.FailureReason,
-		Settings:                       job.Settings,
-		ChannelDefinitions:             job.ChannelDefinitions,
-		ClinicalNoteGenerationSettings: job.ClinicalNoteGenerationSettings,
-		Tags:                           tagsFromMap(job.Tags),
-		MedicalScribeOutput:            buildMedicalScribeOutputLocations(job),
+		MedicalScribeJobName:   job.MedicalScribeJobName,
+		MedicalScribeJobStatus: job.MedicalScribeJobStatus,
+		LanguageCode:           job.LanguageCode,
+		DataAccessRoleArn:      job.DataAccessRoleArn,
+		FailureReason:          job.FailureReason,
+		Settings:               job.Settings,
+		ChannelDefinitions:     job.ChannelDefinitions,
+		Tags:                   tagsFromMap(job.Tags),
+		MedicalScribeOutput:    buildMedicalScribeOutputLocations(job),
 	}
 	if !job.CreationTime.IsZero() {
 		s := awstime.Epoch(job.CreationTime)
@@ -110,14 +108,13 @@ func (h *Handler) handleGetMedicalScribeJob(
 // --- StartMedicalScribeJob ---
 
 type startMedicalScribeJobInput struct {
-	Settings                       *MedicalScribeSettings           `json:"Settings"`
-	Media                          Media                            `json:"Media"`
-	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings  `json:"ClinicalNoteGenerationSettings"`
-	Tags                           []transcribeTag                  `json:"Tags"`
-	MedicalScribeJobName           string                           `json:"MedicalScribeJobName"`
-	DataAccessRoleArn              string                           `json:"DataAccessRoleArn"`
-	OutputBucketName               string                           `json:"OutputBucketName"`
-	ChannelDefinitions             []MedicalScribeChannelDefinition `json:"ChannelDefinitions"`
+	Settings             *MedicalScribeSettings           `json:"Settings"`
+	Media                Media                            `json:"Media"`
+	Tags                 []transcribeTag                  `json:"Tags"`
+	MedicalScribeJobName string                           `json:"MedicalScribeJobName"`
+	DataAccessRoleArn    string                           `json:"DataAccessRoleArn"`
+	OutputBucketName     string                           `json:"OutputBucketName"`
+	ChannelDefinitions   []MedicalScribeChannelDefinition `json:"ChannelDefinitions"`
 }
 
 type startMedicalScribeJobOutput struct {
@@ -129,14 +126,13 @@ func (h *Handler) handleStartMedicalScribeJob(
 	in *startMedicalScribeJobInput,
 ) (*startMedicalScribeJobOutput, error) {
 	job, err := h.Backend.StartMedicalScribeJob(&MedicalScribeJob{
-		MedicalScribeJobName:           in.MedicalScribeJobName,
-		Media:                          in.Media,
-		DataAccessRoleArn:              in.DataAccessRoleArn,
-		OutputBucketName:               in.OutputBucketName,
-		ChannelDefinitions:             in.ChannelDefinitions,
-		Settings:                       in.Settings,
-		ClinicalNoteGenerationSettings: in.ClinicalNoteGenerationSettings,
-		Tags:                           tagsToMap(in.Tags),
+		MedicalScribeJobName: in.MedicalScribeJobName,
+		Media:                in.Media,
+		DataAccessRoleArn:    in.DataAccessRoleArn,
+		OutputBucketName:     in.OutputBucketName,
+		ChannelDefinitions:   in.ChannelDefinitions,
+		Settings:             in.Settings,
+		Tags:                 tagsToMap(in.Tags),
 	})
 	if err != nil {
 		return nil, err

@@ -128,16 +128,19 @@ func TestStartMedicalScribeJob_TagsAndClinicalNotes(t *testing.T) {
 
 	h, _ := newHandlerWithBackend(t)
 	rec := doTranscribeRequest(t, h, "StartMedicalScribeJob", map[string]any{
-		"MedicalScribeJobName":           "scribe-clinical-job",
-		"Media":                          map[string]any{"MediaFileUri": "s3://b/f"},
-		"DataAccessRoleArn":              "arn:aws:iam::123456789012:role/ScribeRole",
-		"OutputBucketName":               "scribe-output",
-		"Tags":                           []map[string]string{{"Key": "department", "Value": "cardiology"}},
-		"ClinicalNoteGenerationSettings": map[string]any{"NoteTemplate": "SOAP"},
+		"MedicalScribeJobName": "scribe-clinical-job",
+		"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
+		"DataAccessRoleArn":    "arn:aws:iam::123456789012:role/ScribeRole",
+		"OutputBucketName":     "scribe-output",
+		"Tags":                 []map[string]string{{"Key": "department", "Value": "cardiology"}},
+		"Settings": map[string]any{
+			"ClinicalNoteGenerationSettings": map[string]any{"NoteTemplate": "SOAP"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
 	assert.Contains(t, body, "scribe-clinical-job")
+	assert.Contains(t, body, `"NoteTemplate":"SOAP"`)
 }
 
 func TestHTTP_ListMedicalScribeJobs(t *testing.T) {

@@ -8273,3 +8273,153 @@ remain.** Per the ranked table, the next tier starts at 19 L+D+G
 (`transcribe`, `mediatailor`); re-run `go run ./cmd/opcensus` and re-check
 `git status` before picking, as usual -- siblings have appeared mid-session
 on every pass today.
+
+## transcribe (this session, 2026-08-15)
+
+Picked `transcribe` (19 L+D+G ops) over its tied sibling `mediatailor` (also
+19) purely on **occupancy**: `git status` at pickup already showed
+`mediatailor/{functions.go,handler_functions.go,interfaces.go}` modified by a
+live sibling, and a re-check mid-session caught a brand-new untracked
+`mediatailor/wire_field_fixes_test.go` appear between two `git status` calls
+-- unambiguous proof of an active concurrent session there, not stale
+leftovers. **Occupancy overrode surface**: by handler-family-file count
+`mediatailor` (12 families: alerts, channel_policy, channels, functions,
+live_sources, logs, playback_configurations, prefetch_schedules, programs,
+source_locations, tags, vod_sources) is actually wider than `transcribe` (9:
+call_analytics, language_models, medical_scribe, medical_transcription_jobs,
+medical_vocabularies, tags, transcription_jobs, vocabularies,
+vocabulary_filters), so surface-first would have picked `mediatailor` had it
+been free.
+
+Confirmed the tier ranking independently rather than trusting this file's own
+header text (which is stale relative to the last several sessions' own
+closing notes): cross-referenced `go run ./cmd/opcensus`'s fresh output
+against the union of every service this file's per-session sections have
+since reported swept (including ones never added to the top alphabetical
+`## Swept` list, e.g. `ecr`/`neptune`/`directconnect`/`dynamodb`/`xray`,
+`cloudtrail`/`directoryservice`/`opsworks` mentioned only in the header
+prose) -- confirms `transcribe`/`mediatailor` at 19 are genuinely the next
+tier, matching the prior session's own closing note.
+
+**Scripted key-set extraction**: yes -- a Python script pulled every
+`awsAwsjson11_deserializeOpDocument<Op>Output` function body's `case "..."`
+keys, and every reachable nested-type deserializer's keys, directly out of
+`transcribe@v1.58.4/deserializers.go` via regex over the function bodies
+(not hand-transcribed), for all 19 L+D+G ops plus ~30 nested/shared types.
+
+**Go-kind check**: ran on every scalar/collection/nested field diffed this
+pass; no array-vs-map, flat-vs-nested-collection, or `[]byte`-vs-struct
+mismatches found among the 19 ops' top-level wrappers. One genuine
+flat-vs-nested-object bug was found one level down (see below) -- caught by
+comparing which *level* of the object graph a correctly-spelled key lived at,
+not its collection kind.
+
+**Real bugs found and fixed (4, all layer-2/never-modelled, not wrapper-key
+misnaming -- all 19 ops' top-level wrapper keys were already correct):**
+
+1. `VocabularyInfo.LastModifiedTime` missing from `ListVocabularies` and
+   `ListMedicalVocabularies` (shared real item type, both siblings had the
+   same gap -- fixed both).
+2. `CallAnalyticsSettings.LanguageIdSettings` never modeled at all (zero grep
+   hits; distinct from the already-fixed `TranscriptionJob`-level field of the
+   same name) -- affects `StartCallAnalyticsJob`/`GetCallAnalyticsJob` (shared
+   `Settings` pointer passed by reference both directions).
+3. All four Call Analytics rule filter types (`NonTalkTimeFilter`/
+   `InterruptionFilter`/`TranscriptFilter`/`SentimentFilter`) missing
+   `AbsoluteTimeRange`/`RelativeTimeRange` sub-parameters entirely --
+   `CreateCallAnalyticsCategory`/`UpdateCallAnalyticsCategory`/
+   `GetCallAnalyticsCategory`/`ListCallAnalyticsCategories` all affected
+   (`CallAnalyticsRule` reused directly as the wire type both directions).
+4. **Flagship find**: `ClinicalNoteGenerationSettings` wire-tagged at the TOP
+   LEVEL of `StartMedicalScribeJobInput`/`MedicalScribeJob` response, but the
+   real SDK has NO top-level member of that name at all -- it exists only
+   nested under `Settings` (`types.MedicalScribeSettings.
+   ClinicalNoteGenerationSettings`). Confirmed the real deserializer's
+   `default: _, _ = key, value` case silently skips unrecognized top-level
+   keys rather than erroring, so this was a true silent-empty bug in both
+   directions, invisible to any test that only checked the response body
+   *contained* the string "ClinicalNoteGenerationSettings" (one existing test
+   did exactly that, at the wrong nesting level -- fixed alongside the code).
+   This is the exact "nested shape emitted flat" trap this issue calls out as
+   hardest to find: the key name was spelled correctly, so a names-only diff
+   would have missed it; only comparing which level of the object graph
+   carried it caught it.
+
+**Shared converters, each checked against its own real type**: `Models`
+(ListLanguageModels item) confirmed to reuse the full `LanguageModel`
+deserializer, matching gopherstack's reuse of `languageModelOutput` for both
+Describe and List -- genuinely symmetric, not a trap. `CategoryPropertiesList`
+(ListCallAnalyticsCategories item) confirmed to reuse the full
+`CategoryProperties` deserializer too, matching gopherstack's reuse of
+`callAnalyticsCategoryProperties` across Create/Get/Update/List -- also
+genuinely symmetric. `VocabularyFilterInfo` (ListVocabularyFilters item, 3
+fields, no `DownloadUri`) vs `GetVocabularyFilterOutput` (4 fields, adds
+`DownloadUri`) confirmed as a **real, intentional asymmetry** matching AWS's
+own shapes -- gopherstack's separate `vocabularyFilterOutput`/
+`getVocabularyFilterOutput` types already modeled this correctly, verified
+per-op rather than assumed.
+
+**Never-modelled members, disclosed not fabricated** (both already recorded
+in `PARITY.md`'s `gaps:` from a prior pass, re-confirmed unchanged this
+pass): `CallAnalyticsJobDetails`/`Skipped` (no backend concept of skipped
+analytics features, zero data source to populate it truthfully) and
+`MedicalScribeContext`/`MedicalScribeContextProvided` (a whole unmodeled
+patient-context input feature -- safe superset, not client-breaking, same
+category as xray's Sampling/SamplingStrategy no-op).
+
+**Over-modeled, disclosed**: gopherstack's `NonTalkTimeFilter.ParticipantRole`
+is an extra field the real `types.NonTalkTimeFilter` does not have (its three
+siblings genuinely do carry `ParticipantRole`) -- harmless, unreachable by a
+real client, left in place rather than risk breaking
+`TestCreateCallAnalyticsCategory_Rules` for a cosmetic removal.
+
+**Structurally immune**: router is flat `X-Amz-Target: Transcribe.<Op>`
+prefix dispatch (JSON-RPC-style, not path-segment), confirmed immune to the
+route-matcher bug class. Protocol is `awsjson1.1` (JSON body), confirmed
+case-sensitive key decode (zero `EqualFold` calls anywhere in the service,
+matching the protocol) and no second SDK client bridge (only
+`validation.go` imports the real SDK, for enum-value references, not a live
+client).
+
+**Phantom-op check**: all 43 of `allSupportedOps()`'s entries diffed 1:1
+against `ls api_op_*.go` in the pinned SDK module cache -- exact match, zero
+phantom ops, zero missing ops.
+
+**SDK pinned**: `transcribe@v1.58.4` (`go.mod`, no drift). Real-client test
+ratio before this pass: roughly 8/43 ops previously exercised through a real
+`aws-sdk-go-v2` client (a prior g8k9 pass's `wire_field_fixes_g8k9_test.go`);
+the rest were `httptest`/raw-body only. Added 5 new router-inclusive
+real-client tests this pass (`wire_field_fixes_test.go`).
+
+**Tests**: all 4 fixes hand-reverted individually (models.go/
+handler_medical_scribe.go edited back to the pre-fix shape byte-for-byte,
+verified via post-restore `git diff` index-hash comparison against a saved
+pre-revert snapshot -- this session's hard constraint bans even
+`git checkout --`), each confirmed to fail with the exact predicted symptom
+(a nil/missing round-tripped value -- awsjson1.1 tolerates unknown fields, so
+none of these ever produced a decode error, only silent data loss), then
+restored and re-verified passing before moving to the next.
+
+**Gates**: scoped `go build`, full `go build ./...` (no interface signature
+changed, so this was a belt-and-braces check, not a required one), `go vet`,
+`go test -race` for `services/transcribe/...` and `pkgs/...`, `go fix -diff`
+(clean, no diff), `golangci-lint run ./services/transcribe/...` (0 issues,
+including `fieldalignment` via the enabled govet analyzer -- no
+`//nolint:cyclop/gocyclo/gocognit/funlen` added, grep-confirmed 0). No
+subagents used. No git-mutating commands run -- orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/transcribe/*` and this remainder file touched throughout (the
+`mediatailor` sibling, confirmed live both at pickup and mid-session, was
+never read or touched here).
+
+`transcribe`'s List/Describe/Get families are now fully swept for this issue
+(19/19 ops layer-1/2/3 clean; 4 real bugs found and fixed, all never-modelled
+members rather than wrapper-key misnaming -- 1 flagship flat-vs-nested-object
+bug affecting Medical Scribe clinical note settings in both directions; 2
+pre-existing disclosed gaps re-confirmed unchanged; 1 harmless over-modeled
+field disclosed; no real-data leak found). **94 of 162 services swept, 68
+remain.** Per the ranked table, `mediatailor` (19 L+D+G) is the only
+service left at this tier -- once its live sibling session ends, the next
+tier below starts around `memorydb`/`codedeploy`/`accessanalyzer` (18 each,
+all still unswept per this file); re-run `go run ./cmd/opcensus` and
+re-check `git status` before picking, as usual.

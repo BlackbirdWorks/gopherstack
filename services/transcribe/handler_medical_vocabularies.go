@@ -158,9 +158,10 @@ type listMedicalVocabulariesInput struct {
 }
 
 type medicalVocabularySummary struct {
-	VocabularyName  string `json:"VocabularyName"`
-	LanguageCode    string `json:"LanguageCode"`
-	VocabularyState string `json:"VocabularyState"`
+	LastModifiedTime *float64 `json:"LastModifiedTime,omitempty"`
+	VocabularyName   string   `json:"VocabularyName"`
+	LanguageCode     string   `json:"LanguageCode"`
+	VocabularyState  string   `json:"VocabularyState"`
 }
 
 type listMedicalVocabulariesOutput struct {
@@ -177,11 +178,17 @@ func (h *Handler) handleListMedicalVocabularies(
 
 	result := make([]medicalVocabularySummary, 0, len(vocabs))
 	for _, v := range vocabs {
-		result = append(result, medicalVocabularySummary{
+		s := medicalVocabularySummary{
 			VocabularyName:  v.VocabularyName,
 			LanguageCode:    v.LanguageCode,
 			VocabularyState: v.VocabularyState,
-		})
+		}
+		if !v.LastModifiedTime.IsZero() {
+			t := awstime.Epoch(v.LastModifiedTime)
+			s.LastModifiedTime = &t
+		}
+
+		result = append(result, s)
 	}
 
 	return &listMedicalVocabulariesOutput{
