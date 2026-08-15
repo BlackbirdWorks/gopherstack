@@ -43,7 +43,7 @@ func TestResourceProfiles(t *testing.T) {
 				var updated map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
 				assert.EqualValues(t, 75, updated["sensitivityScore"])
-				assert.True(t, updated["sensitivityScoreOverride"].(bool))
+				assert.True(t, updated["sensitivityScoreOverridden"].(bool))
 			},
 		},
 		{

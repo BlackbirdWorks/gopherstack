@@ -99,18 +99,19 @@ func (b *InMemoryBackend) GetBucketStatistics(_ string) (map[string]any, error) 
 	buckets := b.s3Buckets.All()
 	bucketCount := int64(len(buckets))
 
-	var classifiableBucketCount int64
+	var classifiableObjectCount int64
 	var classifiableSizeInBytes int64
+	var objectCount int64
+	var sizeInBytes int64
 
 	permCounts := map[string]int64{"PUBLIC": 0, "NOT_PUBLIC": 0, "UNKNOWN": 0}
 	encCounts := map[string]int64{"AES256": 0, "aws:kms": 0, "NONE": 0}
 
 	for _, bkt := range buckets {
-		if bkt.ClassifiableObjectCount > 0 {
-			classifiableBucketCount++
-		}
-
+		classifiableObjectCount += bkt.ClassifiableObjectCount
 		classifiableSizeInBytes += bkt.ClassifiableSizeInBytes
+		objectCount += bkt.ObjectCount
+		sizeInBytes += bkt.SizeInBytes
 
 		switch bkt.PublicAccess {
 		case "PUBLIC":
@@ -137,8 +138,10 @@ func (b *InMemoryBackend) GetBucketStatistics(_ string) (map[string]any, error) 
 		"bucketCountByEncryptionType":              encCounts,
 		"bucketCountByObjectEncryptionRequirement": map[string]any{},
 		"bucketCountBySharedAccessType":            map[string]any{},
-		"classifiableBucketCount":                  classifiableBucketCount,
+		"classifiableObjectCount":                  classifiableObjectCount,
 		"classifiableSizeInBytes":                  classifiableSizeInBytes,
+		"objectCount":                              objectCount,
+		"sizeInBytes":                              sizeInBytes,
 		"unclassifiableObjectCount":                map[string]any{},
 		"unclassifiableObjectSizeInBytes":          map[string]any{},
 	}, nil

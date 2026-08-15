@@ -25,13 +25,13 @@ func (b *InMemoryBackend) UpdateResourceProfile(resourceARN string, sensitivityS
 
 	if p, ok := b.resourceProfiles.Get(resourceARN); ok {
 		p.SensitivityScore = sensitivityScore
-		p.SensitivityScoreOverride = true
+		p.SensitivityScoreOverridden = true
 	} else {
 		b.resourceProfiles.Put(&ResourceProfile{
-			ResourceArn:              resourceARN,
-			SensitivityScore:         sensitivityScore,
-			SensitivityScoreOverride: true,
-			Statistics:               &ResourceStatistics{},
+			ResourceArn:                resourceARN,
+			SensitivityScore:           sensitivityScore,
+			SensitivityScoreOverridden: true,
+			Statistics:                 &ResourceStatistics{},
 		})
 	}
 

@@ -471,8 +471,10 @@ func TestBuckets_GetBucketStatistics_Empty(t *testing.T) {
 	stats := getBucketStatistics(t, h)
 
 	assert.InDelta(t, float64(0), stats["bucketCount"], 1e-9)
-	assert.InDelta(t, float64(0), stats["classifiableBucketCount"], 1e-9)
+	assert.InDelta(t, float64(0), stats["classifiableObjectCount"], 1e-9)
 	assert.InDelta(t, float64(0), stats["classifiableSizeInBytes"], 1e-9)
+	assert.InDelta(t, float64(0), stats["objectCount"], 1e-9)
+	assert.InDelta(t, float64(0), stats["sizeInBytes"], 1e-9)
 }
 
 // --- GetBucketStatistics: aggregation ---
@@ -481,11 +483,11 @@ func TestBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                 string
-		buckets              []macie2.S3BucketMetadata
-		wantBucketCount      float64
-		wantClassifiable     float64
-		wantClassifiableSize float64
+		name                    string
+		buckets                 []macie2.S3BucketMetadata
+		wantBucketCount         float64
+		wantClassifiableObjects float64
+		wantClassifiableSize    float64
 	}{
 		{
 			name: "all_classifiable",
@@ -493,9 +495,9 @@ func TestBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
 				makeBucket("b1", "us-east-1", "NOT_PUBLIC", "AES256", 10, 1000),
 				makeBucket("b2", "us-east-1", "NOT_PUBLIC", "AES256", 20, 2000),
 			},
-			wantBucketCount:      2,
-			wantClassifiable:     2,
-			wantClassifiableSize: 3000,
+			wantBucketCount:         2,
+			wantClassifiableObjects: 30,
+			wantClassifiableSize:    3000,
 		},
 		{
 			name: "mixed_classifiable",
@@ -504,9 +506,9 @@ func TestBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
 				makeBucket("c2", "us-east-1", "NOT_PUBLIC", "AES256", 0, 0),
 				makeBucket("c3", "us-east-1", "PUBLIC", "AES256", 15, 1500),
 			},
-			wantBucketCount:      3,
-			wantClassifiable:     2,
-			wantClassifiableSize: 2000,
+			wantBucketCount:         3,
+			wantClassifiableObjects: 20,
+			wantClassifiableSize:    2000,
 		},
 		{
 			name: "none_classifiable",
@@ -514,9 +516,9 @@ func TestBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
 				makeBucket("d1", "us-east-1", "NOT_PUBLIC", "AES256", 0, 0),
 				makeBucket("d2", "us-east-1", "NOT_PUBLIC", "AES256", 0, 0),
 			},
-			wantBucketCount:      2,
-			wantClassifiable:     0,
-			wantClassifiableSize: 0,
+			wantBucketCount:         2,
+			wantClassifiableObjects: 0,
+			wantClassifiableSize:    0,
 		},
 	}
 
@@ -532,7 +534,7 @@ func TestBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
 
 			stats := getBucketStatistics(t, h)
 			assert.InDelta(t, tc.wantBucketCount, stats["bucketCount"], 1e-9)
-			assert.InDelta(t, tc.wantClassifiable, stats["classifiableBucketCount"], 1e-9)
+			assert.InDelta(t, tc.wantClassifiableObjects, stats["classifiableObjectCount"], 1e-9)
 			assert.InDelta(t, tc.wantClassifiableSize, stats["classifiableSizeInBytes"], 1e-9)
 		})
 	}
@@ -659,8 +661,10 @@ func TestBuckets_GetBucketStatistics_Mixed(t *testing.T) {
 	stats := getBucketStatistics(t, h)
 
 	assert.InDelta(t, float64(4), stats["bucketCount"], 1e-9)
-	assert.InDelta(t, float64(3), stats["classifiableBucketCount"], 1e-9)
+	assert.InDelta(t, float64(35), stats["classifiableObjectCount"], 1e-9)
 	assert.InDelta(t, float64(3500), stats["classifiableSizeInBytes"], 1e-9)
+	assert.InDelta(t, float64(35), stats["objectCount"], 1e-9)
+	assert.InDelta(t, float64(3500), stats["sizeInBytes"], 1e-9)
 
 	permCounts := stats["bucketCountByEffectivePermission"].(map[string]any)
 	assert.InDelta(t, float64(2), permCounts["PUBLIC"], 1e-9)
@@ -754,8 +758,10 @@ func TestBuckets_StatisticsResponseStructure(t *testing.T) {
 	stats := getBucketStatistics(t, h)
 
 	assert.Contains(t, stats, "bucketCount")
-	assert.Contains(t, stats, "classifiableBucketCount")
+	assert.Contains(t, stats, "classifiableObjectCount")
 	assert.Contains(t, stats, "classifiableSizeInBytes")
+	assert.Contains(t, stats, "objectCount")
+	assert.Contains(t, stats, "sizeInBytes")
 	assert.Contains(t, stats, "bucketCountByEffectivePermission")
 	assert.Contains(t, stats, "bucketCountByEncryptionType")
 	assert.Contains(t, stats, "bucketCountByObjectEncryptionRequirement")

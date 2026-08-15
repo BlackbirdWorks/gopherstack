@@ -397,24 +397,28 @@ type SecurityHubConfig struct {
 
 // ResourceProfile holds sensitivity profile data for a bucket.
 type ResourceProfile struct {
-	Statistics               *ResourceStatistics `json:"statistics,omitempty"`
-	ResourceArn              string              `json:"resourceArn"`
-	SensitivityScore         int32               `json:"sensitivityScore"`
-	SensitivityScoreOverride bool                `json:"sensitivityScoreOverride"`
+	Statistics                 *ResourceStatistics `json:"statistics,omitempty"`
+	ResourceArn                string              `json:"resourceArn"`
+	SensitivityScore           int32               `json:"sensitivityScore"`
+	SensitivityScoreOverridden bool                `json:"sensitivityScoreOverridden"`
 }
 
-// ResourceStatistics holds classification result counts for a bucket.
+// ResourceStatistics holds classification result counts for a bucket. Real
+// GetResourceProfileOutput.Statistics never round-trips a set value in this
+// backend (nothing populates it beyond the zero-value struct on read), so
+// these key names are unverifiable by a real-client test -- fixed to match
+// deserializers.go's ResourceStatistics EqualFold list, disclosed untested.
 type ResourceStatistics struct {
 	LastRunErroredAt                   *time.Time `json:"lastRunErroredAt,omitempty"`
 	LastRunAt                          *time.Time `json:"lastRunAt,omitempty"`
 	TotalBytesClassified               int64      `json:"totalBytesClassified"`
 	TotalDetections                    int64      `json:"totalDetections"`
-	TotalDetectionsWithoutSuppression  int64      `json:"totalDetectionsWithoutSuppression"`
+	TotalDetectionsSuppressed          int64      `json:"totalDetectionsSuppressed"`
 	TotalItemsClassified               int64      `json:"totalItemsClassified"`
 	TotalItemsSkipped                  int64      `json:"totalItemsSkipped"`
 	TotalItemsSkippedInvalidEncryption int64      `json:"totalItemsSkippedInvalidEncryption"`
 	TotalItemsSkippedInvalidKms        int64      `json:"totalItemsSkippedInvalidKms"`
-	TotalItemsSkippedPermissionError   int64      `json:"totalItemsSkippedPermissionError"`
+	TotalItemsSkippedPermissionDenied  int64      `json:"totalItemsSkippedPermissionDenied"`
 }
 
 // ResourceProfileArtifact is a single artifact in a resource profile.

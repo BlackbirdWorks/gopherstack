@@ -1,7 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**63 of 162 services swept, 99 remain** (securityhub added this session —
-see its own section near the end of this file for full detail).
+**64 of 162 services swept, 98 remain** (macie2 added this session — see
+its own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -80,7 +80,7 @@ rather than a range over a literal table:
   member diff there is thorough enough that this issue's own prior notes
   already listed ssm as layer-1 swept).
 
-## Swept (63 of 162) — do not re-sweep without reading the cited work first
+## Swept (64 of 162) — do not re-sweep without reading the cited work first
 
 Every op in these services has had at least one full layer-1 (wrapper key)
 pass; most also have layer-2 (nesting) and layer-3 (backend-tracked-but-
@@ -95,11 +95,11 @@ bedrockagent, cleanrooms, cloudformation, cloudfront,
 cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
 datasync, dlm, dynamodbstreams, ec2, ecs, eks, elasticache, elbv2, forecast,
 glue, guardduty, iam, identitystore, inspector2, iot,
-iotwireless, kms, lambda, lightsail, medialive, mgn, **networkmanager**
-(this session), networkmonitor, omics,
+iotwireless, kms, lambda, lightsail, **macie2** (this session), medialive,
+mgn, networkmanager, networkmonitor, omics,
 opensearch, organizations, pinpoint, quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3control, s3tables,
-sagemaker, secretsmanager, **securityhub** (this session), servicediscovery,
+sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer.
 
 Two services have real, extensive wire-shape work under **other** issue
@@ -108,7 +108,7 @@ backend-logic fixes) but **no 6flj-specific wrapper-key pass on record** —
 s3 and dynamodb. They are listed in the unswept table below on purpose;
 don't assume "heavily worked on" means "settled for this issue."
 
-## Unswept (99 of 162), ranked by List+Describe+Get op count
+## Unswept (98 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -123,13 +123,13 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 99 (networkmanager's 38 and securityhub's
-47 removed, both swept prior to/this session): **1,516** candidate ops.
+Sum of the L+D+G column across all 98 (networkmanager's 38, securityhub's
+47, and macie2's 40 removed, all swept prior to/this session): **1,476**
+candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
 | s3 | 115 | 12 | 0 | 33 | 45 | chased |
-| macie2 | 81 | 15 | 3 | 22 | 40 | direct |
 | personalize | 77 | 18 | 18 | 3 | 39 | dynamic-fallback |
 | cognitoidp | 129 | 14 | 10 | 13 | 37 | chased |
 | apigatewayv2 | 103 | 5 | 0 | 32 | 37 | direct |
@@ -1410,3 +1410,137 @@ settling in one session; macie2 (40) or personalize (39, may come back
 mostly clean per gopherstack-sm02) are the next candidates, but re-check
 `git status` before picking either given this session's own experience of
 two different sibling sessions touching unrelated services mid-flight.
+
+## macie2 (this session)
+
+Chosen as the largest genuinely-unswept service once s3 (flagged as needing
+its own dedicated session) and personalize (its systemic List-vs-Get leak
+already fixed under gopherstack-sm02, a different issue but the same bug
+class, making a from-scratch 6flj pass on it likely low-yield) were set
+aside. macie2: 40 L+D+G ops (15 List, 3 Describe, 22 Get), `direct`
+resolution. `git status` showed a live sibling RouteMatcher sweep
+(`cmd/routecollisions/`, `services/apigateway/handler.go`) and separate
+in-progress `services/appconfigdata/`/`services/inspector2/` changes;
+`services/macie2` itself was untouched, confirmed again at the end.
+
+Protocol: restjson1, case-sensitive — confirmed via the sole
+`awsRestjson1_` deserializer function prefix in
+`macie2@v1.54.4/deserializers.go` and a check that all 503 `EqualFold` hits
+in that file are `errorCode` header/query matching, none in a body-field
+switch. Dead-deserializer trap checked and does NOT apply:
+`HandleDeserialize` calls `awsRestjson1_deserializeOpDocument<Op>Output`
+directly for every op spot-checked (e.g. `ListFindings`,
+`GetBucketStatistics`) — no generated-but-unreachable wrapper layer exists
+in this service's codegen.
+
+Full layer-1+2 sweep of all 40 L+D+G ops plus every Create/Update op sharing
+a response or request type with one of them (roughly 60 ops read against
+the real deserializer/serializer, one at a time — no shared converter
+function spans enough ops here to make a service-wide sweep faster than
+per-op reads).
+
+**2 real bugs found and fixed**, both the same variant this campaign calls
+"a value the backend already holds that never reaches the wire, under a key
+name no real client's field would ever match" — not missing wrapper keys,
+but wrong scalar key names one level in:
+
+1. `GetBucketStatistics`: `classifiableBucketCount` does not exist on the
+   real `GetBucketStatisticsOutput` at all — real key is
+   `classifiableObjectCount`, and it's a summed *object* count across
+   buckets, not a count of buckets that have any classifiable objects (the
+   pre-fix value was semantically a different number even before the key
+   mismatch). Also added `objectCount`/`sizeInBytes`, real aggregate fields
+   that were missing entirely despite the backend already tracking both
+   per-bucket (`S3BucketMetadata.ObjectCount`/`SizeInBytes`, already
+   correctly emitted by the per-item `DescribeBuckets` shape) and simply
+   never being summed for the aggregate op. `lastUpdated`/
+   `sizeInBytesCompressed`/`bucketStatisticsBySensitivity` remain disclosed,
+   not fixed — no compression or sensitivity-scan tracking exists in this
+   backend to source them from.
+2. `GetResourceProfile`: `sensitivityScoreOverride` does not exist on the
+   real `GetResourceProfileOutput` — real key is `sensitivityScoreOverridden`
+   (past participle). `UpdateResourceProfile` genuinely sets this flag in
+   the backend, so a real client's `SensitivityScoreOverridden` was always
+   false regardless of whether an override had been applied. Also renamed
+   two `ResourceStatistics` fields to match the real deserializer
+   (`totalDetectionsWithoutSuppression`→`totalDetectionsSuppressed`,
+   `totalItemsSkippedPermissionError`→`totalItemsSkippedPermissionDenied`)
+   — `ResourceStatistics` is always the zero-value struct in this backend
+   (nothing populates real numbers into it), so this half of the fix is
+   disclosed as untested rather than given a hollow test, per this issue's
+   own guidance.
+
+**Sibling-trap check, reported clean**: `GetAdministratorAccount`/
+`GetMasterAccount` both wrap the real shared `Invitation` type, whose
+`relationshipStatus` field name genuinely IS correct for macie2 — confirmed
+against `deserializers.go`'s `Invitation` case list. This is the same shape
+of concept securityhub got wrong this campaign (`RelationshipStatus` vs
+real `MemberStatus`), but it is a *different* real type in macie2's own
+SDK, and macie2's version is right. No V1/V2 or other generational pairs
+exist in this service.
+
+**3 ratifying tests found and fixed**, all "wrong key/value asserted as
+correct": `handler_buckets_test.go` (4 assertion sites across 3 tests
+built around the pre-fix `classifiableBucketCount` key and its
+bucket-counting semantic, including one table-driven test whose expected
+values changed from "count of buckets" to "sum of objects") and
+`handler_resource_profiles_test.go` (1 assertion site checking the pre-fix
+`sensitivityScoreOverride` response key). Zero found in the
+too-weak-to-fail shape.
+
+**Phantom ops**: none — all 96 op consts in `handler.go` have a real
+`api_op_*.go` in `macie2@v1.54.4`. **False-positive rate**: 0 — every
+finding cites the real `deserializeOpDocument<Type>`/
+`deserializeDocument<Type>` function actually reached from
+`HandleDeserialize`, file+line, or the real `api_op_*.go`/`types.go`
+struct definition when a field is absent from the generated switch
+entirely (e.g. `AllowListSummary` has no `tags` member in the real type at
+all).
+
+**Harmless-extra-field non-bugs** confirmed (real client silently discards
+unknown JSON keys, so left alone): `AllowListSummary.tags`,
+`FindingsFilterListItem`'s extra `description`/`position`,
+`Member.updatedAt`, `CreateClassificationJobOutput`'s extra `jobStatus`,
+`AutomatedDiscoveryAccount`'s extra `email`, `GetResourceProfile`'s extra
+`resourceArn`. **Structural/unmodeled gaps** disclosed, not fixed (would
+require new backend simulation, not a key-name fix):
+`Finding.policyDetails`, `ClassificationDetails.detailedResultsLocation`,
+most of `AffectedS3Bucket`/`AffectedS3Object`'s real fields (versioning,
+encryption detail, sensitivity score, ...),
+`GetAutomatedDiscoveryConfiguration`'s
+`classificationScopeId`/`disabledAt`/`firstEnabledAt`/`lastUpdatedAt`/
+`sensitivityInspectionTemplateId`, `ResourceStatistics.totalItemsSensitive`,
+and `ListResourceProfileArtifacts`'s always-empty result (already disclosed
+in this service's own code comment) with its item shape's missing
+`classificationResultStatus`/extra `type`.
+
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint), confirmed to fail against a real SDK client
+with the exact predicted symptom (0 instead of the seeded sums;
+`SensitivityScoreOverridden` false instead of true), then restored and
+diffed byte-identical against the pre-revert file before moving on. 2 new
+real-`aws-sdk-go-v2`-client tests added in the new
+`services/macie2/wire_field_fixes_test.go`
+(`TestGetBucketStatistics_RealClient`,
+`TestUpdateResourceProfile_SensitivityScoreOverridden_RealClient`).
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to `services/macie2`),
+`go fix -diff` (no diff), `fieldalignment` (0 findings), `golangci-lint run`
+(0 issues, no cyclop/gocyclo/gocognit/funlen nolints) all green. `go test
+-race ./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all changes uncommitted — orchestrator
+must commit/push), `cmd/routecollisions/`/`services/apigateway/`/
+`services/appconfigdata/`/`services/inspector2/` and their test files left
+untouched (confirmed via `git status` before starting and again at the
+end), no `gendocs`/`make docs` run.
+
+macie2's List/Describe/Get families are now fully swept for this issue
+(40/40 ops verified against the real deserializer/serializer, plus their
+sibling Create/Update ops). 64 of 162 services swept, 98 remain. Per the
+ranked table, s3 (45 L+D+G ops, `chased` resolution, flagged as needing its
+own dedicated session) is next largest; personalize (39, likely
+mostly-clean per gopherstack-sm02) or cognitoidp (37, `chased`) are the
+next candidates that don't obviously collide with either live sibling
+session observed this round — re-check `git status` before picking.
