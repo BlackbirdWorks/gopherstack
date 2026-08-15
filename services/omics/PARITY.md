@@ -73,6 +73,80 @@ leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutine
 
 ## Notes
 
+**2026-08-15 (gopherstack-keee):** investigated the reported host-prefix
+reachability gap ("the Omics SDK client unconditionally rewrites the request
+host to workflows-<host>"). The real scope is larger than the issue's own
+framing: **all 107 real Omics operations** carry a host-prefix rewrite, not
+just the run/workflow/configuration family, split across **five** distinct
+literal prefixes (grepped every `api_op_*.go` in the pinned
+`omics@v1.49.5` module for `req.URL.Host = "..." + req.URL.Host`):
+`workflows-` (38 ops), `control-storage-` (34), `analytics-` (28), `storage-`
+(4: GetReadSet/GetReference/CompleteMultipartReadSetUpload/
+UploadReadSetPart), `tags-` (3: Tag/UntagResource/ListTagsForResource).
+Mechanism: a **per-operation Smithy Finalize-stage middleware**
+(`endpointPrefix_op<Op>Middleware`, e.g. `api_op_CancelRun.go:127`, inserted
+via `stack.Finalize.Insert(..., "ResolveEndpointV2", middleware.After)`),
+**not** an endpoint resolver and not a static trait read once — this is the
+generated code for Smithy's `@endpoint(hostPrefix:)` trait, checked at
+`smithy-go@v1.27.6/transport/http/middleware_metadata.go`.
+
+**Not unique to Omics.** Grepping every pinned SDK service module in
+`go.mod` for the same `req.URL.Host = "..." + req.URL.Host` shape found five
+more affected, ALL of which gopherstack implements: `mwaa` (12 ops — nearly
+its entire surface, three prefixes `api.`/`env.`/`ops.` using `.` not `-`),
+`lakeformation` (5: GetQueryState/GetWorkUnitResults/GetQueryStatistics/
+GetWorkUnits/StartQueryPlanning, `query-`/`data-`), `cloudwatchlogs` (2:
+GetLogObject/StartLiveTail, `stream-`), `servicediscovery` (2:
+DiscoverInstances/DiscoverInstancesRevision, `data-`), `sfn`/stepfunctions
+(2: TestState/StartSyncExecution, `sync-`). Filed as gopherstack-3gbe (P2) —
+same mechanism, same conclusion below almost certainly applies to each, but
+none were individually re-verified against their own RouteMatcher this pass.
+
+**No gopherstack routing/auth code needed to change, for Omics or (by the
+same reasoning) likely the other five.** `Handler.RouteMatcher`
+(`handler.go:223`) matches on `URL.Path` alone; cross-checking all 107 real
+`(method, path)` pairs (extracted from `serializers.go`'s
+`httpbinding.SplitURI` calls) against their host-prefix family found **zero
+collisions** — no two ops share a path that only Host could disambiguate,
+unlike s3's bucket-vs-path or glacier's vacuity-trap class. SigV4
+verification (`pkgs/httputils/sigv4.go:241`) derives its canonical-request
+"host" from whatever the request actually arrived with (`r.Host`), not a
+configured/expected value, so it verifies correctly regardless of which
+prefix a real client sent. **The actual unreachability is a pure
+client-side DNS/dial failure**: the Finalize middleware runs before the
+transport dials, so `req.URL.Host` becomes `workflows-127.0.0.1:NNNN` (etc.)
+before any TCP SYN is sent — confirmed live, quoting the real error:
+`dial tcp: lookup workflows-127.0.0.1 on 127.0.0.53:53: no such host`. No
+gopherstack server code executes at all in the failure case; there is
+nothing in `pkgs/service/router.go` or any `RouteMatcher` to fix.
+
+Added `host_prefix_reachability_test.go`: drives the real,
+**unmodified** `aws-sdk-go-v2/service/omics` client (not a hand-crafted
+request) through one representative op per prefix family
+(workflows/analytics/control-storage/tags — the four "storage-" ops are
+scoped out, they need an existing sequence/reference store with real
+uploaded byte content before they're callable, out of scope for this pass).
+`TestSDKRoundTrip_HostPrefix_Unreachable_BeforeFix` proves the unmodified
+client fails as described (quoted above). `TestSDKRoundTrip_HostPrefix_Reachable_AfterFix`
+redials straight to the httptest listener regardless of the rewritten host
+(same technique as `services/s3control/handler_create_tags_test.go`'s
+per-account-ID-host workaround) — critically, this does **not** disable the
+SDK's host-prefix rewrite (unlike `wire_field_additions_test.go`'s existing
+`disableAnalyticsHostPrefix`, which every other round-trip test in this
+package already uses to sidestep this exact problem): the request that
+reaches gopherstack still carries `Host: workflows-127.0.0.1:NNNN`, and the
+op succeeds and decodes correct values anyway, proving gopherstack survives
+the real rewrite rather than avoiding it. Confirmed s3 virtual-hosted-style
+addressing (`TestHandler_VirtualHostedStyle*`) and `pkgs/...`,
+`pkgs/service/...` remain green, unmodified by this pass.
+
+Real-deployment implication (documented, not fixed in code, since there is
+no code to fix): a production gopherstack endpoint that real Omics SDK
+clients must reach needs DNS coverage for the five literal prefixes above
+prepended to its hostname (e.g. a wildcard record), the same class of
+requirement s3's virtual-hosted-style addressing and CloudFront
+KeyValueStore's per-account-ID host already impose on deployers.
+
 **2026-08-13 (gopherstack-lx5h/gopherstack-kb66):** fixed the omics items
 these two bd issues deferred from the required-response-member sweep (the
 other 7 services across both issues were fixed elsewhere; omics was held by
