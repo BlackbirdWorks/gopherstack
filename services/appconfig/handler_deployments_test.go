@@ -10,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	appconfigsdk "github.com/aws/aws-sdk-go-v2/service/appconfig"
+	"github.com/aws/aws-sdk-go-v2/service/appconfig/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +20,77 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
+
+// TestStopDeploymentViaSDKClient proves StopDeploymentOutput (appconfig@
+// v1.48.4 api_op_StopDeployment.go) is echoed back through a real
+// aws-sdk-go-v2 client, not just present in a raw JSON body -- the SDK's own
+// deserializer only accepts a valid types.DeploymentState enum string and a
+// well-typed int32 DeploymentNumber, so a successful client-side decode with
+// the expected values confirms the wire shape, not merely key presence.
+// Previously the handler returned 204 No Content; a real client tolerates
+// the empty body (json.Decoder treats io.EOF as "no document" rather than an
+// error) and silently decodes every field to its zero value instead of
+// failing loudly.
+func TestStopDeploymentViaSDKClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestAppConfigClient(t, h)
+
+	appOut, err := client.CreateApplication(t.Context(), &appconfigsdk.CreateApplicationInput{
+		Name: aws.String("stop-dep-app"),
+	})
+	require.NoError(t, err)
+
+	envOut, err := client.CreateEnvironment(t.Context(), &appconfigsdk.CreateEnvironmentInput{
+		ApplicationId: appOut.Id,
+		Name:          aws.String("stop-dep-env"),
+	})
+	require.NoError(t, err)
+
+	profOut, err := client.CreateConfigurationProfile(t.Context(), &appconfigsdk.CreateConfigurationProfileInput{
+		ApplicationId: appOut.Id,
+		Name:          aws.String("stop-dep-profile"),
+		LocationUri:   aws.String("hosted"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateHostedConfigurationVersion(t.Context(), &appconfigsdk.CreateHostedConfigurationVersionInput{
+		ApplicationId:          appOut.Id,
+		ConfigurationProfileId: profOut.Id,
+		Content:                []byte("enabled"),
+		ContentType:            aws.String("text/plain"),
+	})
+	require.NoError(t, err)
+
+	stratOut, err := client.CreateDeploymentStrategy(t.Context(), &appconfigsdk.CreateDeploymentStrategyInput{
+		Name:                        aws.String("stop-dep-strategy"),
+		DeploymentDurationInMinutes: aws.Int32(10),
+		GrowthFactor:                aws.Float32(20),
+		ReplicateTo:                 types.ReplicateToNone,
+	})
+	require.NoError(t, err)
+
+	startOut, err := client.StartDeployment(t.Context(), &appconfigsdk.StartDeploymentInput{
+		ApplicationId:          appOut.Id,
+		EnvironmentId:          envOut.Id,
+		ConfigurationProfileId: profOut.Id,
+		DeploymentStrategyId:   stratOut.Id,
+		ConfigurationVersion:   aws.String("1"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.DeploymentStateDeploying, startOut.State,
+		"a non-zero-duration strategy must not complete synchronously")
+
+	stopOut, err := client.StopDeployment(t.Context(), &appconfigsdk.StopDeploymentInput{
+		ApplicationId:    appOut.Id,
+		EnvironmentId:    envOut.Id,
+		DeploymentNumber: aws.Int32(startOut.DeploymentNumber),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.DeploymentStateRolledBack, stopOut.State)
+	assert.Equal(t, startOut.DeploymentNumber, stopOut.DeploymentNumber)
+}
 
 // doRequestWithHeader is like doRequest but sets an additional request
 // header -- used for AppConfig ops whose real request shape binds a field to
@@ -355,13 +429,17 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	// Stop deployment with Allow-Revert reverts it.
+	// Stop deployment with Allow-Revert reverts it. Real StopDeploymentOutput
+	// echoes the full post-stop deployment (appconfig@v1.48.4
+	// api_op_StopDeployment.go) with 200, not an empty 204 body.
 	rec = doRequestWithHeader(
 		t, h, http.MethodDelete,
 		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1",
 		"Allow-Revert", "true", nil,
 	)
-	assert.Equal(t, http.StatusNoContent, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep))
+	assert.Equal(t, "REVERTED", dep.State, "StopDeploymentOutput itself must reflect the new state")
 
 	rec = doRequest(t, h, http.MethodGet,
 		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1", nil)

@@ -6,11 +6,45 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	appconfigsdk "github.com/aws/aws-sdk-go-v2/service/appconfig"
+	"github.com/aws/aws-sdk-go-v2/service/appconfig/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
+
+// TestExtensionParameterDynamicViaSDKClient proves types.Parameter.Dynamic
+// (appconfig@v1.48.4 deserializers.go's Dynamic case, shared by
+// Create/UpdateExtensionInput and Get/CreateExtensionOutput) is no longer
+// silently discarded on input and never emitted on output.
+func TestExtensionParameterDynamicViaSDKClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestAppConfigClient(t, h)
+
+	createOut, err := client.CreateExtension(t.Context(), &appconfigsdk.CreateExtensionInput{
+		Name: aws.String("dynamic-param-ext"),
+		Actions: map[string][]types.Action{
+			"ON_DEPLOYMENT_START": {{Name: aws.String("act"), Uri: aws.String("arn:aws:sns:us-east-1:123456789012:t")}},
+		},
+		Parameters: map[string]types.Parameter{
+			"myParam": {Dynamic: true, Required: false},
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, createOut.Parameters, "myParam")
+	assert.True(t, createOut.Parameters["myParam"].Dynamic)
+
+	getOut, err := client.GetExtension(t.Context(), &appconfigsdk.GetExtensionInput{
+		ExtensionIdentifier: createOut.Id,
+	})
+	require.NoError(t, err)
+	require.Contains(t, getOut.Parameters, "myParam")
+	assert.True(t, getOut.Parameters["myParam"].Dynamic)
+}
 
 func TestHandler_Extension_CRUD(t *testing.T) {
 	t.Parallel()

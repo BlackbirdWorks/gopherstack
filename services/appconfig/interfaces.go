@@ -57,7 +57,7 @@ type StorageBackend interface {
 	// CreateConfigurationProfile creates a new configuration profile. tags
 	// are applied inline at creation time (see CreateApplication).
 	CreateConfigurationProfile(
-		applicationID, name, description, locationURI, profileType, retrievalRoleArn string,
+		applicationID, name, description, locationURI, profileType, retrievalRoleArn, kmsKeyIdentifier string,
 		validators []Validator,
 		tags map[string]string,
 	) (*ConfigurationProfile, error)
@@ -69,13 +69,13 @@ type StorageBackend interface {
 		maxResults int,
 	) ([]ConfigurationProfile, string, error)
 	// UpdateConfigurationProfile updates a configuration profile. Nil
-	// name/description/retrievalRoleArn leave the field unchanged; a nil
-	// validators leaves the existing validator list unchanged, while a
-	// non-nil (possibly empty) slice replaces it -- matching
-	// UpdateConfigurationProfileInput's optional members.
+	// name/description/retrievalRoleArn/kmsKeyIdentifier leave the field
+	// unchanged; a nil validators leaves the existing validator list
+	// unchanged, while a non-nil (possibly empty) slice replaces it --
+	// matching UpdateConfigurationProfileInput's optional members.
 	UpdateConfigurationProfile(
 		applicationID, profileID string,
-		name, description, retrievalRoleArn *string,
+		name, description, retrievalRoleArn, kmsKeyIdentifier *string,
 		validators *[]Validator,
 	) (*ConfigurationProfile, error)
 	// DeleteConfigurationProfile deletes a configuration profile.
@@ -146,7 +146,9 @@ type StorageBackend interface {
 	// allowRevert is true and the deployment is already COMPLETE --
 	// reverts the environment to the previous configuration version
 	// (real StopDeploymentInput.AllowRevert semantics).
-	StopDeployment(applicationID, environmentID string, deploymentNumber int32, allowRevert bool) error
+	StopDeployment(
+		applicationID, environmentID string, deploymentNumber int32, allowRevert bool,
+	) (*Deployment, error)
 
 	// ListTagsForResource returns the tags for a resource by ARN.
 	ListTagsForResource(resourceArn string) (map[string]string, error)
@@ -213,7 +215,9 @@ type StorageBackend interface {
 	// GetAccountSettings returns the account-level AppConfig settings.
 	GetAccountSettings() (*AccountSettings, error)
 	// UpdateAccountSettings updates account-level AppConfig settings.
-	UpdateAccountSettings(deletionProtection *DeletionProtectionSettings) (*AccountSettings, error)
+	UpdateAccountSettings(
+		deletionProtection *DeletionProtectionSettings, vendedMetrics *VendedMetricsSettings,
+	) (*AccountSettings, error)
 
 	// GetConfiguration retrieves the latest deployed configuration (deprecated API).
 	GetConfiguration(

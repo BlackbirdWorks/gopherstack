@@ -1,12 +1,14 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**85 of 162 services swept, 77 remain** (cloudtrail added this session,
-2026-08-15, see its own section at the end of this file; directoryservice
-(still in progress by a live sibling as of this addition), opsworks,
-apigatewayv2, workmail, wafv2, ce, waf, vpclattice, emr, eventbridge, kafka,
-route53resolver, appsync, workspaces, lakeformation, elasticsearch, and
-rekognition all added this session, in parallel, by different sessions — see
-each service's own section at the end of this file for full detail).
+**86 of 162 services swept, 76 remain** (appconfig added this session,
+2026-08-15, see its own section at the end of this file; cloudtrail,
+directoryservice, opsworks, apigatewayv2, workmail, wafv2, ce, waf,
+vpclattice, emr, eventbridge, kafka, route53resolver, appsync, workspaces,
+lakeformation, elasticsearch, and rekognition all added this session, in
+parallel, by different sessions — see each service's own section at the end
+of this file for full detail). directoryservice and cloudtrail, listed as
+still-in-progress by earlier passes appending to this header, both finished
+and are committed (`78517e30d`, `773c2af52`).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -6261,3 +6263,288 @@ table, `directoryservice` (80 ops, 25 L+D+G, `direct`) remains the largest
 unswept candidate once its live sibling session ends; after that, the
 three-way tie at 24 L+D+G (`codeartifact`, `appconfig`) is next -- re-check
 `git status` and this file's header before picking either.
+
+## appconfig (this session, 2026-08-15)
+
+Continuing gopherstack-6flj directly (single agent, no subagents, per this
+session's hard constraint). Read `bd show gopherstack-6flj`'s notes and
+`git show 78517e30d1f020191defc2511316e1ba66de5334` (the directoryservice
+pass immediately before this one) first, per assignment.
+
+**Pick, and the switch made:** `git status` at session start showed
+`services/cloudtrail/*` modified + this remainder file modified (a live
+sibling, uncommitted). Per the ranked table, `opsworks` (74 ops, 24 L+D+G)
+and `directoryservice` (80 ops, 25 L+D+G) were both already swept this
+session (commits `0f5a7d360`, `78517e30d`). That left the three-way tie at
+24 L+D+G already identified by the cloudtrail pass's own closing note:
+`codeartifact` (48 total ops), `cloudtrail` (60 total ops, being worked by
+the live sibling), `appconfig` (56 total ops). Chose `appconfig`: largest
+remaining total op count of the two free candidates (56 vs codeartifact's
+48), same tiebreak logic the cloudtrail pass used. Confirmed via `go run
+./cmd/opcensus` before picking (56/12/0/12/24, matching the table exactly).
+Partway through this session `services/cloudtrail/*` disappeared from `git
+status` (the sibling's work landed as commit `773c2af52`) and
+`services/codeartifact/*` appeared instead (a new sibling, presumably taking
+the other half of the tie) -- re-checked before every edit batch; never
+touched either.
+
+**SDK availability:** `aws-sdk-go-v2/service/appconfig@v1.48.4` is pinned in
+`go.mod`/`go.sum` -- no dependency boundary issue to disclose. (A second,
+unrelated appconfig-family package, `aws-sdk-go-v2/service/appconfigdata
+@v1.26.4`, is also pinned -- see second-client note below.)
+
+**Protocol:** `awsRestjson1` (101 `func awsRestjson1_serialize*` + 172 `func
+awsRestjson1_deserialize*` matches in the pinned module; 0
+`awsAwsjson1[01]_`/`awsEc2query_`/`awsAwsquery_` matches). Confirmed
+case-sensitive: every body-field switch inspected (`ListApplicationsOutput`,
+`GetConfigurationProfileOutput`, `EnvironmentOutput`, `Parameter`, dozens
+more) is a plain Go `switch key { case "Xxx": }` on decoded JSON keys; every
+`EqualFold` hit in this SDK version is `strings.EqualFold("SomeException",
+errorCode)` (error-code matching only, grep-confirmed), never a body-field
+switch. So casing near-misses in field names would be real silent-empty
+bugs here -- none found (every field name checked matched exactly).
+
+**Second client:** `appconfigdata@v1.26.4` is pinned and real (gopherstack's
+own `services/appconfigdata` implements it, bridged from this service via
+`DeployedConfigurationPublisher`/`configuration.go`'s
+`CurrentDeployedConfiguration`/`publishDeployedConfigurationLocked` -- see
+`bd gopherstack-uiyi`). Not touched this pass (out of scope: this pass's
+26-op candidate list, per the ranked table, is `appconfig` proper, not
+`appconfigdata`), but confirmed real and wired, not a phantom/dead
+dependency.
+
+**Dead-deserializer trap:** does not apply. restjson1, but NOT the
+generic-shape codegen pattern that tripped an agent on pinpoint -- each op's
+`HandleDeserialize` calls its own uniquely-named
+`awsRestjson1_deserializeOpDocument<Op>Output` function directly (spot
+verified for `ListApplications`, `GetConfigurationProfile`, `StopDeployment`
+-- each has its own function at its own line, no shared/dead fallback).
+
+**Router:** REST-path router (`RouteMatcher` + `ExtractOperation` parsing
+the URL path/method via `parseAppConfigPath`), NOT a flat `X-Amz-Target`
+dispatch map, so NOT structurally immune to router/handler desync the way
+JSON-RPC services are. Checked: every op in `GetSupportedOperations()` maps
+through `handler.go`'s big switch to a real `handle*` function (61/61,
+grep-diffed); `RouteMatcher`'s path-prefix set (`/applications`,
+`/deploymentstrategies`, the real AWS `/deployementstrategies` typo,
+`/extensions`, `/extensionassociations`, `/experimentdefinitions`,
+`/settings`, `/tags/arn:aws:appconfig:...`) covers every real path prefix
+`parseAppConfigPath` dispatches on -- no 404-at-router gap found (elasticsearch's
+class of bug). `ScopedPrefixMatch` on the bare `/applications` prefix
+(shared with emrserverless/serverlessrepo, per an existing code comment) was
+specifically re-checked and is SigV4-scoped, not a blind prefix steal.
+
+**Phantom ops:** none found among the 24 L+D+G ops audited plus the 10
+"other" ops checked opportunistically (StartDeployment, StopDeployment,
+TagResource, UntagResource, UpdateAccountSettings, ValidateConfiguration,
+StartExperimentRun, UpdateExperimentRun, StopExperimentRun,
+UpdateExtensionAssociation) -- every gopherstack op name resolved to a real
+`api_op_<Op>.go` in the pinned module.
+
+**Ignored filters:** none. `ListExperimentDefinitions`'
+`application_identifier`/`configuration_profile_identifier`/
+`environment_identifier`/`status` (all 4 declared query filters) verified
+reaching `ListExperimentDefinitions`'s real query param names byte-exact via
+`awsRestjson1_serializeOpHttpBindingsListExperimentDefinitionsInput`
+(serializers.go). `ListHostedConfigurationVersions`' `version_label`,
+`ListExtensions`' `name`, `ListExtensionAssociations`'
+`extension_identifier`/`resource_identifier` all spot-checked reaching the
+query too.
+
+**4 real wrapper-key/discarded-input bugs found and fixed**, all in the
+"a real request/response member silently discarded or never emitted" class
+this issue's checklist #6/#7 targets -- none were wrong wrapper *keys* (this
+service's List-op summary-shape wrapper keys were already fixed by an
+earlier `gopherstack-xs7l` pass and all re-verified clean, see below):
+
+1. **`CreateConfigurationProfile`/`GetConfigurationProfile`/
+   `UpdateConfigurationProfile`:** real `KmsKeyIdentifier`
+   (`api_op_CreateConfigurationProfile.go`) was silently discarded on
+   input (not bound in the handler's request struct at all) and never
+   echoed on any of the three outputs, confirmed against
+   `GetConfigurationProfileOutput`'s real deserializer
+   (`KmsKeyArn`/`KmsKeyIdentifier` both present, deserializers.go:3234+).
+   A prior audit (this service's own PARITY.md, `last_audit_date:
+   2026-08-13`) had explicitly considered this and concluded "no honest
+   value to put here," reasoning `CreateConfigurationProfile doesn't
+   accept KmsKeyIdentifier" -- that premise was itself the bug: it
+   conflated `KmsKeyIdentifier` (a caller-supplied string, trivially
+   echoable) with `KmsKeyArn` (which genuinely does require unavailable
+   KMS-ARN resolution and correctly stays unmodeled). Fixed:
+   `KmsKeyIdentifier` is now accepted/stored/echoed on Create/Get/Update;
+   `KmsKeyArn` remains honestly absent (disclosed in PARITY.md `gaps`).
+   Required an 8-call-site backend signature change
+   (`CreateConfigurationProfile`/`UpdateConfigurationProfile` both gained
+   a new positional param) -- every test call site updated, `go build
+   ./...` full-repo clean.
+2. **`GetDeployment`/`StartDeployment`:** same root cause, propagated one
+   level -- real `GetDeploymentOutput`/`StartDeploymentOutput` both have
+   `KmsKeyIdentifier` (deserializers.go, same member set as
+   `StopDeploymentOutput` below), snapshotted from the deployed profile's
+   own KMS setting at deploy time on real AWS. `Deployment.KmsKeyIdentifier`
+   didn't exist on the struct at all. Fixed: now populated from
+   `profile.KmsKeyIdentifier` at `StartDeployment` time, same pattern as
+   the pre-existing `ConfigurationName`/`ConfigurationLocationURI`
+   snapshot-at-deploy fields right next to it.
+3. **`StopDeployment` (major):** the handler returned `204 No Content`
+   with an empty body. The real op returns `200` with a full
+   `StopDeploymentOutput` body -- every `Deployment` field
+   (`api_op_StopDeployment.go`), confirmed reached via
+   `awsRestjson1_deserializeOpDocumentStopDeploymentOutput`
+   (deserializers.go:8217), called from `StopDeployment`'s own
+   `HandleDeserialize` (deserializers.go:8102) after a `response.StatusCode
+   < 200 || >= 300` check that `204` passes, so this was NOT a hard
+   failure -- `json.Decoder.Decode` on an empty body returns `io.EOF`,
+   which the SDK's own deserializer explicitly tolerates (`err != io.EOF`
+   guard), silently producing an all-zero-valued `StopDeploymentOutput`.
+   A real client's `State`/`DeploymentNumber`/`PercentageComplete`/etc.
+   all came back blank/0 despite the stop having genuinely happened
+   server-side -- textbook silent-empty, and this service's `wire: ok`
+   PARITY.md rating for `StopDeployment` never caught it because that
+   entry's detailed note was entirely about the (also real, already
+   fixed by an earlier pass) `AllowRevert` state-machine bug, never the
+   response shape. Fixed: backend `StopDeployment` now returns `(*Deployment,
+   error)` instead of bare `error`; handler returns `200` + the
+   post-stop `Deployment`. Required a `StorageBackend` interface
+   signature change plus 5 test call-site updates.
+4. **`CreateExtension`/`GetExtension`/`UpdateExtension`:** real
+   `types.Parameter.Dynamic` (deserializers.go, shared by every
+   `Parameters map[string]Parameter` member across
+   Create/UpdateExtensionInput and Get/CreateExtensionOutput) was
+   entirely unmodeled on `ExtensionParameter` -- silently discarded on
+   input, never emitted on output. Fixed: field added with matching JSON
+   tag; since `ExtensionParameter` is bound directly on both the request
+   struct and the stored/returned `Extension.Parameters` map, this wired
+   up both directions with no other code changes. `ExtensionSummary`
+   (the `ListExtensions` shape) never carries `Parameters` at all on real
+   AWS, confirmed against `types.ExtensionSummary` -- so `ListExtensions`
+   needed no change.
+5. **`GetAccountSettings`/`UpdateAccountSettings`:** real
+   `GetAccountSettingsOutput`/`UpdateAccountSettingsInput`/`Output` all
+   have a second top-level member, `VendedMetrics`
+   (`types.VendedMetricsSettings{Enabled}`,
+   `api_op_GetAccountSettings.go`), entirely unmodeled alongside the
+   already-correct `DeletionProtection`. Fixed: `VendedMetricsSettings`
+   struct + `AccountSettings.VendedMetrics` field added; backend
+   `UpdateAccountSettings` gained a new positional param (1 non-test
+   call site updated).
+
+**Sibling pairs / families checked and found correct** (the rest of the 24
+L+D+G ops, all diffed against the real deserializer's own case list):
+`ListApplications`/`GetApplication` (`types.Application` has no
+`CreatedAt`/`UpdatedAt` -- already correctly stripped by a prior
+`gopherstack-xs7l` pass, re-verified). `ListEnvironments`/`GetEnvironment`
+(`Monitor.AlarmArn`/`AlarmRoleArn` confirmed exact). `ListConfigurationProfiles`
+(`ConfigurationProfileSummary`'s narrower field set, confirmed no
+`KmsKeyIdentifier`/`KmsKeyArn` on the Summary type at all -- unlike
+Get/Create/Update, so no fix needed there). `ListHostedConfigurationVersions`
+(`HostedConfigurationVersionSummary`, real header-bound httpPayload split
+for Get/Create re-verified against
+`awsRestjson1_deserializeOpHttpBindingsGetHostedConfigurationVersionOutput`
+-- `Application-Id`/`Configuration-Profile-Id`/`Content-Type`/`Description`/
+`KmsKeyArn`/`VersionLabel`/`Version-Number`, all present and correctly
+bound; `VersionLabel` vs gopherstack's `Versionlabel` is not a casing bug --
+HTTP header canonicalization collapses both to the same wire form since
+neither contains a hyphen). `ListDeploymentStrategies`/`GetDeploymentStrategy`.
+`ListDeployments`'s `DeploymentSummary` (confirmed genuinely narrower than
+`Deployment`, no `KmsKeyIdentifier` member on the Summary type -- so only
+Get/Start/Stop needed the fix above, not List). `ListTagsForResource`
+(`"Tags"` key, confirmed). `ListExtensionAssociations`/
+`GetExtensionAssociation` (`ExtensionAssociationSummary`'s narrower field
+set confirmed). `ListExperimentDefinitions`/`GetExperimentDefinition`
+(`ExperimentDefinitionSummary` -- this family already models
+`KmsKeyIdentifier` correctly, unlike `ConfigurationProfile`, confirming the
+gap above was an isolated oversight rather than a service-wide pattern).
+`ListExperimentRuns`/`GetExperimentRun`, `ListExperimentRunEvents` (all
+three confirmed using the real generic `"Items"` wrapper key, matching this
+service's `keyItems` shared constant). `GetConfiguration` (deprecated
+legacy op, `Configuration-Version`/`Content-Type` header binding
+re-verified against `awsRestjson1_deserializeOpHttpBindingsGetConfigurationOutput`).
+
+**Discarded inputs / fields never set:** the 4 bugs above are all in this
+class. No others found among the 24 L+D+G ops' request/response pairs
+checked.
+
+**Over-wide fields, sorted:** none found in the informational-leak sense
+this issue tracks (no client secrets/ARNs/env vars beyond what a caller
+already supplied and is entitled to see echoed back, e.g. `RetrievalRoleArn`,
+which is request-supplied and correctly only echoed, never leaked
+cross-resource).
+
+**Persistence trap:** `ConfigurationProfile`, `Deployment`, and
+`AccountSettings` are all dual-purpose (wire response AND
+`store.Table`/snapshot DTO, confirmed via `store.go`/`persistence.go`).
+Every field added this pass (`ConfigurationProfile.KmsKeyIdentifier`,
+`Deployment.KmsKeyIdentifier`, `ExtensionParameter.Dynamic`,
+`AccountSettings.VendedMetrics`) was a brand-new field with its own fresh
+JSON tag, never a retag of an existing field -- old snapshots restore
+unaffected (the new field simply zero-values on restore of a pre-existing
+snapshot, same as any other newly-added field), no persistence break.
+
+**SDK client pinned; real-client test ratio:** pinned (`go.mod`), no
+disclosed exception needed. All 4 fixes got a dedicated real
+`aws-sdk-go-v2/service/appconfig` client test (not raw-body) --
+`TestKmsKeyIdentifierViaSDKClient`, `TestStopDeploymentViaSDKClient`,
+`TestExtensionParameterDynamicViaSDKClient`, `TestVendedMetricsViaSDKClient`
+-- each hand-reverted in place (no git available under this session's hard
+no-git-mutation constraint), run to confirm the exact predicted failure
+(quoted in each test's commit-equivalent diff), then restored byte-identical
+and re-run green. One pre-existing raw-body test
+(`TestHandler_Deployment_Lifecycle`) asserted the old `204` status for
+`StopDeployment` -- fixed to assert `200` + the returned `Deployment`
+body's `State`, also hand-reverted/confirmed-failing/restored.
+
+**Prior audit accuracy:** this service's PARITY.md carried an A grade from
+`last_audit_date: 2026-08-13` with detailed, mostly-accurate per-op notes
+(many "FIXED THIS PASS" entries from an earlier `gopherstack-xs7l`
+wrapper-key pass this session independently re-verified as correct, see
+sibling-pairs above). All 4 bugs this pass found fell in ops that audit
+explicitly rated `wire: ok` -- three (`CreateConfigurationProfile`,
+`GetDeployment`, `ListHostedConfigurationVersions`'s note) even contained
+specific, confident-sounding prose *about* the exact field this pass found
+missing, reasoning it away as unmodelable rather than checking whether it
+actually was. `StopDeployment`'s `wire: ok` note was detailed and correct
+about a different, real, previously-fixed bug (`AllowRevert`) but never
+touched the response *shape* at all. Consistent with this issue's
+directoryservice/kafka lesson: a prior audit can be right about most of its
+surface and specifically wrong about a corner it discussed with apparent
+confidence. PARITY.md updated in place for all 5 affected op entries plus a
+new disclosed `gaps` line for `KmsKeyArn` (the one member that genuinely
+remains unmodeled, correctly distinguished from `KmsKeyIdentifier` this
+time).
+
+**Credential sweep:** not specifically applicable -- this service holds no
+password/secret-shaped fields (`RetrievalRoleArn`, ARNs generally, are
+request-supplied and meant to be echoed, not backend-generated secrets).
+Not a deliberate sweep target this pass; noting the absence rather than
+claiming a check that wasn't done.
+
+Gates, all foreground: scoped `go build`/`go vet ./services/appconfig/...`
+clean; full `go build ./...`/`go vet ./...` clean (required after the 3
+signature changes: `CreateConfigurationProfile`, `UpdateConfigurationProfile`,
+`StopDeployment`, `UpdateAccountSettings`, plus the `StorageBackend`
+interface); `go test -race -count=1 ./services/appconfig/...` and
+`./pkgs/...` green; `go fix -diff ./services/appconfig/...` clean (no diff);
+`golangci-lint run ./services/appconfig/...` 0 issues (2 `golines`
+line-length findings from new test code, fixed by hand); 0
+cyclop/gocyclo/gocognit/funlen nolints (grep-confirmed, none added).
+
+No subagents used (Read/Grep/Bash/Edit only, per this session's hard
+constraint). No git-mutating commands run. `git status` re-checked before
+every edit batch; only `services/appconfig/*` and this remainder file (plus
+`services/appconfig/PARITY.md`) touched by this session --
+`services/cloudtrail/*` and `services/codeartifact/*` (both live sibling
+sessions at different points) never read or touched beyond the initial
+`git status`/`git log` scan used to confirm what was taken.
+
+appconfig's List/Describe/Get families are now fully swept for this issue
+(24/24 ops layer-1/2 clean; 4 real discarded-input/missing-field bugs found
+and fixed, none a wrong wrapper key -- this service's wrapper keys were
+already correct from an earlier pass; 1 pre-existing test that enshrined the
+`StopDeployment` 204 bug corrected; `KmsKeyArn` newly and correctly
+disclosed as the one remaining unmodeled gap; no real-data leak found). 86
+of 162 services swept, 76 remain. Per the ranked table, `codeartifact` (48
+total ops, 24 L+D+G) is the only member of the original three-way tie not
+yet confirmed taken or swept as of this addition -- re-check `git status`
+and this file's header before picking it, since a sibling session appeared
+to be working it by the end of this pass.

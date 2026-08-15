@@ -17,6 +17,7 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 		LocationURI      string            `json:"LocationUri"`
 		Type             string            `json:"Type"`
 		RetrievalRoleArn string            `json:"RetrievalRoleArn"`
+		KmsKeyIdentifier string            `json:"KmsKeyIdentifier"`
 		Validators       []Validator       `json:"Validators"`
 	}
 	if err := c.Bind(&req); err != nil {
@@ -33,6 +34,7 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 		req.LocationURI,
 		req.Type,
 		req.RetrievalRoleArn,
+		req.KmsKeyIdentifier,
 		req.Validators,
 		req.Tags,
 	)
@@ -107,6 +109,7 @@ func (h *Handler) handleUpdateConfigurationProfile(
 		Name             *string      `json:"Name"`
 		Description      *string      `json:"Description"`
 		RetrievalRoleArn *string      `json:"RetrievalRoleArn"`
+		KmsKeyIdentifier *string      `json:"KmsKeyIdentifier"`
 		Validators       *[]Validator `json:"Validators"`
 	}
 	if err := c.Bind(&req); err != nil {
@@ -122,6 +125,7 @@ func (h *Handler) handleUpdateConfigurationProfile(
 		req.Name,
 		req.Description,
 		req.RetrievalRoleArn,
+		req.KmsKeyIdentifier,
 		req.Validators,
 	)
 	if err != nil {

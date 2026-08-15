@@ -48,13 +48,21 @@ type Validator struct {
 
 // ConfigurationProfile represents an AppConfig configuration profile.
 type ConfigurationProfile struct {
-	ApplicationID    string      `json:"ApplicationId"`
-	ID               string      `json:"Id"`
-	Name             string      `json:"Name"`
-	Description      string      `json:"Description,omitempty"`
-	LocationURI      string      `json:"LocationUri"`
-	Type             string      `json:"Type,omitempty"`
-	RetrievalRoleArn string      `json:"RetrievalRoleArn,omitempty"`
+	ApplicationID    string `json:"ApplicationId"`
+	ID               string `json:"Id"`
+	Name             string `json:"Name"`
+	Description      string `json:"Description,omitempty"`
+	LocationURI      string `json:"LocationUri"`
+	Type             string `json:"Type,omitempty"`
+	RetrievalRoleArn string `json:"RetrievalRoleArn,omitempty"`
+	// KmsKeyIdentifier is a real Get/Create/UpdateConfigurationProfileOutput
+	// member (appconfig@v1.48.4 api_op_GetConfigurationProfile.go) echoing
+	// back whatever key ID/alias/ARN the caller supplied. KmsKeyArn is the
+	// same output's other KMS member but is left unmodeled: it requires
+	// resolving an identifier to a real KMS key ARN, which this backend has
+	// no honest way to do (same rationale as HostedConfigurationVersionSummary
+	// below).
+	KmsKeyIdentifier string      `json:"KmsKeyIdentifier,omitempty"`
 	Validators       []Validator `json:"Validators,omitempty"`
 }
 
@@ -87,13 +95,12 @@ type HostedConfigurationVersion struct {
 // HostedConfigurationVersionSummary is the shape ListHostedConfigurationVersions
 // returns (types.HostedConfigurationVersionSummary, deserializers.go:13825) --
 // a strict subset of HostedConfigurationVersion: no CreatedAt (Get-only).
-// KmsKeyArn is a real Summary member too, but this backend never models a
-// KMS key anywhere on ConfigurationProfile -- CreateConfigurationProfile
-// doesn't accept KmsKeyIdentifier and CreateHostedConfigurationVersion has
-// no KMS input of its own either (it inherits the profile's key on real
-// AWS) -- so there is no honest value to put here. Left absent rather than
-// fabricated, same rationale as personalize's undocumented FailureReason
-// members (gopherstack-sm02).
+// KmsKeyArn is a real Summary member too, but this backend never resolves an
+// identifier to a real KMS key ARN (ConfigurationProfile.KmsKeyIdentifier is
+// modeled and echoed back verbatim; the ARN itself is not) -- so there is no
+// honest value to put here. Left absent rather than fabricated, same
+// rationale as personalize's undocumented FailureReason members
+// (gopherstack-sm02).
 type HostedConfigurationVersionSummary struct {
 	ApplicationID          string `json:"ApplicationId"`
 	ConfigurationProfileID string `json:"ConfigurationProfileId"`
@@ -147,18 +154,23 @@ type AppliedExtension struct {
 
 // Deployment represents an AppConfig deployment.
 type Deployment struct {
-	StartedAt                   time.Time          `json:"StartedAt,omitzero"`
-	CompletedAt                 time.Time          `json:"CompletedAt,omitzero"`
-	ApplicationID               string             `json:"ApplicationId"`
-	EnvironmentID               string             `json:"EnvironmentId"`
-	ConfigurationProfileID      string             `json:"ConfigurationProfileId"`
-	DeploymentStrategyID        string             `json:"DeploymentStrategyId"`
-	ConfigurationVersion        string             `json:"ConfigurationVersion"`
-	State                       string             `json:"State"`
-	TriggeredBy                 string             `json:"TriggeredBy,omitempty"`
-	Description                 string             `json:"Description,omitempty"`
-	ConfigurationName           string             `json:"ConfigurationName,omitempty"`
-	ConfigurationLocationURI    string             `json:"ConfigurationLocationUri,omitempty"`
+	StartedAt                time.Time `json:"StartedAt,omitzero"`
+	CompletedAt              time.Time `json:"CompletedAt,omitzero"`
+	ApplicationID            string    `json:"ApplicationId"`
+	EnvironmentID            string    `json:"EnvironmentId"`
+	ConfigurationProfileID   string    `json:"ConfigurationProfileId"`
+	DeploymentStrategyID     string    `json:"DeploymentStrategyId"`
+	ConfigurationVersion     string    `json:"ConfigurationVersion"`
+	State                    string    `json:"State"`
+	TriggeredBy              string    `json:"TriggeredBy,omitempty"`
+	Description              string    `json:"Description,omitempty"`
+	ConfigurationName        string    `json:"ConfigurationName,omitempty"`
+	ConfigurationLocationURI string    `json:"ConfigurationLocationUri,omitempty"`
+	// KmsKeyIdentifier is a real Get/Start/StopDeploymentOutput member
+	// (appconfig@v1.48.4 api_op_GetDeployment.go), snapshotted from the
+	// deployed profile's own KmsKeyIdentifier at StartDeployment time, same
+	// as ConfigurationName/ConfigurationLocationURI above.
+	KmsKeyIdentifier            string             `json:"KmsKeyIdentifier,omitempty"`
 	GrowthType                  string             `json:"GrowthType,omitempty"`
 	VersionLabel                string             `json:"VersionLabel,omitempty"`
 	EventLog                    []DeploymentEvent  `json:"EventLog,omitempty"`
@@ -203,8 +215,12 @@ type ExtensionAction struct {
 }
 
 // ExtensionParameter describes a parameter accepted by an extension.
+// Dynamic is a real types.Parameter member (appconfig@v1.48.4
+// deserializers.go's Dynamic case, shared by request and response) that was
+// previously discarded on input and never emitted on output.
 type ExtensionParameter struct {
 	Description string `json:"Description,omitempty"`
+	Dynamic     bool   `json:"Dynamic,omitempty"`
 	Required    bool   `json:"Required,omitempty"`
 }
 
@@ -256,9 +272,18 @@ type DeletionProtectionSettings struct {
 	ProtectionPeriodInMinutes *int32 `json:"ProtectionPeriodInMinutes,omitempty"`
 }
 
+// VendedMetricsSettings represents the vended-metrics configuration for an
+// account -- a real Get/UpdateAccountSettingsOutput member
+// (appconfig@v1.48.4 api_op_GetAccountSettings.go) alongside
+// DeletionProtection, previously unmodeled on both directions.
+type VendedMetricsSettings struct {
+	Enabled *bool `json:"Enabled,omitempty"`
+}
+
 // AccountSettings holds account-level AppConfig settings.
 type AccountSettings struct {
 	DeletionProtection *DeletionProtectionSettings `json:"DeletionProtection,omitempty"`
+	VendedMetrics      *VendedMetricsSettings      `json:"VendedMetrics,omitempty"`
 }
 
 // AttributeValue is a single attribute value attached to a Treatment's

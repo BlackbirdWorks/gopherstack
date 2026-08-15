@@ -105,7 +105,7 @@ func (h *Handler) handleStopDeployment(
 	// request header, not a body/query field.
 	allowRevert, _ := strconv.ParseBool(c.Request().Header.Get("Allow-Revert"))
 
-	err := h.Backend.StopDeployment(applicationID, environmentID, deploymentNumber, allowRevert)
+	deployment, err := h.Backend.StopDeployment(applicationID, environmentID, deploymentNumber, allowRevert)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -118,5 +118,10 @@ func (h *Handler) handleStopDeployment(
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	// Real StopDeploymentOutput echoes the full post-stop deployment state
+	// (appconfig@v1.48.4 api_op_StopDeployment.go) -- previously this handler
+	// returned 204 No Content, so a real client's StopDeployment always
+	// decoded an all-zero output (json.Decoder tolerates the empty body via
+	// io.EOF rather than erroring, so this was silent, not a hard failure).
+	return c.JSON(http.StatusOK, deployment)
 }

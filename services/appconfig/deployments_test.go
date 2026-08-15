@@ -22,7 +22,7 @@ func TestBackend_StopDeployment_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	err := b.StopDeployment("app-1", "env-1", 1, false)
+	_, err := b.StopDeployment("app-1", "env-1", 1, false)
 	require.Error(t, err)
 }
 
@@ -60,7 +60,7 @@ func TestBackend_StartDeployment_ProgressesThroughGrowthAndBake(t *testing.T) {
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
-		app.ID, "progress-profile", "", "hosted", "AWS.Freeform", "", nil,
+		app.ID, "progress-profile", "", "hosted", "AWS.Freeform", "", "", nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestBackend_StartDeployment_UnknownHostedVersion_NotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
-		app.ID, "unknown-ver-profile", "", "hosted", "AWS.Freeform", "", nil,
+		app.ID, "unknown-ver-profile", "", "hosted", "AWS.Freeform", "", "", nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -157,7 +157,7 @@ func TestBackend_StartDeployment_NonHostedProfile_SkipsVersionValidation(t *test
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
-		app.ID, "ssm-profile", "", "ssm-parameter://my-param", "AWS.Freeform", "", nil,
+		app.ID, "ssm-profile", "", "ssm-parameter://my-param", "AWS.Freeform", "", "", nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -186,7 +186,7 @@ func TestBackend_StopDeployment_AllowRevert_RevertsToPreviousVersion(t *testing.
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
-		app.ID, "revert-profile", "", "hosted", "AWS.Freeform", "", nil,
+		app.ID, "revert-profile", "", "hosted", "AWS.Freeform", "", "", nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -210,7 +210,8 @@ func TestBackend_StopDeployment_AllowRevert_RevertsToPreviousVersion(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, []byte(`{"v":2}`), got.Content)
 
-	require.NoError(t, b.StopDeployment(app.ID, env.ID, dep2.DeploymentNumber, true))
+	_, err = b.StopDeployment(app.ID, env.ID, dep2.DeploymentNumber, true)
+	require.NoError(t, err)
 
 	reverted, err := b.GetDeployment(app.ID, env.ID, dep2.DeploymentNumber)
 	require.NoError(t, err)
@@ -235,7 +236,7 @@ func TestBackend_StopDeployment_CompleteWithoutAllowRevert_Rejected(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, "COMPLETE", dep.State)
 
-	err = b.StopDeployment(appID, envID, dep.DeploymentNumber, false)
+	_, err = b.StopDeployment(appID, envID, dep.DeploymentNumber, false)
 	require.Error(t, err)
 }
 

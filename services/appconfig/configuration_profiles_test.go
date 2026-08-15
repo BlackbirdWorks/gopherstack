@@ -22,7 +22,7 @@ func seedExperimentApp(t *testing.T, b *appconfig.InMemoryBackend) (string, stri
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
-		app.ID, "exp-profile", "", "hosted", "AWS.AppConfig.FeatureFlags", "", nil,
+		app.ID, "exp-profile", "", "hosted", "AWS.AppConfig.FeatureFlags", "", "", nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestBackend_CreateExperimentDefinition_Validation(t *testing.T) {
 				t.Helper()
 
 				prof, err := b.CreateConfigurationProfile(
-					p.appID, "freeform-profile", "", "hosted", "AWS.Freeform", "", nil,
+					p.appID, "freeform-profile", "", "hosted", "AWS.Freeform", "", "", nil,
 					nil,
 				)
 				require.NoError(t, err)
@@ -450,7 +450,7 @@ func TestBackend_UpdateConfigurationProfile_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.UpdateConfigurationProfile("app-1", "prof-1", new("name"), new(""), nil, nil)
+	_, err := b.UpdateConfigurationProfile("app-1", "prof-1", new("name"), new(""), nil, nil, nil)
 	require.Error(t, err)
 }
 

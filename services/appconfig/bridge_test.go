@@ -49,7 +49,9 @@ func newBridgeFixture(t *testing.T) *bridgeFixture {
 	env, err := ac.CreateEnvironment(app.ID, "bridge-env", "", nil, nil)
 	require.NoError(t, err)
 
-	profile, err := ac.CreateConfigurationProfile(app.ID, "bridge-profile", "", "hosted", "AWS.Freeform", "", nil, nil)
+	profile, err := ac.CreateConfigurationProfile(
+		app.ID, "bridge-profile", "", "hosted", "AWS.Freeform", "", "", nil, nil,
+	)
 	require.NoError(t, err)
 
 	return &bridgeFixture{ac: ac, acd: acd, appID: app.ID, envID: env.ID, profileID: profile.ID}
@@ -172,7 +174,8 @@ func TestAppConfigDeploymentBridge_StateTransitions(t *testing.T) {
 
 				dep := f.deployHostedContent(t, []byte(`{"v":1}`), "stoppable-strat", 100, 50, 1)
 
-				require.NoError(t, f.ac.StopDeployment(f.appID, f.envID, dep.DeploymentNumber, false))
+				_, err := f.ac.StopDeployment(f.appID, f.envID, dep.DeploymentNumber, false)
+				require.NoError(t, err)
 
 				final, err := f.ac.GetDeployment(f.appID, f.envID, dep.DeploymentNumber)
 				require.NoError(t, err)
@@ -194,7 +197,8 @@ func TestAppConfigDeploymentBridge_StateTransitions(t *testing.T) {
 				dep2 := f.deployHostedContent(t, second, "revert-strat-2", 0, 0, 100)
 				require.Equal(t, "COMPLETE", dep2.State)
 
-				require.NoError(t, f.ac.StopDeployment(f.appID, f.envID, dep2.DeploymentNumber, true))
+				_, err := f.ac.StopDeployment(f.appID, f.envID, dep2.DeploymentNumber, true)
+				require.NoError(t, err)
 
 				gotContent, _, _ := f.pollLatestConfiguration(t)
 				assert.Equal(t, first, gotContent, "revert should republish the prior deployment's content")

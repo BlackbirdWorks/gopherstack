@@ -13,12 +13,17 @@ func (b *InMemoryBackend) GetAccountSettings() (*AccountSettings, error) {
 // UpdateAccountSettings updates account-level AppConfig settings.
 func (b *InMemoryBackend) UpdateAccountSettings(
 	deletionProtection *DeletionProtectionSettings,
+	vendedMetrics *VendedMetricsSettings,
 ) (*AccountSettings, error) {
 	b.mu.Lock("UpdateAccountSettings")
 	defer b.mu.Unlock()
 
 	if deletionProtection != nil {
 		b.accountSettings.DeletionProtection = deletionProtection
+	}
+
+	if vendedMetrics != nil {
+		b.accountSettings.VendedMetrics = vendedMetrics
 	}
 
 	cp := b.accountSettings

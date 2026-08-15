@@ -130,6 +130,7 @@ func (b *InMemoryBackend) StartDeployment(
 		Description:                 description,
 		ConfigurationName:           profile.Name,
 		ConfigurationLocationURI:    profile.LocationURI,
+		KmsKeyIdentifier:            profile.KmsKeyIdentifier,
 		GrowthType:                  strategy.GrowthType,
 		GrowthFactor:                strategy.GrowthFactor,
 		VersionLabel:                versionLabel,
@@ -477,7 +478,7 @@ func (b *InMemoryBackend) StopDeployment(
 	applicationID, environmentID string,
 	deploymentNumber int32,
 	allowRevert bool,
-) error {
+) (*Deployment, error) {
 	b.mu.Lock("StopDeployment")
 	defer b.mu.Unlock()
 
@@ -485,7 +486,7 @@ func (b *InMemoryBackend) StopDeployment(
 
 	d, ok := b.deployments.Get(key)
 	if !ok {
-		return fmt.Errorf("%w: deployment %d", ErrDeploymentNotFound, deploymentNumber)
+		return nil, fmt.Errorf("%w: deployment %d", ErrDeploymentNotFound, deploymentNumber)
 	}
 
 	now := time.Now()
@@ -502,13 +503,14 @@ func (b *InMemoryBackend) StopDeployment(
 		updated.CompletedAt = now
 		appendDeploymentEvent(&updated, "ROLLBACK_COMPLETED", triggeredByUser, "Deployment rolled back", now)
 	default:
-		return fmt.Errorf("%w: cannot stop deployment in state %s", ErrBadRequest, d.State)
+		return nil, fmt.Errorf("%w: cannot stop deployment in state %s", ErrBadRequest, d.State)
 	}
 
 	delete(b.deploymentTimers, key)
 	b.deployments.Put(&updated)
+	cp := updated
 
-	return nil
+	return &cp, nil
 }
 
 // revertDeployedConfigLocked restores deployedConfigs for the reverted

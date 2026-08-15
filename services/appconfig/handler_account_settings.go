@@ -18,6 +18,7 @@ func (h *Handler) handleGetAccountSettings(c *echo.Context) error {
 func (h *Handler) handleUpdateAccountSettings(c *echo.Context) error {
 	var req struct {
 		DeletionProtection *DeletionProtectionSettings `json:"DeletionProtection"`
+		VendedMetrics      *VendedMetricsSettings      `json:"VendedMetrics"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -26,7 +27,7 @@ func (h *Handler) handleUpdateAccountSettings(c *echo.Context) error {
 		)
 	}
 
-	settings, err := h.Backend.UpdateAccountSettings(req.DeletionProtection)
+	settings, err := h.Backend.UpdateAccountSettings(req.DeletionProtection, req.VendedMetrics)
 	if err != nil {
 		return internalServerErrorResponse(c, err)
 	}
