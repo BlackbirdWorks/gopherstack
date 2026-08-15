@@ -277,6 +277,106 @@ func TestModifyDBProxyTargetGroup_SessionPinningFilters_RealClient(t *testing.T)
 		"SessionPinningFilters must round-trip; pre-fix it was never captured from the request nor emitted")
 }
 
+// TestDescribeDBClusterSnapshotAttributes_WrapperItemName_RealClient covers a
+// gopherstack-6flj sibling-trap bug: DescribeDBClusterSnapshotAttributes and
+// ModifyDBClusterSnapshotAttribute reused the plain-snapshot
+// xmlDBSnapshotAttributeList type, whose member element is "DBSnapshotAttribute"
+// -- correct for DescribeDBSnapshotAttributes, but the real
+// DescribeDBClusterSnapshotAttributesOutput deserializer
+// (rds@v1.124.1 deserializers.go:33216,
+// awsAwsquery_deserializeDocumentDBClusterSnapshotAttributeList) reads the
+// distinct element name "DBClusterSnapshotAttribute". The wrapper key itself
+// ("DBClusterSnapshotAttributes") was already correct, so a real client's
+// DBClusterSnapshotAttributes slice was always empty regardless of what
+// ModifyDBClusterSnapshotAttribute had set.
+func TestDescribeDBClusterSnapshotAttributes_WrapperItemName_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestRDSClient(t, newTestRDSHandler())
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &rdssdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("cluster-snap-attrs"),
+		Engine:              aws.String("aurora-postgresql"),
+		MasterUsername:      aws.String("admin"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDBClusterSnapshot(ctx, &rdssdk.CreateDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String("cluster-snap-1"),
+		DBClusterIdentifier:         aws.String("cluster-snap-attrs"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyDBClusterSnapshotAttribute(ctx, &rdssdk.ModifyDBClusterSnapshotAttributeInput{
+		DBClusterSnapshotIdentifier: aws.String("cluster-snap-1"),
+		AttributeName:               aws.String("restore"),
+		ValuesToAdd:                 []string{"123456789012"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDBClusterSnapshotAttributes(ctx, &rdssdk.DescribeDBClusterSnapshotAttributesInput{
+		DBClusterSnapshotIdentifier: aws.String("cluster-snap-1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBClusterSnapshotAttributesResult)
+
+	attrs := out.DBClusterSnapshotAttributesResult.DBClusterSnapshotAttributes
+	require.Len(t, attrs, 1,
+		"DBClusterSnapshotAttributes must round-trip; pre-fix the real deserializer's "+
+			"element name never matched the emitted one, so this was always empty")
+	assert.Equal(t, "restore", aws.ToString(attrs[0].AttributeName))
+	assert.Equal(t, []string{"123456789012"}, attrs[0].AttributeValues)
+}
+
+// TestModifyDBSnapshotAttribute_ValuesToAddWireKey_RealClient covers a
+// request-parsing sibling of the bug above: handleModifyDBSnapshotAttribute
+// read "ValuesToAdd.member.N", but the real client serializes
+// ValuesToAdd/ValuesToRemove with the list member's locationName
+// "AttributeValue" (rds@v1.124.1 serializers.go:11546,
+// awsAwsquery_serializeDocumentAttributeValueList's value.Array("AttributeValue")),
+// giving "ValuesToAdd.AttributeValue.N" -- a real client's ValuesToAdd was
+// silently dropped on every call regardless of what was requested.
+func TestModifyDBSnapshotAttribute_ValuesToAddWireKey_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestRDSClient(t, newTestRDSHandler())
+	ctx := t.Context()
+
+	_, err := client.CreateDBInstance(ctx, &rdssdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("db-snap-attrs"),
+		DBInstanceClass:      aws.String("db.t3.micro"),
+		Engine:               aws.String("mysql"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDBSnapshot(ctx, &rdssdk.CreateDBSnapshotInput{
+		DBSnapshotIdentifier: aws.String("db-snap-1"),
+		DBInstanceIdentifier: aws.String("db-snap-attrs"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyDBSnapshotAttribute(ctx, &rdssdk.ModifyDBSnapshotAttributeInput{
+		DBSnapshotIdentifier: aws.String("db-snap-1"),
+		AttributeName:        aws.String("restore"),
+		ValuesToAdd:          []string{"123456789012"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDBSnapshotAttributes(ctx, &rdssdk.DescribeDBSnapshotAttributesInput{
+		DBSnapshotIdentifier: aws.String("db-snap-1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBSnapshotAttributesResult)
+
+	attrs := out.DBSnapshotAttributesResult.DBSnapshotAttributes
+	require.Len(t, attrs, 1,
+		"DBSnapshotAttributes must round-trip; pre-fix ValuesToAdd was parsed from the wrong "+
+			"wire key so no attribute was ever recorded")
+	assert.Equal(t, "restore", aws.ToString(attrs[0].AttributeName))
+	assert.Equal(t, []string{"123456789012"}, attrs[0].AttributeValues)
+}
+
 // TestCreateDBProxyEndpoint_VpcConfig_RealClient covers a layer-3 bug
 // (gopherstack-g8k9): CreateDBProxyEndpoint already correctly captures
 // VpcSubnetIds/VpcSecurityGroupIds from the request into the domain

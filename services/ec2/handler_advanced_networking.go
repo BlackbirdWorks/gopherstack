@@ -216,9 +216,11 @@ type vpnTunnelOptionItem struct {
 	DPDTimeoutAction string `xml:"dpdTimeoutAction,omitempty"`
 	StartupAction    string `xml:"startupAction,omitempty"`
 	CertificateArn   string `xml:"certificateArn,omitempty"`
-	IKEVersionSet    struct {
+	// Real field name is "ikeVersionSet", not "ikeVersions"
+	// (ec2@v1.319.1 deserializers.go: awsEc2query_deserializeDocumentTunnelOption).
+	IKEVersionSet struct {
 		Items []ikeVersionItem `xml:"item"`
-	} `xml:"ikeVersions"`
+	} `xml:"ikeVersionSet"`
 	Phase1LifetimeSeconds  int32 `xml:"phase1LifetimeSeconds,omitempty"`
 	Phase2LifetimeSeconds  int32 `xml:"phase2LifetimeSeconds,omitempty"`
 	RekeyMarginTimeSeconds int32 `xml:"rekeyMarginTimeSeconds,omitempty"`
@@ -228,9 +230,11 @@ type vpnTunnelOptionItem struct {
 type vpnConnectionOptionsItem struct {
 	LocalIpv4NetworkCidr  string `xml:"localIpv4NetworkCidr,omitempty"`
 	RemoteIpv4NetworkCidr string `xml:"remoteIpv4NetworkCidr,omitempty"`
-	TunnelOptionsSet      struct {
+	// Real field name is "tunnelOptionSet", not "tunnelOptions"
+	// (ec2@v1.319.1 deserializers.go: awsEc2query_deserializeDocumentVpnConnectionOptions).
+	TunnelOptionsSet struct {
 		Items []vpnTunnelOptionItem `xml:"item"`
-	} `xml:"tunnelOptions"`
+	} `xml:"tunnelOptionSet"`
 	StaticRoutesOnly bool `xml:"staticRoutesOnly"`
 }
 
