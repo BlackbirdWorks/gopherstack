@@ -20,16 +20,17 @@ type describeCarrierGatewaysResponse struct {
 }
 
 type reservedInstanceItem struct {
-	ReservedInstancesID string  `xml:"reservedInstancesId"`
-	InstanceType        string  `xml:"instanceType,omitempty"`
-	AvailabilityZone    string  `xml:"availabilityZone,omitempty"`
-	ProductDescription  string  `xml:"productDescription,omitempty"`
-	State               string  `xml:"state,omitempty"`
-	OfferingType        string  `xml:"offeringType,omitempty"`
-	InstanceCount       int     `xml:"instanceCount,omitempty"`
-	Duration            int64   `xml:"duration"`
-	FixedPrice          float64 `xml:"fixedPrice"`
-	UsagePrice          float64 `xml:"usagePrice"`
+	ReservedInstancesID string          `xml:"reservedInstancesId"`
+	InstanceType        string          `xml:"instanceType,omitempty"`
+	AvailabilityZone    string          `xml:"availabilityZone,omitempty"`
+	ProductDescription  string          `xml:"productDescription,omitempty"`
+	State               string          `xml:"state,omitempty"`
+	OfferingType        string          `xml:"offeringType,omitempty"`
+	TagSet              []simpleTagItem `xml:"tagSet>item"`
+	InstanceCount       int             `xml:"instanceCount,omitempty"`
+	Duration            int64           `xml:"duration"`
+	FixedPrice          float64         `xml:"fixedPrice"`
+	UsagePrice          float64         `xml:"usagePrice"`
 }
 
 func toCarrierGatewayItem(gw *CarrierGateway, tags map[string]string) carrierGatewayItem {

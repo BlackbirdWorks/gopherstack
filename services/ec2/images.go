@@ -204,6 +204,15 @@ func (b *InMemoryBackend) ModifyImageAttribute(imageID, attribute, value string)
 	return nil
 }
 
+// GetImageAttribute returns a previously-set simple string AMI attribute
+// (as stored by ModifyImageAttribute), or "" if never set.
+func (b *InMemoryBackend) GetImageAttribute(imageID, attribute string) string {
+	b.mu.RLock("GetImageAttribute")
+	defer b.mu.RUnlock()
+
+	return b.imageAttributes[imageID][attribute]
+}
+
 // ResetImageAttribute resets an AMI attribute to its default.
 func (b *InMemoryBackend) ResetImageAttribute(imageID, attribute string) error {
 	if imageID == "" {

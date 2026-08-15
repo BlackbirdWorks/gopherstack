@@ -537,12 +537,23 @@ func (h *Handler) handleDescribeByoipCidrs(vals url.Values, reqID string) (any, 
 	return resp, nil
 }
 
+// hostPropertiesItem mirrors the real Host.HostProperties nested shape
+// (ec2@v1.319.1 types.go's HostProperties): InstanceType and InstanceFamily
+// live here, not as top-level Host fields.
+type hostPropertiesItem struct {
+	InstanceType   string `xml:"instanceType,omitempty"`
+	InstanceFamily string `xml:"instanceFamily,omitempty"`
+}
+
 type hostItem struct {
-	HostID           string `xml:"hostId"`
-	InstanceType     string `xml:"instanceType,omitempty"`
-	AvailabilityZone string `xml:"availabilityZone"`
-	State            string `xml:"state"`
-	OwnedBy          string `xml:"ownerId,omitempty"`
+	HostID           string             `xml:"hostId"`
+	AvailabilityZone string             `xml:"availabilityZone"`
+	State            string             `xml:"state"`
+	OwnedBy          string             `xml:"ownerId,omitempty"`
+	AutoPlacement    string             `xml:"autoPlacement,omitempty"`
+	HostRecovery     string             `xml:"hostRecovery,omitempty"`
+	HostMaintenance  string             `xml:"hostMaintenance,omitempty"`
+	HostProperties   hostPropertiesItem `xml:"hostProperties"`
 }
 
 type hostSet struct {
@@ -578,10 +589,16 @@ func (h *Handler) handleDescribeHosts(vals url.Values, reqID string) (any, error
 	for _, host := range hosts {
 		resp.Hosts.Items = append(resp.Hosts.Items, hostItem{
 			HostID:           host.HostID,
-			InstanceType:     host.InstanceType,
 			AvailabilityZone: host.AvailabilityZone,
 			State:            host.State,
 			OwnedBy:          host.OwnedBy,
+			AutoPlacement:    host.AutoPlacement,
+			HostRecovery:     host.HostRecovery,
+			HostMaintenance:  host.HostMaintenance,
+			HostProperties: hostPropertiesItem{
+				InstanceType:   host.InstanceType,
+				InstanceFamily: host.InstanceFamily,
+			},
 		})
 	}
 

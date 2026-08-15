@@ -1290,6 +1290,7 @@ type Backend interface {
 	EnableImageDeregistrationProtection(imageID string) error
 	DisableImageDeregistrationProtection(imageID string) error
 	ModifyImageAttribute(imageID, attribute, value string) error
+	GetImageAttribute(imageID, attribute string) string
 	ResetImageAttribute(imageID, attribute string) error
 	DescribeInstanceImageMetadata(instanceIDs []string) []InstanceImageMetadataItem
 	EnableSerialConsoleAccess()
@@ -1505,13 +1506,14 @@ type Backend interface {
 	ResetFpgaImageAttribute(id, attribute string) error
 
 	// ---- batch5: TrafficMirror ----
-	CreateTrafficMirrorFilter(description string) (*TrafficMirrorFilter, error)
+	CreateTrafficMirrorFilter(description string, tags map[string]string) (*TrafficMirrorFilter, error)
 	DeleteTrafficMirrorFilter(id string) error
 	DescribeTrafficMirrorFilters(ids []string) []*TrafficMirrorFilter
 	ModifyTrafficMirrorFilterNetworkServices(id string, add, remove []string) (*TrafficMirrorFilter, error)
 	CreateTrafficMirrorFilterRule(
 		filterID, direction, action, srcCIDR, dstCIDR, description string,
 		ruleNumber, protocol int,
+		tags map[string]string,
 		ports ...TrafficMirrorPortRangePair,
 	) (*TrafficMirrorFilterRule, error)
 	DeleteTrafficMirrorFilterRule(id string) error
@@ -1520,6 +1522,7 @@ type Backend interface {
 	CreateTrafficMirrorSession(
 		networkInterfaceID, targetID, filterID, description string,
 		sessionNumber int,
+		tags map[string]string,
 		packetLength ...int,
 	) (*TrafficMirrorSession, error)
 	DeleteTrafficMirrorSession(id string) error
@@ -1527,6 +1530,7 @@ type Backend interface {
 	ModifyTrafficMirrorSession(id, targetID, filterID, description string) (*TrafficMirrorSession, error)
 	CreateTrafficMirrorTarget(
 		networkInterfaceID, networkLoadBalancerArn, description string,
+		tags map[string]string,
 		gatewayLoadBalancerEndpointID ...string,
 	) (*TrafficMirrorTarget, error)
 	DeleteTrafficMirrorTarget(id string) error

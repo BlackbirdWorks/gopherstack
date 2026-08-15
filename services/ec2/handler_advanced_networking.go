@@ -423,12 +423,32 @@ type rejectVpcPeeringConnectionResponse struct {
 	Return    bool     `xml:"return"`
 }
 
+type privateDNSNameConfigurationItem struct {
+	State string `xml:"state,omitempty"`
+}
+
 type vpcEndpointServiceConfigItem struct {
-	ServiceID           string `xml:"serviceId"`
-	ServiceName         string `xml:"serviceName"`
-	ServiceType         string `xml:"serviceType>item>serviceType"`
-	PayerResponsibility string `xml:"payerResponsibility,omitempty"`
-	AcceptanceRequired  bool   `xml:"acceptanceRequired"`
+	ServiceID                   string                          `xml:"serviceId"`
+	ServiceName                 string                          `xml:"serviceName"`
+	ServiceType                 string                          `xml:"serviceType>item>serviceType"`
+	PayerResponsibility         string                          `xml:"payerResponsibility,omitempty"`
+	PrivateDNSNameConfiguration privateDNSNameConfigurationItem `xml:"privateDnsNameConfiguration"`
+	NetworkLoadBalancerArnSet   []string                        `xml:"networkLoadBalancerArnSet>item"`
+	AcceptanceRequired          bool                            `xml:"acceptanceRequired"`
+}
+
+func toVpcEndpointServiceConfigItem(cfg *VpcEndpointServiceConfig) vpcEndpointServiceConfigItem {
+	return vpcEndpointServiceConfigItem{
+		ServiceID:                 cfg.ServiceID,
+		ServiceName:               cfg.ServiceName,
+		ServiceType:               cfg.ServiceType,
+		PayerResponsibility:       cfg.PayerResponsibility,
+		AcceptanceRequired:        cfg.AcceptanceRequired,
+		NetworkLoadBalancerArnSet: cfg.NetworkLoadBalancerARNs,
+		PrivateDNSNameConfiguration: privateDNSNameConfigurationItem{
+			State: cfg.PrivateDNSNameState,
+		},
+	}
 }
 
 type createVpcEndpointServiceConfigurationResponse struct {

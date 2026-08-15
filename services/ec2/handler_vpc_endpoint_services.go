@@ -21,15 +21,9 @@ func (h *Handler) handleCreateVpcEndpointServiceConfiguration(
 	}
 
 	return &createVpcEndpointServiceConfigurationResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		ServiceConfig: vpcEndpointServiceConfigItem{
-			ServiceID:           cfg.ServiceID,
-			ServiceName:         cfg.ServiceName,
-			ServiceType:         cfg.ServiceType,
-			PayerResponsibility: cfg.PayerResponsibility,
-			AcceptanceRequired:  cfg.AcceptanceRequired,
-		},
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		ServiceConfig: toVpcEndpointServiceConfigItem(cfg),
 	}, nil
 }
 
@@ -43,16 +37,7 @@ func (h *Handler) handleDescribeVpcEndpointServiceConfigurations(
 	resp := &describeVpcEndpointServiceConfigurationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, cfg := range cfgs {
-		resp.ServiceConfigSet.Items = append(
-			resp.ServiceConfigSet.Items,
-			vpcEndpointServiceConfigItem{
-				ServiceID:           cfg.ServiceID,
-				ServiceName:         cfg.ServiceName,
-				ServiceType:         cfg.ServiceType,
-				PayerResponsibility: cfg.PayerResponsibility,
-				AcceptanceRequired:  cfg.AcceptanceRequired,
-			},
-		)
+		resp.ServiceConfigSet.Items = append(resp.ServiceConfigSet.Items, toVpcEndpointServiceConfigItem(cfg))
 	}
 
 	return resp, nil
