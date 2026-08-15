@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 13 (13 ok) |
-| Known gaps | 3 |
+| Known gaps | 5 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
@@ -17,6 +17,8 @@
 - SupportedNetworkTypes on DBSubnetGroup/OrderableDBInstanceOption is modeled (field exists, real StringList wire shape via xmlSupportedNetworkTypeList) but permanently left empty (nil pointer, omitted from the wire): this backend tracks subnets as opaque ID strings only (no IPv4/IPv6 CIDR data) and the orderable-options catalog is static/hardcoded with no per-instance-class capability source, so there is no honest basis to compute AWS's real derived value -- inventing IPV4/DUAL support a client could filter on would be worse than omitting the field. Not fixable without modeling real subnet CIDR data.
 - NetworkTypeNotSupportedFault (neptune@v1.48.4 types/errors.go:1417, wire code "NetworkTypeNotSupported") is intentionally NOT wired into errors.go's lookup table. Real AWS raises it when a requested NetworkType is incompatible with the target DB subnet group's actual IPv4/IPv6 CIDR support -- this backend has no CIDR data (see SupportedNetworkTypes gap above) to genuinely detect that condition, and inventing a rejection rule would be the more-restrictive-than-AWS bug class this repo explicitly avoids. NetworkType itself is accepted as any string (client-side SDK type is a bare *string, not a smithy enum -- verified: no NetworkType entry in aws-sdk-go-v2/service/neptune/types/enums.go), never validated against IPV4/DUAL.
 - RestoreDBClusterFromSnapshot/RestoreDBClusterToPointInTime do not accept or echo NetworkType, consistent with their existing minimal option surface (already missing StorageType/HostedZoneID/MasterUsername/etc., a pre-existing gap out of scope for this pass). CreateDBCluster/ModifyDBCluster do carry NetworkType (the SDK input member exists only on these 4 ops; only the 2 implemented ones were wired).
+- 2026-08-15 (gopherstack-6flj): GlobalCluster.FailoverState (real, transient in-process failover/switchover record) is not modeled. Failover/Switchover apply member promotion synchronously with no in-process window this backend can honestly report a status for -- omitting it is more accurate than fabricating a pending/failing-over/complete value.
+- 2026-08-15 (gopherstack-6flj): CreateGlobalClusterInput's EngineVersion/DeletionProtection/StorageEncrypted are silently ignored at create time (EngineVersion only ever comes from an attached source cluster or a hardcoded default; DeletionProtection is only settable later via ModifyGlobalCluster; StorageEncrypted is only ever derived from a source cluster) -- discarded input, disclosed rather than fixed this pass since each has real validation/interaction surface deserving its own pass.
 
 ### Deferred
 

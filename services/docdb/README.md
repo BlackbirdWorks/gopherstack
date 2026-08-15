@@ -9,9 +9,20 @@
 | --- | --- |
 | Operations audited | 55 (55 ok) |
 | Feature families | 9 (9 ok) |
-| Known gaps | none |
+| Known gaps | 8 |
 | Deferred items | 1 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- DBCluster: AssociatedRoles/CloneGroupId/DbClusterResourceId/EarliestRestorableTime/IOOptimizedNextAllowedModificationTime/LatestRestorableTime/MasterUserSecret/NetworkType/PercentProgress/ServerlessV2ScalingConfiguration/StorageType -- IAM role association, Secrets-Manager-managed credentials, IO-optimized storage tiering, dual-stack networking, and DocDB Serverless v2 are all distinct unimplemented features with no backend state to derive from. ReadReplicaIdentifiers is declared on the DBCluster model and cloned in copy functions but never actually SET anywhere -- CreateDBCluster has no ReplicationSourceIdentifier/create-as-replica code path at all (the sibling ReplicationSourceIdentifier response field is real but also always empty for the same reason), so the field is dead scaffolding for an unbuilt feature, not a tracked-but-unemitted bug.
+- DBInstance: CertificateDetails/DbiResourceId/LatestRestorableTime/PendingModifiedValues/PerformanceInsightsEnabled/PerformanceInsightsKMSKeyId/StatusInfos -- Performance Insights and read-replica status are unimplemented features; DbiResourceId needs a stable synthetic resource-id scheme this pass did not design.
+- DBClusterSnapshot: VpcId (resolvable via an extra DBSubnetGroup lookup through the source cluster's DBSubnetGroupName -- plausible but not attempted this pass) and StorageType (no storage-tiering feature modeled).
+- DBSubnetGroup: SupportedNetworkTypes (dual-stack/IPv4-only support, unmodeled).
+- Parameter (DescribeDBClusterParameters/DescribeEngineDefaultClusterParameters): AllowedValues/MinimumEngineVersion -- real members, but this pass found no authoritative source (SDK doc comments give no enumerated values) for the correct per-parameter content of the static built-in parameter catalog (clusterParameterDefaults). Guessing plausible-looking values (e.g. "enabled,disabled" for a boolean param) would be exactly the invention parity-principles #1 forbids.
+- Certificate (DescribeCertificates): CertificateArn -- real member with a well-known real-AWS ARN format (arn:aws:rds:<region>::cert:<identifier>), but no in-repo precedent (checked services/rds, which has no DescribeCertificates at all) confirms it, so left disclosed per this issue's derive-or-disclose rule rather than reconstructed from memory.
+- GlobalCluster: DatabaseName/FailoverState/GlobalClusterResourceId/TagList -- see DescribeGlobalClusters note above.
+- Every Describe*/List* op's request-side Filters member (all 16 ops that take one, per awsAwsquery_serializeOpDocumentDescribe*Input) is parsed nowhere in this handler -- a systemic, service-wide discarded input. Implementing AWS's generic Name/Values filter-matching semantics across 16 ops is a distinct feature (a small filter-matching engine), not a per-op wire-shape fix, so left disclosed rather than half-implemented for a subset of ops.
 
 ### Deferred
 

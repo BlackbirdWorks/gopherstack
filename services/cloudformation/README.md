@@ -7,9 +7,9 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 67 (66 ok, 1 partial) |
-| Feature families | 12 (12 ok) |
-| Known gaps | 4 |
+| Operations audited | 70 (69 ok, 1 partial) |
+| Feature families | 13 (13 ok) |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,6 +19,7 @@
 - SetTypeConfiguration accepts configuration for any type name without requiring prior registration (intentional permissiveness for first-party AWS types — see ops: SetTypeConfiguration note); real AWS models TypeNotFoundException here but this emulator doesn't track the full built-in-type catalog (bd: gopherstack-e5h)
 - StackSets DeploymentTargets.AccountFilterType INTERSECTION/DIFFERENCE/UNION filtering and AccountsUrl are not implemented — only the unset/NONE case (union of Accounts and OU-resolved accounts) is honoured; other AccountFilterType values are now rejected explicitly with ValidationError (fixed gopherstack-nirx; previously silently dropped despite being documented as rejected — bd: gopherstack-g7b5, gopherstack-nirx)
 - ImportStacksToStackSet still doesn't tag imported instances with a real OU (no DeploymentTargets on that op in the SDK to source one from) — unaffected by the gopherstack-g7b5 OU work
+- Stack policy enforcement (gopherstack-cqy3) does not implement NotAction/NotResource (disclosed, not approximated — see families: stack_policy_enforcement); a Replacement=='Conditionally' change (only reachable for DynamoDB AttributeDefinitions and RDS Engine/AvailabilityZone per requiresRecreation) is deliberately treated as Update:Replace for policy purposes, erring toward the more protective classification since this backend cannot resolve the ambiguity statically; a policy set via StackPolicyBody/StackPolicyURL at CreateStack/UpdateStack time (as opposed to SetStackPolicy) and the URL variant of either are not modeled, consistent with SetStackPolicy never having supported StackPolicyURL; enforcement is computed from the same template-body text diff CreateChangeSet uses, so a parameter-only update (TemplateBody omitted, UsePreviousTemplate not modeled) produces no diff and is not checked — a pre-existing limitation of computeChanges this pass did not extend
 
 ## More
 

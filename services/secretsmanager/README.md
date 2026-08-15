@@ -9,7 +9,7 @@
 | --- | --- |
 | Operations audited | 24 (24 ok) |
 | Feature families | 7 (6 ok, 1 partial) |
-| Known gaps | 4 |
+| Known gaps | 7 |
 | Deferred items | 2 |
 | Resource leaks | fixed |
 
@@ -19,6 +19,9 @@
 - managed-external-secret fields, reclassified 2026-08-10 (gopherstack-9wuh, part 3 — three-way split per field, verified against aws-sdk-go-v2/service/secretsmanager@v1.44.4 api_op_*.go, not assumed):
 - Type and ExternalSecretRotationMetadata/ExternalSecretRotationRoleArn were **accepted then silently dropped**: all three are real settable input fields (Type on CreateSecretInput and UpdateSecretInput; ExternalSecretRotationMetadata/ExternalSecretRotationRoleArn on RotateSecretInput) that gopherstack's wire structs simply had no field for, so json.Unmarshal silently discarded them — not even a stub, the data never existed past the HTTP boundary. FIXED: added to CreateSecretInput/UpdateSecretInput/RotateSecretInput, stored on Secret, echoed by DescribeSecretOutput and SecretListEntry, round-trips through Snapshot/Restore (additive omitempty fields, no snapshot version bump). RotateSecret's Lambda-ARN-required check (see above) was deliberately NOT relaxed for a request that only supplies ExternalSecretRotationRoleArn — the SDK's InvalidRequestException text doesn't document that as an alternative, and gopherstack has no managed-external-secret invocation behavior for it to unlock, so leaving it required is the conservative, citable choice, not a gap.
 - OwningService is **genuinely absent from any input this mock could wire it from**: confirmed absent from both CreateSecretInput and UpdateSecretInput in api_op_CreateSecret.go/api_op_UpdateSecret.go@v1.44.4 — in real AWS it is set only by AWS itself, for service-linked/managed secrets (e.g. RDS-managed rotation), which this mock does not model at all (see deferred). This one really does require a managed-service model that doesn't exist here, so it stays permanently unset — that's correct, not a gap. What WAS a gap: the "owning-service" ListSecrets filter used to unconditionally return true regardless of filter value, which is more permissive than AWS (a real client filtering by owning-service=rds.amazonaws.com would wrongly get back every secret instead of none). FIXED — see ListSecrets ops entry above.
+- 2026-08-14 (gopherstack-3tpf mechanical struct-field diff, cmd/structfielddiff, all 23 ops against aws-sdk-go-v2/service/secretsmanager@v1.44.4 -- wire-complete otherwise, every Input/Output/nested field matched): two more real request members silently dropped, same class as the Type fix above, both DISCLOSED not fixed -- see gopherstack-zurl for the full citation and why each is unsafe to enforce today rather than a two-line add:
+- CreateSecretInput.ForceOverwriteReplicaSecret (bool) -- attempting a real fix surfaced that gopherstack's replication status never distinguishes a destination-name-collision Failed from syncReplicationStatusLocked's own no-current-version Failed, so a naive fix's Failed status gets silently promoted to InSync by the very next sync call. Reverted rather than shipped half-working.
+- PutSecretValueInput.RotationToken (string) -- a cross-account rotation identity token with nothing in gopherstack's rotation model to validate it against (no session/trust engine), structurally the same as sts's disclosed JWTPayloadSizeExceededException gap.
 
 ### Deferred
 

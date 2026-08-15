@@ -5,7 +5,8 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: redshift
-sdk_module: aws-sdk-go-v2/service/redshift@v1.65.4 + aws-sdk-go-v2/service/redshiftserverless@v1.38.5 (pinned in go.mod 2026-08-13, bd gopherstack-0w2p; see "Redshift Serverless" family row)
+sdk_module: aws-sdk-go-v2/service/redshift@v1.65.4
+sibling_sdk_modules: [aws-sdk-go-v2/service/redshiftserverless@v1.38.5]  # pinned in go.mod 2026-08-13, bd gopherstack-0w2p; see "Redshift Serverless" family row
 last_audit_commit: 0fe7aaf4d
 last_audit_date: 2026-08-08
 overall: A            # RESTORED FROM A- (2026-07-25 follow-up pass, bd gopherstack-0eyk): the

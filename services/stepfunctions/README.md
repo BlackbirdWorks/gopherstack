@@ -7,8 +7,8 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 28 (28 ok) |
-| Known gaps | 6 |
+| Operations audited | 26 (26 ok) |
+| Known gaps | 7 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -20,6 +20,7 @@
 - TaskScheduledEventDetails/TaskSucceededEventDetails still omit resourceType/region/parameters/timeoutInSeconds/heartbeatInSeconds/outputDetails.truncated; no TaskSubmitted/TaskStarted history events for .sync/.waitForTaskToken (bd: gopherstack-996)
 - DescribeExecutionOutput missing RedriveStatus/RedriveStatusReason/MapRunArn/TraceHeader/InputDetails/OutputDetails (found this pass via SDK field-diff; StateMachineVersionArn/StateMachineAliasArn were fixed this pass, these were not, bd: gopherstack-f5dc)
 - Non-standard intrinsic functions (StringConcat, ArraySlice, MathSubtract, etc.) are accepted by this emulator but do not exist in real AWS Step Functions -- permissive superset, not a correctness bug against valid AWS definitions, but a definition that only works here would fail on real AWS (no bd filed; informational)
+- ListExecutions' new executionListItem view (gopherstack-dv4s) omits itemCount/mapRunArn, which real ExecutionListItem declares (types.go, sfn@v1.45.4) -- the domain Execution struct never tracked either field, a missing-field gap distinct from the over-wide leak this pass fixed (bd: unfiled)
 
 ## More
 

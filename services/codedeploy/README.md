@@ -9,9 +9,16 @@
 | --- | --- |
 | Operations audited | 47 (47 ok) |
 | Feature families | 9 (8 ok, 1 other) |
-| Known gaps | none |
+| Known gaps | 4 |
 | Deferred items | 2 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- gopherstack-a250: ListApplications/ListDeploymentConfigs/ListGitHubAccountTokenNames had literal struct{} inputs discarding a real (optional) NextToken member each. Not wired: no List* op in this service ever truncates its response (confirmed across all 8), so there is no continuation state for NextToken to represent -- see the three ops' notes above. If this service ever adds real MaxResults-driven truncation to any List op, these three should be revisited together, not in isolation. RE-CONFIRMED (6flj wrapper-key sweep): the same inertness holds, unchanged, for the other 5 List ops this pass touched (ListApplicationRevisions/ListDeploymentGroups/ListDeploymentInstances/ListDeploymentTargets/ListOnPremisesInstances) plus ListTagsForResource -- an accurate, still-current prior note, not argued-away.
+- gopherstack-6flj: ApplicationInfo (GetApplication/BatchGetApplications) never emits gitHubAccountName/linkedToGitHub -- both real (deserializers.go's awsAwsjson11_deserializeDocumentApplicationInfo). Not fixed: CreateApplicationInput/UpdateApplicationInput have no member to ever set either (this is legacy console-driven GitHub OAuth linking with no public request parameter), so this backend can never produce anything but the Go zero value for either. Since omitempty suppresses a zero-value field identically whether or not the struct field exists, adding it would be a pure source change with zero wire-byte effect -- disclosed rather than added as dead code.
+- gopherstack-6flj: InstanceSummary/InstanceTarget/ECSTarget/LambdaTarget (GetDeploymentInstance/GetDeploymentTarget/BatchGet* siblings) never emit lifecycleEvents (real on all four types); ECSTarget also never emits taskSetsInfo, LambdaTarget also never emits lambdaFunctionInfo. Not fixed: PutLifecycleEventHookExecutionStatus is a pure echo (validates the deployment exists, stores nothing), so this backend has zero real per-target lifecycle-hook-execution state ever, for any target type; same story for ECS task-set orchestration and Lambda alias-shift data -- neither is modeled anywhere. Same zero-wire-effect reasoning as the ApplicationInfo gap above -- disclosed, not added as dead code.
+- gopherstack-6flj: RevisionLocation never models the deprecated legacy 'string'/RawString revision member (deserializers.go's awsAwsjson11_deserializeDocumentRevisionLocation case "string", RevisionLocationType=String, Lambda-deployment-only raw YAML/JSON revisions). S3Location/GitHubLocation/AppSpecContent cover every revision path this backend's CreateDeployment/RegisterApplicationRevision can construct; the SDK's own doc comment marks this member's underlying concept as legacy. No honest non-empty value to emit -- disclosed, not fixed.
 
 ### Deferred
 

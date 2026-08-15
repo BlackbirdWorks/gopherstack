@@ -8,15 +8,17 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 44 (44 ok) |
-| Feature families | 5 (5 ok) |
-| Known gaps | 2 |
+| Feature families | 8 (8 ok) |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - ProfileConfiguration (CreateProfileJob/UpdateProfileJob's Configuration field) remains map[string]any pass-through -- see families.job_extras_typing for the depth measurement behind that call. Wire-compatible (arbitrary nested JSON round-trips byte-for-byte) but not validated.
-- StartProjectSession/SendProjectSessionAction's interactive session lifecycle (view frames, recipe-step preview/apply) is not modeled -- structural, not a stub gap: there's no session state to be incomplete. What was fixable (rejecting a project name that doesn't exist) was fixed 2026-08-10.
+- StartProjectSession/SendProjectSessionAction's interactive session lifecycle (view frames, recipe-step preview/apply) is not modeled -- structural, not a stub gap: there's no session state to be incomplete. What was fixable (rejecting a project name that doesn't exist) was fixed 2026-08-10; OpenDate was fixed 2026-08-15 (see families.session_status_fabrication).
+- Project.OpenedBy (real member) is never populated -- see families.session_status_fabrication. No caller-identity infrastructure exists anywhere in this package to derive it from (same root cause as CreatedBy/LastModifiedBy staying empty across every entity).
+- JobRun.ErrorMessage/StartedBy (real members) are never populated -- see families.jobrun_job_snapshot. ErrorMessage has no FAILED path to source a message from (StartJobRun always succeeds); StartedBy has the same no-identity-infrastructure root cause as OpenedBy above.
 
 ## More
 
