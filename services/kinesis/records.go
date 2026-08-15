@@ -257,15 +257,9 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 		Position:   actualEnd,
 	}
 
-	// AWS returns an empty NextShardIterator when a shard has been closed
-	// (due to MergeShards or SplitShard) and all records have been consumed.
-	nextToken := ""
-	if !shard.Closed || actualEnd < shard.Records.len() {
-		var tokenErr error
-		nextToken, tokenErr = encodeIterator(newIt)
-		if tokenErr != nil {
-			return nil, tokenErr
-		}
+	nextToken, childShards, err := nextIteratorAndChildShards(stream.Shards, shard, newIt, actualEnd)
+	if err != nil {
+		return nil, err
 	}
 
 	// MillisBehindLatest is the age of the last record in the shard (tip of stream).
@@ -277,6 +271,59 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 	return &GetRecordsOutput{
 		Records:            results,
 		NextShardIterator:  nextToken,
+		ChildShards:        childShards,
 		MillisBehindLatest: millisBehind,
 	}, nil
+}
+
+// nextIteratorAndChildShards computes GetRecords' NextShardIterator and
+// ChildShards together, since both are driven by the same end-of-shard
+// condition: AWS returns an empty NextShardIterator once a Closed shard
+// (from MergeShards/SplitShard) has been fully consumed, and ChildShards is
+// populated "only when the end of the current shard is reached"
+// (GetRecordsOutput's own doc comment) -- exactly that same condition.
+func nextIteratorAndChildShards(
+	shards []*Shard, shard *Shard, newIt *ShardIterator, actualEnd int,
+) (string, []ChildShard, error) {
+	if !shard.Closed || actualEnd < shard.Records.len() {
+		nextToken, err := encodeIterator(newIt)
+		if err != nil {
+			return "", nil, err
+		}
+
+		return nextToken, nil, nil
+	}
+
+	return "", childShardsOf(shards, shard.ID), nil
+}
+
+// childShardsOf finds every shard directly descended from parentID (via
+// ParentShardID or AdjacentParentShardID -- a merge child has both, a split
+// child has only ParentShardID) and builds its real-AWS ChildShard entry,
+// listing every parent that fed into it.
+func childShardsOf(shards []*Shard, parentID string) []ChildShard {
+	var children []ChildShard
+
+	for _, s := range shards {
+		if s.ParentShardID != parentID && s.AdjacentParentShardID != parentID {
+			continue
+		}
+
+		var parents []string
+		if s.ParentShardID != "" {
+			parents = append(parents, s.ParentShardID)
+		}
+		if s.AdjacentParentShardID != "" {
+			parents = append(parents, s.AdjacentParentShardID)
+		}
+
+		children = append(children, ChildShard{
+			ShardID:           s.ID,
+			HashKeyRangeStart: s.HashKeyRangeStart,
+			HashKeyRangeEnd:   s.HashKeyRangeEnd,
+			ParentShards:      parents,
+		})
+	}
+
+	return children
 }

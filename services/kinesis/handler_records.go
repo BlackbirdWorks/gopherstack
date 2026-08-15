@@ -56,10 +56,27 @@ type jsonRecord struct {
 	ApproximateArrivalTimestamp float64 `json:"ApproximateArrivalTimestamp"`
 }
 
+// jsonChildShard mirrors aws-sdk-go-v2 types.ChildShard: ShardId/ParentShards
+// are flat, HashKeyRange is the same nested {StartingHashKey,EndingHashKey}
+// object every other shard shape in this package already uses.
+type jsonChildShard struct {
+	HashKeyRange jsonHashKeyRange `json:"HashKeyRange"`
+	ShardID      string           `json:"ShardId"`
+	ParentShards []string         `json:"ParentShards"`
+}
+
 type jsonGetRecordsResp struct {
-	NextShardIterator  string       `json:"NextShardIterator"`
-	Records            []jsonRecord `json:"Records"`
-	MillisBehindLatest int64        `json:"MillisBehindLatest"`
+	// NextShardIterator omits the key (rather than sending an empty string)
+	// once absent -- GetRecordsOutput's own doc comment: "If set to null,
+	// the shard has been closed and the requested iterator does not return
+	// any more data." A previous revision always sent the key with "",
+	// which the real SDK deserializer reads as a non-nil pointer to an
+	// empty string, not nil -- so a real client's own doc-documented
+	// end-of-shard signal (NextShardIterator == nil) never actually fired.
+	NextShardIterator  string           `json:"NextShardIterator,omitempty"`
+	Records            []jsonRecord     `json:"Records"`
+	ChildShards        []jsonChildShard `json:"ChildShards,omitempty"`
+	MillisBehindLatest int64            `json:"MillisBehindLatest"`
 }
 
 func (h *Handler) handlePutRecord(
@@ -171,9 +188,22 @@ func (h *Handler) handleGetRecords(
 		}
 	}
 
+	childShards := make([]jsonChildShard, len(out.ChildShards))
+	for i, cs := range out.ChildShards {
+		childShards[i] = jsonChildShard{
+			ShardID:      cs.ShardID,
+			ParentShards: cs.ParentShards,
+			HashKeyRange: jsonHashKeyRange{
+				StartingHashKey: cs.HashKeyRangeStart,
+				EndingHashKey:   cs.HashKeyRangeEnd,
+			},
+		}
+	}
+
 	return jsonGetRecordsResp{
 		Records:            records,
 		NextShardIterator:  out.NextShardIterator,
+		ChildShards:        childShards,
 		MillisBehindLatest: out.MillisBehindLatest,
 	}, nil
 }

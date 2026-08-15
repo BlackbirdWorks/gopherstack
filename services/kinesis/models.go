@@ -236,6 +236,10 @@ type CreateStreamInput struct {
 // DeleteStreamInput is the input for DeleteStream.
 type DeleteStreamInput struct {
 	StreamName string
+	// EnforceConsumerDeletion mirrors the real DeleteStreamInput field: unset
+	// or false with registered consumers fails the call with
+	// ResourceInUseException instead of deleting the stream.
+	EnforceConsumerDeletion bool
 }
 
 // DescribeStreamInput is the input for DescribeStream.
@@ -368,7 +372,20 @@ type GetRecordResult struct {
 type GetRecordsOutput struct {
 	NextShardIterator  string
 	Records            []GetRecordResult
+	ChildShards        []ChildShard
 	MillisBehindLatest int64
+}
+
+// ChildShard describes a shard that resulted from splitting or merging the
+// shard a GetRecords call just finished reading (aws-sdk-go-v2
+// types.ChildShard). Real AWS only returns this "when the end of the
+// current shard is reached" -- i.e. exactly when NextShardIterator is empty
+// because the shard is Closed and fully consumed.
+type ChildShard struct {
+	ShardID           string
+	HashKeyRangeStart string
+	HashKeyRangeEnd   string
+	ParentShards      []string
 }
 
 // ListShardsInput is the input for ListShards.

@@ -100,6 +100,7 @@ func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamI
 
 	var stream *Stream
 	var found bool
+	var consumerErr error
 
 	// b.mu and stream.mu are both held while the stream is marked DELETING and
 	// removed from b.streams; b.mu releases as soon as that work is done while
@@ -126,6 +127,12 @@ func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamI
 			}
 		}()
 
+		if len(stream.Consumers) > 0 && !input.EnforceConsumerDeletion {
+			consumerErr = ErrStreamHasConsumers
+
+			return
+		}
+
 		if stream.Tags != nil {
 			stream.Tags.Close()
 		}
@@ -139,6 +146,10 @@ func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamI
 
 	if !found {
 		return ErrStreamNotFound
+	}
+
+	if consumerErr != nil {
+		return consumerErr
 	}
 	defer stream.mu.Unlock()
 

@@ -94,16 +94,63 @@ type LogGroupField struct {
 	Percent int32  `json:"percent"`
 }
 
-// Anomaly represents a detected log anomaly.
+// Anomaly state constants match the real aws-sdk-go-v2 types.State enum
+// (types.StateActive/StateSuppressed/types.StateBaseline).
+const (
+	AnomalyStateActive     = "Active"
+	AnomalyStateSuppressed = "Suppressed"
+	AnomalyStateBaseline   = "Baseline"
+)
+
+// AnomalyLogSample is one sample log event considered part of an anomaly.
+// Mirrors aws-sdk-go-v2 types.LogEvent (message/timestamp).
+type AnomalyLogSample struct {
+	Message   string `json:"message"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// PatternToken describes one token making up an anomaly's identifying
+// pattern. Mirrors aws-sdk-go-v2 types.PatternToken.
+type PatternToken struct {
+	Enumerations         map[string]int64 `json:"enumerations,omitempty"`
+	IsDynamic            *bool            `json:"isDynamic,omitempty"`
+	InferredTokenName    string           `json:"inferredTokenName,omitempty"`
+	TokenString          string           `json:"tokenString,omitempty"`
+	DynamicTokenPosition int32            `json:"dynamicTokenPosition,omitempty"`
+}
+
+// Anomaly represents a detected log anomaly. Field-diffed against
+// aws-sdk-go-v2 types.Anomaly: the wire key for lifecycle state is "state"
+// (types.Anomaly.State, values Active/Suppressed/Baseline), not
+// "suppressedState" -- a previous revision used a made-up key holding the
+// raw suppressionType request value ("LIMITED"/"INFINITE"/a
+// gopherstack-invented "NO_SUPPRESSION"), which is not a real wire member at
+// all, so a real client's State field always deserialized empty. This
+// backend has no pattern-detection engine (anomalies are only ever
+// synthesized via the AddAnomalyInternal test seam, never generated from
+// real log content -- see anomaly_detectors.go), so Histogram/LogSamples/
+// PatternID/PatternString/PatternTokens are never computed here; they are
+// modeled so a caller-seeded anomaly (test or otherwise) round-trips them,
+// but this backend supplies no analysis to fill them in on its own.
 type Anomaly struct {
-	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
-	AnomalyID          string `json:"anomalyId"`
-	Description        string `json:"description"`
-	SuppressedState    string `json:"suppressedState,omitempty"`
-	FirstSeen          int64  `json:"firstSeen"`
-	LastSeen           int64  `json:"lastSeen"`
-	SuppressedDate     int64  `json:"suppressedDate,omitempty"`
-	Active             bool   `json:"active"`
+	IsPatternLevelSuppression *bool              `json:"isPatternLevelSuppression,omitempty"`
+	Suppressed                *bool              `json:"suppressed,omitempty"`
+	Histogram                 map[string]int64   `json:"histogram,omitempty"`
+	Description               string             `json:"description"`
+	State                     string             `json:"state,omitempty"`
+	PatternID                 string             `json:"patternId,omitempty"`
+	PatternString             string             `json:"patternString,omitempty"`
+	PatternRegex              string             `json:"patternRegex,omitempty"`
+	Priority                  string             `json:"priority,omitempty"`
+	AnomalyID                 string             `json:"anomalyId"`
+	AnomalyDetectorArn        string             `json:"anomalyDetectorArn"`
+	PatternTokens             []PatternToken     `json:"patternTokens,omitempty"`
+	LogSamples                []AnomalyLogSample `json:"logSamples,omitempty"`
+	FirstSeen                 int64              `json:"firstSeen"`
+	LastSeen                  int64              `json:"lastSeen"`
+	SuppressedDate            int64              `json:"suppressedDate,omitempty"`
+	SuppressedUntil           int64              `json:"suppressedUntil,omitempty"`
+	Active                    bool               `json:"active"`
 }
 
 // ScheduledQueryRunSummary describes a single scheduled query execution.

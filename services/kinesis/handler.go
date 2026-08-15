@@ -297,6 +297,9 @@ type jsonKinesisError struct {
 // errTypeResourceNotFound is the Kinesis error type string for resource not found errors.
 const errTypeResourceNotFound = "ResourceNotFoundException"
 
+// errTypeResourceInUse is the Kinesis error type string for resource-in-use conflicts.
+const errTypeResourceInUse = "ResourceInUseException"
+
 // kmsErrorDetails maps the KMS-specific sentinels StartStreamEncryption can
 // surface (see stream_encryption.go's resolveKMSKey) to their AWS error type,
 // message, and HTTP status. Split out of errorDetails to keep its cyclomatic
@@ -335,15 +338,19 @@ func resourceErrorDetails(err error) (string, string, int, bool) {
 			"Stream not found.",
 			http.StatusBadRequest, true
 	case errors.Is(err, ErrStreamAlreadyExists):
-		return "ResourceInUseException",
+		return errTypeResourceInUse,
 			"A stream with this name already exists.",
+			http.StatusBadRequest, true
+	case errors.Is(err, ErrStreamHasConsumers):
+		return errTypeResourceInUse,
+			"The stream has registered consumers. Set EnforceConsumerDeletion to true to delete it anyway.",
 			http.StatusBadRequest, true
 	case errors.Is(err, ErrConsumerNotFound):
 		return errTypeResourceNotFound,
 			"Consumer not found.",
 			http.StatusBadRequest, true
 	case errors.Is(err, ErrConsumerAlreadyExists):
-		return "ResourceInUseException",
+		return errTypeResourceInUse,
 			"A consumer with this name already exists.",
 			http.StatusBadRequest, true
 	case errors.Is(err, ErrResourcePolicyNotFound):

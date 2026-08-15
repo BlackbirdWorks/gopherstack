@@ -18,8 +18,13 @@ var ErrValidation = errors.New("kinesis: validation error")
 
 // Sentinel errors for Kinesis operations.
 var (
-	ErrStreamNotFound                = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
-	ErrStreamAlreadyExists           = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	ErrStreamNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrStreamAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	// ErrStreamHasConsumers is returned by DeleteStream when the stream has
+	// registered enhanced fan-out consumers and EnforceConsumerDeletion is
+	// unset or false (real DeleteStreamInput.EnforceConsumerDeletion doc
+	// comment: "the call to DeleteStream fails with a ResourceInUseException").
+	ErrStreamHasConsumers            = awserr.New("ResourceInUseException", awserr.ErrConflict)
 	ErrInvalidArgument               = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 	ErrUnknownAction                 = errors.New("UnknownOperationException")
 	ErrShardIteratorExpired          = errors.New("ExpiredIteratorException")
