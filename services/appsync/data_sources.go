@@ -203,6 +203,10 @@ func (b *InMemoryBackend) UpdateDataSource(apiID, name string, ds *DataSource) (
 		existing.RelationalDatabaseConfig = ds.RelationalDatabaseConfig
 	}
 
+	if ds.MetricsConfig != "" {
+		existing.MetricsConfig = ds.MetricsConfig
+	}
+
 	cp := *existing
 
 	return &cp, nil

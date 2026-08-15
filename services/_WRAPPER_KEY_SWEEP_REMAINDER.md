@@ -4414,3 +4414,314 @@ L+D+G, `direct`) is next largest — **a live sibling was actively editing
 `services/appsync/*.go` throughout this session**; re-check `git status`
 before picking it, and pick the next candidate down
 (`workspaces`, 27, `dynamic-fallback`) if appsync is still claimed.
+
+## appsync (this session)
+
+Chosen as the largest unswept service not held by a live sibling: the prior
+route53resolver session flagged appsync (74 ops, 28 L+D+G, `direct`
+resolution) as next-largest but reported a live sibling editing
+`services/appsync/*.go` at the time — that was this session. `git status`
+was clean at start (no uncommitted work anywhere), confirmed again
+throughout; no collision occurred.
+
+PROTOCOL: `awsRestjson1_` exclusively (only prefix present in
+appsync@v1.56.4's `deserializers.go`), single client (no separate
+data-plane SDK client — real GraphQL execution isn't a modeled SDK
+operation at all; gopherstack's `handleGraphQL`/`opExecuteGraphQL` route
+already correctly excludes itself from `GetSupportedOperations`, verified
+against `go doc .../appsync.Client`'s real method set, pre-existing and
+unchanged). Case-sensitive: 355 `EqualFold` hits in `deserializers.go`, ALL
+`errorCode` matching in the per-op `deserializeOpError*` functions — zero in
+any body-field `switch key {}` block (grepped and spot-checked). Dead-
+deserializer trap checked against `GetGraphqlApi`
+(`awsRestjson1_deserializeOpGetGraphqlApi.HandleDeserialize`,
+deserializers.go:5417) and found NOT to apply: it decodes the body into
+`shape` and calls `awsRestjson1_deserializeOpDocumentGetGraphqlApiOutput`
+directly (deserializers.go:5458) — no dead wrapper switch sits between them,
+unlike pinpoint's restjson1 shape.
+
+**Layer 1 (wrapper keys): entirely CLEAN**, confirmed by reading every
+List/Get op's own `awsRestjson1_deserializeOpDocument<Op>Output` case list
+directly (file-grepped, not trusting PARITY.md's extensive pre-existing
+"wire: ok" claims — this service had unusually deep prior audit history,
+same shape as kafka's flagship finding last session, so every claim was
+re-derived independently): `graphqlApis`, `apis`, `dataSources`,
+`resolvers` (both ListResolvers and ListResolversByFunction),
+`channelNamespaces`, `apiKeys`, `domainNameConfigs`, `types` (both
+ListTypes and ListTypesByAssociation), `sourceApiAssociationSummaries`, and
+every singular Get* wrapper (`graphqlApi`, `dataSource`, `resolver`,
+`apiCache`, `channelNamespace`, `apiAssociation`, `domainNameConfig`,
+`functionConfiguration`, `type`, `environmentVariables`, `api`,
+`sourceApiAssociation`) all matched the real deserializer exactly. No prior
+audit claim was disproved at this layer — the one from last session's
+warning ("don't trust deep prior coverage") did not repeat here; this is
+the honest negative result the campaign asked to be reported alongside the
+positive ones.
+
+**Layer 2/3: 7 real bugs found and fixed**, all field-name/nesting/
+discarded-input, found by diffing gopherstack's `models.go` structs against
+each type's own deserializer case list (not the struct field names in
+`types/types.go`, which don't carry the wire key — confirmed the wire key
+from the `case "...":` string literal every time):
+
+1. **`SourceAPIAssociation.AssociationStatus` — sibling trap, wrong wire
+   key.** gopherstack emitted `"associationStatus"`; the real key is
+   `"sourceApiAssociationStatus"` (deserializers.go:16488, in
+   `awsRestjson1_deserializeDocumentSourceApiAssociation`). This is a
+   genuine sibling trap: the similarly-named `ApiAssociation` type (domain
+   name associations, a completely different concept) genuinely DOES use
+   the plain `"associationStatus"` key (deserializers.go:12175,
+   `awsRestjson1_deserializeDocumentApiAssociation`) — confirmed correct,
+   left alone. Affects `GetSourceApiAssociation`,
+   `AssociateSourceGraphqlApi`, `AssociateMergedGraphqlApi`,
+   `UpdateSourceApiAssociation` (the standalone `StartSchemaMerge` op was
+   already correct — it hand-builds `{"sourceApiAssociationStatus": ...}"`
+   directly, unaffected). A real client's typed
+   `SourceApiAssociation.SourceApiAssociationStatus` field was always empty
+   regardless of backend state before this fix. Also added the missing
+   real `sourceApiAssociationStatusDetail` member (verified at
+   deserializers.go:16497) — left unset/never emitted since this backend's
+   merges always succeed synchronously and a failure-detail string would be
+   fabrication (disclosed, not fixed, per this issue's "disclose rather
+   than fabricate" instruction). Note: `ListSourceApiAssociations`'s own
+   item type, `SourceApiAssociationSummary`, genuinely has NO status field
+   at all (deserializers.go:16586-16640: only associationArn/associationId/
+   description/mergedApiArn/mergedApiId/sourceApiArn/sourceApiId) —
+   gopherstack reuses the full `SourceAPIAssociation` struct for that list
+   response too, so the (correct, now-fixed) status key still appears
+   there where the real API wouldn't have one at all. Harmless (extra
+   unknown field, real client ignores it) — an over-wide-DTO variant,
+   disclosed rather than split into a narrower type (would need a new
+   struct + converter for zero functional benefit; same class as
+   eventbridge's already-fixed Archive/EventBus/ApiDestination over-wide
+   DTOs from a prior batch, but lower priority here since nothing sensitive
+   leaks — just a status string a real client already sees correctly via
+   Get/Associate).
+2. **`EventConfig.LogConfig` — discarded input, both directions.** Real
+   `CreateApiInput`/`UpdateApiInput` accept `EventConfig.LogConfig` nested
+   under `eventConfig` (serializers.go's
+   `awsRestjson1_serializeDocumentEventConfig`, `case "logConfig":`), and
+   the real `Api` response type echoes it back
+   (deserializers.go:14731-14734, via
+   `awsRestjson1_deserializeDocumentEventLogConfig`, a distinct 2-field
+   type — `cloudWatchLogsRoleArn`/`logLevel`, deserializers.go:14745 —
+   NOT the same shape as GraphqlApi's 3-field `LogConfig`, which also has
+   `excludeVerboseContent`). gopherstack's `EventConfig` struct had no
+   field for it at all: `json.Unmarshal` silently dropped a real client's
+   `CreateApi`/`UpdateApi` `EventConfig.LogConfig` value every time (9th
+   discarded-input instance this campaign, after apigatewayv2/ce/
+   vpclattice/emr×2/eventbridge×2/kafka). Fixed by adding a new
+   `EventLogConfig` type (distinct from GraphqlAPI's `LogConfig`, matching
+   the real type's narrower field set) and wiring it into `EventConfig`;
+   no backend signature change needed since `CreateAPI`/`UpdateAPI` already
+   store the whole `*EventConfig` pointer verbatim.
+3. **`GraphqlAPI.EnvironmentVariables` — over-wide field, real leaked
+   data.** The real `GraphqlApi` type has no `environmentVariables` member
+   at all (verified: full case list of
+   `awsRestjson1_deserializeDocumentGraphqlApi`, deserializers.go:
+   14999-15185, has no such case) — environment variables are exposed only
+   via the dedicated `GetGraphqlApiEnvironmentVariables`/
+   `PutGraphqlApiEnvironmentVariables` ops. gopherstack's shared
+   `GraphqlAPI` struct carried an `EnvironmentVariables` field
+   (`json:"environmentVariables,omitempty"`) that was the SAME struct field
+   `PutGraphqlApiEnvironmentVariables` populates — so once a caller set
+   real environment-variable values (e.g. connection strings, feature
+   flags — AWS documentation itself advises against storing secrets there,
+   but nothing stops a customer from doing so), every subsequent
+   `GetGraphqlApi`/`ListGraphqlApis`/`CreateGraphqlApi`/`UpdateGraphqlApi`
+   response leaked those exact values into a response AWS never puts them
+   in. **Contains**: whatever a customer set via
+   `PutGraphqlApiEnvironmentVariables` — potentially config values,
+   endpoints, or (against AWS's own guidance but not prevented) secrets;
+   this is the class of over-wide field this issue asks to be flagged
+   loudest, distinct from GraphqlAPI's other three fabricated-but-harmless
+   fields below. Fixed via `json:"-"` (excluded from GraphqlAPI's own wire
+   serialization; the Go field itself is unchanged and still used
+   internally by the two dedicated env-var ops).
+4. **`GraphqlAPI.Owner` — real member, previously unmodeled.** Real
+   `GraphqlApi.Owner` (`"owner"`, deserializers.go:15114) is "The account
+   owner of the GraphQL API" — gopherstack already had the account ID
+   trivially on hand (`b.accountID`, the same value used to build the
+   API's own ARN one line above) but never populated it. Fixed: added
+   `Owner` field, set at `CreateGraphqlAPI` time from `b.accountID`.
+5. **`DataSource.MetricsConfig` — discarded input, both directions.** Real
+   `CreateDataSourceInput`/`UpdateDataSourceInput` accept `MetricsConfig`
+   (`types.DataSourceLevelMetricsConfig`, `"ENABLED"`/`"DISABLED"`,
+   serializers.go's `object.Key("metricsConfig")`) and the real
+   `DataSource` response type echoes it (deserializers.go:13625-13632) —
+   gopherstack's `DataSource` struct had no field for it, so a real
+   client's value was silently dropped on create AND update. Fixed: added
+   the field; `CreateDataSource` already stores the whole `*DataSource`
+   pointer verbatim (no wiring needed there), `UpdateDataSource`'s
+   field-by-field copy pattern needed one added line.
+6. **`Resolver.MetricsConfig` — discarded input, both directions.** Same
+   shape as #5: real `CreateResolverInput`/`UpdateResolverInput` accept
+   `MetricsConfig` (`types.ResolverLevelMetricsConfig`,
+   serializers.go:1475's `object.Key("metricsConfig")`) and the real
+   `Resolver` type echoes it (deserializers.go:16248) — unmodeled
+   entirely, silently dropped both ways. Fixed the same way (field added;
+   `UpdateResolver`'s field-by-field copy needed one added line;
+   `CreateResolver` needed none).
+7. Confirmed harmless (see disclosed list below, not counted as a fix):
+   `GraphqlAPI.Region`/`CreatedAt`/`UpdatedAt` are ALSO fabricated (no such
+   members on the real `GraphqlApi` type at all — the real type tracks
+   neither a region nor creation/update timestamps), always populated
+   since `CreateGraphqlAPI` sets all three unconditionally. Harmless (no
+   customer data, just informational) — same class as emr's harmless
+   timestamp and wafv2's three fabricated-but-disclosed keys from prior
+   batches. No existing test asserts these raw keys (checked before
+   deciding not to spend fix budget here), so leaving them costs nothing
+   and touches zero call sites; disclosed rather than removed to keep this
+   session's diff scoped to functional bugs and real data leaks.
+
+**Sibling/version-pair check, explicitly**: `ApiAssociation` (correct,
+plain `associationStatus`) vs `SourceAPIAssociation` (was wrong, now fixed)
+is the one genuine sibling trap found — reported per this issue's
+instruction to report siblings checked and found already correct alongside
+the ones that were broken. `ChannelNamespace` was checked field-by-field
+against its real deserializer and found **entirely correct already**
+(apiId/channelNamespaceArn/codeHandlers/created/handlerConfigs/
+lastModified/name/publishAuthModes/subscribeAuthModes/tags all present and
+correctly named) — reported as a clean sibling, not re-flagged.
+`DomainNameConfig` vs `ApiAssociation` vs `Api` (Event API) were each
+checked independently against their own case lists; no cross-type key
+confusion found among them beyond the one reported above.
+
+**Real key from the wrong type**: none found in this service (the emr
+`HadoopJarStep`/kafka `MutableClusterInfo` pattern from prior sessions did
+not repeat here) — every fabricated field found (Region/CreatedAt/
+UpdatedAt/EnvironmentVariables on GraphqlAPI, and the `apiId` field present
+on DataSource/Resolver/Function/ApiCache/APIType/DomainName below) is
+either genuinely absent from every real type in this service, or absent
+specifically from the type it's attached to.
+
+**Fields plumbed to the wire but never set**: none found this session —
+every field this session fixed for backend-tracked-but-unemitted was
+actually the inverse (discarded *input*, not unemitted state): #2/#5/#6
+above are all "backend never had anywhere to put a real, accepted request
+value," not "backend has the value and forgot to emit it."
+
+**Discarded inputs this session**: 3 (#2 EventConfig.LogConfig, #5
+DataSource.MetricsConfig, #6 Resolver.MetricsConfig) — 9th/10th/11th
+instances of this class across the campaign (after apigatewayv2, ce,
+vpclattice, emr×2, eventbridge×2, kafka).
+
+**Over-wide field, what it contains**: GraphqlAPI.EnvironmentVariables
+(fixed, see #3 above — real customer-set values, potentially sensitive
+depending on what the customer stored there, though AWS's own guidance
+discourages secrets in this particular field). GraphqlAPI.Region/
+CreatedAt/UpdatedAt (disclosed, harmless — informational only, matching
+this campaign's emr/wafv2 precedent for cheap-to-leave fabricated fields).
+
+**Raw internal model / fabricated `apiId` field, disclosed (harmless, not
+fixed)**: `DataSource`/`Resolver`/`Function`/`ApiCache`/`APIType` all emit
+an `apiId` field on their own object — none of the corresponding real
+types (`types.DataSource`, `types.Resolver`, `types.FunctionConfiguration`,
+`types.ApiCache`, `types.Type`) has any such member at all (each verified
+against its own deserializer case list: DataSource
+deserializers.go:13560-13678, Resolver :16194-16299 (full, not the earlier
+90-line-truncated read), FunctionConfiguration :14794-14915, ApiCache
+:12233-12291, Type :16804-16840 — apiId is present on the URL path for
+every one of these, never in the response body). `DomainNameConfig`
+likewise has no real `apiId` member (deserializers.go:14247-14301) despite
+gopherstack's `DomainName.APIID` field. `DataSource.Tags` is also
+fabricated — the real `DataSource` type has no `tags` member at all
+(same case list as above), consistent with `handler_create_tags_test.go`'s
+own pre-existing finding that `CreateDataSource` takes no `Tags` in the
+real SDK and DataSource ARNs are not a documented `TagResource` target.
+All of these are harmless (informational field a real client silently
+ignores, no secret or cross-endpoint leak) and were left alone rather than
+spending fix budget on 6 separate struct/call-site changes for zero
+functional benefit — same "harmless, disclosed" resolution as wafv2's three
+fabricated keys and emr's timestamp from prior batches.
+
+**Structural gaps, disclosed (real backend modeling would be required, not
+a rename)**:
+- `GraphqlAPI` missing real `dns`/`enhancedMetricsConfig`/
+  `mergedApiExecutionRoleArn`/`wafWebAclArn` members — none tracked
+  anywhere in this backend (`dns` specifically: the Event API's own `Api`
+  type DOES track an equivalent `DNS` field correctly, but GraphqlApi's is
+  a structurally separate, unimplemented concept — verified no code path
+  sets anything called Dns on a GraphqlAPI).
+- `Api` (Event API) missing real `created` (timestamp) and `wafWebAclArn`
+  — `created` is optional (not `"This member is required."`) so no client
+  hard-errors on its absence; `wafWebAclArn` is a cross-service WAF
+  association this backend doesn't simulate.
+- `DataSource` missing real `elasticsearchConfig` (deprecated legacy
+  member, real AWS docs steer new integrations to `openSearchServiceConfig`
+  instead — genuinely low-value to add) — separate from the fixed
+  `metricsConfig` gap.
+
+**Ratifying tests**: none found needing correction — no existing test
+asserted any of this session's 7 pre-fix shapes as correct (the
+`associationStatus`/`environmentVariables`/missing-field bugs all had zero
+prior raw-body coverage in either direction, not a wrong assertion staying
+green). Checked explicitly per this issue's "grep for ratifying tests"
+instruction before writing any new test.
+
+**Phantom ops**: none — all 74 op strings in `GetSupportedOperations`
+(`opExecuteGraphQL` deliberately excluded, pre-existing and correct, see
+its own doc comment in handler.go) correspond to a real `api_op_*.go` file
+in appsync@v1.56.4, spot-checked across every family touched this session.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>`/`deserializeDocument<Type>`/
+`serializeOpDocument<Type>Input`/`serializeDocument<Type>` function's own
+case list, file+line, or the real `types.go`/`api_op_*.go` struct
+definition for request-side gaps, never a doc comment or a PARITY.md claim
+taken on faith.
+
+**Real-client test ratio**: appsync had a `newTestAppsyncClient` helper and
+one real-client test suite (`TestCreateOpsWithTags_RoundTrip`,
+`handler_create_tags_test.go`) before this session, out of 74 ops — the
+rest of the suite (~40 test files) is raw-body (`doRequest`/`doV2Request`)
+assertions. Added `services/appsync/wire_field_fixes_test.go` reusing the
+existing `newTestAppsyncClient` helper: 6 new real-SDK-client tests
+(`TestSourceApiAssociation_StatusWireKey`,
+`TestGraphqlApi_EnvironmentVariablesNotLeaked` — necessarily a raw-body
+check via `doRequest` for the *absence* assertion, since a typed client
+silently drops unknown fields and can never observe a leak directly;
+`TestGraphqlApi_Owner`, `TestEventApi_LogConfigRoundTrip`,
+`TestDataSource_MetricsConfigRoundTrip`,
+`TestResolver_MetricsConfigRoundTrip`). Every fix hand-reverted
+individually (no git, per this session's hard no-git-mutation constraint):
+finding #1 confirmed empty-string status: quoted `expected:
+"MERGE_SCHEDULED" actual: ""`; #3 confirmed `Should be false` (leak
+assertion) failing; #4 confirmed `expected: "000000000000" actual: ""`; #2
+confirmed `Expected value not to be nil` (LogConfig nil); #5/#6 each
+confirmed twice — once via a **compile error** removing the struct field
+entirely (proving the field load-bearing, same proof shape as pinpoint's
+`kpiResult.StartTime`/`EndTime` precedent), and once via a runtime
+assertion (`expected: "DISABLED" actual: "ENABLED"`, the pre-fix Update
+path silently keeping the stale value) after reverting only the
+`UpdateDataSource`/`UpdateResolver` copy line with the field still present.
+All reverts restored and diffed byte-identical against the pre-revert file
+before moving to the next.
+
+Gates: `go build ./services/appsync/...` and full `go build ./...` (no
+backend method signatures changed — only new struct fields and internal
+field-copy lines — but run in full anyway per this session's standing
+instruction and to be safe given a sibling had just touched an adjacent
+service), `go vet`, `go test -race` (both scoped and full `./pkgs/...`),
+`go fix -diff` (no diff), `fieldalignment -fix` (3 hits — `Resolver`,
+`GraphqlAPI`, `EventConfig` — auto-fixed; the auto-fix silently stripped
+one pre-existing `//nolint:lll` comment on `GraphqlAPI.
+AdditionalAuthenticationProviders`, same failure mode eventbridge's batch
+hit with `fieldalignment -fix`, caught by re-running golangci-lint and
+restored by hand), `golangci-lint run` (0 issues after that one restore; no
+cyclop/gocyclo/gocognit/funlen nolints added) all green for
+`services/appsync`.
+
+No subagents used (Read/Grep/Bash only, per this session's hard
+constraint). No git-mutating commands run — orchestrator must commit/push.
+`git status` checked at start (clean) and re-checked before each edit
+batch; the route53resolver session's own file changes appeared mid-session
+(a sibling actively finishing that service, unrelated files) and were left
+untouched throughout, confirmed by scoping every `git status`/diff check to
+`services/appsync/` and this remainder file only.
+
+appsync's List/Describe/Get families are now fully swept for this issue
+(28/28 ops layer-1 clean; 7 additional layer-2/3 bugs found and fixed
+across the wider field surface). 78 of 162 services swept, 84 remain. Per
+the ranked table, `workspaces` (111 ops, 27 L+D+G, `dynamic-fallback`) is
+next largest — re-check `git status` before picking it.

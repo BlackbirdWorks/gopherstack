@@ -120,6 +120,12 @@ type RDSHTTPEndpointConfig struct {
 }
 
 // DataSource represents an AppSync data source.
+//
+// MetricsConfig ("ENABLED"/"DISABLED") is a real, accepted-and-echoed member
+// (types.DataSourceLevelMetricsConfig, verified against
+// deserializers.go:13625 response-side and serializers.go request-side) that
+// was previously unmodeled entirely -- a real client's CreateDataSource/
+// UpdateDataSource MetricsConfig value was silently dropped.
 type DataSource struct {
 	Tags                     *tags.Tags                          `json:"tags,omitempty"`
 	LambdaConfig             *LambdaDataSourceConfig             `json:"lambdaConfig,omitempty"`
@@ -134,6 +140,7 @@ type DataSource struct {
 	ServiceRoleARN           string                              `json:"serviceRoleArn,omitempty"`
 	APIID                    string                              `json:"apiId"`
 	Type                     DataSourceType                      `json:"type"`
+	MetricsConfig            string                              `json:"metricsConfig,omitempty"`
 }
 
 // CachingConfig holds the caching configuration for a resolver.
@@ -161,20 +168,27 @@ type Runtime struct {
 }
 
 // Resolver represents an AppSync resolver.
+//
+// MetricsConfig ("ENABLED"/"DISABLED") is a real, accepted-and-echoed member
+// (types.ResolverLevelMetricsConfig, verified against
+// deserializers.go:16248 response-side and the paired request serializer)
+// that was previously unmodeled entirely -- a real client's CreateResolver/
+// UpdateResolver MetricsConfig value was silently dropped.
 type Resolver struct {
 	CachingConfig           *CachingConfig `json:"cachingConfig,omitempty"`
 	SyncConfig              *SyncConfig    `json:"syncConfig,omitempty"`
 	Runtime                 *Runtime       `json:"runtime,omitempty"`
-	RequestMappingTemplate  string         `json:"requestMappingTemplate,omitempty"`
+	ResolverARN             string         `json:"resolverArn"`
 	ResponseMappingTemplate string         `json:"responseMappingTemplate,omitempty"`
 	DataSourceName          string         `json:"dataSourceName,omitempty"`
-	ResolverARN             string         `json:"resolverArn"`
+	RequestMappingTemplate  string         `json:"requestMappingTemplate,omitempty"`
 	TypeName                string         `json:"typeName"`
 	FieldName               string         `json:"fieldName"`
 	APIID                   string         `json:"apiId"`
 	Code                    string         `json:"code,omitempty"`
 	Kind                    string         `json:"kind,omitempty"`
-	PipelineConfig          []string       `json:"pipelineConfig,omitempty"` // function IDs for PIPELINE resolvers
+	MetricsConfig           string         `json:"metricsConfig,omitempty"`
+	PipelineConfig          []string       `json:"pipelineConfig,omitempty"`
 	MaxBatchSize            int32          `json:"maxBatchSize,omitempty"`
 }
 
@@ -225,22 +239,35 @@ type AdditionalAuthenticationProvider struct {
 }
 
 // GraphqlAPI represents an AppSync GraphQL API.
+//
+// EnvironmentVariables is deliberately excluded from the wire (json:"-"): the
+// real GraphqlApi type has no such member (verified against the real
+// deserializer, appsync@v1.56.4 deserializers.go:14999-15185, which has no
+// "environmentVariables" case) -- env vars are exposed only via the dedicated
+// GetGraphqlApiEnvironmentVariables/PutGraphqlApiEnvironmentVariables ops.
+// Before this fix, GetGraphqlApi/ListGraphqlApis/CreateGraphqlApi/
+// UpdateGraphqlApi all leaked a caller's real environment-variable values
+// into a response AWS never puts them in, once PutGraphqlApiEnvironmentVariables
+// had been called. Region/CreatedAt/UpdatedAt are also fabricated (not on the
+// real type either) but harmless (no customer data) and left on the wire,
+// disclosed rather than fixed -- see PARITY.md.
 type GraphqlAPI struct {
 	URIs                              map[string]string                  `json:"uris"`
 	Tags                              *tags.Tags                         `json:"tags,omitempty"`
-	EnvironmentVariables              map[string]string                  `json:"environmentVariables,omitempty"`
+	EnvironmentVariables              map[string]string                  `json:"-"`
 	UserPoolConfig                    *UserPoolConfig                    `json:"userPoolConfig,omitempty"`
 	OpenIDConnectConfig               *OpenIDConnectConfig               `json:"openIDConnectConfig,omitempty"`
 	LambdaAuthorizerConfig            *LambdaAuthorizerConfig            `json:"lambdaAuthorizerConfig,omitempty"`
 	LogConfig                         *LogConfig                         `json:"logConfig,omitempty"`
-	Name                              string                             `json:"name"`
-	APIID                             string                             `json:"apiId"`
-	ARN                               string                             `json:"arn"`
 	AuthenticationType                AuthenticationType                 `json:"authenticationType"`
+	IntrospectionConfig               string                             `json:"introspectionConfig,omitempty"`
+	ARN                               string                             `json:"arn"`
+	Name                              string                             `json:"name"`
 	Visibility                        string                             `json:"visibility,omitempty"`
 	Region                            string                             `json:"region"`
 	APIType                           string                             `json:"apiType,omitempty"`
-	IntrospectionConfig               string                             `json:"introspectionConfig,omitempty"`
+	APIID                             string                             `json:"apiId"`
+	Owner                             string                             `json:"owner,omitempty"`
 	AdditionalAuthenticationProviders []AdditionalAuthenticationProvider `json:"additionalAuthenticationProviders,omitempty"` //nolint:lll // AWS field name is long
 	CreatedAt                         int64                              `json:"createdAt,omitempty"`
 	UpdatedAt                         int64                              `json:"updatedAt,omitempty"`
@@ -387,12 +414,30 @@ type AuthProvider struct {
 	AuthType               string                  `json:"authType"`
 }
 
+// EventLogConfig holds the CloudWatch Logs configuration for an Event API.
+// Distinct from GraphqlAPI's LogConfig -- real appsync.types.EventLogConfig
+// has only these two members (verified: appsync@v1.56.4 deserializers.go's
+// awsRestjson1_deserializeDocumentEventLogConfig case list), no
+// excludeVerboseContent field like the GraphqlApi LogConfig has.
+type EventLogConfig struct {
+	CloudWatchLogsRoleARN string `json:"cloudWatchLogsRoleArn"`
+	LogLevel              string `json:"logLevel"`
+}
+
 // EventConfig holds the authorization configuration for an Event API.
+//
+// LogConfig was previously unmodeled entirely: real CreateApiInput/
+// UpdateApiInput both accept it nested under eventConfig (serializers.go's
+// awsRestjson1_serializeDocumentEventConfig has a "logConfig" case), and the
+// real Api response type echoes it back, but gopherstack's EventConfig
+// struct had no field for it at all -- json.Unmarshal silently dropped a
+// real client's CreateApi/UpdateApi EventConfig.LogConfig every time.
 type EventConfig struct {
-	AuthProviders             []AuthProvider `json:"authProviders"`
-	ConnectionAuthModes       []AuthMode     `json:"connectionAuthModes"`
-	DefaultPublishAuthModes   []AuthMode     `json:"defaultPublishAuthModes"`
-	DefaultSubscribeAuthModes []AuthMode     `json:"defaultSubscribeAuthModes"`
+	LogConfig                 *EventLogConfig `json:"logConfig,omitempty"`
+	AuthProviders             []AuthProvider  `json:"authProviders"`
+	ConnectionAuthModes       []AuthMode      `json:"connectionAuthModes"`
+	DefaultPublishAuthModes   []AuthMode      `json:"defaultPublishAuthModes"`
+	DefaultSubscribeAuthModes []AuthMode      `json:"defaultSubscribeAuthModes"`
 }
 
 // API represents an AppSync Event API.
@@ -542,6 +587,14 @@ const (
 )
 
 // SourceAPIAssociation represents an association between a source API and a merged API.
+//
+// AssociationStatus's wire key is "sourceApiAssociationStatus", NOT
+// "associationStatus" -- verified against the real deserializer
+// (appsync@v1.56.4 deserializers.go:16488). This is a sibling trap: the
+// similarly-named ApiAssociation type (domain-name associations) genuinely
+// does use the plain "associationStatus" key (deserializers.go:12175); a
+// real client's SourceApiAssociation.SourceApiAssociationStatus field was
+// always empty regardless of backend state before this fix.
 type SourceAPIAssociation struct {
 	SourceAPIAssociationConfig *SourceAPIAssociationConfig `json:"sourceApiAssociationConfig,omitempty"`
 	AssociationID              string                      `json:"associationId"`
@@ -551,5 +604,6 @@ type SourceAPIAssociation struct {
 	MergedAPIID                string                      `json:"mergedApiId"`
 	MergedAPIARN               string                      `json:"mergedApiArn,omitempty"`
 	Description                string                      `json:"description,omitempty"`
-	AssociationStatus          string                      `json:"associationStatus"`
+	AssociationStatus          string                      `json:"sourceApiAssociationStatus"`
+	AssociationStatusDetail    string                      `json:"sourceApiAssociationStatusDetail,omitempty"`
 }
