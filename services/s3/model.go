@@ -74,6 +74,7 @@ type CopyObjectResult struct {
 }
 
 type ObjectXML struct {
+	Owner             *Owner `xml:"Owner"`
 	Key               string `xml:"Key"`
 	LastModified      string `xml:"LastModified"`
 	ETag              string `xml:"ETag"`
@@ -85,6 +86,11 @@ type ObjectXML struct {
 type VersioningConfiguration struct {
 	XMLName xml.Name `xml:"VersioningConfiguration"`
 	Status  string   `xml:"Status,omitempty"` // "Enabled" or "Suspended"; omitted when versioning is not yet configured
+	// MfaDelete ("MfaDelete" element name confirmed s3@v1.106.5 deserializers.go's
+	// awsRestxml_deserializeOpDocumentGetBucketVersioningOutput, case
+	// strings.EqualFold("MfaDelete", ...)) is only present once a bucket has ever
+	// had MFA delete configured -- omitted, not "Disabled", beforehand.
+	MfaDelete string `xml:"MfaDelete,omitempty"`
 }
 
 type Tagging struct {

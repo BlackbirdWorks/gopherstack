@@ -1,9 +1,9 @@
 ---
 service: s3
 sdk_module: aws-sdk-go-v2/service/s3@v1.106.5   # version audited against (go.mod pin)
-last_audit_commit: (uncommitted at time of writing)   # gopherstack-3dqa mechanical-diff + optimization follow-up, see 2026-08-14b section below
-last_audit_date: 2026-08-14
-overall: A   # gopherstack-3dqa: found+fixed 4 real bugs incl. a race-detector-confirmed data race and a real (not disguised) over-replication bug. gopherstack-zi7k (2026-08-14): implemented the 5-op Object Annotations family that gopherstack-3dqa found entirely missing. gopherstack-3dqa follow-up (2026-08-14b): mechanical struct-field diff (the method that closed the dynamodb sibling pass) found 2 real absent-but-tracked wire bugs; a benchmark-verified ListObjectsV2 allocation fix closed the one axis (optimization) the prior four rounds left as "inspected, not profiled" -- see families row and gaps for the deliberate limitations left in place.
+last_audit_commit: (uncommitted at time of writing)   # gopherstack-6flj wrapper-key sweep, see 2026-08-15 section below
+last_audit_date: 2026-08-15
+overall: A   # gopherstack-3dqa: found+fixed 4 real bugs incl. a race-detector-confirmed data race and a real (not disguised) over-replication bug. gopherstack-zi7k (2026-08-14): implemented the 5-op Object Annotations family that gopherstack-3dqa found entirely missing. gopherstack-3dqa follow-up (2026-08-14b): mechanical struct-field diff (the method that closed the dynamodb sibling pass) found 2 real absent-but-tracked wire bugs; a benchmark-verified ListObjectsV2 allocation fix closed the one axis (optimization) the prior four rounds left as "inspected, not profiled". gopherstack-6flj (2026-08-15): full List/Describe/Get wrapper-key sweep (45 ops), 2 more real bugs fixed (ListObjects/V2 Owner, GetBucketVersioning MFADelete), 1 severe wrong-response-shape finding flagged not fixed (GetBucketMetadataConfiguration/GetBucketMetadataTableConfiguration) -- see families/ops/gaps below.
 protocol: REST-XML
 families:
   multipart:    {status: ok, note: part-order InvalidPartOrder, non-last EntityTooSmall, ETag=MD5(concat part-MD5s)-N, SSE sealing}
@@ -32,7 +32,12 @@ ops:
   RenameObject: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "FIXED 2026-08-13 (gopherstack-3dqa): real DATA RACE, confirmed with `go test -race`, not a theoretical gap. When the rename target key already had an object ('existing', a different *StoredObject than the source), RenameObject (objects.go) wrote existing.LatestVersionID and existing.Versions[...] while holding only bucket.mu (exclusive) and srcObj.mu -- never existing.mu. A concurrent GetObject/HeadObject on the target key takes bucket.mu only briefly to fetch the object pointer, releases it, then reads existing.Versions/LatestVersionID under existing.mu.RLock alone -- the writer and that reader shared no common lock. -race reproduced an unsynchronized map write (mapassign_faststr) racing a concurrent map read (findLatestVersion) within ~0.3s of concurrent RenameObject+GetObject traffic. Fixed by taking existing.mu.Lock() around the mutation. RenameObject had zero prior test coverage of any kind (no existing _test.go referenced it before this pass). TestRenameObject_ConcurrentGetOnExistingTarget_NoRace confirmed to fail (i.e. reproduce the -race report) against the pre-fix code by hand-reverting."}
   WriteGetObjectResponse: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "FIXED 2026-08-13 (gopherstack-3dqa): WriteGetObjectResponseInput.StatusCode is header-bound to X-Amz-Fwd-Status (confirmed serializers.go:11069, awsRestxml_serializeOpHttpBindingsWriteGetObjectResponseInput). handleWriteGetObjectResponse (object_lambda.go) hardcoded statusCode: http.StatusOK on every call regardless of what the Lambda sent, discarding the header entirely -- an Object Lambda that calls WriteGetObjectResponse with a non-200 status (e.g. an access-control Lambda returning 403, confirmed a real, documented use of this field) had that status silently downgraded to 200 for the original GetObject caller. The downstream forwarding mechanism (resp.statusCode, handled at line ~160) already existed and worked correctly -- only the header read feeding it was missing. Fixed by parsing X-Amz-Fwd-Status. TestS3ObjectLambda_WriteGetObjectResponse_ForwardsStatus (a Lambda stub returning 403) confirmed to fail (asserted 200 instead of 403) against the pre-fix code by hand-reverting."}
   PutObjectAnnotation/GetObjectAnnotation/DeleteObjectAnnotation/ListObjectAnnotations/UpdateBucketMetadataAnnotationTableConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "IMPLEMENTED 2026-08-14 (gopherstack-zi7k): the whole family was previously entirely absent (gopherstack-3dqa). Routes verified from s3@v1.106.5 serializers.go's httpbinding.SplitURI calls, not by pattern: PUT/GET/DELETE /{Key+}?annotation (query keys annotationName/versionId), bucket-level PUT /?metadataAnnotationTable. GetObjectAnnotation and ListObjectAnnotations share the identical GET route template -- routed on whether the annotationName query param is present, since only GetObjectAnnotation's own HttpBindings function binds it. Annotations are real per-object-version state (StoredObjectVersion.Annotations, additive/omitempty field, no snapshot version bump), proven with a lifecycle test through the real aws-sdk-go-v2 client (put->get->list->delete->list, asserting non-empty/exact-count results at each step) plus a dedicated Snapshot/Restore round-trip test. See gaps for what's deliberately not enforced (payload size cap, ObjectIfMatch) and the one validation rule sourced from a doc comment rather than wire code (reserved name prefix)."}
+  ListObjects/ListObjectsV2: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): Object.Owner (s3@v1.106.5 deserializers.go's awsRestxml_deserializeDocumentObject, case \"Owner\") is a real per-item member the shared ObjectXML struct had NO field for at all -- every real client's Contents[].Owner was nil regardless of backend state, for both ops. ListObjects (V1) has no FetchOwner request member (confirmed absent from ListObjectsInput) so Owner is unconditionally present on every item; ListObjectsV2 only includes it when FetchOwner=true (a near-duplicate-shape pair that genuinely differs, not a copy-paste mismatch). Fixed by adding ObjectXML.Owner and an includeOwner bool threaded through the shared mapObjectsToXML (true for V1, q.Get(\"fetch-owner\")==\"true\" for V2)."}
+  GetBucketVersioning/PutBucketVersioning: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): GetBucketVersioningOutput.MFADelete (deserializers.go's awsRestxml_deserializeOpDocumentGetBucketVersioningOutput, case \"MfaDelete\", sibling to \"Status\") was read from no request, stored nowhere, and echoed by no response -- a real client's PutBucketVersioning({MFADelete: Enabled}) had the value silently dropped, and GetBucketVersioning's MFADelete was always empty regardless. Real request-side type is types.MFADelete; real response-side type is the DIFFERENT types.MFADeleteStatus (same \"Enabled\"/\"Disabled\" strings, two distinct SDK enums) -- stored as a plain string in StoredBucket to avoid coupling to either. Only emitted once ever configured (omitempty), matching the real doc: \"This element is only returned if the bucket has been configured with MFA delete.\""}
+  GetBucketMetadataConfiguration/GetBucketMetadataTableConfiguration: {wire: bug, errors: n/a, state: n/a, persist: ok, note: "FOUND, NOT FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep) -- the most severe finding this pass, deliberately left unfixed. Unlike every other Get*Configuration op in this file (CORS/lifecycle/notification/encryption/logging/replication/analytics/inventory/metrics/intelligent-tiering), where the real GET deserializer parses the response ROOT element directly as the same struct the PUT request root already is (confirmed per-op against deserializers.go), these two do NOT: awsRestxml_deserializeOpGetBucketMetadataConfiguration.HandleDeserialize (deserializers.go) parses the response root directly as types.GetBucketMetadataConfigurationResult, which requires a CHILD element named exactly \"MetadataConfigurationResult\" (types.MetadataConfigurationResult{DestinationResult (required, TableBucketArn/TableBucketType/TableNamespace), AnnotationTableConfigurationResult, InventoryTableConfigurationResult, JournalTableConfigurationResult}) -- a server-computed RESULT shape, structurally different from the client's CreateBucketMetadataConfiguration request body (types.MetadataConfiguration{JournalTableConfiguration, AnnotationTableConfiguration, InventoryTableConfiguration}, no ARNs/status at all). gopherstack's getBucketMetadataConfiguration/getBucketMetadataTableConfiguration (bucket_ops_metadata_table.go) echo the raw stored CREATE request body verbatim -- which has no \"MetadataConfigurationResult\"/\"MetadataTableConfigurationResult\" child element anywhere, so a real typed client's GetBucketMetadataConfigurationOutput.GetBucketMetadataConfigurationResult.MetadataConfigurationResult (and the Table variant's equivalent) decodes to nil regardless of what was created. The same OpDocument...Output wrapper function with a matching case IS present in generated code but is dead -- HandleDeserialize never calls it, the same trap gopherstack-ob1g already found and fixed once on GetBucketAbac -- so this is not a simple 'wrong root name' rename. NOT FIXED: producing a real DestinationResult requires an S3 Tables table-bucket ARN/namespace/provisioning-status concept this backend has no model for at all (no CreateBucketMetadataConfiguration path allocates a table bucket or generates an ARN); fabricating plausible-looking ARNs/status would be invented data, not a shape fix. Flagged per this campaign's own precedent for genuinely-unmodeled response shapes (matches securityhub's GetRecommendedPolicyV2 finding) rather than attempted."}
 gaps:
+  - "GetBucketMetadataConfiguration/GetBucketMetadataTableConfiguration return the wrong response shape entirely for any real typed client -- see the ops row above (gopherstack-6flj, 2026-08-15). Fixing this for real requires modeling S3 Tables table-bucket provisioning (ARN/namespace/status), which this backend has no concept of anywhere; CreateBucketMetadataConfiguration/CreateBucketMetadataTableConfiguration would also need the same new state. Left flagged rather than fabricated."
+  - "GetObjectAttributes never emits the real, optional ObjectParts member (types.GetObjectAttributesParts, a collection of multipart-upload part checksums) -- this backend's GetObjectAttributes (objects.go) only ever reads whole-object ETag/Size/StorageClass/Checksum/LastModified from the current version, with no per-part breakdown even for objects assembled via CompleteMultipartUpload. Noted while sweeping this op during the 2026-08-15 gopherstack-6flj pass; not previously disclosed."
   - "Object Annotations (gopherstack-zi7k, 2026-08-14): implemented -- PutObjectAnnotation/GetObjectAnnotation/DeleteObjectAnnotation/ListObjectAnnotations store real per-object-version state (StoredObjectVersion.Annotations, additive/omitempty, survives Snapshot/Restore) and UpdateBucketMetadataAnnotationTableConfiguration persists its config XML the same way its metadataInventoryTable/metadataJournalTable siblings do. Routes verified from the pinned serializer, not by pattern: PUT/GET/DELETE /{Key+}?annotation, and GET is shared byte-for-byte between GetObjectAnnotation and ListObjectAnnotations (both httpbinding.SplitURI to the same path+query) -- disambiguated on the presence of the annotationName query param, which only GetObjectAnnotation's HttpBindings function binds. Bucket-level route key metadataAnnotationTable was independently re-verified (matches the bd issue's note). Deliberately NOT enforced: the documented 1-byte-to-1-MiB payload size window (no error code for it appears in any of these ops' own deserializeOpError switches, so inventing one would violate the same rule that caught the invented metadataTableConfiguration/exception bugs this same sweep found elsewhere) and DeleteObjectAnnotation/PutObjectAnnotation's ObjectIfMatch conditional header (also absent from every relevant switch in this pinned SDK version). DeleteObjectAnnotation deliberately does NOT return NoSuchAnnotation for a missing name -- its error switch declares only NoSuchBucket/NoSuchKey, matching real S3's idempotent-delete semantics. The annotation-name reserved-prefix rule ('cannot start with aws or s3') is enforced from DeleteObjectAnnotation's doc comment in the pinned source, not a serializer/deserializer fact -- flagged here as the one validation rule in this pass that rests on prose rather than wire code. UpdateBucketMetadataAnnotationTableConfiguration's own error switch declares no typed error cases at all (every failure decodes as smithy.GenericAPIError) -- confirmed by reading it directly, not assumed. No dedicated Get op exists for the bucket-level annotation-table config in the pinned SDK, so (like its inventory/journal siblings) persistence there is provable by store/restore but not independently readable over the wire."
   - "CreateSession (S3 Express One Zone) is a disguised stub beyond its own doc comment's disclosure: buckets.go's CreateSession returns a hardcoded fake SessionToken/AccessKeyId/SecretAccessKey for ANY bucket (it doesn't check IsDirectoryBucket, doesn't validate the bucket is actually a directory bucket the way real S3 requires), completely ignores the request's SessionMode (ReadOnly/ReadWrite), and the returned session token has no effect anywhere else in this package -- it isn't wired into sigv4 validation or any subsequent request's authorization, so a caller that authenticates via the returned session credentials would not actually get S3-Express-scoped access semantics. Consistent with the broader disclosed gap that this emulator does not model directory buckets/S3-Express as a distinct bucket type at all; a real fix is a full S3 Express feature addition, not scoped for this pass. (gopherstack-3dqa)"
   - "RenameObject is applied uniformly to any bucket (general-purpose or directory), but real S3 restricts RenameObject to directory buckets only (api_op_RenameObject.go's Bucket doc: 'The bucket name of the directory bucket containing the object... Path-style requests are not supported'). This emulator has no directory-bucket-vs-general-purpose distinction anywhere (see CreateSession gap above), so RenameObject working on any bucket is a permissive superset rather than a wire-shape bug reachable by a real client hitting a real endpoint shape. Also: RenameObjectInput's DestinationIfMatch/DestinationIfNoneMatch/DestinationIfModifiedSince/DestinationIfUnmodifiedSince conditional-header preconditions are declared on the real input but not read/enforced by handleRenameObject (object_ops_copy.go) -- a caller relying on If-None-Match:* to prevent clobbering an existing destination gets a silent unconditional overwrite instead of a 412. Not fixed this pass (scoped feature, not a one-line diff); flagged honestly rather than silently left. (gopherstack-3dqa)"
@@ -378,3 +383,216 @@ Gates, all clean: `go build ./...`, `go build ./services/s3/...`, `go vet
 ./services/s3/...`, `go test -race -count=1 ./services/s3/...`, `go fix -diff
 ./services/s3/...` (no diff), `gofmt -l services/s3/` (no output), `golangci-lint run
 ./services/s3/...` (0 issues, no new `//nolint`), `go test -race -count=1 ./pkgs/...`.
+
+## 2026-08-15 wrapper-key sweep (gopherstack-6flj)
+
+s3 was named across five prior sessions of this issue's own remainder tracking
+(`services/_WRAPPER_KEY_SWEEP_REMAINDER.md`) as "needs its own dedicated
+session" -- 45 List/Describe/Get ops (12 List, 0 Describe, 33 Get), and this
+was that session. Read the doc's method section, the prior s3 sessions above
+in this file (five prior passes, 21 bugs, none of them a 6flj-scoped
+wrapper-key sweep), and `git log -- services/s3` before starting, per this
+issue's "check, don't trust PARITY claims" standing instruction -- s3's own
+notes held up under that check this time.
+
+**Protocol**: REST-XML (`awsRestxml_`, the sole prefix in
+s3@v1.106.5/deserializers.go). Confirmed (established under gopherstack-7185,
+not re-derived here) that this service's deserializers make zero `GetElement`
+calls -- the empty-result-on-mismatched-root class this campaign otherwise
+watches for structurally cannot happen here. What *can* happen, and did once
+this pass: smithy-go's `NodeDecoder.Value`/child-element decode expects a
+specific child element name and silently produces a zero-value struct when
+that child is absent, which is a different failure mode from an XMLName
+mismatch (see the GetBucketMetadataConfiguration finding below) --
+confirmed by tracing `HandleDeserialize` (not just an `OpDocument*` function
+name) for a dozen ops spanning every op family before trusting any single
+one as reached.
+
+**Header-bound members checked**: this session did not find a new
+header-bound-member drop -- the known prior instance (`UploadPart`'s
+checksums, `deserializers.go:14957`, fixed under gopherstack-3dqa) was
+re-verified still fixed and correct, and the config-echo ops swept this
+session (Content-Type/Content-Length on GetBucketCors/GetBucketWebsite/etc.)
+carry no other header-bound response members per their own `HttpBindings`
+functions.
+
+**Method**: for each of the 45 ops, read the real
+`awsRestxml_deserializeOp<Op>.HandleDeserialize` in full (not an
+`OpDocument*Output` function name in isolation) to find which struct the
+response root itself decodes into, then compared field-for-field against
+gopherstack's handler/model. Grouped by shape family rather than op-by-op
+where a shared pattern applied:
+
+- **Raw-passthrough config echoes** (CORS, Lifecycle, Notification, Website,
+  Encryption, Logging, Replication, OwnershipControls, PublicAccessBlock,
+  the four Analytics/IntelligentTiering/Inventory/Metrics singular Get ops,
+  RequestPayment, Accelerate, PolicyStatus, Abac): for each, confirmed the
+  real GET deserializer decodes the response ROOT element directly as the
+  same struct the PUT/Create request's payload root already is (traced
+  individually, not assumed from the pattern) -- so gopherstack's
+  echo-the-stored-PUT-body-verbatim implementation is wire-correct by
+  construction for all of these. **One doesn't share this shape** -- see the
+  metadata-configuration finding below, found precisely because this
+  category assumption was checked per-op instead of extended by pattern.
+- **Simple flat-field Get ops** (GetBucketVersioning, GetBucketLocation,
+  GetBucketTagging, GetObjectTagging, GetBucketPolicy): field-for-field
+  against their own deserializer case lists. Found the GetBucketVersioning
+  MFADelete gap here (see below).
+- **List*Configurations family**: top-level wrapper keys and the
+  double-nesting fix already carry a citing regression test from the
+  2026-07-24 (phase 2) pass (structural XML walk, not substring) --
+  re-verified still correct via the same real-deserializer read, not
+  re-tested.
+- **ListObjects/ListObjectsV2/ListObjectVersions/ListMultipartUploads/
+  ListParts**: `Object`/`ObjectVersion`/`Part`/`MultipartUpload` shapes were
+  mechanically diffed against the real SDK types under gopherstack-3dqa
+  (2026-08-14b) -- re-verified via the same deserializer case lists that
+  StorageClass/Owner/Initiator/checksum fixes already landed correctly. This
+  pass's own read of `awsRestxml_deserializeDocumentObject` found the one gap
+  that mechanical diff missed: `Owner` (see below).
+- **Object-lock family** (GetObjectRetention, GetObjectLegalHold,
+  GetPublicAccessBlock, GetObjectLockConfiguration): field names
+  (Mode/RetainUntilDate/Status) and root elements (Retention/LegalHold)
+  checked directly against `awsRestxml_deserializeDocumentObjectLockRetention`/
+  `ObjectLockLegalHold` -- correct.
+- **GetObjectAttributes, GetObjectAcl, GetBucketAcl, GetObjectTorrent**:
+  spot-checked; GetObjectTorrent correctly returns `NotImplemented` matching
+  real AWS's 2022 deprecation of the op. GetObjectAttributes never emits the
+  real, optional `ObjectParts` member -- newly disclosed in `gaps`, not
+  fixed (this backend has no per-part breakdown for a completed multipart
+  object).
+- **Object Annotations family** (PutObjectAnnotation, GetObjectAnnotation,
+  DeleteObjectAnnotation, ListObjectAnnotations): implemented one session ago
+  (gopherstack-zi7k) with detailed per-field citing comments already in
+  `object_ops_annotations.go` against the exact deserializer case lists;
+  re-read those citations against the pinned SDK directly rather than
+  re-deriving, found no discrepancy.
+
+**Sibling/near-duplicate shapes checked** (this issue's first lead
+question): `ListObjects` (V1) vs `ListObjectsV2` is the clearest pair in this
+service -- V1 has no `FetchOwner` concept at all (Owner always present); V2
+gates it on the request. Both were broken the same way (Owner missing
+entirely) before this pass, not a case of "one got it right" -- a shared-bug
+variant of the sibling-trap pattern, not a copy-paste-only-one-fixed one.
+`GetAdministratorAccount`/`GetMasterAccount`-style Invitation mixups (the
+shape securityhub and macie2 both hit this campaign) do not exist in s3 --
+no analogous shared-name-field type pair was found.
+
+**Values the backend already held that never reached the wire** (this
+issue's second lead question): `Object.Owner` on ListObjects/ListObjectsV2 --
+`gopherstackName` is the same constant already emitted correctly by
+ListBuckets, GetBucketAcl, ListObjectVersions, and ListMultipartUploads, just
+never wired into the one shared `mapObjectsToXML` converter both List ops use.
+`GetBucketVersioning`'s `MFADelete` was NOT an already-held value (the
+backend tracked nothing for it before this pass); fixed by adding the
+storage slot AND the wire threading in the same change, since a value with
+nowhere to live is not fixable by rewiring alone.
+
+**2 real bugs found and fixed:**
+
+1. **`ListObjects`/`ListObjectsV2` — `Object.Owner` never emitted, backend
+   value never wired.** Confirmed real via
+   `awsRestxml_deserializeDocumentObject`'s `case strings.EqualFold("Owner",
+   ...)` (deserializers.go), shared by both ops' `Contents` items.
+   `ObjectXML` (model.go) had no `Owner` field at all -- a real client's
+   typed `Contents[i].Owner` was always nil regardless of backend state, for
+   both ops, unconditionally. `ListObjectsInput` has no `FetchOwner` member
+   (confirmed absent from `api_op_ListObjects.go`) so V1 must always include
+   it; `ListObjectsV2Input.FetchOwner` (already read into the backend input,
+   `handler_list_v2.go:68`, but never wired to anything) gates it for V2.
+   Fixed by adding `ObjectXML.Owner *Owner` and an `includeOwner bool`
+   parameter threaded through the shared `mapObjectsToXML`
+   (`bucket_ops_listing.go`), `true` unconditionally for V1's call site,
+   `q.Get("fetch-owner") == "true"` for V2's.
+2. **`GetBucketVersioning`/`PutBucketVersioning` — `MFADelete` read nowhere,
+   stored nowhere, echoed nowhere.** Confirmed real and required-sibling-to-Status
+   via `awsRestxml_deserializeOpDocumentGetBucketVersioningOutput`'s
+   `case strings.EqualFold("MfaDelete", ...)` sitting directly beside the
+   already-correct `Status` case. Real request-side type
+   (`types.VersioningConfiguration.MFADelete`) is `types.MFADelete`; real
+   response-side type (`GetBucketVersioningOutput.MFADelete`) is the
+   **different** Go type `types.MFADeleteStatus` (same string values, two
+   distinct SDK enums) -- stored as a plain string on `StoredBucket` to avoid
+   coupling the backend model to either. `VersioningConfiguration` (model.go)
+   gained a `MfaDelete string` field with `omitempty`, matching the real
+   doc's "only returned if the bucket has been configured with MFA delete."
+
+**1 severe finding, flagged and NOT fixed** (structural, would require new
+backend modeling, not a rename) -- see the ops-table row and gaps entry
+above for the full writeup: **`GetBucketMetadataConfiguration`/
+`GetBucketMetadataTableConfiguration` return the wrong response shape
+entirely.** Unlike every other config-echo op in this file, these two real
+GET deserializers require a `MetadataConfigurationResult`/
+`MetadataTableConfigurationResult` child element containing
+server-*computed* fields (table bucket ARN/namespace/provisioning status)
+structurally absent from the client's CREATE request body that gopherstack
+currently echoes back verbatim. A real typed client's response fields
+decode to nil/zero regardless of backend state today, for both ops. Not
+fixed because a correct fix requires modeling S3 Tables table-bucket
+provisioning end to end, which does not exist anywhere in this backend;
+fabricating ARNs/status would be invented data, the exact failure mode this
+campaign exists to catch elsewhere.
+
+**Wrong-value check**: none found beyond the two fixes above (both are
+missing-field bugs, not same-key-wrong-value bugs).
+
+**Casing near-misses**: none. REST-XML decodes case-insensitively
+(`strings.EqualFold` throughout `deserializers.go`'s body-field switches,
+confirmed, not assumed, per this issue's own standing s3 threat-model note)
+-- every finding this pass was a genuinely different/absent element name,
+never a casing-only difference.
+
+**Ratifying tests**: none found needing correction. Neither `Owner` nor
+`MFADelete` had any prior assertion in either direction in this service's
+existing test suite (`bucket_listing_test.go`, `store_listing_test.go`,
+`bucket_versioning_test.go`) -- both gaps had zero prior coverage, not a
+wrong assertion staying green.
+
+**Phantom ops**: none. Cross-referenced all 115 op-name string literals from
+`s3CoreOperations()`/`s3ExtendedOperations()` (`handler_operations.go`)
+against `api_op_*.go` files in s3@v1.106.5; every one exists as a real op.
+
+**False-positive rate**: 0 among reported bugs -- every finding cites the
+real `awsRestxml_deserializeOp<Op>.HandleDeserialize`/
+`awsRestxml_deserializeDocument<Type>` function actually reached, file+line
+where cited, never a doc comment, an `OpDocument*` function name in
+isolation, or an assumption extended from a sibling op's shape.
+
+**Tests**: 2 real-`aws-sdk-go-v2`-client tests added in the new
+`services/s3/wire_field_fixes_test.go`
+(`TestListObjects_OwnerPopulated` -- table-driven across V1-always/
+V2-default-omits/V2-fetch-owner-true; `TestBucketVersioning_MfaDeleteEcho`).
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint): the `ObjectXML.Owner` struct field removal was
+a compile error (`unknown field Owner in struct literal`), proving it
+load-bearing at the type level; the V1/V2 `includeOwner` wiring and both
+halves of the `MFADelete` request/response threading each independently
+reverted to the exact predicted runtime failure (`Contents[].Owner` nil
+where expected non-nil; `MFADelete` empty where `"Enabled"` expected,
+quoted from the actual test failure output above) -- then restored and
+diffed byte-identical against the pre-revert file before moving to the next.
+
+**Untestable-but-fixed**: none this pass -- both fixes are directly
+observable through a real SDK client round-trip, unlike some other
+services' backend-tracks-nothing-yet gaps.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to `services/s3`), `go fix
+-diff` (no diff), `fieldalignment` (0 findings), `golangci-lint run` (1
+finding -- a `goimports` formatting nit on the new `StoredBucket.MFADelete`
+field's comment, fixed with `gofmt -w`; 0 issues after, no
+cyclop/gocyclo/gocognit/funlen nolints added) all green. `go test -race
+./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all changes uncommitted -- orchestrator
+must commit/push), `cmd/routecollisions/`/`services/_ROUTE_COLLISIONS.md`/
+`services/apigateway/handler.go`/`services/appconfigdata/`/
+`services/inspector2/`/`test/integration/tag_routing_test.go`/
+`test/integration/apigateway_quicksight_account_test.go` (the live sibling
+RouteMatcher sweep's in-progress work) confirmed untouched via `git status`
+both before starting and again at the end, no `gendocs`/`make docs` run.
+
+s3's List/Describe/Get families are now fully swept for this issue (45/45
+ops verified against the real deserializer, one op family's finding flagged
+rather than fixed). `services/_WRAPPER_KEY_SWEEP_REMAINDER.md` updated: 65
+of 162 services swept, 97 remain.

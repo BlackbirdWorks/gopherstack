@@ -1,6 +1,6 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**64 of 162 services swept, 98 remain** (macie2 added this session — see
+**65 of 162 services swept, 97 remain** (s3 added this session — see
 its own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
@@ -95,20 +95,21 @@ bedrockagent, cleanrooms, cloudformation, cloudfront,
 cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
 datasync, dlm, dynamodbstreams, ec2, ecs, eks, elasticache, elbv2, forecast,
 glue, guardduty, iam, identitystore, inspector2, iot,
-iotwireless, kms, lambda, lightsail, **macie2** (this session), medialive,
+iotwireless, kms, lambda, lightsail, macie2, medialive,
 mgn, networkmanager, networkmonitor, omics,
 opensearch, organizations, pinpoint, quicksight, rds, redshift,
-resiliencehub, resourcegroupstaggingapi, route53, s3control, s3tables,
-sagemaker, secretsmanager, securityhub, servicediscovery,
+resiliencehub, resourcegroupstaggingapi, route53, **s3** (this session),
+s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer.
 
-Two services have real, extensive wire-shape work under **other** issue
-classes (gopherstack-enpq's required-member diff, gopherstack-h910/ctaz's
-backend-logic fixes) but **no 6flj-specific wrapper-key pass on record** —
-s3 and dynamodb. They are listed in the unswept table below on purpose;
-don't assume "heavily worked on" means "settled for this issue."
+One service still has real, extensive wire-shape work under **other** issue
+classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
+wrapper-key pass on record** — dynamodb (s3 moved to swept this session; see
+its own section at the end of this file). It is listed in the unswept table
+below on purpose; don't assume "heavily worked on" means "settled for this
+issue."
 
-## Unswept (98 of 162), ranked by List+Describe+Get op count
+## Unswept (97 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -123,13 +124,12 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 98 (networkmanager's 38, securityhub's
-47, and macie2's 40 removed, all swept prior to/this session): **1,476**
-candidate ops.
+Sum of the L+D+G column across all 97 (networkmanager's 38, securityhub's
+47, macie2's 40, and s3's 45 removed, all swept prior to/this session):
+**1,431** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| s3 | 115 | 12 | 0 | 33 | 45 | chased |
 | personalize | 77 | 18 | 18 | 3 | 39 | dynamic-fallback |
 | cognitoidp | 129 | 14 | 10 | 13 | 37 | chased |
 | apigatewayv2 | 103 | 5 | 0 | 32 | 37 | direct |
@@ -1544,3 +1544,163 @@ own dedicated session) is next largest; personalize (39, likely
 mostly-clean per gopherstack-sm02) or cognitoidp (37, `chased`) are the
 next candidates that don't obviously collide with either live sibling
 session observed this round — re-check `git status` before picking.
+
+## s3 (this session)
+
+The dedicated session five prior passes deferred this to. Read this file's
+method section, `bd show gopherstack-6flj` (comments, not just the
+63KB-saturated notes field), and `git show 1217df451` (macie2, the pass
+immediately before this one) before starting.
+
+`git status` at start showed the live RouteMatcher sweep
+(`cmd/routecollisions/`, `services/_ROUTE_COLLISIONS.md`,
+`services/apigateway/handler.go`, `test/integration/tag_routing_test.go`)
+plus separate in-progress `services/appconfigdata/`/`services/inspector2/`
+changes and a new untracked
+`test/integration/apigateway_quicksight_account_test.go` — none touch
+`services/s3`; confirmed untouched again at the end.
+
+**s3 had FIVE prior passes under other issue classes (21 bugs, a
+ListObjectsV2 allocation fix, two checksum fixes) but no 6flj-scoped
+wrapper-key sweep on record** — checked `services/s3/PARITY.md` and
+`git log -- services/s3` per this issue's "check, don't trust PARITY claims"
+instruction; s3's own notes held up this time (unlike five other services'
+this campaign found stale).
+
+**PROTOCOL**: REST-XML, `awsRestxml_` the sole deserializer prefix in
+s3@v1.106.5. Per this issue's own s3-specific threat-model note: zero
+`GetElement` calls (established under gopherstack-7185, not re-derived) so
+the empty-result-on-root-mismatch class is structurally absent; casing is
+case-insensitive (`strings.EqualFold` throughout) so every finding below is
+a genuinely different/absent element name, confirmed not a casing quirk.
+
+Read the real `awsRestxml_deserializeOp<Op>.HandleDeserialize` (not just an
+`OpDocument*Output` function name) for all 45 L+D+G ops (12 List, 0
+Describe, 33 Get, per `s3CoreOperations()`/`s3ExtendedOperations()` in
+`handler_operations.go` — the same 45 the ranked table already had, no
+recount needed). Grouped by shape family per method detail in
+`services/s3/PARITY.md`'s new 2026-08-15 section: raw-passthrough config
+echoes (CORS/lifecycle/notification/website/encryption/logging/replication/
+ownershipControls/publicAccessBlock/analytics/intelligent-tiering/inventory/
+metrics/requestPayment/accelerate/policyStatus/abac — each individually
+confirmed the real GET deserializer decodes the response root directly as
+the same struct the PUT/Create payload root already is, not assumed by
+pattern), simple flat-field Get ops (versioning/location/tagging/policy),
+the List*Configurations family (double-nesting fix from 2026-07-24 already
+carries a real structural-walk regression test, re-verified not re-tested),
+List/Get for objects/versions/multipart/parts (Object/ObjectVersion/Part/
+MultipartUpload mechanically diffed under gopherstack-3dqa 2026-08-14b,
+re-verified via the same case lists), the object-lock family, and the
+recently-implemented Object Annotations family (citations in
+`object_ops_annotations.go` re-checked against the pinned SDK directly).
+
+**2 real bugs found and fixed:**
+
+1. `ListObjects`/`ListObjectsV2` — `Object.Owner` (real member, shared
+   `awsRestxml_deserializeDocumentObject` case list) never emitted at all;
+   the shared `ObjectXML` struct had no field for it. `ListObjectsInput` has
+   no `FetchOwner` (V1 always includes Owner); `ListObjectsV2Input.FetchOwner`
+   was already read into the backend input but never wired to anything (V2
+   gates on it). A near-duplicate-shape pair where BOTH sides were broken
+   the same way, not a "one got it right" case. Fixed: added
+   `ObjectXML.Owner *Owner` and an `includeOwner bool` threaded through the
+   shared `mapObjectsToXML` (`true` for V1, `fetch-owner` query param for
+   V2).
+2. `GetBucketVersioning`/`PutBucketVersioning` — `MFADelete` read from no
+   request, stored nowhere, echoed by no response, despite sitting directly
+   beside the already-correct `Status` case in
+   `awsRestxml_deserializeOpDocumentGetBucketVersioningOutput`. Real
+   request-side type (`types.VersioningConfiguration.MFADelete`) is
+   `types.MFADelete`; real response-side type
+   (`GetBucketVersioningOutput.MFADelete`) is the **different** Go type
+   `types.MFADeleteStatus` — same wire strings, two distinct SDK enums, so
+   `StoredBucket.MFADelete` is a plain string rather than coupled to either.
+   Only emitted once ever configured (matches the real doc: "only returned
+   if the bucket has been configured with MFA delete").
+
+**1 severe finding, flagged and NOT fixed** — `GetBucketMetadataConfiguration`/
+`GetBucketMetadataTableConfiguration` return the wrong response shape
+entirely. Unlike every other config-echo op in this service, these two real
+deserializers require a `MetadataConfigurationResult`/
+`MetadataTableConfigurationResult` child element of server-*computed* fields
+(table bucket ARN/namespace/provisioning status) that are structurally
+absent from the client's CREATE request body gopherstack currently echoes
+back verbatim — a real typed client's response fields decode to nil/zero
+regardless of backend state, for both ops, today. The same
+`OpDocument*Output`-with-a-matching-case dead-code trap gopherstack-ob1g
+already found once on `GetBucketAbac` — found here by checking each
+config-echo op's `HandleDeserialize` individually instead of extending the
+pattern from the 17 ops that ARE genuine raw-passthrough. Not fixed: a real
+fix needs an S3 Tables table-bucket provisioning model (ARN/namespace/status)
+this backend has nowhere at all; fabricating plausible ARNs/status would be
+invented data, the exact class this campaign exists to catch. Full detail
+and citations in `services/s3/PARITY.md`'s new ops-table row and gaps entry.
+
+**Sibling/near-duplicate shapes**: ListObjects vs ListObjectsV2 is the
+clearest pair (see finding #1) — both broken identically, not a
+one-correct-one-wrong case. No `AdministratorAccount`/`MasterAccount`-style
+Invitation-type mixup exists in s3 (the shape securityhub and macie2 both
+hit this campaign); no analogous shared-name-field pair found.
+
+**Backend-held-but-unemitted values**: `Object.Owner` (finding #1) —
+`gopherstackName` was already emitted correctly by ListBuckets, GetBucketAcl,
+ListObjectVersions, and ListMultipartUploads, just never wired into the one
+converter both List ops share. `MFADelete` was NOT an already-held value —
+the backend tracked nothing for it before this pass; fixed by adding both
+the storage slot and the wire threading together.
+
+**Wrong-value check**: none found beyond the two missing-field fixes above.
+
+**Casing near-misses**: none — REST-XML decodes case-insensitively
+throughout; every finding was a genuinely absent/different element name.
+
+**Ratifying tests**: none found needing correction — neither `Owner` nor
+`MFADelete` had any prior assertion in either direction anywhere in this
+service's existing suite (zero prior coverage, not a wrong assertion staying
+green).
+
+**Phantom ops**: none. Cross-referenced all 115 op-name literals from
+`s3CoreOperations()`/`s3ExtendedOperations()` against s3@v1.106.5's
+`api_op_*.go` files; every one real.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `HandleDeserialize`/`deserializeDocument<Type>` function actually
+reached, file+line, never a doc comment or an assumption extended by
+pattern from a sibling op.
+
+2 real-SDK-client tests added in the new `services/s3/wire_field_fixes_test.go`
+(`TestListObjects_OwnerPopulated` — table-driven V1-always/
+V2-default-omits/V2-fetch-owner-true; `TestBucketVersioning_MfaDeleteEcho`).
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint): the `ObjectXML.Owner` field removal is a
+compile error (proving it load-bearing at the type level, not just at
+runtime); the V1/V2 wiring and both halves of the `MFADelete`
+request/response threading each independently reverted to the exact
+predicted runtime failure (nil `Owner` where non-nil expected; empty
+`MFADelete` where `"Enabled"` expected), then restored and diffed
+byte-identical against the pre-revert file before moving to the next.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to `services/s3`), `go fix
+-diff` (no diff), `fieldalignment` (0 findings), `golangci-lint run` (1
+`goimports` formatting nit on the new struct-field comment, fixed with
+`gofmt -w`; 0 issues after, no cyclop/gocyclo/gocognit/funlen nolints added)
+all green. `go test -race ./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all changes uncommitted — orchestrator
+must commit/push), `cmd/routecollisions/`/`services/_ROUTE_COLLISIONS.md`/
+`services/apigateway/handler.go`/`services/appconfigdata/`/
+`services/inspector2/`/`test/integration/tag_routing_test.go`/
+`test/integration/apigateway_quicksight_account_test.go` (the live sibling
+RouteMatcher sweep's in-progress work) confirmed untouched via `git status`
+both before starting and again at the end, no `gendocs`/`make docs` run.
+
+s3's List/Describe/Get families are now fully swept for this issue (45/45
+ops verified against the real deserializer, one finding flagged rather than
+fixed — see `services/s3/PARITY.md` for the full writeup). 65 of 162
+services swept, 97 remain. dynamodb is the one remaining service with
+extensive wire-shape work under other issue classes but no 6flj-specific
+pass; per the ranked table, personalize (39, likely mostly-clean per
+gopherstack-sm02) or cognitoidp (37, `chased`) are the next candidates —
+re-check `git status` before picking, given how often a sibling session has
+appeared mid-flight this campaign.

@@ -44,13 +44,20 @@ type StoredBucket struct {
 	MetadataAnnotationTableConfig string                       `json:"metadataAnnotationTableConfig,omitempty"`
 	MetricsConfigs                map[string]string            `json:"metricsConfigs,omitempty"`
 	Versioning                    types.BucketVersioningStatus `json:"versioning,omitempty"`
-	Name                          string                       `json:"name"`
-	ACL                           string                       `json:"acl,omitempty"`
-	AccelerateStatus              string                       `json:"accelerateStatus,omitempty"`
-	RequestPaymentPayer           string                       `json:"requestPaymentPayer,omitempty"`
-	Tags                          []types.Tag                  `json:"tags,omitempty"`
-	DeletePending                 bool                         `json:"deletePending,omitempty"`
-	IsDirectoryBucket             bool                         `json:"isDirectoryBucket,omitempty"`
+	// MFADelete is stored as a plain string, not a typed SDK enum, because the
+	// real request and response shapes use two DIFFERENT Go types for the same
+	// concept (VersioningConfiguration.MFADelete is types.MFADelete;
+	// GetBucketVersioningOutput.MFADelete is types.MFADeleteStatus,
+	// s3@v1.106.5 api_op_GetBucketVersioning.go/types/enums.go) -- both hold
+	// the same "Enabled"/"Disabled" strings on the wire.
+	MFADelete           string      `json:"mfaDelete,omitempty"`
+	Name                string      `json:"name"`
+	ACL                 string      `json:"acl,omitempty"`
+	AccelerateStatus    string      `json:"accelerateStatus,omitempty"`
+	RequestPaymentPayer string      `json:"requestPaymentPayer,omitempty"`
+	Tags                []types.Tag `json:"tags,omitempty"`
+	DeletePending       bool        `json:"deletePending,omitempty"`
+	IsDirectoryBucket   bool        `json:"isDirectoryBucket,omitempty"`
 	// ObjectLockEnabled records whether CreateBucket was called with
 	// x-amz-bucket-object-lock-enabled: true. Real S3 requires this at bucket
 	// creation before PutObjectLockConfiguration will accept a configuration

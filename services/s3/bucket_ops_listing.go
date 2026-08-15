@@ -104,12 +104,17 @@ func (h *S3Handler) listObjects(
 	// mapObjectsToXML formats regular objects. When delimiter is set, the backend
 	// already grouped CP-objects into out.CommonPrefixes and removed them from
 	// out.Contents, so mapObjectsToXML will not produce duplicate CPs.
+	// ListObjects (V1) has no FetchOwner request member -- Owner is unconditionally
+	// present on every Contents item (confirmed: ListObjectsInput has no such field,
+	// unlike ListObjectsV2Input; s3@v1.106.5 deserializers.go's Object case list
+	// decodes Owner the same way for both ops).
 	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(
 		out.Contents,
 		prefix,
 		delimiter,
 		seenPrefixes,
 		encodingType,
+		true,
 	)
 	// Merge backend-level common prefixes (populated when delimiter is set).
 	for _, cp := range out.CommonPrefixes {
@@ -131,6 +136,7 @@ func (h *S3Handler) mapObjectsToXML(
 	prefix, delimiter string,
 	seenPrefixes map[string]struct{},
 	encodingType string,
+	includeOwner bool,
 ) ([]ObjectXML, []CommonPrefixXML) {
 	var contents []ObjectXML
 	var commonPrefixes []CommonPrefixXML
@@ -158,7 +164,14 @@ func (h *S3Handler) mapObjectsToXML(
 		if sc == "" {
 			sc = storageStandard
 		}
+
+		var owner *Owner
+		if includeOwner {
+			owner = &Owner{ID: gopherstackName, DisplayName: gopherstackName}
+		}
+
 		contents = append(contents, ObjectXML{
+			Owner:             owner,
 			Key:               encodeListKey(encodingType, key),
 			LastModified:      obj.LastModified.Format(time.RFC3339),
 			Size:              *obj.Size,
