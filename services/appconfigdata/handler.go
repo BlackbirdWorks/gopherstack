@@ -30,14 +30,14 @@ const (
 	// Response headers defined by the AWS AppConfigData REST-JSON protocol.
 	nextPollTokenHeader    = "Next-Poll-Configuration-Token" //nolint:gosec // G101: header name, not a credential
 	nextPollIntervalHeader = "Next-Poll-Interval-In-Seconds"
-	etagHeader             = "ETag"
+	etagHeader             = "Etag"
 	// versionLabelHeader is the AWS-defined response header for the AppConfig version label.
 	// The AWS SDK v2 deserializer reads this exact header name; the older X-Amzn-AppConfig-*
 	// prefix used in early docs was never the actual protocol header.
 	versionLabelHeader = "Version-Label"
 	retryAfterHeader   = "Retry-After"
 	// errorTypeHeader is read by the AWS SDK to identify the exception type before parsing the body.
-	errorTypeHeader = "X-Amzn-ErrorType"
+	errorTypeHeader = "X-Amzn-Errortype"
 )
 
 // Handler is the Echo HTTP handler for AppConfigData operations.
