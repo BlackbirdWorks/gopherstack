@@ -1,14 +1,16 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**86 of 162 services swept, 76 remain** (appconfig added this session,
-2026-08-15, see its own section at the end of this file; cloudtrail,
-directoryservice, opsworks, apigatewayv2, workmail, wafv2, ce, waf,
-vpclattice, emr, eventbridge, kafka, route53resolver, appsync, workspaces,
-lakeformation, elasticsearch, and rekognition all added this session, in
-parallel, by different sessions — see each service's own section at the end
-of this file for full detail). directoryservice and cloudtrail, listed as
-still-in-progress by earlier passes appending to this header, both finished
-and are committed (`78517e30d`, `773c2af52`).
+**88 of 162 services swept, 74 remain** (codeartifact added this session,
+2026-08-15, closing the three-way tie its own prior sections describe; also
+see outposts's own section at the end of this file, added the same day;
+appconfig, cloudtrail, directoryservice, opsworks, apigatewayv2, workmail,
+wafv2, ce, waf, vpclattice, emr, eventbridge, kafka, route53resolver,
+appsync, workspaces, lakeformation, elasticsearch, and rekognition all added
+earlier this session, in parallel, by different sessions — see each
+service's own section at the end of this file for full detail).
+directoryservice and cloudtrail, listed as still-in-progress by earlier
+passes appending to this header, both finished and are committed
+(`78517e30d`, `773c2af52`).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -97,18 +99,20 @@ again — several have explicit "already checked, don't re-flag" notes (e.g.
 route53's `ListHostedZonesByVPC` XMLName quirk, cloudfront's root-tag
 non-bug, rds's `GlobalClusterMember` shared-name non-bug).
 
-apigateway, **apigatewayv2** (this session), **appsync** (this session),
+apigateway, **apigatewayv2** (this session), **appconfig** (this session),
+**appsync** (this session),
 appstream, athena, autoscaling,
 awsconfig, backup, bedrock,
 bedrockagent, **ce** (this session), cleanrooms, cloudformation, cloudfront,
-cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
+cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, **codeartifact** (this
+session), codebuild, codecommit,
 cognitoidp, datasync, dlm, dynamodbstreams, ec2, ecs, eks,
 elasticache, elbv2, **emr** (this session), **eventbridge** (this session),
 forecast,
 glue, guardduty, iam, identitystore, inspector2, iot,
 iotwireless, **kafka** (this session), kms, lambda, lightsail, macie2, medialive,
 mgn, networkmanager, networkmonitor, omics,
-opensearch, organizations, personalize, pinpoint,
+opensearch, organizations, **outposts** (this session), personalize, pinpoint,
 quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, **route53resolver** (this
 session), s3,
@@ -126,7 +130,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (80 of 162), ranked by List+Describe+Get op count
+## Unswept (78 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -141,13 +145,14 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 80 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 78 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
 apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34,
 vpclattice's 30, emr's 30, eventbridge's 30, kafka's 29,
 route53resolver's 30, appsync's 28, workspaces's 27, lakeformation's 26,
-elasticsearch's 25, rekognition's 25, and directoryservice's 25 removed, all
-swept prior to/this session): **880** candidate ops.
+elasticsearch's 25, rekognition's 25, directoryservice's 25, outposts's 23,
+and codeartifact's 24 removed, all swept prior to/this session): **833**
+candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
@@ -155,7 +160,6 @@ swept prior to/this session): **880** candidate ops.
 | codeartifact | 48 | 12 | 5 | 7 | 24 | direct |
 | cloudtrail | 60 | 11 | 2 | 11 | 24 | direct |
 | appconfig | 56 | 12 | 0 | 12 | 24 | direct |
-| outposts | 43 | 11 | 0 | 12 | 23 | direct |
 | dynamodb | 58 | 7 | 13 | 2 | 22 | direct |
 | neptune | 70 | 1 | 20 | 0 | 21 | direct |
 | ecr | 58 | 4 | 8 | 9 | 21 | direct |
@@ -6548,3 +6552,182 @@ total ops, 24 L+D+G) is the only member of the original three-way tie not
 yet confirmed taken or swept as of this addition -- re-check `git status`
 and this file's header before picking it, since a sibling session appeared
 to be working it by the end of this pass.
+
+## outposts (this session)
+
+Picked as the largest unswept service with no live sibling: `codeartifact`
+tied outposts' family (24 vs 23 L+D+G) but had uncommitted working-tree
+changes at session start (`git status` showed 9 modified files +
+1 untracked test), confirming a live sibling per this issue's own
+appconfig-pass precedent. No tie to break at outposts' own rank -- 23 is a
+unique value in the ranked table (next is dynamodb at 22, itself excluded as
+a different issue class per this file's own note). Tie-break method used:
+sibling-trap surface (widest spread of distinct resource-family handler
+files) would have been the tiebreaker had one been needed -- outposts has 9
+family files (assets/capacity/catalog/connections/orders/outposts/quotes/
+sites/tags), the widest spread among the top-ranked candidates, which is
+part of why it was worth the full read even without a literal count tie.
+
+Protocol: restjson1, case-sensitive body fields confirmed directly --
+grepped all 235 `strings.EqualFold` call sites in
+`outposts@v1.66.1/deserializers.go`; the only 57 non-`errorCode` hits are
+all `"NaN"`/`"Infinity"`/`"-Infinity"` float-literal matches, none a body
+field-name comparison. SDK pinned at `outposts@v1.66.1` (go.mod line 219),
+read only under `$(go env GOMODCACHE)`, no exception needed.
+
+Router: a real path-segment router (`topLevelRouters()` map + per-family
+`route*` funcs), NOT structurally immune. Already had a dedicated test
+(`handler_sdk_route_table_test.go`, added by an earlier pass,
+gopherstack-jqh2) driving all 43 ops' authoritative method+path (re-extracted
+from `serializers.go`'s `HandleSerialize` bodies) through both
+`ExtractOperation` and the real `Handler()`, asserting no fall-through to
+the unknown-path error. Spot-verified two of its entries
+(`TagResource`/`UntagResource`'s shared `/tags/{ResourceArn}` path,
+`UntagResource`'s lowerCamel `tagKeys` query parameter) directly against
+`serializers.go:3233`. Router confirmed clean, all 43 ops reachable.
+
+Phantom-op check: diffed `GetSupportedOperations`'s 43-entry list against
+`ls outposts@v1.66.1/api_op_*.go` -- exact match both directions, 0 phantom,
+0 missing.
+
+**Full layer-1 (wrapper key) + layer-2 (nesting) sweep of all 23 L+D+G ops
+(11 List, 0 Describe, 12 Get) came back clean -- 0 bugs found.** Method: for
+every op, read its real `*Output` struct directly from the op's own
+`api_op_<Op>.go` (top-level field names/types) and every nested `types.*`
+struct it references from `types/types.go`, then diffed field-by-field
+against `wire.go`'s corresponding struct. All 23 matched exactly, including
+several traps checked deliberately and found NOT to be bugs:
+
+- **Shared-converter check (this issue's highest-yield check)**:
+  `toInstanceTypeItemWire` is called from both `GetOutpostInstanceTypes` and
+  `GetOutpostSupportedInstanceTypes` -- confirmed NOT a sibling trap, because
+  both real ops genuinely share `types.InstanceTypeItem`
+  (`api_op_GetOutpostInstanceTypes.go`/`api_op_GetOutpostSupportedInstanceTypes.go`
+  both declare `InstanceTypes []types.InstanceTypeItem`).
+  `ListOrderableInstanceTypes` correctly uses a separate converter
+  (`toDetailedInstanceTypeItemWire`) because its real type
+  (`types.DetailedInstanceTypeItem`) is genuinely different (adds
+  `FormFactorConfigs`/`NetworkPerformance`/`MemoryInMib`). No other
+  cross-op-shared converter found in `wire_convert.go` (`toQuoteWire` vs
+  `toQuoteWireBase`/`toQuoteSummaryWire` already correctly split for the
+  real `Quote`-vs-`QuoteSummary` shape difference -- `QuoteSummary` lacks
+  `OrderingRequirements`, confirmed against `types.go`).
+- **`UpdateSiteRackPhysicalProperties`** reuses `rackPhysicalPropertiesWire`
+  directly as its request body type (not a dedicated
+  `updateSiteRackPhysicalPropertiesRequest`) -- confirmed correct: the real
+  `UpdateSiteRackPhysicalPropertiesInput`'s 9 optional body members are
+  field-for-field identical to `types.RackPhysicalProperties`.
+- **Subscription vs SubscriptionPricingDetails precision quirk**: real
+  `Subscription.MonthlyRecurringPrice`/`UpfrontPrice` are `*float64`;
+  `SubscriptionPricingDetails`' same-named fields are `*float32` -- two
+  different real types with different precision for the same concept.
+  `subscriptionWire` (float64) and `subscriptionPricingDetailsWire`
+  (float32) correctly preserve this distinction, not a copy-paste that
+  homogenized them.
+
+Required-member diff (both directions) on every request body against its
+real `*Input`: `createOutpostRequest`/`updateOutpostRequest`/
+`createSiteRequest`/`updateSiteRequest`/`updateSiteAddressRequest`/
+`createOrderRequest`/`createQuoteRequest`/`updateQuoteRequest`/
+`createRenewalRequest`/`startCapacityTaskRequest`/`startConnectionRequest`/
+`tagResourceRequest` all field-for-field match their real `*Input` body
+members (path/query params correctly excluded from each). No field demanded
+that the real Input lacks; no real required field silently dropped.
+
+Filters: every declared filter on every List op reaches the query --
+`ListOutposts` (3: AvailabilityZoneFilter/AvailabilityZoneIdFilter/
+LifeCycleStatusFilter), `ListSites` (3), `ListCatalogItems` (3), `ListAssets`
+(3), `ListAssetInstances` (4), `ListCapacityTasks` (2),
+`ListOrderableInstanceTypes` (1), `ListOrders` (1) -- 20 filters total, all
+read from `r.URL.Query()` by name and wired into the backend's filter
+struct, none ignored.
+
+Empty/204 responses checked against real output shapes: `DeleteOutpost`/
+`DeleteSite`/`DeleteQuote`/`CancelOrder`/`CancelCapacityTask`/`TagResource`/
+`UntagResource` all return `nil, nil` (204) in gopherstack -- confirmed
+correct, not the appconfig `StopDeployment` trap, because all 7 real
+`*Output` types are genuinely empty (`ResultMetadata` only, no data
+members). `StartOutpostDecommission` (which DOES have a real body,
+`Status`/`BlockingResourceTypes`) already returns that body, not 204 --
+correct.
+
+Discarded-input check (`grep -rn '_ Some.*Request'`, `_ context.Context`
+params, `ValidateOnly`/`DryRun` handling): `StartOutpostDecommission`'s
+`ValidateOnly` and `StartCapacityTask`'s `DryRun` are both read and honored
+(threaded into the backend, not silently dropped). No discarded-input bug
+found.
+
+Over-wide field sweep (credential/ARN/secret classification): `Connection`'s
+`ClientPublicKey`/`ServerPublicKey`/tunnel addresses are the only
+key-shaped fields in this service -- `ServerPublicKey` confirmed generated
+by `randomBase64Key()`, explicitly commented "synthetic, non-cryptographic
+placeholder", not real key material; `ClientPublicKey` is echoed verbatim
+from caller input (not backend-fabricated). Deliberate credential sweep:
+clean, no real secret/ARN/env-var leak found (this service has no
+environment-variable or client-secret-shaped fields at all).
+
+Persistence check: not applicable -- `persistence.go`'s `backendSnapshot`
+serializes the domain models (`Outpost`/`Site`/`Order`/`Quote`/... from
+`models.go`) via `b.registry.SnapshotAll()`, entirely decoupled from
+`wire.go`'s response DTOs. No wire struct doubles as the snapshot shape, so
+no retagging risk existed to begin with (moot since 0 fixes were made).
+
+**Prior-audit-reasoning check** (this issue's newest failure mode, per
+appconfig's `KmsKeyIdentifier` precedent): outposts' PARITY.md (last
+audited 2026-08-07, gopherstack-b9mg, raised to grade A) contains one
+load-bearing piece of reasoning worth flagging rather than silently
+trusting -- `ListBlockingInstancesForCapacityTask` always returns empty
+because "StartCapacityTask's own model is additive-only
+(`mergeInstanceTypeCapacity` never shrinks `InstanceTypeCapacities`), so no
+running instance can ever legitimately block a task." Independently
+re-verified the code claim: `mergeInstanceTypeCapacity`
+(`capacity_tasks.go:255`) does use `+=`, never a replace/set, confirmed
+additive-only as claimed. **Could not independently verify the AWS-behavior
+premise** (whether real `StartCapacityTaskInput.InstancePools` is itself a
+delta-add or an absolute target) from the pinned SDK alone -- the Go SDK's
+doc comment on `InstancePools` ("The instance pools specified in the
+capacity task") doesn't say either way, and settling it needs live AWS docs
+outside `$(go env GOMODCACHE)`. Flagged, not fixed: if `InstancePools` is
+actually an absolute target in real AWS, then a request specifying fewer
+instances than currently configured IS a real reduction this backend can't
+represent, and `WAITING_FOR_EVACUATION`/`ListBlockingInstancesForCapacityTask`
+would be reachable in real AWS in a way this backend structurally can't
+reproduce -- a different, deeper gap than the "isolated oversight" class
+this issue targets, already disclosed as a structural gap in PARITY.md
+either way (not a silent-empty wrapper-key bug regardless of which reading
+is correct, so out of this issue's scope to resolve here).
+
+Siblings confirmed correct (all 23 L+D+G ops, i.e. the service's full
+List/Get surface for this issue): `ListOutposts`/`GetOutpost`,
+`ListSites`/`GetSite`/`GetSiteAddress`, `ListOrders`/`GetOrder`,
+`ListQuotes`/`GetQuote`, `ListCapacityTasks`/`GetCapacityTask`,
+`ListCatalogItems`/`GetCatalogItem`, `ListAssets`, `ListAssetInstances`,
+`ListBlockingInstancesForCapacityTask`, `ListOrderableInstanceTypes`,
+`ListTagsForResource`, `GetOutpostBillingInformation`,
+`GetOutpostInstanceTypes`/`GetOutpostSupportedInstanceTypes`,
+`GetRenewalPricing`, `GetConnection`.
+
+No new tests added -- 0 bugs found means no fix to ratify. Error-code set
+also re-verified: all 6 real exception types
+(`AccessDeniedException`/`ConflictException`/`InternalServerException`/
+`NotFoundException`/`ServiceQuotaExceededException`/`ValidationException`
+from `types/errors.go`) have matching sentinels in `errors.go`.
+
+Second-client check: not applicable, outposts has no cross-service SDK
+bridge.
+
+Gates: `go build`/`go vet`/`go test -race`/`golangci-lint run`
+(0 issues)/`go fix -diff` (clean) all green for `services/outposts/...`,
+foreground, no code changes made (0 bugs found, nothing to fix). Did not
+re-run `go test -race ./pkgs/...` since this pass touched no `pkgs/` code
+and no `services/outposts` code either -- only this remainder file changed.
+
+No subagents used (Read/Grep/Bash/Edit only, per this session's hard
+constraint). No git-mutating commands run. `git status` re-checked before
+every edit batch; only this remainder file changed -- `services/codeartifact/*`
+(the one live sibling this session, confirmed via `git status` at the
+start) never read or touched.
+
+87 of 162 services swept, 75 remain. `codeartifact`'s sibling was still live
+in `git status` at the end of this pass (same 9 modified files + 1
+untracked test as at the start) -- re-check `git status` before picking it.
