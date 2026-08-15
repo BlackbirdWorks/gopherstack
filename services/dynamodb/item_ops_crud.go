@@ -30,6 +30,10 @@ func (db *InMemoryDB) PutItem(
 		return nil, err
 	}
 
+	if err := applyLegacyPutParams(input); err != nil {
+		return nil, err
+	}
+
 	condExpr := aws.ToString(input.ConditionExpression)
 	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
 		return nil, err
@@ -470,6 +474,10 @@ func (db *InMemoryDB) DeleteItem(
 		return nil, err
 	}
 
+	if err := applyLegacyDeleteParams(input); err != nil {
+		return nil, err
+	}
+
 	condExpr := aws.ToString(input.ConditionExpression)
 	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
 		return nil, err
@@ -648,6 +656,10 @@ func (db *InMemoryDB) UpdateItem(
 	}
 
 	if err = validateExpressionAttributeNames(input.ExpressionAttributeNames); err != nil {
+		return nil, err
+	}
+
+	if err = applyLegacyUpdateParams(input); err != nil {
 		return nil, err
 	}
 

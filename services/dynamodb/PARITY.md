@@ -3,10 +3,10 @@ service: dynamodb
 sdk_module: aws-sdk-go-v2/service/dynamodb@v1.63.1   # version audited against (go.mod pin)
 last_audit_commit: 97805509b
 last_audit_date: 2026-08-14
-overall: A   # gopherstack-rkmp deep pass (this audit, 2026-08-14): struct-field-diffed every wire model against the pinned SDK (see Notes) and fixed 3 more wire drops -- Query/Scan AttributesToGet (undeclared, and even where declared elsewhere the projection resolver never consulted it for these two ops), GSI/LSI IndexArn (+GSI IndexSizeBytes/Backfilling), ListBackups BackupSummary.BackupSizeBytes. PARITY.md itself was stale by 6 commits (7a2189b06..bc2e6285a) before this update -- see Notes. CONFIRMED FIXED, previously an open gap here: GSI/LSI Query full-scan (17c0ac7a7 added real per-GSI/LSI indexes; gopherstack-anlc verified 4.8-5.0us flat vs 1.82-28.0ms before). Flagged not fixed: legacy pre-expression API params (gopherstack-lze5), ReturnConsumedCapacity=INDEXES dead code (gopherstack-glfv) -- see gaps.
+overall: A   # gopherstack-rkmp deep pass (this audit, 2026-08-14): struct-field-diffed every wire model against the pinned SDK (see Notes) and fixed 3 more wire drops -- Query/Scan AttributesToGet (undeclared, and even where declared elsewhere the projection resolver never consulted it for these two ops), GSI/LSI IndexArn (+GSI IndexSizeBytes/Backfilling), ListBackups BackupSummary.BackupSizeBytes. PARITY.md itself was stale by 6 commits (7a2189b06..bc2e6285a) before this update -- see Notes. CONFIRMED FIXED, previously an open gap here: GSI/LSI Query full-scan (17c0ac7a7 added real per-GSI/LSI indexes; gopherstack-anlc verified 4.8-5.0us flat vs 1.82-28.0ms before). gopherstack-lze5 (2026-08-14, follow-up pass): PutItem/UpdateItem/DeleteItem's legacy Expected/ConditionalOperator/AttributeUpdates parameters -- the conditional-check-bypass and no-op-write bugs -- are now FIXED by translation into the existing expr evaluator; Query/Scan's KeyConditions/QueryFilter/ScanFilter remain NOT fixed (still silently dropped) -- see gaps. ReturnConsumedCapacity=INDEXES dead code (gopherstack-glfv) also still open -- see gaps.
 protocol: json-1.0 (DynamoDB_20120810 targets)
 families:
-  item_crud:    {status: ok, note: PROVEN — condition eval, all ReturnValues, ItemCollectionMetrics/LSI 10GB, WCU/RCU formulas. 2026-08-13: GetItem's wire model (models.GetItemInput/GetItemOutput) was silently dropping ReturnConsumedCapacity, ConsistentRead, AttributesToGet on input and ConsumedCapacity on output even though the backend computed everything correctly -- fixed at the wire boundary in models/convert_ops.go, not the backend. Same day, separately: CreateTable dropped SSESpecification/OnDemandThroughput on input (7a2189b06); UpdateTable dropped DeletionProtectionEnabled/TableClass/BillingMode/SSESpecification (7a2189b06); DescribeBackup/DeleteBackup dropped two required SourceTableDetails members (bc2e6285a). 2026-08-14 (this audit): ListBackups' BackupSummary had no BackupSizeBytes field at all, even though CreateBackup/DescribeBackup's BackupDetails already carried it for the same backup via the real per-backup b.SizeBytes -- fixed in models/types.go + backup_ops.go's collectBackupSummaries.}
+  item_crud:    {status: ok, note: PROVEN — condition eval, all ReturnValues, ItemCollectionMetrics/LSI 10GB, WCU/RCU formulas. 2026-08-13: GetItem's wire model (models.GetItemInput/GetItemOutput) was silently dropping ReturnConsumedCapacity, ConsistentRead, AttributesToGet on input and ConsumedCapacity on output even though the backend computed everything correctly -- fixed at the wire boundary in models/convert_ops.go, not the backend. Same day, separately: CreateTable dropped SSESpecification/OnDemandThroughput on input (7a2189b06); UpdateTable dropped DeletionProtectionEnabled/TableClass/BillingMode/SSESpecification (7a2189b06); DescribeBackup/DeleteBackup dropped two required SourceTableDetails members (bc2e6285a). 2026-08-14 (this audit): ListBackups' BackupSummary had no BackupSizeBytes field at all, even though CreateBackup/DescribeBackup's BackupDetails already carried it for the same backup via the real per-backup b.SizeBytes -- fixed in models/types.go + backup_ops.go's collectBackupSummaries. 2026-08-14 (gopherstack-lze5): PutItem/UpdateItem/DeleteItem's legacy Expected/ConditionalOperator (conditional-write) and UpdateItem's AttributeUpdates (legacy update) parameters were wire-serialized (confirmed against serializers.go) but declared nowhere in models/types.go, so a legacy client's conditional check or update silently never happened -- 200 OK either way. Fixed by translating them into an equivalent ConditionExpression/UpdateExpression (synthesized #name/:value placeholders) and reusing the exact same evaluator path PutItem/UpdateItem/DeleteItem already use for the modern expression API, rather than a second evaluation engine -- see gaps for the full writeup and citations. legacy_conditional_params_test.go drives the real aws-sdk-go-v2 client and asserts behaviour (blocked writes stay unchanged, ADD/DELETE/PUT actually mutate the item), each hand-verified to fail against unfixed code.}
   query_scan:   {status: ok, note: PROVEN pagination (LastEvaluatedKey w/ base-PK fusion for GSI/LSI, 1MB/Limit); FIXED Select/COUNT omits Items + Select constraint validation. 2026-08-13: ToSDKQueryInput never copied ReturnConsumedCapacity/Select despite models.QueryInput declaring ReturnConsumedCapacity (Select wasn't declared at all); models.ScanInput was missing ReturnConsumedCapacity/ConsistentRead/Select entirely and models.ScanOutput was missing ConsumedCapacity -- all fixed at the wire boundary. A real client could never get ConsumedCapacity from Query/Scan, nor a COUNT-only Scan/Query response, regardless of what it requested. GSI/LSI Query full-scan gap (previously documented here) is FIXED -- see overall. 2026-08-14 (this audit): AttributesToGet (the legacy pre-expression projection parameter, still real and wire-serialized per api_op_Query.go:92/api_op_Scan.go) was declared on neither models.QueryInput nor models.ScanInput, so it was silently dropped by json.Unmarshal regardless of what a client sent. Fixing the wire model alone was not enough: item_ops_query.go's collectQueryPage and item_ops_scan.go's doScan built their Projector from ProjectionExpression only, never falling back to AttributesToGet the way GetItem/BatchGetItem's resolveProjection() already did -- so even a correctly-wired AttributesToGet would have been silently ignored by the projection logic itself. Fixed both layers (models/types.go + convert_ops.go for the wire, item_ops_query.go/item_ops_scan.go for resolveProjection() reuse), and added the AttributesToGet+ProjectionExpression mutual-exclusion validation Query/Scan were missing (validateProjectionParams, already used by GetItem/BatchGetItem). Test: TestQueryScan_AttributesToGet_SurvivesWireConversion (hand-verified to fail against unfixed code: both subtests failed with "AttributesToGet should have excluded 'other'").}
   batch:        {status: ok, note: FIXED BatchWriteItem duplicate-key validation (was missing; BatchGetItem had it). 2026-08-13: BatchGetItem/BatchWriteItem never called the throttler at all (db.throttler.ConsumeRead/ConsumeWrite) despite ProvisionedThroughputExceededException being a real, documented error for both ops (confirmed against deserializers.go's per-op error switch) -- provisioned-capacity tables never throttled batch calls even though every single-item op did; fixed with per-table charging mirroring the existing single-item formulas, PAY_PER_REQUEST still bypasses. Also: models.BatchGetItemInput/BatchWriteItemInput had no ReturnConsumedCapacity field at all (BatchWriteItemInput also missing ReturnItemCollectionMetrics) -- silently dropped on the wire regardless of client request; fixed in models/convert_ops.go. BatchWriteItemOutput.ItemCollectionMetrics (a real, conditionally-populated SDK field per api_op_BatchWriteItem.go) was never populated by the backend even when requested on an LSI table -- wired using the same per-item SizeEstimateRangeGB formula PutItem/DeleteItem already use. BatchExecuteStatement dropped per-statement ConsistentRead on input, already forwarded correctly once it arrived (fbc2cfe1f).}
   transactions: {status: ok, note: FIXED TransactWriteItems Update key-mutation — was NOT validated, silently corrupted pkIndex/pkskIndex (state corruption bug). 2026-07-24: FIXED gopherstack-daa — Put/Update/Delete/ConditionCheck now reject an ExpressionAttributeNames/Values placeholder unused by that item's expression(s), matching plain PutItem/UpdateItem/DeleteItem (checkUnusedExpressionAttributeNames/Values in expressions.go); Update correctly considers both UpdateExpression AND ConditionExpression when deciding "used". Enforced pre-lock in validateTransactWriteItems (transact_validation.go) so it's a plain ValidationException, not wrapped in CancellationReasons — matches AWS request-validation-time semantics. 2026-08-13: TransactWriteItems/TransactGetItems never called the throttler (same gap as BatchWriteItem/BatchGetItem above); fixed with per-table charging. ToSDKTransactWriteItemsInput had a dangling `// ReturnItemCollectionMetrics` comment instead of actually copying the field, so it was always dropped on the wire even though models.TransactWriteItemsInput declared it and TransactWriteItemsOutput.ItemCollectionMetrics (a real SDK field) was never populated by the backend regardless; both fixed.}
@@ -14,24 +14,54 @@ families:
   janitor_ttl:  {status: ok, note: PROVEN batched-lock, ctx-cancel, quickselect eviction, ring-buffer compaction}
   datalayer:    {status: ok, note: RE-AUDITED — ce30166a converted db.Tables/Backups/GlobalTables/exports/imports/streamARNIndex from raw maps to pkgs/store.Table+Index (composite key tableKey(region,name), region derived by parsing TableArn via tableRegion()). Verified every insertion site (CreateTable, RestoreTable, CreateGlobalTable replicas, cloneTableSchema, applyOneReplicaTableEntry) builds TableArn with the same region string used as the store key *before* Put, so tableRegion(t) round-trips correctly; TableArn is never mutated post-insert. No stale map-key leaks (tablesByRegion Index auto-empties groups on last delete, unlike the old per-region submap). Persistence snapshot reshaped map->sorted slice + added a schema version gate (old snapshots discarded cleanly on upgrade, matching the sqs/ec2 precedent) — intentional, not a parity bug.}
 gaps:
-  - "2026-08-14 (gopherstack-rkmp/gopherstack-lze5, CORRECTNESS, flagged not fixed):
-    DynamoDB's legacy pre-expression API (Expected, ConditionalOperator,
-    AttributeUpdates, KeyConditions, QueryFilter, ScanFilter) is a real,
-    wire-serialized part of the service (confirmed against serializers.go, not a
-    doc comment -- it writes these exact JSON keys when a real client sets the
-    corresponding SDK-struct field) but none of these seven fields is declared
-    anywhere in models/types.go's QueryInput/ScanInput/PutItemInput/DeleteItemInput/
-    UpdateItemInput. A client using the legacy API gets every one of these keys
-    silently dropped by json.Unmarshal: ScanFilter/QueryFilter ignored means
-    Scan/Query returns unfiltered results; AttributeUpdates ignored with no
-    UpdateExpression means UpdateItem is a silent no-op; Expected/ConditionalOperator
-    ignored means PutItem/UpdateItem/DeleteItem's conditional check never runs and
-    the write always succeeds. Zero backend support exists for any of it (no
-    reference to ComparisonOperator/AttributeValueUpdate/ConditionalOperator
-    anywhere in services/dynamodb/*.go) -- this is real feature work (a second,
-    legacy Condition-evaluation surface across 5 operations), not a quick wire fix,
-    so it's flagged rather than rushed. AttributesToGet, the one legacy field with
-    no evaluation-engine complexity, WAS fixed this pass (see families.query_scan)."
+  - "2026-08-14 (gopherstack-lze5, CORRECTNESS, PARTIALLY FIXED): Expected,
+    ConditionalOperator, and AttributeUpdates (PutItem/UpdateItem/DeleteItem's
+    legacy pre-expression parameters) are now implemented -- the
+    conditional-check-bypass and no-op-write failure modes this issue was filed
+    for. Fixed by translation, not a second evaluator: legacy_conditions.go
+    converts each legacy Expected/Condition into an equivalent
+    ConditionExpression fragment (aliased #name/:value placeholders synthesized
+    per attribute, joined by ConditionalOperator's AND/OR, default AND -- see
+    legacyConditionalJoiner) and each AttributeUpdates entry into an equivalent
+    UpdateExpression fragment (PUT -> SET, DELETE w/o Value -> REMOVE, DELETE
+    w/ a set Value -> DELETE, ADD -> ADD; action-semantics citations:
+    types/types.go:197-269 AttributeValueUpdate doc), then hands the rewritten
+    request to the SAME evaluator (services/dynamodb/expr, via the existing
+    checkPutCondition/checkUpdateCondition/checkDeleteCondition/doUpdate) real
+    PutItem/UpdateItem/DeleteItem already used for ConditionExpression/
+    UpdateExpression. ComparisonOperator set: EQ/NE/LE/LT/GE/GT/NOT_NULL/NULL/
+    CONTAINS/NOT_CONTAINS/BEGINS_WITH/IN/BETWEEN, all implemented (renderComparison,
+    citing types/types.go:1279-1391 for operator semantics and arg counts).
+    Expected's old Value/Exists style and its Value/Exists-vs-ComparisonOperator
+    mutual exclusion cite types/types.go:1240-1256 verbatim. Mutual exclusion
+    between legacy and expression parameters is enforced per-operation (any of
+    Expected/ConditionalOperator/AttributeUpdates set alongside any of
+    ConditionExpression/UpdateExpression -> ValidationException) -- this specific
+    rejection is well-established real DynamoDB behavior but has no client-side
+    SDK validation to cite a line number against, so the error wording is our
+    own, not a verified verbatim AWS string. Tested driving the real
+    aws-sdk-go-v2 client and asserting behaviour (ConditionalCheckFailedException
+    + item unchanged on a failing Expected, ADD-on-number increments,
+    ADD-on-set unions, DELETE-with-set-value subtracts, DELETE-without-value
+    removes), not just call success -- legacy_conditional_params_test.go; each
+    covered case was hand-verified to fail with unfixed code (e.g. 'An error is
+    expected but got nil... expected: *types.ConditionalCheckFailedException').
+
+    NOT implemented, still silently dropped: KeyConditions, QueryFilter,
+    ScanFilter (Query/Scan's legacy parameters). These would follow the same
+    translate-to-expression-string approach (KeyConditions -> an equivalent
+    KeyConditionExpression, QueryFilter/ScanFilter -> an equivalent
+    FilterExpression), but KeyConditionExpression's evaluation path
+    (item_ops_query.go's filterCandidatesForKeyCondition/preParseQueryPKValue)
+    additionally does string-position-dependent PK/SK extraction for its
+    indexed-lookup fast path (exprParts[0] is assumed to be the partition-key
+    clause) that a map-keyed legacy KeyConditions would need to reorder
+    correctly against the table's KeySchema before synthesizing the string --
+    solvable, but a distinct piece of work from the Put/Update/Delete fix here,
+    and out of this pass's scope given the explicit priority on the
+    conditional-check-bypass class of bug. QueryFilter/ScanFilter are lower risk
+    (pure post-fetch FilterExpression-equivalent, no PK-extraction coupling) and
+    are the natural next slice."
   - "2026-08-14 (gopherstack-rkmp/gopherstack-glfv, CORRECTNESS, flagged not fixed):
     ReturnConsumedCapacity=INDEXES never returns a per-index breakdown on any
     operation. capacity.go's buildConsumedCapacityWithIndexes/applyIndexBreakdowns

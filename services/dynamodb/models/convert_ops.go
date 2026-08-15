@@ -10,6 +10,99 @@ import (
 
 // --- CRUD Adapters ---
 
+// toSDKExpected converts the wire-format legacy Expected parameter into its
+// SDK form. Returns nil when m is empty (matches other optional adapters here).
+func toSDKExpected(m map[string]LegacyExpected) (map[string]types.ExpectedAttributeValue, error) {
+	if len(m) == 0 {
+		return nil, nil //nolint:nilnil // no Expected entries supplied
+	}
+
+	out := make(map[string]types.ExpectedAttributeValue, len(m))
+	for k, v := range m {
+		ev := types.ExpectedAttributeValue{
+			Exists:             v.Exists,
+			ComparisonOperator: types.ComparisonOperator(v.ComparisonOperator),
+		}
+
+		if v.Value != nil {
+			av, err := ToSDKAttributeValue(v.Value)
+			if err != nil {
+				return nil, err
+			}
+			ev.Value = av
+		}
+
+		if len(v.AttributeValueList) > 0 {
+			list := make([]types.AttributeValue, len(v.AttributeValueList))
+			for i, item := range v.AttributeValueList {
+				av, err := ToSDKAttributeValue(item)
+				if err != nil {
+					return nil, err
+				}
+				list[i] = av
+			}
+			ev.AttributeValueList = list
+		}
+
+		out[k] = ev
+	}
+
+	return out, nil
+}
+
+// toSDKAttributeUpdates converts the wire-format legacy AttributeUpdates
+// parameter into its SDK form. Returns nil when m is empty.
+func toSDKAttributeUpdates(
+	m map[string]LegacyUpdate,
+) (map[string]types.AttributeValueUpdate, error) {
+	if len(m) == 0 {
+		return nil, nil //nolint:nilnil // no AttributeUpdates entries supplied
+	}
+
+	out := make(map[string]types.AttributeValueUpdate, len(m))
+	for k, v := range m {
+		au := types.AttributeValueUpdate{Action: types.AttributeAction(v.Action)}
+
+		if v.Value != nil {
+			av, err := ToSDKAttributeValue(v.Value)
+			if err != nil {
+				return nil, err
+			}
+			au.Value = av
+		}
+
+		out[k] = au
+	}
+
+	return out, nil
+}
+
+// applyLegacyExpectedFields converts the wire-format legacy Expected map and
+// writes it (plus the ConditionalOperator) into the SDK struct fields pointed
+// to by outExpected/outConditionalOperator. Shared by ToSDKPutItemInput,
+// ToSDKDeleteItemInput, and ToSDKUpdateItemInput so the three near-identical
+// builder functions don't each repeat the same conversion+assignment.
+func applyLegacyExpectedFields(
+	expected map[string]LegacyExpected,
+	conditionalOperator string,
+	outExpected *map[string]types.ExpectedAttributeValue,
+	outConditionalOperator *types.ConditionalOperator,
+) error {
+	converted, err := toSDKExpected(expected)
+	if err != nil {
+		return err
+	}
+	*outExpected = converted
+	*outConditionalOperator = types.ConditionalOperator(conditionalOperator)
+
+	return nil
+}
+
+// ToSDKPutItemInput and ToSDKDeleteItemInput share the same conditional-write
+// fields by design (Item vs. Key is the only real difference); a shared
+// helper would need reflection to be less code than this.
+//
+//nolint:dupl // see comment above
 func ToSDKPutItemInput(input *PutItemInput) (*dynamodb.PutItemInput, error) {
 	item, err := ToSDKItem(input.Item)
 	if err != nil {
@@ -29,6 +122,15 @@ func ToSDKPutItemInput(input *PutItemInput) (*dynamodb.PutItemInput, error) {
 		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(
 			input.ReturnValuesOnConditionCheckFailure,
 		),
+	}
+
+	if err = applyLegacyExpectedFields(
+		input.Expected,
+		input.ConditionalOperator,
+		&out.Expected,
+		&out.ConditionalOperator,
+	); err != nil {
+		return nil, err
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
@@ -86,6 +188,7 @@ func FromSDKGetItemOutput(output *dynamodb.GetItemOutput) *GetItemOutput {
 	return out
 }
 
+//nolint:dupl // see ToSDKPutItemInput
 func ToSDKDeleteItemInput(input *DeleteItemInput) (*dynamodb.DeleteItemInput, error) {
 	key, err := ToSDKItem(input.Key)
 	if err != nil {
@@ -105,6 +208,15 @@ func ToSDKDeleteItemInput(input *DeleteItemInput) (*dynamodb.DeleteItemInput, er
 		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(
 			input.ReturnValuesOnConditionCheckFailure,
 		),
+	}
+
+	if err = applyLegacyExpectedFields(
+		input.Expected,
+		input.ConditionalOperator,
+		&out.Expected,
+		&out.ConditionalOperator,
+	); err != nil {
+		return nil, err
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
@@ -157,6 +269,21 @@ func ToSDKUpdateItemInput(input *UpdateItemInput) (*dynamodb.UpdateItemInput, er
 			input.ReturnValuesOnConditionCheckFailure,
 		),
 	}
+
+	if err = applyLegacyExpectedFields(
+		input.Expected,
+		input.ConditionalOperator,
+		&out.Expected,
+		&out.ConditionalOperator,
+	); err != nil {
+		return nil, err
+	}
+
+	attributeUpdates, err := toSDKAttributeUpdates(input.AttributeUpdates)
+	if err != nil {
+		return nil, err
+	}
+	out.AttributeUpdates = attributeUpdates
 
 	if len(input.ExpressionAttributeValues) > 0 {
 		vals, valsErr := ToSDKItem(input.ExpressionAttributeValues)

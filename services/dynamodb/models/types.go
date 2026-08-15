@@ -280,16 +280,39 @@ type ListTablesOutput struct {
 
 // --- Item Operations ---
 
+// LegacyExpected is the wire format for one entry of the legacy
+// Expected parameter (pre-2013 conditional-write API, predates
+// ConditionExpression). AWS SDK: types.ExpectedAttributeValue; wire keys
+// confirmed against aws-sdk-go-v2/service/dynamodb@v1.63.1/serializers.go
+// (awsAwsjson10_serializeDocumentExpectedAttributeValue).
+type LegacyExpected struct {
+	Value              any    `json:"Value,omitempty"`
+	Exists             *bool  `json:"Exists,omitempty"`
+	ComparisonOperator string `json:"ComparisonOperator,omitempty"`
+	AttributeValueList []any  `json:"AttributeValueList,omitempty"`
+}
+
+// LegacyUpdate is the wire format for one entry of the legacy
+// AttributeUpdates parameter (pre-2013 UpdateItem API, predates
+// UpdateExpression). AWS SDK: types.AttributeValueUpdate; wire keys confirmed
+// against serializers.go (awsAwsjson10_serializeDocumentAttributeValueUpdate).
+type LegacyUpdate struct {
+	Value  any    `json:"Value,omitempty"`
+	Action string `json:"Action,omitempty"`
+}
+
 type PutItemInput struct {
-	TableName                           string            `json:"TableName"`
-	Item                                map[string]any    `json:"Item"`
-	ConditionExpression                 string            `json:"ConditionExpression,omitempty"`
-	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ReturnValues                        string            `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity              string            `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics         string            `json:"ReturnItemCollectionMetrics,omitempty"`
-	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	Item                                map[string]any            `json:"Item"`
+	ExpressionAttributeNames            map[string]string         `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues           map[string]any            `json:"ExpressionAttributeValues,omitempty"`
+	Expected                            map[string]LegacyExpected `json:"Expected,omitempty"`
+	TableName                           string                    `json:"TableName"`
+	ConditionExpression                 string                    `json:"ConditionExpression,omitempty"`
+	ReturnValues                        string                    `json:"ReturnValues,omitempty"`
+	ReturnConsumedCapacity              string                    `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics         string                    `json:"ReturnItemCollectionMetrics,omitempty"`
+	ReturnValuesOnConditionCheckFailure string                    `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	ConditionalOperator                 string                    `json:"ConditionalOperator,omitempty"`
 }
 
 type PutItemOutput struct {
@@ -299,16 +322,19 @@ type PutItemOutput struct {
 }
 
 type UpdateItemInput struct {
-	TableName                           string            `json:"TableName"`
-	Key                                 map[string]any    `json:"Key"`
-	UpdateExpression                    string            `json:"UpdateExpression,omitempty"`
-	ConditionExpression                 string            `json:"ConditionExpression,omitempty"`
-	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ReturnValues                        string            `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity              string            `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics         string            `json:"ReturnItemCollectionMetrics,omitempty"`
-	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	ExpressionAttributeValues           map[string]any            `json:"ExpressionAttributeValues,omitempty"`
+	Key                                 map[string]any            `json:"Key"`
+	Expected                            map[string]LegacyExpected `json:"Expected,omitempty"`
+	AttributeUpdates                    map[string]LegacyUpdate   `json:"AttributeUpdates,omitempty"`
+	ExpressionAttributeNames            map[string]string         `json:"ExpressionAttributeNames,omitempty"`
+	ReturnValues                        string                    `json:"ReturnValues,omitempty"`
+	TableName                           string                    `json:"TableName"`
+	ReturnConsumedCapacity              string                    `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics         string                    `json:"ReturnItemCollectionMetrics,omitempty"`
+	ReturnValuesOnConditionCheckFailure string                    `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	ConditionalOperator                 string                    `json:"ConditionalOperator,omitempty"`
+	ConditionExpression                 string                    `json:"ConditionExpression,omitempty"`
+	UpdateExpression                    string                    `json:"UpdateExpression,omitempty"`
 }
 
 type UpdateItemOutput struct {
@@ -333,15 +359,17 @@ type GetItemOutput struct {
 }
 
 type DeleteItemInput struct {
-	Key                                 map[string]any    `json:"Key"`
-	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	TableName                           string            `json:"TableName"`
-	ConditionExpression                 string            `json:"ConditionExpression,omitempty"`
-	ReturnValues                        string            `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity              string            `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics         string            `json:"ReturnItemCollectionMetrics,omitempty"`
-	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	Key                                 map[string]any            `json:"Key"`
+	ExpressionAttributeNames            map[string]string         `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues           map[string]any            `json:"ExpressionAttributeValues,omitempty"`
+	Expected                            map[string]LegacyExpected `json:"Expected,omitempty"`
+	TableName                           string                    `json:"TableName"`
+	ConditionExpression                 string                    `json:"ConditionExpression,omitempty"`
+	ReturnValues                        string                    `json:"ReturnValues,omitempty"`
+	ReturnConsumedCapacity              string                    `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics         string                    `json:"ReturnItemCollectionMetrics,omitempty"`
+	ReturnValuesOnConditionCheckFailure string                    `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	ConditionalOperator                 string                    `json:"ConditionalOperator,omitempty"`
 }
 
 type DeleteItemOutput struct {
