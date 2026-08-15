@@ -26,7 +26,7 @@ func TestHandler_DescribeMultiRegionParameters(t *testing.T) {
 		},
 		{
 			name:       "non-existent parameter group",
-			body:       map[string]any{"ParameterGroupName": "no-such"},
+			body:       map[string]any{"MultiRegionParameterGroupName": "no-such"},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -52,14 +52,14 @@ func TestHandler_DescribeMultiRegionParameters_WithGroup(t *testing.T) {
 	h := memorydb.NewHandler(b)
 
 	rec := doRequest(t, h, "DescribeMultiRegionParameters", map[string]any{
-		"ParameterGroupName": "my-mr-pg",
+		"MultiRegionParameterGroupName": "my-mr-pg",
 	})
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotNil(t, resp["Parameters"])
+	assert.NotNil(t, resp["MultiRegionParameters"])
 }
 
 // TestRefinement3_ListAllowedMultiRegionClusterUpdates_OK tests the happy path.
@@ -366,7 +366,7 @@ func TestHandler_DescribeMultiRegionParameterGroups(t *testing.T) {
 		},
 		{
 			name:       "describe not found",
-			body:       map[string]any{"ParameterGroupName": "no-such-pg"},
+			body:       map[string]any{"MultiRegionParameterGroupName": "no-such-pg"},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -408,7 +408,7 @@ func TestHandler_MultiRegionParameterGroups_DefaultSeeded(t *testing.T) {
 			h := newTestHandler(t)
 
 			rec := doRequest(t, h, "DescribeMultiRegionParameterGroups", map[string]any{
-				"ParameterGroupName": tt.pgName,
+				"MultiRegionParameterGroupName": tt.pgName,
 			})
 			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
@@ -451,13 +451,13 @@ func TestHandler_MultiRegionParameters_DefaultNonEmpty(t *testing.T) {
 			h := newTestHandler(t)
 
 			rec := doRequest(t, h, "DescribeMultiRegionParameters", map[string]any{
-				"ParameterGroupName": tt.pgName,
+				"MultiRegionParameterGroupName": tt.pgName,
 			})
 			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			params, _ := resp["Parameters"].([]any)
+			params, _ := resp["MultiRegionParameters"].([]any)
 			assert.NotEmpty(t, params, "multi-region parameters should be non-empty for %q", tt.pgName)
 		})
 	}
@@ -475,13 +475,13 @@ func TestHandler_MultiRegionParameters_HaveSourceField(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "DescribeMultiRegionParameters", map[string]any{
-		"ParameterGroupName": "default.memorydb-redis7.multiregion",
+		"MultiRegionParameterGroupName": "default.memorydb-redis7.multiregion",
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	params, _ := resp["Parameters"].([]any)
+	params, _ := resp["MultiRegionParameters"].([]any)
 	require.NotEmpty(t, params)
 
 	for _, p := range params {
@@ -535,13 +535,13 @@ func TestHandler_DescribeMultiRegionParameters_EdgeCases(t *testing.T) {
 		},
 		{
 			name:       "nonexistent group returns 400",
-			body:       map[string]any{"ParameterGroupName": "no-such"},
+			body:       map[string]any{"MultiRegionParameterGroupName": "no-such"},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "valid multi-region parameter group returns 200",
 			body: map[string]any{
-				"ParameterGroupName": "default.memorydb-redis7.multiregion",
+				"MultiRegionParameterGroupName": "default.memorydb-redis7.multiregion",
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -570,13 +570,13 @@ func TestHandler_DescribeMultiRegionParameterGroups_FilteredAndNotFound(t *testi
 	}{
 		{
 			name:       "specific group by name",
-			body:       map[string]any{"ParameterGroupName": "default.memorydb-redis7.multiregion"},
+			body:       map[string]any{"MultiRegionParameterGroupName": "default.memorydb-redis7.multiregion"},
 			wantStatus: http.StatusOK,
 			wantCount:  1,
 		},
 		{
 			name:       "nonexistent group returns 400",
-			body:       map[string]any{"ParameterGroupName": "no-such.multiregion"},
+			body:       map[string]any{"MultiRegionParameterGroupName": "no-such.multiregion"},
 			wantStatus: http.StatusBadRequest,
 			wantCount:  0,
 		},

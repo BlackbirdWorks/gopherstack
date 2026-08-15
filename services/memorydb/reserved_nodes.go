@@ -67,6 +67,15 @@ func (b *InMemoryBackend) DescribeReservedNodes(
 		if req.OfferingType != "" && rn.OfferingType != req.OfferingType {
 			continue
 		}
+		if req.ReservedNodesOfferingID != "" && rn.ReservedNodesOfferingID != req.ReservedNodesOfferingID {
+			continue
+		}
+		if req.Duration != "" {
+			dSec := parseDurationToSeconds(req.Duration)
+			if dSec > 0 && rn.Duration != dSec {
+				continue
+			}
+		}
 		cp := *rn
 		result = append(result, &cp)
 	}

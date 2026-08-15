@@ -163,7 +163,7 @@ type clusterObject struct {
 	Engine                  string                    `json:"Engine,omitempty"`
 	DataTiering             string                    `json:"DataTiering,omitempty"`
 	NetworkType             string                    `json:"NetworkType,omitempty"`
-	IPDiscovery             string                    `json:"IPDiscovery,omitempty"`
+	IPDiscovery             string                    `json:"IpDiscovery,omitempty"`
 	Shards                  []shardObject             `json:"Shards,omitempty"`
 	SecurityGroups          []securityGroupMembership `json:"SecurityGroups,omitempty"`
 	NumberOfShards          int32                     `json:"NumberOfShards,omitempty"`

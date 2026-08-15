@@ -20,7 +20,14 @@ func (h *Handler) handleDescribeReservedNodes(ctx context.Context, c *echo.Conte
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, describeReservedNodesResponse{ReservedNodes: toReservedNodeSlice(nodes)})
+	nodes, nextToken := paginateItems(
+		nodes, req.NextToken, req.MaxResults, func(rn *ReservedNode) string { return rn.ReservationID },
+	)
+
+	return c.JSON(
+		http.StatusOK,
+		describeReservedNodesResponse{ReservedNodes: toReservedNodeSlice(nodes), NextToken: nextToken},
+	)
 }
 
 func (h *Handler) handleDescribeReservedNodesOfferings(ctx context.Context, c *echo.Context, body []byte) error {
@@ -35,9 +42,17 @@ func (h *Handler) handleDescribeReservedNodesOfferings(ctx context.Context, c *e
 		return h.writeBackendError(c, err)
 	}
 
+	offerings, nextToken := paginateItems(
+		offerings, req.NextToken, req.MaxResults,
+		func(o *ReservedNodesOffering) string { return o.ReservedNodesOfferingID },
+	)
+
 	return c.JSON(
 		http.StatusOK,
-		describeReservedNodesOfferingsResponse{ReservedNodesOfferings: toReservedNodesOfferingSlice(offerings)},
+		describeReservedNodesOfferingsResponse{
+			ReservedNodesOfferings: toReservedNodesOfferingSlice(offerings),
+			NextToken:              nextToken,
+		},
 	)
 }
 

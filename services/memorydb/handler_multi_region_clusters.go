@@ -80,6 +80,10 @@ func (h *Handler) handleDescribeMultiRegionClusters(ctx context.Context, c *echo
 		return h.writeBackendError(c, err)
 	}
 
+	mrcs, nextToken := paginateItems(
+		mrcs, req.NextToken, req.MaxResults, func(mrc *MultiRegionCluster) string { return mrc.MultiRegionClusterName },
+	)
+
 	showClusters := req.ShowClusterDetails != nil && *req.ShowClusterDetails
 
 	objs := make([]multiRegionClusterObject, 0, len(mrcs))
@@ -93,7 +97,10 @@ func (h *Handler) handleDescribeMultiRegionClusters(ctx context.Context, c *echo
 		objs = append(objs, toMultiRegionClusterObject(mrc, clusters))
 	}
 
-	return c.JSON(http.StatusOK, describeMultiRegionClustersResponse{MultiRegionClusters: objs})
+	return c.JSON(
+		http.StatusOK,
+		describeMultiRegionClustersResponse{MultiRegionClusters: objs, NextToken: nextToken},
+	)
 }
 
 // -- MultiRegionParameterGroup handlers ------------------------------------------
@@ -105,10 +112,14 @@ func (h *Handler) handleDescribeMultiRegionParameterGroups(ctx context.Context, 
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	mrpgs, err := h.Backend.DescribeMultiRegionParameterGroups(ctx, req.ParameterGroupName)
+	mrpgs, err := h.Backend.DescribeMultiRegionParameterGroups(ctx, req.MultiRegionParameterGroupName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
+
+	mrpgs, nextToken := paginateItems(
+		mrpgs, req.NextToken, req.MaxResults, func(mrpg *MultiRegionParameterGroup) string { return mrpg.Name },
+	)
 
 	objs := make([]multiRegionParameterGroupObject, 0, len(mrpgs))
 
@@ -121,7 +132,10 @@ func (h *Handler) handleDescribeMultiRegionParameterGroups(ctx context.Context, 
 		})
 	}
 
-	return c.JSON(http.StatusOK, describeMultiRegionParameterGroupsResponse{MultiRegionParameterGroups: objs})
+	return c.JSON(
+		http.StatusOK,
+		describeMultiRegionParameterGroupsResponse{MultiRegionParameterGroups: objs, NextToken: nextToken},
+	)
 }
 
 // -- BatchUpdateCluster handler --------------------------------------------------
@@ -186,11 +200,16 @@ func (h *Handler) handleDescribeMultiRegionParameters(ctx context.Context, c *ec
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	if req.ParameterGroupName == "" {
-		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ParameterGroupName is required")
+	if req.MultiRegionParameterGroupName == "" {
+		return writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameterValueException",
+			"MultiRegionParameterGroupName is required",
+		)
 	}
 
-	params, err := h.Backend.DescribeMultiRegionParameters(ctx, req.ParameterGroupName)
+	params, err := h.Backend.DescribeMultiRegionParameters(ctx, req.MultiRegionParameterGroupName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -208,7 +227,14 @@ func (h *Handler) handleDescribeMultiRegionParameters(ctx context.Context, c *ec
 
 	sort.Slice(objs, func(i, j int) bool { return objs[i].Name < objs[j].Name })
 
-	return c.JSON(http.StatusOK, describeMultiRegionParametersResponse{Parameters: objs})
+	objs, nextToken := paginateItems(
+		objs, req.NextToken, req.MaxResults, func(p multiRegionParameterObject) string { return p.Name },
+	)
+
+	return c.JSON(
+		http.StatusOK,
+		describeMultiRegionParametersResponse{MultiRegionParameters: objs, NextToken: nextToken},
+	)
 }
 
 // -- helpers ---------------------------------------------------------------------
@@ -227,6 +253,7 @@ func toMultiRegionClusterObject(mrc *MultiRegionCluster, clusters []*Cluster) mu
 		EngineVersion:                 mrc.EngineVersion,
 		MultiRegionParameterGroupName: mrc.MultiRegionParameterGroupName,
 		Status:                        mrc.Status,
+		NumberOfShards:                mrc.NumShards,
 		TLSEnabled:                    mrc.TLSEnabled,
 	}
 

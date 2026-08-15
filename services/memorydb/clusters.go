@@ -217,29 +217,15 @@ func (b *InMemoryBackend) seedAutomatedSnapshotLocked(region, accountID string, 
 	autoName := "automatic." + c.Name + "-" + time.Now().UTC().Format("20060102150405")
 	autoARN := arn.Build("memorydb", region, accountID, "snapshot/"+autoName)
 	autoSnap := &Snapshot{
-		Name:        autoName,
-		ARN:         autoARN,
-		ClusterName: c.Name,
-		Status:      snapshotStatusAvailable,
-		Source:      snapshotSourceAutomated,
-		DataTiering: c.DataTiering,
-		Tags:        make(map[string]string),
-		CreatedAt:   time.Now(),
-		ClusterConfiguration: snapshotClusterConfig{
-			Name:                   c.Name,
-			NodeType:               c.NodeType,
-			EngineVersion:          c.EngineVersion,
-			Description:            c.Description,
-			Port:                   c.Port,
-			NumShards:              c.NumShards,
-			Engine:                 c.Engine,
-			MaintenanceWindow:      c.MaintenanceWindow,
-			TopicArn:               c.SnsTopicArn,
-			ParameterGroupName:     c.ParameterGroupName,
-			SubnetGroupName:        c.SubnetGroupName,
-			SnapshotRetentionLimit: c.SnapshotRetentionLimit,
-			SnapshotWindow:         c.SnapshotWindow,
-		},
+		Name:                 autoName,
+		ARN:                  autoARN,
+		ClusterName:          c.Name,
+		Status:               snapshotStatusAvailable,
+		Source:               snapshotSourceAutomated,
+		DataTiering:          c.DataTiering,
+		Tags:                 make(map[string]string),
+		CreatedAt:            time.Now(),
+		ClusterConfiguration: b.snapshotClusterConfigFor(c),
 	}
 	b.snapshotsStore(region).Put(autoSnap)
 	b.arnToResourceStore(region)[autoARN] = resourceRef{Kind: resourceKindSnapshot, Name: autoName}
@@ -446,29 +432,15 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 	if snapshotName != "" {
 		snapshotARN := arn.Build("memorydb", region, b.accountID, "snapshot/"+snapshotName)
 		s := &Snapshot{
-			Name:        snapshotName,
-			ARN:         snapshotARN,
-			ClusterName: clusterName,
-			Status:      snapshotStatusAvailable,
-			Source:      snapshotSourceManual,
-			DataTiering: c.DataTiering,
-			Tags:        make(map[string]string),
-			CreatedAt:   time.Now(),
-			ClusterConfiguration: snapshotClusterConfig{
-				Name:                   c.Name,
-				NodeType:               c.NodeType,
-				EngineVersion:          c.EngineVersion,
-				Description:            c.Description,
-				Port:                   c.Port,
-				NumShards:              c.NumShards,
-				Engine:                 c.Engine,
-				MaintenanceWindow:      c.MaintenanceWindow,
-				TopicArn:               c.SnsTopicArn,
-				ParameterGroupName:     c.ParameterGroupName,
-				SubnetGroupName:        c.SubnetGroupName,
-				SnapshotRetentionLimit: c.SnapshotRetentionLimit,
-				SnapshotWindow:         c.SnapshotWindow,
-			},
+			Name:                 snapshotName,
+			ARN:                  snapshotARN,
+			ClusterName:          clusterName,
+			Status:               snapshotStatusAvailable,
+			Source:               snapshotSourceManual,
+			DataTiering:          c.DataTiering,
+			Tags:                 make(map[string]string),
+			CreatedAt:            time.Now(),
+			ClusterConfiguration: b.snapshotClusterConfigFor(c),
 		}
 		b.snapshotsStore(region).Put(s)
 		b.arnToResourceStore(region)[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: snapshotName}

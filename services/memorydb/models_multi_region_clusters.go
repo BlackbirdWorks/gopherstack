@@ -16,6 +16,7 @@ type MultiRegionCluster struct {
 	EngineVersion                 string            `json:"engineVersion"`
 	MultiRegionParameterGroupName string            `json:"multiRegionParameterGroupName"`
 	Status                        string            `json:"status"`
+	NumShards                     int32             `json:"numShards"`
 	TLSEnabled                    bool              `json:"tlsEnabled"`
 }
 
@@ -34,6 +35,7 @@ type MultiRegionParameterGroup struct {
 
 type createMultiRegionClusterRequest struct {
 	TLSEnabled                    *bool      `json:"TLSEnabled,omitempty"`
+	NumShards                     *int32     `json:"NumShards,omitempty"`
 	MultiRegionClusterNameSuffix  string     `json:"MultiRegionClusterNameSuffix"`
 	Description                   string     `json:"Description,omitempty"`
 	NodeType                      string     `json:"NodeType"`
@@ -64,6 +66,7 @@ type multiRegionClusterObject struct {
 	MultiRegionParameterGroupName string                  `json:"MultiRegionParameterGroupName,omitempty"`
 	Status                        string                  `json:"Status,omitempty"`
 	Clusters                      []regionalClusterObject `json:"Clusters,omitempty"`
+	NumberOfShards                int32                   `json:"NumberOfShards,omitempty"`
 	TLSEnabled                    bool                    `json:"TLSEnabled"`
 }
 
@@ -93,10 +96,19 @@ type describeMultiRegionClustersResponse struct {
 
 // -- MultiRegionParameterGroup request/response types -------------------------
 
+// describeMultiRegionParameterGroupsRequest's name-filter key is
+// "MultiRegionParameterGroupName", not "ParameterGroupName" -- confirmed via
+// api_op_DescribeMultiRegionParameterGroups.go and serializers.go's
+// awsAwsjson11_serializeOpDocumentDescribeMultiRegionParameterGroupsInput.
+// This filter is optional on the real op, so the effect of the wrong key was
+// silent (a real client's name filter was always ignored, returning every
+// group instead of the one requested) rather than an outright failure -- the
+// same class of bug as DescribeMultiRegionParameters' required-field version
+// of this key, above.
 type describeMultiRegionParameterGroupsRequest struct {
-	MaxResults         *int32 `json:"MaxResults,omitempty"`
-	ParameterGroupName string `json:"ParameterGroupName,omitempty"`
-	NextToken          string `json:"NextToken,omitempty"`
+	MaxResults                    *int32 `json:"MaxResults,omitempty"`
+	MultiRegionParameterGroupName string `json:"MultiRegionParameterGroupName,omitempty"`
+	NextToken                     string `json:"NextToken,omitempty"`
 }
 
 type multiRegionParameterGroupObject struct {
@@ -138,10 +150,22 @@ type updateMultiRegionClusterResponse struct {
 
 // -- DescribeServiceUpdates request/response types ---------------------------
 
+// describeMultiRegionParametersRequest's group-name key is
+// "MultiRegionParameterGroupName", not "ParameterGroupName" -- confirmed via
+// api_op_DescribeMultiRegionParameters.go's DescribeMultiRegionParametersInput
+// and serializers.go's awsAwsjson11_serializeOpDocumentDescribeMultiRegionParametersInput.
+// A real client's request was previously read under the wrong key entirely
+// (not a casing near-miss -- a different substring), so ParameterGroupName
+// always decoded empty and every real call failed the required-field check.
+// Source (real filter: "user"|"system"|"engine-default") is modeled but not
+// applied -- this backend synthesizes every multi-region parameter with a
+// hardcoded Source of "system" (see handleDescribeMultiRegionParameters), so
+// there is nothing per-parameter to filter against yet; see PARITY.md.
 type describeMultiRegionParametersRequest struct {
-	MaxResults         *int32 `json:"MaxResults,omitempty"`
-	ParameterGroupName string `json:"ParameterGroupName"`
-	NextToken          string `json:"NextToken,omitempty"`
+	MaxResults                    *int32 `json:"MaxResults,omitempty"`
+	MultiRegionParameterGroupName string `json:"MultiRegionParameterGroupName"`
+	Source                        string `json:"Source,omitempty"`
+	NextToken                     string `json:"NextToken,omitempty"`
 }
 
 // multiRegionParameterObject is field-diffed against the real SDK's
@@ -159,7 +183,12 @@ type multiRegionParameterObject struct {
 	Source               string `json:"Source,omitempty"`
 }
 
+// describeMultiRegionParametersResponse's list key is "MultiRegionParameters",
+// not "Parameters" -- confirmed via deserializers.go's
+// awsAwsjson11_deserializeOpDocumentDescribeMultiRegionParametersOutput. The
+// sibling plain DescribeParameters response genuinely does use "Parameters";
+// this op was wrongly made to match that convention.
 type describeMultiRegionParametersResponse struct {
-	NextToken  string                       `json:"NextToken,omitempty"`
-	Parameters []multiRegionParameterObject `json:"Parameters"`
+	NextToken             string                       `json:"NextToken,omitempty"`
+	MultiRegionParameters []multiRegionParameterObject `json:"MultiRegionParameters"`
 }

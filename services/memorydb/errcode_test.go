@@ -165,7 +165,7 @@ func TestErrCode_MultiRegionParameterGroupNotFound(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "DescribeMultiRegionParameters", map[string]any{
-		"ParameterGroupName": "no-such-mrpg",
+		"MultiRegionParameterGroupName": "no-such-mrpg",
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "MultiRegionParameterGroupNotFoundFault", responseType(t, rec.Body.Bytes()))

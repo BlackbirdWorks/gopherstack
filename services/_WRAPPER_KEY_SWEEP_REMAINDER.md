@@ -8697,3 +8697,303 @@ asymmetry, all individually hand-reverted and confirmed before restoring;
 **95 of 162 services swept, 67 remain.** Per the ranked table, the next
 tier starts at 18 (`memorydb`, `codedeploy`, `accessanalyzer`); re-run
 `go run ./cmd/opcensus` and re-check `git status` before picking, as usual.
+
+## memorydb (this session, 2026-08-15)
+
+**PICK AND TIE-BREAK:** three-way tie at 18 L+D+G ops (`memorydb`,
+`codedeploy`, `accessanalyzer`). `git status` at pickup showed all three
+free (no live sibling). Decided by **surface**: counted distinct
+resource-family `handler_*.go` files (excluding `_test.go` and the shared
+`handler_test.go`/`handler_sdk_route_table_test.go`) — `memorydb` 12
+(acls, clusters, engine_versions, events, multi_region_clusters,
+parameter_groups, reserved_nodes, service_updates, snapshots,
+subnet_groups, tags, users), `codedeploy` 10, `accessanalyzer` 8. Picked
+`memorydb`. Mid-session, `codedeploy` picked up a live sibling (its files
+appeared modified in a later `git status`, confirmed via `git log` showing
+`memorydb` was still uncommitted while `codedeploy` files changed under a
+different working tree state) — never read or touched here, matching the
+occupancy-respecting precedent from prior passes.
+
+**SDK pinned:** `memorydb@v1.36.4` (`go.mod`, matches PARITY.md, no drift,
+cached under `$(go env GOMODCACHE)`, no dependency-boundary exception
+needed). Protocol: `awsAwsjson11_` prefix throughout `deserializers.go`/
+`serializers.go` (confirmed from `api_client.go`, not `_PROTOCOLS.md`
+alone) — JSON-RPC 1.1, case-sensitive exact-match decode on a real
+client's own deserializer (plain Go `switch` statements, not
+`strings.EqualFold` — zero `EqualFold` hits anywhere in this module,
+confirmed by grep, which is itself the tell: restjson1/awsjson1.1 services
+decode via exact string/map-key match with no case-folding pass at all,
+unlike query/XML's `EqualFold`-based decode). No second SDK client bridge
+(only the real SDK's `types` package is imported, for enum references).
+
+**SCRIPTED key extraction:** yes, both directions. Wrote two throwaway
+Python scripts (gitignored `*.py`, not committed) that parse
+`deserializers.go`/`serializers.go` directly: one recursively walks every
+`awsAwsjson11_deserializeOpDocument<Op>Output` function for all 18 ops and
+every reachable nested-type deserializer it calls, collecting every `case
+"Key":` string; the other does the same for `object.Key("Key")` calls in
+every `awsAwsjson11_serializeOpDocument<Op>Input` function, covering the
+request side. First version of the deserializer walker mis-parsed function
+bodies because `interface{}` in a Go func signature has its own brace pair
+that a naive "find first `{`" brace-matcher mistook for the function body
+start — fixed by skipping past the balanced parameter-list parens first.
+At 18 ops × ~50 nested/nested-of-nested nested nested types, this would
+not have been caught by hand-transcription.
+
+**TOP-LEVEL WRAPPER KEYS: mostly clean, two real breaks.**
+`DescribeMultiRegionParameters`'s response list was wire-tagged
+`"Parameters"`; the real key (confirmed via
+`awsAwsjson11_deserializeOpDocumentDescribeMultiRegionParametersOutput`) is
+`"MultiRegionParameters"` — the sibling plain `DescribeParameters`
+genuinely does use `"Parameters"` (verified separately), so this is a
+**sibling-trap**: a shared naming convention applied uniformly where the
+real API actually differs between the two ops. Second, and worse: BOTH
+`DescribeMultiRegionParameters` (required field) and
+`DescribeMultiRegionParameterGroups` (optional field) read their
+**request-side** name filter under the key `"ParameterGroupName"`; the
+real key on both inputs (confirmed via `api_op_DescribeMultiRegionParameters.go`
+/ `api_op_DescribeMultiRegionParameterGroups.go` and their serializers) is
+`"MultiRegionParameterGroupName"` — a different key, not a casing
+near-miss. Because this service decodes with `encoding/json.Unmarshal`
+(case-insensitive fallback), casing mismatches elsewhere in this service
+would have been harmless; this was not a casing mismatch, so the fallback
+does not apply and the bug is real. On `DescribeMultiRegionParameters` the
+field is required, so **every real client's request failed outright**
+(`InvalidParameterValueException: MultiRegionParameterGroupName is
+required`) — the op was completely broken end-to-end for any real caller,
+combining with the response-key bug above so even a request that somehow
+got through would have come back empty. On `DescribeMultiRegionParameterGroups`
+the field is optional, so the bug was silent: a real client's name filter
+was always ignored, returning every group instead of the one requested.
+
+**ONE LEVEL DEEPER — nested/never-modelled members, Go-kind checked
+throughout (all scalar mismatches below are name/key issues, not
+kind issues; no map-of-array-of-tagged-union shapes exist in this
+service's response tree, and Slots/DataTiering/IpDiscovery's real `*string`
+kind matches this service's plain `string` fields exactly — checked
+per-field against `types.go`, not assumed):**
+
+1. `Cluster.IpDiscovery` was wire-tagged `"IPDiscovery"` (wrong case,
+   confirmed live-bug since awsjson1.1 client deserializers do exact
+   `case "IpDiscovery":` matches, not `EqualFold`) — every
+   `DescribeClusters`/`CreateCluster`/`UpdateCluster`/`DeleteCluster`/
+   `BatchUpdateCluster`/`FailoverShard` response silently zeroed this
+   field for a real client (shared `clusterObject`). Request-side
+   `IPDiscovery` tags on `createClusterRequest`/`updateClusterRequest`
+   were checked and left alone: confirmed harmless, since
+   `encoding/json.Unmarshal`'s case-insensitive fallback still binds a
+   real client's `"IpDiscovery"` request key to the `"IPDiscovery"`-tagged
+   Go field on decode — this is the encode/decode asymmetry the campaign
+   brief calls out (marshal is exact-tag, unmarshal has a case-insensitive
+   fallback), verified rather than assumed.
+2. `Snapshot.ClusterConfiguration` (real `types.ClusterConfiguration`, 17
+   keys per its deserializer) was missing `MultiRegionClusterName` and
+   `MultiRegionParameterGroupName` entirely — confirmed real via
+   `types.go`, zero grep hits anywhere in the service beforehand, and
+   **distinct from the already-correctly-tracked `Cluster.MultiRegionClusterName`
+   at a different level** (the exact "same name, different struct" trap
+   the brief warns about). Both are honestly derivable, not fabricated:
+   `MultiRegionClusterName` copies straight off the source `Cluster`;
+   `MultiRegionParameterGroupName` isn't tracked on `Cluster` itself (only
+   on the `MultiRegionCluster` it belongs to), so it's resolved through
+   that FK (`b.multiRegionClusters.Get`). One new helper,
+   `snapshotClusterConfigFor`, now backs all three call sites that used to
+   duplicate this struct literal (`CreateSnapshot`,
+   `seedAutomatedSnapshotLocked`, the delete-cluster final-snapshot path)
+   — deduping them also means the fix can't land in two of three and miss
+   the third.
+3. `MultiRegionCluster` (real `types.MultiRegionCluster`, 11 keys) was
+   missing the real `NumberOfShards` response member, and
+   `CreateMultiRegionClusterInput.NumShards` (the request-side source of
+   that value) wasn't even in `createMultiRegionClusterRequest` — a
+   **discarded input** feeding directly into a **never-modelled response
+   member**, the same bug from both sides at once. Defaults to 1
+   (matching `CreateCluster`'s own default) when unset, validated 1-500
+   like `CreateCluster`.
+4. `DescribeReservedNodesInput` (real, confirmed via
+   `api_op_DescribeReservedNodes.go`) has `Duration` and
+   `ReservedNodesOfferingId` filters that `describeReservedNodesRequest`
+   never modeled at all — zero grep hits, and NOT something the prior
+   pass's "no ReservedNodeId" comment excused (that comment was accurate
+   about `ReservedNodeId` not existing, but didn't claim `Duration`/
+   `ReservedNodesOfferingId` were the full filter set either — a coverage
+   gap on breadth, not an argued-away bug). Wired to the existing
+   per-reservation `Duration`/`ReservedNodesOfferingID` fields, filtered
+   the same way `DescribeReservedNodesOfferings` already filters its own
+   `Duration`.
+5. **Disclosed, not fixed:** `ClusterPendingUpdates.Resharding` (real
+   member, `types.ReshardingStatus{SlotMigration{ProgressPercentage}}`,
+   confirmed via its 3-key deserializer case list — `ACLs`/`Resharding`/
+   `ServiceUpdates`) is not modeled on `pendingUpdatesObject`. This
+   backend applies shard-count changes synchronously with zero
+   in-progress-resharding state (grep for `reshard`: zero hits outside
+   this finding), so the field would always be absent/nil regardless —
+   identical to a real AWS response at rest with no resharding in flight.
+   Not added as a permanently-nil dead field; recorded as a gap instead,
+   same call as `ServiceUpdate.NodesUpdated` from a prior pass.
+6. **Disclosed, not fixed:** `UpdateMultiRegionClusterInput` also has
+   `ShardConfiguration`/`UpdateStrategy` members (real, confirmed via
+   `api_op_UpdateMultiRegionCluster.go`) not modeled at all — same
+   underlying no-resharding-state limitation as #5. `UpdateMultiRegionCluster`
+   downgraded `wire: ok`→`wire: partial` in PARITY.md rather than left
+   silently "ok".
+7. **Disclosed, not fixed:** `DescribeUsersInput.Filters` (`[]types.Filter`,
+   a generic `Name`/`Values` matcher, real, confirmed via
+   `api_op_DescribeUsers.go`) is never modeled. The SDK's own doc comment
+   gives no enumerated set of valid `Filter.Name` values for this op —
+   implementing a generic matcher without that would mean guessing AWS
+   semantics rather than confirming them, so it's recorded as a gap
+   instead of a guess.
+
+**PAGINATION — discarded on 7 of 15 Describe ops, fixed 6, disclosed 1.**
+`MaxResults`/`NextToken` were parsed into the request struct on
+`DescribeEngineVersions`, `DescribeEvents`, `DescribeReservedNodes`,
+`DescribeReservedNodesOfferings`, `DescribeMultiRegionClusters`,
+`DescribeMultiRegionParameterGroups`, and `DescribeMultiRegionParameters`,
+but never passed to the existing `paginateItems` helper (`handler.go`,
+already used correctly by the other 8 Describe ops) — every call to these
+7 returned the full result set in one page regardless of `MaxResults`.
+Fixed 6 by wiring `paginateItems` with a per-op cursor key
+(`EngineVersion.Engine+"|"+EngineVersion`, `ReservedNode.ReservationID`,
+`ReservedNodesOffering.ReservedNodesOfferingID`,
+`MultiRegionCluster.MultiRegionClusterName`,
+`MultiRegionParameterGroup.Name`, and the sorted
+`multiRegionParameterObject.Name`) — all six backends return either a
+static catalog or an explicitly `sort.Slice`-d result, so a name-based
+cursor is sound. `DescribeEvents` left unfixed and disclosed: its backend
+(`events.go`) iterates `b.events` (a map keyed by region) without scoping
+to the calling request's region at all, and appends across region-map keys
+in Go's non-deterministic map-iteration order — pagination on top of a
+non-deterministic base order would silently skip or repeat items across
+pages, which is worse than the current single-page behavior. The
+region-scoping issue itself reads as a separate real backend-logic bug
+(cross-region event leakage), not a wire-shape one; flagged in PARITY.md's
+gaps for a follow-up rather than fixed here.
+
+**SHARED CONVERTERS:** `snapshotClusterConfigFor` (new, see #2 above) is
+the only shared converter touched this pass, and it's shared correctly —
+all three call sites (`CreateSnapshot`, `seedAutomatedSnapshotLocked`, the
+delete-cluster final-snapshot path) need the identical `Cluster`→
+`snapshotClusterConfig` mapping, confirmed by diffing what each call site
+built before the refactor (byte-for-byte identical struct literals in all
+three, modulo the two now-added fields). No disguised-asymmetry traps
+found among memorydb's other shared converters — `recurringChargeObject`
+(shared `ReservedNode`/`ReservedNodesOffering`), `parameterGroupObject`
+(shared plain/multi-region-adjacent group ops), and
+`multiRegionParameterGroupObject` vs. the earlier-fixed
+`multiRegionParameterObject` (confirmed a REAL intentional asymmetry — the
+plain-`Parameter`-reusing bug this exact shape represents was already
+fixed by a prior pass, re-verified per-op, not re-broken).
+
+**PERSISTENCE TRAP, checked:** `snapshotClusterConfig` is embedded directly
+in `Snapshot`, which is `json.Marshal`ed as this service's on-disk
+persistence DTO (`persistence.go`) — the same struct serves both roles.
+Only new fields with fresh tags (`MultiRegionClusterName`,
+`MultiRegionParameterGroupName`) were added; no existing field was
+retagged, so old persisted snapshots decode unaffected (missing keys ->
+zero values) and the persistence version constant
+(`memorydbSnapshotVersion`) did not need bumping. Same check applied to
+`MultiRegionCluster` (also its own persistence DTO): `NumShards` added
+fresh, nothing retagged.
+
+**OVER-WIDE FIELD / CREDENTIAL SWEEP:** clean, deliberately run. Zero
+password/secret/credential/privatekey/clientsecret hits in any non-test
+`.go` file. `KmsKeyId`/ARNs throughout are real, intentional response
+members matching AWS's own wire shape (parity, not a leak) — MemoryDB's
+`Authentication.PasswordCount` (a count, never the password itself) is
+the closest thing to a credential-shaped field in this service and it
+already matches the real wire shape exactly.
+
+**PHANTOM OPS:** none — all 45 `GetSupportedOperations()` entries
+(44 real ops + the deliberately-unadvertised, already-disclosed
+`ExportSnapshot` scaffolding route, per handler.go's own comment) diffed
+1:1 against the pinned SDK's `api_op_*.go` files.
+
+**PRIOR-AUDIT CHECK:** the existing PARITY.md (last real pass
+2026-08-10, gopherstack-yusn) was unusually thorough and had already
+field-diffed most wire types against `deserializers.go` by name and
+nesting — that pass's own comments cite the exact case-list counts for
+`Cluster`/`Snapshot`/`ParameterGroup`/etc. But it was blind on the same
+two axes this campaign's brief predicts: **Go-kind/casing** (never
+compared `"IPDiscovery"` against the real key's exact casing, since
+`EqualFold`-style thinking doesn't apply to a manual code read the way it
+does to a grep) and **request-side key names** (its sweep note explicitly
+says "field-diffed every core wire type's Go struct against its own
+deserializers.go case list" — deserializers.go is the RESPONSE side only;
+the request-side `serializers.go` was never walked, which is exactly
+where the `MultiRegionParameterGroupName` bugs and the `NumShards`/
+`Duration`/`ReservedNodesOfferingId` discarded inputs were hiding). Not an
+argued-away bug in either case — a genuine coverage gap on an axis that
+pass's own stated method didn't cover, same pattern as the
+elasticsearch/lakeformation/xray "thorough but different axis" results
+noted elsewhere in this file. `last_audit_commit` was stale (`437393d5`,
+pre-dating this pass), now set to `PENDING` per the transcribe/mediatailor
+precedent (orchestrator sets it on commit).
+
+**REQUIRED-MEMBER DIFFS, both directions, all 18 ops:** response side
+(`deserializers.go`) diffed for every op and every reachable nested type;
+request side (`serializers.go`) diffed for every op's top-level input.
+Both scripted (see above), not spot-checked.
+
+**EMPTY/204 RESPONSES:** none in this op set — all 18 are non-void reads.
+
+**TESTS:** `services/memorydb/wire_field_fixes_test.go` (new), 7 real
+`aws-sdk-go-v2` client tests through the router (`newMemorydbSDKClient`,
+same pattern as transcribe's `newTranscribeSDKClient`) covering all 7
+fixes above except the two pagination-only fixes folded into one explicit
+pagination test (`DescribeEngineVersions`, `MaxResults`/`NextToken`
+round-trip across two pages) and the `DescribeReservedNodes` filter test
+also exercising `PurchaseReservedNodesOffering` end-to-end. Every fix
+hand-reverted individually (edited back to the pre-fix shape — this
+session bans even `git checkout --`), confirmed to fail with the exact
+predicted symptom, then restored and confirmed byte-identical via `git
+diff` comparison against a saved pre-revert baseline diff (not just eyeballed):
+`IpDiscovery` reverted to `"IPDiscovery"` → empty string, no decode error
+(awsjson1.1 tolerates unknown/missing fields, so this is the weaker
+"missing value" signal, not a hard failure, exactly as expected);
+`DescribeMultiRegionParameters`' response key reverted to `"Parameters"` →
+empty list, no error; its request key reverted to `"ParameterGroupName"`
+→ hard `400 InvalidParameterValueException: MultiRegionParameterGroupName
+is required` (this one IS a hard client-visible failure, since the field
+is required); `DescribeMultiRegionParameterGroups`' request key reverted
+the same way → silent over-return, 4 groups instead of 1, no error;
+`NumShards`/`NumberOfShards` reverted → `int32(0)` instead of `3`, no
+error; the `ClusterConfiguration` MultiRegionClusterName/
+MultiRegionParameterGroupName population reverted → empty strings, no
+error; `DescribeReservedNodes`' offering-ID filter reverted → an
+unmatched filter still returned the reservation, no error;
+`DescribeEngineVersions` pagination reverted → `MaxResults: 1` returned
+all 5 catalog entries instead of 1, no error. 8 of 9 individual reverts
+produced the weaker "wrong/missing value, no decode error" signal the
+brief predicts for awsjson1.1; only the required-field request-key revert
+produced a hard error, and that's correctly the exception (a genuinely
+required member with nothing to bind to).
+
+**GATES:** scoped `go build ./services/memorydb/...` and full `go build
+./...` (no interface signature changes -- `StorageBackend` untouched, only
+internal request/response struct fields and one new unexported backend
+method) both clean; `go vet` clean; `go test -race -count=1
+./services/memorydb/...` and `./pkgs/...` both green; `go fix -diff`
+empty; `golangci-lint run ./services/memorydb/...` 0 issues (fixed 3
+`golines` wraps by hand in the new test file, none `-fix`d); `fieldalignment`
+clean (included in the golangci-lint govet config, confirmed via
+`.golangci.yml`); zero `//nolint:cyclop/gocyclo/gocognit/funlen`,
+grep-confirmed. No subagents used (Read/Grep/Bash only, per this session's
+hard constraint). No git-mutating commands run -- orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/memorydb/*` and this remainder file touched throughout —
+`services/codedeploy/*` (the sibling that appeared live mid-session) was
+never read or touched.
+
+`memorydb`'s List/Describe/Get families are now fully swept for this issue
+(18/18 ops layer-1/2/3 clean; request AND response sides scripted both
+directions; 7 real bugs found and fixed spanning wrapper-key sibling-traps,
+request-key mismatches severe enough to break an op outright, discarded
+inputs feeding never-modelled response members, and discarded pagination
+on 6 ops; 3 gaps disclosed rather than guessed, all tied to the same
+no-in-progress-resharding-state limitation or an undocumented-filter-semantics
+limitation; 0 real-data leaks; 0 phantom ops). **96 of 162 services swept,
+66 remain.** Per the ranked table, `codedeploy` (live sibling this
+session, 18 L+D+G) and `accessanalyzer` (18 L+D+G, free) are the two
+remaining services at this tier; re-run `go run ./cmd/opcensus` and
+re-check `git status` before picking, as usual.
