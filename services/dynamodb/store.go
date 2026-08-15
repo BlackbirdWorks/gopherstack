@@ -239,11 +239,12 @@ const (
 //
 
 type Table struct {
-	StreamCreatedAt  time.Time `json:"StreamCreatedAt"`
-	CreationDateTime time.Time `json:"CreationDateTime"`
-	kinesisEmitter   KinesisEmitter
-	pkIndex          map[string]int
-	pkskIndex        map[string]map[string]int
+	StreamCreatedAt               time.Time `json:"StreamCreatedAt"`
+	CreationDateTime              time.Time `json:"CreationDateTime"`
+	ContributorInsightsLastUpdate time.Time `json:"ContributorInsightsLastUpdate"`
+	kinesisEmitter                KinesisEmitter
+	pkIndex                       map[string]int
+	pkskIndex                     map[string]map[string]int
 	// gsiIndexes and lsiIndexes are keyed by IndexName; each maps that index's
 	// key value(s) to the set of item offsets sharing them (see
 	// secondary_index.go). Derived from Items + GlobalSecondaryIndexes/

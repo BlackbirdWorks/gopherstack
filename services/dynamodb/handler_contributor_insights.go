@@ -26,6 +26,7 @@ type describeContributorInsightsOutput struct {
 	ContributorInsightsStatus   string   `json:"ContributorInsightsStatus,omitempty"`
 	ContributorInsightsMode     string   `json:"ContributorInsightsMode,omitempty"`
 	ContributorInsightsRuleList []string `json:"ContributorInsightsRuleList"`
+	LastUpdateDateTime          float64  `json:"LastUpdateDateTime,omitempty"`
 }
 
 func (h *DynamoDBHandler) handleDescribeContributorInsights(
@@ -56,6 +57,10 @@ func (h *DynamoDBHandler) handleDescribeContributorInsights(
 
 	if out.IndexName != nil {
 		wire.IndexName = *out.IndexName
+	}
+
+	if out.LastUpdateDateTime != nil {
+		wire.LastUpdateDateTime = float64(out.LastUpdateDateTime.Unix())
 	}
 
 	return wire, nil

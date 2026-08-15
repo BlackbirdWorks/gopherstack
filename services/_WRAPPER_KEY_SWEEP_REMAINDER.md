@@ -6943,3 +6943,180 @@ members swept). 88 of 162 services swept, 74 remain. Per the ranked table,
 but not 6flj-swept) or `neptune`/`ecr` (21 each) are next — re-check
 `git status` before picking, since siblings have consistently appeared
 mid-session all day.
+
+## dynamodb (this session, 2026-08-15)
+
+Chosen per this session's assignment: `dynamodb` (58 total ops, 22 L+D+G — 7
+List/13 Describe/2 Get) is the unique largest unswept candidate, strictly
+above `neptune`/`ecr` at 21 each — **no tie existed at the top, so no
+sibling-trap tiebreak was needed.** `git status` was clean (no live sibling)
+at pick time; a sibling appeared on `services/ecr/*` partway through this
+session (confirmed via repeated `git status` re-checks) — `ecr` was
+already ruled out anyway since it's strictly smaller than `dynamodb`, and
+its files were never read or touched by this session.
+
+PROTOCOL: `json-1.0` (`DynamoDB_20120810` X-Amz-Target). Case-sensitive
+plain Go `switch key { case "Xxx": }` on decoded JSON keys, confirmed by
+reading `awsAwsjson10_deserializeOpDocumentDescribeContributorInsightsOutput`
+and others directly in `deserializers.go`. All 304 `EqualFold` hits in this
+SDK version are `errorCode` matches (`strings.EqualFold("SomeException",
+errorCode)`), none a body-field comparison — grepped and spot-checked, not
+counted only. SDK pinned (`go.mod:29`, `v1.63.1`), no dependency-boundary
+exception needed.
+
+ROUTER: single `X-Amz-Target` header extraction feeding a flat action-string
+`switch` in `dispatch`/`dispatchTableOps`/`dispatchBackupOps`/
+`dispatchExtraOps` — structurally immune to a path-segment desync (it's an
+exact string match, not a path router). `TestSDKCompleteness` (already
+present, re-run this session) confirms `GetSupportedOperations()`'s 58
+entries all resolve to real ops with none missing — **0 phantom ops.**
+
+A NOTABLE STRUCTURAL FACT about this service: `interfaces.go`'s
+`Backend` methods are typed directly against the real
+`github.com/aws/aws-sdk-go-v2/service/dynamodb` package's own `*Input`/
+`*Output` structs (e.g. `ListTagsOfResource(...) (*dynamodb.ListTagsOfResourceOutput,
+error)`) rather than a reimplemented backend-only shape — unusual among
+this campaign's services. This does NOT make the service immune to the
+wrapper-key bug class: the actual bytes on the wire are produced by a
+**separate** `models`/inline-wire-struct layer (`services/dynamodb/models/
+types.go`, plus several per-family inline wire structs such as
+`handler_contributor_insights.go`'s `describeContributorInsightsOutput`)
+with its own JSON tags, converted from the SDK-shaped backend output one
+field at a time — exactly the layer this sweep checks.
+
+RESULT: diffed all 22 L+D+G ops' top-level wrapper key(s) against their own
+real `api_op_<Op>.go` `*Output` struct in the pinned SDK module cache — **21
+of 22 correct as-is**, all matching real key names exactly (`BackupSummaries`,
+`ContributorInsightsSummaries`, `ExportSummaries`, `GlobalTables`,
+`ImportSummaryList`, `TableNames`, `Tags` for the 7 List ops;
+`BackupDescription`, `ContinuousBackupsDescription`, `Endpoints`,
+`ExportDescription`, `GlobalTableDescription`,
+`GlobalTableName`+`ReplicaSettings`, `ImportTableDescription`,
+`KinesisDataStreamDestinations`+`TableName`, 4 flat `*CapacityUnits` fields,
+`Table`, `TableAutoScalingDescription`, `TimeToLiveDescription` for the 13
+Describe ops; `GetItem`'s wire model already deep-audited by prior sessions
+(`gopherstack-rkmp`/`lze5`/`yvs8`, re-verified still correct here — not
+re-litigated), `Policy`+`RevisionId` for `GetResourcePolicy`).
+
+**SHARED-CONVERTER CHECK (this issue's highest-yield check): `describeExport`
+and `handleExportTableToPointInTime` both return
+`exportTableToPointInTimeOutput{ExportDescription: ...}`.** Confirmed
+legitimately shared, not a bug: `DescribeExportOutput` and
+`ExportTableToPointInTimeOutput` are both genuinely `{ExportDescription
+*types.ExportDescription}`-only in the real SDK (`api_op_DescribeExport.go`,
+`api_op_ExportTableToPointInTime.go`) — identical real shapes, one converter
+is correct.
+
+**ONE REAL GAP FOUND AND FIXED** (the 22nd op, `DescribeContributorInsights`):
+the real `DescribeContributorInsightsOutput` (`api_op_DescribeContributorInsights.go`)
+has two members gopherstack had never modeled at all — `LastUpdateDateTime`
+(`*time.Time`, wire: `LastUpdateDateTime`, epoch-seconds float, confirmed at
+`deserializers.go:18441`) and `FailureException`
+(`*types.FailureException{ExceptionName, ExceptionDescription}`). Backend
+grep (`LastUpdateDateTime`, `FailureException` — zero hits anywhere in
+`services/dynamodb/*.go` before this fix) confirmed neither was even tracked
+internally, let alone emitted — this is the "member never modeled" gap
+class, not a wrong-key silent-empty bug (a real client got `nil`/absent for
+both, not a wrong-shaped present value).
+
+- `LastUpdateDateTime` **fixed**: added `Table.ContributorInsightsLastUpdate
+  time.Time` (`store.go`), set to `time.Now().UTC()` in
+  `setContributorInsightsLocked` (`contributor_insights.go`, the one place
+  `UpdateContributorInsights` mutates enabled/mode state) and emitted by
+  `DescribeContributorInsights` only when non-zero — a never-toggled table
+  reports the field absent rather than a fabricated epoch-zero timestamp,
+  matching AWS's own "populated once an action has occurred" semantics.
+  `ContributorInsightsSummary` (the `ListContributorInsights`/
+  `ListContributorInsightsSummaries` item shape) does **not** have this
+  member in the real SDK — confirmed before deciding not to propagate it
+  there too (would have been a fabricated field, not a fix).
+- `FailureException` **disclosed, not fabricated**: this backend's
+  contributor-insights enable/disable never fails (no IAM/service-limit
+  failure model exists anywhere in this service) — always-nil is the
+  accurate representation, not a gap being papered over. Added to
+  `PARITY.md` `gaps` rather than invented.
+
+**PERSISTENCE TRAP CHECKED**: `Table` doubles as the snapshot DTO
+(`persistence.go`'s `dynamodbSnapshotVersion`, currently `1`). The new
+`ContributorInsightsLastUpdate` field is a **brand-new field with its own
+fresh JSON tag**, not a retag of an existing one — old snapshots restore
+with it zero-valued, which the `IsZero()` guard already treats correctly as
+"never toggled." No snapshot-version bump needed (matches this file's own
+precedent for `PITRSnapshots`). `TestInMemoryDB_SnapshotRestore`,
+`TestInMemoryDB_RestoreInvalidData`, and `TestDynamoDBHandler_Persistence`
+all re-run and green.
+
+**REQUIRED-FIELD / FILTER CHECKS** (both directions, all 7 List ops):
+`ListBackups` (`TableName`, `BackupType`, `TimeRangeLowerBound`/`Upper`,
+`ExclusiveStartBackupArn`/`Limit`), `ListContributorInsights` (`TableName`),
+`ListExports` (`TableArn`), `ListGlobalTables` (`RegionName`,
+`ExclusiveStartGlobalTableName`/`Limit`), `ListImports` (`TableArn`),
+`ListTables`/`ListTagsOfResource` (already deep-audited by prior sessions,
+re-verified) — every declared filter reaches its query, none ignored, none
+demanded that the real Input lacks. No empty/204 responses in this op set
+(all 22 are non-void GET-style reads).
+
+**SIBLINGS CHECKED, CONFIRMED CORRECT** (all 21 of the 22 ops besides the
+one fixed above): every wrapper key enumerated in the RESULT paragraph.
+`GlobalTableDescription`'s wire construction in
+`handler_global_tables.go`, in particular, was checked against
+`DescribeGlobalTable`/`CreateGlobalTable`/`UpdateGlobalTable`'s three
+distinct real shapes for a possible shared-converter mismatch (this
+family's pattern in other services) — `describeGlobalTableOutput`,
+`createGlobalTableOutput`, and `updateGlobalTableOutput` are three
+genuinely separate Go types here (not one shared function serving three
+call sites with different real needs), so no bug.
+
+**CREDENTIAL/OVER-WIDE SWEEP**: clean. None of the 22 L+D+G ops' wire
+structs carry a plaintext secret, IAM/KMS ARN not already legitimately
+part of the real shape (e.g. `SSEKMSMasterKeyArn` on `DescribeTable` is a
+real member), or customer environment variable. No over-wide fields found
+in this op set.
+
+**PRIOR-AUDIT-REASONING CHECK**: `PARITY.md`'s `overall: A` rating and its
+extensive per-family notes (from `gopherstack-rkmp`/`lze5`/`yvs8`, all
+2026-08-13/14) cover `item_crud`/`query_scan`/`batch`/`transactions`/
+`streams`/`janitor_ttl`/`datalayer` in deep, field-diffed detail, but **none
+of those passes' notes mention the admin/List/Describe family this issue
+targets** — not an instance of a prior note arguing a bug away, just a
+genuine coverage gap in the earlier work, now closed by this session's
+`admin_lists` family entry.
+
+TESTS: 1 new real-`aws-sdk-go-v2`-client test,
+`TestDescribeContributorInsights_LastUpdateDateTime`
+(`contributor_insights_wire_test.go`), added alongside the file's existing
+same-pattern tests. Hand-reverted the wire-layer fix in
+`handler_contributor_insights.go` alone (leaving the backend tracking in
+place, isolating the exact wire-drop this bug class targets), re-ran,
+confirmed it failed with the exact predicted symptom (`Expected value not
+to be nil` / `toggled table must report LastUpdateDateTime`), then restored
+byte-identical (diffed against a saved copy — no git-mutating commands
+used).
+
+GATES: scoped `go build ./services/dynamodb/...` clean; full `go build ./...`
+also run (the one changed function signature,
+`contributorInsightsStateRLocked`, has zero external callers, grep-confirmed)
+— clean; `go vet ./services/dynamodb/...` clean; `go test -race -count=1
+./services/dynamodb/...` green (all 3 sub-packages); `go test -race -count=1
+./pkgs/...` green; `go fix -diff ./services/dynamodb/...` empty;
+`golangci-lint run ./services/dynamodb/...` — 1 `goimports` formatting
+finding in `store.go` from the new struct field's alignment, fixed via
+`gofmt -w` (not `fieldalignment -fix`, which is known to strip `//nolint`
+comments — this file has none, but the narrower tool was used anyway), 0
+issues after; 0 `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints
+(grep-confirmed, none added).
+
+No subagents used. No git-mutating commands run — orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/dynamodb/{store.go,contributor_insights.go,
+contributor_insights_wire_test.go,handler_contributor_insights.go,
+PARITY.md}` and this remainder file touched — `services/ecr/*` (the live
+sibling that appeared mid-session) never read or touched.
+
+`dynamodb`'s List/Describe/Get families are now fully swept for this issue
+(22/22 ops layer-1/2/3 clean; 21/22 wrapper keys were already correct, 1 real
+missing-member gap found and fixed, 1 sibling member correctly disclosed as
+unfixable). 89 of 162 services swept, 73 remain. Per the ranked table,
+`neptune` and `ecr` (21 L+D+G each) are next — `ecr` had a live sibling
+throughout this session and may already be swept or mid-flight; re-check
+`git status` before picking either.

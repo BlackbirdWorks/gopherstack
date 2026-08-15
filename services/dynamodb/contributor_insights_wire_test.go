@@ -8,6 +8,7 @@ package dynamodb_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -90,4 +91,41 @@ func TestUpdateContributorInsights_ModeRoundTrip(t *testing.T) {
 		types.ContributorInsightsModeAccessedAndThrottledKeys,
 		listOut.ContributorInsightsSummaries[0].ContributorInsightsMode,
 	)
+}
+
+// TestDescribeContributorInsights_LastUpdateDateTime covers gopherstack-6flj:
+// DescribeContributorInsightsOutput.LastUpdateDateTime (a real top-level
+// member, api_op_DescribeContributorInsights.go) was entirely unmodeled --
+// the backend never tracked when contributor insights was last toggled, so
+// the field was always nil regardless of an UpdateContributorInsights call
+// having genuinely happened. Before a table's insights have ever been
+// toggled, AWS's own doc implies the field simply isn't populated yet, so a
+// fresh table asserts it absent rather than a fabricated zero time.
+func TestDescribeContributorInsights_LastUpdateDateTime(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	t.Cleanup(backend.Close)
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(backend))
+
+	createPPRTableViaClient(t, client, "ci-lastupdate")
+
+	before, err := client.DescribeContributorInsights(t.Context(), &sdk.DescribeContributorInsightsInput{
+		TableName: aws.String("ci-lastupdate"),
+	})
+	require.NoError(t, err)
+	assert.Nil(t, before.LastUpdateDateTime, "never-toggled table should not fabricate a timestamp")
+
+	_, err = client.UpdateContributorInsights(t.Context(), &sdk.UpdateContributorInsightsInput{
+		TableName:                 aws.String("ci-lastupdate"),
+		ContributorInsightsAction: types.ContributorInsightsActionEnable,
+	})
+	require.NoError(t, err)
+
+	after, err := client.DescribeContributorInsights(t.Context(), &sdk.DescribeContributorInsightsInput{
+		TableName: aws.String("ci-lastupdate"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, after.LastUpdateDateTime, "toggled table must report LastUpdateDateTime")
+	assert.WithinDuration(t, time.Now().UTC(), *after.LastUpdateDateTime, time.Minute)
 }

@@ -5,6 +5,7 @@ package dynamodb
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -30,7 +31,7 @@ func (db *InMemoryDB) DescribeContributorInsights(
 
 	tableName := *input.TableName
 
-	enabled, mode := contributorInsightsStateRLocked(table)
+	enabled, mode, lastUpdate := contributorInsightsStateRLocked(table)
 
 	status := types.ContributorInsightsStatusDisabled
 	if enabled {
@@ -44,6 +45,10 @@ func (db *InMemoryDB) DescribeContributorInsights(
 		ContributorInsightsRuleList: []string{},
 	}
 
+	if !lastUpdate.IsZero() {
+		out.LastUpdateDateTime = &lastUpdate
+	}
+
 	if input.IndexName != nil {
 		out.IndexName = input.IndexName
 	}
@@ -51,13 +56,18 @@ func (db *InMemoryDB) DescribeContributorInsights(
 	return out, nil
 }
 
-// contributorInsightsStateRLocked returns table.ContributorInsightsEnabled and
-// table.ContributorInsightsMode under a defer-protected table.mu.RLock.
-func contributorInsightsStateRLocked(table *Table) (bool, types.ContributorInsightsMode) {
+// contributorInsightsStateRLocked returns table.ContributorInsightsEnabled,
+// table.ContributorInsightsMode, and table.ContributorInsightsLastUpdate
+// under a defer-protected table.mu.RLock.
+func contributorInsightsStateRLocked(
+	table *Table,
+) (bool, types.ContributorInsightsMode, time.Time) {
 	table.mu.RLock("DescribeContributorInsights")
 	defer table.mu.RUnlock()
 
-	return table.ContributorInsightsEnabled, types.ContributorInsightsMode(table.ContributorInsightsMode)
+	return table.ContributorInsightsEnabled,
+		types.ContributorInsightsMode(table.ContributorInsightsMode),
+		table.ContributorInsightsLastUpdate
 }
 
 // --- ListContributorInsights ---
@@ -145,7 +155,7 @@ func collectContributorInsightsSummaries(
 			continue
 		}
 
-		enabled, mode := contributorInsightsStateRLocked(byName[name])
+		enabled, mode, _ := contributorInsightsStateRLocked(byName[name])
 		if !enabled {
 			continue
 		}
@@ -218,6 +228,8 @@ func setContributorInsightsLocked(
 	if mode != "" {
 		table.ContributorInsightsMode = string(mode)
 	}
+
+	table.ContributorInsightsLastUpdate = time.Now().UTC()
 
 	return types.ContributorInsightsMode(table.ContributorInsightsMode)
 }
