@@ -168,8 +168,20 @@ type listUserPoolClientsAccurateInput struct {
 	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
+// userPoolClientSummaryJSON mirrors the AWS SDK's types.UserPoolClientDescription
+// (ClientId, ClientName, UserPoolId only -- field-diffed against
+// aws-sdk-go-v2/service/cognitoidentityprovider/types.UserPoolClientDescription).
+// ListUserPoolClients deliberately returns this minimal summary, not the full
+// clientDataAccurate shape: the real op never echoes ClientSecret or OAuth
+// config in a list response.
+type userPoolClientSummaryJSON struct {
+	ClientID   string `json:"ClientId,omitempty"`
+	ClientName string `json:"ClientName,omitempty"`
+	UserPoolID string `json:"UserPoolId,omitempty"`
+}
+
 type listUserPoolClientsAccurateOutput struct {
-	UserPoolClients []clientDataAccurate `json:"UserPoolClients"`
+	UserPoolClients []userPoolClientSummaryJSON `json:"UserPoolClients"`
 }
 
 type deleteUserPoolClientSecretInput struct {

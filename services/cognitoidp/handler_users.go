@@ -68,8 +68,25 @@ func toUserSummary(u *User) *userSummary {
 		UserCreateDate:   float64(u.CreatedAt.Unix()),
 		UserLastModified: float64(updatedAt.Unix()),
 		Attributes:       sortedAttributeList(userAttrsWithSub(u)),
+		MFAOptions:       toMFAOptionsWire(u.MFAOptions),
 		Enabled:          u.Enabled,
 	}
+}
+
+// toMFAOptionsWire converts backend MFAOptionType records into the wire
+// (PascalCase-tagged) shape shared with the SetUserSettings/
+// AdminSetUserSettings request side (models_mfa.go's mfaOptionType).
+func toMFAOptionsWire(opts []MFAOptionType) []mfaOptionType {
+	if len(opts) == 0 {
+		return nil
+	}
+
+	out := make([]mfaOptionType, 0, len(opts))
+	for _, o := range opts {
+		out = append(out, mfaOptionType(o))
+	}
+
+	return out
 }
 
 func (h *Handler) handleListUsers(
@@ -189,6 +206,7 @@ func toAdminUserJSON(u *User) *adminUserJSON {
 		Username:             u.Username,
 		UserStatus:           u.Status,
 		UserAttributes:       sortedAttributeList(userAttrsWithSub(u)),
+		MFAOptions:           toMFAOptionsWire(u.MFAOptions),
 		UserCreateDate:       float64(u.CreatedAt.Unix()),
 		UserLastModifiedDate: float64(u.UpdatedAt.Unix()),
 		Enabled:              u.Enabled,

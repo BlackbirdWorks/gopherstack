@@ -1,6 +1,6 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**65 of 162 services swept, 97 remain** (s3 added this session — see
+**66 of 162 services swept, 96 remain** (cognitoidp added this session — see
 its own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
@@ -93,12 +93,13 @@ non-bug, rds's `GlobalClusterMember` shared-name non-bug).
 apigateway, appstream, athena, autoscaling, awsconfig, backup, bedrock,
 bedrockagent, cleanrooms, cloudformation, cloudfront,
 cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
-datasync, dlm, dynamodbstreams, ec2, ecs, eks, elasticache, elbv2, forecast,
+**cognitoidp** (this session), datasync, dlm, dynamodbstreams, ec2, ecs, eks,
+elasticache, elbv2, forecast,
 glue, guardduty, iam, identitystore, inspector2, iot,
 iotwireless, kms, lambda, lightsail, macie2, medialive,
 mgn, networkmanager, networkmonitor, omics,
 opensearch, organizations, pinpoint, quicksight, rds, redshift,
-resiliencehub, resourcegroupstaggingapi, route53, **s3** (this session),
+resiliencehub, resourcegroupstaggingapi, route53, s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer.
 
@@ -124,14 +125,13 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 97 (networkmanager's 38, securityhub's
-47, macie2's 40, and s3's 45 removed, all swept prior to/this session):
-**1,431** candidate ops.
+Sum of the L+D+G column across all 96 (networkmanager's 38, securityhub's
+47, macie2's 40, s3's 45, and cognitoidp's 37 removed, all swept prior
+to/this session): **1,394** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
 | personalize | 77 | 18 | 18 | 3 | 39 | dynamic-fallback |
-| cognitoidp | 129 | 14 | 10 | 13 | 37 | chased |
 | apigatewayv2 | 103 | 5 | 0 | 32 | 37 | direct |
 | workmail | 97 | 18 | 9 | 9 | 36 | dynamic-fallback |
 | waf | 113 | 16 | 0 | 18 | 34 | dynamic-fallback |
@@ -1704,3 +1704,238 @@ pass; per the ranked table, personalize (39, likely mostly-clean per
 gopherstack-sm02) or cognitoidp (37, `chased`) are the next candidates —
 re-check `git status` before picking, given how often a sibling session has
 appeared mid-flight this campaign.
+
+## cognitoidp (this session)
+
+Chosen per this session's assignment: largest unswept candidate not already
+flagged as needing a dedicated session, with personalize's systemic
+List-vs-Get leak already fixed under gopherstack-sm02 (a different issue,
+same bug class, making a from-scratch pass there likely lower-yield).
+cognitoidp: 129 total ops, ranked-table count 37 L+D+G (14 List/10
+Describe/13 Get) via `chased` resolution. Own direct enumeration of
+`baseSupportedOperations()`/`extendedSupportedOperations()` in
+`handler.go` found more List/Describe/Get-prefixed ops than the table
+(17 List, 10 Describe, 15 Get = 42) — the extra 5 are ops like
+`GetTokensFromRefreshToken`/`GetUserAttributeVerificationCode` that return
+non-collection shapes the ranked table's `chased` resolver evidently
+didn't bucket the same way. All 42 by this session's own count were swept,
+not just the table's 37. `git status` at start and end: clean except one
+untracked `services/cloudwatchlogs/zzz_probe_test.go` from an unrelated
+sibling session, confirmed untouched.
+
+**PROTOCOL**: `awsAwsjson11_` (JSON-RPC 1.1) confirmed as the sole
+deserializer function prefix in
+`cognitoidentityprovider@v1.67.4/deserializers.go` (grep `awsAwsjson1[0-9]*_|awsRestjson1_|awsEc2query_|awsAwsquery_`
+— only `awsAwsjson11_` present). Case-sensitive, like awsconfig/
+cloudwatchlogs/macie2. All 1,129 `EqualFold` hits in the file are
+`errorCode` matches inside `deserializeOpError*` functions (grepped for
+`EqualFold` lines lacking `errorCode`: zero matches) — confirmed by
+tracing `HandleDeserialize` for `AdminGetUser`/`DescribeUserPool`/
+`GetUser`/`ListUsers` directly rather than trusting the pattern from a
+single op. Body-field casing is therefore a real bug class here, per the
+task brief's own framing — unlike query/XML services.
+
+**Dead-deserializer trap checked and found NOT to apply**: traced
+`(*awsAwsjson11_deserializeOpListUsers).HandleDeserialize` in full
+(deserializers.go:12557) — it decodes the body into `shape` and calls
+`awsAwsjson11_deserializeOpDocumentListUsersOutput(&output, shape)`
+directly (line 12597), the same JSON-RPC 1.1 pattern already confirmed
+non-dead in awsconfig/cloudwatchlogs/macie2. Trusted generally after
+confirming for this op, not re-verified per-op.
+
+**Dispatch-table override trap, specific to this service**: cognitoidp
+registers most ops from an early ("A"/plain) map and a later
+("B"/"Full"/"Accurate", `wrapAccuracy`-wrapped) map via 20+ sequential
+`maps.Copy(table, ...)` calls in `dispatchTable()` (handler.go:336-375);
+the later call wins on key collision. Several op families have BOTH a
+plain handler (older, less complete struct — e.g. `identityProviderType`,
+`resourceServerType`, `riskConfigurationType`) and a "Full"/"Accurate"
+handler (newer, correct struct — `identityProviderJSON`,
+`resourceServerAccurateType`, `riskConfigurationJSON`) defined side by
+side, with the plain one dead code once the "Full" one is registered
+later in `dispatchTable()`. This looks exactly like the generational
+sibling-trap variant on first read (stale struct missing fields) but
+isn't one in practice, because the stale struct is never reached —
+**confirmed live registration for every op checked by reading
+`dispatchTable()`'s call order directly**, not by assuming the "Full"
+name always wins. Affected families checked and confirmed correctly
+live-wired to the "Full"/"Accurate" struct: `DescribeUserPool`,
+`GetUserPoolMfaConfig`, identity providers (Create/Update/Describe/
+GetByIdentifier/List), resource servers (Create/Update/Describe/List/
+Delete), `DescribeRiskConfiguration`, `GetUICustomization`,
+`CreateUserPoolDomain`/`UpdateUserPoolDomain` (but not
+`DescribeUserPoolDomain`, which has no "Full" override and stays on the
+plain handler — checked and correct as-is), and groups
+(Create/Update/Get/List/ListUsersInGroup, but not
+`AdminListGroupsForUser`/`DeleteGroup`/`AdminAddUserToGroup`/
+`AdminRemoveUserFromGroup`, which have no override).
+
+Read all 42 self-enumerated L+D+G ops' response shapes against their own
+`awsAwsjson11_deserializeOpDocument<Op>Output` case list (dumped via a
+Python script walking brace-depth per function, file+line implicit), then
+diffed the live (per dispatch-table-order) gopherstack struct's JSON tags
+field-for-field against every shared nested type reached from those case
+lists (`UserType`, `AdminGetUserOutput`, `DeviceType`,
+`ProviderDescription`, `UICustomizationType`, `DomainDescriptionType`,
+`ClientSecretDescriptorType`, `UserPoolClientDescription`, and more).
+
+**2 real bugs found and fixed, one of them security-relevant:**
+
+1. **`ListUserPoolClients` — wrong per-item shape, leaking `ClientSecret`
+   and full OAuth configuration.** The real op's per-item type is
+   `types.UserPoolClientDescription` — three fields only (`ClientId`,
+   `ClientName`, `UserPoolId`), confirmed at types.go:2514 and the real
+   deserializer's own case list (`awsAwsjson11_deserializeOpDocumentListUserPoolClientsOutput`,
+   deserializers.go:32248). gopherstack instead reused the full
+   `clientDataAccurate` struct (used correctly elsewhere for
+   Describe/Create/Update) for every list item, including `ClientSecret`
+   in plaintext. A real typed SDK client can't observe the leak (its own
+   `UserPoolClientDescription` struct has no field to decode it into,
+   same "harmless to a real client" class as other over-emission
+   findings this campaign), but the **raw wire body** carried the secret
+   value to any caller inspecting the JSON directly — the kind of gap
+   this issue exists to catch even when a typed client happens to mask
+   it. Fixed by adding a new `userPoolClientSummaryJSON` type mirroring
+   the real 3-field shape and changing `handleListUserPoolClientsAccurate`
+   to emit it instead of `clientDataAccurate`.
+2. **`MFAOptions` never emitted on `ListUsers`/`ListUsersInGroup` —
+   backend-tracked-but-unemitted, on two ops via two separate converter
+   functions.** `UserType.MFAOptions` (types.go:3161, shared by both
+   ops' `Users` list) is a real, non-deprecated member — unlike
+   `GetUser`/`AdminGetUserOutput.MFAOptions`, which AWS's own doc comment
+   marks "no longer supported... use UserMFASettingList instead"
+   (api_op_GetUser.go/api_op_AdminGetUser.go), checked and confirmed
+   correctly NOT fixed on those two ops for that reason (a real AWS
+   backend wouldn't populate it there either). The backend already
+   tracks `User.MFAOptions` (set via `SetUserSettings`/
+   `AdminSetUserSettings`, `mfa.go:351,366`) and there was already a
+   correctly-tagged wire type for the request side
+   (`mfaOptionType{DeliveryMedium,AttributeName}`, models_mfa.go:179) —
+   simply never read back out on the List side. `toUserSummary`
+   (ListUsers) and `toAdminUserJSON` (ListUsersInGroup, and
+   AdminCreateUser's response, which shares the same real `UserType`
+   shape) both omitted it. Fixed by adding `MFAOptions` to both
+   `userSummary` and `adminUserJSON`, and a `toMFAOptionsWire` helper
+   reusing the existing request-side wire type via direct struct
+   conversion (identical field layout).
+
+**Sibling/near-duplicate shapes checked, reported clean or already
+correctly resolved by dispatch order**: `GetUser` vs `AdminGetUser`
+(genuinely different real response shapes — `GetUserOutput` has no
+`UserStatus`/dates/`Enabled` at all, confirmed field-for-field, both
+correctly minimal); `ListDevices` vs `AdminListDevices` and `GetDevice`
+vs `AdminGetDevice` (share one `deviceType` struct, all four fields match
+the real `DeviceType`, including a harmless extra `DeviceStatus` field —
+real `DeviceType` (types.go:677) has no such member at all, a pure
+carryover, harmless since real clients have no field to read it into,
+same non-bug class as rds's `StorageOptimized`); identity providers,
+resource servers, groups, `DescribeRiskConfiguration`/
+`GetUICustomization` (all resolved via the dispatch-table-override trap
+above, not independently broken); `AdminGetUserAuthFactors`/
+`GetUserAuthFactors` (share the real response shape exactly, both
+correct, including the real, easy-to-miss `Username` echo member on both).
+
+**Request side**: spot-checked `AdminCreateUser` (missing real
+`ClientMetadata`/`ValidationData` members — Lambda-trigger-context-only
+fields with no threading concept in this backend at all, disclosed not
+fixed, not a rename), `ListUserPoolClients`/`ListResourceServers`/
+`AdminListGroupsForUser`'s pagination request fields (see disclosed
+below), and the identity-provider/resource-server Create/Update request
+bodies as part of the dispatch-order check above — no additional
+request-only key-name bugs found beyond what's listed.
+
+**Wrong-value check**: none found — every finding in this batch was a
+missing/over-emitted field or shape, not a same-key-wrong-value bug.
+
+**Casing near-misses**: none found distinct from the two fixes above —
+every wrapper key checked matched the real deserializer's case list
+exactly (JSON-RPC 1.1's case-sensitivity was confirmed structurally
+important per the protocol note, but no live near-miss materialized;
+this service's key names were already written in the correct case
+throughout).
+
+**Ratifying tests**: none found needing correction. Grepped
+`user_pool_clients_handler_test.go`/`user_pool_clients_test.go` for
+`ListUserPoolClients` assertions: both existing tests assert only `Len`
+and `ClientName`, neither previously asserted (nor now needs to change
+for) the shape fix. Grepped for `MFAOptions` in every `*_test.go`: zero
+prior assertions in either direction on the List side — never exercised,
+not a wrong assertion staying green.
+
+**Phantom ops**: none. Extracted all 129 op-name string literals from
+`baseSupportedOperations()`/`extendedSupportedOperations()` and confirmed
+an `api_op_<Name>.go` file exists for every one in
+cognitoidentityprovider@v1.67.4.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>Output`/`deserializeDocument<Type>`
+function's own case list or the real `types.go`/`api_op_*.go` struct
+definition, file+line, confirmed via the actual live dispatch-table
+registration (not assumed from a handler function's name).
+
+**Disclosed, not fixed** (structural gaps needing new backend modeling,
+or fields AWS itself has deprecated — none silently drop data the backend
+already tracks):
+- `GetUserPoolMfaConfig`'s `WebAuthnConfiguration` (real, non-required
+  member) — no WebAuthn relying-party configuration concept exists
+  anywhere in this backend's user-pool MFA model (only per-user
+  `WebAuthnCredential`s are tracked, a different real type).
+- `GetUICustomization`'s `CSSVersion` (real member) — no CSS-versioning
+  concept tracked on `UICustomization`.
+- `DescribeUserPoolDomain`'s `Routing` (real member, a newer
+  regional-endpoint-routing feature) — no domain-routing-rules concept
+  tracked on `UserPoolDomain`.
+- `AdminListGroupsForUser` has no `Limit`/`NextToken` pagination at all
+  (real op supports both), unlike its sibling `ListGroups`/
+  `ListUsersInGroup`, which already correctly paginate via
+  `ListGroupsPage`/`ListUsersInGroupPage` backend methods. A real
+  client's `Limit` request field is silently ignored (all groups
+  returned in one page) rather than honored-with-truncation. Flagged as
+  a genuine sibling-trap-shaped gap, not fixed: this backend has no
+  existing paginated-lookup-by-user variant to mirror, and adding one is
+  new backend surface, not a rename.
+- `ListUserPoolClients`/`ListUserPoolClientSecrets` real ops also both
+  echo `NextToken` at the top level (confirmed in both real deserializer
+  case lists); neither gopherstack struct has the field. Consistent with
+  this campaign's established "no truncation model, NextToken would be
+  empty either way" non-bug precedent elsewhere (rds, securityhub) since
+  neither handler truncates — not fixed, noted for completeness.
+
+3 real-SDK-client tests added in the new
+`services/cognitoidp/wire_field_fixes_test.go`
+(`TestListUserPoolClients_SummaryShape` — SDK-typed assertions plus a
+raw-body check proving no `ClientSecret`/`AllowedOAuthFlows` key reaches
+the wire at all; `TestListUsers_MFAOptionsPopulated`;
+`TestListUsersInGroup_MFAOptionsPopulated`). Every fix hand-reverted
+individually (no git, per this session's hard no-git-mutation
+constraint): the `ListUserPoolClients` struct-type revert is a compile
+error (proving the shape change load-bearing at the type level, not just
+runtime), and separately reverting only the handler while keeping the
+new struct reproduced the exact predicted runtime leak (`ClientSecret`
+present verbatim in the raw JSON body, quoted in the actual test failure
+output); both `MFAOptions` reverts (`toUserSummary` and `toAdminUserJSON`
+independently) reproduced the exact predicted empty-slice failure. All
+four reverts restored and diffed byte-identical against the pre-revert
+files before moving on.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to
+`services/cognitoidp`), `go fix -diff` (no diff), `golangci-lint run` (0
+issues, fieldalignment included via govet settings; no cyclop/gocyclo/
+gocognit/funlen nolints added) all green. `go test -race ./pkgs/...`
+green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all changes uncommitted —
+orchestrator must commit/push), `services/cloudwatchlogs/zzz_probe_test.go`
+(an unrelated sibling session's untracked file, present at both start and
+end of this session) confirmed untouched, no `gendocs`/`make docs` run.
+
+cognitoidp's List/Describe/Get families are now swept for this issue
+(42/42 self-enumerated ops verified against the real deserializer/live
+dispatch registration; layer 1 exhaustive, layer 2/3 covers every major
+shared type but not every opaque-blob field inside branding/auth-flow
+payloads — see disclosed list above for what's known-incomplete rather
+than silently assumed clean). 66 of 162 services swept, 96 remain. Per
+the ranked table, personalize (39, likely mostly-clean per
+gopherstack-sm02) is now the largest candidate without a live-sibling
+collision observed this session; re-check `git status` before picking.

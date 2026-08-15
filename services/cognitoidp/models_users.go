@@ -68,6 +68,7 @@ type userSummary struct {
 	Username         string          `json:"Username,omitempty"`
 	UserStatus       string          `json:"UserStatus,omitempty"`
 	Attributes       []attributeType `json:"Attributes,omitempty"`
+	MFAOptions       []mfaOptionType `json:"MFAOptions,omitempty"`
 	UserCreateDate   float64         `json:"UserCreateDate,omitempty"`
 	UserLastModified float64         `json:"UserLastModifiedDate,omitempty"`
 	Enabled          bool            `json:"Enabled"`
@@ -129,6 +130,7 @@ type adminUserJSON struct {
 	Username             string          `json:"Username,omitempty"`
 	UserStatus           string          `json:"UserStatus,omitempty"`
 	UserAttributes       []attributeType `json:"UserAttributes,omitempty"`
+	MFAOptions           []mfaOptionType `json:"MFAOptions,omitempty"`
 	UserCreateDate       float64         `json:"UserCreateDate,omitempty"`
 	UserLastModifiedDate float64         `json:"UserLastModifiedDate,omitempty"`
 	Enabled              bool            `json:"Enabled,omitempty"`

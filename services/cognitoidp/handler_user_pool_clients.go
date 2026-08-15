@@ -152,9 +152,13 @@ func (h *Handler) handleListUserPoolClientsAccurate(
 		return nil, err
 	}
 
-	items := make([]clientDataAccurate, 0, len(clients))
+	items := make([]userPoolClientSummaryJSON, 0, len(clients))
 	for _, c := range clients {
-		items = append(items, clientToAccurateData(c))
+		items = append(items, userPoolClientSummaryJSON{
+			ClientID:   c.ClientID,
+			ClientName: c.ClientName,
+			UserPoolID: c.UserPoolID,
+		})
 	}
 
 	return &listUserPoolClientsAccurateOutput{UserPoolClients: items}, nil
