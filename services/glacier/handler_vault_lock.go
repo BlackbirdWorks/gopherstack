@@ -20,13 +20,22 @@ func (h *Handler) handleVaultLock(c *echo.Context, op, resource string, body []b
 	case opInitiateVaultLock:
 		var req vaultLockPolicyRequest
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			if err := json.Unmarshal(body, &req); err != nil {
+				return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+					"invalid request body: "+err.Error())
+			}
 		}
 
 		lockID := generateID(lockIDLength)
 		if err := h.Backend.SetVaultLock(h.AccountID, h.DefaultRegion, vaultName, req.Policy, lockID); err != nil {
 			return h.writeBackendError(c, err)
 		}
+
+		// Real AWS returns the lock ID via the x-amz-lock-id header (see
+		// aws-sdk-go-v2's InitiateVaultLock deserializer, which reads it from
+		// there and ignores the body); the JSON body field is kept too for
+		// any client that reads it directly.
+		c.Response().Header().Set("X-Amz-Lock-Id", lockID)
 
 		return c.JSON(http.StatusCreated, map[string]string{"lockId": lockID})
 	case opCompleteVaultLock:

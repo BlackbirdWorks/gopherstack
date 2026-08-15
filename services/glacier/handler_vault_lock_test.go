@@ -301,7 +301,7 @@ func TestInitiateVaultLock_ReadsPolicy(t *testing.T) {
 			h := newTestHandler()
 			createVault(t, h, "policy-vault")
 
-			body := `{"Policy":"` + tt.policy + `"}`
+			body := `{"Policy":"` + strings.ReplaceAll(tt.policy, `"`, `\"`) + `"}`
 			rec := doRequest(
 				t,
 				h,
@@ -578,7 +578,7 @@ func TestVaultLock_WrongLockIDFails(t *testing.T) {
 			createVault(t, h, "lock-wrong-id-vault")
 
 			rec := doRequestWithHeaders(t, h, http.MethodPost,
-				"/"+testAccountID+"/vaults/lock-wrong-id-vault/lock-policy", `{"Policy":"p"}`, nil)
+				"/"+testAccountID+"/vaults/lock-wrong-id-vault/lock-policy", `{"Policy":"{}"}`, nil)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			rec = doRequestWithHeaders(t, h, http.MethodPost,
@@ -605,7 +605,7 @@ func TestVaultLock_AbortRemovesLock(t *testing.T) {
 			createVault(t, h, "lock-abort-vault")
 
 			rec := doRequestWithHeaders(t, h, http.MethodPost,
-				"/"+testAccountID+"/vaults/lock-abort-vault/lock-policy", `{"Policy":"p"}`, nil)
+				"/"+testAccountID+"/vaults/lock-abort-vault/lock-policy", `{"Policy":"{}"}`, nil)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			rec = doRequestWithHeaders(t, h, http.MethodDelete,
@@ -639,11 +639,11 @@ func TestVaultLock_DoubleInitiateConflict(t *testing.T) {
 			createVault(t, h, "double-lock-vault")
 
 			rec1 := doRequestWithHeaders(t, h, http.MethodPost,
-				"/"+testAccountID+"/vaults/double-lock-vault/lock-policy", `{"Policy":"p"}`, nil)
+				"/"+testAccountID+"/vaults/double-lock-vault/lock-policy", `{"Policy":"{}"}`, nil)
 			require.Equal(t, http.StatusCreated, rec1.Code)
 
 			rec2 := doRequestWithHeaders(t, h, http.MethodPost,
-				"/"+testAccountID+"/vaults/double-lock-vault/lock-policy", `{"Policy":"p"}`, nil)
+				"/"+testAccountID+"/vaults/double-lock-vault/lock-policy", `{"Policy":"{}"}`, nil)
 			assert.Equal(t, http.StatusConflict, rec2.Code, tt.name)
 		})
 	}
