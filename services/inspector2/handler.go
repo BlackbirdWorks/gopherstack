@@ -148,14 +148,18 @@ var onceRouteMatchPrefixes = sync.OnceValue(func() []string {
 // ambiguousRouteMatchPrefixes are onceRouteMatchPrefixes entries that also
 // prefix-match another registered service's real paths -- SecurityHub's
 // BatchImportFindings is POST /findings/import (starts with "/findings/")
-// and CreateMembers-family ops live under /members/{action}, both of which
-// this handler's plain prefix check would otherwise swallow before
-// SecurityHub's own (lower-registration-order) matcher ever runs. Gated by
-// isInspector2Request instead of narrowing the prefix, since real
-// Inspector2 also uses these exact prefixes (e.g. /findings/list).
+// and CreateMembers-family ops live under /members/{action}; Omics'
+// GetConfiguration/DeleteConfiguration live under /configuration/{name}
+// (confirmed against aws-sdk-go-v2/service/omics's serializers.go SplitURI
+// calls) -- all of which this handler's plain prefix check would otherwise
+// swallow before the other service's (tied-priority, later-registered)
+// matcher ever runs (gopherstack-op3e). Gated by isInspector2Request instead
+// of narrowing the prefix, since real Inspector2 also uses these exact
+// prefixes (e.g. /findings/list, /configuration/get).
 var ambiguousRouteMatchPrefixes = map[string]bool{ //nolint:gochecknoglobals // read-only lookup data
-	"/findings/": true,
-	"/members/":  true,
+	"/findings/":      true,
+	"/members/":       true,
+	"/configuration/": true,
 }
 
 // RouteMatcher returns a matcher that accepts Inspector2 REST paths.

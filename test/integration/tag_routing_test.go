@@ -44,6 +44,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	appconfigsvc "github.com/blackbirdworks/gopherstack/services/appconfig"
+	appconfigdatasvc "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	inspector2svc "github.com/blackbirdworks/gopherstack/services/inspector2"
 	securityhubsvc "github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -645,7 +647,10 @@ func newAppSyncTagProbe(ctx context.Context, t *testing.T) tagProbe {
 	t.Cleanup(func() {
 		cctx, cancel := tagRoutingCleanupCtx()
 		defer cancel()
-		_, _ = client.DeleteGraphqlApi(cctx, &appsyncsdkv2.DeleteGraphqlApiInput{ApiId: aws.String(apiID)})
+		_, _ = client.DeleteGraphqlApi(
+			cctx,
+			&appsyncsdkv2.DeleteGraphqlApiInput{ApiId: aws.String(apiID)},
+		)
 	})
 
 	return tagProbe{
@@ -653,7 +658,9 @@ func newAppSyncTagProbe(ctx context.Context, t *testing.T) tagProbe {
 		want:    "appsync-value",
 		tag: func(ctx context.Context) error {
 			_, tagErr := client.TagResource(ctx, &appsyncsdkv2.TagResourceInput{
-				ResourceArn: aws.String(resourceARN), Tags: map[string]string{"env": "appsync-value"},
+				ResourceArn: aws.String(
+					resourceARN,
+				), Tags: map[string]string{"env": "appsync-value"},
 			})
 
 			return tagErr
@@ -1236,17 +1243,23 @@ func TestIntegration_ConfigurationsRouting_CrossServiceIsolation(t *testing.T) {
 	kafkaClient := createKafkaSDKClient(t)
 	kafkaName := "integ-routing-kafka-" + uuid.NewString()[:8]
 
-	kafkaCreateOut, kafkaCreateErr := kafkaClient.CreateConfiguration(ctx, &kafkasdk.CreateConfigurationInput{
-		Name:             aws.String(kafkaName),
-		KafkaVersions:    []string{"3.5.1"},
-		ServerProperties: []byte("auto.create.topics.enable=true"),
-	})
+	kafkaCreateOut, kafkaCreateErr := kafkaClient.CreateConfiguration(
+		ctx,
+		&kafkasdk.CreateConfigurationInput{
+			Name:             aws.String(kafkaName),
+			KafkaVersions:    []string{"3.5.1"},
+			ServerProperties: []byte("auto.create.topics.enable=true"),
+		},
+	)
 	require.NoError(t, kafkaCreateErr, "kafka CreateConfiguration should succeed")
 	kafkaArn := aws.ToString(kafkaCreateOut.Arn)
 
-	kafkaDescOut, kafkaDescErr := kafkaClient.DescribeConfiguration(ctx, &kafkasdk.DescribeConfigurationInput{
-		Arn: aws.String(kafkaArn),
-	})
+	kafkaDescOut, kafkaDescErr := kafkaClient.DescribeConfiguration(
+		ctx,
+		&kafkasdk.DescribeConfigurationInput{
+			Arn: aws.String(kafkaArn),
+		},
+	)
 	require.NoError(t, kafkaDescErr, "kafka DescribeConfiguration should succeed")
 	assert.Equal(t, kafkaName, aws.ToString(kafkaDescOut.Name))
 }
@@ -1291,9 +1304,12 @@ func TestIntegration_ShadowListRouting_CrossServiceIsolation(t *testing.T) {
 
 	client := createIoTDataPlaneClient(t)
 
-	listOut, listErr := client.ListNamedShadowsForThing(ctx, &iotdataplanesdk.ListNamedShadowsForThingInput{
-		ThingName: aws.String(thingName),
-	})
+	listOut, listErr := client.ListNamedShadowsForThing(
+		ctx,
+		&iotdataplanesdk.ListNamedShadowsForThingInput{
+			ThingName: aws.String(thingName),
+		},
+	)
 	require.NoError(t, listErr, "iotdataplane ListNamedShadowsForThing should succeed")
 	assert.Contains(t, listOut.Results, shadowName)
 }
@@ -1352,15 +1368,25 @@ func TestIntegration_ApplicationsRouting_CrossServiceIsolation(t *testing.T) {
 	}{
 		{name: "unsigned request still matches appconfig", signingService: "", want: true},
 		{name: "appconfig signed request matches", signingService: "appconfig", want: true},
-		{name: "emr serverless signed request does not match", signingService: "emr-serverless", want: false},
-		{name: "serverlessrepo signed request does not match", signingService: "serverlessrepo", want: false},
+		{
+			name:           "emr serverless signed request does not match",
+			signingService: "emr-serverless",
+			want:           false,
+		},
+		{
+			name:           "serverlessrepo signed request does not match",
+			signingService: "serverlessrepo",
+			want:           false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := appconfigsvc.NewHandler(appconfigsvc.NewInMemoryBackend("000000000000", "us-east-1"))
+			h := appconfigsvc.NewHandler(
+				appconfigsvc.NewInMemoryBackend("000000000000", "us-east-1"),
+			)
 			c := matcherContext(http.MethodPost, "/applications", tt.signingService)
 
 			assert.Equal(t, tt.want, h.RouteMatcher()(c))
@@ -1393,7 +1419,12 @@ func TestIntegration_AccountsRouting_CrossServiceIsolation(t *testing.T) {
 		signingService string
 		want           bool
 	}{
-		{name: "exact accounts matches unsigned", path: "/accounts", signingService: "", want: true},
+		{
+			name:           "exact accounts matches unsigned",
+			path:           "/accounts",
+			signingService: "",
+			want:           true,
+		},
 		{
 			name: "exact accounts matches securityhub signed", path: "/accounts",
 			signingService: "securityhub", want: true,
@@ -1414,7 +1445,115 @@ func TestIntegration_AccountsRouting_CrossServiceIsolation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := securityhubsvc.NewHandler(securityhubsvc.NewInMemoryBackend("000000000000", "us-east-1"))
+			h := securityhubsvc.NewHandler(
+				securityhubsvc.NewInMemoryBackend("000000000000", "us-east-1"),
+			)
+			c := matcherContext(http.MethodPost, tt.path, tt.signingService)
+
+			assert.Equal(t, tt.want, h.RouteMatcher()(c))
+		})
+	}
+}
+
+// TestIntegration_ConfigurationRouting_AppConfigData_CrossServiceIsolation
+// drives AppConfigData's RouteMatcher directly against the bare
+// "/configuration" path also claimed by Omics' ListConfigurations
+// (GET, aws-sdk-go-v2/service/omics@v1.49.5, serializers.go "type
+// awsRestjson1_serializeOpListConfigurations") and CreateConfiguration
+// (POST, same file, "type awsRestjson1_serializeOpCreateConfiguration") --
+// both SplitURI("/configuration") with no further segment. AppConfigData's
+// own GetLatestConfiguration is also GET /configuration
+// (aws-sdk-go-v2/service/appconfigdata@v1.26.4, serializers.go:42), and
+// AppConfigData registers at MatchPriority 86, ahead of Omics' 85, so it
+// always wins the race regardless of registration order. AppConfigData's own
+// RouteMatcher used to claim "/configuration" unconditionally; a real Omics
+// client's request was silently misrouted to AppConfigData's
+// "ConfigurationToken is required" 400 instead (confirmed live,
+// gopherstack-op3e). This is driven as a RouteMatcher probe rather than a
+// full docker round trip because Omics' own SDK client unconditionally
+// rewrites the request host to "workflows-<host>" for this whole op family
+// (aws-sdk-go-v2/service/omics@v1.49.5/api_op_ListConfigurations.go:~130,
+// `req.URL.Host = "workflows-" + req.URL.Host`), so it cannot reach the
+// shared test container's single endpoint at all -- a separate, pre-existing
+// host-routing gap, not something this fix touches or masks.
+func TestIntegration_ConfigurationRouting_AppConfigData_CrossServiceIsolation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		signingService string
+		want           bool
+	}{
+		{name: "appconfig signed request matches", signingService: "appconfig", want: true},
+		{name: "omics signed request does not match", signingService: "omics", want: false},
+		{name: "unsigned request does not match", signingService: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := appconfigdatasvc.NewHandler(appconfigdatasvc.NewInMemoryBackend())
+			c := matcherContext(http.MethodGet, "/configuration", tt.signingService)
+
+			assert.Equal(t, tt.want, h.RouteMatcher()(c))
+		})
+	}
+}
+
+// TestIntegration_ConfigurationRouting_Inspector2_CrossServiceIsolation
+// drives Inspector2's RouteMatcher directly against the "/configuration/"
+// prefix also claimed by Omics' GetConfiguration/DeleteConfiguration
+// (aws-sdk-go-v2/service/omics@v1.49.5, serializers.go "type
+// awsRestjson1_serializeOpGetConfiguration"/"...DeleteConfiguration",
+// SplitURI("/configuration/{name}")). Inspector2's own GetConfiguration/
+// UpdateConfiguration bind "/configuration/get" and "/configuration/update".
+// Both services register at MatchPriority 85 (tied), and Inspector2
+// registers first in cli.go, so it always wins ties -- Inspector2's plain
+// "/configuration/" prefix used to swallow every Omics GetConfiguration/
+// DeleteConfiguration request before Omics' matcher ever ran, misrouting to
+// Inspector2's generic 501 NotImplementedException (confirmed live,
+// gopherstack-op3e; same root cause and fix shape as the original
+// /findings//members/ collision this file's other tests guard). Driven as a
+// RouteMatcher probe rather than a full docker round trip for the same
+// reason as the AppConfigData/Omics test above: Omics' SDK client rewrites
+// the request host for this op family and cannot reach the shared endpoint.
+func TestIntegration_ConfigurationRouting_Inspector2_CrossServiceIsolation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		path           string
+		signingService string
+		want           bool
+	}{
+		{
+			name:           "own get op matches inspector2 signed",
+			path:           "/configuration/get",
+			signingService: "inspector2",
+			want:           true,
+		},
+		{
+			name: "own update op matches inspector2 signed", path: "/configuration/update",
+			signingService: "inspector2", want: true,
+		},
+		{
+			name: "omics named configuration does not match omics signed", path: "/configuration/my-config",
+			signingService: "omics", want: false,
+		},
+		{
+			name: "omics named configuration does not match unsigned", path: "/configuration/my-config",
+			signingService: "", want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := inspector2svc.NewHandler(
+				inspector2svc.NewInMemoryBackend("000000000000", "us-east-1"),
+			)
 			c := matcherContext(http.MethodPost, tt.path, tt.signingService)
 
 			assert.Equal(t, tt.want, h.RouteMatcher()(c))

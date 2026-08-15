@@ -12,12 +12,14 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
 	appConfigDataMatchPriority   = 86
+	appConfigDataSigningName     = "appconfig"
 	configurationsessionsPath    = "/configurationsessions"
 	configurationPath            = "/configuration"
 	configurationTokenQueryParam = "configuration_token"
@@ -77,8 +79,17 @@ func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+		if path != configurationsessionsPath && path != configurationPath {
+			return false
+		}
 
-		return path == configurationsessionsPath || path == configurationPath
+		// "/configuration" is also Omics' bare ListConfigurations/CreateConfiguration
+		// path (confirmed against aws-sdk-go-v2/service/omics's serializers.go
+		// SplitURI calls); AppConfigData's own real SigV4 signing name is
+		// "appconfig" (confirmed live: the SDK client signs Credential=.../appconfig/
+		// aws4_request, not "appconfigdata"), so scope on that rather than the
+		// bare path alone.
+		return httputils.ExtractServiceFromRequest(c.Request()) == appConfigDataSigningName
 	}
 }
 

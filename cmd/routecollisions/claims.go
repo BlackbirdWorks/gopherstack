@@ -75,8 +75,22 @@ func extractClaims(body string, consts map[string]string, sliceConsts map[string
 	scanQuotedLiterals(cc, body)
 	scanConcatLiterals(cc, body, consts)
 	scanIdentifierLiterals(cc, body, consts, sliceConsts)
+	scanSecondArgPrefixIdent(cc, body, consts)
 
 	return cc.claims()
+}
+
+// scanSecondArgPrefixIdent resolves the "HasPrefix(<inline path expr>, xxxPrefix)"
+// shape -- see secondArgPrefixRe's doc comment -- against the package const
+// table, so single-prefix RouteMatchers that never assign the request path to
+// a local "path" variable still produce a claim.
+func scanSecondArgPrefixIdent(cc *claimCollector, body string, consts map[string]string) {
+	for _, m := range secondArgPrefixRe.FindAllStringSubmatchIndex(body, -1) {
+		ident := strings.TrimSuffix(body[m[2]:m[3]], "()")
+		if val, ok := consts[ident]; ok {
+			cc.add(val, m[0], m[1])
+		}
+	}
 }
 
 func scanQuotedLiterals(cc *claimCollector, body string) {

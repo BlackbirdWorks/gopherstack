@@ -354,6 +354,11 @@ func buildServiceInfos(pd *pkgData, name string, priority int) []svcInfo {
 		claims := extractClaims(body, pd.consts, pd.sliceConsts)
 
 		if len(claims) == 0 {
+			isQueryProtocol := queryProtocolContentTypeRe.MatchString(body) && queryProtocolVersionRe.MatchString(body)
+			if isQueryProtocol {
+				out = append(out, svcInfo{Dir: name, Priority: priority, Immune: true})
+			}
+
 			continue
 		}
 

@@ -82,10 +82,23 @@ func sortOverlapPairs(pairs []overlapPair) {
 }
 
 func renderOverlapPairs(results []svcInfo, pairs []overlapPair) {
+	var withClaims, immune int
+
+	for _, r := range results {
+		switch {
+		case len(r.Claims) > 0:
+			withClaims++
+		case r.Immune:
+			immune++
+		}
+	}
+
 	fmt.Fprintf(
 		os.Stdout,
-		"%d services have a RouteMatcher with extracted path claims; %d literal-overlap candidate pairs found\n\n",
-		len(results),
+		"%d services have a RouteMatcher with extracted path claims, %d recognized as structurally "+
+			"immune (query-protocol Version/Action body match); %d literal-overlap candidate pairs found\n\n",
+		withClaims,
+		immune,
 		len(pairs),
 	)
 

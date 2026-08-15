@@ -232,15 +232,16 @@ func paritySeedFinding(
 	)
 }
 
-// TestRouteMatcher_FindingsMembersDisambiguation guards the fix for a route
-// collision: "/findings/" and "/members/" also prefix-match SecurityHub's
-// own /findings* (GetFindings, BatchImportFindings) and /members* paths.
-// Before the fix, Inspector2's plain prefix check swallowed those requests
-// before SecurityHub's own (lower-registration-order) matcher ever ran,
-// silently misrouting BatchImportFindings and friends to a 501 from
-// Inspector2. The matcher now requires an inspector2-signed request for
-// those two ambiguous prefixes; a securityhub-signed request on the same
-// paths must not match.
+// TestRouteMatcher_FindingsMembersDisambiguation guards the fix for two route
+// collisions on the same mechanism: "/findings/" and "/members/" also
+// prefix-match SecurityHub's own /findings* (GetFindings, BatchImportFindings)
+// and /members* paths, and "/configuration/" also prefix-matches Omics'
+// GetConfiguration/DeleteConfiguration (/configuration/{name}). Before the
+// fix, Inspector2's plain prefix check swallowed those requests before the
+// other, tied-priority, later-registered service's matcher ever ran, silently
+// misrouting them to a 501 from Inspector2 (gopherstack-op3e). The matcher
+// now requires an inspector2-signed request for those ambiguous prefixes; a
+// securityhub/omics-signed request on the same paths must not match.
 func TestRouteMatcher_FindingsMembersDisambiguation(t *testing.T) {
 	t.Parallel()
 
@@ -258,6 +259,9 @@ func TestRouteMatcher_FindingsMembersDisambiguation(t *testing.T) {
 		{path: "/findings/import", want: false},
 		{path: "/members/get", auth: "inspector2", want: true},
 		{path: "/members", auth: "securityhub", want: false},
+		{path: "/configuration/get", auth: "inspector2", want: true},
+		{path: "/configuration/testname", auth: "omics", want: false},
+		{path: "/configuration/testname", want: false},
 	}
 
 	e := echo.New()
