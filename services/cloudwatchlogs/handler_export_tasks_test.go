@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cwlsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cwltypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -144,19 +147,25 @@ func TestHandler_ImportTask_CancelRoundTrip(t *testing.T) {
 	assert.Equal(t, "CANCELLED", cancelOut["importStatus"])
 }
 
-// TestHandler_DescribeImportTasks_WireShape locks the AWS wire key for an
-// import task's status field: aws-sdk-go-v2 types.Import.ImportStatus
-// serializes to "importStatus", not "status" (unlike, say, ExportTask's
-// nested status object -- Import's status is a bare string, just under a
-// different key name than this backend's internal ImportTask.Status Go field
-// name might suggest). ImportRoleArn is also asserted absent: it is not a
-// field on the real Import describe/list type at all.
+// TestHandler_DescribeImportTasks_WireShape locks the AWS wire shape for
+// DescribeImportTasks end to end, via the real aws-sdk-go-v2 client rather
+// than a raw map: the response wrapper key is "imports", not "importTasks"
+// (deserializers.go's ...DescribeImportTasksOutput case "imports":), and the
+// request filter key is "importId", not "taskId" (serializers.go's
+// ...DescribeImportTasksInput case "importId":). A previous revision used
+// ExportTask's "taskId"/"importTasks" convention on Import by mistake, so a
+// real client's ImportId filter never reached the backend and its typed
+// Imports field was always empty regardless of what the backend tracked.
+// Within an import task, aws-sdk-go-v2 types.Import.ImportStatus serializes
+// to "importStatus", not "status", and ImportRoleArn is not a field on the
+// real Import type at all.
 func TestHandler_DescribeImportTasks_WireShape(t *testing.T) {
 	t.Parallel()
 
-	e := echo.New()
 	backend := cloudwatchlogs.NewInMemoryBackend()
 	h := cloudwatchlogs.NewHandler(backend)
+	client := newTestCloudWatchLogsClient(t, h)
+	ctx := t.Context()
 
 	cloudwatchlogs.AddImportTaskInternal(backend, cloudwatchlogs.ImportTask{
 		ImportID:             "i1",
@@ -167,23 +176,25 @@ func TestHandler_DescribeImportTasks_WireShape(t *testing.T) {
 		CreationTime:         1700000000000,
 		LastUpdatedTime:      1700000001000,
 	})
+	cloudwatchlogs.AddImportTaskInternal(backend, cloudwatchlogs.ImportTask{
+		ImportID:             "i2",
+		ImportSourceArn:      "arn:aws:cloudtrail:us-east-1:123:eventdatastore/def",
+		ImportDestinationArn: "arn:aws:logs:us-east-1:123:log-group:/aws/import2",
+		Status:               "COMPLETED",
+		CreationTime:         1700000002000,
+		LastUpdatedTime:      1700000003000,
+	})
 
-	rec := doLogsRequest(t, h, e, "DescribeImportTasks", `{}`)
-	require.Equal(t, http.StatusOK, rec.Code)
+	out, err := client.DescribeImportTasks(ctx, &cwlsdk.DescribeImportTasksInput{
+		ImportId: aws.String("i1"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Imports, 1, "ImportId filter must reach the backend via the real wire key")
 
-	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
-	tasks, ok := raw["importTasks"].([]any)
-	require.True(t, ok)
-	require.Len(t, tasks, 1)
-	task, ok := tasks[0].(map[string]any)
-	require.True(t, ok)
-
-	assert.Equal(t, "IN_PROGRESS", task["importStatus"], "wire key must be importStatus, not status")
-	_, hasStatus := task["status"]
-	assert.False(t, hasStatus, "bare \"status\" key must not appear on an import task")
-	_, hasImportRoleArn := task["importRoleArn"]
-	assert.False(t, hasImportRoleArn, "importRoleArn is not part of the real Import describe/list shape")
+	got := out.Imports[0]
+	assert.Equal(t, "i1", aws.ToString(got.ImportId))
+	assert.Equal(t, cwltypes.ImportStatusInProgress, got.ImportStatus)
+	assert.Equal(t, "arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc", aws.ToString(got.ImportSourceArn))
 }
 
 func TestHandler_CancelExportTask_StateValidation(t *testing.T) {
@@ -478,8 +489,9 @@ func TestHandler_ImportTaskBatchesValidation(t *testing.T) {
 		wantCode      int
 	}{
 		{
-			// DescribeImportTaskBatches is validation-only: taskId is required.
-			name:     "DescribeImportTaskBatches/RequiresTaskID",
+			// DescribeImportTaskBatches is validation-only: importId is
+			// required.
+			name:     "DescribeImportTaskBatches/RequiresImportID",
 			action:   "DescribeImportTaskBatches",
 			body:     map[string]any{},
 			wantCode: http.StatusBadRequest,
@@ -505,4 +517,40 @@ func TestHandler_ImportTaskBatchesValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_DescribeImportTaskBatches_RealClient proves DescribeImportTaskBatches
+// is actually reachable by a real aws-sdk-go-v2 client. Before the fix, the
+// handler required a "taskId" body field that no real client ever sends (the
+// real DescribeImportTaskBatchesInput serializes its filter as "importId",
+// serializers.go's ...DescribeImportTaskBatchesInput case "importId":), so
+// every real client call failed the handler's own required-field check
+// regardless of what it sent. The response wrapper is "importBatches", not
+// "importTaskBatches" (deserializers.go's
+// ...DescribeImportTaskBatchesOutput case "importBatches":), and ImportId/
+// ImportSourceArn are echoed alongside it.
+func TestHandler_DescribeImportTaskBatches_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+	client := newTestCloudWatchLogsClient(t, h)
+	ctx := t.Context()
+
+	cloudwatchlogs.AddImportTaskInternal(backend, cloudwatchlogs.ImportTask{
+		ImportID:        "batch-i1",
+		ImportSourceArn: "arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc",
+		Status:          "IN_PROGRESS",
+	})
+
+	out, err := client.DescribeImportTaskBatches(ctx, &cwlsdk.DescribeImportTaskBatchesInput{
+		ImportId: aws.String("batch-i1"),
+	})
+	require.NoError(t, err, "a real client's importId filter must reach the handler")
+	assert.Equal(t, "batch-i1", aws.ToString(out.ImportId))
+	assert.Equal(t,
+		"arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc",
+		aws.ToString(out.ImportSourceArn),
+	)
+	assert.Empty(t, out.ImportBatches)
 }

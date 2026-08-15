@@ -77,7 +77,7 @@ rather than a range over a literal table:
   member diff there is thorough enough that this issue's own prior notes
   already listed ssm as layer-1 swept).
 
-## Swept (59 of 162) — do not re-sweep without reading the cited work first
+## Swept (60 of 162) — do not re-sweep without reading the cited work first
 
 Every op in these services has had at least one full layer-1 (wrapper key)
 pass; most also have layer-2 (nesting) and layer-3 (backend-tracked-but-
@@ -87,16 +87,16 @@ again — several have explicit "already checked, don't re-flag" notes (e.g.
 route53's `ListHostedZonesByVPC` XMLName quirk, cloudfront's root-tag
 non-bug, rds's `GlobalClusterMember` shared-name non-bug).
 
-apigateway, appstream, athena, autoscaling, **awsconfig** (this session),
-backup, bedrock, bedrockagent, cleanrooms, cloudformation, cloudfront,
-cloudfrontkeyvaluestore, cloudwatch, codebuild, codecommit, datasync, dlm,
-dynamodbstreams, ec2, ecs, eks, elasticache, elbv2, forecast, glue, iam,
-identitystore, inspector2, iot, iotwireless, kms, lambda, lightsail,
-medialive, mgn, networkmonitor, omics, opensearch, organizations,
-**pinpoint** (this session), quicksight, rds, redshift, resiliencehub,
-resourcegroupstaggingapi, route53, s3control, s3tables, sagemaker,
-secretsmanager, servicediscovery, ses, sesv2, sns, sqs, ssm, ssoadmin,
-stepfunctions, transfer.
+apigateway, appstream, athena, autoscaling, awsconfig, backup, bedrock,
+bedrockagent, cleanrooms, cloudformation, cloudfront,
+cloudfrontkeyvaluestore, cloudwatch, **cloudwatchlogs** (this session),
+codebuild, codecommit, datasync, dlm, dynamodbstreams, ec2, ecs, eks,
+elasticache, elbv2, forecast, glue, iam, identitystore, inspector2, iot,
+iotwireless, kms, lambda, lightsail, medialive, mgn, networkmonitor, omics,
+opensearch, organizations, pinpoint, quicksight, rds, redshift,
+resiliencehub, resourcegroupstaggingapi, route53, s3control, s3tables,
+sagemaker, secretsmanager, servicediscovery, ses, sesv2, sns, sqs, ssm,
+ssoadmin, stepfunctions, transfer.
 
 Two services have real, extensive wire-shape work under **other** issue
 classes (gopherstack-enpq's required-member diff, gopherstack-h910/ctaz's
@@ -104,7 +104,7 @@ backend-logic fixes) but **no 6flj-specific wrapper-key pass on record** —
 s3 and dynamodb. They are listed in the unswept table below on purpose;
 don't assume "heavily worked on" means "settled for this issue."
 
-## Unswept (103 of 162), ranked by List+Describe+Get op count
+## Unswept (102 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -119,12 +119,11 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 103 (pinpoint's 53 removed, swept this
-session): **1,689** candidate ops.
+Sum of the L+D+G column across all 102 (cloudwatchlogs's 48 removed, swept
+this session): **1,641** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| cloudwatchlogs | 118 | 11 | 19 | 18 | 48 | chased |
 | securityhub | 116 | 15 | 8 | 24 | 47 | dynamic-fallback |
 | s3 | 115 | 12 | 0 | 33 | 45 | chased |
 | macie2 | 81 | 15 | 3 | 22 | 40 | direct |
@@ -478,3 +477,209 @@ this session's instructions), `go test -race`, `go fix -diff` (no diff),
 golangci-lint (0 issues after that + a `nonamedreturns` fix on the new
 `parseKPIDateRange` helper; no cyclop/gocyclo/gocognit/funlen nolints
 added) all green for `services/pinpoint`. `go test -race ./pkgs/...` green.
+
+## cloudwatchlogs (this session)
+
+Chosen per the prior session's own note as the next-largest unswept service
+(48 L+D+G ops: 11 List/19 Describe/18 Get). `bd show gopherstack-6flj`'s
+comments confirm cloudwatchlogs had **not** previously had a 6flj wrapper-key
+pass; a different issue (gopherstack-enpq) touched `UpdateAnomaly`'s
+suppress-inversion bug and added five absent `Anomaly` members, but that is a
+different op family (Anomaly, not AnomalyDetector) and doesn't cover the
+List/Describe/Get layer swept here.
+
+PROTOCOL: confirmed `awsAwsjson11_` (JSON-RPC 1.1) from
+`cloudwatchlogs@v1.81.1/api_client.go`'s `addProtocolFinalizerMiddlewares`
+and the sole prefix present in `deserializers.go` (`grep -o
+'awsAwsjson[0-9]*_'` — no `awsRestjson`/`awsEc2query`/`awsAwsquery` prefixes
+at all). Case-sensitive, like awsconfig. **All 544 `EqualFold` hits in
+`deserializers.go` are in the per-op `deserializeOpError*` functions,
+matching against the `errorCode` string** (e.g. `case
+strings.EqualFold("InvalidParameterException", errorCode):`) — none are in
+a body-field `switch key { case "...":}` block. Spot-checked a dozen
+`deserializeOpDocument*Output`/`deserializeDocument*` functions directly:
+every one uses a plain `switch key { case "logGroups": ...}`, so a casing
+mismatch here is a real bug, not a near-miss.
+
+**Dead-deserializer trap checked and found NOT to apply here** — unlike
+pinpoint's restjson1, where `HandleDeserialize` bypasses the generated
+`OpDocument*Output` wrapper entirely, cloudwatchlogs's JSON-RPC 1.1
+`HandleDeserialize` (e.g. `awsAwsjson11_deserializeOpDescribeLogGroups`,
+deserializers.go:4941) decodes the whole body into `shape` and then calls
+`awsAwsjson11_deserializeOpDocumentDescribeLogGroupsOutput(&output, shape)`
+directly (deserializers.go:4981) — the `OpDocument*Output` function **is**
+the real, reached deserializer for every op in this service. Confirmed for
+a dozen ops (log groups, streams, queries, anomaly detectors, transformers,
+import/export tasks) before citing any of them.
+
+Read all 48 L+D+G ops' response shapes against their own
+`awsAwsjson11_deserializeOpDocument<Op>Output` case list (file+line), and
+checked the paired `awsAwsjson11_serializeOpDocument<Op>Input` for every op
+whose handler reads a filter/identifier field, per this session's
+"check the request side too" instruction.
+
+**4 real bugs found and fixed, all on 2 ops in the import-task family:**
+
+1. **`DescribeImportTasks` — broken in both directions (sibling trap).**
+   Export and import tasks share this file, and Export genuinely uses
+   `taskId` (confirmed: `CancelExportTaskInput`/`DescribeExportTasksInput`
+   both serialize `taskId`, serializers.go:8907/9720). Import does **not**
+   — `CreateImportTaskInput`/`CancelImportTaskInput` both correctly use
+   `importId`/`importRoleArn`/`importSourceArn` (serializers.go:9027,
+   8923), but `DescribeImportTasksInput`'s request key is also `importId`
+   (serializers.go:9780), and gopherstack's `describeImportTasksInput` read
+   `taskId` — the export convention, copied onto import by mistake. A real
+   client's `ImportId` filter was silently ignored (the field is optional
+   on this op, so the request still succeeded, just returned everything).
+   Response side: `DescribeImportTasksOutput`'s wrapper key is `imports`,
+   not `importTasks` (deserializers.go:26774,
+   `awsAwsjson11_deserializeOpDocumentDescribeImportTasksOutput`) — a real
+   client's typed `Imports` field was always empty regardless of backend
+   state.
+2. **`DescribeImportTaskBatches` — three issues, one of them total-outage
+   severity.** Request key is `importId`, not `taskId`
+   (serializers.go:9758) — same sibling-trap mistake as above, but this
+   field is `required` on this op's handler-side validation, so **every
+   real SDK client call failed with `InvalidParameterException: taskId is
+   required`, unconditionally**, regardless of what the client sent. This
+   op was completely unreachable by any real client before this fix.
+   Response wrapper key is `importBatches`, not `importTaskBatches`
+   (deserializers.go:9747 request side / the paired Output deserializer,
+   case `"importBatches"`). `importId`/`importSourceArn` are also real,
+   always-present `DescribeImportTaskBatchesOutput` echo members
+   (`api_op_DescribeImportTaskBatches.go`) the handler never emitted, even
+   though it already had `input.ImportID` and the looked-up task's
+   `ImportSourceArn` on hand — fixed to echo both. `ImportBatches` itself
+   stays an empty stub (disclosed below).
+
+**1 real bug found and fixed — invented wrapper (not a sibling trap this
+time, a same-file inconsistency):** `GetLogAnomalyDetector` wrapped its
+entire response under a fabricated `"anomalyDetector"` key
+(`{"anomalyDetector": {...}}`). The real `GetLogAnomalyDetectorOutput`
+(`api_op_GetLogAnomalyDetector.go`) has 9 members sitting flat at the top
+level, with **no wrapper object at all** — confirmed against
+`awsAwsjson11_deserializeOpDocumentGetLogAnomalyDetectorOutput`
+(deserializers.go), which switches directly on
+`anomalyDetectorStatus`/`detectorName`/etc. The struct that was wrapped
+(`LogAnomalyDetector`) also carries `anomalyDetectorArn` — correct for its
+other use as `ListLogAnomalyDetectorsOutput`'s per-item shape (that sibling
+type, `types.AnomalyDetector`, does have an ARN member), but
+`GetLogAnomalyDetectorOutput` has no such member at all. This exact "no
+wrapper, members flat at top level" shape was already correctly implemented
+for `GetScheduledQuery` in the same file
+(`handler_scheduled_queries.go:214`, with its own citing comment) —
+`GetLogAnomalyDetector` was the same bug class, just not yet fixed. Every
+real SDK client's typed `GetLogAnomalyDetectorOutput` fields
+(`AnomalyDetectorStatus`, `DetectorName`, etc.) were nil/zero regardless of
+backend state.
+
+**1 real bug found and fixed — backend-tracked-but-unemitted (layer 3):**
+`GetTransformer` never emitted `creationTime`/`lastModifiedTime`, both real
+`GetTransformerOutput` members (`api_op_GetTransformer.go`). The backend's
+`Transformer.CreatedAt` already tracks a timestamp (set on every
+`PutTransformer` upsert) but the handler dropped it entirely. Fixed by
+emitting `t.CreatedAt.UnixMilli()` for both fields (the backend has no
+separate original-creation timestamp once a transformer is updated, so
+`CreatedAt` stands in for both — disclosed in-code, not silently
+approximated).
+
+**Ratifying tests found and fixed — 2, one per shape variant:**
+- `TestHandler_DescribeImportTasks_WireShape` asserted `raw["importTasks"]`
+  as if that were the correct key, with a doc comment explicitly claiming
+  to "lock the AWS wire shape" while itself encoding the pre-fix bug —
+  passed cleanly against broken code because both the handler and the test
+  agreed on the wrong key. Rewritten to drive the real SDK client, assert
+  `out.Imports` (not a raw map), and prove the `ImportId` request filter
+  itself reaches the backend.
+- `TestHandler_UpdateLogAnomalyDetector_EnabledPauseResume`'s `getStatus`
+  helper asserted `out["anomalyDetector"].(map[string]any)` — the wrong
+  wrapper key, present because the pre-fix handler and the test agreed.
+  Rewritten to drive the real SDK client and read
+  `out.AnomalyDetectorStatus`/`out.DetectorName` directly, which cannot
+  compile-pass against a wrapped response.
+
+Also added `TestHandler_DescribeImportTaskBatches_RealClient` (no prior
+test drove this op through a real client at all — its only previous
+coverage was `TestHandler_ImportTaskBatchesValidation`'s empty-body 400
+case, which never sent an id in either key and so couldn't have caught
+either direction of the bug) and `TestHandler_GetTransformer_Timestamps`
+(same gap: no prior test read `GetTransformerOutput.CreationTime`/
+`LastModifiedTime` through a typed client).
+
+**Disclosed, not fixed** (real gaps needing new backend modeling, not a
+rename):
+- `DescribeImportTaskBatches`'s `ImportBatches` list itself stays an empty
+  stub — the backend tracks import tasks but not their per-batch progress
+  (no `ImportBatch` model at all). Fixing the wrapper key and id echoes
+  doesn't change the empty-list behavior for a real client; a genuine
+  round-trip test can't distinguish "correct key, backend has no batches"
+  from "wrong key, backend has no batches" here — this fix is client-shape
+  correctness, not new data.
+- `GetIntegration` never emits `integrationDetails`, a real
+  (non-required) `GetIntegrationOutput` member. The real type is a union
+  (`types.IntegrationDetails` → `OpenSearchIntegrationDetails`) describing
+  provisioned OpenSearch resources (collection ARN, application ARN, data
+  access policy) that this backend's `PutIntegration` never simulates
+  provisioning — synthesizing plausible-looking ARNs would be fabrication,
+  not a rename.
+- `GetDataProtectionPolicy` never emits `lastUpdatedTime` (real,
+  non-required `GetDataProtectionPolicyOutput` member) — the backend
+  stores the policy document as a bare string with no timestamp field.
+- `Delivery` (shared by `GetDelivery`/`DescribeDeliveries`) never emits
+  `deliveryDestinationType` (real, non-required `types.Delivery` member) —
+  would require a join against the `deliveryDestinations` table by ARN at
+  response time; the `Delivery` model has no such field or lookup today.
+- `Import` (the `DescribeImportTasks` item type) never emits
+  `errorMessage`/`importFilter`/`importStatistics` — all real, non-required
+  `types.Import` members this backend doesn't simulate import progress or
+  failure for.
+- `GetLogObject` is structurally out of scope, correctly: it's a true
+  HTTP/2 event-stream response (`GetLogObjectOutput.eventStream`,
+  confirmed via `api_op_GetLogObject.go`), not a unary JSON body, same
+  class as `StartLiveTail`. gopherstack's existing validation-only
+  treatment (return a well-formed empty `fieldStream` after validating the
+  pointer) was already correct and is unchanged.
+
+**Casing near-misses:** none beyond the key-name bugs already listed above
+(no case-only mismatches where the name itself was otherwise right).
+
+**Phantom ops:** none found — every op name in `cwlCoreOps`/
+`cwlLatestOps`/`cwlCompletenessOps` corresponds to a real
+`api_op_*.go` file in cloudwatchlogs@v1.81.1.
+
+**False-positive rate:** 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>`/`serializeOpDocument<Type>Input`
+function actually reached from that op's own `HandleDeserialize`/
+`addOperation*Middlewares`, file+line, never a doc comment.
+
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint), confirmed to fail with the exact predicted
+symptom (quoted above), then restored and diffed byte-identical against the
+pre-revert file before moving to the next.
+
+Tests: 5 real-SDK-client tests (2 rewritten ratifying tests plus
+`TestHandler_DescribeImportTaskBatches_RealClient`,
+`TestHandler_GetTransformer_Timestamps`, and
+`TestHandler_UpdateLogAnomalyDetector_EnabledPauseResume`'s rewrite) in
+`services/cloudwatchlogs/handler_export_tasks_test.go`,
+`services/cloudwatchlogs/handler_anomaly_detectors_test.go`, and
+`services/cloudwatchlogs/handler_transformers_test.go`.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to
+`services/cloudwatchlogs`), `go fix -diff` (no diff), `golangci-lint run`
+(0 issues; one `govet` shadow finding on a test helper's `err` fixed along
+the way; no cyclop/gocyclo/gocognit/funlen nolints added) all green.
+`go test -race ./pkgs/...` green. Per this session's hard constraints: no
+subagents used, no git-mutating commands run (all changes uncommitted —
+orchestrator must commit/push), `services/securityhub` untouched (confirmed
+via `git status` before starting and again at the end — a sibling session's
+in-progress work there, plus separately in-progress `services/inspector2`/
+`services/macie2` changes, were both left alone, not mine).
+
+cloudwatchlogs's List/Describe/Get families are now fully swept for this
+issue (48/48 ops verified against the real deserializer/serializer). 60 of
+162 services swept, 102 remain. Per the ranked table, securityhub (47
+L+D+G ops) is next largest, but a sibling session is actively working
+there per this session's own observation — s3 (45, `chased` resolution,
+flagged as "heavily worked under other issues but not 6flj-swept") or
+macie2/guardduty (40 each) are the next candidates that don't collide.

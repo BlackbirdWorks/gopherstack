@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cwlsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cwltypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -99,4 +102,35 @@ func TestHandler_Transformer(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestHandler_GetTransformer_Timestamps proves GetTransformer echoes
+// CreationTime/LastModifiedTime -- real GetTransformerOutput members
+// (api_op_GetTransformer.go) the backend already tracks as
+// Transformer.CreatedAt but previously never emitted, so a real SDK
+// client's typed fields were always nil regardless of what PutTransformer
+// had stored.
+func TestHandler_GetTransformer_Timestamps(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+	client := newTestCloudWatchLogsClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.PutTransformer(ctx, &cwlsdk.PutTransformerInput{
+		LogGroupIdentifier: aws.String("/aws/lambda/ts-fn"),
+		TransformerConfig:  []cwltypes.Processor{{ParseJSON: &cwltypes.ParseJSON{}}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetTransformer(ctx, &cwlsdk.GetTransformerInput{
+		LogGroupIdentifier: aws.String("/aws/lambda/ts-fn"),
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, out.CreationTime, "CreationTime must be populated, not left nil")
+	assert.NotNil(t, out.LastModifiedTime, "LastModifiedTime must be populated, not left nil")
+	assert.Positive(t, aws.ToInt64(out.CreationTime))
+	assert.Positive(t, aws.ToInt64(out.LastModifiedTime))
+	assert.Len(t, out.TransformerConfig, 1)
 }
