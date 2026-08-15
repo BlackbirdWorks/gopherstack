@@ -6731,3 +6731,215 @@ start) never read or touched.
 87 of 162 services swept, 75 remain. `codeartifact`'s sibling was still live
 in `git status` at the end of this pass (same 9 modified files + 1
 untracked test as at the start) -- re-check `git status` before picking it.
+
+## codeartifact (this session, 2026-08-15)
+
+Chosen as directed: the largest genuinely-unswept service once opsworks,
+cloudtrail, appconfig, and directoryservice (all part of or adjacent to the
+prior three-way 24-L+D+G tie at this session's start) had all finished and
+committed, and appconfig confirmed `codeartifact` as the sole untaken member
+of that tie. `git status` at start showed only `services/appconfig/*`
+modified (11 files, growing) — a live sibling, confirmed not colliding.
+Re-ran `go run ./cmd/opcensus` to confirm: `codeartifact` (48 total ops, 24
+L+D+G) was still the largest unswept candidate not held by that sibling; no
+tie this time (`outposts` next at 23) so no tie-break was needed.
+
+SDK pinned (`go.mod`, `codeartifact@v1.41.4`) — no dependency-boundary
+exception. Protocol `awsRestjson1_` exclusively, single client (no
+second/data-plane module). Case-sensitive: all 268 `EqualFold` hits in
+`deserializers.go` are errorCode matches, confirmed via `grep -v` on the
+body-field switches — zero in a body-field `case`. Dead-deserializer trap
+checked against `ListDomains`/`ListRepositories` and does NOT apply —
+`HandleDeserialize` calls the real `OpDocument...Output` function directly.
+Router: single `isDomainRepoPath`/`isPackageCoreGroupPath`/
+`isPackageExtendedPath` set of path predicates feeding one dispatch map, all
+48 ops present (`TestExtractOperation_SDKRouteTable` and
+`TestSDKCompleteness` both green before and after) — not the flat
+`X-Amz-Target` shape, but no desync found. Phantom ops: none.
+
+**THE FLAGSHIP FINDING, matching this issue's exact "wrong nested shape
+hard-fails" and "shared converter, different real shapes" callouts at once:**
+`DeletePackageVersions`/`CopyPackageVersions`/`DisposePackageVersions`/
+`UpdatePackageVersionsStatus` all built `failedVersions`/`successfulVersions`
+as a JSON **array** of `{version, status/errorCode}` objects. The real
+`FailedVersions`/`SuccessfulVersions` members on all four outputs are
+`map[string]types.PackageVersionError` / `map[string]
+types.SuccessfulPackageVersionInfo` — a JSON **object** keyed by version
+string (confirmed at `deserializers.go`'s
+`...PackageVersionErrorMap`/`...SuccessfulPackageVersionInfoMap`, which both
+do `shape, ok := value.(map[string]interface{})` and hard-error otherwise).
+This is a total-outage bug, not silent-empty: a real client's call to any of
+these four ops failed outright with `deserialization failed ... unexpected
+JSON type [...]` — confirmed by reproducing the exact error message against
+unfixed code. Fixed by introducing a `PackageVersionOutcome{Revision,
+Status}` type and rewriting all four backend methods plus a shared
+`packageVersionOutcomesToWire` helper to emit real maps. Two riders caught
+in the same fix: (a) invented enum value `"RESOURCE_NOT_FOUND"` on
+Delete/Copy (real `PackageVersionErrorCode` has `NOT_FOUND`, no
+`RESOURCE_`-prefixed variant) — found as a **sibling-trap in the other
+direction**, since `DisposePackageVersions` right next to them already used
+the correct `"NOT_FOUND"`; (b) `CopyPackageVersions`'/`UpdatePackageVersionsStatus`'s
+successful-entry `status` value was a fabricated literal (`"Copied"`,
+`"SUCCESS"` — neither a real `PackageVersionStatus` enum value at all) where
+the real field is the version's actual status (`"Published"` for Copy,
+`in.TargetStatus` for Update) — now sourced from the backend's own tracked
+value.
+
+**Sibling-trap #2:** `DeletePackage` shared `packageToMap` (the
+`PackageDescription` shape, correct for `DescribePackage`) instead of
+`packageSummaryToMap` (the real `DeletePackageOutput.DeletedPackage` shape —
+confirmed `*types.PackageSummary`, not `*types.PackageDescription`, in
+`api_op_DeletePackage.go`). Silently dropped the identifier (`PackageSummary`
+has no `"name"` key, only `"package"`) and leaked `domainName`/
+`domainOwner`/`repository`, none of which the real op returns. The same file
+already had a code comment on `packageSummaryToMap` explaining exactly this
+Get-vs-List split from an earlier pass (`gopherstack-tuh5`) — `DeletePackage`
+was simply missed when that split was made.
+
+**Backend-tracked-but-unemitted (layer 3), 2 findings:**
+1. `RepositoryDescription.CreatedTime` — real, always-present member
+   (`deserializers.go`'s `...deserializeDocumentRepositoryDescription`),
+   backend already tracks `Repository.CreatedTime`, never emitted on any of
+   the 6 ops sharing `repoToMap` (Create/Describe/Delete/Associate/
+   Disassociate/UpdateRepository).
+2. `RepositorySummary` on `ListRepositories`/`ListRepositoriesInDomain` used
+   an inline 4-field map (`arn`/`name`/`domainName`/`domainOwner`) instead of
+   the real 7-field shape — missing `administratorAccount`/`createdTime`/
+   `description`, all three already tracked on `Repository`. Consolidated
+   into a new `repositorySummaryToMap` helper.
+
+**Ignored filters (this issue's explicit "confirm every declared filter
+reaches the query" check), 2 findings:**
+1. `ListRepositories`/`ListRepositoriesInDomain` both silently discarded the
+   real `repository-prefix` query filter (`serializers.go`'s
+   `SetQuery("repository-prefix")`) — every call returned every repository
+   regardless of the filter. Backend methods gained a `repositoryPrefix`
+   parameter; both handlers now read `q.Get("repository-prefix")`.
+2. `ListPackageVersions` ignored 2 more real filter/ordering members: `status`
+   (`SetQuery("status")`) and `sortBy` (`SetQuery("sortBy")`, whose only real
+   enum value is `PUBLISHED_TIME`). Also missing the real `namespace` echo
+   and `defaultDisplayVersion` member entirely (confirmed against
+   `awsRestjson1_deserializeOpDocumentListPackageVersionsOutput`'s case
+   list). Fixed all four together: `status` filters by exact match,
+   `sortBy=PUBLISHED_TIME` reorders by `PublishedAt` (default stays
+   Version-ascending), `namespace` is echoed when set, and
+   `defaultDisplayVersion` is computed as the most-recently-published
+   version in the (post-filter) result set — matching AWS's own doc
+   ("most recently published" is the correct value for every format here,
+   since this backend has no npm dist-tag concept at all to trigger the
+   doc's other branch). `originType` is also a real filter member but has no
+   backend field to source from at all — disclosed in PARITY.md, not
+   fabricated.
+
+**Required-field enforcement, both directions checked, 2 findings (only the
+"never validated" direction; no "demands a field the real Input lacks"
+found):**
+1. `PutDomainPermissionsPolicy`/`PutRepositoryPermissionsPolicy` both
+   silently defaulted a missing `policyDocument` to an empty-statement
+   policy instead of rejecting the request. `PolicyDocument` is "This member
+   is required." on both real Inputs (`api_op_Put{Domain,Repository}PermissionsPolicy.go`)
+   — confirmed via the real SDK's own generated client-side validator
+   (`validators.go`'s `validateOpPutDomainPermissionsPolicyInput`), which
+   means a real `aws-sdk-go-v2` client can never even send this request; only
+   a raw caller bypassing SDK-side validation can reach the old behavior, so
+   the regression test for this is raw-body, not real-client. Fixed: both
+   now return 400 `ValidationException` for an empty/absent `policyDocument`.
+2. `UpdatePackageGroup` never validated its `packageGroup` pattern param at
+   all (unlike its Create/Describe/Delete siblings, which already do) —
+   fell straight through to the backend and surfaced as a misleading 404
+   "package group not found" instead of the real 400 `ValidationException`
+   real AWS returns for a missing required member. Fixed with the same
+   explicit check its siblings already had.
+
+**Siblings checked and confirmed already correct** (not just assumed):
+`domainToMap`/`domainSummaryToMap` (9/6-field `DomainDescription`/
+`DomainSummary` split, field-for-field exact); `packageGroupToMap`/
+`packageGroupReferenceToMap` (shared across Create/Describe/Delete/Update/
+Get/List — confirmed `PackageGroupDescription`/`PackageGroupSummary`
+genuinely share an identical field set, a real non-bug this file's own
+pre-existing comment already called out correctly); `ResourcePolicy`
+(`document`/`resourceArn`/`revision`, shared by Get/Put/Delete on both
+Domain and Repository policies — all six call sites correct);
+`AssociatedPackage`/`PackageDependency`/`AssetSummary` wire shapes;
+`ListTagsForResource`'s `Tag{key,value}` shape; `GetAuthorizationToken`'s
+`authorizationToken`/`expiration` pair; `GetRepositoryEndpoint`'s flat
+`repositoryEndpoint` shape.
+
+RATIFYING TESTS found and fixed: 7 pre-existing tests
+(`TestHandler_DeletePackageVersions`, `TestHandler_CopyPackageVersions`,
+`TestHandler_SuccessfulVersions` (2 subtests),
+`TestHandler_DisposePackageVersions_StatusChange`,
+`TestHandler_CopyPackageVersions_ToSelf`, plus one status-code adjustment in
+`TestHandler_ErrorPaths`) all asserted the pre-fix array shape (`.([]any)`)
+or the fabricated status literals (`"Copied"`, `"SUCCESS"`) as correct — one
+(`put_domain_permissions_not_found`) sent no body and only passed because
+gopherstack silently defaulted `policyDocument`; updated to send a real
+policy document so it still exercises the domain-not-found path it was
+meant to test. All rewritten to the real map-keyed shape / real enum values.
+
+PHANTOM OPS: none (`TestSDKCompleteness` green before/after). FALSE-POSITIVE
+RATE: 0 among reported bugs — every finding cites the real
+`api_op_*.go`/`serializers.go`/`deserializers.go` file, function, and case
+list, never a doc comment or PARITY.md claim taken on faith.
+
+Persistence check: `Repository`/`Package`/`PackageVersion`/`Domain`/
+`PackageGroup` are all directly `store.Table`-backed persistence DTOs, none
+retagged this pass — every fix either added a brand-new struct field
+(`PackageVersionOutcome`, new) or built a wire-only `map[string]any` from
+fields the structs already had (`CreatedTime`, `AdministratorAccount`,
+`Description`) — no `json:"-"` used, no persistence risk.
+
+Over-wide/credential sweep: clean, no secret-shaped fields exist in this
+service (`policyDocument`/ARNs are caller-supplied resource policy text and
+identifiers, not backend-generated credentials) — not a specific target this
+pass since no such field surfaced during the L+D+G/sibling read, noting the
+absence rather than skipping the check.
+
+TESTS: 9 new real-`aws-sdk-go-v2`-client tests plus 2 raw-body tests (for the
+two required-field checks a real SDK client structurally can't demonstrate,
+since its own generated validator refuses to send the request) in the new
+`services/codeartifact/wire_field_fixes_test.go`, plus the 7 ratifying-test
+rewrites above. Every one of the 9 distinct fixes (createdTime,
+DeletePackage shape, the 4-op array-vs-map rewrite treated as one fix site
+via the shared helper, RepositorySummary fields, repository-prefix filter,
+status/sortBy/namespace/defaultDisplayVersion, PutDomainPermissionsPolicy
+required-field, PutRepositoryPermissionsPolicy required-field,
+UpdatePackageGroup required-field) was hand-reverted individually (no git,
+per this session's hard no-git-mutation constraint), confirmed to fail
+against the reverted code with the exact predicted symptom (quoted per-fix
+above), then restored and diffed byte-identical before moving to the next.
+
+GATES: scoped `go build`/`go vet ./services/codeartifact/...` clean; full
+`go build ./...`/`go vet ./...` clean (required — `DeletePackageVersions`/
+`CopyPackageVersions`/`DisposePackageVersions`/`UpdatePackageVersionsStatus`/
+`ListRepositories`/`ListRepositoriesInDomain`/`ListPackageVersions` all
+changed signature; no external callers outside this package, confirmed via
+grep; `test/integration/codeartifact_test.go` and
+`services/cloudformation` both checked and unaffected); `go test -race
+-count=1 ./services/codeartifact/...` and `./pkgs/...` green; `go fix -diff`
+clean (no diff); `golangci-lint run ./services/codeartifact/...` 0 issues
+(1 `goconst` finding on the repeated `"NOT_FOUND"` literal fixed via a
+`packageVersionErrorNotFound`/`packageVersionErrorAlreadyExists` const pair,
+5 `govet` shadow findings in new test subtests fixed by scoping the outer
+`err` to a block before the `t.Run`s, 1 `nonamedreturns` finding on the new
+`packageVersionOutcomesToWire` helper fixed by dropping the named returns);
+`fieldalignment ./services/codeartifact/...` 0 hits; 0
+cyclop/gocyclo/gocognit/funlen nolints (grep-confirmed, none added).
+
+No subagents used (Read/Grep/Bash/Edit only, per this session's hard
+constraint). No git-mutating commands run — orchestrator must commit/push.
+`git status` re-checked before every edit batch; only `services/codeartifact/*`
+and this remainder file touched — `services/appconfig/*` (the live sibling
+at the start, later committed as `7d4441613` mid-session) and
+`services/outposts/*` (a second sibling that appeared and finished mid-session,
+its own section directly above this one) were both confirmed untouched
+throughout.
+
+`codeartifact`'s List/Describe/Get families are now fully swept for this
+issue (24/24 ops layer-1/2/3 clean; the original three-way 24-L+D+G tie from
+this session's earlier `cloudtrail` pick is now fully resolved — all three
+members swept). 88 of 162 services swept, 74 remain. Per the ranked table,
+`dynamodb` (22 L+D+G, flagged elsewhere as heavily-worked-under-other-issues
+but not 6flj-swept) or `neptune`/`ecr` (21 each) are next — re-check
+`git status` before picking, since siblings have consistently appeared
+mid-session all day.

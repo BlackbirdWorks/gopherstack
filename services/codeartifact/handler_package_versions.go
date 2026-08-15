@@ -80,6 +80,28 @@ func (h *Handler) handleDescribePackageVersion(
 	})
 }
 
+// packageVersionOutcomesToWire builds the failedVersions/successfulVersions wire
+// values shared by DeletePackageVersions/CopyPackageVersions/DisposePackageVersions/
+// UpdatePackageVersionsStatus -- both are real JSON *objects* keyed by version
+// string (map[string]types.PackageVersionError / map[string]types.SuccessfulPackageVersionInfo),
+// confirmed against aws-sdk-go-v2 deserializers.go's
+// ...PackageVersionErrorMap/...SuccessfulPackageVersionInfoMap -- NOT an array.
+func packageVersionOutcomesToWire(
+	successful map[string]PackageVersionOutcome, failed map[string]string,
+) (map[string]any, map[string]any) {
+	successList := make(map[string]any, len(successful))
+	for v, outcome := range successful {
+		successList[v] = map[string]any{"revision": outcome.Revision, keyStatusField: outcome.Status}
+	}
+
+	failedList := make(map[string]any, len(failed))
+	for v, code := range failed {
+		failedList[v] = map[string]any{"errorCode": code}
+	}
+
+	return successList, failedList
+}
+
 type deletePackageVersionsBody struct {
 	Versions []string `json:"versions"`
 }
@@ -109,7 +131,7 @@ func (h *Handler) handleDeletePackageVersions(
 		}
 	}
 
-	failed, err := h.Backend.DeletePackageVersions(
+	successful, failed, err := h.Backend.DeletePackageVersions(
 		c.Request().Context(),
 		domainName,
 		repoName,
@@ -122,17 +144,7 @@ func (h *Handler) handleDeletePackageVersions(
 		return h.handleError(c, err)
 	}
 
-	failedList := make([]map[string]string, 0, len(failed))
-	for v, code := range failed {
-		failedList = append(failedList, map[string]string{keyVersion: v, "errorCode": code})
-	}
-
-	successList := make([]map[string]string, 0, len(in.Versions))
-	for _, v := range in.Versions {
-		if _, ok := failed[v]; !ok {
-			successList = append(successList, map[string]string{keyVersion: v, keyStatusField: "Deleted"})
-		}
-	}
+	successList, failedList := packageVersionOutcomesToWire(successful, failed)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyFailedVersions:     failedList,
@@ -172,7 +184,7 @@ func (h *Handler) handleCopyPackageVersions(
 		}
 	}
 
-	failed, err := h.Backend.CopyPackageVersions(
+	successful, failed, err := h.Backend.CopyPackageVersions(
 		c.Request().Context(),
 		domainName,
 		srcRepo,
@@ -186,17 +198,7 @@ func (h *Handler) handleCopyPackageVersions(
 		return h.handleError(c, err)
 	}
 
-	failedList := make([]map[string]string, 0, len(failed))
-	for v, code := range failed {
-		failedList = append(failedList, map[string]string{keyVersion: v, "errorCode": code})
-	}
-
-	successList := make([]map[string]string, 0, len(in.Versions))
-	for _, v := range in.Versions {
-		if _, ok := failed[v]; !ok {
-			successList = append(successList, map[string]string{keyVersion: v, keyStatusField: "Copied"})
-		}
-	}
+	successList, failedList := packageVersionOutcomesToWire(successful, failed)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyFailedVersions:     failedList,
@@ -229,7 +231,7 @@ func (h *Handler) handleDisposePackageVersions(
 		_ = json.Unmarshal(body, &in)
 	}
 
-	results, err := h.Backend.DisposePackageVersions(
+	successful, failed, err := h.Backend.DisposePackageVersions(
 		c.Request().Context(),
 		domainName,
 		repoName,
@@ -242,7 +244,9 @@ func (h *Handler) handleDisposePackageVersions(
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keySuccessfulVersions: results, keyFailedVersions: map[string]any{}})
+	successList, failedList := packageVersionOutcomesToWire(successful, failed)
+
+	return c.JSON(http.StatusOK, map[string]any{keySuccessfulVersions: successList, keyFailedVersions: failedList})
 }
 
 func (h *Handler) handleGetPackageVersionAsset(
@@ -464,8 +468,17 @@ func (h *Handler) handleListPackageVersions(
 	q := c.Request().URL.Query()
 	maxResults := parseMaxResults(q.Get("max-results"))
 	nextToken := q.Get("next-token")
+	// status/sortBy are real ListPackageVersionsInput filter/ordering members
+	// (serializers.go's SetQuery("status")/SetQuery("sortBy")) that were
+	// silently discarded -- every call returned every version in
+	// Version-ascending order regardless of what was requested. originType
+	// is also real but has no backend field to source from -- see PARITY.md.
+	status := q.Get("status")
+	sortBy := q.Get("sortBy")
 
-	all, err := h.Backend.ListPackageVersions(c.Request().Context(), domainName, repoName, format, namespace, name)
+	all, err := h.Backend.ListPackageVersions(
+		c.Request().Context(), domainName, repoName, format, namespace, name, status, sortBy,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -478,11 +491,38 @@ func (h *Handler) handleListPackageVersions(
 	}
 
 	resp := map[string]any{"versions": items, "package": name, "format": format}
+	if namespace != "" {
+		resp["namespace"] = namespace
+	}
 	if next != "" {
 		resp["nextToken"] = next
 	}
+	// defaultDisplayVersion is real (api_op_ListPackageVersions.go) -- AWS's
+	// doc says "most recently published" for every format except npm with a
+	// dist-tag set, and this backend has no dist-tag concept at all, so
+	// most-recently-published is the correct fallback in every case here,
+	// not an approximation.
+	if dv := mostRecentlyPublished(all); dv != "" {
+		resp["defaultDisplayVersion"] = dv
+	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// mostRecentlyPublished returns the Version of the PackageVersion with the
+// latest PublishedAt in versions, or "" if versions is empty.
+func mostRecentlyPublished(versions []*PackageVersion) string {
+	var latest *PackageVersion
+	for _, pv := range versions {
+		if latest == nil || pv.PublishedAt.After(latest.PublishedAt) {
+			latest = pv
+		}
+	}
+	if latest == nil {
+		return ""
+	}
+
+	return latest.Version
 }
 
 func (h *Handler) handlePublishPackageVersion(
@@ -606,14 +646,16 @@ func (h *Handler) handleUpdatePackageVersionsStatus(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "targetStatus is required"))
 	}
 
-	results, err := h.Backend.UpdatePackageVersionsStatus(
+	successful, failed, err := h.Backend.UpdatePackageVersionsStatus(
 		c.Request().Context(), domainName, repoName, format, namespace, name, in.TargetStatus, in.Versions,
 	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keySuccessfulVersions: results, keyFailedVersions: map[string]any{}})
+	successList, failedList := packageVersionOutcomesToWire(successful, failed)
+
+	return c.JSON(http.StatusOK, map[string]any{keySuccessfulVersions: successList, keyFailedVersions: failedList})
 }
 
 // updateRepositoryBody's Upstreams field uses the wire key "upstreams", same as

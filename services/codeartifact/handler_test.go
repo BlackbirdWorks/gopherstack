@@ -515,9 +515,13 @@ func TestHandler_ErrorPaths(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "put_domain_permissions_not_found",
-			method:     http.MethodPut,
-			path:       "/v1/domain/permissions/policy?domain=nope",
+			name:   "put_domain_permissions_not_found",
+			method: http.MethodPut,
+			path:   "/v1/domain/permissions/policy?domain=nope",
+			// PolicyDocument is required on the real PutDomainPermissionsPolicyInput
+			// -- must be present so this case exercises the domain-not-found path,
+			// not the (now-enforced) required-field check.
+			body:       map[string]any{"policyDocument": `{"Version":"2012-10-17","Statement":[]}`},
 			wantStatus: http.StatusNotFound,
 		},
 		{

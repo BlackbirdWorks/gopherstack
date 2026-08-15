@@ -70,34 +70,57 @@ func (b *InMemoryBackend) DescribePackageVersion(
 	return &cp, nil
 }
 
-// DeletePackageVersions deletes specified versions of a package and returns a
-// map of version→errorCode for any versions that could not be deleted.
+// PackageVersionOutcome mirrors the wire shape of types.SuccessfulPackageVersionInfo
+// (revision/status) -- the per-version value real AWS returns in the
+// successfulVersions map of DeletePackageVersions/CopyPackageVersions/
+// DisposePackageVersions/UpdatePackageVersionsStatus's outputs, all four of
+// which key both successfulVersions and failedVersions by version string
+// (a JSON *object*, not the array this backend used to build -- see
+// deserializers.go's ...PackageVersionErrorMap/...SuccessfulPackageVersionInfoMap).
+type PackageVersionOutcome struct {
+	Revision string
+	Status   string
+}
+
+// PackageVersionErrorCode values, mirroring types.PackageVersionErrorCode's
+// two variants this backend can produce.
+const (
+	packageVersionErrorNotFound      = "NOT_FOUND"
+	packageVersionErrorAlreadyExists = "ALREADY_EXISTS"
+)
+
+// DeletePackageVersions deletes specified versions of a package and returns
+// per-version outcomes: successful (revision/status as of just before
+// deletion) and failed (real PackageVersionErrorCode values, e.g. NOT_FOUND).
 func (b *InMemoryBackend) DeletePackageVersions(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name string,
 	versions []string,
-) (map[string]string, error) {
+) (map[string]PackageVersionOutcome, map[string]string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DeletePackageVersions")
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
-		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
+		return nil, nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 
+	successful := make(map[string]PackageVersionOutcome)
 	failed := make(map[string]string)
 	for _, v := range versions {
 		vKey := packageVersionKey(domainName, repoName, format, namespace, name, v)
-		if !b.packageVersions.Has(regionKey(region, vKey)) {
-			failed[v] = "RESOURCE_NOT_FOUND"
+		pv, ok := b.packageVersions.Get(regionKey(region, vKey))
+		if !ok {
+			failed[v] = packageVersionErrorNotFound
 
 			continue
 		}
+		successful[v] = PackageVersionOutcome{Revision: pv.Revision, Status: "Deleted"}
 		b.packageVersions.Delete(regionKey(region, vKey))
 	}
 
-	return failed, nil
+	return successful, failed, nil
 }
 
 // CopyPackageVersions copies specified package versions from a source repository
@@ -106,31 +129,34 @@ func (b *InMemoryBackend) CopyPackageVersions(
 	ctx context.Context,
 	domainName, srcRepo, dstRepo, format, namespace, name string,
 	versions []string,
-) (map[string]string, error) {
+) (map[string]PackageVersionOutcome, map[string]string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("CopyPackageVersions")
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(regionKey(region, repoKey(domainName, srcRepo))) {
-		return nil, fmt.Errorf("%w: source repository %s not found in domain %s", ErrNotFound, srcRepo, domainName)
+		return nil, nil, fmt.Errorf("%w: source repository %s not found in domain %s", ErrNotFound, srcRepo, domainName)
 	}
 	if !b.repositories.Has(regionKey(region, repoKey(domainName, dstRepo))) {
-		return nil, fmt.Errorf("%w: destination repository %s not found in domain %s", ErrNotFound, dstRepo, domainName)
+		return nil, nil, fmt.Errorf(
+			"%w: destination repository %s not found in domain %s", ErrNotFound, dstRepo, domainName,
+		)
 	}
 
+	successful := make(map[string]PackageVersionOutcome)
 	failed := make(map[string]string)
 	for _, v := range versions {
 		srcKey := packageVersionKey(domainName, srcRepo, format, namespace, name, v)
 		src, ok := b.packageVersions.Get(regionKey(region, srcKey))
 		if !ok {
-			failed[v] = "RESOURCE_NOT_FOUND"
+			failed[v] = packageVersionErrorNotFound
 
 			continue
 		}
 		dstKey := packageVersionKey(domainName, dstRepo, format, namespace, name, v)
 		if b.packageVersions.Has(regionKey(region, dstKey)) {
-			failed[v] = "ALREADY_EXISTS"
+			failed[v] = packageVersionErrorAlreadyExists
 
 			continue
 		}
@@ -138,6 +164,7 @@ func (b *InMemoryBackend) CopyPackageVersions(
 		copied.Repository = dstRepo
 		copied.region = region
 		b.packageVersions.Put(&copied)
+		successful[v] = PackageVersionOutcome{Revision: copied.Revision, Status: copied.Status}
 		// Ensure destination package record exists.
 		dstPkgKey := packageKey(domainName, dstRepo, format, namespace, name)
 		if !b.packages.Has(regionKey(region, dstPkgKey)) {
@@ -153,7 +180,7 @@ func (b *InMemoryBackend) CopyPackageVersions(
 		}
 	}
 
-	return failed, nil
+	return successful, failed, nil
 }
 
 // DisposePackageVersions moves specified versions of a package to the Disposed status.
@@ -161,31 +188,38 @@ func (b *InMemoryBackend) DisposePackageVersions(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name string,
 	versions []string,
-) (map[string]string, error) {
+) (map[string]PackageVersionOutcome, map[string]string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DisposePackageVersions")
 	defer b.mu.Unlock()
 
-	results := make(map[string]string, len(versions))
+	successful := make(map[string]PackageVersionOutcome, len(versions))
+	failed := make(map[string]string)
 
 	for _, v := range versions {
 		key := packageVersionKey(domainName, repoName, format, namespace, name, v)
 		if pv, ok := b.packageVersions.Get(regionKey(region, key)); ok {
 			pv.Status = "Disposed"
-			results[v] = "SUCCESS"
+			successful[v] = PackageVersionOutcome{Revision: pv.Revision, Status: "Disposed"}
 		} else {
-			results[v] = "NOT_FOUND"
+			failed[v] = packageVersionErrorNotFound
 		}
 	}
 
-	return results, nil
+	return successful, failed, nil
 }
 
-// ListPackageVersions lists all versions of a package in a repository.
+// ListPackageVersions lists versions of a package, optionally filtered by
+// status (real ListPackageVersionsInput.Status, serializers.go's
+// SetQuery("status")) and reordered by publish time (real
+// ListPackageVersionsInput.SortBy, which has exactly one enum value,
+// PUBLISHED_TIME -- serializers.go's SetQuery("sortBy")). OriginType is a
+// real filter member too but this backend has no per-version origin concept
+// to source it from -- disclosed in PARITY.md rather than fabricated.
 func (b *InMemoryBackend) ListPackageVersions(
 	ctx context.Context,
-	domainName, repoName, format, namespace, name string,
+	domainName, repoName, format, namespace, name, status, sortBy string,
 ) ([]*PackageVersion, error) {
 	region := getRegion(ctx, b.region)
 
@@ -216,13 +250,23 @@ func (b *InMemoryBackend) ListPackageVersions(
 			continue
 		}
 
+		if status != "" && pv.Status != status {
+			continue
+		}
+
 		cp := *pv
 		result = append(result, &cp)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Version < result[j].Version
-	})
+	if sortBy == "PUBLISHED_TIME" {
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].PublishedAt.Before(result[j].PublishedAt)
+		})
+	} else {
+		sort.Slice(result, func(i, j int) bool {
+			return result[i].Version < result[j].Version
+		})
+	}
 
 	return result, nil
 }
@@ -501,23 +545,24 @@ func (b *InMemoryBackend) UpdatePackageVersionsStatus(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, targetStatus string,
 	versions []string,
-) (map[string]string, error) {
+) (map[string]PackageVersionOutcome, map[string]string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("UpdatePackageVersionsStatus")
 	defer b.mu.Unlock()
 
-	results := make(map[string]string, len(versions))
+	successful := make(map[string]PackageVersionOutcome, len(versions))
+	failed := make(map[string]string)
 
 	for _, v := range versions {
 		key := packageVersionKey(domainName, repoName, format, namespace, name, v)
 		if pv, ok := b.packageVersions.Get(regionKey(region, key)); ok {
 			pv.Status = targetStatus
-			results[v] = "SUCCESS"
+			successful[v] = PackageVersionOutcome{Revision: pv.Revision, Status: targetStatus}
 		} else {
-			results[v] = "NOT_FOUND"
+			failed[v] = packageVersionErrorNotFound
 		}
 	}
 
-	return results, nil
+	return successful, failed, nil
 }

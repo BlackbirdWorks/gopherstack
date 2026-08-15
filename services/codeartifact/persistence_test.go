@@ -187,7 +187,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "pkg-1", gotPkg.Name)
 
-	versions, err := fresh.ListPackageVersions(ctx, "domain-1", "repo-1", "npm", "", "pkg-1")
+	versions, err := fresh.ListPackageVersions(ctx, "domain-1", "repo-1", "npm", "", "pkg-1", "", "")
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	assert.Equal(t, pv.Version, versions[0].Version)

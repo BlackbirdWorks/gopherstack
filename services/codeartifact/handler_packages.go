@@ -105,8 +105,15 @@ func (h *Handler) handleDeletePackage(c *echo.Context, domainName, repoName, for
 		return h.handleError(c, err)
 	}
 
+	// DeletePackageOutput.DeletedPackage is types.PackageSummary, NOT
+	// types.PackageDescription (confirmed against aws-sdk-go-v2
+	// api_op_DeletePackage.go) -- the same Get-vs-List split
+	// packageSummaryToMap's own doc comment covers, not the full packageToMap
+	// shape. Using packageToMap here dropped the required "package" key
+	// (PackageSummary has no "name" member) and leaked domainName/
+	// domainOwner/repository, none of which DeletePackageOutput declares.
 	return c.JSON(http.StatusOK, map[string]any{
-		"deletedPackage": packageToMap(pkg),
+		"deletedPackage": packageSummaryToMap(pkg),
 	})
 }
 

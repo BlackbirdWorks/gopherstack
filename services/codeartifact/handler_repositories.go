@@ -30,6 +30,10 @@ func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
 		keyDomainName:          r.DomainName,
 		keyDomainOwner:         r.DomainOwner,
 		"administratorAccount": r.AdministratorAccount,
+		// createdTime is a real, always-present RepositoryDescription member
+		// (deserializers.go's awsRestjson1_deserializeDocumentRepositoryDescription)
+		// -- the backend already tracks r.CreatedTime, it was just never emitted.
+		keyCreatedTime: epochSeconds(r.CreatedTime),
 	}
 	if r.Description != "" {
 		m["description"] = r.Description
@@ -131,6 +135,29 @@ func (h *Handler) handleDeleteRepository(c *echo.Context, domainName, repoName s
 	})
 }
 
+// repositorySummaryToMap builds the types.RepositorySummary shape -- verified
+// against aws-sdk-go-v2 deserializers.go's
+// awsRestjson1_deserializeDocumentRepositorySummary (arn/name/domainName/
+// domainOwner/administratorAccount/createdTime/description). Both List ops
+// below previously emitted only 4 of these 7 real fields, silently dropping
+// administratorAccount/createdTime/description even though the backend
+// already tracks all three on Repository.
+func repositorySummaryToMap(r *Repository) map[string]any {
+	m := map[string]any{
+		keyArn:                 r.ARN,
+		keyName:                r.Name,
+		keyDomainName:          r.DomainName,
+		keyDomainOwner:         r.DomainOwner,
+		"administratorAccount": r.AdministratorAccount,
+		keyCreatedTime:         epochSeconds(r.CreatedTime),
+	}
+	if r.Description != "" {
+		m["description"] = r.Description
+	}
+
+	return m
+}
+
 func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName string) error {
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
@@ -139,8 +166,13 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 	q := c.Request().URL.Query()
 	maxResults := parseMaxResults(q.Get("max-results"))
 	nextToken := q.Get("next-token")
+	// repository-prefix is a real ListRepositoriesInDomainInput filter member
+	// (serializers.go's SetQuery("repository-prefix")) that was silently
+	// discarded -- every call returned every repository in the domain
+	// regardless of the filter.
+	repositoryPrefix := q.Get("repository-prefix")
 
-	all, err := h.Backend.ListRepositoriesInDomain(c.Request().Context(), domainName)
+	all, err := h.Backend.ListRepositoriesInDomain(c.Request().Context(), domainName, repositoryPrefix)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -149,12 +181,7 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 
 	items := make([]map[string]any, 0, len(page))
 	for _, r := range page {
-		items = append(items, map[string]any{
-			keyArn:         r.ARN,
-			keyName:        r.Name,
-			keyDomainName:  r.DomainName,
-			keyDomainOwner: r.DomainOwner,
-		})
+		items = append(items, repositorySummaryToMap(r))
 	}
 
 	resp := map[string]any{"repositories": items}
@@ -169,18 +196,18 @@ func (h *Handler) handleListRepositories(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	maxResults := parseMaxResults(q.Get("max-results"))
 	nextToken := q.Get("next-token")
+	// repository-prefix is a real ListRepositoriesInput filter member
+	// (serializers.go's SetQuery("repository-prefix")) that was silently
+	// discarded -- every call returned every repository account-wide
+	// regardless of the filter.
+	repositoryPrefix := q.Get("repository-prefix")
 
-	all := h.Backend.ListRepositories(c.Request().Context())
+	all := h.Backend.ListRepositories(c.Request().Context(), repositoryPrefix)
 	page, next := paginateSlice(all, maxResults, nextToken, func(r *Repository) string { return r.Name })
 
 	items := make([]map[string]any, 0, len(page))
 	for _, r := range page {
-		items = append(items, map[string]any{
-			keyArn:         r.ARN,
-			keyName:        r.Name,
-			keyDomainName:  r.DomainName,
-			keyDomainOwner: r.DomainOwner,
-		})
+		items = append(items, repositorySummaryToMap(r))
 	}
 
 	resp := map[string]any{"repositories": items}
@@ -286,8 +313,13 @@ func (h *Handler) handlePutRepositoryPermissionsPolicy(
 		}
 	}
 
+	// PolicyDocument is "This member is required." on the real
+	// PutRepositoryPermissionsPolicyInput
+	// (api_op_PutRepositoryPermissionsPolicy.go) -- was silently defaulted to
+	// an empty-statement policy instead of rejected, accepting a request
+	// real AWS would 400 on.
 	if in.PolicyDocument == "" {
-		in.PolicyDocument = `{"Version":"2012-10-17","Statement":[]}`
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "policyDocument is required"))
 	}
 
 	pol, err := h.Backend.PutRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName, in.PolicyDocument)
