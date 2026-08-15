@@ -445,12 +445,24 @@ func TestLambda_CapacityProvider(t *testing.T) {
 	require.True(t, ok, "expected CapacityProviderScalingConfig in response")
 	assert.InEpsilon(t, float64(200), scalingConfig["MaxVCpuCount"].(float64), 0.001)
 
-	// Delete capacity provider
+	// Delete capacity provider: real AWS returns 200 with the deleted
+	// provider's state, since DeleteCapacityProviderOutput.CapacityProvider
+	// is a required output member (api_op_DeleteCapacityProvider.go:44-46
+	// in the pinned SDK), not an empty 204.
 	delResp, err := doLambdaRequest(ctx, http.MethodDelete,
 		server.URL+"/2025-11-30/capacity-providers/test-provider", "", nil)
 	require.NoError(t, err)
 	defer delResp.Body.Close()
-	assert.Equal(t, http.StatusNoContent, delResp.StatusCode)
+	require.Equal(t, http.StatusOK, delResp.StatusCode)
+
+	delRespBody, err := io.ReadAll(delResp.Body)
+	require.NoError(t, err)
+
+	var delOut map[string]any
+	require.NoError(t, json.Unmarshal(delRespBody, &delOut))
+	cpDeleted, ok := delOut["CapacityProvider"].(map[string]any)
+	require.True(t, ok, "expected CapacityProvider in response")
+	assert.Contains(t, cpDeleted["CapacityProviderArn"], "test-provider")
 
 	// Get after delete should 404
 	getAfterDel, err := doLambdaRequest(ctx, http.MethodGet,
