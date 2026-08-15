@@ -1,9 +1,9 @@
 ---
 service: s3
 sdk_module: aws-sdk-go-v2/service/s3@v1.106.5   # version audited against (go.mod pin)
-last_audit_commit: (uncommitted at time of writing)   # gopherstack-3dqa deep pass, see 2026-08-13 section below
+last_audit_commit: (uncommitted at time of writing)   # gopherstack-3dqa mechanical-diff + optimization follow-up, see 2026-08-14b section below
 last_audit_date: 2026-08-14
-overall: A   # gopherstack-3dqa: found+fixed 4 real bugs incl. a race-detector-confirmed data race and a real (not disguised) over-replication bug. gopherstack-zi7k (2026-08-14): implemented the 5-op Object Annotations family that gopherstack-3dqa found entirely missing -- see families row and gaps for the deliberate limitations left in place.
+overall: A   # gopherstack-3dqa: found+fixed 4 real bugs incl. a race-detector-confirmed data race and a real (not disguised) over-replication bug. gopherstack-zi7k (2026-08-14): implemented the 5-op Object Annotations family that gopherstack-3dqa found entirely missing. gopherstack-3dqa follow-up (2026-08-14b): mechanical struct-field diff (the method that closed the dynamodb sibling pass) found 2 real absent-but-tracked wire bugs; a benchmark-verified ListObjectsV2 allocation fix closed the one axis (optimization) the prior four rounds left as "inspected, not profiled" -- see families row and gaps for the deliberate limitations left in place.
 protocol: REST-XML
 families:
   multipart:    {status: ok, note: part-order InvalidPartOrder, non-last EntityTooSmall, ETag=MD5(concat part-MD5s)-N, SSE sealing}
@@ -249,3 +249,132 @@ to re-derive that result).
 Gates: `go build ./services/s3/...`, `go vet ./services/s3/...`, `go test
 -race ./services/s3/...`, `go fix -diff ./services/s3/...` (no diff),
 `golangci-lint run ./services/s3/...` (0 issues) all clean.
+
+## 2026-08-14b mechanical struct-field diff + optimization follow-up (gopherstack-3dqa)
+
+User-directed priority pass, the s3 sibling of the dynamodb pass closed in 89eac08ea.
+Before touching code: checked `bd show gopherstack-3dqa` (already closed, four prior
+rounds, 21 bugs) and `git log --oneline -- services/s3/PARITY.md`, which matched this
+document's own close-reason text commit-for-commit (`02bccc3d1`, `22eea2bab`) -- no stale
+claim found here this time, unlike dynamodb's six-commits-stale GSI note. What genuinely
+had not been done for s3 yet: the mechanical struct-field diff method (only ever applied
+to dynamodb, confirmed by `git log --all --grep="struct-field diff"` returning exactly one
+commit), and real profiling numbers for the optimization axis, which the last round
+explicitly recorded as "inspected, not profiled."
+
+**Method**: s3 has no single generated wire-model file the way dynamodb does --
+responses are hand-rolled XML structs (`model.go`, `types.go`) plus headers written
+directly in handlers. So the diff was per-family: read each response struct next to the
+matching real SDK `types.*`/`api_op_*.go` Output struct (`aws-sdk-go-v2/service/s3@v1.106.5`
+under `$(go env GOMODCACHE)`), then hand-verify every hit against the real
+serializer/deserializer before treating it as a bug -- per the standing warning, the diff
+over-reports on SDK-internal fields (`noSmithyDocumentSerde`) and Go-vs-XML naming.
+Checked: `Object`/`ObjectVersion`/`DeleteMarkerEntry`/`Part`/`MultipartUpload`/`Grant`/
+`Grantee` against `ObjectXML`/`ObjectVersionXML`/`DeleteMarkerXML`/`PartXML`/
+`MultipartUpload`/`Grant`/`Grantee`.
+
+**Two real, hand-verified bugs found and fixed, each half proven load-bearing by
+independent hand-revert (not just "looks fixed")**:
+
+1. **UploadPart never echoed the checksum it computes and verifies, in either the
+   response headers or ListParts.** `Part.ChecksumCRC32/-CRC32C/-SHA1/-SHA256`
+   (`types/types.go:3904+`) and `UploadPartOutput`'s same fields are header-bound
+   (confirmed `deserializers.go:14957`,
+   `awsRestxml_deserializeOpHttpBindingsUploadPartOutput` reads
+   `x-amz-checksum-crc32` etc from the response). `multipart.go`'s backend `UploadPart`
+   already computes and verifies these checksums (`verifyChecksum`) and returns them on
+   `s3.UploadPartOutput` -- but `multipart_ops.go`'s HTTP handler only ever wrote the
+   `ETag` header, discarding the computed values entirely, and `StoredPart` (`types.go`)
+   had no fields to persist them on, so `ListParts` could never report them either even
+   if the handler had. Two stacked gaps, same shape as dynamodb's `AttributesToGet`
+   finding this session: fixed the handler (writes `x-amz-checksum-*` via the existing
+   `setChecksumHeaders` helper already used by GetObject/PutObject) and the backend
+   (added `ChecksumCRC32/-CRC32C/-SHA1/-SHA256 *string` to `StoredPart`, threaded into
+   `ListParts`' `types.Part` and the handler's `PartXML`). `TestUploadPart_
+   ChecksumEchoedInResponseAndListParts` drives the real SDK client end-to-end
+   (UploadPart with `ChecksumAlgorithm: CRC32` -> asserts the response's `ChecksumCRC32`
+   -> ListParts -> asserts the same value comes back). Hand-reverted the handler half
+   alone (response nil) and the persistence half alone (ListParts nil) -- each failed
+   independently, proving both are load-bearing, then restored byte-identical (`diff`
+   confirmed against the pre-edit copy).
+2. **ListObjectVersions never carried ChecksumAlgorithm, though ListObjectsV2 already
+   does for the exact same underlying data.** `types.ObjectVersion.ChecksumAlgorithm`
+   (`types/types.go:3775`) is real and already threaded through `ListObjectsV2`'s
+   `ObjectXML` (`processObjectSnapshots`/`objectFromVersion` in `listing.go`) --
+   `StoredObjectVersion.ChecksumAlgorithm` (`types.go`) is the same field on the same
+   struct either op reads. But `versionSnapshot` (the intermediate type
+   `ListObjectVersions` uses) never captured it, `buildVersionPage` never set it on
+   `types.ObjectVersion`, and `ObjectVersionXML` had no field at all -- so a versioned
+   object's checksum algorithm silently disappeared on the one API most likely to be
+   called on a versioned bucket. Fixed by threading `checksumAlgorithm` through
+   `versionSnapshot` -> `buildVersionPage` -> the new `ObjectVersionXML.ChecksumAlgorithm`
+   field -> `mapListVersionsOutput`. **Explicitly NOT touched**: `ObjectVersionXML`'s
+   existing `StorageClass` field, which the diff also flagged as a mismatch (backend
+   tracks the object's real storage class; the field is hardcoded to `"STANDARD"`) --
+   verified against `types/enums.go:1134-1149`,
+   `ObjectVersionStorageClass` has exactly ONE valid enum value, `"STANDARD"`, so the
+   existing hardcode is real-AWS-correct and the apparent mismatch was a false positive
+   from the diff over-matching Go field names across two different-shaped enums (the
+   exact "hand-verify against the real serializer" warning this campaign carries).
+   `TestListObjectVersions_ChecksumAlgorithmPopulated` drives the real client
+   (PutObject with `ChecksumAlgorithm: SHA256` on a versioned bucket -> ListObjectVersions
+   -> asserts `Versions[0].ChecksumAlgorithm`); both the backend-threading half and the
+   XML-mapping half were hand-reverted independently and each failed alone, then restored
+   byte-identical.
+
+**Header-bound member sweep beyond the two bugs above**: cross-checked `GetObject`/
+`HeadObject`/`PutObject`/`CopyObject`'s existing `setChecksumHeaders`/`setSSEHeaders`/
+`setCommonHeaders` call sites (`object_ops_headers.go`) against every header binding in
+`GetObjectOutput`/`HeadObjectOutput`/`PutObjectOutput`'s real `HttpBindings` functions --
+no further gaps found; these were already correctly wired going into this pass.
+
+**Optimization -- measured, not just inspected, closing the one axis the prior four
+rounds left as "inspected, not profiled"**: added `BenchmarkListObjectsV2` (`bench_test.go`)
+against a 50,000-object bucket, three shapes (flat/no-prefix, prefix+delimiter,
+delimiter-only). Before: `flat_maxkeys1000` cost 56.0ms/op, 12.0MB/op, 350,015 allocs/op
+for a 1000-key page -- `processListObjects` (`listing.go`) built a full `types.Object`
+(with its `Owner` pointer, `ChecksumAlgorithm` slice, four `aws.String`/`aws.Time` boxed
+allocations) for every one of the 50,000 matching objects, sorted all 50,000, and only
+THEN truncated to the 1,000 actually returned -- i.e. ~49,000 wasted per-object
+allocations on every single page of a paginated walk over a large, unprefixed bucket
+(the exact "hot loop" case this pass was told to check, since s3 is one of the two
+services most likely to be hit that way by tests using this emulator). No lock was held
+across this cost (confirmed unchanged from prior rounds' inspection) -- the cost was pure
+unnecessary allocation, not a concurrency bug.
+
+Fixed by splitting the no-delimiter path (`CommonPrefixes` is always empty there, so
+truncation is a plain sorted-slice cut) to sort/marker-seek/truncate on lightweight
+`*StoredObjectVersion` pointers first, and defer the `types.Object` conversion
+(`objectFromVersion`, new) to only the page actually returned. The delimiter path is
+untouched -- grouping into `CommonPrefixes` genuinely needs every matching key's full
+`types.Object` up front, so changing it carried the regression risk this campaign has
+seen before (a dynamodb GSI "optimization" that copied under lock and regressed to
+O(table), caught only by its benchmark) for no measured benefit; left as-is rather than
+risked. After: `flat_maxkeys1000` is 39.9ms/op, 1.04MB/op, 7,015 allocs/op -- a 92%
+allocation-count reduction (350,015 -> 7,015) and ~11x reduction in bytes/op, with the
+delimiter paths' numbers unchanged (confirming no regression there;
+`common_prefix_only` stayed ~56ms/12.4MB/350k allocs, `prefix_delimiter` stayed
+~2-3ms/650KB/3,527 allocs across both runs). The remaining ~40ms is the per-object
+`obj.mu.RLock()` + map-lookup cost of resolving each of the 50,000 objects' latest
+version, which is inherent to an unindexed `map[string]*StoredObject` and not
+attempted this pass (a sorted-key index would be a larger structural change with its
+own regression risk, better suited to a dedicated pass if this cost is ever shown to
+matter in practice). `TestListObjectsV2_PaginationConsistency_NoDelimiter`
+(`store_listing_test.go`) walks 253 objects in pages of 37 through the new fast path
+and reconstructs the full sorted key set, asserting no key is dropped, duplicated, or
+misordered, and that each page's `Owner`/`StorageClass` are still populated correctly;
+hand-verified to catch an injected off-by-one in the truncation boundary before being
+restored to the correct version.
+
+**Not reached this pass**: `services/s3control` (separate package, out of scope for this
+timebox; sibling issue if a dedicated pass is warranted); a sorted-key index for
+`ListObjectsV2`'s remaining per-object lock cost; re-diffing `Grant`/`Grantee`,
+`MultipartUpload`, and `DeleteMarkerEntry` beyond the read-and-compare above (no
+mismatches found, but not independently regression-tested); presign/sigv4 internals and
+the SelectObjectContent SQL engine (both carried forward un-re-diffed from prior rounds,
+as already disclosed above).
+
+Gates, all clean: `go build ./...`, `go build ./services/s3/...`, `go vet
+./services/s3/...`, `go test -race -count=1 ./services/s3/...`, `go fix -diff
+./services/s3/...` (no diff), `gofmt -l services/s3/` (no output), `golangci-lint run
+./services/s3/...` (0 issues, no new `//nolint`), `go test -race -count=1 ./pkgs/...`.

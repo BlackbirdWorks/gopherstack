@@ -213,14 +213,15 @@ type ListVersionsResult struct {
 }
 
 type ObjectVersionXML struct {
-	Owner        *Owner `xml:"Owner"`
-	Key          string `xml:"Key"`
-	VersionID    string `xml:"VersionId"`
-	LastModified string `xml:"LastModified"`
-	ETag         string `xml:"ETag"`
-	StorageClass string `xml:"StorageClass"`
-	Size         int64  `xml:"Size"`
-	IsLatest     bool   `xml:"IsLatest"`
+	Owner             *Owner `xml:"Owner"`
+	Key               string `xml:"Key"`
+	VersionID         string `xml:"VersionId"`
+	LastModified      string `xml:"LastModified"`
+	ETag              string `xml:"ETag"`
+	StorageClass      string `xml:"StorageClass"`
+	ChecksumAlgorithm string `xml:"ChecksumAlgorithm,omitempty"`
+	Size              int64  `xml:"Size"`
+	IsLatest          bool   `xml:"IsLatest"`
 }
 
 type DeleteMarkerXML struct {
@@ -410,9 +411,13 @@ type ListPartsResult struct {
 
 // PartXML describes a single uploaded part in a multipart upload.
 type PartXML struct {
-	ETag       string `xml:"ETag"`
-	Size       int64  `xml:"Size"`
-	PartNumber int    `xml:"PartNumber"`
+	ETag           string `xml:"ETag"`
+	ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
+	Size           int64  `xml:"Size"`
+	PartNumber     int    `xml:"PartNumber"`
 }
 
 // ServerSideEncryptionConfiguration is the XML body for PutBucketEncryption / GetBucketEncryption.

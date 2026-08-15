@@ -61,31 +61,26 @@ func (b *InMemoryBackend) processListObjects(
 		}
 	}()
 
-	// Process objects outside the bucket lock
-	contents := b.processObjectSnapshots(objectSnapshots)
+	// Resolve each candidate's latest (non-deleted) version outside the
+	// bucket lock. This is the same per-object work processObjectSnapshots
+	// always did -- only the types.Object allocation is deferred below.
+	versions := b.snapshotLatestVersions(objectSnapshots)
 
-	sort.Slice(contents, func(i, j int) bool {
-		return *contents[i].Key < *contents[j].Key
+	sort.Slice(versions, func(i, j int) bool {
+		return versions[i].Key < versions[j].Key
 	})
 
 	// Apply Marker using binary search for O(log n) seek instead of O(n) linear scan.
 	marker := aws.ToString(input.Marker)
 	if marker != "" {
-		startIndex := sort.Search(len(contents), func(i int) bool {
-			return *contents[i].Key > marker
+		startIndex := sort.Search(len(versions), func(i int) bool {
+			return versions[i].Key > marker
 		})
-		if startIndex >= len(contents) {
-			contents = nil
+		if startIndex >= len(versions) {
+			versions = nil
 		} else {
-			contents = contents[startIndex:]
+			versions = versions[startIndex:]
 		}
-	}
-
-	delimiter := aws.ToString(input.Delimiter)
-	var cpList []types.CommonPrefix
-
-	if delimiter != "" {
-		contents, cpList = applyDelimiter(prefix, delimiter, contents)
 	}
 
 	maxKeys := int32(defaultMaxKeys)
@@ -93,13 +88,44 @@ func (b *InMemoryBackend) processListObjects(
 		maxKeys = *input.MaxKeys
 	}
 
+	delimiter := aws.ToString(input.Delimiter)
+
+	// No delimiter: CommonPrefixes is always empty, so truncation is a plain
+	// slice cut on the already-sorted, marker-seeked version list. Truncate
+	// BEFORE building types.Object so a page request against a huge bucket
+	// only pays the per-object allocation cost (Owner, ChecksumAlgorithm
+	// slice, etc.) for the keys actually returned, not every matching key.
+	if delimiter == "" {
+		var isTruncated bool
+		var nextMarker string
+		if maxKeys <= 0 {
+			isTruncated = len(versions) > 0
+			versions = nil
+		} else if int64(len(versions)) > int64(maxKeys) {
+			isTruncated = true
+			nextMarker = versions[maxKeys-1].Key
+			versions = versions[:maxKeys]
+		}
+
+		return objectsFromVersions(versions), nil, isTruncated, nextMarker, maxKeys
+	}
+
+	// Delimiter grouping needs every matching key up front to compute
+	// CommonPrefixes correctly, so build the full page before truncating.
+	contents := objectsFromVersions(versions)
+	contents, cpList := applyDelimiter(prefix, delimiter, contents)
+
 	contents, cpList, isTruncated, nextMarker := b.truncateListResults(contents, cpList, maxKeys)
 
 	return contents, cpList, isTruncated, nextMarker, maxKeys
 }
 
-func (b *InMemoryBackend) processObjectSnapshots(objectSnapshots []*StoredObject) []types.Object {
-	contents := make([]types.Object, 0, len(objectSnapshots)) // #61: capacity hint
+// snapshotLatestVersions resolves each object's current (non-deleted) latest
+// version under its own lock. It returns bare *StoredObjectVersion pointers
+// rather than the wire-shaped types.Object so callers can sort/seek/truncate
+// cheaply before paying for the per-object response allocation.
+func (b *InMemoryBackend) snapshotLatestVersions(objectSnapshots []*StoredObject) []*StoredObjectVersion {
+	versions := make([]*StoredObjectVersion, 0, len(objectSnapshots))
 	for _, obj := range objectSnapshots {
 		var latest *StoredObjectVersion
 		func() {
@@ -119,27 +145,41 @@ func (b *InMemoryBackend) processObjectSnapshots(objectSnapshots []*StoredObject
 			continue
 		}
 
-		var checksumAlgos []types.ChecksumAlgorithm
-		if latest.ChecksumAlgorithm != "" {
-			checksumAlgos = []types.ChecksumAlgorithm{latest.ChecksumAlgorithm}
-		}
+		versions = append(versions, latest)
+	}
 
-		sc := latest.StorageClass
-		if sc == "" {
-			sc = storageStandard
-		}
-		contents = append(contents, types.Object{
-			Key:               aws.String(latest.Key),
-			LastModified:      aws.Time(latest.LastModified),
-			ETag:              aws.String(latest.ETag),
-			Size:              aws.Int64(latest.Size),
-			StorageClass:      types.ObjectStorageClass(sc),
-			ChecksumAlgorithm: checksumAlgos,
-			Owner: &types.Owner{
-				ID:          aws.String(gopherstackName),
-				DisplayName: aws.String(gopherstackName),
-			},
-		})
+	return versions
+}
+
+func objectFromVersion(latest *StoredObjectVersion) types.Object {
+	var checksumAlgos []types.ChecksumAlgorithm
+	if latest.ChecksumAlgorithm != "" {
+		checksumAlgos = []types.ChecksumAlgorithm{latest.ChecksumAlgorithm}
+	}
+
+	sc := latest.StorageClass
+	if sc == "" {
+		sc = storageStandard
+	}
+
+	return types.Object{
+		Key:               aws.String(latest.Key),
+		LastModified:      aws.Time(latest.LastModified),
+		ETag:              aws.String(latest.ETag),
+		Size:              aws.Int64(latest.Size),
+		StorageClass:      types.ObjectStorageClass(sc),
+		ChecksumAlgorithm: checksumAlgos,
+		Owner: &types.Owner{
+			ID:          aws.String(gopherstackName),
+			DisplayName: aws.String(gopherstackName),
+		},
+	}
+}
+
+func objectsFromVersions(versions []*StoredObjectVersion) []types.Object {
+	contents := make([]types.Object, 0, len(versions))
+	for _, v := range versions {
+		contents = append(contents, objectFromVersion(v))
 	}
 
 	return contents
@@ -228,14 +268,15 @@ func (b *InMemoryBackend) ListObjectsV2(
 // versionSnapshot holds the subset of StoredObjectVersion fields needed for
 // listing. It is captured under the bucket lock and processed outside it.
 type versionSnapshot struct {
-	lastModified time.Time
-	key          string
-	versionID    string
-	etag         string
-	storageClass string
-	size         int64
-	isLatest     bool
-	deleted      bool
+	lastModified      time.Time
+	key               string
+	versionID         string
+	etag              string
+	storageClass      string
+	checksumAlgorithm string
+	size              int64
+	isLatest          bool
+	deleted           bool
 }
 
 func (b *InMemoryBackend) ListObjectVersions(
@@ -329,14 +370,15 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 			}
 
 			snapshots = append(snapshots, versionSnapshot{
-				key:          v.Key,
-				versionID:    v.VersionID,
-				etag:         v.ETag,
-				lastModified: v.LastModified,
-				size:         v.Size,
-				isLatest:     v.IsLatest,
-				deleted:      v.Deleted,
-				storageClass: sc,
+				key:               v.Key,
+				versionID:         v.VersionID,
+				etag:              v.ETag,
+				lastModified:      v.LastModified,
+				size:              v.Size,
+				isLatest:          v.IsLatest,
+				deleted:           v.Deleted,
+				storageClass:      sc,
+				checksumAlgorithm: string(v.ChecksumAlgorithm),
 			})
 		}
 
@@ -441,15 +483,22 @@ func buildVersionPage(snapshots []versionSnapshot, maxKeys int32) (
 				},
 			})
 		} else {
+			var checksumAlgos []types.ChecksumAlgorithm
+			if snap.checksumAlgorithm != "" {
+				checksumAlgos = []types.ChecksumAlgorithm{types.ChecksumAlgorithm(snap.checksumAlgorithm)}
+			}
+
+			owner := types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)}
 			versions = append(versions, types.ObjectVersion{
-				Key:          aws.String(snap.key),
-				VersionId:    aws.String(snap.versionID),
-				IsLatest:     aws.Bool(snap.isLatest),
-				LastModified: aws.Time(snap.lastModified),
-				ETag:         aws.String(snap.etag),
-				Size:         aws.Int64(snap.size),
-				StorageClass: types.ObjectVersionStorageClass(snap.storageClass),
-				Owner:        &types.Owner{ID: aws.String(gopherstackName), DisplayName: aws.String(gopherstackName)},
+				Key:               aws.String(snap.key),
+				VersionId:         aws.String(snap.versionID),
+				IsLatest:          aws.Bool(snap.isLatest),
+				LastModified:      aws.Time(snap.lastModified),
+				ETag:              aws.String(snap.etag),
+				Size:              aws.Int64(snap.size),
+				StorageClass:      types.ObjectVersionStorageClass(snap.storageClass),
+				ChecksumAlgorithm: checksumAlgos,
+				Owner:             &owner,
 			})
 		}
 

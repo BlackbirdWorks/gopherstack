@@ -267,6 +267,10 @@ func mapListVersionsOutput(
 		if v.ETag != nil {
 			etag = *v.ETag
 		}
+		var checksumAlgo string
+		if len(v.ChecksumAlgorithm) > 0 {
+			checksumAlgo = string(v.ChecksumAlgorithm[0])
+		}
 		resp.Versions = append(resp.Versions, ObjectVersionXML{
 			Key:          encodeListKey(encodingType, *v.Key),
 			VersionID:    *v.VersionId,
@@ -278,7 +282,8 @@ func mapListVersionsOutput(
 				ID:          gopherstackName,
 				DisplayName: gopherstackName,
 			},
-			StorageClass: storageStandard,
+			StorageClass:      storageStandard,
+			ChecksumAlgorithm: checksumAlgo,
 		})
 	}
 

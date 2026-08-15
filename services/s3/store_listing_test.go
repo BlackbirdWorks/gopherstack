@@ -2,6 +2,7 @@ package s3_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"sort"
 	"testing"
@@ -520,6 +521,57 @@ func TestListObjects_DelimiterWithPrefix(t *testing.T) {
 		prefixes[i] = aws.ToString(cp.Prefix)
 	}
 	assert.ElementsMatch(t, []string{"photos/2023/", "photos/2024/"}, prefixes)
+}
+
+// TestListObjectsV2_PaginationConsistency_NoDelimiter walks a bucket page by
+// page with an odd MaxKeys (no delimiter, the fast path added for
+// gopherstack-3dqa's optimization pass) and reconstructs the full key set
+// from the pages, proving the deferred-conversion truncation still returns
+// every key exactly once, in sorted order, with a correctly populated
+// per-object response (not just "doesn't crash").
+func TestListObjectsV2_PaginationConsistency_NoDelimiter(t *testing.T) {
+	t.Parallel()
+
+	const objectCount = 253
+	const pageSize = 37
+
+	backend := newTestBackend(t)
+	mustCreateBucket(t, backend, "page-bkt")
+
+	want := make([]string, objectCount)
+	for i := range objectCount {
+		key := fmt.Sprintf("obj-%04d", i)
+		want[i] = key
+		mustPutObject(t, backend, "page-bkt", key, []byte("x"))
+	}
+	sort.Strings(want)
+
+	var got []string
+	continuationToken := ""
+	for pages := 0; ; pages++ {
+		require.Lessf(t, pages, objectCount, "pagination did not terminate")
+
+		out, err := backend.ListObjectsV2(t.Context(), &sdk_s3.ListObjectsV2Input{
+			Bucket:            aws.String("page-bkt"),
+			MaxKeys:           aws.Int32(pageSize),
+			ContinuationToken: aws.String(continuationToken),
+		})
+		require.NoError(t, err)
+
+		for _, obj := range out.Contents {
+			got = append(got, aws.ToString(obj.Key))
+			assert.Equal(t, "gopherstack", aws.ToString(obj.Owner.ID))
+			assert.Equal(t, types.ObjectStorageClassStandard, obj.StorageClass)
+		}
+
+		if !aws.ToBool(out.IsTruncated) {
+			break
+		}
+		continuationToken = aws.ToString(out.NextContinuationToken)
+		require.NotEmpty(t, continuationToken)
+	}
+
+	assert.Equal(t, want, got)
 }
 
 func TestCreateBucket_NonDefaultRegion_PutObjectSucceeds(t *testing.T) {

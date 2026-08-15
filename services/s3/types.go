@@ -171,10 +171,14 @@ type StoredMultipartUpload struct {
 
 // StoredPart represents a single part of a multipart upload.
 type StoredPart struct {
-	ETag       string `json:"etag"`
-	Data       []byte `json:"data,omitempty"`
-	PartNumber int32  `json:"partNumber"`
-	Size       int64  `json:"size"`
+	ETag           string  `json:"etag"`
+	ChecksumCRC32  *string `json:"checksumCRC32,omitempty"`
+	ChecksumCRC32C *string `json:"checksumCRC32C,omitempty"`
+	ChecksumSHA1   *string `json:"checksumSHA1,omitempty"`
+	ChecksumSHA256 *string `json:"checksumSHA256,omitempty"`
+	Data           []byte  `json:"data,omitempty"`
+	PartNumber     int32   `json:"partNumber"`
+	Size           int64   `json:"size"`
 }
 
 // ObjectMetadata holds internal metadata for storage operations.
