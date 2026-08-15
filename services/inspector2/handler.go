@@ -145,6 +145,19 @@ var onceRouteMatchPrefixes = sync.OnceValue(func() []string {
 	}
 })
 
+// ambiguousRouteMatchPrefixes are onceRouteMatchPrefixes entries that also
+// prefix-match another registered service's real paths -- SecurityHub's
+// BatchImportFindings is POST /findings/import (starts with "/findings/")
+// and CreateMembers-family ops live under /members/{action}, both of which
+// this handler's plain prefix check would otherwise swallow before
+// SecurityHub's own (lower-registration-order) matcher ever runs. Gated by
+// isInspector2Request instead of narrowing the prefix, since real
+// Inspector2 also uses these exact prefixes (e.g. /findings/list).
+var ambiguousRouteMatchPrefixes = map[string]bool{ //nolint:gochecknoglobals // read-only lookup data
+	"/findings/": true,
+	"/members/":  true,
+}
+
 // RouteMatcher returns a matcher that accepts Inspector2 REST paths.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
@@ -155,13 +168,26 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 
 		for _, prefix := range onceRouteMatchPrefixes() {
-			if strings.HasPrefix(path, prefix) {
-				return true
+			if !strings.HasPrefix(path, prefix) {
+				continue
 			}
+
+			if ambiguousRouteMatchPrefixes[prefix] && !isInspector2Request(c) {
+				continue
+			}
+
+			return true
 		}
 
 		return false
 	}
+}
+
+// isInspector2Request checks the Authorization header for the inspector2 signing service.
+func isInspector2Request(c *echo.Context) bool {
+	auth := c.Request().Header.Get("Authorization")
+
+	return strings.Contains(auth, "/"+inspector2ServiceName+"/")
 }
 
 // MatchPriority returns the routing priority.

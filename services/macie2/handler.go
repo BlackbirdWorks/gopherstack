@@ -254,6 +254,19 @@ var routedPathPrefixes = []string{ //nolint:gochecknoglobals // static route tab
 	pathTemplates,
 }
 
+// ambiguousRoutedPathPrefixes are routedPathPrefixes entries that also
+// prefix-match another registered service's real paths -- SecurityHub's
+// GetFindings/BatchImportFindings live under /findings* and its
+// CreateMembers family under /members*, both of which this handler's plain
+// prefix check would otherwise swallow before SecurityHub's own
+// (lower-registration-order) matcher ever runs. Gated by isMacie2Request
+// instead of narrowing the prefix, since real Macie2 also uses these exact
+// prefixes for its own findings/members ops.
+var ambiguousRoutedPathPrefixes = map[string]bool{ //nolint:gochecknoglobals // read-only lookup data
+	pathFindings: true,
+	pathMembers:  true,
+}
+
 // RouteMatcher returns a function that matches Macie2 requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
@@ -264,13 +277,26 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 
 		for _, prefix := range routedPathPrefixes {
-			if strings.HasPrefix(path, "/"+prefix) {
-				return true
+			if !strings.HasPrefix(path, "/"+prefix) {
+				continue
 			}
+
+			if ambiguousRoutedPathPrefixes[prefix] && !isMacie2Request(c) {
+				continue
+			}
+
+			return true
 		}
 
 		return false
 	}
+}
+
+// isMacie2Request checks the Authorization header for the macie2 signing service.
+func isMacie2Request(c *echo.Context) bool {
+	auth := c.Request().Header.Get("Authorization")
+
+	return strings.Contains(auth, "/"+macie2Service+"/")
 }
 
 // restRouter returns the shared REST-path routing/dispatch wiring for this

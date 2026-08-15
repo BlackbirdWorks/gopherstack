@@ -627,15 +627,21 @@ func TestBatchUpdateFindingsV2_UnmatchedIdentifiers(t *testing.T) {
 }
 
 // seedSeverityFindings imports two HIGH-severity findings and one LOW, via
-// the raw ASFF BatchImportFindings wire (POST /findings/import).
+// the raw ASFF BatchImportFindings wire (POST /findings/import). Severity is
+// nested under Severity.Label on the real wire (securityhub@v1.75.4
+// types/types.go AwsSecurityFinding.Severity), not a flat "SeverityLabel"
+// key -- a real BatchImportFindings caller can never populate a flat key.
 func seedSeverityFindings(t *testing.T, h *securityhub.Handler) {
 	t.Helper()
 
+	high := map[string]any{"Label": "HIGH"}
+	low := map[string]any{"Label": "LOW"}
+
 	rec := doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
 		"Findings": []any{
-			securityhub.ValidFinding(map[string]any{"Id": "sev-finding-1", "SeverityLabel": "HIGH"}),
-			securityhub.ValidFinding(map[string]any{"Id": "sev-finding-2", "SeverityLabel": "HIGH"}),
-			securityhub.ValidFinding(map[string]any{"Id": "sev-finding-3", "SeverityLabel": "LOW"}),
+			securityhub.ValidFinding(map[string]any{"Id": "sev-finding-1", "Severity": high}),
+			securityhub.ValidFinding(map[string]any{"Id": "sev-finding-2", "Severity": high}),
+			securityhub.ValidFinding(map[string]any{"Id": "sev-finding-3", "Severity": low}),
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

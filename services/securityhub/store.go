@@ -48,6 +48,7 @@ const (
 	// invitations, organizations, resources V2) -- kept here so every family
 	// file references one constant instead of re-declaring the same literal.
 	keyAccountID         = "AccountId"
+	keyProcessingResult  = "ProcessingResult"
 	keyInvitedAt         = "InvitedAt"
 	keyMemberStatus      = "MemberStatus"
 	keyGroupByAttribute  = "GroupByAttribute"
@@ -57,6 +58,13 @@ const (
 	keyProductArn        = "ProductArn"
 	keyAwsAccountID      = "AwsAccountId"
 	keyMetadataUID       = "MetadataUid"
+
+	// Finding filter/group-by field names that name a value nested under the
+	// finding (Severity.Label/Workflow.Status/Compliance.Status), not a flat
+	// top-level key -- see findingFieldString.
+	keyFilterSeverityLabel    = "SeverityLabel"
+	keyFilterWorkflowStatus   = "WorkflowStatus"
+	keyFilterComplianceStatus = "ComplianceStatus"
 
 	msgFindingNotFound = "Finding not found"
 

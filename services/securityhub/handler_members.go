@@ -27,6 +27,29 @@ func classifyMembersPath(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
+// memberFields builds the wire-shaped map for one Member entry, shared by
+// GetMembers and ListMembers. InvitedAt is a Timestamp field
+// (securityhub@v1.75.4 deserializers.go's awsRestjson1_deserializeDocumentMember,
+// case "InvitedAt": smithytime.ParseDateTime(jtv)) -- present-but-empty
+// fails that parse, so it is only included once InviteMembers has actually
+// set it, mirroring how a real Member with no invitation omits the key.
+func memberFields(m *Member) map[string]any {
+	fields := map[string]any{
+		keyAccountID:      m.AccountId,
+		"AdministratorId": m.AdministratorId,
+		"MasterId":        m.MasterId,
+		"Email":           m.Email,
+		keyMemberStatus:   m.MemberStatus,
+		"UpdatedAt":       m.UpdatedAt, //nolint:goconst // existing issue.
+	}
+
+	if m.InvitedAt != "" {
+		fields[keyInvitedAt] = m.InvitedAt
+	}
+
+	return fields
+}
+
 func (h *Handler) handleCreateMembers(c *echo.Context, body map[string]any) error {
 	var accounts []map[string]any
 
@@ -93,15 +116,7 @@ func (h *Handler) handleGetMembers(c *echo.Context, body map[string]any) error {
 	var membersOut []map[string]any //nolint:prealloc // existing issue.
 
 	for _, m := range members {
-		membersOut = append(membersOut, map[string]any{
-			keyAccountID:      m.AccountId,
-			"AdministratorId": m.AdministratorId,
-			"MasterId":        m.MasterId,
-			"Email":           m.Email,
-			keyMemberStatus:   m.MemberStatus,
-			keyInvitedAt:      m.InvitedAt,
-			"UpdatedAt":       m.UpdatedAt, //nolint:goconst // existing issue.
-		})
+		membersOut = append(membersOut, memberFields(m))
 	}
 
 	if membersOut == nil {
@@ -164,15 +179,7 @@ func (h *Handler) handleListMembers(c *echo.Context) error {
 	var membersOut []map[string]any //nolint:prealloc // existing issue.
 
 	for _, m := range members {
-		membersOut = append(membersOut, map[string]any{
-			keyAccountID:      m.AccountId,
-			"AdministratorId": m.AdministratorId,
-			"MasterId":        m.MasterId,
-			"Email":           m.Email,
-			keyMemberStatus:   m.MemberStatus,
-			keyInvitedAt:      m.InvitedAt,
-			"UpdatedAt":       m.UpdatedAt,
-		})
+		membersOut = append(membersOut, memberFields(m))
 	}
 
 	if membersOut == nil {
