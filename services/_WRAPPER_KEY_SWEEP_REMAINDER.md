@@ -7731,3 +7731,260 @@ unswept tier starts at `dynamodb`'s neighborhood in the ranked table above
 (re-run `go run ./cmd/opcensus` and re-check `git status` before picking, as
 usual -- multiple same-tier siblings have collided by count alone all
 session, not just today).
+
+## directconnect (this session, 2026-08-15)
+
+Chosen per this session's assignment: read this file's header/ranked table,
+ran `go run ./cmd/opcensus` fresh (unchanged for this tier), read `bd show
+gopherstack-6flj`, and read `git show 4eaf7d439` (the neptune pass
+immediately preceding this one). At pick time `directconnect` (64 ops, 20
+L+D+G, `direct`) and `xray` (38 ops, 20 L+D+G, `direct`) were TIED for
+largest unswept, both strictly below the now-swept `codebuild`/other 20+
+entries. `git status` was clean at that moment (no live sibling on either).
+
+**TIE-BREAK: `directconnect` vs `xray`, both 20 L+D+G, `direct`.** Surface
+was checked first, per this issue's stated tiebreak order: `xray` has 14
+distinct resource-family `handler_*.go` files (encryption_config, groups,
+indexing_rules, insights, resource_policies, sampling_rules,
+sampling_statistics, service_graph, tags, telemetry, trace_retrieval,
+trace_segment_destination, trace_segments, traces) versus `directconnect`'s
+6 (bgp, connections, gateways, lags_interconnects, static, vifs) -- surface
+pointed at `xray`, and `xray` was picked first on that basis. Partway
+through `xray`'s investigation (after reading its router table, handler_groups.go,
+handler_indexing_rules.go, handler_insights.go, handler_resource_policies.go,
+handler_sampling_rules.go -- all read-only, zero edits made), a live sibling
+appeared: `git status` began showing uncommitted changes in
+`services/xray/handler_traces.go`, `models.go`, `traces.go`, `traces_test.go`
+plus an untracked `wire_field_fixes_test.go`, none authored by this session.
+**OCCUPANCY then overrode surface** -- this session switched to
+`directconnect` cleanly (no `xray` files were ever edited, only read), the
+same pattern the neptune/ecr pass recorded: surface picks the target until a
+sibling actually claims one of the tied candidates, at which point occupancy
+decides and the switch is real, not a rationalization. `xray` was left
+exactly as the sibling had it; nothing in this section touches or was
+informed by that sibling's in-flight changes beyond confirming (via `git
+diff --stat`) which files were off-limits.
+
+**PROTOCOL, SECOND CLIENT, EQUALFOLD:** `awsjson1.1` (confirmed:
+`awsAwsjson11_deserializeOp*`/`awsAwsjson11_serializeOp*` throughout
+`deserializers.go`/`serializers.go`; every op is a flat `POST /` dispatched
+purely by its `X-Amz-Target: OvertureService.<Op>` header, zero HTTP path
+routing -- gopherstack's own `handler.go` doc comment already states this
+and it was re-confirmed against `directconnect@v1.44.1`). All 157
+`strings.EqualFold` hits in the pinned SDK's `deserializers.go` are
+error-code matches (`case strings.EqualFold("DirectConnectClientException",
+errorCode)` and its four siblings) -- zero are body-field key comparisons,
+confirmed by extracting every `EqualFold` call site and by directly reading
+several `awsAwsjson11_deserializeDocument<Type>` functions (plain
+`switch key { case "connectionId": ...}`, case-sensitive Go string switch).
+Casing IS therefore a real bug class for this service (unlike
+rds/sns/neptune's query/xml), but gopherstack's own `services/directconnect/
+*.go` has **zero** `EqualFold` calls anywhere (grep-confirmed) -- it emits
+exact lowerCamelCase JSON struct tags throughout, matching the real wire
+keys byte-for-byte (see sweep below). No second Direct-Connect-shaped SDK
+client exists in this module (only one `aws-sdk-go-v2/service/directconnect`
+entry in `go.mod`).
+
+**ROUTER:** structurally immune, and this is the straightforward case, not
+the shortcut-taken-without-checking one -- there is no path-segment
+dispatch to desync in the first place (every one of the 64 ops is the exact
+same `POST /`, disambiguated only by the `X-Amz-Target` header, which
+`handler.go`'s own dispatch table keys on directly). Re-confirmed rather
+than assumed: `GetSupportedOperations()`'s 64 entries were diffed 1:1
+against `ls $(go env GOMODCACHE)/.../directconnect@v1.44.1/api_op_*.go`
+(64 files) -- **zero phantom ops, both directions.**
+
+**WRAPPER-KEY SWEEP, all 20 L+D+G ops, each diffed individually** by
+python-extracting every `case "<key>":` inside each op's own
+`awsAwsjson11_deserializeOpDocument<Op>Output` function in
+`directconnect@v1.44.1/deserializers.go` (not hand-transcribed) and
+comparing against gopherstack's own `services/directconnect/wire_ops.go`
+response-struct JSON tags: **all 20 match exactly**, including the two
+non-obvious asymmetric pairs already flagged by the existing PARITY.md
+("wire-trap #7") and independently re-verified here rather than trusted --
+`DescribeLoa` emits `loaContent`+`loaContentType` FLATTENED at the top
+level while `DescribeConnectionLoa`/`DescribeInterconnectLoa` both emit a
+nested `loa` envelope wrapping the same two fields (gopherstack's
+`describeLoaFlatResponse` vs `loaEnvelope{Loa: *loaWire}` matches this
+exactly), and `DescribeConnectionsOnInterconnect` correctly omits
+`nextToken` from its request path (no `MaxResults`/`NextToken` input field
+exists on the real op, confirmed) while still allowing the field on its
+Output struct (present but always naturally absent, not fabricated empty).
+Zero wrapper-key bugs found.
+
+**LAYER-2 (nesting/per-field), 23 shared nested types diffed individually**
+against their own `awsAwsjson11_deserializeDocument<Type>` field-key switch
+(again python-extracted): `Connection`, `Lag`, `Interconnect`,
+`VirtualInterface`, `DirectConnectGatewayAssociation`, `RouterType`,
+`CustomerAgreement`, `ResourceTag`, `Location`, `VirtualGateway`,
+`DirectConnectGatewayAttachment`, `DirectConnectGateway`,
+`DirectConnectGatewayAssociationProposal`, `AssociatedGateway`, `Loa`,
+`MacSecKey`, `BGPPeer`, `Tag`, `RouteFilterPrefix`, `Route`,
+`AsPathSegment`, `RateLimiterStatus`, `VirtualInterfaceTestHistory` --
+21 of 23 are byte-exact 1:1 with `services/directconnect/wire.go`'s structs
+(field-for-field, not just count). Every collection here is a named JSON
+array in an `awsjson1.1` object (never a bare map) -- no array-vs-map/
+flat-vs-nested mismatch found anywhere in this set.
+
+**TWO NEVER-MODELED MEMBERS FOUND, both disclosed, NEITHER fabricated.**
+`Connection.AwsDevice`/`Interconnect.AwsDevice`/`Lag.AwsDevice` (real key
+`awsDevice`, confirmed present in all three types' own deserializer
+switches) and `DirectConnectGatewayAssociation.VirtualGatewayRegion` (real
+key `virtualGatewayRegion`) both have **zero grep hits** anywhere in
+`services/directconnect/*.go` before this pass -- a real client reading
+either field always gets absent/nil today, never a wrong value. Not fixed:
+both are marked `// Deprecated: This member has been deprecated.` in the
+pinned SDK's own `types/types.go` doc comments, and this pass had no
+primary source (no live AWS response, no SDK comment on post-deprecation
+wire behavior) confirming whether real AWS still populates a deprecated
+field with a live value or has genuinely stopped. `AwsDeviceV2` (the
+non-deprecated replacement) IS correctly populated everywhere already.
+Guessing the value (e.g. mirroring `AwsDeviceV2` into `AwsDevice`) would be
+exactly the fabrication this issue warns against -- disclosed in
+`services/directconnect/PARITY.md`'s `gaps:` list instead, with a note that
+a follow-up pass with access to a real AWS account could resolve this with
+certainty. This is a genuine addition to the never-modeled-member count
+even though nothing was fixed this pass.
+
+**PRIOR AUDIT NOTE QUALITY:** `services/directconnect/PARITY.md` is already
+`overall: A` with an exceptionally detailed prior audit (2026-08-06,
+`gopherstack-t0gq`/general parity work, not 6flj) -- every one of the 64 ops
+individually documents its wire shape, several genuine "wire-traps" (flattened
+vs nested VirtualInterface/Loa shapes, the GatewayId/VirtualGatewayId dual
+addressing mode, the missing generic Paginator type), and real integration
+test coverage against a live Docker container. This is the **coverage-gap**
+case, not the **argued-away** case: nothing in the prior audit's notes
+claims `AwsDevice`/`VirtualGatewayRegion` were checked or reasons their
+absence away -- they were simply never looked at (the prior audit's own
+`ops:` table describes shapes at the Go-struct-member level, not by reading
+the deserializer's JSON key switch case-by-case the way this issue's method
+requires), which is exactly why they survived. Also found and corrected:
+the prior audit's own `last_audit_commit: 3b90d4523` is **stale** -- that
+hash resolves to `"test: replace the last unbubbleable sleeps with
+require.Eventually"`, an unrelated cross-service sleep-to-Eventually
+conversion, not a directconnect-specific commit. Flagged in PARITY.md's
+frontmatter rather than silently corrected to a guessed value.
+
+**REQUIRED-MEMBER DIFFS, both directions, scoped to the 20 ops touched this
+pass (not all 64):** the pinned SDK ships **zero** `validateOpInput*`
+functions for this entire service (`grep -c '^func validateOpInput'
+validators.go` => 0) -- there is no client-side required-field enforcement
+anywhere, matching PARITY.md's own extensive per-op notes that most Input
+structs mark nothing as struct-level-required even where the real API
+surely needs it. Consequently gopherstack's own server-side required-field
+checks (e.g. `handleDescribeHostedConnections`'s `if req.ConnectionID ==
+""`) are strictly additive validation, not something a real client could be
+blocked from omitting -- no case found this pass of gopherstack demanding a
+field the real Input structurally lacks, and no case found of a real
+required field going unenforced (the ops with real required fields already
+enforce them). Not exhaustively re-diffed for all 64 ops.
+
+**FILTERS/PAGINATION:** all 10 ops with `maxResults`/`nextToken` on the wire
+(`DescribeConnections`, `DescribeHostedConnections`,
+`DescribeDirectConnectGateway{s,Associations,AssociationProposals,Attachments}`,
+`DescribeInterconnects`, `DescribeLags`, `DescribeVirtualInterfaces`,
+`ListVirtualInterfaceTestHistory`) route through the shared generic
+`paginate()` helper (`handler.go`) backed by `pkgs/page` -- confirmed via
+grep, all 10 call sites found, none discarded. `ListVirtualInterfaceRoutes`
+accepts `filters`/`maxResults`/`nextToken` on the wire but never uses them
+to filter (already disclosed in PARITY.md/`structural_gaps:` -- `Routes` is
+always an honest empty list since no BGP route exchange is modeled, so
+there is never more than zero items to page through; re-confirmed, not a
+new finding). `DescribeConnectionsOnInterconnect` correctly never populates
+`nextToken` in its response (no `maxResults` input exists on the real op),
+matching the real asymmetry exactly rather than fabricating pagination.
+Every ID-shaped optional filter spot-checked (`DescribeConnections`'
+`connectionId`, `DescribeInterconnects`' `interconnectId`) is genuinely
+applied server-side (`InMemoryBackend.DescribeConnections` short-circuits to
+a single-item lookup when `connectionId != ""`), not silently ignored.
+
+**SIBLING FAMILIES / SHARED CONVERTERS CONFIRMED CORRECT:** `connectionWire`
+is reused across every op whose Output IS a Connection or whose list
+element is one (`CreateConnection`, 3 Allocate/Associate variants,
+`DescribeConnections`, `DescribeConnectionsOnInterconnect`,
+`DescribeHostedConnections`, `Lag.Connections`) -- confirmed the real
+`types.Connection` is identical in all these contexts (same 23-field
+deserializer switch cited above), genuinely shared, not a sibling trap.
+Same confirmed for `virtualInterfaceWire` (flattened on 6 ops, nested via
+`vifEnvelope` on 4 more, list-element on 1 -- all resolve to the identical
+real `types.VirtualInterface`, PARITY.md's own "wire-trap #1" already
+documents which ops use which shape and this pass re-verified the field set
+itself is identical either way, only the envelope differs) and for
+`loaWire`/`macSecKeyWire`/`bgpPeerWire`, each reused across 2-3 ops. Zero
+sibling-trap bugs found among any of them.
+
+**OVER-WIDE FIELD / CREDENTIAL SWEEP:** deliberately run. `BGPPeer.AuthKey`
+and `MacSecKey.Ckn` both echo back on the wire, which could look like a
+leak at a glance -- but both are confirmed to match the REAL AWS wire shape
+exactly (both keys are present in the pinned SDK's own
+`deserializeDocumentBGPPeer`/`deserializeDocumentMacSecKey` switches), so
+this is required parity, not gopherstack-specific over-exposure. `Ckn` is a
+MACsec Connectivity Association Key **Name** (a non-secret identifier for a
+key pair), never the CAK secret material itself, matching real AWS's own
+MACsec key-rotation UX (which also never returns the CAK). `MacSecKey.
+SecretARN` is a Secrets Manager ARN the caller supplied or a synthesized
+placeholder (`synthesizeMacSecSecretARN`, already disclosed in PARITY.md as
+not backed by a real secretsmanager entry) -- an identifier, not the secret
+value. No plaintext client secret, IAM/KMS ARN belonging to another
+principal, or customer environment variable found anywhere in this
+service's wire surface.
+
+**PERSISTENCE:** no fields were added or retagged this pass (both findings
+above were disclosed, not fixed), so the persistence-trap check is moot for
+this pass's own changes -- noted for completeness per this file's own
+precedent of checking before retagging.
+
+**PHANTOM OPS:** zero, both directions (see ROUTER above).
+
+SDK pinned: `directconnect@v1.44.1` (`go.mod:213`), no dependency-boundary
+exception needed.
+
+TESTS: none added. Both findings this pass were disclosed, not fixed (no
+code change to ratify) -- adding a test asserting `AwsDevice`/
+`VirtualGatewayRegion` are absent would just restate the current (honest)
+behavior, not guard against a regression with any real signal. The
+existing `test/integration/directconnect_test.go` (real
+`aws-sdk-go-v2/service/directconnect` client against a live Docker
+container) and `services/directconnect/*_test.go` suite were re-run as
+part of the gates below, not extended.
+
+GATES: `go build ./services/directconnect/...` clean; `go vet
+./services/directconnect/...` clean; `go test -race
+./services/directconnect/...` green; `go fix -diff
+./services/directconnect/...` clean (no diff); `golangci-lint run
+./services/directconnect/...` 0 issues; `go test -race ./pkgs/...` green.
+Full `go build ./...` NOT run -- no Go source file was changed this pass
+(only `services/directconnect/PARITY.md`), so no signature could have
+changed. No `//nolint` for cyclop/gocyclo/gocognit/funlen added (none
+added at all, since no Go code changed).
+
+No subagents used (Read/Grep/Bash only, per this session's hard
+constraint). No git-mutating commands run -- orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/directconnect/PARITY.md` and this remainder file touched --
+`services/xray/*` (the live sibling that appeared mid-session) was read
+during the initial investigation but never edited, and confirmed
+untouched by every subsequent `git status` check.
+
+**A FULLY-VERIFIED CLEAN SWEEP, this pass's real contribution being two
+disclosed (not fabricated) never-modeled deprecated members and one stale
+`last_audit_commit` correction.** `directconnect`'s List/Describe/Get
+family is now fully swept for this issue (20/20 ops layer-1/2 clean against
+the SDK; the prior general-parity PARITY.md pass is confirmed a coverage
+gap on this specific deserializer-level surface, not an argued-away bug;
+its stale audit-commit metadata is now flagged). 92 of 162 services swept,
+70 remain. Per the ranked table, `xray` (38 ops, 20 L+D+G, `direct`) is
+still tied with directconnect's now-resolved slot but has a live sibling as
+of this session's end (`services/xray/*` modified: handler_insights.go,
+handler_traces.go, insights.go, interfaces.go, models.go, traces.go, plus
+test files, uncommitted) -- do not pick it without re-checking `git status`
+first. Everything else at 20 or above in the ranked table (`opsworks`,
+`codeartifact`, `cloudtrail`, `appconfig`, `dynamodb`, `neptune`, `ecr`,
+`cloudwatch`, `elasticache`, `codebuild`) is already accounted for, either
+in the `## Swept` enumerated list above or by its own dedicated `##`
+section in this file -- the ranked table itself is a static snapshot that
+prior passes have NOT pruned as services got swept (this pass didn't either,
+matching precedent), so cross-reference against both the enumerated list
+and the per-service sections, not the table's row order alone, before
+picking. The next tier starts at 19 (`transcribe`, `mediatailor`); re-run
+`go run ./cmd/opcensus` and re-check `git status` before picking, as usual.
