@@ -1351,7 +1351,7 @@
     "fields": [
       "AccountID string `json:\"accountID\"`",
       "AppEvents map[string][]storedPinpointEvent `json:\"appEvents\"`",
-      "AppSettings map[string]*storedAppSettings `json:\"appSettings\"`",
+      "AppSettings map[string]*StoredAppSettings `json:\"appSettings\"`",
       "CampaignActivities map[string][]campaignActivity `json:\"campaignActivities\"`",
       "CampaignVersions map[string][]*Campaign `json:\"campaignVersions\"`",
       "JourneyRuns map[string][]*journeyRun `json:\"journeyRuns\"`",
