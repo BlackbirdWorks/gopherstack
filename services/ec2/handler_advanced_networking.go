@@ -508,7 +508,7 @@ type ipamItem struct {
 	DefaultResourceDiscoveryAssociationID string `xml:"defaultResourceDiscoveryAssociationId,omitempty"`
 	OperatingRegionSet                    struct {
 		Items []ipamOperatingRegionItem `xml:"item"`
-	} `xml:"operatingRegions"`
+	} `xml:"operatingRegionSet"`
 	ScopeCount                        int32 `xml:"scopeCount,omitempty"`
 	ResourceDiscoveryAssociationCount int32 `xml:"resourceDiscoveryAssociationCount,omitempty"`
 }

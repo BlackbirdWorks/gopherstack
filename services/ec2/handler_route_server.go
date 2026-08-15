@@ -162,8 +162,8 @@ type routeServerPeerItem struct {
 	SubnetID              string                    `xml:"subnetId,omitempty"`
 	VpcID                 string                    `xml:"vpcId,omitempty"`
 	State                 string                    `xml:"state,omitempty"`
-	EniID                 string                    `xml:"eniId,omitempty"`
-	EniAddress            string                    `xml:"eniAddress,omitempty"`
+	EniID                 string                    `xml:"endpointEniId,omitempty"`
+	EniAddress            string                    `xml:"endpointEniAddress,omitempty"`
 	PeerAddress           string                    `xml:"peerAddress,omitempty"`
 	BgpOptions            routeServerBGPOptionsItem `xml:"bgpOptions"`
 }

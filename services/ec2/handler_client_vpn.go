@@ -29,12 +29,12 @@ type describeClientVpnEndpointsResponse struct {
 }
 
 type clientVpnTargetNetworkItem struct {
-	AssociationID       string        `xml:"associationId"`
-	SubnetID            string        `xml:"subnetId"`
-	ClientVpnEndpointID string        `xml:"clientVpnEndpointId"`
-	Status              string        `xml:"status"`
-	VpcID               string        `xml:"vpcId,omitempty"`
-	SecurityGroups      stringItemSet `xml:"securityGroups"`
+	AssociationID       string                      `xml:"associationId"`
+	TargetNetworkID     string                      `xml:"targetNetworkId"`
+	ClientVpnEndpointID string                      `xml:"clientVpnEndpointId"`
+	Status              clientVpnEndpointStatusItem `xml:"status"`
+	VpcID               string                      `xml:"vpcId,omitempty"`
+	SecurityGroups      stringItemSet               `xml:"securityGroups"`
 }
 
 type describeClientVpnTargetNetworksResponse struct {
@@ -46,11 +46,11 @@ type describeClientVpnTargetNetworksResponse struct {
 }
 
 type clientVpnRouteItem struct {
-	DestinationCidr string `xml:"destinationCidr"`
-	Status          string `xml:"status"`
-	Description     string `xml:"description,omitempty"`
-	Origin          string `xml:"origin,omitempty"`
-	TargetSubnet    string `xml:"targetSubnet,omitempty"`
+	DestinationCidr string                      `xml:"destinationCidr"`
+	Status          clientVpnEndpointStatusItem `xml:"status"`
+	Description     string                      `xml:"description,omitempty"`
+	Origin          string                      `xml:"origin,omitempty"`
+	TargetSubnet    string                      `xml:"targetSubnet,omitempty"`
 }
 
 // describeClientVpnRoutesResponse wraps routes under <routes>, matching the
@@ -69,11 +69,11 @@ type describeClientVpnRoutesResponse struct {
 }
 
 type clientVpnAuthRuleItem struct {
-	Cidr        string `xml:"destinationCidr"`
-	Status      string `xml:"status"`
-	Description string `xml:"description,omitempty"`
-	GroupID     string `xml:"groupId,omitempty"`
-	AccessAll   bool   `xml:"accessAll,omitempty"`
+	Cidr        string                      `xml:"destinationCidr"`
+	Status      clientVpnEndpointStatusItem `xml:"status"`
+	Description string                      `xml:"description,omitempty"`
+	GroupID     string                      `xml:"groupId,omitempty"`
+	AccessAll   bool                        `xml:"accessAll,omitempty"`
 }
 
 // describeClientVpnAuthorizationRulesResponse wraps rules under
@@ -101,13 +101,13 @@ type describeClientVpnAuthorizationRulesResponse struct {
 // returns an empty <connections> set — the correct AWS shape for a Client
 // VPN endpoint with no active clients.
 type clientVpnConnectionItem struct {
-	ConnectionID              string `xml:"connectionId"`
-	ClientVpnEndpointID       string `xml:"clientVpnEndpointId"`
-	Username                  string `xml:"username,omitempty"`
-	ClientIP                  string `xml:"clientIp,omitempty"`
-	CommonName                string `xml:"commonName,omitempty"`
-	ConnectionEstablishedTime string `xml:"connectionEstablishedTime,omitempty"`
-	Status                    string `xml:"status,omitempty"`
+	ConnectionID              string                      `xml:"connectionId"`
+	ClientVpnEndpointID       string                      `xml:"clientVpnEndpointId"`
+	Username                  string                      `xml:"username,omitempty"`
+	ClientIP                  string                      `xml:"clientIp,omitempty"`
+	CommonName                string                      `xml:"commonName,omitempty"`
+	ConnectionEstablishedTime string                      `xml:"connectionEstablishedTime,omitempty"`
+	Status                    clientVpnEndpointStatusItem `xml:"status,omitempty"`
 }
 
 type describeClientVpnConnectionsResponse struct {
@@ -266,10 +266,10 @@ func (h *Handler) handleDescribeClientVpnEndpoints(vals url.Values, reqID string
 // direct children of the response root, not nested under an
 // "associationStatus" wrapper.
 type associateClientVpnTargetNetworkResponse struct {
-	XMLName       xml.Name `xml:"AssociateClientVpnTargetNetworkResponse"`
-	RequestID     string   `xml:"requestId"`
-	AssociationID string   `xml:"associationId"`
-	Status        string   `xml:"status"`
+	XMLName       xml.Name                    `xml:"AssociateClientVpnTargetNetworkResponse"`
+	RequestID     string                      `xml:"requestId"`
+	AssociationID string                      `xml:"associationId"`
+	Status        clientVpnEndpointStatusItem `xml:"status"`
 }
 
 func (h *Handler) handleAssociateClientVpnTargetNetwork(vals url.Values, reqID string) (any, error) {
@@ -283,7 +283,7 @@ func (h *Handler) handleAssociateClientVpnTargetNetwork(vals url.Values, reqID s
 	return &associateClientVpnTargetNetworkResponse{
 		RequestID:     reqID,
 		AssociationID: assocID,
-		Status:        "associating",
+		Status:        clientVpnEndpointStatusItem{Code: "associating"},
 	}, nil
 }
 
@@ -314,9 +314,9 @@ func (h *Handler) handleDescribeClientVpnTargetNetworks(vals url.Values, reqID s
 			resp.ClientVpnTargetNetworks.Items,
 			clientVpnTargetNetworkItem{
 				AssociationID:       tn.AssociationID,
-				SubnetID:            tn.SubnetID,
+				TargetNetworkID:     tn.SubnetID,
 				ClientVpnEndpointID: tn.ClientVpnEndpointID,
-				Status:              tn.Status,
+				Status:              clientVpnEndpointStatusItem{Code: tn.Status},
 				VpcID:               tn.VPCID,
 				SecurityGroups:      stringItemSet{Items: tn.SecurityGroups},
 			},
@@ -378,10 +378,35 @@ func (h *Handler) handleDescribeClientVpnRoutes(vals url.Values, reqID string) (
 
 	resp := &describeClientVpnRoutesResponse{RequestID: reqID}
 	for _, r := range routes {
-		resp.Routes.Items = append(resp.Routes.Items, clientVpnRouteItem(r))
+		resp.Routes.Items = append(resp.Routes.Items, clientVpnRouteItem{
+			DestinationCidr: r.DestinationCidr,
+			Status:          clientVpnEndpointStatusItem{Code: r.Status},
+			Description:     r.Description,
+			Origin:          r.Origin,
+			TargetSubnet:    r.TargetSubnet,
+		})
 	}
 
 	return resp, nil
+}
+
+// authorizeClientVpnIngressResponse matches the real
+// AuthorizeClientVpnIngressOutput shape: a single nested Status, no
+// top-level "return" field at all (ec2@v1.319.1 deserializers.go:
+// awsEc2query_deserializeOpDocumentAuthorizeClientVpnIngressOutput).
+type authorizeClientVpnIngressResponse struct {
+	XMLName   xml.Name                    `xml:"AuthorizeClientVpnIngressResponse"`
+	RequestID string                      `xml:"requestId"`
+	Status    clientVpnEndpointStatusItem `xml:"status"`
+}
+
+// revokeClientVpnIngressResponse mirrors authorizeClientVpnIngressResponse
+// (ec2@v1.319.1 deserializers.go:
+// awsEc2query_deserializeOpDocumentRevokeClientVpnIngressOutput).
+type revokeClientVpnIngressResponse struct {
+	XMLName   xml.Name                    `xml:"RevokeClientVpnIngressResponse"`
+	RequestID string                      `xml:"requestId"`
+	Status    clientVpnEndpointStatusItem `xml:"status"`
 }
 
 func (h *Handler) handleAuthorizeClientVpnIngress(vals url.Values, reqID string) (any, error) {
@@ -395,10 +420,9 @@ func (h *Handler) handleAuthorizeClientVpnIngress(vals url.Values, reqID string)
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AuthorizeClientVpnIngressResponse"},
+	return &authorizeClientVpnIngressResponse{
 		RequestID: reqID,
-		Return:    true,
+		Status:    clientVpnEndpointStatusItem{Code: "authorizing"},
 	}, nil
 }
 
@@ -409,10 +433,9 @@ func (h *Handler) handleRevokeClientVpnIngress(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RevokeClientVpnIngressResponse"},
+	return &revokeClientVpnIngressResponse{
 		RequestID: reqID,
-		Return:    true,
+		Status:    clientVpnEndpointStatusItem{Code: "revoking"},
 	}, nil
 }
 
@@ -428,7 +451,13 @@ func (h *Handler) handleDescribeClientVpnAuthorizationRules(
 
 	resp := &describeClientVpnAuthorizationRulesResponse{RequestID: reqID}
 	for _, r := range rules {
-		resp.AuthorizationRules.Items = append(resp.AuthorizationRules.Items, clientVpnAuthRuleItem(r))
+		resp.AuthorizationRules.Items = append(resp.AuthorizationRules.Items, clientVpnAuthRuleItem{
+			Cidr:        r.Cidr,
+			Status:      clientVpnEndpointStatusItem{Code: r.Status},
+			Description: r.Description,
+			GroupID:     r.GroupID,
+			AccessAll:   r.AccessAll,
+		})
 	}
 
 	return resp, nil

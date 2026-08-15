@@ -167,8 +167,9 @@ func TestClientVPN_TargetNetworkHasAssociationID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, assocResp, "<associationId>cvpn-assoc-",
 		"AssociateClientVpnTargetNetwork must return associationId")
-	assert.Contains(t, assocResp, "<status>associating</status>",
-		"AssociateClientVpnTargetNetwork must return status")
+	assert.Contains(t, assocResp, "<status><code>associating</code></status>",
+		"AssociateClientVpnTargetNetwork must return status nested under status>code "+
+			"(ec2@v1.319.1 deserializers.go: awsEc2query_deserializeDocumentAssociationStatus)")
 
 	// describe target networks
 	descResp, err := ec2.ExportDispatch(h, url.Values{
@@ -178,10 +179,13 @@ func TestClientVPN_TargetNetworkHasAssociationID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, descResp, "<associationId>cvpn-assoc-",
 		"DescribeClientVpnTargetNetworks must return associationId")
-	assert.Contains(t, descResp, "<subnetId>subnet-default</subnetId>",
-		"DescribeClientVpnTargetNetworks must return subnetId")
-	assert.Contains(t, descResp, "<status>associated</status>",
-		"DescribeClientVpnTargetNetworks must return status=associated")
+	assert.Contains(t, descResp, "<targetNetworkId>subnet-default</targetNetworkId>",
+		"DescribeClientVpnTargetNetworks must return the subnet ID under targetNetworkId, not "+
+			"the invented subnetId key (ec2@v1.319.1 deserializers.go: "+
+			"awsEc2query_deserializeDocumentTargetNetwork)")
+	assert.Contains(t, descResp, "<status><code>associated</code></status>",
+		"DescribeClientVpnTargetNetworks must return status nested under status>code, not a "+
+			"flat string")
 }
 
 // TestClientVPN_DisassociateByAssocID verifies DisassociateClientVpnTargetNetwork
@@ -529,7 +533,7 @@ func TestClientVpn_AssociateResponseIsFlat(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, assocResp, "<associationStatus>")
 	assert.Contains(t, assocResp, "<associationId>cvpn-assoc-")
-	assert.Contains(t, assocResp, "<status>associating</status>")
+	assert.Contains(t, assocResp, "<status><code>associating</code></status>")
 }
 
 // TestClientVpn_AuthorizationRulesXMLShape verifies the corrected wrapper
