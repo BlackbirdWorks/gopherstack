@@ -27,8 +27,9 @@ func (h *Handler) handleListSteps(ctx context.Context, in *listStepsInput) (*lis
 // --- AddJobFlowSteps ---
 
 type addJobFlowStepsInput struct {
-	JobFlowID string     `json:"JobFlowId"`
-	Steps     []StepSpec `json:"Steps"`
+	JobFlowID        string     `json:"JobFlowId"`
+	ExecutionRoleArn string     `json:"ExecutionRoleArn"`
+	Steps            []StepSpec `json:"Steps"`
 }
 
 type addJobFlowStepsOutput struct {
@@ -39,7 +40,7 @@ func (h *Handler) handleAddJobFlowSteps(
 	ctx context.Context,
 	in *addJobFlowStepsInput,
 ) (*addJobFlowStepsOutput, error) {
-	ids, err := h.Backend.AddJobFlowSteps(ctx, in.JobFlowID, in.Steps)
+	ids, err := h.Backend.AddJobFlowSteps(ctx, in.JobFlowID, in.Steps, in.ExecutionRoleArn)
 	if err != nil {
 		return nil, err
 	}

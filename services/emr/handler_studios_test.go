@@ -401,6 +401,8 @@ func TestStudio_NameUniqueness(t *testing.T) {
 		"sg-2",
 		nil,
 		nil,
+		"",
+		false,
 	)
 	require.NoError(t, err)
 
@@ -416,6 +418,8 @@ func TestStudio_NameUniqueness(t *testing.T) {
 		"sg-2",
 		nil,
 		nil,
+		"",
+		false,
 	)
 	require.Error(t, err)
 }
@@ -437,6 +441,8 @@ func TestStudioSessionMapping_CreationTime(t *testing.T) {
 		"sg-2",
 		nil,
 		nil,
+		"",
+		false,
 	)
 	require.NoError(t, err)
 
@@ -458,6 +464,8 @@ func TestStudioSessionMapping_CreationTime(t *testing.T) {
 		"sg-2",
 		nil,
 		nil,
+		"",
+		false,
 	)
 	require.NoError(t, err)
 	err = h.Backend.CreateStudioSessionMapping(

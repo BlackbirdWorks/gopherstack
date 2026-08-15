@@ -1,9 +1,9 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**73 of 162 services swept, 89 remain** (apigatewayv2, workmail, wafv2, ce,
-waf, and now vpclattice all added this session, in parallel, by different
-sessions — see each service's own section at the end of this file for full
-detail).
+**74 of 162 services swept, 88 remain** (apigatewayv2, workmail, wafv2, ce,
+waf, vpclattice, and now emr all added this session, in parallel, by
+different sessions — see each service's own section at the end of this file
+for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -97,7 +97,7 @@ awsconfig, backup, bedrock,
 bedrockagent, **ce** (this session), cleanrooms, cloudformation, cloudfront,
 cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
 cognitoidp, datasync, dlm, dynamodbstreams, ec2, ecs, eks,
-elasticache, elbv2, forecast,
+elasticache, elbv2, **emr** (this session), forecast,
 glue, guardduty, iam, identitystore, inspector2, iot,
 iotwireless, kms, lambda, lightsail, macie2, medialive,
 mgn, networkmanager, networkmonitor, omics,
@@ -116,7 +116,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (89 of 162), ranked by List+Describe+Get op count
+## Unswept (88 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -131,16 +131,15 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 89 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 88 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
-apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34, and
-vpclattice's 30 removed, all swept prior to/this session): **1,155**
-candidate ops.
+apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34,
+vpclattice's 30, and emr's 30 removed, all swept prior to/this session):
+**1,125** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
 | eventbridge | 74 | 16 | 12 | 2 | 30 | direct |
-| emr | 65 | 13 | 8 | 9 | 30 | direct |
 | route53resolver | 30 | 16 | 0 | 14 | 30 | manual (range target unresolved by tool) |
 | kafka | 64 | 15 | 11 | 3 | 29 | direct |
 | appsync | 74 | 13 | 0 | 15 | 28 | direct |
@@ -3476,3 +3475,369 @@ vpclattice's List/Describe/Get families are now fully swept for this issue
 services swept, 89 remain. Per the ranked table, eventbridge and emr (30
 each, `direct`) are the next candidates — re-check `git status` for live
 sibling territory before picking either.
+
+## emr (this session)
+
+Chosen per the prior pass's own note as one of the two 30-L+D+G candidates
+that don't collide with `vpclattice` (the live sibling flagged there).
+`git status` at start was clean for `services/emr`; re-checked again after
+finishing and found a NEW sibling had appeared mid-session on
+`services/eventbridge` (37 files) — confirmed untouched, never opened. Chose
+`emr` over `eventbridge` deliberately: `eventbridge` is nearly double the
+LOC (26k vs 14k) and embeds its own Schemas registry surface with a second
+real client (`schemas`, confirmed pinned in `go.mod` alongside `eventbridge`,
+`scheduler`, `pipes`) — a poor fit for "settle completely in one session,"
+matching this campaign's established preference for self-contained
+single-client services when candidates tie (guardduty over s3 last batch).
+**Traced, not assumed**: grepped `services/eventbridge/*.go` for a `Pipes`
+surface this issue's own prompt flagged ("second real client for Schemas and
+a Pipes surface") — found the embedded Schemas surface (`handler_schemas.go`,
+`handler_schemas_rest.go`, real `schemas` client used in eventbridge's own
+tests) but no Pipes-related code or op names anywhere inside
+`services/eventbridge` itself; `services/pipes` is a wholly separate,
+already-tabled 3-L+D+G candidate in this file's ranked table, not something
+eventbridge embeds. The "Pipes surface" half of that claim did not check out
+for eventbridge specifically — flagging since I chose not to sweep
+eventbridge this session and can't fully verify a negative from outside it.
+
+Own enumeration of `GetSupportedOperations()`'s literal slice (handler.go)
+confirms the table's 65 total / 30 L+D+G (13 List/8 Describe/9 Get) exactly.
+
+PROTOCOL: confirmed `awsAwsjson11_` (JSON-RPC 1.1), the sole deserializer
+prefix in emr@v1.64.4/deserializers.go (`grep -o` found no
+`awsRestjson1_`/`awsEc2query_`/`awsAwsquery_`). Case-sensitive, matching
+waf/guardduty/cloudwatchlogs/macie2/cognitoidp/personalize/workmail this
+campaign. All 116 `EqualFold` hits in deserializers.go are either `errorCode`
+matches or `NaN`/`Infinity`/`-Infinity` float-special-value parsing inside
+numeric-field decode branches (spot-checked every hit's surrounding
+function) — zero in a body-field `switch key { case "...":}` block, so
+body-field casing is a non-issue by construction here. **Second client
+check**: only `github.com/aws/aws-sdk-go-v2/service/emr` is imported
+anywhere under `services/emr` (including its own tests) — no second runtime/
+data-plane module, unlike personalize's Runtime split or eventbridge's
+Schemas embed noted above.
+
+**Dead-deserializer trap checked and found NOT to apply** — traced
+`awsAwsjson11_deserializeOpDescribeCluster.HandleDeserialize` directly
+(deserializers.go:1327): it decodes the body into `shape` and calls
+`awsAwsjson11_deserializeOpDocumentDescribeClusterOutput(&output, shape)`
+itself (line 1367) — the `OpDocument*Output` function **is** the real,
+reached deserializer, same JSON-RPC-1.1 shape as every other
+`awsAwsjson1{0,1}` service this campaign has swept.
+
+Read all 30 L+D+G ops' response shapes against their own
+`awsAwsjson11_deserializeOpDocument<Op>Output`/`deserializeDocument<Type>`
+case lists (file+line), plus every family's Create/Update/Put/Add sibling
+request side via the paired `serializeOp*Input`/`serializeDocument*`
+functions, per this session's "check the request side too" instruction.
+
+**5 real bugs found and fixed:**
+
+1. **`Step`/`StepSummary`'s Hadoop JAR details — wire-keyed `HadoopJarStep`,
+   should be `Config`. Sibling trap, request convention leaking into the
+   response.** The request-side `StepConfig` type genuinely wire-keys its
+   nested Hadoop JAR block `HadoopJarStep` (`types.StepConfig`, confirmed
+   `serializers.go:5739`'s `awsAwsjson11_serializeDocumentStepConfig`,
+   `object.Key("HadoopJarStep")`). But the RESPONSE types (`types.Step`,
+   DescribeStep; `types.StepSummary`, ListSteps) nest the identical shape
+   under `Config` instead (`types.HadoopStepConfig`, confirmed
+   `deserializers.go:14890`'s `case "Config":` inside
+   `awsAwsjson11_deserializeDocumentStep`, and the parallel case in
+   `awsAwsjson11_deserializeDocumentStepSummary`). gopherstack shared one Go
+   type/tag across both directions and used the request key everywhere — a
+   real client's typed `Step.Config`/`StepSummary.Config` was **nil for
+   every step, on every DescribeStep/ListSteps call, regardless of backend
+   state**, before this fix. Fixed by re-tagging the response-side field
+   `json:"Config"` (request-side `StepSpec.HadoopJarStep` keeps
+   `"HadoopJarStep"`, unaffected — confirmed correct, not touched).
+2. **`StepHadoopJarStep`/`StepHadoopJarStepInput`'s `Properties` — missing
+   entirely, both directions, plus a genuine wire-shape asymmetry between
+   request and response that had to be modeled separately, not just added.**
+   Real `types.HadoopJarStepConfig.Properties` (request) is a JSON ARRAY of
+   `{Key,Value}` objects (`serializers.go:5057`'s
+   `awsAwsjson11_serializeDocumentKeyValueList`), while real
+   `types.HadoopStepConfig.Properties` (response) is a plain string map
+   (`deserializers.go`'s `awsAwsjson11_deserializeDocumentStringMap` call in
+   `...DocumentHadoopStepConfig`) — confirmed independently against both
+   `serializers.go` and `deserializers.go`, a genuine EMR wire quirk, not a
+   gopherstack inconsistency. Caught this the hard way: my first fix modeled
+   `Properties` as a single `map[string]string` shared by both directions,
+   which compiled and passed lint, but a real SDK client test failed with
+   `json: cannot unmarshal array into Go struct field ... Properties of type
+   map[string]string` — a request-side round-trip test catching a request/
+   response asymmetry a response-only read would have missed entirely. Fixed
+   by splitting into `StepHadoopJarStepInput` (request, `[]KeyValue`) and
+   `StepHadoopJarStep` (response, `map[string]string`), with a
+   `toStepHadoopJarStep` converter in `steps.go`. Before this fix, a real
+   client's per-step Hadoop job properties were silently dropped on input
+   and never echoed back on either read path.
+3. **`AddJobFlowStepsInput.ExecutionRoleArn` — discarded input (lead-
+   question-2 class).** Real, call-level (applies to every step added by
+   that call), confirmed present on `types.AddJobFlowStepsInput`
+   (`api_op_AddJobFlowSteps.go`). gopherstack's `addJobFlowStepsInput` had no
+   field for it at all — a real client's runtime-role ARN for newly added
+   steps was silently dropped, never applied, never echoed. Fixed: added the
+   field, threaded through `Backend.AddJobFlowSteps`'s signature, set on each
+   new `Step.ExecutionRoleArn`.
+4. **`RunJobFlowInput.StepExecutionRoleArn` — same class, for a cluster's
+   initial steps.** Real, call-level, confirmed present on
+   `types.RunJobFlowInput` (`api_op_RunJobFlow.go`) — distinct from the
+   unrelated, already-correctly-modeled cluster-level `JobFlowRole`/
+   `ServiceRole`/`AutoScalingRole`. gopherstack's `runJobFlowInput`/
+   `RunJobFlowParams` had no field for it. Fixed the same way as #3, threaded
+   through `buildInitialSteps`.
+
+   `Step.ExecutionRoleArn` (the new field both #3/#4 populate) is real on
+   `types.Step` but **not** on `types.StepSummary` (confirmed:
+   `deserializers.go`'s `awsAwsjson11_deserializeDocumentStepSummary` case
+   list has no `ExecutionRoleArn` case at all, unlike `...DocumentStep`'s).
+   Since gopherstack shares one Go type for both DescribeStep and ListSteps,
+   the field is emitted on both — a harmless extra field on the List side a
+   real typed client has no slot to decode into either way, same non-bug
+   class as rds's `DBInstance.StorageOptimized`. Disclosed in a doc comment
+   on `Step` rather than done as a full type split (which `Step`/`Config`
+   above already required once, for a different field) — judged not worth a
+   second such split for one optional, harmless-when-extra field.
+5. **`DescribeNotebookExecution`'s `NotebookExecution.ExecutionEngine` —
+   wrong shape. Sibling trap, same pattern as #1: a flat convention correct
+   on one op leaking into a different op that needs it nested.**
+   `NotebookExecutionSummary` (ListNotebookExecutions) genuinely uses a flat
+   `ExecutionEngineId` (confirmed `deserializers.go`'s
+   `awsAwsjson11_deserializeDocumentNotebookExecutionSummary` case list —
+   already correct here, an earlier session's citing comment confirms this
+   was already fixed once for the List side). But `DescribeNotebookExecution`
+   nests the real member under an `ExecutionEngine` object
+   (`types.ExecutionEngineConfig{Id,Type,ExecutionRoleArn,
+   MasterInstanceSecurityGroupId}`, confirmed `deserializers.go`'s
+   `case "ExecutionEngine":` inside
+   `awsAwsjson11_deserializeDocumentNotebookExecution`) — gopherstack emitted
+   the List convention on the Describe response too, so a real client's
+   typed `NotebookExecution.ExecutionEngine` was **always nil regardless of
+   what editor/cluster was set**, on every DescribeNotebookExecution call.
+   Fixed by splitting the wire shape for Describe out of the shared internal
+   `NotebookExecution` model into a dedicated
+   `notebookExecutionDetailWire`/`newNotebookExecutionDetail` (mirroring the
+   existing `NotebookExecutionSummary`/`newNotebookExecutionSummary` split
+   pattern already used for the List side) — `Type`/`ExecutionRoleArn`/
+   `MasterInstanceSecurityGroupId` left unset/omitted (this backend only
+   ever stores an editor-supplied cluster ID, no such tracking exists),
+   disclosed rather than fabricated.
+
+**2 more findings, both "raw internal model reaches the wire directly"
+(lead-question-2's third variant) rather than a wrong key:**
+
+6. **`Cluster.TerminatedAt` — fabricated field, harmless, leaking on the
+   wire.** Internal-only TTL-cleanup bookkeeping (`janitor.go`'s sweep), but
+   it was an exported field with a normal JSON tag directly on `Cluster`,
+   the same Go type `DescribeCluster` marshals for its response — real
+   `types.Cluster` has no such member at all (confirmed absent from
+   `deserializers.go`'s `awsAwsjson11_deserializeDocumentCluster` case list,
+   35 real members checked). Not a secret (a plain RFC3339 timestamp of when
+   this backend swept the cluster), but incorrect: a real client parsing the
+   raw body would see an extra key no real AWS response ever sends. Fixing
+   this the naive way (`json:"-"`) would have been a SECOND bug: this
+   repo's persistence layer (`persistence.go`) snapshots `Cluster` via the
+   same plain `json.Marshal`/struct tags used for the wire, confirmed by
+   reading `clusterDTO`'s own doc comment before touching anything — a
+   `json:"-"` tag strips a field from persistence snapshots too, not just
+   the wire. Fixed the same way this file's `clusterDTO` already handles
+   `instanceGroups`/`steps`/`bootstrapActions`/etc.: unexported the field
+   (`terminatedAt`, invisible to `encoding/json` by construction regardless
+   of tags) and added a parallel `clusterDTO.TerminatedAt` field carried
+   through `Snapshot`/`unwrapClusterDTOs` explicitly, exactly mirroring the
+   existing pattern for every other hidden `Cluster` field.
+7. **`DescribePersistentAppUI`'s response — reused
+   `CreatePersistentAppUIOutput`'s shape instead of the real, different
+   `DescribePersistentAppUIOutput.PersistentAppUI` shape.** gopherstack's
+   internal `PersistentAppUI` backend struct (fields `ID`/`TargetResourceArn`/
+   `RuntimeRoleEnabledCluster`) was marshaled directly as
+   `DescribePersistentAppUI`'s response. `TargetResourceArn`/
+   `RuntimeRoleEnabledCluster` are real, but only on `CreatePersistentAppUIOutput`
+   (confirmed `api_op_CreatePersistentAppUI.go`) — `handleCreatePersistentAppUI`
+   already built its own separate, correct DTO for that op and never used
+   this struct's tags. The real `DescribePersistentAppUIOutput.PersistentAppUI`
+   (`types.PersistentAppUI`) is an entirely different shape (`AuthorId`/
+   `CreationTime`/`LastModifiedTime`/`LastStateChangeReason`/
+   `PersistentAppUIId`/`PersistentAppUIStatus`/`PersistentAppUITypeList`/
+   `Tags`, confirmed `deserializers.go`'s
+   `awsAwsjson11_deserializeDocumentPersistentAppUI` case list) with **none**
+   of the two fields gopherstack was sending. Fixed by adding a
+   `persistentAppUIDetailWire`/`newPersistentAppUIDetail` converter (same
+   split pattern as #5) emitting only what's real and backend-tracked
+   (`PersistentAppUIId`, plus a newly added `CreatedAt time.Time` → real
+   `CreationTime`, cheap to add since `CreatePersistentAppUI` already had an
+   obvious creation point to stamp it at). `AuthorId`/`LastModifiedTime`/
+   `LastStateChangeReason`/`PersistentAppUIStatus`/`PersistentAppUITypeList`
+   disclosed, not fabricated — no author/status-lifecycle modeling exists in
+   this backend, and `PersistentAppUIStatus` specifically has no enum
+   constants in this pinned SDK version to cite a valid value from (real
+   type is a bare `*string`), so a value could not be verified from the
+   pinned SDK alone — left unset rather than guessed.
+
+**1 fabricated-field-only finding, no data loss, fixed by removal (matching
+this file's own `ClusterSummary.ReleaseLabel` precedent from an earlier
+session, not merely disclosed):**
+
+8. **`StudioSummary.StudioArn`/`StudioSummary.DefaultS3Location`** — real
+   `types.StudioSummary` (confirmed
+   `awsAwsjson11_deserializeDocumentStudioSummary`'s case list: only
+   `AuthMode`/`CreationTime`/`Description`/`Name`/`StudioId`/`Url`/`VpcId`,
+   7 fields) has neither. Harmless (a real typed `ListStudios` client has no
+   field to decode either into), but incorrect. Removed both from
+   `StudioSummary` and its `ListStudios` builder.
+
+**1 more discarded-input finding, cheap to fix (unlike the InstanceFleet/
+InstanceGroup gaps disclosed below):**
+
+9. **`CreateStudioInput.IdcUserAssignment`/`TrustedIdentityPropagationEnabled`
+   — both real (`api_op_CreateStudio.go`), both silently dropped.**
+   `TrustedIdentityPropagationEnabled` already had a wire slot on `Studio`
+   (confirmed still real, `deserializers.go`'s `Studio` case list) but
+   nothing ever populated it from the request — always `false` regardless of
+   what a real client sent. `IdcUserAssignment` had no slot at all. Neither
+   is settable post-creation (confirmed absent from
+   `api_op_UpdateStudio.go`). Fixed by threading both through
+   `Backend.CreateStudio`'s signature (already 10 positional args; this
+   repo's established convention here, not switching to a params struct
+   mid-fix) into the two existing/new `Studio` fields.
+
+**Sibling/version pairs checked, both correct already (a result, per this
+issue's brief):** `GetIPSet`... n/a for this service (no such family); the
+two internal near-duplicate pairs worth checking here were `scanToDescribeMap`-
+style converters this service doesn't have (single-shape families
+throughout) and the `Filter`/`RateBasedRule`-style predicate sharing this
+service also doesn't have. The one genuine near-duplicate pair in emr —
+`Step` (DescribeStep) vs `StepSummary` (ListSteps) — is finding #1/#2/the
+disclosed-ExecutionRoleArn note above, not a clean pair. `GetOnClusterAppUIPresignedURL`
+vs `GetPersistentAppUIPresignedURL` (both wrap presigned URLs) were already
+independently correct from an earlier session's fix (own citing comment
+found and re-verified, not re-fixed). No V1/V2 or generational pair exists
+anywhere in this service.
+
+**Over-wide/secret check**: no secret- or credential-bearing field found in
+any response type. The one fabricated field with real content
+(`Cluster.TerminatedAt`) carries a plain timestamp, not a secret — same
+"harmless, disclosed" class as wafv2's fabricated fields, contrast
+cognitoidp's `ClientSecret`/workmail's IAM-role-ARN leaks from earlier in
+this campaign.
+
+**Discarded input, disclosed not fixed** (each would need new backend
+modeling, judged too speculative to fabricate):
+- `InstanceGroupConfig.AutoScalingPolicy` — real, settable inline at
+  instance-group creation time (`RunJobFlow`/`AddInstanceGroups`), but this
+  backend only supports setting it via the separate, already-correct
+  `PutAutoScalingPolicy` op. A real client that sets it inline at creation
+  has it silently dropped. A converter already exists for the standalone op
+  (`policies.go`) that could be reused, but wiring it through
+  `RunJobFlow`/`AddInstanceGroups` too was judged out of this session's
+  scope given the size of what was already found.
+- `InstanceGroupConfig.CustomAmiId`/`EbsConfiguration` — same class, real
+  request-side members, no backend modeling.
+- `InstanceFleetConfig.InstanceTypeConfigs`/response-side
+  `InstanceTypeSpecifications` — real on both directions
+  (`types.InstanceFleetConfig`/`types.InstanceFleet`), but modeling weighted
+  capacity/EBS-per-instance-type honestly would be substantial new surface,
+  not a rename — disclosed, matching this campaign's "too much new modeling"
+  precedent (e.g. pinpoint's `ActivityResponse`).
+- `StepStatus.StateChangeReason`/`FailureDetails` — real, non-required
+  `types.StepStatus` members; this backend's steps only ever transition
+  PENDING→COMPLETED (time-based) or PENDING→CANCELLED (`CancelSteps`), never
+  fail, so there is no failure-reason data to source honestly.
+- `ClusterInstance` missing `PublicIpAddress`/`EbsVolumes` — real,
+  non-required `types.Instance` members, no such tracking in this backend's
+  simulated instances.
+- `SupportedInstanceType` missing `EbsOptimizedAvailable`/
+  `EbsOptimizedByDefault`/`EbsStorageOnly`/`InstanceFamilyId`/`StorageGB` —
+  this op serves a static hardcoded catalog, not backend-tracked state;
+  filling in 5 more static fields per entry was judged lower value than the
+  bugs above given session scope.
+- `DescribeJobFlows`'s legacy `JobFlow` shape — `ReleaseLabel` is emitted but
+  is **not** a real `types.JobFlowDetail` member (the real legacy shape
+  predates release labels and uses `AmiVersion` instead, confirmed absent
+  from `deserializers.go`'s `JobFlowDetail` case list, which has 14 members
+  none named `ReleaseLabel`); 9 more real members
+  (`AmiVersion`/`BootstrapActions`/`Steps`/`SupportedProducts`/
+  `VisibleToAllUsers`/etc.) are missing entirely. Not fixed: `DescribeJobFlows`
+  is deprecated/legacy, and correctly modeling `AmiVersion` for a backend that
+  only ever creates release-label clusters would require fabricating a value
+  with no honest source — disclosed as a known gap in this legacy op rather
+  than guessed at.
+
+**Ratifying tests found and fixed: 2**, both raw/typed assertions that
+agreed with the pre-fix bug:
+- `TestWireShape_StartNotebookExecution_ExecutionEngineField`
+  (`handler_wire_shape_test.go`) decoded a flat `ExecutionEngineId` off
+  `DescribeNotebookExecution`'s raw JSON body and asserted it as correct —
+  exactly the pre-fix flat shape, so it passed against the bug. Rewritten to
+  drive a real SDK client and assert through
+  `NotebookExecution.ExecutionEngine.Id`, which cannot compile-pass, let
+  alone assert-pass, against either the old flat shape or a wrong nested
+  key.
+- `TestEMRResourceRegionIsolation` (`isolation_test.go`) asserted
+  `eastStudios[0].DefaultS3Location`/`westStudios[0].DefaultS3Location`
+  (from `ListStudios`' real `[]StudioSummary` return) as region-differentiated
+  evidence — a fabricated field the fix removed. Rewritten to assert
+  `URL` instead (also region-differentiated, and a real `StudioSummary`
+  member).
+
+Zero found in the "assertion too weak to fail" shape this campaign also
+watches for.
+
+**Phantom ops: none.** All 65 op-name string literals in
+`GetSupportedOperations()` confirmed to have a matching `api_op_<Name>.go`
+file in emr@v1.64.4 (scripted check, not spot-checked).
+
+**False-positive rate: 0 among reported bugs** — every finding cites the
+real `deserializeOpDocument<Type>Output`/`deserializeDocument<Type>`/
+`serializeDocument<Type>`/`serializeOp*Input` function or `api_op_*.go`
+struct definition, file+line where grep found a unique match, never a doc
+comment or an assumption. One near-miss caught and corrected before
+landing: the first attempt at fix #2 assumed a single shared `Properties`
+shape for request+response, which a real-client test disproved immediately
+(see #2's detail) — corrected before this report, not left in.
+
+**Real-client test ratio**: before this session, **0 of ~176 test
+functions (0%)** drove a real SDK client through any op — the only file
+importing the real SDK, `sdk_completeness_test.go`, only reflects over
+`emrsdk.Client`'s method set for op-name completeness (matches this
+campaign's already-established "doesn't count toward wire-shape coverage"
+rule), same "worst yet" territory as mwaa's 0%/waf's 1.1%/ce's 1.4%. This
+session added 8 tests in `services/emr/wire_field_fixes_test.go` (5 driving
+a new `newTestEMRClient` real-client helper end-to-end: fixes #1/#2 combined,
+#3, #4, #9) plus 1 rewritten real-client test in `handler_wire_shape_test.go`
+(fix #5) and 2 raw-body absence-proving tests (fixes #6, #8 — a typed client
+has no field to leak an absent key into either way, so absence can only be
+proven against the raw body, matching workmail's precedent for the same
+situation) plus 1 more raw-body test for fix #7's shape correction.
+
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint), confirmed to fail with the exact predicted
+symptom (quoted in each hand-revert: `StepSummary.Config` nil, empty
+`ExecutionRoleArn` string, nil `ExecutionEngine`, fabricated
+`StudioArn`/`DefaultS3Location` keys present, empty `IdcUserAssignment`/
+false `TrustedIdentityPropagationEnabled`, missing `CreationTime`), then
+restored and diffed byte-identical against the pre-revert file before
+moving to the next. `Cluster.TerminatedAt`'s persistence-safety fix and
+finding #2's Properties asymmetry were verified structurally (reading
+`persistence.go`'s existing `clusterDTO` pattern; the real
+`serializers.go`/`deserializers.go` shapes) rather than hand-reverted
+separately, since they're sub-parts of already-reverted fixes #1/#6 above.
+
+Gates: `go build`/`go vet`/`go test -race`/`go fix -diff` (no diff)/
+`golangci-lint run` (0 issues after a `fieldalignment` auto-fix on 3
+structs — `StepHadoopJarStep`, `PersistentAppUI`, `clusterDTO` — no
+cyclop/gocyclo/gocognit/funlen nolints added) all green for `services/emr`.
+`go test -race ./pkgs/...` green.
+
+No subagents used (Read/Grep/Bash only, per this session's hard
+constraint). No git-mutating commands run — orchestrator must commit/push.
+`services/eventbridge` (a sibling session's territory, appeared mid-session,
+37 files, confirmed via `git status`) never opened. No `gendocs`/`make docs`
+run.
+
+emr's List/Describe/Get families are now fully swept for this issue (30/30
+ops verified against the real deserializer/serializer). 74 of 162 services
+swept, 88 remain. Per the ranked table, eventbridge (30, `direct`) is the
+next candidate — it is the live sibling's own territory as of this session's
+last check, so re-confirm `git status` before picking it; if still occupied,
+`route53resolver` (30, `manual`) is the next non-colliding option.

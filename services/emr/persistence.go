@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -33,20 +34,17 @@ const emrSnapshotVersion = 1
 // cluster's own ID so the DTO table has a stable composite key
 // ("Region|ID") independent of Value's own (unmarshaled) fields.
 type clusterDTO struct {
+	TerminatedAt          time.Time               `json:"terminatedAt,omitzero"`
 	Value                 *Cluster                `json:"value"`
-	Region                string                  `json:"region"`
-	ID                    string                  `json:"id"`
 	ManagedScalingPolicy  *ManagedScalingPolicy   `json:"managedScalingPolicy,omitempty"`
 	AutoTerminationPolicy *AutoTerminationPolicy  `json:"autoTerminationPolicy,omitempty"`
+	Region                string                  `json:"region"`
+	ID                    string                  `json:"id"`
 	InstanceGroups        []InstanceGroup         `json:"instanceGroups,omitempty"`
 	InstanceFleets        []InstanceFleet         `json:"instanceFleets,omitempty"`
 	Steps                 []Step                  `json:"steps,omitempty"`
 	BootstrapActions      []BootstrapActionConfig `json:"bootstrapActions,omitempty"`
-	// Sessions carries Cluster's unexported sessions field (the interactive
-	// Spark Connect sessions started on this cluster, see models.go) through
-	// the same plain-json.Marshal(Cluster)-can't-see-unexported-fields
-	// mechanism as InstanceGroups/InstanceFleets/Steps above.
-	Sessions []Session `json:"sessions,omitempty"`
+	Sessions              []Session               `json:"sessions,omitempty"`
 }
 
 func clusterDTOKeyFn(d *clusterDTO) string { return regionKey(d.Region, d.ID) }
@@ -165,6 +163,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			Steps:                 slices.Clone(v.steps),
 			BootstrapActions:      cloneBootstrapActions(v.bootstrapActions),
 			Sessions:              slices.Clone(v.sessions),
+			TerminatedAt:          v.terminatedAt,
 		})
 	}
 
@@ -373,6 +372,7 @@ func unwrapClusterDTOs(dtos *store.Table[clusterDTO]) []*Cluster {
 		c.steps = d.Steps
 		c.bootstrapActions = d.BootstrapActions
 		c.sessions = d.Sessions
+		c.terminatedAt = d.TerminatedAt
 		items = append(items, c)
 	}
 

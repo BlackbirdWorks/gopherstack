@@ -499,6 +499,8 @@ func TestPersistenceRoundTrip(t *testing.T) {
 		"sg-2",
 		nil,
 		nil,
+		"",
+		false,
 	)
 	require.NoError(t, err)
 	err = src.CreateStudioSessionMapping(context.Background(), studio.StudioID, "USER", "uid-1", "", "arn:policy")

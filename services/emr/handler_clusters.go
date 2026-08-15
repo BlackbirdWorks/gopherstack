@@ -20,6 +20,7 @@ type runJobFlowInput struct {
 	JobFlowRole             string                   `json:"JobFlowRole"`
 	RepoUpgradeOnBoot       string                   `json:"RepoUpgradeOnBoot"`
 	SecurityConfiguration   string                   `json:"SecurityConfiguration"`
+	StepExecutionRoleArn    string                   `json:"StepExecutionRoleArn"`
 	ReleaseLabel            string                   `json:"ReleaseLabel"`
 	OSReleaseLabel          string                   `json:"OSReleaseLabel"`
 	ServiceRole             string                   `json:"ServiceRole"`
@@ -69,6 +70,7 @@ func (h *Handler) handleRunJobFlow(ctx context.Context, in *runJobFlowInput) (*r
 		ScaleDownBehavior:       in.ScaleDownBehavior,
 		SecurityConfiguration:   in.SecurityConfiguration,
 		CustomAmiID:             in.CustomAmiID,
+		StepExecutionRoleArn:    in.StepExecutionRoleArn,
 		StepConcurrencyLevel:    in.StepConcurrencyLevel,
 		EbsRootVolumeSize:       in.EbsRootVolumeSize,
 		EbsRootVolumeIops:       in.EbsRootVolumeIops,

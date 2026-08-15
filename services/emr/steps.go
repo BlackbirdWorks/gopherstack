@@ -10,8 +10,34 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// toStepHadoopJarStep converts a request-side StepHadoopJarStepInput (real
+// types.HadoopJarStepConfig, Properties as a []KeyValue array) into the
+// response-side StepHadoopJarStep (real types.HadoopStepConfig, Properties
+// as a plain map) -- see StepHadoopJarStepInput's doc comment (models.go)
+// for why the two shapes genuinely differ on the real wire.
+func toStepHadoopJarStep(in StepHadoopJarStepInput) StepHadoopJarStep {
+	var props map[string]string
+	if len(in.Properties) > 0 {
+		props = make(map[string]string, len(in.Properties))
+		for _, kv := range in.Properties {
+			props[kv.Key] = kv.Value
+		}
+	}
+
+	return StepHadoopJarStep{
+		Jar:        in.Jar,
+		MainClass:  in.MainClass,
+		Args:       in.Args,
+		Properties: props,
+	}
+}
+
 // buildInitialSteps converts input StepSpec records into Step records.
-func (b *InMemoryBackend) buildInitialSteps(specs []StepSpec) []Step {
+// executionRoleArn is RunJobFlowInput.StepExecutionRoleArn, a real,
+// call-level (not per-step) field applied to every initial step
+// (types.RunJobFlowInput.StepExecutionRoleArn, emr@v1.64.4
+// api_op_RunJobFlow.go) -- echoed back as each Step.ExecutionRoleArn.
+func (b *InMemoryBackend) buildInitialSteps(specs []StepSpec, executionRoleArn string) []Step {
 	steps := make([]Step, 0, len(specs))
 	now := awstime.Epoch(time.Now())
 
@@ -22,10 +48,11 @@ func (b *InMemoryBackend) buildInitialSteps(specs []StepSpec) []Step {
 		}
 
 		steps = append(steps, Step{
-			ID:              b.nextStepID(),
-			Name:            spec.Name,
-			HadoopJarStep:   spec.HadoopJarStep,
-			ActionOnFailure: actionOnFailure,
+			ID:               b.nextStepID(),
+			Name:             spec.Name,
+			HadoopJarStep:    toStepHadoopJarStep(spec.HadoopJarStep),
+			ActionOnFailure:  actionOnFailure,
+			ExecutionRoleArn: executionRoleArn,
 			Status: StepStatus{
 				State:    StepStatePending,
 				Timeline: StepTimeline{CreationDateTime: now},
@@ -37,8 +64,12 @@ func (b *InMemoryBackend) buildInitialSteps(specs []StepSpec) []Step {
 }
 
 // AddJobFlowSteps adds steps to a cluster and returns their IDs.
+// executionRoleArn is AddJobFlowStepsInput.ExecutionRoleArn, a real,
+// call-level (not per-step) field (emr@v1.64.4 api_op_AddJobFlowSteps.go)
+// applied to every step added by this call -- echoed back as each
+// Step.ExecutionRoleArn.
 func (b *InMemoryBackend) AddJobFlowSteps(
-	ctx context.Context, jobFlowID string, specs []StepSpec,
+	ctx context.Context, jobFlowID string, specs []StepSpec, executionRoleArn string,
 ) ([]string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -60,10 +91,11 @@ func (b *InMemoryBackend) AddJobFlowSteps(
 		}
 
 		step := Step{
-			ID:              b.nextStepID(),
-			Name:            spec.Name,
-			HadoopJarStep:   spec.HadoopJarStep,
-			ActionOnFailure: actionOnFailure,
+			ID:               b.nextStepID(),
+			Name:             spec.Name,
+			HadoopJarStep:    toStepHadoopJarStep(spec.HadoopJarStep),
+			ActionOnFailure:  actionOnFailure,
+			ExecutionRoleArn: executionRoleArn,
 			Status: StepStatus{
 				State:    StepStatePending,
 				Timeline: StepTimeline{CreationDateTime: now},

@@ -7,16 +7,18 @@ import (
 // --- CreateStudio ---
 
 type createStudioInput struct {
-	Name                     string   `json:"Name"`
-	Description              string   `json:"Description,omitempty"`
-	AuthMode                 string   `json:"AuthMode"`
-	DefaultS3Location        string   `json:"DefaultS3Location"`
-	EngineSecurityGroupID    string   `json:"EngineSecurityGroupId"`
-	ServiceRole              string   `json:"ServiceRole"`
-	VpcID                    string   `json:"VpcId"`
-	WorkspaceSecurityGroupID string   `json:"WorkspaceSecurityGroupId"`
-	SubnetIDs                []string `json:"SubnetIds"`
-	Tags                     []Tag    `json:"Tags"`
+	Name                              string   `json:"Name"`
+	Description                       string   `json:"Description,omitempty"`
+	AuthMode                          string   `json:"AuthMode"`
+	DefaultS3Location                 string   `json:"DefaultS3Location"`
+	EngineSecurityGroupID             string   `json:"EngineSecurityGroupId"`
+	ServiceRole                       string   `json:"ServiceRole"`
+	VpcID                             string   `json:"VpcId"`
+	WorkspaceSecurityGroupID          string   `json:"WorkspaceSecurityGroupId"`
+	IdcUserAssignment                 string   `json:"IdcUserAssignment,omitempty"`
+	SubnetIDs                         []string `json:"SubnetIds"`
+	Tags                              []Tag    `json:"Tags"`
+	TrustedIdentityPropagationEnabled bool     `json:"TrustedIdentityPropagationEnabled,omitempty"`
 }
 
 type createStudioOutput struct {
@@ -38,6 +40,8 @@ func (h *Handler) handleCreateStudio(
 		in.WorkspaceSecurityGroupID,
 		in.SubnetIDs,
 		in.Tags,
+		in.IdcUserAssignment,
+		in.TrustedIdentityPropagationEnabled,
 	)
 	if err != nil {
 		return nil, err

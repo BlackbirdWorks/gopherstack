@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
+	emrtypes "github.com/aws/aws-sdk-go-v2/service/emr/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -709,42 +712,41 @@ func TestWireShape_ListClusters_NoFabricatedReleaseLabel(t *testing.T) {
 
 // TestWireShape_StartNotebookExecution_ExecutionEngineField verifies
 // StartNotebookExecution reads the cluster reference from the real
-// top-level "ExecutionEngine" field, and that the resulting
-// NotebookExecution.ExecutionEngineId is actually populated from it. This
-// backend previously declared the input struct field with the JSON tag
-// "ExecutionEngineConfig" (the real *type* name, not the real *field*
-// name), so a real client's ExecutionEngine was silently dropped by
-// json.Unmarshal and ExecutionEngineId came back empty regardless of what
-// cluster the caller named.
+// top-level "ExecutionEngine" field, and that DescribeNotebookExecution
+// echoes it back nested under its own "ExecutionEngine" object (the real
+// DescribeNotebookExecutionOutput.NotebookExecution shape,
+// types.ExecutionEngineConfig, emr@v1.64.4 deserializers.go's
+// "ExecutionEngine" case in awsAwsjson11_deserializeDocumentNotebookExecution)
+// -- not the flat "ExecutionEngineId" this test previously asserted, which
+// is only correct for the different, trimmed NotebookExecutionSummary shape
+// ListNotebookExecutions returns. The previous flat-key assertion passed
+// against a handler bug that emitted the same wrong flat shape, so it never
+// exercised the real nesting; this rewrite uses the real SDK client so it
+// cannot compile-pass against either the old flat-emit bug or a wrong
+// nested key.
 func TestWireShape_StartNotebookExecution_ExecutionEngineField(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	client := newTestEMRClient(t, h)
 
-	startRec := doEMRRequest(t, h, "StartNotebookExecution", map[string]any{
-		"EditorId": "e-EXAMPLEEDITORID",
-		"ExecutionEngine": map[string]any{
-			"Id": "j-REALCLUSTERID",
+	startOut, err := client.StartNotebookExecution(t.Context(), &emrsdk.StartNotebookExecutionInput{
+		EditorId:    awssdk.String("e-EXAMPLEEDITORID"),
+		ServiceRole: awssdk.String("arn:aws:iam::000000000000:role/notebook-service-role"),
+		ExecutionEngine: &emrtypes.ExecutionEngineConfig{
+			Id: awssdk.String("j-REALCLUSTERID"),
 		},
 	})
-	require.Equal(t, http.StatusOK, startRec.Code)
+	require.NoError(t, err)
 
-	var started struct {
-		NotebookExecutionID string `json:"NotebookExecutionId"`
-	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started))
-
-	descRec := doEMRRequest(t, h, "DescribeNotebookExecution", map[string]any{
-		"NotebookExecutionId": started.NotebookExecutionID,
+	descOut, err := client.DescribeNotebookExecution(t.Context(), &emrsdk.DescribeNotebookExecutionInput{
+		NotebookExecutionId: startOut.NotebookExecutionId,
 	})
-	require.Equal(t, http.StatusOK, descRec.Code)
-
-	var out struct {
-		NotebookExecution struct {
-			ExecutionEngineID string `json:"ExecutionEngineId"`
-		} `json:"NotebookExecution"`
-	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
-	assert.Equal(t, "j-REALCLUSTERID", out.NotebookExecution.ExecutionEngineID,
-		"StartNotebookExecution must read the cluster ID from the real top-level ExecutionEngine field")
+	require.NoError(t, err)
+	require.NotNil(t, descOut.NotebookExecution)
+	require.NotNil(t, descOut.NotebookExecution.ExecutionEngine,
+		"DescribeNotebookExecutionOutput.NotebookExecution.ExecutionEngine must be populated, not nil")
+	assert.Equal(t, "j-REALCLUSTERID", awssdk.ToString(descOut.NotebookExecution.ExecutionEngine.Id),
+		"StartNotebookExecution must read the cluster ID from the real top-level ExecutionEngine field, "+
+			"and DescribeNotebookExecution must echo it back nested under ExecutionEngine.Id")
 }
