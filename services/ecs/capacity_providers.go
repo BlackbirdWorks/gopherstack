@@ -82,8 +82,7 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 		b.setResourceTagsLocked(cp.CapacityProviderArn, input.Tags)
 	}
 
-	out := *cp
-	out.Tags = copyTags(cp.Tags)
+	out := b.capacityProviderWithLiveTagsLocked(cp)
 
 	return &out, nil
 }
@@ -152,6 +151,18 @@ func (b *InMemoryBackend) resolveCapacityProviderRefsLocked(
 	return filterRefsByClusterAssociation(nameOrArns, c.CapacityProviders), false
 }
 
+// capacityProviderWithLiveTagsLocked returns a copy of cp with Tags sourced
+// from the resourceTags side map instead of cp's own creation-time snapshot,
+// so tags applied via TagResource/UntagResource after creation are reflected
+// -- same fix as taskWithLiveTagsLocked and the existing
+// ExpressGatewayService pattern. Must be called with at least a read lock held.
+func (b *InMemoryBackend) capacityProviderWithLiveTagsLocked(cp *CapacityProvider) CapacityProvider {
+	c := *cp
+	c.Tags = copyTags(b.resourceTags[resourceTagKey(cp.CapacityProviderArn)])
+
+	return c
+}
+
 // allCapacityProvidersLocked returns every known capacity provider (used when
 // DescribeCapacityProviders is called with no name/ARN filter and no cluster
 // filter). Must be called with at least a read lock held.
@@ -160,9 +171,7 @@ func (b *InMemoryBackend) allCapacityProvidersLocked() []CapacityProvider {
 	out := make([]CapacityProvider, 0, len(all))
 
 	for _, cp := range all {
-		c := *cp
-		c.Tags = copyTags(cp.Tags)
-		out = append(out, c)
+		out = append(out, b.capacityProviderWithLiveTagsLocked(cp))
 	}
 
 	return out
@@ -174,10 +183,7 @@ func (b *InMemoryBackend) allCapacityProvidersLocked() []CapacityProvider {
 // with at least a read lock held.
 func (b *InMemoryBackend) resolveCapacityProviderRefLocked(ref string) (CapacityProvider, bool) {
 	if _, cp := b.findCapacityProviderLocked(ref); cp != nil {
-		c := *cp
-		c.Tags = copyTags(cp.Tags)
-
-		return c, true
+		return b.capacityProviderWithLiveTagsLocked(cp), true
 	}
 
 	if builtin := builtinCapacityProvider(ref); builtin != nil {
@@ -297,8 +303,7 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 		cp.AutoScalingGroupProvider.ManagedDraining = input.AutoScalingGroupProvider.ManagedDraining
 	}
 
-	out := *cp
-	out.Tags = copyTags(cp.Tags)
+	out := b.capacityProviderWithLiveTagsLocked(cp)
 
 	return &out, nil
 }
