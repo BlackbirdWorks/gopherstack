@@ -77,7 +77,7 @@ rather than a range over a literal table:
   member diff there is thorough enough that this issue's own prior notes
   already listed ssm as layer-1 swept).
 
-## Swept (61 of 162) — do not re-sweep without reading the cited work first
+## Swept (62 of 162) — do not re-sweep without reading the cited work first
 
 Every op in these services has had at least one full layer-1 (wrapper key)
 pass; most also have layer-2 (nesting) and layer-3 (backend-tracked-but-
@@ -91,8 +91,9 @@ apigateway, appstream, athena, autoscaling, awsconfig, backup, bedrock,
 bedrockagent, cleanrooms, cloudformation, cloudfront,
 cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
 datasync, dlm, dynamodbstreams, ec2, ecs, eks, elasticache, elbv2, forecast,
-glue, **guardduty** (this session), iam, identitystore, inspector2, iot,
-iotwireless, kms, lambda, lightsail, medialive, mgn, networkmonitor, omics,
+glue, guardduty, iam, identitystore, inspector2, iot,
+iotwireless, kms, lambda, lightsail, medialive, mgn, **networkmanager**
+(this session), networkmonitor, omics,
 opensearch, organizations, pinpoint, quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3control, s3tables,
 sagemaker, secretsmanager, servicediscovery, ses, sesv2, sns, sqs, ssm,
@@ -104,7 +105,7 @@ backend-logic fixes) but **no 6flj-specific wrapper-key pass on record** —
 s3 and dynamodb. They are listed in the unswept table below on purpose;
 don't assume "heavily worked on" means "settled for this issue."
 
-## Unswept (101 of 162), ranked by List+Describe+Get op count
+## Unswept (100 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -119,8 +120,8 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 101 (guardduty's 40 removed, swept this
-session): **1,601** candidate ops.
+Sum of the L+D+G column across all 100 (networkmanager's 38 removed, swept
+this session): **1,563** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
@@ -128,7 +129,6 @@ session): **1,601** candidate ops.
 | s3 | 115 | 12 | 0 | 33 | 45 | chased |
 | macie2 | 81 | 15 | 3 | 22 | 40 | direct |
 | personalize | 77 | 18 | 18 | 3 | 39 | dynamic-fallback |
-| networkmanager | 186 | 10 | 1 | 28 | 39 | chased |
 | cognitoidp | 129 | 14 | 10 | 13 | 37 | chased |
 | apigatewayv2 | 103 | 5 | 0 | 32 | 37 | direct |
 | workmail | 97 | 18 | 9 | 9 | 36 | dynamic-fallback |
@@ -890,3 +890,233 @@ territory as of this session's own `git status` check — s3 (45,
 session's territory as of this check) are the next candidates; re-check
 `git status` for `services/securityhub`/`services/macie2` before picking
 either, since both were mid-flight elsewhere as of this session.
+
+## networkmanager (this session)
+
+`git status` at start showed the repo clean except an untracked
+`cmd/routecollisions/` (a live sibling session's RouteMatcher-over-claims
+sweep per this issue's own assignment note; it grew into
+`services/_ROUTE_COLLISIONS.md` and a `routecollisions` binary over the
+course of this session — never touched, confirmed again at the end).
+securityhub/s3/macie2/inspector2 all showed heavy *other-issue* commit
+activity in `git log` right before this session started (gopherstack-n3zi's
+round-trip coverage, gopherstack-op3e's RouteMatcher fixes) — none of it a
+6flj-specific wrapper-key pass, but picking any of those four risked a live
+collision with the sibling sweep, so this session passed on all four in favor
+of networkmanager (39 L+D+G per the table, 38 by this session's own direct
+enumeration of `GetSupportedOperations`' route table — see method note below),
+untouched by any other issue this week and large enough to settle completely
+in one session.
+
+**Own enumeration, not the table's count**: grepped every `handler_*.go`
+file's route tables for `op: "..."` literals directly (`routeTable()` in
+handler.go concatenates 11 per-family route slices) rather than trusting
+opencensus's 39 — got 38 (10 List, 1 Describe, 27 Get). The 1-op variance is
+inside this file's own documented run-to-run tolerance; not re-derived
+further.
+
+**PROTOCOL**: `awsRestjson1_` confirmed as the sole prefix in
+networkmanager@v1.44.4's `deserializers.go` (no `awsAwsjson1{0,1}_`/
+`awsEc2query_`/`awsAwsquery_`). Case-sensitive. All 538 `EqualFold` hits in
+`deserializers.go` are inside `deserializeOpError*` functions matching
+`errorCode`, none in a body-field `switch key { case "...": }` block —
+grepped for `EqualFold` lines not containing `errorCode` on the same line:
+zero matches. Body-field casing is a non-issue by construction here.
+
+**Dead-deserializer trap checked and found NOT to apply**: traced
+`(*awsRestjson1_deserializeOpGetSites).HandleDeserialize`
+(deserializers.go:9748) in full — it decodes the body into `shape` and calls
+`awsRestjson1_deserializeOpDocumentGetSitesOutput(&output, shape)` directly,
+the same pattern guardduty and cloudwatchlogs already confirmed for restjson1
+in this codebase (unlike pinpoint's genuinely-dead wrapper). Not re-verified
+per-op after confirming the general pattern once.
+
+**Layer 1 (wrapper keys), all 38 ops**: dumped every op's own
+`awsRestjson1_deserializeOpDocument<Op>Output` case list via a per-op awk/grep
+script (file+line implicit in the dump, not hand-transcribed) and compared
+against wire.go's response structs. **All 38 top-level wrapper keys matched
+exactly** — zero layer-1 bugs. This service's wire.go already carried a
+citing doc comment ("confirmed by direct read of
+aws-sdk-go-v2/service/networkmanager@v1.44.3's serializers.go/
+deserializers.go") from prior (non-6flj) work, which the clean layer-1 result
+corroborates.
+
+**Layer 2 (per-item nesting), all major shared types**: dumped every
+`awsRestjson1_deserializeDocument<Type>` case list for ~50 nested/shared
+types (GlobalNetwork, Site, Device, Link, Connection, Attachment + its 5
+subtype envelopes, Peering + TransitGatewayPeering, ConnectPeer +
+ConnectPeerSummary, CoreNetwork + CoreNetworkSummary, RouteAnalysis + its
+path/endpoint/completion types, NetworkResource, NetworkTelemetry,
+OrganizationStatus, error types) and compared field-for-field against
+wire.go/types.go. **7 real bugs found and fixed**, all layer-2/3 (correct
+outer shape, missing or unwired inner fields) — the classic guardduty-style
+"backend has the value one field away, converter never reads it" shape,
+recurring across five different resource families rather than concentrated
+in one:
+
+1. **`OwnerAccountId` never emitted on Attachment (all 5 subtypes),
+   TransitGatewayPeering, RouteAnalysis, or CoreNetworkSummary** — the
+   single highest-value finding, a genuine service-wide sibling trap.
+   `introspection.go`'s `NetworkResource.AccountId` already correctly reads
+   `b.accountID` (confirmed at introspection.go:445/471, pre-existing code),
+   but `newAttachmentLocked` (attachments.go, the single shared constructor
+   for all 5 attachment subtypes), `CreateTransitGatewayPeering`
+   (peerings.go), and `StartRouteAnalysis` (routeanalysis.go) never read it
+   at all — real `OwnerAccountID` model fields on `Attachment`/`Peering`/
+   `RouteAnalysis` (confirmed present in models.go) sat unset the whole
+   time. `CoreNetworkSummary`'s converter (`toCoreNetworkSummaryWire`,
+   wire_convert.go) was worse: it **hardcoded `OwnerAccountID: ""`**
+   explicitly, a fabricated-empty rather than merely-unset value. Fixed by
+   threading `b.accountID` through all four construction paths (one shared
+   constructor covers all 5 attachment ops at once) and adding an
+   `ownerAccountID` parameter to `toCoreNetworkSummaryWire`, sourced from
+   `h.Backend.AccountID()` at its one call site
+   (`dispatchListCoreNetworks`). `CoreNetwork` itself (`GetCoreNetwork`'s
+   response type) genuinely has no `OwnerAccountId` member in the real SDK —
+   confirmed absent from its own deserializer case list — so only
+   `CoreNetworkSummary` needed the fix, not both.
+2. **`RouteAnalysis.UseMiddleboxes` read from the request into a backend
+   parameter explicitly discarded with `_`, never echoed.** `StartRouteAnalysis`'s
+   signature was `(..., includeReturnPath, _ bool)` — the handler already
+   parsed `req.UseMiddleboxes` and passed it in, the backend method just threw
+   it away. Real `GetRouteAnalysisOutput`/`StartRouteAnalysisOutput` both
+   carry `UseMiddleboxes` (confirmed in the op's own case list). A real
+   client's `UseMiddleboxes: true` request had zero effect and could never be
+   observed in the response. Fixed by keeping the parameter and adding a model
+   field.
+3. **`RouteAnalysis.StartTimestamp` never modeled at all** — a real,
+   always-populated `RouteAnalysis` member (`StartTimestamp *time.Time`,
+   confirmed in types.go) with no backing field in the model struct. Fixed by
+   adding the field, set to `nowUTC()` at `StartRouteAnalysis` time.
+4. **`GetNetworkResources`' `NetworkResource.ResourceId`/`.Tags` never
+   emitted, service-wide, all 7 resource kinds** — a sibling trap against
+   this service's OWN `NetworkTelemetry` type, which correctly emits
+   `ResourceId` (confirmed at deserializers.go's `NetworkTelemetry` case
+   list) three functions away in the same file. `networkResourceItem`, the
+   shared internal struct all 7 of `introspection.go`'s per-kind gatherers
+   (site/device/link/connection/core-network/attachment/connect-peer/peering)
+   build into before wire conversion, had no `ResourceID`/`Tags` fields at
+   all — every source struct's own ID (`SiteID`/`DeviceID`/`LinkID`/
+   `ConnectionID`/`CoreNetworkID`/`AttachmentID`/`ConnectPeerID`/`PeeringID`)
+   and `Tags` field were one field access away and simply never read. Fixed
+   by adding both fields to `networkResourceItem`, populating them in all 7
+   gatherers, and threading them through to `networkResourceWire` in
+   `dispatchGetNetworkResources`.
+5. **`ListCoreNetworks`' `CoreNetworkSummary.Tags` never emitted** — real
+   `CoreNetworkSummary` has a `Tags []Tag` member (confirmed in its own
+   deserializer case list and types.go) that `toCoreNetworkSummaryWire`
+   simply omitted, even though the `CoreNetwork` model it reads from already
+   tracks `Tags *tags.Tags` (used correctly by `GetCoreNetwork`'s own
+   converter three functions away). Fixed.
+6. **`GetConnectPeer`'s `ConnectPeer.LastModificationErrors` never modeled**
+   — a real member (`[]ConnectPeerError`, confirmed in types.go) with no
+   field on gopherstack's `ConnectPeer` struct at all, the same "declared
+   type, honestly never populated" gap `AttachmentError`/`PeeringError`
+   already carry a citing comment for elsewhere in this file (this backend
+   has no failure-injection engine for any of the three). Added
+   `ConnectPeerError` (mirroring `AttachmentError`'s exact 4-field shape:
+   Code/Message/RequestID/ResourceArn) and the `LastModificationErrors`
+   field, matching house convention rather than leaving the type
+   incomplete.
+7. **`PeeringError` missing `ResourceArn`** — a direct sibling-trap: its
+   4-field twin `AttachmentError` (Code/Message/RequestID/ResourceArn)
+   already has it; `PeeringError` had only 3 of the real type's 5 members
+   (also missing `MissingPermissionsContext`, left undone — see disclosed
+   list). Fixed the `ResourceArn` half since it mirrors an existing correct
+   sibling exactly; `toPeeringErrorsWire`'s direct struct-cast conversion
+   (`peeringErrorWire(e)`) meant both the model and wire type needed the new
+   field added in the same relative position to keep compiling.
+
+**Checked and confirmed correct, not new findings** (candidates that looked
+like sibling-trap shapes but were already honestly handled):
+`CoreNetworkChangeValues`/`CoreNetworkChangeEventValues` (the real SDK has
+two DIFFERENT ~10-14-field types here; gopherstack's shared
+`coreNetworkChangeValuesWire` only carries `SegmentName`/
+`NetworkFunctionGroupName`, but `corenetworkpolicydiff.go`'s doc comment and
+`models.go`'s `CoreNetworkChangeValues` doc comment already disclose this
+explicitly as a documented scope reduction — this diff engine does a
+document-level JSON diff, not a live-attachment-state correlation, so most of
+those fields have nothing real to source); `CoreNetwork.NetworkFunctionGroups`
+(`[]struct{}`, already disclosed in models.go's doc comment, "no
+policy-execution engine computes them"); `ListCoreNetworkRoutingInformation`/
+`GetNetworkRoutes`' empty route lists (already disclosed in
+introspection.go/corenetworks.go doc comments, no route-propagation engine
+exists); `TransitGatewayRegistrationState` (real type is actually
+`TransitGatewayRegistrationStateReason{Code,Message}` — my first grep missed
+it by name, but wire.go's `transitGatewayRegistrationStateWire{Code,Message}`
+already matches it exactly).
+
+**Request side**: spot-checked the 10 largest/highest-field-count Create/
+request bodies (`CreateVpcAttachment`, `StartRouteAnalysis`,
+`ListCoreNetworkRoutingInformation`, `GetNetworkRoutes`,
+`CreateConnectAttachment`, `CreateTransitGatewayPeering`,
+`CreateSiteToSiteVpnAttachment`, `CreateDirectConnectGatewayAttachment`,
+`CreateTransitGatewayRouteTableAttachment`, `UpdateVpcAttachment`) against
+their real `serializeOpDocument<Op>Input` functions field-for-field. All
+clean — the only systematic omission is `ClientToken`, deliberately and
+consistently absent from every Create request wire struct in this service (an
+idempotency token with no meaningful backend behavior to model), not a
+per-op miss.
+
+**Wrong-value check**: none found — every mismatch in this batch was a
+missing/dropped field, not a same-key-wrong-enum-value bug.
+
+**Ratifying tests**: none found in any of the three shapes. Grepped every
+existing `*_test.go` in the service for `OwnerAccountID`/`UseMiddleboxes`/
+`StartTimestamp`/the fields fixed above — zero prior assertions on any of
+them in either direction (not a wrong assertion staying green, simply never
+exercised, same as guardduty's finding).
+
+**Phantom ops**: none found — cross-referenced all 38 op-name string
+literals pulled from `handler_*.go`'s route tables against
+`api_op_*.go` files in networkmanager@v1.44.4; every one exists.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the real
+`deserializeOpDocument<Type>Output`/`serializeOpDocument<Type>Input`
+function's own case list or the real `types.go` struct definition, never a
+doc comment or an assumption. Two candidates that looked like bugs on first
+read (`CoreNetworkChangeValues` field gap, `NetworkFunctionGroups` stub) were
+checked against this service's own doc comments and confirmed already
+disclosed rather than reported as new.
+
+7 real-SDK-client tests added in
+`services/networkmanager/wire_field_fixes_test.go`
+(`TestOwnerAccountID_Attachment`, `TestOwnerAccountID_PeeringAndCoreNetworkSummary`,
+`TestGetNetworkResources_ResourceIDAndTags`, `TestListCoreNetworks_Tags`,
+`TestRouteAnalysis_OwnerAccountIDStartTimestampUseMiddleboxes` — 5 test
+functions, some covering more than one bug each). Every fix hand-reverted
+individually (no git, per this session's hard no-git-mutation constraint),
+confirmed to fail with the exact predicted symptom (blank `OwnerAccountId`
+strings, nil `StartTimestamp`, empty `Tags`/`ResourceId`, quoted in each
+revert's test output), then restored and diffed byte-identical against the
+pre-revert file before moving to the next. `PeeringError.ResourceArn` and
+`ConnectPeerError`/`LastModificationErrors` were NOT given round-trip tests —
+both are genuinely unobservable in this backend today (no failure-injection
+engine ever populates either error list, matching the pre-existing
+`AttachmentError` disclosure), so a test could only assert on an empty list
+regardless of correctness; disclosed rather than fabricated.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to
+`services/networkmanager`), `go fix -diff` (no diff), `golangci-lint run` (2
+issues found and fixed — a `golines` line-length wrap and a `fieldalignment`
+struct reorder on the new `networkResourceItem` fields, via
+`fieldalignment -fix` + `golines -w`; 0 issues after; no cyclop/gocyclo/
+gocognit/funlen nolints added) all green. `go test -race ./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash only),
+no git-mutating commands run (all changes uncommitted — orchestrator must
+commit/push), `cmd/routecollisions/`/`services/_ROUTE_COLLISIONS.md`/
+`routecollisions` (the live sibling RouteMatcher sweep's output) confirmed
+untouched via `git status` both before starting and again at the end, no
+`gendocs`/`make docs` run.
+
+networkmanager's List/Describe/Get families are now fully swept for this
+issue (38/38 ops verified against the real deserializer/serializer). 62 of
+162 services swept, 100 remain. Per the ranked table, securityhub (47
+L+D+G ops) is next largest; re-check `git status` for
+`services/securityhub`/`services/s3`/`services/macie2`/`services/inspector2`
+before picking any of them, since all four showed recent non-6flj activity as
+of this session (gopherstack-n3zi/op3e work, plus the live RouteMatcher
+sweep) — personalize (39, but already had a direct List-scoping fix under
+gopherstack-sm02, so may come back mostly clean) or cognitoidp (37) are the
+next candidates least likely to collide.

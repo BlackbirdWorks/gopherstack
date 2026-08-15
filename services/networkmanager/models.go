@@ -321,17 +321,30 @@ func (c *ConnectPeerConfiguration) clone() *ConnectPeerConfiguration {
 	return &cp
 }
 
+// ConnectPeerError mirrors types.ConnectPeerError -- this backend never
+// populates a live ConnectPeer's LastModificationErrors (no failure-
+// injection engine models a real per-connect-peer error, same as
+// AttachmentError/PeeringError), but the type is declared complete so the
+// wire shape stays correct if that ever changes.
+type ConnectPeerError struct {
+	Code        string
+	Message     string
+	RequestID   string
+	ResourceArn string
+}
+
 // ConnectPeer mirrors types.ConnectPeer.
 type ConnectPeer struct {
-	CreatedAt           time.Time
-	Tags                *tags.Tags
-	Configuration       *ConnectPeerConfiguration
-	ConnectAttachmentID string
-	ConnectPeerID       string
-	CoreNetworkID       string
-	EdgeLocation        string
-	State               string
-	SubnetArn           string
+	CreatedAt              time.Time
+	Tags                   *tags.Tags
+	Configuration          *ConnectPeerConfiguration
+	ConnectAttachmentID    string
+	ConnectPeerID          string
+	CoreNetworkID          string
+	EdgeLocation           string
+	State                  string
+	SubnetArn              string
+	LastModificationErrors []ConnectPeerError
 }
 
 func (c *ConnectPeer) clone() *ConnectPeer {
@@ -341,6 +354,7 @@ func (c *ConnectPeer) clone() *ConnectPeer {
 
 	cp := *c
 	cp.Configuration = c.Configuration.clone()
+	cp.LastModificationErrors = append([]ConnectPeerError(nil), c.LastModificationErrors...)
 
 	return &cp
 }
@@ -595,11 +609,15 @@ type ConnectAttachmentOptions struct {
 
 // ---- Peerings (family R) ----
 
-// PeeringError mirrors types.PeeringError.
+// PeeringError mirrors types.PeeringError -- this backend never populates a
+// live Peering's LastModificationErrors (no failure-injection engine models
+// a real per-peering error, same as AttachmentError), but the type is
+// declared complete so the wire shape stays correct if that ever changes.
 type PeeringError struct {
-	Code      string
-	Message   string
-	RequestID string
+	Code        string
+	Message     string
+	RequestID   string
+	ResourceArn string
 }
 
 // Peering is this backend's flat representation of the base Peering shape
@@ -693,6 +711,7 @@ type NetworkResourceSummary struct {
 
 // RouteAnalysis mirrors types.RouteAnalysis.
 type RouteAnalysis struct {
+	StartTimestamp    time.Time
 	Destination       *RouteAnalysisEndpoint
 	Source            *RouteAnalysisEndpoint
 	ForwardPath       *RouteAnalysisPath
@@ -702,6 +721,7 @@ type RouteAnalysis struct {
 	RouteAnalysisID   string
 	Status            string
 	IncludeReturnPath bool
+	UseMiddleboxes    bool
 }
 
 func (r *RouteAnalysis) clone() *RouteAnalysis {

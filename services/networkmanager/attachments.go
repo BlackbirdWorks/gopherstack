@@ -57,6 +57,7 @@ func (b *InMemoryBackend) newAttachmentLocked(
 		UpdatedAt:      now,
 		EdgeLocation:   edgeLocation,
 		EdgeLocations:  append([]string(nil), edgeLocations...),
+		OwnerAccountID: b.accountID,
 		ResourceArn:    resourceArn,
 		State:          attachmentStatePendingAttachmentAcceptance,
 		Tags:           tags.FromMap("networkmanager.attachment."+id+".tags", tagMap),

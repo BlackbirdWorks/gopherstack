@@ -43,6 +43,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPeering(
 		CoreNetworkArn:    c.CoreNetworkArn,
 		CoreNetworkID:     coreNetworkID,
 		CreatedAt:         nowUTC(),
+		OwnerAccountID:    b.accountID,
 		PeeringType:       peeringTypeTransitGateway,
 		State:             peeringStateCreating,
 		TransitGatewayArn: transitGatewayArn,

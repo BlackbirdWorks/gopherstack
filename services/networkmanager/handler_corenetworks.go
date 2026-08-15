@@ -277,7 +277,7 @@ func (h *Handler) dispatchListCoreNetworks(
 
 	out := make([]coreNetworkSummaryWire, len(p.Data))
 	for i, c := range p.Data {
-		out[i] = toCoreNetworkSummaryWire(c)
+		out[i] = toCoreNetworkSummaryWire(c, h.Backend.AccountID())
 	}
 
 	return marshalResponse(listCoreNetworksResponse{CoreNetworks: out, NextToken: p.Next})

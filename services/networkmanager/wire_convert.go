@@ -279,21 +279,35 @@ func toConnectPeerConfigurationWire(c *ConnectPeerConfiguration) *connectPeerCon
 	}
 }
 
+func toConnectPeerErrorsWire(errs []ConnectPeerError) []connectPeerErrorWire {
+	if errs == nil {
+		return nil
+	}
+
+	out := make([]connectPeerErrorWire, len(errs))
+	for i, e := range errs {
+		out[i] = connectPeerErrorWire(e)
+	}
+
+	return out
+}
+
 func toConnectPeerWire(c *ConnectPeer) *connectPeerWire {
 	if c == nil {
 		return nil
 	}
 
 	return &connectPeerWire{
-		ConnectPeerID:       c.ConnectPeerID,
-		ConnectAttachmentID: c.ConnectAttachmentID,
-		CoreNetworkID:       c.CoreNetworkID,
-		CreatedAt:           epochPtr(c.CreatedAt),
-		Configuration:       toConnectPeerConfigurationWire(c.Configuration),
-		EdgeLocation:        c.EdgeLocation,
-		State:               c.State,
-		SubnetArn:           c.SubnetArn,
-		Tags:                tagsKV(c.Tags),
+		ConnectPeerID:          c.ConnectPeerID,
+		ConnectAttachmentID:    c.ConnectAttachmentID,
+		CoreNetworkID:          c.CoreNetworkID,
+		CreatedAt:              epochPtr(c.CreatedAt),
+		Configuration:          toConnectPeerConfigurationWire(c.Configuration),
+		EdgeLocation:           c.EdgeLocation,
+		State:                  c.State,
+		SubnetArn:              c.SubnetArn,
+		Tags:                   tagsKV(c.Tags),
+		LastModificationErrors: toConnectPeerErrorsWire(c.LastModificationErrors),
 	}
 }
 
@@ -328,14 +342,20 @@ func toCoreNetworkWire(c *CoreNetwork) *coreNetworkWire {
 	}
 }
 
-func toCoreNetworkSummaryWire(c *CoreNetwork) coreNetworkSummaryWire {
+// toCoreNetworkSummaryWire takes ownerAccountID explicitly -- the CoreNetwork
+// model has no account field of its own (this is a single-tenant emulator,
+// so every core network's owner is the requesting account, the same value
+// NetworkResource.AccountID and Attachment/Peering/RouteAnalysis.OwnerAccountID
+// already source from InMemoryBackend.accountID).
+func toCoreNetworkSummaryWire(c *CoreNetwork, ownerAccountID string) coreNetworkSummaryWire {
 	return coreNetworkSummaryWire{
 		CoreNetworkArn:  c.CoreNetworkArn,
 		CoreNetworkID:   c.CoreNetworkID,
 		Description:     c.Description,
 		GlobalNetworkID: c.GlobalNetworkID,
-		OwnerAccountID:  "",
+		OwnerAccountID:  ownerAccountID,
 		State:           c.State,
+		Tags:            tagsKV(c.Tags),
 	}
 }
 
@@ -619,6 +639,7 @@ func toRouteAnalysisWire(r *RouteAnalysis) *routeAnalysisWire {
 	}
 
 	return &routeAnalysisWire{
+		StartTimestamp:    epochPtr(r.StartTimestamp),
 		Destination:       toRouteAnalysisEndpointWire(r.Destination),
 		Source:            toRouteAnalysisEndpointWire(r.Source),
 		ForwardPath:       toRouteAnalysisPathWire(r.ForwardPath),
@@ -628,6 +649,7 @@ func toRouteAnalysisWire(r *RouteAnalysis) *routeAnalysisWire {
 		RouteAnalysisID:   r.RouteAnalysisID,
 		Status:            r.Status,
 		IncludeReturnPath: r.IncludeReturnPath,
+		UseMiddleboxes:    r.UseMiddleboxes,
 	}
 }
 
