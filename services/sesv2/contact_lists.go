@@ -79,6 +79,7 @@ func (b *InMemoryBackend) GetContactList(name string) (*ContactList, error) {
 	}
 
 	cp := *cl
+	cp.Tags = b.liveTagsLocked(b.contactListARN(name))
 
 	return &cp, nil
 }

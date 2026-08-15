@@ -125,6 +125,7 @@ func (b *InMemoryBackend) GetMedicalTranscriptionJob(
 	}
 
 	cp := *job
+	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeMedicalTranscriptionJob, jobName))
 
 	return &cp, nil
 }

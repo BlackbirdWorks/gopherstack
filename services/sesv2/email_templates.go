@@ -93,6 +93,7 @@ func (b *InMemoryBackend) GetEmailTemplate(name string) (*EmailTemplate, error) 
 	}
 
 	cp := *t
+	cp.Tags = b.liveTagsLocked(b.emailTemplateARN(name))
 
 	return &cp, nil
 }

@@ -82,6 +82,7 @@ func (b *InMemoryBackend) GetConfigurationSet(name string) (*ConfigurationSet, e
 	}
 
 	cp := *cs
+	cp.Tags = b.liveTagsLocked(b.configurationSetARN(name))
 
 	return &cp, nil
 }

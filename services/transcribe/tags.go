@@ -83,6 +83,23 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 	return result, nil
 }
 
+// liveTagsLocked returns a copy of the live tags for resourceArn from the
+// shared resourceTags store, rather than a resource's own creation-time Tags
+// snapshot -- Get ops that echo tags back must read this live map so tags
+// applied via TagResource/UntagResource after creation are visible. Caller
+// must hold at least a read lock.
+func (b *InMemoryBackend) liveTagsLocked(resourceArn string) map[string]string {
+	existing, ok := b.resourceTags[resourceArn]
+	if !ok || len(existing) == 0 {
+		return nil
+	}
+
+	result := make(map[string]string, len(existing))
+	maps.Copy(result, existing)
+
+	return result
+}
+
 // TaggedEntry pairs a resource ARN with its tags.
 type TaggedEntry struct {
 	Tags map[string]string

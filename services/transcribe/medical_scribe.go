@@ -56,6 +56,7 @@ func (b *InMemoryBackend) GetMedicalScribeJob(jobName string) (*MedicalScribeJob
 	}
 
 	cp := *job
+	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeMedicalScribeJob, jobName))
 
 	return &cp, nil
 }
