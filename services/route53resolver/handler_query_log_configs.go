@@ -240,17 +240,24 @@ type listResolverQueryLogConfigsInput struct {
 	MaxResults int32        `json:"MaxResults"`
 }
 
+// TotalCount/TotalFilteredCount are real, always-populated
+// ListResolverQueryLogConfigsOutput members (deserializers.go, no
+// "This member is required" doc but genuinely returned on every real call --
+// gopherstack-6flj sweep found neither wired at all, leaving both at the Go
+// zero value for every real SDK client regardless of backend state).
 type listResolverQueryLogConfigsOutput struct {
 	NextToken               *string                        `json:"NextToken,omitempty"`
 	ResolverQueryLogConfigs []resolverQueryLogConfigOutput `json:"ResolverQueryLogConfigs"`
+	TotalCount              int32                          `json:"TotalCount"`
+	TotalFilteredCount      int32                          `json:"TotalFilteredCount"`
 }
 
 func (h *Handler) handleListResolverQueryLogConfigs(
 	ctx context.Context,
 	in *listResolverQueryLogConfigsInput,
 ) (*listResolverQueryLogConfigsOutput, error) {
-	configs := h.Backend.ListResolverQueryLogConfigs(ctx)
-	configs, err := applyFilters(configs, in.Filters, queryLogConfigFilterAliases, matchQueryLogConfigFilter)
+	all := h.Backend.ListResolverQueryLogConfigs(ctx)
+	configs, err := applyFilters(all, in.Filters, queryLogConfigFilterAliases, matchQueryLogConfigFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +271,13 @@ func (h *Handler) handleListResolverQueryLogConfigs(
 	}
 	data, next := paginate(items, in.NextToken, in.MaxResults, defaultPageSizeLarge)
 
-	return &listResolverQueryLogConfigsOutput{ResolverQueryLogConfigs: data, NextToken: next}, nil
+	//nolint:gosec // conversion is safe: config counts are always small
+	return &listResolverQueryLogConfigsOutput{
+		ResolverQueryLogConfigs: data,
+		NextToken:               next,
+		TotalCount:              int32(len(all)),
+		TotalFilteredCount:      int32(len(configs)),
+	}, nil
 }
 
 // --- GetResolverQueryLogConfigAssociation ---

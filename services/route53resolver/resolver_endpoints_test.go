@@ -958,9 +958,21 @@ func TestCreateResolverEndpoint_Validation(t *testing.T) {
 	}
 }
 
-// --- Endpoint VpcId + SecurityGroupIds in output ---
+// --- Endpoint HostVPCId + SecurityGroupIds in output ---
 
-func TestCreateResolverEndpoint_VpcIdAndSecurityGroups(t *testing.T) {
+// TestCreateResolverEndpoint_HostVPCIdAndSecurityGroups replaces the prior
+// TestCreateResolverEndpoint_VpcIdAndSecurityGroups, which asserted a
+// fabricated top-level "VpcId" response key as correct -- a raw-body
+// ratifying test that only passed because the handler and the test agreed
+// on the wrong shape (gopherstack-6flj). types.ResolverEndpoint's real
+// deserializer (awsAwsjson11_deserializeDocumentResolverEndpoint) has no
+// "VpcId" case at all, only "HostVPCId". This still uses the internal-only
+// "VpcId" request convenience (see handleCreateResolverEndpointInput's doc
+// comment: no real SDK client can send it either, since
+// CreateResolverEndpointInput has no such member) to populate HostVPCId,
+// and now asserts the real wire key is present while the fabricated one is
+// gone.
+func TestCreateResolverEndpoint_HostVPCIdAndSecurityGroups(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -976,7 +988,8 @@ func TestCreateResolverEndpoint_VpcIdAndSecurityGroups(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	ep, ok := resp["ResolverEndpoint"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "vpc-abc123", ep["VpcId"])
+	assert.Equal(t, "vpc-abc123", ep["HostVPCId"])
+	assert.NotContains(t, ep, "VpcId", "ResolverEndpoint has no real VpcId member, only HostVPCId")
 	sgs, ok := ep["SecurityGroupIds"].([]any)
 	require.True(t, ok)
 	assert.Len(t, sgs, 2)

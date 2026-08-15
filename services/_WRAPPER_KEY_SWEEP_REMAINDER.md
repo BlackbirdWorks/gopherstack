@@ -1,9 +1,9 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**76 of 162 services swept, 86 remain** (apigatewayv2, workmail, wafv2, ce,
-waf, vpclattice, emr, eventbridge, and now kafka all added this session, in
-parallel, by different sessions — see each service's own section at the end
-of this file for full detail).
+**78 of 162 services swept, 84 remain** (apigatewayv2, workmail, wafv2, ce,
+waf, vpclattice, emr, eventbridge, kafka, route53resolver, and now appsync
+all added this session, in parallel, by different sessions — see each
+service's own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -92,7 +92,8 @@ again — several have explicit "already checked, don't re-flag" notes (e.g.
 route53's `ListHostedZonesByVPC` XMLName quirk, cloudfront's root-tag
 non-bug, rds's `GlobalClusterMember` shared-name non-bug).
 
-apigateway, **apigatewayv2** (this session), appstream, athena, autoscaling,
+apigateway, **apigatewayv2** (this session), **appsync** (this session),
+appstream, athena, autoscaling,
 awsconfig, backup, bedrock,
 bedrockagent, **ce** (this session), cleanrooms, cloudformation, cloudfront,
 cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
@@ -104,7 +105,8 @@ iotwireless, **kafka** (this session), kms, lambda, lightsail, macie2, medialive
 mgn, networkmanager, networkmonitor, omics,
 opensearch, organizations, personalize, pinpoint,
 quicksight, rds, redshift,
-resiliencehub, resourcegroupstaggingapi, route53, s3,
+resiliencehub, resourcegroupstaggingapi, route53, **route53resolver** (this
+session), s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
 **vpclattice** (this session), **waf** (this session), **wafv2** (this
@@ -117,7 +119,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (86 of 162), ranked by List+Describe+Get op count
+## Unswept (84 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -132,16 +134,15 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 86 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 84 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
 apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34,
-vpclattice's 30, emr's 30, eventbridge's 30, and kafka's 29 removed, all
-swept prior to/this session): **1,066** candidate ops.
+vpclattice's 30, emr's 30, eventbridge's 30, kafka's 29,
+route53resolver's 30, and appsync's 28 removed, all swept prior to/this
+session): **1,008** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| route53resolver | 30 | 16 | 0 | 14 | 30 | manual (range target unresolved by tool) |
-| appsync | 74 | 13 | 0 | 15 | 28 | direct |
 | workspaces | 111 | 2 | 24 | 1 | 27 | dynamic-fallback |
 | lakeformation | 61 | 8 | 3 | 15 | 26 | direct |
 | rekognition | 75 | 9 | 5 | 11 | 25 | dynamic-fallback |
@@ -4229,3 +4230,187 @@ the time this pass finished, confirmed via `git log`).
 76 of 162 services swept, 86 remain. Per the ranked table, `route53resolver`
 (30, `manual`, unresolved by `cmd/opcensus`, hand-counted) is next largest —
 re-check `git status` before picking it.
+
+## route53resolver (this session)
+
+Chosen per the prior (kafka) session's own pointer above, cross-checked
+against `bd show gopherstack-6flj`'s comments and `git status` (clean at
+start; a live sibling appeared mid-session editing `services/appsync/*.go`,
+confirmed untouched by this session throughout).
+
+PROTOCOL: `application/x-amz-json-1.1` (JSON-RPC 1.1), confirmed from
+`handler.go`'s `Handler()` (`"Route53Resolver", "application/x-amz-json-1.1"`)
+and cross-checked against route53resolver@v1.48.4's own `deserializers.go`
+function-prefix grep (`awsAwsjson11_` is the sole prefix present — no
+`awsRestjson1_`/`awsEc2query_`/`awsAwsquery_`). Case-sensitive: all 407
+`EqualFold` hits in `deserializers.go` are `errorCode` matches in the per-op
+`deserializeOpError*` functions; none are in a body-field
+`switch key { case "...": }` block (grepped and confirmed zero non-errorCode
+hits, not spot-checked).
+
+**Dead-deserializer trap checked and found NOT to apply** — traced
+`HandleDeserialize` for `ListResolverEndpoints` directly
+(deserializers.go:6503): it decodes the body into `shape` and calls
+`awsAwsjson11_deserializeOpDocumentListResolverEndpointsOutput(&output, shape)`
+itself (deserializers.go:6543) — the `OpDocument...Output` function **is**
+the real, reached deserializer, same shape as cloudwatchlogs/guardduty, not
+pinpoint's restjson1.
+
+**Second client**: none — single MSK-style client, just this one Resolver
+SDK module in `go.mod`.
+
+This service already had **unusually deep prior audit history** (PARITY.md
+citing gopherstack-y9w3, hvni, 3sgl, jp7o, 4gzs, mslf, parity-5, all with
+real file+line SDK citations, not bare "wire: ok" claims) — grade A,
+`last_audit_date: 2026-07-30`. Per this issue's "deep prior coverage is not
+evidence" lesson from kafka, all 30 L+D+G ops (16 List, 14 Get; the ranked
+table's manual count) were re-verified independently against
+route53resolver@v1.48.4's own deserializer case lists (file+line grepped per
+type, not hand-transcribed) rather than trusted from PARITY.md. The prior
+work held up almost entirely — every wrapper key (List/Get top-level member
+name) matched exactly across all 30 ops, including the tricky
+`GetResolverDnssecConfig` → `"ResolverDNSSECConfig"` casing (a real
+same-service inconsistency, not a bug). 3 new bugs found nonetheless, all
+layer-2/3 (correct outer shape, wrong/missing nested member), in territory
+the prior passes' field-level `OwnerID`/`BlockOverrideDnsType`-casing sweeps
+hadn't reached:
+
+1. **A second, previously-missed fabricated field on `resolverEndpointOutput`
+   (real key from nowhere — same class as the already-fixed `IpAddresses`
+   invention on this exact struct, just not caught in that pass).** Emitted
+   a top-level `VpcId` alongside the correct `HostVPCId`. Confirmed absent
+   from `types.ResolverEndpoint`'s real deserializer
+   (`awsAwsjson11_deserializeDocumentResolverEndpoint` has no `"VpcId"`
+   case, only `"HostVPCId"`) and from `types.go`'s struct definition — `VpcId`
+   is a real field, but on a *different* type entirely
+   (`FirewallRuleGroupAssociation.VpcId`, `types.go:901`, already correctly
+   modeled there), the "real key from the wrong type" variant. Affects 6 ops
+   sharing this struct: `CreateResolverEndpoint`, `GetResolverEndpoint`,
+   `ListResolverEndpoints`, `UpdateResolverEndpoint`,
+   `AssociateResolverEndpointIpAddress`, `DisassociateResolverEndpointIpAddress`.
+   Harmless to a real client (unknown JSON keys ignored), removed anyway.
+   **Deeper finding while tracing this**: `CreateResolverEndpointInput` has
+   no `VpcId` request member either — AWS derives `HostVPCId` server-side
+   from `IpAddresses[].SubnetId`
+   (`types.IpAddressRequest`: `SubnetId`/`Ip`/`Ipv6` only, no VPC field).
+   gopherstack's backend has always sourced `HostVPCID` from this same
+   fabricated wire field, meaning **a real, unmodified SDK client's
+   `CreateResolverEndpoint` call has no way to populate `HostVPCId` at all
+   for the endpoints it creates** — a genuine, disclosed gap (this backend
+   has no subnet→VPC registry to derive one honestly; synthesizing a
+   plausible `vpc-*` id from a `subnet-*` id would be fabrication). The
+   internal-only `VpcId` request field was kept (not removed) since dropping
+   it would remove the only path this backend has for setting `HostVPCId`
+   at all, and no real client can send it either way. Disclosed in
+   PARITY.md's gaps, not silently fixed with an invented derivation.
+2. **Backend-tracked-but-unemitted (layer 3), on a sibling pair.**
+   `ListResolverQueryLogConfigsOutput`/`ListResolverQueryLogConfigAssociationsOutput`
+   both have real, always-populated `TotalCount`/`TotalFilteredCount`
+   members (deserializers.go) that were never wired at all — a real SDK
+   client's typed fields stayed `0` regardless of how many configs/
+   associations existed. Both handlers already compute the exact values
+   needed (`len` of the backend's full list before `applyFilters`, `len`
+   after) one line above the return; simply never surfaced. Fixed both.
+3. **Missing real member, disclosed-untestable.**
+   `resolverRuleAssociationOutput` (shared by `AssociateResolverRule`,
+   `GetResolverRuleAssociation`, `DisassociateResolverRule`,
+   `ListResolverRuleAssociations`) never emitted `StatusMessage`, a real
+   non-required `types.ResolverRuleAssociation` member. Added — but this
+   backend has no async failure state to ever populate it with a non-empty
+   value, and it's tagged `omitempty` to match AWS's own "absent when
+   there's nothing to report" convention, so **the field's presence is
+   permanently unobservable on the wire either way** (empty value + omitempty
+   ⇒ key absent, identical to the pre-fix shape). A first version of a
+   round-trip test for this was written, confirmed to pass unchanged against
+   the pre-fix code (the exact "assertion too weak to fail" trap this issue
+   tracks), and deliberately dropped rather than kept as false assurance —
+   see `wire_field_fixes_test.go`'s comment in place of the test.
+
+**Verified correct, not a bug (checked hardest, came back clean):**
+`types.FirewallRule.Status`/`StatusMessage` are real members
+(`deserializers.go` cases `"Status"`/`"StatusMessage"`) `firewallRuleOutput`
+never emits — looked exactly like finding #3's shape at first read. The
+real field's own doc comment resolves it: *"For rules that do not require
+asynchronous provisioning, this field may be absent."* This backend creates
+every Firewall Rule synchronously with no async provisioning state (same
+documented convention as this service's `status_lifecycle` family note) —
+correctly absent, not a gap.
+
+**Request side**: checked as part of every finding above (findings #1 and
+#2 are request+response or backend-plumbing pairs, not response-only).
+Spot-checked `ListFirewallDomains`/`ListFirewallRuleGroupAssociations`/
+`ListResolverRuleAssociations` request structs against their real
+`*Input` types beyond what's disclosed above — no further gaps found;
+this service's `Filters`/`SortBy` request-side coverage from prior passes
+(`gopherstack-66dr`/`hvni`/`jp7o`) already matched the real SDK structs
+field-for-field on every op checked.
+
+**Ratifying tests found and fixed: 1.**
+`TestCreateResolverEndpoint_VpcIdAndSecurityGroups` (raw-body, hand-built)
+asserted the fabricated `resp["VpcId"]` as correct — passed cleanly
+pre-fix because the handler and the test agreed on the wrong shape.
+Renamed to `TestCreateResolverEndpoint_HostVPCIdAndSecurityGroups` and
+rewritten to assert `HostVPCId` plus `assert.NotContains(..., "VpcId")`.
+No other ratifying tests found in this service referencing any of the
+three findings — `TotalCount`/`TotalFilteredCount`/`StatusMessage` had zero
+prior test coverage in either direction.
+
+**Phantom ops**: none — `TestSDKCompleteness` (`sdk_completeness_test.go`)
+passed before and after, covering all ops against
+`route53resolversdk.Client`'s real method set.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `awsAwsjson11_deserializeDocument<Type>`/`deserializeOpDocument<Op>
+Output` function's own case list (file-grepped, not hand-transcribed) or
+the real `types.go`/`api_op_*.go` struct definition, never a doc comment or
+a PARITY.md claim taken on faith — the explicit point of re-checking this
+service despite its unusually thorough prior audit trail.
+
+**Real-client test ratio**: this service had **zero** prior real-SDK-client
+tests (`sdk_completeness_test.go` only constructs a bare `&Client{}` for
+method-set reflection, never dials a server) despite ~3,700 lines of
+handler code and an A-grade PARITY.md — 100% raw-HTTP-body tests before this
+pass, consistent with this campaign's "coverage does not predict bugs, and
+deep audit history does not either" finding. Added
+`services/route53resolver/wire_field_fixes_test.go` with a
+`newTestRoute53ResolverClient` helper (same `httptest.NewServer` +
+`service.NewRegistry()` pattern as kafka/guardduty's helpers) and 2 new
+real-client tests (`TestListResolverQueryLogConfigs_TotalCounts`,
+`TestListResolverQueryLogConfigAssociations_TotalCounts`) plus the one
+rewritten raw-body ratifying test above. Every fix hand-reverted
+individually (no git, per this session's hard no-git-mutation constraint),
+confirmed to fail with the exact predicted symptom (`VpcId` present in the
+raw response map; `TotalCount`/`TotalFilteredCount` asserted `3`/`2`,
+actual `0` both times), then restored and diffed byte-identical against the
+pre-revert file before moving to the next. Finding #3's `StatusMessage` fix
+has no test at all, disclosed above and in-code rather than backed by a
+test proven not to discriminate.
+
+**Disclosed, not fixed** (two structural gaps, neither a rename): see
+PARITY.md's `gaps` — `CreateResolverEndpointInput`'s missing real `VpcId`
+member (no honest way to derive `HostVPCId` for a real client without new
+subnet→VPC modeling) and `ListResolverEndpointIpAddresses`' per-item
+`CreationTime`/`ModificationTime`/`StatusMessage` (backend's `IPAddress`
+model tracks neither timestamp).
+
+Gates: `go build ./...` (full, confirmed clean before and after — no
+signature changes), `go vet`/`go test -race`/`go fix -diff` (no diff)/
+`gofmt`/`golines` all green for `services/route53resolver`.
+`golangci-lint run` — 1 `govet` shadow finding on a test helper's `err`
+(same class cloudwatchlogs's pass hit) plus 1 `golines` formatting finding,
+both fixed; 0 issues after. `fieldalignment` — 0 hits. No
+cyclop/gocyclo/gocognit/funlen nolints added. `go test -race ./pkgs/...`
+green.
+
+No subagents used (Read/Grep/Bash only, per this session's hard
+constraint). No git-mutating commands run — orchestrator must commit/push.
+`git status` re-checked repeatedly through the session; the `services/appsync`
+sibling diff that appeared mid-session was left untouched throughout.
+
+route53resolver's List/Describe/Get families are now fully swept for this
+issue (30/30 ops verified against the real deserializer/serializer). 77 of
+162 services swept, 85 remain. Per the ranked table, `appsync` (74 ops, 28
+L+D+G, `direct`) is next largest — **a live sibling was actively editing
+`services/appsync/*.go` throughout this session**; re-check `git status`
+before picking it, and pick the next candidate down
+(`workspaces`, 27, `dynamic-fallback`) if appsync is still claimed.
