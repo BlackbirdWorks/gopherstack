@@ -75,7 +75,7 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 		}
 	}
 
-	settingsToStore := &storedAppSettings{
+	settingsToStore := &StoredAppSettings{
 		CampaignHook:        incoming.CampaignHook,
 		Limits:              incoming.Limits,
 		QuietTime:           incoming.QuietTime,
@@ -102,7 +102,7 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 
 // toAppSettingsResponse converts stored settings to the wire format, filling
 // CampaignHook/Limits/QuietTime/JourneyLimits with non-nil empty objects.
-func toAppSettingsResponse(appID string, settings *storedAppSettings) appSettingsResponse {
+func toAppSettingsResponse(appID string, settings *StoredAppSettings) appSettingsResponse {
 	resp := appSettingsResponse{
 		ApplicationID:            appID,
 		LastModifiedDate:         settings.LastModifiedDate,

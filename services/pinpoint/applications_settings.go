@@ -1,7 +1,7 @@
 package pinpoint
 
-// storedAppSettings holds the persisted application-level settings.
-type storedAppSettings struct {
+// StoredAppSettings holds the persisted application-level settings.
+type StoredAppSettings struct {
 	CampaignHook        map[string]any `json:"CampaignHook"`
 	Limits              map[string]any `json:"Limits"`
 	QuietTime           map[string]any `json:"QuietTime"`
@@ -30,7 +30,7 @@ func (b *InMemoryBackend) GetApplicationDateRangeKpi(appID, kpiName, startTime, 
 }
 
 // GetApplicationSettings retrieves the settings for a Pinpoint application.
-func (b *InMemoryBackend) GetApplicationSettings(appID string) (*storedAppSettings, error) {
+func (b *InMemoryBackend) GetApplicationSettings(appID string) (*StoredAppSettings, error) {
 	b.mu.RLock("GetApplicationSettings")
 	defer b.mu.RUnlock()
 
@@ -41,7 +41,7 @@ func (b *InMemoryBackend) GetApplicationSettings(appID string) (*storedAppSettin
 	settings, ok := b.appSettings[appID]
 	if !ok {
 		// Return defaults when no settings have been stored yet.
-		return &storedAppSettings{
+		return &StoredAppSettings{
 			CampaignHook:  map[string]any{},
 			Limits:        map[string]any{},
 			QuietTime:     map[string]any{},
@@ -61,8 +61,8 @@ func (b *InMemoryBackend) GetApplicationSettings(appID string) (*storedAppSettin
 // UpdateApplicationSettings updates the settings for a Pinpoint application.
 func (b *InMemoryBackend) UpdateApplicationSettings(
 	appID string,
-	settings *storedAppSettings,
-) (*storedAppSettings, error) {
+	settings *StoredAppSettings,
+) (*StoredAppSettings, error) {
 	b.mu.Lock("UpdateApplicationSettings")
 	defer b.mu.Unlock()
 
@@ -70,7 +70,7 @@ func (b *InMemoryBackend) UpdateApplicationSettings(
 		return nil, ErrAppNotFound
 	}
 
-	stored := &storedAppSettings{
+	stored := &StoredAppSettings{
 		CampaignHook:        cloneAnyMap(settings.CampaignHook),
 		Limits:              cloneAnyMap(settings.Limits),
 		QuietTime:           cloneAnyMap(settings.QuietTime),

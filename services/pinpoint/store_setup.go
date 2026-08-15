@@ -10,7 +10,7 @@ package pinpoint
 // The following resource fields are deliberately NOT registered here and
 // remain plain maps because their key is not a pure function of the stored
 // value (store.Table requires one):
-//   - appSettings: storedAppSettings carries no ApplicationID/identity field
+//   - appSettings: StoredAppSettings carries no ApplicationID/identity field
 //     of its own -- it is keyed externally by app ID, the same shape of quirk
 //     that keeps EC2's instanceIMDSOptions/verifiedAccess*Policies as plain
 //     maps.
