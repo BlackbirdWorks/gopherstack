@@ -8997,3 +8997,327 @@ limitation; 0 real-data leaks; 0 phantom ops). **96 of 162 services swept,
 session, 18 L+D+G) and `accessanalyzer` (18 L+D+G, free) are the two
 remaining services at this tier; re-run `go run ./cmd/opcensus` and
 re-check `git status` before picking, as usual.
+
+## codedeploy (this session, 2026-08-15)
+
+**PICK AND TIE-BREAK.** Read this file's header/tail, `bd show
+gopherstack-6flj`'s comments, and `git show 373def88f` (the mediatailor
+pass immediately prior). `go run ./cmd/opcensus` showed the next tier tied
+at 18 L+D+G: `memorydb`, `codedeploy`, `accessanalyzer`. `git status` at
+pickup showed `memorydb` already live (9 modified files, a concurrent
+session's uncommitted work) -- confirmed by this file's own `memorydb`
+section above, added moments earlier by that session, which independently
+picked `memorydb` on surface and flagged `codedeploy` as the live sibling
+it saw appear mid-session. **Occupancy ruled `memorydb` out.** Between the
+two free services, surface decided cleanly: `codedeploy` has 10 distinct
+resource-family `handler_*.go` files (application_revisions, applications,
+deployment_configs, deployment_groups, deployment_instances, deployments,
+github_tokens, lifecycle_hooks, on_premises_instances, tags) versus
+`accessanalyzer`'s 8 (access_previews, analyzed_resources, analyzers,
+archive_rules, findings, generated_policies, policy_validation, tags).
+Picked `codedeploy`. No occupancy override was needed for this half of the
+tie-break -- surface alone decided it, matching this issue's own recorded
+precedent for a clean surface-only pick (`mediatailor` vs `transcribe`).
+
+**SDK pinned:** `codedeploy@v1.38.4` (`go.mod`, matches PARITY.md, no
+drift, cached under `$(go env GOMODCACHE)`, no dependency-boundary
+exception needed).
+
+**PROTOCOL, ROUTER, SECOND CLIENT, EQUALFOLD:** `awsAwsjson11_` prefix
+throughout `deserializers.go`/`serializers.go` (confirmed via
+`api_client.go`) -- JSON-RPC/awsjson1.1. Of 344 `EqualFold` call sites in
+`deserializers.go`, 9 are non-error-code (all `"NaN"`/`"Infinity"`/
+`"-Infinity"` float parsing) and the remaining 335 all match on
+`errorCode` for exception-type dispatch -- **zero body-field-key
+`EqualFold` calls**, so body decode is case-SENSITIVE, as expected for
+this protocol. Router is a flat `X-Amz-Target` prefix-match dispatch
+(`strings.HasPrefix` in `handler.go`'s `RouteMatcher`/`ExtractOperation`),
+**structurally immune** to the path-segment-router bug class. No second
+SDK client import anywhere outside `_test.go` files.
+
+**PHANTOM OPS:** zero, both directions. `GetSupportedOperations`' 47
+entries exact-matched the SDK's 47 `api_op_*.go` files 1:1 (scripted
+`comm` diff after extracting both lists), confirmed no service-side
+extras and nothing the real SDK exposes that gopherstack lacks.
+
+**SCRIPTED KEY EXTRACTION:** yes. A small Python helper
+(`/tmp/.../extract_keys.py`, gitignored, not committed) walks
+`deserializers.go`, locates a named function by a paren-balance-aware
+scan of its signature (**hit the documented `interface{}`-in-signature
+trap**: `func …Output(v **T, value interface{}) error {` has its own
+brace pair inside the parameter list that a naive "find first `{`" search
+mistakes for the function body -- fixed by matching the signature's
+parens to balance first, then finding the body's own opening brace from
+there) and regex-extracts every top-level `case "<key>":`. Run
+individually for all 18 in-scope List/Get/BatchGet ops (`GetSupportedOperations`
+prefix-classified: 10 `List*`, 0 `Describe*`, 8 `Get*`, matching
+`cmd/opcensus`'s own count) plus every nested nested-type deserializer
+they call, and separately against `serializers.go` for three request-side
+structs whose casing turned out to matter (see bug 1). Also swept the 7
+`BatchGet*` ops (not counted in the 18 by `cmd/opcensus`'s `List/Describe/Get`
+prefix convention, since they start with `Batch`, but read for this pass
+since they're collection-returning read ops of exactly this bug class --
+`BatchGetDeploymentInstances`/`BatchGetDeploymentTargets` in particular
+share converters with the counted `Get*` siblings).
+
+**TOP-LEVEL WRAPPER KEYS: mostly clean, one flagship break.**
+
+1. **FLAGSHIP, response-side, silent-empty on every real client call:**
+   `ListTagsForResourceOutput` was wire-tagged `json:"tags"` (lowercase).
+   The real deserializer's switch
+   (`awsAwsjson11_deserializeOpDocumentListTagsForResourceOutput`,
+   `deserializers.go:20417`) is `case "Tags":` / `case "NextToken":` --
+   **PascalCase**, unlike every other op in this service (which is
+   uniformly camelCase: `applicationName`, `deploymentGroupId`, etc). This
+   is the one op family (`TagResource`/`UntagResource`/
+   `ListTagsForResource`) that uses AWS's shared generic tagging shape
+   instead of CodeDeploy's own op-specific field-naming convention --
+   confirmed the same PascalCase (`ResourceArn`/`Tags`/`TagKeys`) on the
+   request side too, via `serializers.go`'s
+   `awsAwsjson11_serializeOpDocumentTagResourceInput`/
+   `UntagResourceInput`/`ListTagsForResourceInput`. Since this protocol's
+   decode is case-sensitive (confirmed above, no `EqualFold`), a real
+   client's `ListTagsForResource` call **always got an empty `Tags` slice**
+   regardless of what had actually been tagged -- the exact silent-empty
+   class this whole campaign exists to find, hiding in the one op family
+   whose casing convention differs from its own service's norm.
+
+   Fixed the response side (`listTagsForResourceOutput.Tags` ->
+   `json:"Tags"`) and, for full wire-shape correctness, the request side
+   too (`tagResourceInput`/`untagResourceInput`/`listTagsForResourceInput`
+   -> `ResourceArn`/`Tags`/`TagKeys`, all PascalCase). **The request-side
+   fix is NOT independently observable**: this repo's `HandleJSON`
+   (`pkgs/service/jsondisp.go`) decodes incoming bodies with plain
+   `encoding/json.Unmarshal`, which matches JSON keys to Go struct tags
+   case-insensitively as a fallback when no exact match exists -- so a
+   real client's PascalCase request body was already binding correctly to
+   the old lowercase-tagged struct fields before this fix, and still does
+   after. Only the response direction (marshaled with an exact,
+   non-fallback tag match, then decoded by the real SDK's
+   hand-rolled case-sensitive switch) was a live bug. Disclosed as such
+   rather than claimed as an equally-live fix on both sides.
+
+   Two existing tests (`tags_test.go`'s `TestTags_SortedListTagsForResource`
+   and `TestTags_OnDeploymentGroups`) decoded the response with a local
+   anonymous struct tagged `json:"tags"` (lowercase) -- **this is the
+   "existing wrong-key test" pattern**, but with a twist worth recording:
+   because both the test's decode AND gopherstack's own (buggy) encode used
+   plain `encoding/json` with its case-insensitive fallback, **these tests
+   would have passed identically before and after the fix** -- Go's own
+   stdlib leniency makes a raw `json.Unmarshal`-into-local-struct test
+   structurally blind to this entire bug class, independent of whether the
+   fix is applied. Neither test would have caught the bug in the first
+   place, nor would either one regress if the fix were reverted. Updated
+   both to `json:"Tags"` for accuracy anyway, but the real verification is
+   the new real-SDK-client test below, whose response decode goes through
+   the actual generated (case-sensitive) deserializer.
+
+**SHARED CONVERTERS AND NESTED SHAPES BELOW THE TOP LEVEL, per-op, script-verified against their own real deserializer:**
+
+- `ApplicationInfo` (`GetApplication`/`BatchGetApplications`, shared
+  `applicationInfo` wire type): real type has 6 keys (`applicationId`,
+  `applicationName`, `computePlatform`, `createTime`, `gitHubAccountName`,
+  `linkedToGitHub`); gopherstack emits 4, missing `gitHubAccountName`/
+  `linkedToGitHub`. **DISCLOSED, not added**: confirmed via
+  `CreateApplicationInput`/`UpdateApplicationInput` that the real API has
+  no request-side member to ever set either value (this is legacy
+  console-driven GitHub OAuth linking, never exposed as a public
+  parameter) -- this backend has no OAuth concept at all, so both would
+  forever read as Go zero-values (`""`/`false`). Since `omitempty`
+  suppresses a zero-value field identically whether or not the Go struct
+  field exists, **adding these two fields would be a pure source-code
+  change with zero wire-byte difference** -- unlike the fixes above/below,
+  there is nothing for a test to observe. Recorded in PARITY.md rather
+  than added as dead code.
+- `DeploymentGroupInfo` (`GetDeploymentGroup`/`BatchGetDeploymentGroups`,
+  shared `deploymentGroupInfoOutput`): real type has 23 keys; gopherstack
+  had 20, missing `lastAttemptedDeployment`, `lastSuccessfulDeployment`,
+  and `targetRevision`. **FIXED** -- and genuinely observable, unlike the
+  `ApplicationInfo` case above: the backend already tracks every
+  deployment's `CreateTime`/`Status`/`Revision` per (application,
+  deployment-group) pair (`deployments.go`), so these three are real,
+  non-fabricated derivations from existing state, not fabricated
+  placeholders. Added `InMemoryBackend.LastDeploymentsForGroup` (scans
+  `b.deployments.All()` filtered by app+group, matching
+  `ListDeployments`' own scan-based approach -- no dedicated index
+  exists) returning the most-recently-created deployment
+  (`LastAttemptedDeployment`) and the most-recently-created *successful*
+  one (`LastSuccessfulDeployment`) separately, since a failed/stopped
+  deployment must still count as "attempted" but never as "successful".
+  `TargetRevision` is set from the most-recently-**attempted**
+  deployment's own revision, not the successful one -- the real SDK's own
+  doc comment for `TargetRevision` ("the deployment group's target
+  revision") does not distinguish attempted-vs-successful, so this is the
+  plain reading of "target": the revision the group is currently trying
+  to converge to. **Disclosed, not derived past what's supportable**: this
+  attempted-vs-successful choice for `TargetRevision` specifically could
+  not be independently confirmed against a live AWS account or a more
+  precise doc comment -- noted in PARITY.md as an interpretation, not a
+  guess about unrelated data (unlike a "candidate derivation from adjacent
+  but conceptually different data", which this is not: `TargetRevision`
+  and `Deployment.Revision` are literally the same concept on both sides,
+  just at different points in a deployment's lifecycle).
+- `InstanceInfo` (on-premises instance; `GetOnPremisesInstance`/
+  `BatchGetOnPremisesInstances`, shared `onPremisesInstanceInfo`): real
+  type has 7 keys; gopherstack had 6, missing `instanceArn`. **FIXED** --
+  added `InMemoryBackend.OnPremisesInstanceARN`, reusing the exact
+  `"instance:<name>"` resource-format already used for the same resource
+  type's `InstanceTarget.TargetArn` elsewhere in this service
+  (`deployment_instances.go:130`), so this is a consistent, already-precedented
+  construction, not a new guess.
+- `StopDeploymentOutput`: real type has 2 keys (`status`, `statusMessage`);
+  gopherstack had 1, missing `statusMessage`. **FIXED** -- since this
+  backend's `StopDeployment` always synchronously succeeds
+  (`stopStatusSucceeded` is hardcoded, pre-existing), the accompanying
+  message is deterministic. Sourced verbatim from the real SDK's own doc
+  comment for the `Succeeded` `StopStatus` value
+  (`api_op_StopDeployment.go`: "Succeeded: The stop operation was
+  successful."), not invented text.
+- `InstanceSummary`/`InstanceTarget`/`ECSTarget`/`LambdaTarget` (deployment
+  targets; `GetDeploymentInstance`/`BatchGetDeploymentInstances`/
+  `GetDeploymentTarget`/`BatchGetDeploymentTargets`): real types each carry
+  a `lifecycleEvents` list (7/7/7/6-of-7 keys present vs gopherstack's
+  5-6); `ECSTarget` is additionally missing `taskSetsInfo`, `LambdaTarget`
+  is additionally missing `lambdaFunctionInfo`. **DISCLOSED, not added**:
+  `PutLifecycleEventHookExecutionStatus` (`handler_lifecycle_hooks.go`) is
+  a pure echo -- it validates the deployment exists and returns the
+  request's own execution ID, storing nothing -- so this backend has zero
+  real per-target lifecycle-hook-execution state to ever report,
+  regardless of target type. Same story for `taskSetsInfo` (no ECS
+  task-set orchestration modeled) and `lambdaFunctionInfo` (no Lambda
+  alias-shift data modeled). As with `ApplicationInfo` above, these would
+  forever read as empty/nil, so adding the struct fields changes zero
+  wire bytes -- disclosed in PARITY.md rather than added as dead code.
+- `DeploymentTarget` union: real type has a 5th member,
+  `cloudFormationTarget`, alongside the 3 gopherstack already emits
+  (`instanceTarget`/`ecsTarget`/`lambdaTarget`). **Confirmed as an
+  accurate pre-existing disclosure**, not a gap this pass found: the
+  handler's own doc comment already states "there is no
+  CloudFormationTarget concept here, since this backend has no
+  CloudFormation blue/green integration" -- true, this backend has no CF
+  stack-set deployment path anywhere, so this member can never be
+  populated honestly. Not previously in PARITY.md's own text; added there
+  this pass for completeness, but the underlying design decision was
+  already correct and documented in code.
+- `RevisionLocation`: real type's deserializer has a 5th case, `"string"`
+  (the deprecated `RawString` member, `RevisionLocationType` = `"String"`,
+  Lambda-deployment-only legacy raw YAML/JSON revisions), alongside the 4
+  gopherstack models (`s3Location`/`gitHubLocation`/`appSpecContent`/
+  `revisionType`). **Never previously disclosed anywhere in PARITY.md** --
+  new finding, disclosed (not fixed): this is explicitly documented as
+  deprecated in the SDK's own doc comment, and S3/GitHub/AppSpecContent
+  cover every revision-location path this backend's `CreateDeployment`/
+  `RegisterApplicationRevision`/etc. can actually construct, so there is
+  no honest non-empty value to emit and no code path that could ever
+  populate it.
+
+**FILTERS AND PAGINATION:** re-confirmed, not re-derived, the existing
+`gopherstack-a250` TRIAGED finding in `PARITY.md` (`ListApplications`/
+`ListDeploymentConfigs`/`ListGitHubAccountTokenNames` discard a real but
+inert `NextToken` since no `List*` op in this service ever truncates).
+Verified this also holds, unchanged, for every other `List*` op touched
+this pass (`ListApplicationRevisions`, `ListDeploymentGroups`,
+`ListDeploymentInstances`, `ListDeploymentTargets`,
+`ListOnPremisesInstances`, `ListTagsForResource`) -- none paginate, so
+`NextToken`/`MaxResults` remain uniformly inert across the whole service,
+not just the three ops the prior note named. This is an accurate,
+still-current prior-audit note, not an argued-away claim -- no correction
+needed.
+
+**REQUIRED-MEMBER DIFFS, both directions:** no gap found among the 18 (+7
+`BatchGet*`) ops touched -- every real required member this service's
+handlers read is validated, and no handler demands a field the real Input
+structurally lacks.
+
+**EMPTY/204 RESPONSES:** `DeleteApplication`/`DeleteDeploymentGroup`/
+`DeleteDeploymentConfig`/`DeregisterOnPremisesInstance`/`TagResource`/
+`UntagResource`/`ContinueDeployment`/`SkipWaitTimeForInstanceTermination`/
+`DeleteResourcesByExternalId` all return an empty `200 {}` body; every one
+of their real Output types is confirmed genuinely empty
+(`ResultMetadata` only) -- correct, no truncated real body among them.
+
+**OVER-WIDE FIELD / CREDENTIAL SWEEP:** clean. `ServiceRoleArn`,
+`IamSessionArn`/`IamUserArn`, and every `*Arn` field are real,
+intentional identifiers matching AWS's own wire shape (parity, not
+leakage) -- this service has no password/secret/credential-shaped field
+anywhere.
+
+**PERSISTENCE TRAP:** checked before every addition. All fields touched
+this pass live on wire-only converter structs
+(`applicationInfo`/`deploymentGroupInfoOutput`/`onPremisesInstanceInfo`/
+`stopDeploymentOutput`, all in `handler_*.go` files), computed fresh per
+request from the domain models (`Application`/`DeploymentGroup`/
+`OnPremisesInstance`/`Deployment` in `models.go`) that `persistence.go`
+actually snapshots. None of the persisted domain structs themselves were
+touched or retagged -- zero persistence risk.
+
+**TESTS:** `services/codedeploy/wire_field_fixes_test.go`, 6 new tests, all
+driven through the real `aws-sdk-go-v2` `codedeploy` client via the
+existing `newTestCodeDeployClient` helper (`handler_sdk_roundtrip_test.go`)
+so the response side goes through the genuine case-sensitive generated
+deserializer, not a hand-decoded struct:
+`TestListTagsForResource_RealClient_Tags`,
+`TestGetDeploymentGroup_RealClient_History` (also exercises
+`BatchGetDeploymentGroups` sharing the same converter),
+`TestGetDeploymentGroup_RealClient_NoDeploymentsYet` (a group with zero
+deployments correctly gets `nil`, not synthesized placeholders, for all
+three history fields), `TestOnPremisesInstance_RealClient_InstanceArn`
+(both `Get` and `BatchGet`), `TestStopDeployment_RealClient_StatusMessage`.
+Every one of the 4 fixes was hand-reverted individually (git-mutating
+commands banned this session, including `git checkout --`, so reverts were
+by hand-edit back to the exact pre-fix line), the corresponding test
+re-run and confirmed to fail with the exact predicted symptom (`Tags`
+empty; `LastAttemptedDeployment` nil; `InstanceArn` empty string;
+`StatusMessage` empty string -- all silent-missing-value, no decode error,
+matching this protocol's known-weaker awsjson1.1 signal), then restored
+and confirmed **byte-identical** to the pre-revert diff via `diff` against
+a saved snapshot of `git diff` output for each file (not just eyeballed).
+Two pre-existing tests (`tags_test.go`) updated for casing accuracy per
+the flagship bug above, though as noted their pass/fail was never actually
+gated by this bug either direction.
+
+**GATES:** `go build ./services/codedeploy/...` and full `go build ./...`
+(no exported interface signature changed -- `LastDeploymentsForGroup` and
+`OnPremisesInstanceARN` are both new additive backend methods) both clean;
+`go vet ./services/codedeploy/...` clean; `go test -race -count=1
+./services/codedeploy/...` and `./pkgs/...` both green; `go fix -diff`
+empty. `golangci-lint run ./services/codedeploy/...` found 3 issues on
+first pass -- `fieldalignment` on `lastDeploymentInfoEntry` and
+`deploymentGroupInfoOutput`, `nonamedreturns` on
+`LastDeploymentsForGroup` -- all fixed **by hand**, not `-fix`/`--fix`,
+per this campaign's documented `fieldalignment -fix`
+`//nolint`-stripping hazard (this file has 2 pre-existing `//nolint`
+comments, one inside the very struct that needed realignment): the target
+field order was derived by running `fieldalignment -fix` against an
+isolated scratch copy of just the struct definitions in `/tmp`, reading
+its output, then manually applying that exact order to the real file and
+re-running the linter to confirm 0 issues, rather than running the tool
+on the real file directly. Final: `golangci-lint run
+./services/codedeploy/...` reports **0 issues**. Zero
+`//nolint:cyclop/gocyclo/gocognit/funlen` added, grep-confirmed both
+before and after.
+
+No subagents used (Read/Grep/Bash only, per this session's hard
+constraint). No git-mutating commands run at any point -- orchestrator
+must commit/push. `git status` re-checked before every edit batch; only
+`services/codedeploy/*` and this remainder file touched throughout --
+`services/memorydb/*` (the sibling live at pickup) was never read or
+touched.
+
+`codedeploy`'s List/Get/BatchGet families are now fully swept for this
+issue (18/18 counted ops + 7 `BatchGet*` ops, layer-1/2/3 clean; 1
+flagship response-side wrapper-key bug fixed, response-observable only,
+hiding in the one op family with a different casing convention than the
+rest of the service; 3 further real never-modelled-member bugs fixed,
+all genuinely observable and derived from real existing backend state,
+not fabricated; 6 further never-modelled members across 5 shapes
+disclosed rather than added as dead code, since none has any honest
+non-zero source in this backend and `omitempty` makes their absence
+byte-identical to their presence-but-always-empty; 1 pre-existing
+disclosure in code comments confirmed accurate and promoted into
+PARITY.md; 1 prior `PARITY.md` audit note re-confirmed accurate, not
+argued-away; 0 real-data leaks; 0 phantom ops; 0 persistence risk).
+**97 of 162 services swept, 65 remain.** Per the ranked table,
+`accessanalyzer` (18 L+D+G) is the only service left at this tier; below
+it, `elasticbeanstalk`/`docdb`/`batch` (17 each) are next. Re-run `go run
+./cmd/opcensus` and re-check `git status` before picking, as usual.

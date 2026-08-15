@@ -3,7 +3,42 @@ package codedeploy
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
+
+// lastDeploymentInfoEntry is the wire format for a deployment group's most
+// recent attempted/successful deployment summary (real LastDeploymentInfo,
+// deserializers.go case "createTime"/"deploymentId"/"endTime"/"status").
+type lastDeploymentInfoEntry struct {
+	CreateTime   *float64 `json:"createTime,omitempty"`
+	EndTime      *float64 `json:"endTime,omitempty"`
+	DeploymentID string   `json:"deploymentId,omitempty"`
+	Status       string   `json:"status,omitempty"`
+}
+
+// lastDeploymentInfoToWire converts a backend Deployment to the wire
+// LastDeploymentInfo representation, or nil if d is nil (no such deployment
+// exists yet for the group).
+func lastDeploymentInfoToWire(d *Deployment) *lastDeploymentInfoEntry {
+	if d == nil {
+		return nil
+	}
+
+	ct := awstime.Epoch(d.CreateTime)
+	entry := &lastDeploymentInfoEntry{
+		DeploymentID: d.DeploymentID,
+		Status:       d.Status,
+		CreateTime:   &ct,
+	}
+
+	if d.CompleteTime != nil {
+		et := awstime.Epoch(*d.CompleteTime)
+		entry.EndTime = &et
+	}
+
+	return entry
+}
 
 // tagFilterEntry is the wire format for a tag filter (with Type field).
 type tagFilterEntry struct {
@@ -127,13 +162,16 @@ type deploymentGroupInfoOutput struct {
 	DeploymentStyle                  *deploymentStyleEntry    `json:"deploymentStyle,omitempty"`
 	Ec2TagSet                        *ec2TagSetEntry          `json:"ec2TagSet,omitempty"`
 	OnPremisesTagSet                 *onPremTagSetEntry       `json:"onPremisesTagSet,omitempty"`
-	ApplicationName                  string                   `json:"applicationName"`
-	DeploymentGroupID                string                   `json:"deploymentGroupId"`
-	DeploymentGroupName              string                   `json:"deploymentGroupName"`
+	TargetRevision                   *revisionLocationInput   `json:"targetRevision,omitempty"`
+	LastSuccessfulDeployment         *lastDeploymentInfoEntry `json:"lastSuccessfulDeployment,omitempty"`
+	LastAttemptedDeployment          *lastDeploymentInfoEntry `json:"lastAttemptedDeployment,omitempty"`
 	ServiceRoleArn                   string                   `json:"serviceRoleArn"`
 	DeploymentConfigName             string                   `json:"deploymentConfigName"`
 	ComputePlatform                  string                   `json:"computePlatform,omitempty"`
 	OutdatedInstancesStrategy        string                   `json:"outdatedInstancesStrategy,omitempty"`
+	DeploymentGroupName              string                   `json:"deploymentGroupName"`
+	DeploymentGroupID                string                   `json:"deploymentGroupId"`
+	ApplicationName                  string                   `json:"applicationName"`
 	Ec2TagFilters                    []tagFilterEntry         `json:"ec2TagFilters,omitempty"`
 	OnPremisesInstanceTagFilters     []tagFilterEntry         `json:"onPremisesInstanceTagFilters,omitempty"`
 	AutoScalingGroups                []autoScalingGroupEntry  `json:"autoScalingGroups,omitempty"`
@@ -184,6 +222,28 @@ func dgToOutput(dg *DeploymentGroup) deploymentGroupInfoOutput {
 
 	for _, svc := range dg.ECSServices {
 		out.ECSServices = append(out.ECSServices, ecsServiceEntry(svc))
+	}
+
+	return out
+}
+
+// deploymentGroupOutputWithHistory converts a DeploymentGroup and enriches
+// it with the group's real deployment history -- LastAttemptedDeployment,
+// LastSuccessfulDeployment, and TargetRevision (the most recently attempted
+// deployment's own revision; real AWS's own doc comment for TargetRevision
+// does not distinguish attempted-vs-successful, so this is the plain
+// reading of "target": the revision the group is currently trying to
+// converge to, not necessarily one that has already succeeded). dgToOutput
+// itself has no backend access and cannot derive these.
+func (h *Handler) deploymentGroupOutputWithHistory(dg *DeploymentGroup) deploymentGroupInfoOutput {
+	out := dgToOutput(dg)
+
+	attempted, successful := h.Backend.LastDeploymentsForGroup(dg.ApplicationName, dg.DeploymentGroupName)
+	out.LastAttemptedDeployment = lastDeploymentInfoToWire(attempted)
+	out.LastSuccessfulDeployment = lastDeploymentInfoToWire(successful)
+
+	if attempted != nil {
+		out.TargetRevision = revisionToWire(attempted.Revision)
 	}
 
 	return out
@@ -594,7 +654,7 @@ func (h *Handler) handleGetDeploymentGroup(
 		return nil, err
 	}
 
-	return &getDeploymentGroupOutput{DeploymentGroupInfo: dgToOutput(dg)}, nil
+	return &getDeploymentGroupOutput{DeploymentGroupInfo: h.deploymentGroupOutputWithHistory(dg)}, nil
 }
 
 type listDeploymentGroupsInput struct {
@@ -723,7 +783,7 @@ func (h *Handler) handleBatchGetDeploymentGroups(
 
 	infos := make([]deploymentGroupInfoOutput, 0, len(dgs))
 	for _, dg := range dgs {
-		infos = append(infos, dgToOutput(dg))
+		infos = append(infos, h.deploymentGroupOutputWithHistory(dg))
 	}
 
 	return &batchGetDeploymentGroupsOutput{DeploymentGroupsInfo: infos}, nil

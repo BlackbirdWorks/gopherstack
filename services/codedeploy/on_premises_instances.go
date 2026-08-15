@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -100,6 +101,13 @@ func (b *InMemoryBackend) DeregisterOnPremisesInstance(name string) error {
 	inst.DeregisterTime = &now
 
 	return nil
+}
+
+// OnPremisesInstanceARN builds an ARN for an on-premises instance, matching
+// the "instance:<name>" resource format already used for the same
+// InstanceTarget.TargetArn shape in deployment_instances.go.
+func (b *InMemoryBackend) OnPremisesInstanceARN(name string) string {
+	return arn.Build("codedeploy", b.region, b.accountID, "instance:"+name)
 }
 
 // GetOnPremisesInstance returns an on-premises instance by name.

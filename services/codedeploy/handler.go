@@ -25,6 +25,11 @@ const codedeployTargetPrefix = "CodeDeploy_20141006."
 // never the deployment's resulting lifecycle status.
 const stopStatusSucceeded = "Succeeded"
 
+// stopStatusSucceededMessage is StopDeploymentOutput.statusMessage for a
+// synchronously-completed stop request, taken verbatim from the real SDK's
+// own doc comment for the Succeeded StopStatus value (api_op_StopDeployment.go).
+const stopStatusSucceededMessage = "The stop operation was successful."
+
 var (
 	errUnknownAction  = errors.New("unknown action")
 	errInvalidRequest = errors.New("invalid request")

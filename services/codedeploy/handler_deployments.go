@@ -289,7 +289,8 @@ type stopDeploymentInput struct {
 }
 
 type stopDeploymentOutput struct {
-	Status string `json:"status"`
+	Status        string `json:"status"`
+	StatusMessage string `json:"statusMessage,omitempty"`
 }
 
 func (h *Handler) handleStopDeployment(
@@ -304,7 +305,7 @@ func (h *Handler) handleStopDeployment(
 		return nil, err
 	}
 
-	return &stopDeploymentOutput{Status: stopStatusSucceeded}, nil
+	return &stopDeploymentOutput{Status: stopStatusSucceeded, StatusMessage: stopStatusSucceededMessage}, nil
 }
 
 type skipWaitTimeInput struct {
