@@ -44,7 +44,7 @@ type StorageBackend interface {
 	// Resources
 	CreateResource(orgID, name, resourceType, description string) (*Resource, error)
 	DescribeResource(orgID, entityID string) (*Resource, error)
-	UpdateResource(orgID, entityID, name, description string) error
+	UpdateResource(orgID, entityID, name, description string, hiddenFromGAL bool) error
 	DeleteResource(orgID, entityID string) error
 	ListResources(
 		orgID string, filter *ResourceFilter, maxResults int32, nextToken string,
@@ -279,14 +279,16 @@ type User struct {
 
 // UserSummary is a summary of a WorkMail user.
 type UserSummary struct {
-	EnabledDate  time.Time
-	DisabledDate time.Time
-	UserID       string
-	Name         string
-	Email        string
-	DisplayName  string
-	State        string
-	Role         string
+	EnabledDate                     time.Time
+	DisabledDate                    time.Time
+	UserID                          string
+	Name                            string
+	Email                           string
+	DisplayName                     string
+	State                           string
+	Role                            string
+	IdentityProviderIdentityStoreID string
+	IdentityProviderUserID          string
 }
 
 // UserFilter mirrors aws-sdk-go-v2/service/workmail/types.ListUsersFilters,
@@ -395,6 +397,11 @@ type Resource struct {
 	// orgID is the store.Table composite-key qualifier (see orgKey in
 	// backend.go); carried through persistence via orgDTO.
 	orgID string
+	// HiddenFromGlobalAddressList mirrors aws-sdk-go-v2/service/workmail's
+	// DescribeResourceOutput.HiddenFromGlobalAddressList / real
+	// UpdateResourceInput.HiddenFromGlobalAddressList -- unlike users/groups
+	// it is not settable on create, only via UpdateResource.
+	HiddenFromGlobalAddressList bool
 }
 
 // ResourceSummary is a summary of a WorkMail resource.

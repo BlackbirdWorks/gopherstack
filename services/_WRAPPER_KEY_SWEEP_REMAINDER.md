@@ -1,7 +1,8 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**68 of 162 services swept, 94 remain** (apigatewayv2 added this session —
-see its own section at the end of this file for full detail).
+**69 of 162 services swept, 93 remain** (apigatewayv2 and workmail both
+added this session, in parallel, by two different sessions — see each
+service's own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -103,7 +104,8 @@ opensearch, organizations, personalize, pinpoint,
 quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
-ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer.
+ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
+**workmail** (this session).
 
 One service still has real, extensive wire-shape work under **other** issue
 classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
@@ -127,14 +129,13 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 94 (networkmanager's 38, securityhub's
-47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39, and
-apigatewayv2's 37 removed, all swept prior to/this session): **1,318**
-candidate ops.
+Sum of the L+D+G column across all 93 (networkmanager's 38, securityhub's
+47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
+apigatewayv2's 37, and workmail's 36 removed, all swept prior to/this
+session): **1,282** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| workmail | 97 | 18 | 9 | 9 | 36 | dynamic-fallback |
 | waf | 113 | 16 | 0 | 18 | 34 | dynamic-fallback |
 | wafv2 | 59 | 13 | 3 | 16 | 32 | direct |
 | ce | 47 | 7 | 1 | 23 | 31 | direct |
@@ -2362,3 +2363,195 @@ issue (37/37 ops verified against the real deserializer/serializer). 68 of
 territory as of this session's own `git status` check; waf (34,
 `dynamic-fallback`) or wafv2 (32, `direct`) are the next candidates least
 likely to collide — re-check `git status` before picking.
+
+## workmail (this session)
+
+Chosen per this session's explicit assignment: the ranked table's next
+candidate was apigatewayv2 (37 L+D+G), but `git status` at start showed it
+already had live, uncommitted, growing edits from a sibling session
+(`handler_domain_names.go`/`models.go`, a third file `portals.go` appeared
+between two checks minutes apart) — confirmed NOT clear, avoided per this
+session's own instructions. workmail (36 L+D+G: 18 List/9 Describe/9 Get,
+`dynamic-fallback` resolution) was the next-largest candidate the sibling
+was not in. Own enumeration of `buildOps()`'s four category-scoped map
+builders (`buildOrgAndEntityOps`/`buildMailboxAndDomainOps`/
+`buildAccessAndImpersonationOps`/`buildConfigAndTokenOps`, merged via
+`maps.Copy` into one flat dispatch table) confirms the table's 36 exactly.
+
+**PROTOCOL**: `awsAwsjson11_` (JSON-RPC 1.1) confirmed as the sole
+deserializer-function prefix in
+`aws-sdk-go-v2/service/workmail@v1.39.4/deserializers.go` (grep
+`awsAwsjson1[0-9]*_|awsRestjson1_|awsEc2query_|awsAwsquery_`). Case-sensitive
+— all 434 `EqualFold` hits are either `errorCode` matches or `NaN`/
+`Infinity`/`-Infinity` float-parsing branches (3 hits, all inside numeric
+decode), zero in a body-field `switch key {...}` block. **Only one real
+client** — no separate runtime/data-plane module like personalize's
+`personalizeruntime`; every op dispatches through the same
+`awsAwsjson11_` deserializer.
+
+**Dead-deserializer trap checked and found NOT to apply**: traced
+`(*awsAwsjson11_deserializeOpListUsers).HandleDeserialize` in full
+(deserializers.go:8263) — it decodes the body into `shape` and calls
+`awsAwsjson11_deserializeOpDocumentListUsersOutput(&output, shape)`
+directly (line 8303), the same JSON-RPC 1.1 pattern already confirmed
+non-dead in awsconfig/cloudwatchlogs/macie2/cognitoidp/personalize in this
+codebase.
+
+Dumped every op's own `awsAwsjson11_deserializeOpDocument<Op>Output` case
+list (per-op awk extraction, file+line implicit) and diffed field-for-field
+against every gopherstack response/request struct and its real
+`types.go`/`api_op_*.go` counterpart, for all 36 L+D+G ops plus every
+Create/Update op sharing a response or request type with one of them.
+
+**4 real bugs found and fixed, all the same lead-question-2 shape ("value
+the backend already holds, or a real client can already set, that never
+reaches the wire") plus one invented-shape/over-wide-field finding:**
+
+1. `ListUsers` never emitted `IdentityProviderIdentityStoreId`/
+   `IdentityProviderUserId` (real `types.User` members). The backend
+   already tracked both (`DescribeUser` already emitted them correctly,
+   confirmed field-for-field) but the `UserSummary` DTO built for `ListUsers`
+   had no slot for either, so the converter silently dropped them. Fixed by
+   adding both fields to `UserSummary` and `userSummaryResp`.
+2. `ListGroupMembers` never emitted `EnabledDate`/`DisabledDate` (real
+   `types.Member` members). Unlike finding #1, the backend's `Member` type
+   itself already had both fields — the bug was one hop further back:
+   `ListGroupMembers`' backend method synthesizes a fresh `Member` value per
+   group membership and had already looked up the underlying `User`/`Group`
+   record (to read its `Name`) but never copied `EnabledDate`/`DisabledDate`
+   from that same lookup. Fixed in `groups.go`, not just the handler
+   converter.
+3. **`ListMailboxExportJobs` — invented shape, over-wide field, not a
+   secret but an ARN leak.** Emitted `RoleArn`/`KmsKeyArn`/`S3Prefix`/
+   `ErrorInfo` on every list item. The real `types.MailboxExportJob` (the
+   List item type) is genuinely narrower than
+   `DescribeMailboxExportJobOutput` — confirmed it has none of those four
+   members at all (aws-sdk-go-v2/service/workmail@v1.39.4/types/types.go).
+   A prior "parity-4" pass's own doc comment explicitly (and incorrectly)
+   claimed "ListMailboxExportJobs reuses the SAME full shape as
+   DescribeMailboxExportJob" — a PARITY.md-adjacent false claim, caught by
+   reading the real deserializer rather than trusting the existing comment.
+   A real typed client can't decode the extra fields (same "harmless to a
+   typed client" property as other over-emission findings this campaign),
+   but the raw wire body carried an IAM role ARN and a KMS key ARN — not a
+   plaintext credential like cognitoidp's `ClientSecret`, but still a
+   resource identifier disclosed on every list call that the real API never
+   sends there. Removed all four fields from `mailboxExportJobSummaryJSON`
+   and its converter.
+4. `DescribeResource`/`UpdateResource` never modeled
+   `HiddenFromGlobalAddressList` (a real member on both — confirmed on
+   `DescribeResourceOutput` and `UpdateResourceInput`). Unlike
+   `CreateUser`/`CreateGroup`, the real `CreateResourceInput` does NOT
+   accept this field — it's Update-only for resources. The backend's
+   `Resource` model had no field for it at all (not "tracked but unemitted,"
+   genuinely never modeled). Added the field, threaded through
+   `UpdateResource`'s signature (mirroring `UpdateGroup`'s existing
+   always-overwrite, non-pointer convention for the same kind of field) and
+   `DescribeResource`'s response.
+
+**Sibling/near-duplicate shapes checked, reported clean**: `GetMailDomain`
+vs `ListMailDomains` (two different real SDK types, `IsDefault` vs
+`DefaultDomain` wire keys — already correctly distinguished by a prior
+pass's citing comment, re-verified); `ListGroups` vs `ListGroupsForEntity`
+(`types.Group` vs `types.GroupIdentifier`, same prior-pass distinction,
+re-verified); `AccessControlRule`'s `IpRanges`/`NotIpRanges` casing
+(already correct, has its own regression test); availability
+configuration's `EwsProvider` correctly uses the real REDACTED shape
+(`RedactedEwsAvailabilityProvider{EwsEndpoint,EwsUsername}`, no
+`EwsPassword` field) — checked specifically because this campaign's brief
+calls out credential-shaped fields, and this one was already right. No
+V1/V2 or other generational sibling pairs exist in this service.
+
+**Request side**: checked as part of every fix above (findings #1-#4 all
+have a request-or-storage-side component); this service's request-side
+gaps (`CreateResourceInput` genuinely has no `HiddenFromGlobalAddressList`,
+confirmed) were distinguished from the response-side fixes rather than
+assumed symmetric.
+
+**Grep for discarded parameters / write-only fields**: no `_ bool`/`_
+string`-style discarded backend parameters found. Finding #2 is this
+service's instance of "value sits one hop away, in an already-looked-up
+record, and is simply never copied" rather than a discarded parameter.
+
+**Over-wide-field / credential check**: `ListMailboxExportJobs` (finding
+#3) is this service's instance — an ARN leak, not a plaintext secret. No
+API-key/client-secret-bearing resource type exists in this service at all
+(WorkMail has no analogue to apigatewayv2's API keys or cognitoidp's
+`ClientSecret`).
+
+**Ratifying tests found and fixed: 1** —
+`TestBugfix_WorkMail_ListMailboxExportJobsFullShape` (from the same prior
+"parity-4" pass that introduced finding #3) asserted `RoleArn`/`KmsKeyArn`/
+`S3Prefix` as correct on list items; both the handler and the test agreed
+with the bug, so it passed cleanly against broken code. Renamed to
+`TestBugfix_WorkMail_ListMailboxExportJobsNarrowShape` and rewritten to
+assert their absence. **Zero** found in the other two ratifying-test shapes
+(wrong value; assertion too weak to fail) — grepped every existing
+`*_test.go` assertion touching the four fixed fields in either direction:
+no other test referenced any of them before this session.
+
+**Phantom ops**: none — the existing `sdk_completeness_test.go`'s
+`TestSDKCompleteness` already cross-checks every `GetSupportedOperations()`
+string against the real `workmailsdk.Client`'s method set via
+`pkgs/sdkcheck`, passed before and after this session's changes.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>Output`/`types.go`/`api_op_*.go` struct
+definition, file+line, confirmed reached from that op's own
+`HandleDeserialize`, never a doc comment (and one existing doc comment —
+the "parity-4" claim behind finding #3 — was itself the thing disproven).
+
+**Disclosed, not fixed** (structural gaps needing new backend modeling, or
+harmless extra fields a real client can't read into anything):
+- `DescribeResource`/`UpdateResource`'s `BookingOptions`
+  (`AutoAcceptRequests`/`AutoDeclineConflictingRequests`/
+  `AutoDeclineRecurringRequests`) — real, accepted on both, but no
+  booking/scheduling concept exists in this backend to source sensible
+  values from, and this session could not independently confirm the real
+  API's default state for a never-configured resource in the time
+  available.
+- `DescribeOrganization`'s `InteroperabilityEnabled` always reports
+  `false` — no cross-org interoperability concept exists anywhere in this
+  backend.
+- Two harmless extra fields confirmed absent from their real types but left
+  in place (same non-bug class as rds's `StorageOptimized`):
+  `DescribeMailboxExportJobOutput`'s extra `JobId` (client already has it
+  from the request) and `GetMailDomainOutput`'s extra `DomainName` (ditto).
+
+4 real-SDK-client tests added in the new
+`services/workmail/wire_field_fixes_test.go`, reusing the existing
+`newWorkMailSDKClient` real-SDK-client helper from `wire_enableddate_test.go`
+rather than inventing a new one (`Test_SDKRoundTrip_ListUsers_
+IdentityProviderFields`, `Test_SDKRoundTrip_ListGroupMembers_EnabledDate`,
+`Test_SDKRoundTrip_ListMailboxExportJobs_NarrowShape` — SDK-typed assertions
+plus a raw-body check proving the ARNs no longer reach the wire at all, not
+just that a typed client can't decode them —
+`Test_SDKRoundTrip_Resource_HiddenFromGlobalAddressList`). Every fix
+hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint), confirmed to fail with the exact predicted
+symptom (empty-string `IdentityProviderUserId`; nil `EnabledDate`; the
+fabricated ARN/prefix fields present again on the raw wire body, quoted
+from the actual test failure output; `HiddenFromGlobalAddressList` false
+after `UpdateResource` set it true), then restored and diffed
+byte-identical against the pre-revert file before moving to the next.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to
+`services/workmail`), `go fix -diff` (no diff), `fieldalignment -fix` (one
+real hit on `Resource`/`UserSummary` after the new fields were added,
+auto-fixed then its stripped doc comments restored by hand), `golangci-lint
+run` (0 issues; no cyclop/gocyclo/gocognit/funlen nolints added or present)
+all green. `go test -race ./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all `services/workmail` changes
+uncommitted — orchestrator must commit/push), `services/apigatewayv2`
+(the live sibling session's territory, confirmed growing from 2 to 3
+modified files during this session's own investigation) confirmed
+untouched throughout, no `gendocs`/`make docs` run.
+
+workmail's List/Describe/Get families are now fully swept for this issue
+(36/36 ops verified against the real deserializer). 69 of 162 services
+swept, 93 remain. Per the ranked table, waf (34, `dynamic-fallback`) is
+next largest — re-check `git status` for live sibling territory (including
+apigatewayv2, still in flight as of this session's own last check) before
+picking.

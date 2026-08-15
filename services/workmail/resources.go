@@ -88,7 +88,7 @@ func (b *InMemoryBackend) DescribeResource(orgID, entityID string) (*Resource, e
 }
 
 // UpdateResource updates resource fields.
-func (b *InMemoryBackend) UpdateResource(orgID, entityID, name, description string) error {
+func (b *InMemoryBackend) UpdateResource(orgID, entityID, name, description string, hiddenFromGAL bool) error {
 	b.mu.Lock("UpdateResource")
 	defer b.mu.Unlock()
 
@@ -106,6 +106,7 @@ func (b *InMemoryBackend) UpdateResource(orgID, entityID, name, description stri
 	if description != "" {
 		r.Description = description
 	}
+	r.HiddenFromGlobalAddressList = hiddenFromGAL
 
 	return nil
 }

@@ -199,15 +199,22 @@ type listUsersReq struct {
 	MaxResults     int32                `json:"MaxResults"`
 }
 
+// userSummaryResp mirrors aws-sdk-go-v2/service/workmail/types.User (the
+// ListUsers item shape), which also carries IdentityProviderIdentityStoreId/
+// IdentityProviderUserId -- distinct from the deprecated MFAOptions-style
+// gaps found elsewhere in this campaign, this backend already tracks both
+// values (see describeUserResp) but the List converter never read them back.
 type userSummaryResp struct {
-	ID           string `json:"Id"`
-	Name         string `json:"Name"`
-	Email        string `json:"Email,omitempty"`
-	DisplayName  string `json:"DisplayName,omitempty"`
-	State        string `json:"State"`
-	UserRole     string `json:"UserRole,omitempty"`
-	EnabledDate  int64  `json:"EnabledDate,omitempty"`
-	DisabledDate int64  `json:"DisabledDate,omitempty"`
+	ID                              string `json:"Id"`
+	Name                            string `json:"Name"`
+	Email                           string `json:"Email,omitempty"`
+	DisplayName                     string `json:"DisplayName,omitempty"`
+	State                           string `json:"State"`
+	UserRole                        string `json:"UserRole,omitempty"`
+	IdentityProviderIdentityStoreID string `json:"IdentityProviderIdentityStoreId,omitempty"`
+	IdentityProviderUserID          string `json:"IdentityProviderUserId,omitempty"`
+	EnabledDate                     int64  `json:"EnabledDate,omitempty"`
+	DisabledDate                    int64  `json:"DisabledDate,omitempty"`
 }
 
 type listUsersResp struct {
@@ -235,12 +242,14 @@ func (h *Handler) handleListUsers(_ context.Context, req *listUsersReq) (*listUs
 	summaries := make([]userSummaryResp, 0, len(users))
 	for _, u := range users {
 		s := userSummaryResp{
-			ID:          u.UserID,
-			Name:        u.Name,
-			Email:       u.Email,
-			DisplayName: u.DisplayName,
-			State:       u.State,
-			UserRole:    u.Role,
+			ID:                              u.UserID,
+			Name:                            u.Name,
+			Email:                           u.Email,
+			DisplayName:                     u.DisplayName,
+			State:                           u.State,
+			UserRole:                        u.Role,
+			IdentityProviderIdentityStoreID: u.IdentityProviderIdentityStoreID,
+			IdentityProviderUserID:          u.IdentityProviderUserID,
 		}
 		if !u.EnabledDate.IsZero() {
 			s.EnabledDate = u.EnabledDate.Unix()

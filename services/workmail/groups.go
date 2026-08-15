@@ -259,9 +259,13 @@ func (b *InMemoryBackend) ListGroupMembers(
 		if u := b.findUser(orgID, memberID); u != nil {
 			m.Name = u.Name
 			m.MemberType = memberTypeUser
+			m.EnabledDate = u.EnabledDate
+			m.DisabledDate = u.DisabledDate
 		} else if grp := b.findGroup(orgID, memberID); grp != nil {
 			m.Name = grp.Name
 			m.MemberType = memberTypeGroup
+			m.EnabledDate = grp.EnabledDate
+			m.DisabledDate = grp.DisabledDate
 		}
 		members = append(members, m)
 	}
