@@ -88,6 +88,7 @@ func (b *InMemoryBackend) ListAccessPreviews(analyzerArn string) ([]*AccessPrevi
 // ListAccessPreviewFindings returns findings from the analyzer associated with the preview.
 func (b *InMemoryBackend) ListAccessPreviewFindings(
 	accessPreviewID string,
+	filter map[string]FilterCriterion,
 	maxResults int,
 	nextToken string,
 ) ([]*Finding, string, error) {
@@ -118,6 +119,10 @@ func (b *InMemoryBackend) ListAccessPreviewFindings(
 	findings := make([]*Finding, 0, len(group))
 
 	for _, f := range group {
+		if !matchesFindingFilter(f, filter) {
+			continue
+		}
+
 		findings = append(findings, copyFinding(f))
 	}
 

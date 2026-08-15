@@ -5,8 +5,12 @@ import (
 	"time"
 )
 
-// CreateArchiveRule adds an archive rule to an analyzer and immediately archives
-// all active findings for that analyzer (AWS auto-apply behavior).
+// CreateArchiveRule adds an archive rule to an analyzer and immediately
+// archives every existing active finding that matches the rule's filter
+// (AWS auto-apply behavior) -- NOT every active finding regardless of
+// filter, which is what this used to do (a real archive rule with a narrow
+// filter, e.g. matching only one resourceType, would have wrongly archived
+// every other active finding for the analyzer too).
 func (b *InMemoryBackend) CreateArchiveRule(
 	analyzerName, ruleName string,
 	filter map[string]FilterCriterion,
@@ -36,7 +40,7 @@ func (b *InMemoryBackend) CreateArchiveRule(
 	b.archiveRules.Put(rule)
 
 	for _, f := range b.findingsByAnalyzer.Get(analyzerName) {
-		if f.Status == FindingStatusActive {
+		if f.Status == FindingStatusActive && matchesFindingFilter(f, filter) {
 			f.Status = FindingStatusArchived
 			f.UpdatedAt = now
 		}
@@ -130,9 +134,18 @@ func (b *InMemoryBackend) UpdateArchiveRule(
 
 // ApplyArchiveRule applies all archive rules for an analyzer to its findings.
 // Findings that match any archive rule filter are archived.
+// ApplyArchiveRule requires ruleName (ApplyArchiveRuleInput.RuleName is a
+// required member, api_op_ApplyArchiveRule.go:37-40) and archives only the
+// active findings matching that rule's own filter -- NOT every active
+// finding for the analyzer, which is what this used to do regardless of
+// the named rule's criteria.
 func (b *InMemoryBackend) ApplyArchiveRule(analyzerArn, ruleName string) error {
 	b.mu.Lock("ApplyArchiveRule")
 	defer b.mu.Unlock()
+
+	if ruleName == "" {
+		return ErrValidation
+	}
 
 	var analyzer *Analyzer
 
@@ -148,16 +161,19 @@ func (b *InMemoryBackend) ApplyArchiveRule(analyzerArn, ruleName string) error {
 		return ErrAnalyzerNotFound
 	}
 
-	if ruleName != "" {
-		if !b.archiveRules.Has(archiveRuleKey(analyzer.Name, ruleName)) {
-			return ErrArchiveRuleNotFound
-		}
+	rule, exists := b.archiveRules.Get(archiveRuleKey(analyzer.Name, ruleName))
+	if !exists {
+		return ErrArchiveRuleNotFound
 	}
 
 	now := time.Now().UTC()
 
 	for _, f := range b.findingsByAnalyzer.Get(analyzer.Name) {
 		if f.Status != FindingStatusActive {
+			continue
+		}
+
+		if !matchesFindingFilter(f, rule.Filter) {
 			continue
 		}
 

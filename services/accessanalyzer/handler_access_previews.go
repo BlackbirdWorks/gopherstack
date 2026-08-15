@@ -132,7 +132,7 @@ func (h *Handler) handleListAccessPreviewFindings(path string, body []byte) (any
 	}
 
 	findings, nextToken, err := h.Backend.ListAccessPreviewFindings(
-		accessPreviewID, req.MaxResults, req.NextToken,
+		accessPreviewID, req.Filter, req.MaxResults, req.NextToken,
 	)
 	if err != nil {
 		return nil, 0, err

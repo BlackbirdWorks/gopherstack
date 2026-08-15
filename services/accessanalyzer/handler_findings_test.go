@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	aasdk "github.com/aws/aws-sdk-go-v2/service/accessanalyzer"
+	aatypes "github.com/aws/aws-sdk-go-v2/service/accessanalyzer/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -395,4 +398,109 @@ func TestGetFindingRecommendation_WireShape(t *testing.T) {
 	assert.NotEmpty(t, resp["startedAt"])
 	assert.NotEmpty(t, resp["completedAt"])
 	assert.Equal(t, "SUCCEEDED", resp["status"])
+}
+
+// TestListFindings_RealClient_FilterByResourceType drives ListFindings
+// through the real aws-sdk-go-v2 client with a "resourceType" Eq filter
+// criterion (the real ListFindingsInput.Filter shape,
+// map[string]types.Criterion) -- previously discarded entirely by the
+// backend (ListFindings' filter parameter was named `_`), so a real
+// client's filter was silently a no-op and every finding for the analyzer
+// came back regardless of the criteria requested.
+func TestListFindings_RealClient_FilterByResourceType(t *testing.T) {
+	t.Parallel()
+
+	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
+	h := accessanalyzer.NewHandler(b)
+	client := newTestAccessAnalyzerClient(t, h)
+
+	analyzer, err := client.CreateAnalyzer(t.Context(), &aasdk.CreateAnalyzerInput{
+		AnalyzerName: aws.String("filter-analyzer"),
+		Type:         aatypes.TypeAccount,
+	})
+	require.NoError(t, err)
+
+	_, err = b.AddFinding("filter-analyzer", "AWS::S3::Bucket", "arn:aws:s3:::bucket", nil, nil, nil)
+	require.NoError(t, err)
+	_, err = b.AddFinding("filter-analyzer", "AWS::IAM::Role", "arn:aws:iam::000000000000:role/r", nil, nil, nil)
+	require.NoError(t, err)
+
+	out, err := client.ListFindings(t.Context(), &aasdk.ListFindingsInput{
+		AnalyzerArn: analyzer.Arn,
+		Filter: map[string]aatypes.Criterion{
+			"resourceType": {Eq: []string{"AWS::IAM::Role"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Findings, 1)
+	assert.Equal(t, "AWS::IAM::Role", string(out.Findings[0].ResourceType))
+}
+
+// TestListFindingsV2_RealClient_FilterByResourceType is the same discarded-
+// filter bug as TestListFindings_RealClient_FilterByResourceType, but for
+// ListFindingsV2: that op's backend method took no filter parameter at all
+// (the wire-real "filter" key was never even decoded from the request body).
+func TestListFindingsV2_RealClient_FilterByResourceType(t *testing.T) {
+	t.Parallel()
+
+	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
+	h := accessanalyzer.NewHandler(b)
+	client := newTestAccessAnalyzerClient(t, h)
+
+	analyzer, err := client.CreateAnalyzer(t.Context(), &aasdk.CreateAnalyzerInput{
+		AnalyzerName: aws.String("filter-v2-analyzer"),
+		Type:         aatypes.TypeAccount,
+	})
+	require.NoError(t, err)
+
+	_, err = b.AddFinding("filter-v2-analyzer", "AWS::S3::Bucket", "arn:aws:s3:::bucket", nil, nil, nil)
+	require.NoError(t, err)
+	_, err = b.AddFinding("filter-v2-analyzer", "AWS::IAM::Role", "arn:aws:iam::000000000000:role/r", nil, nil, nil)
+	require.NoError(t, err)
+
+	out, err := client.ListFindingsV2(t.Context(), &aasdk.ListFindingsV2Input{
+		AnalyzerArn: analyzer.Arn,
+		Filter: map[string]aatypes.Criterion{
+			"resourceType": {Eq: []string{"AWS::IAM::Role"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Findings, 1)
+	assert.Equal(t, "AWS::IAM::Role", string(out.Findings[0].ResourceType))
+}
+
+// TestGetFindingsStatistics_RealClient_UnusedAccessUnion drives
+// GetFindingsStatistics through the real aws-sdk-go-v2 client for an
+// ACCOUNT_UNUSED_ACCESS analyzer. types.FindingsStatistics is a union keyed
+// by wire name (awsRestjson1_deserializeDocumentFindingsStatistics,
+// deserializers.go ~L9169): "externalAccessFindingsStatistics" vs
+// "unusedAccessFindingsStatistics" decode into different Go types entirely.
+// A handler that always emits the external-access key would make the real
+// client's type switch land on the wrong branch for an unused-access
+// analyzer's statistics.
+func TestGetFindingsStatistics_RealClient_UnusedAccessUnion(t *testing.T) {
+	t.Parallel()
+
+	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
+	h := accessanalyzer.NewHandler(b)
+	client := newTestAccessAnalyzerClient(t, h)
+
+	analyzer, err := client.CreateAnalyzer(t.Context(), &aasdk.CreateAnalyzerInput{
+		AnalyzerName: aws.String("unused-access-analyzer"),
+		Type:         aatypes.TypeAccountUnusedAccess,
+	})
+	require.NoError(t, err)
+
+	mustFinding(t, b, "unused-access-analyzer")
+	mustFinding(t, b, "unused-access-analyzer")
+
+	out, err := client.GetFindingsStatistics(t.Context(), &aasdk.GetFindingsStatisticsInput{
+		AnalyzerArn: analyzer.Arn,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.FindingsStatistics, 1)
+
+	member, ok := out.FindingsStatistics[0].(*aatypes.FindingsStatisticsMemberUnusedAccessFindingsStatistics)
+	require.True(t, ok, "expected unusedAccessFindingsStatistics union member, got %T", out.FindingsStatistics[0])
+	assert.EqualValues(t, 2, *member.Value.TotalActiveFindings)
 }

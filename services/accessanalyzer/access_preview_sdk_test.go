@@ -122,3 +122,57 @@ func TestCreateAccessPreview_RealSDKClient_RejectsMultipleConfigurations(t *test
 	})
 	require.Error(t, err)
 }
+
+// TestListAccessPreviewFindings_RealClient_FilterByResourceType is the same
+// discarded-filter bug as ListFindings/ListFindingsV2
+// (TestListFindings_RealClient_FilterByResourceType,
+// TestListFindingsV2_RealClient_FilterByResourceType in
+// handler_findings_test.go): ListAccessPreviewFindingsInput.Filter
+// (map[string]types.Criterion, the real wire "filter" key) was parsed from
+// the request body but never passed to the backend at all -- the backend
+// method took no filter parameter.
+func TestListAccessPreviewFindings_RealClient_FilterByResourceType(t *testing.T) {
+	t.Parallel()
+
+	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
+	h := accessanalyzer.NewHandler(b)
+	client := newTestAccessAnalyzerClient(t, h)
+
+	analyzer, err := client.CreateAnalyzer(t.Context(), &aasdk.CreateAnalyzerInput{
+		AnalyzerName: aws.String("sdk-preview-filter-analyzer"),
+		Type:         aatypes.TypeAccount,
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateAccessPreview(t.Context(), &aasdk.CreateAccessPreviewInput{
+		AnalyzerArn: analyzer.Arn,
+		Configurations: map[string]aatypes.Configuration{
+			"arn:aws:s3:::sdk-preview-filter-bucket": &aatypes.ConfigurationMemberS3Bucket{
+				Value: aatypes.S3BucketConfiguration{
+					BucketPolicy: aws.String(`{"Version":"2012-10-17","Statement":[]}`),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = b.AddFinding(
+		"sdk-preview-filter-analyzer", "AWS::S3::Bucket", "arn:aws:s3:::bucket", nil, nil, nil,
+	)
+	require.NoError(t, err)
+	_, err = b.AddFinding(
+		"sdk-preview-filter-analyzer", "AWS::IAM::Role", "arn:aws:iam::000000000000:role/r", nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	out, err := client.ListAccessPreviewFindings(t.Context(), &aasdk.ListAccessPreviewFindingsInput{
+		AccessPreviewId: created.Id,
+		AnalyzerArn:     analyzer.Arn,
+		Filter: map[string]aatypes.Criterion{
+			"resourceType": {Eq: []string{"AWS::IAM::Role"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Findings, 1)
+	assert.Equal(t, "AWS::IAM::Role", string(out.Findings[0].ResourceType))
+}

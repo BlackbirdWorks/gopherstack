@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: accessanalyzer
 sdk_module: aws-sdk-go-v2/service/accessanalyzer@v1.51.4
-last_audit_commit: 19eea66b2
-last_audit_date: 2026-08-10
-overall: A            # multiple real wire-shape bugs found and fixed; two gaps closed for real; dead route deleted
+last_audit_commit: 4719d4c94                             # HEAD when this manifest was written
+last_audit_date: 2026-08-15
+overall: A            # gopherstack-6flj wrapper-key/discarded-filter sweep: 1 union-key bug, 3 discarded-filter bugs, 2 archive-rule filter-matching bugs found and fixed; prior 2026-08-10 wire-shape audit (19eea66b2) re-confirmed, not re-litigated
 ops:
   CreateAnalyzer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: now accepts+persists the AnalyzerConfiguration union (\"configuration\") and the inline \"archiveRules\" array (each creates a real ArchiveRule via CreateArchiveRule, including its auto-archive-existing-findings side effect), neither of which was previously read from the request body at all."}
   GetAnalyzer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: response now includes \"configuration\" when the analyzer has one (previously never returned, since Configuration was not modeled)."}
@@ -17,21 +17,21 @@ ops:
   UpdateAnalyzer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (was: state: partial): Configuration union is now read from the request body, persisted, and echoed back in the response. Also fixed a real wire-shape bug: the response wrongly included an \"arn\" key -- the real UpdateAnalyzerOutput has ONLY \"configuration\", no arn member. Also upgraded the backend method from RLock to Lock (it now genuinely mutates state instead of being a no-op read)."}
   CreateServiceLinkedAnalyzer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: now accepts configuration + inline archiveRules, same as CreateAnalyzer (CreateServiceLinkedAnalyzerInput has both fields on the real API too)."}
   DeleteServiceLinkedAnalyzer: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateArchiveRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "auto-archives existing active findings on creation, matching real AWS behavior"}
+  CreateArchiveRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj FIXED (real behavior bug, not wire-shape): previously archived EVERY existing active finding for the analyzer on rule creation, regardless of whether the finding matched the new rule's filter -- real AWS's auto-apply only archives findings matching the rule's own criteria. Now filters via matchesFindingFilter (findings.go) before archiving. A narrow rule (e.g. one resourceType) used to also archive every unrelated active finding."}
   GetArchiveRule: {wire: ok, errors: ok, state: ok, persist: ok}
   ListArchiveRules: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteArchiveRule: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateArchiveRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  ApplyArchiveRule: {wire: ok, errors: ok, state: ok, persist: ok}
+  ApplyArchiveRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj FIXED: RuleName is a required ApplyArchiveRuleInput member (api_op_ApplyArchiveRule.go:37-40) but was previously optional-and-ignored (`if ruleName != \"\"`); now required (empty -> ValidationException) and the named rule is looked up to retrieve ITS OWN filter, applied via matchesFindingFilter, instead of blanket-archiving every active finding regardless of which rule (if any) was named."}
   GetFinding: {wire: ok, errors: ok, state: ok, persist: ok, note: "Routing/resource/resourceOwnerAccount/analyzedAt fixed in a prior pass. FIXED THIS PASS: \"condition\" is a required Finding member (per types.Finding) and was previously omitted whenever a finding had no condition map; now always present (as {} when empty)."}
-  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "Same \"condition\" always-present fix as GetFinding (shared findingToJSON)."}
+  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "Same \"condition\" always-present fix as GetFinding (shared findingToJSON). gopherstack-6flj FIXED (discarded input): ListFindingsInput.Filter (map[string]types.Criterion, the real \"filter\" wire key) was decoded from the request body and threaded down to InMemoryBackend.ListFindings, but that method's filter parameter was named `_` -- entirely discarded. A real client's filter criteria were always a silent no-op; every finding for the analyzer came back regardless. Now applied via a new matchesFindingFilter helper (findings.go), which evaluates the Eq operator on the finding attributes this backend tracks as direct fields (status/resourceType/resource/id); Contains/Neq/Exists and any other filter key (principal.*, condition.*, action, isPublic, createdAt, resourceRegion) are still not evaluated -- disclosed below, not silently faked as always-matching-or-excluding."}
   UpdateFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindingV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (was: wire: partial): findingDetails now returns a real []types.FindingDetails-shaped array with one ExternalAccessDetails union member (condition/action/principal/isPublic, built from the same Finding fields findingToJSON already used) instead of always []; findingType is now \"ExternalAccess\" instead of absent. InMemoryBackend only ever produces external-access-shaped findings (AddFinding has no unused-access/internal-access modeling anywhere in this service), so reporting findingType=ExternalAccess + one ExternalAccessDetails member is a complete, honest representation of everything this backend can produce -- not a disguised partial stub of the other four union members (InternalAccessDetails/UnusedIamRoleDetails/UnusedIamUserAccessKeyDetails/UnusedIamUserPasswordDetails), which remain correctly unmodeled because InMemoryBackend has zero state to back them."}
-  ListFindingsV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: findingType now \"ExternalAccess\" (FindingSummaryV2 has no findingDetails member at all, unlike GetFindingV2Output, so nothing else to add here)."}
-  GetFindingsStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire-shape bug, not just a gap): types.ExternalAccessFindingsStatistics serializes its three counters as flat integers totalActiveFindings/totalArchivedFindings/totalResolvedFindings (confirmed against awsRestjson1_deserializeDocumentExternalAccessFindingsStatistics in the SDK's deserializers.go) -- gopherstack was emitting a nested {\"activeFindings\":{\"total\":N}} shape that no real deserializer recognizes; a real SDK client would have silently gotten zero counts back. Also added the missing analyzerArn-required validation (matches GetFindingsStatisticsInput's required field, same pattern as ListFindings)."}
+  ListFindingsV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: findingType now \"ExternalAccess\" (FindingSummaryV2 has no findingDetails member at all, unlike GetFindingV2Output, so nothing else to add here). gopherstack-6flj FIXED (discarded input, worse than ListFindings' instance): ListFindingsV2Input.Filter was never even decoded from the request body -- the backend method took no filter parameter at all. Added the parameter (interfaces.go, findings.go) and wired matchesFindingFilter through, same scope/limits as ListFindings above."}
+  GetFindingsStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire-shape bug, not just a gap): types.ExternalAccessFindingsStatistics serializes its three counters as flat integers totalActiveFindings/totalArchivedFindings/totalResolvedFindings (confirmed against awsRestjson1_deserializeDocumentExternalAccessFindingsStatistics in the SDK's deserializers.go) -- gopherstack was emitting a nested {\"activeFindings\":{\"total\":N}} shape that no real deserializer recognizes; a real SDK client would have silently gotten zero counts back. Also added the missing analyzerArn-required validation (matches GetFindingsStatisticsInput's required field, same pattern as ListFindings). gopherstack-6flj FIXED (union wrapper-key bug, flagship of this pass): types.FindingsStatistics is a union keyed by wire name (awsRestjson1_deserializeDocumentFindingsStatistics, deserializers.go ~L9169) -- \"externalAccessFindingsStatistics\" for ACCOUNT/ORGANIZATION analyzers, \"unusedAccessFindingsStatistics\" for ACCOUNT_UNUSED_ACCESS/ORGANIZATION_UNUSED_ACCESS ones (this backend explicitly models all four AnalyzerType values, models.go). The handler always emitted the external-access key regardless of the target analyzer's own Type; a real client's typed union switch on an unused-access analyzer's statistics would decode into the wrong Go type entirely. Now selects the wire key from the looked-up analyzer's Type. unusedAccessFindingsStatistics.TopAccounts/UnusedAccessTypeStatistics are left unset -- DISCLOSED, not synthesized: no per-principal-account aggregation or unused-access-type categorization exists anywhere in this backend's Finding model to derive them from honestly."}
   GenerateFindingRecommendation: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindingRecommendation: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire bugs, kept as gap otherwise): resourceArn and startedAt (both required GetFindingRecommendationOutput members) and completedAt were entirely missing from the response; now populated from the finding record and the recommendation job's own timestamps. recommendationType's wire value was \"UNUSED_PERMISSION\", which does not match the real types.RecommendationType enum's only value, \"UnusedPermissionRecommendation\" (enums.go:579) -- fixed. Also fixed a silent-accept bug: GenerateFindingRecommendation previously created a recommendation record for ANY finding ID, including nonexistent ones, without checking it existed; it now 404s (ResourceNotFoundException) like GetFindingRecommendation already did, and captures the finding's real resourceArn while doing so. recommendedSteps remains always [] -- content generation is still a genuinely separate feature (IAM Access Analyzer's unused-permission-removal recommendation engine) with no state in this backend to derive it from; Status is always SUCCEEDED (synchronous), matching the StartPolicyGeneration convention elsewhere in this service."}
-  GetAnalyzedResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire-shape bug): resourceOwnerAccount is a required types.AnalyzedResource member and was entirely missing from the response; now defaults to the backend's own AccountID(), the same convention findingToJSON already used for Finding.resourceOwnerAccount."}
+  GetAnalyzedResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (real wire-shape bug): resourceOwnerAccount is a required types.AnalyzedResource member and was entirely missing from the response; now defaults to the backend's own AccountID(), the same convention findingToJSON already used for Finding.resourceOwnerAccount. gopherstack-6flj DISCLOSED (not fixed): types.AnalyzedResource's optional Actions/Error/SharedVia/Status members are still never emitted. AnalyzedResource (models.go) has no state for any of the four, and AddAnalyzedResource/AddFinding are two independent synthetic paths with no enforced link between an analyzed resource and a same-ARN finding in this backend -- deriving Status from a coincidentally-matching Finding.Status would be exactly the adjacent-but-conceptually-different-data derivation parity-principles #1 warns against, not a same-concept aggregation like the GetFindingsStatistics/ArchiveRule fixes above. Also noted: analyzedResourceToJSON emits an extra \"analyzerArn\" key that types.AnalyzedResource does not have on the wire at all -- harmless (a real client's deserializer's `default:` case silently discards unknown keys), not a missing-data bug, left as-is rather than churned."}
   ListAnalyzedResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS: same resourceOwnerAccount fix as GetAnalyzedResource -- it's also required on types.AnalyzedResourceSummary and was missing from every list item."}
   StartResourceScan: {wire: ok, errors: ok, state: ok, persist: n/a, note: "verifies analyzer exists by ARN; no actual resource scanning to simulate (matches other AA scan endpoints elsewhere in gopherstack)"}
   StartPolicyGeneration: {wire: ok, errors: ok, state: ok, persist: ok, note: "completes synchronously (SUCCEEDED immediately) rather than modeling async IN_PROGRESS -- acceptable since it still reaches a real terminal state and GetGeneratedPolicy/ListPolicyGenerations reflect it; not a stuck-forever no-op. FIXED THIS PASS (silent drop): the optional cloudTrailDetails member (types.CloudTrailDetails) was parsed from the request but entirely discarded; now stored and echoed back (see GetGeneratedPolicy)."}
@@ -41,7 +41,7 @@ ops:
   CreateAccessPreview: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-afi1: Configurations, the required access-control configuration being previewed (api_op_CreateAccessPreview.go:39-43, a 13-member types.Configuration union per resource type -- confirmed via awsRestjson1_serializeDocumentConfiguration in serializers.go), was read by neither the handler's decode struct nor the backend method signature at all -- only analyzerArn was ever consulted. Now decoded (map[string]json.RawMessage, \"configurations\" wire key) and validated to contain exactly one element (the doc comment's stated constraint); stored opaquely rather than decoded into the full union, since ListAccessPreviewFindings (this backend's only Configurations-adjacent behavior) reuses the analyzer's existing findings and never interprets Configurations' semantic content -- see AccessPreview.Configurations godoc (models.go) for the full reasoning. Missing/multi-entry Configurations -> ValidationException, following this handler's existing analyzerArn-required convention (this op declares no validation-style exception in its own error switch)."}
   GetAccessPreview: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response now echoes Configurations back (accessPreviewToJSON(ap, true)), matching real GetAccessPreviewOutput.accessPreview (types.AccessPreview, which has a Configurations member) -- see CreateAccessPreview."}
   ListAccessPreviews: {wire: ok, errors: ok, state: ok, persist: ok, note: "unaffected by the CreateAccessPreview fix: real ListAccessPreviewsOutput.accessPreviews is []types.AccessPreviewSummary, which has NO Configurations member (unlike Get's types.AccessPreview) -- accessPreviewToJSON(ap, false) correctly omits it here, same asymmetry as ListAnalyzers/GetAnalyzer's Configuration field above."}
-  ListAccessPreviewFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (was: wire: partial): now builds the real types.AccessPreviewFinding shape (id/changeType/resourceOwnerAccount/resourceType/status/createdAt required members, plus action/principal/condition/isPublic when set) via a new accessPreviewFindingToJSON, instead of reusing findingToJSON's v1 Finding/FindingSummary shape (which has analyzerArn and no changeType -- a different, incompatible shape). Every finding is reported as changeType \"New\" since access previews here are not diffed against a prior finding set, so existingFindingId/existingFindingStatus are never populated (both are documented as \"provided only for existing findings\"). Also added the missing analyzerArn-required validation (ListAccessPreviewFindingsInput requires it)."}
+  ListAccessPreviewFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED THIS PASS (was: wire: partial): now builds the real types.AccessPreviewFinding shape (id/changeType/resourceOwnerAccount/resourceType/status/createdAt required members, plus action/principal/condition/isPublic when set) via a new accessPreviewFindingToJSON, instead of reusing findingToJSON's v1 Finding/FindingSummary shape (which has analyzerArn and no changeType -- a different, incompatible shape). Every finding is reported as changeType \"New\" since access previews here are not diffed against a prior finding set, so existingFindingId/existingFindingStatus are never populated (both are documented as \"provided only for existing findings\"). Also added the missing analyzerArn-required validation (ListAccessPreviewFindingsInput requires it). gopherstack-6flj FIXED (discarded input, third instance of the ListFindings/ListFindingsV2 pattern): ListAccessPreviewFindingsInput.Filter was decoded from the body but the backend method took no filter parameter at all -- same fix, same matchesFindingFilter, same disclosed scope."}
   CheckAccessNotGranted: {wire: ok, errors: ok, state: ok, persist: n/a, note: "genuine IAM policy evaluation (policy_analysis.go), not a stub"}
   CheckNoNewAccess: {wire: ok, errors: ok, state: ok, persist: n/a}
   CheckNoPublicAccess: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -54,6 +54,8 @@ families:
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "GetFindingRecommendation.recommendedSteps is always [] -- IAM Access Analyzer's actual unused-permission-removal recommendation content generation is a distinct feature with no backing state in InMemoryBackend to derive concrete steps from (RecommendationType/ResourceArn/Status/StartedAt/CompletedAt are ALL real, state-backed, and correctly wire-shaped as of gopherstack-kwht). Not attempted this pass; would need a genuine recommendation-generation model, not a fabricated placeholder. Tracked as bd issue gopherstack-kwht."
   - "GetGeneratedPolicy.generatedPolicyResult.generatedPolicies is always [] -- actual IAM policy generation from CloudTrail activity is a distinct, large feature (statement synthesis from simulated CloudTrail events) with no backing data in this backend. properties (including cloudTrailProperties as of gopherstack-kwht)/jobDetails ARE real, state-backed. Tracked as bd issue gopherstack-kwht."
+  - "gopherstack-6flj: ListFindings/ListFindingsV2/ListAccessPreviewFindings filter criteria only evaluate the Eq operator on status/resourceType/resource/id -- Contains/Neq/Exists, and any filter key not backed by a direct Finding field (principal.*, condition.*, action, isPublic, createdAt, resourceRegion), are not evaluated (matchesFindingFilter treats them as satisfied rather than excluding, which is closer to the pre-fix always-match baseline than silently hiding results a real client should see). Same limitation applies to CreateArchiveRule/ApplyArchiveRule's auto-archive matching, which reuses the same helper."
+  - "gopherstack-6flj: types.AnalyzedResource's optional Actions/Error/SharedVia/Status members are never emitted by GetAnalyzedResource -- no backing state anywhere in this backend (AnalyzedResource and Finding are two unlinked synthetic-data paths); see the GetAnalyzedResource op note above for why deriving Status from a same-ARN Finding was declined rather than attempted."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - "store.go/store_setup.go/persistence.go internal locking and Table[T]/Index[T] generic implementation (pkgs/store) not re-audited line-by-line this pass beyond the DeleteAnalyzer cascade fix and the Configuration field addition to the Analyzer table's JSON shape (verified generically compatible with store.Table's JSON-marshal-based Snapshot/Restore, no special-casing needed); no correctness issues observed."
 leaks: {status: clean, note: "FIXED THIS PASS: DeleteAnalyzer previously left ghost rows in tags/findingRecommendations/analyzedResources/accessPreviews (see DeleteAnalyzer note above) -- these are now cascade-deleted. No goroutines/janitors in this service; all state is synchronous map/store access under lockmetrics.RWMutex, and every lock acquisition uses defer Unlock/RUnlock (re-verified this pass)."}
@@ -184,3 +186,170 @@ generic JSON-marshal-based `store.Table[Analyzer]` Snapshot/Restore -- no DTO or
 casing needed (verified via `TestAnalyzerConfiguration`-style round-trip in
 persistence_test.go's existing analyzer coverage plus manual review of store.Table's
 marshal path).
+
+## gopherstack-6flj wrapper-key sweep (this pass, 2026-08-15)
+
+**PICK.** `go run ./cmd/opcensus` at pickup showed the last tier-18 tier
+(`memorydb`, `codedeploy`, `accessanalyzer`) with `memorydb` already
+committed and `codedeploy` live-uncommitted (`git status` showed 9 modified
+`services/codedeploy/*` files, a concurrent session's in-progress work per
+`_WRAPPER_KEY_SWEEP_REMAINDER.md`'s own tail). Occupancy ruled `codedeploy`
+out; `accessanalyzer` was the only free service left at that tier (18
+L+D+G: 9 List, 0 Describe, 9 Get) -- no surface tie-break was needed since
+only one candidate was free.
+
+**PROTOCOL, ROUTER, SECOND CLIENT, EQUALFOLD.** restjson1 (confirmed via
+`api_client.go` / `awsRestjson1_*` prefix throughout deserializers.go).
+Of 201 `EqualFold` call sites in deserializers.go, ALL 201 match on
+`errorCode` for exception dispatch -- zero body-field-key `EqualFold`
+calls, so body decode is case-SENSITIVE (Go map-key switch over an
+already-`encoding/json`-decoded `map[string]interface{}`). Router is a
+path-segment matcher (`RouteMatcher` in handler.go), NOT the flat
+`X-Amz-Target` style -- not structurally immune to the router-collision
+class, but the existing `/tags/{ARN}` handling already guards against
+swallowing other services' tag requests by checking for
+`:access-analyzer:` in the ARN (pre-existing, re-verified, no new
+collision found). No second SDK client import anywhere outside `_test.go`
+files.
+
+**PHANTOM OPS:** zero, both directions. `GetSupportedOperations`'s 39
+`op*` constants exact-matched the SDK's 39 `api_op_*.go` files 1:1 (`diff`
+after sorted extraction).
+
+**SCRIPTED KEY EXTRACTION: both directions.** A paren-balance-aware Python
+walker (gitignored scratch script, not committed) located each op's
+`awsRestjson1_deserializeOpDocument*Output` / `serializeOpDocument*Input`
+function by matching the signature's parens to balance before searching
+for the body's opening brace -- hit the documented `interface{}`-in-signature
+trap on the deserializer side (`func …Output(v **T, value interface{}) error {`)
+and confirmed the naive first-`{` search breaks on it. Walked transitively
+into every nested `awsRestjson1_(de)serializeDocument*` call for all 39
+ops (`case "key":` for deserializers, `object.Key("key")` for
+serializers), then cross-referenced the full key set against every
+`json:"..."` tag in this service's non-test `.go` files. Top-level wrapper
+keys came back clean everywhere except the one flagship bug below; the
+false-negative candidates the diff surfaced (`accountID`/`region`/`tables`/
+`version` in persistence.go; `Action`/`Condition`/`Effect`/`Principal`/
+`Resource`/`Sid`/`Statement`/`Version` in policy_analysis.go) were both
+confirmed non-wire: the former are `store.Table` snapshot-DTO fields
+(persistence, not wire), the latter are IAM policy-*document* fields
+parsed out of a `policyDocument` string value, not accessanalyzer's own
+API surface.
+
+**FLAGSHIP BUG: `GetFindingsStatistics` union wrapper-key mismatch.**
+`types.FindingsStatistics` is a union keyed by wire name
+(`awsRestjson1_deserializeDocumentFindingsStatistics`, deserializers.go
+~L9169) with three members --
+`externalAccessFindingsStatistics`/`internalAccessFindingsStatistics`/
+`unusedAccessFindingsStatistics` -- selected purely by which JSON key is
+present. This backend explicitly models four `AnalyzerType` values
+(`ACCOUNT`/`ORGANIZATION`/`ACCOUNT_UNUSED_ACCESS`/`ORGANIZATION_UNUSED_ACCESS`,
+models.go), but `handleGetFindingsStatistics` always emitted the
+external-access key regardless of the target analyzer's actual `Type`. A
+real client's typed union type-switch on an unused-access analyzer's
+statistics would land on the wrong branch (`*types.
+FindingsStatisticsMemberExternalAccessFindingsStatistics` instead of
+`...MemberUnusedAccessFindingsStatistics`) -- correct byte count, wrong
+Go type, same silent-wrong-data class this campaign exists to find, just
+one level below the field-name layer most instances of this bug live at.
+Fixed by looking up the target analyzer's `Type` and selecting the wire
+key accordingly. `unusedAccessFindingsStatistics`'s
+`TopAccounts`/`UnusedAccessTypeStatistics` members are left unset and
+disclosed above -- no per-principal-account or unused-access-type
+categorization exists in this backend's `Finding` model to derive them
+from honestly.
+
+**DISCARDED INPUTS (`grep '_ [A-Za-z]*FilterCriterion'` and manual read):
+3 instances of the same defect, one degree worse each time.**
+`ListFindings`' backend method took a `map[string]FilterCriterion`
+parameter literally named `_` -- decoded from the wire's real `filter`
+key, then discarded before reaching the filtering logic.
+`ListFindingsV2`'s handler didn't even decode `filter` from the request
+body; the backend method had no such parameter at all.
+`ListAccessPreviewFindings` was the same as `ListFindingsV2`. All three
+real client filters were pure no-ops: every finding for the analyzer/
+access-preview came back regardless of the criteria sent. Fixed by adding
+a shared `matchesFindingFilter` helper (findings.go) evaluating the `Eq`
+operator against the finding attributes this backend tracks as direct
+scalar fields (`status`/`resourceType`/`resource`/`id`), wired through all
+three ops (`ListFindingsV2`'s backend signature gained a `filter`
+parameter -- the only exported-interface change this pass, `go build
+./...` re-run clean after). `Contains`/`Neq`/`Exists` and any filter key
+not backed by a direct field are NOT evaluated (treated as satisfied, not
+excluding) -- disclosed under `gaps:` rather than silently faked as full
+filter-language support.
+
+**RELATED BEHAVIORAL BUG FOUND WHILE BUILDING THE FILTER HELPER (same
+root cause, not itself a wire-shape bug): `CreateArchiveRule`/
+`ApplyArchiveRule` ignored their own archive rule's filter entirely.**
+Real AWS's archive-rule auto-apply (on creation) and retroactive-apply
+(`ApplyArchiveRule`) both archive only the ACTIVE findings matching the
+rule's filter criteria -- that's the entire point of an archive rule.
+Both ops here instead blanket-archived every active finding for the
+analyzer, filter or no filter, rule-specific criteria or not. A real
+caller creating a narrowly-scoped archive rule (e.g. one `resourceType`)
+would have had every OTHER active finding wrongly archived too. Fixed
+both using the same `matchesFindingFilter` helper: `CreateArchiveRule`
+now matches its own `filter` parameter before archiving;
+`ApplyArchiveRule` now looks up the NAMED rule (previously `ruleName` was
+treated as optional and, even when supplied, was validated to exist but
+never actually consulted for its filter) and matches against that rule's
+stored `Filter`. Also fixed in passing: `RuleName` is a required
+`ApplyArchiveRuleInput` member (`api_op_ApplyArchiveRule.go:37-40`);
+previously accepted as optional, now empty -> `ValidationException`.
+
+**TESTS:** all real-`aws-sdk-go-v2`-client round-trip tests (not raw-body
+hand-decoded structs), added across
+`handler_findings_test.go`/`access_preview_sdk_test.go`/
+`handler_archive_rules_test.go`:
+`TestGetFindingsStatistics_RealClient_UnusedAccessUnion` (type-asserts the
+response union member, not just field values -- this is the only way to
+observe the union-key bug through the real client),
+`TestListFindings_RealClient_FilterByResourceType`,
+`TestListFindingsV2_RealClient_FilterByResourceType`,
+`TestListAccessPreviewFindings_RealClient_FilterByResourceType`,
+`TestCreateArchiveRule_RealClient_OnlyArchivesMatchingFindings`,
+`TestApplyArchiveRule_RealClient_OnlyArchivesMatchingFindings`. Every one
+of the 6 fixes was hand-reverted individually (git-mutating commands
+banned this session, including `git checkout --`; reverts were by hand-
+edit back to the exact pre-fix code, since `matchesFindingFilter`/the
+union-key `if` needed a compiling-but-wrong intermediate shape for some
+reverts, e.g. `_ = rule` cleanup), the corresponding test re-run and
+confirmed to fail with the exact predicted symptom (wrong union member
+type; extra unfiltered finding in the result; wrongly-archived
+non-matching finding), then restored and confirmed **byte-identical**
+via `diff` against a saved `git diff` snapshot for each file before and
+after the hand-revert/restore cycle.
+
+**NOT reached this pass:** the `store.go`/`persistence.go` internal
+locking/generic-Table implementation (unchanged from the 2026-08-10
+audit's own `deferred:` note, still not re-litigated); `patch.go`-style
+special-shape ops (none exist in this service); `GetFindingRecommendation.
+recommendedSteps`/`GetGeneratedPolicy...generatedPolicies` (pre-existing,
+disclosed, unrelated content-generation gaps, unchanged this pass).
+
+**GATES:** `go build ./services/accessanalyzer/...` and full `go build
+./...` (the `ListFindingsV2` interface signature change requires the full
+build; `services/docdb/*` was mid-edit by a concurrent live sibling at
+various points this session -- re-ran `go build ./...` after each
+`git status` check and it was green both before this session's edits and
+again at the end) both clean; `go vet ./services/accessanalyzer/...`
+clean; `go test -race -count=1 ./services/accessanalyzer/...` and
+`./pkgs/...` both green; `go fix -diff ./services/accessanalyzer/...`
+initially flagged one manual loop that `slices.Contains` replaces (in the
+new `matchesFindingFilter`) -- applied by hand, re-ran clean.
+`golangci-lint run ./services/accessanalyzer/...` found 3
+`golines`/`lll` line-length issues in new test code on first pass, fixed
+by hand-wrapping (not `--fix`, per this campaign's
+`fieldalignment -fix`-strips-`//nolint` hazard note -- these weren't
+`fieldalignment` findings, but the same by-hand discipline was applied
+regardless); final run: **0 issues**. Zero
+`//nolint:cyclop/gocyclo/gocognit/funlen` present before or after
+(grep-confirmed).
+
+No subagents used (Read/Grep/Bash/Edit only, per this session's hard
+constraint). No git-mutating command run at any point. `git status`
+re-checked before every edit batch; only `services/accessanalyzer/*` and
+`services/_WRAPPER_KEY_SWEEP_REMAINDER.md` touched by this session --
+`services/docdb/*` (the concurrent sibling's files) was never read or
+edited.

@@ -9321,3 +9321,161 @@ argued-away; 0 real-data leaks; 0 phantom ops; 0 persistence risk).
 `accessanalyzer` (18 L+D+G) is the only service left at this tier; below
 it, `elasticbeanstalk`/`docdb`/`batch` (17 each) are next. Re-run `go run
 ./cmd/opcensus` and re-check `git status` before picking, as usual.
+
+## accessanalyzer (this session, 2026-08-15)
+
+**PICK AND TIE-BREAK.** Read this file's header/tail, `bd show
+gopherstack-6flj`'s comments, and `git show 3859139ba` (the pass
+immediately prior to this one). `go run ./cmd/opcensus` confirmed the
+tier-18 tie unchanged from the codedeploy section above: `memorydb`,
+`codedeploy`, `accessanalyzer`, all still 18 L+D+G. `git status` at
+pickup showed `memorydb` already committed (not in the working tree) and
+`services/codedeploy/*` still modified/uncommitted -- the same live
+sibling the codedeploy section's own author flagged mid-session.
+**Occupancy ruled out `codedeploy`.** `accessanalyzer` was the only free
+service left at this tier, so surface comparison wasn't needed to break a
+tie -- there was no tie left to break once occupancy removed the other
+two. Picked `accessanalyzer`. (Mid-session, `services/docdb/*` -- the
+next tier down, 17 L+D+G -- also went live under a concurrent sibling;
+confirmed via repeated `git status` and never read or touched.)
+
+**SDK pinned:** `accessanalyzer@v1.51.4` (`go.mod`, matches PARITY.md, no
+drift).
+
+**PROTOCOL, ROUTER, SECOND CLIENT, EQUALFOLD:** restjson1. All 201
+`EqualFold` calls in `deserializers.go` match on `errorCode` only (zero
+body-field-key `EqualFold`s) -- case-sensitive body decode, as expected.
+Router is path-segment-based (`RouteMatcher`/`parseRESTPath`), NOT flat
+`X-Amz-Target` dispatch -- not structurally immune to the router-collision
+class, but the existing `/tags/{ARN}` handling already guards the known
+collision risk by checking for `:access-analyzer:` in the ARN; no new
+collision found. No second SDK client import outside `_test.go`.
+
+**PHANTOM OPS:** zero, both directions (39 `op*` constants vs 39
+`api_op_*.go` files, exact 1:1 diff).
+
+**SCRIPTED KEY EXTRACTION: both directions.** Paren-balance-aware Python
+walker (gitignored, not committed) resolved every op's
+`awsRestjson1_deserializeOpDocument*Output`/`serializeOpDocument*Input`
+function and walked transitively into every nested `Document*` call, for
+all 39 ops. Hit the documented `interface{}`-in-signature parsing trap on
+the deserializer side; fixed by balancing the signature's parens before
+searching for the body's opening brace. Cross-referenced the full
+extracted key set against every `json:"..."` tag in the service's non-test
+`.go` files.
+
+**TOP-LEVEL WRAPPER KEYS: clean except one flagship union-key bug.**
+`GetFindingsStatistics`'s `types.FindingsStatistics` is a union keyed by
+wire name (`externalAccessFindingsStatistics` /
+`internalAccessFindingsStatistics` / `unusedAccessFindingsStatistics`,
+`deserializers.go` ~L9169) -- this backend explicitly models both
+external-access-type AND unused-access-type analyzers
+(`AnalyzerTypeAccountUnusedAccess`/`AnalyzerTypeOrganizationUnusedAccess`,
+`models.go`), but the handler always emitted the external-access key
+regardless of the target analyzer's own `Type`. A real client's typed
+union switch on an unused-access analyzer's statistics landed on the
+wrong Go type. Fixed by selecting the wire key from the looked-up
+analyzer's `Type`. Everything else at this layer (`ListAnalyzers`,
+`ListArchiveRules`, `ListFindings`/`ListFindingsV2`, `ListAccessPreviews`/
+`ListAccessPreviewFindings`, `ListAnalyzedResources`, `ListPolicyGenerations`,
+`ListTagsForResource`, `UpdateAnalyzer`'s response) all confirmed correct
+against the prior 2026-08-10 audit (`19eea66b2`), re-verified rather than
+re-litigated.
+
+**BELOW THE TOP LEVEL: three discarded-filter-input bugs, a different
+axis than the wrapper-key layer.** `grep '_ [A-Za-z]*FilterCriterion'`
+surfaced `ListFindings`' backend method taking its filter parameter as
+literal `_` -- decoded from the wire's real `filter` key, then dropped.
+`ListFindingsV2` was worse: the handler never even decoded `filter` from
+the body, and the backend method had no filter parameter at all.
+`ListAccessPreviewFindings` matched the `ListFindingsV2` shape. All three
+real client filters were pure no-ops. Fixed with a shared
+`matchesFindingFilter` helper (Eq operator only, on the
+status/resourceType/resource/id fields this backend tracks directly;
+Contains/Neq/Exists and unmodeled filter keys disclosed, not faked).
+
+**RELATED, SAME ROOT CAUSE, FOUND WHILE BUILDING THE FILTER HELPER (a
+behavioral bug, not itself wire-shape): `CreateArchiveRule`/
+`ApplyArchiveRule` ignored their own rule's filter and blanket-archived
+every active finding regardless of match.** Fixed both with the same
+`matchesFindingFilter` helper; `ApplyArchiveRule` also gained the missing
+required-`RuleName` validation (previously optional-and-ignored).
+
+**List item types checked:** `AnalyzerSummary` (`ListAnalyzers`),
+`ArchiveRule` (`ListArchiveRules`), `Finding`/`FindingSummaryV2`
+(`ListFindings`/`ListFindingsV2`), `AccessPreviewSummary`/
+`AccessPreviewFinding` (`ListAccessPreviews`/`ListAccessPreviewFindings`),
+`AnalyzedResourceSummary` (`ListAnalyzedResources`), `PolicyGeneration`
+(`ListPolicyGenerations`) -- all confirmed to be the real *Summary/List*
+shapes, not the full `Get*` type reused wholesale; the prior 2026-08-10
+audit already correctly modeled the `Configuration`-present-on-Get-but-
+absent-on-List asymmetry for `Analyzer`/`AnalyzerSummary`, re-verified
+unchanged this pass.
+
+**Same spelling, different correctness per direction:** none found this
+pass (checked specifically after memorydb's `IPDiscovery` precedent) --
+every field this service shares between request and response uses the
+same casing on both sides, and the one place that looked asymmetric
+(`ListAnalyzers`/`GetAnalyzer`'s `Configuration` presence) is a real,
+documented AWS asymmetry (different response TYPES, not a request/response
+casing mismatch), already correctly handled before this pass.
+
+**Disclosed, not derived:** `GetAnalyzedResource`'s optional
+`Actions`/`Error`/`SharedVia`/`Status` members are never emitted --
+`AnalyzedResource` and `Finding` are two independent synthetic-data paths
+in this backend with no enforced ARN link between them; deriving `Status`
+from a same-ARN `Finding.Status` would be exactly the adjacent-but-
+different-data fabrication parity-principles #1 warns against, so it was
+declined and disclosed instead. `unusedAccessFindingsStatistics`'s
+`TopAccounts`/`UnusedAccessTypeStatistics` (new from the union fix above)
+disclosed the same way -- no per-account or per-unused-access-type
+aggregation exists to derive them from.
+
+**Empty/204 responses:** unaffected this pass; already verified clean in
+the 2026-08-10 audit.
+
+**Required-member diffs, both directions:** no new gap found among the 39
+ops -- the 2026-08-10 audit's fixes (condition/resourceOwnerAccount/
+findingDetails/etc.) all re-verified still correct and unchanged.
+
+**Filters and pagination:** filters were the main finding this pass (see
+above). Pagination (`NextToken`/`MaxResults` token-based slicing) verified
+unchanged and correct on `ListFindings`/`ListFindingsV2`/
+`ListAccessPreviewFindings`/`ListAnalyzedResources`/`ListArchiveRules`/
+`ListPolicyGenerations` -- no ordering-nondeterminism issue found (all
+sort by a stable key before paginating), so no pagination fix was
+refused this pass.
+
+**TESTS:** 6 new real-`aws-sdk-go-v2`-client tests (listed in
+`services/accessanalyzer/PARITY.md`'s own pass section). Every fix
+hand-reverted individually and confirmed to fail with the exact predicted
+symptom (wrong union member type; unfiltered extra finding in the result;
+wrongly-archived non-matching finding), then restored and confirmed
+byte-identical against a saved `git diff` snapshot per file.
+
+**GATES:** `go build ./services/accessanalyzer/...` clean throughout; full
+`go build ./...` clean at pickup and again at the end (the `ListFindingsV2`
+signature change is the only exported-interface change this pass, so the
+full build was re-run after it; `services/docdb/*` was mid-edit by a
+concurrent sibling at various points but never left the tree unbuildable
+when checked). `go vet`, `go test -race -count=1
+./services/accessanalyzer/...`, and `go test -race ./pkgs/...` all clean.
+`go fix -diff` flagged one manual loop `slices.Contains` would replace in
+the new filter-matching helper -- applied by hand. `golangci-lint run
+./services/accessanalyzer/...`: 3 `golines`/`lll` line-length findings in
+new test code on first pass, fixed by hand-wrapping; final run **0
+issues**. Zero `//nolint:cyclop/gocyclo/gocognit/funlen` before or after.
+
+`accessanalyzer`'s List/Get families are now fully swept for this issue
+(39/39 ops layer-1/2/3 clean; 1 flagship union-wrapper-key bug fixed,
+observable only through a real client's typed union switch; 3
+discarded-filter-input bugs fixed across List/Get-adjacent ops; 2 related
+archive-rule filter-matching behavioral bugs fixed; 2 members disclosed
+rather than fabricated; 0 real-data leaks; 0 phantom ops; 0 persistence
+risk; prior 2026-08-10 wire-shape audit fully re-confirmed, not
+re-litigated). **98 of 162 services swept, 64 remain.** Per the ranked
+table, the tier-18 group (`memorydb`, `codedeploy`, `accessanalyzer`) is
+now fully swept; `elasticbeanstalk`/`docdb`/`batch` (17 each) are next,
+and `docdb` was seen live under a concurrent sibling this session (see
+above) -- re-run `go run ./cmd/opcensus` and re-check `git status` before
+picking, as usual.
