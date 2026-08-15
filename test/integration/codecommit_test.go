@@ -294,8 +294,8 @@ func TestIntegration_CodeCommit_CommentFamily(t *testing.T) {
 	client := createCodeCommitClient(t)
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T, client *codecommitsdk.Client)
+		name string
 	}{
 		{name: "post_comment_for_compared_commit", run: testPostCommentForComparedCommit},
 		{name: "post_comment_for_pull_request", run: testPostCommentForPullRequest},
