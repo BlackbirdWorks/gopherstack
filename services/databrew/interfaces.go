@@ -61,6 +61,7 @@ type StorageBackend interface {
 	ListProjects(ctx context.Context, maxResults int, nextToken string) ([]*Project, string)
 	UpdateProject(ctx context.Context, name, roleArn string, sample Sample) error
 	DeleteProject(ctx context.Context, name string) error
+	OpenProjectSession(ctx context.Context, name string) (*Project, error)
 
 	// Job operations.
 	CreateJob(

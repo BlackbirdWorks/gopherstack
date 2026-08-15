@@ -18,7 +18,7 @@ func TestAgentsHandler_KnowledgeBaseLifecycle(t *testing.T) {
 	h, _ := newTestAgentsHandler(t)
 
 	// Create KB.
-	rec := doAgentRequest(t, h, http.MethodPost, "/knowledgebases", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/knowledgebases", map[string]any{
 		"name":        "my-kb",
 		"description": "test kb",
 		"roleArn":     "arn:aws:iam::000000000000:role/test",
@@ -70,7 +70,7 @@ func TestAgentsHandler_CreateKnowledgeBase_Duplicate(t *testing.T) {
 	_, err := b.CreateKnowledgeBase("dup-kb", "", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	rec := doAgentRequest(t, h, http.MethodPost, "/knowledgebases", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/knowledgebases", map[string]any{
 		"name": "dup-kb",
 	})
 	assert.Equal(t, http.StatusConflict, rec.Code)
@@ -116,7 +116,7 @@ func TestAgentsHandler_KnowledgeBase_InvalidJSON(t *testing.T) {
 		path   string
 		method string
 	}{
-		{"/knowledgebases", http.MethodPost},
+		{"/knowledgebases", http.MethodPut},
 		{"/knowledgebases/" + kb.KnowledgeBaseID, http.MethodPut},
 	} {
 		e := echo.New()
@@ -206,7 +206,7 @@ func TestAccuracy_KnowledgeBase_VectorStoreConfigPreserved(t *testing.T) {
 				body["storageConfiguration"] = tt.storageConf
 			}
 
-			rec := doAgentRequest(t, h, http.MethodPost, "/knowledgebases", body)
+			rec := doAgentRequest(t, h, http.MethodPut, "/knowledgebases", body)
 			require.Equal(t, http.StatusAccepted, rec.Code)
 
 			var created map[string]any

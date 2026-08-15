@@ -1,6 +1,7 @@
 package s3_test
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -106,6 +107,51 @@ func TestChunkedReader_Decode(t *testing.T) {
 			assert.Equal(t, tt.want, string(got))
 		})
 	}
+}
+
+// TestChunkedReader_HeaderLineIsBounded proves that a chunk-header line with
+// no '\n' anywhere is rejected once it exceeds the documented cap, instead of
+// draining the whole source into memory first. bufio.Reader.ReadString('\n')
+// has no such cap on its own — it keeps growing the returned string until it
+// finds the delimiter or the source is exhausted — so the fix has to bound
+// consumption itself, not just report an error eventually.
+func TestChunkedReader_HeaderLineIsBounded(t *testing.T) {
+	t.Parallel()
+
+	const sourceLen = 100 * 1024 // far larger than the documented per-line cap
+	src := bytes.NewReader(bytes.Repeat([]byte{'x'}, sourceLen))
+
+	rc := s3.NewChunkedReadCloser(io.NopCloser(src))
+	defer func() { _ = rc.Close() }()
+
+	_, err := io.ReadAll(rc)
+	require.Error(t, err, "an unterminated chunk header line must be rejected")
+
+	consumed := sourceLen - src.Len()
+	assert.Less(t, consumed, 8*1024,
+		"reading an unterminated line must stop near the documented cap, not drain the whole source")
+}
+
+// TestChunkedReader_TrailerLineIsBounded is the same proof as
+// TestChunkedReader_HeaderLineIsBounded but for the trailer-line reader
+// (consumeTrailers, reached only via the *-TRAILER content-sha256 variants),
+// which had the identical unbounded-ReadString bug.
+func TestChunkedReader_TrailerLineIsBounded(t *testing.T) {
+	t.Parallel()
+
+	const trailerLen = 100 * 1024
+	wire := signedChunk("payload") + "0\r\n"
+	rest := bytes.NewReader(bytes.Repeat([]byte{'x'}, trailerLen))
+
+	rc := s3.NewChunkedReadCloser(io.NopCloser(io.MultiReader(strings.NewReader(wire), rest)))
+	defer func() { _ = rc.Close() }()
+
+	_, err := io.ReadAll(rc)
+	require.Error(t, err, "an unterminated trailer line must be rejected")
+
+	consumed := trailerLen - rest.Len()
+	assert.Less(t, consumed, 8*1024,
+		"reading an unterminated trailer line must stop near the documented cap")
 }
 
 // TestChunkedPutObjectRoundTrip proves that a chunked (SigV4 streaming) PUT is

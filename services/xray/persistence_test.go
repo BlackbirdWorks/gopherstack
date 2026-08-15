@@ -56,6 +56,7 @@ func TestXRay_PersistenceSnapshotRestore(t *testing.T) {
 			setup: func(b *xray.InMemoryBackend) {
 				b.AddInsightInternal(xray.Insight{
 					InsightID:  "insight-boost",
+					GroupName:  "default",
 					State:      "ACTIVE",
 					Summary:    "elevated fault rate",
 					Categories: []string{"FAULT"},
@@ -67,7 +68,9 @@ func TestXRay_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *xray.InMemoryBackend) {
 				t.Helper()
 
-				summaries, err := b.GetInsightSummaries([]string{"ACTIVE"})
+				summaries, err := b.GetInsightSummaries(
+					[]string{"ACTIVE"}, "default", time.Now().Add(-time.Hour), time.Now().Add(time.Hour),
+				)
 				require.NoError(t, err)
 				require.NotEmpty(t, summaries)
 

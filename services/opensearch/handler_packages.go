@@ -82,18 +82,140 @@ func (h *Handler) handlePackageRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fixed literal-action paths: describe/update/updateScope carry PackageID
+	// in the body, not the URL (api_op_DescribePackages.go /
+	// api_op_UpdatePackage.go / api_op_UpdatePackageScope.go,
+	// opensearch@v1.75.4 serializers.go) -- gopherstack-l5ir.
+	if h.handlePackageLiteralActionRoutes(w, r, rest) {
+		return
+	}
+
 	// Named sub-paths: associate, dissociate.
 	if h.handlePackageAssocRoutes(w, r, rest) {
 		return
 	}
 
-	// Sub-resource paths: history, domains, scope.
+	// Sub-resource paths: history, domains.
 	if h.handlePackageSubResourceRoutes(w, r, rest) {
 		return
 	}
 
 	// Fallback: single-segment package-ID routes.
 	h.handlePackageIDRoutes(w, r, rest)
+}
+
+// handlePackageLiteralActionRoutes handles POST /packages/describe,
+// /packages/update, and /packages/updateScope. Returns true if handled.
+func (h *Handler) handlePackageLiteralActionRoutes(w http.ResponseWriter, r *http.Request, rest string) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+
+	switch rest {
+	case pathSuffixDescribe:
+		h.handleDescribePackages(w, r)
+
+		return true
+	case pathSuffixUpdate:
+		h.handleUpdatePackageRoute(w, r)
+
+		return true
+	case "/updateScope":
+		h.handleUpdatePackageScopeRoute(w, r)
+
+		return true
+	default:
+		return false
+	}
+}
+
+// handleDescribePackages serves DescribePackages: PackageID values come from
+// a DescribePackagesFilter{Name: "PackageID"} entry in the request body.
+func (h *Handler) handleDescribePackages(w http.ResponseWriter, r *http.Request) {
+	body, _ := httputils.ReadBody(r)
+
+	var req struct {
+		Filters []struct {
+			Name  string   `json:"Name"`
+			Value []string `json:"Value"`
+		} `json:"Filters"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	var ids []string
+
+	for _, f := range req.Filters {
+		if f.Name == jsonKeyPackageID {
+			ids = append(ids, f.Value...)
+		}
+	}
+
+	pkgs, _ := h.Backend.DescribePackages(ids)
+	if pkgs == nil {
+		pkgs = []*Package{}
+	}
+
+	h.writeJSON(r, w, map[string]any{"PackageDetailsList": pkgs})
+}
+
+// handleUpdatePackageRoute serves UpdatePackage: POST /packages/update, PackageID in the body.
+func (h *Handler) handleUpdatePackageRoute(w http.ResponseWriter, r *http.Request) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req struct {
+		PackageID          string `json:"PackageID"`
+		PackageDescription string `json:"PackageDescription"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	pkg, updateErr := h.Backend.UpdatePackage(req.PackageID, req.PackageDescription)
+	if updateErr != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{jsonKeyPackageDetails: pkg})
+}
+
+// handleUpdatePackageScopeRoute serves UpdatePackageScope: POST
+// /packages/updateScope, all fields carried in the body. Field set matches
+// UpdatePackageScopeInput/Output (api_op_UpdatePackageScope.go:29-65 in the
+// pinned SDK): PackageUserList is a top-level member, not nested under a
+// "PackageScopeOperationConfig" wrapper.
+func (h *Handler) handleUpdatePackageScopeRoute(w http.ResponseWriter, r *http.Request) {
+	body, _ := httputils.ReadBody(r)
+
+	var req struct {
+		PackageID       string   `json:"PackageID"`
+		Operation       string   `json:"Operation"`
+		PackageUserList []string `json:"PackageUserList"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	pkg, err := h.Backend.UpdatePackageScope(req.PackageID, req.Operation, req.PackageUserList)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		jsonKeyPackageID:  pkg.PackageID,
+		"Operation":       req.Operation,
+		"PackageUserList": pkg.PackageUserList,
+	})
 }
 
 // handlePackageAssocRoutes handles associate/dissociate package routes.
@@ -127,8 +249,10 @@ func (h *Handler) handlePackageAssocRoutes(
 		h.handleAssociatePackages(w, r)
 
 		return true
-	// DELETE /packages/dissociate/{PackageID}/{DomainName} → DissociatePackage
-	case strings.HasPrefix(rest, "/dissociate/") && r.Method == http.MethodDelete:
+	// POST /packages/dissociate/{PackageID}/{DomainName} → DissociatePackage.
+	// Real clients POST here (api_op_DissociatePackage.go, opensearch@v1.75.4
+	// serializers.go); DELETE is never sent -- gopherstack-l5ir.
+	case strings.HasPrefix(rest, "/dissociate/") && r.Method == http.MethodPost:
 		parts := strings.SplitN(strings.TrimPrefix(rest, "/dissociate/"), "/", pkgPathParts)
 		if len(parts) != pkgPathParts {
 			h.writeError(
@@ -155,7 +279,7 @@ func (h *Handler) handlePackageAssocRoutes(
 	return false
 }
 
-// handlePackageSubResourceRoutes handles package sub-resource routes (history, domains, scope).
+// handlePackageSubResourceRoutes handles package sub-resource routes (history, domains).
 // Returns true if the request was handled.
 func (h *Handler) handlePackageSubResourceRoutes(
 	w http.ResponseWriter,
@@ -195,30 +319,6 @@ func (h *Handler) handlePackageSubResourceRoutes(
 		}
 
 		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: outList})
-
-		return true
-	// PUT /packages/{packageId}/scope → UpdatePackageScope
-	case strings.HasSuffix(rest, "/scope") && r.Method == http.MethodPut:
-		pkgID := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/scope")
-		body, _ := httputils.ReadBody(r)
-		var req struct {
-			Operation   string   `json:"Operation"`
-			DomainNames []string `json:"PackageScopeOperationConfig"`
-		}
-		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
-		}
-		pkg, err := h.Backend.UpdatePackageScope(pkgID, req.Operation, req.DomainNames)
-		var retPkgID string
-		if pkg != nil {
-			retPkgID = pkg.PackageID
-		}
-		_ = err
-		h.writeJSON(r, w, map[string]any{
-			jsonKeyPackageID:              retPkgID,
-			"Operation":                   req.Operation,
-			"PackageScopeOperationStatus": softwareUpdateCompleted,
-		})
 
 		return true
 	}
@@ -274,17 +374,6 @@ func (h *Handler) handlePackageRootRoutes(w http.ResponseWriter, r *http.Request
 			return
 		}
 		h.writeJSON(r, w, map[string]any{jsonKeyPackageDetails: pkg})
-	// GET /packages → DescribePackages
-	case http.MethodGet:
-		var ids []string
-		if q := r.URL.Query().Get("PackageID"); q != "" {
-			ids = append(ids, q)
-		}
-		pkgs, _ := h.Backend.DescribePackages(ids)
-		if pkgs == nil {
-			pkgs = []*Package{}
-		}
-		h.writeJSON(r, w, map[string]any{"PackageDetailsList": pkgs})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -305,27 +394,6 @@ func (h *Handler) handlePackageIDRoutes(w http.ResponseWriter, r *http.Request, 
 		pkg, err := h.Backend.DeletePackage(pkgID)
 		if err != nil {
 			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-
-			return
-		}
-		h.writeJSON(r, w, map[string]any{jsonKeyPackageDetails: pkg})
-	// POST /packages/{packageId} → UpdatePackage
-	case http.MethodPost:
-		body, err := httputils.ReadBody(r)
-		if err != nil {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
-
-			return
-		}
-		var req struct {
-			PackageDescription string `json:"PackageDescription"`
-		}
-		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
-		}
-		pkg, updateErr := h.Backend.UpdatePackage(pkgID, req.PackageDescription)
-		if updateErr != nil {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
 
 			return
 		}

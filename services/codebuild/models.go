@@ -188,28 +188,41 @@ type BuildLogs struct {
 }
 
 // Build represents an in-memory AWS CodeBuild build execution.
+// Build represents an in-memory AWS CodeBuild build.
+//
+// Cache/VpcConfig/FileSystemLocations/SecondaryArtifacts/SecondarySources/
+// SecondarySourceVersions mirror the project configuration a build actually
+// ran with (codebuild@v1.72.4 deserializers.go's awsAwsjson11_deserializeDocumentBuild),
+// the same way Artifacts/EncryptionKey already do -- StartBuild copies them
+// from the project at build time.
 type Build struct {
-	Source                 *ProjectSource      `json:"source,omitempty"`
-	Tags                   wireTags            `json:"tags,omitempty"`
-	Logs                   *BuildLogs          `json:"logs,omitempty"`
-	Artifacts              *ProjectArtifacts   `json:"artifacts,omitempty"`
-	Environment            *ProjectEnvironment `json:"environment,omitempty"`
-	CurrentPhase           string              `json:"currentPhase,omitempty"`
-	Initiator              string              `json:"initiator,omitempty"`
-	Arn                    string              `json:"arn"`
-	ProjectName            string              `json:"projectName"`
-	BuildStatus            string              `json:"buildStatus"`
-	ServiceRole            string              `json:"serviceRole,omitempty"`
-	ResolvedSourceVersion  string              `json:"resolvedSourceVersion,omitempty"`
-	ID                     string              `json:"id"`
-	EncryptionKey          string              `json:"encryptionKey,omitempty"`
-	Phases                 []BuildPhase        `json:"phases,omitempty"`
-	BuildNumber            int64               `json:"buildNumber,omitempty"`
-	StartTime              float64             `json:"startTime,omitempty"`
-	EndTime                float64             `json:"endTime,omitempty"`
-	TimeoutInMinutes       int32               `json:"timeoutInMinutes,omitempty"`
-	QueuedTimeoutInMinutes int32               `json:"queuedTimeoutInMinutes,omitempty"`
-	BuildComplete          bool                `json:"buildComplete,omitempty"`
+	Source                  *ProjectSource         `json:"source,omitempty"`
+	Tags                    wireTags               `json:"tags,omitempty"`
+	Logs                    *BuildLogs             `json:"logs,omitempty"`
+	Artifacts               *ProjectArtifacts      `json:"artifacts,omitempty"`
+	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
+	Cache                   *ProjectCache          `json:"cache,omitempty"`
+	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
+	CurrentPhase            string                 `json:"currentPhase,omitempty"`
+	Initiator               string                 `json:"initiator,omitempty"`
+	Arn                     string                 `json:"arn"`
+	ProjectName             string                 `json:"projectName"`
+	BuildStatus             string                 `json:"buildStatus"`
+	ServiceRole             string                 `json:"serviceRole,omitempty"`
+	ResolvedSourceVersion   string                 `json:"resolvedSourceVersion,omitempty"`
+	ID                      string                 `json:"id"`
+	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
+	Phases                  []BuildPhase           `json:"phases,omitempty"`
+	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts,omitempty"`
+	SecondarySources        []ProjectSource        `json:"secondarySources,omitempty"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions,omitempty"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
+	BuildNumber             int64                  `json:"buildNumber,omitempty"`
+	StartTime               float64                `json:"startTime,omitempty"`
+	EndTime                 float64                `json:"endTime,omitempty"`
+	TimeoutInMinutes        int32                  `json:"timeoutInMinutes,omitempty"`
+	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes,omitempty"`
+	BuildComplete           bool                   `json:"buildComplete,omitempty"`
 }
 
 // ReportExportConfig represents the export configuration for a CodeBuild report group.

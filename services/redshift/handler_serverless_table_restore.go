@@ -53,16 +53,17 @@ func toTableRestoreStatusWire(tr *ServerlessTableRestoreStatus) *slTableRestoreS
 }
 
 type slTableRestoreReq struct {
-	NamespaceName      string `json:"namespaceName"`
-	NewTableName       string `json:"newTableName"`
-	SnapshotName       string `json:"snapshotName"`
-	RecoveryPointID    string `json:"recoveryPointId"`
-	SourceDatabaseName string `json:"sourceDatabaseName"`
-	SourceSchemaName   string `json:"sourceSchemaName"`
-	SourceTableName    string `json:"sourceTableName"`
-	TargetDatabaseName string `json:"targetDatabaseName"`
-	TargetSchemaName   string `json:"targetSchemaName"`
-	WorkgroupName      string `json:"workgroupName"`
+	ActivateCaseSensitiveIdentifier *bool  `json:"activateCaseSensitiveIdentifier"`
+	NamespaceName                   string `json:"namespaceName"`
+	NewTableName                    string `json:"newTableName"`
+	SnapshotName                    string `json:"snapshotName"`
+	RecoveryPointID                 string `json:"recoveryPointId"`
+	SourceDatabaseName              string `json:"sourceDatabaseName"`
+	SourceSchemaName                string `json:"sourceSchemaName"`
+	SourceTableName                 string `json:"sourceTableName"`
+	TargetDatabaseName              string `json:"targetDatabaseName"`
+	TargetSchemaName                string `json:"targetSchemaName"`
+	WorkgroupName                   string `json:"workgroupName"`
 }
 
 func (r slTableRestoreReq) toParams() RestoreTableFromSnapshotParams {

@@ -216,6 +216,16 @@ const (
 	defaultDescribeMaxResults = 50
 )
 
+// Shared filter-key literals, reused by several Describe*/List* filter
+// matchers (nodeAttributeValue, instanceInformationAttr, associationAttr,
+// documentMatchesFilters, paramMatchesFilter) that all filter on the same
+// real API attribute name.
+const (
+	filterKeyInstanceID   = "InstanceId"
+	filterKeyName         = "Name"
+	filterKeyAgentVersion = "AgentVersion"
+)
+
 // cleanupEmptyInnerMap removes the region key from a two-level map when the
 // inner map is empty. Prevents empty maps from accumulating indefinitely.
 // Caller must hold the write lock.
@@ -237,6 +247,32 @@ func parseNextToken(token string) int {
 	}
 
 	return idx
+}
+
+// paginateSlice applies NextToken/MaxResults pagination to an already-ordered
+// slice, the same offset-index scheme ListNodes established (instances.go).
+// maxResults <= 0 falls back to defaultMax.
+func paginateSlice[T any](items []T, nextToken string, maxResults int, defaultMax int) ([]T, string) {
+	start := parseNextToken(nextToken)
+	if start >= len(items) {
+		return []T{}, ""
+	}
+
+	if maxResults <= 0 {
+		maxResults = defaultMax
+	}
+
+	end := start + maxResults
+
+	var next string
+
+	if end < len(items) {
+		next = strconv.Itoa(end)
+	} else {
+		end = len(items)
+	}
+
+	return items[start:end], next
 }
 
 // Reset clears all in-memory state from the backend. It is used by the

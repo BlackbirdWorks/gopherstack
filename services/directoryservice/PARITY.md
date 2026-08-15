@@ -6,9 +6,27 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: directoryservice
 sdk_module: aws-sdk-go-v2/service/directoryservice@v1.41.4   # version audited against
-last_audit_commit: 1c6af314f4ed210dbc03be80042c6af2aa07448f   # stale -- git usage disallowed this pass; see last_audit_date
-last_audit_date: 2026-07-30
-overall: A            # gopherstack-10hx 2nd follow-up pass (2026-07-30): the AD-assessment AssessmentConfiguration gap -- the sole remaining reason the previous pass held this service at B after closing hybrid-AD's structural gap -- is now CLOSED. StartADAssessment accepts, required-field-validates, and genuinely stores the real StartADAssessmentInput.AssessmentConfiguration (CustomerDnsIps/DnsName/InstanceIds/VpcSettings/SecurityGroupIds, field-diffed against aws-sdk-go-v2/service/directoryservice@v1.41.0's types.go/serializers.go/validators.go); DescribeADAssessment's Assessment and ListADAssessments' AssessmentSummary now report the real, non-fabricated field sets each shape actually has (confirmed AssessmentSummary is a real strict subset of Assessment -- no over-serialization). Raised A: every gap cited in the two downgrades that produced this B (b8552fe92, then the 10hx follow-up) is now closed with real, verified data; what remains (StatusCode/StatusReason/Version on Assessment; OsVersion/StageReason/etc. on Directory; the Settings DataType/Type lookup table; RadiusServersIpv6; ShareTarget.Type) is, in every case, AWS-internal or request-input data this in-memory backend has no way to derive without fabricating it, and is honestly documented as absent rather than invented -- the same class of gap the rest of this A-graded service already carries without it blocking parity (e.g. Directory.OsVersion, DomainController.StatusReason). See gaps/deferred and the dated Notes section for the evidence.
+last_audit_commit: 1c6af314f4ed210dbc03be80042c6af2aa07448f   # stale -- git usage disallowed this and the 6flj pass; see last_audit_date
+last_audit_date: 2026-08-15
+overall: A            # gopherstack-6flj wrapper-key sweep (2026-08-15): 6 more real bugs found and fixed --
+# AD-assessments' Delete/Describe wrongly required DirectoryId (real Input is {AssessmentId} only, so every
+# real client's request was rejected outright) and Describe/List's wrapper keys were fabricated
+# ("ADAssessment(s)" vs real "Assessment(s)", silent-empty); RegisterCertificate discarded the real
+# ClientCertAuthSettings.OCSPUrl entirely; DescribeUpdateDirectory's wrapper key was fabricated
+# ("UpdateDirectoryInfo" vs real "UpdateActivities") AND every entry's NewValue/PreviousValue were emitted as
+# flat "" strings where the real type is a nested struct -- a real client's decode hard-failed, not just
+# silent-empty; DescribeSettings' SettingEntry emitted the request-side filter field's name "Status" instead
+# of the real response member "RequestStatus"; AcceptSharedDirectory returned only {SharedDirectoryId} where
+# the real output is a full SharedDirectory object. None of these were caught by the prior passes' field-diffs
+# against types.go, because a field-diff checks member SETS, not the top-level wrapper key or which request
+# members are actually required -- see gopherstack-6flj 2026-08-15 Notes entry below. Grade held at A: every
+# fix closes a real client-breaking bug rather than revealing a new unfixable gap. Previous pass
+# (gopherstack-10hx 2nd follow-up, 2026-07-30) had already closed the AD-assessment AssessmentConfiguration
+# gap that was the sole remaining reason this service was held at B; what remains unfixed (StatusCode/
+# StatusReason/Version on Assessment; OsVersion/StageReason/etc. on Directory; the Settings DataType/Type
+# lookup table; RadiusServersIpv6; ShareTarget.Type) is, in every case, AWS-internal or request-input data
+# this in-memory backend has no way to derive without fabricating it. See gaps/deferred and the dated Notes
+# sections for the evidence.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -56,16 +74,16 @@ ops:
   VerifyTrust: {wire: ok, errors: ok, state: ok, persist: ok}
   ShareDirectory: {wire: partial, errors: ok, state: FIXED, persist: ok, note: "HANDSHAKE now starts PendingAcceptance (was Shared, skipping the handshake); ORGANIZATIONS starts Shared (prior pass). Re-diffed the request shape this pass: real ShareDirectoryInput.ShareTarget is {Id, Type} where Type is TargetType (ACCOUNT/ORGANIZATION); this backend's ShareDirectory(ctx, directoryID, shareMethod, shareNotes, targetID) only accepts the target ID string and drops Type entirely. Not fixed this pass (request-input gap, not a response wire-shape defect -- SharedDirInfo/SharedDirectory has no Type member either in the real API, so no response is corrupted by this) -- see gaps."}
   UnshareDirectory: {wire: ok, errors: ok, state: ok, persist: ok}
-  AcceptSharedDirectory: {wire: ok, errors: ok, state: ok, persist: ok}
+  AcceptSharedDirectory: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj (2026-08-15): AcceptSharedDirectoryOutput.SharedDirectory is the full types.SharedDirectory object (api_op_AcceptSharedDirectory.go) -- the same shape DescribeSharedDirectories already emitted correctly. This handler returned only {SharedDirectoryId}; every other field (OwnerDirectoryId, OwnerAccountId, SharedAccountId, ShareMethod, ShareStatus, ShareNotes, CreatedDateTime, LastUpdatedDateTime) silently decoded to nil/zero on a real client. Fixed by sharing the same field-mapping helper (toSharedDirInfo) DescribeSharedDirectories already used."}
   RejectSharedDirectory: {wire: ok, errors: ok, state: FIXED, persist: ok, note: "was setting ShareStatus=RejectFailed (the AWS enum value for a FAILED reject) on every SUCCESSFUL reject; now Rejected"}
   DescribeSharedDirectories: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreatedDateTime/LastUpdatedDateTime epoch fix (prior pass). Re-diffed SharedDirInfo against types.SharedDirectory this pass: CreatedDateTime/LastUpdatedDateTime/OwnerAccountId/OwnerDirectoryId/ShareMethod/ShareNotes/ShareStatus/SharedAccountId/SharedDirectoryId is the full real member set -- genuinely clean, no response-shape gap. See gaps for a real (but request-side, not response-shape) ShareDirectory finding."}
-  RegisterCertificate: {wire: FIXED, errors: FIXED, state: FIXED, persist: ok, note: "CLOSED the CommonName=example.com gap: CertificateData is documented as a real PEM string, so it is now decoded (encoding/pem) and parsed (crypto/x509); CommonName comes from cert.Subject.CommonName and ExpiryDateTime from cert.NotAfter (both previously fabricated/hardcoded). Unparseable CertificateData now returns the real InvalidCertificateException (was silently accepted). Type is now validated against CertificateType (ClientLDAPS/ClientCertAuth)."}
+  RegisterCertificate: {wire: FIXED, errors: FIXED, state: FIXED, persist: ok, note: "CLOSED the CommonName=example.com gap: CertificateData is documented as a real PEM string, so it is now decoded (encoding/pem) and parsed (crypto/x509); CommonName comes from cert.Subject.CommonName and ExpiryDateTime from cert.NotAfter (both previously fabricated/hardcoded). Unparseable CertificateData now returns the real InvalidCertificateException (was silently accepted). Type is now validated against CertificateType (ClientLDAPS/ClientCertAuth). gopherstack-6flj (2026-08-15): the real, optional ClientCertAuthSettings.OCSPUrl request member (types.ClientCertAuthSettings) was discarded entirely -- not read from the request, no field to hold it anywhere in this backend. Now captured and persisted; see DescribeCertificate for the echo side."}
   DeregisterCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCertificates: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "ExpiryDateTime epoch fix"}
-  DescribeCertificate: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "RegisteredDateTime/ExpiryDateTime epoch fix"}
+  DescribeCertificate: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "RegisteredDateTime/ExpiryDateTime epoch fix. gopherstack-6flj (2026-08-15): Certificate.ClientCertAuthSettings (real, optional member) now echoes the OCSPUrl captured at RegisterCertificate time -- previously always absent since nothing captured it (see RegisterCertificate)."}
   EnableLDAPS: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "Type accepted any free-form string; now validated against the LDAPSType enum (only Client is a valid value) -- closes deferred item"}
   DisableLDAPS: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "same LDAPSType validation as EnableLDAPS"}
-  DescribeLDAPSSettings: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "LastUpdatedDateTime/CertificateExpiryDateTime epoch fix"}
+  DescribeLDAPSSettings: {wire: partial, errors: ok, state: ok, persist: ok, note: "LastUpdatedDateTime/CertificateExpiryDateTime epoch fix. gopherstack-6flj (2026-08-15, disclosed not fixed): real types.LDAPSSettingInfo is exactly {LDAPSStatus, LDAPSStatusReason, LastUpdatedDateTime} -- LDAPSType/CertificateId/CertificateExpiryDateTime are NOT real members of this shape at all (fabricated). Left in place rather than removed: no sensitive data, a real client simply ignores unknown JSON fields, and removing buys nothing testable. LDAPSStatusReason (real, optional) is genuinely omitted -- this backend tracks no LDAPS state-change reason anywhere."}
   EnableClientAuthentication: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "Type is a required AWS input member but had no presence or enum check at all; now required + validated against ClientAuthenticationType (SmartCard/SmartCardOrPassword) -- closes deferred item"}
   DisableClientAuthentication: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "same Type validation as EnableClientAuthentication"}
   DescribeClientAuthenticationSettings: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "LastUpdatedDateTime epoch fix"}
@@ -75,21 +93,21 @@ ops:
   EnableDirectoryDataAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableDirectoryDataAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDirectoryDataAccess: {wire: ok, errors: ok, state: ok, persist: ok}
-  EnableCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  EnableCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): request struct dropped the required PcaConnectorArn entirely, and CAEnrollmentPolicy had no field to hold it, so it was unrecoverable. Now decoded, required (InvalidParameterException if empty), and persisted"}
   DisableCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeCAEnrollmentPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): the pre-fix response was a wholly fabricated shape -- a nested {\"CAEnrollmentPolicy\":{\"EnrollmentStatus\":\"Enabled\"/\"Disabled\"}} that does not exist on the real API at all. Real DescribeCAEnrollmentPolicyOutput is flat: CaEnrollmentPolicyStatus (enum InProgress/Success/Failed/Disabling/Disabled/Impaired, verified against types/enums.go), CaEnrollmentPolicyStatusReason, DirectoryId, LastUpdatedDateTime, PcaConnectorArn. All now wired; snapshot version bumped 1->2 since CAEnrollment's persisted value type changed from bool to *CAEnrollmentPolicy"}
   StartADAssessment: {wire: FIXED, errors: FIXED, state: FIXED, persist: ok, note: "synchronous SUCCESS; AWS is async but no client-visible divergence for polling clients (prior-pass note, still true). gopherstack-10hx 2nd follow-up (2026-07-30): CLOSED the SEVERE finding from the prior pass -- StartADAssessmentInput.AssessmentConfiguration (types.AssessmentConfiguration: CustomerDnsIps, DnsName, InstanceIds, VpcSettings{VpcId,SubnetIds} required when supplied at all; SecurityGroupIds optional -- confirmed against the installed SDK's validateAssessmentConfiguration) is now accepted, required-field-validated (InvalidParameterException per missing member, matching the real validator's shape), and genuinely stored on storedADAssessment. UpdateHybridAD's internally-triggered assessment (no AssessmentConfiguration in the real API either) passes nil and is unaffected."}
-  DeleteADAssessment: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeADAssessment: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartTime epoch fix (prior pass); removed the fabricated 'Region' wire field and fixed the AssessmentType->ReportType/Operational->CUSTOMER fabrication (prior pass). gopherstack-10hx 2nd follow-up (2026-07-30): now also emits CustomerDnsIps, DnsName, LastUpdateDateTime, SecurityGroupIds, SelfManagedInstanceIds, SubnetIds, VpcId -- all real, non-fabricated data sourced from the AssessmentConfiguration captured at StartADAssessment time (empty/omitted, matching AWS's null-omission convention, for assessments started without one). StatusCode/StatusReason/Version remain genuinely unpopulated -- see gaps (AWS-internal assessment-engine output with no request input and no documented deterministic default; same class of honest gap as Directory.OsVersion)."}
-  ListADAssessments: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartTime epoch fix (prior pass); same Region/ReportType fabrication fix as DescribeADAssessment (prior pass). gopherstack-10hx 2nd follow-up (2026-07-30): now also emits the real AssessmentSummary-only subset (CustomerDnsIps, DnsName, LastUpdateDateTime); confirmed against types.AssessmentSummary that SecurityGroupIds/SelfManagedInstanceIds/SubnetIds/VpcId/StatusCode/StatusReason/Version are Assessment-only (Describe) members and correctly do NOT appear here -- a dedicated test (TestStartADAssessment_ConfigurationRoundTrip) asserts their absence on List and presence on Describe."}
+  DeleteADAssessment: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj (2026-08-15): real DeleteADAssessmentInput is {AssessmentId} only (api_op_DeleteADAssessment.go) -- assessment IDs are globally addressable, not directory-scoped. This handler required DirectoryId too (via the generic handleTwoFieldOp helper, wrong for this one op), so every real typed client's Delete call was rejected outright with InvalidParameterException before reaching the backend. Now takes only AssessmentId."}
+  DescribeADAssessment: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartTime epoch fix (prior pass); removed the fabricated 'Region' wire field and fixed the AssessmentType->ReportType/Operational->CUSTOMER fabrication (prior pass); AssessmentConfiguration round-trip (gopherstack-10hx 2nd follow-up). gopherstack-6flj (2026-08-15): two wire-breaking bugs found and fixed. (1) Same DirectoryId-required bug as DeleteADAssessment -- real DescribeADAssessmentInput is {AssessmentId} only, but this handler required DirectoryId too, so every real client's request was rejected outright. (2) The wrapper key was the fabricated 'ADAssessment', not the real 'Assessment' (DescribeADAssessmentOutput.Assessment) -- even a request that got past bug (1) would have decoded resp.Assessment as nil on every call. Both fixed; a real-SDK-client test (wire_field_fixes_test.go) round-trips Start->List->Describe->Delete. StatusCode/StatusReason/Version and AssessmentReports remain genuinely unpopulated -- see gaps (AWS-internal assessment-engine output with no request input and no documented deterministic default; same class of honest gap as Directory.OsVersion)."}
+  ListADAssessments: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartTime epoch fix (prior pass); same Region/ReportType fabrication fix as DescribeADAssessment (prior pass); AssessmentConfiguration round-trip (gopherstack-10hx 2nd follow-up). gopherstack-6flj (2026-08-15): the wrapper key was the fabricated 'ADAssessments', not the real 'Assessments' (ListADAssessmentsOutput.Assessments) -- every real client's resp.Assessments field silently decoded to nil/empty on every call regardless of how many assessments existed. Fixed; confirmed against types.AssessmentSummary that SecurityGroupIds/SelfManagedInstanceIds/SubnetIds/VpcId/StatusCode/StatusReason/Version are Assessment-only (Describe) members and correctly do NOT appear here -- a dedicated test (TestStartADAssessment_ConfigurationRoundTrip) asserts their absence on List and presence on Describe."}
   CreateHybridAD: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "gopherstack-10hx: real input {AssessmentId, SecretArn, Tags} (both required, matching validateOpCreateHybridADInput exactly); real output is {DirectoryId} only -- the fabricated RequestId is gone. AssessmentId must reference an existing, real assessment (adAssessmentGet) with Status==SUCCESS (ErrAssessmentNotFound / ErrInvalidParameter otherwise). Name/ShortName/Description/Edition are NOT real input members (confirmed against types.CreateHybridADInput) -- AWS derives them from the assessment's own AssessmentConfiguration.DnsName, which this backend cannot capture (StartADAssessment doesn't accept AssessmentConfiguration -- see StartADAssessment gap, out of scope for gopherstack-10hx). Rather than fabricate a domain name, this backend snapshots the assessed directory's real Name/ShortName/Description/Edition onto the storedADAssessment record at StartADAssessment time and derives the new hybrid directory from that -- genuinely real, non-invented data, at the cost of CreateHybridAD requiring its AssessmentId to trace back to an existing directory (this backend's only supported assessment mode) rather than AWS's normal directory-less pre-creation assessment. Documented as a deliberate, bounded compromise -- see Notes."}
   UpdateHybridAD: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "gopherstack-10hx: real input {DirectoryId (required) + optional HybridAdministratorAccountUpdate{SecretArn} and/or SelfManagedInstancesSettings{CustomerDnsIps,InstanceIds}, at least one required, matching validateOpUpdateHybridADInput}; real output {AssessmentId, DirectoryId} -- the fabricated RequestId is gone. AssessmentId is now REAL: UpdateHybridAD triggers an actual assessment via the same startADAssessmentLocked path StartADAssessment uses (real, since UpdateHybridAD always targets an existing directory). SelfManagedInstancesSettings now genuinely mutates state: storedDirectory.HybridDNSIPs/HybridInstanceIDs, which DescribeDirectories' HybridSettings now reads (closing that companion gap -- see families). HybridAdministratorAccountUpdate.SecretArn is validated present and discarded, matching the real 'used once and not stored' contract."}
   DescribeHybridADUpdate: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "gopherstack-10hx: real output UpdateActivities{HybridAdministratorAccount: []HybridUpdateInfoEntry, SelfManagedInstances: []HybridUpdateInfoEntry} (types.HybridUpdateActivities), each entry AssessmentId/InitiatedBy/LastUpdatedDateTime/NewValue/PreviousValue/StartTime/Status/StatusReason (NewValue/PreviousValue are HybridUpdateValue{DnsIps,InstanceIds}, omitted when empty matching the real serializer) -- the fabricated flat {RequestId,DirectoryId,Status} list is gone. UpdateType request filter validated against the real enum. NextToken is accepted but this backend returns every matching entry in one page (no cursor pagination modeled) -- SDK-valid (NextToken omitted means no more pages, truthfully) but a real simplification, noted here not hidden."}
   CreateComputer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "AWS has no Describe/List for computer accounts either; not persisting matches the real API's surface"}
   UpdateSettings: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeSettings: {wire: partial, errors: ok, state: ok, persist: ok, note: "LastUpdatedDateTime epoch fix (prior pass). Re-diffed SettingEntry against types.SettingEntry this pass: found a real gap -- Name/AllowedValues/AppliedValue/RequestedValue/LastUpdatedDateTime/Status(->RequestStatus) are covered, but DataType, LastRequestedDateTime, RequestDetailedStatus (a per-region map[string]DirectoryConfigurationStatus), RequestStatusMessage, and Type are real members with no equivalent in storedDirectorySetting at all. Not fixed this pass: DataType/Type are per-known-setting-name metadata (e.g. TLS_1_0 -> DataType=Enum, Type=Protocol) that would require a static lookup table of every real Directory Service setting name, and getting that table wrong would itself be a fabrication risk -- see gaps."}
+  DescribeSettings: {wire: partial, errors: ok, state: ok, persist: ok, note: "LastUpdatedDateTime epoch fix (prior pass). Re-diffed SettingEntry against types.SettingEntry this pass: found a real gap -- Name/AllowedValues/AppliedValue/RequestedValue/LastUpdatedDateTime/Status(->RequestStatus) are covered, but DataType, LastRequestedDateTime, RequestDetailedStatus (a per-region map[string]DirectoryConfigurationStatus), RequestStatusMessage, and Type are real members with no equivalent in storedDirectorySetting at all. Not fixed this pass: DataType/Type are per-known-setting-name metadata (e.g. TLS_1_0 -> DataType=Enum, Type=Protocol) that would require a static lookup table of every real Directory Service setting name, and getting that table wrong would itself be a fabrication risk -- see gaps. gopherstack-6flj (2026-08-15): the prior note's own parenthetical '(->RequestStatus)' correctly named the real field but the code never made that rename -- SettingEntry has NO 'Status' member at all; the response emitted the request-side filter field's name (DescribeSettingsInput.Status) instead of the real response member RequestStatus, so a real client's RequestStatus always decoded to its zero value. Fixed (real key from the wrong side)."}
   UpdateDirectorySetup: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "UpdateType is a required AWS input member but had no presence or enum check; now required + validated against UpdateType (OS/NETWORK/SIZE) -- closes deferred item"}
-  DescribeUpdateDirectory: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartTime/LastUpdatedDateTime epoch fix"}
+  DescribeUpdateDirectory: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartTime/LastUpdatedDateTime epoch fix. gopherstack-6flj (2026-08-15): two more bugs found and fixed. (1) Wrapper key was the fabricated 'UpdateDirectoryInfo', not the real 'UpdateActivities' (DescribeUpdateDirectoryOutput.UpdateActivities) -- silent-empty on every call. (2) Every entry's NewValue/PreviousValue were emitted as flat \"\" strings; the real types.UpdateInfoEntry member type is *types.UpdateValue{OSUpdateSettings}, a nested struct -- a real client's decode hard-failed with a type-mismatch error on every call that returned at least one entry (which is every call after any UpdateDirectorySetup), not just silent-empty. This backend never populates real NewValue/PreviousValue content (always the Go zero value for any UpdateType, not just OS), so both are now omitted rather than fabricated into the nested shape."}
   ResetUserPassword: {wire: ok, errors: ok, state: ok, persist: n/a}
   ConnectDirectory: {wire: FIXED, errors: FIXED, state: FIXED, persist: ok, note: "Real ConnectDirectoryInput requires ConnectSettings{CustomerUserName, VpcId, SubnetIds required; CustomerDnsIps/CustomerDnsIpsV6 optional} -- this backend previously accepted no connect-settings input at all. Now required and validated (InvalidParameterException if CustomerUserName/VpcId/SubnetIds absent), stored, and surfaced via DirectoryDescription.ConnectSettings; see DescribeDirectories note."}
 # Families audited as a group (when per-op is impractical):
@@ -142,6 +160,21 @@ fixed this pass had exactly this shape.
 account to call AcceptSharedDirectory (initial ShareStatus = PendingAcceptance);
 ORGANIZATIONS shares are active immediately (ShareStatus = Shared). The handler defaults
 ShareMethod to "HANDSHAKE" when the request omits it (matches AWS's own default).
+
+2026-08-13 pass (`gopherstack-h910`, required-member sweep pass 5): a required-member miss
+on `EnableCAEnrollmentPolicy` (`PcaConnectorArn` dropped) led to finding
+`DescribeCAEnrollmentPolicy`'s response was a wholly fabricated shape -- a required-member
+miss reliably smells of a wholly wrong shape, exactly as this class of bug has looked
+before. The pre-fix response nested a boolean-derived `EnrollmentStatus` string under a
+`CAEnrollmentPolicy` key that doesn't exist on the real API; the real
+`DescribeCAEnrollmentPolicyOutput` is flat with a six-value status enum
+(`CaEnrollmentPolicyStatus`: InProgress/Success/Failed/Disabling/Disabled/Impaired). Fixed
+both the request and response shape; `CAEnrollmentPolicy`'s persisted representation
+changed from a bare `bool` to a struct carrying `PcaConnectorArn`/`Status`/
+`LastUpdatedDateTime`, so `directoryserviceSnapshotVersion` was bumped 1->2 (an existing
+field's type changed, not a pure addition -- confirmed via
+`pkgs/persistence/snapshotversion_guard_test.go`'s `TestSnapshotVersionGuard`, which
+otherwise refuses exactly this kind of silent-data-loss bump).
 
 Directory lifecycle (Stage enum): Requested → Creating → Active, each transition on its
 own goroutine with a fixed delay (`directoryLifecycleDelay` = 50ms) — this is real state
@@ -352,3 +385,114 @@ reason directoryservice's overall grade remains B" statement) are now closed wit
 data. No new fabrication was introduced closing this gap — every field added round-trips real caller-supplied
 data, and the fields that can't be real were left out rather than invented. See `TestStartADAssessment_ConfigurationValidation`
 and `TestStartADAssessment_ConfigurationRoundTrip` in `handler_ad_assessments_test.go` for the wire-level proof.
+
+## 2026-08-15 pass (`gopherstack-6flj`, wrapper-key / nested-shape sweep)
+
+Full L+D+G sweep: all 25 List/Describe/Get ops (of 80 total, confirmed via `GetSupportedOperations`,
+matching the `_WRAPPER_KEY_SWEEP_REMAINDER.md` ranked table exactly). Protocol confirmed `awsAwsjson11`
+(JSON-RPC 1.1) exclusively, single client (`directoryservice@v1.41.4`, matches `go.mod`) — case-SENSITIVE
+decode. All 453 `strings.EqualFold` hits in `deserializers.go` are `errorCode` matching only (0 in a
+body-field-key switch) — confirmed via `grep -vc 'errorCode)'`. The restjson1 dead-deserializer trap does
+not apply to this protocol family. `sdk_completeness_test.go` plus a direct diff of `GetSupportedOperations`
+against every `api_op_*.go` in the pinned module confirm 0 phantom ops (all 80 real) and 0 missing ops (full
+coverage). Router: `RouteMatcher` dispatches by `X-Amz-Target` header prefix into a flat `map[string]HandlerFunc`
+(`h.dispatch`) keyed by exact op name — structurally immune to the elasticsearch-style "op unreachable at the
+top-level router" class, since there is no path-segment matching to get wrong; not re-verified per-op beyond
+confirming both `opDeleteADAssessment`/`opDescribeADAssessment` are present in the map.
+
+6 real bugs found and fixed, all confirmed against the pinned SDK source with file+line and hand-reverted
+individually to confirm the exact predicted failure before restoring byte-identical (see `wire_field_fixes_test.go`):
+
+1. **`DeleteADAssessment`/`DescribeADAssessment` wrongly required `DirectoryId`** — real
+   `DeleteADAssessmentInput`/`DescribeADAssessmentInput` are `{AssessmentId}` only (assessment IDs are
+   globally addressable, not directory-scoped). Every real typed client's Delete/Describe call was rejected
+   outright by this handler's own validation before ever reaching the backend — a total op failure, not
+   silent-empty. `DeleteADAssessment` used the generic `handleTwoFieldOp` helper (which always requires
+   `DirectoryId`), wrong for this one op; `DescribeADAssessment` had its own bespoke but equally wrong check.
+2. **`DescribeADAssessment`/`ListADAssessments` wrapper keys were fabricated** — `"ADAssessment"`/
+   `"ADAssessments"` instead of the real `DescribeADAssessmentOutput.Assessment`/`ListADAssessmentsOutput.Assessments`.
+   Even a request that got past bug 1 would have decoded to nil/empty on every call.
+3. **`RegisterCertificate` discarded `ClientCertAuthSettings.OCSPUrl` entirely** — a real, optional
+   `RegisterCertificateInput` member (`types.ClientCertAuthSettings`) with no equivalent field anywhere in
+   this backend (not just unemitted — genuinely untracked). Now captured, persisted (`storedCertificate.OCSPUrl`,
+   `CertDetail.OCSPUrl`), and echoed on `DescribeCertificate`'s `Certificate.ClientCertAuthSettings`.
+4. **`DescribeUpdateDirectory` wrapper key was fabricated, and its per-item shape was wire-breaking** —
+   `"UpdateDirectoryInfo"` instead of the real `DescribeUpdateDirectoryOutput.UpdateActivities` (silent-empty).
+   Separately, every entry emitted `NewValue`/`PreviousValue` as flat `""` strings; the real
+   `types.UpdateInfoEntry` member type is `*types.UpdateValue{OSUpdateSettings}`, a nested struct — a real
+   client's decode hard-FAILED with a JSON type-mismatch error on every call that returned at least one entry
+   (i.e. every call after any `UpdateDirectorySetup`), not just silent-empty. This backend never populates real
+   `NewValue`/`PreviousValue` content for any `UpdateType` (always the Go zero value), so both are now omitted
+   entirely rather than fabricated into the nested shape.
+5. **`DescribeSettings`' `SettingEntry` emitted the request-side filter field's name** — `"Status"` (matching
+   `DescribeSettingsInput.Status`, a real but different field) instead of the real response member
+   `SettingEntry.RequestStatus` (real `SettingEntry` has no `Status` member at all). A real client's
+   `RequestStatus` field silently decoded to its zero value on every call. Sixth instance of this campaign's
+   "real key from the wrong side" pattern.
+6. **`AcceptSharedDirectory` returned only `{SharedDirectoryId}`** — the real `AcceptSharedDirectoryOutput.SharedDirectory`
+   is a full `types.SharedDirectory` object, the exact same shape its sibling `DescribeSharedDirectories`
+   already emitted correctly (every field, confirmed clean). Every other field (`OwnerDirectoryId`,
+   `OwnerAccountId`, `SharedAccountId`, `ShareMethod`, `ShareStatus`, `ShareNotes`, `CreatedDateTime`,
+   `LastUpdatedDateTime`) silently decoded to nil/zero on a real client. Fixed by sharing the same
+   field-mapping helper (`toSharedDirInfo`) `DescribeSharedDirectories` already used — the correct sibling sat
+   right beside the broken one, matching this campaign's recurring pattern.
+
+**Disclosed, not fixed** (1): `DescribeLDAPSSettings`'s `LDAPSType`/`CertificateId`/`CertificateExpiryDateTime`
+are NOT real `types.LDAPSSettingInfo` members at all (the real shape is exactly `{LDAPSStatus,
+LDAPSStatusReason, LastUpdatedDateTime}`) — left in place rather than removed, since no sensitive data is
+involved and a real client simply ignores unknown JSON fields; removing them buys nothing testable. Per this
+campaign's own precedent (elasticsearch, rekognition passes), extra harmless fields are disclosed, not stripped.
+`LDAPSStatusReason` (real, optional) is genuinely absent — this backend tracks no LDAPS state-change reason.
+
+**Real-data-leak sweep** (this service holds AD credentials and trust passwords, called out explicitly for this
+pass): no leak found. `Password`/`TrustPassword`/`NewPassword` request fields are read only for backend
+invocation, never placed into any `map[string]any` response body (grepped every call site). `TrustPassword` is
+accepted on `CreateTrust` and never echoed by `DescribeTrusts` (matches AWS's own real behavior — the real
+`types.Trust` has no password member either). `SecretArn` (`CreateHybridAD`/`UpdateHybridAD`, a real Secrets
+Manager ARN) is genuinely "used once and not stored" per its own doc comment and never appears in any Describe
+response (matches the real API — `types.HybridUpdateInfoEntry` has no `SecretArn` member). `PcaConnectorArn`
+(`DescribeCAEnrollmentPolicy`) is a real, intentional response member, not a leak. No environment-variable- or
+KMS-ARN-shaped fields exist anywhere in this service's surface.
+
+**Siblings checked and confirmed already correct** (full per-op wrapper-key diff against each op's own real
+`Output` struct, not assumed from a passing family): `DescribeDirectories`/`GetDirectoryLimits`/`DescribeSnapshots`/
+`GetSnapshotLimits`/`ListTagsForResource`/`DescribeCAEnrollmentPolicy`/`DescribeClientAuthenticationSettings`/
+`DescribeConditionalForwarders`/`DescribeDirectoryDataAccess`/`DescribeDomainControllers`/`DescribeEventTopics`/
+`DescribeHybridADUpdate`/`DescribeRegions`/`DescribeSharedDirectories`/`DescribeTrusts`/`ListCertificates`/
+`ListIpRoutes`/`ListLogSubscriptions`/`ListSchemaExtensions` — all 19 hold their real wrapper key and real
+per-item member set (each individually diffed against its own `types.go` struct, e.g. confirmed `EventTopic`'s
+`{CreatedDateTime,DirectoryId,Status,TopicArn,TopicName}` is the full real member set with nothing missing or
+extra). `InboundConnection`-style "sibling already correct beside a broken op" pattern repeated exactly:
+`DescribeSharedDirectories` was the correct sibling sitting right beside the broken `AcceptSharedDirectory`.
+
+No discarded inputs found beyond `RegisterCertificate`'s `ClientCertAuthSettings.OCSPUrl` (bug 3). No struct
+retagged this pass doubles as a persistence DTO in a way that risked breaking snapshot/restore — `storedCertificate`
+(the `OCSPUrl` addition) *is* the persistence DTO, and the addition is a pure field addition (not a retag/removal),
+confirmed safe by `TestInMemoryBackend_SnapshotRestore_FullState` round-tripping the new field. No phantom ops
+(0 among all 80; confirmed against every `api_op_*.go` in the pinned module, not just the L+D+G subset). Every
+prior audit this file records (`h910`, `10hx` and its two follow-ups, the 2026-07-23/2026-08-13 passes) covered
+the ops its own notes claim — none of the 6 bugs above fall in an op any prior pass's notes claimed to have
+checked; all 6 are in the ops those passes' field-diffs treated as `ok`/`wire: ok` on the strength of a member-set
+diff that never checked the wrapper key or which request members were actually required.
+
+Real-client test ratio before this pass: 1 file (`handler_ca_enrollment_sdk_test.go`, 2 tests) out of 80 ops.
+Added `wire_field_fixes_test.go`: 5 new real-SDK-client tests (`TestADAssessment_RealClientRoundTrip`,
+`TestRegisterCertificate_OCSPUrl_RoundTrip`, `TestDescribeUpdateDirectory_RealClientRoundTrip`,
+`TestDescribeSettings_RequestStatus_RealClientRoundTrip`, `TestAcceptSharedDirectory_RealClientRoundTrip`), each
+driven through `newTestDirectoryServiceClient`'s full `service.NewServiceRouter`/`RouteHandler` stack (not just
+`h.ServeHTTP` directly), and each hand-reverted individually against the fix it covers to confirm the exact
+predicted failure before restoring byte-identical. One existing raw-body test strengthened after finding it
+could not fail against the unfixed code: `TestSharedDirectories`'s Accept step previously asserted only HTTP 200,
+never the response body — now asserts every `SharedDirectory` field.
+
+Gates: full `go build ./...` (mandatory — `DeleteADAssessment`/`DescribeADAssessment`/`RegisterCertificate`/
+`AcceptSharedDirectory` interface+backend signatures all changed; clean, no other package references this
+service's backend directly), `go vet` (scoped + full `./...`), `go test -race` (scoped + `./pkgs/...`),
+`go fix -diff` (no diff), `gofmt -l` (clean), `golangci-lint run ./services/directoryservice/...` (0 issues —
+2 `goconst`/`nolintlint` findings from introducing a new `keyCreatedDateTime` constant and 1 `fieldalignment`
+finding on `RegisterCertificate`'s new request struct, all fixed by hand, not `-fix`, per this campaign's
+documented `fieldalignment -fix` nolint-stripping hazard). 0 `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints
+added (grep-confirmed). No subagents used (Read/Grep/Bash/Edit only, per this session's hard constraint). No
+git-mutating commands run — orchestrator must commit/push. `git status` re-checked before every edit batch; a
+sibling session was live on `services/opsworks/` throughout (confirmed via its own file changes appearing and
+later disappearing in `git status`) — only `services/directoryservice/*` files were ever touched by this pass.

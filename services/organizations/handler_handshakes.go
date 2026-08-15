@@ -3,6 +3,7 @@ package organizations
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -22,10 +23,6 @@ type declineHandshakeRequest struct {
 }
 
 type describeHandshakeRequest struct {
-	HandshakeID string `json:"HandshakeId"`
-}
-
-type describeResponsibilityTransferRequest struct {
 	HandshakeID string `json:"HandshakeId"`
 }
 
@@ -67,8 +64,43 @@ type describeHandshakeResponse struct {
 	Handshake handshakeObject `json:"Handshake"`
 }
 
+// -- ResponsibilityTransfer wire shape --
+//
+// Distinct from handshakeObject: types.ResponsibilityTransfer
+// (awsAwsjson11_deserializeDocumentResponsibilityTransfer, deserializers.go)
+// is its own shape, not a Handshake, with its own field set
+// (ActiveHandshakeId/Arn/EndTimestamp/Id/Name/Source/StartTimestamp/Status/
+// Target/Type). The response envelope key is "ResponsibilityTransfer"
+// (singular, Describe/Terminate/Update -- deserializeOpDocument*Output) or
+// "ResponsibilityTransfers" (plural array, the two List ops), never
+// "HandshakeDetails".
+
+type transferParticipantObject struct {
+	ManagementAccountID    string `json:"ManagementAccountId,omitempty"`
+	ManagementAccountEmail string `json:"ManagementAccountEmail,omitempty"`
+}
+
+type responsibilityTransferObject struct {
+	EndTimestamp      *float64                   `json:"EndTimestamp,omitempty"`
+	Source            *transferParticipantObject `json:"Source,omitempty"`
+	Target            *transferParticipantObject `json:"Target,omitempty"`
+	ActiveHandshakeID string                     `json:"ActiveHandshakeId,omitempty"`
+	ARN               string                     `json:"Arn,omitempty"`
+	ID                string                     `json:"Id,omitempty"`
+	Name              string                     `json:"Name,omitempty"`
+	Status            string                     `json:"Status,omitempty"`
+	Type              string                     `json:"Type,omitempty"`
+	StartTimestamp    float64                    `json:"StartTimestamp"`
+}
+
+// -- DescribeResponsibilityTransfer --
+
+type describeResponsibilityTransferRequest struct {
+	ID string `json:"Id"`
+}
+
 type describeResponsibilityTransferResponse struct {
-	HandshakeDetails handshakeObject `json:"HandshakeDetails"`
+	ResponsibilityTransfer responsibilityTransferObject `json:"ResponsibilityTransfer"`
 }
 
 // -- EnableAllFeatures --
@@ -119,44 +151,61 @@ type listHandshakesForOrganizationResponse struct {
 
 // -- ListInboundResponsibilityTransfers --
 
+type listInboundResponsibilityTransfersRequest struct {
+	Type       string `json:"Type"`
+	ID         string `json:"Id,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
+}
+
 type listInboundResponsibilityTransfersResponse struct {
-	NextToken               string            `json:"NextToken,omitempty"`
-	ResponsibilityTransfers []handshakeObject `json:"ResponsibilityTransfers"`
+	NextToken               string                         `json:"NextToken,omitempty"`
+	ResponsibilityTransfers []responsibilityTransferObject `json:"ResponsibilityTransfers"`
 }
 
 // -- ListOutboundResponsibilityTransfers --
 
+type listOutboundResponsibilityTransfersRequest struct {
+	Type       string `json:"Type"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
+}
+
 type listOutboundResponsibilityTransfersResponse struct {
-	NextToken               string            `json:"NextToken,omitempty"`
-	ResponsibilityTransfers []handshakeObject `json:"ResponsibilityTransfers"`
+	NextToken               string                         `json:"NextToken,omitempty"`
+	ResponsibilityTransfers []responsibilityTransferObject `json:"ResponsibilityTransfers"`
 }
 
 // -- TerminateResponsibilityTransfer --
 
 type terminateResponsibilityTransferRequest struct {
-	HandshakeID string `json:"HandshakeId"`
+	EndTimestamp *float64 `json:"EndTimestamp,omitempty"`
+	ID           string   `json:"Id"`
 }
 
 type terminateResponsibilityTransferResponse struct {
-	HandshakeDetails handshakeObject `json:"HandshakeDetails"`
+	ResponsibilityTransfer responsibilityTransferObject `json:"ResponsibilityTransfer"`
 }
 
 // -- UpdateResponsibilityTransfer --
 
 type updateResponsibilityTransferRequest struct {
-	HandshakeID string `json:"HandshakeId"`
-	Action      string `json:"Action"`
+	ID   string `json:"Id"`
+	Name string `json:"Name"`
 }
 
 type updateResponsibilityTransferResponse struct {
-	HandshakeDetails handshakeObject `json:"HandshakeDetails"`
+	ResponsibilityTransfer responsibilityTransferObject `json:"ResponsibilityTransfer"`
 }
 
 // -- InviteOrganizationToTransferResponsibility --
 
 type inviteOrganizationToTransferResponsibilityRequest struct {
-	Target HandshakeParty `json:"Target"`
-	Notes  string         `json:"Notes,omitempty"`
+	Target         HandshakeParty `json:"Target"`
+	SourceName     string         `json:"SourceName"`
+	Type           string         `json:"Type"`
+	Notes          string         `json:"Notes,omitempty"`
+	StartTimestamp float64        `json:"StartTimestamp"`
 }
 
 type inviteOrganizationToTransferResponsibilityResponse struct {
@@ -291,16 +340,19 @@ func (h *Handler) handleDescribeResponsibilityTransfer(c *echo.Context, body []b
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	if req.HandshakeID == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	if req.ID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Id is required")
 	}
 
-	hs, err := h.Backend.DescribeResponsibilityTransfer(req.HandshakeID)
+	rt, err := h.Backend.DescribeResponsibilityTransfer(req.ID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, describeResponsibilityTransferResponse{HandshakeDetails: toHandshakeObject(hs)})
+	return c.JSON(
+		http.StatusOK,
+		describeResponsibilityTransferResponse{ResponsibilityTransfer: toResponsibilityTransferObject(rt)},
+	)
 }
 
 func (h *Handler) handleEnableAllFeatures(c *echo.Context, _ []byte) error {
@@ -340,7 +392,26 @@ func (h *Handler) handleInviteOrganizationToTransferResponsibility(c *echo.Conte
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Target.Id is required")
 	}
 
-	hs, err := h.Backend.InviteOrganizationToTransferResponsibility(req.Target, req.Notes)
+	if req.SourceName == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "SourceName is required")
+	}
+
+	if req.StartTimestamp == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "StartTimestamp is required")
+	}
+
+	if req.Type == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Type is required")
+	}
+
+	params := TransferResponsibilityParams{
+		SourceName:     req.SourceName,
+		StartTimestamp: time.Unix(int64(req.StartTimestamp), 0).UTC(),
+		Type:           req.Type,
+		Notes:          req.Notes,
+	}
+
+	hs, err := h.Backend.InviteOrganizationToTransferResponsibility(req.Target, params)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -408,32 +479,64 @@ func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []by
 	return c.JSON(http.StatusOK, listHandshakesForOrganizationResponse{Handshakes: p.Data, NextToken: p.Next})
 }
 
-func (h *Handler) handleListInboundResponsibilityTransfers(c *echo.Context, _ []byte) error {
-	handshakes, err := h.Backend.ListInboundResponsibilityTransfers()
+func (h *Handler) handleListInboundResponsibilityTransfers(c *echo.Context, body []byte) error {
+	var req listInboundResponsibilityTransfersRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+		}
+	}
+
+	if req.Type == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Type is required")
+	}
+
+	transfers, err := h.Backend.ListInboundResponsibilityTransfers(req.Type, req.ID)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
-	objs := make([]handshakeObject, 0, len(handshakes))
-	for _, hs := range handshakes {
-		objs = append(objs, toHandshakeObject(hs))
+	objs := make([]responsibilityTransferObject, 0, len(transfers))
+	for _, rt := range transfers {
+		objs = append(objs, toResponsibilityTransferObject(rt))
 	}
 
-	return c.JSON(http.StatusOK, listInboundResponsibilityTransfersResponse{ResponsibilityTransfers: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(
+		http.StatusOK,
+		listInboundResponsibilityTransfersResponse{ResponsibilityTransfers: p.Data, NextToken: p.Next},
+	)
 }
 
-func (h *Handler) handleListOutboundResponsibilityTransfers(c *echo.Context, _ []byte) error {
-	handshakes, err := h.Backend.ListOutboundResponsibilityTransfers()
+func (h *Handler) handleListOutboundResponsibilityTransfers(c *echo.Context, body []byte) error {
+	var req listOutboundResponsibilityTransfersRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+		}
+	}
+
+	if req.Type == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Type is required")
+	}
+
+	transfers, err := h.Backend.ListOutboundResponsibilityTransfers(req.Type)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
-	objs := make([]handshakeObject, 0, len(handshakes))
-	for _, hs := range handshakes {
-		objs = append(objs, toHandshakeObject(hs))
+	objs := make([]responsibilityTransferObject, 0, len(transfers))
+	for _, rt := range transfers {
+		objs = append(objs, toResponsibilityTransferObject(rt))
 	}
 
-	return c.JSON(http.StatusOK, listOutboundResponsibilityTransfersResponse{ResponsibilityTransfers: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(
+		http.StatusOK,
+		listOutboundResponsibilityTransfersResponse{ResponsibilityTransfers: p.Data, NextToken: p.Next},
+	)
 }
 
 func (h *Handler) handleTerminateResponsibilityTransfer(c *echo.Context, body []byte) error {
@@ -442,16 +545,25 @@ func (h *Handler) handleTerminateResponsibilityTransfer(c *echo.Context, body []
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	if req.HandshakeID == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	if req.ID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Id is required")
 	}
 
-	hs, err := h.Backend.TerminateResponsibilityTransfer(req.HandshakeID)
+	var endTimestamp *time.Time
+	if req.EndTimestamp != nil {
+		t := time.Unix(int64(*req.EndTimestamp), 0).UTC()
+		endTimestamp = &t
+	}
+
+	rt, err := h.Backend.TerminateResponsibilityTransfer(req.ID, endTimestamp)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, terminateResponsibilityTransferResponse{HandshakeDetails: toHandshakeObject(hs)})
+	return c.JSON(
+		http.StatusOK,
+		terminateResponsibilityTransferResponse{ResponsibilityTransfer: toResponsibilityTransferObject(rt)},
+	)
 }
 
 func (h *Handler) handleUpdateResponsibilityTransfer(c *echo.Context, body []byte) error {
@@ -460,20 +572,59 @@ func (h *Handler) handleUpdateResponsibilityTransfer(c *echo.Context, body []byt
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	if req.HandshakeID == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "HandshakeId is required")
+	if req.ID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Id is required")
 	}
 
-	if req.Action == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Action is required")
+	if req.Name == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Name is required")
 	}
 
-	hs, err := h.Backend.UpdateResponsibilityTransfer(req.HandshakeID, req.Action)
+	rt, err := h.Backend.UpdateResponsibilityTransfer(req.ID, req.Name)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, updateResponsibilityTransferResponse{HandshakeDetails: toHandshakeObject(hs)})
+	return c.JSON(
+		http.StatusOK,
+		updateResponsibilityTransferResponse{ResponsibilityTransfer: toResponsibilityTransferObject(rt)},
+	)
+}
+
+// ----------------------------------------
+// ResponsibilityTransfer conversion helpers
+// ----------------------------------------
+
+func toTransferParticipantObject(p TransferParticipant) *transferParticipantObject {
+	if p.ManagementAccountID == "" && p.ManagementAccountEmail == "" {
+		return nil
+	}
+
+	return &transferParticipantObject{
+		ManagementAccountID:    p.ManagementAccountID,
+		ManagementAccountEmail: p.ManagementAccountEmail,
+	}
+}
+
+func toResponsibilityTransferObject(rt *ResponsibilityTransfer) responsibilityTransferObject {
+	obj := responsibilityTransferObject{
+		ActiveHandshakeID: rt.ActiveHandshakeID,
+		ARN:               rt.ARN,
+		ID:                rt.ID,
+		Name:              rt.Name,
+		Source:            toTransferParticipantObject(rt.Source),
+		StartTimestamp:    epochSeconds(rt.StartTimestamp),
+		Status:            rt.Status,
+		Target:            toTransferParticipantObject(rt.Target),
+		Type:              rt.Type,
+	}
+
+	if !rt.EndTimestamp.IsZero() {
+		end := epochSeconds(rt.EndTimestamp)
+		obj.EndTimestamp = &end
+	}
+
+	return obj
 }
 
 // ----------------------------------------

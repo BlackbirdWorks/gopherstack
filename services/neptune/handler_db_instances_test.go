@@ -929,20 +929,137 @@ func TestDescribeOrderableDBInstanceOptions_MoreOptions(t *testing.T) {
 	assert.Contains(t, body, "db.r5.4xlarge")
 }
 
-// TestDescribeValidDBInstanceModifications_HasClasses verifies valid instance classes returned.
-func TestDescribeValidDBInstanceModifications_HasClasses(t *testing.T) {
+// TestDescribeOrderableDBInstanceOptions_Filters proves the Engine/EngineVersion/
+// DBInstanceClass request filters actually narrow the static catalog instead of
+// always returning every row regardless of what was asked for.
+func TestDescribeOrderableDBInstanceOptions_Filters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals            url.Values
+		name            string
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name: "instance_class_filter_narrows",
+			vals: url.Values{
+				"Action":          {"DescribeOrderableDBInstanceOptions"},
+				"Version":         {"2014-10-31"},
+				"DBInstanceClass": {"db.t3.medium"},
+			},
+			wantContains:    []string{"db.t3.medium"},
+			wantNotContains: []string{"db.r5.large", "db.r6g.large"},
+		},
+		{
+			name: "engine_version_filter_narrows",
+			vals: url.Values{
+				"Action":        {"DescribeOrderableDBInstanceOptions"},
+				"Version":       {"2014-10-31"},
+				"EngineVersion": {"1.4.0.0"},
+			},
+			wantContains:    []string{"1.4.0.0"},
+			wantNotContains: []string{"1.2.0.0", "1.3.0.0"},
+		},
+		{
+			name: "unknown_engine_returns_empty",
+			vals: url.Values{
+				"Action":  {"DescribeOrderableDBInstanceOptions"},
+				"Version": {"2014-10-31"},
+				"Engine":  {"mysql"},
+			},
+			wantNotContains: []string{"db.t3.medium", "db.r5.large", "OrderableDBInstanceOption>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rr := doRequest(t, h, tt.vals)
+			require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+			body := rr.Body.String()
+			for _, want := range tt.wantContains {
+				assert.Contains(t, body, want)
+			}
+			for _, notWant := range tt.wantNotContains {
+				assert.NotContains(t, body, notWant)
+			}
+		})
+	}
+}
+
+// TestDescribeValidDBInstanceModifications_RequiresRealInstance proves
+// DBInstanceIdentifier -- a required input on this op -- is now genuinely
+// validated: missing or unknown identifiers are rejected instead of silently
+// answering 200 with fabricated data (reverting the handler's existence check
+// makes this fail).
+func TestDescribeValidDBInstanceModifications_RequiresRealInstance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "missing_identifier",
+			vals: url.Values{
+				"Action":  {"DescribeValidDBInstanceModifications"},
+				"Version": {"2014-10-31"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBInstanceNotFound",
+		},
+		{
+			name: "unknown_identifier",
+			vals: url.Values{
+				"Action":               {"DescribeValidDBInstanceModifications"},
+				"Version":              {"2014-10-31"},
+				"DBInstanceIdentifier": {"does-not-exist"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBInstanceNotFound",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rr := doRequest(t, h, tt.vals)
+			require.Equal(t, tt.wantStatus, rr.Code, rr.Body.String())
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+// TestDescribeValidDBInstanceModifications_RealInstance proves a real
+// instance's identifier is accepted and the response uses the real
+// ValidDBInstanceModificationsMessage.Storage wire shape, not the previous
+// fabricated ValidProcessorFeatures/DB-instance-class list (which used an
+// XML element name the real SDK deserializer never recognizes).
+func TestDescribeValidDBInstanceModifications_RealInstance(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	createCluster(t, h, "vdim-cluster")
+	createInstance(t, h, "vdim-instance", "vdim-cluster")
+
 	rr := doRequest(t, h, url.Values{
 		"Action":               {"DescribeValidDBInstanceModifications"},
 		"Version":              {"2014-10-31"},
-		"DBInstanceIdentifier": {"some-instance"},
+		"DBInstanceIdentifier": {"vdim-instance"},
 	})
-	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	body := rr.Body.String()
-	assert.Contains(t, body, "db.r5.large")
-	assert.Contains(t, body, "db.r6g.large")
+	assert.Contains(t, body, "DescribeValidDBInstanceModificationsResponse")
+	assert.Contains(t, body, "ValidDBInstanceModificationsMessage")
+	assert.NotContains(t, body, "ValidProcessorFeatures")
+	assert.NotContains(t, body, "db.r5.large")
 }
 
 // TestInstanceEngineVersionInheritsFromCluster verifies instance engine version from cluster.
@@ -962,6 +1079,67 @@ func TestInstanceEngineVersionInheritsFromCluster(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "<EngineVersion>")
 	assert.Contains(t, rr.Body.String(), "1.3.0.0")
+}
+
+// TestCreateDBInstance_Engine proves a non-"neptune" Engine value is rejected
+// instead of being silently dropped and ignored (reverting the handler's
+// Engine check makes the "wrong_engine_rejected" case fail).
+func TestCreateDBInstance_Engine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		id           string
+		engine       string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:         "omitted_engine_accepted",
+			id:           "engine-inst-omitted",
+			engine:       "",
+			wantStatus:   http.StatusOK,
+			wantContains: "<Engine>neptune</Engine>",
+		},
+		{
+			name:         "correct_engine_accepted",
+			id:           "engine-inst-correct",
+			engine:       "neptune",
+			wantStatus:   http.StatusOK,
+			wantContains: "<Engine>neptune</Engine>",
+		},
+		{
+			name:         "wrong_engine_rejected",
+			id:           "engine-inst-wrong",
+			engine:       "mysql",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createCluster(t, h, "engine-cluster-"+tt.id)
+
+			vals := url.Values{
+				"Action":               {"CreateDBInstance"},
+				"Version":              {"2014-10-31"},
+				"DBInstanceIdentifier": {tt.id},
+				"DBClusterIdentifier":  {"engine-cluster-" + tt.id},
+				"DBInstanceClass":      {"db.r5.large"},
+			}
+			if tt.engine != "" {
+				vals.Set("Engine", tt.engine)
+			}
+
+			rr := doRequest(t, h, vals)
+			require.Equal(t, tt.wantStatus, rr.Code, rr.Body.String())
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
 }
 
 // TestInstanceHasMaintenanceWindow verifies PreferredMaintenanceWindow is returned.
@@ -994,20 +1172,6 @@ func TestDescribePendingMaintenanceActions(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	assert.Contains(t, rr.Body.String(), "DescribePendingMaintenanceActionsResponse")
-}
-
-func TestDescribeValidDBInstanceModifications(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rr := doRequest(t, h, url.Values{
-		"Action":  {"DescribeValidDBInstanceModifications"},
-		"Version": {"2014-10-31"},
-	})
-	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
-	assert.Contains(t, rr.Body.String(), "DescribeValidDBInstanceModificationsResponse")
-	assert.Contains(t, rr.Body.String(), "db.r5.large")
-	assert.Contains(t, rr.Body.String(), "db.r6g.large")
 }
 
 // TestDescribeDBInstances_ByID tests single-instance lookup.

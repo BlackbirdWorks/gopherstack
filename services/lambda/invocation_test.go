@@ -521,7 +521,7 @@ func TestHandleInvokeAsync_Returns202Immediately(t *testing.T) {
 
 			rec := callParityHandler(t, h,
 				http.MethodPost,
-				"/2014-11-13/functions/"+tt.functionName+"/invoke-async/",
+				"/2014-11-13/functions/"+tt.functionName+"/invoke-async",
 				`{"key":"value"}`,
 			)
 

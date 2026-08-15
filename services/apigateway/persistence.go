@@ -21,7 +21,10 @@ import (
 // against the persisted value and discards (rather than attempts to
 // partially decode) any mismatch -- see Restore below. Mirrors the
 // services/sqs pilot (commit 0f09d77c) and services/ec2 (commit 12e611a4).
-const apigatewaySnapshotVersion = 2
+//
+// Do NOT bump for an additive omitempty field: an old snapshot still decodes,
+// and a bump silently discards every persisted snapshot on upgrade.
+const apigatewaySnapshotVersion = 1
 
 // resourceSnapshot, deploymentSnapshot, stageSnapshot, authorizerSnapshot,
 // requestValidatorSnapshot, documentationPartSnapshot,
@@ -72,10 +75,11 @@ func fromResourceSnapshot(v *resourceSnapshot) *Resource {
 }
 
 type deploymentSnapshot struct {
-	CreatedDate unixEpochTime `json:"createdDate"`
-	ID          string        `json:"id"`
-	RestAPIID   string        `json:"restApiId"`
-	Description string        `json:"description,omitempty"`
+	APISummary  map[string]map[string]MethodSnapshot `json:"apiSummary,omitempty"`
+	CreatedDate unixEpochTime                        `json:"createdDate"`
+	ID          string                               `json:"id"`
+	RestAPIID   string                               `json:"restApiId"`
+	Description string                               `json:"description,omitempty"`
 }
 
 func deploymentSnapshotKey(v *deploymentSnapshot) string { return deploymentKey(v.RestAPIID, v.ID) }
@@ -86,6 +90,7 @@ func toDeploymentSnapshot(v *Deployment) *deploymentSnapshot {
 		RestAPIID:   v.RestAPIID,
 		Description: v.Description,
 		CreatedDate: v.CreatedDate,
+		APISummary:  v.APISummary,
 	}
 }
 
@@ -95,6 +100,7 @@ func fromDeploymentSnapshot(v *deploymentSnapshot) *Deployment {
 		RestAPIID:   v.RestAPIID,
 		Description: v.Description,
 		CreatedDate: v.CreatedDate,
+		APISummary:  v.APISummary,
 	}
 }
 
@@ -115,6 +121,7 @@ type stageSnapshot struct {
 	CacheClusterStatus   string                   `json:"cacheClusterStatus,omitempty"`
 	InvokeURL            string                   `json:"invokeUrl,omitempty"`
 	DocumentationVersion string                   `json:"documentationVersion,omitempty"`
+	WebACLARN            string                   `json:"webAclArn,omitempty"`
 	TracingEnabled       bool                     `json:"tracingEnabled,omitempty"`
 	CacheClusterEnabled  bool                     `json:"cacheClusterEnabled,omitempty"`
 }
@@ -139,6 +146,7 @@ func toStageSnapshot(v *Stage) *stageSnapshot {
 		CacheClusterStatus:   v.CacheClusterStatus,
 		InvokeURL:            v.InvokeURL,
 		DocumentationVersion: v.DocumentationVersion,
+		WebACLARN:            v.WebACLARN,
 		TracingEnabled:       v.TracingEnabled,
 		CacheClusterEnabled:  v.CacheClusterEnabled,
 	}
@@ -162,6 +170,7 @@ func fromStageSnapshot(v *stageSnapshot) *Stage {
 		CacheClusterStatus:   v.CacheClusterStatus,
 		InvokeURL:            v.InvokeURL,
 		DocumentationVersion: v.DocumentationVersion,
+		WebACLARN:            v.WebACLARN,
 		TracingEnabled:       v.TracingEnabled,
 		CacheClusterEnabled:  v.CacheClusterEnabled,
 	}
@@ -175,6 +184,7 @@ type authorizerSnapshot struct {
 	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
 	IdentitySource               string   `json:"identitySource,omitempty"`
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	AuthType                     string   `json:"authType,omitempty"`
 	RestAPIID                    string   `json:"restApiId"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
@@ -191,6 +201,7 @@ func toAuthorizerSnapshot(v *Authorizer) *authorizerSnapshot {
 		AuthorizerCredentials:        v.AuthorizerCredentials,
 		IdentitySource:               v.IdentitySource,
 		IdentityValidationExpression: v.IdentityValidationExpression,
+		AuthType:                     v.AuthType,
 		ProviderARNs:                 v.ProviderARNs,
 		RestAPIID:                    v.RestAPIID,
 		AuthorizerResultTTLInSeconds: v.AuthorizerResultTTLInSeconds,
@@ -206,6 +217,7 @@ func fromAuthorizerSnapshot(v *authorizerSnapshot) *Authorizer {
 		AuthorizerCredentials:        v.AuthorizerCredentials,
 		IdentitySource:               v.IdentitySource,
 		IdentityValidationExpression: v.IdentityValidationExpression,
+		AuthType:                     v.AuthType,
 		ProviderARNs:                 v.ProviderARNs,
 		RestAPIID:                    v.RestAPIID,
 		AuthorizerResultTTLInSeconds: v.AuthorizerResultTTLInSeconds,

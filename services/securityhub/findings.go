@@ -289,8 +289,7 @@ func matchesFindingFilters(finding, filters map[string]any) bool {
 	// "Type" wire field in recordFindingHistory (see its nolint comment).
 	for _, fieldKey := range []string{
 		keyAwsAccountID, "GeneratorId", keyTitle, keyDescription,
-		"RecordState", "WorkflowStatus", "SeverityLabel", "ComplianceStatus",
-		"Type", "ResourceType", "ResourceId", //nolint:goconst // see comment above
+		"RecordState", "Type", "ResourceType", "ResourceId", //nolint:goconst // see comment above
 	} {
 		fVal, _ := finding[fieldKey].(string)
 		if !matchesStringFilter(fVal, filters[fieldKey]) {
@@ -298,7 +297,59 @@ func matchesFindingFilters(finding, filters map[string]any) bool {
 		}
 	}
 
+	// SeverityLabel/WorkflowStatus/ComplianceStatus are filter names for values
+	// nested under the finding's Severity.Label/Workflow.Status/Compliance.Status
+	// objects (securityhub@v1.75.4 types/types.go AwsSecurityFinding), not flat
+	// top-level finding fields.
+	for _, fieldKey := range findingNestedFilterFields {
+		if !matchesStringFilter(findingFieldString(finding, fieldKey), filters[fieldKey]) {
+			return false
+		}
+	}
+
 	return true
+}
+
+// findingNestedFilterFields are the finding filter/group-by field names that
+// findingFieldString resolves from a nested location rather than a flat key.
+var findingNestedFilterFields = []string{ //nolint:gochecknoglobals // read-only lookup data
+	keyFilterSeverityLabel, keyFilterWorkflowStatus, keyFilterComplianceStatus,
+}
+
+// findingFieldString resolves an ASFF finding-filter/group-by field name to
+// its string value on finding. SeverityLabel/WorkflowStatus/ComplianceStatus
+// name values nested under the finding's Severity.Label/Workflow.Status/
+// Compliance.Status objects (securityhub@v1.75.4 types/types.go
+// AwsSecurityFinding) -- BatchImportFindings/BatchUpdateFindings never write
+// a flat key by those names, so a literal finding[key] lookup always saw ""
+// and could never match a real filter or group-by value. Every other key is
+// a real flat top-level ASFF field, looked up directly.
+func findingFieldString(finding map[string]any, key string) string {
+	switch key {
+	case keyFilterSeverityLabel:
+		return nestedFindingString(finding, "Severity", "Label")
+	case keyFilterWorkflowStatus:
+		return nestedFindingString(finding, "Workflow", "Status")
+	case keyFilterComplianceStatus:
+		return nestedFindingString(finding, "Compliance", "Status")
+	default:
+		s, _ := finding[key].(string)
+
+		return s
+	}
+}
+
+// nestedFindingString reads finding[outer][inner] as a string, returning ""
+// if outer is absent or not an object, or inner is absent or not a string.
+func nestedFindingString(finding map[string]any, outer, inner string) string {
+	obj, ok := finding[outer].(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	s, _ := obj[inner].(string)
+
+	return s
 }
 
 // compareStringFilter evaluates one SecurityHub StringFilter comparison,
@@ -596,59 +647,118 @@ func parseHistoryTime(s string) (time.Time, bool) {
 	return t, true
 }
 
-func (b *InMemoryBackend) GetFindingStatisticsV2(groupByAttributes []string) []map[string]any {
+func (b *InMemoryBackend) GetFindingStatisticsV2(groupByFields []string) []map[string]any {
 	b.mu.RLock("GetFindingStatisticsV2")
 	defer b.mu.RUnlock()
 
-	type key struct{ attr, val string }
-	counts := make(map[key]int)
-
-	for _, finding := range b.findings {
-		for _, attr := range groupByAttributes {
-			val := ""
-			if v, ok := finding[attr]; ok {
-				val = fmt.Sprintf("%v", v)
-			}
-
-			counts[key{attr, val}]++
-		}
+	items := make([]map[string]any, 0, len(b.findings))
+	for _, f := range b.findings {
+		items = append(items, flattenFindingGroupByFields(f))
 	}
 
-	var result []map[string]any
-
-	seen := make(map[string]map[string]any)
-
-	for k, count := range counts {
-		if existing, ok := seen[k.attr]; ok {
-			existing["Count"] = existing["Count"].(int) + count //nolint:errcheck // existing issue.
-		} else {
-			entry := map[string]any{
-				"GroupByAttribute": k.attr, //nolint:goconst // existing issue.
-				"GroupByValue":     k.val,
-				keyCount:           count,
-			}
-			seen[k.attr] = entry
-			result = append(result, entry)
-		}
-	}
-
-	return result
+	return groupByResults(items, groupByFields, ocsfStringFieldMap)
 }
 
-func (b *InMemoryBackend) GetFindingsTrendsV2(
-	groupByAttribute string,
-	startTime, endTime string,
-) []map[string]any {
+// flattenFindingGroupByFields returns a shallow copy of finding with
+// SeverityLabel/WorkflowStatus/ComplianceStatus synthesized as flat keys
+// from their real nested locations (see findingFieldString), so
+// groupByResults's ocsfStringFieldMap-driven lookup -- which expects a flat
+// key -- sees the real value instead of always "".
+func flattenFindingGroupByFields(finding map[string]any) map[string]any {
+	flat := make(map[string]any, len(finding)+len(findingNestedFilterFields))
+	maps.Copy(flat, finding)
+
+	for _, fieldKey := range findingNestedFilterFields {
+		flat[fieldKey] = findingFieldString(finding, fieldKey)
+	}
+
+	return flat
+}
+
+// SeverityTrendsCount bucket names GetFindingsTrendsV2 requires
+// (securityhub@v1.75.4 types/types.go:19025-19058).
+const (
+	trendBucketCritical      = "Critical"
+	trendBucketFatal         = "Fatal"
+	trendBucketHigh          = "High"
+	trendBucketInformational = "Informational"
+	trendBucketLow           = "Low"
+	trendBucketMedium        = "Medium"
+	trendBucketOther         = "Other"
+	trendBucketUnknown       = "Unknown"
+
+	severityLabelHigh   = "HIGH"
+	severityLabelMedium = "MEDIUM"
+)
+
+// severityTrendsBucket maps an ASFF SeverityLabel (types.SeverityLabel:
+// INFORMATIONAL/LOW/MEDIUM/HIGH/CRITICAL -- securityhub@v1.75.4
+// types/enums.go:1797-1806, the only severity vocabulary this backend's
+// findings carry, per findings_v2.go's ocsfStringFieldMap comment) onto one
+// of the eight SeverityTrendsCount bucket names above. ASFF has no FATAL
+// severity, so that bucket is always zero: there's no backing state to
+// derive it from, left inert rather than fabricated.
+func severityTrendsBucket(label string) string {
+	switch strings.ToUpper(label) {
+	case "CRITICAL":
+		return trendBucketCritical
+	case severityLabelHigh:
+		return trendBucketHigh
+	case severityLabelMedium:
+		return trendBucketMedium
+	case "LOW":
+		return trendBucketLow
+	case "INFORMATIONAL":
+		return trendBucketInformational
+	case "":
+		return trendBucketUnknown
+	default:
+		return trendBucketOther
+	}
+}
+
+// GetFindingsTrendsV2 returns a single TrendsMetricsResult data point
+// (Timestamp + TrendsValues.SeverityTrends -- securityhub@v1.75.4
+// types/types.go:19869-19896) aggregating every stored finding's severity.
+// The real GetFindingsTrendsV2Input has no GroupByAttribute member at all
+// (api_op_GetFindingsTrendsV2.go:22-46); this backend has no time-bucketed
+// analytics engine, so unlike the real per-Granularity series this always
+// returns one point for the whole store, timestamped at endTime.
+func (b *InMemoryBackend) GetFindingsTrendsV2(startTime, endTime string) []map[string]any {
+	b.mu.RLock("GetFindingsTrendsV2")
+	defer b.mu.RUnlock()
+
+	counts := map[string]int64{
+		trendBucketCritical: 0, trendBucketFatal: 0, trendBucketHigh: 0, trendBucketInformational: 0,
+		trendBucketLow: 0, trendBucketMedium: 0, trendBucketOther: 0, trendBucketUnknown: 0,
+	}
+
+	for _, finding := range b.findings {
+		counts[severityTrendsBucket(findingFieldString(finding, keyFilterSeverityLabel))]++
+	}
+
+	ts := endTime
+	if ts == "" {
+		ts = startTime
+	}
+
+	if ts == "" {
+		ts = time.Now().UTC().Format(time.RFC3339)
+	}
+
 	return []map[string]any{
 		{
-			"GroupByAttribute": groupByAttribute,
-			"DateRanges": []map[string]any{
-				{
-					"DateRange": map[string]any{
-						"StartDate": startTime,
-						"EndDate":   endTime,
-					},
-					"Count": len(b.findings),
+			"Timestamp": ts,
+			"TrendsValues": map[string]any{
+				"SeverityTrends": map[string]any{
+					trendBucketCritical:      counts[trendBucketCritical],
+					trendBucketFatal:         counts[trendBucketFatal],
+					trendBucketHigh:          counts[trendBucketHigh],
+					trendBucketInformational: counts[trendBucketInformational],
+					trendBucketLow:           counts[trendBucketLow],
+					trendBucketMedium:        counts[trendBucketMedium],
+					trendBucketOther:         counts[trendBucketOther],
+					trendBucketUnknown:       counts[trendBucketUnknown],
 				},
 			},
 		},

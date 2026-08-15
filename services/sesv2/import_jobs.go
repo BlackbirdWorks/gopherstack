@@ -9,24 +9,36 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// ImportJob stores an import job.
-type ImportJob struct {
-	CreatedAt time.Time `json:"createdAt"`
-	JobID     string    `json:"jobId"`
-	JobStatus string    `json:"jobStatus"`
+// ImportDestination mirrors types.ImportDestination's two mutually exclusive
+// branches (exactly one is set, enforced by handleCreateImportJob).
+type ImportDestination struct {
+	ContactListName             string `json:"contactListName,omitempty"`
+	ContactListImportAction     string `json:"contactListImportAction,omitempty"`
+	SuppressionListImportAction string `json:"suppressionListImportAction,omitempty"`
 }
 
-// CreateImportJob creates an import job.
-func (b *InMemoryBackend) CreateImportJob(dataSource string) (*ImportJob, error) {
+// ImportJob stores an import job.
+type ImportJob struct {
+	CreatedAt         time.Time         `json:"createdAt"`
+	JobID             string            `json:"jobId"`
+	JobStatus         string            `json:"jobStatus"`
+	ImportDestination ImportDestination `json:"importDestination"`
+}
+
+// CreateImportJob creates an import job. gopherstack has no S3 fetcher to read
+// the import file itself, so the job never actually applies any records to a
+// contact list or the suppression list -- it only records which destination
+// the (unfetchable) import targeted, readable back via GetImportJob/
+// ListImportJobs.
+func (b *InMemoryBackend) CreateImportJob(destination ImportDestination) (*ImportJob, error) {
 	jobID := uuid.New().String()
 
 	job := &ImportJob{
-		JobID:     jobID,
-		JobStatus: "CREATED",
-		CreatedAt: time.Now(),
+		JobID:             jobID,
+		JobStatus:         "CREATED",
+		CreatedAt:         time.Now(),
+		ImportDestination: destination,
 	}
-
-	_ = dataSource
 
 	b.mu.Lock("CreateImportJob")
 	b.importJobs.Put(job)

@@ -167,11 +167,17 @@ func (h *Handler) handleDescribeSettings(c *echo.Context) error {
 	settingList := make([]map[string]any, 0, len(settings))
 	for _, s := range settings {
 		settingList = append(settingList, map[string]any{
-			"Name":                s.Name, //nolint:goconst // existing issue.
-			"AllowedValues":       s.AllowedValues,
-			"AppliedValue":        s.AppliedValue,
-			"RequestedValue":      s.RequestedValue,
-			keyStatus:             s.Status,
+			"Name":           s.Name, //nolint:goconst // existing issue.
+			"AllowedValues":  s.AllowedValues,
+			"AppliedValue":   s.AppliedValue,
+			"RequestedValue": s.RequestedValue,
+			// Real types.SettingEntry has no "Status" member -- the request-side
+			// filter field DescribeSettingsInput.Status shares that name, and
+			// it was copied onto the response by mistake. The real response
+			// member is "RequestStatus" (confirmed against
+			// types.SettingEntry); a real client's RequestStatus field
+			// silently decoded to its zero value on every call.
+			"RequestStatus":       s.Status,
 			"LastUpdatedDateTime": awstime.Epoch(s.LastUpdatedDateTime), //nolint:goconst // existing issue.
 		})
 	}
@@ -258,18 +264,31 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 	entryList := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
 		entryList = append(entryList, map[string]any{
+			// UpdateType is not a real types.UpdateInfoEntry member -- harmless,
+			// informational (the request-side filter's own value), left in
+			// place per this campaign's precedent for extra fields a real
+			// client simply ignores rather than removing something that buys
+			// nothing testable.
 			"UpdateType":          e.UpdateType,
 			keyStatus:             e.Status,
-			"NewValue":            e.NewValue,
-			"PreviousValue":       e.PreviousValue,
 			"InitiatedBy":         e.InitiatedBy,
 			keyRegion:             e.Region,
 			keyStartTime:          awstime.Epoch(e.StartTime),
 			"LastUpdatedDateTime": awstime.Epoch(e.LastUpdatedDateTime),
+			// NewValue/PreviousValue (types.UpdateInfoEntry) are real members,
+			// but this backend never populates real content (always the Go
+			// zero value) -- omitted rather than emitted as a flat "" string:
+			// the real member type is *types.UpdateValue{OSUpdateSettings},
+			// a nested struct, so a flat string would hard-fail every real
+			// client's decode.
 		})
 	}
 
-	resp := map[string]any{"UpdateDirectoryInfo": entryList}
+	// Wrapper key is "UpdateActivities" (confirmed against
+	// DescribeUpdateDirectoryOutput); the fabricated "UpdateDirectoryInfo"
+	// this handler used to emit meant a real typed client's
+	// resp.UpdateActivities field silently decoded to nil on every call.
+	resp := map[string]any{"UpdateActivities": entryList}
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}

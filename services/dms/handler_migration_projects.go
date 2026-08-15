@@ -9,29 +9,81 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// dataProviderDescriptorJSON is the wire shape of one entry in
+// Source/TargetDataProviderDescriptors, both on the request (identifier +
+// Secrets Manager fields) and the response (resolved arn/name + the same
+// Secrets Manager fields echoed back).
+type dataProviderDescriptorJSON struct {
+	DataProviderIdentifier      string `json:"DataProviderIdentifier,omitempty"`
+	DataProviderArn             string `json:"DataProviderArn,omitempty"`
+	DataProviderName            string `json:"DataProviderName,omitempty"`
+	SecretsManagerAccessRoleArn string `json:"SecretsManagerAccessRoleArn,omitempty"`
+	SecretsManagerSecretId      string `json:"SecretsManagerSecretId,omitempty"` //nolint:revive,staticcheck // wire name.
+}
+
 type createMigrationProjectInput struct {
-	MigrationProjectName *string    `json:"MigrationProjectName"`
-	Description          *string    `json:"Description"`
-	Tags                 []tagEntry `json:"Tags"`
+	MigrationProjectName          *string                      `json:"MigrationProjectName"`
+	Description                   *string                      `json:"Description"`
+	InstanceProfileIdentifier     *string                      `json:"InstanceProfileIdentifier"`
+	SourceDataProviderDescriptors []dataProviderDescriptorJSON `json:"SourceDataProviderDescriptors"`
+	TargetDataProviderDescriptors []dataProviderDescriptorJSON `json:"TargetDataProviderDescriptors"`
+	Tags                          []tagEntry                   `json:"Tags"`
 }
 
 type migrationProjectJSON struct {
-	MigrationProjectName       string `json:"MigrationProjectName"`
-	MigrationProjectArn        string `json:"MigrationProjectArn"`
-	MigrationProjectIdentifier string `json:"MigrationProjectIdentifier"`
-	Description                string `json:"Description,omitempty"`
+	MigrationProjectName          string                       `json:"MigrationProjectName"`
+	MigrationProjectArn           string                       `json:"MigrationProjectArn"`
+	Description                   string                       `json:"Description,omitempty"`
+	InstanceProfileArn            string                       `json:"InstanceProfileArn,omitempty"`
+	InstanceProfileName           string                       `json:"InstanceProfileName,omitempty"`
+	SourceDataProviderDescriptors []dataProviderDescriptorJSON `json:"SourceDataProviderDescriptors,omitempty"`
+	TargetDataProviderDescriptors []dataProviderDescriptorJSON `json:"TargetDataProviderDescriptors,omitempty"`
 }
 
 type createMigrationProjectOutput struct {
 	MigrationProject migrationProjectJSON `json:"MigrationProject"`
 }
 
+func descriptorsToJSON(descs []DataProviderDescriptor) []dataProviderDescriptorJSON {
+	out := make([]dataProviderDescriptorJSON, 0, len(descs))
+	for _, d := range descs {
+		out = append(out, dataProviderDescriptorJSON{
+			DataProviderArn:             d.DataProviderArn,
+			DataProviderName:            d.DataProviderName,
+			SecretsManagerAccessRoleArn: d.SecretsManagerAccessRoleArn,
+			SecretsManagerSecretId:      d.SecretsManagerSecretId,
+		})
+	}
+
+	return out
+}
+
+func descriptorsFromJSON(descs []dataProviderDescriptorJSON) []DataProviderDescriptorInput {
+	if descs == nil {
+		return nil
+	}
+
+	out := make([]DataProviderDescriptorInput, 0, len(descs))
+	for _, d := range descs {
+		out = append(out, DataProviderDescriptorInput{
+			DataProviderIdentifier:      d.DataProviderIdentifier,
+			SecretsManagerAccessRoleArn: d.SecretsManagerAccessRoleArn,
+			SecretsManagerSecretId:      d.SecretsManagerSecretId,
+		})
+	}
+
+	return out
+}
+
 func mpToJSON(mp *MigrationProject) migrationProjectJSON {
 	return migrationProjectJSON{
-		MigrationProjectName:       mp.MigrationProjectName,
-		MigrationProjectArn:        mp.MigrationProjectArn,
-		MigrationProjectIdentifier: mp.MigrationProjectIdentifier,
-		Description:                mp.Description,
+		MigrationProjectName:          mp.MigrationProjectName,
+		MigrationProjectArn:           mp.MigrationProjectArn,
+		Description:                   mp.Description,
+		InstanceProfileArn:            mp.InstanceProfileArn,
+		InstanceProfileName:           mp.InstanceProfileName,
+		SourceDataProviderDescriptors: descriptorsToJSON(mp.SourceDataProviderDescriptors),
+		TargetDataProviderDescriptors: descriptorsToJSON(mp.TargetDataProviderDescriptors),
 	}
 }
 
@@ -44,7 +96,15 @@ func (h *Handler) handleCreateMigrationProject(
 	}
 
 	kv := tagsToMap(in.Tags)
-	mp, err := h.Backend.CreateMigrationProject(ctx, name, ptrconv.String(in.Description), kv)
+	mp, err := h.Backend.CreateMigrationProject(
+		ctx,
+		name,
+		ptrconv.String(in.Description),
+		ptrconv.String(in.InstanceProfileIdentifier),
+		descriptorsFromJSON(in.SourceDataProviderDescriptors),
+		descriptorsFromJSON(in.TargetDataProviderDescriptors),
+		kv,
+	)
 	if err != nil {
 		return nil, err
 	}

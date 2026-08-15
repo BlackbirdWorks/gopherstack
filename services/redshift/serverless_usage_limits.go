@@ -56,11 +56,12 @@ func (b *InMemoryBackend) GetServerlessUsageLimit(
 	return cloneServerlessUsageLimit(ul), nil
 }
 
-// ListServerlessUsageLimits returns all serverless usage limits.
+// ListServerlessUsageLimits returns all serverless usage limits, optionally
+// filtered by resource ARN and/or usage type.
 //
 //nolint:dupl // pagination pattern is structurally identical across serverless resource types
 func (b *InMemoryBackend) ListServerlessUsageLimits(
-	resourceArn string,
+	resourceArn, usageType string,
 	maxResults int,
 	nextToken string,
 ) ([]*ServerlessUsageLimit, string) {
@@ -77,9 +78,15 @@ func (b *InMemoryBackend) ListServerlessUsageLimits(
 			continue
 		}
 
-		if resourceArn == "" || ul.ResourceArn == resourceArn {
-			list = append(list, cloneServerlessUsageLimit(ul))
+		if resourceArn != "" && ul.ResourceArn != resourceArn {
+			continue
 		}
+
+		if usageType != "" && ul.UsageType != usageType {
+			continue
+		}
+
+		list = append(list, cloneServerlessUsageLimit(ul))
 	}
 
 	if maxResults <= 0 {

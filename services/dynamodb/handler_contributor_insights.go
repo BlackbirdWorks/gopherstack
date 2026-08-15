@@ -24,7 +24,9 @@ type describeContributorInsightsOutput struct {
 	TableName                   string   `json:"TableName,omitempty"`
 	IndexName                   string   `json:"IndexName,omitempty"`
 	ContributorInsightsStatus   string   `json:"ContributorInsightsStatus,omitempty"`
+	ContributorInsightsMode     string   `json:"ContributorInsightsMode,omitempty"`
 	ContributorInsightsRuleList []string `json:"ContributorInsightsRuleList"`
+	LastUpdateDateTime          float64  `json:"LastUpdateDateTime,omitempty"`
 }
 
 func (h *DynamoDBHandler) handleDescribeContributorInsights(
@@ -49,6 +51,7 @@ func (h *DynamoDBHandler) handleDescribeContributorInsights(
 	wire := &describeContributorInsightsOutput{
 		TableName:                   ptrconv.String(out.TableName),
 		ContributorInsightsStatus:   string(out.ContributorInsightsStatus),
+		ContributorInsightsMode:     string(out.ContributorInsightsMode),
 		ContributorInsightsRuleList: out.ContributorInsightsRuleList,
 	}
 
@@ -56,15 +59,26 @@ func (h *DynamoDBHandler) handleDescribeContributorInsights(
 		wire.IndexName = *out.IndexName
 	}
 
+	if out.LastUpdateDateTime != nil {
+		wire.LastUpdateDateTime = float64(out.LastUpdateDateTime.Unix())
+	}
+
 	return wire, nil
 }
 
 // --- ListContributorInsights handler ---
 
+type listContributorInsightsInput struct {
+	TableName  string `json:"TableName,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
+
 type contributorInsightsSummaryWire struct {
 	TableName                 string `json:"TableName,omitempty"`
 	IndexName                 string `json:"IndexName,omitempty"`
 	ContributorInsightsStatus string `json:"ContributorInsightsStatus,omitempty"`
+	ContributorInsightsMode   string `json:"ContributorInsightsMode,omitempty"`
 }
 
 type listContributorInsightsOutput struct {
@@ -74,9 +88,22 @@ type listContributorInsightsOutput struct {
 
 func (h *DynamoDBHandler) handleListContributorInsights(
 	ctx context.Context,
-	_ []byte,
+	body []byte,
 ) (any, error) {
-	out, err := h.Backend.ListContributorInsights(ctx, &sdkDDB.ListContributorInsightsInput{})
+	var req listContributorInsightsInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	input := &sdkDDB.ListContributorInsightsInput{MaxResults: req.MaxResults}
+	if req.TableName != "" {
+		input.TableName = &req.TableName
+	}
+	if req.NextToken != "" {
+		input.NextToken = &req.NextToken
+	}
+
+	out, err := h.Backend.ListContributorInsights(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -87,10 +114,14 @@ func (h *DynamoDBHandler) handleListContributorInsights(
 			TableName:                 ptrconv.String(s.TableName),
 			IndexName:                 ptrconv.String(s.IndexName),
 			ContributorInsightsStatus: string(s.ContributorInsightsStatus),
+			ContributorInsightsMode:   string(s.ContributorInsightsMode),
 		})
 	}
 
-	return &listContributorInsightsOutput{ContributorInsightsSummaries: summaries}, nil
+	return &listContributorInsightsOutput{
+		ContributorInsightsSummaries: summaries,
+		NextToken:                    ptrconv.String(out.NextToken),
+	}, nil
 }
 
 // --- UpdateContributorInsights handler ---
@@ -99,12 +130,14 @@ type updateContributorInsightsInput struct {
 	TableName                 string `json:"TableName"`
 	IndexName                 string `json:"IndexName,omitempty"`
 	ContributorInsightsAction string `json:"ContributorInsightsAction"`
+	ContributorInsightsMode   string `json:"ContributorInsightsMode,omitempty"`
 }
 
 type updateContributorInsightsOutput struct {
 	TableName                 string `json:"TableName,omitempty"`
 	IndexName                 string `json:"IndexName,omitempty"`
 	ContributorInsightsStatus string `json:"ContributorInsightsStatus,omitempty"`
+	ContributorInsightsMode   string `json:"ContributorInsightsMode,omitempty"`
 }
 
 func (h *DynamoDBHandler) handleUpdateContributorInsights(
@@ -119,6 +152,7 @@ func (h *DynamoDBHandler) handleUpdateContributorInsights(
 	sdkInput := &sdkDDB.UpdateContributorInsightsInput{
 		TableName:                 &req.TableName,
 		ContributorInsightsAction: types.ContributorInsightsAction(req.ContributorInsightsAction),
+		ContributorInsightsMode:   types.ContributorInsightsMode(req.ContributorInsightsMode),
 	}
 
 	if req.IndexName != "" {
@@ -134,5 +168,6 @@ func (h *DynamoDBHandler) handleUpdateContributorInsights(
 		TableName:                 ptrconv.String(out.TableName),
 		IndexName:                 ptrconv.String(out.IndexName),
 		ContributorInsightsStatus: string(out.ContributorInsightsStatus),
+		ContributorInsightsMode:   string(out.ContributorInsightsMode),
 	}, nil
 }

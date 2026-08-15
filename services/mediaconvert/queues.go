@@ -25,6 +25,15 @@ func (b *InMemoryBackend) CreateQueue(
 	return b.CreateQueueFull(name, description, pricingPlan, status, tags, 0, nil, nil)
 }
 
+// QueueCreateExtras carries newer optional CreateQueue fields
+// (MaximumConcurrentFeeds) added to the CreateQueueFull signature after its
+// long positional parameter list was already established. CreateQueueFull
+// accepts it as a variadic trailing parameter (pass zero or one) so existing
+// call sites keep compiling unchanged.
+type QueueCreateExtras struct {
+	MaximumConcurrentFeeds *int
+}
+
 // CreateQueueFull creates a queue with all optional fields.
 func (b *InMemoryBackend) CreateQueueFull(
 	name, description, pricingPlan, status string,
@@ -32,9 +41,15 @@ func (b *InMemoryBackend) CreateQueueFull(
 	concurrentJobs int,
 	reservationPlan *ReservationPlan,
 	serviceOverrides map[string]any,
+	extras ...QueueCreateExtras,
 ) (*Queue, error) {
 	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
+
+	var extra QueueCreateExtras
+	if len(extras) > 0 {
+		extra = extras[0]
+	}
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
@@ -58,18 +73,19 @@ func (b *InMemoryBackend) CreateQueueFull(
 
 	now := epochSeconds(time.Now())
 	q := &Queue{
-		Arn:              arn.Build("mediaconvert", b.region, b.accountID, "queues/"+name),
-		Name:             name,
-		Description:      description,
-		PricingPlan:      pricingPlan,
-		Status:           status,
-		Type:             presetCustom,
-		Tags:             nonNilTagsCopy(tags),
-		CreatedAt:        now,
-		LastUpdated:      now,
-		ConcurrentJobs:   concurrentJobs,
-		ReservationPlan:  cloneReservationPlan(reservationPlan),
-		ServiceOverrides: deepCloneMap(serviceOverrides),
+		Arn:                    arn.Build("mediaconvert", b.region, b.accountID, "queues/"+name),
+		Name:                   name,
+		Description:            description,
+		PricingPlan:            pricingPlan,
+		Status:                 status,
+		Type:                   presetCustom,
+		Tags:                   nonNilTagsCopy(tags),
+		CreatedAt:              now,
+		LastUpdated:            now,
+		ConcurrentJobs:         concurrentJobs,
+		ReservationPlan:        cloneReservationPlan(reservationPlan),
+		ServiceOverrides:       deepCloneMap(serviceOverrides),
+		MaximumConcurrentFeeds: cloneIntPtr(extra.MaximumConcurrentFeeds),
 	}
 	b.queues.Put(q)
 	b.initQueueCounterLocked(q.Arn)
@@ -154,13 +170,15 @@ func (b *InMemoryBackend) adjustQueueCounterLocked(queueArn, status string, delt
 }
 
 // UpdateQueue updates a queue's description, status, concurrent-job limit,
-// and reservation plan settings. concurrentJobs and reservationPlanSettings
-// are nil when the caller doesn't want to change that field (matches the
-// real UpdateQueueInput, whose members are all optional).
+// reservation plan settings, and Elemental Inference feed concurrency.
+// concurrentJobs, reservationPlanSettings, and maximumConcurrentFeeds are nil
+// when the caller doesn't want to change that field (matches the real
+// UpdateQueueInput, whose members are all optional).
 func (b *InMemoryBackend) UpdateQueue(
 	name, description, status string,
 	concurrentJobs *int,
 	reservationPlanSettings *ReservationPlan,
+	maximumConcurrentFeeds *int,
 ) (*Queue, error) {
 	b.mu.Lock("UpdateQueue")
 	defer b.mu.Unlock()
@@ -188,6 +206,10 @@ func (b *InMemoryBackend) UpdateQueue(
 
 	if reservationPlanSettings != nil {
 		q.ReservationPlan = cloneReservationPlan(reservationPlanSettings)
+	}
+
+	if maximumConcurrentFeeds != nil {
+		q.MaximumConcurrentFeeds = cloneIntPtr(maximumConcurrentFeeds)
 	}
 
 	q.LastUpdated = epochSeconds(time.Now())
@@ -240,6 +262,7 @@ func cloneReservationPlan(rp *ReservationPlan) *ReservationPlan {
 func cloneQueue(q *Queue) *Queue {
 	cp := *q
 	cp.Tags = nonNilTagsCopy(q.Tags)
+	cp.MaximumConcurrentFeeds = cloneIntPtr(q.MaximumConcurrentFeeds)
 
 	if q.ReservationPlan != nil {
 		rp := *q.ReservationPlan
@@ -251,4 +274,16 @@ func cloneQueue(q *Queue) *Queue {
 	}
 
 	return &cp
+}
+
+// cloneIntPtr returns a copy of p so the returned Queue can't alias backend
+// state through a shared pointer.
+func cloneIntPtr(p *int) *int {
+	if p == nil {
+		return nil
+	}
+
+	v := *p
+
+	return &v
 }

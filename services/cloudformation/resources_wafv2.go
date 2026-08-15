@@ -117,7 +117,7 @@ func (rc *ResourceCreator) createWAFv2RuleGroup(
 		scope = wafScopeRegional
 	}
 
-	rg, err := rc.backends.WAFv2.Backend.CreateRuleGroup(ctx, name, scope, "", "", 0, nil, nil)
+	rg, err := rc.backends.WAFv2.Backend.CreateRuleGroup(ctx, name, scope, "", "", 0, nil, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("create WAFv2 RuleGroup %s: %w", name, err)
 	}

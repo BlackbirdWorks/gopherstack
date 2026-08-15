@@ -40,6 +40,7 @@ ops:
   DisassociateAppBlockBuilderAppBlock: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "same bug class"}
   DescribeAppBlockBuilderAppBlockAssociations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "AppBlockArn filter now resolved to canonical Name before matching map keys"}
   CreateUser: {wire: fixed, errors: ok, state: ok, persist: ok, note: "userARN() hand-formatted \"arn:aws:appstream:...\" bypassing pkgs/arn -- always emitted the standard partition even for GovCloud/China/ISO regions; switched to arn.Build()"}
+  CreateApplication: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "required members IconS3Location and InstanceFamilies (api_op_CreateApplication.go:47,53) were accepted nowhere -- neither stored nor returned, so every created application had no icon and no supported instance families. Now validated (including IconS3Location.S3Key, itself required specifically for this op per types/types.go:1434-1451) and echoed on Describe. Missing-required-member requests now return SerializationException: this op's own deserializer switch (rpc2_deserializeOpErrorCreateApplication) declares only ConcurrentModificationException/LimitExceededException/OperationNotPermittedException/ResourceAlreadyExistsException/ResourceNotFoundException -- no validation-style exception -- consistent with the SDK client blocking such requests before they're ever sent (gopherstack-ii4c)."}
   CreateStack: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeStacks: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateStack: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -62,17 +63,18 @@ ops:
   GetExportImageTask: {wire: fixed, errors: ok, state: ok, persist: ok, note: "request field is TaskId, not the invented ExportImageTaskId; response field is TaskId (not ExportImageTaskId), ImageArn (not ImageName), CreatedDate (not CreatedTime), AmiName/AmiDescription/AmiId newly added"}
   ListExportImageTasks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "real ListExportImageTasksInput has no ImageNames filter at all (that was invented) -- it takes generic Filters (opaque Name/Values, semantics undocumented, not evaluated by this emulator) plus MaxResults/NextToken pagination (default page size 50), which the prior version also lacked entirely. Rewritten using pkgs/page for real cursor pagination"}
   DescribeAppLicenseUsage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response field is AppLicenseUsages (plural) -- was emitting singular AppLicenseUsage, which a real SDK client would never populate its slice from"}
+  CreateThemeForStack: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "gopherstack-afi1: 4 of 5 required members (FaviconS3Location, OrganizationLogoS3Location, ThemeStyling, TitleText -- api_op_CreateThemeForStack.go:29-59) were accepted nowhere; only StackName was read, so every theme had no branding at all. Now validated present (missing-required-member -> SerializationException, same rationale/precedent as CreateApplication above: this op's own deserializer switch declares only ConcurrentModificationException/InvalidAccountStatusException/LimitExceededException/OperationNotPermittedException/ResourceAlreadyExistsException/ResourceNotFoundException, no validation-style exception) and echoed on the response: real Theme (types/types.go:1752-1781) carries derived ThemeFaviconURL/ThemeOrganizationLogoURL (not the raw S3Location) -- gopherstack derives a pseudo-URL via themeURL() (https://s3.amazonaws.com/{bucket}/{key}, matching this repo's existing services/amplify/services/serverlessrepo S3-pseudo-URL convention) rather than fabricating a signed URL. FooterLinks (optional) is also now modeled end-to-end (ThemeFooterLink)."}
 families:
   AppBlock: {status: ok, note: "CRUD verified; Describe now ARN-resolved (see ops above)"}
   AppBlockBuilder: {status: ok, note: "CRUD + Start/Stop verified; StreamingURL now carries real Expires/Validity (see ops above)"}
-  Application: {status: ok, note: "CRUD verified; Describe + Fleet-association ops now ARN-resolved (see ops above)"}
+  Application: {status: fixed, note: "CRUD verified; Describe + Fleet-association ops now ARN-resolved (see ops above). FIXED: CreateApplication's required IconS3Location/InstanceFamilies were dropped entirely (see CreateApplication above)"}
   Entitlement: {status: fixed, note: "CreateEntitlement/DeleteEntitlement/DescribeEntitlements/UpdateEntitlement/AssociateApplicationToEntitlement/ListEntitledApplications audited -- keyed correctly by (Name+StackName) composite; ApplicationIdentifier stored opaquely with no cross-reference lookup, so no ARN-vs-Name failure mode exists there. FIXED: backend computed LastModifiedTime on every Create/Update but entitlementToResponse never emitted it -- real Entitlement has both CreatedTime and LastModifiedTime members; now both are on the wire"}
   DirectoryConfig: {status: fixed, note: "CRUD verified against real DirectoryConfig shape; Name-keyed, matches wire. FIXED: Create/UpdateDirectoryConfigInput both carry ServiceAccountCredentials (AccountName+AccountPassword) and CertificateBasedAuthProperties (CertificateAuthorityArn+Status) -- both were accepted by neither the request-decode struct nor the backend, so a real client's directory-join credentials were silently discarded and never returned on Describe. Now parsed, stored, and echoed back (real DirectoryConfig response shape does include AccountPassword verbatim, confirmed via botocore service-2.json -- not redacted like some other AWS services do for secrets)"}
   Image: {status: ok, note: "CopyImage/CreateImportedImage/CreateUpdatedImage/DeleteImage verified Name-keyed (matches real Delete/Copy inputs); Describe now Name-or-Arn resolved"}
   ImageBuilder: {status: fixed, note: "CRUD + Start/Stop verified; Stop now idempotent (see ops above). FIXED: StartImageBuilder response invented a StreamingURL field (see StartImageBuilder op above); StreamingURL creation now carries real Expires/Validity"}
   ImagePermissions: {status: ok, note: "Update/Delete/DescribeImagePermissions verified against real SharedImagePermissions shape"}
   Session: {status: fixed, note: "DescribeSessions/DrainSessionInstance/ExpireSession/CreateStreamingURL verified against real Session shape and DescribeSessionsInput/CreateStreamingURLInput fields. FIXED: CreateStreamingURL now honors Validity and returns Expires (see ops above)"}
-  Theme: {status: ok, note: "CRUD verified against real Theme shape"}
+  Theme: {status: fixed, note: "CRUD verified against real Theme shape. FIXED (gopherstack-afi1): CreateThemeForStack dropped 4 of its 5 required members (FaviconS3Location, OrganizationLogoS3Location, ThemeStyling, TitleText) -- see CreateThemeForStack above. UpdateThemeForStack has the identical gap (none of its optional update fields -- FaviconS3Location/OrganizationLogoS3Location/ThemeStyling/TitleText/FooterLinks -- are read from the request), left unfixed: no member of UpdateThemeForStackInput is required, so this is an incompleteness rather than a dropped-required-field bug; flagged for a future pass."}
   User: {status: ok, note: "CRUD + Enable/Disable verified; ARN partition bug fixed (see CreateUser above)"}
   UserStackAssociation: {status: ok, note: "BatchAssociate/BatchDisassociate/Describe verified; correctly Name-keyed per real UserStackAssociation shape"}
   UsageReportSubscription: {status: ok, note: "single scalar record, verified against real shape"}
@@ -94,6 +96,29 @@ resolved_this_pass:
     its wire field name (AppLicenseUsages, not AppLicenseUsage) was also fixed.
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table/plain maps behind the single lockmetrics.RWMutex, reset via Handler.Reset -> Backend.Reset -> registry.ResetAll + resetRawMaps. ExportImageTask rewrite kept the same TaskID-keyed store.Table registration (no new leak surface); ListExportImageTasks pagination reads a Snapshot-style copy of all tasks under RLock and sorts/pages it outside any lock extension, so no lock is held across the sort"}
 ---
+
+## This pass (2026-08-13): CreateThemeForStack dropped 4 of 5 required members (gopherstack-afi1)
+
+From the "five ops drop the fields that define what they do" required-member
+sweep. `handler_user.go:opCreateThemeForStack`/`themes.go:CreateThemeForStack`
+only ever read/stored `StackName` -- `FaviconS3Location`,
+`OrganizationLogoS3Location`, `ThemeStyling`, and `TitleText`, all required
+(`api_op_CreateThemeForStack.go:29-59`), were unmodeled entirely, so every
+theme this emulator created had no styling, no branding, and no title. See
+the `CreateThemeForStack`/`Theme` entries above for the full field-diff and
+error-handling detail. `TestAppStream_Themes`'s `"CreateThemeForStack returns
+theme"` case previously sent only `{"StackName": ...}` and asserted just
+`StackName`/`State` on the response -- it would have passed identically
+whether or not the other four fields were ever read, so it encoded the same
+assumption as the bug. Rewrote it to send all required fields plus a
+`FooterLinks` entry and assert every response field round-trips
+(`ThemeStyling`, `ThemeTitleText`, `ThemeFaviconURL`/
+`ThemeOrganizationLogoURL` derived from the submitted S3 locations,
+`ThemeFooterLinks`); added a `"missing FaviconS3Location rejected"` case.
+`persistence_test.go`'s full-state snapshot/restore test also only exercised
+`StackName` for its Theme entry -- extended to populate and assert
+`ThemeStyling`/`ThemeTitleText`/`ThemeFooterLinks` survive `Snapshot`/
+`Restore`, not just the initial create.
 
 ## Notes
 

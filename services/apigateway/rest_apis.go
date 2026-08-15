@@ -166,6 +166,10 @@ func (b *InMemoryBackend) UpdateRestAPI(restAPIID string, input UpdateRestAPIInp
 		api.EndpointAccessMode = input.EndpointAccessMode
 	}
 
+	if input.SecurityPolicy != "" {
+		api.SecurityPolicy = input.SecurityPolicy
+	}
+
 	if input.DisableExecuteAPIEndpoint != nil {
 		api.DisableExecuteAPIEndpoint = *input.DisableExecuteAPIEndpoint
 	}

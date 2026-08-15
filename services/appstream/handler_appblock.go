@@ -233,11 +233,15 @@ func (h *Handler) opAssociateAppBlockBuilderAppBlock(_ context.Context, body []b
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	if err := h.Backend.AssociateAppBlockBuilderAppBlock(req.AppBlockBuilderName, req.AppBlockArn); err != nil {
+	assoc, err := h.Backend.AssociateAppBlockBuilderAppBlock(req.AppBlockBuilderName, req.AppBlockArn)
+	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return map[string]any{"AppBlockBuilderAppBlockAssociation": map[string]any{
+		"AppBlockBuilderName": assoc.AppBlockBuilderName,
+		keyAppBlockArn:        assoc.AppBlockArn,
+	}}, nil
 }
 
 func (h *Handler) opDisassociateAppBlockBuilderAppBlock(_ context.Context, body []byte) (any, error) {
@@ -275,7 +279,7 @@ func (h *Handler) opDescribeAppBlockBuilderAppBlockAssociations(_ context.Contex
 	for _, a := range assocs {
 		resp = append(resp, map[string]any{
 			"AppBlockBuilderName": a.AppBlockBuilderName,
-			"AppBlockArn":         a.AppBlockArn,
+			keyAppBlockArn:        a.AppBlockArn,
 			"State":               a.State, //nolint:goconst // existing issue.
 		})
 	}

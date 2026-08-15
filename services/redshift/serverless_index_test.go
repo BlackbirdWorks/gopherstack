@@ -155,7 +155,7 @@ func TestServerlessSnapshotIndex_OrderedWithFilter(t *testing.T) {
 	require.Equal(t, len(seed), redshift.ServerlessIndexLen(b, "snapshot"))
 
 	// Unfiltered: globally sorted.
-	all, _ := b.ListServerlessSnapshots("", 0, "")
+	all, _ := b.ListServerlessSnapshots(redshift.ListServerlessSnapshotsParams{})
 	allNames := make([]string, 0, len(all))
 	for _, s := range all {
 		allNames = append(allNames, s.SnapshotName)
@@ -164,7 +164,7 @@ func TestServerlessSnapshotIndex_OrderedWithFilter(t *testing.T) {
 	assert.Equal(t, []string{"snap-0", "snap-1", "snap-2", "snap-3"}, allNames)
 
 	// Filtered by namespace: still sorted, only matching entries.
-	nsA, _ := b.ListServerlessSnapshots("ns-a", 0, "")
+	nsA, _ := b.ListServerlessSnapshots(redshift.ListServerlessSnapshotsParams{NamespaceName: "ns-a"})
 	nsANames := make([]string, 0, len(nsA))
 	for _, s := range nsA {
 		nsANames = append(nsANames, s.SnapshotName)
@@ -200,7 +200,7 @@ func TestServerlessUsageLimitIndex_OrderedWithFilter(t *testing.T) {
 
 	require.Equal(t, 6, redshift.ServerlessIndexLen(b, "usagelimit"))
 
-	all, _ := b.ListServerlessUsageLimits("", 0, "")
+	all, _ := b.ListServerlessUsageLimits("", "", 0, "")
 	ids := make([]string, 0, len(all))
 	for _, ul := range all {
 		ids = append(ids, ul.UsageLimitID)
@@ -208,7 +208,7 @@ func TestServerlessUsageLimitIndex_OrderedWithFilter(t *testing.T) {
 
 	assert.True(t, sort.StringsAreSorted(ids), "usage limit ids not sorted: %v", ids)
 
-	filtered, _ := b.ListServerlessUsageLimits(arnA, 0, "")
+	filtered, _ := b.ListServerlessUsageLimits(arnA, "", 0, "")
 	for _, ul := range filtered {
 		assert.Equal(t, arnA, ul.ResourceArn)
 	}

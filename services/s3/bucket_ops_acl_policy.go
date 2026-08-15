@@ -337,10 +337,24 @@ type s3PolicyStatus struct {
 	IsPublic string   `xml:"IsPublic,omitempty"`
 }
 
-// s3AbacConfiguration is the XML response for Get/PutBucketAbac.
-type s3AbacConfiguration struct {
-	XMLName xml.Name `xml:"AbacConfiguration"`
-	Xmlns   string   `xml:"xmlns,attr"`
+// abacStatusXML models AbacStatus (s3@v1.106.5 types/types.go), the real wire shape
+// for both PutBucketAbac's request body and the entirety of GetBucketAbac's response
+// body. GetBucketAbacOutput.AbacStatus is httpPayload-bound: the real deserializer
+// (deserializers.go: (*awsRestxml_deserializeOpGetBucketAbac).HandleDeserialize)
+// parses the response's ROOT element directly as AbacStatus via
+// awsRestxml_deserializeDocumentAbacStatus -- it does not look for an AbacStatus
+// child of some other envelope root, so the response root itself must be
+// "AbacStatus", not "AbacConfiguration" wrapping a nested AbacStatus child. (A
+// same-named awsRestxml_deserializeOpDocumentGetBucketAbacOutput function exists in
+// the SDK source but is dead code -- HandleDeserialize never calls it -- and reading
+// it as authoritative here would reproduce exactly the class of bug this fixes.) The
+// request-side root was also previously "AbacConfiguration"
+// (awsRestxml_serializeOpPutBucketAbac's payloadRoot.Local is "AbacStatus"), so
+// re-parsing the stored PUT body on Get always errored and GetBucketAbac silently
+// returned an empty status for every bucket with ABAC configured.
+type abacStatusXML struct {
+	XMLName xml.Name `xml:"AbacStatus"`
+	Xmlns   string   `xml:"xmlns,attr,omitempty"`
 	Status  string   `xml:"Status,omitempty"`
 }
 
@@ -385,13 +399,20 @@ func (h *S3Handler) routeBucketGetStubsExtra(
 			return true
 		}
 
-		var cfg s3AbacConfiguration
+		var stored abacStatusXML
 		if configXML != "" {
-			_ = xml.Unmarshal([]byte(configXML), &cfg)
+			if xmlErr := xml.Unmarshal([]byte(configXML), &stored); xmlErr != nil {
+				httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+					Code:    errMalformedXML,
+					Message: errMalformedXMLMsg,
+				}, http.StatusBadRequest)
+
+				return true
+			}
 		}
 
-		cfg.Xmlns = xmlNamespaceS3
-		httputils.WriteXML(ctx, w, http.StatusOK, cfg)
+		stored.Xmlns = xmlNamespaceS3
+		httputils.WriteXML(ctx, w, http.StatusOK, stored)
 
 		return true
 	}

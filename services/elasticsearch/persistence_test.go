@@ -272,7 +272,7 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 				d, err := b.CreateDomain(ctx, elasticsearch.CreateDomainInput{Name: "vpc-domain"})
 				require.NoError(t, err)
 
-				_, err = b.CreateVpcEndpoint(ctx, d.ARN, map[string]string{"VPCId": "vpc-123"})
+				_, err = b.CreateVpcEndpoint(ctx, d.ARN, elasticsearch.VPCOptions{SubnetIDs: []string{"subnet-123"}})
 				require.NoError(t, err)
 
 				require.NoError(t, b.AuthorizeVpcEndpointAccess(ctx, "vpc-domain", "555566667777"))
@@ -286,7 +286,7 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 
 				endpoints := b.ListVpcEndpoints(ctx)
 				require.Len(t, endpoints, 1)
-				assert.Equal(t, "vpc-123", endpoints[0].VpcOptions["VPCId"])
+				assert.Equal(t, []string{"subnet-123"}, endpoints[0].VpcOptions.SubnetIDs)
 
 				domainEndpoints := b.ListVpcEndpointsForDomain(ctx, "vpc-domain")
 				require.Len(t, domainEndpoints, 1)
@@ -454,7 +454,8 @@ func TestElasticsearch_PersistenceCoversAllMaps(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateVpcEndpoint(
-		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/my-dom", map[string]string{"VpcId": "vpc-1"},
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/my-dom",
+		elasticsearch.VPCOptions{SubnetIDs: []string{"subnet-1"}},
 	)
 	require.NoError(t, err)
 
@@ -480,9 +481,13 @@ func TestElasticsearch_PersistenceNextIDPreserved(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
+	_, err := b.CreateVpcEndpoint(
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", elasticsearch.VPCOptions{},
+	)
 	require.NoError(t, err)
-	_, err = b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
+	_, err = b.CreateVpcEndpoint(
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", elasticsearch.VPCOptions{},
+	)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
@@ -492,7 +497,9 @@ func TestElasticsearch_PersistenceNextIDPreserved(t *testing.T) {
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// After restore, a new endpoint should get id 3, not 1.
-	ep, err := b2.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
+	ep, err := b2.CreateVpcEndpoint(
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", elasticsearch.VPCOptions{},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "vpc-endpoint-0000000003", ep.ID)
 }

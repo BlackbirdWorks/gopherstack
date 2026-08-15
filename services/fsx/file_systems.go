@@ -27,6 +27,7 @@ type storedFileSystem struct {
 	Tags                          map[string]string `json:"tags"`
 	FileSystemID                  string            `json:"fileSystemId"`
 	FileSystemType                string            `json:"fileSystemType"`
+	FileSystemTypeVersion         string            `json:"fileSystemTypeVersion,omitempty"`
 	Lifecycle                     string            `json:"lifecycle"`
 	ResourceARN                   string            `json:"resourceArn"`
 	DNSName                       string            `json:"dnsName,omitempty"`
@@ -53,19 +54,20 @@ type storedFileSystem struct {
 
 func (s *storedFileSystem) toFileSystem() *FileSystem {
 	fs := &FileSystem{
-		CreationTime:        epochTime(s.CreationTime),
-		Tags:                tagsMapToSlice(s.Tags),
-		FileSystemID:        s.FileSystemID,
-		FileSystemType:      s.FileSystemType,
-		Lifecycle:           s.Lifecycle,
-		ResourceARN:         s.ResourceARN,
-		DNSName:             s.DNSName,
-		StorageCapacityGiB:  s.StorageCapacityGiB,
-		StorageType:         s.StorageType,
-		VpcID:               s.VpcID,
-		OwnersID:            s.OwnerID,
-		SubnetIDs:           s.SubnetIDs,
-		NetworkInterfaceIDs: s.NetworkInterfaceIDs,
+		CreationTime:          epochTime(s.CreationTime),
+		Tags:                  tagsMapToSlice(s.Tags),
+		FileSystemID:          s.FileSystemID,
+		FileSystemType:        s.FileSystemType,
+		FileSystemTypeVersion: s.FileSystemTypeVersion,
+		Lifecycle:             s.Lifecycle,
+		ResourceARN:           s.ResourceARN,
+		DNSName:               s.DNSName,
+		StorageCapacityGiB:    s.StorageCapacityGiB,
+		StorageType:           s.StorageType,
+		VpcID:                 s.VpcID,
+		OwnersID:              s.OwnerID,
+		SubnetIDs:             s.SubnetIDs,
+		NetworkInterfaceIDs:   s.NetworkInterfaceIDs,
 	}
 
 	switch s.FileSystemType {
@@ -874,12 +876,13 @@ func (b *InMemoryBackend) UpdateFileSystem(input *updateFileSystemInput) (*FileS
 
 // createFileSystemFromBackupInput holds parameters for CreateFileSystemFromBackup.
 type createFileSystemFromBackupInput struct {
-	BackupID           string `json:"BackupId"`
-	FileSystemType     string `json:"FileSystemType,omitempty"`
-	StorageType        string `json:"StorageType,omitempty"`
-	VpcID              string `json:"VpcId,omitempty"`
-	Tags               []Tag  `json:"Tags,omitempty"`
-	StorageCapacityGiB int32  `json:"StorageCapacity,omitempty"`
+	BackupID              string `json:"BackupId"`
+	FileSystemType        string `json:"FileSystemType,omitempty"`
+	FileSystemTypeVersion string `json:"FileSystemTypeVersion,omitempty"`
+	StorageType           string `json:"StorageType,omitempty"`
+	VpcID                 string `json:"VpcId,omitempty"`
+	Tags                  []Tag  `json:"Tags,omitempty"`
+	StorageCapacityGiB    int32  `json:"StorageCapacity,omitempty"`
 }
 
 // copyFileSystemTypeConfig copies every type-specific config field from src
@@ -938,20 +941,26 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		storageType = srcFS.StorageType
 	}
 
+	fsTypeVersion := input.FileSystemTypeVersion
+	if fsTypeVersion == "" && srcFS != nil {
+		fsTypeVersion = srcFS.FileSystemTypeVersion
+	}
+
 	tags := tagsSliceToMap(input.Tags)
 
 	fs := &storedFileSystem{
-		CreationTime:       now,
-		Tags:               tags,
-		FileSystemID:       id,
-		FileSystemType:     fsType,
-		Lifecycle:          lifecycleAvailable,
-		ResourceARN:        arn,
-		DNSName:            fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
-		StorageCapacityGiB: capacity,
-		StorageType:        storageType,
-		VpcID:              input.VpcID,
-		OwnerID:            b.accountID,
+		CreationTime:          now,
+		Tags:                  tags,
+		FileSystemID:          id,
+		FileSystemType:        fsType,
+		FileSystemTypeVersion: fsTypeVersion,
+		Lifecycle:             lifecycleAvailable,
+		ResourceARN:           arn,
+		DNSName:               fmt.Sprintf("%s.fsx.%s.amazonaws.com", id, b.region),
+		StorageCapacityGiB:    capacity,
+		StorageType:           storageType,
+		VpcID:                 input.VpcID,
+		OwnerID:               b.accountID,
 	}
 
 	if srcFS != nil {

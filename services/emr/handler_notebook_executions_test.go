@@ -130,6 +130,50 @@ func TestNotebookExecution_ListFilter(t *testing.T) {
 	assert.Len(t, out.NotebookExecutions, 3)
 }
 
+// TestNotebookExecution_ListNoParamsOrTagsLeak asserts the raw JSON body of
+// a ListNotebookExecutions item has no "NotebookParams" or "Tags" key --
+// types.NotebookExecutionSummary (emr@v1.64.4 types.go:2161) has neither
+// member; only the full NotebookExecution (DescribeNotebookExecution) does.
+// An SDK client silently drops the unrecognized keys, so only a raw-body
+// assertion catches the leak.
+func TestNotebookExecution_ListNoParamsOrTagsLeak(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doEMRRequest(t, h, "StartNotebookExecution", map[string]any{
+		"EditorId":              "e-ED1",
+		"NotebookExecutionName": "leak-run",
+		"NotebookParams":        `{"key":"value"}`,
+		"ExecutionEngine":       map[string]any{"Id": "j-1"},
+		"Tags":                  []any{map[string]any{"Key": "env", "Value": "test"}},
+	})
+
+	rec := doEMRRequest(t, h, "ListNotebookExecutions", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var raw struct {
+		NotebookExecutions []map[string]any `json:"NotebookExecutions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.Len(t, raw.NotebookExecutions, 1)
+
+	item := raw.NotebookExecutions[0]
+	_, hasParams := item["NotebookParams"]
+	assert.False(
+		t,
+		hasParams,
+		"ListNotebookExecutions item leaked NotebookParams; real NotebookExecutionSummary has no such member",
+	)
+	_, hasTags := item["Tags"]
+	assert.False(
+		t,
+		hasTags,
+		"ListNotebookExecutions item leaked Tags; real NotebookExecutionSummary has no such member",
+	)
+	assert.Contains(t, item, "Status", "NotebookExecutionSummary must still emit Status")
+	assert.Contains(t, item, "NotebookExecutionId", "NotebookExecutionSummary must still emit NotebookExecutionId")
+}
+
 func TestNotebookExecution_Persistence(t *testing.T) {
 	t.Parallel()
 

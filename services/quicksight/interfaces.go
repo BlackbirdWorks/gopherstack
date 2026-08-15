@@ -64,17 +64,26 @@ type StorageBackend interface {
 	// DataSets
 	// CreateDataSet returns the created dataset plus the *Ingestion triggered
 	// as a side effect when importMode is SPICE (nil for DIRECT_QUERY, which
-	// triggers no ingestion).
+	// triggers no ingestion). physicalTableMap is required by AWS (rejects a
+	// dataset with no physical tables); logicalTableMap is optional.
 	CreateDataSet(
 		accountID, dataSetID, name, importMode string,
 		permissions []ResourcePermission,
 		tags map[string]string,
+		physicalTableMap map[string]PhysicalTable,
+		logicalTableMap map[string]LogicalTable,
 	) (*DataSet, *Ingestion, error)
 	DescribeDataSet(accountID, dataSetID string) (*DataSet, error)
 	// UpdateDataSet returns the updated dataset plus the *Ingestion triggered
 	// as a side effect when the resulting importMode is SPICE (nil for
 	// DIRECT_QUERY), mirroring CreateDataSet's conditional-ingestion contract.
-	UpdateDataSet(accountID, dataSetID, name, importMode string) (*DataSet, *Ingestion, error)
+	// physicalTableMap is required by AWS on every UpdateDataSet call (this
+	// operation doesn't support partial updates); logicalTableMap is optional.
+	UpdateDataSet(
+		accountID, dataSetID, name, importMode string,
+		physicalTableMap map[string]PhysicalTable,
+		logicalTableMap map[string]LogicalTable,
+	) (*DataSet, *Ingestion, error)
 	DeleteDataSet(accountID, dataSetID string) error
 	ListDataSets(accountID string, maxResults int32, nextToken string) ([]*DataSet, string, error)
 	SearchDataSets(

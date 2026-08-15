@@ -15,22 +15,42 @@ func TestFSx_FileCache(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		cacheType string
-		capacity  int
-		wantCode  int
-		wantErr   bool
+		name        string
+		cacheType   string
+		typeVersion string
+		subnetIDs   []string
+		capacity    int
+		wantCode    int
+		wantErr     bool
 	}{
 		{
-			name:      "create LUSTRE cache",
-			cacheType: "LUSTRE",
-			capacity:  1200,
-			wantCode:  http.StatusOK,
+			name:        "create LUSTRE cache",
+			cacheType:   "LUSTRE",
+			typeVersion: "2.12",
+			subnetIDs:   []string{"subnet-1"},
+			capacity:    1200,
+			wantCode:    http.StatusOK,
 		},
 		{
 			name:     "missing cache type returns 400",
 			wantCode: http.StatusBadRequest,
 			wantErr:  true,
+		},
+		{
+			name:      "missing FileCacheTypeVersion returns 400",
+			cacheType: "LUSTRE",
+			subnetIDs: []string{"subnet-1"},
+			capacity:  1200,
+			wantCode:  http.StatusBadRequest,
+			wantErr:   true,
+		},
+		{
+			name:        "missing SubnetIds returns 400",
+			cacheType:   "LUSTRE",
+			typeVersion: "2.12",
+			capacity:    1200,
+			wantCode:    http.StatusBadRequest,
+			wantErr:     true,
 		},
 	}
 
@@ -43,6 +63,12 @@ func TestFSx_FileCache(t *testing.T) {
 			if tc.cacheType != "" {
 				body["FileCacheType"] = tc.cacheType
 			}
+			if tc.typeVersion != "" {
+				body["FileCacheTypeVersion"] = tc.typeVersion
+			}
+			if tc.subnetIDs != nil {
+				body["SubnetIds"] = tc.subnetIDs
+			}
 
 			rec := doFSxRequest(t, h, "CreateFileCache", body)
 			require.Equal(t, tc.wantCode, rec.Code)
@@ -54,6 +80,9 @@ func TestFSx_FileCache(t *testing.T) {
 				assert.Contains(t, c["FileCacheId"].(string), "fc-")
 				assert.Equal(t, "AVAILABLE", c["Lifecycle"])
 				assert.InDelta(t, float64(tc.capacity), c["StorageCapacity"], 0.0001)
+				assert.Equal(t, tc.typeVersion, c["FileCacheTypeVersion"],
+					"FileCacheTypeVersion must be echoed back on CreateFileCache's response")
+				assert.ElementsMatch(t, tc.subnetIDs, c["SubnetIds"])
 			}
 		})
 	}

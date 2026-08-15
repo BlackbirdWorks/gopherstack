@@ -8,20 +8,29 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// AggregationType is the field aggregation type for a fleet metric
+// (types.AggregationType, aws-sdk-go-v2/service/iot@v1.77.4).
+type AggregationType struct {
+	Name   string   `json:"name"`
+	Values []string `json:"values,omitempty"`
+}
+
 // FleetMetric represents an IoT fleet metric.
 type FleetMetric struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	MetricName   string            `json:"metricName"`
-	MetricARN    string            `json:"metricArn"`
-	QueryString  string            `json:"queryString,omitempty"`
-	IndexName    string            `json:"indexName,omitempty"`
-	QueryVersion string            `json:"queryVersion,omitempty"`
-	Description  string            `json:"description,omitempty"`
-	Unit         string            `json:"unit,omitempty"`
-	Period       int32             `json:"period,omitempty"`
-	Version      int64             `json:"version"`
-	CreationDate float64           `json:"creationDate,omitempty"`
-	LastModified float64           `json:"lastModifiedDate,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	MetricName       string            `json:"metricName"`
+	MetricARN        string            `json:"metricArn"`
+	QueryString      string            `json:"queryString,omitempty"`
+	IndexName        string            `json:"indexName,omitempty"`
+	QueryVersion     string            `json:"queryVersion,omitempty"`
+	Description      string            `json:"description,omitempty"`
+	AggregationField string            `json:"aggregationField,omitempty"`
+	AggregationType  *AggregationType  `json:"aggregationType,omitempty"`
+	Unit             string            `json:"unit,omitempty"`
+	Period           int32             `json:"period,omitempty"`
+	Version          int64             `json:"version"`
+	CreationDate     float64           `json:"creationDate,omitempty"`
+	LastModified     float64           `json:"lastModifiedDate,omitempty"`
 }
 
 func cloneFleetMetric(fm *FleetMetric) *FleetMetric {
@@ -36,12 +45,14 @@ func (b *InMemoryBackend) fleetMetricARN(name string) string {
 
 // CreateFleetMetricInput holds input for CreateFleetMetric.
 type CreateFleetMetricInput struct {
-	MetricName   string `json:"metricName"`
-	QueryString  string `json:"queryString,omitempty"`
-	IndexName    string `json:"indexName,omitempty"`
-	QueryVersion string `json:"queryVersion,omitempty"`
-	Description  string `json:"description,omitempty"`
-	Unit         string `json:"unit,omitempty"`
+	MetricName       string           `json:"metricName"`
+	QueryString      string           `json:"queryString,omitempty"`
+	IndexName        string           `json:"indexName,omitempty"`
+	QueryVersion     string           `json:"queryVersion,omitempty"`
+	Description      string           `json:"description,omitempty"`
+	AggregationField string           `json:"aggregationField,omitempty"`
+	AggregationType  *AggregationType `json:"aggregationType,omitempty"`
+	Unit             string           `json:"unit,omitempty"`
 	// []types.Tag on the wire, not a map (serializers.go:2724, aws-sdk-go-v2/service/iot@v1.77.4).
 	Tags   []tags.KV `json:"tags,omitempty"`
 	Period int32     `json:"period,omitempty"`
@@ -56,18 +67,20 @@ func (b *InMemoryBackend) CreateFleetMetric(input *CreateFleetMetricInput) (*Fle
 	}
 	now := float64(time.Now().Unix())
 	fm := &FleetMetric{
-		MetricName:   input.MetricName,
-		MetricARN:    b.fleetMetricARN(input.MetricName),
-		QueryString:  input.QueryString,
-		IndexName:    input.IndexName,
-		QueryVersion: input.QueryVersion,
-		Description:  input.Description,
-		Unit:         input.Unit,
-		Period:       input.Period,
-		Tags:         tags.MapFromKV(input.Tags),
-		Version:      1,
-		CreationDate: now,
-		LastModified: now,
+		MetricName:       input.MetricName,
+		MetricARN:        b.fleetMetricARN(input.MetricName),
+		QueryString:      input.QueryString,
+		IndexName:        input.IndexName,
+		QueryVersion:     input.QueryVersion,
+		Description:      input.Description,
+		AggregationField: input.AggregationField,
+		AggregationType:  input.AggregationType,
+		Unit:             input.Unit,
+		Period:           input.Period,
+		Tags:             tags.MapFromKV(input.Tags),
+		Version:          1,
+		CreationDate:     now,
+		LastModified:     now,
 	}
 	b.fleetMetrics.Put(fm)
 	b.putResourceTagsLocked(fm.MetricARN, fm.Tags)
@@ -99,11 +112,20 @@ func (b *InMemoryBackend) ListFleetMetrics() []*FleetMetric {
 	return out
 }
 
-func (b *InMemoryBackend) UpdateFleetMetric(
-	name, queryString, description string,
-	period int32,
-	expectedVersion int64,
-) error {
+// UpdateFleetMetricInput holds input for UpdateFleetMetric.
+type UpdateFleetMetricInput struct {
+	QueryString      string           `json:"queryString,omitempty"`
+	IndexName        string           `json:"indexName,omitempty"`
+	QueryVersion     string           `json:"queryVersion,omitempty"`
+	Description      string           `json:"description,omitempty"`
+	AggregationField string           `json:"aggregationField,omitempty"`
+	AggregationType  *AggregationType `json:"aggregationType,omitempty"`
+	Unit             string           `json:"unit,omitempty"`
+	Period           int32            `json:"period,omitempty"`
+	ExpectedVersion  int64            `json:"expectedVersion,omitempty"`
+}
+
+func (b *InMemoryBackend) UpdateFleetMetric(name string, input *UpdateFleetMetricInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -112,18 +134,33 @@ func (b *InMemoryBackend) UpdateFleetMetric(
 		return fmt.Errorf("fleet metric %q not found: %w", name, ErrResourceNotFound)
 	}
 
-	if expectedVersion != 0 && expectedVersion != fm.Version {
+	if input.ExpectedVersion != 0 && input.ExpectedVersion != fm.Version {
 		return fmt.Errorf("%w: expected version %d but current is %d",
-			ErrVersionConflict, expectedVersion, fm.Version)
+			ErrVersionConflict, input.ExpectedVersion, fm.Version)
 	}
-	if queryString != "" {
-		fm.QueryString = queryString
+	if input.QueryString != "" {
+		fm.QueryString = input.QueryString
 	}
-	if description != "" {
-		fm.Description = description
+	if input.IndexName != "" {
+		fm.IndexName = input.IndexName
 	}
-	if period > 0 {
-		fm.Period = period
+	if input.QueryVersion != "" {
+		fm.QueryVersion = input.QueryVersion
+	}
+	if input.Description != "" {
+		fm.Description = input.Description
+	}
+	if input.AggregationField != "" {
+		fm.AggregationField = input.AggregationField
+	}
+	if input.AggregationType != nil {
+		fm.AggregationType = input.AggregationType
+	}
+	if input.Unit != "" {
+		fm.Unit = input.Unit
+	}
+	if input.Period > 0 {
+		fm.Period = input.Period
 	}
 	fm.Version++
 	fm.LastModified = float64(time.Now().Unix())
@@ -221,6 +258,11 @@ func (b *InMemoryBackend) ListCustomMetrics() []*CustomMetric {
 	}
 
 	return out
+}
+
+// UpdateCustomMetricInput holds input for UpdateCustomMetric.
+type UpdateCustomMetricInput struct {
+	DisplayName string `json:"displayName"`
 }
 
 func (b *InMemoryBackend) UpdateCustomMetric(name, displayName string) (*CustomMetric, error) {
@@ -329,6 +371,11 @@ func (b *InMemoryBackend) ListDimensions() []*Dimension {
 	}
 
 	return out
+}
+
+// UpdateDimensionInput holds input for UpdateDimension.
+type UpdateDimensionInput struct {
+	StringValues []string `json:"stringValues"`
 }
 
 func (b *InMemoryBackend) UpdateDimension(name string, stringValues []string) (*Dimension, error) {

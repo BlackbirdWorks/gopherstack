@@ -190,16 +190,17 @@ func (h *Handler) handleGetFindingV2(path, query string) (any, int, error) {
 
 func (h *Handler) handleListFindingsV2(body []byte) (any, int, error) {
 	var req struct {
-		AnalyzerArn string `json:"analyzerArn"`
-		NextToken   string `json:"nextToken"`
-		Status      string `json:"status"`
-		MaxResults  int    `json:"maxResults"`
+		Filter      map[string]FilterCriterion `json:"filter"`
+		AnalyzerArn string                     `json:"analyzerArn"`
+		NextToken   string                     `json:"nextToken"`
+		Status      string                     `json:"status"`
+		MaxResults  int                        `json:"maxResults"`
 	}
 
 	_ = json.Unmarshal(body, &req)
 
 	findings, nextToken, err := h.Backend.ListFindingsV2(
-		req.AnalyzerArn, req.Status, req.MaxResults, req.NextToken,
+		req.AnalyzerArn, req.Status, req.Filter, req.MaxResults, req.NextToken,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -239,6 +240,19 @@ func (h *Handler) handleListFindingsV2(body []byte) (any, int, error) {
 // used to emit (which no real deserializer recognizes: see
 // awsRestjson1_deserializeDocumentExternalAccessFindingsStatistics in the
 // SDK's deserializers.go).
+//
+// types.FindingsStatistics is a union keyed by wire name
+// (awsRestjson1_deserializeDocumentFindingsStatistics, deserializers.go
+// ~L9169): "externalAccessFindingsStatistics" for ACCOUNT/ORGANIZATION
+// analyzers, "unusedAccessFindingsStatistics" for
+// ACCOUNT_UNUSED_ACCESS/ORGANIZATION_UNUSED_ACCESS ones -- a real client's
+// typed union switch would land on the wrong branch (and decode into the
+// wrong Go type entirely) if this always emitted the external-access key.
+// Select the wire key from the target analyzer's own Type.
+// UnusedAccessFindingsStatistics.TopAccounts/UnusedAccessTypeStatistics are
+// left unset: neither is backed by any state InMemoryBackend tracks (no
+// per-principal-account aggregation, no unused-access-type categorization),
+// so there is no honest non-empty value to synthesize for them.
 func (h *Handler) handleGetFindingsStatistics(body []byte) (any, int, error) {
 	var req struct {
 		AnalyzerArn string `json:"analyzerArn"`
@@ -252,16 +266,28 @@ func (h *Handler) handleGetFindingsStatistics(body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
+	analyzer, err := h.Backend.GetAnalyzer(analyzerNameFromArn(req.AnalyzerArn))
+	if err != nil {
+		return nil, 0, err
+	}
+
 	counts, err := h.Backend.GetFindingsStatistics(req.AnalyzerArn)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return map[string]any{"findingsStatistics": []any{map[string]any{"externalAccessFindingsStatistics": map[string]any{
+	countsJSON := map[string]any{
 		"totalActiveFindings":   counts[string(FindingStatusActive)],
 		"totalArchivedFindings": counts[string(FindingStatusArchived)],
 		"totalResolvedFindings": counts[string(FindingStatusResolved)],
-	}}}}, http.StatusOK, nil
+	}
+
+	statsKey := "externalAccessFindingsStatistics"
+	if analyzer.Type == AnalyzerTypeAccountUnusedAccess || analyzer.Type == AnalyzerTypeOrganizationUnusedAccess {
+		statsKey = "unusedAccessFindingsStatistics"
+	}
+
+	return map[string]any{"findingsStatistics": []any{map[string]any{statsKey: countsJSON}}}, http.StatusOK, nil
 }
 
 func (h *Handler) handleGenerateFindingRecommendation(path string, body []byte) (int, error) {

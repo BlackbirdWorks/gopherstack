@@ -65,9 +65,33 @@ func TestCreateAccountStatus(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	status := createResp["CreateAccountStatus"].(map[string]any)
+	requestID, ok := status["Id"].(string)
+	require.True(t, ok, "CreateAccountStatus.Id must be present")
+
 	// ListCreateAccountStatus
-	rec = doRequest(t, h, "ListCreateAccountStatus", nil)
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	rec = doRequest(t, h, "ListCreateAccountStatus", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	statuses, ok := listResp["CreateAccountStatuses"].([]any)
+	require.True(t, ok)
+
+	found := false
+
+	for _, s := range statuses {
+		entry, entryOK := s.(map[string]any)
+		if entryOK && entry["Id"] == requestID {
+			found = true
+
+			break
+		}
+	}
+
+	assert.True(t, found, "ListCreateAccountStatus must include the just-created account's status")
 }
 
 // TestHandler_AccountErrors tests account handler error paths.

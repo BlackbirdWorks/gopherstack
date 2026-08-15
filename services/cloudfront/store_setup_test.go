@@ -95,7 +95,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// realtimeLogConfigs (keyed by ARN, not ID)
-	rlc, err := orig.CreateRealtimeLogConfig("my-rlc", 50, []string{"timestamp"})
+	rlc, err := orig.CreateRealtimeLogConfig("my-rlc", 50, []string{"timestamp"}, testEndPoints())
 	require.NoError(t, err)
 
 	// keyValueStores
@@ -103,7 +103,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// vpcOrigins
-	vpcOrigin, err := orig.CreateVpcOrigin("my-vpc-origin", nil)
+	vpcOrigin, err := orig.CreateVpcOrigin(testVpcOriginEndpointConfig("my-vpc-origin"), nil)
 	require.NoError(t, err)
 
 	// trustStores

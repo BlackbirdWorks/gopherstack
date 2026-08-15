@@ -34,17 +34,24 @@ func (h *Handler) handleDisableVgwRoutePropagation(vals url.Values, reqID string
 	}, nil
 }
 
+type modifyTransitGatewayResponse struct {
+	XMLName        xml.Name           `xml:"ModifyTransitGatewayResponse"`
+	RequestID      string             `xml:"requestId"`
+	TransitGateway transitGatewayItem `xml:"transitGateway"`
+}
+
 func (h *Handler) handleModifyTransitGateway(vals url.Values, reqID string) (any, error) {
 	tgwID := vals.Get("TransitGatewayId")
 	description := vals.Get("Description")
-	if err := h.Backend.ModifyTransitGateway(tgwID, description); err != nil {
+
+	tgw, err := h.Backend.ModifyTransitGateway(tgwID, description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTransitGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &modifyTransitGatewayResponse{
+		RequestID:      reqID,
+		TransitGateway: toTransitGatewayItem(tgw, nil),
 	}, nil
 }
 
@@ -193,11 +200,12 @@ func (h *Handler) handleDisableTransitGatewayRouteTablePropagation(vals url.Valu
 }
 
 type tgwAttachmentSummaryItem struct {
-	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId"`
-	TransitGatewayID           string `xml:"transitGatewayId,omitempty"`
-	ResourceID                 string `xml:"resourceId,omitempty"`
-	ResourceType               string `xml:"resourceType,omitempty"`
-	State                      string `xml:"state"`
+	TransitGatewayAttachmentID string          `xml:"transitGatewayAttachmentId"`
+	TransitGatewayID           string          `xml:"transitGatewayId,omitempty"`
+	ResourceID                 string          `xml:"resourceId,omitempty"`
+	ResourceType               string          `xml:"resourceType,omitempty"`
+	State                      string          `xml:"state"`
+	TagSet                     []simpleTagItem `xml:"tagSet>item"`
 }
 
 type describeTransitGatewayAttachmentsResponse struct {
@@ -222,6 +230,7 @@ func (h *Handler) handleDescribeTransitGatewayAttachments(vals url.Values, reqID
 			ResourceID:                 att.ResourceID,
 			ResourceType:               att.ResourceType,
 			State:                      att.State,
+			TagSet:                     tagItemsFromMap(h.Backend.TagsForResource(att.TransitGatewayAttachmentID)),
 		})
 	}
 

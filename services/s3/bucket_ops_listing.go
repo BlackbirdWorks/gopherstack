@@ -104,12 +104,17 @@ func (h *S3Handler) listObjects(
 	// mapObjectsToXML formats regular objects. When delimiter is set, the backend
 	// already grouped CP-objects into out.CommonPrefixes and removed them from
 	// out.Contents, so mapObjectsToXML will not produce duplicate CPs.
+	// ListObjects (V1) has no FetchOwner request member -- Owner is unconditionally
+	// present on every Contents item (confirmed: ListObjectsInput has no such field,
+	// unlike ListObjectsV2Input; s3@v1.106.5 deserializers.go's Object case list
+	// decodes Owner the same way for both ops).
 	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(
 		out.Contents,
 		prefix,
 		delimiter,
 		seenPrefixes,
 		encodingType,
+		true,
 	)
 	// Merge backend-level common prefixes (populated when delimiter is set).
 	for _, cp := range out.CommonPrefixes {
@@ -131,6 +136,7 @@ func (h *S3Handler) mapObjectsToXML(
 	prefix, delimiter string,
 	seenPrefixes map[string]struct{},
 	encodingType string,
+	includeOwner bool,
 ) ([]ObjectXML, []CommonPrefixXML) {
 	var contents []ObjectXML
 	var commonPrefixes []CommonPrefixXML
@@ -158,7 +164,14 @@ func (h *S3Handler) mapObjectsToXML(
 		if sc == "" {
 			sc = storageStandard
 		}
+
+		var owner *Owner
+		if includeOwner {
+			owner = &Owner{ID: gopherstackName, DisplayName: gopherstackName}
+		}
+
 		contents = append(contents, ObjectXML{
+			Owner:             owner,
 			Key:               encodeListKey(encodingType, key),
 			LastModified:      obj.LastModified.Format(time.RFC3339),
 			Size:              *obj.Size,
@@ -267,6 +280,10 @@ func mapListVersionsOutput(
 		if v.ETag != nil {
 			etag = *v.ETag
 		}
+		var checksumAlgo string
+		if len(v.ChecksumAlgorithm) > 0 {
+			checksumAlgo = string(v.ChecksumAlgorithm[0])
+		}
 		resp.Versions = append(resp.Versions, ObjectVersionXML{
 			Key:          encodeListKey(encodingType, *v.Key),
 			VersionID:    *v.VersionId,
@@ -278,7 +295,8 @@ func mapListVersionsOutput(
 				ID:          gopherstackName,
 				DisplayName: gopherstackName,
 			},
-			StorageClass: storageStandard,
+			StorageClass:      storageStandard,
+			ChecksumAlgorithm: checksumAlgo,
 		})
 	}
 
@@ -348,6 +366,22 @@ func (h *S3Handler) handleListDirectoryBuckets(
 }
 
 // isListDirectoryBucketsRequest returns true when the request targets ListDirectoryBuckets.
+//
+// "list-type=directory" is not a real signal: the pinned SDK
+// (s3@v1.106.5 api_op_ListDirectoryBuckets.go/serializers.go) never sends
+// it -- ListDirectoryBucketsInput.bindEndpointParams sets
+// UseS3ExpressControlEndpoint, and real AWS distinguishes the two ops
+// purely by literal hostname (s3express-control.<region>.amazonaws.com
+// vs s3.<region>.amazonaws.com), not by any query/path/header on the
+// request itself. Against gopherstack's single local endpoint (the only
+// way any client can reach it), a real ListDirectoryBuckets() call is
+// wire-identical to ListBuckets() -- no query param, path, or header
+// differs -- so this check can never be satisfied by an unmodified SDK
+// client and every real call silently falls through to listBuckets
+// instead (200 success, wrong bucket set). This is structural, not a
+// routing bug fixable by correcting a discriminator: there is no real one
+// to key on. Left as documented dead code (gopherstack-0bq8) rather than
+// deleted, since it is the only way to reach this op at all in tests.
 func isListDirectoryBucketsRequest(r *http.Request) bool {
 	return r.URL.Query().Get("list-type") == "directory"
 }

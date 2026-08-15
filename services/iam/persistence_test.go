@@ -149,7 +149,14 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	_, err = b.UploadServerCertificate("app-cert", "/", "body", "chain")
 	require.NoError(t, err)
 
-	delegation, err := b.CreateDelegationRequest("123456789012")
+	delegation, err := b.CreateDelegationRequest(iam.CreateDelegationRequestInput{
+		OwnerAccountID:      "123456789012",
+		Description:         "test delegation",
+		NotificationChannel: "arn:aws:sns:us-east-1:000000000000:topic",
+		RequestorWorkflowID: "workflow-1",
+		SessionDuration:     3600,
+		PolicyTemplateArn:   "arn:aws:iam::aws:policy/ReadOnlyAccess",
+	})
 	require.NoError(t, err)
 
 	require.NoError(t, b.CreateAccountAlias("acme-corp"))
@@ -338,7 +345,14 @@ func TestPolicyVersionPersistenceRoundTrip(t *testing.T) {
 	_, err = b.CreateVirtualMFADevice("MyMFA", "/")
 	require.NoError(t, err)
 
-	req, err := b.CreateDelegationRequest("111122223333")
+	req, err := b.CreateDelegationRequest(iam.CreateDelegationRequestInput{
+		OwnerAccountID:      "111122223333",
+		Description:         "test delegation",
+		NotificationChannel: "arn:aws:sns:us-east-1:000000000000:topic",
+		RequestorWorkflowID: "workflow-1",
+		SessionDuration:     3600,
+		PolicyTemplateArn:   "arn:aws:iam::aws:policy/ReadOnlyAccess",
+	})
 	require.NoError(t, err)
 	require.NoError(t, b.AcceptDelegationRequest(req.DelegationID))
 

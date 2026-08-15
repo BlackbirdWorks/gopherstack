@@ -8,14 +8,15 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 33 (33 ok) |
-| Feature families | 4 (4 ok) |
-| Known gaps | 1 |
+| Feature families | 5 (5 ok) |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - select_sql_subset: "VERIFIED 2026-08-10 against awsdocs/amazon-glacier-developer-guide's doc_source/s3-glacier-select-sql-reference*.md (the real SQL reference, shared verbatim with S3 Select except where a page says '(Amazon S3 Select only)'). Correct-as-is: JOINs/subqueries are genuinely unsupported by real Glacier Select too ('Amazon S3 Select and S3 Glacier Select queries currently do not support subqueries or joins' -- s3-glacier-select-sql-reference-select.md), so gopherstack's lack of joins is not a gap. Real gaps (real Glacier Select supports these, gopherstack does not): CAST (s3-glacier-select-sql-reference-conversion.md: 'Amazon S3 Select and S3 Glacier Select support the following conversion functions: CAST' -- no '(S3 Select only)' qualifier), NOT/BETWEEN/IN/LIKE operators and arithmetic (+ - * %) (s3-glacier-select-sql-reference-operators.md's Logical/Comparison/Pattern-Matching/Math Operators sections), and COALESCE/NULLIF (s3-glacier-select-sql-reference-conditional.md). Closing these is moderate: BETWEEN/IN/LIKE/NOT extend select_sql.go's existing predicate grammar (parsePredicate/selectPredicateMatches) without new architecture; arithmetic and CAST need a real scalar-expression evaluator (select_sql.go's WHERE/SELECT-list values are currently bare column refs or literals, not expressions) -- a bigger, structural addition. Parenthesized/nested-boolean grouping has NO citable evidence either way: the real SQL reference's exhaustive 'Scalar Expressions' grammar list (literal | column_reference | unary_op expr | expr binary_op expr | func_name | BETWEEN | LIKE) never includes a generic '( expression )' grouping form, unlike CAST/IN/COALESCE's function-call parens, so gopherstack's flat OR-of-AND WHERE clause (no parenthesized override) is left as-is rather than extended speculatively -- do not add parenthesized grouping without a citable source. NOT extending speculatively per this pass's instructions; not implemented this pass."
+- Vault Lock policy enforcement (gopherstack-ygfk) only evaluates Effect=Deny (Allow is a no-op -- no IAM baseline to grant against), ignores Principal (no per-request caller identity, gopherstack-cu4g), does not support the ResourceTag condition key (Glacier archives carry no tags here), and only gates DeleteArchive/DeleteVault (not UploadArchive/InitiateJob/other Vault-Lock-governable actions) -- see families: vault_lock_enforcement for the full disclosure. Vault ACCESS policies (SetVaultAccessPolicy) remain entirely unenforced -- their purpose is Principal-based access control, which needs the same caller-identity infrastructure gopherstack-cu4g is deciding, and is a different, larger gap than deletion protection.
 
 ## More
 

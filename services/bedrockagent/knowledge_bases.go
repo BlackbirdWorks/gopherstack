@@ -169,7 +169,22 @@ func kbCopy(kb *KnowledgeBase) *KnowledgeBase {
 // Knowledge base document operations
 // ---------------------------------------------------------------------------
 
-func kbDocKey(kbID, dsID, docID string) string { return kbID + "/" + dsID + "/" + docID }
+func kbDocKey(kbID, dsID, docKey string) string { return kbID + "/" + dsID + "/" + docKey }
+
+// kbDocumentIdentifierKey resolves id to its storage key, or a ValidationException
+// if id doesn't carry the sub-object its own DataSourceType requires -- the
+// real API has no other way to name a document.
+func kbDocumentIdentifierKey(id KBDocumentIdentifier) (string, error) {
+	key := id.key()
+	if key == "" {
+		return "", fmt.Errorf(
+			"%w: document identifier requires dataSourceType and a matching custom.id or s3.uri",
+			ErrValidation,
+		)
+	}
+
+	return key, nil
+}
 
 // IngestKnowledgeBaseDocuments ingests documents into a knowledge base data source.
 func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
@@ -185,8 +200,12 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 	out := make([]KBDocumentDetail, 0, len(docs))
 
 	for _, doc := range docs {
+		if _, err := kbDocumentIdentifierKey(doc.Identifier); err != nil {
+			return nil, err
+		}
+
 		detail := &KBDocumentDetail{
-			DocumentID:      doc.DocID,
+			Identifier:      doc.Identifier,
 			KnowledgeBaseID: kbID,
 			DataSourceID:    dsID,
 			Status:          docStatusIndexed,
@@ -200,17 +219,22 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 
 // GetKnowledgeBaseDocuments retrieves document details.
 func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
-	_ context.Context, kbID, dsID string, docIDs []string,
+	_ context.Context, kbID, dsID string, ids []KBDocumentIdentifier,
 ) ([]KBDocumentDetail, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]KBDocumentDetail, 0, len(docIDs))
+	out := make([]KBDocumentDetail, 0, len(ids))
 
-	for _, id := range docIDs {
-		detail, ok := b.kbDocuments.Get(kbDocKey(kbID, dsID, id))
+	for _, id := range ids {
+		key, err := kbDocumentIdentifierKey(id)
+		if err != nil {
+			return nil, err
+		}
+
+		detail, ok := b.kbDocuments.Get(kbDocKey(kbID, dsID, key))
 		if !ok {
-			return nil, fmt.Errorf("%w: document %q not found", ErrNotFound, id)
+			return nil, fmt.Errorf("%w: document not found", ErrNotFound)
 		}
 
 		out = append(out, *detail)
@@ -221,32 +245,37 @@ func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 
 // DeleteKnowledgeBaseDocuments deletes documents from a knowledge base data source.
 func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
-	_ context.Context, kbID, dsID string, docIDs []string,
+	_ context.Context, kbID, dsID string, ids []KBDocumentIdentifier,
 ) ([]KBDocumentDetail, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	out := make([]KBDocumentDetail, 0, len(docIDs))
+	out := make([]KBDocumentDetail, 0, len(ids))
 
-	for _, id := range docIDs {
-		key := kbDocKey(kbID, dsID, id)
+	for _, id := range ids {
+		key, err := kbDocumentIdentifierKey(id)
+		if err != nil {
+			return nil, err
+		}
 
-		detail, ok := b.kbDocuments.Get(key)
+		storeKey := kbDocKey(kbID, dsID, key)
+
+		detail, ok := b.kbDocuments.Get(storeKey)
 		if !ok {
 			out = append(out, KBDocumentDetail{
-				DocumentID:      id,
+				Identifier:      id,
 				KnowledgeBaseID: kbID,
 				DataSourceID:    dsID,
-				Status:          "NOT_FOUND",
+				Status:          docStatusNotFound,
 			})
 
 			continue
 		}
 
-		b.kbDocuments.Delete(key)
+		b.kbDocuments.Delete(storeKey)
 
 		d := *detail
-		d.Status = "DELETED"
+		d.Status = docStatusDeleting
 		out = append(out, d)
 	}
 
@@ -262,7 +291,7 @@ func (b *InMemoryBackend) ListKnowledgeBaseDocuments(
 
 	group := b.kbDocumentsByDataSource.Get(dsKey(kbID, dsID))
 	keys := tableIDs(group, func(d *KBDocumentDetail) string {
-		return kbDocKey(d.KnowledgeBaseID, d.DataSourceID, d.DocumentID)
+		return kbDocKey(d.KnowledgeBaseID, d.DataSourceID, d.Identifier.key())
 	})
 	keys, outToken := paginate(keys, nextToken, maxResults)
 

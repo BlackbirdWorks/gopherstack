@@ -149,12 +149,12 @@ func Test_CountZonesByReusableDelegationSet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, count)
 
-	_, err = b.CreateHostedZone("a.example.com", "zone-ref-a", "", false, ds.ID)
+	_, err = b.CreateHostedZone("a.example.com", "zone-ref-a", "", false, ds.ID, "", "")
 	require.NoError(t, err)
-	_, err = b.CreateHostedZone("b.example.com", "zone-ref-b", "", false, ds.ID)
+	_, err = b.CreateHostedZone("b.example.com", "zone-ref-b", "", false, ds.ID, "", "")
 	require.NoError(t, err)
 	// A zone with no delegation set must not be counted.
-	_, err = b.CreateHostedZone("c.example.com", "zone-ref-c", "", false, "")
+	_, err = b.CreateHostedZone("c.example.com", "zone-ref-c", "", false, "", "", "")
 	require.NoError(t, err)
 
 	count, err = b.CountZonesByReusableDelegationSet(ds.ID)
@@ -189,7 +189,7 @@ func Test_CreateReusableDelegationSet_FromHostedZone(t *testing.T) {
 	source, err := b.CreateReusableDelegationSet("ds-ref-source", "")
 	require.NoError(t, err)
 
-	zone, err := b.CreateHostedZone("source.example.com", "zone-ref-source", "", false, source.ID)
+	zone, err := b.CreateHostedZone("source.example.com", "zone-ref-source", "", false, source.ID, "", "")
 	require.NoError(t, err)
 	require.Equal(t, source.NameServers, zone.NameServers)
 
@@ -214,7 +214,7 @@ func Test_CreateReusableDelegationSet_FromHostedZone_PrivateZoneRejected(t *test
 
 	b := route53.NewInMemoryBackend()
 
-	zone, err := b.CreateHostedZone("private.example.com", "zone-ref-priv", "", true, "")
+	zone, err := b.CreateHostedZone("private.example.com", "zone-ref-priv", "", true, "", "", "")
 	require.NoError(t, err)
 
 	_, err = b.CreateReusableDelegationSet("ds-ref-priv", zone.ID)
@@ -227,7 +227,7 @@ func Test_CreateReusableDelegationSet_FromHostedZone_AlreadyReusable(t *testing.
 
 	b := route53.NewInMemoryBackend()
 
-	zone, err := b.CreateHostedZone("dup.example.com", "zone-ref-dup", "", false, "")
+	zone, err := b.CreateHostedZone("dup.example.com", "zone-ref-dup", "", false, "", "", "")
 	require.NoError(t, err)
 
 	_, err = b.CreateReusableDelegationSet("ds-ref-dup-1", zone.ID)

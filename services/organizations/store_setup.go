@@ -9,12 +9,12 @@ package organizations
 // Tables split into two groups:
 //
 //   - "Clean" tables (accounts, ous, policies, createStatuses, handshakes,
-//     serviceAccess) key off a field the value type already carries in JSON
-//     (Account.ID, OrganizationalUnit.ID, Policy.PolicySummary.ID,
-//     CreateAccountStatus.ID, Handshake.ID, EnabledServicePrincipal.
-//     ServicePrincipal), so they are registered on b.registry here and
-//     persistence.go drives them through b.registry.SnapshotAll() /
-//     RestoreAll() directly.
+//     serviceAccess, responsibilityTransfers) key off a field the value type
+//     already carries in JSON (Account.ID, OrganizationalUnit.ID,
+//     Policy.PolicySummary.ID, CreateAccountStatus.ID, Handshake.ID,
+//     EnabledServicePrincipal.ServicePrincipal, ResponsibilityTransfer.ID), so
+//     they are registered on b.registry here and persistence.go drives them
+//     through b.registry.SnapshotAll() / RestoreAll() directly.
 //   - "Dirty" tables (delegatedAdmins) key off a composite of two fields,
 //     one of which (DelegatedAdmin.ServicePrincipal) is tagged `json:"-"`
 //     purely so store.Table's keyFn can derive a key from the value -- see
@@ -31,7 +31,10 @@ package organizations
 // (delegatedAdminsByService, delegatedAdminsByAccount) supporting
 // ListDelegatedAdministrators' service-principal filter and the
 // account-keyed cascade-delete in RemoveAccountFromOrganization /
-// ListDelegatedServicesForAccount.
+// ListDelegatedServicesForAccount. responsibilityTransfers carries
+// responsibilityTransfersByHandshake, grouping by ActiveHandshakeID so
+// AcceptHandshake/CancelHandshake/DeclineHandshake/expireStaleHandshakesLocked
+// can re-sync a transfer's Status when its underlying handshake transitions.
 //
 // A number of fields are deliberately left as plain maps -- see the
 // InMemoryBackend struct doc in backend.go for the list and why (all are
@@ -49,6 +52,8 @@ func policyKeyFn(v *Policy) string { return v.PolicySummary.ID }
 func createStatusKeyFn(v *CreateAccountStatus) string { return v.ID }
 
 func handshakeKeyFn(v *Handshake) string { return v.ID }
+
+func responsibilityTransferKeyFn(v *ResponsibilityTransfer) string { return v.ID }
 
 func serviceAccessKeyFn(v *EnabledServicePrincipal) string { return v.ServicePrincipal }
 
@@ -80,6 +85,14 @@ func registerAllTables(b *InMemoryBackend) {
 	b.createStatuses = store.Register(b.registry, "createStatuses", store.New(createStatusKeyFn))
 	b.handshakes = store.Register(b.registry, "handshakes", store.New(handshakeKeyFn))
 	b.serviceAccess = store.Register(b.registry, "serviceAccess", store.New(serviceAccessKeyFn))
+
+	b.responsibilityTransfers = store.Register(
+		b.registry, "responsibilityTransfers", store.New(responsibilityTransferKeyFn),
+	)
+	b.responsibilityTransfersByHandshake = b.responsibilityTransfers.AddIndex(
+		"byHandshake",
+		func(v *ResponsibilityTransfer) string { return v.ActiveHandshakeID },
+	)
 
 	b.delegatedAdmins = store.New(delegatedAdminKeyFn)
 	b.delegatedAdminsByService = b.delegatedAdmins.AddIndex(

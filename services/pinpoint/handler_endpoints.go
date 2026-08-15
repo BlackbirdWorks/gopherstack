@@ -189,11 +189,18 @@ func (h *Handler) handleGetUserEndpoints(c *echo.Context, appID, userID string) 
 
 // handleDeleteUserEndpoints handles DELETE /v1/apps/{appId}/users/{userId}.
 func (h *Handler) handleDeleteUserEndpoints(c *echo.Context, appID, userID string) error {
-	if err := h.Backend.DeleteUserEndpoints(appID, userID); err != nil {
+	deleted, err := h.Backend.DeleteUserEndpoints(appID, userID)
+	if err != nil {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
-	c.Response().WriteHeader(http.StatusNoContent)
+	items := make([]endpointResponse, 0, len(deleted))
+
+	for _, e := range deleted {
+		items = append(items, toEndpointResponse(e))
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, endpointsResponse{Item: items})
 
 	return nil
 }

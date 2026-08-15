@@ -150,12 +150,13 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	assert.Len(t, listResp["TaskExecutions"], 1)
 
-	// CancelTaskExecution
+	// CancelTaskExecution on an execution already settled into SUCCESS (by
+	// the DescribeTaskExecution call above) must be rejected, not silently
+	// overwrite the outcome to ERROR -- see TestDataSync_CancelTaskExecution_RejectsTerminal.
 	rec = doRequest(t, h, "CancelTaskExecution", map[string]any{"TaskExecutionArn": execArn})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	// List after cancel - execution persists with ERROR status (AWS has no
-	// CANCELLED TaskExecutionStatus enum value).
+	// List after the rejected cancel - execution is unchanged, still SUCCESS.
 	rec = doRequest(t, h, "ListTaskExecutions", map[string]any{"TaskArn": taskArn})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	execs, ok := listResp["TaskExecutions"].([]any)
@@ -163,7 +164,7 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	require.Len(t, execs, 1)
 	execEntry, ok := execs[0].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "ERROR", execEntry["Status"])
+	assert.Equal(t, "SUCCESS", execEntry["Status"])
 
 	// StartTaskExecution unknown task returns 404
 	rec = doRequest(
@@ -300,6 +301,78 @@ func TestDataSync_CancelTaskExecutionStatusChange(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, execs, 1)
 	assert.Equal(t, "ERROR", execs[0].(map[string]any)["Status"])
+}
+
+// TestDataSync_CancelTaskExecution_RejectsTerminal covers a gopherstack-g8k9
+// bug: CancelTaskExecution had no terminal-state guard at all, unlike its
+// sibling UpdateTaskExecution (which already rejects SUCCESS/ERROR
+// executions). A DataSync task execution's LAUNCHING state is lazily
+// advanced to SUCCESS the first time anyone calls DescribeTaskExecution, so
+// an execution a client had already observed as finished could still be
+// silently "cancelled" into ERROR, overwriting a real, already-reported
+// outcome. Real DataSync only documents CancelTaskExecution as stopping "a
+// task execution that's in progress" (api_op_CancelTaskExecution.go,
+// datasync@v1.61.4), which this backend's own PARITY.md already flagged as
+// a suspected but unconfirmed gap.
+func TestDataSync_CancelTaskExecution_RejectsTerminal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		settle  func(t *testing.T, h *datasync.Handler, execArn string)
+		wantErr string
+	}{
+		{
+			name: "already SUCCESS via DescribeTaskExecution",
+			settle: func(t *testing.T, h *datasync.Handler, execArn string) {
+				t.Helper()
+				rec := doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantErr: "SUCCESS",
+		},
+		{
+			name: "already ERROR via a prior Cancel",
+			settle: func(t *testing.T, h *datasync.Handler, execArn string) {
+				t.Helper()
+				rec := doRequest(t, h, "CancelTaskExecution", map[string]any{"TaskExecutionArn": execArn})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantErr: "ERROR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			srcArn := createTestLocationS3(t, h)
+			dstArn := createTestLocationS3(t, h)
+			taskArn := createTestTask(t, h, srcArn, dstArn)
+
+			rec := doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var startResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			execArn := startResp["TaskExecutionArn"].(string)
+
+			tt.settle(t, h, execArn)
+
+			// Second cancel, now against a terminal execution, must be rejected.
+			rec = doRequest(t, h, "CancelTaskExecution", map[string]any{"TaskExecutionArn": execArn})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantErr)
+
+			// The execution's status must be unchanged by the rejected cancel.
+			rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
+			require.Equal(t, http.StatusOK, rec.Code)
+			var descResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			assert.Equal(t, tt.wantErr, descResp["Status"])
+		})
+	}
 }
 
 // TestDataSync_DescribeTaskExecutionLazyAdvance verifies that DescribeTaskExecution

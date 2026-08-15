@@ -13,6 +13,13 @@ func resolveCommandOps(path, method string) string {
 	if path == "/commands" && method == http.MethodGet {
 		return opListCommands
 	}
+	// Real ListCommandExecutions route (iot@v1.77.4 serializers.go:13785):
+	// POST /command-executions, filters travel in the JSON body. The
+	// nested "/commands/{commandId}/executions" case below predates this
+	// and stays wired for backward compatibility with existing callers.
+	if path == pathCommandExecutions && method == http.MethodPost {
+		return opListCommandExecutions
+	}
 	if rest, ok := strings.CutPrefix(path, "/commands/"); ok {
 		return resolveCommandSubPathOps(strings.SplitN(rest, "/", pathSplitThree), method)
 	}
@@ -77,8 +84,8 @@ func (h *Handler) handleCreateCommand(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"commandId":  cmd.CommandID,
-		"commandArn": cmd.CommandARN,
+		"commandId":   cmd.CommandID,
+		keyCommandArn: cmd.CommandARN,
 	})
 }
 
@@ -118,15 +125,52 @@ func (h *Handler) handleDeleteCommand(c *echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
-func (h *Handler) handleListCommands(c *echo.Context) error {
-	items := h.Backend.ListCommands()
-
-	return c.JSON(http.StatusOK, map[string]any{"commands": items})
+// commandSummaryFields renders the fields of cmd that types.CommandSummary
+// (types.go:1504-1527, iot@v1.77.4) declares: CommandArn, CommandId,
+// CreatedAt, Deprecated, DisplayName, LastUpdatedAt, PendingDeletion.
+func commandSummaryFields(cmd *IoTCommand) map[string]any {
+	return map[string]any{
+		keyCommandArn:     cmd.CommandARN,
+		"commandId":       cmd.CommandID,
+		"createdAt":       cmd.CreationDate,
+		"deprecated":      cmd.Deprecated,
+		"displayName":     cmd.DisplayName,
+		"lastUpdatedAt":   cmd.LastUpdated,
+		"pendingDeletion": cmd.PendingDeletion,
+	}
 }
 
+func (h *Handler) handleListCommands(c *echo.Context) error {
+	items := h.Backend.ListCommands()
+	out := make([]map[string]any, 0, len(items))
+	for _, cmd := range items {
+		out = append(out, commandSummaryFields(cmd))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"commands": out})
+}
+
+// handleGetCommandExecution serves both the real top-level route (GET
+// /command-executions/{executionId}?targetArn=..., iot@v1.77.4
+// serializers.go:GetCommandExecutionInput -- executions addressed by
+// executionId+targetArn, no commandId) and the pre-existing fictional
+// nested route /commands/{commandId}/executions/{executionId} kept for
+// backward compatibility, same pattern as handleListCommandExecutions.
 func (h *Handler) handleGetCommandExecution(c *echo.Context) error {
-	// /commands/{commandId}/executions/{executionId}
-	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/commands/")
+	path := c.Request().URL.Path
+
+	if executionID, ok := strings.CutPrefix(path, pathCommandExecutions+"/"); ok {
+		targetARN := c.QueryParam("targetArn")
+		ex, err := h.Backend.GetCommandExecutionByID(executionID, targetARN)
+		if err != nil {
+			return respondErr(c, err)
+		}
+
+		return c.JSON(http.StatusOK, commandExecutionSummaryFields(ex))
+	}
+
+	// Legacy nested route: /commands/{commandId}/executions/{executionId}.
+	trimmed := strings.TrimPrefix(path, "/commands/")
 	parts := strings.SplitN(trimmed, "/executions/", pathSplitTwo)
 	if len(parts) != pathSplitTwo {
 		return respondNotFound(c, "command execution not found")
@@ -136,16 +180,59 @@ func (h *Handler) handleGetCommandExecution(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, ex)
+	return c.JSON(http.StatusOK, commandExecutionSummaryFields(ex))
+}
+
+// commandExecutionSummaryFields renders the fields ex shares with both
+// types.CommandExecutionSummary (types.go:1327-1352, iot@v1.77.4, used by
+// ListCommandExecutions) and GetCommandExecutionOutput (api_op_
+// GetCommandExecution.go, used by GetCommandExecution): CommandArn,
+// CompletedAt, CreatedAt, ExecutionId, StartedAt, Status, TargetArn.
+// CompletedAt and StartedAt are deliberately left absent, as are the
+// GetCommandExecutionOutput-only members ExecutionTimeoutSeconds,
+// LastUpdatedAt, Parameters, Result and StatusReason: this backend has no
+// StartCommandExecution/UpdateCommandExecution control-plane op (executions
+// only arrive via AddCommandExecutionInternal test seeding, or
+// DeleteCommandExecution/GetCommandExecution reads), so there is no honest
+// source for any of them.
+func commandExecutionSummaryFields(ex *IoTCommandExecution) map[string]any {
+	return map[string]any{
+		keyCommandArn: ex.CommandARN,
+		"executionId": ex.ExecutionID,
+		"targetArn":   ex.ThingARN,
+		keyStatus:     ex.Status,
+		"createdAt":   ex.CreationDate,
+	}
 }
 
 func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
-	// /commands/{commandId}/executions
-	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/commands/")
-	commandID := strings.TrimSuffix(trimmed, "/executions")
-	items := h.Backend.ListCommandExecutions(commandID)
+	var items []*IoTCommandExecution
 
-	return c.JSON(http.StatusOK, map[string]any{"executions": items})
+	if c.Request().URL.Path == pathCommandExecutions {
+		// Real route: POST /command-executions, filters in the JSON body
+		// (iot@v1.77.4 serializers.go:13840, awsRestjson1_serializeOpDocumentListCommandExecutionsInput).
+		var body struct {
+			CommandArn string `json:"commandArn"`
+			TargetArn  string `json:"targetArn"`
+			Status     string `json:"status"`
+		}
+		if err := readBody(c, &body); err != nil {
+			return err
+		}
+		items = h.Backend.ListCommandExecutionsByFilter(body.CommandArn, body.TargetArn, body.Status)
+	} else {
+		// Legacy nested route: /commands/{commandId}/executions.
+		trimmed := strings.TrimPrefix(c.Request().URL.Path, "/commands/")
+		commandID := strings.TrimSuffix(trimmed, "/executions")
+		items = h.Backend.ListCommandExecutions(commandID)
+	}
+
+	out := make([]map[string]any, 0, len(items))
+	for _, ex := range items {
+		out = append(out, commandExecutionSummaryFields(ex))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"commandExecutions": out})
 }
 
 func (h *Handler) handleDeleteCommandExecution(c *echo.Context) error {

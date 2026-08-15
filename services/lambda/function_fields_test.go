@@ -8,10 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/lambda"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 // ============================================================
@@ -565,10 +569,11 @@ func TestImageConfig_Persisted_Create(t *testing.T) {
 
 	var fn lambda.FunctionConfiguration
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
-	require.NotNil(t, fn.ImageConfig)
-	assert.Equal(t, []string{"serve"}, fn.ImageConfig.Command)
-	assert.Equal(t, []string{"/app"}, fn.ImageConfig.EntryPoint)
-	assert.Equal(t, "/app", fn.ImageConfig.WorkingDirectory)
+	require.NotNil(t, fn.ImageConfigResponse)
+	require.NotNil(t, fn.ImageConfigResponse.ImageConfig)
+	assert.Equal(t, []string{"serve"}, fn.ImageConfigResponse.ImageConfig.Command)
+	assert.Equal(t, []string{"/app"}, fn.ImageConfigResponse.ImageConfig.EntryPoint)
+	assert.Equal(t, "/app", fn.ImageConfigResponse.ImageConfig.WorkingDirectory)
 }
 
 func TestImageConfig_InGetFunction(t *testing.T) {
@@ -593,8 +598,9 @@ func TestImageConfig_InGetFunction(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out))
 	var cfg lambda.FunctionConfiguration
 	require.NoError(t, json.Unmarshal(out["Configuration"], &cfg))
-	require.NotNil(t, cfg.ImageConfig)
-	assert.Equal(t, []string{"run"}, cfg.ImageConfig.Command)
+	require.NotNil(t, cfg.ImageConfigResponse)
+	require.NotNil(t, cfg.ImageConfigResponse.ImageConfig)
+	assert.Equal(t, []string{"run"}, cfg.ImageConfigResponse.ImageConfig.Command)
 }
 
 func TestImageConfig_NotSetForZip(t *testing.T) {
@@ -606,7 +612,48 @@ func TestImageConfig_NotSetForZip(t *testing.T) {
 
 	var fn lambda.FunctionConfiguration
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
-	assert.Nil(t, fn.ImageConfig)
+	assert.Nil(t, fn.ImageConfigResponse)
+}
+
+// Test_SDKRoundTrip_ImageConfigResponse proves the real wire shape of
+// GetFunctionConfiguration/CreateFunction for image-based functions:
+// ImageConfig comes back nested one level under ImageConfigResponse
+// (api_op_GetFunctionConfiguration.go, types.ImageConfigResponse), not as a
+// bare top-level field. Before the fix, the handler emitted ImageConfig
+// directly at the top level, so the real SDK's deserializer -- which only
+// ever reads ImageConfigResponse.ImageConfig -- decoded it as nil for every
+// image-package function, even though CreateFunction's request-side
+// ImageConfig field (a different, legitimately flat shape) round-tripped
+// into the backend correctly.
+func Test_SDKRoundTrip_ImageConfigResponse(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	client := newTestLambdaClient(t, h)
+
+	created, err := client.CreateFunction(t.Context(), &lambdasdk.CreateFunctionInput{
+		FunctionName: aws.String("sdk-imgcfg-fn"),
+		PackageType:  types.PackageTypeImage,
+		Code:         &types.FunctionCode{ImageUri: aws.String("ecr/myapp:latest")},
+		Role:         aws.String("arn:aws:iam:::role/r"),
+		ImageConfig: &types.ImageConfig{
+			Command:    []string{"serve"},
+			EntryPoint: []string{"/app"},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.ImageConfigResponse)
+	require.NotNil(t, created.ImageConfigResponse.ImageConfig)
+	assert.Equal(t, []string{"serve"}, created.ImageConfigResponse.ImageConfig.Command)
+
+	got, err := client.GetFunctionConfiguration(t.Context(), &lambdasdk.GetFunctionConfigurationInput{
+		FunctionName: aws.String("sdk-imgcfg-fn"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.ImageConfigResponse)
+	require.NotNil(t, got.ImageConfigResponse.ImageConfig)
+	assert.Equal(t, []string{"serve"}, got.ImageConfigResponse.ImageConfig.Command)
+	assert.Equal(t, []string{"/app"}, got.ImageConfigResponse.ImageConfig.EntryPoint)
 }
 
 // ---- Gap 10: Qualifier validation ----
@@ -724,8 +771,9 @@ func TestAllNewFields_PersistInGetConfiguration(t *testing.T) {
 	require.NotNil(t, fn.EphemeralStorage)
 	assert.Equal(t, int32(1024), fn.EphemeralStorage.Size)
 
-	require.NotNil(t, fn.ImageConfig)
-	assert.Equal(t, []string{"app"}, fn.ImageConfig.Command)
+	require.NotNil(t, fn.ImageConfigResponse)
+	require.NotNil(t, fn.ImageConfigResponse.ImageConfig)
+	assert.Equal(t, []string{"app"}, fn.ImageConfigResponse.ImageConfig.Command)
 }
 
 // ---- PublishVersion carries new fields ----
@@ -745,7 +793,9 @@ func TestPublishVersion_CarriesNewFields(t *testing.T) {
 		VpcConfig:        &lambda.VpcConfig{SubnetIDs: []string{"subnet-pub"}},
 		TracingConfig:    &lambda.TracingConfig{Mode: "Active"},
 		DeadLetterConfig: &lambda.DeadLetterConfig{TargetArn: "arn:aws:sqs:us-east-1:123:dlq"},
-		ImageConfig:      &lambda.ImageConfig{Command: []string{"run"}},
+		ImageConfigResponse: &lambda.ImageConfigResponse{
+			ImageConfig: &lambda.ImageConfig{Command: []string{"run"}},
+		},
 		EphemeralStorage: &lambda.EphemeralStorageConfig{Size: 2048},
 	}))
 
@@ -761,8 +811,9 @@ func TestPublishVersion_CarriesNewFields(t *testing.T) {
 	require.NotNil(t, ver.DeadLetterConfig)
 	assert.Equal(t, "arn:aws:sqs:us-east-1:123:dlq", ver.DeadLetterConfig.TargetArn)
 
-	require.NotNil(t, ver.ImageConfig)
-	assert.Equal(t, []string{"run"}, ver.ImageConfig.Command)
+	require.NotNil(t, ver.ImageConfigResponse)
+	require.NotNil(t, ver.ImageConfigResponse.ImageConfig)
+	assert.Equal(t, []string{"run"}, ver.ImageConfigResponse.ImageConfig.Command)
 }
 
 // ---- EphemeralStorage boundary values ----

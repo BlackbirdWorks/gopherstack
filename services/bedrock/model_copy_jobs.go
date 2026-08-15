@@ -8,13 +8,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// CreateModelCopyJob creates a new model copy job.
+// CreateModelCopyJob creates a new model copy job. TargetModelArn is built
+// from the caller's real targetModelName (bedrock@v1.66.4
+// serializers.go:1720-1750, "This member is required") -- it must never be
+// a fabricated name of this backend's own choosing.
 func (b *InMemoryBackend) CreateModelCopyJob(
-	sourceModelARN string,
+	sourceModelARN, targetModelName string,
 	tags []Tag,
 ) (*ModelCopyJob, error) {
 	if sourceModelARN == "" {
 		return nil, fmt.Errorf("%w: sourceModelArn is required", ErrValidation)
+	}
+
+	if targetModelName == "" {
+		return nil, fmt.Errorf("%w: targetModelName is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateModelCopyJob")
@@ -23,13 +30,14 @@ func (b *InMemoryBackend) CreateModelCopyJob(
 	b.copyJobCounter++
 	id := fmt.Sprintf("mcj-%07d", b.copyJobCounter)
 	jobARN := arn.Build("bedrock", b.region, b.accountID, "model-copy-job/"+id)
-	targetModelARN := arn.Build("bedrock", b.region, b.accountID, "custom-model/copy-"+id)
+	targetModelARN := arn.Build("bedrock", b.region, b.accountID, "custom-model/"+targetModelName)
 	now := time.Now().UTC()
 
 	job := &ModelCopyJob{
 		JobArn:           jobARN,
 		SourceModelArn:   sourceModelARN,
 		TargetModelArn:   targetModelARN,
+		TargetModelName:  targetModelName,
 		Status:           statusInProgress,
 		CreationTime:     now,
 		LastModifiedTime: now,

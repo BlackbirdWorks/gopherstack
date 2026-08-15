@@ -119,7 +119,7 @@ type InMemoryBackend struct {
 	aliases           map[string]map[string]string // region -> alias -> directoryID
 	ipRoutes          map[string]map[string][]storedIpRoute
 	dirDataAccess     map[string]map[string]bool
-	caEnrollment      map[string]map[string]bool
+	caEnrollment      map[string]map[string]*CAEnrollmentPolicy
 	dirSettings       map[string]map[string][]*storedDirectorySetting
 	updateInfoEntries map[string]map[string][]*storedUpdateInfo
 
@@ -135,7 +135,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		aliases:           make(map[string]map[string]string),
 		ipRoutes:          make(map[string]map[string][]storedIpRoute),
 		dirDataAccess:     make(map[string]map[string]bool),
-		caEnrollment:      make(map[string]map[string]bool),
+		caEnrollment:      make(map[string]map[string]*CAEnrollmentPolicy),
 		dirSettings:       make(map[string]map[string][]*storedDirectorySetting),
 		updateInfoEntries: make(map[string]map[string][]*storedUpdateInfo),
 		mu:                lockmetrics.New("directoryservice"),
@@ -232,9 +232,9 @@ func (b *InMemoryBackend) dirDataAccessStoreRO(region string) map[string]bool {
 	return map[string]bool{}
 }
 
-func (b *InMemoryBackend) caEnrollmentStore(region string) map[string]bool {
+func (b *InMemoryBackend) caEnrollmentStore(region string) map[string]*CAEnrollmentPolicy {
 	if b.caEnrollment[region] == nil {
-		b.caEnrollment[region] = make(map[string]bool)
+		b.caEnrollment[region] = make(map[string]*CAEnrollmentPolicy)
 	}
 
 	return b.caEnrollment[region]
@@ -245,12 +245,12 @@ func (b *InMemoryBackend) caEnrollmentStore(region string) map[string]bool {
 // b.mu.RLock(): if the region has not been observed yet, it returns a fresh,
 // unregistered, empty map instead of lazily creating (and persisting) an
 // entry.
-func (b *InMemoryBackend) caEnrollmentStoreRO(region string) map[string]bool {
+func (b *InMemoryBackend) caEnrollmentStoreRO(region string) map[string]*CAEnrollmentPolicy {
 	if v := b.caEnrollment[region]; v != nil {
 		return v
 	}
 
-	return map[string]bool{}
+	return map[string]*CAEnrollmentPolicy{}
 }
 
 func (b *InMemoryBackend) dirSettingsStore(region string) map[string][]*storedDirectorySetting {
@@ -349,7 +349,7 @@ func (b *InMemoryBackend) resetAllState() {
 	b.aliases = make(map[string]map[string]string)
 	b.ipRoutes = make(map[string]map[string][]storedIpRoute)
 	b.dirDataAccess = make(map[string]map[string]bool)
-	b.caEnrollment = make(map[string]map[string]bool)
+	b.caEnrollment = make(map[string]map[string]*CAEnrollmentPolicy)
 	b.dirSettings = make(map[string]map[string][]*storedDirectorySetting)
 	b.updateInfoEntries = make(map[string]map[string][]*storedUpdateInfo)
 }

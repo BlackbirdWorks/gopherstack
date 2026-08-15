@@ -82,10 +82,7 @@ func (h *Handler) listSolutions(input map[string]any) (map[string]any, error) {
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, sol := range list {
-		// ListSolutionsOutput items are types.SolutionSummary, which has no
-		// latestSolutionVersion member (types.go:1990) -- unlike
-		// DescribeSolution, no per-item cross-table lookup here.
-		summaries = append(summaries, solutionToMap(sol, nil))
+		summaries = append(summaries, solutionSummaryToMap(sol))
 	}
 
 	result := map[string]any{"solutions": summaries}
@@ -131,7 +128,7 @@ func (h *Handler) listSolutionVersions(input map[string]any) (map[string]any, er
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, sv := range list {
-		summaries = append(summaries, solutionVersionToMap(sv))
+		summaries = append(summaries, solutionVersionSummaryToMap(sv))
 	}
 
 	result := map[string]any{"solutionVersions": summaries}
@@ -185,6 +182,23 @@ func solutionToMap(sol *Solution, latest *SolutionVersion) map[string]any {
 	}
 
 	return m
+}
+
+// solutionSummaryToMap builds the types.SolutionSummary shape (types.go:1990)
+// -- six fields: solutionArn, name, recipeArn, status, creationDateTime,
+// lastUpdatedDateTime. Unlike Solution/solutionToMap it has no
+// datasetGroupArn, eventType, performAutoML, performHPO,
+// performAutoTraining, performIncrementalUpdate, solutionConfig,
+// autoMLResult, latestSolutionUpdate, or latestSolutionVersion.
+func solutionSummaryToMap(sol *Solution) map[string]any {
+	return map[string]any{
+		keySolutionArn:         sol.SolutionArn,
+		keyName:                sol.Name,
+		keyRecipeArn:           sol.RecipeArn,
+		keyStatus:              sol.Status,
+		keyCreationDateTime:    awstime.Epoch(sol.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(sol.LastUpdatedDateTime),
+	}
 }
 
 // solutionVersionSummaryToMap builds the types.SolutionVersionSummary shape

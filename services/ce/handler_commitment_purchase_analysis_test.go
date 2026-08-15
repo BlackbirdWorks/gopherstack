@@ -43,10 +43,19 @@ func TestCommitmentAnalysis_MultipleStartsListed(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut struct {
-		AnalysisSummaryList []map[string]any `json:"AnalysisSummaryList"`
+		AnalysisSummaryList []struct {
+			AnalysisID string `json:"AnalysisId"`
+		} `json:"AnalysisSummaryList"`
 	}
 	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
-	assert.Len(t, listOut.AnalysisSummaryList, 3)
+	require.Len(t, listOut.AnalysisSummaryList, 3)
+
+	listedIDs := make(map[string]struct{}, 3)
+	for _, item := range listOut.AnalysisSummaryList {
+		require.NotEmpty(t, item.AnalysisID, "AnalysisId must be emitted under its real PascalCase wire key")
+		listedIDs[item.AnalysisID] = struct{}{}
+	}
+	assert.Equal(t, seen, listedIDs)
 }
 
 func TestCommitmentPurchaseAnalysis_Lifecycle(t *testing.T) {
@@ -96,11 +105,12 @@ func TestCommitmentPurchaseAnalysis_Lifecycle(t *testing.T) {
 
 	var listOut struct {
 		AnalysisSummaryList []struct {
-			AnalysisID string `json:"analysisId"`
+			AnalysisID string `json:"AnalysisId"`
 		} `json:"AnalysisSummaryList"`
 	}
 	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
 	require.Len(t, listOut.AnalysisSummaryList, 1)
+	assert.Equal(t, startOut.AnalysisID, listOut.AnalysisSummaryList[0].AnalysisID)
 }
 
 func TestSnapshotRestore_IncludesCommitmentAnalyses(t *testing.T) {

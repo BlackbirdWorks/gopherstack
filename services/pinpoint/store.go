@@ -27,7 +27,7 @@ type InMemoryBackend struct {
 	endpoints              *store.Table[Endpoint]
 	eventStreams           *store.Table[EventStream]
 	channels               *store.Table[Channel]
-	appSettings            map[string]*storedAppSettings
+	appSettings            map[string]*StoredAppSettings
 	campaignVersions       map[string][]*Campaign
 	segmentVersions        map[string][]*Segment
 	templateVersionHistory map[string][]templateVersionItem
@@ -49,7 +49,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		mu:                     lockmetrics.New("pinpoint"),
 		registry:               store.NewRegistry(),
 		arnIndex:               make(map[string]tagHolder),
-		appSettings:            make(map[string]*storedAppSettings),
+		appSettings:            make(map[string]*StoredAppSettings),
 		campaignVersions:       make(map[string][]*Campaign),
 		segmentVersions:        make(map[string][]*Segment),
 		templateVersionHistory: make(map[string][]templateVersionItem),
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 
 	b.arnIndex = make(map[string]tagHolder)
-	b.appSettings = make(map[string]*storedAppSettings)
+	b.appSettings = make(map[string]*StoredAppSettings)
 	b.campaignVersions = make(map[string][]*Campaign)
 	b.segmentVersions = make(map[string][]*Segment)
 	b.templateVersionHistory = make(map[string][]templateVersionItem)

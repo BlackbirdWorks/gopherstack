@@ -20,7 +20,7 @@ func TestAgentsHandler_DataSourceLifecycle(t *testing.T) {
 	kbID := kb.KnowledgeBaseID
 
 	// Create data source.
-	rec := doAgentRequest(t, h, http.MethodPost, "/knowledgebases/"+kbID+"/datasources", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/knowledgebases/"+kbID+"/datasources", map[string]any{
 		"name":        "my-ds",
 		"description": "test data source",
 	})
@@ -60,7 +60,7 @@ func TestAgentsHandler_DataSource_KBNotFound(t *testing.T) {
 
 	h, _ := newTestAgentsHandler(t)
 
-	rec := doAgentRequest(t, h, http.MethodPost, "/knowledgebases/nonexistent/datasources", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/knowledgebases/nonexistent/datasources", map[string]any{
 		"name": "ds",
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -109,7 +109,7 @@ func TestAgentsHandler_DataSourceIngestionConfigurations(t *testing.T) {
 			kb, err := b.CreateKnowledgeBase("kb-"+tt.sourceType, "", "", nil, nil, nil)
 			require.NoError(t, err)
 			rec := doAgentRequest(
-				t, h, http.MethodPost,
+				t, h, http.MethodPut,
 				fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 				map[string]any{
 					"name":                    "source",
@@ -207,7 +207,7 @@ func TestAccuracy_DataSource_S3VectorIngestionConfigPreserved(t *testing.T) {
 			}
 
 			rec := doAgentRequest(
-				t, h, http.MethodPost,
+				t, h, http.MethodPut,
 				fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 				map[string]any{
 					"name":                         tt.name,
@@ -256,7 +256,7 @@ func TestAccuracy_DataSource_S3BucketConfigPreserved(t *testing.T) {
 	}
 
 	rec := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 		map[string]any{
 			"name":                    "s3-source",
@@ -304,7 +304,7 @@ func TestAccuracy_DataSource_DeletionPolicyPreserved(t *testing.T) {
 			require.NoError(t, err)
 
 			rec := doAgentRequest(
-				t, h, http.MethodPost,
+				t, h, http.MethodPut,
 				fmt.Sprintf("/knowledgebases/%s/datasources", kb.KnowledgeBaseID),
 				map[string]any{
 					"name":               "source-with-deletion",

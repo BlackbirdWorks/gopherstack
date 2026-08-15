@@ -537,6 +537,13 @@ func TestDescribeStackProvisioningParameters(t *testing.T) {
 				// previous pass invented a StackArn member and put it on
 				// the wire.
 				assert.NotContains(t, resp, "StackArn")
+				// AgentInstallerUrl is a dedicated top-level field, never
+				// also a member inside Parameters -- a previous version of
+				// this handler duplicated it under a fabricated key inside
+				// Parameters, which no real response ever carries there.
+				params, ok := resp["Parameters"].(map[string]any)
+				require.True(t, ok)
+				assert.NotContains(t, params, "AgentInstallerUrl")
 			},
 		},
 	}

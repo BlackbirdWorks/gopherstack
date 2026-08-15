@@ -53,11 +53,67 @@ func (h *Handler) routeCustomizationJob(
 	}
 }
 
+// outputDataConfigInput mirrors bedrock@v1.66.4 types.OutputDataConfig
+// (serializers.go: awsRestjson1_serializeDocumentOutputDataConfig emits
+// {"s3Uri": ...}).
+type outputDataConfigInput struct {
+	S3Uri string `json:"s3Uri"`
+}
+
+// invocationLogSourceInput mirrors bedrock@v1.66.4
+// types.InvocationLogSourceMemberS3Uri, the union's only member
+// (serializers.go: awsRestjson1_serializeDocumentInvocationLogSource emits
+// {"s3Uri": ...} for it).
+type invocationLogSourceInput struct {
+	S3Uri string `json:"s3Uri"`
+}
+
+// invocationLogsConfigInput mirrors bedrock@v1.66.4 types.InvocationLogsConfig
+// (serializers.go: awsRestjson1_serializeDocumentInvocationLogsConfig).
+// RequestMetadataFilters is intentionally not decoded here -- see
+// TrainingDataConfig's doc comment in models.go for why.
+type invocationLogsConfigInput struct {
+	InvocationLogSource *invocationLogSourceInput `json:"invocationLogSource,omitempty"`
+	UsePromptResponse   bool                      `json:"usePromptResponse,omitempty"`
+}
+
+// trainingDataConfigInput mirrors bedrock@v1.66.4 types.TrainingDataConfig
+// (serializers.go: awsRestjson1_serializeDocumentTrainingDataConfig).
+type trainingDataConfigInput struct {
+	InvocationLogsConfig *invocationLogsConfigInput `json:"invocationLogsConfig,omitempty"`
+	S3Uri                string                     `json:"s3Uri,omitempty"`
+}
+
+func (t *trainingDataConfigInput) toModel() TrainingDataConfig {
+	if t == nil {
+		return TrainingDataConfig{}
+	}
+
+	cfg := TrainingDataConfig{S3Uri: t.S3Uri}
+
+	if t.InvocationLogsConfig != nil {
+		cfg.UsePromptResponse = t.InvocationLogsConfig.UsePromptResponse
+
+		if t.InvocationLogsConfig.InvocationLogSource != nil {
+			cfg.InvocationLogSourceS3Uri = t.InvocationLogsConfig.InvocationLogSource.S3Uri
+		}
+	}
+
+	return cfg
+}
+
 type createModelCustomizationJobInput struct {
-	JobName             string `json:"jobName"`
-	CustomModelName     string `json:"customModelName"`
-	BaseModelIdentifier string `json:"baseModelIdentifier"`
-	CustomizationType   string `json:"customizationType,omitempty"`
+	JobName             string                 `json:"jobName"`
+	CustomModelName     string                 `json:"customModelName"`
+	BaseModelIdentifier string                 `json:"baseModelIdentifier"`
+	CustomizationType   string                 `json:"customizationType,omitempty"`
+	RoleArn             string                 `json:"roleArn"`
+	OutputDataConfig    *outputDataConfigInput `json:"outputDataConfig"`
+	// TrainingDataConfig must be a pointer so an absent object (vs. one
+	// present but empty -- valid, since neither of its own leaves is
+	// required) can be distinguished for the "trainingDataConfig is
+	// required" check below.
+	TrainingDataConfig *trainingDataConfigInput `json:"trainingDataConfig"`
 	// JobTags, not Tags: real CreateModelCustomizationJobInput carries the
 	// job's own tags as JobTags (wire key "jobTags"), separate from
 	// CustomModelTags (wire key "customModelTags") on the resulting output
@@ -80,8 +136,21 @@ func (h *Handler) handleCreateModelCustomizationJob(c *echo.Context, body []byte
 		)
 	}
 
+	if in.TrainingDataConfig == nil {
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "trainingDataConfig is required"),
+		)
+	}
+
+	var outputDataConfig OutputDataConfig
+	if in.OutputDataConfig != nil {
+		outputDataConfig = OutputDataConfig{S3Uri: in.OutputDataConfig.S3Uri}
+	}
+
 	job, opErr := h.Backend.CreateModelCustomizationJob(
-		in.JobName, in.CustomModelName, in.BaseModelIdentifier, in.CustomizationType, in.Tags,
+		in.JobName, in.CustomModelName, in.BaseModelIdentifier, in.CustomizationType, in.RoleArn,
+		outputDataConfig, in.TrainingDataConfig.toModel(), in.Tags,
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -95,31 +164,70 @@ func (h *Handler) handleCreateModelCustomizationJob(c *echo.Context, body []byte
 // service-2.json: outputModelArn/outputModelName, not customModelArn/Name --
 // see modelCustomizationJobSummaryOutput for the distinct ListModelCustomizationJobs
 // shape).
+// outputDataConfigOutput/trainingDataConfigOutput mirror the input-side wire
+// shapes above; kept distinct so the input side's *pointer, required-object-
+// detecting* shape doesn't leak into what's always a fully-populated output.
+type outputDataConfigOutput struct {
+	S3Uri string `json:"s3Uri"`
+}
+
+type trainingDataConfigOutput struct {
+	InvocationLogsConfig *invocationLogsConfigOutput `json:"invocationLogsConfig,omitempty"`
+	S3Uri                string                      `json:"s3Uri,omitempty"`
+}
+
+type invocationLogsConfigOutput struct {
+	InvocationLogSource *invocationLogSourceInput `json:"invocationLogSource,omitempty"`
+	UsePromptResponse   bool                      `json:"usePromptResponse,omitempty"`
+}
+
+func trainingDataConfigToOutput(t TrainingDataConfig) trainingDataConfigOutput {
+	out := trainingDataConfigOutput{S3Uri: t.S3Uri}
+
+	if t.InvocationLogSourceS3Uri != "" || t.UsePromptResponse {
+		out.InvocationLogsConfig = &invocationLogsConfigOutput{
+			UsePromptResponse: t.UsePromptResponse,
+		}
+
+		if t.InvocationLogSourceS3Uri != "" {
+			out.InvocationLogsConfig.InvocationLogSource = &invocationLogSourceInput{S3Uri: t.InvocationLogSourceS3Uri}
+		}
+	}
+
+	return out
+}
+
 type modelCustomizationJobOutput struct {
-	CreationTime      string `json:"creationTime"`
-	LastModifiedTime  string `json:"lastModifiedTime"`
-	JobArn            string `json:"jobArn"`
-	JobName           string `json:"jobName"`
-	BaseModelArn      string `json:"baseModelArn"`
-	OutputModelArn    string `json:"outputModelArn"`
-	OutputModelName   string `json:"outputModelName"`
-	Status            string `json:"status"`
-	CustomizationType string `json:"customizationType,omitempty"`
-	Tags              []Tag  `json:"tags,omitempty"`
+	CreationTime       string                   `json:"creationTime"`
+	LastModifiedTime   string                   `json:"lastModifiedTime"`
+	JobArn             string                   `json:"jobArn"`
+	JobName            string                   `json:"jobName"`
+	BaseModelArn       string                   `json:"baseModelArn"`
+	OutputModelArn     string                   `json:"outputModelArn"`
+	OutputModelName    string                   `json:"outputModelName"`
+	Status             string                   `json:"status"`
+	CustomizationType  string                   `json:"customizationType,omitempty"`
+	RoleArn            string                   `json:"roleArn"`
+	OutputDataConfig   outputDataConfigOutput   `json:"outputDataConfig"`
+	TrainingDataConfig trainingDataConfigOutput `json:"trainingDataConfig"`
+	Tags               []Tag                    `json:"tags,omitempty"`
 }
 
 func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOutput {
 	return modelCustomizationJobOutput{
-		JobArn:            j.JobArn,
-		JobName:           j.JobName,
-		BaseModelArn:      j.BaseModelArn,
-		OutputModelArn:    j.OutputModelArn,
-		OutputModelName:   j.CustomModelName,
-		Status:            j.Status,
-		CustomizationType: j.CustomizationType,
-		CreationTime:      j.CreationTime.Format(time.RFC3339),
-		LastModifiedTime:  j.LastModifiedTime.Format(time.RFC3339),
-		Tags:              j.Tags,
+		JobArn:             j.JobArn,
+		JobName:            j.JobName,
+		BaseModelArn:       j.BaseModelArn,
+		OutputModelArn:     j.OutputModelArn,
+		OutputModelName:    j.CustomModelName,
+		Status:             j.Status,
+		CustomizationType:  j.CustomizationType,
+		RoleArn:            j.RoleArn,
+		OutputDataConfig:   outputDataConfigOutput{S3Uri: j.OutputDataConfig.S3Uri},
+		TrainingDataConfig: trainingDataConfigToOutput(j.TrainingDataConfig),
+		CreationTime:       j.CreationTime.Format(time.RFC3339),
+		LastModifiedTime:   j.LastModifiedTime.Format(time.RFC3339),
+		Tags:               j.Tags,
 	}
 }
 

@@ -69,6 +69,27 @@ var (
 	// JSON. The error table maps it to HTTP 400 with code "MalformedPolicy",
 	// matching real S3.
 	ErrMalformedPolicy = errors.New("MalformedPolicy")
+
+	// ErrAnnotationLimitExceeded and the Object Annotations errors below it
+	// carry codes verified against s3@v1.106.5 deserializers.go's per-op error
+	// switches: PutObjectAnnotation declares AnnotationLimitExceeded,
+	// AnnotationNameTooLong, InvalidAnnotationName, InvalidRequest, NoSuchBucket,
+	// NoSuchKey, UnsupportedMediaType; GetObjectAnnotation declares NoSuchAnnotation,
+	// NoSuchBucket, NoSuchKey; ListObjectAnnotations declares InvalidPrefix,
+	// NoSuchBucket, NoSuchKey. DeleteObjectAnnotation's switch declares only
+	// NoSuchBucket/NoSuchKey -- deliberately no ErrNoSuchAnnotation there, see
+	// DeleteObjectAnnotation in annotations.go.
+	ErrAnnotationLimitExceeded        = errors.New("AnnotationLimitExceeded")
+	ErrAnnotationNameTooLong          = errors.New("AnnotationNameTooLong")
+	ErrInvalidAnnotationName          = errors.New("InvalidAnnotationName")
+	ErrNoSuchAnnotation               = awserr.New("NoSuchAnnotation", awserr.ErrNotFound)
+	ErrAnnotationUnsupportedMediaType = errors.New("UnsupportedMediaType")
+	ErrInvalidAnnotationPrefix        = errors.New("InvalidPrefix")
+	// ErrAnnotationSSECNotSupported reuses the "InvalidRequest" code (declared
+	// on PutObjectAnnotation's switch) for the documented restriction "Objects
+	// encrypted with SSE-C cannot have annotations" (s3@v1.106.5
+	// api_op_PutObjectAnnotation.go doc comment).
+	ErrAnnotationSSECNotSupported = errors.New("InvalidRequest")
 )
 
 type s3ErrorInfo struct {
@@ -84,7 +105,51 @@ type s3ErrorEntry struct {
 
 // errorTable returns the mapping of typed Go errors to S3 error codes and HTTP statuses.
 func errorTable() []s3ErrorEntry {
-	return append(coreErrorTable(), configErrorTable()...)
+	table := append(coreErrorTable(), configErrorTable()...)
+
+	return append(table, annotationErrorTable()...)
+}
+
+// annotationErrorTable maps the Object Annotations family's typed errors to
+// their S3 error codes and HTTP statuses.
+func annotationErrorTable() []s3ErrorEntry {
+	return []s3ErrorEntry{
+		{ErrAnnotationLimitExceeded, s3ErrorInfo{
+			"AnnotationLimitExceeded",
+			"The request would exceed the maximum number of annotations allowed per object.",
+			http.StatusBadRequest,
+		}},
+		{ErrAnnotationNameTooLong, s3ErrorInfo{
+			"AnnotationNameTooLong",
+			"The annotation name exceeds 512 bytes.",
+			http.StatusBadRequest,
+		}},
+		{ErrInvalidAnnotationName, s3ErrorInfo{
+			"InvalidAnnotationName",
+			"The annotation name you provided is invalid.",
+			http.StatusBadRequest,
+		}},
+		{ErrNoSuchAnnotation, s3ErrorInfo{
+			"NoSuchAnnotation",
+			"The specified annotation does not exist on this object.",
+			http.StatusNotFound,
+		}},
+		{ErrAnnotationUnsupportedMediaType, s3ErrorInfo{
+			"UnsupportedMediaType",
+			"The annotation payload is not valid UTF-8 encoded text.",
+			http.StatusUnsupportedMediaType,
+		}},
+		{ErrInvalidAnnotationPrefix, s3ErrorInfo{
+			"InvalidPrefix",
+			"The annotation prefix you provided is invalid.",
+			http.StatusBadRequest,
+		}},
+		{ErrAnnotationSSECNotSupported, s3ErrorInfo{
+			errInvalidRequest,
+			"Objects encrypted with SSE-C cannot have annotations.",
+			http.StatusBadRequest,
+		}},
+	}
 }
 
 func coreErrorTable() []s3ErrorEntry {

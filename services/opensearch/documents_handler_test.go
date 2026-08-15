@@ -78,12 +78,14 @@ func TestHTTPDocumentCRUDAndSearch(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.InDelta(t, 2, body["count"], 0)
 
-	// Index metadata surfaces the real document count.
+	// GetIndex's only real wire field is IndexSchema (api_op_GetIndex.go) --
+	// document count isn't part of the real response shape, so it's already
+	// covered by the _count assertion above instead.
 	resp = doRequest(t, h, http.MethodGet, base, nil)
 	body = decodeBody(t, resp)
 	resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.InDelta(t, 2, body["DocumentCount"], 0)
+	assert.Contains(t, body, "IndexSchema")
 
 	// Fetch a document.
 	resp = doRequest(t, h, http.MethodGet, base+"/_doc/i1", nil)

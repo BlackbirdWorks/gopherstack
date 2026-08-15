@@ -54,13 +54,7 @@ func (h *Handler) handleListDomainVerifications(c *echo.Context) error {
 
 	summaries := make([]any, 0, len(items))
 	for _, dv := range items {
-		summaries = append(summaries, map[string]any{
-			keyARN:        dv.ARN,
-			"id":          dv.ID,
-			keyDomainName: dv.DomainName,
-			keyStatus:     dv.Status,
-			keyCreatedAt:  dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		})
+		summaries = append(summaries, domainVerificationSummaryToJSON(dv))
 	}
 
 	resp := map[string]any{keyItems: summaries}
@@ -72,6 +66,22 @@ func (h *Handler) handleListDomainVerifications(c *echo.Context) error {
 }
 
 func domainVerificationToJSON(dv *DomainVerification) map[string]any {
+	m := map[string]any{
+		keyARN:        dv.ARN,
+		"id":          dv.ID,
+		keyDomainName: dv.DomainName,
+		keyStatus:     dv.Status,
+		keyCreatedAt:  dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+	}
+
+	if dv.LastVerifiedTime != nil {
+		m["lastVerifiedTime"] = dv.LastVerifiedTime.UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+
+	return m
+}
+
+func domainVerificationSummaryToJSON(dv *DomainVerificationSummary) map[string]any {
 	m := map[string]any{
 		keyARN:        dv.ARN,
 		"id":          dv.ID,

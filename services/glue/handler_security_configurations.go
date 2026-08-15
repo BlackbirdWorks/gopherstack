@@ -62,22 +62,37 @@ func (h *Handler) handleGetSecurityConfiguration(
 	return &getSecurityConfigurationOutput{SecurityConfiguration: sc}, nil
 }
 
+// defaultGetSecurityConfigurationsLimit is used when
+// GetSecurityConfigurationsInput.MaxResults is unset.
+const defaultGetSecurityConfigurationsLimit = 100
+
 // getSecurityConfigurationsInput holds input for GetSecurityConfigurations.
-type getSecurityConfigurationsInput struct{}
+type getSecurityConfigurationsInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
 
 // getSecurityConfigurationsOutput holds the result for GetSecurityConfigurations.
 type getSecurityConfigurationsOutput struct {
+	NextToken              string                   `json:"NextToken,omitempty"`
 	SecurityConfigurations []*SecurityConfiguration `json:"SecurityConfigurations"`
 }
 
 func (h *Handler) handleGetSecurityConfigurations(
 	_ context.Context,
-	_ *getSecurityConfigurationsInput,
+	in *getSecurityConfigurationsInput,
 ) (*getSecurityConfigurationsOutput, error) {
 	configs := h.Backend.ListSecurityConfigurations()
-	if configs == nil {
-		configs = []*SecurityConfiguration{}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetSecurityConfigurationsLimit
 	}
 
-	return &getSecurityConfigurationsOutput{SecurityConfigurations: configs}, nil
+	page, next := paginateSlice(configs, in.NextToken, limit)
+	if page == nil {
+		page = []*SecurityConfiguration{}
+	}
+
+	return &getSecurityConfigurationsOutput{SecurityConfigurations: page, NextToken: next}, nil
 }

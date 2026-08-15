@@ -125,23 +125,42 @@ func TestAgentsHandler_ExtractOperation(t *testing.T) {
 		path   string
 		want   string
 	}{
-		{"CreateAgent", http.MethodPost, "/agents", "CreateAgent"},
-		{"ListAgents", http.MethodGet, "/agents", "ListAgents"},
+		// PUT=Create, POST=List (real wire method for List*, per
+		// bedrockagent@v1.58.4 serializers.go) share the same bare
+		// collection path for all these families; GET remains accepted
+		// too as harmless extra leniency for this package's own tests.
+		{"CreateAgent", http.MethodPut, "/agents", "CreateAgent"},
+		{"ListAgents (POST)", http.MethodPost, "/agents", "ListAgents"},
+		{"ListAgents (GET)", http.MethodGet, "/agents", "ListAgents"},
 		{"PrepareAgent", http.MethodPost, "/agents/agent-001/prepare", "PrepareAgent"},
+		// The hyphenated "/action-groups" path is the OTHER non-canonical
+		// internal-test-only route (dispatchActionGroupRoutes, distinct
+		// from the real "/agentversions/{v}/actiongroups/" shape above) --
+		// no real bedrock-agent client sends this shape, so it keeps the
+		// original POST=Create/GET=List convention rather than the
+		// PUT/POST convention the real wire shape uses.
 		{"CreateAgentActionGroup", http.MethodPost, "/agents/agent-001/action-groups", "CreateAgentActionGroup"},
 		{"ListAgentActionGroups", http.MethodGet, "/agents/agent-001/action-groups", "ListAgentActionGroups"},
-		{"CreateAgentAlias", http.MethodPost, "/agents/agent-001/aliases", "CreateAgentAlias"},
-		{"ListAgentAliases", http.MethodGet, "/agents/agent-001/aliases", "ListAgentAliases"},
-		{"CreateKnowledgeBase", http.MethodPost, "/knowledgebases", "CreateKnowledgeBase"},
-		{"ListKnowledgeBases", http.MethodGet, "/knowledgebases", "ListKnowledgeBases"},
+		{"CreateAgentAlias", http.MethodPut, "/agents/agent-001/aliases", "CreateAgentAlias"},
+		{"ListAgentAliases (POST)", http.MethodPost, "/agents/agent-001/aliases", "ListAgentAliases"},
+		{"ListAgentAliases (GET)", http.MethodGet, "/agents/agent-001/aliases", "ListAgentAliases"},
+		{"CreateKnowledgeBase", http.MethodPut, "/knowledgebases", "CreateKnowledgeBase"},
+		{"ListKnowledgeBases (POST)", http.MethodPost, "/knowledgebases", "ListKnowledgeBases"},
+		{"ListKnowledgeBases (GET)", http.MethodGet, "/knowledgebases", "ListKnowledgeBases"},
 		{
 			"StartIngestionJob",
-			http.MethodPost,
+			http.MethodPut,
 			"/knowledgebases/kb-001/datasources/ds-001/ingestionjobs",
 			"StartIngestionJob",
 		},
 		{
+			"ListIngestionJobs (POST)",
+			http.MethodPost,
+			"/knowledgebases/kb-001/datasources/ds-001/ingestionjobs",
 			"ListIngestionJobs",
+		},
+		{
+			"ListIngestionJobs (GET)",
 			http.MethodGet,
 			"/knowledgebases/kb-001/datasources/ds-001/ingestionjobs",
 			"ListIngestionJobs",
@@ -207,7 +226,7 @@ func TestAgentsHandler_CreateAgent(t *testing.T) {
 
 			if tt.input == nil {
 				e := echo.New()
-				req := httptest.NewRequest(http.MethodPost, "/agents", bytes.NewReader([]byte("bad json")))
+				req := httptest.NewRequest(http.MethodPut, "/agents", bytes.NewReader([]byte("bad json")))
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
 				c := e.NewContext(req, rec)
@@ -218,7 +237,7 @@ func TestAgentsHandler_CreateAgent(t *testing.T) {
 				return
 			}
 
-			rec := doAgentRequest(t, h, http.MethodPost, "/agents", tt.input)
+			rec := doAgentRequest(t, h, http.MethodPut, "/agents", tt.input)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantAgent {
@@ -409,7 +428,7 @@ func TestAgentVersionCRUD(t *testing.T) {
 	h, _ := newTestAgentsHandler(t)
 
 	// Create agent
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/agents", map[string]any{
 		"agentName":            "av-agent",
 		"foundationModel":      "amazon.titan-text-express-v1",
 		"agentResourceRoleArn": "arn:aws:iam::000000000000:role/role",
@@ -497,7 +516,7 @@ func TestAgentMemory(t *testing.T) {
 	h, _ := newTestAgentsHandler(t)
 
 	// Create agent
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/agents", map[string]any{
 		"agentName":            "mem-agent",
 		"foundationModel":      "amazon.titan-text-express-v1",
 		"agentResourceRoleArn": "arn:aws:iam::000000000000:role/role",
@@ -523,7 +542,7 @@ func TestAgentsHandler_AgentExtendedConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newTestAgentsHandler(t)
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents", map[string]any{
+	rec := doAgentRequest(t, h, http.MethodPut, "/agents", map[string]any{
 		"agentName":          "configured-agent",
 		"foundationModel":    "amazon.titan-text-express-v1",
 		"agentCollaboration": "SUPERVISOR",
@@ -566,7 +585,7 @@ func TestBatch2AgentOps_DeleteAgent_WithActiveAlias_Rejected(t *testing.T) {
 			require.NoError(t, err)
 
 			// Create an alias for the agent.
-			aliasRec := doAgentRequest(t, h, http.MethodPost,
+			aliasRec := doAgentRequest(t, h, http.MethodPut,
 				fmt.Sprintf("/agents/%s/aliases", agent.AgentID),
 				map[string]any{"agentAliasName": "live"})
 			require.Equal(t, http.StatusAccepted, aliasRec.Code)
@@ -615,7 +634,7 @@ func TestBatch2AgentOps_DeleteAgent_AfterDeleteAlias_Succeeds(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create then delete the alias.
-	aliasRec := doAgentRequest(t, h, http.MethodPost,
+	aliasRec := doAgentRequest(t, h, http.MethodPut,
 		fmt.Sprintf("/agents/%s/aliases", agent.AgentID),
 		map[string]any{"agentAliasName": "temp"})
 	require.Equal(t, http.StatusAccepted, aliasRec.Code)

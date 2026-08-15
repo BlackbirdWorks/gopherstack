@@ -60,7 +60,7 @@ func TestRegionIsolation_EventBus(t *testing.T) {
 			b := eventbridge.NewInMemoryBackend()
 
 			// Create bus in the create region.
-			_, err := b.CreateEventBus(regionCtx(tc.createRegion), tc.busName, "")
+			_, err := b.CreateEventBus(regionCtx(tc.createRegion), eventbridge.CreateEventBusParams{Name: tc.busName})
 			if err != nil {
 				t.Fatalf("CreateEventBus: %v", err)
 			}

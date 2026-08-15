@@ -178,6 +178,35 @@ func (b *InMemoryBackend) ContinueDeployment(deploymentID string) error {
 	}
 }
 
+// LastDeploymentsForGroup returns the most recently attempted and most
+// recently successful deployment for an application/deployment-group pair
+// (nil if none exist for that outcome). Mirrors ListDeployments' own
+// scan-based lookup -- there is no per-group deployment index.
+func (b *InMemoryBackend) LastDeploymentsForGroup(appName, dgName string) (*Deployment, *Deployment) {
+	b.mu.RLock("LastDeploymentsForGroup")
+	defer b.mu.RUnlock()
+
+	var attempted, successful *Deployment
+
+	for _, d := range b.deployments.All() {
+		if d.ApplicationName != appName || d.DeploymentGroupName != dgName {
+			continue
+		}
+
+		if attempted == nil || d.CreateTime.After(attempted.CreateTime) {
+			cp := *d
+			attempted = &cp
+		}
+
+		if d.Status == statusSucceeded && (successful == nil || d.CreateTime.After(successful.CreateTime)) {
+			cp := *d
+			successful = &cp
+		}
+	}
+
+	return attempted, successful
+}
+
 // BatchGetDeployments returns deployment structs for the given IDs.
 // Deployment IDs that do not exist are silently omitted.
 func (b *InMemoryBackend) BatchGetDeployments(deploymentIDs []string) []*Deployment {

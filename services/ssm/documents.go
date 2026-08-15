@@ -159,13 +159,15 @@ func (b *InMemoryBackend) CreateDocument(
 		}
 	}
 
-	return &CreateDocumentOutput{DocumentDescription: doc.asDocumentDescription()}, nil
+	return &CreateDocumentOutput{
+		DocumentDescription: doc.asDocumentDescription(b.miscResourceTagList(region, doc.Name)),
+	}, nil
 }
 
 // asDocumentDescription converts an internal Document to the wire-accurate DocumentDescription shape
 // returned by CreateDocument/UpdateDocument/DescribeDocument. Real AWS never
 // includes Content in these metadata responses.
-func (d Document) asDocumentDescription() DocumentDescription {
+func (d Document) asDocumentDescription(docTags []Tag) DocumentDescription {
 	return DocumentDescription{
 		TargetType:        d.TargetType,
 		LatestVersion:     d.LatestVersion,
@@ -181,6 +183,7 @@ func (d Document) asDocumentDescription() DocumentDescription {
 		PlatformTypes:     d.PlatformTypes,
 		Attachments:       d.Attachments,
 		Requires:          d.Requires,
+		Tags:              docTags,
 		CreatedDate:       d.CreatedDate,
 	}
 }
@@ -268,12 +271,15 @@ func (b *InMemoryBackend) GetDocument(
 		}
 
 		return &GetDocumentOutput{
-			Name:            doc.Name,
-			Content:         v.Content,
-			DocumentType:    doc.DocumentType,
-			DocumentFormat:  v.DocumentFormat,
-			DocumentVersion: v.DocumentVersion,
-			Status:          v.Status,
+			Name:              doc.Name,
+			Content:           v.Content,
+			DocumentType:      doc.DocumentType,
+			DocumentFormat:    v.DocumentFormat,
+			DocumentVersion:   v.DocumentVersion,
+			Status:            v.Status,
+			StatusInformation: doc.StatusInformation,
+			Requires:          doc.Requires,
+			CreatedDate:       v.CreatedDate,
 		}, nil
 	}
 
@@ -289,7 +295,7 @@ func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
 		switch f.Key {
 		case "DocumentType":
 			fieldValue = doc.DocumentType
-		case "Name":
+		case filterKeyName:
 			fieldValue = doc.Name
 		default:
 			continue
@@ -319,7 +325,7 @@ func (b *InMemoryBackend) DescribeDocument(
 
 	doc := *docPtr
 
-	description := doc.asDocumentDescription()
+	description := doc.asDocumentDescription(b.miscResourceTagList(region, doc.Name))
 
 	// Honor a specific/$LATEST/$DEFAULT DocumentVersion selector: the
 	// per-version fields (DocumentVersion, DocumentFormat, Status) must
@@ -376,6 +382,10 @@ func (b *InMemoryBackend) ListDocuments(
 			DocumentVersion: doc.DocumentVersion,
 			SchemaVersion:   doc.SchemaVersion,
 			PlatformTypes:   doc.PlatformTypes,
+			Requires:        doc.Requires,
+			Tags:            b.miscResourceTagList(region, doc.Name),
+			TargetType:      doc.TargetType,
+			CreatedDate:     doc.CreatedDate,
 		})
 	}
 
@@ -467,7 +477,9 @@ func (b *InMemoryBackend) UpdateDocument(
 		)
 	}
 
-	return &UpdateDocumentOutput{DocumentDescription: doc.asDocumentDescription()}, nil
+	return &UpdateDocumentOutput{
+		DocumentDescription: doc.asDocumentDescription(b.miscResourceTagList(region, doc.Name)),
+	}, nil
 }
 
 // DeleteDocument removes a document and all its versions and permissions.

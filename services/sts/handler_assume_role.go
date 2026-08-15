@@ -14,6 +14,8 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 		ExternalID:      r.FormValue("ExternalId"),
 		Policy:          r.FormValue("Policy"),
 		SourceIdentity:  r.FormValue("SourceIdentity"),
+		SerialNumber:    r.FormValue("SerialNumber"),
+		TokenCode:       r.FormValue("TokenCode"),
 	}
 
 	durationStr := r.FormValue("DurationSeconds")

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,8 +21,119 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
+
+// exportIDSuffixLen is the number of characters taken from the UUID to form the
+// second component of an export ID suffix. 16 characters is chosen to keep ARNs
+// short while still providing enough randomness to avoid collisions.
+const exportIDSuffixLen = 16
+
+// exportARNRegionIdx is the zero-based position of the region field in a colon-split ARN.
+const exportARNRegionIdx = 3
+
+// exportARNAccountIdx is the zero-based position of the account-ID field in a colon-split ARN.
+const exportARNAccountIdx = 4
+
+// exportARNPartCount is the expected number of parts when splitting a full DynamoDB ARN on ":".
+const exportARNPartCount = 6
+
+// exportARNPathParts is the expected number of parts when splitting the resource portion of an ARN on "/".
+const exportARNPathParts = 2
+
+// generateExportID creates a short unique suffix for export ARNs.
+// Format matches the AWS convention: a zero-padded Unix millisecond timestamp
+// followed by a UUID-derived hex suffix.
+func generateExportID() string {
+	return fmt.Sprintf(
+		"%016x-%s",
+		time.Now().UnixMilli(),
+		strings.ReplaceAll(uuid.New().String(), "-", "")[:exportIDSuffixLen],
+	)
+}
+
+// exportRegionAccount extracts region and accountID from a DynamoDB table ARN.
+func exportRegionAccount(tableARN string) (string, string) {
+	region, accountID := config.DefaultRegion, config.DefaultAccountID
+	if tableARN == "" {
+		return region, accountID
+	}
+	parts := strings.SplitN(tableARN, ":", exportARNPartCount)
+	if len(parts) >= exportARNRegionIdx+1 && parts[exportARNRegionIdx] != "" {
+		region = parts[exportARNRegionIdx]
+	}
+	if len(parts) >= exportARNAccountIdx+1 && parts[exportARNAccountIdx] != "" {
+		accountID = parts[exportARNAccountIdx]
+	}
+
+	return region, accountID
+}
+
+// buildExportARN constructs a unique export ARN from the table ARN.
+func buildExportARN(tableARN, region, accountID string) string {
+	tableSlug := "unknown"
+	if tableARN != "" {
+		if parts := strings.SplitN(tableARN, "/", exportARNPathParts); len(
+			parts,
+		) == exportARNPathParts {
+			tableSlug = parts[1]
+		}
+	}
+	exportID := fmt.Sprintf("%s/%s", tableSlug, generateExportID())
+
+	return arn.Build("dynamodb", region, accountID, "table/"+exportID)
+}
+
+// completeExportSync performs the S3 write (if a bucket is configured) and
+// updates the stored export record to its terminal state (COMPLETED or FAILED).
+func (db *InMemoryDB) completeExportSync(
+	ctx context.Context,
+	exportARN string,
+	req *exportTableToPointInTimeInput,
+) {
+	var (
+		manifestKey string
+		itemCount   int64
+		billedBytes int64
+		failCode    string
+		failMsg     string
+		finalStatus = "COMPLETED"
+	)
+	if req.S3Bucket != "" {
+		manifestKey, itemCount, billedBytes, failCode, failMsg, finalStatus =
+			db.exportToS3Bucket(ctx, req)
+	} else {
+		if n, err := db.countTableItems(ctx, req.TableArn); err == nil {
+			itemCount = int64(n)
+			billedBytes = itemCount * avgExportItemBytes
+		}
+	}
+	db.updateExport(exportARN, finalStatus, manifestKey, failCode, failMsg, itemCount, billedBytes)
+}
+
+// exportToS3Bucket writes export data to S3 and returns completion metadata.
+func (db *InMemoryDB) exportToS3Bucket(
+	ctx context.Context,
+	req *exportTableToPointInTimeInput,
+) (string, int64, int64, string, string, string) {
+	base := strings.TrimSuffix(req.S3Prefix, "/")
+	if base != "" {
+		base += "/"
+	}
+	objBase := fmt.Sprintf("%sAWSDynamoDB/%s", base, generateExportID())
+	dataKey := objBase + "/data/00000.json.gz"
+	manifestKey := objBase + "/manifest-summary.json"
+	n, err := db.exportTableToS3(ctx, req.TableArn, req.S3Bucket, dataKey, manifestKey)
+	if err != nil {
+		return manifestKey, 0, 0, "ExportError", err.Error(), "FAILED"
+	}
+	itemCount := n
+	billedBytes := itemCount * avgExportItemBytes
+
+	return manifestKey, itemCount, billedBytes, "", "", "COMPLETED"
+}
 
 // maxImportObjectBytes caps how many bytes are read from a single source object,
 // bounding memory use and guarding against decompression bombs.
@@ -490,26 +602,46 @@ func (db *InMemoryDB) ImportTable(
 	tableName := aws.ToString(tcp.TableName)
 	region := getRegionFromContext(ctx, db)
 	account := accountFromContext(ctx, db)
-	importARN := arn.Build("dynamodb", region, account,
-		"table/import/"+uuid.New().String())
+	importID := uuid.New().String()
+	importARN := arn.Build("dynamodb", region, account, "table/import/"+importID)
 	tableARN := arn.Build("dynamodb", region, account, "table/"+tableName)
+	// CloudWatchLogGroupArn is AWS-generated (not caller-supplied) and this
+	// emulator writes no real CloudWatch logs; synthesize a plausible ARN
+	// under the same import ID so the field round-trips non-empty rather
+	// than silently dropping, matching how TableArn/ImportArn are built.
+	logGroupArn := arn.Build("logs", region, account, "log-group:/aws/dynamodb/imports/"+importID)
 	start := time.Now()
 
 	// Create the target table; surface CreateTable errors (e.g. ResourceInUse).
-	if _, err := db.CreateTable(ctx, createInputFromImportParams(tcp)); err != nil {
+	createOut, err := db.CreateTable(ctx, createInputFromImportParams(tcp))
+	if err != nil {
 		return nil, err
 	}
 
+	var tableID string
+	if createOut.TableDescription != nil {
+		tableID = aws.ToString(createOut.TableDescription.TableId)
+	}
+
 	rec := storedImport{
-		ImportArn:        importARN,
-		TableArn:         tableARN,
-		S3Bucket:         aws.ToString(input.S3BucketSource.S3Bucket),
-		S3Prefix:         aws.ToString(input.S3BucketSource.S3KeyPrefix),
-		InputFormat:      string(input.InputFormat),
-		InputCompression: string(input.InputCompressionType),
-		StartTime:        start,
-		CreatedAt:        start,
-		ImportStatus:     string(types.ImportStatusInProgress),
+		ImportArn:             importARN,
+		TableArn:              tableARN,
+		TableID:               tableID,
+		ClientToken:           aws.ToString(input.ClientToken),
+		CloudWatchLogGroupArn: logGroupArn,
+		S3Bucket:              aws.ToString(input.S3BucketSource.S3Bucket),
+		S3Prefix:              aws.ToString(input.S3BucketSource.S3KeyPrefix),
+		S3BucketOwner:         aws.ToString(input.S3BucketSource.S3BucketOwner),
+		InputFormat:           string(input.InputFormat),
+		InputCompression:      string(input.InputCompressionType),
+		StartTime:             start,
+		CreatedAt:             start,
+		ImportStatus:          string(types.ImportStatusInProgress),
+	}
+
+	if input.InputFormatOptions != nil && input.InputFormatOptions.Csv != nil {
+		rec.CsvDelimiter = aws.ToString(input.InputFormatOptions.Csv.Delimiter)
+		rec.CsvHeaderList = input.InputFormatOptions.Csv.HeaderList
 	}
 
 	db.storeImport(rec)
@@ -555,6 +687,41 @@ func createInputFromImportParams(tcp *types.TableCreationParameters) *dynamodb.C
 	}
 }
 
+// importSummaryFromRecord builds the SDK ImportSummary from a stored import.
+// ImportSummary is a narrower type than ImportTableDescription -- it carries
+// no TableId, ClientToken, item counts, or failure fields, so those are
+// deliberately left off here even though importDescriptionFromRecord below
+// sets them for Describe/ImportTable's fuller shape.
+func importSummaryFromRecord(rec storedImport) types.ImportSummary {
+	status := rec.ImportStatus
+	if status == "" {
+		status = string(types.ImportStatusCompleted)
+	}
+
+	s := types.ImportSummary{
+		ImportArn:    aws.String(rec.ImportArn),
+		ImportStatus: types.ImportStatus(status),
+		TableArn:     aws.String(rec.TableArn),
+		InputFormat:  types.InputFormat(rec.InputFormat),
+		S3BucketSource: &types.S3BucketSource{
+			S3Bucket:      aws.String(rec.S3Bucket),
+			S3KeyPrefix:   aws.String(rec.S3Prefix),
+			S3BucketOwner: ptrconv.NilIfEmpty(rec.S3BucketOwner),
+		},
+	}
+	if !rec.StartTime.IsZero() {
+		s.StartTime = aws.Time(rec.StartTime)
+	}
+	if !rec.EndTime.IsZero() {
+		s.EndTime = aws.Time(rec.EndTime)
+	}
+	if rec.CloudWatchLogGroupArn != "" {
+		s.CloudWatchLogGroupArn = aws.String(rec.CloudWatchLogGroupArn)
+	}
+
+	return s
+}
+
 // importDescriptionFromRecord builds the SDK description from a stored import.
 func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription {
 	desc := &types.ImportTableDescription{
@@ -567,8 +734,9 @@ func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription
 		ProcessedSizeBytes: aws.Int64(rec.ProcessedSizeBytes),
 		ErrorCount:         rec.ErrorCount,
 		S3BucketSource: &types.S3BucketSource{
-			S3Bucket:    aws.String(rec.S3Bucket),
-			S3KeyPrefix: aws.String(rec.S3Prefix),
+			S3Bucket:      aws.String(rec.S3Bucket),
+			S3KeyPrefix:   aws.String(rec.S3Prefix),
+			S3BucketOwner: ptrconv.NilIfEmpty(rec.S3BucketOwner),
 		},
 	}
 	if !rec.StartTime.IsZero() {
@@ -580,6 +748,23 @@ func importDescriptionFromRecord(rec storedImport) *types.ImportTableDescription
 	if rec.FailureCode != "" {
 		desc.FailureCode = aws.String(rec.FailureCode)
 		desc.FailureMessage = aws.String(rec.FailureMessage)
+	}
+	if rec.TableID != "" {
+		desc.TableId = aws.String(rec.TableID)
+	}
+	if rec.ClientToken != "" {
+		desc.ClientToken = aws.String(rec.ClientToken)
+	}
+	if rec.CloudWatchLogGroupArn != "" {
+		desc.CloudWatchLogGroupArn = aws.String(rec.CloudWatchLogGroupArn)
+	}
+	if rec.CsvDelimiter != "" || len(rec.CsvHeaderList) > 0 {
+		desc.InputFormatOptions = &types.InputFormatOptions{
+			Csv: &types.CsvOptions{
+				Delimiter:  ptrconv.NilIfEmpty(rec.CsvDelimiter),
+				HeaderList: rec.CsvHeaderList,
+			},
+		}
 	}
 
 	return desc
@@ -626,18 +811,7 @@ func (db *InMemoryDB) ListImports(
 			continue
 		}
 
-		importARN := imp.ImportArn
-		tableARN := imp.TableArn
-		status := imp.ImportStatus
-		if status == "" {
-			status = string(types.ImportStatusCompleted)
-		}
-		summaries = append(summaries, types.ImportSummary{
-			ImportArn:    &importARN,
-			ImportStatus: types.ImportStatus(status),
-			TableArn:     &tableARN,
-			InputFormat:  types.InputFormat(imp.InputFormat),
-		})
+		summaries = append(summaries, importSummaryFromRecord(imp))
 	}
 
 	var outNextToken *string
@@ -650,5 +824,185 @@ func (db *InMemoryDB) ListImports(
 	return &dynamodb.ListImportsOutput{
 		ImportSummaryList: summaries,
 		NextToken:         outNextToken,
+	}, nil
+}
+
+// --- ExportTableToPointInTime / DescribeExport / ListExports ---
+
+// exportDescFieldsToSDK converts the internally-tracked export record to the
+// SDK ExportDescription type.
+func exportDescFieldsToSDK(d exportDescriptionFields) *types.ExportDescription {
+	ed := &types.ExportDescription{
+		ExportArn:      aws.String(d.ExportArn),
+		ExportStatus:   types.ExportStatus(d.ExportStatus),
+		TableArn:       ptrconv.NilIfEmpty(d.TableArn),
+		S3Bucket:       ptrconv.NilIfEmpty(d.S3Bucket),
+		S3Prefix:       ptrconv.NilIfEmpty(d.S3Prefix),
+		ExportFormat:   types.ExportFormat(d.ExportFormat),
+		ExportType:     types.ExportType(d.ExportType),
+		ExportManifest: ptrconv.NilIfEmpty(d.ExportManifest),
+		FailureCode:    ptrconv.NilIfEmpty(d.FailureCode),
+		FailureMessage: ptrconv.NilIfEmpty(d.FailureMessage),
+	}
+
+	if d.ExportTime != 0 {
+		t := time.Unix(int64(d.ExportTime), 0).UTC()
+		ed.ExportTime = &t
+	}
+	if d.StartTime != 0 {
+		t := time.Unix(int64(d.StartTime), 0).UTC()
+		ed.StartTime = &t
+	}
+	if d.EndTime != 0 {
+		t := time.Unix(int64(d.EndTime), 0).UTC()
+		ed.EndTime = &t
+	}
+	if d.BilledSizeBytes != 0 {
+		ed.BilledSizeBytes = aws.Int64(d.BilledSizeBytes)
+	}
+	if d.ItemCount != 0 {
+		ed.ItemCount = aws.Int64(d.ItemCount)
+	}
+
+	return ed
+}
+
+// ExportTableToPointInTime starts an (immediately-completing) export of a
+// table's items to the configured S3 destination.
+// It satisfies the StorageBackend interface using official AWS SDK v2 types.
+func (db *InMemoryDB) ExportTableToPointInTime(
+	ctx context.Context,
+	input *dynamodb.ExportTableToPointInTimeInput,
+) (*dynamodb.ExportTableToPointInTimeOutput, error) {
+	tableARN := aws.ToString(input.TableArn)
+	region, accountID := exportRegionAccount(tableARN)
+	exportARN := buildExportARN(tableARN, region, accountID)
+
+	exportFmt := string(input.ExportFormat)
+	if exportFmt == "" {
+		exportFmt = "DYNAMODB_JSON"
+	}
+
+	var exportTime float64
+	if input.ExportTime != nil {
+		exportTime = float64(input.ExportTime.Unix())
+	}
+
+	s3Bucket := aws.ToString(input.S3Bucket)
+	s3Prefix := aws.ToString(input.S3Prefix)
+
+	// Persist as IN_PROGRESS (AWS initial response), then complete asynchronously.
+	// Real AWS takes minutes; the emulator finishes in microseconds.
+	desc := exportDescriptionFields{
+		ExportArn:    exportARN,
+		ExportStatus: "IN_PROGRESS",
+		TableArn:     tableARN,
+		S3Bucket:     s3Bucket,
+		S3Prefix:     s3Prefix,
+		ExportFormat: exportFmt,
+		ExportType:   "FULL_EXPORT",
+		StartTime:    float64(time.Now().Unix()),
+		ExportTime:   exportTime,
+	}
+	db.storeExport(desc)
+
+	exportReq := &exportTableToPointInTimeInput{
+		TableArn:     tableARN,
+		S3Bucket:     s3Bucket,
+		S3Prefix:     s3Prefix,
+		ExportFormat: exportFmt,
+		ExportTime:   exportTime,
+	}
+	go db.completeExportSync(context.WithoutCancel(ctx), exportARN, exportReq)
+
+	return &dynamodb.ExportTableToPointInTimeOutput{
+		ExportDescription: exportDescFieldsToSDK(desc),
+	}, nil
+}
+
+// DescribeExport returns the stored description of a table export, restricted
+// to the request region. It satisfies the StorageBackend interface using
+// official AWS SDK v2 types.
+func (db *InMemoryDB) DescribeExport(
+	ctx context.Context,
+	input *dynamodb.DescribeExportInput,
+) (*dynamodb.DescribeExportOutput, error) {
+	exportArn := aws.ToString(input.ExportArn)
+	if exportArn == "" {
+		return nil, NewValidationException("ExportArn is required")
+	}
+
+	requestRegion := getRegionFromContext(ctx, db)
+	if db.regionFromARN(exportArn) != requestRegion {
+		// AWS returns ExportNotFoundException for an unknown ARN, not a fake COMPLETED.
+		return nil, NewExportNotFoundException("Export not found: " + exportArn)
+	}
+
+	desc, found := db.lookupExport(exportArn)
+	if !found {
+		return nil, NewExportNotFoundException("Export not found: " + exportArn)
+	}
+
+	return &dynamodb.DescribeExportOutput{
+		ExportDescription: exportDescFieldsToSDK(desc),
+	}, nil
+}
+
+// ListExports returns export summaries filtered by request region and,
+// optionally, TableArn. It satisfies the StorageBackend interface using
+// official AWS SDK v2 types -- ExportSummary only carries ExportArn,
+// ExportStatus and ExportType, and (*DynamoDBHandler).listExports emits
+// exactly that; it no longer widens this with per-ARN DescribeExport calls.
+func (db *InMemoryDB) ListExports(
+	ctx context.Context,
+	input *dynamodb.ListExportsInput,
+) (*dynamodb.ListExportsOutput, error) {
+	requestRegion := getRegionFromContext(ctx, db)
+	tableArn := aws.ToString(input.TableArn)
+
+	summaries := db.collectExportSummariesRLocked(tableArn, requestRegion)
+
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].ExportArn < summaries[j].ExportArn
+	})
+
+	start := 0
+	nextToken := aws.ToString(input.NextToken)
+	if nextToken != "" {
+		for i, s := range summaries {
+			if s.ExportArn == nextToken {
+				start = i + 1
+
+				break
+			}
+		}
+	}
+	summaries = summaries[start:]
+
+	const defaultMaxResults = 25
+
+	pageSize := defaultMaxResults
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		pageSize = int(*input.MaxResults)
+	}
+
+	var outNextToken string
+	if len(summaries) > pageSize {
+		outNextToken = summaries[pageSize-1].ExportArn
+		summaries = summaries[:pageSize]
+	}
+
+	out := make([]types.ExportSummary, 0, len(summaries))
+	for _, s := range summaries {
+		out = append(out, types.ExportSummary{
+			ExportArn:    aws.String(s.ExportArn),
+			ExportStatus: types.ExportStatus(s.ExportStatus),
+			ExportType:   types.ExportType(s.ExportType),
+		})
+	}
+
+	return &dynamodb.ListExportsOutput{
+		ExportSummaries: out,
+		NextToken:       ptrconv.NilIfEmpty(outNextToken),
 	}, nil
 }

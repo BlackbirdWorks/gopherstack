@@ -178,10 +178,10 @@ func (h *Handler) handleGetAdministratorAccount(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"Administrator": map[string]any{
-			keyAccountID:         admin.AccountId,
-			"InvitationId":       admin.InvitationId,
-			keyInvitedAt:         admin.InvitedAt,
-			"RelationshipStatus": admin.RelationshipStatus,
+			keyAccountID:    admin.AccountId,
+			"InvitationId":  admin.InvitationId,
+			keyInvitedAt:    admin.InvitedAt,
+			keyMemberStatus: admin.MemberStatus,
 		},
 	})
 }
@@ -200,10 +200,10 @@ func (h *Handler) handleGetMasterAccount(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"Master": map[string]any{
-			keyAccountID:         master.AccountId,
-			"InvitationId":       master.InvitationId,
-			keyInvitedAt:         master.InvitedAt,
-			"RelationshipStatus": master.RelationshipStatus,
+			keyAccountID:    master.AccountId,
+			"InvitationId":  master.InvitationId,
+			keyInvitedAt:    master.InvitedAt,
+			keyMemberStatus: master.MemberStatus,
 		},
 	})
 }

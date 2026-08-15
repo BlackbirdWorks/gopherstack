@@ -25,7 +25,7 @@ import "net"
 // NO_DESTINATION_ARN_PROVIDED or TRANSIT_GATEWAY_ATTACHMENT_NOT_FOUND.
 
 func (b *InMemoryBackend) StartRouteAnalysis(
-	globalNetworkID string, source, destination *RouteAnalysisEndpoint, includeReturnPath, _ bool,
+	globalNetworkID string, source, destination *RouteAnalysisEndpoint, includeReturnPath, useMiddleboxes bool,
 ) (*RouteAnalysis, error) {
 	b.mu.Lock("StartRouteAnalysis")
 	defer b.mu.Unlock()
@@ -36,12 +36,15 @@ func (b *InMemoryBackend) StartRouteAnalysis(
 
 	id := newRouteAnalysisID()
 	r := &RouteAnalysis{
+		StartTimestamp:    nowUTC(),
 		Destination:       destination,
 		Source:            source,
 		GlobalNetworkID:   globalNetworkID,
+		OwnerAccountID:    b.accountID,
 		RouteAnalysisID:   id,
 		Status:            routeAnalysisStatusRunning,
 		IncludeReturnPath: includeReturnPath,
+		UseMiddleboxes:    useMiddleboxes,
 	}
 	b.routeAnalyses.Put(r)
 

@@ -1,7 +1,7 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
-last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119
-last_audit_date: 2026-07-25
+last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119  # gopherstack-7ux2 (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
+last_audit_date: 2026-08-13
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
                        # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
                        # CdiInputSpecification/ChannelEngineVersion/ChannelSecurityGroups/
@@ -70,6 +70,10 @@ families:
       /prod/signal-maps/{id}/...). No route-matcher bugs found in this
       service -- the class of bug that hit backup/eks/s3control/guardduty/
       cleanrooms/bedrockagent/iotwireless does not reproduce here.
+      gopherstack-jqh2: this manual diff is now a permanent regression test,
+      TestExtractOperation_SDKRouteTable (handler_paths_sdk_diff_test.go),
+      table-driven over all 123 real ops -- re-run and reconfirmed 123/123
+      clean.
   Channel:
     status: ok
     note: >
@@ -341,6 +345,21 @@ families:
       real fields, availabilityZone/hdDeviceSettings/uhdDeviceSettings,
       remain unhandled, consistent with this service's existing
       minimal-model approach for deeply nested device-settings objects).
+      gopherstack-7ux2: REMOVED "maintenanceWindowActive" outright.
+      SWEEP 4 had only fixed its casing while leaving it in place (see the
+      prior handler comment, now deleted); this pass confirmed against
+      both deserializer field switches (medialive@v1.101.4
+      types/types.go:4498-4556 InputDeviceSummary,
+      api_op_DescribeInputDevice.go DescribeInputDeviceOutput) that neither
+      shape has ever had this member -- ListInputDevices and
+      DescribeInputDevice were both emitting a field no real client
+      expects. It had no reader anywhere in this package either (only ever
+      set true by StartInputDeviceMaintenanceWindow and never checked), so
+      removal touched the domain model, the persisted-device shape, and the
+      wire struct with nothing left dangling; StartInputDeviceMaintenanceWindow
+      is now a pure existence-check no-op, matching StartInputDevice/
+      StopInputDevice's existing pattern (StartInputDeviceMaintenanceWindowOutput
+      carries no fields on the real wire either).
   Cluster:
     status: ok
     note: >
@@ -455,6 +474,15 @@ families:
       that fast path (Reservation, Network, SdiSource,
       CloudWatchAlarmTemplate(Group), EventBridgeRuleTemplate(Group)) --
       noted once here, not repeated per family below.
+      gopherstack-uult (this pass): ListSignalMaps reused toSignalMapOutput
+      unscoped, leaking discoveryEntryPointArn/
+      cloudWatchAlarmTemplateGroupIds/eventBridgeRuleTemplateGroupIds --
+      none of which types.SignalMapSummary declares. Fixed with a dedicated
+      toSignalMapSummary. Note the trap here: types.SignalMapSummary DOES
+      declare "tags" (verified against deserializers.go's
+      awsRestjson1_deserializeDocumentSignalMapSummary), unlike every other
+      List-vs-Get pair fixed in this sweep -- tags was correctly kept on the
+      summary, not dropped.
   CloudWatchAlarmTemplateGroup:
     status: ok
     note: >

@@ -89,8 +89,9 @@ func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
 // bulk email handler
 
 type sendBulkEmailInput struct {
-	FromEmailAddress string           `json:"FromEmailAddress"`
-	BulkEmailEntries []bulkEmailEntry `json:"BulkEmailEntries"`
+	DefaultContent   *bulkEmailContent `json:"DefaultContent"`
+	FromEmailAddress string            `json:"FromEmailAddress"`
+	BulkEmailEntries []bulkEmailEntry  `json:"BulkEmailEntries"`
 }
 
 func (h *Handler) handleSendBulkEmail(c *echo.Context) (any, error) {
@@ -100,7 +101,7 @@ func (h *Handler) handleSendBulkEmail(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	results, err := h.Backend.SendBulkEmail(in.FromEmailAddress, in.BulkEmailEntries)
+	results, err := h.Backend.SendBulkEmail(in.FromEmailAddress, in.DefaultContent, in.BulkEmailEntries)
 	if err != nil {
 		return nil, err
 	}

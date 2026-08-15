@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -33,9 +35,20 @@ func (b *InMemoryBackend) DeleteAnomalyDetector(namespace, metricName, stat stri
 }
 
 // PutAnomalyDetectorInternal creates or updates an anomaly detector (used for test seeding).
+// The AnomalyDetectorId is generated once on first creation and preserved across
+// updates to the same namespace/metric/stat/dimensions combination, then mirrored
+// back onto detector so callers (e.g. cborPutAnomalyDetector) can read it after
+// the call returns without a follow-up lookup.
 func (b *InMemoryBackend) PutAnomalyDetectorInternal(detector *AnomalyDetector) {
 	b.mu.Lock("PutAnomalyDetectorInternal")
 	defer b.mu.Unlock()
+
+	key := anomalyDetectorKey(detector.Namespace, detector.MetricName, detector.Stat, detector.Dimensions)
+	if existing, ok := b.anomalyDetectors.Get(key); ok && existing.ID != "" {
+		detector.ID = existing.ID
+	} else if detector.ID == "" {
+		detector.ID = uuid.New().String()
+	}
 
 	cp := *detector
 	if cp.StateValue == "" {

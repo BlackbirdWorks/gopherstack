@@ -24,7 +24,7 @@ type persistenceFixtureIDs struct {
 	kbID                   string
 	dataSourceID           string
 	ingestionJobID         string
-	docID                  string
+	docID                  bedrockagent.KBDocumentIdentifier
 	flowID                 string
 	flowVersion            string
 	flowAliasID            string
@@ -101,7 +101,10 @@ func newPersistenceTestBackend(t *testing.T) (*bedrockagent.InMemoryBackend, per
 	require.NoError(t, err)
 
 	docs, err := b.IngestKnowledgeBaseDocuments(ctx, kb.KnowledgeBaseID, ds.DataSourceID, []bedrockagent.KBDocument{
-		{DocID: "doc-1"},
+		{Identifier: bedrockagent.KBDocumentIdentifier{
+			DataSourceType: "CUSTOM",
+			Custom:         &bedrockagent.KBCustomDocumentIdentifier{ID: "doc-1"},
+		}},
 	})
 	require.NoError(t, err)
 	require.Len(t, docs, 1)
@@ -142,7 +145,7 @@ func newPersistenceTestBackend(t *testing.T) (*bedrockagent.InMemoryBackend, per
 		kbID:                   kb.KnowledgeBaseID,
 		dataSourceID:           ds.DataSourceID,
 		ingestionJobID:         job.IngestionJobID,
-		docID:                  docs[0].DocumentID,
+		docID:                  docs[0].Identifier,
 		flowID:                 flow.FlowID,
 		flowVersion:            fv.Version,
 		flowAliasID:            falias.AliasID,
@@ -264,10 +267,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, jobList, 1)
 
 	// kbDocuments table + byDataSource index.
-	docs, err := fresh.GetKnowledgeBaseDocuments(ctx, ids.kbID, ids.dataSourceID, []string{ids.docID})
+	docs, err := fresh.GetKnowledgeBaseDocuments(
+		ctx, ids.kbID, ids.dataSourceID, []bedrockagent.KBDocumentIdentifier{ids.docID},
+	)
 	require.NoError(t, err)
 	require.Len(t, docs, 1)
-	assert.Equal(t, ids.docID, docs[0].DocumentID)
+	assert.Equal(t, ids.docID, docs[0].Identifier)
 
 	docList, _, err := fresh.ListKnowledgeBaseDocuments(ctx, ids.kbID, ids.dataSourceID, 0, "")
 	require.NoError(t, err)

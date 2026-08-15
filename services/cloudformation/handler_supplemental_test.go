@@ -155,11 +155,21 @@ func TestHandler_DetectStackResourceDrift(t *testing.T) {
 
 		var resp struct {
 			Result struct {
-				ID string `xml:"StackDriftDetectionId"`
+				Drift struct {
+					LogicalResourceID string `xml:"LogicalResourceId"`
+					ResourceType      string `xml:"ResourceType"`
+					StackID           string `xml:"StackId"`
+					DriftStatus       string `xml:"StackResourceDriftStatus"`
+					Timestamp         string `xml:"Timestamp"`
+				} `xml:"StackResourceDrift"`
 			} `xml:"DetectStackResourceDriftResult"`
 		}
 		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.NotEmpty(t, resp.Result.ID)
+		assert.Equal(t, "MyBucket", resp.Result.Drift.LogicalResourceID)
+		assert.NotEmpty(t, resp.Result.Drift.ResourceType)
+		assert.NotEmpty(t, resp.Result.Drift.StackID)
+		assert.Equal(t, "IN_SYNC", resp.Result.Drift.DriftStatus)
+		assert.NotEmpty(t, resp.Result.Drift.Timestamp)
 	})
 }
 

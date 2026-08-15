@@ -1,6 +1,8 @@
 package integration_test
 
 import (
+	"math/big"
+	"sort"
 	"testing"
 	"time"
 
@@ -11,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const hashKeyBase = 10
 
 // TestIntegration_Kinesis_StreamLifecycle tests create, list, describe, and delete.
 func TestIntegration_Kinesis_StreamLifecycle(t *testing.T) {
@@ -516,4 +520,171 @@ func TestIntegration_Kinesis_GetShardIteratorAtTimestamp(t *testing.T) {
 		StreamName: aws.String(streamName),
 	})
 	require.NoError(t, err)
+}
+
+// TestIntegration_Kinesis_SplitShard_RoundTrip round-trips a shard split
+// through SplitShard and ListShards, verifying the two child shards carry the
+// real parent linkage (parentShardId) and correctly partition the parent's
+// hash key range — a resharding op no prior real-client test has exercised.
+func TestIntegration_Kinesis_SplitShard_RoundTrip(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createKinesisClient(t)
+	ctx := t.Context()
+
+	streamName := "test-split-" + uuid.NewString()
+
+	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(1),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStream(cleanupCtx, &kinesis.DeleteStreamInput{StreamName: aws.String(streamName)})
+	})
+
+	descOut, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+	require.Len(t, descOut.StreamDescription.Shards, 1)
+
+	parent := descOut.StreamDescription.Shards[0]
+	parentID := aws.ToString(parent.ShardId)
+
+	start, ok := new(big.Int).SetString(aws.ToString(parent.HashKeyRange.StartingHashKey), hashKeyBase)
+	require.True(t, ok)
+	end, ok := new(big.Int).SetString(aws.ToString(parent.HashKeyRange.EndingHashKey), hashKeyBase)
+	require.True(t, ok)
+	mid := new(big.Int).Add(start, new(big.Int).Div(new(big.Int).Sub(end, start), big.NewInt(2)))
+
+	_, err = client.SplitShard(ctx, &kinesis.SplitShardInput{
+		StreamName:         aws.String(streamName),
+		ShardToSplit:       aws.String(parentID),
+		NewStartingHashKey: aws.String(mid.String()),
+	})
+	require.NoError(t, err)
+
+	listOut, err := client.ListShards(ctx, &kinesis.ListShardsInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+	require.Len(
+		t, listOut.Shards, 2,
+		"the parent shard should be closed and excluded from the default open-shard listing",
+	)
+
+	children := append([]kinesistypes.Shard{}, listOut.Shards...)
+	sort.Slice(children, func(i, j int) bool {
+		si, _ := new(big.Int).SetString(aws.ToString(children[i].HashKeyRange.StartingHashKey), hashKeyBase)
+		sj, _ := new(big.Int).SetString(aws.ToString(children[j].HashKeyRange.StartingHashKey), hashKeyBase)
+
+		return si.Cmp(sj) < 0
+	})
+
+	for _, s := range children {
+		assert.Equal(t, parentID, aws.ToString(s.ParentShardId))
+	}
+
+	assert.Equal(t, start.String(), aws.ToString(children[0].HashKeyRange.StartingHashKey))
+	assert.Equal(t, mid.String(), aws.ToString(children[1].HashKeyRange.StartingHashKey))
+	assert.Equal(t, end.String(), aws.ToString(children[1].HashKeyRange.EndingHashKey))
+
+	oneLess := new(big.Int).Sub(mid, big.NewInt(1))
+	assert.Equal(t, oneLess.String(), aws.ToString(children[0].HashKeyRange.EndingHashKey))
+}
+
+// TestIntegration_Kinesis_MergeShards_RoundTrip round-trips a shard merge
+// through MergeShards and ListShards, verifying the resulting shard carries
+// both real parent references (parentShardId, adjacentParentShardId) and the
+// union of the two parents' hash key ranges.
+func TestIntegration_Kinesis_MergeShards_RoundTrip(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createKinesisClient(t)
+	ctx := t.Context()
+
+	streamName := "test-merge-" + uuid.NewString()
+
+	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStream(cleanupCtx, &kinesis.DeleteStreamInput{StreamName: aws.String(streamName)})
+	})
+
+	descOut, err := client.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+	require.Len(t, descOut.StreamDescription.Shards, 2)
+
+	shards := append([]kinesistypes.Shard{}, descOut.StreamDescription.Shards...)
+	sort.Slice(shards, func(i, j int) bool {
+		si, _ := new(big.Int).SetString(aws.ToString(shards[i].HashKeyRange.StartingHashKey), hashKeyBase)
+		sj, _ := new(big.Int).SetString(aws.ToString(shards[j].HashKeyRange.StartingHashKey), hashKeyBase)
+
+		return si.Cmp(sj) < 0
+	})
+
+	lowShardID := aws.ToString(shards[0].ShardId)
+	highShardID := aws.ToString(shards[1].ShardId)
+	fullStart := aws.ToString(shards[0].HashKeyRange.StartingHashKey)
+	fullEnd := aws.ToString(shards[1].HashKeyRange.EndingHashKey)
+
+	_, err = client.MergeShards(ctx, &kinesis.MergeShardsInput{
+		StreamName:           aws.String(streamName),
+		ShardToMerge:         aws.String(lowShardID),
+		AdjacentShardToMerge: aws.String(highShardID),
+	})
+	require.NoError(t, err)
+
+	listOut, err := client.ListShards(ctx, &kinesis.ListShardsInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+	require.Len(t, listOut.Shards, 1, "both parents should be closed, leaving only the merged shard open")
+
+	merged := listOut.Shards[0]
+	assert.Equal(t, lowShardID, aws.ToString(merged.ParentShardId))
+	assert.Equal(t, highShardID, aws.ToString(merged.AdjacentParentShardId))
+	assert.Equal(t, fullStart, aws.ToString(merged.HashKeyRange.StartingHashKey))
+	assert.Equal(t, fullEnd, aws.ToString(merged.HashKeyRange.EndingHashKey))
+}
+
+// TestIntegration_Kinesis_ResourcePolicy_RoundTrip round-trips a resource
+// policy through PutResourcePolicy and GetResourcePolicy, verifying the raw
+// policy document text survives unmangled. Never exercised by a real client
+// before this test.
+func TestIntegration_Kinesis_ResourcePolicy_RoundTrip(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createKinesisClient(t)
+	ctx := t.Context()
+
+	streamName := "test-respolicy-" + uuid.NewString()
+	resourceARN := "arn:aws:kinesis:us-east-1:000000000000:stream/" + streamName
+	policyDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+		`"Principal":{"AWS":"arn:aws:iam::111111111111:root"},` +
+		`"Action":"kinesis:GetRecords","Resource":"` + resourceARN + `"}]}`
+
+	_, err := client.PutResourcePolicy(ctx, &kinesis.PutResourcePolicyInput{
+		ResourceARN: aws.String(resourceARN),
+		Policy:      aws.String(policyDoc),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteResourcePolicy(cleanupCtx, &kinesis.DeleteResourcePolicyInput{
+			ResourceARN: aws.String(resourceARN),
+		})
+	})
+
+	getOut, err := client.GetResourcePolicy(ctx, &kinesis.GetResourcePolicyInput{
+		ResourceARN: aws.String(resourceARN),
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, policyDoc, aws.ToString(getOut.Policy))
 }

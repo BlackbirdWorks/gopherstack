@@ -159,13 +159,20 @@ func advanceBundleCursor(bundles []*WorkspaceBundle, nextToken string) []*Worksp
 	return nil
 }
 
-// CreateWorkspaceBundle creates a custom bundle.
+// CreateWorkspaceBundle creates a custom bundle. Returns errImageNotFound
+// for an ImageId that doesn't reference a real image, matching real AWS
+// (ResourceNotFoundException is in this operation's error list; see
+// deserializers.go's awsAwsjson11_deserializeOpErrorCreateWorkspaceBundle).
 func (b *InMemoryBackend) CreateWorkspaceBundle(
 	name, description, imageID, computeType string,
 	tags map[string]string,
 ) (*storedCustomBundle, error) {
 	b.mu.Lock("CreateWorkspaceBundle")
 	defer b.mu.Unlock()
+
+	if !b.images.Has(imageID) {
+		return nil, errImageNotFound
+	}
 
 	id := b.nextID("wsb-")
 	stored := cloneTags(tags)

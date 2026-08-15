@@ -16,7 +16,10 @@ func TestCreateAndDescribeEventBus(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	bus, err := b.CreateEventBus(context.Background(), "my-bus", "a test bus")
+	bus, err := b.CreateEventBus(
+		context.Background(),
+		eventbridge.CreateEventBusParams{Name: "my-bus", Description: "a test bus"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-bus", bus.Name)
 	assert.Contains(t, bus.Arn, "my-bus")
@@ -31,10 +34,10 @@ func TestCreateEventBusAlreadyExists(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.CreateEventBus(context.Background(), "dup-bus", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "dup-bus"})
 	require.NoError(t, err)
 
-	_, err = b.CreateEventBus(context.Background(), "dup-bus", "")
+	_, err = b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "dup-bus"})
 	require.ErrorIs(t, err, eventbridge.ErrEventBusAlreadyExists)
 }
 
@@ -42,7 +45,7 @@ func TestDeleteEventBus(t *testing.T) {
 	t.Parallel()
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.CreateEventBus(context.Background(), "to-delete", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "to-delete"})
 	require.NoError(t, err)
 
 	err = b.DeleteEventBus(context.Background(), "to-delete")
@@ -91,7 +94,7 @@ func TestListEventBuses(t *testing.T) {
 			t.Parallel()
 			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			for _, name := range tt.setupBuses {
-				_, _ = b.CreateEventBus(context.Background(), name, "")
+				_, _ = b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: name})
 			}
 
 			buses, next, err := b.ListEventBuses(context.Background(), tt.prefix, "", 0)
@@ -393,7 +396,7 @@ func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
 	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	// Create a user-defined event bus and a rule.
-	_, err := b.CreateEventBus(context.Background(), "user-bus", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "user-bus"})
 	require.NoError(t, err)
 
 	_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{
@@ -791,7 +794,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list archives empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListArchives(context.Background(), "", "")
+		got, next, err := b.ListArchives(context.Background(), "", "", "", "")
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
@@ -818,7 +821,7 @@ func TestListPagination(t *testing.T) {
 	t.Run("list replays empty returns empty slice not nil", func(t *testing.T) {
 		t.Parallel()
 		b := newBackend()
-		got, next, err := b.ListReplays(context.Background(), "", "")
+		got, next, err := b.ListReplays(context.Background(), "", "", "", "")
 		require.NoError(t, err)
 		assert.Empty(t, got)
 		assert.Empty(t, next)
@@ -921,7 +924,7 @@ func TestBackend_ConcurrentReadNoRace(t *testing.T) {
 		{
 			name: "get_event_bus_policy",
 			setup: func(b *eventbridge.InMemoryBackend, ctx context.Context) {
-				_, err := b.CreateEventBus(ctx, "concurrent-bus", "")
+				_, err := b.CreateEventBus(ctx, eventbridge.CreateEventBusParams{Name: "concurrent-bus"})
 				require.NoError(t, err)
 			},
 			call: func(b *eventbridge.InMemoryBackend, ctx context.Context) error {

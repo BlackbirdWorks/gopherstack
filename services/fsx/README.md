@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 13 (13 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -17,6 +17,7 @@
 - Delete*Output shapes (DeleteFileSystem, DeleteVolume) do not include the optional WindowsResponse/LustreResponse/OpenZFSConfiguration finalizer sub-objects (e.g. FinalBackupTags) that real AWS returns when a final backup is requested at delete time. Low traffic; not fixed this pass (gopherstack-wjjl was scoped to idempotency + network validation, not this).
 - CreateFileSystem still does not REQUIRE SubnetIds (real AWS: Required: Yes, and exactly two for Windows/ONTAP MULTI_AZ_1 deployments). Re-confirmed this pass (gopherstack-wjjl) against the live API reference (docs.aws.amazon.com/fsx/latest/APIReference/API_CreateFileSystem.html): SubnetIds is genuinely required. Still not enforced: grep confirms zero test fixtures across the entire fsx package (5 test files, 28+ CreateFileSystem call sites) ever populate SubnetIds, so flipping it to required would be a wholesale fixture migration, not a small fix, and this emulator still does not model Availability Zone topology needed for the exactly-one-vs-exactly-two-subnets MULTI_AZ_1 rule. What WAS fixed this pass: SubnetIds/SecurityGroupIds, when supplied, are now format-validated against the real ID patterns (subnet-[0-9a-f]{8,} / sg-[0-9a-f]{8,}) and rejected with InvalidNetworkSettings if malformed -- see families note below.
 - ActiveDirectoryError (AD-join failures for WINDOWS/ONTAP file systems joining a directory) is not modeled: ActiveDirectoryId is accepted and echoed back but never validated against a real Directory Service resource (gopherstack's ds package). Not fixed this pass -- cross-service validation, out of scope for a single-service parity pass.
+- CreateFileSystem (the non-backup create path) does not accept FileSystemTypeVersion, unlike CreateFileSystemFromBackup which gained it this pass (gopherstack-cgq3). Real CreateFileSystemInput has this field too (api_op_CreateFileSystem.go:118), so a Lustre file system created directly (not restored from a backup) can never have a non-empty FileSystemTypeVersion in this emulator, and CreateFileSystemFromBackup's own "inherit from source file system" fallback is therefore currently always empty in practice unless the caller supplies an explicit override. Not fixed this pass -- out of the single-op scope that found it.
 
 ## More
 

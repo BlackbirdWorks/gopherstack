@@ -201,23 +201,28 @@ func (b *InMemoryBackend) DescribeVpcEndpointServicePermissions(serviceID string
 func (b *InMemoryBackend) ModifyVpcEndpointServicePermissions(
 	serviceID string,
 	add, remove []string,
-) error {
+) ([]string, error) {
 	if serviceID == "" {
-		return fmt.Errorf("%w: ServiceId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: ServiceId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("ModifyVpcEndpointServicePermissions")
 	defer b.mu.Unlock()
 
 	if _, ok := b.vpcEndpointServiceConfigs.Get(serviceID); !ok {
-		return fmt.Errorf("%w: %s", ErrVpcEndpointServiceNotFound, serviceID)
+		return nil, fmt.Errorf("%w: %s", ErrVpcEndpointServiceNotFound, serviceID)
 	}
 
 	existing := make(map[string]bool)
 	for _, p := range b.vpcEndpointServicePermissions[serviceID] {
 		existing[p] = true
 	}
+
+	var added []string
 	for _, p := range add {
+		if !existing[p] {
+			added = append(added, p)
+		}
 		existing[p] = true
 	}
 	for _, p := range remove {
@@ -227,7 +232,7 @@ func (b *InMemoryBackend) ModifyVpcEndpointServicePermissions(
 	result := collections.SortedKeys(existing)
 	b.vpcEndpointServicePermissions[serviceID] = result
 
-	return nil
+	return added, nil
 }
 
 // ---- ModifyVpcEndpoint ----

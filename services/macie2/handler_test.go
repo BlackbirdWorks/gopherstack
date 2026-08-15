@@ -52,28 +52,37 @@ func TestMacie2_RouteMatching(t *testing.T) {
 
 	tests := []struct {
 		path string
+		auth string
 		want bool
 	}{
-		{"/macie", true},
-		{"/allow-lists", true},
-		{"/allow-lists/some-id", true},
-		{"/custom-data-identifiers", true},
-		{"/findingsfilters", true},
-		{"/findings", true},
-		{"/findings/describe", true},
-		{"/tags/arn:aws:macie2:us-east-1:000000000000:allow-list/id", true},
-		{"/tags/arn:aws:guardduty:us-east-1:000000000000:detector/id", false},
-		{"/s3", false},
-		{"/iam/roles", false},
+		{path: "/macie", want: true},
+		{path: "/allow-lists", want: true},
+		{path: "/allow-lists/some-id", want: true},
+		{path: "/custom-data-identifiers", want: true},
+		{path: "/findingsfilters", want: true},
+		{path: "/findings", want: true, auth: "macie2"},
+		{path: "/findings/describe", want: true, auth: "macie2"},
+		{path: "/findings", want: false, auth: "securityhub"},
+		{path: "/tags/arn:aws:macie2:us-east-1:000000000000:allow-list/id", want: true},
+		{path: "/tags/arn:aws:guardduty:us-east-1:000000000000:detector/id", want: false},
+		{path: "/s3", want: false},
+		{path: "/iam/roles", want: false},
 	}
 
 	e := echo.New()
 
 	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
+		t.Run(tt.path+"/"+tt.auth, func(t *testing.T) {
 			t.Parallel()
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.auth != "" {
+				req.Header.Set(
+					"Authorization",
+					"AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/"+tt.auth+"/aws4_request",
+				)
+			}
+
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 			assert.Equal(t, tt.want, matcher(c))

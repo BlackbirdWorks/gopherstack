@@ -14,9 +14,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
-// TestUpdateBucketMetadataTableConfig verifies that PUT
-// ?metadataInventoryTableConfiguration and ?metadataJournalTableConfiguration
-// persist the config (rather than being silently discarded as a no-op).
+// TestUpdateBucketMetadataTableConfig verifies that PUT ?metadataInventoryTable
+// and ?metadataJournalTable persist the config (rather than being silently
+// discarded as a no-op). These are the real query keys per s3@v1.106.5
+// serializers.go (awsRestxml_serializeOpUpdateBucketMetadataInventoryTableConfiguration
+// / ...JournalTableConfiguration) -- previously this test used
+// ?metadataInventoryTableConfiguration / ?metadataJournalTableConfiguration,
+// which matched the router's own (wrong) key rather than what the real SDK sends.
 func TestUpdateBucketMetadataTableConfig(t *testing.T) {
 	t.Parallel()
 
@@ -45,7 +49,7 @@ func TestUpdateBucketMetadataTableConfig(t *testing.T) {
 
 				req := httptest.NewRequest(
 					http.MethodPut,
-					"/"+tt.bucket+"?metadataInventoryTableConfiguration",
+					"/"+tt.bucket+"?metadataInventoryTable",
 					strings.NewReader(cfgXML),
 				)
 				rec := httptest.NewRecorder()
@@ -80,7 +84,7 @@ func TestUpdateBucketMetadataTableConfig(t *testing.T) {
 
 				req := httptest.NewRequest(
 					http.MethodPut,
-					"/"+tt.bucket+"?metadataJournalTableConfiguration",
+					"/"+tt.bucket+"?metadataJournalTable",
 					strings.NewReader(cfgXML),
 				)
 				rec := httptest.NewRecorder()
@@ -181,7 +185,7 @@ func TestS3_BucketMetadataConfig(t *testing.T) {
 	}{
 		{
 			name:   "CreateBucketMetadataConfiguration stores config",
-			method: http.MethodPut,
+			method: http.MethodPost,
 			path:   "/metadata-bucket?metadataConfiguration",
 			body:   metadataXML,
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
@@ -198,7 +202,7 @@ func TestS3_BucketMetadataConfig(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, backend, "metadata-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut,
+					http.MethodPost,
 					"/metadata-bucket?metadataConfiguration",
 					strings.NewReader(metadataXML),
 				)
@@ -228,7 +232,7 @@ func TestS3_BucketMetadataConfig(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, backend, "metadata-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut,
+					http.MethodPost,
 					"/metadata-bucket?metadataConfiguration",
 					strings.NewReader(metadataXML),
 				)
@@ -240,7 +244,7 @@ func TestS3_BucketMetadataConfig(t *testing.T) {
 		},
 		{
 			name:       "CreateBucketMetadataConfiguration on missing bucket returns 404",
-			method:     http.MethodPut,
+			method:     http.MethodPost,
 			path:       "/no-such-bucket?metadataConfiguration",
 			body:       metadataXML,
 			wantStatus: http.StatusNotFound,
@@ -295,8 +299,8 @@ func TestS3_BucketMetadataTableConfig(t *testing.T) {
 	}{
 		{
 			name:   "CreateBucketMetadataTableConfiguration stores config",
-			method: http.MethodPut,
-			path:   "/mt-bucket?metadataTableConfiguration",
+			method: http.MethodPost,
+			path:   "/mt-bucket?metadataTable",
 			body:   metadataTableXML,
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
@@ -307,13 +311,13 @@ func TestS3_BucketMetadataTableConfig(t *testing.T) {
 		{
 			name:   "GetBucketMetadataTableConfiguration returns stored config",
 			method: http.MethodGet,
-			path:   "/mt-bucket?metadataTableConfiguration",
+			path:   "/mt-bucket?metadataTable",
 			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "mt-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut,
-					"/mt-bucket?metadataTableConfiguration",
+					http.MethodPost,
+					"/mt-bucket?metadataTable",
 					strings.NewReader(metadataTableXML),
 				)
 				rec := httptest.NewRecorder()
@@ -326,7 +330,7 @@ func TestS3_BucketMetadataTableConfig(t *testing.T) {
 		{
 			name:   "GetBucketMetadataTableConfiguration returns 404 when not set",
 			method: http.MethodGet,
-			path:   "/mt-bucket?metadataTableConfiguration",
+			path:   "/mt-bucket?metadataTable",
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "mt-bucket")
@@ -337,13 +341,13 @@ func TestS3_BucketMetadataTableConfig(t *testing.T) {
 		{
 			name:   "DeleteBucketMetadataTableConfiguration clears config",
 			method: http.MethodDelete,
-			path:   "/mt-bucket?metadataTableConfiguration",
+			path:   "/mt-bucket?metadataTable",
 			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "mt-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut,
-					"/mt-bucket?metadataTableConfiguration",
+					http.MethodPost,
+					"/mt-bucket?metadataTable",
 					strings.NewReader(metadataTableXML),
 				)
 				rec := httptest.NewRecorder()
@@ -354,8 +358,8 @@ func TestS3_BucketMetadataTableConfig(t *testing.T) {
 		},
 		{
 			name:       "CreateBucketMetadataTableConfiguration on missing bucket returns 404",
-			method:     http.MethodPut,
-			path:       "/no-such-bucket?metadataTableConfiguration",
+			method:     http.MethodPost,
+			path:       "/no-such-bucket?metadataTable",
 			body:       metadataTableXML,
 			wantStatus: http.StatusNotFound,
 			wantBody:   "NoSuchBucket",

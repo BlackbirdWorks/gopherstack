@@ -272,6 +272,16 @@ func classifyFlowPath(method, path string) string {
 	rest, _ := strings.CutPrefix(path, flowsBase+"/")
 	segs := strings.Split(rest, "/")
 
+	// ValidateFlowDefinition POSTs to the literal "/flows/validate-definition"
+	// path, not a "/flows/{flowIdentifier}/" -- same single-segment,
+	// POST shape as PrepareFlow's real wire request, so it must be checked
+	// first or it misclassifies as PrepareFlow. dispatchFlows (handler.go)
+	// already special-cases this literal path ahead of its own
+	// flowID/suffix parsing; this mirrors that ordering.
+	if rest == "validate-definition" && method == http.MethodPost {
+		return opValidateFlowDefinition
+	}
+
 	switch {
 	case len(segs) == 1 && method == http.MethodGet:
 		return opGetFlow

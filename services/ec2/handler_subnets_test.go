@@ -55,7 +55,9 @@ func TestSubnetCidrReservations(t *testing.T) { //nolint:paralleltest // existin
 	})
 
 	t.Run("delete reservation", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteSubnetCidrReservation(reservationID))
+		deleted, err := b.DeleteSubnetCidrReservation(reservationID)
+		require.NoError(t, err)
+		assert.Equal(t, reservationID, deleted.SubnetCIDRReservationID)
 	})
 
 	t.Run("unknown subnet returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.

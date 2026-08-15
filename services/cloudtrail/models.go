@@ -52,9 +52,11 @@ type Event struct {
 	// LookupEventsOutput Event shape has no top-level EventCategory field (it
 	// is only present nested in the CloudTrailEvent JSON string), but this
 	// backend's Event type is shared between the wire response and the
-	// internal/persisted record, so this extra key rides along on the wire --
-	// harmless, since JSON-protocol clients ignore unknown response fields
-	// (same pattern as dashToMap's Status key; see PARITY.md).
+	// internal/persisted record, so this extra key rides along on the wire.
+	// Not yet re-verified against the pinned SDK deserializer; see PARITY.md
+	// for the dashboard shared-helper leak this pass fixed instead (a
+	// different bug -- Status/Name leaking across Create/Get/Update, not
+	// this Event/EventCategory field).
 	EventCategory string `json:"EventCategory,omitempty"`
 	// CloudTrailEvent is the full JSON-encoded event record (eventVersion,
 	// userIdentity, eventTime, eventSource, eventName, awsRegion, requestID,

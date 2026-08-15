@@ -135,7 +135,14 @@ func (h *S3Handler) handlePutBucketRequestPayment(
 
 	body, _ := httputils.ReadBody(r)
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &cfg)
+		if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+			httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+				Code:    errMalformedXML,
+				Message: errMalformedXMLMsg,
+			}, http.StatusBadRequest)
+
+			return
+		}
 	}
 
 	if cfg.Payer != "Requester" && cfg.Payer != "BucketOwner" {

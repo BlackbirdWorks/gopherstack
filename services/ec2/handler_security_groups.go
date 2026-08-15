@@ -211,9 +211,15 @@ func (h *Handler) handleUpdateSGRuleDescriptionsEgress(vals url.Values, reqID st
 }
 
 func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string) (any, error) {
-	groupID := vals.Get("Filter.1.Value")
-	if groupID == "" {
-		groupID = vals.Get("GroupId")
+	// DescribeSecurityGroupRulesInput carries no top-level GroupId — the real
+	// client sends it as Filter.N.Name=group-id / Filter.N.Value.M, not
+	// Filter.1.Value (which is never a valid key: AWS query-list values are
+	// always indexed).
+	filters := parseEC2Filters(vals)
+
+	var groupID string
+	if values := filters["group-id"]; len(values) > 0 {
+		groupID = values[0]
 	}
 
 	rules, err := h.Backend.DescribeSecurityGroupRules(groupID)
@@ -269,7 +275,7 @@ type describeSecurityGroupRulesResponse struct {
 }
 
 type launchTemplateVersionSet struct {
-	Items []launchTemplateItem `xml:"item"`
+	Items []launchTemplateVersionItem `xml:"item"`
 }
 
 // registerSecurityGroupsOps registers the SecurityGroups operation handlers.
@@ -449,7 +455,7 @@ func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (a
 
 	// Apply named filters: vpc-id, group-name, group-id.
 	filters := parseEC2Filters(vals)
-	groups = applySecurityGroupFilters(groups, filters)
+	groups = applySecurityGroupFilters(groups, filters, h.Backend)
 
 	items := make([]sgItem, 0, len(groups))
 	for _, sg := range groups {
@@ -529,20 +535,79 @@ func (h *Handler) handleRevokeSecurityGroupEgress(vals url.Values, reqID string)
 
 func toSGItem(sg *SecurityGroup, tags map[string]string) sgItem {
 	return sgItem{
-		GroupID:          sg.ID,
-		GroupName:        sg.Name,
-		GroupDescription: sg.Description,
-		VPCID:            sg.VPCID,
-		TagSet:           tagItemsFromMap(tags),
+		GroupID:             sg.ID,
+		GroupName:           sg.Name,
+		GroupDescription:    sg.Description,
+		VPCID:               sg.VPCID,
+		TagSet:              tagItemsFromMap(tags),
+		IPPermissions:       toIPPermissionItems(sg.IngressRules),
+		IPPermissionsEgress: toIPPermissionItems(sg.EgressRules),
 	}
 }
 
+// toIPPermissionItems converts the flat per-range/per-source
+// SecurityGroupRule entries this backend stores into one ipPermissionItem
+// each, carrying a single IpRanges or Groups member. AWS's real wire shape
+// allows either representation (fewer IpPermission entries each holding
+// several ranges, or one per range); a typed client iterating the flattened
+// result observes the same protocol/port/CIDR/group data either way.
+func toIPPermissionItems(rules []SecurityGroupRule) []ipPermissionItem {
+	items := make([]ipPermissionItem, 0, len(rules))
+
+	for _, r := range rules {
+		item := ipPermissionItem{
+			IPProtocol: r.Protocol,
+			FromPort:   r.FromPort,
+			ToPort:     r.ToPort,
+		}
+
+		switch {
+		case r.SourceGroupID != "":
+			item.Groups = []userIDGroupPairItem{{
+				GroupID:     r.SourceGroupID,
+				UserID:      r.SourceGroupOwnerID,
+				Description: r.Description,
+			}}
+		case r.IPRange != "":
+			item.IPRanges = []ipRangeItem{{
+				CidrIP:      r.IPRange,
+				Description: r.Description,
+			}}
+		}
+
+		items = append(items, item)
+	}
+
+	return items
+}
+
+type ipRangeItem struct {
+	CidrIP      string `xml:"cidrIp"`
+	Description string `xml:"description,omitempty"`
+}
+
+type userIDGroupPairItem struct {
+	GroupID     string `xml:"groupId"`
+	UserID      string `xml:"userId,omitempty"`
+	Description string `xml:"description,omitempty"`
+}
+
+type ipPermissionItem struct {
+	IPProtocol string                `xml:"ipProtocol"`
+	IPRanges   []ipRangeItem         `xml:"ipRanges>item,omitempty"`
+	Groups     []userIDGroupPairItem `xml:"groups>item,omitempty"`
+	FromPort   int                   `xml:"fromPort"`
+	ToPort     int                   `xml:"toPort"`
+}
+
 type sgItem struct {
-	GroupID          string          `xml:"groupId"`
-	GroupName        string          `xml:"groupName"`
-	GroupDescription string          `xml:"groupDescription"`
-	VPCID            string          `xml:"vpcId,omitempty"`
-	TagSet           []simpleTagItem `xml:"tagSet>item"`
+	GroupID             string             `xml:"groupId"`
+	GroupName           string             `xml:"groupName"`
+	GroupDescription    string             `xml:"groupDescription"`
+	VPCID               string             `xml:"vpcId,omitempty"`
+	TagSet              []simpleTagItem    `xml:"tagSet>item"`
+	IPPermissions       []ipPermissionItem `xml:"ipPermissions>item"`
+	IPPermissionsEgress []ipPermissionItem `xml:"ipPermissionsEgress>item"`
 }
 
 type sgItemSet struct {

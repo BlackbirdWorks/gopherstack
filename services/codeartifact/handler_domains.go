@@ -188,8 +188,12 @@ func (h *Handler) handlePutDomainPermissionsPolicy(c *echo.Context, domainName s
 		}
 	}
 
+	// PolicyDocument is "This member is required." on the real
+	// PutDomainPermissionsPolicyInput (api_op_PutDomainPermissionsPolicy.go)
+	// -- was silently defaulted to an empty-statement policy instead of
+	// rejected, accepting a request real AWS would 400 on.
 	if in.PolicyDocument == "" {
-		in.PolicyDocument = `{"Version":"2012-10-17","Statement":[]}`
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "policyDocument is required"))
 	}
 
 	pol, err := h.Backend.PutDomainPermissionsPolicy(c.Request().Context(), domainName, in.PolicyDocument)

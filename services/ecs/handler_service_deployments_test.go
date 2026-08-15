@@ -33,11 +33,12 @@ func TestServiceDeployment_DescribeList_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
 	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
-	arns := listOut["serviceDeploymentArns"].([]any)
-	require.NotEmpty(t, arns)
+	briefs := listOut["serviceDeployments"].([]any)
+	require.NotEmpty(t, briefs)
+	firstArn := briefs[0].(map[string]any)["serviceDeploymentArn"].(string)
 
 	descResp := doECSRequest(t, h, "DescribeServiceDeployments", map[string]any{
-		"serviceDeploymentArns": []string{arns[0].(string)},
+		"serviceDeploymentArns": []string{firstArn},
 	})
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
@@ -191,11 +192,62 @@ func TestECS_ListServiceDeployments(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			arns, ok := resp["serviceDeploymentArns"].([]any)
+			briefs, ok := resp["serviceDeployments"].([]any)
 			require.True(t, ok)
-			assert.Empty(t, arns)
+			assert.Empty(t, briefs)
 		})
 	}
+}
+
+// TestECS_ListServiceDeployments_Shape proves ListServiceDeployments returns
+// the real ServiceDeploymentBrief shape (an object list under
+// "serviceDeployments") rather than a bare "serviceDeploymentArns" string
+// list, and that the honestly-sourceable Brief fields are populated.
+func TestECS_ListServiceDeployments_Shape(t *testing.T) {
+	t.Parallel()
+
+	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+	h := ecs.NewHandler(backend)
+
+	created := time.Unix(1700000000, 0)
+	backend.AddServiceDeploymentInternal(&ecs.ServiceDeployment{
+		ServiceDeploymentArn:     "arn:aws:ecs:us-east-1:000000000000:service-deployment/shape-cluster/shape-svc/dep-1",
+		ClusterArn:               "arn:aws:ecs:us-east-1:000000000000:cluster/shape-cluster",
+		ServiceArn:               "arn:aws:ecs:us-east-1:000000000000:service/shape-cluster/shape-svc",
+		Status:                   "IN_PROGRESS",
+		CreatedAt:                &created,
+		TargetServiceRevisionArn: "arn:aws:ecs:us-east-1:000000000000:service-revision/shape-cluster/shape-svc/1",
+	})
+
+	rec := doECSRequest(t, h, "ListServiceDeployments", map[string]any{
+		"cluster": "shape-cluster",
+		"service": "shape-svc",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	_, hasOldShape := resp["serviceDeploymentArns"]
+	assert.False(t, hasOldShape, "response must not carry the bare serviceDeploymentArns shape")
+
+	briefs, ok := resp["serviceDeployments"].([]any)
+	require.True(t, ok, "response must carry a serviceDeployments object list")
+	require.Len(t, briefs, 1)
+
+	brief := briefs[0].(map[string]any)
+	assert.Equal(t,
+		"arn:aws:ecs:us-east-1:000000000000:service-deployment/shape-cluster/shape-svc/dep-1",
+		brief["serviceDeploymentArn"])
+	assert.Equal(t, "arn:aws:ecs:us-east-1:000000000000:cluster/shape-cluster", brief["clusterArn"])
+	assert.Equal(t, "arn:aws:ecs:us-east-1:000000000000:service/shape-cluster/shape-svc", brief["serviceArn"])
+	assert.Equal(t, "IN_PROGRESS", brief["status"])
+	assert.InDelta(t, float64(1700000000), brief["createdAt"], 0)
+	assert.InDelta(t, float64(1700000000), brief["startedAt"], 0)
+	assert.Equal(t,
+		"arn:aws:ecs:us-east-1:000000000000:service-revision/shape-cluster/shape-svc/1",
+		brief["targetServiceRevisionArn"])
+	assert.Nil(t, brief["finishedAt"], "in-progress deployment must not report a finishedAt")
 }
 
 // TestECS_StopServiceDeployment verifies StopServiceDeployment.

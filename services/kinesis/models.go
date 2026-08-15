@@ -36,6 +36,14 @@ const (
 	// absoluteMaxRecordSizeBytes is the maximum allowed record size after UpdateMaxRecordSize (10 MiB).
 	absoluteMaxRecordSizeBytes = 10_485_760
 
+	// bytesPerKiB converts UpdateMaxRecordSize's wire unit (MaxRecordSizeInKiB)
+	// to the bytes this backend stores per-stream (Stream.MaxRecordSizeBytes).
+	bytesPerKiB = 1024
+
+	// maxWarmThroughputMiBps is AWS's documented default cap on UpdateStreamWarmThroughput:
+	// "you cannot scale to more than 10 GiBps for an on-demand stream" (10*1024 MiBps).
+	maxWarmThroughputMiBps = 10 * 1024
+
 	// iteratorTypeTrimHorizon reads from the oldest record.
 	iteratorTypeTrimHorizon = "TRIM_HORIZON"
 	// iteratorTypeLatest reads only new records after the iterator is created.
@@ -106,6 +114,17 @@ const (
 
 	// iteratorTTL is the maximum age of a shard iterator before it expires.
 	iteratorTTL = 300 * time.Second
+
+	// minimumThroughputBillingCommitmentEnabled/Disabled are the only two
+	// values MinimumThroughputBillingCommitmentInput.Status accepts
+	// (types.MinimumThroughputBillingCommitmentInputStatus's enum). A third,
+	// Output-only status, ENABLED_UNTIL_EARLIEST_ALLOWED_END
+	// (types.MinimumThroughputBillingCommitmentOutputStatus), is reported
+	// mid-way through ending a commitment window; this backend never produces
+	// it, since that requires the commitment-window/billing model gopherstack
+	// doesn't have (see PARITY.md).
+	minimumThroughputBillingCommitmentEnabled  = "ENABLED"
+	minimumThroughputBillingCommitmentDisabled = "DISABLED"
 )
 
 const (
@@ -135,8 +154,14 @@ type Stream struct {
 	EnhancedMonitoring []string `json:"enhancedMonitoring,omitempty"`
 	RetentionPeriod    int      `json:"retentionPeriod"`
 	// MaxRecordSizeBytes is the per-record data payload size limit for this stream.
-	// Defaults to defaultMaxRecordSizeBytes (1 MiB); updatable via UpdateMaxRecordSize.
+	// Defaults to defaultMaxRecordSizeBytes (1 MiB); updatable via UpdateMaxRecordSize
+	// (wire unit is MaxRecordSizeInKiB; converted to bytes on write via bytesPerKiB).
 	MaxRecordSizeBytes int `json:"maxRecordSizeBytes,omitempty"`
+	// WarmThroughputMiBps is the stream's current UpdateStreamWarmThroughput
+	// setting. Applied synchronously (this backend has no UPDATING transient
+	// state), so Current and Target always match on read -- see
+	// UpdateStreamWarmThroughputOutput and PARITY.md.
+	WarmThroughputMiBps int `json:"warmThroughputMiBps,omitempty"`
 }
 
 // Shard represents a single Kinesis shard within a stream.
@@ -211,6 +236,10 @@ type CreateStreamInput struct {
 // DeleteStreamInput is the input for DeleteStream.
 type DeleteStreamInput struct {
 	StreamName string
+	// EnforceConsumerDeletion mirrors the real DeleteStreamInput field: unset
+	// or false with registered consumers fails the call with
+	// ResourceInUseException instead of deleting the stream.
+	EnforceConsumerDeletion bool
 }
 
 // DescribeStreamInput is the input for DescribeStream.
@@ -343,7 +372,20 @@ type GetRecordResult struct {
 type GetRecordsOutput struct {
 	NextShardIterator  string
 	Records            []GetRecordResult
+	ChildShards        []ChildShard
 	MillisBehindLatest int64
+}
+
+// ChildShard describes a shard that resulted from splitting or merging the
+// shard a GetRecords call just finished reading (aws-sdk-go-v2
+// types.ChildShard). Real AWS only returns this "when the end of the
+// current shard is reached" -- i.e. exactly when NextShardIterator is empty
+// because the shard is Closed and fully consumed.
+type ChildShard struct {
+	ShardID           string
+	HashKeyRangeStart string
+	HashKeyRangeEnd   string
+	ParentShards      []string
 }
 
 // ListShardsInput is the input for ListShards.
@@ -557,11 +599,34 @@ type ListTagsForResourceOutput struct {
 	Tags map[string]string
 }
 
+// MinimumThroughputBillingCommitmentInput is the input shape for the
+// commitment status requested via UpdateAccountSettings
+// (types.MinimumThroughputBillingCommitmentInput; Status is its only,
+// required, member -- kinesis@v1.46.4 types/types.go:168-176).
+type MinimumThroughputBillingCommitmentInput struct {
+	// Status is required: minimumThroughputBillingCommitmentEnabled or
+	// minimumThroughputBillingCommitmentDisabled.
+	Status string
+}
+
+// MinimumThroughputBillingCommitmentOutput is the account's current minimum
+// throughput billing commitment (types.MinimumThroughputBillingCommitmentOutput,
+// kinesis@v1.46.4 types/types.go:178-197). This backend has no billing engine:
+// Status/StartedAt/EndedAt only track the state transitions UpdateAccountSettings
+// requests; EarliestAllowedEndAt is never populated since computing it needs a
+// commitment-window model this backend doesn't have (see PARITY.md gaps), and
+// Status never reports minimumThroughputBillingCommitmentEnabledUntilEnd for
+// the same reason.
+type MinimumThroughputBillingCommitmentOutput struct {
+	EarliestAllowedEndAt time.Time `json:"earliestAllowedEndAt"`
+	EndedAt              time.Time `json:"endedAt"`
+	StartedAt            time.Time `json:"startedAt"`
+	Status               string    `json:"status"`
+}
+
 // DescribeAccountSettingsOutput is the output for DescribeAccountSettings.
 type DescribeAccountSettingsOutput struct {
-	ShardLimit               int
-	OnDemandStreamCount      int
-	OnDemandStreamCountLimit int
+	MinimumThroughputBillingCommitment MinimumThroughputBillingCommitmentOutput
 }
 
 // UpdateStreamModeInput is the input for UpdateStreamMode.
@@ -577,23 +642,45 @@ type StreamModeDetails struct {
 
 // UpdateAccountSettingsInput is the input for UpdateAccountSettings.
 type UpdateAccountSettingsInput struct {
-	// OnDemandStreamCountLimit sets the account-level limit for ON_DEMAND streams.
-	OnDemandStreamCountLimit int
+	// MinimumThroughputBillingCommitment is required.
+	MinimumThroughputBillingCommitment *MinimumThroughputBillingCommitmentInput
 }
 
-// UpdateMaxRecordSizeInput is the input for UpdateMaxRecordSize.
+// UpdateAccountSettingsOutput is the output for UpdateAccountSettings.
+type UpdateAccountSettingsOutput struct {
+	MinimumThroughputBillingCommitment MinimumThroughputBillingCommitmentOutput
+}
+
+// UpdateMaxRecordSizeInput is the input for UpdateMaxRecordSize. Unlike most
+// stream-identifying inputs in this file, the real shape has no StreamName
+// member -- only StreamARN (and StreamId, reserved for future use) --
+// kinesis@v1.46.4 api_op_UpdateMaxRecordSize.go:30-47.
 type UpdateMaxRecordSizeInput struct {
-	StreamName         string
-	StreamARN          string
-	MaxRecordSizeBytes int
+	StreamARN string
+	// MaxRecordSizeInKiB is required; wire unit is KiB, not bytes.
+	MaxRecordSizeInKiB int
 }
 
 // UpdateStreamWarmThroughputInput is the input for UpdateStreamWarmThroughput.
 type UpdateStreamWarmThroughputInput struct {
-	StreamName         string
-	StreamARN          string
-	WriteCapacityUnits int64
-	ReadCapacityUnits  int64
+	StreamName string
+	StreamARN  string
+	// WarmThroughputMiBps is required (api_op_UpdateStreamWarmThroughput.go:63-70).
+	WarmThroughputMiBps int
+}
+
+// WarmThroughputObject mirrors types.WarmThroughputObject
+// (kinesis@v1.46.4 types/types.go:729-740).
+type WarmThroughputObject struct {
+	CurrentMiBps int
+	TargetMiBps  int
+}
+
+// UpdateStreamWarmThroughputOutput is the output for UpdateStreamWarmThroughput.
+type UpdateStreamWarmThroughputOutput struct {
+	StreamARN      string
+	StreamName     string
+	WarmThroughput WarmThroughputObject
 }
 
 // TagResourceInput is the input for TagResource (ARN-based tagging).

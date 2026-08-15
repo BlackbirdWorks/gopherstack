@@ -19,6 +19,18 @@ import (
 func TestCreateJob_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds1",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateRecipe(context.Background(), "r1", "", nil, nil)
+	require.NoError(t, err)
 	outputs := []databrew.Output{
 		{Location: databrew.S3Location{Bucket: "out-bkt", Key: "out/"}, Format: "CSV"},
 	}
@@ -44,23 +56,76 @@ func TestCreateJob_Success(t *testing.T) {
 func TestCreateJob_EmptyName(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateJob(
+		context.Background(),
+		"",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.Error(t, err)
 }
 
 func TestCreateJob_Duplicate(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
-	_, err = b.CreateJob(context.Background(), "j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err = b.CreateJob(
+		context.Background(),
+		"j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.Error(t, err)
 }
 
 func TestDescribeJob_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
 		context.Background(),
 		"j1",
 		"PROFILE",
@@ -89,9 +154,43 @@ func TestDescribeJob_NotFound(t *testing.T) {
 func TestListJobs(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "j1", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
-	_, err = b.CreateJob(context.Background(), "j2", "RECIPE", "ds", "", "r", "", nil, nil, databrew.JobExtras{})
+	_, err = b.CreateRecipe(context.Background(), "r", "", nil, nil)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"j1",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"j2",
+		"RECIPE",
+		"ds",
+		"",
+		"r",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	list, _ := b.ListJobs(context.Background(), 100, "", "", "")
 	assert.Len(t, list, 2)
@@ -100,7 +199,17 @@ func TestListJobs(t *testing.T) {
 func TestUpdateJob_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
 		context.Background(),
 		"upd-j",
 		"PROFILE",
@@ -114,7 +223,16 @@ func TestUpdateJob_Success(t *testing.T) {
 	)
 	require.NoError(t, err)
 	outputs := []databrew.Output{{Location: databrew.S3Location{Bucket: "b"}}}
-	err = b.UpdateJob(context.Background(), "upd-j", "new-role", outputs, 5, 2, 60, databrew.JobExtras{})
+	err = b.UpdateJob(
+		context.Background(),
+		"upd-j",
+		"new-role",
+		outputs,
+		5,
+		2,
+		60,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	j, err := b.DescribeJob(context.Background(), "upd-j")
 	require.NoError(t, err)
@@ -134,7 +252,28 @@ func TestUpdateJob_NotFound(t *testing.T) {
 func TestDeleteJob_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "del-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"del-j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	err = b.DeleteJob(context.Background(), "del-j")
 	require.NoError(t, err)
@@ -154,7 +293,28 @@ func TestDeleteJob_NotFound(t *testing.T) {
 func TestStartJobRun_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "run-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"run-j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	run, err := b.StartJobRun(context.Background(), "run-j")
 	require.NoError(t, err)
@@ -166,7 +326,28 @@ func TestStartJobRun_Success(t *testing.T) {
 func TestStartJobRun_TransitionsToSucceeded(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "run-j2", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"run-j2",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	_, err = b.StartJobRun(context.Background(), "run-j2")
 	require.NoError(t, err)
@@ -189,7 +370,28 @@ func TestStartJobRun_JobNotFound(t *testing.T) {
 func TestListJobRuns_Empty(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "empty-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"empty-j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	runs, _, err := b.ListJobRuns(context.Background(), "empty-j", 100, "")
 	require.NoError(t, err)
@@ -206,7 +408,28 @@ func TestListJobRuns_JobNotFound(t *testing.T) {
 func TestListJobRuns_MultipleRuns(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "multi-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"multi-j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	_, err = b.StartJobRun(context.Background(), "multi-j")
 	require.NoError(t, err)
@@ -220,7 +443,28 @@ func TestListJobRuns_MultipleRuns(t *testing.T) {
 func TestListJobRuns_Pagination(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "pag-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"pag-j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	for range 5 {
 		_, err = b.StartJobRun(context.Background(), "pag-j")
@@ -239,7 +483,28 @@ func TestListJobRuns_Pagination(t *testing.T) {
 func TestStopJobRun_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "stop-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"stop-j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	run, err := b.StartJobRun(context.Background(), "stop-j")
 	require.NoError(t, err)
@@ -251,7 +516,28 @@ func TestStopJobRun_Success(t *testing.T) {
 func TestStopJobRun_AlreadySucceeded(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "stop-j2", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"stop-j2",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	run, err := b.StartJobRun(context.Background(), "stop-j2")
 	require.NoError(t, err)
@@ -277,7 +563,28 @@ func TestStopJobRun_NotFound_NoRuns(t *testing.T) {
 func TestStopJobRun_RunIDNotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "stop-j3", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"stop-j3",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	_, err = b.StartJobRun(context.Background(), "stop-j3")
 	require.NoError(t, err)
@@ -288,7 +595,28 @@ func TestStopJobRun_RunIDNotFound(t *testing.T) {
 func TestDescribeJobRun_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "desc-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"desc-j",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	run, err := b.StartJobRun(context.Background(), "desc-j")
 	require.NoError(t, err)
@@ -308,7 +636,28 @@ func TestDescribeJobRun_NotFound_NoRuns(t *testing.T) {
 func TestDescribeJobRun_RunIDNotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "desc-j2", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"desc-j2",
+		"PROFILE",
+		"ds",
+		"",
+		"",
+		"",
+		nil,
+		nil,
+		databrew.JobExtras{},
+	)
 	require.NoError(t, err)
 	_, err = b.StartJobRun(context.Background(), "desc-j2")
 	require.NoError(t, err)
@@ -321,6 +670,10 @@ func TestDescribeJobRun_RunIDNotFound(t *testing.T) {
 func TestHandlerCreateProfileJob(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/datasets", map[string]any{
+		"Name":  "ds1",
+		"Input": map[string]any{"S3InputDefinition": map[string]any{"Bucket": "b"}},
+	})
 	rec := databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs", map[string]any{
 		"Name": "profile-job", "DatasetName": "ds1",
 		"RoleArn":        "arn:aws:iam::123456789012:role/Role",
@@ -342,6 +695,10 @@ func TestHandlerCreateRecipeJob(t *testing.T) {
 func TestHandlerDescribeJob(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/datasets", map[string]any{
+		"Name":  "ds1",
+		"Input": map[string]any{"S3InputDefinition": map[string]any{"Bucket": "b"}},
+	})
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs", map[string]any{
 		"Name": "j1", "DatasetName": "ds1",
 	})
@@ -501,12 +858,24 @@ func TestListJobs_Filters(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/datasets", map[string]any{
+		"Name":  "ds-a",
+		"Input": map[string]any{"S3InputDefinition": map[string]any{"Bucket": "b"}},
+	})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/datasets", map[string]any{
+		"Name":  "ds-b",
+		"Input": map[string]any{"S3InputDefinition": map[string]any{"Bucket": "b"}},
+	})
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs",
 		map[string]any{"Name": "profile-ds-a", "DatasetName": "ds-a"})
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs",
 		map[string]any{"Name": "profile-ds-b", "DatasetName": "ds-b"})
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes",
 		map[string]any{"Name": "r1", "Steps": []any{}})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/projects", map[string]any{
+		"Name": "proj-a", "DatasetName": "ds-a", "RecipeName": "r1",
+		"RoleArn": "arn:aws:iam::123456789012:role/r",
+	})
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipeJobs", map[string]any{
 		"Name":            "recipe-proj-a",
 		"ProjectName":     "proj-a",
@@ -608,6 +977,16 @@ func TestJobRunIdField_RoundTrip(t *testing.T) {
 func TestCreateJob_ProfileExtras(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
 	extra := databrew.JobExtras{
 		ProfileConfiguration: map[string]any{"DatasetStatisticsConfiguration": map[string]any{}},
 		JobSample:            &databrew.JobSample{Mode: "FULL_DATASET"},
@@ -636,6 +1015,18 @@ func TestCreateJob_ProfileExtras(t *testing.T) {
 func TestCreateJob_RecipeExtras(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateRecipe(context.Background(), "r", "", nil, nil)
+	require.NoError(t, err)
 	extra := databrew.JobExtras{
 		EncryptionMode:     "SSE-KMS",
 		EncryptionKeyArn:   "arn:aws:kms:us-east-1:123456789012:key/abc",
@@ -719,13 +1110,162 @@ func TestCreateJob_ExtrasValidation(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			_, err := b.CreateJob(
-				context.Background(), "extras-validation-j", "RECIPE", "ds", "", "", "", nil, nil, tc.extra,
+			_, err := b.CreateDataset(
+				context.Background(),
+				"ds",
+				"CSV",
+				s3Input("b", ""),
+				databrew.DatasetFormatOptions{},
+				nil,
+				nil,
+			)
+			require.NoError(t, err)
+			_, err = b.CreateJob(
+				context.Background(),
+				"extras-validation-j",
+				"RECIPE",
+				"ds",
+				"",
+				"",
+				"",
+				nil,
+				nil,
+				tc.extra,
 			)
 			require.ErrorIs(t, err, databrew.ErrValidation)
 
 			_, describeErr := b.DescribeJob(context.Background(), "extras-validation-j")
-			require.ErrorIs(t, describeErr, databrew.ErrNotFound, "rejected CreateJob must not store partial state")
+			require.ErrorIs(
+				t,
+				describeErr,
+				databrew.ErrNotFound,
+				"rejected CreateJob must not store partial state",
+			)
+		})
+	}
+}
+
+// TestCreateJob_ResourceRefsValidation proves CreateJob rejects a
+// DatasetName/ProjectName/RecipeReference naming a dataset, project, or
+// recipe that was never created (per CreateProfileJob/CreateRecipeJob's
+// documented ResourceNotFoundException) instead of storing a job that points
+// at nothing, while leaving an unset reference accepted (CreateRecipeJob
+// takes ProjectName as an alternative to DatasetName+RecipeReference).
+func TestCreateJob_ResourceRefsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		jobType     string
+		datasetName string
+		projectName string
+		recipeName  string
+		seedDataset bool
+		seedProject bool
+		seedRecipe  bool
+		wantErr     bool
+	}{
+		{
+			name:        "profile job missing dataset rejects",
+			jobType:     "PROFILE",
+			datasetName: "ds",
+			wantErr:     true,
+		},
+		{
+			name:        "profile job existing dataset succeeds",
+			jobType:     "PROFILE",
+			datasetName: "ds",
+			seedDataset: true,
+		},
+		{
+			name:        "recipe job missing dataset rejects",
+			jobType:     "RECIPE",
+			datasetName: "ds",
+			wantErr:     true,
+		},
+		{
+			name:        "recipe job missing project rejects",
+			jobType:     "RECIPE",
+			projectName: "proj",
+			wantErr:     true,
+		},
+		{
+			name:       "recipe job missing recipe rejects",
+			jobType:    "RECIPE",
+			recipeName: "rcp",
+			wantErr:    true,
+		},
+		{
+			name:        "recipe job all refs present succeeds",
+			jobType:     "RECIPE",
+			datasetName: "ds",
+			projectName: "proj",
+			recipeName:  "rcp",
+			seedDataset: true,
+			seedProject: true,
+			seedRecipe:  true,
+		},
+		{
+			name:    "recipe job with no refs is not an error",
+			jobType: "RECIPE",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			if tc.seedDataset {
+				_, err := b.CreateDataset(
+					context.Background(), tc.datasetName, "CSV", s3Input("b", ""),
+					databrew.DatasetFormatOptions{}, nil, nil,
+				)
+				require.NoError(t, err)
+			}
+			if tc.seedRecipe {
+				_, err := b.CreateRecipe(context.Background(), tc.recipeName, "", nil, nil)
+				require.NoError(t, err)
+			}
+			if tc.seedProject {
+				_, err := b.CreateProject(
+					context.Background(),
+					tc.projectName,
+					tc.datasetName,
+					tc.recipeName,
+					"",
+					databrew.Sample{},
+					nil,
+				)
+				require.NoError(t, err)
+			}
+
+			_, err := b.CreateJob(
+				context.Background(),
+				"refs-j",
+				tc.jobType,
+				tc.datasetName,
+				tc.projectName,
+				tc.recipeName,
+				"",
+				nil,
+				nil,
+				databrew.JobExtras{},
+			)
+
+			if tc.wantErr {
+				require.ErrorIs(t, err, databrew.ErrNotFound)
+				_, describeErr := b.DescribeJob(context.Background(), "refs-j")
+				require.ErrorIs(
+					t,
+					describeErr,
+					databrew.ErrNotFound,
+					"rejected CreateJob must not store partial state",
+				)
+
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -737,14 +1277,38 @@ func TestUpdateJob_ExtrasValidation(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
-	_, err := b.CreateJob(
-		context.Background(), "upd-validation-j", "RECIPE", "ds", "", "", "arn:aws:iam::123456789012:role/orig",
-		nil, nil, databrew.JobExtras{},
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
+		context.Background(),
+		"upd-validation-j",
+		"RECIPE",
+		"ds",
+		"",
+		"",
+		"arn:aws:iam::123456789012:role/orig",
+		nil,
+		nil,
+		databrew.JobExtras{},
 	)
 	require.NoError(t, err)
 
 	err = b.UpdateJob(
-		context.Background(), "upd-validation-j", "arn:aws:iam::123456789012:role/new", nil, 0, 0, 0,
+		context.Background(),
+		"upd-validation-j",
+		"arn:aws:iam::123456789012:role/new",
+		nil,
+		0,
+		0,
+		0,
 		databrew.JobExtras{EncryptionMode: "SSE-BOGUS"},
 	)
 	require.ErrorIs(t, err, databrew.ErrValidation)
@@ -760,7 +1324,19 @@ func TestUpdateJob_ExtrasValidation(t *testing.T) {
 func TestUpdateJob_Extras(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateRecipe(context.Background(), "r", "", nil, nil)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
 		context.Background(), "upd-extras-j", "RECIPE", "ds", "", "r", "", nil, nil,
 		databrew.JobExtras{EncryptionMode: "SSE-S3"},
 	)
@@ -774,7 +1350,12 @@ func TestUpdateJob_Extras(t *testing.T) {
 
 	j, err := b.DescribeJob(context.Background(), "upd-extras-j")
 	require.NoError(t, err)
-	assert.Equal(t, "SSE-S3", j.EncryptionMode, "unset extras field on Update must not clobber the existing value")
+	assert.Equal(
+		t,
+		"SSE-S3",
+		j.EncryptionMode,
+		"unset extras field on Update must not clobber the existing value",
+	)
 	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/xyz", j.EncryptionKeyArn)
 }
 
@@ -813,7 +1394,13 @@ func TestHandlerCreateProfileJob_Extras(t *testing.T) {
 func TestHandlerCreateRecipeJob_Extras(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
-	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "rj-extras-r"})
+	databrewReq(
+		t,
+		h,
+		http.MethodPost,
+		"/databrew/v1/recipes",
+		map[string]any{"Name": "rj-extras-r"},
+	)
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipeJobs", map[string]any{
 		"Name":            "rj-extras",
 		"RecipeReference": map[string]any{"Name": "rj-extras-r"},

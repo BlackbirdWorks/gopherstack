@@ -82,8 +82,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Contains(t, cluster.ARN, "111122223333")
 
 	stepIDs, err := original.AddJobFlowSteps(t.Context(), cluster.ID, []emr.StepSpec{
-		{Name: "step-1", HadoopJarStep: emr.StepHadoopJarStep{Jar: "s3://bucket/job.jar"}},
-	})
+		{Name: "step-1", HadoopJarStep: emr.StepHadoopJarStepInput{Jar: "s3://bucket/job.jar"}},
+	}, "")
 	require.NoError(t, err)
 	require.Len(t, stepIDs, 1)
 
@@ -105,7 +105,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	studio, err := original.CreateStudio(
 		t.Context(), "studio-1", "", "SSO", "s3://bucket/studio", "sg-eng", "role-arn", "vpc-1", "sg-workspace",
-		[]string{"subnet-1"}, nil,
+		[]string{"subnet-1"}, nil, "", false,
 	)
 	require.NoError(t, err)
 

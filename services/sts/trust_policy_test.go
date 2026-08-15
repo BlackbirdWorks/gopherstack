@@ -4,6 +4,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
@@ -308,6 +311,187 @@ func TestEvaluateAssumeRoleTrust_Federated(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEvaluateAssumeRoleTrust_NullOperator exercises the Null condition
+// operator (gopherstack-yg95): it tests key *presence*, not the key's value.
+func TestEvaluateAssumeRoleTrust_NullOperator(t *testing.T) {
+	t.Parallel()
+
+	const caller = "arn:aws:iam::123456789012:user/alice"
+
+	requirePresent := `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},` +
+		`"Action":"sts:AssumeRole","Condition":{"Null":{"custom:ticket":"false"}}}]}`
+	requireAbsent := `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},` +
+		`"Action":"sts:AssumeRole","Condition":{"Null":{"custom:ticket":"true"}}}]}`
+
+	tests := []struct {
+		name    string
+		policy  string
+		ev      sts.TrustEvalForTest
+		wantErr bool
+	}{
+		{
+			name:   "require_present_key_present_permits",
+			policy: requirePresent,
+			ev: sts.TrustEvalForTest{
+				Action: sts.ActionAssumeRole, CallerArn: caller,
+				ConditionCtx: map[string]string{"custom:ticket": "T-1"},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "require_present_key_absent_denied",
+			policy:  requirePresent,
+			ev:      sts.TrustEvalForTest{Action: sts.ActionAssumeRole, CallerArn: caller},
+			wantErr: true,
+		},
+		{
+			name:    "require_absent_key_absent_permits",
+			policy:  requireAbsent,
+			ev:      sts.TrustEvalForTest{Action: sts.ActionAssumeRole, CallerArn: caller},
+			wantErr: false,
+		},
+		{
+			name:   "require_absent_key_present_denied",
+			policy: requireAbsent,
+			ev: sts.TrustEvalForTest{
+				Action: sts.ActionAssumeRole, CallerArn: caller,
+				ConditionCtx: map[string]string{"custom:ticket": "T-1"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := sts.EvaluateAssumeRoleTrust(tt.policy, tt.ev)
+			if !tt.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, sts.ErrAccessDenied)
+		})
+	}
+}
+
+// TestEvaluateAssumeRoleTrust_ArnOperators exercises the ArnEquals/ArnLike/
+// ArnNotEquals/ArnNotLike condition operators (gopherstack-yg95) against
+// aws:PrincipalArn, an ARN-typed condition key this evaluator already
+// resolves. AWS documents ArnEquals and ArnLike as behaving identically
+// (both wildcard-capable, case-sensitive).
+func TestEvaluateAssumeRoleTrust_ArnOperators(t *testing.T) {
+	t.Parallel()
+
+	const (
+		prodRole = "arn:aws:iam::123456789012:role/ProdDeploy"
+		devRole  = "arn:aws:iam::123456789012:role/DevDeploy"
+	)
+
+	policy := func(op, value string) string {
+		return `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},` +
+			`"Action":"sts:AssumeRole","Condition":{"` + op + `":{"aws:PrincipalArn":"` + value + `"}}}]}`
+	}
+
+	tests := []struct {
+		name      string
+		policy    string
+		callerArn string
+		wantErr   bool
+	}{
+		{
+			name:      "arn_equals_exact_match_permits",
+			policy:    policy("ArnEquals", prodRole),
+			callerArn: prodRole,
+			wantErr:   false,
+		},
+		{
+			name:      "arn_equals_mismatch_denied",
+			policy:    policy("ArnEquals", prodRole),
+			callerArn: devRole,
+			wantErr:   true,
+		},
+		{
+			name:      "arn_like_wildcard_match_permits",
+			policy:    policy("ArnLike", "arn:aws:iam::123456789012:role/Prod*"),
+			callerArn: prodRole,
+			wantErr:   false,
+		},
+		{
+			name:      "arn_like_wildcard_mismatch_denied",
+			policy:    policy("ArnLike", "arn:aws:iam::123456789012:role/Prod*"),
+			callerArn: devRole,
+			wantErr:   true,
+		},
+		{
+			name:      "arn_not_equals_mismatch_permits",
+			policy:    policy("ArnNotEquals", devRole),
+			callerArn: prodRole,
+			wantErr:   false,
+		},
+		{
+			name:      "arn_not_equals_match_denied",
+			policy:    policy("ArnNotEquals", devRole),
+			callerArn: devRole,
+			wantErr:   true,
+		},
+		{
+			name:      "arn_not_like_wildcard_mismatch_permits",
+			policy:    policy("ArnNotLike", "arn:aws:iam::123456789012:role/Dev*"),
+			callerArn: prodRole,
+			wantErr:   false,
+		},
+		{
+			name:      "arn_not_like_wildcard_match_denied",
+			policy:    policy("ArnNotLike", "arn:aws:iam::123456789012:role/Dev*"),
+			callerArn: devRole,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ev := sts.TrustEvalForTest{Action: sts.ActionAssumeRole, CallerArn: tt.callerArn}
+
+			err := sts.EvaluateAssumeRoleTrust(tt.policy, ev)
+			if !tt.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, sts.ErrAccessDenied)
+		})
+	}
+}
+
+// TestEvaluateAssumeRoleTrust_UnmodeledOperatorPermitsByDesign documents the
+// deliberate fail-open decision (gopherstack-yg95) for condition operators
+// this evaluator has no request-context value to check against (Numeric*,
+// Date*, IpAddress/NotIpAddress, BinaryEquals -- see PARITY.md). A caller
+// value that plainly could not satisfy the condition under real AWS
+// semantics still permits here, proving the fallback is unconditional
+// (structural), not an accidental value match.
+func TestEvaluateAssumeRoleTrust_UnmodeledOperatorPermitsByDesign(t *testing.T) {
+	t.Parallel()
+
+	const caller = "arn:aws:iam::123456789012:role/ProdDeploy"
+
+	policy := `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},` +
+		`"Action":"sts:AssumeRole","Condition":{"NumericLessThan":{"aws:PrincipalArn":"1"}}}]}`
+
+	err := sts.EvaluateAssumeRoleTrust(policy, sts.TrustEvalForTest{
+		Action: sts.ActionAssumeRole, CallerArn: caller,
+	})
+	require.NoError(t, err)
 }
 
 // TestWildcardMatch exercises the glob matcher used for action and StringLike

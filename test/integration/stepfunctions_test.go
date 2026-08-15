@@ -65,3 +65,74 @@ func TestIntegration_StepFunctions_Lifecycle(t *testing.T) {
 	_, err = client.DeleteStateMachine(ctx, &sfnsdk.DeleteStateMachineInput{StateMachineArn: aws.String(smArn)})
 	require.NoError(t, err)
 }
+
+// TestIntegration_StepFunctions_DescribeStateMachine_RoundTrip round-trips a
+// state machine's tracing/logging configuration through CreateStateMachine and
+// DescribeStateMachine, verifying the nested
+// loggingConfiguration.destinations[].cloudWatchLogsLogGroup.logGroupArn shape
+// that a bare "200 OK" or definition-only assertion would never exercise.
+func TestIntegration_StepFunctions_DescribeStateMachine_RoundTrip(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createStepFunctionsClient(t)
+	ctx := t.Context()
+
+	smName := "describe-sm-" + uuid.NewString()[:8]
+	definition := `{"StartAt":"Pass","States":{"Pass":{"Type":"Pass","End":true}}}`
+	roleArn := "arn:aws:iam::000000000000:role/sfn-role"
+	logGroupArn := "arn:aws:logs:us-east-1:000000000000:log-group:/sfn/test:*"
+
+	createOut, err := client.CreateStateMachine(ctx, &sfnsdk.CreateStateMachineInput{
+		Name:       aws.String(smName),
+		Definition: aws.String(definition),
+		RoleArn:    aws.String(roleArn),
+		Type:       sfntypes.StateMachineTypeStandard,
+		TracingConfiguration: &sfntypes.TracingConfiguration{
+			Enabled: true,
+		},
+		LoggingConfiguration: &sfntypes.LoggingConfiguration{
+			Level:                sfntypes.LogLevelAll,
+			IncludeExecutionData: true,
+			Destinations: []sfntypes.LogDestination{
+				{
+					CloudWatchLogsLogGroup: &sfntypes.CloudWatchLogsLogGroup{
+						LogGroupArn: aws.String(logGroupArn),
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStateMachine(cleanupCtx, &sfnsdk.DeleteStateMachineInput{
+			StateMachineArn: createOut.StateMachineArn,
+		})
+	})
+
+	descOut, err := client.DescribeStateMachine(ctx, &sfnsdk.DescribeStateMachineInput{
+		StateMachineArn: createOut.StateMachineArn,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, smName, aws.ToString(descOut.Name))
+	assert.JSONEq(t, definition, aws.ToString(descOut.Definition))
+	assert.Equal(t, roleArn, aws.ToString(descOut.RoleArn))
+	assert.Equal(t, sfntypes.StateMachineStatusActive, descOut.Status)
+
+	require.NotNil(t, descOut.TracingConfiguration)
+	assert.True(t, descOut.TracingConfiguration.Enabled)
+
+	require.NotNil(t, descOut.LoggingConfiguration)
+	assert.Equal(t, sfntypes.LogLevelAll, descOut.LoggingConfiguration.Level)
+	assert.True(t, descOut.LoggingConfiguration.IncludeExecutionData)
+	require.Len(t, descOut.LoggingConfiguration.Destinations, 1)
+	require.NotNil(t, descOut.LoggingConfiguration.Destinations[0].CloudWatchLogsLogGroup)
+	assert.Equal(
+		t,
+		logGroupArn,
+		aws.ToString(descOut.LoggingConfiguration.Destinations[0].CloudWatchLogsLogGroup.LogGroupArn),
+	)
+}

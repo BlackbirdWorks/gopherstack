@@ -88,15 +88,13 @@ func (b *InMemoryBackend) ListStudios(ctx context.Context, marker string) ([]Stu
 
 	for _, s := range studios {
 		summaries = append(summaries, StudioSummary{
-			StudioID:          s.StudioID,
-			StudioArn:         s.StudioArn,
-			Name:              s.Name,
-			VpcID:             s.VpcID,
-			DefaultS3Location: s.DefaultS3Location,
-			AuthMode:          s.AuthMode,
-			URL:               s.URL,
-			CreationTime:      s.CreationTime,
-			Description:       s.Description,
+			StudioID:     s.StudioID,
+			Name:         s.Name,
+			VpcID:        s.VpcID,
+			AuthMode:     s.AuthMode,
+			URL:          s.URL,
+			CreationTime: s.CreationTime,
+			Description:  s.Description,
 		})
 	}
 
@@ -233,6 +231,7 @@ func (b *InMemoryBackend) CreateStudio(
 	ctx context.Context,
 	name, description, authMode, defaultS3Location, engineSGID, serviceRole, vpcID, workspaceSGID string,
 	subnetIDs []string, tags []Tag,
+	idcUserAssignment string, trustedIdentityPropagationEnabled bool,
 ) (*Studio, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
@@ -259,21 +258,23 @@ func (b *InMemoryBackend) CreateStudio(
 	copy(subnetCopy, subnetIDs)
 
 	studio := &Studio{
-		StudioID:                 id,
-		StudioArn:                studioARN,
-		Name:                     name,
-		Description:              description,
-		AuthMode:                 authMode,
-		DefaultS3Location:        defaultS3Location,
-		EngineSecurityGroupID:    engineSGID,
-		ServiceRole:              serviceRole,
-		VpcID:                    vpcID,
-		WorkspaceSecurityGroupID: workspaceSGID,
-		SubnetIDs:                subnetCopy,
-		Tags:                     tagsCopy,
-		CreationTime:             awstime.Epoch(time.Now()),
-		URL:                      "https://studio." + id + ".emrstudio-prod." + region + ".amazonaws.com",
-		region:                   region,
+		StudioID:                          id,
+		StudioArn:                         studioARN,
+		Name:                              name,
+		Description:                       description,
+		AuthMode:                          authMode,
+		DefaultS3Location:                 defaultS3Location,
+		EngineSecurityGroupID:             engineSGID,
+		ServiceRole:                       serviceRole,
+		VpcID:                             vpcID,
+		WorkspaceSecurityGroupID:          workspaceSGID,
+		SubnetIDs:                         subnetCopy,
+		Tags:                              tagsCopy,
+		CreationTime:                      awstime.Epoch(time.Now()),
+		URL:                               "https://studio." + id + ".emrstudio-prod." + region + ".amazonaws.com",
+		IdcUserAssignment:                 idcUserAssignment,
+		TrustedIdentityPropagationEnabled: trustedIdentityPropagationEnabled,
+		region:                            region,
 	}
 
 	b.studioPut(studio)

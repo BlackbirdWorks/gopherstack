@@ -87,10 +87,6 @@ func toPrefetchScheduleOutput(ps *PrefetchSchedule) map[string]any {
 		out["StreamId"] = ps.StreamID
 	}
 
-	if !ps.CreationTime.IsZero() {
-		out["CreationTime"] = awstime.Epoch(ps.CreationTime)
-	}
-
 	if ps.RecurringPrefetchConfiguration != nil {
 		out["RecurringPrefetchConfiguration"] = ps.RecurringPrefetchConfiguration
 	}

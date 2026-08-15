@@ -39,6 +39,9 @@ func TestMetadataModelRequests(t *testing.T) {
 				"MigrationProjectIdentifier": "proj3",
 				"MetadataModelName":          "my-model",
 				"SelectionRules":             `{"rules":[]}`,
+				"Properties": map[string]any{
+					"StatementProperties": map[string]any{"Definition": "SELECT 1"},
+				},
 			},
 		},
 		{
@@ -96,6 +99,47 @@ func TestMetadataModelRequests(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, reqID, req0["RequestIdentifier"])
 			assert.Equal(t, "running", req0["Status"])
+		})
+	}
+}
+
+// TestStartMetadataModelCreation_MissingRequiredFields verifies
+// gopherstack-4ggy's fix: Properties is a required StartMetadataModelCreationInput
+// member (api_op_StartMetadataModelCreation.go:57-92) that the pre-fix
+// request never read at all, and its StatementProperties.Definition member is
+// itself required whenever the StatementProperties branch is used
+// (validateStatementProperties, validators.go).
+func TestStartMetadataModelCreation_MissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	base := func() map[string]any {
+		return map[string]any{
+			"MigrationProjectIdentifier": "proj-required",
+			"MetadataModelName":          "my-model",
+			"SelectionRules":             `{"rules":[]}`,
+			"Properties": map[string]any{
+				"StatementProperties": map[string]any{"Definition": "SELECT 1"},
+			},
+		}
+	}
+
+	tests := map[string]func(body map[string]any){
+		"missing properties": func(body map[string]any) { delete(body, "Properties") },
+		"missing statement properties definition": func(body map[string]any) {
+			body["Properties"] = map[string]any{"StatementProperties": map[string]any{}}
+		},
+	}
+
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			body := base()
+			mutate(body)
+
+			rec := doDMS(t, h, "StartMetadataModelCreation", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
 }

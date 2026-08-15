@@ -8,6 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	platformAction = "Version=2010-12-01&Action=CreatePlatformVersion"
+	// bundleParams is the PlatformDefinitionBundle.S3Bucket/S3Key form suffix
+	// CreatePlatformVersion requires (S3Location: This member is required).
+	bundleParams = "&PlatformDefinitionBundle.S3Bucket=my-bucket&PlatformDefinitionBundle.S3Key=my-key.zip"
+)
+
 func TestHandler_CreatePlatformVersion(t *testing.T) {
 	t.Parallel()
 
@@ -19,18 +26,23 @@ func TestHandler_CreatePlatformVersion(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			body:       "Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0.0",
+			body:       platformAction + "&PlatformName=MyPlatform&PlatformVersion=1.0.0" + bundleParams,
 			wantStatus: http.StatusOK,
 			wantXML:    "CreatePlatformVersionResponse",
 		},
 		{
 			name:       "missing platform name",
-			body:       "Version=2010-12-01&Action=CreatePlatformVersion&PlatformVersion=1.0.0",
+			body:       platformAction + "&PlatformVersion=1.0.0" + bundleParams,
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing platform version",
-			body:       "Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform",
+			body:       platformAction + "&PlatformName=MyPlatform" + bundleParams,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing platform definition bundle",
+			body:       platformAction + "&PlatformName=MyPlatform&PlatformVersion=1.0.0",
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -57,11 +69,11 @@ func TestHandler_CreatePlatformVersion_DuplicateRejected(t *testing.T) {
 
 	h := newTestHandler()
 
-	rec1 := postEBForm(t, h,
-		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0")
+	body := platformAction + "&PlatformName=MyPlatform&PlatformVersion=1.0" + bundleParams
+
+	rec1 := postEBForm(t, h, body)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
-	rec2 := postEBForm(t, h,
-		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0")
+	rec2 := postEBForm(t, h, body)
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }

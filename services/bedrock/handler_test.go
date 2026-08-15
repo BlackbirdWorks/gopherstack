@@ -653,7 +653,7 @@ func TestHandler_ListAutomatedReasoningPolicies(t *testing.T) {
 
 	var out map[string]any
 	mustUnmarshal(t, rec, &out)
-	assert.Empty(t, out["automatedReasoningPolicies"])
+	assert.Empty(t, out["automatedReasoningPolicySummaries"])
 
 	doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "pol-a"})
 	doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "pol-b"})
@@ -661,7 +661,7 @@ func TestHandler_ListAutomatedReasoningPolicies(t *testing.T) {
 	rec2 := doRequest(t, h, http.MethodGet, "/automated-reasoning-policies", nil)
 	var out2 map[string]any
 	mustUnmarshal(t, rec2, &out2)
-	assert.Len(t, out2["automatedReasoningPolicies"], 2)
+	assert.Len(t, out2["automatedReasoningPolicySummaries"], 2)
 }
 
 // TestParity_ValidationException_Returns400 verifies that invalid request

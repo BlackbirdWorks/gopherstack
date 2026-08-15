@@ -291,7 +291,6 @@ type describeWorkspacesOutput struct {
 
 type workspaceResp struct {
 	WorkspaceProperties         *workspacePropertiesResp `json:"WorkspaceProperties,omitempty"`
-	Tags                        map[string]string        `json:"Tags,omitempty"`
 	WorkspaceID                 string                   `json:"WorkspaceId"`
 	DirectoryID                 string                   `json:"DirectoryId"`
 	UserName                    string                   `json:"UserName"`
@@ -352,7 +351,6 @@ func toWorkspaceResp(ws *Workspace) workspaceResp {
 		ComputerName:                ws.ComputerName,
 		ErrorCode:                   ws.ErrorCode,
 		ErrorMessage:                ws.ErrorMessage,
-		Tags:                        ws.Tags,
 	}
 
 	if ws.Properties != nil {

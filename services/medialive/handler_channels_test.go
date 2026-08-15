@@ -243,7 +243,7 @@ func TestChannelLifecycleExtras(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID+"/thumbnails", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.NotNil(t, decodeBody(t, rec.Body.Bytes())["ThumbnailDetails"])
+	assert.NotNil(t, decodeBody(t, rec.Body.Bytes())["thumbnailDetails"])
 
 	rec = doRequest(t, h, http.MethodPut, "/prod/channels/missing/channelClass", map[string]any{
 		"channelClass": "STANDARD",

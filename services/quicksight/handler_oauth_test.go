@@ -30,9 +30,7 @@ func TestQuickSight_OAuthClientAppCRUD(t *testing.T) {
 	assert.Equal(t, "CREATION_SUCCESSFUL", createBody["CreationStatus"])
 	assert.Contains(t, createBody["Arn"], "application/app1")
 
-	dupRec := doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), map[string]any{
-		"OAuthClientApplicationId": "app1", "Name": "dup",
-	})
+	dupRec := doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), oauthAppBody("app1", "dup"))
 	assert.Equal(t, http.StatusConflict, dupRec.Code)
 
 	describeRec := doRequest(t, h, http.MethodGet, accountPath("/oauth-client-applications/app1"), nil)
@@ -69,6 +67,75 @@ func TestQuickSight_OAuthClientAppCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, deleteMissingRec.Code)
 }
 
+// ---- CreateOAuthClientApplication required-field presence (gopherstack-wl0s) ----
+
+// TestQuickSight_CreateOAuthClientApp_PresenceValidation covers
+// gopherstack-wl0s: CreateOAuthClientApplication's ClientId, ClientSecret,
+// OAuthClientAuthenticationType, and OAuthTokenEndpointUrl round-trip (or,
+// for ClientId/ClientSecret, are legitimately write-only -- see
+// isOAuthAppModeledField's doc comment) through the oauthAppExtraFields
+// passthrough, but nothing rejected a request that omitted them, matching
+// aws-sdk-go-v2/service/quicksight@v1.123.1/validators.go's
+// validateOpCreateOAuthClientApplicationInput. This covers two more required
+// fields (ClientId, ClientSecret) than the originating audit named
+// (OAuthClientAuthenticationType, OAuthTokenEndpointUrl) -- both are
+// required there too. OAuthClientAuthenticationType is additionally enum-
+// validated against types.OAuthClientAuthenticationType.Values() (currently
+// just "TOKEN").
+func TestQuickSight_CreateOAuthClientApp_PresenceValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mutate func(body map[string]any)
+		name   string
+	}{
+		{name: "missing_client_id", mutate: func(body map[string]any) { delete(body, "ClientId") }},
+		{name: "missing_client_secret", mutate: func(body map[string]any) { delete(body, "ClientSecret") }},
+		{
+			name:   "missing_oauth_client_authentication_type",
+			mutate: func(body map[string]any) { delete(body, "OAuthClientAuthenticationType") },
+		},
+		{
+			name:   "unrecognized_oauth_client_authentication_type",
+			mutate: func(body map[string]any) { body["OAuthClientAuthenticationType"] = "BOGUS" },
+		},
+		{
+			name:   "missing_oauth_token_endpoint_url",
+			mutate: func(body map[string]any) { delete(body, "OAuthTokenEndpointUrl") },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			body := oauthAppBody("presence-"+tt.name, "presence app")
+			tt.mutate(body)
+
+			rec := doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Equal(t, "InvalidParameterValueException", parseBody(t, rec)["Code"])
+		})
+	}
+
+	t.Run("all_present_accepted_and_round_trips", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		body := oauthAppBody("presence-all", "presence app")
+
+		createRec := doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), body)
+		require.Equal(t, http.StatusOK, createRec.Code)
+
+		describeRec := doRequest(t, h, http.MethodGet, accountPath("/oauth-client-applications/presence-all"), nil)
+		require.Equal(t, http.StatusOK, describeRec.Code)
+		app := parseBody(t, describeRec)["OAuthClientApplication"].(map[string]any)
+		assert.Equal(t, "TOKEN", app["OAuthClientAuthenticationType"])
+		assert.Equal(t, body["OAuthTokenEndpointUrl"], app["OAuthTokenEndpointUrl"])
+	})
+}
+
 // ---- CreateOAuthClientApplication.Tags: applied to tag state, not echoed ----
 
 func TestQuickSight_OAuthClientApp_CreateTags(t *testing.T) {
@@ -76,13 +143,11 @@ func TestQuickSight_OAuthClientApp_CreateTags(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	createRec := doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), map[string]any{
-		"OAuthClientApplicationId": "app1",
-		"Name":                     "App One",
-		"Tags": []any{
-			map[string]any{"Key": "env", "Value": "prod"},
-		},
-	})
+	body := oauthAppBody("app1", "App One")
+	body["Tags"] = []any{
+		map[string]any{"Key": "env", "Value": "prod"},
+	}
+	createRec := doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), body)
 	require.Equal(t, http.StatusOK, createRec.Code)
 	arn, ok := parseBody(t, createRec)["Arn"].(string)
 	require.True(t, ok)
@@ -111,9 +176,7 @@ func TestQuickSight_ListOAuthClientApps_Pagination(t *testing.T) {
 
 	h := newTestHandler(t)
 	for _, id := range []string{"a", "b", "c", "d", "e"} {
-		doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), map[string]any{
-			"OAuthClientApplicationId": id, "Name": id,
-		})
+		doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), oauthAppBody(id, id))
 	}
 
 	rec := doRequest(t, h, http.MethodGet, accountPath("/oauth-client-applications?max-results=2"), nil)
@@ -149,7 +212,7 @@ func TestQuickSight_OAuthClientApps(t *testing.T) { //nolint:paralleltest // exi
 			name:       "create oauth app",
 			method:     http.MethodPost,
 			path:       accountPath("/oauth-client-applications"),
-			body:       map[string]any{"OAuthClientApplicationId": "app1", "Name": "App1"},
+			body:       oauthAppBody("app1", "App1"),
 			wantStatus: http.StatusOK,
 			wantKey:    "OAuthClientApplicationId",
 		},

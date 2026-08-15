@@ -26,11 +26,14 @@ func TestElasticsearchHandler_CreateVpcEndpoint(t *testing.T) {
 		{
 			name: "success",
 			body: map[string]any{
-				"DomainArn":  "arn:aws:es:us-east-1:123456789012:domain/my-domain",
-				"VpcOptions": map[string]any{"VpcId": "vpc-12345"},
+				"DomainArn": "arn:aws:es:us-east-1:123456789012:domain/my-domain",
+				"VpcOptions": map[string]any{
+					"SecurityGroupIds": []string{"sg-12345"},
+					"SubnetIds":        []string{"subnet-12345"},
+				},
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"VpcEndpointId", "VpcEndpointOwner", "ACTIVE"},
+			wantContains: []string{"VpcEndpointId", "VpcEndpointOwner", "ACTIVE", "subnet-12345"},
 		},
 		{
 			name:     "no_domain_arn",
@@ -166,7 +169,7 @@ func TestElasticsearchHandler_VpcEndpoint_CRUD(t *testing.T) {
 	// CreateVpcEndpoint
 	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/vpcEndpoints", map[string]any{
 		"DomainArn":  domainARN,
-		"VpcOptions": map[string]string{"SubnetId": "subnet-abc"},
+		"VpcOptions": map[string]any{"SubnetIds": []string{"subnet-abc"}},
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	body := readJSONBody(t, resp)
@@ -203,17 +206,17 @@ func TestElasticsearchHandler_VpcEndpoints_Lifecycle(t *testing.T) {
 	require.Len(t, readJSONBody(t, resp)["AuthorizedPrincipalList"], 1)
 
 	resp = doRequest(t, h, http.MethodPost, "/2015-01-01/es/vpcEndpoints", map[string]any{
-		"DomainArn": domainARN, "VpcOptions": map[string]string{"SubnetId": "subnet-a"},
+		"DomainArn": domainARN, "VpcOptions": map[string]any{"SubnetIds": []string{"subnet-a"}},
 	})
 	endpointID := readJSONBody(t, resp)["VpcEndpoint"].(map[string]any)["VpcEndpointId"].(string)
 
 	resp = doRequest(t, h, http.MethodPost, "/2015-01-01/es/vpcEndpoints/update", map[string]any{
-		"VpcEndpointId": endpointID, "VpcOptions": map[string]string{"SubnetId": "subnet-b"},
+		"VpcEndpointId": endpointID, "VpcOptions": map[string]any{"SubnetIds": []string{"subnet-b"}},
 	})
 	assert.Equal(
 		t,
 		"subnet-b",
-		readJSONBody(t, resp)["VpcEndpoint"].(map[string]any)["VpcOptions"].(map[string]any)["SubnetId"],
+		readJSONBody(t, resp)["VpcEndpoint"].(map[string]any)["VpcOptions"].(map[string]any)["SubnetIds"].([]any)[0],
 	)
 
 	resp = doRequest(t, h, http.MethodGet, "/2015-01-01/es/domain/"+domain+"/vpcEndpoints", nil)
@@ -232,6 +235,68 @@ func TestElasticsearchHandler_VpcEndpoints_Lifecycle(t *testing.T) {
 	resp.Body.Close()
 }
 
+// TestElasticsearchHandler_VpcEndpointSummary_NoEndpointOrVpcOptionsLeak
+// asserts the raw JSON body of ListVpcEndpoints/ListVpcEndpointsForDomain
+// items and DeleteVpcEndpoint's response have neither "Endpoint" nor
+// "VpcOptions" -- types.VpcEndpointSummary (elasticsearchservice@v1.45.4
+// types/types.go:1911, deserializer at deserializers.go:15436) has only
+// DomainArn/Status/VpcEndpointId/VpcEndpointOwner. An SDK client silently
+// drops the unrecognized keys, so only a raw-body assertion catches the
+// leak.
+func TestElasticsearchHandler_VpcEndpointSummary_NoEndpointOrVpcOptionsLeak(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	domain := "vpc-summary-leak-domain"
+	domainARN := createDomainAndGetARN(t, h, domain)
+
+	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/vpcEndpoints", map[string]any{
+		"DomainArn": domainARN, "VpcOptions": map[string]any{"SubnetIds": []string{"subnet-a"}},
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	endpointID, _ := readJSONBody(t, resp)["VpcEndpoint"].(map[string]any)["VpcEndpointId"].(string)
+	require.NotEmpty(t, endpointID)
+
+	assertNoLeak := func(t *testing.T, item map[string]any) {
+		t.Helper()
+		_, hasEndpoint := item["Endpoint"]
+		assert.False(
+			t,
+			hasEndpoint,
+			"VpcEndpointSummary leaked Endpoint; real types.VpcEndpointSummary has no such member",
+		)
+		_, hasVpcOptions := item["VpcOptions"]
+		assert.False(
+			t,
+			hasVpcOptions,
+			"VpcEndpointSummary leaked VpcOptions; real types.VpcEndpointSummary has no such member",
+		)
+		assert.Contains(t, item, "VpcEndpointId", "VpcEndpointSummary must still emit VpcEndpointId")
+		assert.Contains(t, item, "Status", "VpcEndpointSummary must still emit Status")
+	}
+
+	resp = doRequest(t, h, http.MethodGet, "/2015-01-01/es/vpcEndpoints", nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	listBody := readJSONBody(t, resp)
+	listItems, _ := listBody["VpcEndpointSummaryList"].([]any)
+	require.Len(t, listItems, 1)
+	assertNoLeak(t, listItems[0].(map[string]any))
+
+	resp = doRequest(t, h, http.MethodGet, "/2015-01-01/es/domain/"+domain+"/vpcEndpoints", nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	listForDomainBody := readJSONBody(t, resp)
+	listForDomainItems, _ := listForDomainBody["VpcEndpointSummaryList"].([]any)
+	require.Len(t, listForDomainItems, 1)
+	assertNoLeak(t, listForDomainItems[0].(map[string]any))
+
+	resp = doRequest(t, h, http.MethodDelete, "/2015-01-01/es/vpcEndpoints/"+endpointID, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	deleteBody := readJSONBody(t, resp)
+	deleteSummary, _ := deleteBody["VpcEndpointSummary"].(map[string]any)
+	require.NotEmpty(t, deleteSummary)
+	assertNoLeak(t, deleteSummary)
+}
+
 // TestElasticsearchHandler_VpcEndpointStatusActive verifies VPC endpoints are
 // created with ACTIVE status.
 func TestElasticsearchHandler_VpcEndpointStatusActive(t *testing.T) {
@@ -240,7 +305,8 @@ func TestElasticsearchHandler_VpcEndpointStatusActive(t *testing.T) {
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
 	ep, err := b.CreateVpcEndpoint(
-		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", map[string]string{"VpcId": "vpc-1"},
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test",
+		elasticsearch.VPCOptions{SubnetIDs: []string{"subnet-1"}},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", ep.Status)
@@ -252,14 +318,14 @@ func TestElasticsearchHandler_VpcOptionsDeepCopy(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	opts := map[string]string{"VpcId": "vpc-1"}
+	opts := elasticsearch.VPCOptions{SubnetIDs: []string{"subnet-1"}}
 
 	ep, err := b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", opts)
 	require.NoError(t, err)
 
 	// Mutating the original opts must not affect the returned endpoint.
-	opts["VpcId"] = "vpc-mutated"
-	assert.Equal(t, "vpc-1", ep.VpcOptions["VpcId"])
+	opts.SubnetIDs[0] = "subnet-mutated"
+	assert.Equal(t, "subnet-1", ep.VpcOptions.SubnetIDs[0])
 }
 
 // TestElasticsearchHandler_VpcEndpointValidation verifies empty DomainARN
@@ -268,7 +334,7 @@ func TestElasticsearchHandler_VpcEndpointValidation(t *testing.T) {
 	t.Parallel()
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateVpcEndpoint(context.Background(), "", nil)
+	_, err := b.CreateVpcEndpoint(context.Background(), "", elasticsearch.VPCOptions{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticsearch.ErrValidation)
 }

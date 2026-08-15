@@ -24,7 +24,7 @@ func (h *Handler) handleGetCollaborationAnalysisTemplate(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{keyAnalysisTemplate: t}), nil
+	return mustJSON(map[string]any{keyCollaborationAnalysisTemplate: t}), nil
 }
 
 func (h *Handler) handleListCollaborationAnalysisTemplates(
@@ -44,7 +44,7 @@ func (h *Handler) handleListCollaborationAnalysisTemplates(
 	if err != nil {
 		return nil, err
 	}
-	resp := map[string]any{"analysisTemplateSummaries": items}
+	resp := map[string]any{"collaborationAnalysisTemplateSummaries": items}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -69,7 +69,7 @@ func (h *Handler) handleBatchGetCollaborationAnalysisTemplate(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{"analysisTemplates": items, keyErrors: errs}), nil
+	return mustJSON(map[string]any{"collaborationAnalysisTemplates": items, keyErrors: errs}), nil
 }
 
 func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) ([]byte, error) {

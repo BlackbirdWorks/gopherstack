@@ -35,7 +35,7 @@ type StorageBackend interface {
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 
 	// Projects and Project Versions
-	CreateProject(name string) (*Project, error)
+	CreateProject(name string, params CreateProjectParams) (*Project, error)
 	DeleteProject(projectARN string) error
 	DescribeProjects(projectARNs []string, maxResults int32, nextToken string) ([]*Project, string, error)
 	CreateProjectVersion(
@@ -46,7 +46,10 @@ type StorageBackend interface {
 	DeleteProjectVersion(projectVersionARN string) error
 	DescribeProjectVersions(projectARN string, versionNames []string, maxResults int32, nextToken string) (
 		[]*ProjectVersion, string, error)
-	CopyProjectVersion(sourceProjectVersionARN, destinationProjectARN, versionName string) (*ProjectVersion, error)
+	CopyProjectVersion(
+		sourceProjectVersionARN, destinationProjectARN, versionName string,
+		params CopyProjectVersionParams,
+	) (*ProjectVersion, error)
 	StartProjectVersion(projectVersionARN string, minInferenceUnits, maxInferenceUnits int32) error
 	StopProjectVersion(projectVersionARN string) error
 	ListProjectPolicies(projectARN string, maxResults int32, nextToken string) ([]*ProjectPolicy, string, error)
@@ -84,7 +87,7 @@ type StorageBackend interface {
 	// Async video jobs
 	StartAsyncJob(params StartAsyncJobParams) (string, error)
 	GetAsyncJob(jobID string) (*AsyncJob, error)
-	StartMediaAnalysisJob(jobName string) (string, error)
+	StartMediaAnalysisJob(jobName string, params StartMediaAnalysisJobParams) (string, error)
 	GetMediaAnalysisJob(jobID string) (*MediaAnalysisJob, error)
 	ListMediaAnalysisJobs(maxResults int32, nextToken string) ([]*MediaAnalysisJob, string, error)
 
@@ -103,6 +106,7 @@ type Collection struct {
 	CollectionID      string
 	CollectionARN     string
 	FaceModelVersion  string
+	UserCount         int64
 }
 
 // Face represents an indexed face.
@@ -231,6 +235,19 @@ type Project struct {
 	CreationTimestamp time.Time
 	ProjectARN        string
 	Status            string
+	AutoUpdate        string
+	Feature           string
+}
+
+// CreateProjectParams groups CreateProjectInput's fields beyond
+// ProjectName/Tags. Feature defaults to CUSTOM_LABELS when empty per
+// api_op_CreateProject.go's documented "If no value is provided
+// CUSTOM_LABELS is used as a default." AutoUpdate has no documented
+// default, so an empty value is stored and echoed back as empty rather
+// than guessed.
+type CreateProjectParams struct {
+	AutoUpdate string
+	Feature    string
 }
 
 // ProjectVersion represents a model version within a project.
@@ -272,6 +289,16 @@ type CreateProjectVersionParams struct {
 	VersionDescription                      string
 }
 
+// CopyProjectVersionParams groups CopyProjectVersionInput's fields beyond
+// SourceProjectVersionArn/DestinationProjectArn/VersionName: SourceProjectArn
+// (the source project the copied version must belong to) and OutputConfig
+// (where the copied training results are stored in the destination account).
+type CopyProjectVersionParams struct {
+	SourceProjectARN        string
+	OutputConfigS3Bucket    string
+	OutputConfigS3KeyPrefix string
+}
+
 // ProjectPolicy represents a project policy.
 type ProjectPolicy struct {
 	CreationTimestamp    time.Time
@@ -291,6 +318,18 @@ type Dataset struct {
 	DatasetType          string
 	Status               string
 	StatusMessage        string
+	Stats                DatasetStats
+}
+
+// DatasetStats mirrors types.DatasetStats (TotalEntries/LabeledEntries/
+// TotalLabels, computed from the dataset's stored manifest entries;
+// ErrorEntries is always 0 -- this backend has no entry-level error
+// concept, so 0 is the accurate value, not a fabrication).
+type DatasetStats struct {
+	TotalEntries   int64
+	LabeledEntries int64
+	TotalLabels    int64
+	ErrorEntries   int64
 }
 
 // DatasetLabel represents a label entry in a dataset.
@@ -373,10 +412,32 @@ type StartAsyncJobParams struct {
 
 // MediaAnalysisJob represents a Rekognition media analysis job.
 type MediaAnalysisJob struct {
-	CreationTimestamp time.Time
-	JobID             string
-	JobName           string
-	Status            string
+	CreationTimestamp                    time.Time
+	DetectModerationLabelsMinConfidence  *float32
+	JobID                                string
+	JobName                              string
+	Status                               string
+	InputS3Bucket                        string
+	InputS3Name                          string
+	InputS3Version                       string
+	OutputConfigS3Bucket                 string
+	OutputConfigS3KeyPrefix              string
+	DetectModerationLabelsProjectVersion string
+	HasDetectModerationLabels            bool
+}
+
+// StartMediaAnalysisJobParams groups StartMediaAnalysisJobInput's required
+// Input/OperationsConfig/OutputConfig members beyond JobName, so the
+// StartMediaAnalysisJob backend method signature stays manageable.
+type StartMediaAnalysisJobParams struct {
+	DetectModerationLabelsMinConfidence  *float32
+	InputS3Bucket                        string
+	InputS3Name                          string
+	InputS3Version                       string
+	OutputConfigS3Bucket                 string
+	OutputConfigS3KeyPrefix              string
+	DetectModerationLabelsProjectVersion string
+	HasDetectModerationLabels            bool
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

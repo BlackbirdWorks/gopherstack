@@ -22,8 +22,15 @@ func (h *Handler) handleLayersRoute(c *echo.Context, path, method string) error 
 	rest := strings.TrimPrefix(path, lambdaLayersPathPrefix)
 	rest = strings.TrimPrefix(rest, "/")
 
-	// GET /2018-10-31/layers → ListLayers
+	// GET /2018-10-31/layers → ListLayers, EXCEPT GET /2018-10-31/layers?find=LayerVersion
+	// → GetLayerVersionByArn (api_op_GetLayerVersionByArn.go, lambda@v1.101.2
+	// serializers.go: same bare path as ListLayers, disambiguated only by this
+	// query flag -- real clients never send /layers-by-arn) -- gopherstack-l5ir.
 	if rest == "" && method == http.MethodGet {
+		if c.Request().URL.Query().Get(lambdaFindQueryParam) == lambdaFindLayerVersion {
+			return h.handleGetLayerVersionByArn(c)
+		}
+
 		return h.handleListLayers(c, lambdaBk)
 	}
 
@@ -287,7 +294,7 @@ func (h *Handler) handleRemoveLayerVersionPermission(
 	return c.NoContent(http.StatusNoContent)
 }
 
-// handleGetLayerVersionByArn handles GET /2018-10-31/layers-by-arn?Arn={arn}.
+// handleGetLayerVersionByArn handles GET /2018-10-31/layers?find=LayerVersion&Arn={arn}.
 func (h *Handler) handleGetLayerVersionByArn(c *echo.Context) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {

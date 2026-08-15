@@ -265,3 +265,62 @@ func TestHandlerListRulesets_RuleCount(t *testing.T) {
 	require.Len(t, resp.Rulesets, 1)
 	assert.InDelta(t, float64(1), resp.Rulesets[0]["RuleCount"], 0)
 }
+
+// TestHandlerListRulesets_NoRulesLeak asserts the raw JSON body of a
+// ListRulesets item has no "Rules" key -- types.RulesetItem
+// (databrew@v1.42.4 types.go:1020) has no Rules member; only RuleCount. An
+// SDK client silently drops the unrecognized key, so only a raw-body
+// assertion catches the leak.
+func TestHandlerListRulesets_NoRulesLeak(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/rulesets", map[string]any{
+		"Name":      "no-leak-rs",
+		"TargetArn": "arn:x",
+		"Rules": []any{
+			map[string]any{"Name": "r1", "CheckExpression": "ROWCOUNT > 0"},
+		},
+	})
+	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/rulesets", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Rulesets []map[string]any `json:"Rulesets"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Rulesets, 1)
+	_, hasRules := resp.Rulesets[0]["Rules"]
+	assert.False(t, hasRules, "ListRulesets item leaked Rules; real types.RulesetItem has no Rules member")
+}
+
+// TestHandlerDescribeRuleset_NoAccountIDOrRuleCountLeak asserts the raw JSON
+// body of a DescribeRuleset response has no "AccountId" or "RuleCount" key
+// -- DescribeRulesetOutput (api_op_DescribeRuleset.go:39-77) has neither
+// member.
+func TestHandlerDescribeRuleset_NoAccountIDOrRuleCountLeak(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/rulesets", map[string]any{
+		"Name":      "no-leak-describe-rs",
+		"TargetArn": "arn:x",
+		"Rules": []any{
+			map[string]any{"Name": "r1", "CheckExpression": "ROWCOUNT > 0"},
+		},
+	})
+	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/rulesets/no-leak-describe-rs", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	_, hasAccountID := resp["AccountId"]
+	assert.False(
+		t,
+		hasAccountID,
+		"DescribeRuleset leaked AccountId; real DescribeRulesetOutput has no AccountId member",
+	)
+	_, hasRuleCount := resp["RuleCount"]
+	assert.False(
+		t,
+		hasRuleCount,
+		"DescribeRuleset leaked RuleCount; real DescribeRulesetOutput has no RuleCount member",
+	)
+	assert.Contains(t, resp, "Rules", "DescribeRuleset must still emit Rules -- it's a required member")
+}

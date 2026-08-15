@@ -106,10 +106,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, findingIDs, 1)
 
-	ipSet, err := original.CreateIPSet(detectorID, "ipset-1", "TXT", "s3://bucket/key", true, nil)
+	ipSet, err := original.CreateIPSet(detectorID, "ipset-1", "TXT", "s3://bucket/key", true, nil, "")
 	require.NoError(t, err)
 
-	tiSet, err := original.CreateThreatIntelSet(detectorID, "ti-1", "TXT", "s3://bucket/ti", true, nil)
+	tiSet, err := original.CreateThreatIntelSet(detectorID, "ti-1", "TXT", "s3://bucket/ti", true, nil, "")
 	require.NoError(t, err)
 
 	teSet, err := original.CreateThreatEntitySet(detectorID, "te-1", "TXT", "s3://bucket/te", true, nil, "999988887777")
@@ -137,7 +137,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	require.NoError(t, original.EnableOrganizationAdminAccount("888899990000"))
 
-	require.NoError(t, original.UpdateOrganizationConfiguration(detectorID, true, []guardduty.OrgFeature{
+	require.NoError(t, original.UpdateOrganizationConfiguration(detectorID, true, "", []guardduty.OrgFeature{
 		{Name: "S3_DATA_EVENTS", AutoEnable: "NEW"},
 	}))
 

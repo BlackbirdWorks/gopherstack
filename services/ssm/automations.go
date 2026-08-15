@@ -3,7 +3,9 @@ package ssm
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -88,10 +90,54 @@ func (b *InMemoryBackend) GetAutomationExecution(
 	return &GetAutomationExecutionOutputFull{AutomationExecution: &cp}, nil
 }
 
-// DescribeAutomationExecutions returns all automation executions.
+// automationExecutionAttr returns the value of an AutomationExecution
+// attribute by its AutomationExecutionFilterKey name. Only the attributes
+// AutomationExecution itself tracks can be meaningfully filtered; every
+// other key (ParentExecutionId/CurrentAction/StartTimeBefore/...) returns ""
+// untracked (see matchesAutomationExecutionFilter).
+func automationExecutionAttr(exec AutomationExecution, key string) (string, bool) {
+	switch key {
+	case "ExecutionId":
+		return exec.AutomationExecutionID, true
+	case "ExecutionStatus":
+		return exec.Status, true
+	default:
+		return "", false
+	}
+}
+
+// matchesAutomationExecutionFilter reports whether an execution satisfies a
+// single key/values filter. DocumentNamePrefix is matched separately (it's a
+// prefix match, not an exact-value match like every other key); unrecognized
+// keys match every execution (accept-and-echo, mirroring ListNodes'
+// unknown-key handling, instances.go).
+func matchesAutomationExecutionFilter(exec AutomationExecution, f AutomationExecutionFilterEntry) bool {
+	if f.Key == "DocumentNamePrefix" {
+		for _, v := range f.Values {
+			if strings.HasPrefix(exec.DocumentName, v) {
+				return true
+			}
+		}
+
+		return len(f.Values) == 0
+	}
+
+	value, tracked := automationExecutionAttr(exec, f.Key)
+	if !tracked {
+		return true
+	}
+
+	return slices.Contains(f.Values, value)
+}
+
+// DescribeAutomationExecutions returns automation executions, filtered by
+// input.Filters and paginated by input.MaxResults/NextToken -- real,
+// optional DescribeAutomationExecutionsInput members
+// (api_op_DescribeAutomationExecutions.go) a literal struct{} input
+// previously discarded from every request.
 func (b *InMemoryBackend) DescribeAutomationExecutions(
 	ctx context.Context,
-	_ *DescribeAutomationExecutionsInput,
+	input *DescribeAutomationExecutionsInput,
 ) (*DescribeAutomationExecutionsOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.Lock("DescribeAutomationExecutions")
@@ -100,16 +146,37 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 	now := time.Now().UTC()
 	execs := b.automationExecutionsStore(region)
 	list := make([]AutomationExecution, 0, execs.Len())
+
 	for _, exec := range execs.All() {
 		materializeAutomationLocked(exec, now)
-		list = append(list, *exec)
+
+		matched := true
+
+		for _, f := range input.Filters {
+			if !matchesAutomationExecutionFilter(*exec, f) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			list = append(list, *exec)
+		}
 	}
 
 	sort.Slice(list, func(i, k int) bool {
 		return list[i].StartTime < list[k].StartTime
 	})
 
-	return &DescribeAutomationExecutionsOutputFull{AutomationExecutionMetadataList: list}, nil
+	var maxResults int
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(list, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeAutomationExecutionsOutputFull{AutomationExecutionMetadataList: page, NextToken: next}, nil
 }
 
 // StopAutomationExecution marks an automation execution as stopped.
@@ -183,24 +250,43 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 }
 
 // StartChangeRequestExecution creates a change request automation execution.
+// Runbooks is a required StartChangeRequestExecutionInput member (verified
+// against validateOpStartChangeRequestExecutionInput, validators.go), each
+// entry's own DocumentName required whenever present (validateRunbook) --
+// the pre-fix request read only the top-level DocumentName (the change
+// template document) and built steps from it directly, when the actual
+// Automation runbook(s) to run live in Runbooks instead.
 func (b *InMemoryBackend) StartChangeRequestExecution(
 	ctx context.Context,
 	input *StartChangeRequestExecutionInput,
 ) (*StartChangeRequestExecutionOutputFull, error) {
+	if len(input.Runbooks) == 0 {
+		return nil, fmt.Errorf("%w: Runbooks is required", ErrValidationException)
+	}
+
+	for i, rb := range input.Runbooks {
+		if rb.DocumentName == "" {
+			return nil, fmt.Errorf("%w: Runbooks[%d].DocumentName is required", ErrValidationException, i)
+		}
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("StartChangeRequestExecution")
 	defer b.mu.Unlock()
 
 	execID := "auto-cr-" + uuid.NewString()
 	// Change requests remain InProgress pending approval (SendAutomationSignal),
-	// mirroring AWS — but their steps are populated up front.
+	// mirroring AWS — but their steps are populated up front, built from the
+	// first runbook's document (this backend's AutomationExecution models a
+	// single step list; real AWS runs each Runbook entry as its own workflow).
 	exec := &AutomationExecution{
 		AutomationExecutionID: execID,
 		DocumentName:          input.DocumentName,
 		Status:                automationStatusInProgress,
 		StartTime:             UnixTimeFloat(time.Now().UTC()),
 		ExecutionType:         "ChangeRequest",
-		Steps:                 b.buildAutomationSteps(region, input.DocumentName),
+		Runbooks:              input.Runbooks,
+		Steps:                 b.buildAutomationSteps(region, input.Runbooks[0].DocumentName),
 	}
 	b.automationExecutionsStore(region).Put(exec)
 

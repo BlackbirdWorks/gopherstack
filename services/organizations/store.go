@@ -35,19 +35,25 @@ type InMemoryBackend struct {
 	delegatedAdminsByService *store.Index[DelegatedAdmin]
 	delegatedAdminsByAccount *store.Index[DelegatedAdmin]
 	handshakes               *store.Table[Handshake]
-	org                      *Organization
-	root                     *Root
-	resourcePolicy           *ResourcePolicy
-	accounts                 *store.Table[Account]
-	ous                      *store.Table[OrganizationalUnit]
-	ousByParentIdx           *store.Index[OrganizationalUnit]
-	policies                 *store.Table[Policy]
-	accountParent            map[string]string
-	policyTargets            map[string][]string
-	createStatuses           *store.Table[CreateAccountStatus]
-	ouParent                 map[string]string
-	tags                     map[string]map[string]string
-	emailToAccountID         map[string]string
+	responsibilityTransfers  *store.Table[ResponsibilityTransfer]
+	// responsibilityTransfersByHandshake indexes responsibilityTransfers by
+	// ActiveHandshakeID, so Accept/Cancel/Decline/expire on the underlying
+	// Handshake can find and re-sync the transfer's Status in O(1) -- see
+	// syncResponsibilityTransferStatusLocked (handshakes.go).
+	responsibilityTransfersByHandshake *store.Index[ResponsibilityTransfer]
+	org                                *Organization
+	root                               *Root
+	resourcePolicy                     *ResourcePolicy
+	accounts                           *store.Table[Account]
+	ous                                *store.Table[OrganizationalUnit]
+	ousByParentIdx                     *store.Index[OrganizationalUnit]
+	policies                           *store.Table[Policy]
+	accountParent                      map[string]string
+	policyTargets                      map[string][]string
+	createStatuses                     *store.Table[CreateAccountStatus]
+	ouParent                           map[string]string
+	tags                               map[string]map[string]string
+	emailToAccountID                   map[string]string
 	// ousByParent maps parentID → ouName → ouID for O(1) sibling name uniqueness
 	// checks in CreateOrganizationalUnit and UpdateOrganizationalUnit.
 	ousByParent map[string]map[string]string

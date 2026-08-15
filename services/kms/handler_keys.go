@@ -37,12 +37,20 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 		),
 		"ImportKeyMaterial": unmarshalAction(
 			func(ctx context.Context, i *ImportKeyMaterialInput) (any, error) {
-				return struct{}{}, h.Backend.ImportKeyMaterial(ctx, i)
+				if err := h.Backend.ImportKeyMaterial(ctx, i); err != nil {
+					return nil, err
+				}
+
+				return ImportKeyMaterialOutput{KeyID: i.KeyID}, nil
 			},
 		),
 		"DeleteImportedKeyMaterial": unmarshalAction(
 			func(ctx context.Context, i *DeleteImportedKeyMaterialInput) (any, error) {
-				return struct{}{}, h.Backend.DeleteImportedKeyMaterial(ctx, i)
+				if err := h.Backend.DeleteImportedKeyMaterial(ctx, i); err != nil {
+					return nil, err
+				}
+
+				return DeleteImportedKeyMaterialOutput{KeyID: i.KeyID}, nil
 			},
 		),
 	}

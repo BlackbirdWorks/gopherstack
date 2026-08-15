@@ -87,23 +87,25 @@ func (h *Handler) handleListALSs(c *echo.Context) error {
 
 func alsToJSON(a *AccessLogSubscription) map[string]any {
 	return map[string]any{
-		keyARN:            a.ARN,
-		"id":              a.ID,
-		"resourceArn":     a.ResourceARN,
-		"resourceId":      a.ResourceID,
-		keyDestinationARN: a.DestinationARN,
-		keyCreatedAt:      a.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt:  a.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                  a.ARN,
+		"id":                    a.ID,
+		"resourceArn":           a.ResourceARN,
+		"resourceId":            a.ResourceID,
+		keyDestinationARN:       a.DestinationARN,
+		"serviceNetworkLogType": a.ServiceNetworkLogType,
+		keyCreatedAt:            a.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:        a.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func alsSummaryToJSON(a *AccessLogSubscriptionSummary) map[string]any {
 	return map[string]any{
-		keyARN:            a.ARN,
-		"id":              a.ID,
-		"resourceArn":     a.ResourceARN,
-		"resourceId":      a.ResourceID,
-		keyDestinationARN: a.DestinationARN,
-		keyCreatedAt:      a.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyARN:                  a.ARN,
+		"id":                    a.ID,
+		"resourceArn":           a.ResourceARN,
+		"resourceId":            a.ResourceID,
+		keyDestinationARN:       a.DestinationARN,
+		"serviceNetworkLogType": a.ServiceNetworkLogType,
+		keyCreatedAt:            a.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }

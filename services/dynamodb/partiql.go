@@ -82,7 +82,13 @@ var (
 const minRegexMatch = 2
 
 // executeStatementRequest is the wire format for ExecuteStatement.
+//
+// Limit is the SDK's structured page-size field (dynamodb.ExecuteStatementInput.Limit,
+// serialized as a top-level "Limit" JSON integer -- see serializers.go's
+// awsAwsjson10_serializeOpDocumentExecuteStatementInput), distinct from a
+// "LIMIT n" clause embedded in the Statement text itself.
 type executeStatementRequest struct {
+	Limit          *int32           `json:"Limit,omitempty"`
 	Statement      string           `json:"Statement"`
 	NextToken      string           `json:"NextToken,omitempty"`
 	Parameters     []map[string]any `json:"Parameters,omitempty"`
@@ -90,18 +96,31 @@ type executeStatementRequest struct {
 }
 
 // executeStatementResponse is the wire response for ExecuteStatement.
-// Items uses the DynamoDB wire format (map[string]any with {"S":…}, {"N":…} etc.)
-// so that the AWS SDK can deserialise it correctly.
+// Items and LastEvaluatedKey use the DynamoDB wire format (map[string]any
+// with {"S":…}, {"N":…} etc.) so that the AWS SDK can deserialise them
+// correctly. LastEvaluatedKey is a distinct field from NextToken on the real
+// ExecuteStatementOutput (deserializers.go's
+// awsAwsjson10_deserializeOpDocumentExecuteStatementOutput switches on both
+// "LastEvaluatedKey" and "NextToken" as separate top-level keys) -- dropping
+// it left any client reading output.LastEvaluatedKey (the Query/Scan-style
+// pagination field) always empty even when more pages existed.
 type executeStatementResponse struct {
-	TableName string           `json:"-"` // internal: table name for ConsumedCapacity tracking
-	NextToken string           `json:"NextToken,omitempty"`
-	Items     []map[string]any `json:"Items"`
+	TableName        string           `json:"-"` // internal: table name for ConsumedCapacity tracking
+	NextToken        string           `json:"NextToken,omitempty"`
+	LastEvaluatedKey map[string]any   `json:"LastEvaluatedKey,omitempty"`
+	Items            []map[string]any `json:"Items"`
 }
 
 // batchStatementRequest is one statement entry inside BatchExecuteStatement.
+//
+// ConsistentRead mirrors types.BatchStatementRequest.ConsistentRead (see
+// serializers.go's awsAwsjson10_serializeDocumentBatchStatementRequest). The
+// backend's BatchExecuteStatement already forwards it correctly once it
+// arrives; without this field it never left the wire request.
 type batchStatementRequest struct {
-	Statement  string           `json:"Statement"`
-	Parameters []map[string]any `json:"Parameters,omitempty"`
+	Statement      string           `json:"Statement"`
+	Parameters     []map[string]any `json:"Parameters,omitempty"`
+	ConsistentRead bool             `json:"ConsistentRead,omitempty"`
 }
 
 // batchExecuteStatementRequest is the wire format for BatchExecuteStatement.
@@ -110,9 +129,13 @@ type batchExecuteStatementRequest struct {
 }
 
 // batchStatementResponse is one result entry inside BatchExecuteStatement response.
+// TableName is populated only when Error is set, matching the real
+// BatchStatementResponse ("the table name associated with a failed PartiQL
+// batch statement" -- types.go's doc comment on BatchStatementResponse.TableName).
 type batchStatementResponse struct {
-	Item  map[string]any       `json:"Item,omitempty"`
-	Error *batchStatementError `json:"Error,omitempty"`
+	Item      map[string]any       `json:"Item,omitempty"`
+	Error     *batchStatementError `json:"Error,omitempty"`
+	TableName string               `json:"TableName,omitempty"`
 }
 
 type batchStatementError struct {
@@ -242,8 +265,9 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(
 		}
 
 		sdkStmts = append(sdkStmts, types.BatchStatementRequest{
-			Statement:  aws.String(s.Statement),
-			Parameters: sdkParams,
+			Statement:      aws.String(s.Statement),
+			Parameters:     sdkParams,
+			ConsistentRead: aws.Bool(s.ConsistentRead),
 		})
 		originalIdx = append(originalIdx, i)
 	}
@@ -264,6 +288,7 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(
 						Code:    string(resp.Error.Code),
 						Message: aws.ToString(resp.Error.Message),
 					},
+					TableName: aws.ToString(resp.TableName),
 				}
 
 				continue
@@ -311,6 +336,11 @@ func (r *partiQLRunner) executePartiQLSelect(
 	whereClause := partiqlExtractWhere(substituted)
 	filterExpr, eav := partiqlSubstituteLiterals(whereClause, eav)
 	limit := partiqlExtractLimit(substituted)
+	// The structured Limit field (set via the SDK request, not statement text)
+	// takes precedence when present, matching real ExecuteStatementInput.Limit.
+	if req.Limit != nil && *req.Limit > 0 {
+		limit = int(*req.Limit)
+	}
 	colList := partiqlExtractColumns(substituted)
 	scanIndexForward := partiqlExtractScanIndexForward(substituted)
 
@@ -425,8 +455,9 @@ func (r *partiQLRunner) tryQueryOptimization(
 	}
 
 	return &executeStatementResponse{
-		Items:     itemsToWire(out.Items),
-		NextToken: encodePartiQLNextToken(out.LastEvaluatedKey),
+		Items:            itemsToWire(out.Items),
+		NextToken:        encodePartiQLNextToken(out.LastEvaluatedKey),
+		LastEvaluatedKey: lastEvaluatedKeyToWire(out.LastEvaluatedKey),
 	}, nil
 }
 
@@ -523,8 +554,9 @@ func (r *partiQLRunner) executeScanSelect(
 	}
 
 	return &executeStatementResponse{
-		Items:     itemsToWire(out.Items),
-		NextToken: encodePartiQLNextToken(out.LastEvaluatedKey),
+		Items:            itemsToWire(out.Items),
+		NextToken:        encodePartiQLNextToken(out.LastEvaluatedKey),
+		LastEvaluatedKey: lastEvaluatedKeyToWire(out.LastEvaluatedKey),
 	}, nil
 }
 
@@ -568,6 +600,17 @@ func decodePartiQLNextToken(token string) map[string]types.AttributeValue {
 	}
 
 	return sdkItem
+}
+
+// lastEvaluatedKeyToWire converts an SDK LastEvaluatedKey to its wire form,
+// returning nil (so the omitempty tag drops it) rather than an empty map
+// when there is no more data to page through.
+func lastEvaluatedKeyToWire(key map[string]types.AttributeValue) map[string]any {
+	if len(key) == 0 {
+		return nil
+	}
+
+	return models.FromSDKItem(key)
 }
 
 func itemsToWire(items []map[string]types.AttributeValue) []map[string]any {

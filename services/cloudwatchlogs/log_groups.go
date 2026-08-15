@@ -90,6 +90,13 @@ func (b *InMemoryBackend) DeleteLogGroup(ctx context.Context, name string) error
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, name)
 	}
 
+	if entry, ok := b.deletionProtected.Get(name); ok && entry.Protected {
+		return fmt.Errorf(
+			"%w: Log group %s is protected from deletion. Disable deletion protection first",
+			ErrOperationAborted, name,
+		)
+	}
+
 	b.groupDelete(region, name)
 	b.deleteStreamsInGroup(region, name)
 	b.deleteSubscriptionFiltersInGroup(region, name)
@@ -127,6 +134,34 @@ func (b *InMemoryBackend) SetRetentionPolicy(
 	}
 
 	g.RetentionInDays = days
+
+	return nil
+}
+
+// PutBearerTokenAuthentication enables or disables bearer token
+// authentication for a log group. logGroupIdentifier and enabled are both
+// required PutBearerTokenAuthenticationInput members (verified against
+// validateOpPutBearerTokenAuthenticationInput, validators.go) -- the pre-fix
+// handler read neither and always returned success with no backend effect.
+func (b *InMemoryBackend) PutBearerTokenAuthentication(
+	ctx context.Context, logGroupIdentifier string, enabled bool,
+) error {
+	if logGroupIdentifier == "" {
+		return fmt.Errorf("%w: logGroupIdentifier is required", ErrValidation)
+	}
+
+	name := normalizeLogGroupIdentifier(logGroupIdentifier)
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("PutBearerTokenAuthentication")
+	defer b.mu.Unlock()
+
+	g, exists := b.groupGet(region, name)
+	if !exists {
+		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, name)
+	}
+
+	g.BearerTokenAuthenticationEnabled = &enabled
 
 	return nil
 }

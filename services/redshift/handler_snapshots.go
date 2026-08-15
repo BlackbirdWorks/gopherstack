@@ -264,11 +264,34 @@ type batchDeleteClusterSnapshotsResponse struct {
 	Resources []string                  `xml:"BatchDeleteClusterSnapshotsResult>Resources>String,omitempty"`
 }
 
-func (h *Handler) handleBatchDeleteClusterSnapshots(vals url.Values) (any, error) {
-	identifiers := parseStringList(vals, "Identifiers.DeleteClusterSnapshotMessage.")
-	if len(identifiers) == 0 {
-		identifiers = parseStringList(vals, "Identifiers.SnapshotIdentifier.")
+// parseDeleteClusterSnapshotMessageIdentifiers reads Identifiers, a list of
+// DeleteClusterSnapshotMessage structs (each with a required SnapshotIdentifier
+// and optional SnapshotClusterIdentifier member), not a flat string list.
+// Confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go:
+// awsAwsquery_serializeDocumentDeleteClusterSnapshotMessageList wraps the array
+// in "DeleteClusterSnapshotMessage" and awsAwsquery_serializeDocumentDeleteClusterSnapshotMessage
+// serializes SnapshotIdentifier as a nested object field, so the real wire key
+// is "Identifiers.DeleteClusterSnapshotMessage.N.SnapshotIdentifier" -- neither
+// "Identifiers.DeleteClusterSnapshotMessage.N" nor "Identifiers.SnapshotIdentifier.N"
+// (the two shapes this parser previously tried) ever matches a real request, so a
+// real client's snapshot identifiers were always silently dropped.
+func parseDeleteClusterSnapshotMessageIdentifiers(vals url.Values) []string {
+	var identifiers []string
+
+	for i := 1; i <= maxListItems; i++ {
+		v := vals.Get(fmt.Sprintf("Identifiers.DeleteClusterSnapshotMessage.%d.SnapshotIdentifier", i))
+		if v == "" {
+			break
+		}
+
+		identifiers = append(identifiers, v)
 	}
+
+	return identifiers
+}
+
+func (h *Handler) handleBatchDeleteClusterSnapshots(vals url.Values) (any, error) {
+	identifiers := parseDeleteClusterSnapshotMessageIdentifiers(vals)
 
 	batchErrors, deleted := h.Backend.BatchDeleteClusterSnapshots(identifiers)
 

@@ -21,7 +21,7 @@ func TestHandlerLaunchTemplateVersions(t *testing.T) {
 	h.Region = "us-east-1"
 
 	// Create a launch template.
-	lt, err := b.CreateLaunchTemplate("test-lt", "ami-12345", "t3.micro")
+	lt, err := b.CreateLaunchTemplate("test-lt", "ami-12345", "t3.micro", nil)
 	require.NoError(t, err)
 	ltID := lt.ID
 

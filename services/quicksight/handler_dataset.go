@@ -63,6 +63,15 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
+	physicalTableMap, err := physicalTableMapFromBody(body)
+	if err != nil {
+		return httpErr(c, err)
+	}
+	logicalTableMap, err := logicalTableMapFromBody(body)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
 	ds, ingestion, err := h.Backend.CreateDataSet(
 		accountID,
 		strField(body, "DataSetId"),
@@ -70,6 +79,8 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 		strField(body, "ImportMode"),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
+		physicalTableMap,
+		logicalTableMap,
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -102,7 +113,7 @@ func (h *Handler) handleDescribeDataSet(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyDataSet:   dataSetToMap(ds),
+		keyDataSet:   dataSetDetailToMap(ds),
 		keyRequestID: newReqID(),
 		keyStatus:    http.StatusOK,
 	})
@@ -118,8 +129,18 @@ func (h *Handler) handleUpdateDataSet(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
+	physicalTableMap, err := physicalTableMapFromBody(body)
+	if err != nil {
+		return httpErr(c, err)
+	}
+	logicalTableMap, err := logicalTableMapFromBody(body)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
 	ds, ingestion, err := h.Backend.UpdateDataSet(
 		accountID, dataSetID, strField(body, "Name"), strField(body, "ImportMode"),
+		physicalTableMap, logicalTableMap,
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -182,6 +203,10 @@ func (h *Handler) handleListDataSets(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, resp)
 }
 
+// dataSetToMap builds the DataSetSummary shape used by
+// ListDataSets/SearchDataSets (quicksight@v1.123.1 types.DataSetSummary),
+// which -- unlike the full DataSet type -- carries no PhysicalTableMap/
+// LogicalTableMap.
 func dataSetToMap(ds *DataSet) map[string]any {
 	return map[string]any{
 		keyArn:             ds.Arn,
@@ -191,6 +216,20 @@ func dataSetToMap(ds *DataSet) map[string]any {
 		keyLastUpdatedTime: ds.LastUpdatedTime.Unix(),
 		keyName:            ds.Name,
 	}
+}
+
+// dataSetDetailToMap builds the full DataSet shape returned by
+// DescribeDataSet (quicksight@v1.123.1 types.DataSet), which includes
+// PhysicalTableMap and (when set) LogicalTableMap on top of the summary
+// fields.
+func dataSetDetailToMap(ds *DataSet) map[string]any {
+	m := dataSetToMap(ds)
+	m["PhysicalTableMap"] = physicalTableMapToWire(ds.PhysicalTableMap)
+	if lt := logicalTableMapToWire(ds.LogicalTableMap); lt != nil {
+		m["LogicalTableMap"] = lt
+	}
+
+	return m
 }
 
 func (h *Handler) handleDescribeDataSetPermissions(c *echo.Context) error {

@@ -77,6 +77,43 @@ func (h *S3Handler) deleteBucketCORS(
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// applyCORSActualResponseHeaders sets Access-Control-Allow-Origin (and
+// Access-Control-Expose-Headers, when the matched rule declares any) on the
+// actual response -- the GET/PUT/etc. that follows a preflight. Without this,
+// preflight can pass and the browser still blocks the real response, because
+// a browser's CORS check on the actual response only looks at headers on
+// that response, not the earlier OPTIONS. No-ops silently when there's no
+// Origin header, no CORS config, or no matching rule, so requests without
+// CORS involved are unaffected.
+func (h *S3Handler) applyCORSActualResponseHeaders(
+	ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string,
+) {
+	origin := r.Header.Get("Origin")
+	if origin == "" || r.Method == http.MethodOptions {
+		return
+	}
+
+	corsXML, err := h.Backend.GetBucketCORS(ctx, bucket)
+	if err != nil {
+		return
+	}
+
+	var cfg CORSConfiguration
+	if xml.Unmarshal([]byte(corsXML), &cfg) != nil {
+		return
+	}
+
+	rule := matchCORSRule(cfg.Rules, origin, r.Method, "")
+	if rule == nil {
+		return
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	if len(rule.ExposeHeaders) > 0 {
+		w.Header().Set("Access-Control-Expose-Headers", strings.Join(rule.ExposeHeaders, ", "))
+	}
+}
+
 func (h *S3Handler) handleCORSPreflight(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -160,15 +197,41 @@ func matchCORSRule(rules []CORSRule, origin, method, reqHeaders string) *CORSRul
 }
 
 // corsOriginMatches returns true when origin matches one of the allowedOrigins.
-// A wildcard entry "*" matches any origin.
+// A wildcard entry "*" matches any origin. AWS also allows a single embedded
+// wildcard within an otherwise-literal origin (e.g. "https://*.example.com");
+// corsOriginWildcardMatches handles that case without widening the bare "*"
+// match-everything behaviour above.
 func corsOriginMatches(allowedOrigins []string, origin string) bool {
 	for _, allowed := range allowedOrigins {
 		if allowed == "*" || strings.EqualFold(allowed, origin) {
 			return true
 		}
+
+		if corsOriginWildcardMatches(allowed, origin) {
+			return true
+		}
 	}
 
 	return false
+}
+
+// corsOriginWildcardMatches implements AWS's single-embedded-wildcard
+// AllowedOrigin form: exactly one '*' within an otherwise-literal origin,
+// matching zero or more characters at that position. An AllowedOrigin with
+// zero or more than one '*' is not eligible here (falls back to exact/bare-*
+// matching in corsOriginMatches), so a malformed entry fails closed rather
+// than matching too widely.
+func corsOriginWildcardMatches(allowed, origin string) bool {
+	if strings.Count(allowed, "*") != 1 {
+		return false
+	}
+
+	idx := strings.Index(allowed, "*")
+	prefix, suffix := allowed[:idx], allowed[idx+1:]
+
+	return len(origin) >= len(prefix)+len(suffix) &&
+		strings.EqualFold(origin[:len(prefix)], prefix) &&
+		strings.EqualFold(origin[len(origin)-len(suffix):], suffix)
 }
 
 // corsMethodMatches returns true when method is found in allowedMethods.

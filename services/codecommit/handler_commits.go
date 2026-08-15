@@ -146,25 +146,29 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 
 	// filesAdded is built from the backend's assigned blob IDs (not the
 	// request order) so the response reflects the real blob per file — AWS's
-	// CreateCommitOutput.filesAdded.blobId is a required field.
+	// CreateCommitOutput.filesAdded.blobId is a required field. FileMetadata
+	// on the real wire has exactly three keys -- absolutePath, blobId,
+	// fileMode (deserializers.go's awsAwsjson11_deserializeDocumentFileMetadata)
+	// -- there is no "filePath".
 	filesAdded := make([]any, 0, len(in.PutFiles))
 	for _, pf := range in.PutFiles {
 		filesAdded = append(filesAdded, map[string]any{
-			keyFilePath:    pf.FilePath,
-			keyBlobID:      blobIDsAdded[pf.FilePath],
-			keyFileMode:    fileModes[pf.FilePath],
-			"absolutePath": pf.FilePath,
+			keyAbsolutePath: pf.FilePath,
+			keyBlobID:       blobIDsAdded[pf.FilePath],
+			keyFileMode:     fileModes[pf.FilePath],
 		})
 	}
 
 	// filesDeleted mirrors filesAdded: built from the backend's reported blob
 	// IDs (the blob each deletion removed from the tree) rather than left
 	// empty, matching the fix already applied to the standalone DeleteFile op.
+	// Uses "absolutePath", not "filePath" -- see the filesAdded comment above;
+	// a client reading FilesDeleted[i].AbsolutePath previously always saw "".
 	filesDeleted := make([]any, 0, len(in.DeleteFiles))
 	for _, df := range in.DeleteFiles {
 		filesDeleted = append(filesDeleted, map[string]any{
-			keyFilePath: df.FilePath,
-			keyBlobID:   blobIDsDeleted[df.FilePath],
+			keyAbsolutePath: df.FilePath,
+			keyBlobID:       blobIDsDeleted[df.FilePath],
 		})
 	}
 

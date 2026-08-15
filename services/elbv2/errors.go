@@ -44,4 +44,7 @@ var (
 	ErrResourcePolicyNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrTrustStoreAssociationNotFound is returned when a shared trust store association does not exist.
 	ErrTrustStoreAssociationNotFound = awserr.New("AssociationNotFound", awserr.ErrNotFound)
+	// ErrRevocationIDNotFound is returned when the requested revocation ID does not exist
+	// on the trust store (GetTrustStoreRevocationContent).
+	ErrRevocationIDNotFound = awserr.New("RevocationIdNotFound", awserr.ErrNotFound)
 )

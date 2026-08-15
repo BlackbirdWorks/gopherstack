@@ -29,7 +29,8 @@ func (h *S3Handler) putBucketVersioning(
 	_, err := h.Backend.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
 		Bucket: aws.String(bucketName),
 		VersioningConfiguration: &types.VersioningConfiguration{
-			Status: types.BucketVersioningStatus(conf.Status),
+			Status:    types.BucketVersioningStatus(conf.Status),
+			MFADelete: types.MFADelete(conf.MfaDelete),
 		},
 	})
 	if err != nil {
@@ -64,6 +65,7 @@ func (h *S3Handler) getBucketVersioning(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, VersioningConfiguration{
-		Status: status,
+		Status:    status,
+		MfaDelete: string(out.MFADelete),
 	})
 }

@@ -74,6 +74,7 @@ type CopyObjectResult struct {
 }
 
 type ObjectXML struct {
+	Owner             *Owner `xml:"Owner"`
 	Key               string `xml:"Key"`
 	LastModified      string `xml:"LastModified"`
 	ETag              string `xml:"ETag"`
@@ -85,6 +86,11 @@ type ObjectXML struct {
 type VersioningConfiguration struct {
 	XMLName xml.Name `xml:"VersioningConfiguration"`
 	Status  string   `xml:"Status,omitempty"` // "Enabled" or "Suspended"; omitted when versioning is not yet configured
+	// MfaDelete ("MfaDelete" element name confirmed s3@v1.106.5 deserializers.go's
+	// awsRestxml_deserializeOpDocumentGetBucketVersioningOutput, case
+	// strings.EqualFold("MfaDelete", ...)) is only present once a bucket has ever
+	// had MFA delete configured -- omitted, not "Disabled", beforehand.
+	MfaDelete string `xml:"MfaDelete,omitempty"`
 }
 
 type Tagging struct {
@@ -213,14 +219,15 @@ type ListVersionsResult struct {
 }
 
 type ObjectVersionXML struct {
-	Owner        *Owner `xml:"Owner"`
-	Key          string `xml:"Key"`
-	VersionID    string `xml:"VersionId"`
-	LastModified string `xml:"LastModified"`
-	ETag         string `xml:"ETag"`
-	StorageClass string `xml:"StorageClass"`
-	Size         int64  `xml:"Size"`
-	IsLatest     bool   `xml:"IsLatest"`
+	Owner             *Owner `xml:"Owner"`
+	Key               string `xml:"Key"`
+	VersionID         string `xml:"VersionId"`
+	LastModified      string `xml:"LastModified"`
+	ETag              string `xml:"ETag"`
+	StorageClass      string `xml:"StorageClass"`
+	ChecksumAlgorithm string `xml:"ChecksumAlgorithm,omitempty"`
+	Size              int64  `xml:"Size"`
+	IsLatest          bool   `xml:"IsLatest"`
 }
 
 type DeleteMarkerXML struct {
@@ -349,9 +356,12 @@ type ListMultipartUploadsResult struct {
 
 // MultipartUpload describes a single in-progress multipart upload.
 type MultipartUpload struct {
-	Initiated time.Time `xml:"Initiated"`
-	Key       string    `xml:"Key"`
-	UploadID  string    `xml:"UploadId"`
+	Initiated    time.Time `xml:"Initiated"`
+	Owner        *Owner    `xml:"Owner,omitempty"`
+	Initiator    *Owner    `xml:"Initiator,omitempty"`
+	Key          string    `xml:"Key"`
+	UploadID     string    `xml:"UploadId"`
+	StorageClass string    `xml:"StorageClass,omitempty"`
 }
 
 // ObjectLockConfiguration is the XML body for PutObjectLockConfiguration / GetObjectLockConfiguration.
@@ -407,9 +417,13 @@ type ListPartsResult struct {
 
 // PartXML describes a single uploaded part in a multipart upload.
 type PartXML struct {
-	ETag       string `xml:"ETag"`
-	Size       int64  `xml:"Size"`
-	PartNumber int    `xml:"PartNumber"`
+	ETag           string `xml:"ETag"`
+	ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
+	Size           int64  `xml:"Size"`
+	PartNumber     int    `xml:"PartNumber"`
 }
 
 // ServerSideEncryptionConfiguration is the XML body for PutBucketEncryption / GetBucketEncryption.
@@ -477,11 +491,25 @@ type ReplicationConfiguration struct {
 
 // ReplicationRule is a single replication rule within a ReplicationConfiguration.
 type ReplicationRule struct {
+	Filter                  *ReplicationRuleFilter  `xml:"Filter,omitempty"`
 	Destination             ReplicationDestination  `xml:"Destination"`
 	DeleteMarkerReplication DeleteMarkerReplication `xml:"DeleteMarkerReplication"`
 	ID                      string                  `xml:"ID,omitempty"`
-	Prefix                  string                  `xml:"Prefix,omitempty"`
-	Status                  string                  `xml:"Status"`
+	// Prefix is the legacy (deprecated) top-level filter field. Modern
+	// configurations use Filter>Prefix instead -- see matchesReplicationRule
+	// in replication.go, which checks Filter first and falls back to this.
+	Prefix string `xml:"Prefix,omitempty"`
+	Status string `xml:"Status"`
+}
+
+// ReplicationRuleFilter identifies the subset of objects a replication rule
+// applies to. Real S3 requires exactly one of Prefix/Tag/And to be set (see
+// aws-sdk-go-v2/service/s3/types.ReplicationRuleFilter's doc comment); And-based
+// composite (multi-tag/prefix+tag) filters are not evaluated by this emulator
+// (see matchesReplicationRule) and are a documented gap.
+type ReplicationRuleFilter struct {
+	Prefix *string `xml:"Prefix,omitempty"`
+	Tag    *Tag    `xml:"Tag,omitempty"`
 }
 
 // DeleteMarkerReplication controls whether delete markers are replicated.

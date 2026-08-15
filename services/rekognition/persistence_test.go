@@ -67,7 +67,7 @@ func newPersistenceTestBackend(t *testing.T) (*rekognition.InMemoryBackend, pers
 	)
 	require.NoError(t, err)
 
-	proj, err := b.CreateProject("proj1")
+	proj, err := b.CreateProject("proj1", rekognition.CreateProjectParams{})
 	require.NoError(t, err)
 
 	_, err = b.CreateProjectVersion(proj.ProjectARN, "v1", rekognition.CreateProjectVersionParams{}, nil)
@@ -97,7 +97,11 @@ func newPersistenceTestBackend(t *testing.T) (*rekognition.InMemoryBackend, pers
 	})
 	require.NoError(t, err)
 
-	mediaJobID, err := b.StartMediaAnalysisJob("job1")
+	mediaJobID, err := b.StartMediaAnalysisJob("job1", rekognition.StartMediaAnalysisJobParams{
+		InputS3Bucket:        "media-in-bucket",
+		InputS3Name:          "media-in-key",
+		OutputConfigS3Bucket: "media-out-bucket",
+	})
 	require.NoError(t, err)
 
 	return b, persistenceTestIDs{
@@ -219,6 +223,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	mediaJob, err := fresh.GetMediaAnalysisJob(ids.mediaJobID)
 	require.NoError(t, err)
 	assert.Equal(t, "job1", mediaJob.JobName)
+	assert.Equal(t, "media-in-bucket", mediaJob.InputS3Bucket)
+	assert.Equal(t, "media-in-key", mediaJob.InputS3Name)
+	assert.Equal(t, "media-out-bucket", mediaJob.OutputConfigS3Bucket)
 
 	mediaJobs, _, err := fresh.ListMediaAnalysisJobs(0, "")
 	require.NoError(t, err)
@@ -407,9 +414,11 @@ func TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields(t *testing.T) {
 	dstProjectARN := dstProjResp["ProjectArn"].(string)
 
 	rec = doRequest(t, h, "CopyProjectVersion", map[string]any{
+		"SourceProjectArn":        projectARN,
 		"SourceProjectVersionArn": versionARN,
 		"DestinationProjectArn":   dstProjectARN,
 		"VersionName":             "v1-copy",
+		"OutputConfig":            map[string]any{"S3Bucket": "copy-bucket"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

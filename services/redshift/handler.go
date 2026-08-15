@@ -39,7 +39,11 @@ const (
 	// define real, distinct operations with these exact names.
 	opCreateEndpointAccess = "CreateEndpointAccess"
 	opDeleteEndpointAccess = "DeleteEndpointAccess"
-	opUnknown              = "Unknown"
+	// opGetIdentityCenterAuthToken is shared with handler_serverless.go:
+	// classic Redshift and Redshift Serverless both define real, distinct
+	// operations with this exact name.
+	opGetIdentityCenterAuthToken = "GetIdentityCenterAuthToken"
+	opUnknown                    = "Unknown"
 )
 
 const (
@@ -243,7 +247,7 @@ func supportedOpsGroup2() []string {
 		"DescribeQev2IdcApplications",
 		"DescribeRedshiftIdcApplications",
 		"DescribeScheduledActions",
-		"GetIdentityCenterAuthToken",
+		opGetIdentityCenterAuthToken,
 		"ListRecommendations",
 		"ModifyAquaConfiguration",
 		"ModifyClusterDbRevision",
@@ -499,7 +503,7 @@ func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 		"DescribeQev2IdcApplications":      h.handleDescribeQev2IdcApplications,
 		"DescribeRedshiftIdcApplications":  h.handleDescribeIdcApplications,
 		"DescribeScheduledActions":         h.handleDescribeScheduledActions,
-		"GetIdentityCenterAuthToken":       h.handleGetIdentityCenterAuthToken,
+		opGetIdentityCenterAuthToken:       h.handleGetIdentityCenterAuthToken,
 		"ListRecommendations":              h.handleListRecommendations,
 		"ModifyAquaConfiguration":          h.handleModifyAquaConfiguration,
 		"ModifyClusterDbRevision":          h.handleModifyClusterDBRevision,
@@ -725,10 +729,9 @@ func toXMLClusterWithTags(c *Cluster, tags map[string]string) xmlCluster {
 		EnhancedVpcRouting:               c.EnhancedVpcRouting,
 		SnapshotScheduleIdentifier:       c.SnapshotScheduleIdentifier,
 		SnapshotScheduleState:            c.SnapshotScheduleState,
-		AquaConfiguration: xmlAquaConfig{
-			AquaConfigurationStatus: statusDisabled,
-			AquaStatus:              statusDisabled,
-		},
+		CatalogArn:                       c.CatalogArn,
+		LakehouseRegistrationStatus:      c.LakehouseRegistrationStatus,
+		AquaConfiguration:                defaultAquaConfig(),
 		ClusterNodes: xmlClusterNodes{
 			Members: []xmlClusterNode{{
 				NodeRole:         "LEADER",
@@ -816,6 +819,8 @@ var errCodeSentinels = []error{
 	ErrIdcApplicationAlreadyExists,
 	ErrQev2IdcApplicationNotFound,
 	ErrQev2IdcApplicationAlreadyExists,
+	ErrNamespaceRegistrationInvalidClusterState,
+	ErrInvalidNamespace,
 }
 
 func resolveErrCode(opErr error) (string, int) {
@@ -890,6 +895,8 @@ type xmlCluster struct {
 	KmsKeyID                         string                `xml:"KmsKeyId,omitempty"`
 	AvailabilityZoneRelocationStatus string                `xml:"AvailabilityZoneRelocationStatus"`
 	SnapshotScheduleState            string                `xml:"SnapshotScheduleState,omitempty"`
+	CatalogArn                       string                `xml:"CatalogArn,omitempty"`
+	LakehouseRegistrationStatus      string                `xml:"LakehouseRegistrationStatus,omitempty"`
 	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
 	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
 	IamRoles                         xmlIamRoles           `xml:"IamRoles"`
@@ -903,6 +910,21 @@ type xmlCluster struct {
 type xmlAquaConfig struct {
 	AquaConfigurationStatus string `xml:"AquaConfigurationStatus"`
 	AquaStatus              string `xml:"AquaStatus"`
+}
+
+// defaultAquaConfig returns AQUA's permanently-retired status. Both
+// AquaConfigurationStatus and AquaStatus are documented "This field is
+// retired" on types.AquaConfiguration (aws-sdk-go-v2/service/redshift@v1.65.4)
+// -- Amazon Redshift no longer supports enabling/disabling AQUA, so every
+// cluster reports it disabled. Shared by every Cluster-returning response and
+// by ModifyAquaConfiguration's own response so the two can't silently diverge
+// (they previously did: this handler's AquaConfiguration used "disabled" while
+// ModifyAquaConfiguration's stub separately hardcoded "auto").
+func defaultAquaConfig() xmlAquaConfig {
+	return xmlAquaConfig{
+		AquaConfigurationStatus: statusDisabled,
+		AquaStatus:              statusDisabled,
+	}
 }
 
 type xmlClusterNode struct {

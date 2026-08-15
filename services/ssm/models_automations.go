@@ -6,8 +6,21 @@ type SendAutomationSignalOutput struct{}
 // StopAutomationExecutionOutput is the response for StopAutomationExecution.
 type StopAutomationExecutionOutput struct{}
 
+// AutomationExecutionFilterEntry filters DescribeAutomationExecutions
+// results by ExecutionId, ExecutionStatus or DocumentNamePrefix
+// (api_op_DescribeAutomationExecutions.go Filters member,
+// types.AutomationExecutionFilterKey).
+type AutomationExecutionFilterEntry struct {
+	Key    string   `json:"Key,omitempty"`
+	Values []string `json:"Values,omitempty"`
+}
+
 // DescribeAutomationExecutionsInput is the request for DescribeAutomationExecutions.
-type DescribeAutomationExecutionsInput struct{}
+type DescribeAutomationExecutionsInput struct {
+	MaxResults *int32                           `json:"MaxResults,omitempty"`
+	NextToken  string                           `json:"NextToken,omitempty"`
+	Filters    []AutomationExecutionFilterEntry `json:"Filters,omitempty"`
+}
 
 // DescribeAutomationExecutionsOutput is the response for DescribeAutomationExecutions.
 type DescribeAutomationExecutionsOutput struct{}
@@ -64,9 +77,23 @@ type StartAutomationExecutionInput struct {
 // StartAutomationExecutionOutput is the response payload.
 type StartAutomationExecutionOutput struct{}
 
+// Runbook mirrors types.Runbook (types.go:5718). TargetLocations/TargetMaps/
+// TargetParameterName/Targets are deliberately not modeled -- the same
+// shallow-scalar simplification StartAutomationExecutionInput already makes
+// for its own Targets/TargetLocations/TargetParameterName (this file, above),
+// an established convention in this backend, not new scope for this fix.
+type Runbook struct {
+	Parameters      map[string][]string `json:"Parameters,omitempty"`
+	DocumentName    string              `json:"DocumentName"`
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	MaxConcurrency  string              `json:"MaxConcurrency,omitempty"`
+	MaxErrors       string              `json:"MaxErrors,omitempty"`
+}
+
 // StartChangeRequestExecutionInput is the request payload.
 type StartChangeRequestExecutionInput struct {
-	DocumentName string `json:"DocumentName"`
+	DocumentName string    `json:"DocumentName"`
+	Runbooks     []Runbook `json:"Runbooks"`
 }
 
 // StartChangeRequestExecutionOutput is the response payload.
@@ -86,28 +113,40 @@ type StopAutomationExecutionInput struct {
 }
 
 // AutomationExecution represents a running or completed SSM automation execution.
+// Also serialized as AutomationExecutionMetadata for DescribeAutomationExecutions.
 type AutomationExecution struct {
-	Parameters            map[string][]string  `json:"Parameters,omitempty"`
-	AutomationExecutionID string               `json:"AutomationExecutionId"`
-	DocumentName          string               `json:"DocumentName"`
-	DocumentVersion       string               `json:"DocumentVersion"`
-	Status                string               `json:"AutomationExecutionStatus"`
-	ExecutionType         string               `json:"ExecutionType"`
-	Mode                  string               `json:"Mode,omitempty"`
-	FailureMessage        string               `json:"FailureMessage,omitempty"`
-	Steps                 []AutomationStepExec `json:"StepExecutions,omitempty"`
-	StartTime             float64              `json:"ExecutionStartTime"`
-	EndTime               float64              `json:"ExecutionEndTime,omitempty"`
-	completeAfter         float64
+	Parameters            map[string][]string `json:"Parameters,omitempty"`
+	Mode                  string              `json:"Mode,omitempty"`
+	DocumentName          string              `json:"DocumentName"`
+	DocumentVersion       string              `json:"DocumentVersion"`
+	Status                string              `json:"AutomationExecutionStatus"`
+	ExecutionType         string              `json:"ExecutionType"`
+	AutomationExecutionID string              `json:"AutomationExecutionId"`
+	FailureMessage        string              `json:"FailureMessage,omitempty"`
+	// Never populated: real SSM sets this for a non-critical issue its engine
+	// detects mid-run (types.go:801-803), but every execution here always
+	// completes every step to Success (completeAutomationLocked) with no
+	// partial-failure/degraded path to report one from.
+	WarningMessage string `json:"WarningMessage,omitempty"`
+	// Runbooks is populated only by StartChangeRequestExecution (the only op
+	// whose real Input carries Runbooks); always empty for executions started
+	// via StartAutomationExecution, matching real AWS.
+	Runbooks      []Runbook            `json:"Runbooks,omitempty"`
+	Steps         []AutomationStepExec `json:"StepExecutions,omitempty"`
+	StartTime     float64              `json:"ExecutionStartTime"`
+	EndTime       float64              `json:"ExecutionEndTime,omitempty"`
+	completeAfter float64
 }
 
 // AutomationStepExec represents a single step in an automation execution.
 type AutomationStepExec struct {
-	StepName           string  `json:"StepName"`
-	Action             string  `json:"Action"`
-	StepStatus         string  `json:"StepStatus"`
-	StepExecutionID    string  `json:"StepExecutionId,omitempty"`
-	FailureMessage     string  `json:"FailureMessage,omitempty"`
+	StepName        string `json:"StepName"`
+	Action          string `json:"Action"`
+	StepStatus      string `json:"StepStatus"`
+	StepExecutionID string `json:"StepExecutionId,omitempty"`
+	FailureMessage  string `json:"FailureMessage,omitempty"`
+	// Never populated: see AutomationExecution.WarningMessage.
+	WarningMessage     string  `json:"WarningMessage,omitempty"`
 	ExecutionStartTime float64 `json:"ExecutionStartTime,omitempty"`
 	ExecutionEndTime   float64 `json:"ExecutionEndTime,omitempty"`
 }

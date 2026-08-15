@@ -32,6 +32,9 @@ func (b *InMemoryBackend) CreateJob(
 	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
+	if err := b.validateJobResourceRefs(region, datasetName, projectName, recipeName); err != nil {
+		return nil, err
+	}
 	if err := validateJobExtras(extra); err != nil {
 		return nil, err
 	}
@@ -148,6 +151,31 @@ func (b *InMemoryBackend) UpdateJob(
 	}
 	applyJobExtras(j, extra)
 	j.LastModifiedDate = float64(time.Now().Unix())
+
+	return nil
+}
+
+// validateJobResourceRefs rejects a CreateJob call that names a dataset,
+// project, or recipe that doesn't exist, before any state is mutated.
+// CreateProfileJob and CreateRecipeJob both document ResourceNotFoundException
+// (aws-sdk-go-v2/service/databrew's deserializers.go:465/960, in
+// awsRestjson1_deserializeOpErrorCreateProfileJob/CreateRecipeJob);
+// CreateProject's error switch (deserializers.go:626-638) has no
+// ResourceNotFoundException case, so ProjectName/RecipeName there are
+// deliberately left unvalidated by CreateProject itself. Each name here is
+// checked only when non-empty: CreateRecipeJobInput accepts ProjectName as an
+// alternative to DatasetName+RecipeReference, so an unset reference is not an
+// error.
+func (b *InMemoryBackend) validateJobResourceRefs(region, datasetName, projectName, recipeName string) error {
+	if datasetName != "" && !b.datasetsTable(region).Has(datasetName) {
+		return fmt.Errorf("%w: dataset %q", ErrNotFound, datasetName)
+	}
+	if projectName != "" && !b.projectsTable(region).Has(projectName) {
+		return fmt.Errorf("%w: project %q", ErrNotFound, projectName)
+	}
+	if recipeName != "" && !b.recipesTable(region).Has(recipeName) {
+		return fmt.Errorf("%w: recipe %q", ErrNotFound, recipeName)
+	}
 
 	return nil
 }
@@ -277,15 +305,30 @@ func (b *InMemoryBackend) StartJobRun(ctx context.Context, jobName string) (*Job
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	if !b.jobsTable(region).Has(jobName) {
+	j, ok := b.jobsTable(region).Get(jobName)
+	if !ok {
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobName)
 	}
 
+	// Attempt/DataCatalogOutputs/DatabaseOutputs/JobSample/LogSubscription/
+	// Outputs/RecipeReference are real types.JobRun members
+	// (deserializers.go's awsRestjson1_deserializeDocumentJobRun) this
+	// backend only has one source for: the parent Job's own configuration at
+	// the moment the run starts. Attempt is always 1: this backend never
+	// retries a run (StartJobRun always transitions STARTING->SUCCEEDED, see
+	// jobRunTransitionDelay), so there is never a second attempt to count.
 	run := &JobRun{
-		JobName:   jobName,
-		RunID:     uuid.New().String(),
-		State:     "STARTING",
-		StartedOn: float64(time.Now().Unix()),
+		JobName:            jobName,
+		RunID:              uuid.New().String(),
+		State:              "STARTING",
+		StartedOn:          float64(time.Now().Unix()),
+		Attempt:            1,
+		DataCatalogOutputs: append([]DataCatalogOutput(nil), j.DataCatalogOutputs...),
+		DatabaseOutputs:    append([]DatabaseOutput(nil), j.DatabaseOutputs...),
+		JobSample:          j.JobSample,
+		LogSubscription:    j.LogSubscription,
+		Outputs:            append([]Output(nil), j.Outputs...),
+		RecipeReference:    j.RecipeReference,
 	}
 
 	runStore := b.jobRunsStore(region)

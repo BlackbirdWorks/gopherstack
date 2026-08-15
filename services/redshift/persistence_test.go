@@ -258,6 +258,15 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	_, err = b.UpdateLakehouseConfigurationSL(redshift.UpdateLakehouseConfigParams{
+		NamespaceName:              "rt-namespace",
+		CatalogName:                "rt-catalog",
+		LakehouseRegistration:      "Register",
+		LakehouseIdcApplicationArn: "arn:aws:sso::000000000000:application/rt-idc-app",
+		LakehouseIdcRegistration:   "Associate",
+	})
+	require.NoError(t, err)
+
 	_, err = b.CreateWorkgroup(
 		"rt-workgroup", "rt-namespace", redshift.WorkgroupParams{BaseCapacity: 32}, nil,
 	)
@@ -266,7 +275,11 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace", 0, nil)
 	require.NoError(t, err)
 
-	rtRecoveryPoints, _ := b.ListRecoveryPointsSL("rt-namespace", "", 0, "")
+	rtRetention := 45
+	_, err = b.UpdateServerlessSnapshot("rt-slsnapshot", &rtRetention)
+	require.NoError(t, err)
+
+	rtRecoveryPoints, _ := b.ListRecoveryPointsSL(redshift.ListRecoveryPointsParams{NamespaceName: "rt-namespace"})
 	require.Len(t, rtRecoveryPoints, 1, "CreateWorkgroup must have generated exactly one recovery point")
 	rtRecoveryPointID := rtRecoveryPoints[0].RecoveryPointID
 
@@ -378,16 +391,31 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, restores, 1)
 
-	_, err = fresh.GetNamespace("rt-namespace")
+	freshNS, err := fresh.GetNamespace("rt-namespace")
 	require.NoError(t, err)
+	assert.Contains(t, freshNS.CatalogArn, "rt-catalog")
+	assert.Equal(t, "Registered", freshNS.LakehouseRegistrationStatus)
 
 	_, err = fresh.GetWorkgroup("rt-workgroup")
 	require.NoError(t, err)
 
-	_, err = fresh.GetServerlessSnapshot("rt-slsnapshot")
+	slSnap, err := fresh.GetServerlessSnapshot("rt-slsnapshot", "")
 	require.NoError(t, err)
+	assert.Equal(t, 45, slSnap.SnapshotRetentionPeriod)
 
-	slLimits, _ := fresh.ListServerlessUsageLimits("", 0, "")
+	// A follow-up UpdateLakehouseConfiguration call that changes only the
+	// registration status must still see the LakehouseIdcApplicationArn set
+	// before the round trip -- proving slLakehouseConfig (a table with no
+	// Namespace field of its own) survived Restore, not just Namespace's own
+	// CatalogArn/LakehouseRegistrationStatus fields.
+	lhResult, err := fresh.UpdateLakehouseConfigurationSL(redshift.UpdateLakehouseConfigParams{
+		NamespaceName:         "rt-namespace",
+		LakehouseRegistration: "Deregister",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:sso::000000000000:application/rt-idc-app", lhResult.LakehouseIdcApplicationArn)
+
+	slLimits, _ := fresh.ListServerlessUsageLimits("", "", 0, "")
 	assert.Len(t, slLimits, 1)
 
 	_, err = fresh.GetServerlessScheduledAction("rt-slscheduledaction")
@@ -413,7 +441,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "rt-namespace", recoveryPoint.NamespaceName)
 
-	recoveryPointList, _ := fresh.ListRecoveryPointsSL("rt-namespace", "", 0, "")
+	recoveryPointList, _ := fresh.ListRecoveryPointsSL(redshift.ListRecoveryPointsParams{NamespaceName: "rt-namespace"})
 	require.Len(t, recoveryPointList, 1, "sorted index must survive the round trip, not just the underlying table")
 
 	tr, err := fresh.GetTableRestoreStatusSL(rtTableRestore.TableRestoreRequestID)

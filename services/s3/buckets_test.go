@@ -1,17 +1,69 @@
 package s3_test
 
 import (
+	"context"
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
+
+// TestHeadBucket_DeletePending is a regression test for gopherstack-lv77:
+// headBucket's handler called Backend.GetBucketMetadata, which never
+// consulted DeletePending, so HeadBucket reported success for a bucket mid
+// async deletion -- exactly the state a caller polling for delete
+// completion is watching for. newTestHandler never starts the janitor
+// (WithJanitor only wires it; nothing here calls StartWorker), so deleting
+// an already-empty bucket leaves it DeletePending indefinitely, giving a
+// stable window to assert HeadBucket reports it gone.
+func TestHeadBucket_DeletePending(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		deleteFirst    bool
+		wantStillExist bool
+	}{
+		{name: "bucket present", deleteFirst: false, wantStillExist: true},
+		{name: "bucket delete pending", deleteFirst: true, wantStillExist: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRealS3ClientTest(t)
+			bucket := "head-bucket-delete-pending"
+
+			_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
+			require.NoError(t, err)
+
+			if tt.deleteFirst {
+				_, err = client.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+				require.NoError(t, err)
+			}
+
+			_, err = client.HeadBucket(t.Context(), &sdk_s3.HeadBucketInput{Bucket: aws.String(bucket)})
+
+			if tt.wantStillExist {
+				assert.NoError(t, err)
+			} else {
+				var notFound *types.NotFound
+				require.ErrorAs(t, err, &notFound,
+					"a poller waiting for the bucket to disappear must see it gone, not indefinitely present")
+			}
+		})
+	}
+}
 
 // TestHandler_Regions verifies S3Handler.Regions() reflects the regions of
 // created buckets.
@@ -499,6 +551,34 @@ func TestHandler_CreateBucket_ReturnsLocation(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "/test-bucket", rec.Header().Get("Location"), "Location header should be set")
+}
+
+// TestHandler_CreateBucket_Tags verifies that Tags carried in the
+// CreateBucketConfiguration XML body (real S3 wire shape: <Tags><Tag>...)
+// are stored on the bucket, matching what PutBucketTagging/GetBucketTagging
+// already expose.
+func TestHandler_CreateBucket_Tags(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+
+	bucket := "tagged-on-create"
+	body := `<CreateBucketConfiguration>` +
+		`<Tags><Tag><Key>env</Key><Value>prod</Value></Tag><Tag><Key>team</Key><Value>infra</Value></Tag></Tags>` +
+		`</CreateBucketConfiguration>`
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket, strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	tags, err := backend.GetBucketTagging(context.Background(), bucket)
+	require.NoError(t, err)
+	require.Len(t, tags, 2)
+	assert.Equal(t, "env", aws.ToString(tags[0].Key))
+	assert.Equal(t, "prod", aws.ToString(tags[0].Value))
+	assert.Equal(t, "team", aws.ToString(tags[1].Key))
+	assert.Equal(t, "infra", aws.ToString(tags[1].Value))
 }
 
 func TestHandler_DeleteBucket(t *testing.T) {

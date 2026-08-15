@@ -145,6 +145,26 @@ const (
 	testNamespace = "default"
 )
 
+// testPhysicalTableMap returns a minimal but real PhysicalTableMap body
+// fragment (one RelationalTable entry) for tests that only need a dataset to
+// exist, not to exercise PhysicalTableMap itself. CreateDataSet/UpdateDataSet
+// reject a request with no physical tables (quicksight@v1.123.1
+// api_op_CreateDataSet.go:55, api_op_UpdateDataSet.go:55: PhysicalTableMap is
+// required), so every test that creates/updates a dataset over HTTP needs one.
+func testPhysicalTableMap() map[string]any {
+	return map[string]any{
+		"pt1": map[string]any{
+			"RelationalTable": map[string]any{
+				"DataSourceArn": "arn:aws:quicksight:us-east-1:000000000000:datasource/ds1",
+				"Name":          "table1",
+				"InputColumns": []any{
+					map[string]any{"Name": "col1", "Type": "STRING"},
+				},
+			},
+		},
+	}
+}
+
 func newTestBackend(t *testing.T) *quicksight.InMemoryBackend {
 	t.Helper()
 
@@ -192,6 +212,24 @@ func parseBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 
 func accountPath(sub string) string {
 	return fmt.Sprintf("/accounts/%s%s", testAccountID, sub)
+}
+
+// oauthAppBody returns a CreateOAuthClientApplicationInput body carrying
+// every field aws-sdk-go-v2/service/quicksight@v1.123.1/validators.go's
+// validateOpCreateOAuthClientApplicationInput marks required
+// (OAuthClientApplicationId, Name, OAuthClientAuthenticationType, ClientId,
+// ClientSecret, OAuthTokenEndpointUrl), for tests that only care about an
+// OAuth client application existing rather than exercising these fields
+// directly.
+func oauthAppBody(id, name string) map[string]any {
+	return map[string]any{
+		"OAuthClientApplicationId":      id,
+		"Name":                          name,
+		"ClientId":                      "idp-client-id-" + id,
+		"ClientSecret":                  "idp-client-secret-" + id,
+		"OAuthClientAuthenticationType": "TOKEN",
+		"OAuthTokenEndpointUrl":         "https://idp.example.com/token",
+	}
 }
 
 func nsPath(sub string) string {

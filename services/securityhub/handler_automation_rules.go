@@ -40,7 +40,7 @@ func (h *Handler) handleListAutomationRules(c *echo.Context) error {
 			"RuleOrder":    r.RuleOrder,  //nolint:goconst // existing issue.
 			"RuleName":     r.RuleName,   //nolint:goconst // existing issue.
 			keyDescription: r.Description,
-			"IsTerminal":   r.IsTerminal, //nolint:goconst // existing issue.
+			"IsTerminal":   r.IsTerminal,
 			keyCreatedAt:   r.CreatedAt,
 			keyUpdatedAt:   r.UpdatedAt,
 			keyCreatedBy:   r.CreatedBy,
@@ -191,12 +191,16 @@ func classifyAutomationRulesV2Path(method, path string) (string, string) {
 	}
 }
 
+// handleCreateAutomationRuleV2 does not read an "IsTerminal" field: the real
+// CreateAutomationRuleV2Input has no such member at all
+// (securityhub@v1.75.4 api_op_CreateAutomationRuleV2.go) -- that concept only
+// exists on the V1 AutomationRule shape (types.AutomationRulesMetadata), and
+// a prior version of this handler had carried it over by mistake.
 func (h *Handler) handleCreateAutomationRuleV2(c *echo.Context, body map[string]any) error {
 	ruleName, _ := body["RuleName"].(string)
 	ruleStatus, _ := body["RuleStatus"].(string)
 	description, _ := body["Description"].(string)
 	ruleOrder, _ := body["RuleOrder"].(float64)
-	isTerminal, _ := body["IsTerminal"].(bool)
 
 	var criteria map[string]any
 
@@ -235,7 +239,6 @@ func (h *Handler) handleCreateAutomationRuleV2(c *echo.Context, body map[string]
 		criteria,
 		actions,
 		ruleOrder,
-		isTerminal,
 		tags,
 	)
 	if err != nil {
@@ -325,9 +328,19 @@ func (h *Handler) handleDeleteAutomationRuleV2(c *echo.Context, identifier strin
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// automationRuleV2ToResponse renders the wire fields shared by
+// CreateAutomationRuleV2Output/GetAutomationRuleV2Output/
+// ListAutomationRulesV2Output's per-item AutomationRulesMetadataV2/
+// UpdateAutomationRuleV2's echoed body (securityhub@v1.75.4
+// api_op_GetAutomationRuleV2.go, types.go:905-935). The real key is
+// "RuleId", not "Identifier" -- a real client's typed field was always
+// empty regardless of backend state. "IsTerminal" is not emitted at all:
+// it is a V1 AutomationRulesMetadata-only member (types.go:872), absent
+// from every V2 automation-rule shape; this function previously carried it
+// over from the V1 response builder by mistake.
 func automationRuleV2ToResponse(rule *AutomationRuleV2) map[string]any {
 	return map[string]any{
-		"Identifier":   rule.Identifier,
+		"RuleId":       rule.Identifier,
 		"RuleArn":      rule.RuleArn,
 		"RuleName":     rule.RuleName,
 		"RuleStatus":   rule.RuleStatus,
@@ -337,7 +350,6 @@ func automationRuleV2ToResponse(rule *AutomationRuleV2) map[string]any {
 		"Criteria":     rule.Criteria,
 		"Actions":      rule.Actions,
 		"RuleOrder":    rule.RuleOrder,
-		"IsTerminal":   rule.IsTerminal,
 	}
 }
 

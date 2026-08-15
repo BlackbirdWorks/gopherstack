@@ -435,11 +435,11 @@ func TestStartInputDeviceMaintenanceWindow(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		deviceID   string
-		wantStatus int
-		claim      bool
-		checkFlag  bool
+		name        string
+		deviceID    string
+		wantStatus  int
+		claim       bool
+		checkAbsent bool
 	}{
 		{
 			name:       "not found returns 404",
@@ -448,11 +448,11 @@ func TestStartInputDeviceMaintenanceWindow(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "found sets maintenance window active",
-			deviceID:   "hd-mw1",
-			claim:      true,
-			wantStatus: http.StatusOK,
-			checkFlag:  true,
+			name:        "found does not fabricate maintenanceWindowActive",
+			deviceID:    "hd-mw1",
+			claim:       true,
+			wantStatus:  http.StatusOK,
+			checkAbsent: true,
 		},
 	}
 
@@ -474,13 +474,19 @@ func TestStartInputDeviceMaintenanceWindow(t *testing.T) {
 			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.checkFlag {
+			if tt.checkAbsent {
 				rec2 := doRequest(t, h, http.MethodGet, "/prod/inputDevices/"+tt.deviceID, nil)
 				require.Equal(t, http.StatusOK, rec2.Code)
 
+				// gopherstack-7ux2: neither types.InputDeviceSummary nor
+				// DescribeInputDeviceOutput carries maintenanceWindowActive
+				// (medialive@v1.101.4 types/types.go:4498-4556). Asserted on
+				// the raw body, since an SDK client discards unrecognised
+				// keys and would pass this test even with the phantom field
+				// still present.
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-				assert.Equal(t, true, resp["maintenanceWindowActive"])
+				assert.NotContains(t, resp, "maintenanceWindowActive")
 			}
 		})
 	}

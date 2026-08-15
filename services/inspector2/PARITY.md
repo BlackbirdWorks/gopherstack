@@ -100,6 +100,15 @@ existing convention): CreateConnector (`/connector/create`), UpdateConnector
 `connectorscanconfiguration` path segments, which are easy to transpose).
 The handler now routes 81 ops total (13 base + 68 extended).
 
+**2026-08-13 (gopherstack-jqh2 pass 2):** the prior op-by-op cross-checks above were
+manual verification, not a permanent test — the pre-existing `handler_routing_test.go`
+was generated from this package's own switch statements (a refactor-safety guardrail)
+and never covered the 6 Connector ops. Re-extracted all 81 ops' real method+path
+independently from `inspector2@v1.54.1` serializers.go and added
+`handler_sdk_route_table_test.go` (`TestExtractOperation_SDKRouteTable`, full 81/81
+coverage including the 6 Connector ops). All 81 resolved correctly — no bugs, the
+manual cross-checks held.
+
 ### Connectors and connector scan configuration (new this pass)
 
 The Go SDK module was bumped to `aws-sdk-go-v2/service/inspector2@v1.53.0`

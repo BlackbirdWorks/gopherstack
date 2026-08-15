@@ -32,6 +32,10 @@ const (
 	keyBlobID           = "blobId"
 	keyFilePath         = "filePath"
 	keyFileMode         = "fileMode"
+	keyAfterCommitID    = "afterCommitId"
+	keyPullRequestID    = "pullRequestId"
+	keyAbsolutePath     = "absolutePath"
+	keyApprovalRuleID   = "approvalRuleId"
 	prStatusMerged      = "MERGED"
 	fileModeNormal      = "NORMAL"
 )

@@ -150,12 +150,12 @@ type OutboundConnection struct {
 
 // VpcEndpoint represents a managed VPC endpoint for an Elasticsearch domain.
 type VpcEndpoint struct {
-	VpcOptions     map[string]string `json:"vpcOptions"`
-	ID             string            `json:"vpcEndpointID"`
-	OwnerAccountID string            `json:"ownerAccountID"`
-	DomainARN      string            `json:"domainARN"`
-	Endpoint       string            `json:"endpoint"`
-	Status         string            `json:"status"`
+	VpcOptions     VPCOptions `json:"vpcOptions"`
+	ID             string     `json:"vpcEndpointID"`
+	OwnerAccountID string     `json:"ownerAccountID"`
+	DomainARN      string     `json:"domainARN"`
+	Endpoint       string     `json:"endpoint"`
+	Status         string     `json:"status"`
 	// region is the store.Table composite-key qualifier; see the identical
 	// comment on InboundConnection above.
 	region          string

@@ -304,11 +304,11 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 
 	switch operation {
 	case opGetRealtimeLogConfig:
-		return h.handleGetRealtimeLogConfig(c, resource)
+		return h.handleGetRealtimeLogConfig(c)
 	case opUpdateRealtimeLogConfig:
-		return h.handleUpdateRealtimeLogConfig(c, resource)
+		return h.handleUpdateRealtimeLogConfig(c)
 	case opDeleteRealtimeLogConfig:
-		return h.handleDeleteRealtimeLogConfig(c, resource)
+		return h.handleDeleteRealtimeLogConfig(c)
 	case opGetVpcOrigin:
 		return h.handleGetVpcOrigin(c, resource)
 	case opUpdateVpcOrigin:
@@ -327,7 +327,7 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 	}
 }
 
-// dispatchKVSOps handles KVS control-plane and data-plane operations.
+// dispatchKVSOps handles KVS control-plane operations.
 func (h *Handler) dispatchKVSOps(c *echo.Context, operation, resource string) error {
 	switch operation {
 	case opDescribeKeyValueStore:
@@ -336,18 +336,6 @@ func (h *Handler) dispatchKVSOps(c *echo.Context, operation, resource string) er
 		return h.handleUpdateKeyValueStore(c, resource)
 	case opDeleteKeyValueStore:
 		return h.handleDeleteKeyValueStore(c, resource)
-	case opGetKVSKey:
-		kvsID, key, _ := strings.Cut(resource, "/")
-
-		return h.handleGetKVSKey(c, kvsID, key)
-	case opPutKVSKey:
-		kvsID, key, _ := strings.Cut(resource, "/")
-
-		return h.handlePutKVSKey(c, kvsID, key)
-	case opDeleteKVSKey:
-		kvsID, key, _ := strings.Cut(resource, "/")
-
-		return h.handleDeleteKVSKey(c, kvsID, key)
 	default:
 
 		return errNotDispatched
@@ -382,8 +370,6 @@ func (h *Handler) dispatchListCore(c *echo.Context, operation, resource string) 
 		return h.handleListResponseHeadersPolicies(c)
 	case opListTagsForResource:
 		return h.handleListTagsForResource(c)
-	case opListKVSKeys:
-		return h.handleListKVSKeys(c, resource)
 	default:
 
 		return errNotDispatched
@@ -442,8 +428,6 @@ func (h *Handler) dispatchMisc(c *echo.Context, operation, resource string) erro
 		return h.handleGetFunctionAssociations(c, resource)
 	case opSetFunctionAssociations:
 		return h.handleSetFunctionAssociations(c, resource)
-	case opUpdateKVSKeys:
-		return h.handleUpdateKVSKeys(c, resource)
 	default:
 
 		return errNotDispatched
@@ -657,49 +641,54 @@ func (h *Handler) dispatchStubsResourcePolicyAndMisc(c *echo.Context, operation 
 }
 
 // dispatchStubsDistributionListBy handles the ListDistributionsBy-* operations.
+// Identifier sources vary per op (cloudfront@v1.67.4 serializers.go, each
+// op's HttpBindings func): most are a "distributionsBy*/{Id}" URI label,
+// ListDistributionsByConnectionFunction and ListDistributionsByTrustStore
+// carry theirs as a query value with no URI label at all, and
+// ListDistributionsByRealtimeLogConfig carries its ARN in the XML body.
 func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation string) error {
 	path := c.Request().URL.Path
 
 	switch operation {
 	case opListDistributionsByCachePolicyID:
-		return h.handleListDistributionsByCachePolicyID(c, extractResourceID(path, "distributions/by-cache-policy-id/"))
+		return h.handleListDistributionsByCachePolicyID(c, extractResourceID(path, "distributionsByCachePolicyId/"))
 	case opListDistributionsByOriginRequestPol:
 		return h.handleListDistributionsByOriginRequestPolicyID(
 			c,
-			extractResourceID(path, "distributions/by-origin-request-policy-id/"),
+			extractResourceID(path, "distributionsByOriginRequestPolicyId/"),
 		)
 	case opListDistributionsByResponseHeadersPol:
 		return h.handleListDistributionsByResponseHeadersPolicyID(
 			c,
-			extractResourceID(path, "distributions/by-response-headers-policy-id/"),
+			extractResourceID(path, "distributionsByResponseHeadersPolicyId/"),
 		)
 	case opListDistributionsByWebACLID:
-		return h.handleListDistributionsByWebACLID(c, extractResourceID(path, "distributions/by-web-acl-id/"))
+		return h.handleListDistributionsByWebACLID(c, extractResourceID(path, "distributionsByWebACLId/"))
 	case opListDistributionsByRealtimeLogConfig:
-		return h.handleListDistributionsByRealtimeLogConfig(
-			c,
-			c.Request().URL.Query().Get("RealtimeLogConfigArn"),
-		)
+		return h.handleListDistributionsByRealtimeLogConfig(c, extractRealtimeLogConfigArn(c))
 	case opListDistributionsByKeyGroup:
-		return h.handleListDistributionsByKeyGroup(c, extractResourceID(path, "distributions/by-key-group/"))
+		return h.handleListDistributionsByKeyGroup(c, extractResourceID(path, "distributionsByKeyGroupId/"))
 	case opListDistributionsByVpcOriginID:
-		return h.handleListDistributionsByVpcOriginID(c, extractResourceID(path, "distributions/by-vpc-origin-id/"))
+		return h.handleListDistributionsByVpcOriginID(c, extractResourceID(path, "distributionsByVpcOriginId/"))
 	case opListDistributionsByAnycastIPListID:
 		return h.handleListDistributionsByAnycastIPListID(
 			c,
-			extractResourceID(path, "distributions/by-anycast-ip-list-id/"),
+			extractResourceID(path, "distributionsByAnycastIpListId/"),
 		)
 	case opListDistributionsByConnectionFunction:
 		return h.handleListDistributionsByConnectionFunction(
 			c,
-			extractResourceID(path, "distributions/by-connection-function/"),
+			c.Request().URL.Query().Get("ConnectionFunctionIdentifier"),
 		)
 	case opListDistributionsByConnectionMode:
-		return h.handleListDistributionsByConnectionMode(c, c.Request().URL.Query().Get("ConnectionMode"))
+		return h.handleListDistributionsByConnectionMode(c, extractResourceID(path, "distributionsByConnectionMode/"))
 	case opListDistributionsByTrustStore:
-		return h.handleListDistributionsByTrustStore(c, extractResourceID(path, "distributions/by-trust-store-id/"))
+		return h.handleListDistributionsByTrustStore(c, c.Request().URL.Query().Get("TrustStoreIdentifier"))
 	case opListDistributionsByOwnedResource:
-		return h.handleListDistributionsByOwnedResource(c, c.Request().URL.Query().Get("ResourceArn"))
+		return h.handleListDistributionsByOwnedResource(
+			c,
+			extractResourceID(path, "distributionsByOwnedResource/"),
+		)
 	case opListConflictingAliases:
 		return h.handleListConflictingAliases(c)
 	case opListDomainConflicts:
@@ -722,7 +711,7 @@ func (h *Handler) dispatchStubsTenantAndCerts(c *echo.Context, operation string)
 	case opListInvalidationsForDistTenant:
 		return h.handleListInvalidationsForTenant(c, extractResourceID(path, "distribution-tenant/"))
 	case opGetManagedCertificateDetails:
-		return h.handleGetManagedCertificateDetails(c, extractResourceID(path, "distribution-tenant/"))
+		return h.handleGetManagedCertificateDetails(c, extractResourceID(path, "managed-certificate/"))
 	default:
 
 		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOperation", "unknown operation: "+operation))
@@ -785,7 +774,7 @@ func notFoundCodeExtended(err error) (string, bool) {
 	case errors.Is(err, ErrRealtimeLogConfigNotFound):
 		return "NoSuchRealtimeLogConfig", true
 	case errors.Is(err, ErrKeyValueStoreNotFound):
-		return "EntityNotFound", true
+		return codeEntityNotFound, true
 	case errors.Is(err, ErrVpcOriginNotFound):
 		return "NoSuchVpcOrigin", true
 	case errors.Is(err, ErrDistributionTenantNotFound):
@@ -795,9 +784,11 @@ func notFoundCodeExtended(err error) (string, bool) {
 	case errors.Is(err, ErrTrustStoreNotFound):
 		return "NoSuchTrustStore", true
 	case errors.Is(err, ErrResourcePolicyNotFound):
-		return "NoSuchResourcePolicy", true
+		return codeEntityNotFound, true
 	case errors.Is(err, ErrMonitoringSubscriptionNotFound):
 		return "NoSuchMonitoringSubscription", true
+	case errors.Is(err, ErrDomainControlValidationResourceNotFound):
+		return codeEntityNotFound, true
 	}
 
 	return "", false

@@ -17,7 +17,7 @@ func TestHandler_ArchiveCRUD(t *testing.T) {
 	b := newBackend()
 	h := eventbridge.NewHandler(b)
 
-	_, err := b.CreateEventBus(context.Background(), "h-archive-bus", "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: "h-archive-bus"})
 	require.NoError(t, err)
 
 	rec := auditMakeRequest(t, h, e, "CreateArchive", map[string]any{

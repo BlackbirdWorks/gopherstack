@@ -16,11 +16,15 @@ import (
 )
 
 const (
-	appstreamTargetPrefix = "PhotonAdminProxyService."
-	appstreamContentType  = "application/x-amz-json-1.1"
-	keyTags               = "Tags"
-	keyStreamingURL       = "StreamingURL"
-	keyExpires            = "Expires"
+	appstreamTargetPrefix  = "PhotonAdminProxyService."
+	appstreamContentType   = "application/x-amz-json-1.1"
+	keyTags                = "Tags"
+	keyStreamingURL        = "StreamingURL"
+	keyExpires             = "Expires"
+	keyStatus              = "Status"
+	keyAppBlockArn         = "AppBlockArn"
+	keyFleetName           = "FleetName"
+	associationStateActive = "ASSOCIATED"
 )
 
 // Handler serves AppStream 2.0 JSON operations.
@@ -136,11 +140,14 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 // same error for the same failure.
 func (h *Handler) errorCodeStatus(err error) (string, int) {
 	switch {
-	// ErrFleetNotStopped and ErrAlreadyExists must precede their wrapped sentinels.
+	// ErrFleetNotStopped, ErrAlreadyExists and ErrSerialization must precede
+	// their wrapped sentinels.
 	case errors.Is(err, ErrFleetNotStopped):
 		return errFleetNotStopped, http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		return errResourceExists, http.StatusBadRequest
+	case errors.Is(err, ErrSerialization):
+		return errSerialization, http.StatusBadRequest
 	case errors.Is(err, awserr.ErrConflict):
 		return errResourceInUse, http.StatusBadRequest
 	case errors.Is(err, awserr.ErrNotFound):

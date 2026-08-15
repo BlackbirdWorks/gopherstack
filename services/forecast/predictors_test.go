@@ -16,10 +16,12 @@ func TestPredictors_FieldShapes(t *testing.T) {
 	h := newHandler()
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
-		"PredictorName":   "audit-predictor",
-		"ForecastHorizon": 30,
-		"PerformAutoML":   true,
-		"PerformHPO":      true,
+		"PredictorName":       "audit-predictor",
+		"ForecastHorizon":     30,
+		"PerformAutoML":       true,
+		"PerformHPO":          true,
+		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+		"FeaturizationConfig": map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn := created["PredictorArn"].(string)
@@ -65,6 +67,8 @@ func TestPredictors_StopResume(t *testing.T) {
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
 		"PredictorName": "sr-predictor", "ForecastHorizon": 5,
+		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+		"FeaturizationConfig": map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn := created["PredictorArn"].(string)

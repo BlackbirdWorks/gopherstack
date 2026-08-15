@@ -2,16 +2,21 @@ package rds
 
 import (
 	"fmt"
-	"slices"
 )
 
-// AddRoleToDBInstance associates an IAM role with the given DB instance.
-func (b *InMemoryBackend) AddRoleToDBInstance(instanceID, roleARN string) error {
+// AddRoleToDBInstance associates an IAM role with the given DB instance for the given feature
+// (e.g. S3_INTEGRATION, SQLSERVER_AUDIT). FeatureName selects the feature slot: real AWS allows
+// at most one role per feature per instance, so re-adding the same (feature, role) pair is a
+// no-op and adding a different role for a feature already in use replaces it.
+func (b *InMemoryBackend) AddRoleToDBInstance(instanceID, roleARN, featureName string) error {
 	if instanceID == "" {
 		return fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
 	}
 	if roleARN == "" {
 		return fmt.Errorf("%w: RoleArn must not be empty", ErrInvalidParameter)
+	}
+	if featureName == "" {
+		return fmt.Errorf("%w: FeatureName must not be empty", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("AddRoleToDBInstance")
@@ -27,23 +32,28 @@ func (b *InMemoryBackend) AddRoleToDBInstance(instanceID, roleARN string) error 
 	// differ purely in case (see normalizeID), and instanceRoles is a plain
 	// map with no normalization of its own.
 	canonicalID := inst.DBInstanceIdentifier
-	if slices.Contains(b.instanceRoles[canonicalID], roleARN) {
-		return nil
+	if b.instanceRoles[canonicalID] == nil {
+		b.instanceRoles[canonicalID] = make(map[string]string)
 	}
 
-	b.instanceRoles[canonicalID] = append(b.instanceRoles[canonicalID], roleARN)
+	b.instanceRoles[canonicalID][featureName] = roleARN
 
 	return nil
 }
 
-// RemoveRoleFromDBInstance disassociates an IAM role from the given instance.
-// Returns an error if the instance does not exist. Removing a role that is not associated is a no-op.
-func (b *InMemoryBackend) RemoveRoleFromDBInstance(instanceID, roleARN string) error {
+// RemoveRoleFromDBInstance disassociates an IAM role from the given instance's feature slot.
+// Returns an error if the instance does not exist. Removing a role that is not associated, or
+// whose ARN doesn't match what's currently associated with that feature, is a no-op -- it must
+// only remove the matching (feature, role) association, not any role sharing the instance.
+func (b *InMemoryBackend) RemoveRoleFromDBInstance(instanceID, roleARN, featureName string) error {
 	if instanceID == "" {
 		return fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
 	}
 	if roleARN == "" {
 		return fmt.Errorf("%w: RoleArn must not be empty", ErrInvalidParameter)
+	}
+	if featureName == "" {
+		return fmt.Errorf("%w: FeatureName must not be empty", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("RemoveRoleFromDBInstance")
@@ -55,10 +65,8 @@ func (b *InMemoryBackend) RemoveRoleFromDBInstance(instanceID, roleARN string) e
 	}
 
 	canonicalID := inst.DBInstanceIdentifier
-	roles := b.instanceRoles[canonicalID]
-	idx := slices.Index(roles, roleARN)
-	if idx >= 0 {
-		b.instanceRoles[canonicalID] = slices.Delete(roles, idx, idx+1)
+	if b.instanceRoles[canonicalID][featureName] == roleARN {
+		delete(b.instanceRoles[canonicalID], featureName)
 	}
 
 	return nil

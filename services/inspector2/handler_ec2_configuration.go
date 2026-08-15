@@ -120,7 +120,7 @@ func (h *Handler) handleBatchGetMemberEc2DeepInspectionStatus(c *echo.Context) e
 	statuses := h.Backend.BatchGetMemberEc2DeepInspectionStatus(req.AccountIDs)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"members":          statuses,
+		"accountIds":       statuses,
 		"failedAccountIds": []any{},
 	})
 }
@@ -132,7 +132,10 @@ func (h *Handler) handleBatchUpdateMemberEc2DeepInspectionStatus(c *echo.Context
 	}
 
 	var req struct {
-		AccountEc2DeepInspectionStatuses []*MemberEc2DeepInspectionStatus `json:"accountEc2DeepInspectionStatuses"`
+		AccountIDs []struct {
+			AccountID              string `json:"accountId"`
+			ActivateDeepInspection bool   `json:"activateDeepInspection"`
+		} `json:"accountIds"`
 	}
 
 	if len(body) > 0 {
@@ -144,12 +147,24 @@ func (h *Handler) handleBatchUpdateMemberEc2DeepInspectionStatus(c *echo.Context
 		}
 	}
 
-	updated := h.Backend.BatchUpdateMemberEc2DeepInspectionStatus(
-		req.AccountEc2DeepInspectionStatuses,
-	)
+	updates := make([]*MemberEc2DeepInspectionStatus, 0, len(req.AccountIDs))
+
+	for _, a := range req.AccountIDs {
+		status := statusDisabled
+		if a.ActivateDeepInspection {
+			status = statusEnabled
+		}
+
+		updates = append(updates, &MemberEc2DeepInspectionStatus{
+			AccountID: a.AccountID,
+			Status:    status,
+		})
+	}
+
+	updated := h.Backend.BatchUpdateMemberEc2DeepInspectionStatus(updates)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"accounts":         updated,
+		"accountIds":       updated,
 		"failedAccountIds": []any{},
 	})
 }

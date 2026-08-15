@@ -179,29 +179,51 @@ type createTemplateMessageBody struct {
 	RequestID string `json:"RequestID,omitempty"`
 }
 
-// exportJobResponse is the JSON wire format of ExportJobResponse.
-type exportJobResponse struct {
-	ARN           string `json:"Arn,omitempty"`
-	ApplicationID string `json:"ApplicationId"`
-	ID            string `json:"Id"`
-	RoleArn       string `json:"RoleArn,omitempty"`
-	S3UrlPrefix   string `json:"S3UrlPrefix,omitempty"`
-	JobStatus     string `json:"JobStatus"`
-	Type          string `json:"Type"`
-	CreationDate  string `json:"CreationDate,omitempty"`
+// exportJobDefinition is the nested Definition sub-object of ExportJobResponse
+// (types.ExportJobResource), confirmed against pinpoint@v1.42.4
+// deserializers.go's awsRestjson1_deserializeDocumentExportJobResource. A
+// prior version of exportJobResponse emitted RoleArn/S3UrlPrefix at the top
+// level instead of nested here, which a real client's deserializer silently
+// drops since ExportJobResponse itself has no such top-level members.
+type exportJobDefinition struct {
+	RoleArn        string `json:"RoleArn,omitempty"`
+	S3UrlPrefix    string `json:"S3UrlPrefix,omitempty"`
+	SegmentID      string `json:"SegmentId,omitempty"`
+	SegmentVersion int    `json:"SegmentVersion,omitempty"`
 }
 
-// importJobResponse is the JSON wire format of ImportJobResponse.
+// exportJobResponse is the JSON wire format of ExportJobResponse. There is no
+// top-level Arn member on the real type (confirmed: absent from both
+// types.ExportJobResponse and the deserializer's case list) -- a prior
+// version fabricated one.
+type exportJobResponse struct {
+	ApplicationID string              `json:"ApplicationId"`
+	ID            string              `json:"Id"`
+	JobStatus     string              `json:"JobStatus"`
+	Type          string              `json:"Type"`
+	CreationDate  string              `json:"CreationDate,omitempty"`
+	Definition    exportJobDefinition `json:"Definition"`
+}
+
+// importJobDefinition is the nested Definition sub-object of
+// ImportJobResponse (types.ImportJobResource), same nesting bug as
+// exportJobDefinition above.
+type importJobDefinition struct {
+	RoleArn   string `json:"RoleArn,omitempty"`
+	S3Url     string `json:"S3Url,omitempty"`
+	Format    string `json:"Format,omitempty"`
+	SegmentID string `json:"SegmentId,omitempty"`
+}
+
+// importJobResponse is the JSON wire format of ImportJobResponse. No
+// top-level Arn member on the real type, same as exportJobResponse.
 type importJobResponse struct {
-	ARN           string `json:"Arn,omitempty"`
-	ApplicationID string `json:"ApplicationId"`
-	ID            string `json:"Id"`
-	RoleArn       string `json:"RoleArn,omitempty"`
-	S3Url         string `json:"S3Url,omitempty"`
-	Format        string `json:"Format,omitempty"`
-	JobStatus     string `json:"JobStatus"`
-	Type          string `json:"Type"`
-	CreationDate  string `json:"CreationDate,omitempty"`
+	ApplicationID string              `json:"ApplicationId"`
+	ID            string              `json:"Id"`
+	Definition    importJobDefinition `json:"Definition"`
+	JobStatus     string              `json:"JobStatus"`
+	Type          string              `json:"Type"`
+	CreationDate  string              `json:"CreationDate,omitempty"`
 }
 
 // journeyResponse is the JSON wire format of JourneyResponse.
@@ -284,12 +306,19 @@ type tagResourceRequest struct {
 }
 
 // appSettingsResponse is the JSON wire format of ApplicationSettingsResource.
-// CampaignHook, Limits, and QuietTime must be non-nil empty objects so the
-// Terraform provider's flatten helpers do not dereference nil pointers.
+// CampaignHook, Limits, QuietTime, and JourneyLimits must be non-nil empty
+// objects so the Terraform provider's flatten helpers do not dereference nil
+// pointers. JourneyLimits is a real member (types.ApplicationSettingsResource,
+// pinpoint@v1.42.4 types/types.go) that a prior version never emitted at all.
+// CloudWatchMetricsEnabled/EventTaggingEnabled are NOT real members of this
+// type (confirmed: absent from both types.ApplicationSettingsResource and the
+// deserializer's case list) -- kept here since they're harmless extra JSON
+// fields a real client simply ignores, not worth an unrelated behavior change.
 type appSettingsResponse struct {
 	CampaignHook             map[string]any `json:"CampaignHook"`
 	Limits                   map[string]any `json:"Limits"`
 	QuietTime                map[string]any `json:"QuietTime"`
+	JourneyLimits            map[string]any `json:"JourneyLimits"`
 	ApplicationID            string         `json:"ApplicationId"`
 	LastModifiedDate         string         `json:"LastModifiedDate,omitempty"`
 	CloudWatchMetricsEnabled bool           `json:"CloudWatchMetricsEnabled"`
@@ -572,12 +601,19 @@ type campaignActivity struct {
 	ID            string `json:"Id"`
 }
 
-// kpiResult is the KPI response structure.
+// kpiResult is the KPI response structure, shared by
+// ApplicationDateRangeKpiResponse/CampaignDateRangeKpiResponse/
+// JourneyDateRangeKpiResponse. StartTime/EndTime are "This member is
+// required." on all three real types (pinpoint@v1.42.4 types/types.go) even
+// though the request's start-time/end-time query params are optional --
+// a prior version never emitted either.
 type kpiResult struct {
 	ApplicationID string  `json:"ApplicationId"`
 	CampaignID    string  `json:"CampaignId,omitempty"`
 	JourneyID     string  `json:"JourneyId,omitempty"`
 	KpiName       string  `json:"KpiName"`
+	StartTime     string  `json:"StartTime"`
+	EndTime       string  `json:"EndTime"`
 	KpiResult     kpiRows `json:"KpiResult"`
 }
 
@@ -697,18 +733,24 @@ type inAppMessageCampaign struct {
 }
 
 // journeyExecutionMetricsResponse is the response for GetJourneyExecutionMetrics.
+// LastEvaluatedTime is "This member is required." on the real
+// JourneyExecutionMetricsResponse (pinpoint@v1.42.4 types/types.go); a prior
+// version never emitted it.
 type journeyExecutionMetricsResponse struct {
-	Metrics       map[string]string `json:"Metrics"`
-	ApplicationID string            `json:"ApplicationId"`
-	JourneyID     string            `json:"JourneyId"`
+	Metrics           map[string]string `json:"Metrics"`
+	ApplicationID     string            `json:"ApplicationId"`
+	JourneyID         string            `json:"JourneyId"`
+	LastEvaluatedTime string            `json:"LastEvaluatedTime"`
 }
 
 // journeyExecutionActivityMetricsResponse is the response for GetJourneyExecutionActivityMetrics.
+// Same missing-required-member shape as journeyExecutionMetricsResponse.
 type journeyExecutionActivityMetricsResponse struct {
-	Metrics       map[string]string `json:"Metrics"`
-	ApplicationID string            `json:"ApplicationId"`
-	JourneyID     string            `json:"JourneyId"`
-	ActivityID    string            `json:"ActivityId"`
+	Metrics           map[string]string `json:"Metrics"`
+	ApplicationID     string            `json:"ApplicationId"`
+	JourneyID         string            `json:"JourneyId"`
+	ActivityID        string            `json:"ActivityId"`
+	LastEvaluatedTime string            `json:"LastEvaluatedTime"`
 }
 
 // journeyRunsResponse is the response for GetJourneyRuns.
@@ -716,29 +758,39 @@ type journeyRunsResponse struct {
 	Item []journeyRun `json:"Item"`
 }
 
-// journeyRun is a single journey run.
+// journeyRun is a single journey run. CreationTime/LastUpdateTime are "This
+// member is required." on the real JourneyRunResponse (pinpoint@v1.42.4
+// types/types.go); a prior version never emitted either. ApplicationId/
+// JourneyId are NOT real members of the per-item shape (confirmed:
+// JourneyRunResponse's own field set is only CreationTime/LastUpdateTime/
+// RunId/Status -- the app/journey identity comes from the URL path), kept
+// here only as internal bookkeeping since they're omitted from JSON below.
 type journeyRun struct {
-	RunID         string `json:"RunId"`
-	JourneyID     string `json:"JourneyId"`
-	ApplicationID string `json:"ApplicationId"`
-	Status        string `json:"Status"`
+	RunID          string `json:"RunId"`
+	JourneyID      string `json:"-"`
+	ApplicationID  string `json:"-"`
+	Status         string `json:"Status"`
+	CreationTime   string `json:"CreationTime"`
+	LastUpdateTime string `json:"LastUpdateTime"`
 }
 
 // journeyRunExecutionMetricsResponse is the response for GetJourneyRunExecutionMetrics.
 type journeyRunExecutionMetricsResponse struct {
-	Metrics       map[string]string `json:"Metrics"`
-	ApplicationID string            `json:"ApplicationId"`
-	JourneyID     string            `json:"JourneyId"`
-	RunID         string            `json:"RunId"`
+	Metrics           map[string]string `json:"Metrics"`
+	ApplicationID     string            `json:"ApplicationId"`
+	JourneyID         string            `json:"JourneyId"`
+	RunID             string            `json:"RunId"`
+	LastEvaluatedTime string            `json:"LastEvaluatedTime"`
 }
 
 // journeyRunExecutionActivityMetricsResponse is the response for GetJourneyRunExecutionActivityMetrics.
 type journeyRunExecutionActivityMetricsResponse struct {
-	Metrics       map[string]string `json:"Metrics"`
-	ApplicationID string            `json:"ApplicationId"`
-	JourneyID     string            `json:"JourneyId"`
-	RunID         string            `json:"RunId"`
-	ActivityID    string            `json:"ActivityId"`
+	Metrics           map[string]string `json:"Metrics"`
+	ApplicationID     string            `json:"ApplicationId"`
+	JourneyID         string            `json:"JourneyId"`
+	RunID             string            `json:"RunId"`
+	ActivityID        string            `json:"ActivityId"`
+	LastEvaluatedTime string            `json:"LastEvaluatedTime"`
 }
 
 // templatesListResponse is the JSON wire format of TemplatesResponse (ListTemplates).

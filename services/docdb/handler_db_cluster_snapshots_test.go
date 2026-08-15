@@ -92,6 +92,45 @@ func TestHandler_ClusterSnapshots(t *testing.T) {
 	}
 }
 
+// TestDescribeDBClusterSnapshots_NoFabricatedDBClusterArn confirms the
+// snapshot wire response no longer includes a bare <DBClusterArn> element.
+// The real types.DBClusterSnapshot has no such member (only
+// DBClusterSnapshotArn) -- confirmed against
+// awsAwsquery_deserializeDocumentDBClusterSnapshot,
+// docdb@v1.51.4/deserializers.go. A real client's generated deserializer
+// silently ignores unknown elements, so this is not independently
+// observable via the typed SDK client; it can only be caught by inspecting
+// the raw XML body directly, as this test does.
+func TestDescribeDBClusterSnapshots_NoFabricatedDBClusterArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":              {"CreateDBCluster"},
+		"Version":             {"2014-10-31"},
+		"DBClusterIdentifier": {"arn-check-cluster"},
+		"Engine":              {"docdb"},
+	})
+	doRequest(t, h, url.Values{
+		"Action":                      {"CreateDBClusterSnapshot"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterSnapshotIdentifier": {"arn-check-snap"},
+		"DBClusterIdentifier":         {"arn-check-cluster"},
+	})
+
+	rr := doRequest(t, h, url.Values{
+		"Action":                      {"DescribeDBClusterSnapshots"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterSnapshotIdentifier": {"arn-check-snap"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	body := rr.Body.String()
+	assert.Contains(t, body, "<DBClusterSnapshotArn>", "the real member must still be present")
+	assert.NotContains(t, body, "<DBClusterArn>",
+		"types.DBClusterSnapshot has no DBClusterArn member; emitting one is fabricated wire content")
+}
+
 func TestSortedDescribeSnapshots(t *testing.T) {
 	t.Parallel()
 

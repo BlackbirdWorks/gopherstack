@@ -38,8 +38,30 @@ type describePersistentAppUIInput struct {
 	PersistentAppUIId string `json:"PersistentAppUIId"`
 }
 
+// persistentAppUIDetailWire is the real DescribePersistentAppUIOutput.
+// PersistentAppUI shape (types.PersistentAppUI) -- see PersistentAppUI's own
+// doc comment (models.go) for why the internal backend struct can't be
+// marshaled directly here. AuthorId/LastModifiedTime/LastStateChangeReason/
+// PersistentAppUIStatus/PersistentAppUITypeList are real, non-required
+// members this backend doesn't track (no author/status-lifecycle modeling
+// for persistent app UIs) -- omitted rather than fabricated.
+type persistentAppUIDetailWire struct {
+	PersistentAppUIID string  `json:"PersistentAppUIId"`
+	Tags              []Tag   `json:"Tags,omitempty"`
+	CreationTime      float64 `json:"CreationTime,omitempty"`
+}
+
+// newPersistentAppUIDetail projects a PersistentAppUI into
+// DescribePersistentAppUI's real per-op response shape.
+func newPersistentAppUIDetail(ui *PersistentAppUI) *persistentAppUIDetailWire {
+	return &persistentAppUIDetailWire{
+		PersistentAppUIID: ui.ID,
+		CreationTime:      awstime.Epoch(ui.CreatedAt),
+	}
+}
+
 type describePersistentAppUIOutput struct {
-	PersistentAppUI *PersistentAppUI `json:"PersistentAppUI"`
+	PersistentAppUI *persistentAppUIDetailWire `json:"PersistentAppUI"`
 }
 
 func (h *Handler) handleDescribePersistentAppUI(
@@ -51,7 +73,7 @@ func (h *Handler) handleDescribePersistentAppUI(
 		return nil, err
 	}
 
-	return &describePersistentAppUIOutput{PersistentAppUI: ui}, nil
+	return &describePersistentAppUIOutput{PersistentAppUI: newPersistentAppUIDetail(ui)}, nil
 }
 
 // --- GetOnClusterAppUIPresignedURL ---

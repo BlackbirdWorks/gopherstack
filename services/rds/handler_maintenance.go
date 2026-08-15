@@ -8,8 +8,9 @@ import (
 func (h *Handler) handleApplyPendingMaintenanceAction(vals url.Values) (any, error) {
 	resourceID := vals.Get("ResourceIdentifier")
 	applyAction := vals.Get("ApplyAction")
+	optInType := vals.Get("OptInType")
 
-	if _, err := h.Backend.ApplyPendingMaintenanceAction(resourceID, applyAction); err != nil {
+	if _, err := h.Backend.ApplyPendingMaintenanceAction(resourceID, applyAction, optInType); err != nil {
 		return nil, err
 	}
 

@@ -86,7 +86,13 @@ func (h *Handler) handleCreateFieldLevelEncryption(c *echo.Context) error {
 
 	var req fleConfigRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid FieldLevelEncryptionConfig XML"),
+			)
+		}
 	}
 
 	name := req.CallerReference
@@ -162,7 +168,13 @@ func (h *Handler) handleUpdateFieldLevelEncryption(c *echo.Context, id string) e
 
 	var req fleConfigRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid FieldLevelEncryptionConfig XML"),
+			)
+		}
 	}
 
 	current, getErr := h.Backend.GetFieldLevelEncryption(id)
@@ -293,7 +305,13 @@ func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error
 
 	var req fleProfileConfigRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid FieldLevelEncryptionProfileConfig XML"),
+			)
+		}
 	}
 
 	if req.Name == "" {
@@ -370,7 +388,13 @@ func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id st
 
 	var req fleProfileConfigRequestXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid FieldLevelEncryptionProfileConfig XML"),
+			)
+		}
 	}
 
 	current, getErr := h.Backend.GetFieldLevelEncryptionProfile(id)

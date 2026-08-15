@@ -44,6 +44,13 @@ const (
 	deploymentStateReverted   = "REVERTED"
 )
 
+// deploymentTypeUser is the only types.DeploymentType this backend ever
+// produces for DeploymentSummary.Type: every Deployment here is created by
+// StartDeployment, matching real AWS's "USER" value. The "MANAGED" value
+// covers AppConfig-initiated deployments (e.g. scheduled/automatic
+// rollouts), which this backend has no code path to create.
+const deploymentTypeUser = "USER"
+
 // deploymentTimer tracks when an in-flight deployment's next progression
 // step is due. See the deploymentTimers doc comment on InMemoryBackend
 // (store.go) for why this is not persisted.
@@ -123,6 +130,7 @@ func (b *InMemoryBackend) StartDeployment(
 		Description:                 description,
 		ConfigurationName:           profile.Name,
 		ConfigurationLocationURI:    profile.LocationURI,
+		KmsKeyIdentifier:            profile.KmsKeyIdentifier,
 		GrowthType:                  strategy.GrowthType,
 		GrowthFactor:                strategy.GrowthFactor,
 		VersionLabel:                versionLabel,
@@ -432,6 +440,27 @@ func (b *InMemoryBackend) ListDeployments(
 	return page, token, nil
 }
 
+// deploymentToSummary builds the types.DeploymentSummary shape -- see its
+// doc comment in models.go.
+func deploymentToSummary(d Deployment) DeploymentSummary {
+	return DeploymentSummary{
+		StartedAt:                   d.StartedAt,
+		CompletedAt:                 d.CompletedAt,
+		ConfigurationProfileID:      d.ConfigurationProfileID,
+		ConfigurationVersion:        d.ConfigurationVersion,
+		State:                       d.State,
+		Type:                        deploymentTypeUser,
+		ConfigurationName:           d.ConfigurationName,
+		GrowthType:                  d.GrowthType,
+		VersionLabel:                d.VersionLabel,
+		PercentageComplete:          d.PercentageComplete,
+		GrowthFactor:                d.GrowthFactor,
+		DeploymentNumber:            d.DeploymentNumber,
+		DeploymentDurationInMinutes: d.DeploymentDurationInMinutes,
+		FinalBakeTimeInMinutes:      d.FinalBakeTimeInMinutes,
+	}
+}
+
 // stoppableDeploymentStates are the states from which a deployment can be
 // stopped (moved to ROLLED_BACK).
 var stoppableDeploymentStates = map[string]bool{ //nolint:gochecknoglobals // compile-time constant map
@@ -449,7 +478,7 @@ func (b *InMemoryBackend) StopDeployment(
 	applicationID, environmentID string,
 	deploymentNumber int32,
 	allowRevert bool,
-) error {
+) (*Deployment, error) {
 	b.mu.Lock("StopDeployment")
 	defer b.mu.Unlock()
 
@@ -457,7 +486,7 @@ func (b *InMemoryBackend) StopDeployment(
 
 	d, ok := b.deployments.Get(key)
 	if !ok {
-		return fmt.Errorf("%w: deployment %d", ErrDeploymentNotFound, deploymentNumber)
+		return nil, fmt.Errorf("%w: deployment %d", ErrDeploymentNotFound, deploymentNumber)
 	}
 
 	now := time.Now()
@@ -474,13 +503,14 @@ func (b *InMemoryBackend) StopDeployment(
 		updated.CompletedAt = now
 		appendDeploymentEvent(&updated, "ROLLBACK_COMPLETED", triggeredByUser, "Deployment rolled back", now)
 	default:
-		return fmt.Errorf("%w: cannot stop deployment in state %s", ErrBadRequest, d.State)
+		return nil, fmt.Errorf("%w: cannot stop deployment in state %s", ErrBadRequest, d.State)
 	}
 
 	delete(b.deploymentTimers, key)
 	b.deployments.Put(&updated)
+	cp := updated
 
-	return nil
+	return &cp, nil
 }
 
 // revertDeployedConfigLocked restores deployedConfigs for the reverted

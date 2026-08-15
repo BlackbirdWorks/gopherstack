@@ -253,6 +253,8 @@ func (b *InMemoryBackend) DeleteFlowVersion(_ context.Context, flowID, flowVersi
 }
 
 // ListFlowVersions returns paginated flow version summaries.
+//
+//nolint:dupl // structurally mirrors ListAgentVersions but filters a distinct table/type
 func (b *InMemoryBackend) ListFlowVersions(
 	_ context.Context, flowID string, maxResults int, nextToken string,
 ) ([]*FlowVersionSummary, string, error) {
@@ -272,13 +274,11 @@ func (b *InMemoryBackend) ListFlowVersions(
 	for _, k := range keys {
 		fv, _ := b.flowVersions.Get(flowVersionKey(flowID, k))
 		out = append(out, &FlowVersionSummary{
-			FlowID:      fv.FlowID,
-			Arn:         fv.FlowARN,
-			Name:        fv.Name,
-			Version:     fv.Version,
-			Status:      fv.Status,
-			Description: fv.Description,
-			CreatedAt:   fv.CreatedAt,
+			FlowID:    fv.FlowID,
+			Arn:       fv.FlowARN,
+			Version:   fv.Version,
+			Status:    fv.Status,
+			CreatedAt: fv.CreatedAt,
 		})
 	}
 

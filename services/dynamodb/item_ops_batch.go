@@ -119,10 +119,55 @@ func (db *InMemoryDB) BatchGetItem(
 		return nil, tableErr
 	}
 
+	// Enforce throughput per table, same RCU formula as batchGetConsumedCapacity,
+	// before reading any items. PAY_PER_REQUEST tables bypass throttling.
+	region := getRegionFromContext(ctx, db)
+	if thrErr := db.enforceBatchGetThroughput(region, input.RequestItems, tableRefs); thrErr != nil {
+		return nil, thrErr
+	}
+
 	// Sort table names for deterministic processing (AWS also tends toward this).
 	tableNames := collections.SortedKeys(input.RequestItems)
 
 	return db.batchGetResponses(input, tableNames, tableRefs)
+}
+
+// enforceBatchGetThroughput charges each requested table's RCU bucket before any
+// items are read, mirroring PutItem/GetItem/Query/Scan. Real DynamoDB returns
+// ProvisionedThroughputExceededException from BatchGetItem exactly as it does from
+// GetItem; without this, BatchGetItem silently bypassed throttling that every other
+// read path enforces.
+func (db *InMemoryDB) enforceBatchGetThroughput(
+	region string,
+	requestItems map[string]types.KeysAndAttributes,
+	tables map[string]*Table,
+) error {
+	for tableName, keysAndAttrs := range requestItems {
+		table := tables[tableName]
+
+		table.mu.RLock("BatchGetItem.throttle")
+		billingMode := table.BillingMode
+		table.mu.RUnlock()
+
+		if isOnDemandTable(billingMode) {
+			continue
+		}
+
+		rcuPerKey := eventuallyConsistentRCU
+		if aws.ToBool(keysAndAttrs.ConsistentRead) {
+			rcuPerKey = 1.0
+		}
+		cu := float64(len(keysAndAttrs.Keys)) * rcuPerKey
+		if cu < rcuPerKey {
+			cu = rcuPerKey
+		}
+
+		if err := db.throttler.ConsumeRead(throttleKey(region, tableName), cu); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // batchGetResponses collects items across tables enforcing the 16MB response limit.
@@ -427,22 +472,68 @@ func (db *InMemoryDB) BatchWriteItem(
 		}
 	}
 
+	// Enforce throughput per table, same WCU formula as batchWriteConsumedCapacity,
+	// before mutating any state. PAY_PER_REQUEST tables bypass throttling.
+	if thrErr := db.enforceBatchWriteThroughput(region, toProcess, tables); thrErr != nil {
+		return nil, thrErr
+	}
+
 	// Process tables in sorted order (deadlock prevention)
 	tableNames := collections.SortedKeys(tables)
 
 	// Sequential processing for simplicity and deadlock prevention
+	itemCollectionMetrics := make(map[string][]types.ItemCollectionMetrics)
+
 	for _, tableName := range tableNames {
-		if err = db.processTableWriteRequests(tables[tableName], toProcess[tableName]); err != nil {
-			return nil, err
+		metrics, procErr := db.processTableWriteRequests(
+			tables[tableName], toProcess[tableName], input.ReturnItemCollectionMetrics,
+		)
+		if procErr != nil {
+			return nil, procErr
+		}
+		if len(metrics) > 0 {
+			itemCollectionMetrics[tableName] = metrics
 		}
 	}
 
 	db.replicateBatchWrites(tableNames, tables, toProcess, region)
 
 	return &dynamodb.BatchWriteItemOutput{
-		UnprocessedItems: unprocessedItems,
-		ConsumedCapacity: batchWriteConsumedCapacity(input.ReturnConsumedCapacity, toProcess),
+		UnprocessedItems:      unprocessedItems,
+		ConsumedCapacity:      batchWriteConsumedCapacity(input.ReturnConsumedCapacity, toProcess),
+		ItemCollectionMetrics: itemCollectionMetrics,
 	}, nil
+}
+
+// enforceBatchWriteThroughput charges each table's WCU bucket before any writes are
+// applied, mirroring PutItem/DeleteItem/UpdateItem. Real DynamoDB returns
+// ProvisionedThroughputExceededException from BatchWriteItem exactly as it does from
+// PutItem; without this, BatchWriteItem silently bypassed throttling that every other
+// write path enforces.
+func (db *InMemoryDB) enforceBatchWriteThroughput(
+	region string,
+	processed map[string][]types.WriteRequest,
+	tables map[string]*Table,
+) error {
+	for tableName, reqs := range processed {
+		table := tables[tableName]
+
+		table.mu.RLock("BatchWriteItem.throttle")
+		billingMode := table.BillingMode
+		table.mu.RUnlock()
+
+		if isOnDemandTable(billingMode) {
+			continue
+		}
+
+		cu := computeBatchWriteWCU(reqs)
+
+		if err := db.throttler.ConsumeWrite(throttleKey(region, tableName), cu); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func batchWriteConsumedCapacity(
@@ -556,12 +647,16 @@ func (db *InMemoryDB) getRequestTablesRLocked(
 	return db.getRequestTables(region, requestItems)
 }
 
-func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.WriteRequest) error {
+func (db *InMemoryDB) processTableWriteRequests(
+	table *Table,
+	requests []types.WriteRequest,
+	rim types.ReturnItemCollectionMetrics,
+) ([]types.ItemCollectionMetrics, error) {
 	table.mu.Lock("BatchWriteItem")
 	defer table.mu.Unlock()
 
-	modifiedIndices := db.processBatchPutRequests(table, requests)
-	deletedIndices := db.processBatchDeleteRequests(table, requests)
+	modifiedIndices, putMetrics := db.processBatchPutRequests(table, requests, rim)
+	deletedIndices, deleteMetrics := db.processBatchDeleteRequests(table, requests, rim)
 
 	if len(deletedIndices) > 0 {
 		indices := make([]int, 0, len(deletedIndices))
@@ -573,45 +668,97 @@ func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.W
 		db.updateBatchIndexes(table, modifiedIndices)
 	}
 
-	return nil
+	return append(putMetrics, deleteMetrics...), nil
 }
 
+// processBatchPutRequests applies every PutRequest in requests, returning the
+// modified item indices and (when the table has an LSI and rim requests it) the
+// per-item ItemCollectionMetrics -- same SizeEstimateRangeGB formula PutItem uses,
+// computed just before each put is applied so it reflects the post-write state.
 func (db *InMemoryDB) processBatchPutRequests(
 	table *Table,
 	requests []types.WriteRequest,
-) map[int]bool {
-	modifiedIndices := make(map[int]bool)
+	rim types.ReturnItemCollectionMetrics,
+) (map[int]map[string]any, []types.ItemCollectionMetrics) {
+	// modifiedIndices maps each put's final item offset to its pre-write value
+	// (nil for a fresh insert); updateBatchIndexes needs the pre-write value to
+	// correctly retire stale GSI/LSI membership when a put changes a key
+	// attribute's value.
+	modifiedIndices := make(map[int]map[string]any)
+	trackMetrics := rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0
+
+	var metrics []types.ItemCollectionMetrics
+
+	pkDef, _ := getPKAndSK(table.KeySchema)
 
 	for _, req := range requests {
-		if req.PutRequest != nil {
-			wireItem := models.FromSDKItem(req.PutRequest.Item)
-			idx := db.handleBatchPutWithIndex(table, wireItem)
-			if idx >= 0 {
-				modifiedIndices[idx] = true
+		if req.PutRequest == nil {
+			continue
+		}
+
+		wireItem := models.FromSDKItem(req.PutRequest.Item)
+
+		if trackMetrics {
+			_, matchIndex := db.findMatchForPut(table, wireItem)
+			pkVal := BuildKeyString(wireItem, pkDef.AttributeName)
+			collectionBytes := computeLSICollectionSize(table, pkVal, wireItem, matchIndex)
+			if m := buildItemCollectionMetrics(
+				table, rim, pkOnlyKey(table, req.PutRequest.Item), collectionBytes,
+			); m != nil {
+				metrics = append(metrics, *m)
 			}
+		}
+
+		oldItem, idx := db.handleBatchPutWithIndex(table, wireItem)
+		if idx >= 0 {
+			modifiedIndices[idx] = oldItem
 		}
 	}
 
-	return modifiedIndices
+	return modifiedIndices, metrics
 }
 
+// processBatchDeleteRequests identifies which items each DeleteRequest removes,
+// returning their indices and (when the table has an LSI and rim requests it) the
+// per-item ItemCollectionMetrics reflecting the collection remaining after each
+// delete -- mirrors buildDeleteItemOutput's single-item formula. Metrics are
+// computed here, before applyBatchDeletes actually removes anything.
 func (db *InMemoryDB) processBatchDeleteRequests(
 	table *Table,
 	requests []types.WriteRequest,
-) map[int]bool {
+	rim types.ReturnItemCollectionMetrics,
+) (map[int]bool, []types.ItemCollectionMetrics) {
 	deletedIndices := make(map[int]bool)
+	trackMetrics := rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0
+
+	var metrics []types.ItemCollectionMetrics
+
+	pkDef, _ := getPKAndSK(table.KeySchema)
 
 	for _, req := range requests {
-		if req.DeleteRequest != nil {
-			wireKey := models.FromSDKItem(req.DeleteRequest.Key)
-			_, matchIndex := db.findMatchForPut(table, wireKey)
-			if matchIndex != -1 {
-				deletedIndices[matchIndex] = true
+		if req.DeleteRequest == nil {
+			continue
+		}
+
+		wireKey := models.FromSDKItem(req.DeleteRequest.Key)
+		_, matchIndex := db.findMatchForPut(table, wireKey)
+		if matchIndex == -1 {
+			continue
+		}
+		deletedIndices[matchIndex] = true
+
+		if trackMetrics {
+			pkVal := BuildKeyString(wireKey, pkDef.AttributeName)
+			remaining := currentLSICollectionBytes(table, pkVal) - int64(table.itemSizes[matchIndex])
+			if m := buildItemCollectionMetrics(
+				table, rim, pkOnlyKey(table, req.DeleteRequest.Key), remaining,
+			); m != nil {
+				metrics = append(metrics, *m)
 			}
 		}
 	}
 
-	return deletedIndices
+	return deletedIndices, metrics
 }
 
 func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
@@ -647,19 +794,26 @@ func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
 	table.rebuildIndexes()
 }
 
+// updateBatchIndexes incrementally updates every index (primary and
+// GSI/LSI) for the items BatchWriteItem just put in place, without
+// rebuilding the whole table (O(K) in the number of puts, not O(N) in table
+// size). modifiedIndices maps each modified item's final offset to its
+// pre-write value (nil for a freshly-inserted item) so secondary indexes can
+// correctly retire stale GSI/LSI membership when a put changes a key
+// attribute's value.
 func (db *InMemoryDB) updateBatchIndexes(
 	table *Table,
-	modifiedIndices map[int]bool,
+	modifiedIndices map[int]map[string]any,
 ) {
 	if len(modifiedIndices) == 0 {
 		return
 	}
 
-	// Incremental update: only rebuild indices for modified items (O(K) instead of O(N))
 	pkDef, skDef := getPKAndSK(table.KeySchema)
-	for idx := range modifiedIndices {
+	for idx, oldItem := range modifiedIndices {
 		if idx >= 0 && idx < len(table.Items) {
 			db.updateItemIndex(table, idx, pkDef, skDef)
+			table.updateSecondaryIndexes(oldItem, idx, table.Items[idx], idx)
 		}
 	}
 }
@@ -717,7 +871,11 @@ func validateBatchWriteRequest(req types.WriteRequest, table *Table) error {
 	return nil
 }
 
-func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) int {
+// handleBatchPutWithIndex writes item into table.Items (in place if it
+// matches an existing key, appended otherwise) and returns the item's
+// pre-write value (nil for a fresh insert) alongside its final offset, so the
+// caller can later feed both to updateBatchIndexes/updateSecondaryIndexes.
+func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) (map[string]any, int) {
 	// Reuse the same item-size calculator as PutItem (doPut) so table.itemSizes
 	// and table.totalItemSizeBytes stay in lockstep with table.Items regardless
 	// of which write path (PutItem vs BatchWriteItem) added the item. Without
@@ -734,7 +892,7 @@ func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any)
 		table.itemSizes[matchIndex] = itemSize
 		table.Items[matchIndex] = item
 
-		return matchIndex
+		return oldItem, matchIndex
 	}
 	// Capture stream event (INSERT) for the new item.
 	table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(item), "", "")
@@ -743,5 +901,5 @@ func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any)
 	table.itemSizes = append(table.itemSizes, itemSize)
 	table.totalItemSizeBytes += int64(itemSize)
 
-	return idx
+	return nil, idx
 }

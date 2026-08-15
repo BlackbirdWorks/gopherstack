@@ -12,7 +12,13 @@ import (
 func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 	t.Parallel()
 
+	withAggregator := func(t *testing.T, b *awsconfig.InMemoryBackend) {
+		t.Helper()
+		require.NoError(t, b.PutConfigurationAggregator("my-aggregator", nil, nil, nil))
+	}
+
 	tests := []struct {
+		wantErr              error
 		setup                func(t *testing.T, b *awsconfig.InMemoryBackend)
 		name                 string
 		aggregatorName       string
@@ -21,7 +27,16 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 		wantUnprocessedCount int
 	}{
 		{
+			name:           "unknown_aggregator_errors",
+			aggregatorName: "no-such-aggregator",
+			identifiers: []awsconfig.AggregateResourceIdentifier{
+				{ResourceID: "i-abc", ResourceType: "AWS::EC2::Instance"},
+			},
+			wantErr: awsconfig.ErrNoSuchAggregator,
+		},
+		{
 			name:           "undiscovered_resource_is_unprocessed",
+			setup:          withAggregator,
 			aggregatorName: "my-aggregator",
 			identifiers: []awsconfig.AggregateResourceIdentifier{
 				{
@@ -36,6 +51,7 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 		},
 		{
 			name:                 "empty_identifiers",
+			setup:                withAggregator,
 			aggregatorName:       "my-aggregator",
 			identifiers:          []awsconfig.AggregateResourceIdentifier{},
 			wantItemCount:        0,
@@ -45,6 +61,7 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 			name: "discovered_resource_is_returned",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
+				withAggregator(t, b)
 				require.NoError(t, b.PutResourceConfig("AWS::EC2::Instance", "i-abc", `{}`))
 			},
 			aggregatorName: "my-aggregator",
@@ -71,7 +88,16 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			items, unprocessed := b.BatchGetAggregateResourceConfig(tt.aggregatorName, tt.identifiers)
+			items, unprocessed, err := b.BatchGetAggregateResourceConfig(tt.aggregatorName, tt.identifiers)
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
 			assert.Len(t, items, tt.wantItemCount)
 			assert.Len(t, unprocessed, tt.wantUnprocessedCount)
 		})
@@ -198,18 +224,72 @@ func TestGetAggregateDiscoveredResourceCounts(t *testing.T) {
 func TestGetAggregateResourceConfig(t *testing.T) {
 	t.Parallel()
 
-	b := awsconfig.NewInMemoryBackend()
-
-	// Empty — should return non-nil empty item.
-	item := b.GetAggregateResourceConfig()
-	if item == nil {
-		t.Fatal("expected non-nil")
+	tests := []struct {
+		setup          func(t *testing.T, b *awsconfig.InMemoryBackend)
+		name           string
+		aggregatorName string
+		identifier     awsconfig.AggregateResourceIdentifier
+		wantErr        error
+		wantResourceID string
+	}{
+		{
+			name:           "unknown_aggregator_errors",
+			aggregatorName: "no-such-aggregator",
+			identifier:     awsconfig.AggregateResourceIdentifier{ResourceType: "AWS::S3::Bucket", ResourceID: "b1"},
+			wantErr:        awsconfig.ErrNoSuchAggregator,
+		},
+		{
+			name: "undiscovered_resource_errors",
+			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutConfigurationAggregator("my-aggregator", nil, nil, nil))
+			},
+			aggregatorName: "my-aggregator",
+			identifier: awsconfig.AggregateResourceIdentifier{
+				ResourceType: "AWS::S3::Bucket",
+				ResourceID:   "missing",
+			},
+			wantErr: awsconfig.ErrResourceNotDiscovered,
+		},
+		{
+			name: "returns_the_requested_resource_not_an_arbitrary_one",
+			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutConfigurationAggregator("my-aggregator", nil, nil, nil))
+				require.NoError(t, b.PutResourceConfig("AWS::EC2::Instance", "i-first", "{}"))
+				require.NoError(t, b.PutResourceConfig("AWS::S3::Bucket", "my-bucket", "{}"))
+			},
+			aggregatorName: "my-aggregator",
+			identifier: awsconfig.AggregateResourceIdentifier{
+				ResourceType: "AWS::S3::Bucket",
+				ResourceID:   "my-bucket",
+			},
+			wantResourceID: "my-bucket",
+		},
 	}
 
-	_ = b.PutResourceConfig("AWS::S3::Bucket", "my-bucket", "{}")
-	item = b.GetAggregateResourceConfig()
-	if item.ResourceType != "AWS::S3::Bucket" {
-		t.Fatalf("expected AWS::S3::Bucket, got %q", item.ResourceType)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := awsconfig.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			item, err := b.GetAggregateResourceConfig(tt.aggregatorName, tt.identifier)
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, item)
+			assert.Equal(t, tt.wantResourceID, item.ResourceID)
+		})
 	}
 }
 

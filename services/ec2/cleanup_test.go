@@ -171,7 +171,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
 				t.Helper()
 
-				pg, err := b.CreatePlacementGroup("test-pg", "cluster")
+				pg, err := b.CreatePlacementGroup("test-pg", "cluster", nil)
 				require.NoError(t, err)
 
 				return pg.Name
@@ -239,7 +239,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 				return cagw.CarrierGatewayID
 			},
 			deleteFn: func(b *ec2.InMemoryBackend, id string) error {
-				return b.DeleteCarrierGateway(id)
+				_, err := b.DeleteCarrierGateway(id)
+
+				return err
 			},
 		},
 		{
@@ -355,7 +357,7 @@ func TestJanitor_CancelledSpotRequestsSweep(t *testing.T) {
 
 	b := newTestBackend()
 
-	req, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05")
+	req, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05", nil)
 	require.NoError(t, err)
 	reqID := req.ID
 
@@ -386,7 +388,7 @@ func TestJanitor_CancelledSpotRequestsNotSweptBeforeTTL(t *testing.T) {
 
 	b := newTestBackend()
 
-	req, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05")
+	req, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05", nil)
 	require.NoError(t, err)
 	reqID := req.ID
 
@@ -409,7 +411,7 @@ func TestTerminateInstances_ClosesAssociatedSpotRequest(t *testing.T) {
 
 	b := newTestBackend()
 
-	req, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05")
+	req, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05", nil)
 	require.NoError(t, err)
 
 	_, err = b.TerminateInstances([]string{req.InstanceID})

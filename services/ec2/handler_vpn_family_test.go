@@ -376,7 +376,7 @@ func TestVpnConnectionHandlers_XMLShapes(t *testing.T) {
 					Items []struct {
 						OutsideIPAddress string `xml:"outsideIpAddress"`
 					} `xml:"item"`
-				} `xml:"tunnelOptions"`
+				} `xml:"tunnelOptionSet"`
 			} `xml:"options"`
 			VgwTelemetrySet struct {
 				Items []struct {

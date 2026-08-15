@@ -41,11 +41,17 @@ func (b *InMemoryBackend) CreateBucket(
 		return nil, ErrBucketAlreadyOwnedByYou
 	}
 
+	var tags []types.Tag
+	if input.CreateBucketConfiguration != nil {
+		tags = input.CreateBucketConfiguration.Tags
+	}
+
 	b.buckets.Put(&StoredBucket{
 		Name:         bucketName,
 		Region:       region,
 		CreationDate: time.Now().UTC(),
 		Objects:      make(map[string]*StoredObject),
+		Tags:         tags,
 		// Versioning is intentionally not set: new buckets have never had versioning
 		// configured, which AWS represents as an empty VersioningConfiguration element.
 		mu:                        lockmetrics.New("s3.bucket." + bucketName),
@@ -261,7 +267,12 @@ func (b *InMemoryBackend) BucketsByRegion(region string) []types.Bucket {
 	return buckets
 }
 
-// CreateSession returns a stub session response for a bucket (S3 Express One Zone).
+// CreateSession returns a stub session response for a bucket (S3 Express One
+// Zone). It is a stub in more ways than the response body suggests: SessionMode
+// (the X-Amz-Create-Session-Mode header) is never read, IsDirectoryBucket is
+// never checked -- this emulator has no directory-bucket-vs-general-purpose
+// distinction at all -- and the returned SessionToken has no downstream effect;
+// nothing validates it on subsequent requests, so it authorizes nothing.
 func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (string, error) {
 	var err error
 	func() {
@@ -291,16 +302,16 @@ func (b *InMemoryBackend) GetBucketMetadata(
 	bucketName string,
 ) (string, string, []types.Tag, error) {
 	var bucket *StoredBucket
-	var ok bool
+	var err error
 	func() {
 		b.mu.RLock("GetBucketMetadata")
 		defer b.mu.RUnlock()
 
-		bucket, ok = b.buckets.Get(bucketName)
+		bucket, err = b.getBucket(bucketName)
 	}()
 
-	if !ok {
-		return "", "", nil, ErrNoSuchBucket
+	if err != nil {
+		return "", "", nil, err
 	}
 
 	var region, lcXML string

@@ -132,9 +132,10 @@ type xmlHostedZone struct {
 }
 
 type xmlDelegationSet struct {
-	XMLName     xml.Name `xml:"DelegationSet"`
-	ID          string   `xml:"Id,omitempty"`
-	NameServers []string `xml:"NameServers>NameServer"`
+	XMLName         xml.Name `xml:"DelegationSet"`
+	ID              string   `xml:"Id,omitempty"`
+	CallerReference string   `xml:"CallerReference,omitempty"`
+	NameServers     []string `xml:"NameServers>NameServer"`
 }
 
 type xmlCreateHostedZoneResponse struct {
@@ -149,12 +150,14 @@ type xmlGetHostedZoneResponse struct {
 	XMLName       xml.Name         `xml:"GetHostedZoneResponse"`
 	Xmlns         string           `xml:"xmlns,attr"`
 	DelegationSet xmlDelegationSet `xml:"DelegationSet"`
+	VPCs          []xmlVPC         `xml:"VPCs>VPC,omitempty"`
 	HostedZone    xmlHostedZone    `xml:"HostedZone"`
 }
 
 type xmlListHostedZonesResponse struct {
 	XMLName     xml.Name        `xml:"ListHostedZonesResponse"`
 	Xmlns       string          `xml:"xmlns,attr"`
+	Marker      string          `xml:"Marker"`
 	MaxItems    string          `xml:"MaxItems"`
 	NextMarker  string          `xml:"NextMarker,omitempty"`
 	HostedZones []xmlHostedZone `xml:"HostedZones>HostedZone"`
@@ -168,6 +171,7 @@ type xmlDeleteHostedZoneResponse struct {
 }
 
 type xmlCreateHostedZoneRequest struct {
+	VPC              *xmlVPC             `xml:"VPC"`
 	XMLName          xml.Name            `xml:"CreateHostedZoneRequest"`
 	Name             string              `xml:"Name"`
 	CallerReference  string              `xml:"CallerReference"`
@@ -193,10 +197,16 @@ func (h *Handler) createHostedZone(c *echo.Context) error {
 		)
 	}
 
+	var vpcID, vpcRegion string
+	if req.VPC != nil {
+		vpcID, vpcRegion = req.VPC.VPCID, req.VPC.VPCRegion
+	}
+
 	hz, err := h.Backend.CreateHostedZone(
 		req.Name, req.CallerReference,
 		req.HostedZoneConfig.Comment, req.HostedZoneConfig.PrivateZone,
 		normaliseDelegationSetID(req.DelegationSetID),
+		vpcID, vpcRegion,
 	)
 	if err != nil {
 		return handleBackendError(c, err)
@@ -249,10 +259,21 @@ func (h *Handler) getHostedZone(c *echo.Context) error {
 
 	logger.Load(ctx).DebugContext(ctx, "Route53 GetHostedZone", "id", hz.ID)
 
+	var xmlVPCs []xmlVPC
+	if hz.PrivateZone {
+		if assocs, assocErr := h.Backend.ListVPCAssociations(zoneID); assocErr == nil {
+			xmlVPCs = make([]xmlVPC, 0, len(assocs))
+			for _, a := range assocs {
+				xmlVPCs = append(xmlVPCs, xmlVPC{VPCID: a.VPCID, VPCRegion: a.VPCRegion})
+			}
+		}
+	}
+
 	resp := xmlGetHostedZoneResponse{
 		Xmlns:         route53Namespace,
 		HostedZone:    toXMLHostedZone(hz),
 		DelegationSet: toXMLDelegationSet(hz),
+		VPCs:          xmlVPCs,
 	}
 
 	return writeXML(c, http.StatusOK, resp)
@@ -304,6 +325,7 @@ func (h *Handler) listHostedZones(c *echo.Context) error {
 
 	resp := xmlListHostedZonesResponse{
 		Xmlns:       route53Namespace,
+		Marker:      marker,
 		HostedZones: xmlZones,
 		IsTruncated: p.Next != "",
 		NextMarker:  p.Next,
@@ -391,15 +413,39 @@ func (h *Handler) listHostedZonesByName(c *echo.Context) error {
 	})
 }
 
+// xmlHostedZoneOwner mirrors types.HostedZoneOwner (route53@v1.65.6
+// deserializers.go: awsRestxml_deserializeDocumentHostedZoneOwner).
+type xmlHostedZoneOwner struct {
+	OwningAccount string `xml:"OwningAccount,omitempty"`
+	OwningService string `xml:"OwningService,omitempty"`
+}
+
+// xmlHostedZoneSummary mirrors types.HostedZoneSummary (route53@v1.65.6
+// deserializers.go: awsRestxml_deserializeDocumentHostedZoneSummary) — its Id
+// field's wire element is "HostedZoneId", not "Id", and it carries a nested
+// Owner, unlike the full xmlHostedZone shape ListHostedZones/ByName return.
+type xmlHostedZoneSummary struct {
+	HostedZoneID string             `xml:"HostedZoneId"`
+	Name         string             `xml:"Name"`
+	Owner        xmlHostedZoneOwner `xml:"Owner"`
+}
+
 type listHZByVPCResponse struct {
-	XMLName     xml.Name        `xml:"ListHostedZonesByVPCResponse"`
-	Xmlns       string          `xml:"xmlns,attr"`
-	HostedZones []xmlHostedZone `xml:"HostedZoneSummaries>HostedZoneSummary"`
+	XMLName     xml.Name               `xml:"ListHostedZonesByVPCResponse"`
+	Xmlns       string                 `xml:"xmlns,attr"`
+	MaxItems    string                 `xml:"MaxItems"`
+	HostedZones []xmlHostedZoneSummary `xml:"HostedZoneSummaries>HostedZoneSummary"`
 }
 
 func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 	vpcID := c.Request().URL.Query().Get("vpcid")
 	vpcRegion := c.Request().URL.Query().Get("vpcregion")
+	maxItems := maxHZByVPC
+	if v := c.Request().URL.Query().Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
 
 	if vpcID == "" || vpcRegion == "" {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "vpcid and vpcregion are required")
@@ -410,19 +456,19 @@ func (h *Handler) listHostedZonesByVPC(c *echo.Context) error {
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
 
-	xmlZones := make([]xmlHostedZone, 0, len(zones))
+	xmlZones := make([]xmlHostedZoneSummary, 0, len(zones))
 	for _, z := range zones {
-		xmlZones = append(xmlZones, xmlHostedZone{
-			ID:              "/hostedzone/" + z.ID,
-			Name:            z.Name,
-			CallerReference: z.CallerReference,
-			Config:          xmlHostedZoneConfig{Comment: z.Comment},
+		xmlZones = append(xmlZones, xmlHostedZoneSummary{
+			HostedZoneID: "/hostedzone/" + z.ID,
+			Name:         z.Name,
+			Owner:        xmlHostedZoneOwner{OwningAccount: h.Backend.AccountID()},
 		})
 	}
 
 	return writeXML(c, http.StatusOK, listHZByVPCResponse{
 		Xmlns:       route53Namespace,
 		HostedZones: xmlZones,
+		MaxItems:    strconv.Itoa(maxItems),
 	})
 }
 

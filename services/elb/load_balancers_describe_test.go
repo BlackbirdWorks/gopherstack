@@ -220,6 +220,79 @@ func TestDescribeAccountLimits(t *testing.T) {
 	assert.Contains(t, names, "classic-listeners")
 }
 
+// TestDescribeAccountLimitsPagination proves Marker/PageSize genuinely
+// paginate the (small, fixed) limit catalog instead of being parsed and
+// ignored (reverting the pagination logic in handleDescribeAccountLimits
+// makes this fail: page1 would contain all 3 limits and NextMarker would be
+// empty).
+func TestDescribeAccountLimitsPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	type limitsResp struct {
+		XMLName xml.Name `xml:"DescribeAccountLimitsResponse"`
+		Result  struct {
+			NextMarker string `xml:"NextMarker"`
+			Limits     struct {
+				Members []struct {
+					Name string `xml:"Name"`
+				} `xml:"member"`
+			} `xml:"Limits"`
+		} `xml:"DescribeAccountLimitsResult"`
+	}
+
+	rec1 := doELB(t, h, url.Values{
+		"Action":   {"DescribeAccountLimits"},
+		"Version":  {"2012-06-01"},
+		"PageSize": {"1"},
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var page1 limitsResp
+	require.NoError(t, xml.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.Len(t, page1.Result.Limits.Members, 1)
+	require.NotEmpty(t, page1.Result.NextMarker)
+
+	rec2 := doELB(t, h, url.Values{
+		"Action":   {"DescribeAccountLimits"},
+		"Version":  {"2012-06-01"},
+		"PageSize": {"1"},
+		"Marker":   {page1.Result.NextMarker},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var page2 limitsResp
+	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.Len(t, page2.Result.Limits.Members, 1)
+	assert.NotEqual(t, page1.Result.Limits.Members[0].Name, page2.Result.Limits.Members[0].Name)
+
+	// Requesting all 3 in one page must not carry a NextMarker.
+	recAll := doELB(t, h, url.Values{
+		"Action":  {"DescribeAccountLimits"},
+		"Version": {"2012-06-01"},
+	})
+	require.Equal(t, http.StatusOK, recAll.Code)
+
+	var pageAll limitsResp
+	require.NoError(t, xml.Unmarshal(recAll.Body.Bytes(), &pageAll))
+	assert.Empty(t, pageAll.Result.NextMarker)
+	assert.Len(t, pageAll.Result.Limits.Members, 3)
+}
+
+// TestDescribeAccountLimitsInvalidMarker verifies a malformed Marker is rejected.
+func TestDescribeAccountLimitsInvalidMarker(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	rec := doELB(t, h, url.Values{
+		"Action":  {"DescribeAccountLimits"},
+		"Version": {"2012-06-01"},
+		"Marker":  {"not-valid-base64!!"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestSourceSecurityGroupAlwaysPresent(t *testing.T) {
 	t.Parallel()
 

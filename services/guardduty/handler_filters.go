@@ -3,6 +3,8 @@ package guardduty
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 func (h *Handler) dispatchFilterOps(op, path string, body []byte) (any, int, bool, error) {
@@ -92,6 +94,14 @@ func (h *Handler) handleGetFilter(detectorID, filterName string) (any, int, erro
 		"rank":            f.Rank,
 		"findingCriteria": f.FindingCriteria,
 		keyTags:           tagsOrEmpty(f.Tags),
+		// GetFilterOutput.CreatedAt/UpdatedAt are epoch-seconds numbers, and
+		// Version increments by 1 on every update -- all three were tracked
+		// by the backend already but never emitted here. See
+		// aws-sdk-go-v2/service/guardduty deserializers.go's
+		// awsRestjson1_deserializeOpDocumentGetFilterOutput.
+		keyCreatedAt: awstime.Epoch(f.CreatedAt),
+		keyUpdatedAt: awstime.Epoch(f.UpdatedAt),
+		"version":    f.Version,
 	}, http.StatusOK, nil
 }
 

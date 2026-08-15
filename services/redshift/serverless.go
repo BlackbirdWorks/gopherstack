@@ -57,6 +57,14 @@ var (
 	// ErrEndpointAccessSLAlreadyExists is returned when a serverless VPC
 	// endpoint name is already in use.
 	ErrEndpointAccessSLAlreadyExists = errors.New("ConflictException")
+	// ErrServerlessTrackNotFound is returned when a named maintenance track
+	// does not exist.
+	ErrServerlessTrackNotFound = errors.New("ResourceNotFoundException")
+	// ErrServerlessDryRun is returned by UpdateLakehouseConfiguration when
+	// DryRun is true and the request would otherwise have succeeded (real
+	// DryRunException: "the request was successful, but dry run was enabled
+	// so no action was taken", confirmed in the pinned service-2.json).
+	ErrServerlessDryRun = errors.New("DryRunException")
 )
 
 // ---------------------------------------------------------------------------
@@ -68,6 +76,10 @@ var (
 // ---------------------------------------------------------------------------
 
 // Namespace represents a Redshift Serverless namespace.
+//
+// CatalogArn/LakehouseRegistrationStatus are real Namespace members
+// (confirmed against types.Namespace in types/types.go) written by
+// UpdateLakehouseConfiguration -- see serverless_lakehouse.go.
 type Namespace struct {
 	CreationDate                time.Time `json:"creationDate"`
 	NamespaceArn                string    `json:"namespaceArn"`
@@ -79,6 +91,8 @@ type Namespace struct {
 	KmsKeyID                    string    `json:"kmsKeyId,omitempty"`
 	AdminPasswordSecretArn      string    `json:"adminPasswordSecretArn,omitempty"`
 	AdminPasswordSecretKmsKeyID string    `json:"adminPasswordSecretKmsKeyId,omitempty"`
+	CatalogArn                  string    `json:"catalogArn,omitempty"`
+	LakehouseRegistrationStatus string    `json:"lakehouseRegistrationStatus,omitempty"`
 	Status                      string    `json:"status"`
 	IamRoles                    []string  `json:"iamRoles,omitempty"`
 	LogExports                  []string  `json:"logExports,omitempty"`
@@ -87,23 +101,39 @@ type Namespace struct {
 // CreateNamespaceParams holds the mutable fields accepted by CreateNamespace.
 // Grouped into a struct because the real CreateNamespaceInput carries more
 // fields than fit a readable positional parameter list.
+//
+// AdminUserPassword and RedshiftIdcApplicationArn are accepted for wire
+// compatibility but intentionally never persisted: real CreateNamespaceInput
+// has both (confirmed against api_op_CreateNamespace.go), but neither is
+// ever echoed back on the Namespace shape (types.go has no such members), so
+// no client can observe whether this backend stores them. AdminUserPassword
+// is additionally a credential -- see CreateNamespace's doc comment.
 type CreateNamespaceParams struct {
 	Tags                        map[string]string
 	NamespaceName               string
 	AdminUsername               string
+	AdminUserPassword           string
 	DBName                      string
 	KmsKeyID                    string
 	DefaultIamRoleArn           string
 	AdminPasswordSecretKmsKeyID string
+	RedshiftIdcApplicationArn   string
 	IamRoles                    []string
 	LogExports                  []string
 	ManageAdminPassword         bool
 }
 
 // UpdateNamespaceParams holds the mutable fields accepted by UpdateNamespace.
+//
+// AdminUserPassword is accepted for wire compatibility but intentionally
+// never persisted -- see CreateNamespaceParams' doc comment; the same
+// credential-handling rationale applies here. There is deliberately no DBName
+// field: UpdateNamespaceInput has no dbName member (a namespace's database
+// name can't be changed after creation, confirmed against
+// api_op_UpdateNamespace.go), unlike CreateNamespaceInput which does.
 type UpdateNamespaceParams struct {
 	AdminUsername               string
-	DBName                      string
+	AdminUserPassword           string
 	KmsKeyID                    string
 	DefaultIamRoleArn           string
 	AdminPasswordSecretKmsKeyID string
@@ -354,6 +384,64 @@ type ManagedWorkgroupListItem struct {
 	Status               string    `json:"status,omitempty"`
 }
 
+// ServerlessTrack represents a Redshift Serverless maintenance track (the
+// "ServerlessTrack" shape in service-2.json). Real AWS documents exactly two
+// track names, "current" and "trailing" (TrackName itself is an untyped
+// *string in the SDK, not a Go enum, but every AWS doc/console reference
+// names only these two -- the same pair classic Redshift's own
+// DescribeClusterTracks already models, see handler_cluster_info.go's
+// modelVersion10-keyed catalog). UpdateTargets (newer versions this track
+// could update to) is honestly left empty: this backend has a single static
+// release (modelVersion10), so there is no second version to invent an
+// upgrade path to.
+type ServerlessTrack struct {
+	TrackName        string         `json:"trackName,omitempty"`
+	WorkgroupVersion string         `json:"workgroupVersion,omitempty"`
+	UpdateTargets    []UpdateTarget `json:"updateTargets,omitempty"`
+}
+
+// UpdateTarget is a single available upgrade target within a ServerlessTrack.
+type UpdateTarget struct {
+	TrackName        string `json:"trackName,omitempty"`
+	WorkgroupVersion string `json:"workgroupVersion,omitempty"`
+}
+
+// ServerlessLakehouseConfig tracks a namespace's lakehouse/Glue Data Catalog
+// federation association written by UpdateLakehouseConfiguration. Only
+// CatalogName is echoed indirectly (via the derived CatalogArn stored on
+// Namespace itself, a real Namespace member -- see serverless.go's Namespace
+// doc comment); LakehouseIdcApplicationArn has NO Namespace member at all
+// (confirmed absent from types.Namespace) so it lives here instead, kept
+// out of every other namespace response the same way Namespace's own
+// AdminUserPassword is kept out -- its only real observable surface is
+// UpdateLakehouseConfiguration's own response.
+type ServerlessLakehouseConfig struct {
+	NamespaceName              string `json:"namespaceName"`
+	CatalogName                string `json:"catalogName,omitempty"`
+	LakehouseIdcApplicationArn string `json:"lakehouseIdcApplicationArn,omitempty"`
+}
+
+// LakehouseConfigResult is UpdateLakehouseConfigurationOutput's real shape --
+// flat, not enveloped, and distinct from (a strict subset of) Namespace's own
+// fields (confirmed against the Output struct in api_op_UpdateLakehouseConfiguration.go).
+type LakehouseConfigResult struct {
+	NamespaceName               string `json:"namespaceName,omitempty"`
+	CatalogArn                  string `json:"catalogArn,omitempty"`
+	LakehouseIdcApplicationArn  string `json:"lakehouseIdcApplicationArn,omitempty"`
+	LakehouseRegistrationStatus string `json:"lakehouseRegistrationStatus,omitempty"`
+}
+
+// UpdateLakehouseConfigParams holds UpdateLakehouseConfigurationInput's
+// mutable fields.
+type UpdateLakehouseConfigParams struct {
+	NamespaceName              string
+	CatalogName                string
+	LakehouseIdcApplicationArn string
+	LakehouseIdcRegistration   string
+	LakehouseRegistration      string
+	DryRun                     bool
+}
+
 // slResourceTagSet holds the tags attached to a taggable Redshift Serverless
 // resource, keyed by the resource's own ARN -- confirmed against
 // TagResourceRequest/UntagResourceRequest/ListTagsForResourceRequest's
@@ -395,6 +483,34 @@ const (
 	// fabricated-but-consistent convention used for AdminPasswordSecretArn
 	// above -- this backend does not do real ACM certificate issuance.
 	slCertExpiryDays = 365
+	// slIdcTokenHexBytes is the byte length of GetIdentityCenterAuthToken's
+	// synthetic opaque token (32 hex chars), mirroring classic Redshift's own
+	// GetIdentityCenterAuthToken (handler_idc_applications.go).
+	slIdcTokenHexBytes = 16
+
+	// slTrackCurrent/slTrackTrailing are the two real Redshift Serverless
+	// maintenance track names -- see ServerlessTrack's doc comment.
+	slTrackCurrent  = "current"
+	slTrackTrailing = "trailing"
+
+	// lakehouseIdcAssociate/lakehouseIdcDisassociate are
+	// UpdateLakehouseConfigurationInput.LakehouseIdcRegistration's two real
+	// enum values (types.LakehouseIdcRegistration).
+	lakehouseIdcAssociate    = "Associate"
+	lakehouseIdcDisassociate = "Disassociate"
+	// lakehouseRegister/lakehouseDeregister are
+	// UpdateLakehouseConfigurationInput.LakehouseRegistration's two real enum
+	// values (types.LakehouseRegistration).
+	lakehouseRegister   = "Register"
+	lakehouseDeregister = "Deregister"
+	// slLakehouseRegistered/slLakehouseDeregistered are this backend's
+	// LakehouseRegistrationStatus values. Real AWS does not publish an enum
+	// for this field (LakehouseRegistrationStatus is a plain *string in the
+	// SDK, confirmed in types/types.go, with no documented value list) --
+	// these are a direct, honest derivation from the client's own
+	// LakehouseRegistration request value, not an invented status vocabulary.
+	slLakehouseRegistered   = "Registered"
+	slLakehouseDeregistered = "Deregistered"
 )
 
 // ---------------------------------------------------------------------------

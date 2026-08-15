@@ -107,7 +107,10 @@ func (b *InMemoryBackend) GetTenant(tenantName string) (*tenantOutput, error) {
 		return nil, fmt.Errorf("%w: Tenant %s not found", ErrNotFound, tenantName)
 	}
 
-	return toTenantOutput(t), nil
+	out := toTenantOutput(t)
+	out.Tags = tagsToEntries(b.liveTagsLocked(b.tenantARN(tenantName)))
+
+	return out, nil
 }
 
 // DeleteTenant removes a tenant and cascades cleanup of its resource

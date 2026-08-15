@@ -94,6 +94,14 @@ type listResolverEndpointIPAddressesOutput struct {
 	IPAddresses []resolverEndpointIPAddressDetail `json:"IpAddresses"`
 }
 
+// handleCreateResolverEndpointInput.VpcID has no counterpart on the real
+// CreateResolverEndpointInput (verified: no VpcId member -- AWS derives the
+// VPC server-side from IpAddresses[].SubnetId, which this backend cannot
+// resolve to a VPC without an EC2 subnet registry it doesn't have). Kept as
+// an internal-only convenience for gopherstack's own seed/test callers, not
+// removed, since real SDK clients never populate it either way and dropping
+// it would only remove the one path this backend has for setting HostVPCId
+// at all -- see resolverEndpointOutput's doc comment (gopherstack-6flj).
 type handleCreateResolverEndpointInput struct {
 	RniEnhancedMetricsEnabled      *bool                       `json:"RniEnhancedMetricsEnabled,omitempty"`
 	TargetNameServerMetricsEnabled *bool                       `json:"TargetNameServerMetricsEnabled,omitempty"`
@@ -117,6 +125,16 @@ type handleCreateResolverEndpointInput struct {
 // via the separate ListResolverEndpointIpAddresses call. An earlier revision of
 // this handler invented an IpAddresses field on this struct; it has been
 // removed (see resolver_endpoints_test.go and PARITY.md for the fix note).
+//
+// gopherstack-6flj sweep: types.ResolverEndpoint also has NO top-level VpcId
+// member at all (confirmed: awsAwsjson11_deserializeDocumentResolverEndpoint
+// has no "VpcId" case; only HostVPCId is real) -- a fabricated field was
+// removed here. See CreateResolverEndpoint's PARITY.md entry: the real
+// CreateResolverEndpointInput has no VpcId request field either (VPC is
+// derived server-side from IpAddresses[].SubnetId), so this backend's
+// internal VpcID plumbing has no real-client source and HostVPCId is
+// disclosed, not fabricated, as empty for any endpoint a real SDK client
+// creates.
 type resolverEndpointOutput struct {
 	ID                             string   `json:"Id"`
 	Arn                            string   `json:"Arn"`
@@ -124,7 +142,6 @@ type resolverEndpointOutput struct {
 	Direction                      string   `json:"Direction"`
 	Status                         string   `json:"Status"`
 	StatusMessage                  string   `json:"StatusMessage,omitempty"`
-	VpcID                          string   `json:"VpcId"`
 	HostVPCId                      string   `json:"HostVPCId"`
 	ResolverEndpointType           string   `json:"ResolverEndpointType"`
 	OutpostArn                     string   `json:"OutpostArn,omitempty"`
@@ -183,7 +200,6 @@ func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 		Direction:                      ep.Direction,
 		Status:                         ep.Status,
 		StatusMessage:                  ep.StatusMessage,
-		VpcID:                          ep.VpcID,
 		HostVPCId:                      ep.HostVPCID,
 		ResolverEndpointType:           epType,
 		IPAddressCount:                 ipCount,

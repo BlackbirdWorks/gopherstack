@@ -279,6 +279,13 @@ type StateInfo struct {
 	Message string `json:"message,omitempty"`
 }
 
+// Rebalancing describes the intelligent rebalancing configuration of an MSK
+// Provisioned cluster with Express brokers (aws-sdk-go-v2/service/kafka's
+// types.Rebalancing; wire key "status").
+type Rebalancing struct {
+	Status string `json:"status,omitempty"`
+}
+
 // ServerlessVpcConfig holds VPC configuration for a serverless cluster.
 type ServerlessVpcConfig struct {
 	SubnetIDs        []string `json:"subnetIds,omitempty"`
@@ -306,6 +313,7 @@ type Cluster struct {
 	StateInfo            *StateInfo             `json:"stateInfo,omitempty"`
 	Serverless           *ServerlessClusterInfo `json:"serverless,omitempty"`
 	ConfigurationInfo    *ConfigurationInfo     `json:"configurationInfo,omitempty"`
+	Rebalancing          *Rebalancing           `json:"rebalancing,omitempty"`
 	ClusterArn           string                 `json:"clusterArn"`
 	ClusterName          string                 `json:"clusterName"`
 	ClusterType          string                 `json:"clusterType"`
@@ -435,6 +443,7 @@ type ReplicationInfoConfig struct {
 // Replicator represents an MSK replicator.
 type Replicator struct {
 	Tags                    map[string]string       `json:"-"`
+	LogDelivery             *LogDelivery            `json:"logDelivery,omitempty"`
 	ReplicatorArn           string                  `json:"replicatorArn"`
 	ReplicatorName          string                  `json:"replicatorName"`
 	Description             string                  `json:"description,omitempty"`
@@ -446,6 +455,25 @@ type Replicator struct {
 	StateInfoMessage        string                  `json:"stateInfoMessage,omitempty"`
 	KafkaClusters           []ClusterConfig         `json:"kafkaClusters,omitempty"`
 	ReplicationInfoList     []ReplicationInfoConfig `json:"replicationInfoList,omitempty"`
+}
+
+// LogDelivery configures log delivery for a Replicator. Field-diffed against
+// kafka@v1.57.2 types.go's LogDelivery/ReplicatorLogDelivery: CreateReplicator
+// accepted this on the request but previously discarded it entirely (not
+// stored, not echoed by DescribeReplicator).
+type LogDelivery struct {
+	ReplicatorLogDelivery *ReplicatorLogDelivery `json:"replicatorLogDelivery,omitempty"`
+}
+
+// ReplicatorLogDelivery configures where a replicator's logs are delivered.
+// CloudWatchLogs/Firehose/S3Logs are reused as-is: their wire field names
+// (enabled/logGroup, enabled/deliveryStream, enabled/bucket/prefix) are
+// identical to the real ReplicatorCloudWatchLogs/ReplicatorFirehose/ReplicatorS3
+// types, confirmed against types.go.
+type ReplicatorLogDelivery struct {
+	CloudWatchLogs *CloudWatchLogs `json:"cloudWatchLogs,omitempty"`
+	Firehose       *Firehose       `json:"firehose,omitempty"`
+	S3             *S3Logs         `json:"s3,omitempty"`
 }
 
 // Topic represents an MSK topic on a cluster. ClusterArn is persisted (it is
@@ -518,6 +546,7 @@ type MutableClusterInfo struct {
 	LoggingInfo          *LoggingInfo          `json:"loggingInfo,omitempty"`
 	ClientAuthentication *ClientAuthentication `json:"clientAuthentication,omitempty"`
 	EncryptionInfo       *EncryptionInfo       `json:"encryptionInfo,omitempty"`
+	Rebalancing          *Rebalancing          `json:"rebalancing,omitempty"`
 	StorageMode          string                `json:"storageMode,omitempty"`
 	EnhancedMonitoring   string                `json:"enhancedMonitoring,omitempty"`
 	BrokerEBSVolumeInfo  []BrokerEBSVolumeInfo `json:"brokerEBSVolumeInfo,omitempty"`

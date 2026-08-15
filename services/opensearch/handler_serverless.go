@@ -8,7 +8,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
-const keySecurityConfigDetail = "securityConfigDetail"
+const (
+	keySecurityConfigDetail = "securityConfigDetail"
+	// keyAccessPolicyDetail and keySecurityPolicyDetail are the real AOSS
+	// response wrapper keys, shared between the REST path below and the
+	// JSON-RPC path in handler_serverless_jsonrpc.go.
+	keyAccessPolicyDetail   = "accessPolicyDetail"
+	keySecurityPolicyDetail = "securityPolicyDetail"
+)
 
 // Serverless path segments.
 const (
@@ -275,7 +282,7 @@ func (h *Handler) handleServerlessPolicyCRUDByName(
 		h.writeJSON(
 			r,
 			w,
-			map[string]any{ops.singleKey: map[string]any{"name": name, "type": policyType}},
+			map[string]any{ops.singleKey: map[string]any{jsonKeyAppName: name, "type": policyType}},
 		)
 	default:
 		h.writeError(
@@ -331,7 +338,7 @@ func (h *Handler) accessPolicyCRUD() serverlessPolicyCRUD {
 			return h.Backend.UpdateServerlessAccessPolicy(pt, name, desc, policy, ver)
 		},
 		deleteByName: h.Backend.DeleteServerlessAccessPolicy,
-		singleKey:    "accessPolicyDetail",
+		singleKey:    keyAccessPolicyDetail,
 		listKey:      "accessPolicySummaries",
 	}
 }

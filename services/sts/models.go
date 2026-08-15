@@ -125,6 +125,11 @@ type AssumeRoleInput struct {
 	Policy            string
 	SourceIdentity    string
 	CallerAccessKeyID string
+	// SerialNumber and TokenCode carry MFA proof, mirroring GetSessionToken's
+	// identically named/validated parameters. Present iff the caller supplied
+	// both; checked against any aws:MultiFactorAuthPresent trust-policy condition.
+	SerialNumber string
+	TokenCode    string
 	// CallerArn is the resolved ARN of the calling principal (e.g. an assumed-role
 	// ARN during role chaining). When set, the target role's trust policy is
 	// evaluated against it; when empty, trust-policy Principal evaluation is

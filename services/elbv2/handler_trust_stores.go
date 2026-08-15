@@ -14,8 +14,11 @@ func (h *Handler) handleCreateTrustStore(vals url.Values) (any, error) {
 	}
 
 	kvs := parseTagKVs(vals)
+	s3Bucket := vals.Get("CaCertificatesBundleS3Bucket")
+	s3Key := vals.Get("CaCertificatesBundleS3Key")
+	s3ObjectVersion := vals.Get("CaCertificatesBundleS3ObjectVersion")
 
-	ts, err := h.Backend.CreateTrustStore(name, kvs)
+	ts, err := h.Backend.CreateTrustStore(name, kvs, s3Bucket, s3Key, s3ObjectVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +193,11 @@ func (h *Handler) handleModifyTrustStore(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
-	ts, err := h.Backend.ModifyTrustStore(tsArn, vals.Get("Name"))
+	s3Bucket := vals.Get("CaCertificatesBundleS3Bucket")
+	s3Key := vals.Get("CaCertificatesBundleS3Key")
+	s3ObjectVersion := vals.Get("CaCertificatesBundleS3ObjectVersion")
+
+	ts, err := h.Backend.ModifyTrustStore(tsArn, s3Bucket, s3Key, s3ObjectVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -308,6 +315,15 @@ func (h *Handler) handleGetTrustStoreRevocationContent(vals url.Values) (any, er
 		return nil, fmt.Errorf("%w: TrustStoreArn is required", ErrInvalidParameter)
 	}
 
+	revocationIDStr := vals.Get("RevocationId")
+	if revocationIDStr == "" {
+		return nil, fmt.Errorf("%w: RevocationId is required", ErrInvalidParameter)
+	}
+	revocationID, err := strconv.ParseInt(revocationIDStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid RevocationId %q", ErrInvalidParameter, revocationIDStr)
+	}
+
 	stores, err := h.Backend.DescribeTrustStores([]string{tsArn}, nil)
 	if err != nil {
 		return nil, err
@@ -315,6 +331,18 @@ func (h *Handler) handleGetTrustStoreRevocationContent(vals url.Values) (any, er
 
 	if len(stores) == 0 {
 		return nil, ErrTrustStoreNotFound
+	}
+
+	found := false
+	for _, r := range stores[0].Revocations {
+		if r.RevocationID == revocationID {
+			found = true
+
+			break
+		}
+	}
+	if !found {
+		return nil, ErrRevocationIDNotFound
 	}
 
 	return &getTrustStoreRevocationContentResponse{
@@ -325,11 +353,11 @@ func (h *Handler) handleGetTrustStoreRevocationContent(vals url.Values) (any, er
 }
 
 type xmlTrustStore struct {
-	TrustStoreArn       string `xml:"TrustStoreArn"`
-	Name                string `xml:"Name"`
-	Status              string `xml:"Status"`
-	NumberOfCaCerts     int    `xml:"NumberOfCaCerts"`
-	TotalRevokedEntries int64  `xml:"TotalRevokedEntries"`
+	TrustStoreArn          string `xml:"TrustStoreArn"`
+	Name                   string `xml:"Name"`
+	Status                 string `xml:"Status"`
+	NumberOfCaCertificates int    `xml:"NumberOfCaCertificates"`
+	TotalRevokedEntries    int64  `xml:"TotalRevokedEntries"`
 }
 
 type xmlTrustStoreList struct {
@@ -348,12 +376,14 @@ type createTrustStoreResponse struct {
 }
 
 type deleteTrustStoreResponse struct {
+	Result           emptyResultXML      `xml:"DeleteTrustStoreResult"`
 	XMLName          xml.Name            `xml:"DeleteTrustStoreResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 type deleteSharedTrustStoreAssociationResponse struct {
+	Result           emptyResultXML      `xml:"DeleteSharedTrustStoreAssociationResult"`
 	XMLName          xml.Name            `xml:"DeleteSharedTrustStoreAssociationResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
@@ -387,11 +417,11 @@ type describeTrustStoreAssociationsResponse struct {
 
 func toXMLTrustStore(ts *TrustStore) xmlTrustStore {
 	return xmlTrustStore{
-		TrustStoreArn:       ts.TrustStoreArn,
-		Name:                ts.Name,
-		Status:              ts.Status,
-		NumberOfCaCerts:     0,
-		TotalRevokedEntries: int64(len(ts.Revocations)),
+		TrustStoreArn:          ts.TrustStoreArn,
+		Name:                   ts.Name,
+		Status:                 ts.Status,
+		NumberOfCaCertificates: 0,
+		TotalRevokedEntries:    int64(len(ts.Revocations)),
 	}
 }
 
@@ -455,6 +485,7 @@ type addTrustStoreRevocationsResult struct {
 type removeTrustStoreRevocationsResponse struct {
 	XMLName          xml.Name            `xml:"RemoveTrustStoreRevocationsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"RemoveTrustStoreRevocationsResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 

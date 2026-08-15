@@ -1,6 +1,7 @@
 package autoscaling_test
 
 import (
+	"encoding/xml"
 	"net/http"
 	"testing"
 
@@ -32,15 +33,25 @@ func TestAutoscalingHandler_InstanceRefreshFlow(t *testing.T) {
 	// StartInstanceRefresh.
 	rec = postAutoscalingForm(t, h, "Action=StartInstanceRefresh&Version=2011-01-01"+
 		"&AutoScalingGroupName=test-asg")
-	assert.Equal(t, http.StatusOK, rec.Code)
-	body := rec.Body.String()
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	// RollbackInstanceRefresh (may fail if no active refresh).
+	var startResp struct {
+		InstanceRefreshID string `xml:"StartInstanceRefreshResult>InstanceRefreshId"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NotEmpty(t, startResp.InstanceRefreshID, "StartInstanceRefresh must return an InstanceRefreshId")
+
+	// RollbackInstanceRefresh: the refresh just started is in progress, so
+	// rollback must succeed and return that same InstanceRefreshId.
 	rec = postAutoscalingForm(t, h, "Action=RollbackInstanceRefresh&Version=2011-01-01"+
 		"&AutoScalingGroupName=test-asg")
-	assert.True(t, rec.Code == http.StatusOK || rec.Code != http.StatusInternalServerError)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	_ = body
+	var rollbackResp struct {
+		InstanceRefreshID string `xml:"RollbackInstanceRefreshResult>InstanceRefreshId"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &rollbackResp))
+	assert.Equal(t, startResp.InstanceRefreshID, rollbackResp.InstanceRefreshID)
 }
 
 func TestAutoscalingHandler_CancelInstanceRefresh(t *testing.T) {

@@ -36,6 +36,7 @@ var (
 		"requires capabilities: CAPABILITY_IAM or CAPABILITY_NAMED_IAM",
 	)
 	ErrStackRefactorNotFound = errors.New("stack refactor not found")
+	ErrStackPolicyDenied     = errors.New("update action denied by stack policy")
 )
 
 // ErrTerminationProtectionEnabled is returned when deleting a termination-protected stack.

@@ -67,7 +67,9 @@ func TestHandler_BucketACL(t *testing.T) {
 func TestPutGetBucketAbac(t *testing.T) {
 	t.Parallel()
 
-	const abacXML = `<AbacConfiguration><Status>Enabled</Status></AbacConfiguration>`
+	// Real root is AbacStatus, not AbacConfiguration (s3@v1.106.5 serializers.go:
+	// awsRestxml_serializeOpPutBucketAbac's payloadRoot.Local).
+	const abacXML = `<AbacStatus><Status>Enabled</Status></AbacStatus>`
 
 	tests := []struct {
 		name          string

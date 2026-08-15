@@ -14,7 +14,17 @@ const (
 	quicksightServiceName = "QuickSight"
 	quicksightSigningName = "quicksight"
 	quicksightPathPrefix  = "/accounts/"
-	quicksightTagPrefix   = "/resources/"
+	// quicksightAccountSubscriptionPrefix covers CreateAccountSubscription,
+	// DescribeAccountSubscription, DeleteAccountSubscription, GetAccountSettings and
+	// UpdateAccountSettings, the only QuickSight operations minted under the singular
+	// "/account/{AwsAccountId}" instead of "/accounts/..." (confirmed against
+	// aws-sdk-go-v2/service/quicksight's serializers.go SplitURI calls). Safe to match
+	// broadly here since RouteMatcher still requires the Authorization header to name
+	// "quicksight" below; the unrelated Account Management service ("account" signing
+	// name) additionally requires POST plus an exact fixed-path match, so there is no
+	// collision.
+	quicksightAccountSubscriptionPrefix = "/account/"
+	quicksightTagPrefix                 = "/resources/"
 	// quicksightV1PathPrefix covers the KnowledgeBase and Space families,
 	// the only QuickSight operations minted under "/v1/accounts/..."
 	// instead of the usual "/accounts/..." (see classifyRequest's v1-strip
@@ -558,7 +568,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 		if strings.HasPrefix(path, quicksightPathPrefix) || strings.HasPrefix(path, quicksightTagPrefix) ||
-			strings.HasPrefix(path, quicksightV1PathPrefix) {
+			strings.HasPrefix(path, quicksightV1PathPrefix) ||
+			strings.HasPrefix(path, quicksightAccountSubscriptionPrefix) {
 			return isQuickSightRequest(c)
 		}
 

@@ -280,6 +280,7 @@ type serverListItem struct {
 	Domain               string `json:"Domain"`
 	EndpointType         string `json:"EndpointType,omitempty"`
 	IdentityProviderType string `json:"IdentityProviderType,omitempty"`
+	LoggingRole          string `json:"LoggingRole,omitempty"`
 	UserCount            int    `json:"UserCount"`
 }
 
@@ -299,6 +300,7 @@ func (h *Handler) handleListServers(
 			Domain:               s.Domain,
 			EndpointType:         s.EndpointType,
 			IdentityProviderType: s.IdentityProviderType,
+			LoggingRole:          s.LoggingRole,
 			UserCount:            h.Backend.ServerUserCount(s.ServerID),
 		})
 	}

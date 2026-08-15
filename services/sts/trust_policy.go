@@ -1,10 +1,14 @@
 package sts
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // Trust-policy actions recognised during AssumeRole* evaluation.
@@ -24,10 +28,22 @@ const (
 	arnServiceIAM = "iam"
 	arnServiceSTS = "sts"
 
-	// condKeyExternalID and condKeyPrincipalArn are the trust-policy condition
-	// keys the emulator models (compared case-insensitively).
+	// condKeyExternalID, condKeyPrincipalArn, and condKeyMFAPresent are the
+	// trust-policy condition keys the emulator models (compared case-insensitively).
 	condKeyExternalID   = "sts:externalid"
 	condKeyPrincipalArn = "aws:principalarn"
+	condKeyMFAPresent   = "aws:multifactorauthpresent"
+
+	// Normalized (lowercased, IfExists-stripped, see normalizeConditionOp) forms
+	// of the AWS condition operators this evaluator models beyond the String
+	// family. ArnEquals and ArnLike are documented by AWS as behaving
+	// identically (both wildcard-capable), so both map to the same case.
+	condOperatorBool         = "bool"
+	condOperatorNull         = "null"
+	condOperatorArnEquals    = "arnequals"
+	condOperatorArnLike      = "arnlike"
+	condOperatorArnNotEquals = "arnnotequals"
+	condOperatorArnNotLike   = "arnnotlike"
 )
 
 // trustEval carries the caller context evaluated against a role trust policy.
@@ -436,15 +452,37 @@ func conditionsSatisfied(cond map[string]map[string]json.RawMessage, ev trustEva
 }
 
 // conditionOperatorHolds evaluates a single condition operator/key/value tuple.
+//
+// Fail-open by design (see services/sts/PARITY.md's trust-policy-evaluation
+// family entry for the full rationale): an operator this switch does not
+// model, or a key conditionValue does not resolve, is treated as satisfied
+// rather than denied, so a trust policy carrying a condition gopherstack
+// cannot evaluate does not silently break existing callers. Both fallback
+// paths log loudly at WARN so the gap is discoverable at runtime instead of
+// silent -- that is the fix for gopherstack-yg95, not a change of default.
 func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) bool {
+	normOp := normalizeConditionOp(op)
+
 	actual, known := ev.conditionValue(key)
+
+	// Null tests key presence, not value, and AWS documents it as the one
+	// operator that does not support an IfExists suffix (presence-testing
+	// already is its job). It must run before the generic !known fallback
+	// below -- otherwise a Null:"false" (key must be present) condition would
+	// always be satisfied by that same fallback, defeating the operator.
+	if normOp == condOperatorNull {
+		return nullConditionHolds(raw, known)
+	}
+
 	if !known {
+		warnUnmodeledCondition(key, op, "condition key not modeled by this emulator")
+
 		return true
 	}
 
 	want := extractStringValues(raw)
 
-	switch normalizeConditionOp(op) {
+	switch normOp {
 	case "stringequals":
 		return anyEquals(want, actual, false)
 	case "stringequalsignorecase":
@@ -455,10 +493,57 @@ func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) b
 		return anyWildcard(want, actual)
 	case "stringnotlike":
 		return !anyWildcard(want, actual)
+	case condOperatorBool:
+		return anyEquals(want, actual, true)
+	case condOperatorArnEquals, condOperatorArnLike:
+		// AWS documents ArnEquals/ArnLike as behaving identically, both
+		// wildcard-capable. Real AWS matches each of the six colon-delimited
+		// ARN segments separately and disallows wildcards spanning segments;
+		// this emulator uses the same general-purpose glob matcher as
+		// StringLike instead of segment-aware matching, a deliberate
+		// simplification since trust-policy ARN conditions in practice
+		// wildcard within a single segment (e.g. role/prod-*).
+		return anyWildcard(want, actual)
+	case condOperatorArnNotEquals, condOperatorArnNotLike:
+		return !anyWildcard(want, actual)
 	default:
-		// Operators we do not model (numeric/date/bool/etc.) are not enforced.
+		// Numeric*/Date*/IpAddress/NotIpAddress/BinaryEquals are not modeled:
+		// this evaluator has no numeric, timestamp, source-IP, or binary
+		// request-context value to compare against for any condition key it
+		// carries (structural, not deferred -- see PARITY.md).
+		warnUnmodeledCondition(key, op, "condition operator not modeled by this emulator")
+
 		return true
 	}
+}
+
+// nullConditionHolds evaluates AWS's Null condition operator: "true" requires
+// the condition key be absent from the request context, "false" requires it
+// be present. Unlike every other operator, Null tests key existence, not the
+// key's value, so it is driven by conditionValue's known result rather than a
+// string/bool comparison against actual.
+func nullConditionHolds(raw json.RawMessage, known bool) bool {
+	for _, v := range extractStringValues(raw) {
+		wantAbsent, err := strconv.ParseBool(v)
+		if err == nil && wantAbsent == !known {
+			return true
+		}
+	}
+
+	return false
+}
+
+// warnUnmodeledCondition logs, at WARN, a trust-policy condition this
+// evaluator could not enforce and therefore permitted by default. There is no
+// request-scoped context available this deep in trust-policy evaluation (see
+// PARITY.md), matching the context.Background() logging pattern already used
+// elsewhere in the repo for logging outside a request's call chain (e.g.
+// services/autoscaling/elbv2_targets.go).
+func warnUnmodeledCondition(key, op, reason string) {
+	logger.Load(context.Background()).Warn(
+		"sts: trust-policy condition not enforced, permitting by default",
+		"key", key, "operator", op, "reason", reason,
+	)
 }
 
 // normalizeConditionOp lowercases a condition operator and strips the AWS
@@ -593,6 +678,76 @@ func requiredExternalIDs(condition map[string]map[string]json.RawMessage) []stri
 	}
 
 	return nil
+}
+
+// validateMFACondition parses a trust policy JSON document and validates that
+// mfaPresent (true when the caller supplied a well-formed SerialNumber+TokenCode
+// pair) satisfies any aws:MultiFactorAuthPresent Bool condition found therein.
+// Mirrors validateExternalID's OR semantics: if any statement's condition is
+// satisfied, access is granted; only when every statement carrying the
+// condition fails is ErrAccessDenied returned. This is the principal-independent
+// half of MFA enforcement — checkAssumeRoleTrust additionally threads the same
+// condition through the general Principal-aware evaluator via conditionCtx so
+// statements combining Principal and MFA in one clause are evaluated jointly.
+func validateMFACondition(trustPolicyJSON string, mfaPresent bool) error {
+	if trustPolicyJSON == "" {
+		return nil
+	}
+
+	var tp trustPolicy
+
+	// Unmarshal errors leave tp with a zero value (empty Statements): a malformed
+	// trust policy is treated permissively, same as validateExternalID.
+	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp)
+
+	var hasMFACondition bool
+
+	for _, stmt := range tp.Statement {
+		required, ok := requiredMFAPresent(stmt.Condition)
+		if !ok {
+			continue
+		}
+
+		hasMFACondition = true
+
+		if required == mfaPresent {
+			return nil
+		}
+	}
+
+	if hasMFACondition {
+		return fmt.Errorf(
+			"%w: the role's trust policy requires MFA authentication",
+			ErrAccessDenied,
+		)
+	}
+
+	return nil
+}
+
+// requiredMFAPresent extracts the required aws:MultiFactorAuthPresent Bool value
+// from a trust-statement Condition map. The second result reports whether the
+// condition is present at all.
+func requiredMFAPresent(condition map[string]map[string]json.RawMessage) (bool, bool) {
+	for condOp, condMap := range condition {
+		if normalizeConditionOp(condOp) != condOperatorBool {
+			continue
+		}
+
+		for condKey, rawVal := range condMap {
+			if !strings.EqualFold(condKey, "aws:MultiFactorAuthPresent") {
+				continue
+			}
+
+			for _, v := range extractStringValues(rawVal) {
+				if b, err := strconv.ParseBool(v); err == nil {
+					return b, true
+				}
+			}
+		}
+	}
+
+	return false, false
 }
 
 // extractStringValues unmarshals a JSON RawMessage that may be either a string

@@ -2,12 +2,21 @@ package kinesis
 
 import "context"
 
-// UpdateStreamWarmThroughput configures pre-warmed throughput for a stream.
-// This is a no-op in the in-memory backend (no actual warm-up is needed).
+// UpdateStreamWarmThroughput configures pre-warmed throughput for a stream
+// (kinesis@v1.46.4 api_op_UpdateStreamWarmThroughput.go:63-70, required
+// WarmThroughputMiBps). Real AWS applies this asynchronously (stream goes
+// UPDATING then back to ACTIVE); this backend has no transient-state model
+// for that (streams are always ACTIVE), so the change is applied
+// synchronously and Current/Target always match on read -- see
+// UpdateStreamWarmThroughputOutput and PARITY.md.
 func (b *InMemoryBackend) UpdateStreamWarmThroughput(
 	ctx context.Context,
 	input *UpdateStreamWarmThroughputInput,
-) error {
+) (*UpdateStreamWarmThroughputOutput, error) {
+	if input.WarmThroughputMiBps <= 0 || input.WarmThroughputMiBps > maxWarmThroughputMiBps {
+		return nil, ErrInvalidArgument
+	}
+
 	region := regionFromARNOrCtx(ctx, input.StreamARN, b.region)
 
 	b.mu.RLock("UpdateStreamWarmThroughput")
@@ -17,14 +26,27 @@ func (b *InMemoryBackend) UpdateStreamWarmThroughput(
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	_, ok := b.streams.Get(streamKey(region, streamName))
+	stream, ok := b.streams.Get(streamKey(region, streamName))
+	if !ok {
+		b.mu.RUnlock()
+
+		return nil, ErrStreamNotFound
+	}
+	stream.mu.Lock("UpdateStreamWarmThroughput.stream")
 	b.mu.RUnlock()
 
-	if !ok {
-		return ErrStreamNotFound
-	}
+	stream.WarmThroughputMiBps = input.WarmThroughputMiBps
+	arnOut, nameOut := stream.ARN, stream.Name
+	stream.mu.Unlock()
 
-	return nil
+	return &UpdateStreamWarmThroughputOutput{
+		StreamARN:  arnOut,
+		StreamName: nameOut,
+		WarmThroughput: WarmThroughputObject{
+			CurrentMiBps: input.WarmThroughputMiBps,
+			TargetMiBps:  input.WarmThroughputMiBps,
+		},
+	}, nil
 }
 
 // UpdateStreamMode changes the mode of a stream identified by its ARN.

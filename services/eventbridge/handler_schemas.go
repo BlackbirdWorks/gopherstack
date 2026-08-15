@@ -7,7 +7,7 @@ import (
 
 func (h *Handler) schemaActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CreateSchema": func(ctx context.Context, b []byte) (any, error) {
+		opCreateSchema: func(ctx context.Context, b []byte) (any, error) {
 			var input CreateSchemaInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -15,7 +15,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 
 			return h.Backend.CreateSchema(ctx, input)
 		},
-		"DeleteSchema": func(ctx context.Context, b []byte) (any, error) {
+		opDeleteSchema: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 				SchemaName   string `json:"SchemaName"`
@@ -26,7 +26,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 
 			return &struct{}{}, h.Backend.DeleteSchema(ctx, input.RegistryName, input.SchemaName)
 		},
-		"DescribeSchema": func(ctx context.Context, b []byte) (any, error) {
+		opDescribeSchema: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName  string `json:"RegistryName"`
 				SchemaName    string `json:"SchemaName"`
@@ -43,7 +43,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				input.SchemaVersion,
 			)
 		},
-		"ListSchemas": func(ctx context.Context, b []byte) (any, error) {
+		opListSchemas: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName     string `json:"RegistryName"`
 				SchemaNamePrefix string `json:"SchemaNamePrefix"`
@@ -67,7 +67,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				Schemas   []Schema `json:"Schemas"`
 			}{Schemas: schemas, NextToken: next}, nil
 		},
-		"SearchSchemas": func(ctx context.Context, b []byte) (any, error) {
+		opSearchSchemas: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 				Keywords     string `json:"Keywords"`
@@ -91,7 +91,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 				Schemas   []Schema `json:"Schemas"`
 			}{Schemas: schemas, NextToken: next}, nil
 		},
-		"UpdateSchema": func(ctx context.Context, b []byte) (any, error) {
+		opUpdateSchema: func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateSchemaInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -104,7 +104,7 @@ func (h *Handler) schemaActions() map[string]actionFn {
 
 func (h *Handler) schemaVersionActions() map[string]actionFn {
 	return map[string]actionFn{
-		"ListSchemaVersions": func(ctx context.Context, b []byte) (any, error) {
+		opListSchemaVersions: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 				SchemaName   string `json:"SchemaName"`
@@ -145,7 +145,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				input.SchemaVersion,
 			)
 		},
-		"DeleteSchemaVersion": func(ctx context.Context, b []byte) (any, error) {
+		opDeleteSchemaVersion: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName  string `json:"RegistryName"`
 				SchemaName    string `json:"SchemaName"`
@@ -162,7 +162,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 				input.SchemaVersion,
 			)
 		},
-		"GetDiscoveredSchema": func(ctx context.Context, b []byte) (any, error) {
+		opGetDiscoveredSchema: func(ctx context.Context, b []byte) (any, error) {
 			var input GetDiscoveredSchemaInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -181,7 +181,7 @@ func (h *Handler) schemaVersionActions() map[string]actionFn {
 
 func (h *Handler) codeBindingActions() map[string]actionFn {
 	return map[string]actionFn{
-		"PutCodeBinding": func(ctx context.Context, b []byte) (any, error) {
+		opPutCodeBinding: func(ctx context.Context, b []byte) (any, error) {
 			var input PutCodeBindingInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -189,7 +189,7 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 
 			return h.Backend.PutCodeBinding(ctx, input)
 		},
-		"DescribeCodeBinding": func(ctx context.Context, b []byte) (any, error) {
+		opDescribeCodeBinding: func(ctx context.Context, b []byte) (any, error) {
 			var input DescribeCodeBindingInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -212,7 +212,7 @@ func (h *Handler) codeBindingActions() map[string]actionFn {
 				CodeBindings []CodeBinding `json:"CodeBindings"`
 			}{CodeBindings: bindings, NextToken: next}, nil
 		},
-		"GetCodeBindingSource": func(ctx context.Context, b []byte) (any, error) {
+		opGetCodeBindingSource: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName  string `json:"RegistryName"`
 				SchemaName    string `json:"SchemaName"`

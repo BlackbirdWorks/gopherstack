@@ -244,9 +244,10 @@ type listTasksInput struct {
 }
 
 type taskListEntryOutput struct {
-	TaskArn string `json:"TaskArn"`
-	Name    string `json:"Name"`
-	Status  string `json:"Status"`
+	TaskArn  string `json:"TaskArn"`
+	Name     string `json:"Name"`
+	Status   string `json:"Status"`
+	TaskMode string `json:"TaskMode,omitempty"`
 }
 
 type listTasksOutput struct {
@@ -263,9 +264,10 @@ func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listT
 	out := make([]taskListEntryOutput, 0, len(tasks))
 	for _, t := range tasks {
 		out = append(out, taskListEntryOutput{
-			TaskArn: t.TaskArn,
-			Name:    t.Name,
-			Status:  t.Status,
+			TaskArn:  t.TaskArn,
+			Name:     t.Name,
+			Status:   t.Status,
+			TaskMode: t.TaskMode,
 		})
 	}
 
@@ -327,6 +329,7 @@ type describeTaskExecutionOutput struct {
 	Options                  map[string]any `json:"Options,omitempty"`
 	TaskExecutionArn         string         `json:"TaskExecutionArn"`
 	Status                   string         `json:"Status"`
+	TaskMode                 string         `json:"TaskMode,omitempty"`
 	StartTime                int64          `json:"StartTime"`
 	EstimatedFilesToTransfer int64          `json:"EstimatedFilesToTransfer"`
 	EstimatedBytesToTransfer int64          `json:"EstimatedBytesToTransfer"`
@@ -350,6 +353,7 @@ func (h *Handler) handleDescribeTaskExecution(
 	return &describeTaskExecutionOutput{
 		TaskExecutionArn:         e.TaskExecutionArn,
 		Status:                   e.Status,
+		TaskMode:                 e.TaskMode,
 		StartTime:                e.StartTime.Unix(),
 		Options:                  e.Options,
 		EstimatedFilesToTransfer: e.EstimatedFilesToTransfer,
@@ -368,6 +372,7 @@ type listTaskExecutionsInput struct {
 type taskExecutionListEntryOutput struct {
 	TaskExecutionArn string `json:"TaskExecutionArn"`
 	Status           string `json:"Status"`
+	TaskMode         string `json:"TaskMode,omitempty"`
 }
 
 type listTaskExecutionsOutput struct {
@@ -389,6 +394,7 @@ func (h *Handler) handleListTaskExecutions(
 		out = append(out, taskExecutionListEntryOutput{
 			TaskExecutionArn: e.TaskExecutionArn,
 			Status:           e.Status,
+			TaskMode:         e.TaskMode,
 		})
 	}
 

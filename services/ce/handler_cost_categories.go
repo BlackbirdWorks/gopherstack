@@ -242,25 +242,88 @@ func (h *Handler) handleUpdateCostCategoryDefinition(
 }
 
 type getCostCategoriesInput struct {
-	TimePeriod       map[string]string `json:"TimePeriod"`
-	CostCategoryName string            `json:"CostCategoryName"`
-	SearchString     string            `json:"SearchString"`
-	NextPageToken    string            `json:"NextPageToken"`
-	MaxResults       int               `json:"MaxResults"`
+	Filter           *ceExpression      `json:"Filter"`
+	TimePeriod       map[string]string  `json:"TimePeriod"`
+	CostCategoryName string             `json:"CostCategoryName"`
+	SearchString     string             `json:"SearchString"`
+	NextPageToken    string             `json:"NextPageToken"`
+	SortBy           []ceSortDefinition `json:"SortBy"`
+	MaxResults       int                `json:"MaxResults"`
 }
 
+// getCostCategoriesOutput's CostCategoryNames/CostCategoryValues split matches
+// real AWS CE's GetCostCategoriesOutput: CostCategoryValues is only populated
+// when the request specifies CostCategoryName, otherwise the response carries
+// CostCategoryNames instead (api_op_GetCostCategories.go). A prior revision
+// unconditionally returned CostCategoryValues and never emitted
+// CostCategoryNames at all.
 type getCostCategoriesOutput struct {
 	NextPageToken      string   `json:"NextPageToken,omitempty"`
-	CostCategoryValues []string `json:"CostCategoryValues"`
+	CostCategoryNames  []string `json:"CostCategoryNames,omitempty"`
+	CostCategoryValues []string `json:"CostCategoryValues,omitempty"`
 	ReturnSize         int      `json:"ReturnSize"`
 	TotalSize          int      `json:"TotalSize"`
+}
+
+// applyCostCategoriesFilter narrows values to the Filter.CostCategories
+// allow-list, when provided. This emulator derives CostCategoryValues purely
+// from cost-category Rule definitions (see Backend.GetCostCategories), not
+// from tagged cost/usage transactions the way real AWS does, so a
+// Dimensions/Tags-based Filter has no backing transaction state to act on;
+// only the CostCategories clause -- which restricts to an explicit candidate
+// list -- has a meaningful, non-fabricated effect here.
+func applyCostCategoriesFilter(values []string, filter *ceExpression) []string {
+	if filter == nil || filter.CostCategories == nil || len(filter.CostCategories.Values) == 0 {
+		return values
+	}
+
+	kept := make([]string, 0, len(values))
+
+	for _, v := range values {
+		if stringSliceContainsFold(filter.CostCategories.Values, v) {
+			kept = append(kept, v)
+		}
+	}
+
+	return kept
+}
+
+// applyCostCategoriesSort orders values by the requested SortOrder. Real
+// GetCostCategories SortBy keys are cost metrics (BlendedCost, UsageQuantity,
+// etc.); CostCategoryValues here are plain strings with no per-value cost
+// metric behind them, so the honest, non-fabricated behavior is to honor
+// only SortOrder (ASCENDING/DESCENDING) over the already-alphabetical list
+// Backend.GetCostCategories returns, rather than inventing per-value costs.
+func applyCostCategoriesSort(values []string, sortBy []ceSortDefinition) []string {
+	if len(sortBy) == 0 || !sortDescending(sortBy[0].SortOrder) {
+		return values
+	}
+
+	reversed := make([]string, len(values))
+	for i, v := range values {
+		reversed[len(values)-1-i] = v
+	}
+
+	return reversed
 }
 
 func (h *Handler) handleGetCostCategories(
 	_ context.Context,
 	in *getCostCategoriesInput,
 ) (*getCostCategoriesOutput, error) {
+	if in.CostCategoryName == "" {
+		names := applyCostCategoriesSort(h.Backend.GetCostCategoryNames(), in.SortBy)
+
+		return &getCostCategoriesOutput{
+			CostCategoryNames: names,
+			ReturnSize:        len(names),
+			TotalSize:         len(names),
+		}, nil
+	}
+
 	values := h.Backend.GetCostCategories(in.CostCategoryName)
+	values = applyCostCategoriesFilter(values, in.Filter)
+	values = applyCostCategoriesSort(values, in.SortBy)
 
 	return &getCostCategoriesOutput{
 		CostCategoryValues: values,

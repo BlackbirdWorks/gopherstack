@@ -212,12 +212,19 @@ type StorageBackend interface {
 	OIDCProviderExists(issuerURL string) bool
 
 	// Delegation Requests
-	CreateDelegationRequest(targetAccountID string) (*DelegationRequest, error)
+	CreateDelegationRequest(req CreateDelegationRequestInput) (*DelegationRequest, error)
 	AcceptDelegationRequest(delegationID string) error
-	AssociateDelegationRequest(delegationID, policyArn string) error
+	AssociateDelegationRequest(delegationID string) error
+	DelegationRequestExists(delegationID string) bool
+	RejectDelegationRequest(delegationID, notes string) error
+	SendDelegationToken(delegationID string) error
+	UpdateDelegationRequest(delegationID, notes string) error
+
+	// Security Token Service preferences
+	SetSecurityTokenServicePreferences(globalEndpointTokenVersion string) error
 
 	// Change Password
-	ChangePassword(newPassword string) error
+	ChangePassword(oldPassword, newPassword string) error
 
 	// OIDC Client IDs
 	AddClientIDToOpenIDConnectProvider(providerArn, clientID string) error
@@ -297,48 +304,57 @@ const iamDefaultMaxItems = 100
 // accessKeyStatusActive is the "Active" access-key status string.
 const accessKeyStatusActive = "Active"
 
+// globalEndpointTokenVersionV1/V2 are SetSecurityTokenServicePreferences's
+// GlobalEndpointTokenVersion values (aws-sdk-go-v2/service/iam/types.GlobalEndpointTokenVersion).
+const (
+	globalEndpointTokenVersionV1 = "v1Token"
+	globalEndpointTokenVersionV2 = "v2Token"
+)
+
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	rolePolicies              map[string][]string
-	loginProfiles             *store.Table[LoginProfile]
-	policies                  *store.Table[Policy]
-	policyByARN               map[string]string
-	roleByARN                 map[string]string
-	accessKeys                *store.Table[AccessKey]
-	userAccessKeys            map[string][]string
-	instanceProfiles          *store.Table[InstanceProfile]
-	samlProviders             *store.Table[SAMLProvider]
-	groupMembers              map[string][]string
-	groupPolicies             map[string][]string
-	userPolicies              map[string][]string
-	policyAttachments         map[string]policyAttachmentRefs
-	mu                        *lockmetrics.RWMutex
-	groupInlinePolicies       map[string]map[string]string
-	groups                    *store.Table[Group]
-	oidcProviders             *store.Table[OIDCProvider]
-	userInlinePolicies        map[string]map[string]string
-	delegationRequests        *store.Table[DelegationRequest]
-	roleInlinePolicies        map[string]map[string]string
-	virtualMFADevices         *store.Table[VirtualMFADevice]
-	policyVersions            map[string][]StoredPolicyVersion
-	policyVersionCounters     map[string]int
-	deletedV1Policies         map[string]bool
-	serviceSpecificCreds      *store.Table[ServiceSpecificCredential]
-	roles                     *store.Table[Role]
-	signingCertificates       *store.Table[SigningCertificate]
-	serverCertificates        *store.Table[ServerCertificate]
-	passwordPolicy            *PasswordPolicy
-	users                     *store.Table[User]
-	registry                  *store.Registry
-	comprehensive             *comprehensiveBackend
-	accountID                 string
-	accountAliases            []string
-	sortedUserNames           []string
-	sortedRoleNames           []string
-	sortedPolicyNames         []string
-	sortedGroupNames          []string
-	sortedIPNames             []string
-	outboundFederationEnabled bool
+	rolePolicies               map[string][]string
+	loginProfiles              *store.Table[LoginProfile]
+	policies                   *store.Table[Policy]
+	policyByARN                map[string]string
+	roleByARN                  map[string]string
+	accessKeys                 *store.Table[AccessKey]
+	userAccessKeys             map[string][]string
+	instanceProfiles           *store.Table[InstanceProfile]
+	samlProviders              *store.Table[SAMLProvider]
+	groupMembers               map[string][]string
+	groupPolicies              map[string][]string
+	userPolicies               map[string][]string
+	policyAttachments          map[string]policyAttachmentRefs
+	mu                         *lockmetrics.RWMutex
+	groupInlinePolicies        map[string]map[string]string
+	groups                     *store.Table[Group]
+	oidcProviders              *store.Table[OIDCProvider]
+	userInlinePolicies         map[string]map[string]string
+	delegationRequests         *store.Table[DelegationRequest]
+	roleInlinePolicies         map[string]map[string]string
+	virtualMFADevices          *store.Table[VirtualMFADevice]
+	policyVersions             map[string][]StoredPolicyVersion
+	policyVersionCounters      map[string]int
+	deletedV1Policies          map[string]bool
+	serviceSpecificCreds       *store.Table[ServiceSpecificCredential]
+	roles                      *store.Table[Role]
+	signingCertificates        *store.Table[SigningCertificate]
+	serverCertificates         *store.Table[ServerCertificate]
+	passwordPolicy             *PasswordPolicy
+	users                      *store.Table[User]
+	registry                   *store.Registry
+	comprehensive              *comprehensiveBackend
+	accountID                  string
+	currentPassword            string
+	globalEndpointTokenVersion string
+	accountAliases             []string
+	sortedUserNames            []string
+	sortedRoleNames            []string
+	sortedPolicyNames          []string
+	sortedGroupNames           []string
+	sortedIPNames              []string
+	outboundFederationEnabled  bool
 }
 
 type policyAttachmentRefs struct {
@@ -355,26 +371,27 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new IAM InMemoryBackend with the given account ID.
 func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		roleByARN:                 make(map[string]string),
-		policyByARN:               make(map[string]string),
-		userAccessKeys:            make(map[string][]string),
-		userPolicies:              make(map[string][]string),
-		rolePolicies:              make(map[string][]string),
-		groupPolicies:             make(map[string][]string),
-		groupMembers:              make(map[string][]string),
-		userInlinePolicies:        make(map[string]map[string]string),
-		roleInlinePolicies:        make(map[string]map[string]string),
-		groupInlinePolicies:       make(map[string]map[string]string),
-		policyAttachments:         make(map[string]policyAttachmentRefs),
-		accountAliases:            nil,
-		policyVersions:            make(map[string][]StoredPolicyVersion),
-		policyVersionCounters:     make(map[string]int),
-		deletedV1Policies:         make(map[string]bool),
-		accountID:                 accountID,
-		mu:                        lockmetrics.New("iam"),
-		registry:                  store.NewRegistry(),
-		comprehensive:             newComprehensiveBackend(),
-		outboundFederationEnabled: true,
+		roleByARN:                  make(map[string]string),
+		policyByARN:                make(map[string]string),
+		userAccessKeys:             make(map[string][]string),
+		userPolicies:               make(map[string][]string),
+		rolePolicies:               make(map[string][]string),
+		groupPolicies:              make(map[string][]string),
+		groupMembers:               make(map[string][]string),
+		userInlinePolicies:         make(map[string]map[string]string),
+		roleInlinePolicies:         make(map[string]map[string]string),
+		groupInlinePolicies:        make(map[string]map[string]string),
+		policyAttachments:          make(map[string]policyAttachmentRefs),
+		accountAliases:             nil,
+		policyVersions:             make(map[string][]StoredPolicyVersion),
+		policyVersionCounters:      make(map[string]int),
+		deletedV1Policies:          make(map[string]bool),
+		accountID:                  accountID,
+		mu:                         lockmetrics.New("iam"),
+		registry:                   store.NewRegistry(),
+		comprehensive:              newComprehensiveBackend(),
+		outboundFederationEnabled:  true,
+		globalEndpointTokenVersion: globalEndpointTokenVersionV1,
 		// Sorted name indexes start empty; populated via insertSorted on create.
 		sortedUserNames:   nil,
 		sortedRoleNames:   nil,
@@ -641,6 +658,7 @@ func (b *InMemoryBackend) Reset() {
 	b.roleInlinePolicies = make(map[string]map[string]string)
 	b.groupInlinePolicies = make(map[string]map[string]string)
 	b.accountAliases = nil
+	b.globalEndpointTokenVersion = globalEndpointTokenVersionV1
 	b.policyVersions = make(map[string][]StoredPolicyVersion)
 	b.policyVersionCounters = make(map[string]int)
 	b.deletedV1Policies = make(map[string]bool)

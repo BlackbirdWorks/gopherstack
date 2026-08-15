@@ -144,9 +144,9 @@ func (b *InMemoryBackend) CreateSubnetCidrReservation(
 }
 
 // DeleteSubnetCidrReservation removes a subnet CIDR reservation.
-func (b *InMemoryBackend) DeleteSubnetCidrReservation(reservationID string) error {
+func (b *InMemoryBackend) DeleteSubnetCidrReservation(reservationID string) (*SubnetCIDRReservation, error) {
 	if reservationID == "" {
-		return fmt.Errorf("%w: SubnetCidrReservationId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: SubnetCidrReservationId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteSubnetCidrReservation")
@@ -155,14 +155,15 @@ func (b *InMemoryBackend) DeleteSubnetCidrReservation(reservationID string) erro
 	for subnetID, reservations := range b.subnetCIDRReservations {
 		for i, r := range reservations {
 			if r.SubnetCIDRReservationID == reservationID {
+				cp := *r
 				b.subnetCIDRReservations[subnetID] = append(reservations[:i], reservations[i+1:]...)
 
-				return nil
+				return &cp, nil
 			}
 		}
 	}
 
-	return fmt.Errorf("%w: %s", ErrInvalidParameter, reservationID)
+	return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, reservationID)
 }
 
 // GetSubnetCidrReservations returns CIDR reservations for a subnet.

@@ -316,7 +316,9 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			name:   "test_function",
 			method: http.MethodPost,
 			path:   "",
-			body:   nil,
+			body: []byte(
+				`<TestFunctionRequest><EventObject>eyJyZXF1ZXN0Ijp7fX0=</EventObject></TestFunctionRequest>`,
+			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
 				_, err := h.Backend.CreateFunction("test-fn", "comment", "cloudfront-js-2.0", "code", nil)
@@ -324,11 +326,22 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 
 				return "/2020-05-31/function/test-fn/test"
 			},
-			wantStatus: http.StatusOK,
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				name := strings.TrimSuffix(strings.TrimPrefix(path, "/2020-05-31/function/"), "/test")
+				fn, err := h.Backend.GetFunction(name)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": fn.ETag}
+			},
+			// gopherstack has no JavaScript engine, so a well-formed TestFunction request
+			// (valid EventObject, matching If-Match) reports the real declared
+			// TestFunctionFailed structural gap rather than a fabricated success -- see
+			// TestTestFunction for the full validation matrix.
+			wantStatus: http.StatusInternalServerError,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
-				assert.Contains(t, rec.Body.String(), "TestResult")
-				assert.Contains(t, rec.Body.String(), "test-fn")
+				assert.Contains(t, rec.Body.String(), "TestFunctionFailed")
 			},
 		},
 	}
@@ -357,6 +370,111 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			if tt.check != nil {
 				tt.check(t, rec, path)
 			}
+		})
+	}
+}
+
+// TestTestFunction covers TestFunction's required-field validation and the honest
+// TestFunctionFailed structural-gap response for a well-formed request. gopherstack has no
+// JavaScript engine (no goja/otto/v8 in go.mod, and the one existing precedent -- appsync's
+// jseval.go -- only covers a narrow return-expression DSL, not general-purpose CloudFront
+// Functions JS), so it must not fabricate FunctionOutput/logs for a request it cannot execute.
+func TestTestFunction(t *testing.T) {
+	t.Parallel()
+
+	const validEvent = `<TestFunctionRequest><EventObject>eyJyZXF1ZXN0Ijp7fX0=</EventObject></TestFunctionRequest>`
+
+	tests := []struct {
+		body       string
+		name       string
+		ifMatch    string // "correct", "wrong", or "" for no header
+		wantCode   string
+		skipCreate bool
+		wantStatus int
+	}{
+		{
+			name:       "unknown_function_not_found",
+			skipCreate: true,
+			body:       validEvent,
+			wantStatus: http.StatusNotFound,
+			wantCode:   "NoSuchFunctionExists",
+		},
+		{
+			name:       "missing_if_match_rejected",
+			body:       validEvent,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidIfMatchVersion",
+		},
+		{
+			name:       "wrong_if_match_rejected",
+			ifMatch:    "wrong",
+			body:       validEvent,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidIfMatchVersion",
+		},
+		{
+			name:       "missing_event_object_rejected",
+			ifMatch:    "correct",
+			body:       `<TestFunctionRequest></TestFunctionRequest>`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidArgument",
+		},
+		{
+			name:       "no_body_rejected",
+			ifMatch:    "correct",
+			body:       "",
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidArgument",
+		},
+		{
+			name:       "invalid_base64_event_object_rejected",
+			ifMatch:    "correct",
+			body:       `<TestFunctionRequest><EventObject>!!!not-base64!!!</EventObject></TestFunctionRequest>`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidArgument",
+		},
+		{
+			name:       "invalid_json_event_object_rejected",
+			ifMatch:    "correct",
+			body:       `<TestFunctionRequest><EventObject>bm90IGpzb24=</EventObject></TestFunctionRequest>`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidArgument",
+		},
+		{
+			name:       "valid_request_reports_structural_gap_not_canned_success",
+			ifMatch:    "correct",
+			body:       validEvent,
+			wantStatus: http.StatusInternalServerError,
+			wantCode:   "TestFunctionFailed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			headers := map[string]string{}
+
+			if !tt.skipCreate {
+				_, err := h.Backend.CreateFunction("tf-fn", "comment", "cloudfront-js-2.0", "code", nil)
+				require.NoError(t, err)
+
+				fn, err := h.Backend.GetFunction("tf-fn")
+				require.NoError(t, err)
+
+				switch tt.ifMatch {
+				case "correct":
+					headers["If-Match"] = fn.ETag
+				case "wrong":
+					headers["If-Match"] = fn.ETag + "-stale"
+				}
+			}
+
+			rec := cfRequestWithBodyHeaders(t, h, http.MethodPost, "/2020-05-31/function/tf-fn/test", tt.body, headers)
+
+			assert.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tt.wantCode)
 		})
 	}
 }

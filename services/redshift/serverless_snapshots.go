@@ -58,9 +58,25 @@ func (b *InMemoryBackend) CreateServerlessSnapshot(
 
 // GetServerlessSnapshot returns a serverless snapshot by name or ARN
 // (GetSnapshotInput accepts either SnapshotName or SnapshotArn).
-func (b *InMemoryBackend) GetServerlessSnapshot(nameOrArn string) (*ServerlessSnapshot, error) {
+//
+// ownerAccount is honestly single-account: this backend never simulates
+// cross-account snapshot sharing for the serverless surface (AuthorizeSnapshotAccess
+// is not part of this API; ServerlessSnapshot.AccountsWithRestoreAccess is
+// declared for wire shape but never populated), so every snapshot's real
+// owner is b.accountID. A non-empty ownerAccount that doesn't match
+// b.accountID can therefore never resolve to a snapshot, same as real AWS
+// would return for an inaccessible cross-account snapshot.
+func (b *InMemoryBackend) GetServerlessSnapshot(nameOrArn, ownerAccount string) (*ServerlessSnapshot, error) {
 	b.mu.RLock("GetServerlessSnapshot")
 	defer b.mu.RUnlock()
+
+	if ownerAccount != "" && ownerAccount != b.accountID {
+		return nil, fmt.Errorf(
+			"%w: snapshot %q not found",
+			ErrServerlessSnapshotNotFound,
+			nameOrArn,
+		)
+	}
 
 	name := nameOrArn
 	if idx := strings.LastIndex(nameOrArn, "/"); strings.Contains(nameOrArn, ":snapshot/") && idx >= 0 {
@@ -79,16 +95,55 @@ func (b *InMemoryBackend) GetServerlessSnapshot(nameOrArn string) (*ServerlessSn
 	return cloneServerlessSnapshot(snap), nil
 }
 
-// ListServerlessSnapshots returns snapshots, optionally filtered by namespace name.
+// ListServerlessSnapshotsParams holds ListSnapshotsInput's filters.
+type ListServerlessSnapshotsParams struct {
+	StartTime     time.Time
+	EndTime       time.Time
+	NamespaceName string
+	NamespaceArn  string
+	OwnerAccount  string
+	NextToken     string
+	MaxResults    int
+}
+
+// matches reports whether snap satisfies every filter set on p (an unset
+// filter matches everything). Split out of ListServerlessSnapshots to keep
+// that function's cognitive complexity flat as filters were added.
+func (p ListServerlessSnapshotsParams) matches(snap *ServerlessSnapshot) bool {
+	if p.NamespaceName != "" && snap.NamespaceName != p.NamespaceName {
+		return false
+	}
+
+	if p.NamespaceArn != "" && snap.NamespaceArn != p.NamespaceArn {
+		return false
+	}
+
+	if !p.StartTime.IsZero() && snap.SnapshotCreateTime.Before(p.StartTime) {
+		return false
+	}
+
+	if !p.EndTime.IsZero() && snap.SnapshotCreateTime.After(p.EndTime) {
+		return false
+	}
+
+	return true
+}
+
+// ListServerlessSnapshots returns snapshots, optionally filtered by
+// namespace name/ARN, creation time range, and owner account.
 //
-//nolint:dupl // pagination pattern is structurally identical across serverless resource types
+// p.OwnerAccount is honestly single-account -- see GetServerlessSnapshot's
+// doc comment for why comparing against b.accountID is the correct filter
+// here rather than a no-op.
 func (b *InMemoryBackend) ListServerlessSnapshots(
-	namespaceName string,
-	maxResults int,
-	nextToken string,
+	p ListServerlessSnapshotsParams,
 ) ([]*ServerlessSnapshot, string) {
 	b.mu.RLock("ListServerlessSnapshots")
 	defer b.mu.RUnlock()
+
+	if p.OwnerAccount != "" && p.OwnerAccount != b.accountID {
+		return []*ServerlessSnapshot{}, ""
+	}
 
 	// Iterate the pre-sorted index so results are ordered without re-sorting.
 	keys := b.slSnapshotIdx.ordered()
@@ -96,14 +151,15 @@ func (b *InMemoryBackend) ListServerlessSnapshots(
 
 	for _, name := range keys {
 		snap, ok := b.slSnapshots.Get(name)
-		if !ok {
+		if !ok || !p.matches(snap) {
 			continue
 		}
 
-		if namespaceName == "" || snap.NamespaceName == namespaceName {
-			list = append(list, cloneServerlessSnapshot(snap))
-		}
+		list = append(list, cloneServerlessSnapshot(snap))
 	}
+
+	maxResults := p.MaxResults
+	nextToken := p.NextToken
 
 	if maxResults <= 0 {
 		maxResults = serverlessDefaultPageSize()
@@ -153,6 +209,32 @@ func (b *InMemoryBackend) DeleteServerlessSnapshot(
 	b.slSnapshotIdx.remove(snapshotName)
 
 	return cp, nil
+}
+
+// UpdateServerlessSnapshot updates a serverless snapshot's retention period.
+// retentionPeriod is nilable: UpdateSnapshotInput.RetentionPeriod is optional
+// (confirmed against api_op_UpdateSnapshot.go -- unlike SnapshotName, which is
+// required), so an absent value leaves the stored retention period unchanged.
+func (b *InMemoryBackend) UpdateServerlessSnapshot(
+	snapshotName string, retentionPeriod *int,
+) (*ServerlessSnapshot, error) {
+	b.mu.Lock("UpdateServerlessSnapshot")
+	defer b.mu.Unlock()
+
+	snap, ok := b.slSnapshots.Get(snapshotName)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: snapshot %q not found",
+			ErrServerlessSnapshotNotFound,
+			snapshotName,
+		)
+	}
+
+	if retentionPeriod != nil {
+		snap.SnapshotRetentionPeriod = *retentionPeriod
+	}
+
+	return cloneServerlessSnapshot(snap), nil
 }
 
 func cloneServerlessSnapshot(snap *ServerlessSnapshot) *ServerlessSnapshot {

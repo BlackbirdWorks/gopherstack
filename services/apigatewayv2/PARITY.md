@@ -53,7 +53,7 @@ ops:
   DeleteApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also purges authorizerCache entries for the API's authorizers on cascade delete -- see Notes #11"}
   ImportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "basepath and failOnWarnings query params (SetQuery in serializers.go, not body fields) are now read and validated instead of silently ignored; basepath=prepend now prefixes route paths with the spec's declared base path. basepath=split and failOnWarnings-triggered rollback remain unimplemented -- bd gopherstack-jni0, narrowed, see gaps. Api.importInfo/warnings shape itself is correct (Notes #8) but always empty since the emulator never generates import warnings, so failOnWarnings has no observable effect yet."}
   ReimportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same basepath/failOnWarnings fix as ImportApi -- bd gopherstack-jni0, narrowed"}
-  ExportApi: {wire: ok, errors: ok, state: ok, persist: ok}
+  ExportApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): OutputType (required query param 'outputType', verified against validateOpExportApiInput/serializeOpHttpBindingsExportApiInput) was ignored and JSON was always returned. Now required (400 if missing/invalid) and YAML actually serializes via gopkg.in/yaml.v3 when requested. StageName/ExportVersion/IncludeExtensions remain unwired -- StageName would need per-stage route filtering this backend's route model doesn't support (routes are API-level, not stage-scoped); ExportVersion/IncludeExtensions are cosmetic knobs on the exported doc's own metadata/extension-inclusion, not state this backend tracks. Left absent rather than fabricated."}
   CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "HTTP routeKey format + WS \$connect/\$disconnect/\$default/custom validated; auth type NONE/AWS_IAM/JWT/CUSTOM enforced"}
   GetRoute: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -357,6 +357,20 @@ Genuine bugs found and fixed in the `gopherstack-0xs7` follow-up pass (confirmed
     modeled error sets contain only `NotFoundException`/`TooManyRequestsException`, no error code
     that fits "rejected because managed" -- guessing one would be the same fabrication risk this
     gap's original deferral (2026-07-05) correctly flagged.
+
+15. **Route reachability (bd gopherstack-l5ir).** Every one of the 103 real apigatewayv2 ops was
+    extracted from `apigatewayv2@v1.37.4` serializers.go (`request.Method` +
+    `httpbinding.SplitURI(...)` in each op's `awsRestjson1_serializeOp<Op>.HandleSerialize`) and
+    diffed against this service's route table. Zero mismatches -- all 103 method+path pairs
+    resolve to the correct op via `ExtractOperation`, including the shared-path/method-only
+    disambiguation used by `GetTags`/`TagResource`/`UntagResource` (all `/v2/tags/{ResourceArn}`)
+    and `PublishPortal`/`DisablePortal` (both `/v2/portals/{id}/publish`, POST vs DELETE) -- unlike
+    cloudfront's `TagResource`/`UntagResource` bug (both `POST /tagging` distinguished only by an
+    `Operation=` query param the router ignored), apigatewayv2's tag ops are genuinely
+    method-disambiguated in the real SDK, so switching on method here is correct, not a latent bug.
+    No op in this service is distinguished by a query parameter or bare flag. Added as a permanent
+    test, `TestExtractOperation_SDKRouteTable` in `handler_paths_sdk_diff_test.go` (one subtest per
+    op), rather than left as a one-off audit.
 
 Traps for the next auditor (don't re-flag):
 

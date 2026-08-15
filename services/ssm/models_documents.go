@@ -64,6 +64,7 @@ type DocumentDescription struct {
 	PlatformTypes     []string             `json:"PlatformTypes,omitempty"`
 	Attachments       []DocumentAttachment `json:"Attachments,omitempty"`
 	Requires          []DocumentRequires   `json:"Requires,omitempty"`
+	Tags              []Tag                `json:"Tags,omitempty"`
 	CreatedDate       float64              `json:"CreatedDate"`
 }
 
@@ -86,12 +87,16 @@ type DocumentPermissionInfo struct {
 
 // DocumentIdentifier is a lightweight document listing entry.
 type DocumentIdentifier struct {
-	Name            string   `json:"Name"`
-	DocumentType    string   `json:"DocumentType"`
-	DocumentFormat  string   `json:"DocumentFormat"`
-	DocumentVersion string   `json:"DocumentVersion"`
-	SchemaVersion   string   `json:"SchemaVersion"`
-	PlatformTypes   []string `json:"PlatformTypes,omitempty"`
+	Name            string             `json:"Name"`
+	DocumentType    string             `json:"DocumentType"`
+	DocumentFormat  string             `json:"DocumentFormat"`
+	DocumentVersion string             `json:"DocumentVersion"`
+	SchemaVersion   string             `json:"SchemaVersion"`
+	TargetType      string             `json:"TargetType,omitempty"`
+	PlatformTypes   []string           `json:"PlatformTypes,omitempty"`
+	Requires        []DocumentRequires `json:"Requires,omitempty"`
+	Tags            []Tag              `json:"Tags,omitempty"`
+	CreatedDate     float64            `json:"CreatedDate"`
 }
 
 // DocumentFilter is a filter criterion for ListDocuments.
@@ -128,12 +133,15 @@ type GetDocumentInput struct {
 
 // GetDocumentOutput is the response payload for GetDocument.
 type GetDocumentOutput struct {
-	Name            string `json:"Name"`
-	Content         string `json:"Content"`
-	DocumentType    string `json:"DocumentType"`
-	DocumentFormat  string `json:"DocumentFormat"`
-	DocumentVersion string `json:"DocumentVersion"`
-	Status          string `json:"Status"`
+	Name              string             `json:"Name"`
+	Content           string             `json:"Content"`
+	DocumentType      string             `json:"DocumentType"`
+	DocumentFormat    string             `json:"DocumentFormat"`
+	DocumentVersion   string             `json:"DocumentVersion"`
+	Status            string             `json:"Status"`
+	StatusInformation string             `json:"StatusInformation,omitempty"`
+	Requires          []DocumentRequires `json:"Requires,omitempty"`
+	CreatedDate       float64            `json:"CreatedDate"`
 }
 
 // DescribeDocumentInput is the request payload for DescribeDocument.

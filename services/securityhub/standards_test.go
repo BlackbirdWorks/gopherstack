@@ -460,9 +460,16 @@ func TestBatchUpdateStdCtlAssociations_Persisted(t *testing.T) {
 	assert.Equal(t, "DISABLED", detail["AssociationStatus"])
 }
 
-// TestParity_StandardsSubscriptions_IncludesStatusReason verifies that
-// BatchEnableStandards and GetEnabledStandards responses include StatusReason.
-func TestStandardsSubscriptions_IncludesStatusReason(t *testing.T) {
+// TestStandardsSubscriptions_IncludesStandardsStatusReason verifies that
+// BatchEnableStandards and GetEnabledStandards responses include
+// StandardsStatusReason under its real key (securityhub@v1.75.4
+// deserializers.go's StandardsSubscription case list) -- this test
+// previously asserted the wrong key ("StatusReason") as correct, which
+// passed because the pre-fix handler emitted that same wrong key. This
+// backend never sets a subscription's status-reason value (no
+// INCOMPLETE/FAILED lifecycle), so the value is always nil regardless of
+// the fix; this only guards the key name, not the value.
+func TestStandardsSubscriptions_IncludesStandardsStatusReason(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -482,9 +489,9 @@ func TestStandardsSubscriptions_IncludesStatusReason(t *testing.T) {
 
 	subs, _ := enResp["StandardsSubscriptions"].([]any)
 	require.NotEmpty(t, subs)
-	// StatusReason must be present (even if nil/empty)
-	_, hasStatusReason := subs[0].(map[string]any)["StatusReason"]
-	assert.True(t, hasStatusReason, "BatchEnableStandards response must include StatusReason field")
+	// StandardsStatusReason must be present (even if nil/empty)
+	_, hasStatusReason := subs[0].(map[string]any)["StandardsStatusReason"]
+	assert.True(t, hasStatusReason, "BatchEnableStandards response must include StandardsStatusReason field")
 
 	// GetEnabledStandards
 	getRec := doRequest(t, h, http.MethodPost, "/standards/get", map[string]any{})
@@ -494,8 +501,8 @@ func TestStandardsSubscriptions_IncludesStatusReason(t *testing.T) {
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
 	getSubs, _ := getResp["StandardsSubscriptions"].([]any)
 	require.NotEmpty(t, getSubs)
-	_, hasStatusReasonGet := getSubs[0].(map[string]any)["StatusReason"]
-	assert.True(t, hasStatusReasonGet, "GetEnabledStandards response must include StatusReason field")
+	_, hasStatusReasonGet := getSubs[0].(map[string]any)["StandardsStatusReason"]
+	assert.True(t, hasStatusReasonGet, "GetEnabledStandards response must include StandardsStatusReason field")
 }
 
 // TestParity_BatchGetStdCtlAssociations_MissingFields verifies that

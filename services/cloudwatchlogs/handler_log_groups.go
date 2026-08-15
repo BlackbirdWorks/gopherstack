@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 )
 
 type createLogGroupInput struct {
@@ -237,7 +239,8 @@ func (h *Handler) handlePutLogGroupDeletionProtection(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		if err := b.SetLogGroupDeletionProtection(in.LogGroupIdentifier, in.DeletionProtected); err != nil {
+		name := normalizeLogGroupIdentifier(in.LogGroupIdentifier)
+		if err := b.SetLogGroupDeletionProtection(name, in.DeletionProtected); err != nil {
 			return nil, err
 		}
 	}
@@ -245,15 +248,50 @@ func (h *Handler) handlePutLogGroupDeletionProtection(
 	return struct{}{}, nil
 }
 
+// isValidAggregateLogGroupSummaryGroupBy derives its answer from
+// types.ListAggregateLogGroupSummariesGroupBy.Values() (DATA_SOURCE_NAME_TYPE_AND_FORMAT,
+// DATA_SOURCE_NAME_AND_TYPE) so it cannot drift from the real enum.
+func isValidAggregateLogGroupSummaryGroupBy(value string) bool {
+	for _, v := range sdktypes.ListAggregateLogGroupSummariesGroupBy("").Values() {
+		if string(v) == value {
+			return true
+		}
+	}
+
+	return false
+}
+
 // handleListAggregateLogGroupSummaries returns aggregate summaries derived from
 // the real log groups and their stored events for the current region.
+//
+// The response is wrapped under "aggregateLogGroupSummaries", matching
+// aws-sdk-go-v2/service/cloudwatchlogs@v1.81.1/deserializers.go's
+// awsAwsjson11_deserializeOpDocumentListAggregateLogGroupSummariesOutput --
+// a real SDK client never populated AggregateLogGroupSummaries before this
+// fix, since the emulator previously wrapped the list as "logGroupSummaries",
+// a key the real response shape does not have at all.
 func (h *Handler) handleListAggregateLogGroupSummaries(
 	ctx context.Context,
-	_ []byte,
+	body []byte,
 ) (any, error) {
+	var input struct {
+		GroupBy string `json:"groupBy"`
+	}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
+		}
+	}
+	if input.GroupBy == "" {
+		return nil, fmt.Errorf("%w: groupBy is required", ErrValidationException)
+	}
+	if !isValidAggregateLogGroupSummaryGroupBy(input.GroupBy) {
+		return nil, fmt.Errorf("%w: groupBy %q is not a recognized value", ErrValidationException, input.GroupBy)
+	}
+
 	b := cwlBackend(h)
 	if b == nil {
-		return map[string]any{"logGroupSummaries": []any{}}, nil
+		return map[string]any{"aggregateLogGroupSummaries": []any{}}, nil
 	}
 
 	summaries := b.ListAggregateLogGroupSummaries(ctx)
@@ -261,5 +299,5 @@ func (h *Handler) handleListAggregateLogGroupSummaries(
 		summaries = []AggregateLogGroupSummary{}
 	}
 
-	return map[string]any{"logGroupSummaries": summaries}, nil
+	return map[string]any{"aggregateLogGroupSummaries": summaries}, nil
 }

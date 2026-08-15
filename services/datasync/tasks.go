@@ -185,9 +185,10 @@ func (b *InMemoryBackend) ListTasks(maxResults int32, nextToken string) ([]*Task
 	all := make([]*TaskListEntry, 0, len(sorted))
 	for _, t := range sorted {
 		all = append(all, &TaskListEntry{
-			TaskArn: t.TaskArn,
-			Name:    t.Name,
-			Status:  t.Status,
+			TaskArn:  t.TaskArn,
+			Name:     t.Name,
+			Status:   t.Status,
+			TaskMode: t.TaskMode,
 		})
 	}
 
@@ -236,6 +237,7 @@ func (b *InMemoryBackend) StartTaskExecution(taskArn string) (*TaskExecution, er
 	e := &storedTaskExecution{
 		TaskExecutionArn: execArn,
 		Status:           executionStatusLaunching,
+		TaskMode:         t.TaskMode,
 		StartTime:        now,
 	}
 
@@ -268,6 +270,17 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 	e, ok := b.executions.Get(taskExecutionArn)
 	if !ok {
 		return ErrNotFound
+	}
+
+	// Same terminal-state guard UpdateTaskExecution already applies (see
+	// below): once an execution has settled into SUCCESS or ERROR -- whether
+	// via the lazy advance in DescribeTaskExecution or a prior Cancel --
+	// cancelling it again must not silently overwrite that outcome.
+	if isTerminalExecutionStatus(e.Status) {
+		return fmt.Errorf(
+			"%w: task execution %s is in terminal state %s and cannot be cancelled",
+			ErrInvalidParameter, taskExecutionArn, e.Status,
+		)
 	}
 
 	e.Status = executionStatusError
@@ -342,6 +355,7 @@ func (b *InMemoryBackend) ListTaskExecutions(
 		all = append(all, &TaskExecutionListEntry{
 			TaskExecutionArn: e.TaskExecutionArn,
 			Status:           e.Status,
+			TaskMode:         e.TaskMode,
 		})
 	}
 

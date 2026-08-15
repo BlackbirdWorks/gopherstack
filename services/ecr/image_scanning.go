@@ -30,11 +30,13 @@ func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
 			continue
 		}
 
+		freq, filters := b.repoEffectiveScanFrequency(name, repo.ScanOnPush)
 		configs = append(configs, RepositoryScanningConfiguration{
-			RepositoryARN:  repo.RepositoryARN,
-			RepositoryName: name,
-			ScanOnPush:     repo.ScanOnPush,
-			ScanFrequency:  b.repoEffectiveScanFrequency(name, repo.ScanOnPush),
+			RepositoryARN:      repo.RepositoryARN,
+			RepositoryName:     name,
+			ScanOnPush:         repo.ScanOnPush,
+			ScanFrequency:      freq,
+			AppliedScanFilters: filters,
 		})
 	}
 
@@ -160,11 +162,14 @@ func (b *InMemoryBackend) PutImageScanningConfiguration(
 
 	repo.ScanOnPush = scanOnPush
 
+	freq, filters := b.repoEffectiveScanFrequency(repositoryName, scanOnPush)
+
 	return &RepositoryScanningConfiguration{
-		RepositoryARN:  repo.RepositoryARN,
-		RepositoryName: repositoryName,
-		ScanFrequency:  b.repoEffectiveScanFrequency(repositoryName, scanOnPush),
-		ScanOnPush:     scanOnPush,
+		RepositoryARN:      repo.RepositoryARN,
+		RepositoryName:     repositoryName,
+		ScanFrequency:      freq,
+		ScanOnPush:         scanOnPush,
+		AppliedScanFilters: filters,
 	}, nil
 }
 
@@ -177,23 +182,26 @@ func scanFrequency(scanOnPush bool) string {
 }
 
 // repoEffectiveScanFrequency returns the effective scan frequency for a
-// repository. When the registry has ENHANCED scanning with a CONTINUOUS_SCAN
-// rule matching the repository, that takes precedence over the per-repo
-// ScanOnPush setting. Must be called with at least a read lock held.
+// repository, plus the registry scan rule's repository filters that produced
+// it (real AWS's RepositoryScanningConfiguration.appliedScanFilters). When
+// the registry has ENHANCED scanning with a CONTINUOUS_SCAN rule matching the
+// repository, that takes precedence over the per-repo ScanOnPush setting and
+// its filters are the "applied" ones; otherwise no filter rule applied. Must
+// be called with at least a read lock held.
 func (b *InMemoryBackend) repoEffectiveScanFrequency(
 	repositoryName string,
 	scanOnPush bool,
-) string {
+) (string, []RepositoryFilter) {
 	if b.registryScanningConfig != nil && b.registryScanningConfig.ScanType == "ENHANCED" {
 		for _, rule := range b.registryScanningConfig.Rules {
 			if rule.ScanFrequency == "CONTINUOUS_SCAN" &&
 				repoMatchesFilters(repositoryName, rule.RepositoryFilters) {
-				return "CONTINUOUS_SCAN"
+				return "CONTINUOUS_SCAN", rule.RepositoryFilters
 			}
 		}
 	}
 
-	return scanFrequency(scanOnPush)
+	return scanFrequency(scanOnPush), nil
 }
 
 // effectiveScanTypeLocked returns the registry-wide scan type ("BASIC" or

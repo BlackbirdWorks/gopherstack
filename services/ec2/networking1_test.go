@@ -65,7 +65,7 @@ func TestNetworking1_FlowLogs(t *testing.T) {
 	vpc, err := bk.CreateVpc("10.0.0.0/16")
 	require.NoError(t, err)
 
-	fls, err := bk.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow-logs")
+	fls, err := bk.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow-logs", nil)
 	require.NoError(t, err)
 	require.Len(t, fls, 1)
 
@@ -82,7 +82,7 @@ func TestNetworking1_FlowLogs(t *testing.T) {
 	assert.Empty(t, bk.DescribeFlowLogs(nil))
 
 	// Error cases.
-	_, err2 := bk.CreateFlowLogs(nil, "ALL", "", "")
+	_, err2 := bk.CreateFlowLogs(nil, "ALL", "", "", nil)
 	require.Error(t, err2)
 
 	err3 := bk.DeleteFlowLogs(nil)
@@ -169,7 +169,7 @@ func TestNetworking1_LaunchTemplateExtras(t *testing.T) {
 
 	// Use our newHandler backend directly via the backend.
 	bk3 := newTestBackend()
-	_, err := bk3.CreateLaunchTemplate("lt-test", "ami-123", "t2.micro")
+	_, err := bk3.CreateLaunchTemplate("lt-test", "ami-123", "t2.micro", nil)
 	require.NoError(t, err)
 
 	// Find the template.
@@ -642,9 +642,9 @@ func TestNetworking1HelperMethods(t *testing.T) {
 	bk := newTestBackend()
 
 	// DescribeLaunchTemplatesSorted.
-	_, err := bk.CreateLaunchTemplate("sorted-lt-1", "ami-1", "t2.micro")
+	_, err := bk.CreateLaunchTemplate("sorted-lt-1", "ami-1", "t2.micro", nil)
 	require.NoError(t, err)
-	_, err = bk.CreateLaunchTemplate("sorted-lt-2", "ami-2", "t3.micro")
+	_, err = bk.CreateLaunchTemplate("sorted-lt-2", "ami-2", "t3.micro", nil)
 	require.NoError(t, err)
 
 	lts := bk.DescribeLaunchTemplatesSorted(nil)

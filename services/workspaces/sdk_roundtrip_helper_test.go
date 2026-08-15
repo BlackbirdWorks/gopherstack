@@ -8,6 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	wssdk "github.com/aws/aws-sdk-go-v2/service/workspaces"
+	"github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
@@ -51,4 +52,30 @@ func newTestHandlerAndClient(t *testing.T) *wssdk.Client {
 	return wssdk.NewFromConfig(cfg, func(o *wssdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
 	})
+}
+
+// createSDKWorkspace registers a directory and creates a real workspace
+// through the given client, returning its WorkspaceId.
+func createSDKWorkspace(t *testing.T, client *wssdk.Client) string {
+	t.Helper()
+
+	_, err := client.RegisterWorkspaceDirectory(t.Context(), &wssdk.RegisterWorkspaceDirectoryInput{
+		DirectoryId:            aws.String("d-00000000"),
+		WorkspaceDirectoryName: aws.String("dir"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.CreateWorkspaces(t.Context(), &wssdk.CreateWorkspacesInput{
+		Workspaces: []types.WorkspaceRequest{
+			{
+				BundleId:    aws.String("wsb-00000000"),
+				DirectoryId: aws.String("d-00000000"),
+				UserName:    aws.String("alice"),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.PendingRequests, 1)
+
+	return aws.ToString(out.PendingRequests[0].WorkspaceId)
 }

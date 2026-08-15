@@ -677,7 +677,7 @@ func TestDomain_OffPeakWindowOptions_UpdateConfig(t *testing.T) {
 		map[string]any{"DomainName": "opw-update-domain"})
 	createResp.Body.Close()
 
-	upResp := doRequest(t, h, http.MethodPut,
+	upResp := doRequest(t, h, http.MethodPost,
 		"/2021-01-01/opensearch/domain/opw-update-domain/config",
 		map[string]any{
 			"OffPeakWindowOptions": map[string]any{
@@ -740,7 +740,7 @@ func TestDomain_IdentityCenterOptions_UpdateConfig(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
 		map[string]any{"DomainName": "idc-upd-domain"}).Body.Close()
 
-	upResp := doRequest(t, h, http.MethodPut,
+	upResp := doRequest(t, h, http.MethodPost,
 		"/2021-01-01/opensearch/domain/idc-upd-domain/config",
 		map[string]any{
 			"IdentityCenterOptions": map[string]any{
@@ -828,7 +828,7 @@ func TestDomain_BlueGreenDeploymentOptions_UpdateConfig(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
 		map[string]any{"DomainName": "bg-upd-domain"}).Body.Close()
 
-	upResp := doRequest(t, h, http.MethodPut,
+	upResp := doRequest(t, h, http.MethodPost,
 		"/2021-01-01/opensearch/domain/bg-upd-domain/config",
 		map[string]any{
 			"ClusterConfig": map[string]any{

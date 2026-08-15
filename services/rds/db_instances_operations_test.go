@@ -447,67 +447,127 @@ func TestSwitchoverReadReplica(t *testing.T) {
 	}
 }
 
+// TestRestoreDBInstanceFromS3 covers the seven required members of
+// RestoreDBInstanceFromS3Input: DBInstanceClass, DBInstanceIdentifier,
+// Engine, S3BucketName, S3IngestionRoleArn, SourceEngine and
+// SourceEngineVersion. S3IngestionRoleArn/SourceEngine/SourceEngineVersion
+// were previously dropped entirely by the handler.
 func TestRestoreDBInstanceFromS3(t *testing.T) {
 	t.Parallel()
+
+	type restoreParams struct {
+		id                  string
+		engine              string
+		dbInstanceClass     string
+		s3Bucket            string
+		s3IngestionRoleArn  string
+		sourceEngine        string
+		sourceEngineVersion string
+	}
+
+	valid := func() restoreParams {
+		return restoreParams{
+			id:                  "restored-db",
+			engine:              "mysql",
+			dbInstanceClass:     "db.t3.micro",
+			s3Bucket:            "my-backup-bucket",
+			s3IngestionRoleArn:  "arn:aws:iam::000000000000:role/rds-s3-ingestion",
+			sourceEngine:        "mysql",
+			sourceEngineVersion: "5.7.40",
+		}
+	}
+
 	tests := []struct {
-		wantErrIs       error
-		name            string
-		instanceID      string
-		engine          string
-		dbInstanceClass string
-		s3Bucket        string
-		wantErr         bool
+		wantErrIs error
+		mutate    func(restoreParams) restoreParams
+		name      string
+		wantErr   bool
 	}{
 		{
-			name:            "success",
-			instanceID:      "restored-db",
-			engine:          "mysql",
-			dbInstanceClass: "db.t3.micro",
-			s3Bucket:        "my-backup-bucket",
+			name: "success",
 		},
 		{
-			name:       "empty bucket",
-			instanceID: "restored-db",
-			engine:     "mysql",
-			s3Bucket:   "",
-			wantErr:    true,
-			wantErrIs:  rds.ErrInvalidParameter,
+			name: "empty bucket",
+			mutate: func(p restoreParams) restoreParams {
+				p.s3Bucket = ""
+
+				return p
+			},
+			wantErr:   true,
+			wantErrIs: rds.ErrInvalidParameter,
 		},
 		{
-			name:       "empty id",
-			instanceID: "",
-			engine:     "mysql",
-			s3Bucket:   "my-bucket",
-			wantErr:    true,
-			wantErrIs:  rds.ErrInvalidParameter,
+			name: "empty id",
+			mutate: func(p restoreParams) restoreParams {
+				p.id = ""
+
+				return p
+			},
+			wantErr:   true,
+			wantErrIs: rds.ErrInvalidParameter,
 		},
 		{
-			name:       "already exists",
-			instanceID: "existing-db",
-			engine:     "mysql",
-			s3Bucket:   "my-bucket",
-			wantErr:    true,
-			wantErrIs:  rds.ErrInstanceAlreadyExists,
+			name: "empty s3 ingestion role arn",
+			mutate: func(p restoreParams) restoreParams {
+				p.s3IngestionRoleArn = ""
+
+				return p
+			},
+			wantErr:   true,
+			wantErrIs: rds.ErrInvalidParameter,
+		},
+		{
+			name: "empty source engine",
+			mutate: func(p restoreParams) restoreParams {
+				p.sourceEngine = ""
+
+				return p
+			},
+			wantErr:   true,
+			wantErrIs: rds.ErrInvalidParameter,
+		},
+		{
+			name: "empty source engine version",
+			mutate: func(p restoreParams) restoreParams {
+				p.sourceEngineVersion = ""
+
+				return p
+			},
+			wantErr:   true,
+			wantErrIs: rds.ErrInvalidParameter,
+		},
+		{
+			name: "already exists",
+			mutate: func(p restoreParams) restoreParams {
+				p.id = "existing-db"
+
+				return p
+			},
+			wantErr:   true,
+			wantErrIs: rds.ErrInstanceAlreadyExists,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			p := valid()
+			if tt.mutate != nil {
+				p = tt.mutate(p)
+			}
+
 			b := newTestBackend(t)
 			if tt.name == "already exists" {
 				_, err := b.CreateDBInstance(
-					tt.instanceID,
-					tt.engine,
-					tt.dbInstanceClass,
-					"",
-					"admin",
-					"",
-					20,
-					rds.DBInstanceOptions{},
+					p.id, p.engine, p.dbInstanceClass, "", "admin", "", 20, rds.DBInstanceOptions{},
 				)
 				require.NoError(t, err)
 			}
-			got, err := b.RestoreDBInstanceFromS3(tt.instanceID, tt.engine, tt.dbInstanceClass, tt.s3Bucket)
+
+			got, err := b.RestoreDBInstanceFromS3(
+				p.id, p.engine, p.dbInstanceClass, p.s3Bucket,
+				p.s3IngestionRoleArn, p.sourceEngine, p.sourceEngineVersion,
+			)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tt.wantErrIs)
@@ -515,8 +575,8 @@ func TestRestoreDBInstanceFromS3(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.instanceID, got.DBInstanceIdentifier)
-			assert.Equal(t, tt.engine, got.Engine)
+			assert.Equal(t, p.id, got.DBInstanceIdentifier)
+			assert.Equal(t, p.engine, got.Engine)
 		})
 	}
 }

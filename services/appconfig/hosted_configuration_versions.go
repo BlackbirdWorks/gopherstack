@@ -144,6 +144,20 @@ func (b *InMemoryBackend) ListHostedConfigurationVersions(
 	return page, token, nil
 }
 
+// hostedConfigurationVersionToSummary builds the
+// types.HostedConfigurationVersionSummary shape -- see its doc comment in
+// models.go.
+func hostedConfigurationVersionToSummary(v HostedConfigurationVersion) HostedConfigurationVersionSummary {
+	return HostedConfigurationVersionSummary{
+		ApplicationID:          v.ApplicationID,
+		ConfigurationProfileID: v.ConfigurationProfileID,
+		ContentType:            v.ContentType,
+		Description:            v.Description,
+		VersionLabel:           v.VersionLabel,
+		VersionNumber:          v.VersionNumber,
+	}
+}
+
 // resolveHostedConfigVersion resolves configVersion -- a version number or a
 // version label, matching real AppConfig's ConfigurationVersion semantics
 // for AppConfig-hosted configuration profiles (StartDeploymentInput's doc:

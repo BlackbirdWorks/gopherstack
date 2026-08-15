@@ -496,6 +496,7 @@ func (rc *ResourceCreator) createEC2FlowLog(
 		strProp(props, "TrafficType", params, physicalIDs),
 		strProp(props, "LogDestinationType", params, physicalIDs),
 		strProp(props, "LogDestination", params, physicalIDs),
+		nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create EC2 flow log: %w", err)

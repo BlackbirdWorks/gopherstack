@@ -210,6 +210,7 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 		eastDir.DirectoryID,
 		isolationTestCertPEM,
 		"ClientLDAPS",
+		"",
 	)
 	require.NoError(t, err)
 
@@ -291,7 +292,7 @@ func TestADAssessmentRecordsContextRegion(t *testing.T) {
 	assessID, err := backend.StartADAssessment(ctxWest, dir.DirectoryID, nil)
 	require.NoError(t, err)
 
-	info, err := backend.DescribeADAssessment(ctxWest, dir.DirectoryID, assessID)
+	info, err := backend.DescribeADAssessment(ctxWest, assessID)
 	require.NoError(t, err)
 	assert.Equal(t, "us-west-2", info.Region)
 }

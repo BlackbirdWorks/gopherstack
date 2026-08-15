@@ -953,7 +953,10 @@ func TestQuickSight_Spaces(t *testing.T) {
 				)
 
 				dsRec := doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-					"DataSetId": "ds1", "Name": "DS1", "ImportMode": "SPICE",
+					"DataSetId":        "ds1",
+					"Name":             "DS1",
+					"ImportMode":       "SPICE",
+					"PhysicalTableMap": testPhysicalTableMap(),
 				})
 				require.Equal(t, http.StatusCreated, dsRec.Code)
 				dsArn := parseBody(t, dsRec)["Arn"].(string)

@@ -309,7 +309,7 @@ func TestDeleteDBInstanceCascadeInstanceRoles(t *testing.T) {
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 	b.AddInstanceInternal("my-inst", "mysql")
 
-	err := b.AddRoleToDBInstance("my-inst", "arn:aws:iam::000:role/R1")
+	err := b.AddRoleToDBInstance("my-inst", "arn:aws:iam::000:role/R1", "S3_INTEGRATION")
 	require.NoError(t, err)
 	require.Equal(t, 1, rds.InstanceRoleCount(b, "my-inst"))
 

@@ -374,16 +374,24 @@ type connectPeerConfigurationWire struct {
 	InsideCidrBlocks   []string                          `json:"InsideCidrBlocks,omitempty"`
 }
 
+type connectPeerErrorWire struct {
+	Code        string `json:"Code,omitempty"`
+	Message     string `json:"Message,omitempty"`
+	RequestID   string `json:"RequestId,omitempty"`
+	ResourceArn string `json:"ResourceArn,omitempty"`
+}
+
 type connectPeerWire struct {
-	CreatedAt           *float64                      `json:"CreatedAt,omitempty"`
-	Configuration       *connectPeerConfigurationWire `json:"Configuration,omitempty"`
-	ConnectAttachmentID string                        `json:"ConnectAttachmentId,omitempty"`
-	ConnectPeerID       string                        `json:"ConnectPeerId,omitempty"`
-	CoreNetworkID       string                        `json:"CoreNetworkId,omitempty"`
-	EdgeLocation        string                        `json:"EdgeLocation,omitempty"`
-	State               string                        `json:"State,omitempty"`
-	SubnetArn           string                        `json:"SubnetArn,omitempty"`
-	Tags                []tags.KV                     `json:"Tags,omitempty"`
+	CreatedAt              *float64                      `json:"CreatedAt,omitempty"`
+	Configuration          *connectPeerConfigurationWire `json:"Configuration,omitempty"`
+	ConnectAttachmentID    string                        `json:"ConnectAttachmentId,omitempty"`
+	ConnectPeerID          string                        `json:"ConnectPeerId,omitempty"`
+	CoreNetworkID          string                        `json:"CoreNetworkId,omitempty"`
+	EdgeLocation           string                        `json:"EdgeLocation,omitempty"`
+	State                  string                        `json:"State,omitempty"`
+	SubnetArn              string                        `json:"SubnetArn,omitempty"`
+	Tags                   []tags.KV                     `json:"Tags,omitempty"`
+	LastModificationErrors []connectPeerErrorWire        `json:"LastModificationErrors,omitempty"`
 }
 
 type connectPeerEnvelope struct {
@@ -459,12 +467,13 @@ type updateCoreNetworkReq struct {
 }
 
 type coreNetworkSummaryWire struct {
-	CoreNetworkArn  string `json:"CoreNetworkArn,omitempty"`
-	CoreNetworkID   string `json:"CoreNetworkId,omitempty"`
-	Description     string `json:"Description,omitempty"`
-	GlobalNetworkID string `json:"GlobalNetworkId,omitempty"`
-	OwnerAccountID  string `json:"OwnerAccountId,omitempty"`
-	State           string `json:"State,omitempty"`
+	CoreNetworkArn  string    `json:"CoreNetworkArn,omitempty"`
+	CoreNetworkID   string    `json:"CoreNetworkId,omitempty"`
+	Description     string    `json:"Description,omitempty"`
+	GlobalNetworkID string    `json:"GlobalNetworkId,omitempty"`
+	OwnerAccountID  string    `json:"OwnerAccountId,omitempty"`
+	State           string    `json:"State,omitempty"`
+	Tags            []tags.KV `json:"Tags,omitempty"`
 }
 
 type listCoreNetworksResponse struct {
@@ -772,9 +781,10 @@ type createTransitGatewayRouteTableAttachmentReq struct {
 // ---- Peerings ----
 
 type peeringErrorWire struct {
-	Code      string `json:"Code,omitempty"`
-	Message   string `json:"Message,omitempty"`
-	RequestID string `json:"RequestId,omitempty"`
+	Code        string `json:"Code,omitempty"`
+	Message     string `json:"Message,omitempty"`
+	RequestID   string `json:"RequestId,omitempty"`
+	ResourceArn string `json:"ResourceArn,omitempty"`
 }
 
 type peeringWire struct {
@@ -855,6 +865,7 @@ type pathComponentWire struct {
 }
 
 type routeAnalysisWire struct {
+	StartTimestamp    *float64                   `json:"StartTimestamp,omitempty"`
 	Destination       *routeAnalysisEndpointWire `json:"Destination,omitempty"`
 	Source            *routeAnalysisEndpointWire `json:"Source,omitempty"`
 	ForwardPath       *routeAnalysisPathWire     `json:"ForwardPath,omitempty"`
@@ -864,6 +875,7 @@ type routeAnalysisWire struct {
 	RouteAnalysisID   string                     `json:"RouteAnalysisId,omitempty"`
 	Status            string                     `json:"Status,omitempty"`
 	IncludeReturnPath bool                       `json:"IncludeReturnPath,omitempty"`
+	UseMiddleboxes    bool                       `json:"UseMiddleboxes,omitempty"`
 }
 
 type routeAnalysisEnvelope struct {
@@ -888,7 +900,9 @@ type networkResourceWire struct {
 	Definition           string            `json:"Definition,omitempty"`
 	RegisteredGatewayArn string            `json:"RegisteredGatewayArn,omitempty"`
 	ResourceArn          string            `json:"ResourceArn,omitempty"`
+	ResourceID           string            `json:"ResourceId,omitempty"`
 	ResourceType         string            `json:"ResourceType,omitempty"`
+	Tags                 []tags.KV         `json:"Tags,omitempty"`
 }
 
 type getNetworkResourcesResponse struct {

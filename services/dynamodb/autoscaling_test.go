@@ -5,8 +5,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
 func TestUpdateTableReplicaAutoScaling_TableNotFound(t *testing.T) {
@@ -46,4 +49,65 @@ func TestUpdateTableReplicaAutoScaling_ReturnsDescription(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out.TableAutoScalingDescription)
 	assert.Equal(t, "ASTable", aws.ToString(out.TableAutoScalingDescription.TableName))
+}
+
+// TestUpdateTableReplicaAutoScaling_ProvisionedWriteCapacityAutoScalingUpdate_SurvivesWireConversion
+// verifies that UpdateTableReplicaAutoScalingInput.ProvisionedWriteCapacityAutoScalingUpdate
+// reaches the backend and is reflected back on both the Update response and a
+// subsequent DescribeTableReplicaAutoScaling call. updateTableReplicaAutoScalingInput
+// previously declared only TableName, so a real client's autoscaling
+// configuration -- the entire point of the operation -- never reached
+// InMemoryDB.UpdateTableReplicaAutoScaling, which already applies it correctly
+// once it arrives.
+func TestUpdateTableReplicaAutoScaling_ProvisionedWriteCapacityAutoScalingUpdate_SurvivesWireConversion(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(dynamodb.NewInMemoryDB()))
+
+	_, err := client.CreateGlobalTable(t.Context(), &sdk.CreateGlobalTableInput{
+		GlobalTableName: aws.String("gt-as-table"),
+		ReplicationGroup: []types.Replica{
+			{RegionName: aws.String("us-east-1")},
+			{RegionName: aws.String("eu-west-1")},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.UpdateTableReplicaAutoScaling(t.Context(), &sdk.UpdateTableReplicaAutoScalingInput{
+		TableName: aws.String("gt-as-table"),
+		ProvisionedWriteCapacityAutoScalingUpdate: &types.AutoScalingSettingsUpdate{
+			MinimumUnits:        aws.Int64(5),
+			MaximumUnits:        aws.Int64(500),
+			AutoScalingDisabled: aws.Bool(false),
+		},
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, out.TableAutoScalingDescription)
+	require.Len(t, out.TableAutoScalingDescription.Replicas, 1)
+
+	updateSettings := out.TableAutoScalingDescription.Replicas[0].
+		ReplicaProvisionedWriteCapacityAutoScalingSettings
+	require.NotNil(
+		t,
+		updateSettings,
+		"ProvisionedWriteCapacityAutoScalingUpdate must survive the wire round-trip",
+	)
+	assert.Equal(t, int64(5), aws.ToInt64(updateSettings.MinimumUnits))
+	assert.Equal(t, int64(500), aws.ToInt64(updateSettings.MaximumUnits))
+
+	desc, err := client.DescribeTableReplicaAutoScaling(t.Context(), &sdk.DescribeTableReplicaAutoScalingInput{
+		TableName: aws.String("gt-as-table"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, desc.TableAutoScalingDescription)
+	require.Len(t, desc.TableAutoScalingDescription.Replicas, 1)
+
+	descSettings := desc.TableAutoScalingDescription.Replicas[0].
+		ReplicaProvisionedWriteCapacityAutoScalingSettings
+	require.NotNil(t, descSettings, "settings must also survive on DescribeTableReplicaAutoScaling")
+	assert.Equal(t, int64(5), aws.ToInt64(descSettings.MinimumUnits))
+	assert.Equal(t, int64(500), aws.ToInt64(descSettings.MaximumUnits))
 }

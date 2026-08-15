@@ -175,7 +175,7 @@ func Test_GetRunTask_AdvancesPendingToRunningToCompletedAcrossPolls(t *testing.T
 
 	var tasksResp map[string]any
 	require.NoError(t, json.Unmarshal(tasksRec.Body.Bytes(), &tasksResp))
-	tasks := tasksResp["tasks"].([]any)
+	tasks := tasksResp["items"].([]any)
 	require.Len(t, tasks, 1)
 	taskID := tasks[0].(map[string]any)["taskId"].(string)
 

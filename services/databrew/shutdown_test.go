@@ -25,8 +25,22 @@ func TestBackendShutdown(t *testing.T) {
 			name: "shutdown before transition leaves run pending",
 			build: func(t *testing.T) (*databrew.InMemoryBackend, string) {
 				t.Helper()
-				b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
-				_, err := b.CreateJob(
+				b := databrew.NewInMemoryBackendWithContext(
+					t.Context(),
+					"123456789012",
+					"us-east-1",
+				)
+				_, err := b.CreateDataset(
+					context.Background(),
+					"ds",
+					"CSV",
+					s3Input("b", ""),
+					databrew.DatasetFormatOptions{},
+					nil,
+					nil,
+				)
+				require.NoError(t, err)
+				_, err = b.CreateJob(
 					context.Background(),
 					"sd-job",
 					"PROFILE",
@@ -52,7 +66,11 @@ func TestBackendShutdown(t *testing.T) {
 			name: "shutdown with no in-flight runs is a no-op",
 			build: func(t *testing.T) (*databrew.InMemoryBackend, string) {
 				t.Helper()
-				b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
+				b := databrew.NewInMemoryBackendWithContext(
+					t.Context(),
+					"123456789012",
+					"us-east-1",
+				)
 				b.Shutdown(t.Context())
 
 				return b, ""
@@ -63,8 +81,22 @@ func TestBackendShutdown(t *testing.T) {
 			name: "shutdown respects bounded context",
 			build: func(t *testing.T) (*databrew.InMemoryBackend, string) {
 				t.Helper()
-				b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
-				_, err := b.CreateJob(
+				b := databrew.NewInMemoryBackendWithContext(
+					t.Context(),
+					"123456789012",
+					"us-east-1",
+				)
+				_, err := b.CreateDataset(
+					context.Background(),
+					"ds",
+					"CSV",
+					s3Input("b", ""),
+					databrew.DatasetFormatOptions{},
+					nil,
+					nil,
+				)
+				require.NoError(t, err)
+				_, err = b.CreateJob(
 					context.Background(),
 					"sd-job2",
 					"PROFILE",
@@ -127,7 +159,17 @@ func TestResetDoesNotStopTransitions(t *testing.T) {
 	b := databrew.NewInMemoryBackendWithContext(t.Context(), "123456789012", "us-east-1")
 	b.Reset()
 
-	_, err := b.CreateJob(
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateJob(
 		context.Background(),
 		"post-reset",
 		"PROFILE",

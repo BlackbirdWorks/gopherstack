@@ -10,6 +10,21 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// associateDistributionTenantWebACLRequestXML models a real
+// AssociateDistributionTenantWebACLRequest body: root
+// AssociateDistributionTenantWebACLRequest with a single WebACLArn child
+// element (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpDocumentAssociateDistributionTenantWebACLInput). The
+// previous shared webACLAssociationXML{root: WebACLAssociation, field:
+// WebACLId} matched neither the real root nor the real field name (an ARN,
+// not an ID) -- since encoding/xml's Unmarshal errors when the root doesn't
+// match a tagged XMLName, every real client's request 400'd MalformedXML
+// (see PARITY.md gaps).
+type associateDistributionTenantWebACLRequestXML struct {
+	XMLName   xml.Name `xml:"AssociateDistributionTenantWebACLRequest"`
+	WebACLArn string   `xml:"WebACLArn"`
+}
+
 func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenantID string) error {
 	body, err := readBody(c)
 	if err != nil {
@@ -20,18 +35,18 @@ func (h *Handler) handleAssociateDistributionTenantWebACL(c *echo.Context, tenan
 		return h.handleError(c, qErr)
 	}
 
-	var req webACLAssociationXML
+	var req associateDistributionTenantWebACLRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
 			return xmlResp(
 				c,
 				http.StatusBadRequest,
-				cfErrorXML("MalformedXML", "invalid WebACLAssociation XML"),
+				cfErrorXML("MalformedXML", "invalid AssociateDistributionTenantWebACLRequest XML"),
 			)
 		}
 	}
 
-	if assocErr := h.Backend.AssociateDistributionTenantWebACL(tenantID, req.WebACLID); assocErr != nil {
+	if assocErr := h.Backend.AssociateDistributionTenantWebACL(tenantID, req.WebACLArn); assocErr != nil {
 		return h.handleError(c, assocErr)
 	}
 
@@ -105,7 +120,13 @@ func (h *Handler) handleCreateDistributionTenant(c *echo.Context) error {
 
 	var req createDistributionTenantXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid CreateDistributionTenantRequest XML"),
+			)
+		}
 	}
 
 	tags := make(map[string]string, len(req.Tags))
@@ -179,7 +200,13 @@ func (h *Handler) handleUpdateDistributionTenant(c *echo.Context, id string) err
 
 	var req updateDistributionTenantXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateDistributionTenantRequest XML"),
+			)
+		}
 	}
 
 	domains := req.Domains
@@ -220,17 +247,29 @@ func (h *Handler) handleDeleteDistributionTenant(c *echo.Context, id string) err
 	return c.NoContent(http.StatusNoContent)
 }
 
-// tenantSummaryXML is the list-view representation of a DistributionTenant.
+// domainResultXML is a single entry of a DistributionTenantSummary's Domains list. The real
+// deserializer (awsRestxml_deserializeDocumentDomainResultList) wraps each entry in <member>,
+// not <Item>, matching distributionTenantXML's hand-built Domains XML below.
+type domainResultXML struct {
+	Domain string `xml:"Domain"`
+	Status string `xml:"Status"`
+}
+
+// tenantSummaryXML is the list-view representation of a DistributionTenant. Domains must be a
+// <Domains><member>...</member></Domains> list (types.DistributionTenantSummary.Domains,
+// awsRestxml_deserializeDocumentDistributionTenantSummary): a flat <Domain> field here decodes
+// to an always-empty Domains slice on a real client, even though the singular
+// distributionTenantXML above already emits the list correctly.
 type tenantSummaryXML struct {
-	XMLName           xml.Name `xml:"DistributionTenantSummary"`
-	ID                string   `xml:"Id"`
-	ARN               string   `xml:"Arn"`
-	DistributionID    string   `xml:"DistributionId"`
-	Name              string   `xml:"Name,omitempty"`
-	Domain            string   `xml:"Domain"`
-	ConnectionGroupID string   `xml:"ConnectionGroupId,omitempty"`
-	Status            string   `xml:"Status"`
-	Enabled           bool     `xml:"Enabled"`
+	XMLName           xml.Name          `xml:"DistributionTenantSummary"`
+	ID                string            `xml:"Id"`
+	ARN               string            `xml:"Arn"`
+	DistributionID    string            `xml:"DistributionId"`
+	Name              string            `xml:"Name,omitempty"`
+	ConnectionGroupID string            `xml:"ConnectionGroupId,omitempty"`
+	Status            string            `xml:"Status"`
+	Domains           []domainResultXML `xml:"Domains>member"`
+	Enabled           bool              `xml:"Enabled"`
 }
 
 // tenantListXML models the real ListDistributionTenants response shape (see
@@ -251,18 +290,24 @@ type tenantListXML struct {
 type tenantListResultXML struct {
 	XMLName                xml.Name      `xml:"ListDistributionTenantsResult"`
 	XMLNS                  string        `xml:"xmlns,attr"`
+	NextMarker             string        `xml:"NextMarker,omitempty"`
 	DistributionTenantList tenantListXML `xml:"DistributionTenantList"`
 }
 
 func tenantsToSummaryList(tenants []*DistributionTenant) tenantListResultXML {
 	summaries := make([]tenantSummaryXML, 0, len(tenants))
 	for _, t := range tenants {
+		domains := make([]domainResultXML, 0, len(t.Domains))
+		for _, d := range t.Domains {
+			domains = append(domains, domainResultXML{Domain: d, Status: "Active"})
+		}
+
 		summaries = append(summaries, tenantSummaryXML{
 			ID:                t.ID,
 			ARN:               t.ARN,
 			DistributionID:    t.DistributionID,
 			Name:              t.Name,
-			Domain:            t.Domain,
+			Domains:           domains,
 			ConnectionGroupID: t.ConnectionGroupID,
 			Enabled:           t.Enabled,
 			Status:            t.Status,
@@ -288,13 +333,93 @@ func (h *Handler) handleListDistributionTenants(c *echo.Context) error {
 	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
 }
 
-// handleListDistributionTenantsByCustomization returns distribution tenants filtered by the
-// WebACLArn query parameter, i.e. tenants that have that WAF web ACL associated.
-func (h *Handler) handleListDistributionTenantsByCustomization(c *echo.Context) error {
-	webACLArn := c.Request().URL.Query().Get("WebACLArn")
-	tenants := h.Backend.ListDistributionTenantsByCustomization(webACLArn)
+// listDistributionTenantsByCustomizationXML is the XML body of a
+// ListDistributionTenantsByCustomization request. cloudfront@v1.67.4 serializers.go
+// awsRestxml_serializeOpHttpBindingsListDistributionTenantsByCustomizationInput returns nil (no
+// HTTP-bound fields), so CertificateArn, Marker, MaxItems, and WebACLArn all serialize into the
+// XML body, not the query string.
+type listDistributionTenantsByCustomizationXML struct {
+	XMLName        xml.Name `xml:"ListDistributionTenantsByCustomizationRequest"`
+	CertificateArn string   `xml:"CertificateArn"`
+	Marker         string   `xml:"Marker"`
+	WebACLArn      string   `xml:"WebACLArn"`
+	MaxItems       int      `xml:"MaxItems"`
+}
 
-	out, xmlErr := xml.Marshal(tenantsToSummaryList(tenants))
+// filterTenantsByCertificateArn narrows tenants to those whose certificate ARN matches certArn.
+// A blank certArn is a no-op (no filter requested).
+func (h *Handler) filterTenantsByCertificateArn(tenants []*DistributionTenant, certArn string) []*DistributionTenant {
+	if certArn == "" {
+		return tenants
+	}
+
+	filtered := make([]*DistributionTenant, 0, len(tenants))
+	for _, t := range tenants {
+		if h.Backend.TenantCertificateArn(t.ID) == certArn {
+			filtered = append(filtered, t)
+		}
+	}
+
+	return filtered
+}
+
+// paginateTenants applies the Marker/MaxItems page window to an already-sorted tenant list,
+// returning the page, the effective page size, and whether more results follow.
+func paginateTenants(tenants []*DistributionTenant, marker string, maxItemsReq int) ([]*DistributionTenant, int, bool) {
+	pageSize := maxItems
+	if maxItemsReq > 0 && maxItemsReq < maxItems {
+		pageSize = maxItemsReq
+	}
+
+	// Tenants are already sorted by ID (see ListDistributionTenantsByCustomization); the marker
+	// is the ID of the last item returned on the previous page.
+	if marker != "" {
+		cut := 0
+		for cut < len(tenants) && tenants[cut].ID <= marker {
+			cut++
+		}
+		tenants = tenants[cut:]
+	}
+
+	isTruncated := len(tenants) > pageSize
+	if isTruncated {
+		tenants = tenants[:pageSize]
+	}
+
+	return tenants, pageSize, isTruncated
+}
+
+// handleListDistributionTenantsByCustomization returns distribution tenants filtered by
+// WebACLArn and/or CertificateArn, paginated by Marker/MaxItems.
+func (h *Handler) handleListDistributionTenantsByCustomization(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req listDistributionTenantsByCustomizationXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ListDistributionTenantsByCustomizationRequest XML"),
+			)
+		}
+	}
+
+	tenants := h.Backend.ListDistributionTenantsByCustomization(req.WebACLArn)
+	tenants = h.filterTenantsByCertificateArn(tenants, req.CertificateArn)
+
+	page, pageSize, isTruncated := paginateTenants(tenants, req.Marker, req.MaxItems)
+
+	result := tenantsToSummaryList(page)
+	result.DistributionTenantList.MaxItems = pageSize
+	if isTruncated && len(page) > 0 {
+		result.NextMarker = page[len(page)-1].ID
+	}
+
+	out, xmlErr := xml.Marshal(result)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
 	}
@@ -367,13 +492,20 @@ func (h *Handler) handleUpdateDomainAssociation(c *echo.Context) error {
 		return h.handleError(c, updateErr)
 	}
 
+	// Real UpdateDomainAssociationOutput carries a single ResourceId (not a
+	// DistributionId/DistributionTenantId split) plus ETag as a response header
+	// (cloudfront@v1.67.4 api_op_UpdateDomainAssociation.go:60-68,
+	// deserializers.go:23927-23938,23974). The previous DistributionId/
+	// DistributionTenantId elements and missing ETag header meant a real client's
+	// ResourceId/ETag were always empty.
+	c.Response().Header().Set("ETag", result.ETag)
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<DomainAssociation xmlns="%s">`+
+		`<UpdateDomainAssociationResult xmlns="%s">`+
 		`<Domain>%s</Domain>`+
-		`<DistributionId>%s</DistributionId>`+
-		`<DistributionTenantId>%s</DistributionTenantId>`+
-		`</DomainAssociation>`,
-		cfNS, result.Domain, result.DistributionID, result.DistributionTenantID)
+		`<ResourceId>%s</ResourceId>`+
+		`</UpdateDomainAssociationResult>`,
+		cfNS, result.Domain, result.ResourceID())
 
 	return xmlResp(c, http.StatusOK, resp)
 }
@@ -402,7 +534,13 @@ func (h *Handler) handleVerifyDNSConfiguration(c *echo.Context) error {
 
 	var req verifyDNSConfigurationXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid VerifyDnsConfigurationRequest XML"),
+			)
+		}
 	}
 
 	configs, verifyErr := h.Backend.VerifyDNSConfiguration(req.Identifier)
@@ -472,7 +610,9 @@ func (h *Handler) handleCreateInvalidationForTenant(c *echo.Context, tenantID st
 
 	var batch invalidationBatchXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &batch)
+		if xmlErr := xml.Unmarshal(body, &batch); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid InvalidationBatch XML"))
+		}
 	}
 
 	inv, backendErr := h.Backend.CreateInvalidationForTenant(tenantID, batch.Paths.Items)
@@ -575,13 +715,32 @@ func (h *Handler) handleListInvalidationsForTenant(c *echo.Context, tenantID str
 // ListDistributionsBy* handlers (config-search based)
 // ---------------------------------------------------------------------------
 
+// distributionResourceIDXML models the real DistributionResourceId shape (cloudfront@v1.67.4
+// types.go): exactly one of DistributionId/DistributionTenantId identifies the resource whose
+// certificate is being used to validate control of the domain.
+type distributionResourceIDXML struct {
+	DistributionID       string `xml:"DistributionId"`
+	DistributionTenantID string `xml:"DistributionTenantId"`
+}
+
+// listDomainConflictsXML models the real ListDomainConflictsRequest body (cloudfront@v1.67.4
+// serializers.go:10053, awsRestxml_serializeOpDocumentListDomainConflictsInput).
+// DomainControlValidationResource is a pointer so a present-but-empty element still nil-checks
+// false and an absent element nil-checks true, matching the SDK's own required-field check
+// (validators.go: validateOpListDomainConflictsInput requires the member itself, not any
+// particular child of it, to be non-nil).
 type listDomainConflictsXML struct {
-	XMLName xml.Name `xml:"ListDomainConflictsRequest"`
-	Domain  string   `xml:"Domain"`
+	DomainControlValidationResource *distributionResourceIDXML `xml:"DomainControlValidationResource"`
+	XMLName                         xml.Name                   `xml:"ListDomainConflictsRequest"`
+	Domain                          string                     `xml:"Domain"`
 }
 
 // handleListDomainConflicts reports every existing distribution or distribution tenant that
-// already claims the requested Domain.
+// already claims the requested Domain, other than the resource identified by
+// DomainControlValidationResource -- the resource whose certificate is being used to validate
+// control of the domain. Real AWS excludes that resource from its own conflict list
+// (api_op_ListDomainConflicts.go:73-77); gopherstack used to drop the field entirely and return
+// conflicts for the domain globally.
 func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
@@ -594,14 +753,45 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 
 	var req listDomainConflictsXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid ListDomainConflictsRequest XML"),
+			)
+		}
 	}
 
 	if req.Domain == "" {
-		req.Domain = c.Request().URL.Query().Get("Domain")
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "Domain is required"))
 	}
 
-	conflicts := h.Backend.ListDomainConflicts(req.Domain)
+	if req.DomainControlValidationResource == nil {
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "DomainControlValidationResource is required"),
+		)
+	}
+
+	distID := req.DomainControlValidationResource.DistributionID
+	tenantID := req.DomainControlValidationResource.DistributionTenantID
+	if (distID == "") == (tenantID == "") {
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML(
+				"InvalidArgument",
+				"exactly one of DistributionId or DistributionTenantId must be set "+
+					"in DomainControlValidationResource",
+			),
+		)
+	}
+
+	conflicts, err := h.Backend.ListDomainConflicts(req.Domain, distID, tenantID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
 
 	// The real deserializer (awsRestxml_deserializeDocumentDomainConflictsList,
 	// cloudfront@v1.67.4) wraps the list in <DomainConflicts>, and each entry

@@ -10,6 +10,32 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// extractPromptRouterOperation mirrors routeStubPromptRouterOps's dispatch
+// order exactly, so ExtractOperation agrees with the real dispatch contract
+// for the PromptRouter/ImportedModel families -- previously absent from
+// ExtractOperation's extractor list entirely (found by gopherstack-n1mb's
+// route table; Handler() itself already dispatched these correctly).
+func extractPromptRouterOperation(path, method string) (string, bool) {
+	switch {
+	case path == promptRoutersPrefix && method == http.MethodPost:
+		return "CreatePromptRouter", true
+	case path == promptRoutersPrefix && method == http.MethodGet:
+		return "ListPromptRouters", true
+	case strings.HasPrefix(path, promptRoutersPrefix+"/") && method == http.MethodGet:
+		return "GetPromptRouter", true
+	case strings.HasPrefix(path, promptRoutersPrefix+"/") && method == http.MethodDelete:
+		return "DeletePromptRouter", true
+	case path == importedModelsPrefix && method == http.MethodGet:
+		return "ListImportedModels", true
+	case strings.HasPrefix(path, importedModelsPrefix+"/") && method == http.MethodGet:
+		return "GetImportedModel", true
+	case strings.HasPrefix(path, importedModelsPrefix+"/") && method == http.MethodDelete:
+		return "DeleteImportedModel", true
+	}
+
+	return "", false
+}
+
 // routeStubPromptRouterOps handles prompt router and imported model operations.
 func (h *Handler) routeStubPromptRouterOps(c *echo.Context, path, method string) (bool, error) {
 	switch {

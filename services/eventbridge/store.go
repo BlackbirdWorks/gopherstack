@@ -95,7 +95,7 @@ type ruleIndexKey struct {
 
 // StorageBackend is the interface for an EventBridge in-memory store.
 type StorageBackend interface {
-	CreateEventBus(ctx context.Context, name, description string) (*EventBus, error)
+	CreateEventBus(ctx context.Context, params CreateEventBusParams) (*EventBus, error)
 	DeleteEventBus(ctx context.Context, name string) error
 	ListEventBuses(ctx context.Context, namePrefix, nextToken string, limit int) ([]EventBus, string, error)
 	DescribeEventBus(ctx context.Context, name string) (*EventBus, error)
@@ -126,7 +126,7 @@ type StorageBackend interface {
 	DeleteAPIDestination(ctx context.Context, name string) error
 	DeleteArchive(ctx context.Context, name string) error
 	DescribeArchive(ctx context.Context, name string) (*Archive, error)
-	ListArchives(ctx context.Context, namePrefix, nextToken string) ([]Archive, string, error)
+	ListArchives(ctx context.Context, namePrefix, eventSourceArn, state, nextToken string) ([]Archive, string, error)
 	UpdateArchive(ctx context.Context, input UpdateArchiveInput) (*Archive, error)
 	DeleteConnection(ctx context.Context, name string) error
 	DescribeConnection(ctx context.Context, name string) (*Connection, error)
@@ -144,9 +144,10 @@ type StorageBackend interface {
 	DescribePartnerEventSource(ctx context.Context, name string) (*PartnerEventSource, error)
 	DeletePartnerEventSource(ctx context.Context, name string) error
 	ListPartnerEventSources(ctx context.Context, namePrefix, nextToken string) ([]PartnerEventSource, string, error)
+	ListPartnerEventSourceAccounts(ctx context.Context, eventSourceName string) ([]PartnerEventSourceAccountInfo, error)
 	PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
 	DescribeReplay(ctx context.Context, name string) (*Replay, error)
-	ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error)
+	ListReplays(ctx context.Context, namePrefix, eventSourceArn, state, nextToken string) ([]Replay, string, error)
 	StartReplay(ctx context.Context, input StartReplayInput) (*Replay, error)
 	ListRuleNamesByTarget(ctx context.Context, targetARN, eventBusName, nextToken string) ([]string, string, error)
 	TestEventPattern(ctx context.Context, pattern, event string) (bool, error)
@@ -155,11 +156,6 @@ type StorageBackend interface {
 	RemovePermission(ctx context.Context, input RemovePermissionInput) error
 	GetEventBusPolicy(ctx context.Context, eventBusName string) (string, error)
 	PutEventBusPolicy(ctx context.Context, input PutEventBusPolicyInput) error
-	CreatePipe(ctx context.Context, input CreatePipeInput) (*Pipe, error)
-	DeletePipe(ctx context.Context, name string) error
-	DescribePipe(ctx context.Context, name string) (*Pipe, error)
-	ListPipes(ctx context.Context, namePrefix, nextToken string) ([]Pipe, string, error)
-	UpdatePipe(ctx context.Context, input UpdatePipeInput) (*Pipe, error)
 	// Schema Registry operations.
 	CreateRegistry(ctx context.Context, input CreateRegistryInput) (*SchemaRegistry, error)
 	DeleteRegistry(ctx context.Context, registryName string) error
@@ -194,10 +190,10 @@ type InMemoryBackend struct {
 	// registration ec2/sqs use. persistence.go drives Snapshot/Restore
 	// through this registry only.
 	registry *store.Registry
-	// auxRegistry holds pipes/registries/schemas: also *store.Table-backed,
-	// but deliberately NOT snapshotted (see store_setup.go's package doc) --
-	// they were never part of backendSnapshot before this conversion, and
-	// this preserves that byte-for-byte.
+	// auxRegistry holds registries/schemas: also *store.Table-backed, but
+	// deliberately NOT snapshotted (see store_setup.go's package doc) -- they
+	// were never part of backendSnapshot before this conversion, and this
+	// preserves that byte-for-byte.
 	auxRegistry *store.Registry
 	// Region-isolated stores. The outer key is the AWS region; the leaf
 	// *store.Table is keyed by the resource's own identity field (bus name,
@@ -216,10 +212,9 @@ type InMemoryBackend struct {
 	archives        map[string]*store.Table[Archive]
 	archivedEvents  map[string]map[string][]EventEntry
 	busePolicies    map[string]map[string]*EventBusPolicy
-	// pipes and registries are NOT region-scoped -- a single backend holds
-	// one global Pipe/SchemaRegistry catalogue -- so they are single Tables,
-	// lazily registered by getOrCreateGlobalTable (see store_setup.go).
-	pipes      *store.Table[Pipe]
+	// registries is NOT region-scoped -- a single backend holds one global
+	// SchemaRegistry catalogue -- so it is a single Table, lazily registered
+	// by getOrCreateGlobalTable (see store_setup.go).
 	registries *store.Table[SchemaRegistry]
 	// schemas is keyed by registryName (also global, not region-scoped, but
 	// one dynamic dimension deep like a per-region resource).
@@ -412,7 +407,6 @@ func (b *InMemoryBackend) Reset() {
 	b.endpoints = make(map[string]*store.Table[Endpoint])
 	b.partnerSources = make(map[string]*store.Table[PartnerEventSource])
 	b.busePolicies = make(map[string]map[string]*EventBusPolicy)
-	b.pipes = nil
 	b.registries = nil
 	b.schemas = make(map[string]*store.Table[Schema])
 	b.schemaVersions = make(map[string][]*SchemaVersion)

@@ -469,22 +469,84 @@ func (b *InMemoryBackend) DescribeAssociation(
 	return nil, ErrAssociationNotFound
 }
 
-// ListAssociations lists all stored associations.
+// associationAttr returns the value of an Association attribute by its
+// AssociationFilterKey name. Only the attributes Association itself tracks
+// can be meaningfully filtered; every other key
+// (LastExecutedBefore/LastExecutedAfter/ResourceGroupName/CloudConnectorId)
+// returns "" and is treated as untracked (see matchesAssociationFilter).
+func associationAttr(a Association, key string) (string, bool) {
+	switch key {
+	case filterKeyInstanceID:
+		return a.InstanceID, true
+	case filterKeyName:
+		return a.Name, true
+	case "AssociationId":
+		return a.AssociationID, true
+	case "AssociationName":
+		return a.AssociationName, true
+	case "AssociationStatusName":
+		if a.Overview != nil {
+			return a.Overview.Status, true
+		}
+
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+// matchesAssociationFilter reports whether an association satisfies a single
+// key/value filter. Unrecognized keys match every association
+// (accept-and-echo, mirroring ListNodes' unknown-key handling,
+// instances.go).
+func matchesAssociationFilter(a Association, f AssociationFilterEntry) bool {
+	value, tracked := associationAttr(a, f.Key)
+	if !tracked {
+		return true
+	}
+
+	return value == f.Value
+}
+
+// ListAssociations lists stored associations, filtered by
+// input.AssociationFilterList and paginated by input.MaxResults/NextToken --
+// real, optional ListAssociationsInput members (api_op_ListAssociations.go)
+// a literal struct{} input previously discarded from every request.
 func (b *InMemoryBackend) ListAssociations(
 	ctx context.Context,
-	_ *ListAssociationsInput,
-) (*ListAssociationsOutput, error) {
+	input *ListAssociationsInput,
+) (*ListAssociationsOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListAssociations")
 	defer b.mu.RUnlock()
 
 	associations := b.associationsStore(region)
 	list := make([]Association, 0, associations.Len())
+
 	for _, a := range associations.All() {
-		list = append(list, *a)
+		matched := true
+
+		for _, f := range input.AssociationFilterList {
+			if !matchesAssociationFilter(*a, f) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			list = append(list, *a)
+		}
 	}
 
-	return &ListAssociationsOutput{Associations: list}, nil
+	var maxResults int
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(list, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &ListAssociationsOutputFull{Associations: page, NextToken: next}, nil
 }
 
 // applyAssociationCoreUpdates applies UpdateAssociationInput's original

@@ -36,6 +36,13 @@ type operationSpec struct {
 	nameField string
 	arnField  string
 	listField string
+	// summaryFields lists the Data keys the real List op's <Kind>Summary type
+	// declares (verified per-kind against aws-sdk-go-v2/service/forecast's
+	// types.go); summaryStatus reports whether that Summary type declares
+	// Status. Describe/Create/Update keep the full resourceOutput -- only List
+	// is narrowed, since AWS scopes List responses but not those.
+	summaryFields []string
+	summaryStatus bool
 }
 
 // Handler serves Amazon Forecast JSON protocol operations.
@@ -151,7 +158,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: %s", ErrValidation, action)
 	}
 
-	output, err := h.execute(spec, input)
+	output, err := h.execute(action, spec, input)
 	if err != nil {
 		return nil, err
 	}
@@ -159,11 +166,12 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 	return json.Marshal(output)
 }
 
-func (h *Handler) execute(spec operationSpec, input map[string]any) (map[string]any, error) {
+func (h *Handler) execute(action string, spec operationSpec, input map[string]any) (map[string]any, error) {
 	switch spec.mode {
 	case modeCreate:
 		resource, err := h.Backend.create(
 			spec.kind,
+			action,
 			stringValue(input[spec.nameField]),
 			input,
 			createFails(spec.kind, input),
@@ -212,7 +220,7 @@ func (h *Handler) dispatchListMonitorEvaluations(input map[string]any) ([]byte, 
 }
 
 func (h *Handler) dispatchDeleteResourceTree(input map[string]any) ([]byte, error) {
-	err := h.Backend.DeleteResourceTree(stringValue(input["ResourceArn"]))
+	err := h.Backend.DeleteResourceTree(stringValue(input[fieldResourceArn]))
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +229,7 @@ func (h *Handler) dispatchDeleteResourceTree(input map[string]any) ([]byte, erro
 }
 
 func (h *Handler) dispatchResumeResource(input map[string]any) ([]byte, error) {
-	err := h.Backend.UpdateResourceStatus(stringValue(input["ResourceArn"]), statusActive)
+	err := h.Backend.UpdateResourceStatus(stringValue(input[fieldResourceArn]), statusActive)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +238,7 @@ func (h *Handler) dispatchResumeResource(input map[string]any) ([]byte, error) {
 }
 
 func (h *Handler) dispatchStopResource(input map[string]any) ([]byte, error) {
-	err := h.Backend.UpdateResourceStatus(stringValue(input["ResourceArn"]), statusStopped)
+	err := h.Backend.UpdateResourceStatus(stringValue(input[fieldResourceArn]), statusStopped)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +256,7 @@ func (h *Handler) dispatchGetAccuracyMetrics(input map[string]any) ([]byte, erro
 }
 
 func (h *Handler) dispatchListTagsForResource(input map[string]any) ([]byte, error) {
-	tags, err := h.Backend.ListTagsForResource(stringValue(input["ResourceArn"]))
+	tags, err := h.Backend.ListTagsForResource(stringValue(input[fieldResourceArn]))
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +269,7 @@ func (h *Handler) dispatchListTagsForResource(input map[string]any) ([]byte, err
 }
 
 func (h *Handler) dispatchTagResource(input map[string]any) ([]byte, error) {
-	err := h.Backend.TagResource(stringValue(input["ResourceArn"]), tagsFromInput(input))
+	err := h.Backend.TagResource(stringValue(input[fieldResourceArn]), tagsFromInput(input))
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +284,7 @@ func (h *Handler) dispatchUntagResource(input map[string]any) ([]byte, error) {
 			tagKeys = append(tagKeys, stringValue(k))
 		}
 	}
-	err := h.Backend.UntagResource(stringValue(input["ResourceArn"]), tagKeys)
+	err := h.Backend.UntagResource(stringValue(input[fieldResourceArn]), tagKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -303,6 +311,29 @@ func resourceOutput(spec operationSpec, resource *Resource) map[string]any {
 	return output
 }
 
+// summaryOutput builds a List-scoped resource representation restricted to
+// spec.summaryFields, the real SDK <Kind>Summary type's declared members --
+// unlike resourceOutput, which passes the full create-request Data through
+// unscoped and is only correct for Describe/Create/Update, where AWS returns
+// that full shape.
+func summaryOutput(spec operationSpec, resource *Resource) map[string]any {
+	output := make(map[string]any, len(spec.summaryFields))
+	for _, key := range spec.summaryFields {
+		if value, ok := resource.Data[key]; ok {
+			output[key] = cloneValue(value)
+		}
+	}
+	output[spec.nameField] = resource.Name
+	output[spec.arnField] = resource.ARN
+	output["CreationTime"] = awstime.Epoch(resource.CreatedAt)
+	output["LastModificationTime"] = awstime.Epoch(resource.UpdatedAt)
+	if spec.summaryStatus {
+		output["Status"] = resource.Status
+	}
+
+	return output
+}
+
 func listOutput(spec operationSpec, resources []*Resource, input map[string]any) (map[string]any, error) {
 	maxResults := 0
 	if mr, ok := input["MaxResults"].(float64); ok {
@@ -316,7 +347,7 @@ func listOutput(spec operationSpec, resources []*Resource, input map[string]any)
 
 	summaries := make([]map[string]any, 0, len(resources))
 	for _, r := range resources {
-		summaries = append(summaries, resourceOutput(spec, r))
+		summaries = append(summaries, summaryOutput(spec, r))
 	}
 
 	pg := page.New(summaries, nextToken, maxResults, defaultListPageSize)
@@ -376,104 +407,18 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	return c.JSONBlob(code, payload)
 }
 
+// summaryFields/summaryStatus arguments throughout registerDataOperations and
+// registerForecastingOperations are each verified against that kind's real
+// List<Kind>sOutput.<Kind>Summary declaration in
+// aws-sdk-go-v2/service/forecast/types/types.go -- not derived from the
+// Describe shape or from a sibling by analogy. Every field the real Summary
+// type omits (e.g. Predictor's InputDataConfig/TrainingParameters/
+// AlgorithmArn, Dataset's Schema/EncryptionConfig) is left out, so
+// listOutput's summaryOutput no longer echoes the full create-request body.
 func forecastOperations() map[string]operationSpec {
 	operations := make(map[string]operationSpec)
-	addCRUD(
-		operations,
-		"DatasetGroup",
-		kindDatasetGroup,
-		"DatasetGroupName",
-		"DatasetGroupArn",
-		"DatasetGroups",
-		true,
-	)
-	// update=false: real Forecast has no UpdateDataset operation (verified against
-	// aws-sdk-go-v2/service/forecast.Client: only UpdateDatasetGroup exists among
-	// dataset-family Update* methods; datasets are immutable after creation, only
-	// re-imported via CreateDatasetImportJob). A prior pass wired this addCRUD call
-	// with update=true, which both advertised and dispatched a fabricated
-	// "UpdateDataset" operation no real client can send — caught by pkgs/sdkcheck's
-	// reverse check (commit 12cfe14d5; gopherstack-vhw2 category A). Unlike some
-	// other findings in this campaign, nothing legitimate depended on the route (no
-	// test exercised it, PARITY.md's Dataset family note already only claimed
-	// Create/Describe/Delete/List), so it is deleted outright rather than kept
-	// wired-but-unadvertised.
-	addCRUD(operations, "Dataset", kindDataset, "DatasetName", "DatasetArn", "Datasets", false)
-	addCRUD(
-		operations,
-		"DatasetImportJob",
-		kindDatasetImportJob,
-		"DatasetImportJobName",
-		"DatasetImportJobArn",
-		"DatasetImportJobs",
-		false,
-	)
-	addCRUD(operations, "Predictor", kindPredictor, "PredictorName", fieldPredictorArn, "Predictors", false)
-	addCRUD(
-		operations,
-		"PredictorBacktestExportJob",
-		kindPredictorBacktestExport,
-		"PredictorBacktestExportJobName",
-		"PredictorBacktestExportJobArn",
-		"PredictorBacktestExportJobs",
-		false,
-	)
-	addCRUD(operations, "Forecast", kindForecast, "ForecastName", "ForecastArn", "Forecasts", false)
-	addCRUD(
-		operations,
-		"ForecastExportJob",
-		kindForecastExport,
-		"ForecastExportJobName",
-		"ForecastExportJobArn",
-		"ForecastExportJobs",
-		false,
-	)
-	addCRUD(
-		operations,
-		"ExplainabilityExport",
-		kindExplainabilityExport,
-		"ExplainabilityExportName",
-		"ExplainabilityExportArn",
-		"ExplainabilityExports",
-		false,
-	)
-	addCRUD(
-		operations,
-		"WhatIfAnalysis",
-		kindWhatIfAnalysis,
-		"WhatIfAnalysisName",
-		"WhatIfAnalysisArn",
-		"WhatIfAnalyses",
-		false,
-	)
-	addCRUD(
-		operations,
-		"WhatIfForecast",
-		kindWhatIfForecast,
-		"WhatIfForecastName",
-		"WhatIfForecastArn",
-		"WhatIfForecasts",
-		false,
-	)
-	addCRUD(
-		operations,
-		"WhatIfForecastExport",
-		kindWhatIfForecastExport,
-		"WhatIfForecastExportName",
-		"WhatIfForecastExportArn",
-		"WhatIfForecastExports",
-		false,
-	)
-	addCRUD(operations, "Monitor", kindMonitor, "MonitorName", "MonitorArn", "Monitors", false)
-	addCRUD(
-		operations,
-		"Explainability",
-		kindExplainability,
-		"ExplainabilityName",
-		"ExplainabilityArn",
-		"Explainabilities",
-		false,
-	)
+	registerDataOperations(operations)
+	registerForecastingOperations(operations)
 	operations["CreateAutoPredictor"] = operationSpec{
 		kind: kindPredictor, mode: modeCreate, nameField: "PredictorName",
 		arnField: fieldPredictorArn, listField: "Predictors",
@@ -486,6 +431,145 @@ func forecastOperations() map[string]operationSpec {
 	return operations
 }
 
+func registerDataOperations(operations map[string]operationSpec) {
+	addCRUD(
+		operations,
+		"DatasetGroup",
+		kindDatasetGroup,
+		"DatasetGroupName",
+		"DatasetGroupArn",
+		"DatasetGroups",
+		true,
+		nil, // DatasetGroupSummary: no extra fields, no Status
+		false,
+	)
+	// update=false: real Forecast has no UpdateDataset operation (verified against
+	// aws-sdk-go-v2/service/forecast.Client: only UpdateDatasetGroup exists among
+	// dataset-family Update* methods; datasets are immutable after creation, only
+	// re-imported via CreateDatasetImportJob). A prior pass wired this addCRUD call
+	// with update=true, which both advertised and dispatched a fabricated
+	// "UpdateDataset" operation no real client can send — caught by pkgs/sdkcheck's
+	// reverse check (commit 12cfe14d5; gopherstack-vhw2 category A). Unlike some
+	// other findings in this campaign, nothing legitimate depended on the route (no
+	// test exercised it, PARITY.md's Dataset family note already only claimed
+	// Create/Describe/Delete/List), so it is deleted outright rather than kept
+	// wired-but-unadvertised.
+	addCRUD(
+		operations, "Dataset", kindDataset, "DatasetName", "DatasetArn", "Datasets", false,
+		[]string{"DatasetType", "Domain"}, false, // DatasetSummary: no Status
+	)
+	addCRUD(
+		operations,
+		"DatasetImportJob",
+		kindDatasetImportJob,
+		"DatasetImportJobName",
+		"DatasetImportJobArn",
+		"DatasetImportJobs",
+		false,
+		[]string{"DataSource", "ImportMode"},
+		true,
+	)
+	addCRUD(
+		operations, "Predictor", kindPredictor, "PredictorName", fieldPredictorArn, "Predictors", false,
+		// PredictorSummary also declares DatasetGroupArn, IsAutoPredictor and
+		// ReferencePredictorSummary, but none has a backend field to source it
+		// from: CreatePredictor's DatasetGroupArn lives nested under
+		// InputDataConfig (not top-level), CreateAutoPredictor's under
+		// DataConfig, and IsAutoPredictor/ReferencePredictorSummary are never
+		// recorded at all. Left absent rather than fabricated; a separate,
+		// pre-existing missing-field gap, not this issue's over-wide class.
+		nil, true,
+	)
+}
+
+func registerForecastingOperations(operations map[string]operationSpec) {
+	addCRUD(
+		operations,
+		"PredictorBacktestExportJob",
+		kindPredictorBacktestExport,
+		"PredictorBacktestExportJobName",
+		"PredictorBacktestExportJobArn",
+		"PredictorBacktestExportJobs",
+		false,
+		[]string{fieldDestination},
+		true,
+	)
+	addCRUD(
+		operations, "Forecast", kindForecast, "ForecastName", fieldForecastArn, "Forecasts", false,
+		[]string{"PredictorArn"}, true,
+	)
+	addCRUD(
+		operations,
+		"ForecastExportJob",
+		kindForecastExport,
+		"ForecastExportJobName",
+		"ForecastExportJobArn",
+		"ForecastExportJobs",
+		false,
+		[]string{fieldDestination},
+		true,
+	)
+	addCRUD(
+		operations,
+		"ExplainabilityExport",
+		kindExplainabilityExport,
+		"ExplainabilityExportName",
+		"ExplainabilityExportArn",
+		"ExplainabilityExports",
+		false,
+		[]string{fieldDestination},
+		true,
+	)
+	addCRUD(
+		operations,
+		"WhatIfAnalysis",
+		kindWhatIfAnalysis,
+		"WhatIfAnalysisName",
+		"WhatIfAnalysisArn",
+		"WhatIfAnalyses",
+		false,
+		[]string{fieldForecastArn},
+		true,
+	)
+	addCRUD(
+		operations,
+		"WhatIfForecast",
+		kindWhatIfForecast,
+		"WhatIfForecastName",
+		"WhatIfForecastArn",
+		"WhatIfForecasts",
+		false,
+		[]string{"WhatIfAnalysisArn"},
+		true,
+	)
+	addCRUD(
+		operations,
+		"WhatIfForecastExport",
+		kindWhatIfForecastExport,
+		"WhatIfForecastExportName",
+		"WhatIfForecastExportArn",
+		"WhatIfForecastExports",
+		false,
+		[]string{fieldDestination, "WhatIfForecastArns"},
+		true,
+	)
+	addCRUD(
+		operations, "Monitor", kindMonitor, "MonitorName", "MonitorArn", "Monitors", false,
+		[]string{fieldResourceArn}, true,
+	)
+	addCRUD(
+		operations,
+		"Explainability",
+		kindExplainability,
+		"ExplainabilityName",
+		"ExplainabilityArn",
+		"Explainabilities",
+		false,
+		[]string{fieldResourceArn, "ExplainabilityConfig"},
+		true,
+	)
+}
+
 func addCRUD(
 	operations map[string]operationSpec,
 	base string,
@@ -494,9 +578,12 @@ func addCRUD(
 	arnField string,
 	listField string,
 	update bool,
+	summaryFields []string,
+	summaryStatus bool,
 ) {
 	spec := operationSpec{
 		kind: kind, nameField: nameField, arnField: arnField, listField: listField,
+		summaryFields: summaryFields, summaryStatus: summaryStatus,
 	}
 	operations["Create"+base] = withMode(spec, modeCreate)
 	operations["Describe"+base] = withMode(spec, modeDescribe)

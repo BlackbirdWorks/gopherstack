@@ -51,7 +51,7 @@ func TestOmics_Workflow(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.NotNil(t, resp["workflows"])
+				assert.NotNil(t, resp["items"])
 			},
 		},
 		{
@@ -209,7 +209,7 @@ func TestListWorkflows_FiltersByNameAndType(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	workflows, ok := resp["workflows"].([]any)
+	workflows, ok := resp["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, workflows, 1)
 	assert.Equal(t, "wf-a", workflows[0].(map[string]any)["name"])
@@ -221,7 +221,7 @@ func TestListWorkflows_FiltersByNameAndType(t *testing.T) {
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	workflows2, ok := resp2["workflows"].([]any)
+	workflows2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, workflows2)
 }
@@ -250,7 +250,7 @@ func TestListWorkflowVersions_FiltersByType(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	versions, ok := resp["workflowVersions"].([]any)
+	versions, ok := resp["items"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, versions)
 
@@ -259,7 +259,7 @@ func TestListWorkflowVersions_FiltersByType(t *testing.T) {
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	versions2, ok := resp2["workflowVersions"].([]any)
+	versions2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	assert.Len(t, versions2, 1)
 }

@@ -721,6 +721,59 @@ func TestRunInstances_UserDataValidation(t *testing.T) {
 // TestCreateVolume_GP3Coupling covers the AWS gp3 iops/throughput coupling
 // validation on CreateVolume.
 
+// TestCreateVolume_KmsKeyId proves CreateVolume reads the KMS key from the
+// wire under its real key ("KmsKeyId", per ec2@v1.319.1 serializers.go:73596)
+// rather than the case-mismatched "KmsKeyID". Regresses if the handler goes
+// back to reading the wrong key: kmsKeyID would come back empty and the
+// response would fall back to the AWS-managed alias instead of echoing the
+// caller-supplied key.
+func TestCreateVolume_KmsKeyId(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		params url.Values
+		want   string
+	}{
+		{
+			name: "customer managed key honored",
+			params: url.Values{
+				"Action":           {"CreateVolume"},
+				"Version":          {"2016-11-15"},
+				"AvailabilityZone": {"us-east-1a"},
+				"Size":             {"20"},
+				"Encrypted":        {"true"},
+				"KmsKeyId":         {"arn:aws:kms:us-east-1:123456789012:key/test-key-id"},
+			},
+			want: "arn:aws:kms:us-east-1:123456789012:key/test-key-id",
+		},
+		{
+			name: "no key falls back to default alias",
+			params: url.Values{
+				"Action":           {"CreateVolume"},
+				"Version":          {"2016-11-15"},
+				"AvailabilityZone": {"us-east-1a"},
+				"Size":             {"20"},
+				"Encrypted":        {"true"},
+			},
+			want: "alias/aws/ebs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerWithBackend(ec2.NewInMemoryBackend("123456789012", "us-east-1"))
+
+			resp, err := dispatchHandler(h, tt.params)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, accuracyExtractXMLValue(resp, "kmsKeyId"))
+		})
+	}
+}
+
 // TestDescribeInstanceStatus_IncludesHealthObjects verifies that
 // DescribeInstanceStatus emits the systemStatus and instanceStatus health
 // objects (status "initializing" while pending, "ok" once running) that the SDK

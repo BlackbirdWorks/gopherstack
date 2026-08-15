@@ -44,11 +44,12 @@ func (h *Handler) dispatchIPSetOps(op, path string, body []byte) (any, int, bool
 //nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateIPSet(detectorID string, body []byte) (any, int, error) {
 	var req struct {
-		Tags     map[string]string `json:"tags"`
-		Activate *bool             `json:"activate"`
-		Name     string            `json:"name"`
-		Format   string            `json:"format"`
-		Location string            `json:"location"`
+		Tags                map[string]string `json:"tags"`
+		Activate            *bool             `json:"activate"`
+		Name                string            `json:"name"`
+		Format              string            `json:"format"`
+		Location            string            `json:"location"`
+		ExpectedBucketOwner string            `json:"expectedBucketOwner"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -64,7 +65,9 @@ func (h *Handler) handleCreateIPSet(detectorID string, body []byte) (any, int, e
 		activate = *req.Activate
 	}
 
-	s, err := h.Backend.CreateIPSet(detectorID, req.Name, req.Format, req.Location, activate, req.Tags)
+	s, err := h.Backend.CreateIPSet(
+		detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
@@ -78,27 +81,35 @@ func (h *Handler) handleGetIPSet(detectorID, ipSetID string) (any, int, error) {
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{
+	resp := map[string]any{
 		keyName:    s.Name,
 		"format":   s.Format,   //nolint:goconst // existing issue.
 		"location": s.Location, //nolint:goconst // existing issue.
 		keyStatus:  s.Status,
 		keyTags:    tagsOrEmpty(s.Tags),
-	}, http.StatusOK, nil
+	}
+
+	if s.ExpectedBucketOwner != "" {
+		resp["expectedBucketOwner"] = s.ExpectedBucketOwner
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateIPSet(detectorID, ipSetID string, body []byte) (int, error) {
 	var req struct {
-		Activate *bool  `json:"activate"`
-		Name     string `json:"name"`
-		Location string `json:"location"`
+		Activate            *bool  `json:"activate"`
+		Name                string `json:"name"`
+		Location            string `json:"location"`
+		ExpectedBucketOwner string `json:"expectedBucketOwner"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
-	if err := h.Backend.UpdateIPSet(detectorID, ipSetID, req.Name, req.Location, req.Activate); err != nil {
+	err := h.Backend.UpdateIPSet(detectorID, ipSetID, req.Name, req.Location, req.Activate, req.ExpectedBucketOwner)
+	if err != nil {
 		return http.StatusNotFound, err
 	}
 
@@ -161,11 +172,12 @@ func (h *Handler) dispatchThreatIntelSetOps(op, path string, body []byte) (any, 
 //nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateThreatIntelSet(detectorID string, body []byte) (any, int, error) {
 	var req struct {
-		Tags     map[string]string `json:"tags"`
-		Activate *bool             `json:"activate"`
-		Name     string            `json:"name"`
-		Format   string            `json:"format"`
-		Location string            `json:"location"`
+		Tags                map[string]string `json:"tags"`
+		Activate            *bool             `json:"activate"`
+		Name                string            `json:"name"`
+		Format              string            `json:"format"`
+		Location            string            `json:"location"`
+		ExpectedBucketOwner string            `json:"expectedBucketOwner"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -181,7 +193,9 @@ func (h *Handler) handleCreateThreatIntelSet(detectorID string, body []byte) (an
 		activate = *req.Activate
 	}
 
-	s, err := h.Backend.CreateThreatIntelSet(detectorID, req.Name, req.Format, req.Location, activate, req.Tags)
+	s, err := h.Backend.CreateThreatIntelSet(
+		detectorID, req.Name, req.Format, req.Location, activate, req.Tags, req.ExpectedBucketOwner,
+	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
@@ -195,27 +209,37 @@ func (h *Handler) handleGetThreatIntelSet(detectorID, setID string) (any, int, e
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{
+	resp := map[string]any{
 		keyName:    s.Name,
 		"format":   s.Format,
 		"location": s.Location,
 		keyStatus:  s.Status,
 		keyTags:    tagsOrEmpty(s.Tags),
-	}, http.StatusOK, nil
+	}
+
+	if s.ExpectedBucketOwner != "" {
+		resp["expectedBucketOwner"] = s.ExpectedBucketOwner
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateThreatIntelSet(detectorID, setID string, body []byte) (int, error) {
 	var req struct {
-		Activate *bool  `json:"activate"`
-		Name     string `json:"name"`
-		Location string `json:"location"`
+		Activate            *bool  `json:"activate"`
+		Name                string `json:"name"`
+		Location            string `json:"location"`
+		ExpectedBucketOwner string `json:"expectedBucketOwner"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
-	if err := h.Backend.UpdateThreatIntelSet(detectorID, setID, req.Name, req.Location, req.Activate); err != nil {
+	err := h.Backend.UpdateThreatIntelSet(
+		detectorID, setID, req.Name, req.Location, req.Activate, req.ExpectedBucketOwner,
+	)
+	if err != nil {
 		return http.StatusNotFound, err
 	}
 

@@ -6,6 +6,10 @@ import (
 	"net/url"
 )
 
+// keyMembers is the real required response key for GetMembers, ListMembers,
+// and GetMemberDetectors (deserializers.go: "members", not "memberDataSources").
+const keyMembers = "members"
+
 func (h *Handler) dispatchMemberOps(op, path, query string, body []byte) (any, int, bool, error) {
 	detectorID := extractID(path, pathDetector)
 
@@ -201,7 +205,7 @@ func (h *Handler) handleGetMembers(detectorID string, body []byte) (any, int, er
 	}
 
 	return map[string]any{
-		"members":             membersOut,
+		keyMembers:            membersOut,
 		"unprocessedAccounts": orEmpty(unprocessed),
 	}, http.StatusOK, nil
 }
@@ -234,7 +238,7 @@ func (h *Handler) handleListMembers(detectorID, query string) (any, int, error) 
 		out = append(out, memberToMap(m))
 	}
 
-	return map[string]any{"members": out}, http.StatusOK, nil
+	return map[string]any{keyMembers: out}, http.StatusOK, nil
 }
 
 func (h *Handler) handleStartMonitoringMembers(detectorID string, body []byte) (any, int, error) {
@@ -303,7 +307,7 @@ func (h *Handler) handleGetMemberDetectors(detectorID string, body []byte) (any,
 	}
 
 	return map[string]any{
-		"memberDataSources":   orEmptyAny(details),
+		keyMembers:            orEmptyAny(details),
 		"unprocessedAccounts": orEmpty(unprocessed),
 	}, http.StatusOK, nil
 }

@@ -280,8 +280,9 @@ type Backend interface {
 
 	// ---- Launch template lifecycle ----
 
-	// DeleteLaunchTemplate removes a launch template by ID.
-	DeleteLaunchTemplate(id string) error
+	// DeleteLaunchTemplate removes a launch template by ID and returns the
+	// deleted template.
+	DeleteLaunchTemplate(id string) (*LaunchTemplate, error)
 
 	// DescribeLaunchTemplateVersions returns versions of a launch template.
 	DescribeLaunchTemplateVersions(id string) ([]*LaunchTemplate, error)
@@ -311,7 +312,7 @@ type Backend interface {
 	// ---- launch templates ----
 
 	// CreateLaunchTemplate creates a launch template.
-	CreateLaunchTemplate(name, imageID, instanceType string) (*LaunchTemplate, error)
+	CreateLaunchTemplate(name, imageID, instanceType string, tags map[string]string) (*LaunchTemplate, error)
 
 	// DescribeLaunchTemplates returns launch templates, optionally filtered by names.
 	DescribeLaunchTemplates(names []string) []*LaunchTemplate
@@ -352,6 +353,7 @@ type Backend interface {
 	// RequestSpotInstances creates a spot instance request (mock: immediately fulfilled).
 	RequestSpotInstances(
 		imageID, instanceType, subnetID, spotPrice string,
+		tags map[string]string,
 	) (*SpotInstanceRequest, error)
 
 	// DescribeSpotInstanceRequests returns spot requests, optionally filtered by IDs.
@@ -363,7 +365,7 @@ type Backend interface {
 	// ---- placement groups ----
 
 	// CreatePlacementGroup creates a new placement group.
-	CreatePlacementGroup(name, strategy string) (*PlacementGroup, error)
+	CreatePlacementGroup(name, strategy string, tags map[string]string) (*PlacementGroup, error)
 
 	// DescribePlacementGroups returns placement groups, optionally filtered by names.
 	DescribePlacementGroups(names []string) []*PlacementGroup
@@ -503,6 +505,7 @@ type Backend interface {
 	CreateFlowLogs(
 		resourceIDs []string,
 		trafficType, logDestinationType, logDestination string,
+		tags map[string]string,
 	) ([]*FlowLog, error)
 
 	// DescribeFlowLogs returns flow logs, optionally filtered by IDs.
@@ -1254,7 +1257,7 @@ type Backend interface {
 	DescribeVpcEndpointAssociations(endpointIDs []string) []*VpcEndpoint
 	ModifyVpcEndpointServicePayerResponsibility(serviceID, payerResponsibility string) error
 	DescribeVpcEndpointServicePermissions(serviceID string) []string
-	ModifyVpcEndpointServicePermissions(serviceID string, add, remove []string) error
+	ModifyVpcEndpointServicePermissions(serviceID string, add, remove []string) ([]string, error)
 	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string) error
 
 	// ModifyVpcEndpointPayerResponsibility sets who is billed for a VPC
@@ -1287,6 +1290,7 @@ type Backend interface {
 	EnableImageDeregistrationProtection(imageID string) error
 	DisableImageDeregistrationProtection(imageID string) error
 	ModifyImageAttribute(imageID, attribute, value string) error
+	GetImageAttribute(imageID, attribute string) string
 	ResetImageAttribute(imageID, attribute string) error
 	DescribeInstanceImageMetadata(instanceIDs []string) []InstanceImageMetadataItem
 	EnableSerialConsoleAccess()
@@ -1304,7 +1308,7 @@ type Backend interface {
 	CreateSubnetCidrReservation(
 		subnetID, cidr, reservationType, description string,
 	) (*SubnetCIDRReservation, error)
-	DeleteSubnetCidrReservation(reservationID string) error
+	DeleteSubnetCidrReservation(reservationID string) (*SubnetCIDRReservation, error)
 
 	// ---- batch3 ----
 
@@ -1320,13 +1324,13 @@ type Backend interface {
 		securityGroupIDs []string,
 		preserveClientIP bool,
 	) (*InstanceConnectEndpoint, error)
-	DeleteInstanceConnectEndpoint(id string) error
+	DeleteInstanceConnectEndpoint(id string) (*InstanceConnectEndpoint, error)
 	DescribeInstanceConnectEndpoints(ids []string) []*InstanceConnectEndpoint
 	ModifyInstanceConnectEndpoint(id string, preserveClientIP bool) error
 	CreateInstanceEventWindow(name, cronExpression string) (*InstanceEventWindow, error)
 	DeleteInstanceEventWindow(id string) error
 	DescribeInstanceEventWindows(ids []string) []*InstanceEventWindow
-	ModifyInstanceEventWindow(id, name, cronExpression string) error
+	ModifyInstanceEventWindow(id, name, cronExpression string) (*InstanceEventWindow, error)
 	CreateSpotDatafeedSubscription(bucket, prefix string) (*SpotDatafeed, error)
 	DeleteSpotDatafeedSubscription()
 	DescribeSpotDatafeedSubscription() *SpotDatafeed
@@ -1365,15 +1369,15 @@ type Backend interface {
 	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
-	ModifyTransitGateway(tgwID, description string) error
+	ModifyTransitGateway(tgwID, description string) (*TransitGateway, error)
 
 	// ---- batch4: ManagedPrefixList ----
 	CreateManagedPrefixList(name, addressFamily string, maxEntries int) (*ManagedPrefixList, error)
-	DeleteManagedPrefixList(id string) error
+	DeleteManagedPrefixList(id string) (*ManagedPrefixList, error)
 	DescribeManagedPrefixLists(ids []string) []*ManagedPrefixList
 	GetManagedPrefixListEntries(id string) ([]PrefixListEntry, error)
-	ModifyManagedPrefixList(id string, addEntries, removeEntries []PrefixListEntry) error
-	RestoreManagedPrefixListVersion(id string, version int64) error
+	ModifyManagedPrefixList(id string, addEntries, removeEntries []PrefixListEntry) (*ManagedPrefixList, error)
+	RestoreManagedPrefixListVersion(id string, version int64) (*ManagedPrefixList, error)
 
 	// ---- batch4: ClientVpnEndpoint ----
 	CreateClientVpnEndpoint(clientCidrBlock, description string, dnsServers []string) (*ClientVpnEndpoint, error)
@@ -1430,18 +1434,18 @@ type Backend interface {
 	CreateTransitGatewayPeeringAttachment(
 		transitGatewayID, peerTransitGatewayID string, _ string,
 	) (*TransitGatewayPeeringAttachment, error)
-	DeleteTransitGatewayPeeringAttachment(id string) error
+	DeleteTransitGatewayPeeringAttachment(id string) (*TransitGatewayPeeringAttachment, error)
 	DescribeTransitGatewayPeeringAttachments(ids []string) []*TransitGatewayPeeringAttachment
 
 	// ---- batch4: TGW Connect ----
 	CreateTransitGatewayConnect(transportAttachmentID, transitGatewayID string) (*TransitGatewayConnect, error)
-	DeleteTransitGatewayConnect(id string) error
+	DeleteTransitGatewayConnect(id string) (*TransitGatewayConnect, error)
 	DescribeTransitGatewayConnects(ids []string) []*TransitGatewayConnect
 	CreateTransitGatewayConnectPeer(
 		connectAttachmentID, peerAddress string,
 		insideCidrBlocks []string,
 	) (*TransitGatewayConnectPeer, error)
-	DeleteTransitGatewayConnectPeer(id string) error
+	DeleteTransitGatewayConnectPeer(id string) (*TransitGatewayConnectPeer, error)
 	DescribeTransitGatewayConnectPeers(ids []string) []*TransitGatewayConnectPeer
 
 	// ---- batch4: TGW PrefixListRef ----
@@ -1449,7 +1453,9 @@ type Backend interface {
 		routeTableID, prefixListID string,
 		blackhole bool,
 	) (*TransitGatewayPrefixListReference, error)
-	DeleteTransitGatewayPrefixListReference(routeTableID, prefixListID string) error
+	DeleteTransitGatewayPrefixListReference(
+		routeTableID, prefixListID string,
+	) (*TransitGatewayPrefixListReference, error)
 	GetTransitGatewayPrefixListReferences(routeTableID string) ([]*TransitGatewayPrefixListReference, error)
 	ModifyTransitGatewayPrefixListReference(
 		routeTableID, prefixListID, attachmentID string,
@@ -1458,17 +1464,17 @@ type Backend interface {
 
 	// ---- batch4: VerifiedAccess ----
 	CreateVerifiedAccessEndpoint(groupID, endpointType, description string) (*VerifiedAccessEndpoint, error)
-	DeleteVerifiedAccessEndpoint(id string) error
+	DeleteVerifiedAccessEndpoint(id string) (*VerifiedAccessEndpoint, error)
 	DescribeVerifiedAccessEndpoints(ids []string) []*VerifiedAccessEndpoint
-	ModifyVerifiedAccessEndpoint(id, description string) error
+	ModifyVerifiedAccessEndpoint(id, description string) (*VerifiedAccessEndpoint, error)
 	CreateVerifiedAccessGroup(instanceID, description string) (*VerifiedAccessGroup, error)
-	DeleteVerifiedAccessGroup(id string) error
+	DeleteVerifiedAccessGroup(id string) (*VerifiedAccessGroup, error)
 	DescribeVerifiedAccessGroups(ids []string) []*VerifiedAccessGroup
 	CreateVerifiedAccessInstance(description string) (*VerifiedAccessInstance, error)
-	DeleteVerifiedAccessInstance(id string) error
+	DeleteVerifiedAccessInstance(id string) (*VerifiedAccessInstance, error)
 	DescribeVerifiedAccessInstances(ids []string) []*VerifiedAccessInstance
 	CreateVerifiedAccessTrustProvider(trustProviderType, description string) (*VerifiedAccessTrustProvider, error)
-	DeleteVerifiedAccessTrustProvider(id string) error
+	DeleteVerifiedAccessTrustProvider(id string) (*VerifiedAccessTrustProvider, error)
 	DescribeVerifiedAccessTrustProviders(ids []string) []*VerifiedAccessTrustProvider
 	AttachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
 	DetachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
@@ -1500,28 +1506,31 @@ type Backend interface {
 	ResetFpgaImageAttribute(id, attribute string) error
 
 	// ---- batch5: TrafficMirror ----
-	CreateTrafficMirrorFilter(description string) (*TrafficMirrorFilter, error)
+	CreateTrafficMirrorFilter(description string, tags map[string]string) (*TrafficMirrorFilter, error)
 	DeleteTrafficMirrorFilter(id string) error
 	DescribeTrafficMirrorFilters(ids []string) []*TrafficMirrorFilter
-	ModifyTrafficMirrorFilterNetworkServices(id string, add, remove []string) error
+	ModifyTrafficMirrorFilterNetworkServices(id string, add, remove []string) (*TrafficMirrorFilter, error)
 	CreateTrafficMirrorFilterRule(
 		filterID, direction, action, srcCIDR, dstCIDR, description string,
 		ruleNumber, protocol int,
+		tags map[string]string,
 		ports ...TrafficMirrorPortRangePair,
 	) (*TrafficMirrorFilterRule, error)
 	DeleteTrafficMirrorFilterRule(id string) error
 	DescribeTrafficMirrorFilterRules(filterID string) ([]*TrafficMirrorFilterRule, error)
-	ModifyTrafficMirrorFilterRule(id, action, description string) error
+	ModifyTrafficMirrorFilterRule(id, action, description string) (*TrafficMirrorFilterRule, error)
 	CreateTrafficMirrorSession(
 		networkInterfaceID, targetID, filterID, description string,
 		sessionNumber int,
+		tags map[string]string,
 		packetLength ...int,
 	) (*TrafficMirrorSession, error)
 	DeleteTrafficMirrorSession(id string) error
 	DescribeTrafficMirrorSessions(ids []string) []*TrafficMirrorSession
-	ModifyTrafficMirrorSession(id, targetID, filterID, description string) error
+	ModifyTrafficMirrorSession(id, targetID, filterID, description string) (*TrafficMirrorSession, error)
 	CreateTrafficMirrorTarget(
 		networkInterfaceID, networkLoadBalancerArn, description string,
+		tags map[string]string,
 		gatewayLoadBalancerEndpointID ...string,
 	) (*TrafficMirrorTarget, error)
 	DeleteTrafficMirrorTarget(id string) error
@@ -1529,7 +1538,7 @@ type Backend interface {
 
 	// ---- batch5: EC2 Fleet ----
 	CreateFleet(fleetType string, totalTargetCapacity int) (*Fleet, error)
-	DeleteFleets(ids []string) []string
+	DeleteFleets(ids []string) []FleetDeletionResult
 	DescribeFleets(ids []string) []*Fleet
 	ModifyFleet(id string, totalTargetCapacity int, excessPolicy string) error
 
@@ -1557,7 +1566,7 @@ type Backend interface {
 
 	// ---- batch5: CarrierGateway ----
 	CreateCarrierGateway(vpcID string) (*CarrierGateway, error)
-	DeleteCarrierGateway(id string) error
+	DeleteCarrierGateway(id string) (*CarrierGateway, error)
 	DescribeCarrierGateways(ids []string) []*CarrierGateway
 
 	// ---- batch5: ReservedInstances ----

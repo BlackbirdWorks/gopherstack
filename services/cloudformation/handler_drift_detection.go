@@ -63,24 +63,24 @@ func (h *Handler) handleDetectStackResourceDrift(form url.Values, c *echo.Contex
 		return h.xmlError(c, "ValidationError", "LogicalResourceId is required")
 	}
 
-	detectionID, err := h.Backend.DetectStackResourceDrift(stackName, logicalID)
+	drift, err := h.Backend.DetectStackResourceDrift(stackName, logicalID)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
 	type result struct {
-		StackDriftDetectionID string `xml:"StackDriftDetectionId"`
+		StackResourceDrift driftXML `xml:"StackResourceDrift"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DetectStackResourceDriftResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
-		Result    result   `xml:"DetectStackResourceDriftResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"DetectStackResourceDriftResult"`
 	}
 
 	return writeXML(c, response{
 		Xmlns:     cfnNS,
-		Result:    result{StackDriftDetectionID: detectionID},
+		Result:    result{StackResourceDrift: toDriftXML(*drift)},
 		RequestID: uuid.New().String(),
 	})
 }
@@ -127,6 +127,46 @@ func (h *Handler) handleDescribeStackDriftDetectionStatus(form url.Values, c *ec
 	})
 }
 
+// propertyDiffXML and driftXML are the wire shapes for a StackResourceDrift
+// record, shared by DetectStackResourceDrift and DescribeStackResourceDrifts.
+type propertyDiffXML struct {
+	PropertyPath   string `xml:"PropertyPath"`
+	ExpectedValue  string `xml:"ExpectedValue"`
+	ActualValue    string `xml:"ActualValue"`
+	DifferenceType string `xml:"DifferenceType"`
+}
+
+type driftXML struct {
+	StackID                  string            `xml:"StackId"`
+	LogicalResourceID        string            `xml:"LogicalResourceId"`
+	PhysicalResourceID       string            `xml:"PhysicalResourceId,omitempty"`
+	ResourceType             string            `xml:"ResourceType"`
+	StackResourceDriftStatus string            `xml:"StackResourceDriftStatus"`
+	ExpectedProperties       string            `xml:"ExpectedProperties,omitempty"`
+	ActualProperties         string            `xml:"ActualProperties,omitempty"`
+	Timestamp                string            `xml:"Timestamp"`
+	PropertyDifferences      []propertyDiffXML `xml:"PropertyDifferences>member,omitempty"`
+}
+
+func toDriftXML(d StackResourceDrift) driftXML {
+	propDiffs := make([]propertyDiffXML, 0, len(d.PropertyDifferences))
+	for _, pd := range d.PropertyDifferences {
+		propDiffs = append(propDiffs, propertyDiffXML(pd))
+	}
+
+	return driftXML{
+		StackID:                  d.StackID,
+		LogicalResourceID:        d.LogicalResourceID,
+		PhysicalResourceID:       d.PhysicalResourceID,
+		ResourceType:             d.ResourceType,
+		StackResourceDriftStatus: d.StackResourceDriftStatus,
+		ExpectedProperties:       d.ExpectedProperties,
+		ActualProperties:         d.ActualProperties,
+		PropertyDifferences:      propDiffs,
+		Timestamp:                d.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
+	}
+}
+
 func (h *Handler) handleDescribeStackResourceDrifts(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
@@ -138,41 +178,9 @@ func (h *Handler) handleDescribeStackResourceDrifts(form url.Values, c *echo.Con
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
-	type propertyDiffXML struct {
-		PropertyPath   string `xml:"PropertyPath"`
-		ExpectedValue  string `xml:"ExpectedValue"`
-		ActualValue    string `xml:"ActualValue"`
-		DifferenceType string `xml:"DifferenceType"`
-	}
-	type driftXML struct {
-		StackID                  string            `xml:"StackId"`
-		LogicalResourceID        string            `xml:"LogicalResourceId"`
-		PhysicalResourceID       string            `xml:"PhysicalResourceId,omitempty"`
-		ResourceType             string            `xml:"ResourceType"`
-		StackResourceDriftStatus string            `xml:"StackResourceDriftStatus"`
-		ExpectedProperties       string            `xml:"ExpectedProperties,omitempty"`
-		ActualProperties         string            `xml:"ActualProperties,omitempty"`
-		Timestamp                string            `xml:"Timestamp"`
-		PropertyDifferences      []propertyDiffXML `xml:"PropertyDifferences>member,omitempty"`
-	}
-
 	members := make([]driftXML, 0, len(drifts))
 	for _, d := range drifts {
-		propDiffs := make([]propertyDiffXML, 0, len(d.PropertyDifferences))
-		for _, pd := range d.PropertyDifferences {
-			propDiffs = append(propDiffs, propertyDiffXML(pd))
-		}
-		members = append(members, driftXML{
-			StackID:                  d.StackID,
-			LogicalResourceID:        d.LogicalResourceID,
-			PhysicalResourceID:       d.PhysicalResourceID,
-			ResourceType:             d.ResourceType,
-			StackResourceDriftStatus: d.StackResourceDriftStatus,
-			ExpectedProperties:       d.ExpectedProperties,
-			ActualProperties:         d.ActualProperties,
-			PropertyDifferences:      propDiffs,
-			Timestamp:                d.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
-		})
+		members = append(members, toDriftXML(d))
 	}
 
 	type driftsResult struct {

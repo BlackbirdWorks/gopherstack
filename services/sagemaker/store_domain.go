@@ -55,6 +55,7 @@ func (b *InMemoryBackend) appsStore(r string) *store.Table[App] {
 				appKey{
 					DomainID:        v.DomainID,
 					UserProfileName: v.UserProfileName,
+					SpaceName:       v.SpaceName,
 					AppType:         v.AppType,
 					AppName:         v.AppName,
 				},
@@ -79,6 +80,7 @@ func (b *InMemoryBackend) appsStoreRO(r string) *store.Table[App] {
 			appKey{
 				DomainID:        v.DomainID,
 				UserProfileName: v.UserProfileName,
+				SpaceName:       v.SpaceName,
 				AppType:         v.AppType,
 				AppName:         v.AppName,
 			},

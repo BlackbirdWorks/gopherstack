@@ -13,8 +13,8 @@ type outboundConnectionJSON struct {
 	CrossClusterSearchConnectionID string                       `json:"CrossClusterSearchConnectionId"`
 	ConnectionAlias                string                       `json:"ConnectionAlias"`
 	ConnectionStatus               outboundConnectionStatusJSON `json:"ConnectionStatus"`
-	LocalDomainInfo                crossClusterDomainInfoJSON   `json:"LocalDomainInfo"`
-	RemoteDomainInfo               crossClusterDomainInfoJSON   `json:"RemoteDomainInfo"`
+	SourceDomainInfo               crossClusterDomainInfoJSON   `json:"SourceDomainInfo"`
+	DestinationDomainInfo          crossClusterDomainInfoJSON   `json:"DestinationDomainInfo"`
 }
 
 type outboundConnectionStatusJSON struct {
@@ -23,14 +23,9 @@ type outboundConnectionStatusJSON struct {
 
 // createOutboundConnectionRequest is the JSON body for CreateOutboundCrossClusterSearchConnection.
 type createOutboundConnectionRequest struct {
-	LocalDomainInfo  crossClusterDomainInfoJSON `json:"LocalDomainInfo"`
-	RemoteDomainInfo crossClusterDomainInfoJSON `json:"RemoteDomainInfo"`
-	ConnectionAlias  string                     `json:"ConnectionAlias"`
-}
-
-// createOutboundConnectionOutput wraps the new outbound connection.
-type createOutboundConnectionOutput struct {
-	CrossClusterSearchConnection outboundConnectionJSON `json:"CrossClusterSearchConnection"`
+	SourceDomainInfo      crossClusterDomainInfoJSON `json:"SourceDomainInfo"`
+	DestinationDomainInfo crossClusterDomainInfoJSON `json:"DestinationDomainInfo"`
+	ConnectionAlias       string                     `json:"ConnectionAlias"`
 }
 
 func (h *Handler) handleCreateOutboundCrossClusterSearchConnection(w http.ResponseWriter, r *http.Request) {
@@ -49,14 +44,14 @@ func (h *Handler) handleCreateOutboundCrossClusterSearchConnection(w http.Respon
 	}
 
 	localDomain := CrossClusterDomainInfo{
-		OwnerID:    req.LocalDomainInfo.OwnerID,
-		DomainName: req.LocalDomainInfo.DomainName,
-		Region:     req.LocalDomainInfo.Region,
+		OwnerID:    req.SourceDomainInfo.OwnerID,
+		DomainName: req.SourceDomainInfo.DomainName,
+		Region:     req.SourceDomainInfo.Region,
 	}
 	remoteDomain := CrossClusterDomainInfo{
-		OwnerID:    req.RemoteDomainInfo.OwnerID,
-		DomainName: req.RemoteDomainInfo.DomainName,
-		Region:     req.RemoteDomainInfo.Region,
+		OwnerID:    req.DestinationDomainInfo.OwnerID,
+		DomainName: req.DestinationDomainInfo.DomainName,
+		Region:     req.DestinationDomainInfo.Region,
 	}
 
 	conn, createErr := h.Backend.CreateOutboundCrossClusterSearchConnection(
@@ -71,9 +66,12 @@ func (h *Handler) handleCreateOutboundCrossClusterSearchConnection(w http.Respon
 		return
 	}
 
-	h.writeJSON(r, w, createOutboundConnectionOutput{
-		CrossClusterSearchConnection: toOutboundConnectionJSON(conn),
-	})
+	// CreateOutboundCrossClusterSearchConnectionOutput is flat -- unlike
+	// Delete/Accept/Reject, it has no CrossClusterSearchConnection wrapper
+	// (deserializers.go:1253's case list is ConnectionAlias/ConnectionStatus/
+	// CrossClusterSearchConnectionId/SourceDomainInfo/DestinationDomainInfo
+	// directly at the response root).
+	h.writeJSON(r, w, toOutboundConnectionJSON(conn))
 }
 
 func toOutboundConnectionJSON(c *OutboundConnection) outboundConnectionJSON {
@@ -81,12 +79,12 @@ func toOutboundConnectionJSON(c *OutboundConnection) outboundConnectionJSON {
 		CrossClusterSearchConnectionID: c.ConnectionID,
 		ConnectionAlias:                c.ConnectionAlias,
 		ConnectionStatus:               outboundConnectionStatusJSON{StatusCode: c.ConnectionStatus},
-		LocalDomainInfo: crossClusterDomainInfoJSON{
+		SourceDomainInfo: crossClusterDomainInfoJSON{
 			OwnerID:    c.LocalDomainInfo.OwnerID,
 			DomainName: c.LocalDomainInfo.DomainName,
 			Region:     c.LocalDomainInfo.Region,
 		},
-		RemoteDomainInfo: crossClusterDomainInfoJSON{
+		DestinationDomainInfo: crossClusterDomainInfoJSON{
 			OwnerID:    c.RemoteDomainInfo.OwnerID,
 			DomainName: c.RemoteDomainInfo.DomainName,
 			Region:     c.RemoteDomainInfo.Region,

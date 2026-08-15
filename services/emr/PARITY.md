@@ -84,7 +84,7 @@ ops:
   StartNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "StartTime/EndTime were raw time.Time (RFC3339 on wire); now epoch seconds. 2026-07-31 SEVERE FIX: the input's cluster reference was declared with JSON tag \"ExecutionEngineConfig\" (the real *type* name, types.ExecutionEngineConfig) instead of the real top-level *field* name \"ExecutionEngine\" -- a real client's ExecutionEngine was silently dropped by json.Unmarshal (unknown fields are ignored, not errored), so NotebookExecution.ExecutionEngineId was ALWAYS empty regardless of what cluster the caller named. Six existing tests sent the wrong \"ExecutionEngineConfig\" key and none asserted ExecutionEngineId was actually populated, so the bug passed silently; all six corrected to the real \"ExecutionEngine\" key and a new wire-shape test now asserts ExecutionEngineId round-trips."}
   StopNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListNotebookExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "reuses NotebookExecution (extra fields vs real NotebookExecutionSummary are harmless -- clients ignore unknown fields); deferred: not trimmed to the exact summary shape"}
+  ListNotebookExecutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-4gzs: CORRECTED -- this entry previously argued reusing the full NotebookExecution shape for List was fine because extra fields vs real NotebookExecutionSummary are harmless (clients ignore unknown fields). The premise is true but the conclusion was wrong: types.NotebookExecutionSummary (emr@v1.64.4 types.go:2161, deserializer at deserializers.go:12511) is a real, narrower type -- no NotebookParams, no Tags -- so the superset response was a genuine wire-shape lie regardless of SDK-client tolerance: a raw-body or non-SDK caller sees a notebook's params/tags leaked through a list call. Now emits NotebookExecutionSummary via a dedicated newNotebookExecutionSummary (models.go); NotebookExecution (with NotebookParams/Tags) stays reserved for DescribeNotebookExecution."}
   CreatePersistentAppUI: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribePersistentAppUI: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPersistentAppUIPresignedURL: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-07-24: added PresignedURLReady (always true; gopherstack provisions synchronously)"}
@@ -250,12 +250,12 @@ fail to match. Fixed both to use the two real type names.
   extra field a real client would silently ignore; left alone rather
   than risk breaking the janitor's post-restore sweep by changing its
   persisted shape.
-- `NotebookExecutionSummary` (real `ListNotebookExecutions` item shape)
-  has fewer fields than `NotebookExecution` (no `NotebookParams`, no
-  `Tags`) -- gopherstack reuses the full `NotebookExecution` for both
-  Describe and List. Extra fields on the wire are harmless (a real SDK
-  client ignores unknown JSON fields); not fixed this pass, noted as
-  `deferred` above if a future pass wants exact shape parity.
+- `NotebookExecutionSummary` (real `ListNotebookExecutions` item shape) has
+  fewer fields than `NotebookExecution` (no `NotebookParams`, no `Tags`).
+  gopherstack-4gzs CORRECTED a prior pass's "harmless, deferred" verdict here
+  -- see `ListNotebookExecutions`'s ops entry above; List now emits a
+  dedicated `NotebookExecutionSummary` type via `newNotebookExecutionSummary`,
+  `NotebookExecution` is reserved for `DescribeNotebookExecution`.
 
 **Not re-audited this pass (unchanged since a prior implicit baseline,
 low traffic, or judged out of scope for a first pass):** `Configuration`

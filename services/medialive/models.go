@@ -177,7 +177,6 @@ type storedInputDevice struct {
 	// DeviceSettingsSyncState and DeviceUpdateStatus: SYNCED/SYNCING, UP_TO_DATE/etc.
 	DeviceSettingsSyncState string `json:"deviceSettingsSyncState"`
 	DeviceUpdateStatus      string `json:"deviceUpdateStatus"`
-	MaintenanceWindowActive bool   `json:"maintenanceWindowActive"`
 }
 
 func (d *storedInputDevice) toDevice() *InputDevice {
@@ -195,7 +194,6 @@ func (d *storedInputDevice) toDevice() *InputDevice {
 		ConnectionState:         d.ConnectionState,
 		DeviceSettingsSyncState: d.DeviceSettingsSyncState,
 		DeviceUpdateStatus:      d.DeviceUpdateStatus,
-		MaintenanceWindowActive: d.MaintenanceWindowActive,
 	}
 }
 

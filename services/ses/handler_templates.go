@@ -70,16 +70,16 @@ func (h *Handler) handleListTemplates(vals url.Values, reqID string) any {
 	}
 
 	p := h.Backend.ListTemplates(nextToken, maxItems)
-	members := make([]xmlMember, 0, len(p.Data))
+	members := make([]xmlTemplateMetadataMember, 0, len(p.Data))
 
 	for _, name := range p.Data {
-		members = append(members, xmlMember{Value: name})
+		members = append(members, xmlTemplateMetadataMember{Name: name})
 	}
 
 	return &listTemplatesResponse{
 		Xmlns: sesXMLNS,
 		Result: listTemplatesResult{
-			TemplatesMetadata: xmlMemberList{Members: members},
+			TemplatesMetadata: xmlTemplateMetadataList{Members: members},
 			NextToken:         p.Next,
 		},
 		RequestID: reqID,
@@ -104,16 +104,22 @@ type xmlTemplate struct {
 	HTMLPart     string `xml:"HTMLPart,omitempty"`
 }
 
+type createTemplateResult struct{}
+
 type createTemplateResponse struct {
-	XMLName   xml.Name `xml:"CreateTemplateResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name             `xml:"CreateTemplateResponse"`
+	Xmlns     string               `xml:"xmlns,attr"`
+	Result    createTemplateResult `xml:"CreateTemplateResult"`
+	RequestID string               `xml:"ResponseMetadata>RequestId"`
 }
 
+type updateTemplateResult struct{}
+
 type updateTemplateResponse struct {
-	XMLName   xml.Name `xml:"UpdateTemplateResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name             `xml:"UpdateTemplateResponse"`
+	Xmlns     string               `xml:"xmlns,attr"`
+	Result    updateTemplateResult `xml:"UpdateTemplateResult"`
+	RequestID string               `xml:"ResponseMetadata>RequestId"`
 }
 
 type getTemplateResult struct {
@@ -127,9 +133,23 @@ type getTemplateResponse struct {
 	RequestID string            `xml:"ResponseMetadata>RequestId"`
 }
 
+// xmlTemplateMetadataMember mirrors types.TemplateMetadata, an object
+// carrying Name (and CreatedTimestamp, not tracked by this backend), not a
+// bare string -- confirmed against
+// awsAwsquery_deserializeDocumentTemplateMetadata in the pinned SDK's
+// deserializers.go. The generic xmlMemberList chardata shape left
+// TemplateMetadata.Name nil for every item on a real client.
+type xmlTemplateMetadataMember struct {
+	Name string `xml:"Name"`
+}
+
+type xmlTemplateMetadataList struct {
+	Members []xmlTemplateMetadataMember `xml:"member"`
+}
+
 type listTemplatesResult struct {
-	NextToken         string        `xml:"NextToken,omitempty"`
-	TemplatesMetadata xmlMemberList `xml:"TemplatesMetadata"`
+	NextToken         string                  `xml:"NextToken,omitempty"`
+	TemplatesMetadata xmlTemplateMetadataList `xml:"TemplatesMetadata"`
 }
 
 type listTemplatesResponse struct {
@@ -139,10 +159,13 @@ type listTemplatesResponse struct {
 	Result    listTemplatesResult `xml:"ListTemplatesResult"`
 }
 
+type deleteTemplateResult struct{}
+
 type deleteTemplateResponse struct {
-	XMLName   xml.Name `xml:"DeleteTemplateResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name             `xml:"DeleteTemplateResponse"`
+	Xmlns     string               `xml:"xmlns,attr"`
+	Result    deleteTemplateResult `xml:"DeleteTemplateResult"`
+	RequestID string               `xml:"ResponseMetadata>RequestId"`
 }
 
 func (h *Handler) handleTestRenderTemplate(vals url.Values, reqID string) (any, error) {

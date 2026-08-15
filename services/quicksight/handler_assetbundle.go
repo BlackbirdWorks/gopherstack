@@ -83,6 +83,27 @@ func (h *Handler) dispatchDashboardSnapshot(c *echo.Context, op string) error {
 
 // ---- Asset bundle export jobs ----
 
+// exportJobSummaryToMap renders the fields job declares that
+// types.AssetBundleExportJobSummary (types.go:1278-1308,
+// quicksight@v1.123.1) also declares: Arn, AssetBundleExportJobId,
+// CreatedTime, ExportFormat, IncludeAllDependencies, IncludePermissions,
+// IncludeTags, JobStatus. Mirrors importJobToMap's scoping for the sibling
+// ListAssetBundleImportJobs op; unlike exportJobToMap (the Describe shape),
+// it must not leak ResourceArns/IncludeFolderMemberships/DownloadUrl/
+// IncludeFolderMembers, none of which the summary type declares.
+func exportJobSummaryToMap(job *AssetBundleExportJob) map[string]any {
+	return map[string]any{
+		keyAssetBundleExportJobID: job.JobID,
+		keyArn:                    job.Arn,
+		keyJobStatus:              job.Status,
+		keyExportFormat:           job.ExportFormat,
+		keyIncludeAllDeps:         job.IncludeAllDependencies,
+		keyIncludePermissions:     job.IncludePermissions,
+		keyIncludeTags:            job.IncludeTags,
+		keyCreatedTime:            job.CreatedTime.Unix(),
+	}
+}
+
 func exportJobToMap(job *AssetBundleExportJob) map[string]any {
 	m := map[string]any{
 		keyAssetBundleExportJobID:   job.JobID,
@@ -168,7 +189,7 @@ func (h *Handler) handleListAssetBundleExportJobs(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(jobs))
 	for _, job := range jobs {
-		items = append(items, exportJobToMap(job))
+		items = append(items, exportJobSummaryToMap(job))
 	}
 
 	resp := map[string]any{
@@ -361,6 +382,15 @@ func (h *Handler) handleDescribeDashboardSnapshotJobResult(c *echo.Context) erro
 }
 
 // classifyAssetBundleExportPaths routes /accounts/{id}/asset-bundle-export-jobs/... paths.
+//
+// StartAssetBundleExportJob's real path is POST
+// .../asset-bundle-export-jobs/export (quicksight@v1.123.1 serializers.go)
+// -- a literal "export" segment, not the bare resource-type path -- so the
+// nSegsAccountResID case below is the one a real client actually reaches.
+// The nSegsAccountRes POST case is a non-canonical route kept wired for
+// this package's own tests (handler_assetbundle_test.go); it does not
+// collide with any real op, since ListAssetBundleExportJobs (the only real
+// op at that path) uses GET.
 func classifyAssetBundleExportPaths(method string, segs []string, n int) (string, string) {
 	accountID := seg(segs, segAccountID)
 	switch n {
@@ -373,8 +403,11 @@ func classifyAssetBundleExportPaths(method string, segs []string, n int) (string
 		}
 	case nSegsAccountResID:
 		id := seg(segs, segResID)
-		if method == http.MethodGet {
+		switch {
+		case method == http.MethodGet:
 			return opDescribeAssetBundleExportJob, id
+		case method == http.MethodPost && id == "export":
+			return opStartAssetBundleExportJob, accountID
 		}
 	}
 
@@ -382,6 +415,12 @@ func classifyAssetBundleExportPaths(method string, segs []string, n int) (string
 }
 
 // classifyAssetBundleImportPaths routes /accounts/{id}/asset-bundle-import-jobs/... paths.
+//
+// StartAssetBundleImportJob's real path is POST
+// .../asset-bundle-import-jobs/import (quicksight@v1.123.1 serializers.go)
+// -- a literal "import" segment; see classifyAssetBundleExportPaths above
+// for the matching Export op's identical shape and the same non-canonical
+// nSegsAccountRes compat note.
 func classifyAssetBundleImportPaths(method string, segs []string, n int) (string, string) {
 	accountID := seg(segs, segAccountID)
 	switch n {
@@ -394,8 +433,11 @@ func classifyAssetBundleImportPaths(method string, segs []string, n int) (string
 		}
 	case nSegsAccountResID:
 		id := seg(segs, segResID)
-		if method == http.MethodGet {
+		switch {
+		case method == http.MethodGet:
 			return opDescribeAssetBundleImportJob, id
+		case method == http.MethodPost && id == "import":
+			return opStartAssetBundleImportJob, accountID
 		}
 	}
 

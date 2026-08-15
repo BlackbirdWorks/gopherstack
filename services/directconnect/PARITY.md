@@ -11,7 +11,15 @@ sdk_module: aws-sdk-go-v2/service/directconnect@v1.44.1   # bumped since origina
 # in a throwaway scratch module (`go mod init probe && go get`), run in this session's scratchpad,
 # NEVER touching this repo's go.mod (another agent was concurrently editing go.mod/go.sum/cli.go
 # during this pass; this audit did not read or write any of those three files).
-last_audit_commit: 3b90d4523   # bumped 2026-08-06: added test/integration/directconnect_test.go
+last_audit_commit: 3b90d4523   # STALE (found 2026-08-15, gopherstack-6flj wrapper-key sweep):
+# this hash resolves to "test: replace the last unbubbleable sleeps with require.Eventually", a
+# cross-service sleep-to-Eventually conversion touching services/lambda and test/{integration,e2e,
+# terraform}, NOT a directconnect-specific commit -- almost certainly a stale/copy-pasted value
+# carried forward across this file's several passes and never corrected. Left as-is (not chased
+# further) rather than guessed at; noted here so the next pass doesn't trust it either. The prose
+# below this line (added 2026-08-06) describes real work done in that session, just not AT that
+# commit hash.
+# 2026-08-06: added test/integration/directconnect_test.go
 # (real aws-sdk-go-v2 client against a running Docker container -- connections, LAGs, private/
 # public/transit VIFs, BGP peers, DirectConnectGateway/associations/proposals, and tagging), and
 # re-judged every gaps: entry: the EC2 cross-service GatewayId/VirtualGatewayId validation this
@@ -20,7 +28,23 @@ last_audit_commit: 3b90d4523   # bumped 2026-08-06: added test/integration/direc
 # (TestIntegration_DirectConnect_GatewayAssociationsCrossService creates a REAL EC2 VpnGateway/
 # TransitGateway via the EC2 SDK and confirms both acceptance of the real id and rejection of a
 # fabricated one). Previous last_audit_commit was b850093a6.
-last_audit_date: 2026-08-06   # was 2026-08-05
+# 2026-08-15 (gopherstack-6flj): full wrapper-key/nesting sweep of all 20 List/Describe/Get ops
+# against directconnect@v1.44.1's own awsAwsjson11_deserializeOpDocument<Op>Output switch cases
+# (python-extracted, not hand-transcribed) -- all 20 top-level keys and all 23 nested nested-shape
+# types (Connection, Lag, Interconnect, VirtualInterface, DirectConnectGatewayAssociation,
+# RouterType, CustomerAgreement, ResourceTag, Location, VirtualGateway,
+# DirectConnectGatewayAttachment, DirectConnectGateway, DirectConnectGatewayAssociationProposal,
+# AssociatedGateway, Loa, MacSecKey, BGPPeer, Tag, RouteFilterPrefix, Route, AsPathSegment,
+# RateLimiterStatus, VirtualInterfaceTestHistory) field-diffed key-for-key against their own
+# deserializer -- zero wrapper-key or nesting bugs found. Two never-modeled members found (both
+# officially Deprecated in the pinned SDK's own doc comments, zero grep hits anywhere in this
+# service before this pass): Connection/Interconnect/Lag.AwsDevice and
+# DirectConnectGatewayAssociation.VirtualGatewayRegion -- see gaps: below; left disclosed, not
+# fabricated, since no primary source here confirms whether real AWS still populates a deprecated
+# field with a live value (deprecation notices don't say). Pagination/filters re-verified across
+# all 10 paginate()-using ops plus the 9 correctly-non-paginated ones. Router re-confirmed
+# structurally immune (single POST / dispatched purely by X-Amz-Target, no path routing at all).
+last_audit_date: 2026-08-15   # was 2026-08-06
 overall: A   # test/integration/directconnect_test.go passes for real (make build-linux && go test
 # -race -run TestIntegration_DirectConnect ./test/integration/...); every gap that could produce
 # real data is closed (cross-service EC2 validation, pkgs/arn.BuildGlobal for dx-gateway, pkgs/page
@@ -109,6 +133,7 @@ ops:
 # individually above; every op in this service is a fixed POST / with no path-parameter routing,
 # so there is no natural "route family" grouping the way REST-JSON services have.
 gaps:
+  - "Connection.AwsDevice, Interconnect.AwsDevice, Lag.AwsDevice, and DirectConnectGatewayAssociation.VirtualGatewayRegion (2026-08-15, gopherstack-6flj): four members confirmed present in directconnect@v1.44.1's own deserializer key switches (awsAwsjson11_deserializeDocumentConnection/Interconnect/Lag/DirectConnectGatewayAssociation, each case \"awsDevice\"/\"virtualGatewayRegion\") but never modeled anywhere in this service (zero grep hits for AwsDevice/awsDevice or VirtualGatewayRegion/virtualGatewayRegion in any non-generated .go file before this pass) -- a real client reading these fields always gets nil/absent, never a wrong value. All four are marked `// Deprecated: This member has been deprecated.` in the pinned SDK's own types.go doc comments (AwsDevice superseded by AwsDeviceV2, which IS correctly populated everywhere; VirtualGatewayRegion has no live successor field documented). Buildable -- AwsDevice could plausibly mirror AwsDeviceV2's value (many AWS services keep a deprecated field populated identically to its replacement for backward compatibility) and VirtualGatewayRegion could plausibly derive from this backend's own region -- but neither is confirmed by any primary source available here (no live AWS response, no SDK comment stating the deprecated field still populates). Left disclosed rather than guessed at, per this file's own disclose-don't-fabricate precedent; a follow-up pass with access to a real AWS account's actual (deprecated-field-inclusive) response could resolve this with certainty."
   - "No AWS::DirectConnect::* CloudFormation resource type exists in this repo (grep -rli directconnect services/cloudformation/ returned zero hits, all 71 resources_*.go files checked). This is genuinely buildable (adding a CFN resource type is ordinary software work, not a physical/legal impossibility) but lives in services/cloudformation's ownership, not services/directconnect's -- out of scope for this pass, left for a CloudFormation-focused audit to pick up."
   - "Real services/secretsmanager integration for AssociateMacSecKey's raw-Cak/Ckn path (connections.go's synthesizeMacSecSecretARN synthesizes a plausible but unbacked ARN instead of creating a real secret): buildable -- this repo has a real services/secretsmanager backend and the EC2 cross-service pattern (store.go's EC2GatewayResolver, cli.go's wireDirectConnectEC2) this would mirror. Not done this pass: cli.go had a concurrent, in-flight edit from another agent working the same branch at the time of this audit, and stacking a second cross-service wiring change onto a shared, actively-changing file risked a lost or garbled merge. The synthesized-ARN simplification is documented, tested (sdk_roundtrip_test.go, test/integration/directconnect_test.go), and wire-correct; left for a follow-up pass once cli.go settles."
 structural_gaps:

@@ -469,10 +469,11 @@ func fromProductPageSnapshot(v *productPageSnapshot) *ProductPage {
 }
 
 type productREPageSnapshot struct {
-	LastModified              *isoTime       `json:"lastModified,omitempty"`
-	DisplayContent            map[string]any `json:"displayContent,omitempty"`
-	ProductRestEndpointPageID string         `json:"productRestEndpointPageId"`
-	PortalProductID           string         `json:"portalProductId"`
+	LastModified              *isoTime                `json:"lastModified,omitempty"`
+	RestEndpointIdentifier    *RestEndpointIdentifier `json:"restEndpointIdentifier,omitempty"`
+	DisplayContent            map[string]any          `json:"displayContent,omitempty"`
+	ProductRestEndpointPageID string                  `json:"productRestEndpointPageId"`
+	PortalProductID           string                  `json:"portalProductId"`
 }
 
 func productREPageSnapshotKey(v *productREPageSnapshot) string {
@@ -483,6 +484,7 @@ func toProductREPageSnapshot(v *ProductRestEndpointPage) *productREPageSnapshot 
 	return &productREPageSnapshot{
 		LastModified:              v.LastModified,
 		DisplayContent:            v.DisplayContent,
+		RestEndpointIdentifier:    v.RestEndpointIdentifier,
 		ProductRestEndpointPageID: v.ProductRestEndpointPageID,
 		PortalProductID:           v.PortalProductID,
 	}
@@ -492,6 +494,7 @@ func fromProductREPageSnapshot(v *productREPageSnapshot) *ProductRestEndpointPag
 	return &ProductRestEndpointPage{
 		LastModified:              v.LastModified,
 		DisplayContent:            v.DisplayContent,
+		RestEndpointIdentifier:    v.RestEndpointIdentifier,
 		ProductRestEndpointPageID: v.ProductRestEndpointPageID,
 		PortalProductID:           v.PortalProductID,
 	}

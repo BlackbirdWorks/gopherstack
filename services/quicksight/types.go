@@ -55,13 +55,136 @@ type DataSource struct {
 // DataSet represents a QuickSight dataset.
 // CreatedTime first: non-pointer prefix reduces GC pointer bytes.
 type DataSet struct {
-	CreatedTime     time.Time
-	LastUpdatedTime time.Time
-	DataSetID       string
-	Arn             string
-	Name            string
-	ImportMode      string
-	Permissions     []ResourcePermission
+	CreatedTime      time.Time
+	LastUpdatedTime  time.Time
+	PhysicalTableMap map[string]PhysicalTable
+	LogicalTableMap  map[string]LogicalTable
+	DataSetID        string
+	Arn              string
+	Name             string
+	ImportMode       string
+	Permissions      []ResourcePermission
+}
+
+// InputColumn describes one column of a PhysicalTable's underlying schema
+// (quicksight@v1.123.1 types.InputColumn).
+type InputColumn struct {
+	ID      string
+	Name    string
+	Type    string
+	SubType string
+}
+
+// UploadSettings describes the file format of an S3Source/FileSource
+// physical table (quicksight@v1.123.1 types.UploadSettings).
+type UploadSettings struct {
+	ContainsHeader         *bool
+	StartFromRow           *int32
+	CustomCellAddressRange string
+	Delimiter              string
+	Format                 string
+	TextQualifier          string
+}
+
+// TablePathElement identifies one step in a SaaSTable's hierarchical path
+// (quicksight@v1.123.1 types.TablePathElement).
+type TablePathElement struct {
+	ID   string
+	Name string
+}
+
+// RelationalTable is a PhysicalTable variant sourced from a relational data
+// source (quicksight@v1.123.1 types.RelationalTable).
+type RelationalTable struct {
+	DataSourceArn string
+	Name          string
+	Catalog       string
+	Schema        string
+	InputColumns  []InputColumn
+}
+
+// CustomSQL is a PhysicalTable variant built from the result set of a custom
+// SQL query (quicksight@v1.123.1 types.CustomSql).
+type CustomSQL struct {
+	DataSourceArn string
+	Name          string
+	SQLQuery      string
+	Columns       []InputColumn
+}
+
+// S3Source is a PhysicalTable variant sourced from an S3 file
+// (quicksight@v1.123.1 types.S3Source).
+type S3Source struct {
+	UploadSettings *UploadSettings
+	DataSourceArn  string
+	InputColumns   []InputColumn
+}
+
+// FileSource is a PhysicalTable variant sourced from an uploaded file
+// (quicksight@v1.123.1 types.FileSource).
+type FileSource struct {
+	UploadSettings *UploadSettings
+	DataSourceArn  string
+	InputColumns   []InputColumn
+	SheetIndex     int32
+}
+
+// SaaSTable is a PhysicalTable variant sourced from a SaaS connector
+// (quicksight@v1.123.1 types.SaaSTable).
+type SaaSTable struct {
+	DataSourceArn string
+	InputColumns  []InputColumn
+	TablePath     []TablePathElement
+}
+
+// PhysicalTable is the union of underlying-source shapes a dataset can
+// declare (quicksight@v1.123.1 types.PhysicalTable, an interface with
+// PhysicalTableMember{CustomSql,FileSource,RelationalTable,S3Source,SaaSTable}
+// implementations). Modeled here as a struct with one populated pointer
+// field per wire union member, keyed by the same member name AWS uses on
+// the wire, rather than as a Go interface -- valid input has exactly one
+// non-nil field.
+type PhysicalTable struct {
+	RelationalTable *RelationalTable
+	CustomSQL       *CustomSQL
+	S3Source        *S3Source
+	FileSource      *FileSource
+	SaaSTable       *SaaSTable
+}
+
+// JoinInstruction is the ON-clause of a two-logical-table join
+// (quicksight@v1.123.1 types.JoinInstruction). LeftJoinKeyProperties/
+// RightJoinKeyProperties are optional SDK fields not modeled here: this
+// backend never applies a join, so a table alias that is a join carries no
+// backing state either way.
+type JoinInstruction struct {
+	LeftOperand  string
+	OnClause     string
+	RightOperand string
+	Type         string
+}
+
+// LogicalTableSource identifies where a LogicalTable's rows come from: a
+// PhysicalTable by ID, a join of two other logical tables, or another
+// dataset's ARN (quicksight@v1.123.1 types.LogicalTableSource -- a union by
+// doc comment, not an SDK interface; at most one field is expected set).
+type LogicalTableSource struct {
+	DataSetArn      string
+	JoinInstruction *JoinInstruction
+	PhysicalTableID string
+}
+
+// LogicalTable configures the combination/transformation of PhysicalTableMap
+// entries (quicksight@v1.123.1 types.LogicalTable). DataTransforms is stored
+// and echoed back verbatim rather than modeled: TransformOperation is a
+// 10+-variant union (CastColumnType, CreateColumns, Filter, RenameColumn,
+// ...) this in-memory backend never evaluates, so preserving the caller's
+// raw JSON is honest where re-deriving typed structs it never acts on would
+// not be.
+type LogicalTable struct {
+	Alias          string
+	Source         *LogicalTableSource
+	DataTransforms []any
 }
 
 // Ingestion represents a QuickSight ingestion.

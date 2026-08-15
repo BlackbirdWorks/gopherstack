@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -39,17 +40,24 @@ const codecommitSnapshotVersion = 2
 // Comment) on restore. This is the same DTO technique services/apigateway
 // and services/neptune use, applied here to comments/files/prApprovalRules
 // -- the three "dirty" tables from store_setup.go's registerAllTables.
+//
+// CreationDate/LastModifiedDate are time.Time here (not string) to match
+// Comment's own field type (gopherstack-gvkf: Comment used to store RFC3339
+// strings, which the real wire deserializer rejects -- it wants epoch
+// seconds). encoding/json already renders time.Time as an RFC3339-ish quoted
+// string, the same shape these fields held on disk before, so old snapshots
+// still decode -- no codecommitSnapshotVersion bump needed.
 type commentSnapshot struct {
-	CommentID        string `json:"commentId"`
-	Content          string `json:"content"`
-	AuthorARN        string `json:"authorArn"`
-	CreationDate     string `json:"creationDate"`
-	LastModifiedDate string `json:"lastModifiedDate"`
-	InReplyTo        string `json:"inReplyTo,omitempty"`
-	PRid             string `json:"prId,omitempty"`
-	RepoName         string `json:"repoName,omitempty"`
-	AfterCommitID    string `json:"afterCommitId,omitempty"`
-	Deleted          bool   `json:"deleted"`
+	CreationDate     time.Time `json:"creationDate"`
+	LastModifiedDate time.Time `json:"lastModifiedDate"`
+	CommentID        string    `json:"commentId"`
+	Content          string    `json:"content"`
+	AuthorARN        string    `json:"authorArn"`
+	InReplyTo        string    `json:"inReplyTo,omitempty"`
+	PRid             string    `json:"prId,omitempty"`
+	RepoName         string    `json:"repoName,omitempty"`
+	AfterCommitID    string    `json:"afterCommitId,omitempty"`
+	Deleted          bool      `json:"deleted"`
 }
 
 func commentSnapshotKeyFn(v *commentSnapshot) string { return v.CommentID }

@@ -69,7 +69,7 @@ ops:
   ListAutomatedDiscoveryAccounts: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchUpdateAutomatedDiscoveryAccounts: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeBuckets: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetBucketStatistics: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "route method was GET with accountId as a query param; real SDK sends POST /datasources/s3/statistics with accountId in the JSON body -- unreachable via real client before fix. accountId itself is still unused by the (intentionally global, single-account) stats aggregation."}
+  GetBucketStatistics: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "route method was GET with accountId as a query param; real SDK sends POST /datasources/s3/statistics with accountId in the JSON body -- unreachable via real client before fix. accountId itself is still unused by the (intentionally global, single-account) stats aggregation. 2026-08-15 pass: response key 'classifiableBucketCount' does not exist on the real GetBucketStatisticsOutput at all (real key is 'classifiableObjectCount', a summed object count, not a bucket count) -- a real client's ClassifiableObjectCount was always 0. Also added 'objectCount'/'sizeInBytes' aggregate fields, summed from per-bucket S3BucketMetadata.ObjectCount/SizeInBytes the backend already tracks but never rolled up. 'lastUpdated'/'sizeInBytesCompressed'/'bucketStatisticsBySensitivity' remain unmodeled (no compression/sensitivity-scan tracking in this backend) -- disclosed, not fixed."}
   BatchGetCustomDataIdentifiers: {wire: fixed, errors: ok, state: ok, persist: n/a}
   GetClassificationExportConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutClassificationExportConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -78,7 +78,7 @@ ops:
   UpdateClassificationScope: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFindingsPublicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutFindingsPublicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetResourceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetResourceProfile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-15 pass: response key 'sensitivityScoreOverride' does not exist on the real GetResourceProfileOutput (real key is 'sensitivityScoreOverridden', past participle) -- a real client's SensitivityScoreOverridden was always false even after UpdateResourceProfile set a manual override. Also fixed ResourceStatistics's 'totalDetectionsWithoutSuppression'->'totalDetectionsSuppressed' and 'totalItemsSkippedPermissionError'->'totalItemsSkippedPermissionDenied' (real deserializers.go field names); ResourceStatistics is always the zero-value struct in this backend (nothing populates real numbers), so the value itself is currently unobservable -- key names fixed and disclosed as untested rather than given a hollow test. 'totalItemsSensitive' remains entirely unmodeled."}
   UpdateResourceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResourceProfileArtifacts: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListResourceProfileDetections: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -92,7 +92,7 @@ ops:
   UpdateSensitivityInspectionTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "route method was PATCH; real SDK sends PUT /templates/sensitivity-inspections/{id} -- unreachable via real client before fix"}
   GetUsageStatistics: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetUsageTotals: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "query param was read as 'currencyCode' (not a real GetUsageTotalsInput field at all); real key is 'timeRange' -- fixed extraction/naming. Backend still ignores the value and returns static zeroed totals, matching a no-billing emulator; low functional impact."}
-  ListManagedDataIdentifiers: {wire: ok, errors: ok, state: ok, persist: n/a}
+  ListManagedDataIdentifiers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-08-13 (gopherstack-jqh2 pass 2): parseManagedDataIDsPath (handler_custom_data_identifiers.go) required http.MethodGet for POST /managed-data-identifiers/list -- confirmed against awsRestjson1_serializeOpListManagedDataIdentifiers, real SDK sends POST -- so the op, despite a complete handler and backend, was permanently unroutable by a real client. A pre-existing unit test (handler_usage_test.go) encoded the same wrong GET method and passed anyway (it drives h.Handler() directly); fixed to POST alongside the routing fix. Caught by the new handler_sdk_route_table_test.go (TestExtractOperation_SDKRouteTable, full 81/81 SDK-path coverage)."}
   SearchResources: {wire: ok, errors: ok, state: ok, persist: n/a}
 # Families audited as a group (when per-op is impractical):
 families:
@@ -193,6 +193,78 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   customDataIdentifierIds, managedDataIdentifierIds,
   managedDataIdentifierSelector, userPausedDetails' pause/expiry timestamps)
   is.
+## 2026-08-15 pass notes (gopherstack-6flj wrapper-key/nested-shape sweep)
+
+Full layer-1+2 sweep of all 40 List/Describe/Get ops (the L+D+G surface
+tracked by gopherstack-6flj) against `macie2@v1.54.4` deserializers.go,
+one op at a time, plus a check of every Create/Update op whose response or
+request shares a type with a List/Get op. Protocol: restjson1,
+case-sensitive (confirmed via the sole `awsRestjson1_` deserializer prefix
+and a spot-check that all 503 `EqualFold` hits in `deserializers.go` are
+`errorCode` header/query matching, not body-field casing). Dead-deserializer
+trap checked and does NOT apply (`HandleDeserialize` calls
+`awsRestjson1_deserializeOpDocument<Op>Output` directly for every op
+spot-checked, e.g. `ListFindings`, `GetBucketStatistics`).
+
+2 real bugs found and fixed, both silent-wrong-key (correct outer shape,
+wrong scalar key name) rather than missing wrapper keys -- see the
+`GetBucketStatistics`/`GetResourceProfile` op notes above for detail and
+citations. Both are values the backend already tracked (per-bucket
+ObjectCount/SizeInBytes; the resource-profile override flag) that either
+never reached the wire or reached it under a name no real client's field
+would ever match.
+
+Sibling-trap check: `GetAdministratorAccount`/`GetMasterAccount` both wrap
+the real `Invitation` type, whose `relationshipStatus` field name IS
+correct for macie2 (unlike securityhub's analogous
+`GetAdministratorAccount`/`GetMasterAccount`, which wrap a different type
+using `MemberStatus` -- confirmed as two genuinely different real shapes,
+not the same sibling trap recurring here). No other version/generational
+pairs exist in this service (no V1/V2 op families).
+
+3 ratifying tests found and fixed, all "wrong key/value asserted as
+correct": `handler_buckets_test.go` (4 assertion sites across 3 tests
+using the pre-fix `classifiableBucketCount` key/semantic) and
+`handler_resource_profiles_test.go` (1 assertion site using the pre-fix
+`sensitivityScoreOverride` response key). Zero found in the
+too-weak-to-fail shape.
+
+Phantom ops: none (all 96 op consts have a real `api_op_*.go`, cross-checked
+during the sweep). False-positive rate: 0 -- every finding cites the real
+`deserializeOpDocument<Type>`/`deserializeDocument<Type>` function reached
+from `HandleDeserialize`, file+line, or the real `api_op_*.go` struct
+definition for fields never reached by the generated switch (e.g.
+`AllowListSummary` has no `tags` member at all).
+
+Harmless-extra-field non-bugs confirmed (real client ignores unknown JSON
+keys, so these are not fixed): `AllowListSummary.tags`,
+`FindingsFilterListItem`'s extra `description`/`position`,
+`Member.updatedAt`, `CreateClassificationJobOutput`'s extra `jobStatus`,
+`AutomatedDiscoveryAccount`'s extra `email`, `GetResourceProfile`'s extra
+`resourceArn`. Structural/unmodeled gaps disclosed, not fixed (would need
+new backend simulation, not a key-name fix): `Finding.policyDetails`,
+`ClassificationDetails.detailedResultsLocation`,
+`AffectedS3Bucket`/`AffectedS3Object`'s many real-but-untracked fields
+(versioning, encryption detail, sensitivity score, ...),
+`GetAutomatedDiscoveryConfiguration`'s
+`classificationScopeId`/`disabledAt`/`firstEnabledAt`/`lastUpdatedAt`/
+`sensitivityInspectionTemplateId`, `ResourceStatistics.totalItemsSensitive`,
+`ListResourceProfileArtifacts`'s always-empty result (no artifact
+classification simulated) and its item shape's missing
+`classificationResultStatus`/extra `type`.
+
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint), confirmed to fail with the exact predicted
+symptom against a real SDK client, then restored and diffed byte-identical.
+2 new real-`aws-sdk-go-v2`-client tests added in
+`services/macie2/wire_field_fixes_test.go`
+(`TestGetBucketStatistics_RealClient`,
+`TestUpdateResourceProfile_SensitivityScoreOverridden_RealClient`).
+
+Gates (scoped `go build`/`go vet`/`go test -race`/`go fix -diff`/
+`golangci-lint run`, 0 issues, no cyclop/gocyclo/gocognit/funlen nolints)
+green for `services/macie2`; `go test -race ./pkgs/...` green.
+
 - `PolicyDetails` (the policy-finding counterpart to `ClassificationDetails`)
   was intentionally left unimplemented: `CreateSampleFindings` now correctly
   categorizes `"Policy:"`-prefixed findings as `POLICY` and gives them a

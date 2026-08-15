@@ -49,13 +49,20 @@ type recurringChargeObject struct {
 // describeReservedNodesRequest mirrors DescribeReservedNodesInput, which has no
 // "ReservedNodeId" field -- only ReservationId (confirmed via
 // api_op_DescribeReservedNodes.go). A prior pass invented ReservedNodeId as a
-// filter; removed.
+// filter; removed. Duration and ReservedNodesOfferingId are real filters on
+// this input that were never modeled at all (zero grep hits) -- confirmed via
+// the same file and serializers.go's
+// awsAwsjson11_serializeOpDocumentDescribeReservedNodesInput's object.Key
+// calls; added below, filtered the same way DescribeReservedNodesOfferings
+// already filters its own Duration/ReservedNodesOfferingId.
 type describeReservedNodesRequest struct {
-	MaxResults    *int32 `json:"MaxResults,omitempty"`
-	ReservationID string `json:"ReservationId,omitempty"`
-	NodeType      string `json:"NodeType,omitempty"`
-	OfferingType  string `json:"OfferingType,omitempty"`
-	NextToken     string `json:"NextToken,omitempty"`
+	MaxResults              *int32 `json:"MaxResults,omitempty"`
+	ReservationID           string `json:"ReservationId,omitempty"`
+	NodeType                string `json:"NodeType,omitempty"`
+	OfferingType            string `json:"OfferingType,omitempty"`
+	Duration                string `json:"Duration,omitempty"`
+	ReservedNodesOfferingID string `json:"ReservedNodesOfferingId,omitempty"`
+	NextToken               string `json:"NextToken,omitempty"`
 }
 
 type describeReservedNodesResponse struct {

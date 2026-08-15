@@ -1054,5 +1054,5 @@ func (h *Handler) handleDescribeThumbnails(c *echo.Context, channelID string) er
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"ThumbnailDetails": []map[string]any{}})
+	return c.JSON(http.StatusOK, map[string]any{"thumbnailDetails": []map[string]any{}})
 }

@@ -2,6 +2,7 @@ package sts
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,10 @@ func validateAssumeRoleInput(input *AssumeRoleInput) error {
 	}
 
 	if err := validateRoleSessionName(input.RoleSessionName); err != nil {
+		return err
+	}
+
+	if err := validateMFAFields(input.SerialNumber, input.TokenCode); err != nil {
 		return err
 	}
 
@@ -133,6 +138,10 @@ func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32,
 		return 0, err
 	}
 
+	if err := validateMFACondition(meta.TrustPolicy, mfaPresent(input)); err != nil {
+		return 0, err
+	}
+
 	if meta.MaxSessionDuration > 0 {
 		return meta.MaxSessionDuration, nil
 	}
@@ -162,8 +171,17 @@ func (b *InMemoryBackend) checkAssumeRoleTrust(input *AssumeRoleInput) error {
 		externalID: input.ExternalID,
 		conditionCtx: map[string]string{
 			condKeyPrincipalArn: input.CallerArn,
+			condKeyMFAPresent:   strconv.FormatBool(mfaPresent(input)),
 		},
 	})
+}
+
+// mfaPresent reports whether the caller supplied a well-formed SerialNumber
+// and TokenCode pair. validateMFAFields (called earlier via
+// validateAssumeRoleInput) guarantees the two fields are either both set or
+// both empty by the time this is evaluated.
+func mfaPresent(input *AssumeRoleInput) bool {
+	return input.SerialNumber != "" && input.TokenCode != ""
 }
 
 // mergeTransitiveTags combines the parent session's transitive tags with the child's

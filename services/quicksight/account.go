@@ -167,6 +167,11 @@ func (b *InMemoryBackend) DeleteAccountSubscription(accountID string) error {
 	if _, ok := b.accountSubscriptions[accountID]; !ok {
 		return ErrAccountSubscriptionNotFound
 	}
+
+	if s, ok := b.accountSettings[accountID]; ok && s.TerminationProtectionEnabled {
+		return ErrAccountTerminationProtectionEnabled
+	}
+
 	delete(b.accountSubscriptions, accountID)
 
 	return nil

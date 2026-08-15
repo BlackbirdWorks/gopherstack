@@ -6,6 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
@@ -35,9 +41,9 @@ func TestTrustStore_CRUD(t *testing.T) {
 		t.Errorf("list missing id %s: %s", id, out3)
 	}
 
-	// Update
-	cfOK(t, h, http.MethodPut, prefix+"trust-store/"+id,
-		`<TrustStoreConfig><Comment>updated</Comment></TrustStoreConfig>`)
+	// Update. UpdateTrustStoreInput has no Name/Comment member in the real API --
+	// only CaCertificatesBundleSource -- so an empty body is a legitimate no-op update.
+	cfOK(t, h, http.MethodPut, prefix+"trust-store/"+id, "")
 
 	// Delete
 	cfOK(t, h, http.MethodDelete, prefix+"trust-store/"+id, "")
@@ -66,36 +72,40 @@ func TestTrustStore_BundleAndStatus(t *testing.T) {
 	}
 	id := extractXMLID(t, out)
 
-	// Update with only a Comment change: bundle and name must be preserved.
-	updateOut := cfOK(t, h, http.MethodPut, prefix+"trust-store/"+id,
-		`<TrustStoreConfig><Comment>second</Comment></TrustStoreConfig>`)
+	// Update with an empty body: bundle, name, and comment must all be preserved.
+	// UpdateTrustStoreInput has no Name/Comment member in the real API (only
+	// CaCertificatesBundleSource), so neither can ever change via this operation.
+	updateOut := cfOK(t, h, http.MethodPut, prefix+"trust-store/"+id, "")
 	if !strings.Contains(updateOut, "<S3Bucket>my-bucket</S3Bucket>") {
-		t.Errorf("expected bundle preserved after comment-only update, got: %s", updateOut)
+		t.Errorf("expected bundle preserved after no-op update, got: %s", updateOut)
 	}
 	if !strings.Contains(updateOut, "<Name>bundle-store</Name>") {
-		t.Errorf("expected name preserved after comment-only update, got: %s", updateOut)
+		t.Errorf("expected name preserved after no-op update, got: %s", updateOut)
 	}
-	if !strings.Contains(updateOut, "<Comment>second</Comment>") {
-		t.Errorf("expected comment updated, got: %s", updateOut)
+	if !strings.Contains(updateOut, "<Comment>initial</Comment>") {
+		t.Errorf("expected comment preserved (UpdateTrustStore cannot change it), got: %s", updateOut)
 	}
 
-	// Update with a new bundle: it must fully replace the old one.
+	// Update with a new bundle via the real CaCertificatesBundleSource>
+	// CaCertificatesBundleS3Location shape (cloudfront@v1.67.4 serializers.go):
+	// it must fully replace the old one.
 	updateOut2 := cfOK(t, h, http.MethodPut, prefix+"trust-store/"+id,
-		`<TrustStoreConfig><CertificateAuthorityCertificatesBundle>`+
-			`<InlineCertificateBundle>-----BEGIN CERT-----abc-----END CERT-----</InlineCertificateBundle>`+
-			`</CertificateAuthorityCertificatesBundle></TrustStoreConfig>`)
+		`<CaCertificatesBundleSource><CaCertificatesBundleS3Location>`+
+			`<Bucket>new-bucket</Bucket><Key>new-ca.pem</Key>`+
+			`</CaCertificatesBundleS3Location></CaCertificatesBundleSource>`)
 	if strings.Contains(updateOut2, "<S3Bucket>my-bucket</S3Bucket>") {
 		t.Errorf("expected old bundle replaced, got: %s", updateOut2)
 	}
-	if !strings.Contains(updateOut2, "-----BEGIN CERT-----abc-----END CERT-----") {
-		t.Errorf("expected new inline bundle present, got: %s", updateOut2)
+	if !strings.Contains(updateOut2, "<S3Bucket>new-bucket</S3Bucket>") ||
+		!strings.Contains(updateOut2, "<S3Key>new-ca.pem</S3Key>") {
+		t.Errorf("expected new bundle present, got: %s", updateOut2)
 	}
 }
 
 // TestTrustStore_NameUniqueness verifies that creating a trust store with a name that
 // already exists fails with 409 EntityAlreadyExists (the generic AWS fallback code for
-// resources without a dedicated AlreadyExists error type), and that renaming to a taken
-// name on update also fails.
+// resources without a dedicated AlreadyExists error type). UpdateTrustStoreInput has no
+// Name member in the real API, so renaming via update is not a real scenario to cover here.
 func TestTrustStore_NameUniqueness(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
@@ -110,17 +120,6 @@ func TestTrustStore_NameUniqueness(t *testing.T) {
 	}
 	if !strings.Contains(dupRR.Body.String(), "AlreadyExists") {
 		t.Errorf("expected AlreadyExists error, got: %s", dupRR.Body.String())
-	}
-
-	// A second, distinctly named trust store may not be renamed onto the first's name.
-	other := cfOK(t, h, http.MethodPost, prefix+"trust-store",
-		`<TrustStoreConfig><Name>other-store</Name></TrustStoreConfig>`)
-	otherID := extractXMLID(t, other)
-
-	renameRR := cfRequest(t, h, http.MethodPut, prefix+"trust-store/"+otherID,
-		`<TrustStoreConfig><Name>dup-store</Name></TrustStoreConfig>`)
-	if renameRR.Code != http.StatusConflict {
-		t.Fatalf("expected 409 on rename collision, got %d: %s", renameRR.Code, renameRR.Body.String())
 	}
 }
 
@@ -169,18 +168,17 @@ func TestTrustStore_IfMatchEnforcement(t *testing.T) {
 		t.Fatal("expected ETag on create")
 	}
 
-	// Wrong If-Match on update -> 412.
+	// Wrong If-Match on update -> 412. The ETag check happens before body parsing, so
+	// the request body's shape doesn't matter here.
 	badUpdate := doXMLWithHeaders(t, h, http.MethodPut, prefix+"trust-store/"+id,
-		[]byte(`<TrustStoreConfig><Comment>x</Comment></TrustStoreConfig>`),
-		map[string]string{"If-Match": "bogus-etag"})
+		nil, map[string]string{"If-Match": "bogus-etag"})
 	if badUpdate.Code != http.StatusPreconditionFailed {
 		t.Fatalf("expected 412 on bad If-Match update, got %d: %s", badUpdate.Code, badUpdate.Body.String())
 	}
 
 	// Correct If-Match on update -> succeeds, ETag rotates.
 	goodUpdate := doXMLWithHeaders(t, h, http.MethodPut, prefix+"trust-store/"+id,
-		[]byte(`<TrustStoreConfig><Comment>x</Comment></TrustStoreConfig>`),
-		map[string]string{"If-Match": etag})
+		nil, map[string]string{"If-Match": etag})
 	if goodUpdate.Code != http.StatusOK {
 		t.Fatalf("expected 200 on good If-Match update, got %d: %s", goodUpdate.Code, goodUpdate.Body.String())
 	}
@@ -281,4 +279,74 @@ func TestTrustStore_Persistence(t *testing.T) {
 	if dupRR.Code != http.StatusConflict {
 		t.Fatalf("expected 409 on duplicate name after restore, got %d: %s", dupRR.Code, dupRR.Body.String())
 	}
+}
+
+// TestUpdateTrustStore_RealClient is a regression test for gopherstack-ob1g:
+// UpdateTrustStoreInput's real root element is CaCertificatesBundleSource (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpUpdateTrustStore's payloadRoot.Local), not
+// TrustStoreConfig. A handler expecting the wrong root discards the whole body via
+// xml.Unmarshal's error, so the CA bundle update silently no-ops -- driving this through
+// the real SDK client is what catches it, since the SDK writes the exact wire shape
+// regardless of what the handler expects.
+func TestUpdateTrustStore_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := client.CreateTrustStore(t.Context(), &cfsdk.CreateTrustStoreInput{
+		Name: aws.String("trust-store-rc"),
+		CaCertificatesBundleSource: &types.CaCertificatesBundleSourceMemberCaCertificatesBundleS3Location{
+			Value: types.CaCertificatesBundleS3Location{
+				Bucket: aws.String("ca-bucket"),
+				Key:    aws.String("ca.pem"),
+				Region: aws.String("us-east-1"),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.TrustStore)
+
+	id := aws.ToString(created.TrustStore.Id)
+
+	_, err = client.UpdateTrustStore(t.Context(), &cfsdk.UpdateTrustStoreInput{
+		Id:      created.TrustStore.Id,
+		IfMatch: created.ETag,
+		CaCertificatesBundleSource: &types.CaCertificatesBundleSourceMemberCaCertificatesBundleS3Location{
+			Value: types.CaCertificatesBundleS3Location{
+				Bucket: aws.String("ca-bucket-2"),
+				Key:    aws.String("ca-2.pem"),
+				Region: aws.String("us-east-1"),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// The real SDK's TrustStore output shape has no field for the CA bundle at all
+	// (types.TrustStore, cloudfront@v1.67.4), so a client-side error alone can't prove
+	// the update took effect -- the unfixed handler also returned 200 while silently
+	// discarding the whole body. Verify via a raw GET of gopherstack's response, which
+	// echoes the bundle as an extension beyond the real API.
+	getOut := cfOK(t, h, http.MethodGet, "/2020-05-31/trust-store/"+id, "")
+	assert.Contains(t, getOut, "<S3Bucket>ca-bucket-2</S3Bucket>")
+	assert.Contains(t, getOut, "<S3Key>ca-2.pem</S3Key>")
+	assert.NotContains(t, getOut, "<S3Bucket>ca-bucket</S3Bucket>")
+}
+
+// TestUpdateTrustStore_MalformedBodyHandled verifies a malformed request body is
+// rejected with 400 MalformedXML instead of silently no-opping the update
+// (gopherstack-ob1g: the previous handler discarded xml.Unmarshal's error).
+func TestUpdateTrustStore_MalformedBodyHandled(t *testing.T) {
+	t.Parallel()
+
+	h := newCFHandler(t)
+	const prefix = "/2020-05-31/"
+
+	created := cfOK(t, h, http.MethodPost, prefix+"trust-store",
+		`<TrustStoreConfig><Name>trust-store-malformed</Name></TrustStoreConfig>`)
+	id := extractXMLID(t, created)
+
+	rec := cfRequest(t, h, http.MethodPut, prefix+"trust-store/"+id, "<<<not xml")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
 }

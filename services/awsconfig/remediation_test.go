@@ -62,7 +62,9 @@ func TestPutRemediationExceptions(t *testing.T) {
 
 	b := awsconfig.NewInMemoryBackend()
 
-	err := b.PutRemediationExceptions("rule1", "AWS::S3::Bucket", "my-bucket")
+	err := b.PutRemediationExceptions("rule1", []awsconfig.RemediationExceptionResourceKey{
+		{ResourceType: "AWS::S3::Bucket", ResourceID: "my-bucket"},
+	})
 	if err != nil {
 		t.Fatalf("PutRemediationExceptions: %v", err)
 	}
@@ -73,13 +75,32 @@ func TestPutRemediationExceptions(t *testing.T) {
 	}
 }
 
+func TestPutRemediationExceptions_MultipleKeys(t *testing.T) {
+	t.Parallel()
+
+	b := awsconfig.NewInMemoryBackend()
+
+	err := b.PutRemediationExceptions("rule1", []awsconfig.RemediationExceptionResourceKey{
+		{ResourceType: "AWS::S3::Bucket", ResourceID: "bucket1"},
+		{ResourceType: "AWS::S3::Bucket", ResourceID: "bucket2"},
+	})
+	require.NoError(t, err)
+
+	exs := b.DescribeRemediationExceptions("rule1")
+	assert.Len(t, exs, 2)
+}
+
 func TestDeleteRemediationExceptions(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutRemediationExceptions("rule1", "AWS::S3::Bucket", "bucket1")
-	_ = b.PutRemediationExceptions("rule1", "AWS::S3::Bucket", "bucket2")
-	_ = b.DeleteRemediationExceptions("rule1", "bucket1")
+	_ = b.PutRemediationExceptions("rule1", []awsconfig.RemediationExceptionResourceKey{
+		{ResourceType: "AWS::S3::Bucket", ResourceID: "bucket1"},
+		{ResourceType: "AWS::S3::Bucket", ResourceID: "bucket2"},
+	})
+	_ = b.DeleteRemediationExceptions("rule1", []awsconfig.RemediationExceptionResourceKey{
+		{ResourceType: "AWS::S3::Bucket", ResourceID: "bucket1"},
+	})
 
 	exs := b.DescribeRemediationExceptions("rule1")
 	if len(exs) != 1 || exs[0].ResourceID != "bucket2" {

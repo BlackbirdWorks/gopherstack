@@ -2,8 +2,10 @@
 service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
-last_audit_commit: acb2e23f9
-last_audit_date: 2026-07-30
+last_audit_commit: acb2e23f9  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
+last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delete/Modify ops
+                              # swept. 1 bug found and fixed (DeleteIndex response envelope --
+                              # see the `indices` family and items_still_open notes).
 overall: A            # RAISED from A- (parity-5, this pass). The two gaps that previously held the grade
                       # down -- AttachDataSource's workspaceConfiguration/workspaceId, and StartMigration's
                       # MigrationOptions.Workspace/ExportOptions/ConflictResolution -- are now built to the
@@ -77,7 +79,21 @@ families:
       (SecurityGroupIds/SubnetIds) verbatim instead of the response-shape VPCDerivedInfo, which
       also carries server-derived AvailabilityZones/VPCId -- added synthesized derivation (see
       Notes, "reasonable non-stub default" like DryRunResults.DeploymentType); (4) Create/Update
-      accepted a nil/empty DomainArn or VpcOptions with no validation.
+      accepted a nil/empty DomainArn or VpcOptions with no validation. (5, gopherstack-uult,
+      2026-08-13) ListVpcEndpoints and ListVpcEndpointsForDomain both marshaled the raw
+      []*VpcEndpoint domain slice (leaking Endpoint, VpcOptions, and the internal-only
+      StatusUntil clock field) instead of types.VpcEndpointSummary's four members
+      (DomainArn/Status/VpcEndpointId/VpcEndpointOwner); fixed with a shared
+      toVpcEndpointSummary scoped converter, mirroring the pattern DeleteVpcEndpoint's
+      VpcEndpointSummary response already used correctly. (6, gopherstack-r80d, required OUTPUT
+      member sweep) ListVpcEndpoints, ListVpcEndpointsForDomain, and ListVpcEndpointAccess all
+      omitted NextToken, a required member of all three Output structs
+      (api_op_ListVpcEndpoints.go, api_op_ListVpcEndpointsForDomain.go,
+      api_op_ListVpcEndpointAccess.go) -- a real client's required *string NextToken always decoded
+      nil. This backend is single-page for all three, so the correct value is always an empty
+      string rather than omitted; fixed by adding jsonKeyNextToken: "" to each response. Proven via
+      TestVpcEndpointListOps_NextTokenPresent_RealClient (wire_output_required_r80d_test.go), which
+      fails against the unfixed decode for all three ops.
   packages:
     status: ok
     note: >
@@ -92,6 +108,50 @@ families:
       packages/{id}/domains) returned the wrong wire shape entirely -- raw Package objects / bare
       domain-name strings instead of DomainPackageDetailsList -- fixed to emit
       PackageID/DomainName/DomainPackageStatus/PackageName/PackageType per element.
+      gopherstack-m53b (required-member sweep pass 4): UpdatePackageScope decoded its required
+      PackageUserList under the JSON tag "PackageScopeOperationConfig", which does not exist on
+      the real wire (api_op_UpdatePackageScope.go:29-48 confirms the top-level member is literally
+      PackageUserList) -- every real client's list was silently dropped and the field always
+      decoded to nil. The response also fabricated a "PackageScopeOperationStatus" key not present
+      on UpdatePackageScopeOutput, and never echoed PackageUserList back at all even though the
+      real Output requires it. Fixed the wire key, added a real PackageUserList field to Package
+      (json:"-", internal-only -- no other Package/PackageDetails response carries package scope),
+      and implemented actual ADD/REMOVE/OVERRIDE semantics in UpdatePackageScope (previously a
+      pure no-op that just re-read the package). Proven via Test_SDKRoundTrip_UpdatePackageScope
+      (handler_update_package_scope_test.go), which fails against the unfixed decode.
+  indices:
+    status: ok
+    note: >
+      gopherstack-m53b (required-member sweep pass 4): CreateIndex/UpdateIndex read top-level
+      Mappings/Settings/Aliases fields from the request body, but the real
+      CreateIndexInput/UpdateIndexInput (api_op_CreateIndex.go:37-60, api_op_UpdateIndex.go:32-52,
+      opensearch@v1.75.4) carry a single IndexSchema member typed document.Interface -- a smithy
+      document (arbitrary JSON value, no fixed schema on the wire). A real client's entire payload
+      was silently dropped and the index was created/updated with no schema at all. Also found via
+      full-shape read: the real response is `{"Status": "CREATED"|"UPDATED"}` (types.IndexStatus,
+      the op's only output member) -- the handler's prior response reused a Get/Delete-shaped
+      envelope (IndexName/IndexStatus/Mappings/Settings/Aliases/DocumentCount) that never carried
+      the wire-required "Status" key at all, so a real client's *CreateIndexOutput.Status/
+      *UpdateIndexOutput.Status stayed the empty string even once the request body was fixed.
+      Fixed by adding DomainIndex.IndexSchema (any, stored/echoed verbatim -- not parsed into
+      Mappings/Settings/Aliases, since the smithy document has no fixed internal shape to parse
+      against) and a dedicated {"Status": ...} response for these two ops specifically, matching
+      the real Output exactly. Proven via Test_SDKRoundTrip_CreateIndex_IndexSchema/
+      Test_SDKRoundTrip_UpdateIndex_IndexSchema (handler_indices_test.go), which fail against the
+      unfixed decode.
+
+      gopherstack-r80d (required OUTPUT member sweep): GetIndex's response shape, left unverified
+      by the pass above, was checked and found wrong -- GetIndexOutput's only member is IndexSchema
+      (api_op_GetIndex.go: "This member is required."), but the handler still returned the
+      Get/Delete-shaped IndexName/IndexStatus/Mappings/Settings/Aliases/DocumentCount envelope, so
+      a real client's required *GetIndexOutput.IndexSchema always decoded nil. Fixed by returning
+      {"IndexSchema": ...} instead: the raw stored document when the index carries one (created via
+      the real CreateIndex/UpdateIndex path), or one synthesized from Mappings/Settings/Aliases for
+      indices created via the classic path. DeleteIndex's Status field was re-checked and confirmed
+      already correct (fixed in an earlier pass, see the handler's own comment). Proven via
+      TestGetIndex_IndexSchema_RealClient (wire_output_required_r80d_test.go), which fails against
+      the unfixed decode; TestHTTPDocumentCRUDAndSearch's GetIndex assertion (previously checking
+      the invented DocumentCount field, which isn't part of the real response) was updated to match.
   applications:
     status: ok
     note: >
@@ -302,6 +362,44 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; coarse loc
 
 ## Notes
 
+### Required OUTPUT member sweep (2026-08-14, gopherstack-r80d)
+
+Extracted every field marked `This member is required.` at the top level of
+an `<Op>Output` struct across all 96 `opensearch@v1.75.4` operations (parsed
+from the pinned SDK's `api_op_*.go` files), yielding 21 required output
+members across 17 ops -- the same extraction tool used and validated for the
+route53 pass of this same sweep (known-answer match against kinesis's
+`DescribeLimits`, negative match against `ListShards`).
+
+Every one of the 17 ops was read end-to-end to confirm each required field
+is actually written. Found and fixed **4** silently-unset required output
+members:
+
+- `GetIndex`: wrong response shape entirely -- returned the Get/Delete
+  metadata envelope instead of the real `{"IndexSchema": ...}` shape, so the
+  required `IndexSchema` field always decoded nil. This corrects an
+  incorrect claim in an earlier pass's note (see items_still_open) that
+  GetIndex's envelope was already right.
+- `ListVpcEndpoints`, `ListVpcEndpointsForDomain`, `ListVpcEndpointAccess`:
+  all omitted the required `NextToken`, echoed here as an empty string since
+  this backend is single-page for all three.
+
+`DescribeInsightDetails`'s required `Fields` member is genuinely unsettable
+without fabrication, not a bug: this backend has no analytics engine, so
+every call to that op already errors (`ResourceNotFoundException`) rather
+than returning a success response — a deliberate, already-disclosed no-stub
+design (see the `insights` family note above), so there is no success path
+where a zero-valued `Fields` could leak to a caller.
+
+The remaining 15 required output fields across the other 13 ops (all
+`AuthorizeVpcEndpointAccess`, `CreateIndex`/`DeleteIndex`/`UpdateIndex`,
+`CreateVpcEndpoint`/`UpdateVpcEndpoint`/`DeleteVpcEndpoint`,
+`DescribeDomain`/`DescribeDomainConfig`/`DescribeDomains`,
+`DescribeVpcEndpoints`, `UpdateDomainConfig`) were confirmed correctly
+populated by reading each handler's response-construction code.
+**opensearch is settled for this bug class**: every required output member
+across every op that has one has been read and checked.
+
 ### Reverse sdkcheck sweep (2026-07-31) -- 8 fabricated serverless policy op names found and renamed
 
 `pkgs/sdkcheck`'s reverse check (gopherstack-vhw2) flagged 22 `serverlessOperations()`
@@ -498,7 +596,32 @@ beyond the capability's existence/name/status.
   (CreateIndex/DeleteIndex/GetIndex/UpdateIndex) were not touched or
   field-diffed this pass (they were not in the original 1-gap/8-deferred list
   this pass was scoped to fix). Not reclassified either direction; still
-  whatever state the prior pass left them in.
+  whatever state the prior pass left them in. UPDATE (gopherstack-l5ir,
+  see the "Route reachability sweep" note above): route-level (method+path)
+  correctness for every op in this list is now verified and permanently
+  tested -- five of them (GetDomainMaintenanceStatus, GetUpgradeHistory,
+  GetUpgradeStatus, ListDomainMaintenances, StartDomainMaintenance,
+  ListInstanceTypeDetails, CreateIndex) were actually unreachable/misrouted
+  and are now fixed. Field-level wire-shape diffing of these ops' request/
+  response bodies is still outstanding -- route correctness is not the same
+  claim as wire-shape completeness. UPDATE (gopherstack-m53b): CreateIndex
+  and UpdateIndex are now field-diffed and fixed -- see the `indices` family
+  above. GetIndex/DeleteIndex still reuse that same fix's response envelope
+  but their own wire shape was not independently re-verified against
+  api_op_GetIndex.go/api_op_DeleteIndex.go this pass. UPDATE (gopherstack-7185,
+  2026-08-14): DeleteIndex now field-diffed and FIXED -- DeleteIndexOutput's
+  ONLY member is Status (types.IndexStatus, api_op_DeleteIndex.go:44-53), but
+  DeleteIndex was reusing that same GetIndex-shaped envelope (IndexName/
+  Mappings/Settings/Aliases/IndexStatus/DocumentCount), none of which is the
+  real field, so a real client's *DeleteIndexOutput.Status was always empty
+  even though the index was genuinely deleted. Now returns the same
+  {"Status": "DELETED"} shape CreateIndex/UpdateIndex already use. Proven via
+  Test_SDKRoundTrip_DeleteIndex_Status (handler_indices_test.go), which fails
+  against the pre-fix envelope. CORRECTION (gopherstack-r80d, 2026-08-14): this
+  note's claim that "GetIndex's full index-metadata response shape is
+  correct" was itself wrong -- GetIndexOutput's only member is IndexSchema
+  (api_op_GetIndex.go), not the metadata envelope either. See the `indices`
+  family note above for the fix; GetIndex/DeleteIndex are now both settled.
 - **VpcEndpoint's derived AvailabilityZones/VPCId, Application's Endpoint,
   and CancelDomainConfigChange's absence of per-property
   CancelledChangeProperties** are synthesized/omitted non-stub defaults (no
@@ -513,3 +636,74 @@ beyond the capability's existence/name/status.
   the 14 new ops against live AWS docs (applied uniformly to the rest by
   inference) -- see the `gaps` list and the SDK-bump/409-convention Notes
   above for the full reasoning.
+
+### Route reachability sweep (bd gopherstack-l5ir) -- 22 unreachable/misrouted ops found and fixed
+
+All 96 real classic-opensearch (control-plane) ops were extracted from
+`opensearch@v1.75.4` serializers.go (`request.Method` + `httpbinding.SplitURI(...)`
+in each op's `awsRestjson1_serializeOp<Op>.HandleSerialize`) and diffed against
+this service's route table -- the same method that found cloudfront's 35
+routing bugs (gopherstack-o31x). opensearch turned out to be a second genuine
+hotspot: **22 of 96 ops were unreachable or misrouted at their real path**,
+against zero in the 76 REST services swept before this pass. All 22 are fixed;
+`TestExtractOperation_SDKRouteTable` (`handler_paths_sdk_diff_test.go`, one
+subtest per op) is the permanent regression guard -- 96/96 pass.
+
+The bugs, by shape:
+
+1. **Sibling-path confusion (12 ops).** The real API mixes several distinct
+   path roots that gopherstack had collapsed onto one: `ListDomainNames`/
+   `ListPackagesForDomain` use the un-prefixed `/2021-01-01/domain` root (no
+   `/opensearch/` segment -- a historical holdover from the pre-rename
+   Elasticsearch Service API), not `/2021-01-01/opensearch/domain`.
+   `DescribeDomains` is `POST /2021-01-01/opensearch/domain-info`, not
+   `GET /domain/describe`. `ListApplications` is
+   `GET /2021-01-01/opensearch/list-applications`, a sibling of `/application`,
+   not nested under it. `DescribeReservedInstanceOfferings` is its own
+   `/reservedInstanceOfferings` path, not `/reservedInstances/offerings`.
+   `GetUpgradeHistory`/`GetUpgradeStatus` are `/upgradeDomain/{name}/history`
+   and `/upgradeDomain/{name}/status`, not nested under the domain prefix as
+   `/domain/{name}/upgradeHistory`/`/upgrades`. `StartDomainMaintenance`/
+   `ListDomainMaintenances`/`GetDomainMaintenanceStatus` all use the literal
+   segment `domainMaintenance`/`domainMaintenances` (camelCase, no `/`
+   separator from "domain"), not a bare `/maintenance` suffix -- the old
+   suffix check could never match since `"...Maintenance"` never contains the
+   substring `"/maintenance"`.
+2. **Wrong HTTP method (2 ops).** `UpdateDomainConfig` is POST, not PUT.
+   `DissociatePackage` is POST, not DELETE.
+3. **Whole-request-in-body ops routed as if ID were in the URL (5 ops).**
+   `UpdateVpcEndpoint` (`POST /vpcEndpoints/update`, `VpcEndpointId` in body,
+   no URL binding at all), `DescribePackages`/`UpdatePackage`/
+   `UpdatePackageScope` (`POST /packages/describe`|`update`|`updateScope`,
+   `PackageID` in body), and `CreateIndex` (`POST /domain/{name}/index`, no
+   `{IndexName}` URL segment -- unlike Get/Delete/UpdateIndex, which do carry
+   IndexName in the URL) were all wired as per-ID sub-resource routes reading
+   an identifier from the URL that real clients never put there. This is
+   exactly the "serializer has no real URL binding" shape gopherstack-4nek
+   flagged as the class every cloudfront bug shared.
+4. **Wrong query-vs-path binding (1 op).** `ListInstanceTypeDetails` reads
+   `EngineVersion` from a query param; the real op binds it as a URI label
+   (`GET /instanceTypeDetails/{EngineVersion}?instanceType=...`), so every
+   real request's engine version was silently dropped.
+5. **DescribeInboundConnections/DescribeOutboundConnections (2 ops).**
+   Real clients POST to `.../inboundConnection/search` and
+   `.../outboundConnection/search`; gopherstack served them off a bare GET on
+   the connection root instead.
+
+None of the 22 is discriminated by a query parameter or bare flag the way
+cloudfront's `?WithTags`/`Operation=Tag|Untag` were -- this hotspot's bugs are
+all path/method shape, not discriminator confusion. `ExtractOperation` was
+also rewritten in the same pass to mirror the corrected dispatch tree op-for-op
+(it was previously best-effort and silently wrong for most domain sub-routes,
+e.g. every GET under `/domain/{name}/...` falling through to `DescribeDomain`
+regardless of suffix) -- it now backs the permanent test directly. Existing
+tests that encoded the old wrong paths (PUT for UpdateDomainConfig, GET
+`/opensearch/domain` for ListDomainNames, `/maintenance` for the maintenance
+trio, etc.) were corrected to the real shapes, not preserved.
+
+**Not covered by this pass:** the 19 OpenSearch Serverless (AOSS) ops
+(`serverlessOperations()`) -- those belong to the separate
+`opensearchserverless` SDK client/protocol and were out of scope (see
+`items_still_open` above). The index/document *data-plane* sub-routes this
+emulator invents under `/index/{name}/_doc`, `/_search`, `/_count` are not
+real SDK control-plane operations and were left as-is.

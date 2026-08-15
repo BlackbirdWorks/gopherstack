@@ -120,7 +120,7 @@ type deleteQueuedReservedInstancesResponse struct {
 
 // ---- Traffic Mirror Filter handlers ----
 
-func toReservedInstanceItem(ri *ReservedInstance) reservedInstanceItem {
+func toReservedInstanceItem(ri *ReservedInstance, tags map[string]string) reservedInstanceItem {
 	return reservedInstanceItem{
 		ReservedInstancesID: ri.ReservedInstancesID,
 		InstanceType:        ri.InstanceType,
@@ -132,6 +132,7 @@ func toReservedInstanceItem(ri *ReservedInstance) reservedInstanceItem {
 		Duration:            ri.Duration,
 		FixedPrice:          ri.FixedPrice,
 		UsagePrice:          ri.UsagePrice,
+		TagSet:              tagItemsFromMap(tags),
 	}
 }
 
@@ -175,7 +176,7 @@ func (h *Handler) handleDescribeReservedInstances(vals url.Values, reqID string)
 	for _, ri := range ris {
 		resp.ReservedInstancesSet.Items = append(
 			resp.ReservedInstancesSet.Items,
-			toReservedInstanceItem(ri),
+			toReservedInstanceItem(ri, h.Backend.TagsForResource(ri.ReservedInstancesID)),
 		)
 	}
 

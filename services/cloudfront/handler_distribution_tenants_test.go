@@ -6,9 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
 const tenantDomainPrefix = "/2020-05-31/"
@@ -85,30 +89,50 @@ func TestCreateDistributionTenant_DomainConflict_WithDistributionAlias(t *testin
 	}
 }
 
+// domainConflictsList decodes with the real deserializer's element names
+// (awsRestxml_deserializeDocumentDomainConflictsList, cloudfront@v1.67.4): the list wrapper AND
+// each entry are both named <DomainConflicts>, not <Items>/<DomainConflict>.
+type domainConflictsList struct {
+	DomainConflicts struct {
+		Entries []struct {
+			ResourceID string `xml:"ResourceId"`
+		} `xml:"DomainConflicts"`
+	} `xml:"DomainConflicts"`
+}
+
+// listDomainConflictsBody builds a real ListDomainConflictsRequest body, scoped to either a
+// distribution or a distribution tenant (DomainControlValidationResource -- both members of
+// ListDomainConflictsInput are independently required per api_op_ListDomainConflicts.go:73-77).
+func listDomainConflictsBody(domain, distID, tenantID string) string {
+	var resource string
+	if distID != "" {
+		resource = "<DistributionId>" + distID + "</DistributionId>"
+	} else {
+		resource = "<DistributionTenantId>" + tenantID + "</DistributionTenantId>"
+	}
+
+	return `<ListDomainConflictsRequest><Domain>` + domain + `</Domain>` +
+		`<DomainControlValidationResource>` + resource + `</DomainControlValidationResource>` +
+		`</ListDomainConflictsRequest>`
+}
+
 // TestListDomainConflicts_RealConflicts verifies ListDomainConflicts returns actual conflicting
-// resources for a claimed domain and an empty list for an unclaimed one.
+// resources for a claimed domain (scoped to an unrelated resource) and an empty list both for an
+// unclaimed domain and when scoped to the very resource that claims the domain -- real AWS
+// excludes DomainControlValidationResource's own resource from its conflict list.
 func TestListDomainConflicts_RealConflicts(t *testing.T) {
 	t.Parallel()
 
 	h := newCFHandler(t)
 	tenantID := createTestTenant(t, h, "dist-conflicts", "claimed.example.com")
 
-	rr := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflict",
-		`<ListDomainConflictsRequest><Domain>claimed.example.com</Domain></ListDomainConflictsRequest>`)
+	other, err := h.Backend.CreateDistribution("other-ref", "unrelated", true, nil)
+	require.NoError(t, err)
+
+	rr := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflicts",
+		listDomainConflictsBody("claimed.example.com", other.ID, ""))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	// Decode with the real deserializer's element names
-	// (awsRestxml_deserializeDocumentDomainConflictsList,
-	// cloudfront@v1.67.4): the list wrapper AND each entry are both named
-	// <DomainConflicts>, not <Items>/<DomainConflict>.
-	type domainConflictsList struct {
-		DomainConflicts struct {
-			Entries []struct {
-				ResourceID string `xml:"ResourceId"`
-			} `xml:"DomainConflicts"`
-		} `xml:"DomainConflicts"`
 	}
 
 	var parsed domainConflictsList
@@ -116,16 +140,29 @@ func TestListDomainConflicts_RealConflicts(t *testing.T) {
 	require.Len(t, parsed.DomainConflicts.Entries, 1)
 	assert.Equal(t, tenantID, parsed.DomainConflicts.Entries[0].ResourceID)
 
-	rr2 := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflict",
-		`<ListDomainConflictsRequest><Domain>unclaimed.example.com</Domain></ListDomainConflictsRequest>`)
+	rr2 := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflicts",
+		listDomainConflictsBody("unclaimed.example.com", other.ID, ""))
 
 	var parsed2 domainConflictsList
 	require.NoError(t, xml.Unmarshal(rr2.Body.Bytes(), &parsed2))
 	assert.Empty(t, parsed2.DomainConflicts.Entries)
+
+	// Scoping the check to the tenant that itself claims the domain excludes it: real AWS
+	// interprets DomainControlValidationResource as "the resource with a valid certificate for
+	// this domain," not as a resource to flag as a conflict against itself.
+	rr3 := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflicts",
+		listDomainConflictsBody("claimed.example.com", "", tenantID))
+
+	var parsed3 domainConflictsList
+	require.NoError(t, xml.Unmarshal(rr3.Body.Bytes(), &parsed3))
+	assert.Empty(t, parsed3.DomainConflicts.Entries)
 }
 
 // TestListDistributionTenantsByCustomization_FiltersByWebACL verifies that the customization
-// listing filters tenants by their associated WAF web ACL ARN.
+// listing filters tenants by their associated WAF web ACL ARN. Uses the real wire shape --
+// cloudfront@v1.67.4 serializers.go awsRestxml_serializeOpListDistributionTenantsByCustomization
+// sends POST to the hyphenated "distribution-tenants-by-customization" path with WebACLArn in
+// the XML body, not GET with a query parameter.
 func TestListDistributionTenantsByCustomization_FiltersByWebACL(t *testing.T) {
 	t.Parallel()
 
@@ -134,14 +171,18 @@ func TestListDistributionTenantsByCustomization_FiltersByWebACL(t *testing.T) {
 	tenantWithoutACL := createTestTenant(t, h, "dist-cust-2", "without-acl.example.com")
 
 	cfOK(t, h, http.MethodPut, tenantDomainPrefix+"distribution-tenant/"+tenantWithACL+"/associate-web-acl",
-		`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/x/1</WebACLId></WebACLAssociation>`)
+		`<AssociateDistributionTenantWebACLRequest>`+
+			`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/x/1</WebACLArn>`+
+			`</AssociateDistributionTenantWebACLRequest>`)
 
 	rr := cfRequest(
 		t,
 		h,
-		http.MethodGet,
-		tenantDomainPrefix+"distribution-tenants/by-customization?WebACLArn=arn:aws:wafv2:us-east-1:123:global/webacl/x/1",
-		"",
+		http.MethodPost,
+		tenantDomainPrefix+"distribution-tenants-by-customization",
+		`<ListDistributionTenantsByCustomizationRequest>`+
+			`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/x/1</WebACLArn>`+
+			`</ListDistributionTenantsByCustomizationRequest>`,
 	)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
@@ -179,12 +220,15 @@ func TestUpdateDomainAssociation_MoveToTenant(t *testing.T) {
 		t.Errorf("expected domain in response, got: %s", rr.Body.String())
 	}
 
-	// The tenant should now resolve by its newly-associated domain.
+	// The tenant should now resolve by its newly-associated domain. Real
+	// GetDistributionTenantByDomain is the bare GET "distribution-tenant"
+	// (Domain travels as a "?domain=" query value; cloudfront@v1.67.4
+	// serializers.go).
 	getResp := cfOK(
 		t,
 		h,
 		http.MethodGet,
-		tenantDomainPrefix+"distribution-tenant-by-domain?domain=secondary.example.com",
+		tenantDomainPrefix+"distribution-tenant?domain=secondary.example.com",
 		"",
 	)
 	if !strings.Contains(getResp, tenantID) {
@@ -256,6 +300,36 @@ func TestUpdateDomainAssociation_ConflictAndValidation(t *testing.T) {
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rr.Code, rr.Body.String())
 	}
+}
+
+// TestUpdateDomainAssociation_RealClient verifies UpdateDomainAssociationOutput carries a single
+// ResourceId (matching the real DistributionId-or-DistributionTenantId union collapse, not two
+// separate elements) and a populated ETag header, matching cloudfront@v1.67.4
+// api_op_UpdateDomainAssociation.go:60-68.
+func TestUpdateDomainAssociation_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	tenant, err := client.CreateDistributionTenant(t.Context(), &cfsdk.CreateDistributionTenantInput{
+		DistributionId: aws.String("dist-rc-domain"),
+		Name:           aws.String("tenant-rc-domain"),
+		Domains:        []types.DomainItem{{Domain: aws.String("primary-rc.example.com")}},
+	})
+	require.NoError(t, err)
+	tenantID := aws.ToString(tenant.DistributionTenant.Id)
+
+	out, err := client.UpdateDomainAssociation(t.Context(), &cfsdk.UpdateDomainAssociationInput{
+		Domain: aws.String("secondary-rc.example.com"),
+		TargetResource: &types.DistributionResourceId{
+			DistributionTenantId: aws.String(tenantID),
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "secondary-rc.example.com", aws.ToString(out.Domain))
+	assert.Equal(t, tenantID, aws.ToString(out.ResourceId), "ResourceId must carry the target tenant, not be empty")
+	assert.NotEmpty(t, aws.ToString(out.ETag), "ETag header must be populated")
 }
 
 // TestVerifyDNSConfiguration_RealPerTenantStatus verifies that VerifyDNSConfiguration returns a
@@ -361,7 +435,9 @@ func TestDistributionTenant_PersistenceRoundTrip(t *testing.T) {
 		h,
 		http.MethodPut,
 		tenantDomainPrefix+"distribution-tenant/"+tenantID+"/associate-web-acl",
-		`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/persist/1</WebACLId></WebACLAssociation>`,
+		`<AssociateDistributionTenantWebACLRequest>`+
+			`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/persist/1</WebACLArn>`+
+			`</AssociateDistributionTenantWebACLRequest>`,
 	)
 
 	invRR := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"distribution-tenant/"+tenantID+"/invalidation",
@@ -389,7 +465,7 @@ func TestDistributionTenant_PersistenceRoundTrip(t *testing.T) {
 
 	// Tenant is retrievable by domain after restore (secondary index rebuilt).
 	byDomainRR := cfRequest(t, h2, http.MethodGet,
-		tenantDomainPrefix+"distribution-tenant-by-domain?domain=persist.example.com", "")
+		tenantDomainPrefix+"distribution-tenant?domain=persist.example.com", "")
 	if byDomainRR.Code != http.StatusOK || !strings.Contains(byDomainRR.Body.String(), tenantID) {
 		t.Errorf(
 			"expected tenant resolvable by domain after restore, got %d: %s",

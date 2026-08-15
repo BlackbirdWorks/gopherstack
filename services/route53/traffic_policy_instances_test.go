@@ -27,7 +27,7 @@ func TestCreateTrafficPolicyInstance_Duplicate(t *testing.T) {
 
 			b := route53.NewInMemoryBackend()
 
-			hz, err := b.CreateHostedZone("example.com", "ref-tpi", "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-tpi", "", false, "", "", "")
 			require.NoError(t, err)
 
 			tp, err := b.CreateTrafficPolicy(

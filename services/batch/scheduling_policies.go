@@ -14,6 +14,7 @@ func (b *InMemoryBackend) CreateSchedulingPolicy(
 	name string,
 	tags map[string]string,
 	fairsharePolicy *FairsharePolicy,
+	quotaSharePolicy *QuotaSharePolicy,
 ) (*SchedulingPolicy, error) {
 	region := getRegion(ctx, b.region)
 
@@ -35,11 +36,12 @@ func (b *InMemoryBackend) CreateSchedulingPolicy(
 	policyARN := arn.Build("batch", region, b.accountID, "scheduling-policy/"+name)
 
 	sp := &SchedulingPolicy{
-		region:          region,
-		Arn:             policyARN,
-		Name:            name,
-		Tags:            tagsCloneOrEmpty(tags),
-		FairsharePolicy: cloneFairsharePolicy(fairsharePolicy),
+		region:           region,
+		Arn:              policyARN,
+		Name:             name,
+		Tags:             tagsCloneOrEmpty(tags),
+		FairsharePolicy:  cloneFairsharePolicy(fairsharePolicy),
+		QuotaSharePolicy: cloneQuotaSharePolicy(quotaSharePolicy),
 	}
 	b.schedulingPolicies.Put(sp)
 	cp := *sp
@@ -59,6 +61,17 @@ func cloneFairsharePolicy(fp *FairsharePolicy) *FairsharePolicy {
 		copy(sd, fp.ShareDistribution)
 		clone.ShareDistribution = sd
 	}
+
+	return &clone
+}
+
+// cloneQuotaSharePolicy deep-copies a QuotaSharePolicy.
+func cloneQuotaSharePolicy(qp *QuotaSharePolicy) *QuotaSharePolicy {
+	if qp == nil {
+		return nil
+	}
+
+	clone := *qp
 
 	return &clone
 }
@@ -135,11 +148,12 @@ func (b *InMemoryBackend) DescribeSchedulingPolicies(ctx context.Context, arns [
 	return list
 }
 
-// UpdateSchedulingPolicy updates a scheduling policy's fairshare configuration.
+// UpdateSchedulingPolicy updates a scheduling policy's fairshare/quota-share configuration.
 func (b *InMemoryBackend) UpdateSchedulingPolicy(
 	ctx context.Context,
 	policyARN string,
 	fairsharePolicy *FairsharePolicy,
+	quotaSharePolicy *QuotaSharePolicy,
 ) error {
 	region := getRegion(ctx, b.region)
 
@@ -153,6 +167,10 @@ func (b *InMemoryBackend) UpdateSchedulingPolicy(
 
 	if fairsharePolicy != nil {
 		sp.FairsharePolicy = cloneFairsharePolicy(fairsharePolicy)
+	}
+
+	if quotaSharePolicy != nil {
+		sp.QuotaSharePolicy = cloneQuotaSharePolicy(quotaSharePolicy)
 	}
 
 	return nil

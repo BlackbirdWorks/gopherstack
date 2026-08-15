@@ -62,6 +62,16 @@ func (db *InMemoryDB) ScanWithContext(
 		return nil, err
 	}
 
+	if err := validateProjectionParams(
+		aws.ToString(input.ProjectionExpression), input.AttributesToGet,
+	); err != nil {
+		return nil, err
+	}
+
+	if err := applyLegacyScanParams(input); err != nil {
+		return nil, err
+	}
+
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
@@ -254,7 +264,7 @@ func (db *InMemoryDB) doScan(
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	limit := int(aws.ToInt32(input.Limit))
-	proj := aws.ToString(input.ProjectionExpression)
+	proj := resolveProjection(aws.ToString(input.ProjectionExpression), input.AttributesToGet)
 	filter := aws.ToString(input.FilterExpression)
 
 	// Collect all non-expired items that are in the target index.

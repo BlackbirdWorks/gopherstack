@@ -1,6 +1,7 @@
 package s3_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -231,6 +232,53 @@ func TestS3Lifecycle_StorageClassTransitions(t *testing.T) {
 	}
 }
 
+// TestLifecycle_ObjectSizeFilter verifies that a rule scoped with
+// Filter>ObjectSizeGreaterThan only expires objects above the size threshold,
+// rather than treating the (previously unmodeled) size filter as match-all.
+func TestLifecycle_ObjectSizeFilter(t *testing.T) {
+	t.Parallel()
+
+	const bucket = "size-lc-bucket"
+
+	b := s3.NewInMemoryBackend(nil)
+	mustCreateBucket(t, b, bucket)
+
+	mustPutObject(t, b, bucket, "small.txt", bytes.Repeat([]byte("a"), 10))
+	mustPutObject(t, b, bucket, "big.bin", bytes.Repeat([]byte("b"), 2000))
+
+	lcXML := `<LifecycleConfiguration>
+<Rule>
+  <ID>expire-large</ID>
+  <Status>Enabled</Status>
+  <Filter><ObjectSizeGreaterThan>1000</ObjectSizeGreaterThan></Filter>
+  <Expiration><Days>0</Days></Expiration>
+</Rule>
+</LifecycleConfiguration>`
+
+	err := b.PutBucketLifecycleConfiguration(t.Context(), bucket, lcXML)
+	require.NoError(t, err)
+
+	newFastJanitor(b).SweepOnce(t.Context())
+
+	out, err := b.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+
+	for _, obj := range out.Contents {
+		assert.NotEqual(t, "big.bin", aws.ToString(obj.Key), "big.bin (2000 bytes) must be evicted")
+	}
+
+	out, err = b.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+
+	found := false
+	for _, obj := range out.Contents {
+		if aws.ToString(obj.Key) == "small.txt" {
+			found = true
+		}
+	}
+	assert.True(t, found, "small.txt (10 bytes) must survive the size-scoped rule")
+}
+
 // TestS3Lifecycle_NoncurrentVersionTransitions verifies that lifecycle rules
 // transition noncurrent object versions to a different storage class.
 func TestS3Lifecycle_NoncurrentVersionTransitions(t *testing.T) {
@@ -323,4 +371,102 @@ func TestS3Lifecycle_NoncurrentVersionTransitions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// noncurrentVersionID returns the versionID of key's sole noncurrent version.
+func noncurrentVersionID(t *testing.T, b *s3.InMemoryBackend, bucket, key string) string {
+	t.Helper()
+
+	out, err := b.ListObjectVersions(t.Context(), &sdk_s3.ListObjectVersionsInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+
+	for _, ver := range out.Versions {
+		if aws.ToString(ver.Key) == key && !aws.ToBool(ver.IsLatest) {
+			return aws.ToString(ver.VersionId)
+		}
+	}
+
+	require.Fail(t, "no noncurrent version found", "key %q", key)
+
+	return ""
+}
+
+// countNoncurrentVersions returns how many noncurrent versions key currently has.
+func countNoncurrentVersions(t *testing.T, b *s3.InMemoryBackend, bucket, key string) int {
+	t.Helper()
+
+	out, err := b.ListObjectVersions(t.Context(), &sdk_s3.ListObjectVersionsInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+
+	count := 0
+	for _, ver := range out.Versions {
+		if aws.ToString(ver.Key) == key && !aws.ToBool(ver.IsLatest) {
+			count++
+		}
+	}
+
+	return count
+}
+
+// TestLifecycle_NoncurrentVersionTagFilter verifies that a rule's Filter>Tag
+// scopes NoncurrentVersionExpiration the same way it scopes current-version
+// Expiration. The Filter identifies which objects a Lifecycle Rule applies to
+// as a whole (aws-sdk-go-v2 types.LifecycleRule doc on Filter); a tag-scoped
+// rule must not delete noncurrent versions of objects that don't carry the tag.
+func TestLifecycle_NoncurrentVersionTagFilter(t *testing.T) {
+	t.Parallel()
+
+	const bucket = "nv-tag-lc-bucket"
+
+	b := s3.NewInMemoryBackend(nil)
+	mustCreateBucket(t, b, bucket)
+
+	_, err := b.PutBucketVersioning(t.Context(), &sdk_s3.PutBucketVersioningInput{
+		Bucket: aws.String(bucket),
+		VersioningConfiguration: &sdk_s3types.VersioningConfiguration{
+			Status: sdk_s3types.BucketVersioningStatusEnabled,
+		},
+	})
+	require.NoError(t, err)
+
+	// tagged.txt: its noncurrent v1 is tagged env=prod and matches the rule.
+	mustPutObject(t, b, bucket, "tagged.txt", []byte("v1"))
+	mustPutObject(t, b, bucket, "tagged.txt", []byte("v2"))
+	taggedV1 := noncurrentVersionID(t, b, bucket, "tagged.txt")
+
+	_, err = b.PutObjectTagging(t.Context(), &sdk_s3.PutObjectTaggingInput{
+		Bucket:    aws.String(bucket),
+		Key:       aws.String("tagged.txt"),
+		VersionId: aws.String(taggedV1),
+		Tagging: &sdk_s3types.Tagging{
+			TagSet: []sdk_s3types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
+		},
+	})
+	require.NoError(t, err)
+
+	// untagged.txt: its noncurrent v1 carries no tags and must NOT match the rule.
+	mustPutObject(t, b, bucket, "untagged.txt", []byte("v1"))
+	mustPutObject(t, b, bucket, "untagged.txt", []byte("v2"))
+
+	s3.BackdateObjectForTest(b, bucket, "tagged.txt", time.Now().Add(-2*24*time.Hour))
+	s3.BackdateObjectForTest(b, bucket, "untagged.txt", time.Now().Add(-2*24*time.Hour))
+
+	lcXML := `<LifecycleConfiguration>
+<Rule>
+  <ID>expire-tagged-noncurrent</ID>
+  <Status>Enabled</Status>
+  <Filter><Tag><Key>env</Key><Value>prod</Value></Tag></Filter>
+  <NoncurrentVersionExpiration><NoncurrentDays>0</NoncurrentDays></NoncurrentVersionExpiration>
+</Rule>
+</LifecycleConfiguration>`
+
+	err = b.PutBucketLifecycleConfiguration(t.Context(), bucket, lcXML)
+	require.NoError(t, err)
+
+	newFastJanitor(b).SweepOnce(t.Context())
+
+	assert.Equal(t, 0, countNoncurrentVersions(t, b, bucket, "tagged.txt"),
+		"tagged.txt noncurrent version must be evicted")
+	assert.Equal(t, 1, countNoncurrentVersions(t, b, bucket, "untagged.txt"),
+		"untagged.txt noncurrent version must survive a tag-scoped rule")
 }

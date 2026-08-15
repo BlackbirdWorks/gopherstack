@@ -22,6 +22,7 @@ func (h *Handler) handleAttachTrafficSources(vals url.Values) (any, error) {
 type attachTrafficSourcesResponse struct {
 	XMLName          xml.Name            `xml:"AttachTrafficSourcesResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"AttachTrafficSourcesResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
@@ -85,5 +86,6 @@ type describeTrafficSourcesResponse struct {
 type detachTrafficSourcesResponse struct {
 	XMLName          xml.Name            `xml:"DetachTrafficSourcesResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"DetachTrafficSourcesResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }

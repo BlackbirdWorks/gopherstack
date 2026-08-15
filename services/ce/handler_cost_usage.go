@@ -3,6 +3,7 @@ package ce
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -89,12 +90,14 @@ type dimensionValue struct {
 }
 
 type getDimensionValuesInput struct {
-	TimePeriod    map[string]string `json:"TimePeriod"`
-	Dimension     string            `json:"Dimension"`
-	SearchString  string            `json:"SearchString"`
-	Context       string            `json:"Context"`
-	NextPageToken string            `json:"NextPageToken"`
-	MaxResults    int               `json:"MaxResults"`
+	Filter        *ceExpression      `json:"Filter"`
+	TimePeriod    map[string]string  `json:"TimePeriod"`
+	Dimension     string             `json:"Dimension"`
+	SearchString  string             `json:"SearchString"`
+	Context       string             `json:"Context"`
+	NextPageToken string             `json:"NextPageToken"`
+	SortBy        []ceSortDefinition `json:"SortBy"`
+	MaxResults    int                `json:"MaxResults"`
 }
 
 type getDimensionValuesOutput struct {
@@ -112,7 +115,14 @@ func (h *Handler) handleGetDimensionValues(
 		return nil, fmt.Errorf("%w: Dimension is required", ErrValidation)
 	}
 
-	vals := h.Backend.GetDimensionValues(in.Dimension)
+	var vals []string
+	if in.Filter != nil && in.Filter.Dimensions != nil && in.Filter.Dimensions.Key != "" {
+		vals = h.Backend.GetDimensionValuesFiltered(
+			in.Dimension, in.Filter.Dimensions.Key, in.Filter.Dimensions.Values,
+		)
+	} else {
+		vals = h.Backend.GetDimensionValues(in.Dimension)
+	}
 
 	if in.SearchString != "" {
 		filtered := vals[:0]
@@ -127,6 +137,10 @@ func (h *Handler) handleGetDimensionValues(
 		vals = filtered
 	}
 
+	if len(in.SortBy) > 0 {
+		vals = sortDimensionValuesByCost(h.Backend, in.Dimension, vals, in.SortBy[0])
+	}
+
 	items := make([]dimensionValue, 0, len(vals))
 	for _, v := range vals {
 		items = append(items, dimensionValue{Value: v})
@@ -139,13 +153,41 @@ func (h *Handler) handleGetDimensionValues(
 	}, nil
 }
 
+// sortDimensionValuesByCost orders dimension values by the total cost metric
+// (real GetDimensionValues SortBy keys are cost/usage metrics such as
+// BlendedCost/UnblendedCost) each value accounts for in the ledger, honoring
+// SortOrder. Ties keep the existing (alphabetical) order.
+func sortDimensionValuesByCost(
+	backend *InMemoryBackend, dimension string, vals []string, sortBy ceSortDefinition,
+) []string {
+	ordered := make([]string, len(vals))
+	copy(ordered, vals)
+
+	costs := make(map[string]float64, len(ordered))
+	for _, v := range ordered {
+		costs[v] = backend.DimensionValueCost(dimension, v, sortBy.Key)
+	}
+
+	desc := sortDescending(sortBy.SortOrder)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if desc {
+			return costs[ordered[i]] > costs[ordered[j]]
+		}
+
+		return costs[ordered[i]] < costs[ordered[j]]
+	})
+
+	return ordered
+}
+
 type getTagsInput struct {
-	TimePeriod    map[string]string `json:"TimePeriod"`
-	TagKey        string            `json:"TagKey"`
-	SearchString  string            `json:"SearchString"`
-	Filter        any               `json:"Filter"`
-	NextPageToken string            `json:"NextPageToken"`
-	MaxResults    int               `json:"MaxResults"`
+	TimePeriod    map[string]string  `json:"TimePeriod"`
+	TagKey        string             `json:"TagKey"`
+	SearchString  string             `json:"SearchString"`
+	Filter        *ceExpression      `json:"Filter"`
+	NextPageToken string             `json:"NextPageToken"`
+	SortBy        []ceSortDefinition `json:"SortBy"`
+	MaxResults    int                `json:"MaxResults"`
 }
 
 type getTagsOutput struct {
@@ -159,12 +201,20 @@ func (h *Handler) handleGetTags(
 	_ context.Context,
 	in *getTagsInput,
 ) (*getTagsOutput, error) {
-	var tags []string
+	var constraintKey string
 
+	var constraintValues []string
+
+	if in.Filter != nil && in.Filter.Tags != nil && in.Filter.Tags.Key != "" {
+		constraintKey = in.Filter.Tags.Key
+		constraintValues = in.Filter.Tags.Values
+	}
+
+	var tags []string
 	if in.TagKey != "" {
-		tags = h.Backend.GetTagValues(in.TagKey)
+		tags = h.Backend.GetTagValuesFiltered(in.TagKey, constraintKey, constraintValues)
 	} else {
-		tags = h.Backend.GetTagKeys()
+		tags = h.Backend.GetTagKeysFiltered(constraintKey, constraintValues)
 	}
 
 	if in.SearchString != "" {
@@ -180,6 +230,10 @@ func (h *Handler) handleGetTags(
 		tags = filtered
 	}
 
+	if len(in.SortBy) > 0 && in.TagKey != "" {
+		tags = sortTagValuesByCost(h.Backend, in.TagKey, tags, in.SortBy[0])
+	}
+
 	if tags == nil {
 		tags = []string{}
 	}
@@ -189,6 +243,34 @@ func (h *Handler) handleGetTags(
 		ReturnSize: len(tags),
 		TotalSize:  len(tags),
 	}, nil
+}
+
+// sortTagValuesByCost orders tag values by the total cost metric attributed
+// to that tag value in the ledger, honoring SortOrder. Only applies when
+// listing values for a specific TagKey -- sorting tag *keys* (TagKey unset)
+// by a cost metric has no well-defined per-key total to use, so that case is
+// left in its existing (alphabetical) order rather than fabricating one.
+func sortTagValuesByCost(
+	backend *InMemoryBackend, tagKey string, vals []string, sortBy ceSortDefinition,
+) []string {
+	ordered := make([]string, len(vals))
+	copy(ordered, vals)
+
+	costs := make(map[string]float64, len(ordered))
+	for _, v := range ordered {
+		costs[v] = backend.TagValueCost(tagKey, v, sortBy.Key)
+	}
+
+	desc := sortDescending(sortBy.SortOrder)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if desc {
+			return costs[ordered[i]] > costs[ordered[j]]
+		}
+
+		return costs[ordered[i]] < costs[ordered[j]]
+	})
+
+	return ordered
 }
 
 type getCostForecastInput struct {
@@ -469,6 +551,7 @@ func (h *Handler) handleGetCostAndUsageWithResources(
 type getCostComparisonDriversInput struct {
 	BaselineTimePeriod   map[string]string `json:"BaselineTimePeriod"`
 	ComparisonTimePeriod map[string]string `json:"ComparisonTimePeriod"`
+	Filter               *ceExpression     `json:"Filter"`
 	Metric               string            `json:"Metric"`
 }
 

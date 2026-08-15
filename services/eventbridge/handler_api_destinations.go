@@ -50,7 +50,7 @@ func (h *Handler) apiDestinationActions() map[string]actionFn {
 	}
 }
 
-// apiDestinationResponse is the handler-level DTO for APIDestination objects.
+// apiDestinationResponse is the handler-level DTO for DescribeApiDestination.
 type apiDestinationResponse struct {
 	APIDestinationArn            string  `json:"ApiDestinationArn"`
 	APIDestinationState          string  `json:"ApiDestinationState"`
@@ -76,6 +76,36 @@ func apiDestinationToResponse(d *APIDestination) *apiDestinationResponse {
 		APIDestinationState:          d.APIDestinationState,
 		ConnectionArn:                d.ConnectionArn,
 		Description:                  d.Description,
+		HTTPMethod:                   d.HTTPMethod,
+		InvocationEndpoint:           d.InvocationEndpoint,
+		Name:                         d.Name,
+		InvocationRateLimitPerSecond: d.InvocationRateLimitPerSecond,
+	}
+}
+
+// apiDestinationSummary is ListApiDestinations' item shape (real
+// "ApiDestination" type, eventbridge@v1.48.4 deserializers.go's
+// awsAwsjson11_deserializeDocumentApiDestination case list): no Description
+// at all, unlike DescribeApiDestination's apiDestinationResponse above.
+type apiDestinationSummary struct {
+	APIDestinationArn            string  `json:"ApiDestinationArn"`
+	APIDestinationState          string  `json:"ApiDestinationState"`
+	ConnectionArn                string  `json:"ConnectionArn"`
+	HTTPMethod                   string  `json:"HttpMethod"`
+	InvocationEndpoint           string  `json:"InvocationEndpoint"`
+	Name                         string  `json:"Name"`
+	CreationTime                 float64 `json:"CreationTime"`
+	LastModifiedTime             float64 `json:"LastModifiedTime"`
+	InvocationRateLimitPerSecond int     `json:"InvocationRateLimitPerSecond,omitempty"`
+}
+
+func apiDestinationToSummary(d *APIDestination) apiDestinationSummary {
+	return apiDestinationSummary{
+		CreationTime:                 timeToEpochSeconds(d.CreationTime),
+		LastModifiedTime:             timeToEpochSeconds(d.LastModifiedTime),
+		APIDestinationArn:            d.APIDestinationArn,
+		APIDestinationState:          d.APIDestinationState,
+		ConnectionArn:                d.ConnectionArn,
 		HTTPMethod:                   d.HTTPMethod,
 		InvocationEndpoint:           d.InvocationEndpoint,
 		Name:                         d.Name,
@@ -114,14 +144,14 @@ func (h *Handler) extendedAPIDestinationActions() map[string]actionFn {
 				return nil, err
 			}
 
-			dstResponses := make([]apiDestinationResponse, len(dsts))
+			dstResponses := make([]apiDestinationSummary, len(dsts))
 			for i, d := range dsts {
-				dstResponses[i] = *apiDestinationToResponse(&d)
+				dstResponses[i] = apiDestinationToSummary(&d)
 			}
 
 			return &struct {
-				NextToken       string                   `json:"NextToken,omitempty"`
-				APIDestinations []apiDestinationResponse `json:"ApiDestinations"`
+				NextToken       string                  `json:"NextToken,omitempty"`
+				APIDestinations []apiDestinationSummary `json:"ApiDestinations"`
 			}{APIDestinations: dstResponses, NextToken: next}, nil
 		},
 		"UpdateApiDestination": func(ctx context.Context, b []byte) (any, error) {

@@ -80,7 +80,7 @@ func TestEc2DeepInspectionConfiguration(t *testing.T) {
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
 						require.NoError(t, json.Unmarshal(body, &resp))
-						members, _ := resp["members"].([]any)
+						members, _ := resp["accountIds"].([]any)
 						assert.Len(t, members, 1)
 					},
 				},
@@ -89,10 +89,10 @@ func TestEc2DeepInspectionConfiguration(t *testing.T) {
 					method: http.MethodPost,
 					path:   "/ec2deepinspectionstatus/member/batch/update",
 					body: map[string]any{
-						"accountEc2DeepInspectionStatuses": []any{
+						"accountIds": []any{
 							map[string]any{
-								"accountId":    "555555555555",
-								"packagePaths": []string{"/opt"},
+								"accountId":              "555555555555",
+								"activateDeepInspection": true,
 							},
 						},
 					},
@@ -101,7 +101,7 @@ func TestEc2DeepInspectionConfiguration(t *testing.T) {
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
 						require.NoError(t, json.Unmarshal(body, &resp))
-						accounts, _ := resp["accounts"].([]any)
+						accounts, _ := resp["accountIds"].([]any)
 						assert.Len(t, accounts, 1)
 					},
 				},

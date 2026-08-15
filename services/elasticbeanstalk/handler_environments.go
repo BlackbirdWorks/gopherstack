@@ -5,7 +5,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // --- Environment operations ---
@@ -24,15 +27,26 @@ type environmentDescType struct {
 	Description       string              `xml:"Description,omitempty"`
 	SolutionStackName string              `xml:"SolutionStackName"`
 	PlatformArn       string              `xml:"PlatformArn,omitempty"`
+	TemplateName      string              `xml:"TemplateName,omitempty"`
 	VersionLabel      string              `xml:"VersionLabel,omitempty"`
 	OperationsRole    string              `xml:"OperationsRole,omitempty"`
 	DateCreated       string              `xml:"DateCreated,omitempty"`
 	DateUpdated       string              `xml:"DateUpdated,omitempty"`
 	Status            string              `xml:"Status"`
 	Health            string              `xml:"Health"`
+	HealthStatus      string              `xml:"HealthStatus"`
 	Tier              environmentTierType `xml:"Tier"`
 	CNAME             string              `xml:"CNAME"`
 	EndpointURL       string              `xml:"EndpointURL"`
+	// AbortableOperationInProgress is a real *bool member on every real
+	// EnvironmentDescription response; this backend applies environment
+	// updates synchronously (see configDeploymentStatusDeployed's doc
+	// comment), so there is never an in-progress operation to report, and
+	// the value is always false -- but it must still be emitted, not
+	// omitted: a real client's generated Output struct holds it as *bool,
+	// and dereferencing a nil pointer (the result of never emitting this
+	// element at all) panics where real AWS would give a safe `false`.
+	AbortableOperationInProgress bool `xml:"AbortableOperationInProgress"`
 }
 
 func toEnvironmentDesc(env *Environment) environmentDescType {
@@ -68,27 +82,30 @@ func toEnvironmentDesc(env *Environment) environmentDescType {
 		Description:       env.Description,
 		SolutionStackName: env.SolutionStackName,
 		PlatformArn:       env.PlatformARN,
+		TemplateName:      env.TemplateName,
 		VersionLabel:      env.VersionLabel,
 		OperationsRole:    env.OperationsRole,
 		DateCreated:       env.DateCreated,
 		DateUpdated:       env.DateUpdated,
 		Status:            env.Status,
 		Health:            env.Health,
+		HealthStatus:      envHealthStatusOk,
 		Tier: environmentTierType{
 			Name:    tierName,
 			Type:    tierType,
 			Version: tierVersion,
 		},
-		CNAME:       cname,
-		EndpointURL: cname,
+		CNAME:                        cname,
+		EndpointURL:                  cname,
+		AbortableOperationInProgress: false,
 	}
 }
 
 type createEnvironmentResponse struct {
 	XMLName                 xml.Name            `xml:"CreateEnvironmentResponse"`
 	Xmlns                   string              `xml:"xmlns,attr"`
-	CreateEnvironmentResult environmentDescType `xml:"CreateEnvironmentResult"`
 	ResponseMetadata        responseMetadata    `xml:"ResponseMetadata"`
+	CreateEnvironmentResult environmentDescType `xml:"CreateEnvironmentResult"`
 }
 
 func (h *Handler) handleCreateEnvironment(ctx context.Context, vals url.Values) (any, error) {
@@ -159,6 +176,7 @@ func (h *Handler) handleCreateEnvironment(ctx context.Context, vals url.Values) 
 }
 
 type describeEnvironmentsResult struct {
+	NextToken    string                `xml:"NextToken,omitempty"`
 	Environments []environmentDescType `xml:"Environments>member"`
 }
 
@@ -169,30 +187,69 @@ type describeEnvironmentsResponse struct {
 	DescribeEnvironmentsResult describeEnvironmentsResult `xml:"DescribeEnvironmentsResult"`
 }
 
+// parseMaxRecords parses a MaxRecords/MaxItems form value, returning 0 (use
+// the caller's default) for an absent or invalid value -- mirroring how a
+// real client-side integer field simply isn't set rather than erroring.
+func parseMaxRecords(vals url.Values, key string) int {
+	n, err := strconv.Atoi(vals.Get(key))
+	if err != nil || n < 0 {
+		return 0
+	}
+
+	return n
+}
+
 func (h *Handler) handleDescribeEnvironments(ctx context.Context, vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	envNames := parseMembers(vals, "EnvironmentNames.member")
 	envIDs := parseMembers(vals, "EnvironmentIds.member")
 	envs := h.Backend.DescribeEnvironments(ctx, appName, envNames, envIDs)
 
-	members := make([]environmentDescType, 0, len(envs))
+	// VersionLabel filter (DescribeEnvironmentsInput.VersionLabel): "If
+	// specified, AWS Elastic Beanstalk restricts the returned descriptions
+	// to include only those that are associated with this application
+	// version." Not passed to the backend query (which has no version
+	// concept), so it is applied here.
+	if versionLabel := vals.Get("VersionLabel"); versionLabel != "" {
+		filtered := make([]*Environment, 0, len(envs))
 
-	for _, env := range envs {
+		for _, env := range envs {
+			if env.VersionLabel == versionLabel {
+				filtered = append(filtered, env)
+			}
+		}
+
+		envs = filtered
+	}
+
+	// IncludeDeleted/IncludedDeletedBackTo are not modeled: TerminateEnvironment
+	// removes the environment record outright (see environmentDeleteKey), so
+	// there is no deleted-environment history to include -- a structural
+	// gap, not a filter this handler silently drops the effect of.
+
+	pg := page.New(envs, vals.Get("NextToken"), parseMaxRecords(vals, "MaxRecords"), defaultListLimit)
+
+	members := make([]environmentDescType, 0, len(pg.Data))
+
+	for _, env := range pg.Data {
 		members = append(members, toEnvironmentDesc(env))
 	}
 
 	return &describeEnvironmentsResponse{
-		Xmlns:                      ebXMLNS,
-		DescribeEnvironmentsResult: describeEnvironmentsResult{Environments: members},
-		ResponseMetadata:           responseMetadata{RequestID: "eb-describe-envs"},
+		Xmlns: ebXMLNS,
+		DescribeEnvironmentsResult: describeEnvironmentsResult{
+			Environments: members,
+			NextToken:    pg.Next,
+		},
+		ResponseMetadata: responseMetadata{RequestID: "eb-describe-envs"},
 	}, nil
 }
 
 type updateEnvironmentResponse struct {
 	XMLName                 xml.Name            `xml:"UpdateEnvironmentResponse"`
 	Xmlns                   string              `xml:"xmlns,attr"`
-	UpdateEnvironmentResult environmentDescType `xml:"UpdateEnvironmentResult"`
 	ResponseMetadata        responseMetadata    `xml:"ResponseMetadata"`
+	UpdateEnvironmentResult environmentDescType `xml:"UpdateEnvironmentResult"`
 }
 
 func (h *Handler) handleUpdateEnvironment(ctx context.Context, vals url.Values) (any, error) {
@@ -246,8 +303,8 @@ func (h *Handler) handleUpdateEnvironment(ctx context.Context, vals url.Values) 
 type terminateEnvironmentResponse struct {
 	XMLName                    xml.Name            `xml:"TerminateEnvironmentResponse"`
 	Xmlns                      string              `xml:"xmlns,attr"`
-	TerminateEnvironmentResult environmentDescType `xml:"TerminateEnvironmentResult"`
 	ResponseMetadata           responseMetadata    `xml:"ResponseMetadata"`
+	TerminateEnvironmentResult environmentDescType `xml:"TerminateEnvironmentResult"`
 }
 
 func (h *Handler) handleTerminateEnvironment(ctx context.Context, vals url.Values) (any, error) {
@@ -352,7 +409,12 @@ type describeEnvironmentResourcesResponse struct {
 	DescribeEnvironmentResourcesResult describeEnvironmentResourcesResult `xml:"DescribeEnvironmentResourcesResult"`
 }
 
-func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals url.Values) (any, error) {
+// resolveSingleEnvironment looks up the environment named by the request's
+// EnvironmentName/EnvironmentId form fields (at least one required, matching
+// every real EB op's documented "Condition: You must specify either this or
+// a[n] EnvironmentId/EnvironmentName" contract), returning ErrNotFound (wire:
+// InvalidParameterValue) when neither resolves to a real environment.
+func (h *Handler) resolveSingleEnvironment(ctx context.Context, vals url.Values) (*Environment, error) {
 	envName := vals.Get("EnvironmentName")
 	envID := vals.Get("EnvironmentId")
 	if envName == "" && envID == "" {
@@ -368,7 +430,15 @@ func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals u
 	if len(envs) == 0 {
 		return nil, fmt.Errorf("%w: environment not found", ErrNotFound)
 	}
-	env := envs[0]
+
+	return envs[0], nil
+}
+
+func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals url.Values) (any, error) {
+	env, err := h.resolveSingleEnvironment(ctx, vals)
+	if err != nil {
+		return nil, err
+	}
 	resources := environmentResourceDescType{
 		EnvironmentName:      env.EnvironmentName,
 		AutoScalingGroups:    []asgMemberType{{Name: env.EnvironmentName + "-asg"}},
@@ -555,11 +625,28 @@ type describeEnvironmentHealthResponse struct {
 
 func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.Values) (any, error) {
 	envName := vals.Get("EnvironmentName")
+
+	// EnvironmentId filter: resolve to the environment name for backend
+	// lookup, matching handleDescribeEvents's precedent -- real AWS accepts
+	// either EnvironmentId or EnvironmentName ("You must specify either
+	// this or an EnvironmentName").
 	if envName == "" {
-		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
+		if envID := vals.Get("EnvironmentId"); envID != "" {
+			if envs := h.Backend.DescribeEnvironments(ctx, "", nil, []string{envID}); len(envs) > 0 {
+				envName = envs[0].EnvironmentName
+			}
+		}
 	}
 
-	health, status, err := h.Backend.DescribeEnvironmentHealth(ctx, envName)
+	if envName == "" {
+		return nil, fmt.Errorf("%w: EnvironmentName or EnvironmentId is required", ErrInvalidParameter)
+	}
+
+	// health is this backend's stored color (always envHealthGreen, "Green"),
+	// which is NOT a member of the real EnvironmentHealthStatus enum -- see
+	// envHealthStatusOk's doc comment. status is the real EnvironmentStatus
+	// value ("Ready") and is correct as-is.
+	_, status, err := h.Backend.DescribeEnvironmentHealth(ctx, envName)
 	if err != nil {
 		return nil, err
 	}
@@ -568,7 +655,7 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 		Xmlns: ebXMLNS,
 		DescribeEnvironmentHealthResult: describeEnvironmentHealthResult{
 			EnvironmentName: envName,
-			HealthStatus:    health,
+			HealthStatus:    envHealthStatusOk,
 			Status:          status,
 			Color:           healthColorGreen,
 			RefreshedAt:     healthRefreshedAt,
@@ -633,6 +720,15 @@ func (h *Handler) handleListAvailableSolutionStacks(_ context.Context, _ url.Val
 	}, nil
 }
 
+// validEnvironmentInfoTypes are the InfoType values api_op_RequestEnvironmentInfo.go/
+// api_op_RetrieveEnvironmentInfo.go document (types.EnvironmentInfoType enum:
+// tail/bundle/analyze).
+var validEnvironmentInfoTypes = map[string]bool{ //nolint:gochecknoglobals // package-level constant set
+	"tail":    true,
+	"bundle":  true,
+	"analyze": true,
+}
+
 // requestEnvironmentInfoResponse is the XML response for RequestEnvironmentInfo.
 type requestEnvironmentInfoResponse struct {
 	XMLName          xml.Name         `xml:"RequestEnvironmentInfoResponse"`
@@ -640,7 +736,23 @@ type requestEnvironmentInfoResponse struct {
 	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 }
 
-func (h *Handler) handleRequestEnvironmentInfo(_ context.Context, _ url.Values) (any, error) {
+// handleRequestEnvironmentInfo validates InfoType (required) and that the
+// named environment exists (real AWS: "If no such environment is found,
+// RequestEnvironmentInfo returns an InvalidParameterValue error"), then
+// no-ops. Real AWS compiles the environment's live EC2 instance logs (tail),
+// zips them (bundle), or forwards them to Amazon Bedrock for analysis
+// (analyze); this backend never models EC2 instances at all (see
+// DescribeInstancesHealth), so there is no genuine log content to produce --
+// a structural gap, not something to fake. RetrieveEnvironmentInfo's
+// documented-empty EnvironmentInfo list reflects that honestly.
+func (h *Handler) handleRequestEnvironmentInfo(ctx context.Context, vals url.Values) (any, error) {
+	if !validEnvironmentInfoTypes[vals.Get("InfoType")] {
+		return nil, fmt.Errorf("%w: InfoType must be one of tail, bundle, analyze", ErrInvalidParameter)
+	}
+	if _, err := h.resolveSingleEnvironment(ctx, vals); err != nil {
+		return nil, err
+	}
+
 	return &requestEnvironmentInfoResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-request-env-info"},
@@ -666,7 +778,18 @@ type retrieveEnvironmentInfoResponse struct {
 	RetrieveEnvironmentInfoResult retrieveEnvironmentInfoResult `xml:"RetrieveEnvironmentInfoResult"`
 }
 
-func (h *Handler) handleRetrieveEnvironmentInfo(_ context.Context, _ url.Values) (any, error) {
+// handleRetrieveEnvironmentInfo validates InfoType and environment existence
+// the same way handleRequestEnvironmentInfo does; see that doc comment for
+// why EnvironmentInfo always answers empty (structural gap: no EC2 instance
+// or log-tailing state is modeled by this backend).
+func (h *Handler) handleRetrieveEnvironmentInfo(ctx context.Context, vals url.Values) (any, error) {
+	if !validEnvironmentInfoTypes[vals.Get("InfoType")] {
+		return nil, fmt.Errorf("%w: InfoType must be one of tail, bundle, analyze", ErrInvalidParameter)
+	}
+	if _, err := h.resolveSingleEnvironment(ctx, vals); err != nil {
+		return nil, err
+	}
+
 	return &retrieveEnvironmentInfoResponse{
 		Xmlns: ebXMLNS,
 		RetrieveEnvironmentInfoResult: retrieveEnvironmentInfoResult{

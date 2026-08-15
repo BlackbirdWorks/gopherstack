@@ -2,21 +2,21 @@
 // handler_backups.go implements the wire-JSON handlers for continuous
 // backups/PITR, ExportTableToPointInTime/DescribeExport/ListExports, and
 // DescribeTableReplicaAutoScaling. Routing (dispatchBackupOps) stays in
-// handler.go; these are the leaf implementations it calls into.
+// handler.go; backend logic lives behind the StorageBackend interface in
+// backup_interface.go, import_export_s3.go and autoscaling.go. These handlers
+// do wire (un)marshalling and SDK-type conversion only.
 package dynamodb
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdkdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 type pointInTimeRecoveryDescription struct {
@@ -26,6 +26,7 @@ type pointInTimeRecoveryDescription struct {
 	// disabled or no snapshots exist yet.
 	EarliestRestorableDateTime float64 `json:"EarliestRestorableDateTime,omitempty"`
 	LatestRestorableDateTime   float64 `json:"LatestRestorableDateTime,omitempty"`
+	RecoveryPeriodInDays       int32   `json:"RecoveryPeriodInDays,omitempty"`
 }
 
 type continuousBackupsDescriptionFields struct {
@@ -37,13 +38,39 @@ type describeContinuousBackupsOutput struct {
 	ContinuousBackupsDescription continuousBackupsDescriptionFields `json:"ContinuousBackupsDescription"`
 }
 
-const (
-	continuousBackupsStatusEnabled  = "ENABLED"
-	continuousBackupsStatusDisabled = "DISABLED"
-)
-
 type describeContinuousBackupsInput struct {
 	TableName string `json:"TableName"`
+}
+
+// continuousBackupsOutputFromSDK converts the SDK ContinuousBackupsDescription
+// into the wire shape shared by DescribeContinuousBackups and
+// UpdateContinuousBackups.
+func continuousBackupsOutputFromSDK(
+	d *sdktypes.ContinuousBackupsDescription,
+) *describeContinuousBackupsOutput {
+	if d == nil {
+		return &describeContinuousBackupsOutput{}
+	}
+
+	desc := pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: continuousBackupsStatusDisabled}
+	if d.PointInTimeRecoveryDescription != nil {
+		pitr := d.PointInTimeRecoveryDescription
+		desc.PointInTimeRecoveryStatus = string(pitr.PointInTimeRecoveryStatus)
+		desc.RecoveryPeriodInDays = aws.ToInt32(pitr.RecoveryPeriodInDays)
+		if pitr.EarliestRestorableDateTime != nil {
+			desc.EarliestRestorableDateTime = float64(pitr.EarliestRestorableDateTime.Unix())
+		}
+		if pitr.LatestRestorableDateTime != nil {
+			desc.LatestRestorableDateTime = float64(pitr.LatestRestorableDateTime.Unix())
+		}
+	}
+
+	return &describeContinuousBackupsOutput{
+		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
+			ContinuousBackupsStatus:        string(d.ContinuousBackupsStatus),
+			PointInTimeRecoveryDescription: desc,
+		},
+	}
 }
 
 func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []byte) (any, error) {
@@ -56,81 +83,25 @@ func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []
 		return nil, NewValidationException("TableName is required")
 	}
 
-	pitrEnabled := false
-	var earliest, latest time.Time
-
-	if db, ok := h.Backend.(*InMemoryDB); ok {
-		table, err := db.getTable(ctx, req.TableName)
-		if err != nil {
-			return nil, err
-		}
-
-		pitrEnabled, earliest, latest = pitrStateRLocked(table)
+	out, err := h.Backend.DescribeContinuousBackups(ctx, &sdkdynamodb.DescribeContinuousBackupsInput{
+		TableName: &req.TableName,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	continuousStatus := continuousBackupsStatusEnabled
-	pitrStatus := continuousBackupsStatusDisabled
-
-	desc := pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: pitrStatus}
-	if pitrEnabled {
-		desc.PointInTimeRecoveryStatus = continuousBackupsStatusEnabled
-		if !earliest.IsZero() {
-			desc.EarliestRestorableDateTime = float64(earliest.Unix())
-			desc.LatestRestorableDateTime = float64(latest.Unix())
-		}
-	}
-
-	return &describeContinuousBackupsOutput{
-		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
-			ContinuousBackupsStatus:        continuousStatus,
-			PointInTimeRecoveryDescription: desc,
-		},
-	}, nil
-}
-
-// pitrStateRLocked returns whether PITR is enabled and, when enabled with at
-// least one snapshot taken, the earliest/latest restorable timestamps, under
-// a defer-protected table.mu.RLock.
-func pitrStateRLocked(table *Table) (bool, time.Time, time.Time) {
-	table.mu.RLock(opDescribeContinuousBackups)
-	defer table.mu.RUnlock()
-
-	pitrEnabled := table.PITREnabled
-
-	var earliest, latest time.Time
-	// EarliestRestorableDateTime tracks the oldest available snapshot.
-	// LatestRestorableDateTime is "now" while PITR is active — AWS
-	// guarantees you can always recover to the current instant.
-	if pitrEnabled && len(table.PITRSnapshots) > 0 {
-		earliest = table.PITRSnapshots[0].Taken
-		latest = time.Now().UTC()
-	}
-
-	return pitrEnabled, earliest, latest
+	return continuousBackupsOutputFromSDK(out.ContinuousBackupsDescription), nil
 }
 
 // pointInTimeRecoverySpec holds the PITR enable/disable setting.
 type pointInTimeRecoverySpec struct {
-	PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
+	RecoveryPeriodInDays       *int32 `json:"RecoveryPeriodInDays,omitempty"`
+	PointInTimeRecoveryEnabled bool   `json:"PointInTimeRecoveryEnabled"`
 }
 
 type updateContinuousBackupsInput struct {
 	TableName                        string                  `json:"TableName"`
 	PointInTimeRecoverySpecification pointInTimeRecoverySpec `json:"PointInTimeRecoverySpecification"`
-}
-
-// setPITREnabledLocked sets table.PITREnabled and, when disabling, releases
-// the snapshot ring, under a defer-protected table.mu.Lock.
-func setPITREnabledLocked(table *Table, pitrEnabled bool) {
-	table.mu.Lock(opUpdateContinuousBackups)
-	defer table.mu.Unlock()
-
-	table.PITREnabled = pitrEnabled
-	if !pitrEnabled {
-		// Releasing memory the moment the feature is turned off keeps the
-		// per-table footprint tight; re-enabling starts a fresh ring.
-		table.PITRSnapshots = nil
-	}
 }
 
 func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []byte) (any, error) {
@@ -145,28 +116,18 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 
 	pitrEnabled := req.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled
 
-	if db, ok := h.Backend.(*InMemoryDB); ok {
-		table, err := db.getTable(ctx, req.TableName)
-		if err != nil {
-			return nil, err
-		}
-
-		setPITREnabledLocked(table, pitrEnabled)
-	}
-
-	pitrStatus := continuousBackupsStatusDisabled
-	if pitrEnabled {
-		pitrStatus = continuousBackupsStatusEnabled
-	}
-
-	return &describeContinuousBackupsOutput{
-		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
-			ContinuousBackupsStatus: continuousBackupsStatusEnabled,
-			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{
-				PointInTimeRecoveryStatus: pitrStatus,
-			},
+	out, err := h.Backend.UpdateContinuousBackups(ctx, &sdkdynamodb.UpdateContinuousBackupsInput{
+		TableName: &req.TableName,
+		PointInTimeRecoverySpecification: &sdktypes.PointInTimeRecoverySpecification{
+			PointInTimeRecoveryEnabled: &pitrEnabled,
+			RecoveryPeriodInDays:       req.PointInTimeRecoverySpecification.RecoveryPeriodInDays,
 		},
-	}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return continuousBackupsOutputFromSDK(out.ContinuousBackupsDescription), nil
 }
 
 type exportTableToPointInTimeInput struct {
@@ -199,37 +160,61 @@ type exportTableToPointInTimeOutput struct {
 	ExportDescription exportDescriptionFields `json:"ExportDescription"`
 }
 
-type listExportsOutput struct {
-	NextToken       string                    `json:"NextToken,omitempty"`
-	ExportSummaries []exportDescriptionFields `json:"ExportSummaries"`
+// exportSummaryFields is the wire shape of types.ExportSummary (see
+// deserializers.go's awsAwsjson10_deserializeDocumentExportSummary), which
+// carries only ExportArn, ExportStatus and ExportType -- unlike
+// exportDescriptionFields, which mirrors the much richer ExportDescription
+// returned by ExportTableToPointInTime/DescribeExport.
+type exportSummaryFields struct {
+	ExportArn    string `json:"ExportArn,omitempty"`
+	ExportStatus string `json:"ExportStatus,omitempty"`
+	ExportType   string `json:"ExportType,omitempty"`
 }
 
-// exportIDSuffixLen is the number of characters taken from the UUID to form the
-// second component of an export ID suffix. 16 characters is chosen to keep ARNs
-// short while still providing enough randomness to avoid collisions.
-const exportIDSuffixLen = 16
+func exportSummaryFieldsFromSDK(s sdktypes.ExportSummary) exportSummaryFields {
+	return exportSummaryFields{
+		ExportArn:    aws.ToString(s.ExportArn),
+		ExportStatus: string(s.ExportStatus),
+		ExportType:   string(s.ExportType),
+	}
+}
 
-// exportARNRegionIdx is the zero-based position of the region field in a colon-split ARN.
-const exportARNRegionIdx = 3
+type listExportsOutput struct {
+	NextToken       string                `json:"NextToken,omitempty"`
+	ExportSummaries []exportSummaryFields `json:"ExportSummaries"`
+}
 
-// exportARNAccountIdx is the zero-based position of the account-ID field in a colon-split ARN.
-const exportARNAccountIdx = 4
+// exportDescFieldsFromSDK converts the SDK ExportDescription into the wire shape.
+func exportDescFieldsFromSDK(d *sdktypes.ExportDescription) exportDescriptionFields {
+	if d == nil {
+		return exportDescriptionFields{}
+	}
 
-// exportARNPartCount is the expected number of parts when splitting a full DynamoDB ARN on ":".
-const exportARNPartCount = 6
+	out := exportDescriptionFields{
+		ExportArn:      aws.ToString(d.ExportArn),
+		ExportStatus:   string(d.ExportStatus),
+		TableArn:       aws.ToString(d.TableArn),
+		S3Bucket:       aws.ToString(d.S3Bucket),
+		S3Prefix:       aws.ToString(d.S3Prefix),
+		ExportFormat:   string(d.ExportFormat),
+		ExportType:     string(d.ExportType),
+		ExportManifest: aws.ToString(d.ExportManifest),
+		FailureCode:    aws.ToString(d.FailureCode),
+		FailureMessage: aws.ToString(d.FailureMessage),
+	}
+	if d.ExportTime != nil {
+		out.ExportTime = float64(d.ExportTime.Unix())
+	}
+	if d.StartTime != nil {
+		out.StartTime = float64(d.StartTime.Unix())
+	}
+	if d.EndTime != nil {
+		out.EndTime = float64(d.EndTime.Unix())
+	}
+	out.BilledSizeBytes = aws.ToInt64(d.BilledSizeBytes)
+	out.ItemCount = aws.ToInt64(d.ItemCount)
 
-// exportARNPathParts is the expected number of parts when splitting the resource portion of an ARN on "/".
-const exportARNPathParts = 2
-
-// generateExportID creates a short unique suffix for export ARNs.
-// Format matches the AWS convention: a zero-padded Unix millisecond timestamp
-// followed by a UUID-derived hex suffix.
-func generateExportID() string {
-	return fmt.Sprintf(
-		"%016x-%s",
-		time.Now().UnixMilli(),
-		strings.ReplaceAll(uuid.New().String(), "-", "")[:exportIDSuffixLen],
-	)
+	return out
 }
 
 func (h *DynamoDBHandler) exportTableToPointInTime(ctx context.Context, body []byte) (any, error) {
@@ -238,116 +223,25 @@ func (h *DynamoDBHandler) exportTableToPointInTime(ctx context.Context, body []b
 		return nil, err
 	}
 
-	region, accountID := exportRegionAccount(req.TableArn)
-	exportARN := buildExportARN(req.TableArn, region, accountID)
-
-	exportFmt := req.ExportFormat
-	if exportFmt == "" {
-		exportFmt = "DYNAMODB_JSON"
+	sdkInput := &sdkdynamodb.ExportTableToPointInTimeInput{
+		TableArn:     &req.TableArn,
+		S3Bucket:     &req.S3Bucket,
+		S3Prefix:     &req.S3Prefix,
+		ExportFormat: sdktypes.ExportFormat(req.ExportFormat),
 	}
-	now := time.Now()
-	desc := exportDescriptionFields{
-		ExportArn:    exportARN,
-		ExportStatus: "IN_PROGRESS",
-		TableArn:     req.TableArn,
-		S3Bucket:     req.S3Bucket,
-		S3Prefix:     req.S3Prefix,
-		ExportFormat: exportFmt,
-		ExportType:   "FULL_EXPORT",
-		StartTime:    float64(now.Unix()),
-		ExportTime:   req.ExportTime,
+	if req.ExportTime != 0 {
+		t := time.Unix(int64(req.ExportTime), 0)
+		sdkInput.ExportTime = &t
 	}
 
-	// Persist as IN_PROGRESS (AWS initial response), then complete asynchronously.
-	// Real AWS takes minutes; the emulator finishes in microseconds.
-	if b, ok := h.Backend.(*InMemoryDB); ok {
-		b.storeExport(desc)
-		reqCopy := req
-		go b.completeExportSync(context.WithoutCancel(ctx), exportARN, &reqCopy)
-	}
-
-	return &exportTableToPointInTimeOutput{ExportDescription: desc}, nil
-}
-
-// exportRegionAccount extracts region and accountID from a DynamoDB table ARN.
-func exportRegionAccount(tableARN string) (string, string) {
-	region, accountID := config.DefaultRegion, config.DefaultAccountID
-	if tableARN == "" {
-		return region, accountID
-	}
-	parts := strings.SplitN(tableARN, ":", exportARNPartCount)
-	if len(parts) >= exportARNRegionIdx+1 && parts[exportARNRegionIdx] != "" {
-		region = parts[exportARNRegionIdx]
-	}
-	if len(parts) >= exportARNAccountIdx+1 && parts[exportARNAccountIdx] != "" {
-		accountID = parts[exportARNAccountIdx]
-	}
-
-	return region, accountID
-}
-
-// buildExportARN constructs a unique export ARN from the table ARN.
-func buildExportARN(tableARN, region, accountID string) string {
-	tableSlug := "unknown"
-	if tableARN != "" {
-		if parts := strings.SplitN(tableARN, "/", exportARNPathParts); len(
-			parts,
-		) == exportARNPathParts {
-			tableSlug = parts[1]
-		}
-	}
-	exportID := fmt.Sprintf("%s/%s", tableSlug, generateExportID())
-
-	return arn.Build("dynamodb", region, accountID, "table/"+exportID)
-}
-
-// completeExportSync performs the S3 write (if a bucket is configured) and
-// updates the stored export record to its terminal state (COMPLETED or FAILED).
-func (db *InMemoryDB) completeExportSync(
-	ctx context.Context,
-	exportARN string,
-	req *exportTableToPointInTimeInput,
-) {
-	var (
-		manifestKey string
-		itemCount   int64
-		billedBytes int64
-		failCode    string
-		failMsg     string
-		finalStatus = "COMPLETED"
-	)
-	if req.S3Bucket != "" {
-		manifestKey, itemCount, billedBytes, failCode, failMsg, finalStatus =
-			db.exportToS3Bucket(ctx, req)
-	} else {
-		if n, err := db.countTableItems(ctx, req.TableArn); err == nil {
-			itemCount = int64(n)
-			billedBytes = itemCount * avgExportItemBytes
-		}
-	}
-	db.updateExport(exportARN, finalStatus, manifestKey, failCode, failMsg, itemCount, billedBytes)
-}
-
-// exportToS3Bucket writes export data to S3 and returns completion metadata.
-func (db *InMemoryDB) exportToS3Bucket(
-	ctx context.Context,
-	req *exportTableToPointInTimeInput,
-) (string, int64, int64, string, string, string) {
-	base := strings.TrimSuffix(req.S3Prefix, "/")
-	if base != "" {
-		base += "/"
-	}
-	objBase := fmt.Sprintf("%sAWSDynamoDB/%s", base, generateExportID())
-	dataKey := objBase + "/data/00000.json.gz"
-	manifestKey := objBase + "/manifest-summary.json"
-	n, err := db.exportTableToS3(ctx, req.TableArn, req.S3Bucket, dataKey, manifestKey)
+	out, err := h.Backend.ExportTableToPointInTime(ctx, sdkInput)
 	if err != nil {
-		return manifestKey, 0, 0, "ExportError", err.Error(), "FAILED"
+		return nil, err
 	}
-	itemCount := n
-	billedBytes := itemCount * avgExportItemBytes
 
-	return manifestKey, itemCount, billedBytes, "", "", "COMPLETED"
+	return &exportTableToPointInTimeOutput{
+		ExportDescription: exportDescFieldsFromSDK(out.ExportDescription),
+	}, nil
 }
 
 type describeExportInput struct {
@@ -364,20 +258,16 @@ func (h *DynamoDBHandler) describeExport(ctx context.Context, body []byte) (any,
 		return nil, NewValidationException("ExportArn is required")
 	}
 
-	// Look up the stored export if the backend supports it, restricted to request region.
-	if b, ok := h.Backend.(*InMemoryDB); ok {
-		requestRegion := h.regionFromHandlerContext(ctx)
-		if b.regionFromARN(req.ExportArn) != requestRegion {
-			return nil, NewExportNotFoundException("Export not found: " + req.ExportArn)
-		}
-
-		if desc, found := b.lookupExport(req.ExportArn); found {
-			return &exportTableToPointInTimeOutput{ExportDescription: desc}, nil
-		}
+	out, err := h.Backend.DescribeExport(ctx, &sdkdynamodb.DescribeExportInput{
+		ExportArn: &req.ExportArn,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	// AWS returns ExportNotFoundException for an unknown ARN, not a fake COMPLETED.
-	return nil, NewExportNotFoundException("Export not found: " + req.ExportArn)
+	return &exportTableToPointInTimeOutput{
+		ExportDescription: exportDescFieldsFromSDK(out.ExportDescription),
+	}, nil
 }
 
 // --- ListExports handler ---
@@ -394,16 +284,34 @@ func (h *DynamoDBHandler) listExports(ctx context.Context, body []byte) (any, er
 		return nil, err
 	}
 
-	if b, ok := h.Backend.(*InMemoryDB); ok {
-		return b.listExportsWire(
-			req.TableArn,
-			req.NextToken,
-			req.MaxResults,
-			h.regionFromHandlerContext(ctx),
-		), nil
+	var maxResults *int32
+	if req.MaxResults > 0 {
+		mr := int32(req.MaxResults) // #nosec G115 -- MaxResults is a page-size hint, not a trust boundary
+		maxResults = &mr
 	}
 
-	return &listExportsOutput{ExportSummaries: []exportDescriptionFields{}}, nil
+	out, err := h.Backend.ListExports(ctx, &sdkdynamodb.ListExportsInput{
+		TableArn:   ptrconv.NilIfEmpty(req.TableArn),
+		NextToken:  ptrconv.NilIfEmpty(req.NextToken),
+		MaxResults: maxResults,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// ExportSummary (the official SDK shape) carries only ExportArn,
+	// ExportStatus and ExportType -- the backend already returns exactly
+	// that (see (*InMemoryDB).ListExports), so no per-ARN DescribeExport
+	// call is needed to fill this out.
+	summaries := make([]exportSummaryFields, 0, len(out.ExportSummaries))
+	for _, s := range out.ExportSummaries {
+		summaries = append(summaries, exportSummaryFieldsFromSDK(s))
+	}
+
+	return &listExportsOutput{
+		NextToken:       aws.ToString(out.NextToken),
+		ExportSummaries: summaries,
+	}, nil
 }
 
 type describeTableReplicaAutoScalingInput struct {
@@ -411,8 +319,9 @@ type describeTableReplicaAutoScalingInput struct {
 }
 
 type replicaAutoScalingDescription struct {
-	RegionName    string `json:"RegionName"`
-	ReplicaStatus string `json:"ReplicaStatus"`
+	WriteCapAutoScaling *autoScalingSettingsDescWire `json:"ReplicaProvisionedWriteCapacityAutoScalingSettings,omitempty"`
+	RegionName          string                       `json:"RegionName"`
+	ReplicaStatus       string                       `json:"ReplicaStatus"`
 }
 
 type tableAutoScalingDescription struct {
@@ -425,21 +334,33 @@ type describeTableReplicaAutoScalingOutput struct {
 	TableAutoScalingDescription tableAutoScalingDescription `json:"TableAutoScalingDescription"`
 }
 
-// replicaAutoScalingDescriptionsRLocked copies table.Replicas into the wire
-// shape under a defer-protected table.mu.RLock.
-func replicaAutoScalingDescriptionsRLocked(table *Table) []replicaAutoScalingDescription {
-	table.mu.RLock(opDescribeTableReplicaAutoScaling)
-	defer table.mu.RUnlock()
+// describeTableReplicaAutoScalingOutputFromSDK converts the SDK
+// TableAutoScalingDescription into the wire shape.
+func describeTableReplicaAutoScalingOutputFromSDK(
+	d *sdktypes.TableAutoScalingDescription,
+) *describeTableReplicaAutoScalingOutput {
+	if d == nil {
+		return &describeTableReplicaAutoScalingOutput{}
+	}
 
-	replicas := make([]replicaAutoScalingDescription, 0, len(table.Replicas))
-	for _, r := range table.Replicas {
+	replicas := make([]replicaAutoScalingDescription, 0, len(d.Replicas))
+	for _, r := range d.Replicas {
 		replicas = append(replicas, replicaAutoScalingDescription{
-			RegionName:    r.RegionName,
-			ReplicaStatus: r.ReplicaStatus,
+			RegionName:    aws.ToString(r.RegionName),
+			ReplicaStatus: string(r.ReplicaStatus),
+			WriteCapAutoScaling: autoScalingSettingsDescWireFromSDK(
+				r.ReplicaProvisionedWriteCapacityAutoScalingSettings,
+			),
 		})
 	}
 
-	return replicas
+	return &describeTableReplicaAutoScalingOutput{
+		TableAutoScalingDescription: tableAutoScalingDescription{
+			TableName:   aws.ToString(d.TableName),
+			TableStatus: string(d.TableStatus),
+			Replicas:    replicas,
+		},
+	}
 }
 
 func (h *DynamoDBHandler) describeTableReplicaAutoScaling(
@@ -455,22 +376,13 @@ func (h *DynamoDBHandler) describeTableReplicaAutoScaling(
 		return nil, NewValidationException("TableName is required")
 	}
 
-	var replicas []replicaAutoScalingDescription
-
-	if db, ok := h.Backend.(*InMemoryDB); ok {
-		table, err := db.getTable(ctx, req.TableName)
-		if err != nil {
-			return nil, err
-		}
-
-		replicas = replicaAutoScalingDescriptionsRLocked(table)
+	out, err := h.Backend.DescribeTableReplicaAutoScaling(
+		ctx,
+		&sdkdynamodb.DescribeTableReplicaAutoScalingInput{TableName: &req.TableName},
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	return &describeTableReplicaAutoScalingOutput{
-		TableAutoScalingDescription: tableAutoScalingDescription{
-			TableName:   req.TableName,
-			TableStatus: models.TableStatusActive,
-			Replicas:    replicas,
-		},
-	}, nil
+	return describeTableReplicaAutoScalingOutputFromSDK(out.TableAutoScalingDescription), nil
 }

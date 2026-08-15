@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,11 +41,54 @@ func TestResourceDataSync_CRUD(t *testing.T) {
 
 	// Create duplicate → returns error (sync already exists)
 	rec = doRequest(t, h, "CreateResourceDataSync", `{"SyncName":"my-sync"}`)
-	assert.NotEqual(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assertBodyContains(t, rec, "ResourceDataSyncAlreadyExistsException")
 
-	// Update
+	// Update missing required fields -- gopherstack-4ggy: SyncSource/SyncType
+	// were previously dropped entirely and this call silently no-opped
+	// (returned success) instead of erroring.
 	rec = doRequest(t, h, "UpdateResourceDataSync", `{"SyncName":"my-sync"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// Update with SyncSource/SyncType -- must round-trip on ListResourceDataSync.
+	rec = doRequest(t, h, "UpdateResourceDataSync", `{
+		"SyncName":"my-sync",
+		"SyncType":"SyncFromSource",
+		"SyncSource":{"SourceType":"SingleAccountMultiRegions","SourceRegions":["us-east-1","us-west-2"]}
+	}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "ListResourceDataSync", `{}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		ResourceDataSyncItems []struct {
+			SyncSource *struct {
+				SourceType    string   `json:"SourceType"`
+				SourceRegions []string `json:"SourceRegions"`
+			} `json:"SyncSource"`
+			SyncName string `json:"SyncName"`
+			SyncType string `json:"SyncType"`
+		} `json:"ResourceDataSyncItems"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.Len(t, listResp.ResourceDataSyncItems, 1)
+	item := listResp.ResourceDataSyncItems[0]
+	assert.Equal(t, "SyncFromSource", item.SyncType)
+	require.NotNil(t, item.SyncSource)
+	assert.Equal(t, "SingleAccountMultiRegions", item.SyncSource.SourceType)
+	assert.Equal(t, []string{"us-east-1", "us-west-2"}, item.SyncSource.SourceRegions)
+
+	// Update against an unknown sync name -> not found (this service's
+	// convention maps every known domain error to 400, not 404 -- see
+	// classifySSMError/classifySSMErrorExtended, handler.go).
+	rec = doRequest(t, h, "UpdateResourceDataSync", `{
+		"SyncName":"does-not-exist",
+		"SyncType":"SyncFromSource",
+		"SyncSource":{"SourceType":"SingleAccountMultiRegions","SourceRegions":["us-east-1"]}
+	}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assertBodyContains(t, rec, "ResourceDataSyncNotFoundException")
 
 	// Delete
 	rec = doRequest(t, h, "DeleteResourceDataSync", `{"SyncName":"my-sync"}`)
@@ -69,9 +114,12 @@ func TestListNodes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assertBodyContains(t, rec, "Nodes")
 
-	rec = doRequest(t, h, "ListNodesSummary", `{}`)
+	rec = doRequest(
+		t, h, "ListNodesSummary",
+		`{"Aggregators":[{"AggregatorType":"Count","AttributeName":"PlatformType","TypeName":"Instance"}]}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assertBodyContains(t, rec, "NodeCount")
+	assertBodyContains(t, rec, "Count")
 }
 
 // TestOtherMapsRegionCleanup verifies that delete operations on resources
@@ -217,6 +265,15 @@ func TestDeleteResourceDataSync_RoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteResourceDataSync_Handler_NotFound previously asserted a
+// StatusInternalServerError (500) for an unknown sync name -- ErrResourceDataSyncNotFound
+// had no case in classifySSMErrorExtended (handler.go) at all, so it fell
+// through to the default InternalServerError branch. Fixed alongside
+// gopherstack-4ggy's UpdateResourceDataSync fix, which needed the same
+// mapping for its own not-found path; this service's uniform convention
+// maps every known domain error to 400 (see classifySSMError/
+// classifySSMErrorExtended), never 404.
 func TestDeleteResourceDataSync_Handler_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -225,7 +282,7 @@ func TestDeleteResourceDataSync_Handler_NotFound(t *testing.T) {
 		body string
 	}{
 		{
-			name: "non_existent_sync_returns_500",
+			name: "non_existent_sync_returns_400",
 			body: `{"SyncName":"ghost-sync"}`,
 		},
 	}
@@ -236,7 +293,7 @@ func TestDeleteResourceDataSync_Handler_NotFound(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			rec := doRequest(t, h, "DeleteResourceDataSync", tt.body)
-			assert.Equal(t, http.StatusInternalServerError, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			assert.Contains(t, rec.Body.String(), "ResourceDataSyncNotFoundException")
 		})
 	}
@@ -574,12 +631,21 @@ func TestCreateActivation_WithTags(t *testing.T) {
 		})
 	}
 }
+
+// TestFleetManager_ListNodes_FromActivations drives the real SDK client so
+// the shape assertion can't pass against the bug this op used to have: the
+// backend previously serialized PlatformType/AgentVersion/InstanceId as
+// top-level keys, but the real Node shape (types.Node) nests them three
+// levels down under NodeType.Instance, and the client's own deserializer
+// would silently decode zero values from top-level fields it doesn't
+// recognize -- a raw map assertion on those top-level keys would pass
+// either way.
 func TestFleetManager_ListNodes_FromActivations(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler(t)
+	client := newTestSSMClient(t, h)
 
-	// Create activations — each produces a node.
 	for range 3 {
 		_, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
 			IamRole:           "arn:aws:iam::123456789012:role/SSMRole",
@@ -588,25 +654,28 @@ func TestFleetManager_ListNodes_FromActivations(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	rec := doRequest(t, h, "ListNodes", `{}`)
-	require.Equal(t, http.StatusOK, rec.Code)
+	out, err := client.ListNodes(t.Context(), &ssmsdk.ListNodesInput{})
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(out.Nodes), 3)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	for _, n := range out.Nodes {
+		require.NotEmpty(t, n.Id)
 
-	nodes := resp["Nodes"].([]any)
-	assert.GreaterOrEqual(t, len(nodes), 3)
-
-	// Each node should have PlatformType.
-	for _, n := range nodes {
-		node := n.(map[string]any)
-		assert.NotEmpty(t, node["PlatformType"])
+		member, ok := n.NodeType.(*ssmtypes.NodeTypeMemberInstance)
+		require.True(t, ok, "NodeType must be the Instance union member")
+		assert.NotEmpty(t, member.Value.PlatformType)
 	}
 }
-func TestFleetManager_ListNodesSummary_NodeCount(t *testing.T) {
+
+// TestFleetManager_ListNodes_Filters verifies NodeFilter narrows the
+// returned population, matching ListNodesSummary's already-fixed Filters
+// handling (gopherstack-m53b) instead of accepting and silently ignoring
+// it the way the struct{} input did.
+func TestFleetManager_ListNodes_Filters(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandler(t)
+	client := newTestSSMClient(t, h)
 
 	_, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
 		IamRole:           "arn:aws:iam::123456789012:role/SSMRole",
@@ -614,15 +683,57 @@ func TestFleetManager_ListNodesSummary_NodeCount(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	rec := doRequest(t, h, "ListNodesSummary", `{}`)
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "NodeCount")
+	matching, err := client.ListNodes(t.Context(), &ssmsdk.ListNodesInput{
+		Filters: []ssmtypes.NodeFilter{
+			{Key: ssmtypes.NodeFilterKeyPlatformType, Values: []string{"Linux"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, matching.Nodes)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	empty, err := client.ListNodes(t.Context(), &ssmsdk.ListNodesInput{
+		Filters: []ssmtypes.NodeFilter{
+			{Key: ssmtypes.NodeFilterKeyPlatformType, Values: []string{"Windows"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, empty.Nodes)
+}
 
-	summary := resp["Summary"].([]any)
-	assert.NotEmpty(t, summary)
+// TestFleetManager_ListNodesSummary_NodeCount drives ListNodesSummary
+// through the real aws-sdk-go-v2 client and proves Aggregators -- the op's
+// only required member (api_op_ListNodesSummary.go:31-62, ssm@v1.73.4) --
+// actually drives a real per-attribute grouping instead of the fixed
+// synthetic count the backend previously returned regardless of input.
+func TestFleetManager_ListNodesSummary_NodeCount(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+	client := newTestSSMClient(t, h)
+
+	_, err := b.CreateActivation(context.TODO(), &ssm.CreateActivationInput{
+		IamRole:           "arn:aws:iam::123456789012:role/SSMRole",
+		RegistrationLimit: 2,
+	})
+	require.NoError(t, err)
+
+	out, err := client.ListNodesSummary(context.TODO(), &ssmsdk.ListNodesSummaryInput{
+		Aggregators: []ssmtypes.NodeAggregator{
+			{
+				AggregatorType: ssmtypes.NodeAggregatorTypeCount,
+				AttributeName:  ssmtypes.NodeAttributeNamePlatformType,
+				TypeName:       ssmtypes.NodeTypeNameInstance,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.Summary)
+	assert.Equal(t, "Linux", out.Summary[0]["PlatformType"])
+	assert.Equal(t, "1", out.Summary[0]["Count"])
+
+	// A real client's client-side validation middleware refuses to send
+	// Aggregators as an empty slice, so the "missing required field" case is
+	// exercised at the raw-JSON layer instead (see TestListNodes).
 }
 
 // TestDeleteActivation_TableDriven verifies success and not-found for DeleteActivation.

@@ -17,7 +17,7 @@ type StorageBackend interface {
 	StopStack(stackID string) error
 	GetHostnameSuggestion(layerID string) (string, error)
 	DescribeStackSummary(stackID string) (*StackSummary, error)
-	DescribeStackProvisioningParameters(stackID string) (map[string]string, error)
+	DescribeStackProvisioningParameters(stackID string) (agentInstallerURL string, params map[string]string, err error)
 
 	// Layer operations
 	CreateLayer(stackID, layerType, name, shortname string) (*Layer, error)
@@ -67,14 +67,14 @@ type StorageBackend interface {
 	// Elastic Load Balancer operations
 	AttachElasticLoadBalancer(elbName, layerID string) error
 	DetachElasticLoadBalancer(elbName, layerID string) error
-	DescribeElasticLoadBalancers(stackID, layerID string) ([]*ElasticLoadBalancer, error)
+	DescribeElasticLoadBalancers(stackID string, layerIDs []string) ([]*ElasticLoadBalancer, error)
 
 	// Elastic IP operations
 	AssociateElasticIP(elasticIP, instanceID string) error
 	DisassociateElasticIP(elasticIP string) error
-	RegisterElasticIP(elasticIP, region string) (*ElasticIP, error)
+	RegisterElasticIP(elasticIP, stackID string) (*ElasticIP, error)
 	DeregisterElasticIP(elasticIP string) error
-	DescribeElasticIps(instanceID string, ips []string) ([]*ElasticIP, error)
+	DescribeElasticIps(stackID, instanceID string, ips []string) ([]*ElasticIP, error)
 	UpdateElasticIP(elasticIP, name string) error
 
 	// Volume operations
@@ -302,12 +302,20 @@ type ElasticLoadBalancer struct {
 }
 
 // ElasticIP represents an elastic IP registered with OpsWorks.
+//
+// StackID is kept for the real, "This member is required"
+// RegisterElasticIpInput field and the real DescribeElasticIpsInput's filter
+// member, but is deliberately NOT serialized on the wire in
+// elasticIpsToJSON: the real types.ElasticIp has no StackId member
+// (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's types.go --
+// only Domain/InstanceId/Ip/Name/Region).
 type ElasticIP struct {
 	IP         string
 	Domain     string
 	Name       string
 	Region     string
 	InstanceID string
+	StackID    string
 }
 
 // Volume represents a registered volume.

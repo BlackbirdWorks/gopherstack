@@ -14,8 +14,14 @@ func (b *InMemoryBackend) trustStoreARN(id string) string {
 	return arn.Build("elasticloadbalancing", b.region, b.accountID, "truststore/"+id)
 }
 
-// CreateTrustStore creates a new trust store.
-func (b *InMemoryBackend) CreateTrustStore(name string, kvs []tags.KV) (*TrustStore, error) {
+// CreateTrustStore creates a new trust store. s3Bucket/s3Key/s3ObjectVersion
+// are CreateTrustStoreInput's CaCertificatesBundleS3* fields (Bucket/Key
+// required on the real wire) -- stored inertly, see TrustStore's doc comment.
+func (b *InMemoryBackend) CreateTrustStore(
+	name string,
+	kvs []tags.KV,
+	s3Bucket, s3Key, s3ObjectVersion string,
+) (*TrustStore, error) {
 	b.mu.Lock("CreateTrustStore")
 	defer b.mu.Unlock()
 
@@ -38,11 +44,14 @@ func (b *InMemoryBackend) CreateTrustStore(name string, kvs []tags.KV) (*TrustSt
 	}
 
 	ts := &TrustStore{
-		TrustStoreArn: tsArn,
-		Name:          name,
-		Status:        "ACTIVE",
-		Revocations:   []TrustStoreRevocation{},
-		Tags:          t,
+		TrustStoreArn:                       tsArn,
+		Name:                                name,
+		Status:                              "ACTIVE",
+		CaCertificatesBundleS3Bucket:        s3Bucket,
+		CaCertificatesBundleS3Key:           s3Key,
+		CaCertificatesBundleS3ObjectVersion: s3ObjectVersion,
+		Revocations:                         []TrustStoreRevocation{},
+		Tags:                                t,
 	}
 
 	b.trustStores.Put(ts)
@@ -194,8 +203,16 @@ func (b *InMemoryBackend) DeleteSharedTrustStoreAssociation(trustStoreArn, resou
 	return nil
 }
 
-// ModifyTrustStore updates a trust store's name.
-func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn, name string) (*TrustStore, error) {
+// ModifyTrustStore looks up a trust store for ModifyTrustStoreInput, whose only
+// real fields are TrustStoreArn and the CA certificates bundle location
+// (CaCertificatesBundleS3Bucket/Key/ObjectVersion, both Bucket/Key required on
+// the real wire). Bundle content itself stays inert -- see TrustStore's doc
+// comment -- but the location is now recorded (gopherstack-hl3h), matching
+// CreateTrustStore so the two ops model the same shape consistently.
+func (b *InMemoryBackend) ModifyTrustStore(
+	trustStoreArn string,
+	s3Bucket, s3Key, s3ObjectVersion string,
+) (*TrustStore, error) {
 	b.mu.Lock("ModifyTrustStore")
 	defer b.mu.Unlock()
 
@@ -204,9 +221,13 @@ func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn, name string) (*TrustSt
 		return nil, ErrTrustStoreNotFound
 	}
 
-	if name != "" {
-		ts.Name = name
+	if s3Bucket != "" {
+		ts.CaCertificatesBundleS3Bucket = s3Bucket
 	}
+	if s3Key != "" {
+		ts.CaCertificatesBundleS3Key = s3Key
+	}
+	ts.CaCertificatesBundleS3ObjectVersion = s3ObjectVersion
 
 	cp := *ts
 

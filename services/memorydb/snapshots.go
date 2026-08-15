@@ -9,6 +9,37 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+// snapshotClusterConfigFor builds the wire ClusterConfiguration recorded on a
+// new snapshot from the source cluster's live state. MultiRegionClusterName
+// is copied straight off the cluster; MultiRegionParameterGroupName is not
+// tracked on Cluster itself (only on the MultiRegionCluster it belongs to),
+// so it's resolved through that FK. Caller must hold b.mu.
+func (b *InMemoryBackend) snapshotClusterConfigFor(c *Cluster) snapshotClusterConfig {
+	cfg := snapshotClusterConfig{
+		Name:                   c.Name,
+		NodeType:               c.NodeType,
+		EngineVersion:          c.EngineVersion,
+		Description:            c.Description,
+		Port:                   c.Port,
+		NumShards:              c.NumShards,
+		Engine:                 c.Engine,
+		MaintenanceWindow:      c.MaintenanceWindow,
+		TopicArn:               c.SnsTopicArn,
+		ParameterGroupName:     c.ParameterGroupName,
+		SubnetGroupName:        c.SubnetGroupName,
+		SnapshotRetentionLimit: c.SnapshotRetentionLimit,
+		SnapshotWindow:         c.SnapshotWindow,
+		MultiRegionClusterName: c.MultiRegionClusterName,
+	}
+	if c.MultiRegionClusterName != "" {
+		if mrc, ok := b.multiRegionClusters.Get(c.MultiRegionClusterName); ok {
+			cfg.MultiRegionParameterGroupName = mrc.MultiRegionParameterGroupName
+		}
+	}
+
+	return cfg
+}
+
 // CreateSnapshot creates a snapshot of a cluster.
 func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapshotRequest) (*Snapshot, error) {
 	b.mu.Lock()
@@ -28,30 +59,16 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 	snapshotARN := arn.Build("memorydb", region, b.accountID, "snapshot/"+req.SnapshotName)
 
 	s := &Snapshot{
-		Name:        req.SnapshotName,
-		ARN:         snapshotARN,
-		ClusterName: req.ClusterName,
-		Status:      snapshotStatusAvailable,
-		KmsKeyID:    req.KmsKeyID,
-		Source:      snapshotSourceManual,
-		DataTiering: c.DataTiering,
-		Tags:        tagsFromSlice(req.Tags),
-		CreatedAt:   time.Now(),
-		ClusterConfiguration: snapshotClusterConfig{
-			Name:                   c.Name,
-			NodeType:               c.NodeType,
-			EngineVersion:          c.EngineVersion,
-			Description:            c.Description,
-			Port:                   c.Port,
-			NumShards:              c.NumShards,
-			Engine:                 c.Engine,
-			MaintenanceWindow:      c.MaintenanceWindow,
-			TopicArn:               c.SnsTopicArn,
-			ParameterGroupName:     c.ParameterGroupName,
-			SubnetGroupName:        c.SubnetGroupName,
-			SnapshotRetentionLimit: c.SnapshotRetentionLimit,
-			SnapshotWindow:         c.SnapshotWindow,
-		},
+		Name:                 req.SnapshotName,
+		ARN:                  snapshotARN,
+		ClusterName:          req.ClusterName,
+		Status:               snapshotStatusAvailable,
+		KmsKeyID:             req.KmsKeyID,
+		Source:               snapshotSourceManual,
+		DataTiering:          c.DataTiering,
+		Tags:                 tagsFromSlice(req.Tags),
+		CreatedAt:            time.Now(),
+		ClusterConfiguration: b.snapshotClusterConfigFor(c),
 	}
 
 	b.snapshotsStore(region).Put(s)

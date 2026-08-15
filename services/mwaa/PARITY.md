@@ -40,6 +40,44 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; existing l
 
 ## Notes
 
+**2026-08-15 (gopherstack-3gbe):** investigated whether MWAA shares Omics'
+(gopherstack-keee) client-side host-prefix-rewrite reachability gap. It
+does, and covers nearly this service's entire real surface: **12 of MWAA's
+operations** carry a `req.URL.Host = "..." + req.URL.Host` rewrite from a
+per-operation Smithy Finalize middleware, confirmed against the pinned
+`mwaa@v1.43.4` module -- `api.` (8: CreateEnvironment
+`api_op_CreateEnvironment.go:340`, GetEnvironment `:130`, DeleteEnvironment
+`:126`, UpdateEnvironment `:312`, ListEnvironments `:219`, TagResource
+`:135`, UntagResource `:133`, ListTagsForResource `:134`), `env.` (3:
+CreateCliToken `api_op_CreateCliToken.go:134`, CreateWebLoginToken
+`api_op_CreateWebLoginToken.go:142`, InvokeRestApi
+`api_op_InvokeRestApi.go:159`), `ops.` (1: PublishMetrics
+`api_op_PublishMetrics.go:140`) -- exactly matching gopherstack-3gbe's
+filing (three literal prefixes using `.`, not `-`).
+
+No routing/auth code needed changing. `Handler.RouteMatcher` (`handler.go:82`)
+matches on `URL.Path` alone, gated on the SigV4 service name `"airflow"`
+(already listed as SigV4-scoped and confirmed clean in
+`services/_ROUTE_COLLISIONS.md`'s "hand-read this pass" section), and every
+op already has a distinct path/method pair. The reachability gap is a pure
+client-side DNS/dial failure, same as Omics -- confirmed live via
+`host_prefix_reachability_test.go`'s before-fix test:
+`dial tcp: lookup api.127.0.0.1 on 127.0.0.53:53: no such host`.
+
+Before this pass, mwaa had **no real-SDK-client test at all** -- every
+existing test drives the handler directly over a raw `httptest.Recorder`,
+so the real-client reachability of this operation family had never been
+exercised in either direction. Added
+`host_prefix_reachability_test.go` following
+`services/omics/host_prefix_reachability_test.go`'s before/after pattern
+(real unmodified client fails to dial; a redial-to-the-real-listener
+transport leaves the SDK's real, un-disabled rewrite intact on the wire and
+the op succeeds with correctly decoded values), one representative op per
+prefix. Gates green: build, vet, race, `go fix -diff` (no diff),
+golangci-lint (0 findings; the one staticcheck SA1019 on the deliberately
+deprecated-but-real `PublishMetrics` call is `//nolint:staticcheck`'d, same
+convention as `services/directconnect/sdk_roundtrip_test.go`).
+
 - **Protocol**: restjson1. Route prefixes unchanged from the prior pass, re-verified against
   aws-sdk-go-v2/service/mwaa@v1.43.4 serializers.go for every op: `/environments`
   (POST-less; GET=List), `/environments/{Name}` (GET/PUT/DELETE/PATCH =

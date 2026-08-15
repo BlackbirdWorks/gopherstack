@@ -58,6 +58,7 @@ import (
 	elasticbeanstalksdk "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	elbsdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2sdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	elasticsearchsdk "github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
 	emrserverlesssdk "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
@@ -1623,6 +1624,26 @@ func createBedrockClient(t *testing.T) *bedrocksdk.Client {
 	}
 
 	return bedrocksdk.NewFromConfig(cfg, func(o *bedrocksdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createElasticsearchClient returns an Elasticsearch client pointed at the shared test container.
+func createElasticsearchClient(t *testing.T) *elasticsearchsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return elasticsearchsdk.NewFromConfig(cfg, func(o *elasticsearchsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

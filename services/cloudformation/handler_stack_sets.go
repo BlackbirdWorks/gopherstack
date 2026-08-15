@@ -181,19 +181,26 @@ func (h *Handler) handleUpdateStackSet(form url.Values, c *echo.Context) error {
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
-	_, err := h.Backend.UpdateStackSet(
+	_, opID, err := h.Backend.UpdateStackSet(
 		name, form.Get("Description"), form.Get("TemplateBody"), parseStackSetOptions(form),
 	)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
+	type result struct {
+		OperationID string `xml:"OperationId"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"UpdateStackSetResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"UpdateStackSetResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()},
+	)
 }
 
 func (h *Handler) handleDeleteStackSet(form url.Values, c *echo.Context) error {
@@ -208,9 +215,11 @@ func (h *Handler) handleDeleteStackSet(form url.Values, c *echo.Context) error {
 
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"DeleteStackSetResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeleteStackSetResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -663,9 +672,11 @@ func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) 
 
 		return h.xmlError(c, code, err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"StopStackSetOperationResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"StopStackSetOperationResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -677,8 +688,11 @@ func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *ec
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
+	// Real ListStackSetAutoDeploymentTargetsOutput wraps the list under
+	// "Summaries", not "Targets" (cloudformation@v1.76.1 deserializers.go:
+	// awsAwsquery_deserializeOpDocumentListStackSetAutoDeploymentTargetsOutput).
 	type result struct {
-		Targets []AutoDeploymentTarget `xml:"Targets>member"`
+		Targets []AutoDeploymentTarget `xml:"Summaries>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackSetAutoDeploymentTargetsResponse"`
@@ -696,16 +710,24 @@ func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *ec
 func (h *Handler) handleImportStacksToStackSet(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
 	stackIDs := parseMemberList(form, "StackIds.")
-	if err := h.Backend.ImportStacksToStackSet(name, stackIDs); err != nil {
+	opID, err := h.Backend.ImportStacksToStackSet(name, stackIDs)
+	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+	}
+	type result struct {
+		OperationID string `xml:"OperationId"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ImportStacksToStackSetResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"ImportStacksToStackSetResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()},
+	)
 }
 
 func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo.Context) error {
@@ -731,9 +753,11 @@ func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo
 
 func (h *Handler) handleActivateOrganizationsAccess(c *echo.Context) error {
 	_ = h.Backend.ActivateOrganizationsAccess()
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"ActivateOrganizationsAccessResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"ActivateOrganizationsAccessResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -742,9 +766,11 @@ func (h *Handler) handleActivateOrganizationsAccess(c *echo.Context) error {
 
 func (h *Handler) handleDeactivateOrganizationsAccess(c *echo.Context) error {
 	_ = h.Backend.DeactivateOrganizationsAccess()
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"DeactivateOrganizationsAccessResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeactivateOrganizationsAccessResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 

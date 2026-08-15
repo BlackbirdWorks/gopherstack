@@ -431,3 +431,146 @@ func Test_SDKRoundTrip_RecipeJob_DataCatalogOutputs(t *testing.T) {
 	require.NotNil(t, out.DataCatalogOutputs[0].S3Options)
 	require.Equal(t, "b", aws.ToString(out.DataCatalogOutputs[0].S3Options.Location.Bucket))
 }
+
+// Test_SDKRoundTrip_Project_OpenDate proves StartProjectSession sets
+// OpenDate, a real types.Project member (deserializers.go's
+// awsRestjson1_deserializeDocumentProject, case "OpenDate") that was
+// previously never emitted at all -- the handler only ran an existence
+// check and never mutated the project's own state.
+func Test_SDKRoundTrip_Project_OpenDate(t *testing.T) {
+	t.Parallel()
+
+	backend := databrew.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := databrew.NewHandler(backend)
+	client := newRoundTripClient(t, h)
+
+	_, err := client.CreateDataset(t.Context(), &databrewsdk.CreateDatasetInput{
+		Name:  aws.String("od-ds"),
+		Input: &types.Input{S3InputDefinition: &types.S3Location{Bucket: aws.String("b")}},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateProject(t.Context(), &databrewsdk.CreateProjectInput{
+		Name:        aws.String("od-proj"),
+		DatasetName: aws.String("od-ds"),
+		RecipeName:  aws.String("od-recipe"),
+		RoleArn:     aws.String("arn:aws:iam::000000000000:role/x"),
+	})
+	require.NoError(t, err)
+
+	before, err := client.DescribeProject(t.Context(), &databrewsdk.DescribeProjectInput{Name: aws.String("od-proj")})
+	require.NoError(t, err)
+	require.Nil(t, before.OpenDate, "OpenDate must be unset before any session is started")
+
+	_, err = client.StartProjectSession(t.Context(), &databrewsdk.StartProjectSessionInput{
+		Name: aws.String("od-proj"),
+	})
+	require.NoError(t, err)
+
+	after, err := client.DescribeProject(t.Context(), &databrewsdk.DescribeProjectInput{Name: aws.String("od-proj")})
+	require.NoError(t, err)
+	require.NotNil(t, after.OpenDate, "StartProjectSession must set OpenDate")
+}
+
+// Test_SDKRoundTrip_Recipe_ProjectName proves DescribeRecipe/ListRecipes
+// emit ProjectName, a real types.Recipe member (deserializers.go's
+// awsRestjson1_deserializeDocumentRecipe, case "ProjectName") that was
+// previously never modeled at all. This backend has no direct association
+// to source it from, so it is derived by scanning for a project whose
+// RecipeName references the recipe.
+func Test_SDKRoundTrip_Recipe_ProjectName(t *testing.T) {
+	t.Parallel()
+
+	backend := databrew.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := databrew.NewHandler(backend)
+	client := newRoundTripClient(t, h)
+
+	_, err := client.CreateRecipe(t.Context(), &databrewsdk.CreateRecipeInput{
+		Name:  aws.String("pn-recipe"),
+		Steps: []types.RecipeStep{{Action: &types.RecipeAction{Operation: aws.String("UPPER_CASE")}}},
+	})
+	require.NoError(t, err)
+
+	descBefore, err := client.DescribeRecipe(
+		t.Context(), &databrewsdk.DescribeRecipeInput{Name: aws.String("pn-recipe")},
+	)
+	require.NoError(t, err)
+	require.Empty(
+		t, aws.ToString(descBefore.ProjectName), "ProjectName must be empty before any project references the recipe",
+	)
+
+	_, err = client.CreateDataset(t.Context(), &databrewsdk.CreateDatasetInput{
+		Name:  aws.String("pn-ds"),
+		Input: &types.Input{S3InputDefinition: &types.S3Location{Bucket: aws.String("b")}},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateProject(t.Context(), &databrewsdk.CreateProjectInput{
+		Name:        aws.String("pn-proj"),
+		DatasetName: aws.String("pn-ds"),
+		RecipeName:  aws.String("pn-recipe"),
+		RoleArn:     aws.String("arn:aws:iam::000000000000:role/x"),
+	})
+	require.NoError(t, err)
+
+	descAfter, err := client.DescribeRecipe(
+		t.Context(), &databrewsdk.DescribeRecipeInput{Name: aws.String("pn-recipe")},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "pn-proj", aws.ToString(descAfter.ProjectName))
+
+	listOut, err := client.ListRecipes(t.Context(), &databrewsdk.ListRecipesInput{
+		RecipeVersion: aws.String("LATEST_WORKING"),
+	})
+	require.NoError(t, err)
+	require.Len(t, listOut.Recipes, 1)
+	require.Equal(t, "pn-proj", aws.ToString(listOut.Recipes[0].ProjectName))
+}
+
+// Test_SDKRoundTrip_JobRun_FieldsFromJob proves StartJobRun's JobRun carries
+// Attempt/RecipeReference/Outputs/DataCatalogOutputs/LogSubscription --
+// real types.JobRun members (deserializers.go's
+// awsRestjson1_deserializeDocumentJobRun) that were previously never
+// emitted at all -- snapshotted from the parent Job, the only backend state
+// they could come from.
+func Test_SDKRoundTrip_JobRun_FieldsFromJob(t *testing.T) {
+	t.Parallel()
+
+	backend := databrew.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := databrew.NewHandler(backend)
+	client := newRoundTripClient(t, h)
+
+	_, err := client.CreateRecipe(t.Context(), &databrewsdk.CreateRecipeInput{
+		Name:  aws.String("jr-recipe"),
+		Steps: []types.RecipeStep{{Action: &types.RecipeAction{Operation: aws.String("UPPER_CASE")}}},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateRecipeJob(t.Context(), &databrewsdk.CreateRecipeJobInput{
+		Name:            aws.String("jr-job"),
+		RoleArn:         aws.String("arn:aws:iam::000000000000:role/x"),
+		RecipeReference: &types.RecipeReference{Name: aws.String("jr-recipe")},
+		LogSubscription: types.LogSubscriptionEnable,
+		DataCatalogOutputs: []types.DataCatalogOutput{{
+			DatabaseName: aws.String("db1"),
+			TableName:    aws.String("t1"),
+			S3Options:    &types.S3TableOutputOptions{Location: &types.S3Location{Bucket: aws.String("b")}},
+		}},
+	})
+	require.NoError(t, err)
+
+	startOut, err := client.StartJobRun(t.Context(), &databrewsdk.StartJobRunInput{Name: aws.String("jr-job")})
+	require.NoError(t, err)
+
+	runOut, err := client.DescribeJobRun(t.Context(), &databrewsdk.DescribeJobRunInput{
+		Name:  aws.String("jr-job"),
+		RunId: startOut.RunId,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), runOut.Attempt, "a run that never retries must report Attempt 1")
+	require.NotNil(t, runOut.RecipeReference, "RecipeReference must be snapshotted from the parent Job")
+	require.Equal(t, "jr-recipe", aws.ToString(runOut.RecipeReference.Name))
+	require.Equal(t, types.LogSubscriptionEnable, runOut.LogSubscription)
+	require.Len(t, runOut.DataCatalogOutputs, 1, "DataCatalogOutputs must be snapshotted from the parent Job")
+	require.Equal(t, "db1", aws.ToString(runOut.DataCatalogOutputs[0].DatabaseName))
+}

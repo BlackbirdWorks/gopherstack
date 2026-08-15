@@ -51,8 +51,9 @@ func TestFleet(t *testing.T) { //nolint:paralleltest // existing issue.
 
 	t.Run("delete fleet", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		deleted := b.DeleteFleets([]string{fleetID})
-		assert.Len(t, deleted, 1)
-		assert.Equal(t, fleetID, deleted[0])
+		require.Len(t, deleted, 1)
+		assert.Equal(t, fleetID, deleted[0].FleetID)
+		assert.Equal(t, "active", deleted[0].PreviousFleetState)
 		fleets := b.DescribeFleets([]string{fleetID})
 		assert.Empty(t, fleets)
 	})

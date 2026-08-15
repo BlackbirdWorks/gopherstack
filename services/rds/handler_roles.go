@@ -8,8 +8,9 @@ import (
 func (h *Handler) handleAddRoleToDBInstance(vals url.Values) (any, error) {
 	instanceID := vals.Get("DBInstanceIdentifier")
 	roleARN := vals.Get("RoleArn")
+	featureName := vals.Get("FeatureName")
 
-	if err := h.Backend.AddRoleToDBInstance(instanceID, roleARN); err != nil {
+	if err := h.Backend.AddRoleToDBInstance(instanceID, roleARN, featureName); err != nil {
 		return nil, err
 	}
 
@@ -24,8 +25,9 @@ type addRoleToDBInstanceResponse struct {
 func (h *Handler) handleRemoveRoleFromDBInstance(vals url.Values) (any, error) {
 	instanceID := vals.Get("DBInstanceIdentifier")
 	roleARN := vals.Get("RoleArn")
+	featureName := vals.Get("FeatureName")
 
-	if err := h.Backend.RemoveRoleFromDBInstance(instanceID, roleARN); err != nil {
+	if err := h.Backend.RemoveRoleFromDBInstance(instanceID, roleARN, featureName); err != nil {
 		return nil, err
 	}
 

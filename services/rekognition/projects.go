@@ -18,8 +18,20 @@ func (b *InMemoryBackend) projectARN(name string) string {
 // Projects
 // =============================================================================
 
+// defaultProjectFeature is CreateProjectInput.Feature's documented default
+// ("If no value is provided CUSTOM_LABELS is used as a default.",
+// api_op_CreateProject.go).
+const defaultProjectFeature = "CUSTOM_LABELS"
+
 // CreateProject creates a new Rekognition Custom Labels project.
-func (b *InMemoryBackend) CreateProject(name string) (*Project, error) {
+//
+// CreateProjectInput.Tags is deliberately NOT accepted here: unlike
+// Collection/StreamProcessor/model tags, TagResource's and
+// ListTagsForResource's own docs scope ResourceArn to "the model,
+// collection, or stream processor" -- Project ARNs are absent from both, so
+// this backend's own API surface has no read path that could ever observe
+// project tags, real or fabricated. Left disclosed rather than half-wired.
+func (b *InMemoryBackend) CreateProject(name string, params CreateProjectParams) (*Project, error) {
 	b.mu.Lock("CreateProject")
 	defer b.mu.Unlock()
 
@@ -29,10 +41,18 @@ func (b *InMemoryBackend) CreateProject(name string) (*Project, error) {
 		return nil, ErrProjectAlreadyExists
 	}
 
+	feature := params.Feature
+	if feature == "" {
+		feature = defaultProjectFeature
+	}
+
 	p := &storedProject{
 		CreationTimestamp: time.Now(),
 		ProjectARN:        arn,
+		Name:              name,
 		Status:            "CREATING",
+		AutoUpdate:        params.AutoUpdate,
+		Feature:           feature,
 	}
 	b.projects.Put(p)
 
@@ -53,9 +73,12 @@ func (b *InMemoryBackend) DeleteProject(projectARN string) error {
 	return nil
 }
 
-// DescribeProjects lists projects, optionally filtered by ARNs.
+// DescribeProjects lists projects, optionally filtered by name.
+// DescribeProjectsInput.ProjectNames filters by name (see storedProject's
+// doc comment), not by ARN -- there is no ProjectArns filter member on the
+// real input at all.
 func (b *InMemoryBackend) DescribeProjects(
-	projectARNs []string, maxResults int32, nextToken string,
+	projectNames []string, maxResults int32, nextToken string,
 ) ([]*Project, string, error) {
 	b.mu.RLock("DescribeProjects")
 	defer b.mu.RUnlock()
@@ -64,9 +87,9 @@ func (b *InMemoryBackend) DescribeProjects(
 	items := b.projects.Snapshot()
 
 	// Build a filter set if requested.
-	filter := make(map[string]bool, len(projectARNs))
-	for _, arn := range projectARNs {
-		filter[arn] = true
+	filter := make(map[string]bool, len(projectNames))
+	for _, name := range projectNames {
+		filter[name] = true
 	}
 
 	// Apply nextToken offset.
@@ -93,7 +116,7 @@ func (b *InMemoryBackend) DescribeProjects(
 
 	for i := start; i < len(items); i++ {
 		v := items[i]
-		if len(filter) > 0 && !filter[v.ProjectARN] {
+		if len(filter) > 0 && !filter[v.Name] {
 			continue
 		}
 

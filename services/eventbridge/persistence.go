@@ -38,7 +38,7 @@ const eventbridgeSnapshotVersion = 1
 // (resource, region[, parent]) tuple found in Tables before calling
 // registry.RestoreAll, see preRegisterSnapshotTables below.
 //
-// pipes, registries, and schemas are *store.Table-backed too but live on
+// registries and schemas are *store.Table-backed too but live on
 // b.auxRegistry, not b.registry, and are deliberately NOT included in
 // Tables -- see store_setup.go's package doc: they were never part of
 // backendSnapshot before this conversion, so leaving them out preserves that

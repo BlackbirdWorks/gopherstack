@@ -59,6 +59,8 @@ func (h *S3Handler) routeObjectPut(
 	switch {
 	case r.URL.Query().Has("tagging"):
 		h.putObjectTagging(ctx, w, r, bucket, key)
+	case r.URL.Query().Has("annotation"):
+		h.putObjectAnnotation(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
 		h.putObjectACL(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("partNumber") && r.URL.Query().Has("uploadId"):
@@ -67,7 +69,7 @@ func (h *S3Handler) routeObjectPut(
 		h.putObjectRetention(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("legal-hold"):
 		h.putObjectLegalHold(ctx, w, r, bucket, key)
-	case r.URL.Query().Has("rename"):
+	case r.URL.Query().Has("renameObject"):
 		h.handleRenameObject(ctx, w, r)
 	case r.URL.Query().Has("encryption") && key != "":
 		h.handleUpdateObjectEncryption(ctx, w, r)
@@ -87,6 +89,18 @@ func (h *S3Handler) routeObjectGet(
 	switch {
 	case r.URL.Query().Has("tagging"):
 		h.getObjectTagging(ctx, w, r, bucket, key)
+	// GetObjectAnnotation and ListObjectAnnotations share the identical
+	// GET /{Key+}?annotation route (both s3@v1.106.5 serializers.go:
+	// httpbinding.SplitURI("/{Key+}?annotation[&x-id=...]") -- x-id is a
+	// disambiguation query param the SDK sends but never binds a value from,
+	// so it carries no routing signal here). The only real distinguisher is
+	// whether "annotationName" -- a query param GetObjectAnnotation's own
+	// HttpBindings function binds and ListObjectAnnotations' does not -- is
+	// present.
+	case r.URL.Query().Has("annotation") && r.URL.Query().Has("annotationName"):
+		h.getObjectAnnotation(ctx, w, r, bucket, key)
+	case r.URL.Query().Has("annotation"):
+		h.listObjectAnnotations(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
 		h.getObjectACL(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("uploadId"):
@@ -113,6 +127,8 @@ func (h *S3Handler) routeObjectDelete(
 	switch {
 	case r.URL.Query().Has("tagging"):
 		h.deleteObjectTagging(ctx, w, r, bucket, key)
+	case r.URL.Query().Has("annotation"):
+		h.deleteObjectAnnotation(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("uploadId"):
 		h.abortMultipartUpload(ctx, w, r, bucket, key)
 	default:

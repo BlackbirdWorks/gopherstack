@@ -58,6 +58,37 @@ func TestEKS_Insights_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// TestListInsights_OmitsGetOnlyFields verifies gopherstack-uult: ListInsights
+// must emit only types.InsightSummary's members (category, description, id,
+// insightStatus, kubernetesVersion, lastRefreshTime, lastTransitionTime,
+// name) -- eks@v1.90.4 types/types.go:1485-1514. recommendation is
+// DescribeInsight-only (types.Insight) and must not leak. clusterName is not
+// part of either wire shape at all and must not leak either.
+func TestListInsights_OmitsGetOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEKSHandler(t)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "scoped-cluster"})
+
+	rec := doREST(t, h, http.MethodPost, "/clusters/scoped-cluster/insights", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+	insights, ok := resp["insights"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, insights)
+
+	item := insights[0].(map[string]any)
+	for k := range item {
+		assert.Contains(t,
+			[]string{"category", "description", "id", "insightStatus", "lastRefreshTime", "lastTransitionTime"},
+			k,
+		)
+	}
+	assert.NotContains(t, item, "recommendation")
+	assert.NotContains(t, item, "clusterName")
+}
+
 func TestInsights_InsightStatus_Object(t *testing.T) {
 	t.Parallel()
 

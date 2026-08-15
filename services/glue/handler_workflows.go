@@ -172,19 +172,35 @@ func (h *Handler) handleGetWorkflowRuns(
 	return &getWorkflowRunsOutput{Runs: runs}, nil
 }
 
+// defaultListWorkflowsLimit is used when ListWorkflowsInput.MaxResults is unset.
+const defaultListWorkflowsLimit = 100
+
 // listWorkflowsInput holds input for ListWorkflows.
-type listWorkflowsInput struct{}
+type listWorkflowsInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
 
 // listWorkflowsOutput holds the result for ListWorkflows.
 type listWorkflowsOutput struct {
+	NextToken string   `json:"NextToken,omitempty"`
 	Workflows []string `json:"Workflows"`
 }
 
 func (h *Handler) handleListWorkflows(
 	_ context.Context,
-	_ *listWorkflowsInput,
+	in *listWorkflowsInput,
 ) (*listWorkflowsOutput, error) {
-	return &listWorkflowsOutput{Workflows: h.Backend.GetWorkflows()}, nil
+	all := h.Backend.GetWorkflows()
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListWorkflowsLimit
+	}
+
+	page, next := paginateSlice(all, in.NextToken, limit)
+
+	return &listWorkflowsOutput{Workflows: page, NextToken: next}, nil
 }
 
 // putWorkflowRunPropertiesInput holds input for PutWorkflowRunProperties.

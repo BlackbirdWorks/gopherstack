@@ -16,7 +16,7 @@ func TestReservedInstances_ListOfferingsAndPurchase(t *testing.T) {
 
 	// List offerings — must be non-empty.
 	lor := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/reservedInstances/offerings", nil)
+		"/2021-01-01/opensearch/reservedInstanceOfferings", nil)
 	defer lor.Body.Close()
 	require.Equal(t, http.StatusOK, lor.StatusCode)
 
@@ -30,8 +30,12 @@ func TestReservedInstances_ListOfferingsAndPurchase(t *testing.T) {
 
 	// Purchase the first offering.
 	pr := doRequest(t, h, http.MethodPost,
-		"/2021-01-01/opensearch/reservedInstances/offerings/"+offeringID,
-		map[string]any{"ReservationName": "my-reservation", "InstanceCount": 2})
+		"/2021-01-01/opensearch/purchaseReservedInstanceOffering",
+		map[string]any{
+			"ReservedInstanceOfferingId": offeringID,
+			"ReservationName":            "my-reservation",
+			"InstanceCount":              2,
+		})
 	defer pr.Body.Close()
 	require.Equal(t, http.StatusOK, pr.StatusCode)
 
@@ -70,7 +74,7 @@ func TestReservedInstances_ListOfferingsAndPurchase(t *testing.T) {
 
 	// offeringId query filter narrows DescribeReservedInstanceOfferings to one entry.
 	ofr := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/reservedInstances/offerings?offeringId="+offeringID, nil)
+		"/2021-01-01/opensearch/reservedInstanceOfferings?offeringId="+offeringID, nil)
 	defer ofr.Body.Close()
 	require.Equal(t, http.StatusOK, ofr.StatusCode)
 
@@ -87,8 +91,12 @@ func TestReservedInstances_PurchaseNotFound(t *testing.T) {
 	h := newTestHandler()
 
 	resp := doRequest(t, h, http.MethodPost,
-		"/2021-01-01/opensearch/reservedInstances/offerings/nonexistent-offering",
-		map[string]any{"ReservationName": "r1", "InstanceCount": 1})
+		"/2021-01-01/opensearch/purchaseReservedInstanceOffering",
+		map[string]any{
+			"ReservedInstanceOfferingId": "nonexistent-offering",
+			"ReservationName":            "r1",
+			"InstanceCount":              1,
+		})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }

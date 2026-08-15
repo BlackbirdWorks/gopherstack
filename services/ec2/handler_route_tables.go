@@ -58,10 +58,11 @@ type assocSet struct {
 }
 
 type routeTableItem struct {
-	RouteTableID   string   `xml:"routeTableId"`
-	VPCID          string   `xml:"vpcId"`
-	RouteSet       routeSet `xml:"routeSet"`
-	AssociationSet assocSet `xml:"associationSet"`
+	RouteTableID   string          `xml:"routeTableId"`
+	VPCID          string          `xml:"vpcId"`
+	RouteSet       routeSet        `xml:"routeSet"`
+	AssociationSet assocSet        `xml:"associationSet"`
+	TagSet         []simpleTagItem `xml:"tagSet>item"`
 }
 
 type routeTableItemSet struct {
@@ -117,7 +118,7 @@ type disassociateRouteTableResponse struct {
 	Return    bool     `xml:"return"`
 }
 
-func toRouteTableItem(rt *RouteTable) routeTableItem {
+func toRouteTableItem(rt *RouteTable, tags map[string]string) routeTableItem {
 	routes := make([]routeItem, 0, len(rt.Routes))
 	for _, r := range rt.Routes {
 		routes = append(routes, routeItem(r))
@@ -137,6 +138,7 @@ func toRouteTableItem(rt *RouteTable) routeTableItem {
 		VPCID:          rt.VPCID,
 		RouteSet:       routeSet{Items: routes},
 		AssociationSet: assocSet{Items: assocs},
+		TagSet:         tagItemsFromMap(tags),
 	}
 }
 
@@ -154,7 +156,7 @@ func (h *Handler) handleCreateRouteTable(vals url.Values, reqID string) (any, er
 	return &createRouteTableResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
-		RouteTable: toRouteTableItem(rt),
+		RouteTable: toRouteTableItem(rt, nil),
 	}, nil
 }
 
@@ -184,7 +186,7 @@ func (h *Handler) handleDescribeRouteTables(vals url.Values, reqID string) (any,
 
 	items := make([]routeTableItem, 0, len(rts))
 	for _, rt := range rts {
-		items = append(items, toRouteTableItem(rt))
+		items = append(items, toRouteTableItem(rt, h.Backend.TagsForResource(rt.ID)))
 	}
 
 	return &describeRouteTablesResponse{

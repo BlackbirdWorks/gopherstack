@@ -114,6 +114,7 @@ func (b *InMemoryBackend) GetEmailIdentity(identity string) (*EmailIdentity, err
 	}
 
 	cp := *ei
+	cp.Tags = b.liveTagsLocked(b.identityARN(identity))
 
 	return &cp, nil
 }

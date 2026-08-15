@@ -178,7 +178,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 	}
 	b.environmentPut(env)
 
-	b.appendEvent(region, appName, envName, "Successfully launched environment: "+envName+".", eventSeverityInfo)
+	b.appendEvent(region, env, "Successfully launched environment: "+envName+".", eventSeverityInfo)
 
 	return cloneEnvironment(env), nil
 }
@@ -304,7 +304,7 @@ func (b *InMemoryBackend) UpdateEnvironmentWithParams(
 
 	env.DateUpdated = nowISO8601()
 
-	b.appendEvent(region, appName, envName, "Environment update completed successfully.", eventSeverityInfo)
+	b.appendEvent(region, env, "Environment update completed successfully.", eventSeverityInfo)
 
 	return cloneEnvironment(env), nil
 }
@@ -353,7 +353,7 @@ func (b *InMemoryBackend) TerminateEnvironment(ctx context.Context, appName, env
 	out := cloneEnvironment(env)
 	b.environmentDeleteKey(region, appName, envName)
 
-	b.appendEvent(region, appName, envName, "terminateEnvironment completed successfully.", eventSeverityInfo)
+	b.appendEvent(region, env, "terminateEnvironment completed successfully.", eventSeverityInfo)
 
 	return out, nil
 }

@@ -22,6 +22,10 @@ const (
 	policyIDLen = 8
 	// handshakeIDLen is the number of random chars in a handshake ID.
 	handshakeIDLen = 8
+	// responsibilityTransferIDLen is the number of random chars in a
+	// responsibility-transfer ID (pattern ^rt-[0-9a-z]{8,32}$, ResponsibilityTransfer.Id
+	// per docs.aws.amazon.com/organizations/latest/APIReference/API_ResponsibilityTransfer.html).
+	responsibilityTransferIDLen = 8
 
 	// govCloudAccountIDOffset is added to the account counter to generate a GovCloud account ID.
 	govCloudAccountIDOffset = 1_000_000_000
@@ -103,6 +107,9 @@ func randomHex(n int) string {
 
 func newPolicyID() string    { return "p-" + randomHex(policyIDLen) }
 func newHandshakeID() string { return "h-" + randomChars(handshakeIDLen) }
+func newResponsibilityTransferID() string {
+	return "rt-" + randomChars(responsibilityTransferIDLen)
+}
 func newGovCloudAccountID(counter int) string {
 	return fmt.Sprintf("%012d", counter+govCloudAccountIDOffset)
 }

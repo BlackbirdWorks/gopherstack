@@ -17,6 +17,16 @@ func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (
 			ErrInvalidParameter,
 		)
 	}
+	// Engine is a required input (api_op_CreateDBInstance.go: "Valid Values:
+	// neptune") but this backend only ever creates neptune-engine instances;
+	// reject anything else instead of silently ignoring the field.
+	if engine := vals.Get("Engine"); engine != "" && engine != neptuneEngine {
+		return nil, fmt.Errorf(
+			"%w: Engine must be %q for Neptune instances",
+			ErrInvalidParameter,
+			neptuneEngine,
+		)
+	}
 	instanceClass := vals.Get("DBInstanceClass")
 	promotionTier := 0
 	if pt := vals.Get("PromotionTier"); pt != "" {
@@ -213,7 +223,7 @@ func (h *Handler) handleDescribeDBEngineVersions(_ context.Context, _ url.Values
 
 func (h *Handler) handleDescribeOrderableDBInstanceOptions(
 	_ context.Context,
-	_ url.Values,
+	vals url.Values,
 ) (any, error) {
 	engineVersions := []string{engineVersion1200, "1.2.1.0", defaultEngineVersion, "1.3.1.0", "1.4.0.0"}
 	instanceClasses := []string{
@@ -221,9 +231,22 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(
 		"db.r6g.large", "db.r6g.xlarge", "db.r6g.2xlarge", "db.r6g.4xlarge",
 		"db.t3.medium",
 	}
+
+	engineFilter := vals.Get("Engine")
+	engineVersionFilter := vals.Get("EngineVersion")
+	instanceClassFilter := vals.Get("DBInstanceClass")
 	members := make([]xmlOrderableDBInstanceOption, 0, len(instanceClasses)*len(engineVersions))
 	for _, ev := range engineVersions {
+		if engineVersionFilter != "" && ev != engineVersionFilter {
+			continue
+		}
 		for _, ic := range instanceClasses {
+			if instanceClassFilter != "" && ic != instanceClassFilter {
+				continue
+			}
+			if engineFilter != "" && engineFilter != neptuneEngine {
+				continue
+			}
 			members = append(members, xmlOrderableDBInstanceOption{
 				Engine:          neptuneEngine,
 				EngineVersion:   ev,
@@ -299,30 +322,28 @@ func toXMLResourcePendingMaintenanceActions(
 	}
 }
 
+// handleDescribeValidDBInstanceModifications validates DBInstanceIdentifier
+// (required, per api_op_DescribeValidDBInstanceModifications.go) exists, then
+// returns an empty Storage list: the real ValidDBInstanceModificationsMessage
+// shape has no per-instance-class field at all (types.ValidStorageOptions is
+// IopsToStorageRatio/ProvisionedIops/StorageSize/StorageType, all doc'd "Not
+// applicable. In Neptune the storage type is managed at the DB Cluster
+// level."), so there is nothing genuine to report here.
 func (h *Handler) handleDescribeValidDBInstanceModifications(
-	_ context.Context,
-	_ url.Values,
+	ctx context.Context,
+	vals url.Values,
 ) (any, error) {
-	validClasses := []xmlValidStorageOption{
-		{DBInstanceClass: "db.r5.large"},
-		{DBInstanceClass: "db.r5.xlarge"},
-		{DBInstanceClass: "db.r5.2xlarge"},
-		{DBInstanceClass: "db.r5.4xlarge"},
-		{DBInstanceClass: "db.r5.8xlarge"},
-		{DBInstanceClass: "db.r6g.large"},
-		{DBInstanceClass: "db.r6g.xlarge"},
-		{DBInstanceClass: "db.r6g.2xlarge"},
-		{DBInstanceClass: "db.r6g.4xlarge"},
-		{DBInstanceClass: "db.t3.medium"},
+	id := vals.Get("DBInstanceIdentifier")
+	if id == "" {
+		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInstanceNotFound)
+	}
+	if _, err := h.Backend.DescribeDBInstances(ctx, id, ""); err != nil {
+		return nil, err
 	}
 
 	return &describeValidDBInstanceModificationsResponse{
-		Xmlns: neptuneXMLNS,
-		Result: describeValidDBInstanceModificationsResult{
-			ValidDBInstanceModificationsMessage: xmlValidDBInstanceModificationsMessage{
-				ValidProcessorFeatures: validClasses,
-			},
-		},
+		Xmlns:  neptuneXMLNS,
+		Result: describeValidDBInstanceModificationsResult{},
 	}, nil
 }
 
@@ -338,6 +359,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		InstanceCreateTime:              inst.InstanceCreateTime,
 		Endpoint:                        inst.Endpoint,
 		DBSubnetGroupName:               inst.DBSubnetGroupName,
+		NetworkType:                     inst.NetworkType,
 		Port:                            inst.Port,
 		StorageEncrypted:                inst.StorageEncrypted,
 		AutoMinorVersionUpgrade:         inst.AutoMinorVersionUpgrade,
@@ -364,6 +386,7 @@ type xmlDBInstance struct {
 	InstanceCreateTime              string `xml:"InstanceCreateTime,omitempty"`
 	Endpoint                        string `xml:"Endpoint>Address,omitempty"`
 	DBSubnetGroupName               string `xml:"DBSubnetGroup,omitempty"`
+	NetworkType                     string `xml:"NetworkType,omitempty"`
 	DBParameterGroupName            string `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"`
 	PreferredMaintenanceWindow      string `xml:"PreferredMaintenanceWindow,omitempty"`
 	PreferredBackupWindow           string `xml:"PreferredBackupWindow,omitempty"`
@@ -435,9 +458,16 @@ type describeDBEngineVersionsResponse struct {
 }
 
 type xmlOrderableDBInstanceOption struct {
-	Engine          string `xml:"Engine"`
-	EngineVersion   string `xml:"EngineVersion"`
-	DBInstanceClass string `xml:"DBInstanceClass"`
+	SupportedNetworkTypes *xmlSupportedNetworkTypeList `xml:"SupportedNetworkTypes,omitempty"`
+	Engine                string                       `xml:"Engine"`
+	EngineVersion         string                       `xml:"EngineVersion"`
+	DBInstanceClass       string                       `xml:"DBInstanceClass"`
+}
+
+// xmlSupportedNetworkTypeList decodes via the generic StringList deserializer
+// (neptune@v1.48.4 deserializers.go:22293, wraps each entry in <member>).
+type xmlSupportedNetworkTypeList struct {
+	Members []string `xml:"member"`
 }
 
 type xmlOrderableDBInstanceOptionList struct {
@@ -504,12 +534,22 @@ type describePendingMaintenanceActionsResponse struct {
 	Result  describePendingMaintenanceActionsResult `xml:"DescribePendingMaintenanceActionsResult"`
 }
 
-type xmlValidStorageOption struct {
-	DBInstanceClass string `xml:"DBInstanceClass"`
+// xmlValidDBInstanceModificationsMessage mirrors
+// types.ValidDBInstanceModificationsMessage (neptune@v1.48.4 types/types.go:1608):
+// a Storage list of ValidStorageOptions, wrapped as <Storage><ValidStorageOptions>...
+// (confirmed via deserializers.go:23164/23273 -- list member element name is
+// "ValidStorageOptions", not the usual query-protocol "member"). Always empty
+// here: see handleDescribeValidDBInstanceModifications doc comment.
+type xmlValidDBInstanceModificationsMessage struct {
+	Storage xmlValidStorageOptionList `xml:"Storage"`
 }
 
-type xmlValidDBInstanceModificationsMessage struct {
-	ValidProcessorFeatures []xmlValidStorageOption `xml:"ValidProcessorFeatures>AvailableProcessorFeature"`
+type xmlValidStorageOptionList struct {
+	Members []xmlValidStorageOption `xml:"ValidStorageOptions"`
+}
+
+type xmlValidStorageOption struct {
+	StorageType string `xml:"StorageType,omitempty"`
 }
 
 type describeValidDBInstanceModificationsResult struct {

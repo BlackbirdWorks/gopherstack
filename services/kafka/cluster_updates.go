@@ -199,20 +199,27 @@ func (b *InMemoryBackend) UpdateMonitoring(
 	return op, nil
 }
 
-// UpdateRebalancing records a rebalancing operation for a cluster. AWS MSK exposes
-// no per-field rebalancing configuration to persist (it is an action, not a setting),
-// so this validates the cluster and records the operation.
-func (b *InMemoryBackend) UpdateRebalancing(ctx context.Context, clusterArn string) (*ClusterOperation, error) {
+// UpdateRebalancing updates a cluster's intelligent rebalancing status,
+// persisting the new Rebalancing.Status and recording an operation whose
+// source/target reflect the before/after state (mirroring UpdateMonitoring).
+func (b *InMemoryBackend) UpdateRebalancing(
+	ctx context.Context, clusterArn, status string,
+) (*ClusterOperation, error) {
 	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
 
 	b.mu.Lock("UpdateRebalancing")
 	defer b.mu.Unlock()
 
-	if !b.clusters.Has(clusterArn) {
+	c, ok := b.clusters.Get(clusterArn)
+	if !ok {
 		return nil, ErrNotFound
 	}
 
-	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_REBALANCING", nil, nil)
+	source := &MutableClusterInfo{Rebalancing: cloneRebalancing(c.Rebalancing)}
+	c.Rebalancing = &Rebalancing{Status: status}
+	target := &MutableClusterInfo{Rebalancing: cloneRebalancing(c.Rebalancing)}
+
+	op := b.newClusterOperationLocked(region, clusterArn, "UPDATE_REBALANCING", source, target)
 
 	return op, nil
 }

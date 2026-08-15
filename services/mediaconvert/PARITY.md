@@ -9,8 +9,8 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "was reading arn from URL path (always empty since real client sends POST /tags with arn in JSON body); fixed to read arn from body"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "was routed on DELETE with tagKeys from query string; real op is PUT with tagKeys in JSON body -- real SDK calls 404'd before this fix"}
   CreateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "input field was jobEngineVersionRequested; real wire key is jobEngineVersion (response field IS jobEngineVersionRequested -- request/response names differ). This pass: statusUpdateInterval/simulateReservedQueue were parsed from the request body but silently overridden with hardcoded defaults (SECONDS_60/DISABLED) instead of the caller's value -- fixed via CreateJobFull's new JobCreateExtras parameter"}
-  CreateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "input field was reservationPlan; real wire key is reservationPlanSettings (response field IS reservationPlan)"}
-  UpdateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "reservationPlanSettings field name fixed; concurrentJobs and reservationPlanSettings were entirely unsupported on update (silently dropped), now applied"}
+  CreateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "input field was reservationPlan; real wire key is reservationPlanSettings (response field IS reservationPlan). gopherstack-gt9o: maximumConcurrentFeeds (*int32, added since v1.87.3) now stored and echoed via QueueCreateExtras -- previously silently dropped, see Notes"}
+  UpdateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "reservationPlanSettings field name fixed; concurrentJobs and reservationPlanSettings were entirely unsupported on update (silently dropped), now applied. gopherstack-gt9o: maximumConcurrentFeeds now applied too -- previously silently dropped, see Notes"}
   StartJobsQuery: {wire: ok, errors: ok, state: ok, persist: ok, note: "output field was queryId; real wire key is id"}
   GetJobsQueryResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "added missing status field (JobsQueryStatus); always COMPLETE since this backend resolves queries synchronously"}
   GetJob: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -50,7 +50,7 @@ families:
   endpoints/policy/certificates/misc: {status: ok, note: "DescribeEndpoints/GetPolicy/PutPolicy/DeletePolicy/AssociateCertificate/DisassociateCertificate/ListVersions/Probe/SearchJobs/CreateResourceShare verified op-by-op; this pass closed the DescribeEndpoints method/body gap (now POST-only, body parsed)"}
 gaps:
   - Queue.ServiceOverrides is typed map[string]any in gopherstack vs a real []types.ServiceOverride list on the wire; currently dormant (CreateQueueInput has no serviceOverrides input member in the real API, so the field can never be populated by a real client) but the type would emit the wrong JSON shape (object instead of array) if ever populated internally. Re-verified this pass against aws-sdk-go-v2/service/mediaconvert@v1.97.1 (pin corrected from the stale v1.87.3 recorded here by gopherstack-u8my): still no serviceOverrides member on CreateQueueInput or UpdateQueueInput, so this remains genuinely unreachable/harmless -- left as-is rather than reshaping a field no real client can ever populate.
-  - NEW since v1.87.3: CreateQueueInput/UpdateQueueInput gained a MaximumConcurrentFeeds *int32 member (Elemental Inference feed concurrency); gopherstack's CreateQueue/UpdateQueue do not read, store, or echo it (silently dropped). Found by the gopherstack-u8my pin-correction pass's SDK diff, not yet fixed -- CreateQueue/UpdateQueue ops rows above stay wire:ok pending a real fix, matching this file's existing convention of tracking known field-level gaps here rather than downgrading the op status.
+  - "FIXED by gopherstack-gt9o: CreateQueueInput/UpdateQueueInput's MaximumConcurrentFeeds *int32 member (Elemental Inference feed concurrency, added since v1.87.3) now read, stored, and echoed. See Notes."
 deferred:
   - JobSettings/JobTemplateSettings/PresetSettings deep-structure field-level validation (gopherstack stores these as opaque map[string]any and round-trips them verbatim, which is the established pattern for this service; no validation of e.g. OutputGroups internals was audited)
 leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to ctx cancellation; no goroutine/map leaks found. lockmetrics.RWMutex used as the single coarse backend lock; safemap not used (not applicable, all backend collections are cross-map transactional and correctly share the coarse lock). Re-verified this pass: no new goroutines/tickers/maps introduced by the CreateJob/CreateJobTemplate/UpdateJobTemplate/DescribeEndpoints fixes; all new code paths run synchronously under the existing b.mu lock or (DescribeEndpoints) hold no lock at all since it reads no mutable backend state."}
@@ -187,3 +187,40 @@ leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to 
   `UpdateJobTemplateFull` execute under the existing coarse `b.mu` lock exactly
   like their pre-existing counterparts, and `handleDescribeEndpoints` touches no
   backend state at all.
+
+## 2026-08-11 pass (gopherstack-gt9o) -- MaximumConcurrentFeeds no longer dropped
+
+- **`CreateQueueInput`/`UpdateQueueInput.MaximumConcurrentFeeds` now wired
+  end to end.** Confirmed against `aws-sdk-go-v2/service/mediaconvert@v1.97.1`:
+  `MaximumConcurrentFeeds *int32` on both inputs (`api_op_CreateQueue.go:47-49`,
+  wire key `maximumConcurrentFeeds`, `serializers.go:635` doc-serializer,
+  same key on `UpdateQueueInput`'s at `serializers.go:2940`), and on the
+  `Queue` response resource (`deserializers.go:24653`'s shared
+  `awsRestjson1_deserializeDocumentQueue`, field set at line 96 of that
+  function's body). Threaded through as `*int` (not a plain `int`, unlike the
+  pre-existing `ConcurrentJobs`) specifically so a caller-supplied `0` stays
+  distinguishable from "not supplied" — `models.go`'s `Queue.MaximumConcurrentFeeds`,
+  `queues.go`'s new `QueueCreateExtras{MaximumConcurrentFeeds *int}` (a
+  variadic trailing parameter on `CreateQueueFull`, same pattern
+  `JobCreateExtras` already established for `CreateJobFull` above, so the
+  ~6 pre-existing `CreateQueueFull` call sites keep compiling unchanged), and
+  a new 6th parameter on `UpdateQueue` (that method has exactly one caller,
+  `handler_queues.go`, so no variadic trick was needed there). `cloneQueue`
+  deep-copies the pointer (`cloneIntPtr`) so returned `Queue` values can't
+  alias backend state, matching the existing `ReservationPlan`/`ServiceOverrides`
+  clone pattern. No `mediaconvertSnapshotVersion` bump: `Queue` already
+  round-trips through the generic `store.Table` JSON snapshot, and the new
+  field is `*int` with `json:"maximumConcurrentFeeds,omitempty"` — additive
+  and omitted when nil, so old snapshots restore unchanged.
+  `TestMediaConvert_CreateQueue_MaximumConcurrentFeeds`/
+  `TestMediaConvert_UpdateQueue_MaximumConcurrentFeeds` (`queues_test.go`)
+  and `TestPersistence_NewFieldsRoundTrip` (`persistence_test.go`) cover it.
+- Not attempted as a general mechanism fix, unlike the parallel mediatailor
+  fix in the same issue: `createQueueInput`/`updateQueueInput` are
+  hand-modeled Go structs (typed fields, not a generic pass-through map), so
+  there is no equivalent of mediatailor's "exclude known-handled keys"
+  inversion available here — every field this service accepts has to be
+  declared on the struct one way or another. The real fix for "SDK bump adds
+  a field, gopherstack silently drops it" in a hand-modeled service is the
+  `pkgs/sdkcheck`-style diff sweep that found this gap in the first place
+  (gopherstack-u8my), not a code-level mechanism change.

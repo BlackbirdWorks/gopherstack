@@ -11,6 +11,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 )
 
+// singleS3BucketConfig is a well-formed single-entry Configurations map, the
+// shape CreateAccessPreview requires (exactly one element, keyed by resource
+// ARN, valued by a one-member Configuration union -- s3Bucket here).
+func singleS3BucketConfig(resourceArn string) map[string]any {
+	return map[string]any{
+		resourceArn: map[string]any{
+			"s3Bucket": map[string]any{"bucketPolicy": "{}"},
+		},
+	}
+}
+
 // TestAccessPreviewLifecycle verifies Create/Get/List/ListFindings for access previews.
 func TestAccessPreviewLifecycle(t *testing.T) {
 	t.Parallel()
@@ -27,7 +38,7 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 
 				rec := doRequest(t, h, http.MethodPut, "/access-preview", map[string]any{
 					"analyzerArn":    arn,
-					"configurations": map[string]any{},
+					"configurations": singleS3BucketConfig("arn:aws:s3:::preview-create-bucket"),
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 
@@ -44,6 +55,41 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				ap := got["accessPreview"].(map[string]any)
 				assert.Equal(t, previewID, ap["id"])
 				assert.Equal(t, "COMPLETED", ap["status"])
+
+				configs, ok := ap["configurations"].(map[string]any)
+				require.True(t, ok, "Configurations must be echoed back, not dropped")
+				require.Contains(t, configs, "arn:aws:s3:::preview-create-bucket")
+				s3Cfg, ok := configs["arn:aws:s3:::preview-create-bucket"].(map[string]any)
+				require.True(t, ok)
+				assert.Contains(t, s3Cfg, "s3Bucket")
+			},
+		},
+		{
+			name: "create_rejects_missing_configurations",
+			fn: func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler) {
+				t.Helper()
+				arn := mustAnalyzer(t, b, "preview-no-config")
+
+				rec := doRequest(t, h, http.MethodPut, "/access-preview", map[string]any{
+					"analyzerArn": arn,
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_rejects_multiple_configurations",
+			fn: func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler) {
+				t.Helper()
+				arn := mustAnalyzer(t, b, "preview-multi-config")
+
+				rec := doRequest(t, h, http.MethodPut, "/access-preview", map[string]any{
+					"analyzerArn": arn,
+					"configurations": map[string]any{
+						"arn:aws:s3:::bucket-a": map[string]any{"s3Bucket": map[string]any{}},
+						"arn:aws:s3:::bucket-b": map[string]any{"s3Bucket": map[string]any{}},
+					},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -53,7 +99,8 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				arn := mustAnalyzer(t, b, "preview-list")
 
 				doRequest(t, h, http.MethodPut, "/access-preview", map[string]any{
-					"analyzerArn": arn, "configurations": map[string]any{},
+					"analyzerArn":    arn,
+					"configurations": singleS3BucketConfig("arn:aws:s3:::preview-list-bucket"),
 				})
 
 				rec := doRequest(t, h, http.MethodGet, "/access-preview?analyzerArn="+arn, nil)
@@ -61,7 +108,18 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Len(t, resp["accessPreviews"], 1)
+				previews, ok := resp["accessPreviews"].([]any)
+				require.True(t, ok)
+				require.Len(t, previews, 1)
+
+				preview, ok := previews[0].(map[string]any)
+				require.True(t, ok)
+				_, hasConfigurations := preview["configurations"]
+				assert.False(
+					t,
+					hasConfigurations,
+					"AccessPreviewSummary (ListAccessPreviews) has no Configurations member, unlike GetAccessPreview's AccessPreview",
+				)
 			},
 		},
 		{
@@ -72,7 +130,8 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				mustFinding(t, b, "preview-findings")
 
 				rec := doRequest(t, h, http.MethodPut, "/access-preview", map[string]any{
-					"analyzerArn": arn, "configurations": map[string]any{},
+					"analyzerArn":    arn,
+					"configurations": singleS3BucketConfig("arn:aws:s3:::preview-findings-bucket"),
 				})
 				var created map[string]string
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
@@ -107,7 +166,8 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				arn := mustAnalyzer(t, b, "preview-findings-no-arn")
 
 				rec := doRequest(t, h, http.MethodPut, "/access-preview", map[string]any{
-					"analyzerArn": arn, "configurations": map[string]any{},
+					"analyzerArn":    arn,
+					"configurations": singleS3BucketConfig("arn:aws:s3:::preview-findings-no-arn-bucket"),
 				})
 				var created map[string]string
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))

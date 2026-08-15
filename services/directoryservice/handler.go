@@ -49,6 +49,7 @@ const (
 	keyRequestID           = "RequestId"
 	keyAssessmentID        = "AssessmentId"
 	keyLastUpdatedDateTime = "LastUpdatedDateTime"
+	keyCreatedDateTime     = "CreatedDateTime"
 
 	keyRemoteDomainName = "RemoteDomainName"
 	keyTopicName        = "TopicName"

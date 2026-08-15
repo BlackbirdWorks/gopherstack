@@ -34,7 +34,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context) error {
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, app)
+	return c.JSON(http.StatusCreated, applicationToOutput(*app))
 }
 
 func (h *Handler) handleGetApplication(c *echo.Context, applicationID string) error {
@@ -47,14 +47,19 @@ func (h *Handler) handleGetApplication(c *echo.Context, applicationID string) er
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.JSON(http.StatusOK, app)
+	return c.JSON(http.StatusOK, applicationToOutput(*app))
 }
 
 func (h *Handler) handleListApplications(c *echo.Context) error {
 	nextToken, maxResults := appConfigPaginationParams(c)
 	apps, outToken := h.Backend.ListApplications(nextToken, maxResults)
 
-	resp := map[string]any{keyItems: apps}
+	items := make([]applicationOutput, 0, len(apps))
+	for _, app := range apps {
+		items = append(items, applicationToOutput(app))
+	}
+
+	resp := map[string]any{keyItems: items}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -83,7 +88,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string)
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.JSON(http.StatusOK, app)
+	return c.JSON(http.StatusOK, applicationToOutput(*app))
 }
 
 func (h *Handler) handleDeleteApplication(c *echo.Context, applicationID string) error {

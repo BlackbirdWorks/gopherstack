@@ -1,16 +1,35 @@
 package glue
 
-// CreateGlueIdentityCenterConfiguration creates the configuration.
-func (b *InMemoryBackend) CreateGlueIdentityCenterConfiguration(instanceARN string) error {
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
+
+// CreateGlueIdentityCenterConfiguration creates the configuration and
+// returns it. Real CreateGlueIdentityCenterConfigurationOutput carries
+// ApplicationArn -- the ARN of the Identity Center application created for
+// this Glue configuration (confirmed against
+// awsAwsjson11_deserializeOpDocumentCreateGlueIdentityCenterConfigurationOutput
+// in the pinned glue SDK's deserializers.go) -- so this backend must
+// generate and track one rather than leaving it unset.
+func (b *InMemoryBackend) CreateGlueIdentityCenterConfiguration(instanceARN string) (*IdentityCenterConfig, error) {
 	b.mu.Lock("CreateGlueIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
+	appARN := arn.Build("sso", "", b.accountID, fmt.Sprintf("application/apl-%s", uuid.NewString()))
+
 	b.glueIdentityCenterConfig = &IdentityCenterConfig{
-		InstanceARN: instanceARN,
-		Status:      "ENABLED",
+		InstanceARN:    instanceARN,
+		ApplicationARN: appARN,
+		Status:         "ENABLED",
 	}
 
-	return nil
+	cp := *b.glueIdentityCenterConfig
+
+	return &cp, nil
 }
 
 // GetGlueIdentityCenterConfiguration returns the configuration.

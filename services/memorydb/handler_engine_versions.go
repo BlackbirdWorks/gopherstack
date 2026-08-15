@@ -20,6 +20,11 @@ func (h *Handler) handleDescribeEngineVersions(ctx context.Context, c *echo.Cont
 		return h.writeBackendError(c, err)
 	}
 
+	versions, nextToken := paginateItems(
+		versions, req.NextToken, req.MaxResults,
+		func(ev *EngineVersion) string { return ev.Engine + "|" + ev.EngineVersion },
+	)
+
 	objs := make([]engineVersionObject, 0, len(versions))
 
 	for _, ev := range versions {
@@ -31,7 +36,7 @@ func (h *Handler) handleDescribeEngineVersions(ctx context.Context, c *echo.Cont
 		})
 	}
 
-	return c.JSON(http.StatusOK, describeEngineVersionsResponse{EngineVersions: objs})
+	return c.JSON(http.StatusOK, describeEngineVersionsResponse{EngineVersions: objs, NextToken: nextToken})
 }
 
 // -- Event handlers --------------------------------------------------------------

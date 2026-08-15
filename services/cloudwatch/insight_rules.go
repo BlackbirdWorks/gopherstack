@@ -58,7 +58,7 @@ func topNContributors(
 	dimSums map[string]float64,
 	dimKeys map[string][]string,
 	maxN int,
-) []AlarmContributor {
+) []InsightRuleContributor {
 	type entry struct {
 		key string
 		sum float64
@@ -71,9 +71,9 @@ func topNContributors(
 	if len(entries) > maxN {
 		entries = entries[:maxN]
 	}
-	result := make([]AlarmContributor, 0, len(entries))
+	result := make([]InsightRuleContributor, 0, len(entries))
 	for _, e := range entries {
-		result = append(result, AlarmContributor{Keys: dimKeys[e.key], Sum: e.sum})
+		result = append(result, InsightRuleContributor{Keys: dimKeys[e.key], Sum: e.sum})
 	}
 
 	return result
@@ -87,7 +87,7 @@ func (b *InMemoryBackend) GetInsightRuleContributors(
 	startTime, endTime time.Time,
 	maxContributorCount int,
 	orderBy string,
-) ([]AlarmContributor, error) {
+) ([]InsightRuleContributor, error) {
 	if !b.insightRules.Has(ruleName) {
 		return nil, fmt.Errorf("%w: %s", ErrInsightRuleNotFound, ruleName)
 	}
@@ -103,6 +103,18 @@ func (b *InMemoryBackend) GetInsightRuleContributors(
 	}
 
 	return topNContributors(dimSums, dimKeys, maxContributorCount), nil
+}
+
+// managedInsightRuleName synthesizes a stable internal name for a managed
+// (service-linked) insight rule from its PutManagedInsightRules identity.
+// Real AWS's ManagedRule input has no RuleName member at all -- only
+// ResourceARN and TemplateName are required (aws-sdk-go-v2 cloudwatch@v1.66.3
+// types/types.go:1817) -- so a real client never sends one; this backend
+// still needs a stable key to store the rule under and to answer
+// ListManagedInsightRules' RuleState.RuleName with something consistent
+// across repeated Put calls for the same (ResourceARN, TemplateName) pair.
+func managedInsightRuleName(resourceARN, templateName string) string {
+	return resourceARN + "/" + templateName
 }
 
 // ListManagedInsightRules returns a paginated list of managed (service-linked) insight rules.

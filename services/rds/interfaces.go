@@ -132,7 +132,7 @@ type StorageBackend interface {
 	) (*GlobalCluster, error)
 
 	// Export task operations
-	StartExportTask(taskID, sourceARN, s3Bucket string) (*ExportTask, error)
+	StartExportTask(taskID, sourceARN, s3Bucket, iamRoleARN, kmsKeyID string) (*ExportTask, error)
 	DescribeExportTasks(taskID string) ([]ExportTask, error)
 	CancelExportTask(taskID string) (*ExportTask, error)
 
@@ -156,10 +156,10 @@ type StorageBackend interface {
 	DownloadDBLogFilePortion(instanceID, logFileName, marker string, numberOfLines int) (LogFilePortion, error)
 
 	// IAM role operations
-	AddRoleToDBCluster(clusterID, roleARN string) error
-	RemoveRoleFromDBCluster(clusterID, roleARN string) error
-	AddRoleToDBInstance(instanceID, roleARN string) error
-	RemoveRoleFromDBInstance(instanceID, roleARN string) error
+	AddRoleToDBCluster(clusterID, roleARN, featureName string) error
+	RemoveRoleFromDBCluster(clusterID, roleARN, featureName string) error
+	AddRoleToDBInstance(instanceID, roleARN, featureName string) error
+	RemoveRoleFromDBInstance(instanceID, roleARN, featureName string) error
 
 	// Event subscription operations
 	AddSourceIdentifierToSubscription(
@@ -170,7 +170,7 @@ type StorageBackend interface {
 	) (*EventSubscription, error)
 
 	// Maintenance operations
-	ApplyPendingMaintenanceAction(resourceID, applyAction string) (string, error)
+	ApplyPendingMaintenanceAction(resourceID, applyAction, optInType string) (string, error)
 	BacktrackDBCluster(clusterID, backtrackTo string) (*DBClusterBacktrack, error)
 
 	// Security group operations
@@ -223,8 +223,12 @@ type StorageBackend interface {
 	ModifyCurrentDBClusterCapacity(clusterID string, capacity int) (*DBCluster, error)
 
 	// S3 restore operations
-	RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s3Bucket string) (*DBInstance, error)
-	RestoreDBClusterFromS3(id, engine, masterUsername, s3Bucket string) (*DBCluster, error)
+	RestoreDBInstanceFromS3(
+		id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+	) (*DBInstance, error)
+	RestoreDBClusterFromS3(
+		id, engine, masterUsername, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+	) (*DBCluster, error)
 
 	// Recommendation operations
 	ModifyDBRecommendation(recID, status string) (*DBRecommendation, error)
@@ -241,7 +245,11 @@ type StorageBackend interface {
 	) []ReservedDBInstancesOffering
 
 	// DB Proxy operations
-	CreateDBProxy(name, engineFamily, roleARN string, auth []UserAuthConfig) (*DBProxy, error)
+	CreateDBProxy(
+		name, engineFamily, roleARN string,
+		auth []UserAuthConfig,
+		vpcSubnetIDs, vpcSecurityGroupIDs []string,
+	) (*DBProxy, error)
 	DeleteDBProxy(name string) (*DBProxy, error)
 	DescribeDBProxies(name string) ([]DBProxy, error)
 	ModifyDBProxy(

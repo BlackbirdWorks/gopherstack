@@ -454,7 +454,7 @@ func TestInstanceErrorCodes(t *testing.T) {
 func TestInstanceAlreadyExists(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
-	pbCreateCluster(t, h, "cluster-for-dup", nil)
+	pbCreateCluster(t, h, "cluster-for-dup")
 	pbCreateInstance(t, h, "dup-inst", "cluster-for-dup")
 	// Second create same ID should return AlreadyExists with Fault suffix.
 	rr := doRequest(t, h, url.Values{

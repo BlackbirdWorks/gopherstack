@@ -75,6 +75,61 @@ func BenchmarkCalculateChecksum(b *testing.B) {
 	})
 }
 
+// BenchmarkListObjectsV2 measures listing throughput over a large bucket,
+// with and without a prefix/delimiter, to give the s3 deep pass (gopherstack-3dqa)
+// a real number for its previously-unmeasured optimization axis.
+func BenchmarkListObjectsV2(b *testing.B) {
+	const objectCount = 50_000
+
+	backend := s3.NewInMemoryBackend(nil)
+	bucketName := "bench-list-bucket"
+	_, _ = backend.CreateBucket(
+		b.Context(),
+		&sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+	)
+	data := []byte("x")
+	for i := range objectCount {
+		_, _ = backend.PutObject(b.Context(), &sdk_s3.PutObjectInput{
+			Bucket: aws.String(bucketName),
+			Key:    aws.String(fmt.Sprintf("dir%d/key-%d", i%100, i)),
+			Body:   bytes.NewReader(data),
+		})
+	}
+
+	b.Run("flat_maxkeys1000", func(b *testing.B) {
+		b.ResetTimer()
+		for range b.N {
+			_, _ = backend.ListObjectsV2(b.Context(), &sdk_s3.ListObjectsV2Input{
+				Bucket:  aws.String(bucketName),
+				MaxKeys: aws.Int32(1000),
+			})
+		}
+	})
+
+	b.Run("prefix_delimiter", func(b *testing.B) {
+		b.ResetTimer()
+		for range b.N {
+			_, _ = backend.ListObjectsV2(b.Context(), &sdk_s3.ListObjectsV2Input{
+				Bucket:    aws.String(bucketName),
+				Prefix:    aws.String("dir1/"),
+				Delimiter: aws.String("/"),
+				MaxKeys:   aws.Int32(1000),
+			})
+		}
+	})
+
+	b.Run("common_prefix_only", func(b *testing.B) {
+		b.ResetTimer()
+		for range b.N {
+			_, _ = backend.ListObjectsV2(b.Context(), &sdk_s3.ListObjectsV2Input{
+				Bucket:    aws.String(bucketName),
+				Delimiter: aws.String("/"),
+				MaxKeys:   aws.Int32(1000),
+			})
+		}
+	})
+}
+
 // BenchmarkDeleteObjects measures DeleteObjects throughput when removing many
 // keys from the same bucket. The single-lock-per-batch implementation avoids
 // the per-object lock churn of the previous per-object DeleteObject loop.

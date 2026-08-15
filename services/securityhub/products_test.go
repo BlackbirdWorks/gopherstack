@@ -5,9 +5,13 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/securityhub"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	securityhubsdk "github.com/aws/aws-sdk-go-v2/service/securityhub"
+	securityhubtypes "github.com/aws/aws-sdk-go-v2/service/securityhub/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
 // Batch-1 accuracy gap: DescribeProducts is GET /products.
@@ -177,66 +181,44 @@ func TestHandler_DisableImportFindingsForProduct(t *testing.T) {
 	}
 }
 
-func TestHandler_DescribeProductsV2_WithFilter(t *testing.T) {
+// TestDescribeProductsV2_RoundTrip drives DescribeProductsV2 through the
+// real aws-sdk-go-v2 client. Before the fix, the handler emitted "Products";
+// the real required output member is "ProductsV2" (securityhub@v1.75.4
+// api_op_DescribeProductsV2.go:36-51), so a real client decoded a nil slice
+// regardless of how many products the backend actually returned. The backend
+// always seeds three products (knownProducts, products.go:10-41), so this
+// also proves the fix against a non-empty, known-content collection rather
+// than asserting over an empty one.
+func TestDescribeProductsV2_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		query    string
-		wantCode int
-	}{
-		{name: "list all products V2", query: "", wantCode: http.StatusOK},
-		{
-			name:     "filter by product ARN",
-			query:    "?ProductArn=arn:aws:securityhub:us-east-1::product/aws/guardduty",
-			wantCode: http.StatusOK,
-		},
+	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))
+
+	out, err := client.DescribeProductsV2(t.Context(), &securityhubsdk.DescribeProductsV2Input{})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.ProductsV2,
+		"unfixed handler emits Products where the real key is ProductsV2; SDK decodes a nil slice")
+	require.Len(t, out.ProductsV2, 3)
+
+	names := make([]string, len(out.ProductsV2))
+	for i, p := range out.ProductsV2 {
+		names[i] = aws.ToString(p.ProductV2Name)
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodGet, "/productsV2"+tc.query, nil)
-			assert.Equal(t, tc.wantCode, rec.Code)
+	assert.Contains(t, names, "GuardDuty")
 
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			products, _ := resp["Products"].([]any)
-			assert.NotNil(t, products)
-		})
-	}
-}
+	var guardDuty securityhubtypes.ProductV2
 
-func TestDescribeProductsV2(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		check func(t *testing.T, code int, resp map[string]any)
-		name  string
-	}{
-		{
-			name: "DescribeProductsV2 returns products list",
-			check: func(t *testing.T, code int, resp map[string]any) {
-				t.Helper()
-				assert.Equal(t, http.StatusOK, code)
-				products, _ := resp["Products"].([]any)
-				assert.NotNil(t, products)
-			},
-		},
+	for _, p := range out.ProductsV2 {
+		if aws.ToString(p.ProductV2Name) == "GuardDuty" {
+			guardDuty = p
+		}
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodGet, "/productsV2", nil)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			tc.check(t, rec.Code, resp)
-		})
-	}
+	assert.Equal(t, "AWS", aws.ToString(guardDuty.CompanyName))
+	assert.NotEmpty(t, aws.ToString(guardDuty.Description))
+	assert.Contains(t, guardDuty.Categories, "Software and Configuration Checks")
 }
 
 func TestRecommendedPolicyV2(t *testing.T) {

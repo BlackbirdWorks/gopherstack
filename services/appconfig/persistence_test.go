@@ -96,7 +96,7 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
-		app.ID, "profile-1", "a profile", "hosted", "AWS.Freeform", "", nil,
+		app.ID, "profile-1", "a profile", "hosted", "AWS.Freeform", "", "", nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -129,11 +129,11 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	require.NoError(t, b.TagResource(assoc.Arn, map[string]string{"team": "core"}))
 
 	enabled := true
-	_, err = b.UpdateAccountSettings(&appconfig.DeletionProtectionSettings{Enabled: &enabled})
+	_, err = b.UpdateAccountSettings(&appconfig.DeletionProtectionSettings{Enabled: &enabled}, nil)
 	require.NoError(t, err)
 
 	expProfile, err := b.CreateConfigurationProfile(
-		app.ID, "flag-profile-1", "a feature flag profile", "hosted", "AWS.AppConfig.FeatureFlags", "", nil,
+		app.ID, "flag-profile-1", "a feature flag profile", "hosted", "AWS.AppConfig.FeatureFlags", "", "", nil,
 		nil,
 	)
 	require.NoError(t, err)

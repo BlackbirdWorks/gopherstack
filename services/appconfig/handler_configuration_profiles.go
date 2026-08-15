@@ -17,6 +17,7 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 		LocationURI      string            `json:"LocationUri"`
 		Type             string            `json:"Type"`
 		RetrievalRoleArn string            `json:"RetrievalRoleArn"`
+		KmsKeyIdentifier string            `json:"KmsKeyIdentifier"`
 		Validators       []Validator       `json:"Validators"`
 	}
 	if err := c.Bind(&req); err != nil {
@@ -33,6 +34,7 @@ func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationI
 		req.LocationURI,
 		req.Type,
 		req.RetrievalRoleArn,
+		req.KmsKeyIdentifier,
 		req.Validators,
 		req.Tags,
 	)
@@ -86,7 +88,12 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 		return internalServerErrorResponse(c, err)
 	}
 
-	resp := map[string]any{keyItems: profiles}
+	summaries := make([]ConfigurationProfileSummary, 0, len(profiles))
+	for _, p := range profiles {
+		summaries = append(summaries, configurationProfileToSummary(p))
+	}
+
+	resp := map[string]any{keyItems: summaries}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -102,6 +109,7 @@ func (h *Handler) handleUpdateConfigurationProfile(
 		Name             *string      `json:"Name"`
 		Description      *string      `json:"Description"`
 		RetrievalRoleArn *string      `json:"RetrievalRoleArn"`
+		KmsKeyIdentifier *string      `json:"KmsKeyIdentifier"`
 		Validators       *[]Validator `json:"Validators"`
 	}
 	if err := c.Bind(&req); err != nil {
@@ -117,6 +125,7 @@ func (h *Handler) handleUpdateConfigurationProfile(
 		req.Name,
 		req.Description,
 		req.RetrievalRoleArn,
+		req.KmsKeyIdentifier,
 		req.Validators,
 	)
 	if err != nil {

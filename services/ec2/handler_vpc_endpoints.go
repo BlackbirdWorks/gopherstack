@@ -131,11 +131,13 @@ func (h *Handler) handleDeleteVpcEndpointConnectionNotifications(
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVpcEndpointConnectionNotificationsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	return &deleteVpcEndpointConnectionNotificationsResponse{RequestID: reqID}, nil
+}
+
+type deleteVpcEndpointConnectionNotificationsResponse struct {
+	XMLName      xml.Name              `xml:"DeleteVpcEndpointConnectionNotificationsResponse"`
+	RequestID    string                `xml:"requestId"`
+	Unsuccessful []unsuccessfulItemXML `xml:"unsuccessful>item"`
 }
 
 func (h *Handler) handleModifyVpcEndpointConnectionNotification(
@@ -278,17 +280,38 @@ func (h *Handler) handleModifyVpcEndpointServicePermissions(
 	reqID string,
 ) (any, error) {
 	serviceID := vals.Get("ServiceId")
-	add := parseMemberList(vals, "AddAllowedPrincipals.member")
-	remove := parseMemberList(vals, "RemoveAllowedPrincipals.member")
-	if err := h.Backend.ModifyVpcEndpointServicePermissions(serviceID, add, remove); err != nil {
+	add := parseMemberList(vals, "AddAllowedPrincipals")
+	remove := parseMemberList(vals, "RemoveAllowedPrincipals")
+
+	added, err := h.Backend.ModifyVpcEndpointServicePermissions(serviceID, add, remove)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVpcEndpointServicePermissionsResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	resp := &modifyVpcEndpointServicePermissionsResponse{RequestID: reqID, ReturnValue: true}
+	for _, p := range added {
+		resp.AddedPrincipalSet.Items = append(resp.AddedPrincipalSet.Items, addedPrincipalItem{
+			Principal: p,
+			ServiceID: serviceID,
+		})
+	}
+
+	return resp, nil
+}
+
+type addedPrincipalItem struct {
+	Principal     string `xml:"principal,omitempty"`
+	PrincipalType string `xml:"principalType,omitempty"`
+	ServiceID     string `xml:"serviceId,omitempty"`
+}
+
+type modifyVpcEndpointServicePermissionsResponse struct {
+	XMLName           xml.Name `xml:"ModifyVpcEndpointServicePermissionsResponse"`
+	RequestID         string   `xml:"requestId"`
+	AddedPrincipalSet struct {
+		Items []addedPrincipalItem `xml:"item"`
+	} `xml:"addedPrincipalSet"`
+	ReturnValue bool `xml:"return"`
 }
 
 func (h *Handler) handleModifyVpcEndpoint(vals url.Values, reqID string) (any, error) {

@@ -26,18 +26,23 @@ func (h *Handler) cborDescribeAlarmContributors(input cbor.Map, c *echo.Context)
 
 	contributors := make(cbor.List, 0, len(p.Data))
 	for _, contrib := range p.Data {
-		keys := make(cbor.List, 0, len(contrib.Keys))
-		for _, k := range contrib.Keys {
-			keys = append(keys, cbor.String(k))
+		attrs := make(cbor.Map, len(contrib.ContributorAttributes))
+		for k, v := range contrib.ContributorAttributes {
+			attrs[k] = cbor.String(v)
 		}
-		contributors = append(contributors, cbor.Map{
-			"Keys":  keys,
-			statSum: cbor.Float64(contrib.Sum),
-		})
+		m := cbor.Map{
+			"ContributorId":         cbor.String(contrib.ContributorID),
+			"ContributorAttributes": attrs,
+			"StateReason":           cbor.String(contrib.StateReason),
+		}
+		if !contrib.StateTransitionedTimestamp.IsZero() {
+			m["StateTransitionedTimestamp"] = cborFromTime(contrib.StateTransitionedTimestamp)
+		}
+		contributors = append(contributors, m)
 	}
 
 	out := cbor.Map{
-		"Contributors": contributors,
+		"AlarmContributors": contributors,
 	}
 	if p.Next != "" {
 		out["NextToken"] = cbor.String(p.Next)

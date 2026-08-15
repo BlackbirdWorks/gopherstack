@@ -105,12 +105,17 @@ func TestHandler_DeletePackageVersions(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
+	// failedVersions/successfulVersions are real JSON *objects* keyed by
+	// version string (map[string]types.PackageVersionError / map[string]
+	// types.SuccessfulPackageVersionInfo), not arrays -- verified against
+	// aws-sdk-go-v2 deserializers.go's ...PackageVersionErrorMap/
+	// ...SuccessfulPackageVersionInfoMap.
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	failed, _ := resp["failedVersions"].([]any)
-	assert.Len(t, failed, 1)
-	failedEntry, _ := failed[0].(map[string]any)
-	assert.Equal(t, "99.0.0", failedEntry["version"])
+	failed, _ := resp["failedVersions"].(map[string]any)
+	require.Len(t, failed, 1)
+	failedEntry, _ := failed["99.0.0"].(map[string]any)
+	assert.Equal(t, "NOT_FOUND", failedEntry["errorCode"])
 
 	// Repo not found.
 	recNotFound := doRequest(
@@ -163,10 +168,10 @@ func TestHandler_CopyPackageVersions(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	failed, _ := resp["failedVersions"].([]any)
-	assert.Len(t, failed, 1)
-	failedEntry, _ := failed[0].(map[string]any)
-	assert.Equal(t, "9.9.9", failedEntry["version"])
+	failed, _ := resp["failedVersions"].(map[string]any)
+	require.Len(t, failed, 1)
+	failedEntry, _ := failed["9.9.9"].(map[string]any)
+	assert.Equal(t, "NOT_FOUND", failedEntry["errorCode"])
 
 	// Verify the copied version is now accessible in dst-repo.
 	descRec := doRequest(
@@ -242,17 +247,22 @@ func TestHandler_SuccessfulVersions(t *testing.T) {
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
 
+		// successfulVersions/failedVersions are real JSON *objects* keyed by
+		// version string, not arrays -- verified against aws-sdk-go-v2
+		// deserializers.go's ...SuccessfulPackageVersionInfoMap/
+		// ...PackageVersionErrorMap.
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-		successList, _ := resp["successfulVersions"].([]any)
+		successList, _ := resp["successfulVersions"].(map[string]any)
 		require.Len(t, successList, 1)
-		sv, _ := successList[0].(map[string]any)
-		assert.Equal(t, "1.0.0", sv["version"])
+		sv, _ := successList["1.0.0"].(map[string]any)
 		assert.Equal(t, "Deleted", sv["status"])
+		assert.NotEmpty(t, sv["revision"])
 
-		failedList, _ := resp["failedVersions"].([]any)
+		failedList, _ := resp["failedVersions"].(map[string]any)
 		require.Len(t, failedList, 1)
+		assert.Contains(t, failedList, "9.9.9")
 	})
 
 	t.Run("copy_versions", func(t *testing.T) {
@@ -283,11 +293,15 @@ func TestHandler_SuccessfulVersions(t *testing.T) {
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-		successList, _ := resp["successfulVersions"].([]any)
+		// "Copied" is not a real PackageVersionStatus enum value (real values:
+		// Published/Unfinished/Unlisted/Archived/Disposed/Deleted) -- the copied
+		// version keeps its source status, which the stub-creating GET above set
+		// to "Published".
+		successList, _ := resp["successfulVersions"].(map[string]any)
 		require.Len(t, successList, 1)
-		sv, _ := successList[0].(map[string]any)
-		assert.Equal(t, "1.0.0", sv["version"])
-		assert.Equal(t, "Copied", sv["status"])
+		sv, _ := successList["1.0.0"].(map[string]any)
+		assert.Equal(t, "Published", sv["status"])
+		assert.NotEmpty(t, sv["revision"])
 	})
 }
 
@@ -334,11 +348,22 @@ func TestHandler_DisposePackageVersions_StatusChange(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// successfulVersions/failedVersions entries are real
+	// types.SuccessfulPackageVersionInfo{revision,status}/
+	// types.PackageVersionError{errorCode} objects, not the bare "SUCCESS"/
+	// "NOT_FOUND" strings this backend used to emit -- verified against
+	// aws-sdk-go-v2 deserializers.go's
+	// ...SuccessfulPackageVersionInfoMap/...PackageVersionErrorMap.
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	success, _ := resp["successfulVersions"].(map[string]any)
-	assert.Equal(t, "SUCCESS", success["1.0.0"])
-	assert.Equal(t, "NOT_FOUND", success["9.9.9"])
+	entry, _ := success["1.0.0"].(map[string]any)
+	assert.Equal(t, "Disposed", entry["status"])
+	assert.NotEmpty(t, entry["revision"])
+
+	failed, _ := resp["failedVersions"].(map[string]any)
+	failedEntry, _ := failed["9.9.9"].(map[string]any)
+	assert.Equal(t, "NOT_FOUND", failedEntry["errorCode"])
 
 	// Verify status changed to Disposed.
 	descRec := doRequest(
@@ -519,10 +544,9 @@ func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
 	require.Equal(t, http.StatusOK, copyRec2.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(copyRec2.Body.Bytes(), &resp))
-	failed, _ := resp["failedVersions"].([]any)
-	assert.Len(t, failed, 1)
-	entry, _ := failed[0].(map[string]any)
-	assert.Equal(t, "18.0.0", entry["version"])
+	failed, _ := resp["failedVersions"].(map[string]any)
+	require.Len(t, failed, 1)
+	entry, _ := failed["18.0.0"].(map[string]any)
 	assert.Equal(t, "ALREADY_EXISTS", entry["errorCode"])
 }
 

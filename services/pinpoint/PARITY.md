@@ -7,7 +7,7 @@
 service: pinpoint
 sdk_module: aws-sdk-go-v2/service/pinpoint@v1.42.4
 last_audit_commit: 31283c0f
-last_audit_date: 2026-07-23
+last_audit_date: 2026-08-13
 overall: A            # genuine field-diff bugs found and fixed this pass across the template family
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -32,6 +32,7 @@ ops:
   UpdateEmailChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "added missing OrchestrationSendingRoleArn field vs EmailChannelRequest/EmailChannelResponse"}
   GetCampaignVersion: {wire: ok, errors: ok, state: ok, persist: n/a, note: "was silently falling back to the CURRENT campaign when the requested version number wasn't in history, instead of 404 NotFoundException; AWS's own resource docs for /v1/apps/{appId}/campaigns/{campaignId}/versions/{version} document 404 NotFoundException as the response when \"the specified resource was not found\" — fixed to always 404 on an unknown version. Locked by TestGetCampaignVersion_UnknownVersionNotFound"}
   GetSegmentVersion: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same fallback bug and fix as GetCampaignVersion. Locked by TestGetSegmentVersion_UnknownVersionNotFound"}
+  DeleteUserEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-r80d batch 5: DeleteUserEndpointsOutput.EndpointsResponse is required (pinpoint@v1.42.4 api_op_DeleteUserEndpoints.go:44-51) and the wire is the entire body deserialized directly into it (deserializers.go:5482), not a wrapper key. The handler wrote a bare 204 No Content; the real client's decoder treats the empty body as EOF (tolerated, deserializers.go:5472) so the call succeeded with EndpointsResponse left nil — same empty-body class as batch one's lambda DeleteCapacityProvider. Fixed to return the deleted endpoints as EndpointsResponse.Item with a 200 body, matching the sibling DeleteEndpoint (singular)'s existing pattern. Locked by TestDeleteUserEndpoints_EndpointsResponse_RealClient"}
   # ops carried forward unchanged from the 2026-07-12 pass (files not touched this pass, still trusted):
   GetJourneyExecutionMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fix from prior pass; now covered by full-state persistence too"}
   GetJourneyExecutionActivityMetrics: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -52,7 +53,7 @@ families:
   App: {status: ok, note: "unchanged this pass; last verified 2026-07-12"}
   Campaign: {status: ok, note: "unchanged this pass except GetCampaignVersion fallback-to-current bug (see ops)"}
   Segment: {status: ok, note: "unchanged this pass except GetSegmentVersion fallback-to-current bug (see ops)"}
-  Endpoint: {status: ok, note: "unchanged this pass; now participates in full persistence (see Persistence section)"}
+  Endpoint: {status: ok, note: "gopherstack-r80d batch 5 fixed DeleteUserEndpoints (bare 204 dropped the required EndpointsResponse — see ops); prior 'unchanged, still trusted' note was stale for this one op. Rest of the family unchanged, now participates in full persistence (see Persistence section)"}
   EventStream: {status: ok, note: "unchanged this pass; now participates in full persistence"}
   Channels: {status: ok, note: "SMS channel PromotionalMessagesPerSecond/TransactionalMessagesPerSecond request-side hygiene fix + Email channel OrchestrationSendingRoleArn field addition this pass (see ops); all 10 channel types re-diffed against GCM/APNS/Email/SMS/ADM/Baidu/Voice *ChannelRequest types, no other gaps found. Now participates in full persistence"}
   Tags: {status: ok, note: "unchanged this pass"}
@@ -66,7 +67,7 @@ families:
   Recommender: {status: ok, note: "unchanged this pass"}
   Messaging (SendMessages/SendUsersMessages/OTP/PutEvents): {status: ok, note: "unchanged this pass"}
   Phone: {status: ok, note: "unchanged this pass"}
-  Route matcher: {status: ok, note: "unchanged this pass; no new ops added to the surface"}
+  Route matcher: {status: ok, note: "gopherstack-jqh2: added TestExtractOperation_SDKRouteTable (handler_paths_sdk_diff_test.go), a permanent per-op method+path diff of all 122 real ops extracted from pinpoint@v1.42.4 serializers.go against ExtractOperation, including the generic {TemplateName}/{TemplateType}/versions and /active-version paths (discriminated from the per-type Create/Get/Update/Delete paths, which use a literal type segment, not a placeholder). 122/122 pass; no route-matcher bugs found, no duplicate op-resolution table, no query-flag-discriminated ops, no wrong-date-prefix paths."}
   Persistence: {status: ok, note: "was the biggest structural gap: persistRegistry() excluded voiceTemplates/endpoints/eventStreams/channels (all store.Table-backed — mechanical fix, just needed registering) and appSettings/campaignVersions/segmentVersions/templateVersionHistory/campaignActivities/journeyRuns/appEvents/sentMessages/otpCodes (map-shaped state, added as direct JSON fields on backendSnapshot since every value type is already plain-JSON-friendly). Snapshot version bumped 1->2 so an old on-disk snapshot is cleanly discarded (not partially misdecoded) rather than silently accepted with a shape mismatch. Locked by the rewritten TestSnapshotRestore_FullStateRoundTrip, which now asserts these resource kinds SURVIVE a restart instead of asserting they don't"}
 gaps: []                 # no known divergences left open this pass
 deferred:                 # consciously not audited this pass (scope) — next pass targets

@@ -4,6 +4,9 @@ import (
 	"sort"
 	"strings"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -106,14 +109,54 @@ func builtInConnectionType(name string) (ConnectionTypeInfo, bool) {
 	return info, ok
 }
 
+// RegisterConnectionTypeSpec carries RegisterConnectionType's required
+// members beyond name/description (glue@v1.152.0
+// api_op_RegisterConnectionType.go:38-70: ConnectionProperties,
+// ConnectorAuthenticationConfiguration, IntegrationType and RestConfiguration
+// are all "This member is required").
+type RegisterConnectionTypeSpec struct {
+	ConnectionProperties                 map[string]any
+	ConnectorAuthenticationConfiguration map[string]any
+	RestConfiguration                    map[string]any
+	IntegrationType                      string
+}
+
 // RegisterConnectionType registers a custom connection type, returning the stored
 // info. Registering a name that collides with a built-in type is rejected (AWS
 // reserves managed connector names); re-registering an existing custom type updates
 // its description, matching AWS's idempotent register semantics.
-func (b *InMemoryBackend) RegisterConnectionType(name, description string) (*ConnectionTypeInfo, error) {
+func (b *InMemoryBackend) RegisterConnectionType(
+	name, description string, spec RegisterConnectionTypeSpec,
+) (*ConnectionTypeInfo, error) {
 	norm := normalizeConnectionType(name)
 	if norm == "" {
 		return nil, awserr.New("ConnectionType is required", awserr.ErrInvalidParameter)
+	}
+
+	if spec.IntegrationType == "" {
+		return nil, awserr.New("IntegrationType is required", awserr.ErrInvalidParameter)
+	}
+
+	if spec.IntegrationType != string(sdktypes.IntegrationTypeRest) {
+		return nil, awserr.Newf("invalid IntegrationType: %q", awserr.ErrInvalidParameter, spec.IntegrationType)
+	}
+
+	if spec.ConnectionProperties == nil {
+		return nil, awserr.New("ConnectionProperties is required", awserr.ErrInvalidParameter)
+	}
+
+	if spec.ConnectorAuthenticationConfiguration == nil {
+		return nil, awserr.New("ConnectorAuthenticationConfiguration is required", awserr.ErrInvalidParameter)
+	}
+
+	if spec.ConnectorAuthenticationConfiguration["AuthenticationTypes"] == nil {
+		return nil, awserr.New(
+			"ConnectorAuthenticationConfiguration.AuthenticationTypes is required", awserr.ErrInvalidParameter,
+		)
+	}
+
+	if spec.RestConfiguration == nil {
+		return nil, awserr.New("RestConfiguration is required", awserr.ErrInvalidParameter)
 	}
 
 	if _, ok := builtInConnectionType(norm); ok {
@@ -127,11 +170,16 @@ func (b *InMemoryBackend) RegisterConnectionType(name, description string) (*Con
 	defer b.mu.Unlock()
 
 	info := &ConnectionTypeInfo{
-		ConnectionType: norm,
-		Description:    description,
-		Category:       categoryCustom,
-		Capabilities:   rwCaps(),
-		BuiltIn:        false,
+		ConnectionType:                       norm,
+		Description:                          description,
+		Category:                             categoryCustom,
+		Capabilities:                         rwCaps(),
+		BuiltIn:                              false,
+		ConnectionTypeArn:                    arn.Build("glue", b.region, b.accountID, "connectionType/"+norm),
+		IntegrationType:                      spec.IntegrationType,
+		ConnectionProperties:                 spec.ConnectionProperties,
+		ConnectorAuthenticationConfiguration: spec.ConnectorAuthenticationConfiguration,
+		RestConfiguration:                    spec.RestConfiguration,
 	}
 	b.customConnectionTypes.Put(info)
 

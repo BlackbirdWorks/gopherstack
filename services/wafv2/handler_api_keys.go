@@ -112,13 +112,17 @@ func (h *Handler) handleListAPIKeys(ctx context.Context, body []byte) ([]byte, e
 
 	for _, k := range page {
 		items = append(items, map[string]any{
-			"APIKey":       base64.StdEncoding.EncodeToString([]byte(k.APIKeyValue)),
-			keyScope:       k.Scope,
-			"TokenDomains": k.TokenDomains,
+			"APIKey":            base64.StdEncoding.EncodeToString([]byte(k.APIKeyValue)),
+			keyScope:            k.Scope,
+			"TokenDomains":      k.TokenDomains,
+			"CreationTimestamp": k.CreatedAt,
 		})
 	}
 
-	resp := map[string]any{"APIKeys": items}
+	// Real ListAPIKeysOutput wraps items under "APIKeySummaries", not "APIKeys"
+	// (deserializers.go's awsAwsjson11_deserializeOpDocumentListAPIKeysOutput) --
+	// a real typed client's APIKeySummaries field was always empty under the old key.
+	resp := map[string]any{"APIKeySummaries": items}
 	if nextMarker != "" {
 		resp["NextMarker"] = nextMarker
 	}
@@ -158,8 +162,9 @@ func (h *Handler) handleGetDecryptedAPIKey(ctx context.Context, body []byte) ([]
 	}
 
 	return json.Marshal(map[string]any{
-		"TokenDomains": a.TokenDomains,
-		keyScope:       a.Scope,
+		"TokenDomains":      a.TokenDomains,
+		keyScope:            a.Scope,
+		"CreationTimestamp": a.CreatedAt,
 	})
 }
 

@@ -260,8 +260,11 @@ func (h *Handler) handleModifyDBSnapshot(vals url.Values) (any, error) {
 func (h *Handler) handleModifyDBSnapshotAttribute(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBSnapshotIdentifier")
 	attributeName := vals.Get("AttributeName")
-	valuesToAdd := extractMemberList(vals, "ValuesToAdd.member.")
-	valuesToRemove := extractMemberList(vals, "ValuesToRemove.member.")
+	// Real wire key per rds@v1.124.1 serializers.go's
+	// awsAwsquery_serializeDocumentAttributeValueList: the list member's
+	// locationName is "AttributeValue", not the query-protocol default "member".
+	valuesToAdd := extractMemberList(vals, "ValuesToAdd.AttributeValue.")
+	valuesToRemove := extractMemberList(vals, "ValuesToRemove.AttributeValue.")
 	result, err := h.Backend.ModifyDBSnapshotAttribute(snapshotID, attributeName, valuesToAdd, valuesToRemove)
 	if err != nil {
 		return nil, err

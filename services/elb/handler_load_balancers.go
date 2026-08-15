@@ -192,10 +192,39 @@ func (h *Handler) handleDescribeLoadBalancers(ctx context.Context, vals url.Valu
 	}, nil
 }
 
-func (h *Handler) handleDescribeAccountLimits(ctx context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleDescribeAccountLimits(ctx context.Context, vals url.Values) (any, error) {
 	limits, err := h.Backend.DescribeAccountLimits(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Pagination: Marker/PageSize, same opaque-offset scheme as
+	// handleDescribeLoadBalancers (no documented max PageSize for this op,
+	// unlike DescribeLoadBalancers' 400 cap).
+	startIdx := 0
+
+	if marker := vals.Get("Marker"); marker != "" {
+		offset, decErr := decodePageMarker(marker)
+		if decErr != nil {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, decErr.Error())
+		}
+
+		startIdx = offset
+	}
+
+	if startIdx > len(limits) {
+		startIdx = len(limits)
+	}
+
+	limits = limits[startIdx:]
+
+	nextMarker := ""
+
+	if ps := vals.Get("PageSize"); ps != "" {
+		if pageSize, parseErr := strconv.Atoi(ps); parseErr == nil && pageSize > 0 && len(limits) > pageSize {
+			nextMarker = encodePageMarker(startIdx + pageSize)
+			limits = limits[:pageSize]
+		}
 	}
 
 	xmlLimits := make([]xmlAccountLimit, 0, len(limits))
@@ -206,7 +235,8 @@ func (h *Handler) handleDescribeAccountLimits(ctx context.Context, _ url.Values)
 	return &describeAccountLimitsResponse{
 		Xmlns: elbXMLNS,
 		Result: describeAccountLimitsResult{
-			Limits: xmlAccountLimitList{Members: xmlLimits},
+			Limits:     xmlAccountLimitList{Members: xmlLimits},
+			NextMarker: nextMarker,
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-acctlimits"},
 	}, nil
@@ -454,7 +484,8 @@ type xmlAccountLimitList struct {
 }
 
 type describeAccountLimitsResult struct {
-	Limits xmlAccountLimitList `xml:"Limits"`
+	NextMarker string              `xml:"NextMarker,omitempty"`
+	Limits     xmlAccountLimitList `xml:"Limits"`
 }
 
 type describeAccountLimitsResponse struct {

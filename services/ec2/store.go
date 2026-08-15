@@ -223,10 +223,11 @@ type PayerResponsibilityEntry struct {
 
 // NetworkACL represents an EC2 network ACL.
 type NetworkACL struct {
-	ID             string   `json:"id,omitempty"`
-	VPCID          string   `json:"vpcID,omitempty"`
-	AssociationIDs []string `json:"associationIDs,omitempty"`
-	IsDefault      bool     `json:"isDefault,omitempty"`
+	ID             string      `json:"id,omitempty"`
+	VPCID          string      `json:"vpcID,omitempty"`
+	AssociationIDs []string    `json:"associationIDs,omitempty"`
+	Entries        []NACLEntry `json:"entries,omitempty"`
+	IsDefault      bool        `json:"isDefault,omitempty"`
 }
 
 // InstanceStateChange records the state transition for a single instance.
@@ -869,6 +870,44 @@ func (b *InMemoryBackend) initDefaults() {
 	b.indexSGLocked(defaultSGID, defaultVPCID)
 }
 
+// resolveRunInstancesCount defaults count < 1 to 1 and rejects a count above
+// maxInstancesPerRunInstancesRequest, matching handler_filters.go's
+// parseRunInstancesCounts so direct backend callers (cloudformation, tests)
+// get the same error HTTP callers get, instead of a silently shortened batch.
+func resolveRunInstancesCount(count int) (int, error) {
+	if count < 1 {
+		return 1, nil
+	}
+
+	if count > maxInstancesPerRunInstancesRequest {
+		return 0, fmt.Errorf(
+			"%w: cannot launch %d instances in a single request; the limit is %d",
+			ErrResourceCountExceeded, count, maxInstancesPerRunInstancesRequest,
+		)
+	}
+
+	return count, nil
+}
+
+// newOutpostReservedInstanceIDs pre-mints count instance IDs for an
+// Outpost capacity reservation. No capacity hint, matching the
+// non-outpost `instances` make in RunInstances below: a fixed
+// maxInstancesPerRunInstancesRequest reservation overshoots for small
+// counts, and a count-derived hint (even clamped) trips CodeQL
+// go/uncontrolled-allocation-size (alert #253; gopherstack-17sl found a
+// guard-then-use of count isn't recognized here either). count is only
+// used for the loop count, never the make() size (safe).
+//
+//nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+func newOutpostReservedInstanceIDs(count int) []string {
+	ids := make([]string, 0)
+	for range count {
+		ids = append(ids, newInstanceID())
+	}
+
+	return ids
+}
+
 // RunInstances creates one or more EC2 instance stubs.
 func (b *InMemoryBackend) RunInstances(
 	imageID, instanceType, subnetID string,
@@ -878,10 +917,9 @@ func (b *InMemoryBackend) RunInstances(
 		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
 	}
 
-	if count < 1 {
-		count = 1
-	} else if count > maxRunInstancesCount {
-		count = maxRunInstancesCount
+	count, err := resolveRunInstancesCount(count)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("RunInstances")
@@ -913,16 +951,11 @@ func (b *InMemoryBackend) RunInstances(
 	// ec2.Instance at all -- matches real RunInstances failing atomically.
 	var instanceIDs []string
 	if outpostArn != "" {
-		// Capacity is the compile-time constant maxRunInstancesCount, not the
-		// clamped count, so the allocation size is never user-derived.
-		instanceIDs = make([]string, 0, maxRunInstancesCount)
-		for range count {
-			instanceIDs = append(instanceIDs, newInstanceID())
-		}
+		instanceIDs = newOutpostReservedInstanceIDs(count)
 
 		if outpostsBk, ok := b.outpostsBackend(); ok {
-			if err := outpostsBk.ConsumeCapacity(outpostArn, instanceType, b.AccountID, instanceIDs); err != nil {
-				return nil, translateOutpostsCapacityErr(err)
+			if capErr := outpostsBk.ConsumeCapacity(outpostArn, instanceType, b.AccountID, instanceIDs); capErr != nil {
+				return nil, translateOutpostsCapacityErr(capErr)
 			}
 		}
 	}

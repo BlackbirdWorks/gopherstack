@@ -198,41 +198,21 @@ const allIoTHTTPPathsRaw = `
 //
 // knownUnmatchedIoTPathsRaw lists real paths from allIoTHTTPPathsRaw that
 // matchIoTPath deliberately does not match yet, each with the reason it is
-// out of gopherstack-2mwl's scope: none of these operations accept Tags at
-// creation, so a real client 404ing on them is a genuine, separate,
-// pre-existing "operation unreachable" bug -- tracked for follow-up, not
-// fixed here. Listed explicitly (not omitted) so the gap is visible instead
+// out of scope. Listed explicitly (not omitted) so a gap is visible instead
 // of silently absent, the same discipline sesv2/memorydb's exhaustiveness
 // tests use for untaggable/known-gap resource kinds. One "path|reason" per
 // line, in the same single-literal shape as allIoTHTTPPathsRaw and for the
 // same goconst reason.
-const knownUnmatchedIoTPathsRaw = `
-/cacertificate|RegisterCACertificate/ListCACertificates: no Tags field
-/cacertificate/{certificateId}|DescribeCACertificate/UpdateCACertificate/DeleteCACertificate: no Tags field
-/cacertificates|ListCACertificates: no Tags field
-/cancel-certificate-transfer/{certificateId}|CancelCertificateTransfer: no Tags field
-/certificates-by-ca/{caCertificateId}|ListCertificatesByCA: no Tags field
-/reject-certificate-transfer/{certificateId}|RejectCertificateTransfer: no Tags field
-/transfer-certificate/{certificateId}|TransferCertificate: no Tags field
-/keys-and-certificate|CreateKeysAndCertificate: no Tags field (api_op_CreateKeysAndCertificate.go)
-/default-authorizer|SetDefaultAuthorizer/DescribeDefaultAuthorizer: no Tags field
-/loggingOptions|SetLoggingOptions: no Tags field
-/v2LoggingLevel|SetV2LoggingLevel: no Tags field
-/v2LoggingOptions|SetV2LoggingOptions/GetV2LoggingOptions: no Tags field
-/attached-policies/{target}|ListAttachedPolicies: no Tags field
-/effective-policies|GetEffectivePolicies: no Tags field
-/policy-principals|ListPolicyPrincipals: no Tags field
-/policy-targets/{policyName}|ListTargetsForPolicy family: no Tags field
-/principal-policies|ListPrincipalPolicies: no Tags field
-/principals/things|ListPrincipalThings: no Tags field
-/principals/things-v2|ListPrincipalThingsV2: no Tags field
-/destinations|CreateTopicRuleDestination: no Tags field (see doc comment re pathRuleDestinations)
-/destinations/{arn+}|GetTopicRuleDestination/DeleteTopicRuleDestination: no Tags field
-/command-executions|ListCommandExecutions: no Tags field
-/event-configurations|DescribeEventConfigurations/UpdateEventConfigurations: no Tags field
-/package-configuration|GetPackageConfiguration/UpdatePackageConfiguration: no Tags field
-/registrationcode|GetRegistrationCode/DeleteRegistrationCode: no Tags field
-`
+//
+// Empty as of gopherstack-n1mb: all 24 entries gopherstack-2mwl tracked here
+// (CA-certificate family, certificate-transfer family, principal/policy
+// listing family, TopicRuleDestination, and eight misc singleton-resource
+// ops) are now matched by matchIoTPath -- see matchCACertPath,
+// matchCertificateTransferPath, matchPolicyPrincipalPath, and
+// matchMiscUnroutedPath's doc comments in handler_routing.go for the fix
+// each one needed (most also required a matching resolver fix, since the
+// real wire path/method itself was wrong, not just unmatched).
+const knownUnmatchedIoTPathsRaw = ``
 
 // pathParamPattern matches a Smithy URI label like "{certificateId}" or the
 // greedy form "{arn+}".

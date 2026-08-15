@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	configservicesdk "github.com/aws/aws-sdk-go-v2/service/configservice"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,6 +34,36 @@ func TestConfigRulePascalCaseKeys(t *testing.T) {
 	assert.Contains(t, body, `"Description"`)
 	assert.Contains(t, body, `"InputParameters"`)
 	assert.NotContains(t, body, `"configRuleName"`)
+}
+
+// TestDescribeConfigRulesAcceptsFilters verifies the real DescribeConfigRules
+// Filters object (EvaluationMode/RuleEvaluationVisibility) round-trips
+// through the JSON decoder without erroring. gopherstack's ConfigRule has no
+// EvaluationMode concept to filter by, so the filtered request currently
+// returns the same set as an unfiltered one -- this test asserts that
+// (documented) behavior, not a fabricated filtered result.
+func TestDescribeConfigRulesAcceptsFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-detective"}))
+
+	rec := doAWSConfigRequest(t, h, "DescribeConfigRules", map[string]any{
+		"Filters": map[string]any{
+			"EvaluationMode":           "DETECTIVE",
+			"RuleEvaluationVisibility": "PUBLIC",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		ConfigRules []struct {
+			ConfigRuleName string `json:"ConfigRuleName"`
+		} `json:"ConfigRules"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.ConfigRules, 1)
+	assert.Equal(t, "rule-detective", out.ConfigRules[0].ConfigRuleName)
 }
 
 // TestConfigRuleARNGenerated verifies PutConfigRule generates a proper ARN.
@@ -101,23 +132,39 @@ func TestConfigRuleScopeRoundtrip(t *testing.T) {
 	assert.Equal(t, "env", out.ConfigRules[0].Scope.TagKey)
 }
 
-// TestComplianceSummaryShape verifies GetComplianceSummaryByConfigRule uses CappedCount shape.
+// TestComplianceSummaryShape drives GetComplianceSummaryByConfigRule through
+// a real SDK client and proves CompliantResourceCount/NonCompliantResourceCount
+// round-trip. Real GetComplianceSummaryByConfigRuleOutput wraps a single
+// ComplianceSummary object under "ComplianceSummary" (confirmed at
+// aws-sdk-go-v2/service/configservice's
+// api_op_GetComplianceSummaryByConfigRule.go); the previous version of this
+// test only asserted the raw body *contained* the substring "ComplianceSummary"
+// -- which stayed true even under the pre-fix bug, since the wrong shape
+// nested a field also spelled "ComplianceSummary" one level inside an
+// invented "ComplianceSummariesByConfigRule" list, so this test caught
+// nothing. A real client's typed ComplianceSummary.CompliantResourceCount
+// was always nil under the old shape; asserting the exact counts closes
+// that gap.
 func TestComplianceSummaryShape(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAWSConfigHandler(t)
+	client := newTestAWSConfigSDKClient(t, h)
 	b := h.Backend
-	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "r1"}))
-	require.NoError(t, b.StartConfigRulesEvaluation())
+	require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
+		{ConfigRuleName: "r1", ComplianceType: "COMPLIANT", ResourceType: "AWS::EC2::Instance", ResourceID: "i-1"},
+		{ConfigRuleName: "r2", ComplianceType: "NON_COMPLIANT", ResourceType: "AWS::EC2::Instance", ResourceID: "i-2"},
+	}))
 
-	rec := doAWSConfigRequest(t, h, "GetComplianceSummaryByConfigRule", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Real AWS shape: ComplianceSummary.CompliantResourceCount.CappedCount
-	body := rec.Body.String()
-	assert.Contains(t, body, "CappedCount")
-	assert.Contains(t, body, "CapExceeded")
-	assert.Contains(t, body, `"ComplianceSummary"`)
+	out, err := client.GetComplianceSummaryByConfigRule(
+		t.Context(), &configservicesdk.GetComplianceSummaryByConfigRuleInput{},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, out.ComplianceSummary)
+	require.NotNil(t, out.ComplianceSummary.CompliantResourceCount)
+	require.NotNil(t, out.ComplianceSummary.NonCompliantResourceCount)
+	assert.Equal(t, int32(1), out.ComplianceSummary.CompliantResourceCount.CappedCount)
+	assert.Equal(t, int32(1), out.ComplianceSummary.NonCompliantResourceCount.CappedCount)
 }
 
 // TestConfigRuleEvaluationStatusTimestampStrings verifies timestamps are strings not numbers.

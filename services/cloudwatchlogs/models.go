@@ -11,10 +11,16 @@ const (
 // LogGroup represents a CloudWatch Logs log group.
 type LogGroup struct {
 	RetentionInDays *int32 `json:"retentionInDays,omitempty"`
-	LogGroupName    string `json:"logGroupName"`
-	Arn             string `json:"arn"`
-	LogGroupClass   string `json:"logGroupClass,omitempty"`
-	KmsKeyID        string `json:"kmsKeyId,omitempty"`
+	// BearerTokenAuthenticationEnabled mirrors types.LogGroup's field of the
+	// same name (types.go:1366), set via PutBearerTokenAuthentication. nil
+	// until explicitly set (matches a log group that was never touched by
+	// PutBearerTokenAuthentication -- AWS's own doc doesn't say this
+	// defaults to a concrete true/false).
+	BearerTokenAuthenticationEnabled *bool  `json:"bearerTokenAuthenticationEnabled,omitempty"`
+	LogGroupName                     string `json:"logGroupName"`
+	Arn                              string `json:"arn"`
+	LogGroupClass                    string `json:"logGroupClass,omitempty"`
+	KmsKeyID                         string `json:"kmsKeyId,omitempty"`
 	// region is the AWS region this group lives under. It is unexported (never
 	// marshaled, so the wire response shape is unaffected) and exists solely so
 	// the store.Table[LogGroup] holding every region's groups can derive a
@@ -88,16 +94,63 @@ type LogGroupField struct {
 	Percent int32  `json:"percent"`
 }
 
-// Anomaly represents a detected log anomaly.
+// Anomaly state constants match the real aws-sdk-go-v2 types.State enum
+// (types.StateActive/StateSuppressed/types.StateBaseline).
+const (
+	AnomalyStateActive     = "Active"
+	AnomalyStateSuppressed = "Suppressed"
+	AnomalyStateBaseline   = "Baseline"
+)
+
+// AnomalyLogSample is one sample log event considered part of an anomaly.
+// Mirrors aws-sdk-go-v2 types.LogEvent (message/timestamp).
+type AnomalyLogSample struct {
+	Message   string `json:"message"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// PatternToken describes one token making up an anomaly's identifying
+// pattern. Mirrors aws-sdk-go-v2 types.PatternToken.
+type PatternToken struct {
+	Enumerations         map[string]int64 `json:"enumerations,omitempty"`
+	IsDynamic            *bool            `json:"isDynamic,omitempty"`
+	InferredTokenName    string           `json:"inferredTokenName,omitempty"`
+	TokenString          string           `json:"tokenString,omitempty"`
+	DynamicTokenPosition int32            `json:"dynamicTokenPosition,omitempty"`
+}
+
+// Anomaly represents a detected log anomaly. Field-diffed against
+// aws-sdk-go-v2 types.Anomaly: the wire key for lifecycle state is "state"
+// (types.Anomaly.State, values Active/Suppressed/Baseline), not
+// "suppressedState" -- a previous revision used a made-up key holding the
+// raw suppressionType request value ("LIMITED"/"INFINITE"/a
+// gopherstack-invented "NO_SUPPRESSION"), which is not a real wire member at
+// all, so a real client's State field always deserialized empty. This
+// backend has no pattern-detection engine (anomalies are only ever
+// synthesized via the AddAnomalyInternal test seam, never generated from
+// real log content -- see anomaly_detectors.go), so Histogram/LogSamples/
+// PatternID/PatternString/PatternTokens are never computed here; they are
+// modeled so a caller-seeded anomaly (test or otherwise) round-trips them,
+// but this backend supplies no analysis to fill them in on its own.
 type Anomaly struct {
-	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
-	AnomalyID          string `json:"anomalyId"`
-	Description        string `json:"description"`
-	SuppressedState    string `json:"suppressedState,omitempty"`
-	FirstSeen          int64  `json:"firstSeen"`
-	LastSeen           int64  `json:"lastSeen"`
-	SuppressedDate     int64  `json:"suppressedDate,omitempty"`
-	Active             bool   `json:"active"`
+	IsPatternLevelSuppression *bool              `json:"isPatternLevelSuppression,omitempty"`
+	Suppressed                *bool              `json:"suppressed,omitempty"`
+	Histogram                 map[string]int64   `json:"histogram,omitempty"`
+	Description               string             `json:"description"`
+	State                     string             `json:"state,omitempty"`
+	PatternID                 string             `json:"patternId,omitempty"`
+	PatternString             string             `json:"patternString,omitempty"`
+	PatternRegex              string             `json:"patternRegex,omitempty"`
+	Priority                  string             `json:"priority,omitempty"`
+	AnomalyID                 string             `json:"anomalyId"`
+	AnomalyDetectorArn        string             `json:"anomalyDetectorArn"`
+	PatternTokens             []PatternToken     `json:"patternTokens,omitempty"`
+	LogSamples                []AnomalyLogSample `json:"logSamples,omitempty"`
+	FirstSeen                 int64              `json:"firstSeen"`
+	LastSeen                  int64              `json:"lastSeen"`
+	SuppressedDate            int64              `json:"suppressedDate,omitempty"`
+	SuppressedUntil           int64              `json:"suppressedUntil,omitempty"`
+	Active                    bool               `json:"active"`
 }
 
 // ScheduledQueryRunSummary describes a single scheduled query execution.
@@ -265,10 +318,13 @@ type LogAnomalyDetector struct {
 }
 
 // ScheduledQueryDestinationConfig mirrors the real DestinationConfiguration
-// shape (aws-sdk-go-v2 types.DestinationConfiguration): currently only an S3
-// destination is modeled by the real API.
+// shape (aws-sdk-go-v2 types.DestinationConfiguration, types.go:773): a
+// scheduled query's results can go to an S3 bucket or a lookup table.
+// Neither member is required by the real type (no top-level required check
+// in validateDestinationConfiguration, validators.go:2451).
 type ScheduledQueryDestinationConfig struct {
-	S3Configuration *ScheduledQueryS3Configuration `json:"s3Configuration,omitempty"`
+	S3Configuration          *ScheduledQueryS3Configuration          `json:"s3Configuration,omitempty"`
+	LookupTableConfiguration *ScheduledQueryLookupTableConfiguration `json:"lookupTableConfiguration,omitempty"`
 }
 
 // ScheduledQueryS3Configuration mirrors the real S3Configuration shape used
@@ -278,6 +334,18 @@ type ScheduledQueryS3Configuration struct {
 	RoleArn               string `json:"roleArn"`
 	KmsKeyID              string `json:"kmsKeyId,omitempty"`
 	OwnerAccountID        string `json:"ownerAccountId,omitempty"`
+}
+
+// ScheduledQueryLookupTableConfiguration mirrors the real
+// LookupTableConfiguration shape (aws-sdk-go-v2 types.LookupTableConfiguration,
+// types.go:1561) used as the alternative DestinationConfiguration member to
+// S3Configuration.
+type ScheduledQueryLookupTableConfiguration struct {
+	Tags        map[string]string `json:"tags,omitempty"`
+	TableName   string            `json:"tableName"`
+	RoleArn     string            `json:"roleArn"`
+	Description string            `json:"description,omitempty"`
+	KmsKeyID    string            `json:"kmsKeyId,omitempty"`
 }
 
 // ScheduledQuery represents a CloudWatch Logs scheduled query, field-diffed
@@ -452,10 +520,23 @@ type Transformer struct {
 
 // CWLIntegration represents a CloudWatch Logs integration (e.g. OpenSearch).
 type CWLIntegration struct {
-	CreatedAt time.Time `json:"-"`
-	Name      string    `json:"integrationName"`
-	Type      string    `json:"integrationType"`
-	Status    string    `json:"integrationStatus"`
+	CreatedAt                time.Time                 `json:"-"`
+	OpenSearchResourceConfig *OpenSearchResourceConfig `json:"openSearchResourceConfig,omitempty"`
+	Name                     string                    `json:"integrationName"`
+	Type                     string                    `json:"integrationType"`
+	Status                   string                    `json:"integrationStatus"`
+}
+
+// OpenSearchResourceConfig mirrors types.OpenSearchResourceConfig
+// (types.go:1977). DashboardViewerPrincipals/DataSourceRoleArn/RetentionDays
+// are required whenever the OpenSearch ResourceConfig branch is used
+// (validateOpenSearchResourceConfig, validators.go).
+type OpenSearchResourceConfig struct {
+	RetentionDays             *int32
+	DataSourceRoleArn         string
+	ApplicationArn            string
+	KmsKeyArn                 string
+	DashboardViewerPrincipals []string
 }
 
 // AggregateLogGroupSummary describes aggregated statistics for a single log group.

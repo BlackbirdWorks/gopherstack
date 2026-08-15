@@ -240,11 +240,24 @@ func TestCopyProjectVersion(t *testing.T) { //nolint:paralleltest // existing is
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dstProjResp))
 	dstProjectARN := dstProjResp["ProjectArn"].(string)
 
-	// Copy version
+	// Copy version fails when SourceProjectArn doesn't match the project
+	// that actually owns SourceProjectVersionArn.
 	rec = doRequest(t, h, "CopyProjectVersion", map[string]any{
+		"SourceProjectArn":        dstProjectARN,
 		"SourceProjectVersionArn": sourceVersionARN,
 		"DestinationProjectArn":   dstProjectARN,
 		"VersionName":             "v1-copy",
+		"OutputConfig":            map[string]any{"S3Bucket": "copy-bucket"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// Copy version
+	rec = doRequest(t, h, "CopyProjectVersion", map[string]any{
+		"SourceProjectArn":        srcProjectARN,
+		"SourceProjectVersionArn": sourceVersionARN,
+		"DestinationProjectArn":   dstProjectARN,
+		"VersionName":             "v1-copy",
+		"OutputConfig":            map[string]any{"S3Bucket": "copy-bucket", "S3KeyPrefix": "copy-prefix"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -252,7 +265,8 @@ func TestCopyProjectVersion(t *testing.T) { //nolint:paralleltest // existing is
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &copyResp))
 	assert.Contains(t, copyResp["ProjectVersionArn"], "dst-proj")
 
-	// SourceProjectVersionArn is echoed back on the destination version.
+	// SourceProjectVersionArn and OutputConfig are echoed back on the
+	// destination version.
 	rec = doRequest(t, h, "DescribeProjectVersions", map[string]any{"ProjectArn": dstProjectARN})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -260,7 +274,59 @@ func TestCopyProjectVersion(t *testing.T) { //nolint:paralleltest // existing is
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	versions := descResp["ProjectVersionDescriptions"].([]any)
 	require.Len(t, versions, 1)
-	assert.Equal(t, sourceVersionARN, versions[0].(map[string]any)["SourceProjectVersionArn"])
+	copied := versions[0].(map[string]any)
+	assert.Equal(t, sourceVersionARN, copied["SourceProjectVersionArn"])
+	outputConfig, ok := copied["OutputConfig"].(map[string]any)
+	require.True(t, ok, "OutputConfig must be echoed back on the copied version")
+	assert.Equal(t, "copy-bucket", outputConfig["S3Bucket"])
+	assert.Equal(t, "copy-prefix", outputConfig["S3KeyPrefix"])
+}
+
+func TestCopyProjectVersion_MissingRequiredFields_ReturnsError(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]map[string]any{
+		"missing source project arn": {
+			"SourceProjectVersionArn": "arn:aws:rekognition:us-east-1:000000000000:project/p/version/v/1",
+			"DestinationProjectArn":   "arn:aws:rekognition:us-east-1:000000000000:project/d",
+			"VersionName":             "v1",
+			"OutputConfig":            map[string]any{"S3Bucket": "b"},
+		},
+		"missing source project version arn": {
+			"SourceProjectArn":      "arn:aws:rekognition:us-east-1:000000000000:project/p",
+			"DestinationProjectArn": "arn:aws:rekognition:us-east-1:000000000000:project/d",
+			"VersionName":           "v1",
+			"OutputConfig":          map[string]any{"S3Bucket": "b"},
+		},
+		"missing destination project arn": {
+			"SourceProjectArn":        "arn:aws:rekognition:us-east-1:000000000000:project/p",
+			"SourceProjectVersionArn": "arn:aws:rekognition:us-east-1:000000000000:project/p/version/v/1",
+			"VersionName":             "v1",
+			"OutputConfig":            map[string]any{"S3Bucket": "b"},
+		},
+		"missing version name": {
+			"SourceProjectArn":        "arn:aws:rekognition:us-east-1:000000000000:project/p",
+			"SourceProjectVersionArn": "arn:aws:rekognition:us-east-1:000000000000:project/p/version/v/1",
+			"DestinationProjectArn":   "arn:aws:rekognition:us-east-1:000000000000:project/d",
+			"OutputConfig":            map[string]any{"S3Bucket": "b"},
+		},
+		"missing output config": {
+			"SourceProjectArn":        "arn:aws:rekognition:us-east-1:000000000000:project/p",
+			"SourceProjectVersionArn": "arn:aws:rekognition:us-east-1:000000000000:project/p/version/v/1",
+			"DestinationProjectArn":   "arn:aws:rekognition:us-east-1:000000000000:project/d",
+			"VersionName":             "v1",
+		},
+	}
+
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "CopyProjectVersion", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

@@ -358,6 +358,7 @@ type storedTaskExecution struct {
 	Options                  map[string]any `json:"options,omitempty"`
 	TaskExecutionArn         string         `json:"taskExecutionArn"`
 	Status                   string         `json:"status"`
+	TaskMode                 string         `json:"taskMode,omitempty"`
 	EstimatedFilesToTransfer int64          `json:"estimatedFilesToTransfer"`
 	EstimatedBytesToTransfer int64          `json:"estimatedBytesToTransfer"`
 	FilesTransferred         int64          `json:"filesTransferred"`
@@ -368,6 +369,7 @@ func (e *storedTaskExecution) toTaskExecution() TaskExecution {
 	return TaskExecution{
 		TaskExecutionArn:         e.TaskExecutionArn,
 		Status:                   e.Status,
+		TaskMode:                 e.TaskMode,
 		StartTime:                e.StartTime,
 		Options:                  maps.Clone(e.Options),
 		EstimatedFilesToTransfer: e.EstimatedFilesToTransfer,

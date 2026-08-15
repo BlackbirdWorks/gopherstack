@@ -151,7 +151,7 @@ func TestDeleteMember_MarksRemoved(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	members := listResp["memberList"].([]any)
+	members := listResp["memberSummaries"].([]any)
 	require.Len(t, members, 2, "removed member must still appear in the member list")
 
 	var removed map[string]any

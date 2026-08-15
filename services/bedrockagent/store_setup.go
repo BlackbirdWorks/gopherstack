@@ -90,7 +90,7 @@ func promptVersionKeyFn(v *PromptVersion) string         { return promptVersionK
 func promptVersionByPromptKeyFn(v *PromptVersion) string { return v.PromptID }
 
 func kbDocumentKeyFn(v *KBDocumentDetail) string {
-	return kbDocKey(v.KnowledgeBaseID, v.DataSourceID, v.DocumentID)
+	return kbDocKey(v.KnowledgeBaseID, v.DataSourceID, v.Identifier.key())
 }
 func kbDocumentByDataSourceKeyFn(v *KBDocumentDetail) string {
 	return dsKey(v.KnowledgeBaseID, v.DataSourceID)

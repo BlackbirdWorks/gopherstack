@@ -202,7 +202,7 @@ func (h *Handler) handleTestCustomDataID(body []byte) (any, int, error) {
 
 func parseManagedDataIDsPath(method string, parts []string) (string, string) {
 	// /managed-data-identifiers/list
-	if len(parts) == depthResource && parts[1] == "list" && method == http.MethodGet {
+	if len(parts) == depthResource && parts[1] == "list" && method == http.MethodPost {
 		return opListManagedDataIdentifiers, ""
 	}
 

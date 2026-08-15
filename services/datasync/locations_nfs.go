@@ -91,7 +91,7 @@ func (b *InMemoryBackend) DescribeLocationNfs(locationArn string) (*LocationNfs,
 }
 
 func (b *InMemoryBackend) UpdateLocationNfs(
-	locationArn, subdirectory string,
+	locationArn, serverHostname, subdirectory string,
 	mountOptions *MountOptions,
 	agentArns []string,
 ) error {
@@ -111,9 +111,16 @@ func (b *InMemoryBackend) UpdateLocationNfs(
 		l.Nfs = &storedNfsConfig{}
 	}
 
+	if serverHostname != "" {
+		l.Nfs.ServerHostname = serverHostname
+	}
+
 	if subdirectory != "" {
 		l.Subdirectory = subdirectory
-		sub := strings.TrimPrefix(subdirectory, "/")
+	}
+
+	if serverHostname != "" || subdirectory != "" {
+		sub := strings.TrimPrefix(l.Subdirectory, "/")
 		l.LocationURI = fmt.Sprintf("nfs://%s/%s", l.Nfs.ServerHostname, sub)
 	}
 

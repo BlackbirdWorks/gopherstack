@@ -17,19 +17,20 @@ import (
 )
 
 const (
-	ceTargetPrefix          = "AWSInsightsIndexService."
-	defaultStartDate        = "2024-01-01"
-	defaultEndDate          = "2024-02-01"
-	defaultForecastStart    = "2024-02-01"
-	defaultForecastEnd      = "2024-03-01"
-	defaultGranularity      = "MONTHLY"
-	handlerZeroAmount       = "0.0000"
-	handlerSavingsPlansType = "COMPUTE_SP"
-	handlerRegionDefault    = config.DefaultRegion
-	handlerCoverPct         = "65.0000"
-	handlerROI              = "25.0000"
-	handlerSPUtilPct        = "85.0000"
-	handlerCurrencyCode     = "USD"
+	ceTargetPrefix                   = "AWSInsightsIndexService."
+	defaultStartDate                 = "2024-01-01"
+	defaultEndDate                   = "2024-02-01"
+	defaultForecastStart             = "2024-02-01"
+	defaultForecastEnd               = "2024-03-01"
+	defaultGranularity               = "MONTHLY"
+	handlerZeroAmount                = "0.0000"
+	handlerSavingsPlansType          = "COMPUTE_SP"
+	handlerRegionDefault             = config.DefaultRegion
+	handlerCoverPct                  = "65.0000"
+	handlerROI                       = "25.0000"
+	handlerSPUtilPct                 = "85.0000"
+	handlerCurrencyCode              = "USD"
+	metadataRecommendationTotalCount = "RecommendationTotalCount"
 
 	anomalyActualSpendMultiplier   = 1.2  // actual spend is 20% above impact
 	anomalyExpectedSpendMultiplier = 0.9  // expected spend is 10% below impact

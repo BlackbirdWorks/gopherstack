@@ -23,11 +23,15 @@ type createAccountLinkInvitationInput struct {
 	ClientToken     string `json:"ClientToken"`
 }
 
+// accountLinkResp mirrors the real AccountLink shape (field-diffed against
+// deserializers.go's awsAwsjson11_deserializeDocumentAccountLink): the
+// identifying/status keys are "AccountLinkId"/"AccountLinkStatus", not the
+// request-side "LinkId"/"Status" names.
 type accountLinkResp struct {
-	LinkId          string `json:"LinkId"` //nolint:revive,staticcheck // existing issue.
-	Status          string `json:"Status"`
-	SourceAccountId string `json:"SourceAccountId"` //nolint:revive,staticcheck // existing issue.
-	TargetAccountId string `json:"TargetAccountId"` //nolint:revive,staticcheck // existing issue.
+	AccountLinkId     string `json:"AccountLinkId"` //nolint:revive,staticcheck // existing issue.
+	AccountLinkStatus string `json:"AccountLinkStatus"`
+	SourceAccountId   string `json:"SourceAccountId"` //nolint:revive,staticcheck // existing issue.
+	TargetAccountId   string `json:"TargetAccountId"` //nolint:revive,staticcheck // existing issue.
 }
 
 type createAccountLinkInvitationOutput struct {
@@ -47,10 +51,10 @@ func (h *Handler) handleCreateAccountLinkInvitation(
 
 func toAccountLinkResp(l *storedAccountLink) accountLinkResp {
 	return accountLinkResp{
-		LinkId:          l.LinkID,
-		Status:          l.Status,
-		SourceAccountId: l.SourceAccountID,
-		TargetAccountId: l.TargetAccountID,
+		AccountLinkId:     l.LinkID,
+		AccountLinkStatus: l.Status,
+		SourceAccountId:   l.SourceAccountID,
+		TargetAccountId:   l.TargetAccountID,
 	}
 }
 

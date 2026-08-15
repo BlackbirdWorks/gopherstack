@@ -255,3 +255,59 @@ with another nolint.)
   side, group memberships, resource delegate lists, tags). Any *new* op that creates
   another entity->entity reference (a new collection keyed by another entity's ID) needs
   a corresponding cleanup line added there, or it becomes the next leak.
+
+### Wrapper-key sweep, gopherstack-6flj (this pass, 2026-08-15)
+
+Full layer-1/2/3 pass over all 36 List/Describe/Get ops against
+`aws-sdk-go-v2/service/workmail@v1.39.4`. Protocol: `awsAwsjson11_` (JSON-RPC
+1.1), case-sensitive; confirmed `HandleDeserialize` reaches the real
+`OpDocument*Output` deserializer directly for every op (no dead-wrapper
+codegen layer in this service). 4 real bugs found and fixed:
+
+1. `ListUsers` never emitted `IdentityProviderIdentityStoreId`/
+   `IdentityProviderUserId` (real `types.User` members; the backend already
+   tracked both, `DescribeUser` already emitted them correctly).
+2. `ListGroupMembers` never emitted `EnabledDate`/`DisabledDate` (real
+   `types.Member` members). The backend synthesized a fresh `Member` per
+   membership without copying either date from the underlying user/group
+   record it had already looked up.
+3. `ListMailboxExportJobs` emitted `RoleArn`/`KmsKeyArn`/`S3Prefix`/
+   `ErrorInfo` — an invented shape. The real `types.MailboxExportJob` (the
+   List item type) is genuinely narrower than
+   `DescribeMailboxExportJobOutput` and has none of those four members; the
+   raw wire body leaked an IAM role ARN and a KMS key ARN on every list item
+   that no real typed client could even decode. A prior "parity-4" pass's
+   own doc comment incorrectly claimed these two shapes were identical —
+   corrected.
+4. `DescribeResource`/`UpdateResource` never modeled
+   `HiddenFromGlobalAddressList` (a real, plain-storage member on both —
+   unlike users/groups it is not settable on `CreateResource`, only via
+   `UpdateResource`). Added the field to the `Resource` model and threaded
+   it through.
+
+**Disclosed, not fixed** (structural gaps, not renames):
+
+- `DescribeResource`/`UpdateResource`'s `BookingOptions`
+  (`AutoAcceptRequests`/`AutoDeclineConflictingRequests`/
+  `AutoDeclineRecurringRequests`) — real members on both, but this backend
+  has no resource-booking/scheduling concept to attach sensible defaults to,
+  and the real API's default state for a never-configured resource isn't
+  independently confirmed here.
+- `DescribeOrganization`'s `InteroperabilityEnabled` always reports `false`
+  — no cross-org interoperability concept exists anywhere in this backend;
+  the field simply has no way to become non-default.
+- `DescribeMailboxExportJobOutput`'s response carries a harmless extra
+  `JobId` field not present on the real type (the client already knows the
+  job ID from the request) — left as-is, matches this campaign's established
+  "real client has no field to read an extra key into" non-bug precedent.
+- `GetMailDomainOutput`'s response carries a harmless extra `DomainName`
+  field not present on the real type, same reasoning.
+
+No V1/V2 or other generational sibling pairs exist in this service. No
+secret/credential-bearing field found beyond the RoleArn/KmsKeyArn leak
+above (fixed). One ratifying test
+(`TestBugfix_WorkMail_ListMailboxExportJobsFullShape`, from the same prior
+"parity-4" pass that introduced finding #3) asserted the fabricated fields
+as correct; rewritten as `...NarrowShape` to assert their absence instead.
+Tests: `services/workmail/wire_field_fixes_test.go` (4 new real-SDK-client
+tests via the existing `newWorkMailSDKClient` helper).

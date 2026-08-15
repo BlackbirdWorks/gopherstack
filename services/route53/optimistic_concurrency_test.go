@@ -165,22 +165,23 @@ func Test_ChangeCidrCollection_VersionHandling(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		version      string
-		wantContains string
-		wantStatus   int
+		name            string
+		version         string
+		wantContains    string
+		wantListVersion string
+		wantStatus      int
 	}{
 		{
-			name:         "omitted version is not checked",
-			version:      "",
-			wantStatus:   http.StatusOK,
-			wantContains: "<Version>2</Version>",
+			name:            "omitted version is not checked",
+			version:         "",
+			wantStatus:      http.StatusOK,
+			wantListVersion: "<Version>2</Version>",
 		},
 		{
-			name:         "matching version succeeds and increments",
-			version:      "1",
-			wantStatus:   http.StatusOK,
-			wantContains: "<Version>2</Version>",
+			name:            "matching version succeeds and increments",
+			version:         "1",
+			wantStatus:      http.StatusOK,
+			wantListVersion: "<Version>2</Version>",
 		},
 		{
 			name:         "stale version is rejected",
@@ -200,7 +201,21 @@ func Test_ChangeCidrCollection_VersionHandling(t *testing.T) {
 			rec := send(t, h, http.MethodPost, "/2013-04-01/cidrcollection/"+id,
 				changeCidrCollectionXML(tt.version, "PUT"))
 			assert.Equal(t, tt.wantStatus, rec.Code)
+			// ChangeCidrCollectionOutput carries only Id (route53@v1.65.6
+			// deserializers.go:
+			// awsRestxml_deserializeOpDocumentChangeCidrCollectionOutput) --
+			// the incremented version is verified via a follow-up
+			// ListCidrCollections below, not read back from this response.
 			assert.Contains(t, rec.Body.String(), tt.wantContains)
+			// gopherstack-7185: the response used to echo a <Version>
+			// element that real AWS never sends for this op.
+			assert.NotContains(t, rec.Body.String(), "<Version>")
+
+			if tt.wantListVersion != "" {
+				listRec := send(t, h, http.MethodGet, "/2013-04-01/cidrcollection", "")
+				require.Equal(t, http.StatusOK, listRec.Code)
+				assert.Contains(t, listRec.Body.String(), tt.wantListVersion)
+			}
 		})
 	}
 }

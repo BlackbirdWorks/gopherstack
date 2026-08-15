@@ -158,7 +158,7 @@ func TestChangeResourceRecordSets_DeleteExactMatch(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-"+tt.name, "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-"+tt.name, "", false, "", "", "")
 			require.NoError(t, err)
 
 			// Seed a multi-value A record (TTL 300, values 1.2.3.4 + 5.6.7.8).
@@ -243,7 +243,7 @@ func TestNSSOAAutoSeeding(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone(tt.zoneName, "ref-"+tt.name, "", false, "")
+			hz, err := b.CreateHostedZone(tt.zoneName, "ref-"+tt.name, "", false, "", "", "")
 			require.NoError(t, err)
 
 			pg, err := b.ListResourceRecordSets(hz.ID, "", "", "", 100)
@@ -272,7 +272,7 @@ func TestResourceRecordSetCount_IncludesNSSOA(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref-count", "", false, "")
+	hz, err := b.CreateHostedZone("example.com", "ref-count", "", false, "", "", "")
 	require.NoError(t, err)
 
 	got, err := b.GetHostedZone(hz.ID)
@@ -309,7 +309,7 @@ func TestRecordTypes(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-rt-"+tt.name, "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-rt-"+tt.name, "", false, "", "", "")
 			require.NoError(t, err)
 
 			name := "host.example.com."
@@ -361,7 +361,7 @@ func TestAliasRecord(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-alias-"+tt.name, "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-alias-"+tt.name, "", false, "", "", "")
 			require.NoError(t, err)
 
 			changes := []route53.Change{
@@ -459,7 +459,7 @@ func TestUPSERT_CreateThenUpdate(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref-upsert", "", false, "")
+	hz, err := b.CreateHostedZone("example.com", "ref-upsert", "", false, "", "", "")
 	require.NoError(t, err)
 
 	rrs := route53.ResourceRecordSet{
@@ -686,7 +686,7 @@ func TestChangeResourceRecordSets_BatchLimit(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "")
+	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "", "", "")
 	require.NoError(t, err)
 
 	changes := make([]route53.Change, 1001)
@@ -711,7 +711,7 @@ func TestListResourceRecordSets_Pagination(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "")
+	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "", "", "")
 	require.NoError(t, err)
 
 	// Create 5 A records.

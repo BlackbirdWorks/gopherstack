@@ -21,7 +21,7 @@ func seedDeployableConfig(t *testing.T, b *InMemoryBackend, content []byte) (str
 	env, err := b.CreateEnvironment(app.ID, "cfg-env", "", nil, nil)
 	require.NoError(t, err)
 
-	profile, err := b.CreateConfigurationProfile(app.ID, "cfg-profile", "", "hosted", "AWS.Freeform", "", nil, nil)
+	profile, err := b.CreateConfigurationProfile(app.ID, "cfg-profile", "", "hosted", "AWS.Freeform", "", "", nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateHostedConfigurationVersion(app.ID, profile.ID, "application/json", "", "", content, nil)
@@ -106,7 +106,7 @@ func TestBackend_ExtensionAssociation_CascadeDeleteOnApplication(t *testing.T) {
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
-		app.ID, "cascade-assoc-profile", "", "hosted", "AWS.Freeform", "", nil,
+		app.ID, "cascade-assoc-profile", "", "hosted", "AWS.Freeform", "", "", nil,
 		nil,
 	)
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestDeploymentTimers_DrainToZero(t *testing.T) {
 	require.NoError(t, err)
 
 	profile, err := b.CreateConfigurationProfile(
-		app.ID, "timer-leak-profile", "", "hosted", "AWS.Freeform", "", nil,
+		app.ID, "timer-leak-profile", "", "hosted", "AWS.Freeform", "", "", nil,
 		nil,
 	)
 	require.NoError(t, err)

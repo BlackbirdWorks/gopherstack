@@ -32,7 +32,7 @@ func TestOmics_VariantStore(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Contains(t, resp["arn"], "arn:aws:omics:")
+				assert.Contains(t, resp["storeArn"], "arn:aws:omics:")
 			},
 		},
 		{
@@ -105,7 +105,7 @@ func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var job map[string]any
 	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &job))
-	jobID := job["id"].(string)
+	jobID := job["jobId"].(string)
 
 	rec := doRequest(t, h, http.MethodPost, "/import/variants",
 		map[string]any{"filter": map[string]any{"storeName": "other-store"}})
@@ -113,7 +113,7 @@ func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	jobs, ok := resp["importJobs"].([]any)
+	jobs, ok := resp["variantImportJobs"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, jobs)
 
@@ -122,7 +122,7 @@ func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	jobs2, ok := resp2["importJobs"].([]any)
+	jobs2, ok := resp2["variantImportJobs"].([]any)
 	require.True(t, ok)
 	require.Len(t, jobs2, 1)
 }

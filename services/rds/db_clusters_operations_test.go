@@ -279,45 +279,102 @@ func TestModifyCurrentDBClusterCapacity(t *testing.T) {
 	}
 }
 
+// TestRestoreDBClusterFromS3 covers the seven required members of
+// RestoreDBClusterFromS3Input: DBClusterIdentifier, Engine, MasterUsername,
+// S3BucketName, S3IngestionRoleArn, SourceEngine and SourceEngineVersion.
+// S3IngestionRoleArn/SourceEngine/SourceEngineVersion were previously
+// dropped entirely by the handler.
 func TestRestoreDBClusterFromS3(t *testing.T) {
 	t.Parallel()
+
+	type params struct {
+		clusterID           string
+		engine              string
+		masterUsername      string
+		s3Bucket            string
+		s3IngestionRoleArn  string
+		sourceEngine        string
+		sourceEngineVersion string
+	}
+
+	valid := func() params {
+		return params{
+			clusterID:           "restored-cluster",
+			engine:              "aurora-mysql",
+			masterUsername:      "admin",
+			s3Bucket:            "my-backup-bucket",
+			s3IngestionRoleArn:  "arn:aws:iam::000000000000:role/rds-s3-ingestion",
+			sourceEngine:        "mysql",
+			sourceEngineVersion: "5.7.40",
+		}
+	}
+
 	tests := []struct {
-		wantErrIs      error
-		name           string
-		clusterID      string
-		engine         string
-		masterUsername string
-		s3Bucket       string
-		wantErr        bool
+		wantErrIs error
+		mutate    func(params) params
+		name      string
+		wantErr   bool
 	}{
 		{
-			name:           "success",
-			clusterID:      "restored-cluster",
-			engine:         "aurora-mysql",
-			masterUsername: "admin",
-			s3Bucket:       "my-backup-bucket",
+			name: "success",
 		},
 		{
-			name:      "empty bucket",
-			clusterID: "restored-cluster",
-			engine:    "aurora-mysql",
-			s3Bucket:  "",
+			name: "empty bucket",
+			mutate: func(p params) params {
+				p.s3Bucket = ""
+
+				return p
+			},
 			wantErr:   true,
 			wantErrIs: rds.ErrInvalidParameter,
 		},
 		{
-			name:      "empty id",
-			clusterID: "",
-			engine:    "aurora-mysql",
-			s3Bucket:  "my-bucket",
+			name: "empty id",
+			mutate: func(p params) params {
+				p.clusterID = ""
+
+				return p
+			},
 			wantErr:   true,
 			wantErrIs: rds.ErrInvalidParameter,
 		},
 		{
-			name:      "already exists",
-			clusterID: "existing-cluster",
-			engine:    "aurora-mysql",
-			s3Bucket:  "my-bucket",
+			name: "empty s3 ingestion role arn",
+			mutate: func(p params) params {
+				p.s3IngestionRoleArn = ""
+
+				return p
+			},
+			wantErr:   true,
+			wantErrIs: rds.ErrInvalidParameter,
+		},
+		{
+			name: "empty source engine",
+			mutate: func(p params) params {
+				p.sourceEngine = ""
+
+				return p
+			},
+			wantErr:   true,
+			wantErrIs: rds.ErrInvalidParameter,
+		},
+		{
+			name: "empty source engine version",
+			mutate: func(p params) params {
+				p.sourceEngineVersion = ""
+
+				return p
+			},
+			wantErr:   true,
+			wantErrIs: rds.ErrInvalidParameter,
+		},
+		{
+			name: "already exists",
+			mutate: func(p params) params {
+				p.clusterID = "existing-cluster"
+
+				return p
+			},
 			wantErr:   true,
 			wantErrIs: rds.ErrClusterAlreadyExists,
 		},
@@ -325,21 +382,24 @@ func TestRestoreDBClusterFromS3(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			p := valid()
+			if tt.mutate != nil {
+				p = tt.mutate(p)
+			}
+
 			b := newTestBackend(t)
 			if tt.name == "already exists" {
 				_, err := b.CreateDBCluster(
-					tt.clusterID,
-					tt.engine,
-					tt.masterUsername,
-					"",
-					"",
-					0,
-					nil,
-					rds.DBClusterOptions{},
+					p.clusterID, p.engine, p.masterUsername, "", "", 0, nil, rds.DBClusterOptions{},
 				)
 				require.NoError(t, err)
 			}
-			got, err := b.RestoreDBClusterFromS3(tt.clusterID, tt.engine, tt.masterUsername, tt.s3Bucket)
+
+			got, err := b.RestoreDBClusterFromS3(
+				p.clusterID, p.engine, p.masterUsername, p.s3Bucket,
+				p.s3IngestionRoleArn, p.sourceEngine, p.sourceEngineVersion,
+			)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tt.wantErrIs)
@@ -347,8 +407,8 @@ func TestRestoreDBClusterFromS3(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.clusterID, got.DBClusterIdentifier)
-			assert.Equal(t, tt.engine, got.Engine)
+			assert.Equal(t, p.clusterID, got.DBClusterIdentifier)
+			assert.Equal(t, p.engine, got.Engine)
 		})
 	}
 }

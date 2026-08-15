@@ -54,7 +54,9 @@ func (b *InMemoryBackend) DeleteArchive(accountID, region, vaultName, archiveID 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
+	vArn := vaultARN(accountID, region, vaultName)
+
+	v, ok := b.vaults.Get(vArn)
 	if !ok {
 		return ErrVaultNotFound
 	}
@@ -62,6 +64,10 @@ func (b *InMemoryBackend) DeleteArchive(accountID, region, vaultName, archiveID 
 	a, ok := v.Archives[archiveID]
 	if !ok {
 		return ErrArchiveNotFound
+	}
+
+	if err := b.checkVaultLockDelete(vArn, glacierActionDeleteArchive, a.CreationDate); err != nil {
+		return err
 	}
 
 	if v.NumberOfArchives > 0 {

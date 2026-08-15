@@ -175,15 +175,29 @@ type ReplicationSubnetGroup struct {
 	Region                            string
 }
 
+// DataProviderDescriptor mirrors the real AWS DataProviderDescriptor wire
+// shape (databasemigrationservice@v1.66.4 types.go:528-544): a resolved data
+// provider identity plus the caller's Secrets Manager pass-through fields.
+type DataProviderDescriptor struct {
+	DataProviderArn             string
+	DataProviderName            string
+	SecretsManagerAccessRoleArn string
+	SecretsManagerSecretId      string //nolint:revive,staticcheck // matches the AWS wire field name.
+}
+
 // MigrationProject represents a DMS migration project.
 type MigrationProject struct {
-	Tags                       *tags.Tags `json:"-"`
-	MigrationProjectName       string
-	MigrationProjectArn        string
-	MigrationProjectIdentifier string
-	Description                string
-	AccountID                  string
-	Region                     string
+	Tags                          *tags.Tags `json:"-"`
+	MigrationProjectName          string
+	MigrationProjectArn           string
+	MigrationProjectIdentifier    string
+	Description                   string
+	AccountID                     string
+	Region                        string
+	InstanceProfileArn            string
+	InstanceProfileName           string
+	SourceDataProviderDescriptors []DataProviderDescriptor
+	TargetDataProviderDescriptors []DataProviderDescriptor
 }
 
 // ReplicationConfig represents a DMS replication config.
@@ -197,11 +211,13 @@ type MigrationProject struct {
 // runtime fields live on the same struct rather than a separate table.
 type ReplicationConfig struct {
 	Tags                        *tags.Tags `json:"-"`
+	ComputeConfig               *ComputeConfig
 	ReplicationConfigIdentifier string
 	ReplicationConfigArn        string
 	ReplicationType             string
 	SourceEndpointArn           string
 	TargetEndpointArn           string
+	TableMappings               string
 	AccountID                   string
 	Region                      string
 	// Status is the runtime status of the associated Replication resource
@@ -214,6 +230,34 @@ type ReplicationConfig struct {
 	// most recent StartReplication call (start-replication, resume-processing,
 	// or reload-target), echoed back on the Replication resource.
 	StartReplicationType string
+}
+
+// ComputeConfig mirrors types.ComputeConfig (types.go:190) -- configuration
+// parameters for provisioning a DMS Serverless replication. Every member is
+// optional; only the ComputeConfig pointer itself is a required
+// CreateReplicationConfigInput member.
+type ComputeConfig struct {
+	MaxCapacityUnits           *int32
+	MinCapacityUnits           *int32
+	MultiAZ                    *bool
+	AvailabilityZone           string
+	DNSNameServers             string
+	KMSKeyID                   string
+	PreferredMaintenanceWindow string
+	ReplicationSubnetGroupID   string
+	VPCSecurityGroupIDs        []string
+}
+
+// CreateReplicationConfigParams groups CreateReplicationConfigInput's fields
+// beyond Tags, so the CreateReplicationConfig backend method signature stays
+// manageable as fields are added.
+type CreateReplicationConfigParams struct {
+	ComputeConfig     *ComputeConfig
+	Identifier        string
+	ReplicationType   string
+	SourceEndpointArn string
+	TargetEndpointArn string
+	TableMappings     string
 }
 
 // IndividualAssessment represents one named check run as part of a
@@ -316,4 +360,11 @@ type MetadataModelRequest struct {
 	RequestType                string
 	SelectionRules             string
 	Region                     string
+	// PropertiesDefinition is StartMetadataModelCreationInput.Properties'
+	// StatementProperties.Definition (types.go:5207) -- required only for
+	// "creation" requests, always empty for other RequestTypes. Not surfaced
+	// on any DescribeMetadataModel* response wire shape (types.SchemaConversionRequest
+	// has no matching field, same as SelectionRules above), tracked here for
+	// internal state fidelity only.
+	PropertiesDefinition string
 }

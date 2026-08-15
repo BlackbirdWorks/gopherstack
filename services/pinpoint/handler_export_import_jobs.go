@@ -102,16 +102,7 @@ func (h *Handler) handleCreateExportJob(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, exportJobResponse{
-		ARN:           job.ARN,
-		ApplicationID: job.ApplicationID,
-		ID:            job.ID,
-		RoleArn:       job.RoleArn,
-		S3UrlPrefix:   job.S3UrlPrefix,
-		JobStatus:     job.JobStatus,
-		Type:          exportJobType,
-		CreationDate:  job.CreationDate,
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, toExportJobResponse(job))
 
 	return nil
 }
@@ -151,17 +142,7 @@ func (h *Handler) handleCreateImportJob(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, importJobResponse{
-		ARN:           job.ARN,
-		ApplicationID: job.ApplicationID,
-		ID:            job.ID,
-		RoleArn:       job.RoleArn,
-		S3Url:         job.S3Url,
-		Format:        job.Format,
-		JobStatus:     job.JobStatus,
-		Type:          importJobType,
-		CreationDate:  job.CreationDate,
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusCreated, toImportJobResponse(job))
 
 	return nil
 }
@@ -240,27 +221,30 @@ func (h *Handler) handleGetImportJobs(c *echo.Context, appID string) error {
 
 func toExportJobResponse(j *ExportJob) exportJobResponse {
 	return exportJobResponse{
-		ARN:           j.ARN,
 		ApplicationID: j.ApplicationID,
 		ID:            j.ID,
-		RoleArn:       j.RoleArn,
-		S3UrlPrefix:   j.S3UrlPrefix,
-		JobStatus:     j.JobStatus,
-		Type:          exportJobType,
-		CreationDate:  j.CreationDate,
+		Definition: exportJobDefinition{
+			RoleArn:     j.RoleArn,
+			S3UrlPrefix: j.S3UrlPrefix,
+		},
+		JobStatus:    j.JobStatus,
+		Type:         exportJobType,
+		CreationDate: j.CreationDate,
 	}
 }
 
 func toImportJobResponse(j *ImportJob) importJobResponse {
 	return importJobResponse{
-		ARN:           j.ARN,
 		ApplicationID: j.ApplicationID,
 		ID:            j.ID,
-		RoleArn:       j.RoleArn,
-		S3Url:         j.S3Url,
-		Format:        j.Format,
-		JobStatus:     j.JobStatus,
-		Type:          importJobType,
-		CreationDate:  j.CreationDate,
+		Definition: importJobDefinition{
+			RoleArn:   j.RoleArn,
+			S3Url:     j.S3Url,
+			Format:    j.Format,
+			SegmentID: j.SegmentID,
+		},
+		JobStatus:    j.JobStatus,
+		Type:         importJobType,
+		CreationDate: j.CreationDate,
 	}
 }

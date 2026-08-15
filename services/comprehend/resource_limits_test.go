@@ -129,32 +129,29 @@ func TestKmsKeyValidation(t *testing.T) {
 			// ModelKmsKeyId/VolumeKmsKeyId on this op (which has neither).
 			name:   "create_flywheel_bad_data_security_config_model_kms_key",
 			action: "CreateFlywheel",
-			body: map[string]any{
-				"FlywheelName": "bad-kms-fw-model",
+			body: mergedBody(flywheelBody("bad-kms-fw-model"), map[string]any{
 				"DataSecurityConfig": map[string]any{
 					"ModelKmsKeyId": "not-a-valid-key",
 				},
-			},
+			}),
 		},
 		{
 			name:   "create_flywheel_bad_data_security_config_volume_kms_key",
 			action: "CreateFlywheel",
-			body: map[string]any{
-				"FlywheelName": "bad-kms-fw-volume",
+			body: mergedBody(flywheelBody("bad-kms-fw-volume"), map[string]any{
 				"DataSecurityConfig": map[string]any{
 					"VolumeKmsKeyId": "not-a-valid-key",
 				},
-			},
+			}),
 		},
 		{
 			name:   "create_flywheel_bad_data_security_config_data_lake_kms_key",
 			action: "CreateFlywheel",
-			body: map[string]any{
-				"FlywheelName": "bad-kms-fw-datalake",
+			body: mergedBody(flywheelBody("bad-kms-fw-datalake"), map[string]any{
 				"DataSecurityConfig": map[string]any{
 					"DataLakeKmsKeyId": "not-a-valid-key",
 				},
-			},
+			}),
 		},
 	}
 
@@ -227,7 +224,7 @@ func TestKmsKeyValidation_FlywheelDataSecurityConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			body := map[string]any{"FlywheelName": "ok-kms-fw-" + tt.name}
+			body := flywheelBody("ok-kms-fw-" + tt.name)
 			if tt.dataSecurityConfig != nil {
 				body["DataSecurityConfig"] = tt.dataSecurityConfig
 			}

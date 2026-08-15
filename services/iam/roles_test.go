@@ -1,6 +1,7 @@
 package iam_test
 
 import (
+	"encoding/xml"
 	"net/http"
 	"strings"
 	"testing"
@@ -20,11 +21,11 @@ func TestGetServiceLinkedRoleDeletionStatus(t *testing.T) {
 	rec := callIAM(t, h, "GetServiceLinkedRoleDeletionStatus", map[string]string{
 		"DeletionTaskId": "task-123",
 	})
-	// Returns either 200 or 404 — we just exercise the handler.
-	assert.True(
-		t,
-		rec.Code == http.StatusOK || rec.Code == http.StatusNotFound || rec.Code == http.StatusInternalServerError,
-	)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp iam.GetServiceLinkedRoleDeletionStatusResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "SUCCEEDED", resp.GetServiceLinkedRoleDeletionStatusResult.Status)
 }
 
 // TestUpdateRole_Backend tests UpdateRole.

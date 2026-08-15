@@ -327,7 +327,12 @@ func classifyActionConnectorPaths(method string, segs []string, n int) (string, 
 			switch method {
 			case http.MethodGet:
 				return opDescribeActionConnectorPerms, id
-			case http.MethodPut:
+			// UpdateActionConnectorPermissions' real wire method is POST
+			// (quicksight@v1.123.1 serializers.go), not PUT -- found
+			// unreachable by gopherstack-n1mb's route table. PUT is kept
+			// too as a non-canonical route wired for this package's own
+			// tests (handler_actionconnector_test.go).
+			case http.MethodPost, http.MethodPut:
 				return opUpdateActionConnectorPerms, id
 			}
 		case pathSegSearch:

@@ -58,6 +58,7 @@ type createConnectorInput struct {
 	AccessRole         string                    `json:"AccessRole"`
 	LoggingRole        string                    `json:"LoggingRole,omitempty"`
 	SecurityPolicyName string                    `json:"SecurityPolicyName,omitempty"`
+	IPAddressType      string                    `json:"IpAddressType,omitempty"`
 	Tags               []map[string]string       `json:"Tags"`
 }
 
@@ -82,6 +83,7 @@ func (h *Handler) handleCreateConnector(
 		As2Config:          toConnectorAs2Config(in.As2Config),
 		LoggingRole:        in.LoggingRole,
 		SecurityPolicyName: in.SecurityPolicyName,
+		IPAddressType:      in.IPAddressType,
 		Tags:               tags,
 	})
 	if err != nil {
@@ -166,6 +168,10 @@ func (h *Handler) handleDescribeConnector(
 		}
 	}
 
+	if c.IPAddressType != "" {
+		connMap["IpAddressType"] = c.IPAddressType
+	}
+
 	return &describeConnectorOutput{
 		Connector: connMap,
 	}, nil
@@ -209,6 +215,7 @@ type updateConnectorInput struct {
 	AccessRole         string                    `json:"AccessRole"`
 	LoggingRole        string                    `json:"LoggingRole,omitempty"`
 	SecurityPolicyName string                    `json:"SecurityPolicyName,omitempty"`
+	IPAddressType      string                    `json:"IpAddressType,omitempty"`
 }
 
 type updateConnectorOutput struct {
@@ -233,6 +240,8 @@ func (h *Handler) handleUpdateConnector(
 		SetLoggingRole:        in.LoggingRole != "",
 		SecurityPolicyName:    in.SecurityPolicyName,
 		SetSecurityPolicyName: in.SecurityPolicyName != "",
+		IPAddressType:         in.IPAddressType,
+		SetIPAddressType:      in.IPAddressType != "",
 	})
 	if err != nil {
 		return nil, err

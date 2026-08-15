@@ -29,9 +29,9 @@ var ocsfStringFieldMap = map[string]string{ //nolint:gochecknoglobals // read-on
 	"finding_info.title":   keyTitle,
 	"finding_info.desc":    keyDescription,
 	"metadata.product.uid": keyProductArn,
-	"compliance.status":    "ComplianceStatus",
-	"status":               "WorkflowStatus",
-	"severity":             "SeverityLabel",
+	"compliance.status":    keyFilterComplianceStatus,
+	"status":               keyFilterWorkflowStatus,
+	"severity":             keyFilterSeverityLabel,
 	"resources.type":       "ResourceType",
 	"resources.uid":        "ResourceId",
 	"resources.region":     "Region",
@@ -327,7 +327,7 @@ func matchesOcsfStringFilter(finding, m map[string]any) bool {
 
 	comp, _ := filter["Comparison"].(string)
 	val, _ := filter["Value"].(string)
-	fieldVal, _ := finding[asffField].(string)
+	fieldVal := findingFieldString(finding, asffField)
 
 	return compareStringFilter(comp, fieldVal, val)
 }

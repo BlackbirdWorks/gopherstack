@@ -38,6 +38,7 @@ type registerTaskDefinitionInput struct {
 }
 
 type registerTaskDefinitionOutput struct {
+	Tags           []Tag              `json:"tags,omitempty"`
 	TaskDefinition taskDefinitionView `json:"taskDefinition"`
 }
 
@@ -66,7 +67,10 @@ func (h *Handler) handleRegisterTaskDefinition(
 		return nil, err
 	}
 
-	return &registerTaskDefinitionOutput{TaskDefinition: toTaskDefinitionView(*td)}, nil
+	// RegisterTaskDefinitionOutput always echoes the supplied tags, unlike
+	// DescribeTaskDefinition/ListTagsForResource which gate behind `include=TAGS`
+	// (ecs@v1.90.0 deserializers.go:32428, awsAwsjson11_deserializeOpDocumentRegisterTaskDefinitionOutput).
+	return &registerTaskDefinitionOutput{TaskDefinition: toTaskDefinitionView(*td), Tags: in.Tags}, nil
 }
 
 type describeTaskDefinitionInput struct {

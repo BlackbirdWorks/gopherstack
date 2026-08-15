@@ -99,10 +99,10 @@ func TestPendingMaintenanceActions_DescribeFiltersByResource(t *testing.T) {
 	backend.AddPendingMaintenanceActionInternal("arn:aws:rds:us-east-1:000000000000:cluster:b", "db-upgrade", "b")
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                           {"DescribePendingMaintenanceActions"},
-		"Version":                          {"2014-10-31"},
-		"Filters.member.1.Name":            {"db-cluster-id"},
-		"Filters.member.1.Values.member.1": {"arn:aws:rds:us-east-1:000000000000:cluster:a"},
+		"Action":                          {"DescribePendingMaintenanceActions"},
+		"Version":                         {"2014-10-31"},
+		"Filters.Filter.1.Name":           {"db-cluster-id"},
+		"Filters.Filter.1.Values.Value.1": {"arn:aws:rds:us-east-1:000000000000:cluster:a"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()

@@ -125,5 +125,10 @@ func s3ExtendedOperations() []string {
 		"UpdateBucketMetadataJournalTableConfiguration",
 		"UpdateObjectEncryption",
 		"WriteGetObjectResponse",
+		"PutObjectAnnotation",
+		"GetObjectAnnotation",
+		"DeleteObjectAnnotation",
+		"ListObjectAnnotations",
+		"UpdateBucketMetadataAnnotationTableConfiguration",
 	}
 }

@@ -51,9 +51,9 @@ func (h *Handler) handleDetectModerationLabels(
 }
 
 type detectProtectiveEquipmentReq struct {
-	SummarizationAttributes *struct { //nolint:govet // existing issue.
-		MinConfidence          float32  `json:"MinConfidence"`
+	SummarizationAttributes *struct {
 		RequiredEquipmentTypes []string `json:"RequiredEquipmentTypes"`
+		MinConfidence          float32  `json:"MinConfidence"`
 	} `json:"SummarizationAttributes"`
 	Image imageRef `json:"Image"`
 }

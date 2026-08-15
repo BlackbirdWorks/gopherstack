@@ -529,6 +529,20 @@ func TestDescribeEngineDefaultParameters(t *testing.T) {
 			b := newTestBackend(t)
 			got := b.DescribeEngineDefaultParameters(tt.family)
 			assert.NotNil(t, got)
+
+			h := rds.NewHandler(b)
+			rec := postRDSForm(t, h, "Action=DescribeEngineDefaultParameters&Version=2014-10-31"+
+				"&DBParameterGroupFamily="+url.QueryEscape(tt.family))
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			var resp struct {
+				Result struct {
+					DBParameterGroupFamily string `xml:"DBParameterGroupFamily"`
+				} `xml:"DescribeEngineDefaultParametersResult>EngineDefaults"`
+			}
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.family, resp.Result.DBParameterGroupFamily,
+				"DescribeEngineDefaultParameters must echo the requested family")
 		})
 	}
 }

@@ -66,8 +66,13 @@ func (f ingestionFixture) ingestDocs(t *testing.T, docIDs ...string) {
 	docs := make([]map[string]any, 0, len(docIDs))
 	for _, id := range docIDs {
 		docs = append(docs, map[string]any{
-			"documentId": id,
-			"content":    map[string]any{"type": "TEXT"},
+			"content": map[string]any{
+				"dataSourceType": "CUSTOM",
+				"custom": map[string]any{
+					"customDocumentIdentifier": map[string]any{"id": id},
+					"sourceType":               "IN_LINE",
+				},
+			},
 		})
 	}
 
@@ -264,7 +269,13 @@ func TestKBDocumentsRealWireRouting(t *testing.T) {
 	putRec := doRequest(t, f.h, f.e, http.MethodPut,
 		"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/documents",
 		map[string]any{"documents": []map[string]any{
-			{"documentId": "wire-doc-1", "content": map[string]any{"type": "TEXT"}},
+			{"content": map[string]any{
+				"dataSourceType": "CUSTOM",
+				"custom": map[string]any{
+					"customDocumentIdentifier": map[string]any{"id": "wire-doc-1"},
+					"sourceType":               "IN_LINE",
+				},
+			}},
 		}})
 	if putRec.Code != http.StatusAccepted {
 		t.Fatalf("PUT .../documents (real Ingest wire shape): got %d %s, want %d (IngestKnowledgeBaseDocuments)",

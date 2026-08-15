@@ -8,15 +8,18 @@ import (
 
 func (h *Handler) handleCreateConfiguration(c *echo.Context) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		RunConfigurations *ConfigurationRunConfigurations `json:"runConfigurations"`
+		Tags              map[string]string               `json:"tags"`
+		Name              string                          `json:"name"`
+		Description       string                          `json:"description"`
+		RequestID         string                          `json:"requestId"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	cfg, err := h.Backend.CreateConfiguration(req.Name, req.Description)
+	cfg, err := h.Backend.CreateConfiguration(req.Name, req.Description, req.RunConfigurations, req.Tags)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -49,7 +52,7 @@ func (h *Handler) handleListConfigurations(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"configurations": cfgs, keyNextToken: next})
+	return c.JSON(http.StatusOK, map[string]any{keyItems: cfgs, keyNextToken: next})
 }
 
 func (h *Handler) handlePutS3AccessPolicy(c *echo.Context, arn string) error {

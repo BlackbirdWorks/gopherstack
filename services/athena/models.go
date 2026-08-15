@@ -143,17 +143,27 @@ type QueryExecutionError struct {
 }
 
 // QueryExecutionStatistics holds statistics for a query execution.
+//
+// ReusedPreviousResult lives under ResultReuseInformation on the wire, not
+// flat on Statistics -- real ResultReuseInformation{ReusedPreviousResult}
+// (athena@v1.60.4 deserializers.go's awsAwsjson11_deserializeDocumentResultReuseInformation).
 type QueryExecutionStatistics struct {
-	DataManifestLocation             string  `json:"DataManifestLocation,omitempty"`
-	DpuCount                         float64 `json:"DpuCount,omitempty"`
-	EngineExecutionTimeInMillis      int64   `json:"EngineExecutionTimeInMillis,omitempty"`
-	DataScannedInBytes               int64   `json:"DataScannedInBytes,omitempty"`
-	QueryPlanningTimeInMillis        int64   `json:"QueryPlanningTimeInMillis,omitempty"`
-	QueryQueueTimeInMillis           int64   `json:"QueryQueueTimeInMillis,omitempty"`
-	ServicePreProcessingTimeInMillis int64   `json:"ServicePreProcessingTimeInMillis,omitempty"`
-	ServiceProcessingTimeInMillis    int64   `json:"ServiceProcessingTimeInMillis,omitempty"`
-	TotalExecutionTimeInMillis       int64   `json:"TotalExecutionTimeInMillis,omitempty"`
-	ReusedPreviousResult             bool    `json:"ReusedPreviousResult,omitempty"`
+	ResultReuseInformation           *ResultReuseInformation `json:"ResultReuseInformation,omitempty"`
+	DataManifestLocation             string                  `json:"DataManifestLocation,omitempty"`
+	DpuCount                         float64                 `json:"DpuCount,omitempty"`
+	EngineExecutionTimeInMillis      int64                   `json:"EngineExecutionTimeInMillis,omitempty"`
+	DataScannedInBytes               int64                   `json:"DataScannedInBytes,omitempty"`
+	QueryPlanningTimeInMillis        int64                   `json:"QueryPlanningTimeInMillis,omitempty"`
+	QueryQueueTimeInMillis           int64                   `json:"QueryQueueTimeInMillis,omitempty"`
+	ServicePreProcessingTimeInMillis int64                   `json:"ServicePreProcessingTimeInMillis,omitempty"`
+	ServiceProcessingTimeInMillis    int64                   `json:"ServiceProcessingTimeInMillis,omitempty"`
+	TotalExecutionTimeInMillis       int64                   `json:"TotalExecutionTimeInMillis,omitempty"`
+}
+
+// ResultReuseInformation reports whether a query execution reused a
+// previous result, nested under QueryExecutionStatistics on the wire.
+type ResultReuseInformation struct {
+	ReusedPreviousResult bool `json:"ReusedPreviousResult"`
 }
 
 // QueryExecution represents an Athena query execution.
@@ -273,6 +283,32 @@ type SessionConfiguration struct {
 	IdleTimeoutSeconds      int64                   `json:"IdleTimeoutSeconds,omitempty"`
 }
 
+// CloudWatchLoggingConfiguration controls delivery of session logs to CloudWatch.
+type CloudWatchLoggingConfiguration struct {
+	LogGroup string `json:"LogGroup,omitempty"`
+	Enabled  bool   `json:"Enabled,omitempty"`
+}
+
+// ManagedLoggingConfiguration controls Athena-managed log persistence for a session.
+type ManagedLoggingConfiguration struct {
+	KmsKey  string `json:"KmsKey,omitempty"`
+	Enabled bool   `json:"Enabled,omitempty"`
+}
+
+// S3LoggingConfiguration controls delivery of session logs to Amazon S3.
+type S3LoggingConfiguration struct {
+	KmsKey      string `json:"KmsKey,omitempty"`
+	LogLocation string `json:"LogLocation,omitempty"`
+	Enabled     bool   `json:"Enabled,omitempty"`
+}
+
+// MonitoringConfiguration is the log-delivery configuration for a session.
+type MonitoringConfiguration struct {
+	CloudWatchLoggingConfiguration CloudWatchLoggingConfiguration `json:"CloudWatchLoggingConfiguration,omitzero"`
+	ManagedLoggingConfiguration    ManagedLoggingConfiguration    `json:"ManagedLoggingConfiguration,omitzero"`
+	S3LoggingConfiguration         S3LoggingConfiguration         `json:"S3LoggingConfiguration,omitzero"`
+}
+
 // SessionStatus tracks the lifecycle of a session.
 type SessionStatus struct {
 	StateChangeReason    string  `json:"StateChangeReason,omitempty"`
@@ -290,15 +326,16 @@ type SessionStatistics struct {
 
 // Session represents an interactive notebook session.
 type Session struct {
-	EngineConfiguration  EngineConfiguration  `json:"EngineConfiguration,omitzero"`
-	SessionConfiguration SessionConfiguration `json:"SessionConfiguration,omitzero"`
-	SessionID            string               `json:"SessionId"`
-	Description          string               `json:"Description,omitempty"`
-	WorkGroup            string               `json:"WorkGroup"`
-	NotebookVersion      string               `json:"NotebookVersion,omitempty"`
-	NotebookID           string               `json:"NotebookId,omitempty"`
-	Status               SessionStatus        `json:"Status"`
-	Statistics           SessionStatistics    `json:"Statistics,omitzero"`
+	EngineConfiguration     EngineConfiguration     `json:"EngineConfiguration,omitzero"`
+	SessionConfiguration    SessionConfiguration    `json:"SessionConfiguration,omitzero"`
+	MonitoringConfiguration MonitoringConfiguration `json:"MonitoringConfiguration,omitzero"`
+	SessionID               string                  `json:"SessionId"`
+	Description             string                  `json:"Description,omitempty"`
+	WorkGroup               string                  `json:"WorkGroup"`
+	NotebookVersion         string                  `json:"NotebookVersion,omitempty"`
+	NotebookID              string                  `json:"NotebookId,omitempty"`
+	Status                  SessionStatus           `json:"Status"`
+	Statistics              SessionStatistics       `json:"Statistics,omitzero"`
 }
 
 // SessionSummary is the list view of a session.

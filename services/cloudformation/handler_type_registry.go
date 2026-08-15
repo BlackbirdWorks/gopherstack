@@ -212,25 +212,36 @@ func (h *Handler) dispatchTypeManagementOps(
 }
 
 func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
-	if err := h.Backend.ActivateType(form.Get("TypeName"), form.Get("TypeArn")); err != nil {
+	// ActivateTypeInput has no "TypeArn" member; the ARN identifier is
+	// "PublicTypeArn" (cloudformation@v1.76.1 serializers.go:7181).
+	arn, err := h.Backend.ActivateType(form.Get("TypeName"), form.Get("PublicTypeArn"))
+	if err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
+	type result struct {
+		Arn string `xml:"Arn"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ActivateTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"ActivateTypeResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(c, response{Xmlns: cfnNS, Result: result{Arn: arn}, RequestID: uuid.New().String()})
 }
 
 func (h *Handler) handleDeactivateType(form url.Values, c *echo.Context) error {
-	if err := h.Backend.DeactivateType(form.Get("TypeName"), form.Get("TypeArn")); err != nil {
+	// DeactivateTypeInput sends "Arn", not "TypeArn"
+	// (cloudformation@v1.76.1 serializers.go:7751).
+	if err := h.Backend.DeactivateType(form.Get("TypeName"), form.Get("Arn")); err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"DeactivateTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeactivateTypeResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -266,9 +277,11 @@ func (h *Handler) handleDeregisterType(form url.Values, c *echo.Context) error {
 	if err := h.Backend.DeregisterType(form.Get("Arn")); err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"DeregisterTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"DeregisterTypeResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -276,25 +289,35 @@ func (h *Handler) handleDeregisterType(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handlePublishType(form url.Values, c *echo.Context) error {
-	if err := h.Backend.PublishType(form.Get("TypeName")); err != nil {
+	publicTypeArn, err := h.Backend.PublishType(form.Get("TypeName"))
+	if err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
+	}
+	type result struct {
+		PublicTypeArn string `xml:"PublicTypeArn"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"PublishTypeResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"PublishTypeResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{PublicTypeArn: publicTypeArn}, RequestID: uuid.New().String()},
+	)
 }
 
 func (h *Handler) handleSetTypeDefaultVersion(form url.Values, c *echo.Context) error {
 	if err := h.Backend.SetTypeDefaultVersion(form.Get("Arn"), form.Get("VersionId")); err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"SetTypeDefaultVersionResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"SetTypeDefaultVersionResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
@@ -302,14 +325,21 @@ func (h *Handler) handleSetTypeDefaultVersion(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleSetTypeConfiguration(form url.Values, c *echo.Context) error {
-	_ = h.Backend.SetTypeConfiguration(form.Get("TypeName"), form.Get("Configuration"))
+	configArn, _ := h.Backend.SetTypeConfiguration(form.Get("TypeName"), form.Get("Configuration"))
+	type result struct {
+		ConfigurationArn string `xml:"ConfigurationArn"`
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"SetTypeConfigurationResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"SetTypeConfigurationResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{Xmlns: cfnNS, Result: result{ConfigurationArn: configArn}, RequestID: uuid.New().String()},
+	)
 }
 
 // parseTypeConfigurationIdentifiers parses the TypeConfigurationIdentifiers
@@ -400,14 +430,16 @@ func (h *Handler) handleListTypes(_ url.Values, c *echo.Context) error {
 
 func (h *Handler) handleListTypeVersions(form url.Values, c *echo.Context) error {
 	versionIDs, _ := h.Backend.ListTypeVersions(form.Get("TypeName"), form.Get("Type"))
+	// Real TypeVersionSummary's ARN member is "Arn", not "TypeArn"
+	// (cloudformation@v1.76.1 types/types.go:3578).
 	type versionXML struct {
-		TypeArn   string `xml:"TypeArn,omitempty"`
+		Arn       string `xml:"Arn,omitempty"`
 		VersionID string `xml:"VersionId,omitempty"`
 	}
 	members := make([]versionXML, 0, len(versionIDs))
 	typeArn := "arn:aws:cloudformation:::type/resource/" + form.Get("TypeName")
 	for _, v := range versionIDs {
-		members = append(members, versionXML{TypeArn: typeArn, VersionID: v})
+		members = append(members, versionXML{Arn: typeArn, VersionID: v})
 	}
 	type result struct {
 		TypeVersionSummaries []versionXML `xml:"TypeVersionSummaries>member"`

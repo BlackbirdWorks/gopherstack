@@ -116,6 +116,43 @@ func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context,
 	return page, outToken, nil
 }
 
+// ListPartnerEventSourceAccounts returns the account a partner event source
+// was offered to, derived from CreatePartnerEventSource's already-tracked
+// state (partnerSourcesTable's Account field) and the mirrored customer-side
+// EventSource's CreationTime/ExpirationTime/State -- not fabricated
+// cross-account data, since this emulator already records exactly this
+// association. Real AWS can return multiple accounts per partner source name
+// (a partner can offer one source to many accounts); this emulator models
+// one name -> one account (see CreatePartnerEventSource), so at most one
+// entry is ever returned, and Limit/NextToken are accepted but never needed.
+func (b *InMemoryBackend) ListPartnerEventSourceAccounts(ctx context.Context,
+	eventSourceName string,
+) ([]PartnerEventSourceAccountInfo, error) {
+	if eventSourceName == "" {
+		return nil, fmt.Errorf("%w: EventSourceName is required", ErrInvalidParameter)
+	}
+
+	region := getRegionFromContext(ctx, b.region)
+
+	b.mu.RLock("ListPartnerEventSourceAccounts")
+	defer b.mu.RUnlock()
+
+	src, exists := b.partnerSourcesTable(region).Get(eventSourceName)
+	if !exists {
+		return nil, fmt.Errorf("%w: partner event source %s not found", ErrNotFound, eventSourceName)
+	}
+
+	info := PartnerEventSourceAccountInfo{Account: src.Account, State: "PENDING"}
+
+	if es, ok := b.eventSourcesTable(region).Get(eventSourceName); ok {
+		info.CreationTime = es.CreationTime
+		info.ExpirationTime = es.ExpirationTime
+		info.State = es.State
+	}
+
+	return []PartnerEventSourceAccountInfo{info}, nil
+}
+
 // PutPartnerEvents records partner events (same as PutEvents but intended for partner sources).
 func (b *InMemoryBackend) PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error) {
 	return b.PutEvents(ctx, entries)

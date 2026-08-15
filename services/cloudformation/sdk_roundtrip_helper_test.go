@@ -25,6 +25,18 @@ const rtTestRegion = "us-east-1"
 func newTestHandlerAndClient(t *testing.T) *cfnsdk.Client {
 	t.Helper()
 
+	_, client := newTestHandlerAndClientWithBackend(t)
+
+	return client
+}
+
+// newTestHandlerAndClientWithBackend is the same wiring as
+// newTestHandlerAndClient but also returns the backend, for tests that need
+// to force in-backend state (e.g. an out-of-band resource mutation for drift
+// tests) that has no corresponding SDK call.
+func newTestHandlerAndClientWithBackend(t *testing.T) (*cloudformation.InMemoryBackend, *cfnsdk.Client) {
+	t.Helper()
+
 	backend := cloudformation.NewInMemoryBackend()
 	h := cloudformation.NewHandler(backend)
 
@@ -45,7 +57,9 @@ func newTestHandlerAndClient(t *testing.T) *cfnsdk.Client {
 	)
 	require.NoError(t, err)
 
-	return cfnsdk.NewFromConfig(cfg, func(o *cfnsdk.Options) {
+	client := cfnsdk.NewFromConfig(cfg, func(o *cfnsdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
 	})
+
+	return backend, client
 }

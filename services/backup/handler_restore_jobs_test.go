@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	backupsdk "github.com/aws/aws-sdk-go-v2/service/backup"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -149,4 +151,46 @@ func TestPutRestoreValidationResultHTTP(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 		assert.Contains(t, rec.Body.String(), "ResourceNotFoundException")
 	})
+}
+
+// TestSDKRoundTrip_RestoreJobSourceResourceArn proves DescribeRestoreJob and
+// ListRestoreJobs both emit SourceResourceArn, the real member name on
+// types.RestoreJobsListMember and DescribeRestoreJobOutput
+// (backup@v1.59.4 types/types.go:2109-2196,
+// api_op_DescribeRestoreJob.go:39-124) -- restoreJobToJSON previously wrote
+// "ResourceArn" instead, a name neither type declares. A raw-body assertion
+// is weak here: it would only show a key present under the wrong name, not
+// prove a real client actually loses the value. Driving the real
+// aws-sdk-go-v2 client is what proves it: with the wrong key, the
+// deserializer silently discards it and SourceResourceArn decodes as nil
+// even though the call succeeds.
+func TestSDKRoundTrip_RestoreJobSourceResourceArn(t *testing.T) {
+	t.Parallel()
+
+	h, backend := newHandlerAndBackend()
+	client := newTestBackupClient(t, h)
+
+	rpArn := seedVaultAndRP(t, h, backend, "restore-vault")
+
+	startOut, err := client.StartRestoreJob(t.Context(), &backupsdk.StartRestoreJobInput{
+		RecoveryPointArn: aws.String(rpArn),
+		IamRoleArn:       aws.String("arn:aws:iam::123456789012:role/RestoreRole"),
+		ResourceType:     aws.String("EC2"),
+		Metadata:         map[string]string{"newVolumeAvailabilityZone": "us-east-1a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, startOut.RestoreJobId)
+
+	describeOut, err := client.DescribeRestoreJob(t.Context(), &backupsdk.DescribeRestoreJobInput{
+		RestoreJobId: startOut.RestoreJobId,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:ec2:us-east-1:123456789012:instance/i-test", aws.ToString(describeOut.SourceResourceArn))
+
+	listOut, err := client.ListRestoreJobs(t.Context(), &backupsdk.ListRestoreJobsInput{})
+	require.NoError(t, err)
+	require.Len(t, listOut.RestoreJobs, 1)
+	assert.Equal(
+		t, "arn:aws:ec2:us-east-1:123456789012:instance/i-test", aws.ToString(listOut.RestoreJobs[0].SourceResourceArn),
+	)
 }

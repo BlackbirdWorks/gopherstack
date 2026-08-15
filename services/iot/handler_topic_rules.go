@@ -13,7 +13,48 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
+// resolveTopicRuleDestinationOps resolves the topic-rule-destination op
+// family.
+//
+// The real wire shape (iot@v1.77.4 serializers.go) uses "/destinations",
+// not the "/rule-destinations" (hyphenated) path gopherstack previously used
+// for every op in this family -- found unreachable by gopherstack-n1mb's
+// route table. UpdateTopicRuleDestination's real path is additionally bare
+// PATCH /destinations (the ARN travels in the JSON body, which
+// handleUpdateTopicRuleDestination already reads correctly). The old
+// "/rule-destinations" shapes are kept too as non-canonical routes wired
+// for this package's own tests.
 func resolveTopicRuleDestinationOps(path, method string) string {
+	if op := resolveTopicRuleDestinationCanonicalOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveTopicRuleDestinationLegacyOps(path, method)
+}
+
+func resolveTopicRuleDestinationCanonicalOps(path, method string) string {
+	switch {
+	case path == pathDestinations && method == http.MethodPost:
+
+		return opCreateTopicRuleDestination
+	case path == pathDestinations && method == http.MethodGet:
+
+		return opListTopicRuleDestinations
+	case path == pathDestinations && method == http.MethodPatch:
+
+		return opUpdateTopicRuleDestination
+	case strings.HasPrefix(path, "/destinations/") && method == http.MethodGet:
+
+		return opGetTopicRuleDestination
+	case strings.HasPrefix(path, "/destinations/") && method == http.MethodDelete:
+
+		return opDeleteTopicRuleDestination
+	}
+
+	return unknownOperation
+}
+
+func resolveTopicRuleDestinationLegacyOps(path, method string) string {
 	switch {
 	case path == pathRuleDestinations && method == http.MethodPost:
 
@@ -276,8 +317,19 @@ func (h *Handler) handleCreateTopicRuleDestination(c *echo.Context) error {
 	})
 }
 
+// topicRuleDestinationARNFromPath extracts the ARN from either the real
+// "/destinations/{arn+}" path or the non-canonical "/rule-destinations/{arn}"
+// path this package's own tests still use.
+func topicRuleDestinationARNFromPath(path string) string {
+	if arn, ok := strings.CutPrefix(path, "/destinations/"); ok {
+		return arn
+	}
+
+	return strings.TrimPrefix(path, "/rule-destinations/")
+}
+
 func (h *Handler) handleGetTopicRuleDestination(c *echo.Context) error {
-	arn := strings.TrimPrefix(c.Request().URL.Path, "/rule-destinations/")
+	arn := topicRuleDestinationARNFromPath(c.Request().URL.Path)
 	dest, err := h.Backend.GetTopicRuleDestination(arn)
 	if err != nil {
 		return h.handleError(c, err)
@@ -318,7 +370,7 @@ func (h *Handler) handleUpdateTopicRuleDestination(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteTopicRuleDestination(c *echo.Context) error {
-	arn := strings.TrimPrefix(c.Request().URL.Path, "/rule-destinations/")
+	arn := topicRuleDestinationARNFromPath(c.Request().URL.Path)
 	if err := h.Backend.DeleteTopicRuleDestination(arn); err != nil {
 		return h.handleError(c, err)
 	}

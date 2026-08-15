@@ -42,9 +42,18 @@ func (h *Handler) dispatchAccessPreviewOps(op, path, query string, body []byte) 
 
 // ---- operation handlers ----
 
+// handleCreateAccessPreview decodes Configurations, the access control
+// configuration being previewed (api_op_CreateAccessPreview.go:39-43) --
+// required, and per its doc comment must contain exactly one element.
+// Each value is a 13-member union keyed by resource type (e.g. "s3Bucket",
+// "iamRole"; awsRestjson1_serializeDocumentConfiguration in
+// aws-sdk-go-v2/service/accessanalyzer@v1.51.4/serializers.go); gopherstack
+// stores it opaquely as raw JSON rather than decoding the full union (see
+// AccessPreview.Configurations godoc).
 func (h *Handler) handleCreateAccessPreview(body []byte) (any, int, error) {
 	var req struct {
-		AnalyzerArn string `json:"analyzerArn"`
+		Configurations map[string]json.RawMessage `json:"configurations"`
+		AnalyzerArn    string                     `json:"analyzerArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -55,7 +64,7 @@ func (h *Handler) handleCreateAccessPreview(body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
-	ap, err := h.Backend.CreateAccessPreview(req.AnalyzerArn)
+	ap, err := h.Backend.CreateAccessPreview(req.AnalyzerArn, req.Configurations)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -73,7 +82,7 @@ func (h *Handler) handleGetAccessPreview(
 		return nil, 0, err
 	}
 
-	return map[string]any{"accessPreview": accessPreviewToJSON(ap)}, http.StatusOK, nil
+	return map[string]any{"accessPreview": accessPreviewToJSON(ap, true)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListAccessPreviews(query string) (any, int, error) {
@@ -93,7 +102,9 @@ func (h *Handler) handleListAccessPreviews(query string) (any, int, error) {
 	list := make([]any, 0, len(previews))
 
 	for _, ap := range previews {
-		list = append(list, accessPreviewToJSON(ap))
+		// ListAccessPreviews returns types.AccessPreviewSummary, which has no
+		// Configurations member -- unlike GetAccessPreview's types.AccessPreview.
+		list = append(list, accessPreviewToJSON(ap, false))
 	}
 
 	return map[string]any{"accessPreviews": list}, http.StatusOK, nil
@@ -121,7 +132,7 @@ func (h *Handler) handleListAccessPreviewFindings(path string, body []byte) (any
 	}
 
 	findings, nextToken, err := h.Backend.ListAccessPreviewFindings(
-		accessPreviewID, req.MaxResults, req.NextToken,
+		accessPreviewID, req.Filter, req.MaxResults, req.NextToken,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -168,13 +179,24 @@ func parseAccessPreviewPath(method string, segments []string) (string, string, b
 
 // ---- JSON serialization ----
 
-func accessPreviewToJSON(ap *AccessPreview) map[string]any {
-	return map[string]any{
+// accessPreviewToJSON builds the wire shape for an access preview.
+// includeConfigurations distinguishes GetAccessPreview's full
+// types.AccessPreview (which has a Configurations member) from
+// ListAccessPreviews' types.AccessPreviewSummary (which doesn't) -- same
+// asymmetry convention as analyzerToJSON's includeConfiguration param.
+func accessPreviewToJSON(ap *AccessPreview, includeConfigurations bool) map[string]any {
+	m := map[string]any{
 		"id":           ap.ID,
 		keyAnalyzerArn: ap.AnalyzerArn,
 		keyStatus:      string(ap.Status),
 		keyCreatedAt:   ap.CreatedAt.Format(time.RFC3339),
 	}
+
+	if includeConfigurations {
+		m["configurations"] = ap.Configurations
+	}
+
+	return m
 }
 
 // accessPreviewFindingToJSON builds the wire shape of types.AccessPreviewFinding

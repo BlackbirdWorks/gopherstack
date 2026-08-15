@@ -65,8 +65,14 @@ func TestCFHandlerStringManipulations(t *testing.T) {
 			h := newTestHandler(t)
 			var body []byte
 			if strings.Contains(tt.path, "realtime-log-config") {
-				body = []byte(
-					`<RealtimeLogConfig><Name>test-rlc</Name><SamplingRate>100</SamplingRate></RealtimeLogConfig>`,
+				body = []byte(`<CreateRealtimeLogConfigRequest>` +
+					`<Name>test-rlc</Name><SamplingRate>100</SamplingRate>` +
+					`<EndPoints><member><StreamType>Kinesis</StreamType>` +
+					`<KinesisStreamConfig>` +
+					`<StreamARN>arn:aws:kinesis:us-east-1:123456789012:stream/test</StreamARN>` +
+					`<RoleARN>arn:aws:iam::123456789012:role/test</RoleARN>` +
+					`</KinesisStreamConfig></member></EndPoints>` +
+					`</CreateRealtimeLogConfigRequest>`,
 				)
 			}
 

@@ -1,9 +1,23 @@
 package iam
 
 import (
+	"encoding/pem"
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"strings"
 )
+
+// looksLikePEMPrivateKey reports whether s decodes as a PEM block whose type
+// names it as private key material (PKCS1/PKCS8/EC/encrypted). It never
+// inspects or returns the key bytes -- UploadServerCertificate's PrivateKey
+// is a credential gopherstack must validate the shape of without storing or
+// echoing it (real AWS never returns a private key either).
+func looksLikePEMPrivateKey(s string) bool {
+	block, _ := pem.Decode([]byte(s))
+
+	return block != nil && strings.Contains(block.Type, "PRIVATE KEY")
+}
 
 // iamServerCertReadDispatch returns the List/Get dispatch entries for server certificates.
 func (h *Handler) iamServerCertReadDispatch() map[string]iamActionFn {
@@ -105,6 +119,19 @@ func (h *Handler) iamServerCertWriteDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"UploadServerCertificate": func(vals url.Values, reqID string) (any, error) {
+			privateKey := vals.Get("PrivateKey")
+
+			// Required, and a credential: validate presence and PEM shape but
+			// never store, log, or echo it back (real AWS never returns a
+			// server certificate's private key either).
+			if privateKey == "" {
+				return nil, fmt.Errorf("%w: PrivateKey must not be empty", ErrInvalidInput)
+			}
+
+			if !looksLikePEMPrivateKey(privateKey) {
+				return nil, fmt.Errorf("%w: PrivateKey is not a well-formed PEM private key", ErrMalformedCertificate)
+			}
+
 			cert, err := h.Backend.UploadServerCertificate(
 				vals.Get("ServerCertificateName"),
 				vals.Get("Path"),

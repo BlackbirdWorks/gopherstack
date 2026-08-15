@@ -2,30 +2,46 @@ package glue
 
 import (
 	"context"
+	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // createIntegrationInput holds input for CreateIntegration.
 type createIntegrationInput struct {
 	Tags            map[string]string `json:"Tags,omitempty"`
 	IntegrationName string            `json:"IntegrationName"`
+	SourceArn       string            `json:"SourceArn"`
+	TargetArn       string            `json:"TargetArn"`
 }
 
 // createIntegrationOutput holds the result for CreateIntegration.
 type createIntegrationOutput struct {
-	IntegrationName string `json:"IntegrationName"`
-	Status          string `json:"Status"`
+	IntegrationName string  `json:"IntegrationName"`
+	IntegrationArn  string  `json:"IntegrationArn"`
+	SourceArn       string  `json:"SourceArn"`
+	TargetArn       string  `json:"TargetArn"`
+	Status          string  `json:"Status"`
+	CreateTime      float64 `json:"CreateTime"`
 }
 
 func (h *Handler) handleCreateIntegration(
 	_ context.Context,
 	in *createIntegrationInput,
 ) (*createIntegrationOutput, error) {
-	ig, err := h.Backend.CreateIntegration(in.IntegrationName, in.Tags)
+	ig, err := h.Backend.CreateIntegration(in.IntegrationName, in.SourceArn, in.TargetArn, in.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createIntegrationOutput{IntegrationName: ig.IntegrationName, Status: ig.Status}, nil
+	return &createIntegrationOutput{
+		IntegrationName: ig.IntegrationName,
+		IntegrationArn:  ig.IntegrationArn,
+		SourceArn:       ig.SourceArn,
+		TargetArn:       ig.TargetArn,
+		Status:          ig.Status,
+		CreateTime:      awstime.Epoch(ig.CreatedAt),
+	}, nil
 }
 
 // createIntegrationResourcePropertyInput holds input for CreateIntegrationResourceProperty.
@@ -88,18 +104,31 @@ type deleteIntegrationInput struct {
 
 // deleteIntegrationOutput holds the result for DeleteIntegration.
 type deleteIntegrationOutput struct {
-	IntegrationName string `json:"IntegrationName"`
+	IntegrationName string  `json:"IntegrationName"`
+	IntegrationArn  string  `json:"IntegrationArn"`
+	SourceArn       string  `json:"SourceArn"`
+	TargetArn       string  `json:"TargetArn"`
+	Status          string  `json:"Status"`
+	CreateTime      float64 `json:"CreateTime"`
 }
 
 func (h *Handler) handleDeleteIntegration(
 	_ context.Context,
 	in *deleteIntegrationInput,
 ) (*deleteIntegrationOutput, error) {
-	if err := h.Backend.DeleteIntegration(in.IntegrationIdentifier); err != nil {
+	ig, err := h.Backend.DeleteIntegration(in.IntegrationIdentifier)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteIntegrationOutput{IntegrationName: in.IntegrationIdentifier}, nil
+	return &deleteIntegrationOutput{
+		IntegrationName: ig.IntegrationName,
+		IntegrationArn:  ig.IntegrationArn,
+		SourceArn:       ig.SourceArn,
+		TargetArn:       ig.TargetArn,
+		Status:          "DELETING",
+		CreateTime:      awstime.Epoch(ig.CreatedAt),
+	}, nil
 }
 
 // deleteIntegrationResourcePropertyInput holds input for DeleteIntegrationResourceProperty.
@@ -132,13 +161,47 @@ type describeInboundIntegrationsInput struct {
 	IntegrationArn string `json:"IntegrationArn,omitempty"`
 	TargetArn      string `json:"TargetArn,omitempty"`
 	Marker         string `json:"Marker,omitempty"`
-	MaxRecords     int    `json:"MaxRecords,omitempty"`
+	MaxRecords     int32  `json:"MaxRecords,omitempty"`
 }
 
-// describeInboundIntegrationsOutput holds the result for DescribeInboundIntegrations.
+// defaultDescribeInboundIntegrationsLimit is used when
+// DescribeInboundIntegrationsInput.MaxRecords is unset.
+const defaultDescribeInboundIntegrationsLimit = 100
+
+// inboundIntegrationSummary mirrors types.InboundIntegration: CreateTime,
+// IntegrationArn, SourceArn, Status, TargetArn are all required members;
+// Errors and IntegrationConfig are real members with no backing state in
+// this backend's Integration model (models.go) and are omitted rather than
+// fabricated, matching integrationSummary above.
+//
+// CreateTime is an epoch float (via pkgs/awstime), not an RFC3339 string --
+// deserializeDocumentInboundIntegration (glue@v1.152.0 deserializers.go)
+// requires "CreateTime" to be a JSON Number ("expected IntegrationTimestamp
+// to be a JSON Number"), same as Integration.CreateTime.
+type inboundIntegrationSummary struct {
+	IntegrationArn string  `json:"IntegrationArn"`
+	SourceArn      string  `json:"SourceArn"`
+	Status         string  `json:"Status"`
+	TargetArn      string  `json:"TargetArn"`
+	CreateTime     float64 `json:"CreateTime"`
+}
+
+func toInboundIntegrationSummary(ig *Integration) inboundIntegrationSummary {
+	return inboundIntegrationSummary{
+		IntegrationArn: ig.IntegrationArn,
+		SourceArn:      ig.SourceArn,
+		Status:         ig.Status,
+		TargetArn:      ig.TargetArn,
+		CreateTime:     awstime.Epoch(ig.CreatedAt),
+	}
+}
+
+// describeInboundIntegrationsOutput holds the result for
+// DescribeInboundIntegrations. The real field is InboundIntegrations, not
+// Integrations (api_op_DescribeInboundIntegrations.go).
 type describeInboundIntegrationsOutput struct {
-	Marker       string `json:"Marker,omitempty"`
-	Integrations []any  `json:"Integrations"`
+	Marker              string                      `json:"Marker,omitempty"`
+	InboundIntegrations []inboundIntegrationSummary `json:"InboundIntegrations"`
 }
 
 func (h *Handler) handleDescribeInboundIntegrations(
@@ -147,38 +210,154 @@ func (h *Handler) handleDescribeInboundIntegrations(
 ) (*describeInboundIntegrationsOutput, error) {
 	all := h.Backend.ListIntegrations()
 
-	result := make([]any, 0, len(all))
+	matching := make([]*Integration, 0, len(all))
 	for _, ig := range all {
-		// Filter by IntegrationArn when specified.
-		if in.IntegrationArn != "" && ig.IntegrationName != in.IntegrationArn {
+		if in.IntegrationArn != "" && ig.IntegrationArn != in.IntegrationArn {
 			continue
 		}
 
-		result = append(result, ig)
+		if in.TargetArn != "" && ig.TargetArn != in.TargetArn {
+			continue
+		}
+
+		matching = append(matching, ig)
 	}
 
-	return &describeInboundIntegrationsOutput{Integrations: result}, nil
+	limit := int(in.MaxRecords)
+	if limit <= 0 {
+		limit = defaultDescribeInboundIntegrationsLimit
+	}
+
+	page, next := paginateSlice(matching, in.Marker, limit)
+
+	result := make([]inboundIntegrationSummary, 0, len(page))
+	for _, ig := range page {
+		result = append(result, toInboundIntegrationSummary(ig))
+	}
+
+	return &describeInboundIntegrationsOutput{InboundIntegrations: result, Marker: next}, nil
+}
+
+// defaultDescribeIntegrationsLimit is used when DescribeIntegrationsInput.MaxRecords is unset.
+const defaultDescribeIntegrationsLimit = 100
+
+// integrationFilter mirrors aws-sdk-go-v2/service/glue/types.IntegrationFilter.
+// Real supported Name keys are "Status", "IntegrationName" and "SourceArn"
+// (api_op_DescribeIntegrations.go doc comment), all of which are real
+// Integration fields (models.go).
+type integrationFilter struct {
+	Name   string   `json:"Name,omitempty"`
+	Values []string `json:"Values,omitempty"`
 }
 
 // describeIntegrationsInput holds input for DescribeIntegrations.
-type describeIntegrationsInput struct{}
+type describeIntegrationsInput struct {
+	IntegrationIdentifier string              `json:"IntegrationIdentifier,omitempty"`
+	Marker                string              `json:"Marker,omitempty"`
+	Filters               []integrationFilter `json:"Filters,omitempty"`
+	MaxRecords            int32               `json:"MaxRecords,omitempty"`
+}
+
+// integrationSummary mirrors the wire-safe subset of
+// aws-sdk-go-v2/service/glue/types.Integration that this backend tracks.
+// CreateTime is an epoch float (via pkgs/awstime), not the raw
+// Integration.CreatedAt time.Time -- that field's plain json tag marshals to
+// an RFC3339 string, which the real client rejects for this unixTimestamp
+// wire shape ("expected IntegrationTimestamp to be a JSON Number"), same
+// class of bug pkgs/awstime exists to prevent. Description, DataFilter,
+// IntegrationConfig, KmsKeyId, Errors, AdditionalEncryptionContext and Tags
+// are real Integration members with no backing state in this backend's
+// Integration model (models.go) and are omitted rather than fabricated.
+type integrationSummary struct {
+	IntegrationName string  `json:"IntegrationName"`
+	IntegrationArn  string  `json:"IntegrationArn"`
+	SourceArn       string  `json:"SourceArn"`
+	TargetArn       string  `json:"TargetArn"`
+	Status          string  `json:"Status"`
+	CreateTime      float64 `json:"CreateTime,omitempty"`
+}
+
+func toIntegrationSummary(ig *Integration) integrationSummary {
+	return integrationSummary{
+		IntegrationName: ig.IntegrationName,
+		IntegrationArn:  ig.IntegrationArn,
+		SourceArn:       ig.SourceArn,
+		TargetArn:       ig.TargetArn,
+		Status:          ig.Status,
+		CreateTime:      awstime.Epoch(ig.CreatedAt),
+	}
+}
 
 // describeIntegrationsOutput holds the result for DescribeIntegrations.
 type describeIntegrationsOutput struct {
-	Integrations []any `json:"Integrations"`
+	Marker       string               `json:"Marker,omitempty"`
+	Integrations []integrationSummary `json:"Integrations"`
+}
+
+func integrationFieldValue(ig *Integration, name string) string {
+	switch name {
+	case "Status":
+		return ig.Status
+	case "IntegrationName":
+		return ig.IntegrationName
+	case "SourceArn":
+		return ig.SourceArn
+	default:
+		return ""
+	}
+}
+
+func matchesIntegrationFilters(ig *Integration, filters []integrationFilter) bool {
+	for _, f := range filters {
+		if f.Name == "" {
+			continue
+		}
+
+		got := integrationFieldValue(ig, f.Name)
+
+		matched := slices.Contains(f.Values, got)
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (h *Handler) handleDescribeIntegrations(
 	_ context.Context,
-	_ *describeIntegrationsInput,
+	in *describeIntegrationsInput,
 ) (*describeIntegrationsOutput, error) {
 	list := h.Backend.ListIntegrations()
-	result := make([]any, 0, len(list))
+
+	matching := make([]*Integration, 0, len(list))
+
 	for _, ig := range list {
-		result = append(result, ig)
+		if in.IntegrationIdentifier != "" && ig.IntegrationArn != in.IntegrationIdentifier {
+			continue
+		}
+
+		if !matchesIntegrationFilters(ig, in.Filters) {
+			continue
+		}
+
+		matching = append(matching, ig)
 	}
 
-	return &describeIntegrationsOutput{Integrations: result}, nil
+	limit := int(in.MaxRecords)
+	if limit <= 0 {
+		limit = defaultDescribeIntegrationsLimit
+	}
+
+	page, next := paginateSlice(matching, in.Marker, limit)
+
+	result := make([]integrationSummary, 0, len(page))
+	for _, ig := range page {
+		result = append(result, toIntegrationSummary(ig))
+	}
+
+	return &describeIntegrationsOutput{Integrations: result, Marker: next}, nil
 }
 
 // getIntegrationResourcePropertyInput holds input for GetIntegrationResourceProperty.
@@ -286,19 +465,31 @@ type modifyIntegrationInput struct {
 
 // modifyIntegrationOutput holds the result for ModifyIntegration.
 type modifyIntegrationOutput struct {
-	IntegrationArn string `json:"IntegrationArn"`
-	Status         string `json:"Status"`
+	IntegrationName string  `json:"IntegrationName"`
+	IntegrationArn  string  `json:"IntegrationArn"`
+	SourceArn       string  `json:"SourceArn"`
+	TargetArn       string  `json:"TargetArn"`
+	Status          string  `json:"Status"`
+	CreateTime      float64 `json:"CreateTime"`
 }
 
 func (h *Handler) handleModifyIntegration(
 	_ context.Context,
 	in *modifyIntegrationInput,
 ) (*modifyIntegrationOutput, error) {
-	if err := h.Backend.ModifyIntegration(in.IntegrationIdentifier); err != nil {
+	ig, err := h.Backend.ModifyIntegration(in.IntegrationIdentifier)
+	if err != nil {
 		return nil, err
 	}
 
-	return &modifyIntegrationOutput{Status: stateActive}, nil
+	return &modifyIntegrationOutput{
+		IntegrationName: ig.IntegrationName,
+		IntegrationArn:  ig.IntegrationArn,
+		SourceArn:       ig.SourceArn,
+		TargetArn:       ig.TargetArn,
+		Status:          stateActive,
+		CreateTime:      awstime.Epoch(ig.CreatedAt),
+	}, nil
 }
 
 // updateIntegrationResourcePropertyInput holds input for UpdateIntegrationResourceProperty.

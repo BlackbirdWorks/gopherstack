@@ -31,15 +31,23 @@ type describeResourceReq struct {
 	ResourceID     string `json:"ResourceId"`
 }
 
+// describeResourceResp mirrors aws-sdk-go-v2/service/workmail's
+// DescribeResourceOutput. BookingOptions (a real, non-required member) is
+// deliberately not modeled here -- this backend has no booking/scheduling
+// simulation to source AutoAcceptRequests/AutoDeclineConflictingRequests/
+// AutoDeclineRecurringRequests from, and the real UpdateResourceInput also
+// accepts it, so a real client's typed BookingOptions stays nil regardless
+// of backend state. Disclosed, not fixed: see PARITY.md.
 type describeResourceResp struct {
-	ResourceID   string `json:"ResourceId"`
-	Name         string `json:"Name"`
-	Email        string `json:"Email,omitempty"`
-	Type         string `json:"Type"`
-	Description  string `json:"Description,omitempty"`
-	State        string `json:"State"`
-	EnabledDate  int64  `json:"EnabledDate,omitempty"`
-	DisabledDate int64  `json:"DisabledDate,omitempty"`
+	ResourceID                  string `json:"ResourceId"`
+	Name                        string `json:"Name"`
+	Email                       string `json:"Email,omitempty"`
+	Type                        string `json:"Type"`
+	Description                 string `json:"Description,omitempty"`
+	State                       string `json:"State"`
+	EnabledDate                 int64  `json:"EnabledDate,omitempty"`
+	DisabledDate                int64  `json:"DisabledDate,omitempty"`
+	HiddenFromGlobalAddressList bool   `json:"HiddenFromGlobalAddressList"`
 }
 
 func (h *Handler) handleDescribeResource(_ context.Context, req *describeResourceReq) (*describeResourceResp, error) {
@@ -49,12 +57,13 @@ func (h *Handler) handleDescribeResource(_ context.Context, req *describeResourc
 	}
 
 	resp := &describeResourceResp{
-		ResourceID:  r.ResourceID,
-		Name:        r.Name,
-		Email:       r.Email,
-		Type:        r.ResourceType,
-		Description: r.Description,
-		State:       r.State,
+		ResourceID:                  r.ResourceID,
+		Name:                        r.Name,
+		Email:                       r.Email,
+		Type:                        r.ResourceType,
+		Description:                 r.Description,
+		State:                       r.State,
+		HiddenFromGlobalAddressList: r.HiddenFromGlobalAddressList,
 	}
 	if !r.EnabledDate.IsZero() {
 		resp.EnabledDate = r.EnabledDate.Unix()
@@ -67,14 +76,17 @@ func (h *Handler) handleDescribeResource(_ context.Context, req *describeResourc
 }
 
 type updateResourceReq struct {
-	OrganizationID string `json:"OrganizationId"`
-	ResourceID     string `json:"ResourceId"`
-	Name           string `json:"Name"`
-	Description    string `json:"Description"`
+	OrganizationID              string `json:"OrganizationId"`
+	ResourceID                  string `json:"ResourceId"`
+	Name                        string `json:"Name"`
+	Description                 string `json:"Description"`
+	HiddenFromGlobalAddressList bool   `json:"HiddenFromGlobalAddressList"`
 }
 
 func (h *Handler) handleUpdateResource(_ context.Context, req *updateResourceReq) (*emptyResp, error) {
-	if err := h.Backend.UpdateResource(req.OrganizationID, req.ResourceID, req.Name, req.Description); err != nil {
+	if err := h.Backend.UpdateResource(
+		req.OrganizationID, req.ResourceID, req.Name, req.Description, req.HiddenFromGlobalAddressList,
+	); err != nil {
 		return nil, err
 	}
 
@@ -110,12 +122,14 @@ type listResourcesReq struct {
 }
 
 type resourceSummaryResp struct {
-	ID          string `json:"Id"`
-	Name        string `json:"Name"`
-	Email       string `json:"Email,omitempty"`
-	Type        string `json:"Type"`
-	State       string `json:"State"`
-	Description string `json:"Description,omitempty"`
+	ID           string `json:"Id"`
+	Name         string `json:"Name"`
+	Email        string `json:"Email,omitempty"`
+	Type         string `json:"Type"`
+	State        string `json:"State"`
+	Description  string `json:"Description,omitempty"`
+	EnabledDate  int64  `json:"EnabledDate,omitempty"`
+	DisabledDate int64  `json:"DisabledDate,omitempty"`
 }
 
 type listResourcesResp struct {
@@ -140,14 +154,21 @@ func (h *Handler) handleListResources(_ context.Context, req *listResourcesReq) 
 
 	summaries := make([]resourceSummaryResp, 0, len(resources))
 	for _, r := range resources {
-		summaries = append(summaries, resourceSummaryResp{
+		s := resourceSummaryResp{
 			ID:          r.ResourceID,
 			Name:        r.Name,
 			Email:       r.Email,
 			Type:        r.ResourceType,
 			State:       r.State,
 			Description: r.Description,
-		})
+		}
+		if !r.EnabledDate.IsZero() {
+			s.EnabledDate = r.EnabledDate.Unix()
+		}
+		if !r.DisabledDate.IsZero() {
+			s.DisabledDate = r.DisabledDate.Unix()
+		}
+		summaries = append(summaries, s)
 	}
 
 	return &listResourcesResp{Resources: summaries, NextToken: next}, nil

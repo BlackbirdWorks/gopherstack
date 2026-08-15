@@ -24,8 +24,17 @@ func resolveFleetMetricOps(path, method string) string {
 	return unknownOperation
 }
 
+// resolveCustomMetricOps resolves the custom-metric op family.
+//
+// ListCustomMetrics' real path is GET /custom-metrics (plural, iot@v1.77.4
+// serializers.go) -- every other op in this family is correctly singular
+// "/custom-metric/{name}", but List was too, unreachable by a real client.
+// Found by gopherstack-n1mb's route table. The singular bare path is kept
+// too as a non-canonical route wired for this package's own tests.
 func resolveCustomMetricOps(path, method string) string {
 	switch {
+	case path == "/custom-metrics" && method == http.MethodGet:
+		return opListCustomMetrics
 	case path == "/custom-metric" && method == http.MethodGet:
 		return opListCustomMetrics
 	case strings.HasPrefix(path, "/custom-metric/") && method == http.MethodPost:
@@ -101,18 +110,11 @@ func (h *Handler) handleListFleetMetrics(c *echo.Context) error {
 
 func (h *Handler) handleUpdateFleetMetric(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/fleet-metric/")
-	var req struct {
-		QueryString     string `json:"queryString,omitempty"`
-		Description     string `json:"description,omitempty"`
-		Period          int32  `json:"period,omitempty"`
-		ExpectedVersion int64  `json:"expectedVersion,omitempty"`
-	}
-	if err := readBody(c, &req); err != nil {
+	var input UpdateFleetMetricInput
+	if err := readBody(c, &input); err != nil {
 		return err
 	}
-	if err := h.Backend.UpdateFleetMetric(
-		name, req.QueryString, req.Description, req.Period, req.ExpectedVersion,
-	); err != nil {
+	if err := h.Backend.UpdateFleetMetric(name, &input); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -168,13 +170,11 @@ func (h *Handler) handleListCustomMetrics(c *echo.Context) error {
 
 func (h *Handler) handleUpdateCustomMetric(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/custom-metric/")
-	var req struct {
-		DisplayName string `json:"displayName"`
-	}
-	if err := readBody(c, &req); err != nil {
+	var input UpdateCustomMetricInput
+	if err := readBody(c, &input); err != nil {
 		return err
 	}
-	cm, err := h.Backend.UpdateCustomMetric(name, req.DisplayName)
+	cm, err := h.Backend.UpdateCustomMetric(name, input.DisplayName)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -234,13 +234,11 @@ func (h *Handler) handleListDimensions(c *echo.Context) error {
 
 func (h *Handler) handleUpdateDimension(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/dimensions/")
-	var req struct {
-		StringValues []string `json:"stringValues"`
-	}
-	if err := readBody(c, &req); err != nil {
+	var input UpdateDimensionInput
+	if err := readBody(c, &input); err != nil {
 		return err
 	}
-	d, err := h.Backend.UpdateDimension(name, req.StringValues)
+	d, err := h.Backend.UpdateDimension(name, input.StringValues)
 	if err != nil {
 		return respondErr(c, err)
 	}

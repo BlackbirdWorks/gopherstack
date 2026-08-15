@@ -326,7 +326,7 @@ func TestPaginationCoverage_ListServiceDeployments(t *testing.T) {
 		)
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-		assert.Len(t, body["serviceDeploymentArns"].([]any), 2)
+		assert.Len(t, body["serviceDeployments"].([]any), 2)
 		assert.NotEmpty(t, body["nextToken"])
 	})
 
@@ -371,7 +371,7 @@ func TestPaginationCoverage_ListServiceDeployments(t *testing.T) {
 		)
 		var b2 map[string]any
 		require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b2))
-		assert.Len(t, b2["serviceDeploymentArns"].([]any), 1)
+		assert.Len(t, b2["serviceDeployments"].([]any), 1)
 		assert.Empty(t, b2["nextToken"])
 	})
 
@@ -403,7 +403,7 @@ func TestPaginationCoverage_ListServiceDeployments(t *testing.T) {
 		)
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-		assert.Len(t, body["serviceDeploymentArns"].([]any), 100)
+		assert.Len(t, body["serviceDeployments"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})
 }

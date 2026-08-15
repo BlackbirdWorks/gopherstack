@@ -34,29 +34,87 @@ type traceSummaryServiceIDView struct {
 
 type traceSummaryForecastView struct{}
 
+// annotationValueView is the wire shape for a single annotation value: a tagged
+// union with exactly one of StringValue/NumberValue/BooleanValue set, selected by
+// the value's Go kind. X-Ray segment document "annotations" values are only ever
+// string, number, or boolean (the segment document spec disallows nested
+// objects/arrays there), matching the real API's AnnotationValue union exactly.
+type annotationValueView struct {
+	StringValue  *string  `json:"StringValue,omitempty"`
+	NumberValue  *float64 `json:"NumberValue,omitempty"`
+	BooleanValue *bool    `json:"BooleanValue,omitempty"`
+}
+
+func toAnnotationValueView(v any) annotationValueView {
+	switch tv := v.(type) {
+	case string:
+		return annotationValueView{StringValue: &tv}
+	case bool:
+		return annotationValueView{BooleanValue: &tv}
+	case float64:
+		return annotationValueView{NumberValue: &tv}
+	default:
+		// Defensive fallback for a caller-supplied annotation value outside the
+		// documented string/number/boolean set (e.g. a stray nested object) --
+		// stringify rather than drop it silently.
+		s := fmt.Sprintf("%v", tv)
+
+		return annotationValueView{StringValue: &s}
+	}
+}
+
+// valueWithServiceIDsView is the wire shape for one distinct value observed for
+// an annotation key, per the real API's ValueWithServiceIds type -- NOT a flat
+// key->value map. See buildTraceSummaryView.
+type valueWithServiceIDsView struct {
+	AnnotationValue annotationValueView         `json:"AnnotationValue"`
+	ServiceIds      []traceSummaryServiceIDView `json:"ServiceIds"` //nolint:revive // AWS API field name
+}
+
+func toValueWithServiceIDsViews(occs []AnnotationOccurrence) []valueWithServiceIDsView {
+	views := make([]valueWithServiceIDsView, 0, len(occs))
+
+	for _, occ := range occs {
+		svcViews := make([]traceSummaryServiceIDView, 0, len(occ.ServiceIDs))
+		for _, s := range occ.ServiceIDs {
+			svcViews = append(svcViews, traceSummaryServiceIDView(s))
+		}
+
+		views = append(views, valueWithServiceIDsView{
+			AnnotationValue: toAnnotationValueView(occ.Value),
+			ServiceIds:      svcViews,
+		})
+	}
+
+	return views
+}
+
 // traceSummary is the wire view for a single entry of GetTraceSummariesOutput's
 // TraceSummaries list. EntryPoint is a ServiceId object per the real SDK (types.ServiceId),
 // not a plain string -- a real client fails to parse this field otherwise, since
 // awsRestjson1_deserializeDocumentServiceId expects a JSON object. There is deliberately
 // no per-item "ApproximateTime" field: the real API only has "ApproximateTime" at the
 // GetTraceSummariesOutput envelope level (the start time of the results page), not per
-// TraceSummary -- see handleGetTraceSummaries.
+// TraceSummary -- see handleGetTraceSummaries. Annotations is a map to a LIST of
+// {AnnotationValue,ServiceIds} objects per key (types.ValueWithServiceIds), not a flat
+// key->value map -- a real client's deserializer hard-errors on a flat value here
+// (awsRestjson1_deserializeDocumentAnnotations expects each map value to be a JSON array).
 type traceSummary struct {
-	HTTP               *traceSummaryHTTPView       `json:"Http,omitempty"`
-	Annotations        map[string]any              `json:"Annotations,omitempty"`
-	ForecastStatistics *traceSummaryForecastView   `json:"ForecastStatistics,omitempty"`
-	EntryPoint         *traceSummaryServiceIDView  `json:"EntryPoint,omitempty"`
-	ID                 string                      `json:"Id"`
-	ServiceIds         []traceSummaryServiceIDView `json:"ServiceIds,omitempty"` //nolint:revive // AWS API field name
-	Users              []string                    `json:"Users,omitempty"`
-	Duration           float64                     `json:"Duration"`
-	ResponseTime       float64                     `json:"ResponseTime"`
-	StartTime          float64                     `json:"StartTime"`
-	Revision           int                         `json:"Revision"`
-	HasFault           bool                        `json:"HasFault"`
-	HasError           bool                        `json:"HasError"`
-	HasThrottle        bool                        `json:"HasThrottle"`
-	IsPartial          bool                        `json:"IsPartial"`
+	HTTP               *traceSummaryHTTPView                `json:"Http,omitempty"`
+	Annotations        map[string][]valueWithServiceIDsView `json:"Annotations,omitempty"`
+	ForecastStatistics *traceSummaryForecastView            `json:"ForecastStatistics,omitempty"`
+	EntryPoint         *traceSummaryServiceIDView           `json:"EntryPoint,omitempty"`
+	ID                 string                               `json:"Id"`
+	ServiceIds         []traceSummaryServiceIDView          `json:"ServiceIds,omitempty"` //nolint:revive // AWS field name
+	Users              []string                             `json:"Users,omitempty"`
+	Duration           float64                              `json:"Duration"`
+	ResponseTime       float64                              `json:"ResponseTime"`
+	StartTime          float64                              `json:"StartTime"`
+	Revision           int                                  `json:"Revision"`
+	HasFault           bool                                 `json:"HasFault"`
+	HasError           bool                                 `json:"HasError"`
+	HasThrottle        bool                                 `json:"HasThrottle"`
+	IsPartial          bool                                 `json:"IsPartial"`
 }
 
 // buildTraceSummaryView converts a TraceSummaryData to the JSON view struct.
@@ -96,7 +154,10 @@ func buildTraceSummaryView(traceID string, sd TraceSummaryData, startTime time.T
 	}
 
 	if len(sd.Annotations) > 0 {
-		s.Annotations = sd.Annotations
+		s.Annotations = make(map[string][]valueWithServiceIDsView, len(sd.Annotations))
+		for k, occs := range sd.Annotations {
+			s.Annotations[k] = toValueWithServiceIDsViews(occs)
+		}
 	}
 
 	if len(sd.ServiceIDs) > 0 {

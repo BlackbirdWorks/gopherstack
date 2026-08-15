@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net/http"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 	"github.com/labstack/echo/v5"
 )
 
@@ -93,6 +94,53 @@ func oauthAppToMap(app *OAuthClientApplication) map[string]any {
 	return m
 }
 
+// isValidOAuthClientAuthenticationType derives its answer from
+// types.OAuthClientAuthenticationType.Values() (currently just "TOKEN", per
+// CreateOAuthClientApplicationInput's doc comment) so it cannot drift from
+// the real enum, matching isValidRole/isValidServiceType's convention
+// elsewhere in this service.
+func isValidOAuthClientAuthenticationType(value string) bool {
+	for _, v := range sdktypes.OAuthClientAuthenticationType("").Values() {
+		if string(v) == value {
+			return true
+		}
+	}
+
+	return false
+}
+
+// validateCreateOAuthClientAppFields rejects a CreateOAuthClientApplication
+// request missing a member aws-sdk-go-v2/service/quicksight@v1.123.1/
+// validators.go's validateOpCreateOAuthClientApplicationInput marks
+// required, that this handler did not already enforce:
+// OAuthClientAuthenticationType, ClientId, ClientSecret, and
+// OAuthTokenEndpointUrl. OAuthClientApplicationId/Name are validated
+// separately by CreateOAuthClientApplication's own clientID/name check;
+// AwsAccountId is a URI path parameter routing already requires present to
+// reach this handler at all.
+//
+// ClientId/ClientSecret never round-trip through Describe by design (the
+// real OAuthClientApplication response shape has no such members -- see
+// isOAuthAppModeledField's doc comment), so this is presence-only: nothing
+// stores or echoes their value beyond this check.
+func validateCreateOAuthClientAppFields(body map[string]any) error {
+	if strField(body, "ClientId") == "" {
+		return ErrValidation
+	}
+	if strField(body, "ClientSecret") == "" {
+		return ErrValidation
+	}
+	authType := strField(body, "OAuthClientAuthenticationType")
+	if authType == "" || !isValidOAuthClientAuthenticationType(authType) {
+		return ErrValidation
+	}
+	if strField(body, "OAuthTokenEndpointUrl") == "" {
+		return ErrValidation
+	}
+
+	return nil
+}
+
 func (h *Handler) handleCreateOAuthClientApp(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
@@ -100,6 +148,10 @@ func (h *Handler) handleCreateOAuthClientApp(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	if fieldsErr := validateCreateOAuthClientAppFields(body); fieldsErr != nil {
+		return httpErr(c, fieldsErr)
 	}
 
 	clientID := strField(body, keyOAuthClientApplicationID)

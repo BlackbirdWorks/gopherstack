@@ -115,6 +115,7 @@ type updateLocationObjectStorageInput struct {
 	CmkSecretConfig    *cmkSecretConfigWire    `json:"CmkSecretConfig"`
 	CustomSecretConfig *customSecretConfigWire `json:"CustomSecretConfig"`
 	LocationArn        string                  `json:"LocationArn"`
+	ServerHostname     string                  `json:"ServerHostname,omitempty"`
 	Subdirectory       string                  `json:"Subdirectory,omitempty"`
 	AccessKey          string                  `json:"AccessKey,omitempty"`
 	SecretKey          string                  `json:"SecretKey,omitempty"`
@@ -143,7 +144,7 @@ func (h *Handler) handleUpdateLocationObjectStorage(
 	}
 
 	if err := h.Backend.UpdateLocationObjectStorage(
-		in.LocationArn, in.ServerProtocol, in.Subdirectory,
+		in.LocationArn, in.ServerHostname, in.ServerProtocol, in.Subdirectory,
 		in.AccessKey, in.SecretKey, in.ServerPort, in.AgentArns, secretConfig,
 	); err != nil {
 		return nil, err

@@ -142,6 +142,14 @@ func classifyAgentPath(method, path string) string {
 		return opUpdateAgent
 	case len(segs) == 1 && method == http.MethodDelete:
 		return opDeleteAgent
+	// Real PrepareAgent POSTs to "/agents/{agentId}/" -- no "/prepare"
+	// suffix (botocore bedrock-agent 2023-06-05) -- so it's a single
+	// segment, same as Get/Update/Delete, disambiguated by method alone.
+	// dispatchAgentID (handler.go) already accepts this shape; the
+	// "/prepare" suffix case below is extra leniency, not the real wire
+	// shape.
+	case len(segs) == 1 && method == http.MethodPost:
+		return opPrepareAgent
 	case len(segs) == 2 && segs[1] == "prepare":
 		return opPrepareAgent
 	case containsSeg(segs, "agentversions"):

@@ -32,6 +32,9 @@ var (
 	// (as opposed to ErrValidation, which covers a parameter that was supplied but is
 	// malformed/out-of-range) -- maps to AWS's distinct MissingParameterValueException.
 	ErrMissingParameter = errors.New("MissingParameterValueException: required parameter missing")
+	// ErrVaultLockDenied is returned when a vault lock policy's Deny statement
+	// matches the requested operation. See vault_lock_policy_eval.go.
+	ErrVaultLockDenied = errors.New("AccessDeniedException: denied by vault lock policy")
 )
 
 // Handler-level sentinel errors used as wrapping targets to satisfy err113.

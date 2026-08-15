@@ -6,12 +6,23 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
+
+// testExecutionSummary returns a valid ComplianceExecutionSummary --
+// ExecutionTime is required on every PutComplianceItems call
+// (api_op_PutComplianceItems.go).
+func testExecutionSummary() *ssm.ComplianceExecutionSummary {
+	return &ssm.ComplianceExecutionSummary{ExecutionTime: 1_700_000_000, ExecutionType: "Command"}
+}
 
 func TestInventory_DeletionJobRecorded(t *testing.T) {
 	t.Parallel()
@@ -272,10 +283,11 @@ func TestSSMPagination_ListComplianceItems(t *testing.T) {
 	}
 
 	_, putErr := b.PutComplianceItems(ctx, &ssm.PutComplianceItemsInput{
-		ResourceID:     "res-ci-1",
-		ResourceType:   "ManagedInstance",
-		ComplianceType: "Custom",
-		Items:          items1,
+		ResourceID:       "res-ci-1",
+		ResourceType:     "ManagedInstance",
+		ComplianceType:   "Custom",
+		ExecutionSummary: testExecutionSummary(),
+		Items:            items1,
 	})
 	require.NoError(t, putErr)
 
@@ -289,10 +301,11 @@ func TestSSMPagination_ListComplianceItems(t *testing.T) {
 	}
 
 	_, putErr = b.PutComplianceItems(ctx, &ssm.PutComplianceItemsInput{
-		ResourceID:     "res-ci-2",
-		ResourceType:   "ManagedInstance",
-		ComplianceType: "Custom",
-		Items:          items2,
+		ResourceID:       "res-ci-2",
+		ResourceType:     "ManagedInstance",
+		ComplianceType:   "Custom",
+		ExecutionSummary: testExecutionSummary(),
+		Items:            items2,
 	})
 	require.NoError(t, putErr)
 
@@ -365,9 +378,10 @@ func TestSSMPagination_ListComplianceSummaries(t *testing.T) {
 	for i := range 5 {
 		ct := fmt.Sprintf("Type%02d", i)
 		_, err := b.PutComplianceItems(ctx, &ssm.PutComplianceItemsInput{
-			ResourceID:     fmt.Sprintf("res-cs-%02d", i),
-			ResourceType:   "ManagedInstance",
-			ComplianceType: ct,
+			ResourceID:       fmt.Sprintf("res-cs-%02d", i),
+			ResourceType:     "ManagedInstance",
+			ComplianceType:   ct,
+			ExecutionSummary: testExecutionSummary(),
 			Items: []ssm.ComplianceItem{
 				{Title: "item-1", Status: "COMPLIANT", Severity: "LOW"},
 			},
@@ -443,9 +457,10 @@ func TestSSMPagination_ListResourceComplianceSummaries(t *testing.T) {
 	// 5 distinct resources → 5 per-resource summaries.
 	for i := range 5 {
 		_, err := b.PutComplianceItems(ctx, &ssm.PutComplianceItemsInput{
-			ResourceID:     fmt.Sprintf("res-rcs-%02d", i),
-			ResourceType:   "ManagedInstance",
-			ComplianceType: "Patch",
+			ResourceID:       fmt.Sprintf("res-rcs-%02d", i),
+			ResourceType:     "ManagedInstance",
+			ComplianceType:   "Patch",
+			ExecutionSummary: testExecutionSummary(),
 			Items: []ssm.ComplianceItem{
 				{Title: "item-1", Status: "COMPLIANT", Severity: "LOW"},
 			},
@@ -584,15 +599,136 @@ func TestBackendOps_DescribeInventoryDeletions(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, out.InventoryDeletions)
 }
+
+// TestPutComplianceItems_RequiredFields covers the required members
+// gopherstack's PutComplianceItemsInput previously lacked entirely
+// (ExecutionSummary, with its own required ExecutionTime) or never
+// validated (ComplianceType, Items[].Severity/Status) -- confirmed against
+// api_op_PutComplianceItems.go and types.ComplianceItemEntry.
+func TestPutComplianceItems_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	valid := func() *ssm.PutComplianceItemsInput {
+		return &ssm.PutComplianceItemsInput{
+			ResourceID:       "i-required-fields",
+			ResourceType:     "ManagedInstance",
+			ComplianceType:   "Custom",
+			ExecutionSummary: testExecutionSummary(),
+			Items:            []ssm.ComplianceItem{{Status: "COMPLIANT", Severity: "LOW"}},
+		}
+	}
+
+	tests := []struct {
+		mutate func(*ssm.PutComplianceItemsInput)
+		name   string
+	}{
+		{name: "missing_resourceid", mutate: func(in *ssm.PutComplianceItemsInput) { in.ResourceID = "" }},
+		{name: "missing_resourcetype", mutate: func(in *ssm.PutComplianceItemsInput) { in.ResourceType = "" }},
+		{name: "missing_compliancetype", mutate: func(in *ssm.PutComplianceItemsInput) { in.ComplianceType = "" }},
+		{
+			name:   "missing_executionsummary",
+			mutate: func(in *ssm.PutComplianceItemsInput) { in.ExecutionSummary = nil },
+		},
+		{
+			name: "missing_executiontime",
+			mutate: func(in *ssm.PutComplianceItemsInput) {
+				in.ExecutionSummary = &ssm.ComplianceExecutionSummary{}
+			},
+		},
+		{
+			name:   "missing_item_severity",
+			mutate: func(in *ssm.PutComplianceItemsInput) { in.Items[0].Severity = "" },
+		},
+		{
+			name:   "missing_item_status",
+			mutate: func(in *ssm.PutComplianceItemsInput) { in.Items[0].Status = "" },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			in := valid()
+			tt.mutate(in)
+
+			_, err := b.PutComplianceItems(context.TODO(), in)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ssm.ErrValidationException)
+		})
+	}
+}
+
+// TestComplianceItem_IDAndExecutionSummaryRoundTrip drives the real SDK
+// client to confirm ComplianceItem.Id and ExecutionSummary (types.go's
+// ComplianceItem -- previously absent from gopherstack's Go struct
+// entirely) round-trip through ListComplianceItems.
+func TestComplianceItem_IDAndExecutionSummaryRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+
+	_, err := client.PutComplianceItems(t.Context(), &ssmsdk.PutComplianceItemsInput{
+		ResourceId:     aws.String("i-roundtrip"),
+		ResourceType:   aws.String("ManagedInstance"),
+		ComplianceType: aws.String("Patch"),
+		ExecutionSummary: &ssmtypes.ComplianceExecutionSummary{
+			ExecutionTime: aws.Time(time.Unix(1_700_000_000, 0)),
+			ExecutionId:   aws.String("exec-1"),
+			ExecutionType: aws.String("Command"),
+		},
+		Items: []ssmtypes.ComplianceItemEntry{
+			{
+				Id:       aws.String("KB123"),
+				Status:   ssmtypes.ComplianceStatusCompliant,
+				Severity: ssmtypes.ComplianceSeverityLow,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// A second, unrelated resource -- proves ResourceIds actually filters
+	// rather than just happening to return everything.
+	_, err = client.PutComplianceItems(t.Context(), &ssmsdk.PutComplianceItemsInput{
+		ResourceId:     aws.String("i-other"),
+		ResourceType:   aws.String("ManagedInstance"),
+		ComplianceType: aws.String("Patch"),
+		ExecutionSummary: &ssmtypes.ComplianceExecutionSummary{
+			ExecutionTime: aws.Time(time.Unix(1_700_000_000, 0)),
+		},
+		Items: []ssmtypes.ComplianceItemEntry{
+			{
+				Id:       aws.String("KB999"),
+				Status:   ssmtypes.ComplianceStatusCompliant,
+				Severity: ssmtypes.ComplianceSeverityLow,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.ListComplianceItems(t.Context(), &ssmsdk.ListComplianceItemsInput{
+		ResourceIds: []string{"i-roundtrip"},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.ComplianceItems, 1, "ResourceIds must filter out i-other")
+	assert.Equal(t, "KB123", aws.ToString(got.ComplianceItems[0].Id))
+	require.NotNil(t, got.ComplianceItems[0].ExecutionSummary)
+	assert.Equal(t, "exec-1", aws.ToString(got.ComplianceItems[0].ExecutionSummary.ExecutionId))
+	assert.Equal(t, int64(1_700_000_000), got.ComplianceItems[0].ExecutionSummary.ExecutionTime.Unix())
+}
+
 func TestBackendOps_PutComplianceItems(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
 
 	out, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
-		ResourceID:     "i-compliance-test",
-		ResourceType:   "ManagedInstance",
-		ComplianceType: "Association",
+		ResourceID:       "i-compliance-test",
+		ResourceType:     "ManagedInstance",
+		ComplianceType:   "Association",
+		ExecutionSummary: testExecutionSummary(),
 		Items: []ssm.ComplianceItem{
 			{Status: "COMPLIANT", Severity: "UNSPECIFIED", Title: "AssocComp"},
 		},
@@ -606,16 +742,18 @@ func TestBackendOps_ListComplianceItems(t *testing.T) {
 	b := newBackend(t)
 
 	_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
-		ResourceID:   "i-list-compliance",
-		ResourceType: "ManagedInstance",
+		ResourceID:       "i-list-compliance",
+		ResourceType:     "ManagedInstance",
+		ComplianceType:   "Custom",
+		ExecutionSummary: testExecutionSummary(),
 		Items: []ssm.ComplianceItem{
-			{Status: "COMPLIANT", Title: "Item1"},
+			{Status: "COMPLIANT", Severity: "UNSPECIFIED", Title: "Item1"},
 		},
 	})
 	require.NoError(t, err)
 
 	out, err := b.ListComplianceItems(context.TODO(), &ssm.ListComplianceItemsInput{
-		ResourceID: "i-list-compliance",
+		ResourceIDs: []string{"i-list-compliance"},
 	})
 	require.NoError(t, err)
 	assert.Len(t, out.ComplianceItems, 1)
@@ -671,6 +809,94 @@ func TestFull_Inventory_PutGetSchema(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotNil(t, out["Entries"])
 }
+
+// TestListInventoryEntries_CaptureTimeAndSchemaVersion asserts the real
+// output members (api_op_ListInventoryEntries.go) that were previously
+// dropped entirely -- the matched InventoryItem already carried both, they
+// were just never echoed onto the response.
+func TestListInventoryEntries_CaptureTimeAndSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+
+	_, err := client.PutInventory(t.Context(), &ssmsdk.PutInventoryInput{
+		InstanceId: aws.String("i-entries-echo"),
+		Items: []ssmtypes.InventoryItem{
+			{
+				TypeName:      aws.String("AWS:Application"),
+				SchemaVersion: aws.String("1.1"),
+				CaptureTime:   aws.String("2024-01-01T00:00:00Z"),
+				Content:       []map[string]string{{"Name": "nginx"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.ListInventoryEntries(t.Context(), &ssmsdk.ListInventoryEntriesInput{
+		InstanceId: aws.String("i-entries-echo"),
+		TypeName:   aws.String("AWS:Application"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "1.1", aws.ToString(got.SchemaVersion))
+	assert.Equal(t, "2024-01-01T00:00:00Z", aws.ToString(got.CaptureTime))
+}
+
+// TestDeleteInventory_DryRun asserts DryRun (real member,
+// api_op_DeleteInventory.go) reports what would be deleted without actually
+// deleting it -- previously DryRun had no Go struct field at all, so every
+// call deleted for real regardless of what the caller asked for.
+func TestDeleteInventory_DryRun(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+
+	_, err := client.PutInventory(t.Context(), &ssmsdk.PutInventoryInput{
+		InstanceId: aws.String("i-dryrun"),
+		Items: []ssmtypes.InventoryItem{
+			{
+				TypeName:      aws.String("AWS:Application"),
+				SchemaVersion: aws.String("1.1"),
+				CaptureTime:   aws.String("2024-01-01T00:00:00Z"),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	dryOut, err := client.DeleteInventory(t.Context(), &ssmsdk.DeleteInventoryInput{
+		TypeName: aws.String("AWS:Application"),
+		DryRun:   true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, dryOut.DeletionSummary)
+	assert.Equal(t, int32(1), dryOut.DeletionSummary.TotalCount)
+
+	still, err := client.ListInventoryEntries(t.Context(), &ssmsdk.ListInventoryEntriesInput{
+		InstanceId: aws.String("i-dryrun"),
+		TypeName:   aws.String("AWS:Application"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "1.1", aws.ToString(still.SchemaVersion), "DryRun must not actually delete anything")
+
+	deletions, err := client.DescribeInventoryDeletions(t.Context(), &ssmsdk.DescribeInventoryDeletionsInput{})
+	require.NoError(t, err)
+	assert.Empty(t, deletions.InventoryDeletions, "DryRun must not record a deletion job")
+
+	realOut, err := client.DeleteInventory(t.Context(), &ssmsdk.DeleteInventoryInput{
+		TypeName: aws.String("AWS:Application"),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(realOut.DeletionId))
+
+	gone, err := client.ListInventoryEntries(t.Context(), &ssmsdk.ListInventoryEntriesInput{
+		InstanceId: aws.String("i-dryrun"),
+		TypeName:   aws.String("AWS:Application"),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, aws.ToString(gone.SchemaVersion))
+}
+
 func TestFull_Compliance_PutListSummary(t *testing.T) {
 	t.Parallel()
 	h := newHandler()
@@ -680,7 +906,7 @@ func TestFull_Compliance_PutListSummary(t *testing.T) {
 		"ResourceType":   "ManagedInstance",
 		"ComplianceType": "Association",
 		"ExecutionSummary": map[string]any{
-			"ExecutionTime": "2024-01-01T00:00:00Z",
+			"ExecutionTime": 1_700_000_000,
 		},
 		"Items": []map[string]any{
 			{"Id": "a1", "Title": "patch-1", "Status": "COMPLIANT", "Severity": "UNSPECIFIED"},
@@ -707,9 +933,10 @@ func TestComplianceSummaries_AggregateByCType(t *testing.T) {
 
 	// Store some compliance items.
 	_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
-		ResourceID:     "i-abc123",
-		ResourceType:   "ManagedInstance",
-		ComplianceType: "Association",
+		ResourceID:       "i-abc123",
+		ResourceType:     "ManagedInstance",
+		ComplianceType:   "Association",
+		ExecutionSummary: testExecutionSummary(),
 		Items: []ssm.ComplianceItem{
 			{Title: "AWS-RunPatchBaseline", Status: "COMPLIANT", Severity: "UNSPECIFIED"},
 			{Title: "AWS-GatherSoftwareInventory", Status: "NON_COMPLIANT", Severity: "HIGH"},
@@ -743,9 +970,10 @@ func TestResourceComplianceSummaries_PerResource(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
-		ResourceID:     "i-res123",
-		ResourceType:   "ManagedInstance",
-		ComplianceType: "Patch",
+		ResourceID:       "i-res123",
+		ResourceType:     "ManagedInstance",
+		ComplianceType:   "Patch",
+		ExecutionSummary: testExecutionSummary(),
 		Items: []ssm.ComplianceItem{
 			{Title: "KB123456", Status: "COMPLIANT", Severity: "MEDIUM"},
 			{Title: "KB789012", Status: "COMPLIANT", Severity: "LOW"},
@@ -780,9 +1008,10 @@ func TestResourceComplianceSummaries_NonCompliantStatus(t *testing.T) {
 	h, b := newTestHandler(t)
 
 	_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
-		ResourceID:     "i-bad456",
-		ResourceType:   "ManagedInstance",
-		ComplianceType: "Patch",
+		ResourceID:       "i-bad456",
+		ResourceType:     "ManagedInstance",
+		ComplianceType:   "Patch",
+		ExecutionSummary: testExecutionSummary(),
 		Items: []ssm.ComplianceItem{
 			{Title: "KB001", Status: "COMPLIANT", Severity: "LOW"},
 			{Title: "KB002", Status: "NON_COMPLIANT", Severity: "HIGH"},

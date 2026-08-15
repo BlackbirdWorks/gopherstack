@@ -9,6 +9,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
+// fullRegisterConnectionTypeSpec returns a glue.RegisterConnectionTypeSpec
+// satisfying every required member of RegisterConnectionType
+// (glue@v1.152.0 api_op_RegisterConnectionType.go:38-70: ConnectionProperties,
+// ConnectorAuthenticationConfiguration, IntegrationType and RestConfiguration).
+func fullRegisterConnectionTypeSpec() glue.RegisterConnectionTypeSpec {
+	return glue.RegisterConnectionTypeSpec{
+		IntegrationType:      "REST",
+		ConnectionProperties: map[string]any{"Url": map[string]any{"Name": "endpoint"}},
+		ConnectorAuthenticationConfiguration: map[string]any{
+			"AuthenticationTypes": []any{"BASIC"},
+		},
+		RestConfiguration: map[string]any{},
+	}
+}
+
 // newBackendWithConn returns a backend seeded with a single JDBC connection.
 func newBackendWithConn(t *testing.T, connName string) *glue.InMemoryBackend {
 	t.Helper()
@@ -222,7 +237,7 @@ func TestBackend_ConnectionTypeRegistry(t *testing.T) {
 
 		b := glue.NewInMemoryBackend("000000000000", "us-east-1")
 
-		info, err := b.RegisterConnectionType("my-conn", "desc")
+		info, err := b.RegisterConnectionType("my-conn", "desc", fullRegisterConnectionTypeSpec())
 		require.NoError(t, err)
 		assert.Equal(t, "MY-CONN", info.ConnectionType)
 		assert.False(t, info.BuiltIn)
@@ -245,7 +260,7 @@ func TestBackend_ConnectionTypeRegistry(t *testing.T) {
 
 		b := glue.NewInMemoryBackend("000000000000", "us-east-1")
 
-		_, err := b.RegisterConnectionType("jdbc", "")
+		_, err := b.RegisterConnectionType("jdbc", "", fullRegisterConnectionTypeSpec())
 		require.Error(t, err)
 	})
 
@@ -254,7 +269,7 @@ func TestBackend_ConnectionTypeRegistry(t *testing.T) {
 
 		b := glue.NewInMemoryBackend("000000000000", "us-east-1")
 
-		_, err := b.RegisterConnectionType("aaa-custom", "")
+		_, err := b.RegisterConnectionType("aaa-custom", "", fullRegisterConnectionTypeSpec())
 		require.NoError(t, err)
 
 		list := b.ListConnectionTypes()

@@ -29,6 +29,7 @@ type trafficMirrorFilterRuleItem struct {
 	DestinationCidrBlock      string                      `xml:"destinationCidrBlock,omitempty"`
 	SourceCidrBlock           string                      `xml:"sourceCidrBlock,omitempty"`
 	Description               string                      `xml:"description,omitempty"`
+	TagSet                    []simpleTagItem             `xml:"tagSet>item"`
 	RuleNumber                int                         `xml:"ruleNumber"`
 	Protocol                  int                         `xml:"protocol,omitempty"`
 }
@@ -48,15 +49,16 @@ type describeTrafficMirrorFilterRulesResponse struct {
 }
 
 type trafficMirrorSessionItem struct {
-	TrafficMirrorSessionID string `xml:"trafficMirrorSessionId"`
-	NetworkInterfaceID     string `xml:"networkInterfaceId,omitempty"`
-	OwnerID                string `xml:"ownerId,omitempty"`
-	TrafficMirrorTargetID  string `xml:"trafficMirrorTargetId,omitempty"`
-	TrafficMirrorFilterID  string `xml:"trafficMirrorFilterId,omitempty"`
-	Description            string `xml:"description,omitempty"`
-	PacketLength           int    `xml:"packetLength,omitempty"`
-	SessionNumber          int    `xml:"sessionNumber,omitempty"`
-	VirtualNetworkID       int    `xml:"virtualNetworkId,omitempty"`
+	TrafficMirrorSessionID string          `xml:"trafficMirrorSessionId"`
+	NetworkInterfaceID     string          `xml:"networkInterfaceId,omitempty"`
+	OwnerID                string          `xml:"ownerId,omitempty"`
+	TrafficMirrorTargetID  string          `xml:"trafficMirrorTargetId,omitempty"`
+	TrafficMirrorFilterID  string          `xml:"trafficMirrorFilterId,omitempty"`
+	Description            string          `xml:"description,omitempty"`
+	TagSet                 []simpleTagItem `xml:"tagSet>item"`
+	PacketLength           int             `xml:"packetLength,omitempty"`
+	SessionNumber          int             `xml:"sessionNumber,omitempty"`
+	VirtualNetworkID       int             `xml:"virtualNetworkId,omitempty"`
 }
 
 type createTrafficMirrorSessionResponse struct {
@@ -74,13 +76,14 @@ type describeTrafficMirrorSessionsResponse struct {
 }
 
 type trafficMirrorTargetItem struct {
-	TrafficMirrorTargetID         string `xml:"trafficMirrorTargetId"`
-	NetworkInterfaceID            string `xml:"networkInterfaceId,omitempty"`
-	NetworkLoadBalancerArn        string `xml:"networkLoadBalancerArn,omitempty"`
-	GatewayLoadBalancerEndpointID string `xml:"gatewayLoadBalancerEndpointId,omitempty"`
-	OwnerID                       string `xml:"ownerId,omitempty"`
-	Type                          string `xml:"type,omitempty"`
-	Description                   string `xml:"description,omitempty"`
+	TrafficMirrorTargetID         string          `xml:"trafficMirrorTargetId"`
+	NetworkInterfaceID            string          `xml:"networkInterfaceId,omitempty"`
+	NetworkLoadBalancerArn        string          `xml:"networkLoadBalancerArn,omitempty"`
+	GatewayLoadBalancerEndpointID string          `xml:"gatewayLoadBalancerEndpointId,omitempty"`
+	OwnerID                       string          `xml:"ownerId,omitempty"`
+	Type                          string          `xml:"type,omitempty"`
+	Description                   string          `xml:"description,omitempty"`
+	TagSet                        []simpleTagItem `xml:"tagSet>item"`
 }
 
 type createTrafficMirrorTargetResponse struct {
@@ -100,7 +103,7 @@ type describeTrafficMirrorTargetsResponse struct {
 type fleetItem struct {
 	FleetID                         string `xml:"fleetId"`
 	FleetState                      string `xml:"fleetState"`
-	FleetType                       string `xml:"fleetType,omitempty"`
+	FleetType                       string `xml:"type,omitempty"`
 	ExcessCapacityTerminationPolicy string `xml:"excessCapacityTerminationPolicy,omitempty"`
 	TotalTargetCapacity             int    `xml:"targetCapacitySpecification>totalTargetCapacity"`
 }
@@ -131,19 +134,28 @@ type fleetInstanceItemSet struct {
 // createFleetResponse matches the AWS CreateFleet response shape:
 // fleetId, errors (per-launch-spec failures), and instances (launched set).
 
-func toTrafficMirrorFilterItem(f *TrafficMirrorFilter) trafficMirrorFilterItem {
+func toTrafficMirrorFilterItem(
+	f *TrafficMirrorFilter, tags map[string]string, backend Backend,
+) trafficMirrorFilterItem {
 	item := trafficMirrorFilterItem{
 		TrafficMirrorFilterID: f.TrafficMirrorFilterID,
 		Description:           f.Description,
 		NetworkServices:       f.NetworkServices,
+		TagSet:                tagItemsFromMap(tags),
 	}
 
 	for _, r := range f.IngressFilterRules {
-		item.IngressFilterRules = append(item.IngressFilterRules, toTrafficMirrorFilterRuleItem(r))
+		item.IngressFilterRules = append(
+			item.IngressFilterRules,
+			toTrafficMirrorFilterRuleItem(r, backend.TagsForResource(r.TrafficMirrorFilterRuleID)),
+		)
 	}
 
 	for _, r := range f.EgressFilterRules {
-		item.EgressFilterRules = append(item.EgressFilterRules, toTrafficMirrorFilterRuleItem(r))
+		item.EgressFilterRules = append(
+			item.EgressFilterRules,
+			toTrafficMirrorFilterRuleItem(r, backend.TagsForResource(r.TrafficMirrorFilterRuleID)),
+		)
 	}
 
 	return item
@@ -151,16 +163,23 @@ func toTrafficMirrorFilterItem(f *TrafficMirrorFilter) trafficMirrorFilterItem {
 
 func (h *Handler) handleCreateTrafficMirrorFilter(vals url.Values, reqID string) (any, error) {
 	description := vals.Get("Description")
+	tags := parseTagSpecification(vals, "traffic-mirror-filter")
 
-	f, err := h.Backend.CreateTrafficMirrorFilter(description)
+	f, err := h.Backend.CreateTrafficMirrorFilter(description, tags)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createTrafficMirrorFilterResponse{
 		RequestID:           reqID,
-		TrafficMirrorFilter: toTrafficMirrorFilterItem(f),
+		TrafficMirrorFilter: toTrafficMirrorFilterItem(f, tags, h.Backend),
 	}, nil
+}
+
+type deleteTrafficMirrorFilterResponse struct {
+	XMLName               xml.Name `xml:"DeleteTrafficMirrorFilterResponse"`
+	RequestID             string   `xml:"requestId"`
+	TrafficMirrorFilterID string   `xml:"trafficMirrorFilterId"`
 }
 
 func (h *Handler) handleDeleteTrafficMirrorFilter(vals url.Values, reqID string) (any, error) {
@@ -169,10 +188,9 @@ func (h *Handler) handleDeleteTrafficMirrorFilter(vals url.Values, reqID string)
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorFilterResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTrafficMirrorFilterResponse{
+		RequestID:             reqID,
+		TrafficMirrorFilterID: id,
 	}, nil
 }
 
@@ -184,11 +202,17 @@ func (h *Handler) handleDescribeTrafficMirrorFilters(vals url.Values, reqID stri
 	for _, f := range filters {
 		resp.TrafficMirrorFilters.Items = append(
 			resp.TrafficMirrorFilters.Items,
-			toTrafficMirrorFilterItem(f),
+			toTrafficMirrorFilterItem(f, h.Backend.TagsForResource(f.TrafficMirrorFilterID), h.Backend),
 		)
 	}
 
 	return resp, nil
+}
+
+type modifyTrafficMirrorFilterNetworkServicesResponse struct {
+	XMLName             xml.Name                `xml:"ModifyTrafficMirrorFilterNetworkServicesResponse"`
+	RequestID           string                  `xml:"requestId"`
+	TrafficMirrorFilter trafficMirrorFilterItem `xml:"trafficMirrorFilter"`
 }
 
 func (h *Handler) handleModifyTrafficMirrorFilterNetworkServices(
@@ -199,14 +223,18 @@ func (h *Handler) handleModifyTrafficMirrorFilterNetworkServices(
 	add := parseMemberList(vals, "AddNetworkService")
 	remove := parseMemberList(vals, "RemoveNetworkService")
 
-	if err := h.Backend.ModifyTrafficMirrorFilterNetworkServices(id, add, remove); err != nil {
+	f, err := h.Backend.ModifyTrafficMirrorFilterNetworkServices(id, add, remove)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTrafficMirrorFilterNetworkServicesResponse"},
+	return &modifyTrafficMirrorFilterNetworkServicesResponse{
 		RequestID: reqID,
-		Return:    true,
+		TrafficMirrorFilter: toTrafficMirrorFilterItem(
+			f,
+			h.Backend.TagsForResource(f.TrafficMirrorFilterID),
+			h.Backend,
+		),
 	}, nil
 }
 
@@ -220,7 +248,7 @@ func toTrafficMirrorPortRangeItem(r *TrafficMirrorPortRange) *trafficMirrorPortR
 	return &trafficMirrorPortRangeItem{FromPort: r.FromPort, ToPort: r.ToPort}
 }
 
-func toTrafficMirrorFilterRuleItem(r *TrafficMirrorFilterRule) trafficMirrorFilterRuleItem {
+func toTrafficMirrorFilterRuleItem(r *TrafficMirrorFilterRule, tags map[string]string) trafficMirrorFilterRuleItem {
 	return trafficMirrorFilterRuleItem{
 		TrafficMirrorFilterRuleID: r.TrafficMirrorFilterRuleID,
 		TrafficMirrorFilterID:     r.TrafficMirrorFilterID,
@@ -233,6 +261,7 @@ func toTrafficMirrorFilterRuleItem(r *TrafficMirrorFilterRule) trafficMirrorFilt
 		Description:               r.Description,
 		DestinationPortRange:      toTrafficMirrorPortRangeItem(r.DestinationPortRange),
 		SourcePortRange:           toTrafficMirrorPortRangeItem(r.SourcePortRange),
+		TagSet:                    tagItemsFromMap(tags),
 	}
 }
 
@@ -250,8 +279,10 @@ func (h *Handler) handleCreateTrafficMirrorFilterRule(vals url.Values, reqID str
 	protocol := 0
 	parseIntValue(vals.Get("Protocol"), &protocol)
 
+	tags := parseTagSpecification(vals, "traffic-mirror-filter-rule")
+
 	rule, err := h.Backend.CreateTrafficMirrorFilterRule(
-		filterID, direction, action, srcCIDR, dstCIDR, description, ruleNumber, protocol,
+		filterID, direction, action, srcCIDR, dstCIDR, description, ruleNumber, protocol, tags,
 		parseTrafficMirrorPortRangePair(vals),
 	)
 	if err != nil {
@@ -260,7 +291,7 @@ func (h *Handler) handleCreateTrafficMirrorFilterRule(vals url.Values, reqID str
 
 	return &createTrafficMirrorFilterRuleResponse{
 		RequestID:               reqID,
-		TrafficMirrorFilterRule: toTrafficMirrorFilterRuleItem(rule),
+		TrafficMirrorFilterRule: toTrafficMirrorFilterRuleItem(rule, tags),
 	}, nil
 }
 
@@ -289,16 +320,21 @@ func parseTrafficMirrorPortRangePair(vals url.Values) TrafficMirrorPortRangePair
 	return pair
 }
 
+type deleteTrafficMirrorFilterRuleResponse struct {
+	XMLName                   xml.Name `xml:"DeleteTrafficMirrorFilterRuleResponse"`
+	RequestID                 string   `xml:"requestId"`
+	TrafficMirrorFilterRuleID string   `xml:"trafficMirrorFilterRuleId"`
+}
+
 func (h *Handler) handleDeleteTrafficMirrorFilterRule(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("TrafficMirrorFilterRuleId")
 	if err := h.Backend.DeleteTrafficMirrorFilterRule(id); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorFilterRuleResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTrafficMirrorFilterRuleResponse{
+		RequestID:                 reqID,
+		TrafficMirrorFilterRuleID: id,
 	}, nil
 }
 
@@ -317,11 +353,17 @@ func (h *Handler) handleDescribeTrafficMirrorFilterRules(
 	for _, r := range rules {
 		resp.TrafficMirrorFilterRules.Items = append(
 			resp.TrafficMirrorFilterRules.Items,
-			toTrafficMirrorFilterRuleItem(r),
+			toTrafficMirrorFilterRuleItem(r, h.Backend.TagsForResource(r.TrafficMirrorFilterRuleID)),
 		)
 	}
 
 	return resp, nil
+}
+
+type modifyTrafficMirrorFilterRuleResponse struct {
+	XMLName                 xml.Name                    `xml:"ModifyTrafficMirrorFilterRuleResponse"`
+	RequestID               string                      `xml:"requestId"`
+	TrafficMirrorFilterRule trafficMirrorFilterRuleItem `xml:"trafficMirrorFilterRule"`
 }
 
 func (h *Handler) handleModifyTrafficMirrorFilterRule(vals url.Values, reqID string) (any, error) {
@@ -329,20 +371,22 @@ func (h *Handler) handleModifyTrafficMirrorFilterRule(vals url.Values, reqID str
 	action := vals.Get("RuleAction")
 	description := vals.Get("Description")
 
-	if err := h.Backend.ModifyTrafficMirrorFilterRule(id, action, description); err != nil {
+	rule, err := h.Backend.ModifyTrafficMirrorFilterRule(id, action, description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTrafficMirrorFilterRuleResponse"},
-		RequestID: reqID,
-		Return:    true,
+	ruleTags := h.Backend.TagsForResource(rule.TrafficMirrorFilterRuleID)
+
+	return &modifyTrafficMirrorFilterRuleResponse{
+		RequestID:               reqID,
+		TrafficMirrorFilterRule: toTrafficMirrorFilterRuleItem(rule, ruleTags),
 	}, nil
 }
 
 // ---- Traffic Mirror Session handlers ----
 
-func toTrafficMirrorSessionItem(s *TrafficMirrorSession) trafficMirrorSessionItem {
+func toTrafficMirrorSessionItem(s *TrafficMirrorSession, tags map[string]string) trafficMirrorSessionItem {
 	return trafficMirrorSessionItem{
 		TrafficMirrorSessionID: s.TrafficMirrorSessionID,
 		NetworkInterfaceID:     s.NetworkInterfaceID,
@@ -353,6 +397,7 @@ func toTrafficMirrorSessionItem(s *TrafficMirrorSession) trafficMirrorSessionIte
 		Description:            s.Description,
 		PacketLength:           s.PacketLength,
 		VirtualNetworkID:       s.VirtualNetworkID,
+		TagSet:                 tagItemsFromMap(tags),
 	}
 }
 
@@ -368,8 +413,10 @@ func (h *Handler) handleCreateTrafficMirrorSession(vals url.Values, reqID string
 	packetLength := 0
 	parseIntValue(vals.Get("PacketLength"), &packetLength)
 
+	tags := parseTagSpecification(vals, "traffic-mirror-session")
+
 	s, err := h.Backend.CreateTrafficMirrorSession(
-		networkInterfaceID, targetID, filterID, description, sessionNumber, packetLength,
+		networkInterfaceID, targetID, filterID, description, sessionNumber, tags, packetLength,
 	)
 	if err != nil {
 		return nil, err
@@ -377,8 +424,14 @@ func (h *Handler) handleCreateTrafficMirrorSession(vals url.Values, reqID string
 
 	return &createTrafficMirrorSessionResponse{
 		RequestID:            reqID,
-		TrafficMirrorSession: toTrafficMirrorSessionItem(s),
+		TrafficMirrorSession: toTrafficMirrorSessionItem(s, tags),
 	}, nil
+}
+
+type deleteTrafficMirrorSessionResponse struct {
+	XMLName                xml.Name `xml:"DeleteTrafficMirrorSessionResponse"`
+	RequestID              string   `xml:"requestId"`
+	TrafficMirrorSessionID string   `xml:"trafficMirrorSessionId"`
 }
 
 func (h *Handler) handleDeleteTrafficMirrorSession(vals url.Values, reqID string) (any, error) {
@@ -387,10 +440,9 @@ func (h *Handler) handleDeleteTrafficMirrorSession(vals url.Values, reqID string
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorSessionResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTrafficMirrorSessionResponse{
+		RequestID:              reqID,
+		TrafficMirrorSessionID: id,
 	}, nil
 }
 
@@ -402,11 +454,17 @@ func (h *Handler) handleDescribeTrafficMirrorSessions(vals url.Values, reqID str
 	for _, s := range sessions {
 		resp.TrafficMirrorSessions.Items = append(
 			resp.TrafficMirrorSessions.Items,
-			toTrafficMirrorSessionItem(s),
+			toTrafficMirrorSessionItem(s, h.Backend.TagsForResource(s.TrafficMirrorSessionID)),
 		)
 	}
 
 	return resp, nil
+}
+
+type modifyTrafficMirrorSessionResponse struct {
+	XMLName              xml.Name                 `xml:"ModifyTrafficMirrorSessionResponse"`
+	RequestID            string                   `xml:"requestId"`
+	TrafficMirrorSession trafficMirrorSessionItem `xml:"trafficMirrorSession"`
 }
 
 func (h *Handler) handleModifyTrafficMirrorSession(vals url.Values, reqID string) (any, error) {
@@ -415,20 +473,20 @@ func (h *Handler) handleModifyTrafficMirrorSession(vals url.Values, reqID string
 	filterID := vals.Get("TrafficMirrorFilterId")
 	description := vals.Get("Description")
 
-	if err := h.Backend.ModifyTrafficMirrorSession(id, targetID, filterID, description); err != nil {
+	s, err := h.Backend.ModifyTrafficMirrorSession(id, targetID, filterID, description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyTrafficMirrorSessionResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &modifyTrafficMirrorSessionResponse{
+		RequestID:            reqID,
+		TrafficMirrorSession: toTrafficMirrorSessionItem(s, h.Backend.TagsForResource(s.TrafficMirrorSessionID)),
 	}, nil
 }
 
 // ---- Traffic Mirror Target handlers ----
 
-func toTrafficMirrorTargetItem(t *TrafficMirrorTarget) trafficMirrorTargetItem {
+func toTrafficMirrorTargetItem(t *TrafficMirrorTarget, tags map[string]string) trafficMirrorTargetItem {
 	return trafficMirrorTargetItem{
 		TrafficMirrorTargetID:         t.TrafficMirrorTargetID,
 		NetworkInterfaceID:            t.NetworkInterfaceID,
@@ -437,6 +495,7 @@ func toTrafficMirrorTargetItem(t *TrafficMirrorTarget) trafficMirrorTargetItem {
 		OwnerID:                       t.OwnerID,
 		Type:                          t.Type,
 		Description:                   t.Description,
+		TagSet:                        tagItemsFromMap(tags),
 	}
 }
 
@@ -445,16 +504,23 @@ func (h *Handler) handleCreateTrafficMirrorTarget(vals url.Values, reqID string)
 	nlbArn := vals.Get("NetworkLoadBalancerArn")
 	glbEndpointID := vals.Get("GatewayLoadBalancerEndpointId")
 	description := vals.Get("Description")
+	tags := parseTagSpecification(vals, "traffic-mirror-target")
 
-	t, err := h.Backend.CreateTrafficMirrorTarget(niID, nlbArn, description, glbEndpointID)
+	t, err := h.Backend.CreateTrafficMirrorTarget(niID, nlbArn, description, tags, glbEndpointID)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createTrafficMirrorTargetResponse{
 		RequestID:           reqID,
-		TrafficMirrorTarget: toTrafficMirrorTargetItem(t),
+		TrafficMirrorTarget: toTrafficMirrorTargetItem(t, tags),
 	}, nil
+}
+
+type deleteTrafficMirrorTargetResponse struct {
+	XMLName               xml.Name `xml:"DeleteTrafficMirrorTargetResponse"`
+	RequestID             string   `xml:"requestId"`
+	TrafficMirrorTargetID string   `xml:"trafficMirrorTargetId"`
 }
 
 func (h *Handler) handleDeleteTrafficMirrorTarget(vals url.Values, reqID string) (any, error) {
@@ -463,10 +529,9 @@ func (h *Handler) handleDeleteTrafficMirrorTarget(vals url.Values, reqID string)
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteTrafficMirrorTargetResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteTrafficMirrorTargetResponse{
+		RequestID:             reqID,
+		TrafficMirrorTargetID: id,
 	}, nil
 }
 
@@ -478,7 +543,7 @@ func (h *Handler) handleDescribeTrafficMirrorTargets(vals url.Values, reqID stri
 	for _, t := range targets {
 		resp.TrafficMirrorTargets.Items = append(
 			resp.TrafficMirrorTargets.Items,
-			toTrafficMirrorTargetItem(t),
+			toTrafficMirrorTargetItem(t, h.Backend.TagsForResource(t.TrafficMirrorTargetID)),
 		)
 	}
 
@@ -498,6 +563,7 @@ type trafficMirrorFilterItem struct {
 	IngressFilterRules    []trafficMirrorFilterRuleItem `xml:"ingressFilterRuleSet>item"`
 	EgressFilterRules     []trafficMirrorFilterRuleItem `xml:"egressFilterRuleSet>item"`
 	NetworkServices       []string                      `xml:"networkServiceSet>item"`
+	TagSet                []simpleTagItem               `xml:"tagSet>item"`
 }
 
 // registerTrafficMirrorOps registers the TrafficMirror operation handlers.

@@ -48,7 +48,10 @@ func (h *Handler) handleGetRegistryScanningConfiguration(
 		return nil, err
 	}
 
-	return &getRegistryScanningConfigurationOutput{ScanningConfiguration: settings}, nil
+	return &getRegistryScanningConfigurationOutput{
+		ScanningConfiguration: settings,
+		RegistryID:            h.Backend.AccountID(),
+	}, nil
 }
 
 // putRegistryPolicyInput is the request body for PutRegistryPolicy.
@@ -63,14 +66,32 @@ func (h *Handler) handlePutRegistryPolicy(
 	return h.Backend.PutRegistryPolicy(ctx, in.PolicyText)
 }
 
+// putRegistryScanningConfigurationOutput is the response body for
+// PutRegistryScanningConfiguration. Unlike GetRegistryScanningConfigurationOutput
+// (wrapper key "scanningConfiguration" + a top-level "registryId"),
+// PutRegistryScanningConfigurationOutput wraps the settings under
+// "registryScanningConfiguration" and has NO registryId field at all — a
+// genuinely different shape confirmed by direct diff of
+// awsAwsjson11_deserializeOpDocumentPutRegistryScanningConfigurationOutput vs
+// awsAwsjson11_deserializeOpDocumentGetRegistryScanningConfigurationOutput.
+// Reusing getRegistryScanningConfigurationOutput here (as this handler
+// previously did) emitted "scanningConfiguration", a key the real Put
+// deserializer's switch has no case for — a real client would silently get a
+// nil RegistryScanningConfiguration back despite a 200 response.
+type putRegistryScanningConfigurationOutput struct {
+	RegistryScanningConfiguration *RegistryScanningSettings `json:"registryScanningConfiguration"`
+}
+
 func (h *Handler) handlePutRegistryScanningConfiguration(
 	ctx context.Context,
 	in *RegistryScanningSettings,
-) (*getRegistryScanningConfigurationOutput, error) {
+) (*putRegistryScanningConfigurationOutput, error) {
 	settings, err := h.Backend.PutRegistryScanningConfiguration(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getRegistryScanningConfigurationOutput{ScanningConfiguration: settings}, nil
+	return &putRegistryScanningConfigurationOutput{
+		RegistryScanningConfiguration: settings,
+	}, nil
 }

@@ -54,6 +54,7 @@ type openAPIDoc struct {
 type openAPIInfo struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	Version     string `json:"version"`
 }
 
 type openAPIComponents struct {
@@ -185,6 +186,7 @@ func (b *InMemoryBackend) ImportRestAPI(input ImportRestAPIInput) (*RestAPI, err
 		ID:             id,
 		Name:           doc.Info.Title,
 		Description:    doc.Info.Description,
+		Version:        doc.Info.Version,
 		CreatedDate:    unixEpochTime{time.Now()},
 		Tags:           initTagsFromInput("apigw.api."+id+".tags", nil),
 		RootResourceID: rootID,
@@ -260,6 +262,9 @@ func (b *InMemoryBackend) PutRestAPI(input PutRestAPIInput) (*RestAPI, error) {
 	}
 	if doc.Info.Description != "" {
 		api.Description = doc.Info.Description
+	}
+	if doc.Info.Version != "" {
+		api.Version = doc.Info.Version
 	}
 	if doc.APIKeySourceExt != "" {
 		api.APIKeySource = doc.APIKeySourceExt

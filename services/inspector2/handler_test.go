@@ -232,6 +232,59 @@ func paritySeedFinding(
 	)
 }
 
+// TestRouteMatcher_FindingsMembersDisambiguation guards the fix for two route
+// collisions on the same mechanism: "/findings/" and "/members/" also
+// prefix-match SecurityHub's own /findings* (GetFindings, BatchImportFindings)
+// and /members* paths, and "/configuration/" also prefix-matches Omics'
+// GetConfiguration/DeleteConfiguration (/configuration/{name}). Before the
+// fix, Inspector2's plain prefix check swallowed those requests before the
+// other, tied-priority, later-registered service's matcher ever ran, silently
+// misrouting them to a 501 from Inspector2 (gopherstack-op3e). The matcher
+// now requires an inspector2-signed request for those ambiguous prefixes; a
+// securityhub/omics-signed request on the same paths must not match.
+func TestRouteMatcher_FindingsMembersDisambiguation(t *testing.T) {
+	t.Parallel()
+
+	h := newAuditHandler(t)
+	matcher := h.RouteMatcher()
+
+	tests := []struct {
+		path string
+		auth string
+		want bool
+	}{
+		{path: "/findings/list", auth: "inspector2", want: true},
+		{path: "/findings/import", auth: "inspector2", want: true},
+		{path: "/findings/import", auth: "securityhub", want: false},
+		{path: "/findings/import", want: false},
+		{path: "/members/get", auth: "inspector2", want: true},
+		{path: "/members", auth: "securityhub", want: false},
+		{path: "/configuration/get", auth: "inspector2", want: true},
+		{path: "/configuration/testname", auth: "omics", want: false},
+		{path: "/configuration/testname", want: false},
+	}
+
+	e := echo.New()
+
+	for _, tt := range tests {
+		t.Run(tt.path+"/"+tt.auth, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			if tt.auth != "" {
+				req.Header.Set(
+					"Authorization",
+					"AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/"+tt.auth+"/aws4_request",
+				)
+			}
+
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
+}
+
 // TestHandlerSupportedOperationsCount pins the total number of operations the
 // handler advertises (13 core ops in handler.go + 68 extended ops in
 // handler_routing.go, the latter now including the 6 connector/connector

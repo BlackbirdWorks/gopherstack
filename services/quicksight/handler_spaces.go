@@ -270,8 +270,16 @@ func (h *Handler) handleListSpaces(c *echo.Context) error {
 		summaries = append(summaries, spaceSummaryToMap(s))
 	}
 
+	// SpaceId/SpaceArn are required on ListSpacesOutput despite the op being
+	// account-scoped, not scoped to any single space (api_op_ListSpaces.go:44-63) --
+	// no doc-comment nuance explains why. There is no "the" space to name
+	// honestly across a multi-result call, so both are present as empty
+	// strings rather than fabricated, the same pattern used for pagination
+	// tokens on single-page backends elsewhere in this codebase.
 	resp := map[string]any{
 		keySpaceSummaries: summaries,
+		keySpaceIDLower:   "",
+		keySpaceArnLower:  "",
 		keyRequestID:      reqIDPlaceholder,
 	}
 	if next != "" {
@@ -302,8 +310,11 @@ func (h *Handler) handleSearchSpaces(c *echo.Context) error {
 		summaries = append(summaries, spaceSummaryToMap(s))
 	}
 
+	// SpaceId/SpaceArn required-but-unscoped, same as ListSpaces above.
 	resp := map[string]any{
 		keySpaceSummaries: summaries,
+		keySpaceIDLower:   "",
+		keySpaceArnLower:  "",
 		keyRequestID:      reqIDPlaceholder,
 	}
 	if next != "" {

@@ -32,7 +32,7 @@ func TestOmics_AnnotationStore(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Contains(t, resp["arn"], "arn:aws:omics:")
+				assert.Contains(t, resp["storeArn"], "arn:aws:omics:")
 			},
 		},
 		{
@@ -116,7 +116,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var job map[string]any
 	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &job))
-	jobID := job["id"].(string)
+	jobID := job["jobId"].(string)
 
 	// storeName filter: no job targets "other-store".
 	rec := doRequest(t, h, http.MethodPost, "/import/annotations",
@@ -125,7 +125,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	jobs, ok := resp["importJobs"].([]any)
+	jobs, ok := resp["annotationImportJobs"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, jobs)
 
@@ -136,7 +136,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	jobs2, ok := resp2["importJobs"].([]any)
+	jobs2, ok := resp2["annotationImportJobs"].([]any)
 	require.True(t, ok)
 	require.Len(t, jobs2, 1)
 
@@ -147,7 +147,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var resp3 map[string]any
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
-	jobs3, ok := resp3["importJobs"].([]any)
+	jobs3, ok := resp3["annotationImportJobs"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, jobs3)
 
@@ -156,7 +156,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 
 	var resp4 map[string]any
 	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4))
-	jobs4, ok := resp4["importJobs"].([]any)
+	jobs4, ok := resp4["annotationImportJobs"].([]any)
 	require.True(t, ok)
 	require.Len(t, jobs4, 1)
 }

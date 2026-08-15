@@ -80,7 +80,7 @@ func TestUpdateDirectorySetup(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
 			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
-			entries, _ := r2["UpdateDirectoryInfo"].([]any)
+			entries, _ := r2["UpdateActivities"].([]any)
 			assert.Len(t, entries, 1)
 
 			_ = tc

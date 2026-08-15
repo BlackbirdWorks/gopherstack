@@ -560,10 +560,24 @@ type FairsharePolicy struct {
 	ComputeReservation int32               `json:"computeReservation,omitempty"`
 }
 
+// QuotaSharePolicy configures quota-share scheduling for a scheduling
+// policy -- an alternative to FairsharePolicy, distinct from the separate
+// top-level QuotaShare resource family (CreateQuotaShare etc., which
+// associates a quota share with a job queue directly). See
+// aws-sdk-go-v2/service/batch/types.QuotaSharePolicy.
+type QuotaSharePolicy struct {
+	// Real AWS docs: "Currently, only FIFO is supported." Accepted and
+	// stored as given, not validated against that single value, matching
+	// this file's existing FairsharePolicy precedent of not validating
+	// enum-shaped sibling fields.
+	IdleResourceAssignmentStrategy string `json:"idleResourceAssignmentStrategy,omitempty"`
+}
+
 // SchedulingPolicy represents a Batch scheduling policy.
 type SchedulingPolicy struct {
-	Tags            map[string]string `json:"tags"`
-	FairsharePolicy *FairsharePolicy  `json:"fairsharePolicy,omitempty"`
+	Tags             map[string]string `json:"tags"`
+	FairsharePolicy  *FairsharePolicy  `json:"fairsharePolicy,omitempty"`
+	QuotaSharePolicy *QuotaSharePolicy `json:"quotaSharePolicy,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey); see
 	// ComputeEnvironment.region for why it is unexported.
 	region string
@@ -662,6 +676,19 @@ type ServiceJobTimeout struct {
 	AttemptDurationSeconds int32 `json:"attemptDurationSeconds,omitempty"`
 }
 
+// ServiceJobPreemptionConfiguration configures whether/how many times a
+// preempted service job is retried before termination. See
+// aws-sdk-go-v2/service/batch/types.ServiceJobPreemptionConfiguration.
+// Request-settable and stored verbatim; distinct from
+// ServiceJobPreemptionSummary (response-only, actual preemption history --
+// this backend never preempts service jobs, so that summary is never
+// populated; see DescribeServiceJob's disclosed gap).
+type ServiceJobPreemptionConfiguration struct {
+	// nil means "unset" (real AWS: "preempted jobs will be requeued an
+	// unlimited number of times"), distinct from a present 0.
+	PreemptionRetriesBeforeTermination *int32 `json:"preemptionRetriesBeforeTermination,omitempty"`
+}
+
 // ServiceJob represents a Batch service job. Service jobs are submitted
 // directly to a job queue (of type SAGEMAKER_TRAINING), not to a
 // "ServiceEnvironment" reference on the job itself -- the service environment
@@ -669,12 +696,13 @@ type ServiceJobTimeout struct {
 // aws-sdk-go-v2/service/batch's SubmitServiceJobInput, which has no
 // ServiceEnvironment field at all).
 type ServiceJob struct {
-	Tags          map[string]string        `json:"tags"`
-	RetryStrategy *ServiceJobRetryStrategy `json:"retryStrategy,omitempty"`
-	TimeoutConfig *ServiceJobTimeout       `json:"timeoutConfig,omitempty"`
-	StartedAt     *int64                   `json:"startedAt,omitempty"`
-	StoppedAt     *int64                   `json:"stoppedAt,omitempty"`
-	ScheduledAt   *int64                   `json:"scheduledAt,omitempty"`
+	Tags                    map[string]string                  `json:"tags"`
+	RetryStrategy           *ServiceJobRetryStrategy           `json:"retryStrategy,omitempty"`
+	TimeoutConfig           *ServiceJobTimeout                 `json:"timeoutConfig,omitempty"`
+	PreemptionConfiguration *ServiceJobPreemptionConfiguration `json:"preemptionConfiguration,omitempty"`
+	StartedAt               *int64                             `json:"startedAt,omitempty"`
+	StoppedAt               *int64                             `json:"stoppedAt,omitempty"`
+	ScheduledAt             *int64                             `json:"scheduledAt,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey); see
 	// ComputeEnvironment.region for why it is unexported.
 	region                string
@@ -687,6 +715,7 @@ type ServiceJob struct {
 	StatusReason          string `json:"statusReason,omitempty"`
 	ServiceRequestPayload string `json:"serviceRequestPayload,omitempty"`
 	ShareIdentifier       string `json:"shareIdentifier,omitempty"`
+	QuotaShareName        string `json:"quotaShareName,omitempty"`
 	CreatedAt             int64  `json:"createdAt"`
 	SchedulingPriority    int32  `json:"schedulingPriority,omitempty"`
 	IsTerminated          bool   `json:"isTerminated"`

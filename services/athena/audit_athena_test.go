@@ -93,6 +93,20 @@ func TestAuditAthena_ResultReuseConfiguration_StoredAndReturned(t *testing.T) {
 	}
 }
 
+// reusedPreviousResult reads Statistics.ResultReuseInformation.ReusedPreviousResult
+// from a raw-unmarshalled QueryExecution map. The real wire shape nests it
+// under ResultReuseInformation (athena@v1.60.4 deserializers.go's
+// awsAwsjson11_deserializeDocumentResultReuseInformation), not flat on
+// Statistics.
+func reusedPreviousResult(stats map[string]any) any {
+	info, ok := stats["ResultReuseInformation"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return info["ReusedPreviousResult"]
+}
+
 // TestAuditAthena_ResultReuse_MarksReusedPreviousResult verifies that when a
 // query matches a recent succeeded execution, ReusedPreviousResult is set to true.
 func TestAuditAthena_ResultReuse_MarksReusedPreviousResult(t *testing.T) {
@@ -114,7 +128,7 @@ func TestAuditAthena_ResultReuse_MarksReusedPreviousResult(t *testing.T) {
 	qe1 := a1Unmarshal(t, a1Do(t, h, "GetQueryExecution",
 		fmt.Sprintf(`{"QueryExecutionId":%q}`, id1)))["QueryExecution"].(map[string]any)
 	stats1 := qe1["Statistics"].(map[string]any)
-	assert.NotEqual(t, true, stats1["ReusedPreviousResult"],
+	assert.NotEqual(t, true, reusedPreviousResult(stats1),
 		"first execution should NOT be marked as reused")
 
 	// Second execution with same query and reuse enabled → should be reused.
@@ -128,7 +142,7 @@ func TestAuditAthena_ResultReuse_MarksReusedPreviousResult(t *testing.T) {
 	qe2 := a1Unmarshal(t, a1Do(t, h, "GetQueryExecution",
 		fmt.Sprintf(`{"QueryExecutionId":%q}`, id2)))["QueryExecution"].(map[string]any)
 	stats2 := qe2["Statistics"].(map[string]any)
-	assert.Equal(t, true, stats2["ReusedPreviousResult"],
+	assert.Equal(t, true, reusedPreviousResult(stats2),
 		"second execution should be marked as reused")
 }
 
@@ -156,7 +170,7 @@ func TestAuditAthena_ResultReuse_DifferentQuery(t *testing.T) {
 	qe2 := a1Unmarshal(t, a1Do(t, h, "GetQueryExecution",
 		fmt.Sprintf(`{"QueryExecutionId":%q}`, id2)))["QueryExecution"].(map[string]any)
 	stats2 := qe2["Statistics"].(map[string]any)
-	assert.NotEqual(t, true, stats2["ReusedPreviousResult"],
+	assert.NotEqual(t, true, reusedPreviousResult(stats2),
 		"different query must not be marked as reused")
 }
 
@@ -183,7 +197,7 @@ func TestAuditAthena_ResultReuse_DisabledDoesNotReuse(t *testing.T) {
 	qe2 := a1Unmarshal(t, a1Do(t, h, "GetQueryExecution",
 		fmt.Sprintf(`{"QueryExecutionId":%q}`, id2)))["QueryExecution"].(map[string]any)
 	stats2 := qe2["Statistics"].(map[string]any)
-	assert.NotEqual(t, true, stats2["ReusedPreviousResult"],
+	assert.NotEqual(t, true, reusedPreviousResult(stats2),
 		"disabled reuse should never mark ReusedPreviousResult=true")
 }
 

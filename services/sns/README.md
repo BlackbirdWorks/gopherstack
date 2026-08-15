@@ -7,11 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 27 (26 ok, 1 other) |
+| Operations audited | 34 (33 ok, 1 other) |
 | Feature families | 6 (6 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Deferred items | 2 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- 2026-08-14 (gopherstack-3tpf): ConfirmSubscriptionInput.AuthenticateOnUnsubscribe (aws-sdk-go-v2/service/sns@v1.42.4 api_op_ConfirmSubscription.go:14 doc comment: 'This call requires an AWS signature only when the AuthenticateOnUnsubscribe flag is set to "true"') is accepted by the real SDK request shape but has no field on gopherstack's ConfirmSubscriptionInput and is silently dropped. Structurally undeliverable without the caller-identity/SigV4-principal infrastructure gopherstack does not have (see gopherstack-cu4g, open): Unsubscribe (subscriptions.go:217) takes no caller identity at all today, so there is nothing to condition an 'unauthenticated unsubscribe' rejection on. Same class as sts's disclosed JWTPayloadSizeExceededException gap and secretsmanager's disclosed PutSecretValueInput.RotationToken gap. DISCLOSED, not fixed.
 
 ### Deferred
 

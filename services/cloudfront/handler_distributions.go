@@ -329,9 +329,19 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 
 // --- New operation handlers ---
 
-type webACLAssociationXML struct {
-	XMLName  xml.Name `xml:"WebACLAssociation"`
-	WebACLID string   `xml:"WebACLId"`
+// associateDistributionWebACLRequestXML models the real
+// AssociateDistributionWebACLRequest body: root AssociateDistributionWebACLRequest
+// with a single WebACLArn child element (cloudfront@v1.67.4 serializers.go:255,
+// awsRestxml_serializeOpDocumentAssociateDistributionWebACLInput). This is a
+// different real root from its tenant sibling
+// (AssociateDistributionTenantWebACLRequest, handler_distribution_tenants.go) --
+// two ops that look identical can have different real root names. The
+// previously shared webACLAssociationXML{root: WebACLAssociation, field:
+// WebACLId} matched neither this op's real root nor its real field name (an
+// ARN, not an ID).
+type associateDistributionWebACLRequestXML struct {
+	XMLName   xml.Name `xml:"AssociateDistributionWebACLRequest"`
+	WebACLArn string   `xml:"WebACLArn"`
 }
 
 type copyDistributionRequestXML struct {
@@ -359,18 +369,18 @@ func (h *Handler) handleAssociateDistributionWebACL(c *echo.Context, distributio
 		return h.handleError(c, qErr)
 	}
 
-	var req webACLAssociationXML
+	var req associateDistributionWebACLRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
 			return xmlResp(
 				c,
 				http.StatusBadRequest,
-				cfErrorXML("MalformedXML", "invalid WebACLAssociation XML"),
+				cfErrorXML("MalformedXML", "invalid AssociateDistributionWebACLRequest XML"),
 			)
 		}
 	}
 
-	if assocErr := h.Backend.AssociateDistributionWebACL(distributionID, req.WebACLID); assocErr != nil {
+	if assocErr := h.Backend.AssociateDistributionWebACL(distributionID, req.WebACLArn); assocErr != nil {
 		return h.handleError(c, assocErr)
 	}
 
@@ -566,7 +576,12 @@ func (h *Handler) handleUpdateDistributionWithStagingConfig(c *echo.Context, pri
 
 	var req updateWithStagingConfigXML
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c, http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateDistributionWithStagingConfigRequest XML"),
+			)
+		}
 	}
 
 	// If staging ID not in body, try query param.
@@ -701,6 +716,29 @@ func (h *Handler) handleListDistributionsByResponseHeadersPolicyID(c *echo.Conte
 	dists := h.Backend.ListDistributionsByResponseHeadersPolicyID(policyID)
 
 	return h.marshalDistributionList(c, dists)
+}
+
+// listDistributionsByRealtimeLogConfigBody decodes the ARN out of the request
+// body. Real ListDistributionsByRealtimeLogConfig is POST with no URI label
+// or query binding at all -- RealtimeLogConfigArn travels as an XML element
+// under the root ListDistributionsByRealtimeLogConfigRequest (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpDocumentListDistributionsByRealtimeLogConfigInput).
+type listDistributionsByRealtimeLogConfigBody struct {
+	RealtimeLogConfigArn string `xml:"RealtimeLogConfigArn"`
+}
+
+func extractRealtimeLogConfigArn(c *echo.Context) string {
+	body, err := readBody(c)
+	if err != nil {
+		return ""
+	}
+
+	var req listDistributionsByRealtimeLogConfigBody
+	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+		return ""
+	}
+
+	return req.RealtimeLogConfigArn
 }
 
 func (h *Handler) handleListDistributionsByRealtimeLogConfig(c *echo.Context, arn string) error {

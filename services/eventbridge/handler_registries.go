@@ -7,7 +7,7 @@ import (
 
 func (h *Handler) registryActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CreateRegistry": func(ctx context.Context, b []byte) (any, error) {
+		opCreateRegistry: func(ctx context.Context, b []byte) (any, error) {
 			var input CreateRegistryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -15,7 +15,7 @@ func (h *Handler) registryActions() map[string]actionFn {
 
 			return h.Backend.CreateRegistry(ctx, input)
 		},
-		"DeleteRegistry": func(ctx context.Context, b []byte) (any, error) {
+		opDeleteRegistry: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 			}
@@ -25,7 +25,7 @@ func (h *Handler) registryActions() map[string]actionFn {
 
 			return &struct{}{}, h.Backend.DeleteRegistry(ctx, input.RegistryName)
 		},
-		"DescribeRegistry": func(ctx context.Context, b []byte) (any, error) {
+		opDescribeRegistry: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 			}
@@ -35,7 +35,7 @@ func (h *Handler) registryActions() map[string]actionFn {
 
 			return h.Backend.DescribeRegistry(ctx, input.RegistryName)
 		},
-		"ListRegistries": func(ctx context.Context, b []byte) (any, error) {
+		opListRegistries: func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
 				NamePrefix string `json:"NamePrefix"`
 				NextToken  string `json:"NextToken"`
@@ -53,7 +53,7 @@ func (h *Handler) registryActions() map[string]actionFn {
 				Registries []SchemaRegistry `json:"Registries"`
 			}{Registries: regs, NextToken: next}, nil
 		},
-		"UpdateRegistry": func(ctx context.Context, b []byte) (any, error) {
+		opUpdateRegistry: func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateRegistryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err

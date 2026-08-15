@@ -235,6 +235,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	annImportJob, err := original.StartAnnotationImportJob(
 		annStore.Name, "role-arn", []omics.AnnotationImportItem{{Source: "s3://bucket/ann.vcf"}},
+		nil, nil, false, "",
 	)
 	require.NoError(t, err)
 
@@ -244,6 +245,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	varImportJob, err := original.StartVariantImportJob(
 		varStore.Name, "role-arn", []omics.VariantImportItem{{Source: "s3://bucket/var.vcf"}},
+		nil, false,
 	)
 	require.NoError(t, err)
 
@@ -265,7 +267,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// Configuration.
-	config, err := original.CreateConfiguration("config-1", "desc")
+	config, err := original.CreateConfiguration("config-1", "desc", &omics.ConfigurationRunConfigurations{
+		VpcConfig: &omics.ConfigurationVpcConfig{SubnetIDs: []string{"subnet-1"}},
+	}, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	// S3AccessPolicy.
@@ -404,6 +408,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotConfig, err := fresh.GetConfiguration(config.Name)
 	require.NoError(t, err)
 	assert.Equal(t, "config-1", gotConfig.Name)
+	require.NotNil(t, gotConfig.RunConfigurations)
+	require.NotNil(t, gotConfig.RunConfigurations.VpcConfig)
+	assert.Equal(t, []string{"subnet-1"}, gotConfig.RunConfigurations.VpcConfig.SubnetIDs)
+	assert.Equal(t, "test", gotConfig.Tags["env"])
 
 	// s3AccessPolicies.
 	gotPolicy, err := fresh.GetS3AccessPolicy("arn:aws:s3:us-west-2:111122223333:accesspoint/ap-1")

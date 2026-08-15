@@ -79,7 +79,7 @@ func (j *Janitor) sweepTerminatedClusters(ctx context.Context) {
 	// -- unlike store.Index.Get, whose slice is owned by the index itself.
 	for _, c := range j.Backend.clusters.Snapshot() {
 		terminal := c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors
-		if terminal && !c.TerminatedAt.IsZero() && c.TerminatedAt.Before(cutoff) {
+		if terminal && !c.terminatedAt.IsZero() && c.terminatedAt.Before(cutoff) {
 			swept = append(swept, c.ID)
 			j.Backend.clusterDelete(c.region, c.ID)
 			if arnIndex := j.Backend.arnIndex[c.region]; arnIndex != nil {

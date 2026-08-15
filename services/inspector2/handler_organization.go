@@ -142,5 +142,12 @@ func (h *Handler) handleUpdateOrganizationConfiguration(c *echo.Context) error {
 		return h.mapError(c, updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	// Real UpdateOrganizationConfigurationOutput carries the resulting
+	// autoEnable settings
+	// (awsRestjson1_deserializeOpDocumentUpdateOrganizationConfigurationOutput
+	// in the pinned inspector2 SDK's deserializers.go), not an empty
+	// envelope. req.AutoEnable already carries the real per-scan-type wire
+	// keys (codeRepository/ec2/ecr/lambda/lambdaCode) as submitted, so echo
+	// it back rather than reconstructing from the backend's collapsed bool.
+	return c.JSON(http.StatusOK, map[string]any{"autoEnable": req.AutoEnable})
 }

@@ -113,7 +113,8 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
 
-	require.NoError(t, original.SetTypeConfiguration("Acme::Demo::Widget", `{"key":"value"}`))
+	_, err = original.SetTypeConfiguration("Acme::Demo::Widget", `{"key":"value"}`)
+	require.NoError(t, err)
 
 	snap := original.Snapshot(ctx)
 	require.NotNil(t, snap)

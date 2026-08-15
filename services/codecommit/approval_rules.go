@@ -175,17 +175,21 @@ func (b *InMemoryBackend) BatchDisassociateApprovalRuleTemplateFromRepositories(
 	return disassociated, errors
 }
 
-// DeleteApprovalRuleTemplate deletes an approval rule template by name.
-func (b *InMemoryBackend) DeleteApprovalRuleTemplate(name string) error {
+// DeleteApprovalRuleTemplate deletes an approval rule template by name,
+// returning its ID. The real DeleteApprovalRuleTemplateOutput echoes
+// ApprovalRuleTemplateId as a required field
+// (api_op_DeleteApprovalRuleTemplate.go:38).
+func (b *InMemoryBackend) DeleteApprovalRuleTemplate(name string) (string, error) {
 	b.mu.Lock("DeleteApprovalRuleTemplate")
 	defer b.mu.Unlock()
 
-	if !b.approvalRuleTemplates.Has(name) {
-		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, name)
+	t, ok := b.approvalRuleTemplates.Get(name)
+	if !ok {
+		return "", fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, name)
 	}
 	b.approvalRuleTemplates.Delete(name)
 
-	return nil
+	return t.ApprovalRuleTemplateID, nil
 }
 
 // GetApprovalRuleTemplate retrieves an approval rule template by name.

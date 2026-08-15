@@ -132,7 +132,7 @@ func TestNeptuneGlobalClusterIsNotRegionIsolated(t *testing.T) {
 	ctxEast := ctxRegion("us-east-1")
 	ctxWest := ctxRegion("us-west-2")
 
-	_, err := backend.CreateGlobalCluster(ctxEast, "global1", "")
+	_, err := backend.CreateGlobalCluster(ctxEast, "global1", "", "")
 	require.NoError(t, err)
 
 	// Visible regardless of the request region (global/partition-scoped).

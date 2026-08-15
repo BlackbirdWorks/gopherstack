@@ -59,7 +59,7 @@ func (h *Handler) listMetricAttributions(input map[string]any) (map[string]any, 
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, ma := range list {
-		summaries = append(summaries, metricAttributionToMap(ma))
+		summaries = append(summaries, metricAttributionSummaryToMap(ma))
 	}
 
 	result := map[string]any{"metricAttributions": summaries}
@@ -99,6 +99,20 @@ func metricAttributionToMap(ma *MetricAttribution) map[string]any {
 		keyName:                 ma.Name,
 		keyDatasetGroupArn:      ma.DatasetGroupArn,
 		"metricsOutputConfig":   ma.MetricsOutputConfig,
+		keyStatus:               ma.Status,
+		keyCreationDateTime:     awstime.Epoch(ma.CreationDateTime),
+		keyLastUpdatedDateTime:  awstime.Epoch(ma.LastUpdatedDateTime),
+	}
+}
+
+// metricAttributionSummaryToMap builds the types.MetricAttributionSummary
+// shape (types.go:1559) -- no datasetGroupArn or metricsOutputConfig.
+// failureReason is a real member but the backend's MetricAttribution model
+// has no source for it, so it stays absent rather than being fabricated.
+func metricAttributionSummaryToMap(ma *MetricAttribution) map[string]any {
+	return map[string]any{
+		keyMetricAttributionArn: ma.MetricAttributionArn,
+		keyName:                 ma.Name,
 		keyStatus:               ma.Status,
 		keyCreationDateTime:     awstime.Epoch(ma.CreationDateTime),
 		keyLastUpdatedDateTime:  awstime.Epoch(ma.LastUpdatedDateTime),

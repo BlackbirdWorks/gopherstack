@@ -22,6 +22,11 @@ const objectLambdaTransformedContent = "lambda-transformed-content"
 type staticObjectLambda struct {
 	serverURL    string
 	responseBody string
+	// fwdStatus, when non-empty, is sent as X-Amz-Fwd-Status on the
+	// WriteGetObjectResponse call, letting the Lambda choose the status code
+	// GetObject's caller ultimately sees (e.g. an access-control Lambda
+	// returning 403).
+	fwdStatus string
 }
 
 func (l *staticObjectLambda) InvokeFunction(
@@ -38,13 +43,16 @@ func (l *staticObjectLambda) InvokeFunction(
 		return nil, 0, err
 	}
 
-	wgorURL := l.serverURL + "/?writeGetObjectResponse"
+	wgorURL := l.serverURL + "/WriteGetObjectResponse"
 	wgorReq, err := http.NewRequest(http.MethodPost, wgorURL, strings.NewReader(l.responseBody))
 	if err != nil {
 		return nil, 0, err
 	}
 	wgorReq.Header.Set("X-Amz-Request-Token", event.GetObjectContext.OutputToken)
 	wgorReq.Header.Set("Content-Type", "application/octet-stream")
+	if l.fwdStatus != "" {
+		wgorReq.Header.Set("X-Amz-Fwd-Status", l.fwdStatus)
+	}
 
 	wgorResp, err := http.DefaultClient.Do(wgorReq)
 	if err != nil {
@@ -108,6 +116,58 @@ func TestS3ObjectLambda_WriteGetObjectResponse(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, objectLambdaTransformedContent, rec.Body.String())
+}
+
+// TestS3ObjectLambda_WriteGetObjectResponse_ForwardsStatus is a regression
+// test: real S3's WriteGetObjectResponseInput.StatusCode is header-bound to
+// X-Amz-Fwd-Status (confirmed against aws-sdk-go-v2/service/s3@v1.106.5
+// serializers.go's awsRestxml_serializeOpHttpBindingsWriteGetObjectResponseInput,
+// locationName "X-Amz-Fwd-Status") -- a Lambda can use it to signal e.g. a 403
+// from an access-control check. The handler previously hardcoded 200 for every
+// WriteGetObjectResponse call regardless of what the Lambda sent, silently
+// discarding this header, so GetObject always reported success even when the
+// Lambda intended to reject the request.
+func TestS3ObjectLambda_WriteGetObjectResponse_ForwardsStatus(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+	bucket := "object-lambda-status-bucket"
+	key := "hello.txt"
+
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket, nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	req = httptest.NewRequest(http.MethodPut, "/"+bucket+"/"+key, strings.NewReader("original content"))
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveS3Handler(handler, w, r)
+	}))
+	defer srv.Close()
+
+	handler.Endpoint = srv.URL
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:denier"
+	handler.SetObjectLambdaConfig(bucket, lambdaARN)
+
+	lambdaFn := &staticObjectLambda{
+		serverURL:    srv.URL,
+		responseBody: "access denied by lambda",
+		fwdStatus:    "403",
+	}
+	targets := &s3.NotificationTargets{LambdaInvoker: lambdaFn}
+	handler.SetNotificationDispatcher(s3.NewNotificationDispatcher(targets, "us-east-1"))
+
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"/"+key, nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, "access denied by lambda", rec.Body.String())
 }
 
 // TestS3ObjectLambda_ConfigClearedOnBucketDelete locks that DeleteBucket

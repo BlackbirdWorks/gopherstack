@@ -38,6 +38,8 @@ var (
 	errExpectedKeyword     = errors.New("expected keyword")
 	errExpectedTokenType   = errors.New("expected token type")
 	errUnknownOperator     = errors.New("unknown operator")
+	errNonAggregateColumn  = errors.New("non-aggregate column in aggregate query")
+	errNegativeLimit       = errors.New("LIMIT value must be non-negative")
 )
 
 // sqlNullType is the internal representation of SQL NULL.

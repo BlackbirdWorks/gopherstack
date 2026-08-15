@@ -113,20 +113,19 @@ type CallAnalyticsJob struct {
 
 // MedicalScribeJob represents an Amazon Transcribe Medical Scribe job.
 type MedicalScribeJob struct {
-	StartTime                      time.Time                        `json:"startTime"`
-	CompletionTime                 time.Time                        `json:"completionTime"`
-	CreationTime                   time.Time                        `json:"creationTime"`
-	Tags                           map[string]string                `json:"tags,omitempty"`
-	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings  `json:"clinicalNoteGenerationSettings,omitempty"`
-	Settings                       *MedicalScribeSettings           `json:"settings,omitempty"`
-	Media                          Media                            `json:"media"`
-	LanguageCode                   string                           `json:"languageCode,omitempty"`
-	DataAccessRoleArn              string                           `json:"dataAccessRoleArn,omitempty"`
-	OutputBucketName               string                           `json:"outputBucketName,omitempty"`
-	FailureReason                  string                           `json:"failureReason,omitempty"`
-	MedicalScribeJobStatus         string                           `json:"medicalScribeJobStatus"`
-	MedicalScribeJobName           string                           `json:"medicalScribeJobName"`
-	ChannelDefinitions             []MedicalScribeChannelDefinition `json:"channelDefinitions,omitempty"`
+	StartTime              time.Time                        `json:"startTime"`
+	CompletionTime         time.Time                        `json:"completionTime"`
+	CreationTime           time.Time                        `json:"creationTime"`
+	Tags                   map[string]string                `json:"tags,omitempty"`
+	Settings               *MedicalScribeSettings           `json:"settings,omitempty"`
+	Media                  Media                            `json:"media"`
+	LanguageCode           string                           `json:"languageCode,omitempty"`
+	DataAccessRoleArn      string                           `json:"dataAccessRoleArn,omitempty"`
+	OutputBucketName       string                           `json:"outputBucketName,omitempty"`
+	FailureReason          string                           `json:"failureReason,omitempty"`
+	MedicalScribeJobStatus string                           `json:"medicalScribeJobStatus"`
+	MedicalScribeJobName   string                           `json:"medicalScribeJobName"`
+	ChannelDefinitions     []MedicalScribeChannelDefinition `json:"channelDefinitions,omitempty"`
 }
 
 // MedicalTranscriptionJob represents an Amazon Transcribe Medical transcription job.
@@ -233,13 +232,14 @@ type ChannelDefinition struct {
 
 // CallAnalyticsSettings holds settings for a call analytics job.
 type CallAnalyticsSettings struct {
-	ContentRedaction       *ContentRedaction      `json:"ContentRedaction,omitempty"`
-	Summarization          *SummarizationSettings `json:"Summarization,omitempty"`
-	VocabularyName         string                 `json:"VocabularyName,omitempty"`
-	VocabularyFilterName   string                 `json:"VocabularyFilterName,omitempty"`
-	VocabularyFilterMethod string                 `json:"VocabularyFilterMethod,omitempty"`
-	LanguageModelName      string                 `json:"LanguageModelName,omitempty"`
-	LanguageOptions        []string               `json:"LanguageOptions,omitempty"`
+	ContentRedaction       *ContentRedaction             `json:"ContentRedaction,omitempty"`
+	Summarization          *SummarizationSettings        `json:"Summarization,omitempty"`
+	LanguageIDSettings     map[string]LanguageIDSettings `json:"LanguageIdSettings,omitempty"`
+	VocabularyName         string                        `json:"VocabularyName,omitempty"`
+	VocabularyFilterName   string                        `json:"VocabularyFilterName,omitempty"`
+	VocabularyFilterMethod string                        `json:"VocabularyFilterMethod,omitempty"`
+	LanguageModelName      string                        `json:"LanguageModelName,omitempty"`
+	LanguageOptions        []string                      `json:"LanguageOptions,omitempty"`
 }
 
 // SummarizationSettings controls generative call summarization.
@@ -255,33 +255,63 @@ type CallAnalyticsRule struct {
 	SentimentFilter    *SentimentFilter    `json:"SentimentFilter,omitempty"`
 }
 
+// AbsoluteTimeRange specifies a time range in milliseconds within a call
+// analytics rule filter.
+type AbsoluteTimeRange struct {
+	EndTime   *int64 `json:"EndTime,omitempty"`
+	First     *int64 `json:"First,omitempty"`
+	Last      *int64 `json:"Last,omitempty"`
+	StartTime *int64 `json:"StartTime,omitempty"`
+}
+
+// RelativeTimeRange specifies a time range as a percentage of the media
+// duration within a call analytics rule filter.
+type RelativeTimeRange struct {
+	EndPercentage   *int32 `json:"EndPercentage,omitempty"`
+	First           *int32 `json:"First,omitempty"`
+	Last            *int32 `json:"Last,omitempty"`
+	StartPercentage *int32 `json:"StartPercentage,omitempty"`
+}
+
 // NonTalkTimeFilter matches segments with no speech.
+//
+// ParticipantRole is not a real member of AWS's NonTalkTimeFilter (unlike its
+// three siblings below) - kept for backward compatibility, but unreachable by
+// a real client since the real request/response type has no such field.
 type NonTalkTimeFilter struct {
-	ParticipantRole string `json:"ParticipantRole,omitempty"`
-	Threshold       int64  `json:"Threshold,omitempty"`
-	Negate          bool   `json:"Negate,omitempty"`
+	AbsoluteTimeRange *AbsoluteTimeRange `json:"AbsoluteTimeRange,omitempty"`
+	RelativeTimeRange *RelativeTimeRange `json:"RelativeTimeRange,omitempty"`
+	ParticipantRole   string             `json:"ParticipantRole,omitempty"`
+	Threshold         int64              `json:"Threshold,omitempty"`
+	Negate            bool               `json:"Negate,omitempty"`
 }
 
 // InterruptionFilter matches interruptions by a participant.
 type InterruptionFilter struct {
-	ParticipantRole string `json:"ParticipantRole,omitempty"`
-	Threshold       int64  `json:"Threshold,omitempty"`
-	Negate          bool   `json:"Negate,omitempty"`
+	AbsoluteTimeRange *AbsoluteTimeRange `json:"AbsoluteTimeRange,omitempty"`
+	RelativeTimeRange *RelativeTimeRange `json:"RelativeTimeRange,omitempty"`
+	ParticipantRole   string             `json:"ParticipantRole,omitempty"`
+	Threshold         int64              `json:"Threshold,omitempty"`
+	Negate            bool               `json:"Negate,omitempty"`
 }
 
 // TranscriptFilter matches specific phrases in the transcript.
 type TranscriptFilter struct {
-	TranscriptFilterType string   `json:"TranscriptFilterType"`
-	ParticipantRole      string   `json:"ParticipantRole,omitempty"`
-	Targets              []string `json:"Targets"`
-	Negate               bool     `json:"Negate,omitempty"`
+	AbsoluteTimeRange    *AbsoluteTimeRange `json:"AbsoluteTimeRange,omitempty"`
+	RelativeTimeRange    *RelativeTimeRange `json:"RelativeTimeRange,omitempty"`
+	TranscriptFilterType string             `json:"TranscriptFilterType"`
+	ParticipantRole      string             `json:"ParticipantRole,omitempty"`
+	Targets              []string           `json:"Targets"`
+	Negate               bool               `json:"Negate,omitempty"`
 }
 
 // SentimentFilter matches sentiment in the transcript.
 type SentimentFilter struct {
-	ParticipantRole string   `json:"ParticipantRole,omitempty"`
-	Sentiments      []string `json:"Sentiments"`
-	Negate          bool     `json:"Negate,omitempty"`
+	AbsoluteTimeRange *AbsoluteTimeRange `json:"AbsoluteTimeRange,omitempty"`
+	RelativeTimeRange *RelativeTimeRange `json:"RelativeTimeRange,omitempty"`
+	ParticipantRole   string             `json:"ParticipantRole,omitempty"`
+	Sentiments        []string           `json:"Sentiments"`
+	Negate            bool               `json:"Negate,omitempty"`
 }
 
 // MedicalTranscriptionSettings holds settings specific to medical transcription.
@@ -296,12 +326,13 @@ type MedicalTranscriptionSettings struct {
 
 // MedicalScribeSettings holds settings for a Medical Scribe job.
 type MedicalScribeSettings struct {
-	VocabularyName         string `json:"VocabularyName,omitempty"`
-	VocabularyFilterName   string `json:"VocabularyFilterName,omitempty"`
-	VocabularyFilterMethod string `json:"VocabularyFilterMethod,omitempty"`
-	MaxSpeakerLabels       int32  `json:"MaxSpeakerLabels,omitempty"`
-	ShowSpeakerLabels      bool   `json:"ShowSpeakerLabels,omitempty"`
-	ChannelIdentification  bool   `json:"ChannelIdentification,omitempty"`
+	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings `json:"ClinicalNoteGenerationSettings,omitempty"`
+	VocabularyName                 string                          `json:"VocabularyName,omitempty"`
+	VocabularyFilterName           string                          `json:"VocabularyFilterName,omitempty"`
+	VocabularyFilterMethod         string                          `json:"VocabularyFilterMethod,omitempty"`
+	MaxSpeakerLabels               int32                           `json:"MaxSpeakerLabels,omitempty"`
+	ShowSpeakerLabels              bool                            `json:"ShowSpeakerLabels,omitempty"`
+	ChannelIdentification          bool                            `json:"ChannelIdentification,omitempty"`
 }
 
 // MedicalScribeChannelDefinition defines a channel in a medical scribe job.

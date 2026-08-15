@@ -376,13 +376,14 @@ func (a *storedALS) toALS() *AccessLogSubscription {
 
 func (a *storedALS) toSummary() *AccessLogSubscriptionSummary {
 	return &AccessLogSubscriptionSummary{
-		ARN:            a.ARN,
-		ID:             a.ID,
-		ResourceARN:    a.ResourceARN,
-		ResourceID:     a.ResourceID,
-		DestinationARN: a.DestinationARN,
-		CreatedAt:      a.CreatedAt,
-		LastUpdatedAt:  a.LastUpdatedAt,
+		ARN:                   a.ARN,
+		ID:                    a.ID,
+		ResourceARN:           a.ResourceARN,
+		ResourceID:            a.ResourceID,
+		DestinationARN:        a.DestinationARN,
+		ServiceNetworkLogType: a.ServiceNetworkLogType,
+		CreatedAt:             a.CreatedAt,
+		LastUpdatedAt:         a.LastUpdatedAt,
 	}
 }
 
@@ -483,14 +484,18 @@ func (c *storedResourceConfiguration) toResourceConfiguration() *ResourceConfigu
 
 func (c *storedResourceConfiguration) toSummary() *ResourceConfigurationSummary {
 	return &ResourceConfigurationSummary{
-		ARN:               c.ARN,
-		ID:                c.ID,
-		Name:              c.Name,
-		Type:              c.Type,
-		Status:            c.Status,
-		ResourceGatewayID: c.ResourceGatewayID,
-		CreatedAt:         c.CreatedAt,
-		LastUpdatedAt:     c.LastUpdatedAt,
+		ARN:                          c.ARN,
+		ID:                           c.ID,
+		Name:                         c.Name,
+		Type:                         c.Type,
+		Status:                       c.Status,
+		ResourceGatewayID:            c.ResourceGatewayID,
+		ResourceConfigurationGroupID: c.ResourceConfigurationGroupID,
+		CustomDomainName:             c.CustomDomainName,
+		GroupDomain:                  c.GroupDomain,
+		DomainVerificationID:         c.DomainVerificationID,
+		CreatedAt:                    c.CreatedAt,
+		LastUpdatedAt:                c.LastUpdatedAt,
 	}
 }
 

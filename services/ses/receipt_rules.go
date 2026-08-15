@@ -248,14 +248,21 @@ func (b *InMemoryBackend) ReorderReceiptRuleSet(ruleSetName string, ruleNames []
 	return nil
 }
 
-// SetReceiptRulePosition moves a rule to the given zero-based position in a rule set.
-func (b *InMemoryBackend) SetReceiptRulePosition(ruleSetName, ruleName string, position int) error {
+// SetReceiptRulePosition moves a rule within its rule set. after="" moves the
+// rule to the front; otherwise the rule is placed immediately after the named
+// rule (SetReceiptRulePositionInput.After -- there is no numeric position on
+// the real wire, see api_op_SetReceiptRulePosition.go).
+func (b *InMemoryBackend) SetReceiptRulePosition(ruleSetName, ruleName, after string) error {
 	if strings.TrimSpace(ruleSetName) == "" {
 		return fmt.Errorf("%w: RuleSetName is required", ErrInvalidParameter)
 	}
 
 	if strings.TrimSpace(ruleName) == "" {
 		return fmt.Errorf("%w: RuleName is required", ErrInvalidParameter)
+	}
+
+	if after == ruleName {
+		return fmt.Errorf("%w: After cannot reference the rule being moved", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("SetReceiptRulePosition")
@@ -271,20 +278,26 @@ func (b *InMemoryBackend) SetReceiptRulePosition(ruleSetName, ruleName string, p
 		return fmt.Errorf("%w: %s", ErrReceiptRuleNotFound, ruleName)
 	}
 
-	if position < 0 || position >= len(rs.Rules) {
-		return fmt.Errorf("%w: position %d out of range [0, %d)", ErrInvalidParameter, position, len(rs.Rules))
-	}
-
 	rule := rs.Rules[idx]
-	// Build a slice without the rule at idx, then re-insert at position.
 	withoutRule := make([]ReceiptRule, 0, len(rs.Rules)-1)
 	withoutRule = append(withoutRule, rs.Rules[:idx]...)
 	withoutRule = append(withoutRule, rs.Rules[idx+1:]...)
-	rules := withoutRule
-	newRules := make([]ReceiptRule, 0, len(rules)+1)
-	newRules = append(newRules, rules[:position]...)
+
+	if after == "" {
+		rs.Rules = append([]ReceiptRule{rule}, withoutRule...)
+
+		return nil
+	}
+
+	afterIdx := findRuleIndex(withoutRule, after)
+	if afterIdx < 0 {
+		return fmt.Errorf("%w: after rule %s not found", ErrReceiptRuleNotFound, after)
+	}
+
+	newRules := make([]ReceiptRule, 0, len(withoutRule)+1)
+	newRules = append(newRules, withoutRule[:afterIdx+1]...)
 	newRules = append(newRules, rule)
-	newRules = append(newRules, rules[position:]...)
+	newRules = append(newRules, withoutRule[afterIdx+1:]...)
 	rs.Rules = newRules
 
 	return nil

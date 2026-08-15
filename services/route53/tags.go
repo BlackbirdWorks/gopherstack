@@ -2,6 +2,7 @@ package route53
 
 import (
 	"fmt"
+	"strings"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -14,10 +15,23 @@ const (
 	tagResourceTypeHostedZone  = "hostedzone"
 )
 
-// checkTagResourceExists validates that resourceID exists as the given
-// resourceType. AWS returns NoSuchHostedZone/NoSuchHealthCheck (404) for the
-// tag-family operations when the target resource does not exist; an unknown
-// resourceType is InvalidInput (400).
+// normalizeTagResourceID strips the "/hostedzone/" prefix HostedZone.Id always
+// carries on the wire (toXMLHostedZone) so a caller round-tripping that value
+// straight back in as ResourceId matches the bare ID hosted zones are keyed by
+// internally -- same normalization getHostedZoneLimit already applies. Health
+// check IDs carry no such prefix and pass through unchanged.
+func normalizeTagResourceID(resourceType, resourceID string) string {
+	if resourceType == tagResourceTypeHostedZone {
+		return strings.TrimPrefix(resourceID, "/hostedzone/")
+	}
+
+	return resourceID
+}
+
+// checkTagResourceExists validates that resourceID (already normalized) exists
+// as the given resourceType. AWS returns NoSuchHostedZone/NoSuchHealthCheck
+// (404) for the tag-family operations when the target resource does not
+// exist; an unknown resourceType is InvalidInput (400).
 func (b *InMemoryBackend) checkTagResourceExists(resourceType, resourceID string) error {
 	switch resourceType {
 	case tagResourceTypeHostedZone:
@@ -40,11 +54,13 @@ func (b *InMemoryBackend) ListTagsForResource(resourceType, resourceID string) (
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if err := b.checkTagResourceExists(resourceType, resourceID); err != nil {
+	id := normalizeTagResourceID(resourceType, resourceID)
+
+	if err := b.checkTagResourceExists(resourceType, id); err != nil {
 		return nil, err
 	}
 
-	if t, exists := b.tags[resourceID]; exists {
+	if t, exists := b.tags[id]; exists {
 		return t.Clone(), nil
 	}
 
@@ -61,14 +77,19 @@ func (b *InMemoryBackend) ListTagsForResources(
 	b.mu.RLock("ListTagsForResources")
 	defer b.mu.RUnlock()
 
-	for _, id := range resourceIDs {
+	ids := make([]string, len(resourceIDs))
+	for i, id := range resourceIDs {
+		ids[i] = normalizeTagResourceID(resourceType, id)
+	}
+
+	for _, id := range ids {
 		if err := b.checkTagResourceExists(resourceType, id); err != nil {
 			return nil, err
 		}
 	}
 
 	result := make(map[string]map[string]string)
-	for _, id := range resourceIDs {
+	for _, id := range ids {
 		if t, ok := b.tags[id]; ok {
 			result[id] = t.Clone()
 		} else {
@@ -87,19 +108,21 @@ func (b *InMemoryBackend) ChangeTagsForResource(
 	b.mu.Lock("ChangeTagsForResource")
 	defer b.mu.Unlock()
 
-	if err := b.checkTagResourceExists(resourceType, resourceID); err != nil {
+	id := normalizeTagResourceID(resourceType, resourceID)
+
+	if err := b.checkTagResourceExists(resourceType, id); err != nil {
 		return err
 	}
 
-	if b.tags[resourceID] == nil {
-		b.tags[resourceID] = svcTags.New("route53." + resourceID + ".tags")
+	if b.tags[id] == nil {
+		b.tags[id] = svcTags.New("route53." + id + ".tags")
 	}
 
 	if len(addTags) > 0 {
-		b.tags[resourceID].Merge(addTags)
+		b.tags[id].Merge(addTags)
 	}
 	if len(removeKeys) > 0 {
-		b.tags[resourceID].DeleteKeys(removeKeys)
+		b.tags[id].DeleteKeys(removeKeys)
 	}
 
 	return nil

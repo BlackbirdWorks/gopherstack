@@ -463,7 +463,15 @@ func TestCloudTrailRequiredFieldValidation(t *testing.T) {
 				})
 				assert.Equal(t, http.StatusOK, rec.Code)
 				resp := parseCloudTrailResp(t, rec)
-				assert.Equal(t, "CREATED", resp["Status"])
+				// CreateDashboardOutput has no Status field -- only GetDashboardOutput does.
+				_, hasStatus := resp["Status"]
+				assert.False(t, hasStatus, "CreateDashboardOutput has no Status field")
+
+				dashARN, _ := resp["DashboardArn"].(string)
+				getRec := doCloudTrailOp(t, h, "GetDashboard", map[string]any{"DashboardId": dashARN})
+				assert.Equal(t, http.StatusOK, getRec.Code)
+				getResp := parseCloudTrailResp(t, getRec)
+				assert.Equal(t, "CREATED", getResp["Status"])
 			},
 		},
 		{
@@ -553,12 +561,19 @@ func TestCloudTrailAncillaryOperationsSmoke(t *testing.T) {
 		{
 			name: "list_insights_data",
 			op:   "ListInsightsData",
-			body: map[string]any{},
+			body: map[string]any{
+				"DataType":      "InsightsEvents",
+				"InsightSource": "arn:aws:cloudtrail:us-east-1:123456789012:trail/example",
+			},
 		},
 		{
 			name: "list_insights_metric_data",
 			op:   "ListInsightsMetricData",
-			body: map[string]any{},
+			body: map[string]any{
+				"EventName":   "PutObject",
+				"EventSource": "s3.amazonaws.com",
+				"InsightType": "ApiCallRateInsight",
+			},
 		},
 		{
 			name: "search_sample_queries",
@@ -579,6 +594,63 @@ func TestCloudTrailAncillaryOperationsSmoke(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code, "op %s should return 200", tt.op)
 		})
 	}
+}
+
+// TestCloudTrailListInsightsWireShape asserts the real top-level wrapper
+// keys for ListInsightsData ("Events", not the previously-emitted "Insights")
+// and ListInsightsMetricData (a flat EventName/EventSource/InsightType/
+// Timestamps/Values object, not a "Values"-wrapped list) -- confirmed
+// against cloudtrail@v1.58.4's deserializers.go.
+func TestCloudTrailListInsightsWireShape(t *testing.T) {
+	t.Parallel()
+
+	t.Run("list_insights_data_uses_events_key", func(t *testing.T) {
+		t.Parallel()
+		h := newTestCloudTrailHandler()
+		rec := doCloudTrailOp(t, h, "ListInsightsData", map[string]any{
+			"DataType":      "InsightsEvents",
+			"InsightSource": "arn:aws:cloudtrail:us-east-1:123456789012:trail/example",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseCloudTrailResp(t, rec)
+		_, hasEvents := resp["Events"]
+		assert.True(t, hasEvents, "response should have an Events key")
+		_, hasInsights := resp["Insights"]
+		assert.False(t, hasInsights, "response should not have the wrong Insights key")
+	})
+
+	t.Run("list_insights_data_requires_data_type_and_source", func(t *testing.T) {
+		t.Parallel()
+		h := newTestCloudTrailHandler()
+		rec := doCloudTrailOp(t, h, "ListInsightsData", map[string]any{})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("list_insights_metric_data_is_flat_not_values_wrapped", func(t *testing.T) {
+		t.Parallel()
+		h := newTestCloudTrailHandler()
+		rec := doCloudTrailOp(t, h, "ListInsightsMetricData", map[string]any{
+			"EventName":   "PutObject",
+			"EventSource": "s3.amazonaws.com",
+			"InsightType": "ApiCallRateInsight",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseCloudTrailResp(t, rec)
+		assert.Equal(t, "PutObject", resp["EventName"])
+		assert.Equal(t, "s3.amazonaws.com", resp["EventSource"])
+		assert.Equal(t, "ApiCallRateInsight", resp["InsightType"])
+		_, hasTimestamps := resp["Timestamps"]
+		assert.True(t, hasTimestamps, "response should have a Timestamps key")
+		_, hasValues := resp["Values"]
+		assert.True(t, hasValues, "response should have a Values key")
+	})
+
+	t.Run("list_insights_metric_data_requires_event_name_source_type", func(t *testing.T) {
+		t.Parallel()
+		h := newTestCloudTrailHandler()
+		rec := doCloudTrailOp(t, h, "ListInsightsMetricData", map[string]any{})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
 }
 
 // TestCloudTrailDeregisterOrgDelegatedAdmin exercises DeregisterOrganizationDelegatedAdmin.

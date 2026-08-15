@@ -161,11 +161,40 @@ type Command struct {
 	Args       []string `json:"Args,omitempty"`
 }
 
-// StepHadoopJarStep defines the JAR execution for a step.
+// KeyValue is a Hadoop job property pair, the real REQUEST-side wire shape
+// for step Properties (types.KeyValue, serializers.go's
+// awsAwsjson11_serializeDocumentKeyValue: {"Key":..., "Value":...}).
+type KeyValue struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// StepHadoopJarStepInput is the REQUEST-side shape (types.HadoopJarStepConfig)
+// for a step's Hadoop JAR execution, used by StepSpec (RunJobFlow/
+// AddJobFlowSteps' Steps input). Properties is genuinely a JSON ARRAY of
+// {Key,Value} objects on this side (serializers.go's
+// awsAwsjson11_serializeDocumentKeyValueList) -- asymmetric with the
+// RESPONSE side (StepHadoopJarStep.Properties below), which the real API
+// represents as a plain string map (types.HadoopStepConfig, StringMap
+// shape). A real EMR wire quirk, confirmed independently against both
+// serializers.go and deserializers.go, not a gopherstack inconsistency.
+type StepHadoopJarStepInput struct {
+	Jar        string     `json:"Jar"`
+	MainClass  string     `json:"MainClass,omitempty"`
+	Args       []string   `json:"Args,omitempty"`
+	Properties []KeyValue `json:"Properties,omitempty"`
+}
+
+// StepHadoopJarStep is the RESPONSE-side shape (types.HadoopStepConfig) for
+// a step's Hadoop JAR execution -- see StepHadoopJarStepInput's doc comment
+// for why Properties differs in shape from the request side. Previously had
+// no Properties member at all, so a real client's per-step Hadoop job
+// properties were silently dropped on input and never echoed back.
 type StepHadoopJarStep struct {
-	Jar       string   `json:"Jar"`
-	MainClass string   `json:"MainClass,omitempty"`
-	Args      []string `json:"Args,omitempty"`
+	Properties map[string]string `json:"Properties,omitempty"`
+	Jar        string            `json:"Jar"`
+	MainClass  string            `json:"MainClass,omitempty"`
+	Args       []string          `json:"Args,omitempty"`
 }
 
 // StepTimeline tracks creation and completion times of a step.
@@ -188,20 +217,43 @@ type CancelStepsInfo struct {
 	Reason string `json:"Reason,omitempty"`
 }
 
-// Step represents an EMR step attached to a cluster.
+// Step represents an EMR step attached to a cluster, shared by both
+// DescribeStep (real shape types.Step) and ListSteps' per-item shape (real
+// shape types.StepSummary).
+//
+// HadoopJarStep is wire-keyed "Config", not "HadoopJarStep": that name is
+// correct for the request-side StepConfig (types.StepConfig, real key
+// "HadoopJarStep", serializers.go's awsAwsjson11_serializeDocumentStepConfig)
+// but the RESPONSE types (types.Step/types.StepSummary) nest the same shape
+// under "Config" (types.HadoopStepConfig, deserializers.go's "Config" case in
+// awsAwsjson11_deserializeDocumentStep/...StepSummary) -- a real client's
+// typed Step.Config/StepSummary.Config was always nil regardless of backend
+// state before this fix.
+//
+// ExecutionRoleArn is real and non-required, but ONLY on types.Step
+// (deserializers.go's awsAwsjson11_deserializeDocumentStep "ExecutionRoleArn"
+// case) -- types.StepSummary genuinely has no such member
+// (awsAwsjson11_deserializeDocumentStepSummary's case list has none). Since
+// this type is shared by both responses and DescribeStep is where the field
+// matters (sourced from the call-level AddJobFlowStepsInput.ExecutionRoleArn/
+// RunJobFlowInput.StepExecutionRoleArn, not from the per-step StepConfig),
+// ListSteps also emits it when set: a harmless extra field a real typed
+// client for that op has no slot to decode into, same non-bug class as
+// rds's DBInstance.StorageOptimized.
 type Step struct {
-	ID              string            `json:"Id"`
-	Name            string            `json:"Name"`
-	HadoopJarStep   StepHadoopJarStep `json:"HadoopJarStep"`
-	ActionOnFailure string            `json:"ActionOnFailure"`
-	Status          StepStatus        `json:"Status"`
+	ID               string            `json:"Id"`
+	Name             string            `json:"Name"`
+	HadoopJarStep    StepHadoopJarStep `json:"Config"`
+	ActionOnFailure  string            `json:"ActionOnFailure"`
+	ExecutionRoleArn string            `json:"ExecutionRoleArn,omitempty"`
+	Status           StepStatus        `json:"Status"`
 }
 
 // StepSpec is the input for adding a new step.
 type StepSpec struct {
-	Name            string            `json:"Name"`
-	ActionOnFailure string            `json:"ActionOnFailure"`
-	HadoopJarStep   StepHadoopJarStep `json:"HadoopJarStep"`
+	Name            string                 `json:"Name"`
+	ActionOnFailure string                 `json:"ActionOnFailure"`
+	HadoopJarStep   StepHadoopJarStepInput `json:"HadoopJarStep"`
 }
 
 // ComputeLimits defines compute bounds for managed scaling.
@@ -363,17 +415,59 @@ const (
 // smithytime.ParseEpochSeconds and rejects RFC3339 strings. A zero value
 // (unset) is omitted via omitempty, matching the "not yet ended" case where
 // AWS omits EndTime entirely.
+// ExecutionEngineID's json tag is persistence-only (regionalDTO's plain
+// json.Marshal round-trip, see persistence.go): NotebookExecution itself is
+// never marshaled directly for an HTTP response any more. The real
+// DescribeNotebookExecutionOutput.NotebookExecution nests it under an
+// "ExecutionEngine" object (types.ExecutionEngineConfig{Id,...},
+// emr@v1.64.4 deserializers.go's "ExecutionEngine" case in
+// awsAwsjson11_deserializeDocumentNotebookExecution) rather than the flat
+// "ExecutionEngineId" this type used to emit directly -- that flat key is
+// only correct for the DIFFERENT, trimmed NotebookExecutionSummary type
+// ListNotebookExecutions returns (deserializers.go's
+// awsAwsjson11_deserializeDocumentNotebookExecutionSummary, which genuinely
+// has "ExecutionEngineId" flat). handler_notebook_executions.go's
+// newNotebookExecutionDetail builds the correctly-nested Describe wire
+// shape from this field instead.
 type NotebookExecution struct {
 	NotebookExecutionID   string `json:"NotebookExecutionId"`
 	EditorID              string `json:"EditorId,omitempty"`
 	NotebookExecutionName string `json:"NotebookExecutionName,omitempty"`
 	NotebookParams        string `json:"NotebookParams,omitempty"`
-	ExecutionEngineID     string `json:"ExecutionEngineId,omitempty"`
+	ExecutionEngineID     string `json:"executionEngineId,omitempty"`
 	Status                string `json:"Status"`
 	region                string
 	Tags                  []Tag   `json:"Tags"`
 	StartTime             float64 `json:"StartTime,omitempty"`
 	EndTime               float64 `json:"EndTime,omitempty"`
+}
+
+// NotebookExecutionSummary is the wire shape for ListNotebookExecutions
+// items (types.NotebookExecutionSummary, emr@v1.64.4 types.go:2161): no
+// NotebookParams, no Tags -- both present on the full NotebookExecution that
+// DescribeNotebookExecution returns.
+type NotebookExecutionSummary struct {
+	NotebookExecutionID   string  `json:"NotebookExecutionId"`
+	EditorID              string  `json:"EditorId,omitempty"`
+	NotebookExecutionName string  `json:"NotebookExecutionName,omitempty"`
+	ExecutionEngineID     string  `json:"ExecutionEngineId,omitempty"`
+	Status                string  `json:"Status"`
+	StartTime             float64 `json:"StartTime,omitempty"`
+	EndTime               float64 `json:"EndTime,omitempty"`
+}
+
+// newNotebookExecutionSummary projects a NotebookExecution into
+// ListNotebookExecutions' real per-item shape.
+func newNotebookExecutionSummary(ne NotebookExecution) NotebookExecutionSummary {
+	return NotebookExecutionSummary{
+		NotebookExecutionID:   ne.NotebookExecutionID,
+		EditorID:              ne.EditorID,
+		NotebookExecutionName: ne.NotebookExecutionName,
+		ExecutionEngineID:     ne.ExecutionEngineID,
+		Status:                ne.Status,
+		StartTime:             ne.StartTime,
+		EndTime:               ne.EndTime,
+	}
 }
 
 // InstanceGroupStatus is the status of an EMR instance group.
@@ -467,7 +561,13 @@ type MonitoringConfiguration struct {
 
 // Cluster represents an EMR cluster.
 type Cluster struct {
-	TerminatedAt            time.Time                `json:"TerminatedAt,omitzero"`
+	// terminatedAt is internal-only (janitor.go's TTL cleanup): real
+	// types.Cluster has no such member (emr@v1.64.4 deserializers.go's
+	// awsAwsjson11_deserializeDocumentCluster case list), so it must not
+	// reach the wire -- unexported like instanceGroups/steps/etc. below, and
+	// carried through persistence via clusterDTO.TerminatedAt the same way
+	// (see persistence.go).
+	terminatedAt            time.Time
 	Ec2InstanceAttributes   *EC2InstanceAttributes   `json:"Ec2InstanceAttributes"`
 	KerberosAttributes      *KerberosAttributes      `json:"KerberosAttributes,omitempty"`
 	MonitoringConfiguration *MonitoringConfiguration `json:"MonitoringConfiguration,omitempty"`
@@ -600,6 +700,7 @@ type Studio struct {
 	DefaultS3Location                 string `json:"DefaultS3Location"`
 	ServiceRole                       string `json:"ServiceRole"`
 	IdcInstanceArn                    string `json:"IdcInstanceArn,omitempty"`
+	IdcUserAssignment                 string `json:"IdcUserAssignment,omitempty"`
 	URL                               string `json:"Url"`
 	WorkspaceSecurityGroupID          string `json:"WorkspaceSecurityGroupId"`
 	StudioArn                         string `json:"StudioArn"`
@@ -615,16 +716,22 @@ type Studio struct {
 
 // StudioSummary is a trimmed view of Studio for ListStudios.
 // CreationTime is epoch seconds (float64); see Studio for why.
+//
+// StudioArn/DefaultS3Location were previously listed here but deleted: the
+// real types.StudioSummary (emr@v1.64.4 deserializers.go's
+// awsAwsjson11_deserializeDocumentStudioSummary case list) has no such
+// members at all (only AuthMode/CreationTime/Description/Name/StudioId/Url/
+// VpcId) -- both were invented fields, not omissions. Harmless (a real
+// client's typed StudioSummary has no field to decode either into), but
+// incorrect.
 type StudioSummary struct {
-	StudioID          string  `json:"StudioId"`
-	StudioArn         string  `json:"StudioArn"`
-	Name              string  `json:"Name"`
-	VpcID             string  `json:"VpcId"`
-	DefaultS3Location string  `json:"DefaultS3Location"`
-	AuthMode          string  `json:"AuthMode"`
-	URL               string  `json:"Url"`
-	Description       string  `json:"Description,omitempty"`
-	CreationTime      float64 `json:"CreationTime,omitempty"`
+	StudioID     string  `json:"StudioId"`
+	Name         string  `json:"Name"`
+	VpcID        string  `json:"VpcId"`
+	AuthMode     string  `json:"AuthMode"`
+	URL          string  `json:"Url"`
+	Description  string  `json:"Description,omitempty"`
+	CreationTime float64 `json:"CreationTime,omitempty"`
 }
 
 // StudioSessionMapping maps a user or group to an EMR Studio.
@@ -642,7 +749,21 @@ type StudioSessionMapping struct {
 }
 
 // PersistentAppUI represents an EMR persistent application user interface.
+// PersistentAppUI is this backend's internal model, deliberately not
+// marshaled directly: it mixes CreatePersistentAppUIOutput's real shape
+// (PersistentAppUIId/RuntimeRoleEnabledCluster, correct there) with
+// TargetResourceArn, which is a CreatePersistentAppUIInput-only concept --
+// the real DescribePersistentAppUIOutput.PersistentAppUI (types.PersistentAppUI,
+// emr@v1.64.4 deserializers.go's awsAwsjson11_deserializeDocumentPersistentAppUI
+// case list) has an entirely different field set (AuthorId/CreationTime/
+// LastModifiedTime/LastStateChangeReason/PersistentAppUIId/
+// PersistentAppUIStatus/PersistentAppUITypeList/Tags) with neither
+// TargetResourceArn nor RuntimeRoleEnabledCluster at all. See
+// handler_persistent_app_ui.go's newPersistentAppUIDetail for the correctly
+// separated Describe wire shape; handleCreatePersistentAppUI already built
+// its own separate, correct DTO and never used this type's JSON tags.
 type PersistentAppUI struct {
+	CreatedAt                 time.Time
 	ID                        string `json:"PersistentAppUIId"`
 	TargetResourceArn         string `json:"TargetResourceArn"`
 	region                    string
@@ -694,6 +815,7 @@ type RunJobFlowParams struct {
 	PlacementGroupConfigs   []PlacementGroupConfig   `json:"PlacementGroupConfigs,omitempty"`
 	BootstrapActions        []BootstrapActionConfig  `json:"BootstrapActions,omitempty"`
 	Steps                   []StepSpec               `json:"Steps,omitempty"`
+	StepExecutionRoleArn    string                   `json:"StepExecutionRoleArn,omitempty"`
 	Configurations          []Configuration          `json:"Configurations,omitempty"`
 	Applications            []Application            `json:"Applications,omitempty"`
 	Tags                    []Tag                    `json:"Tags,omitempty"`

@@ -10,12 +10,13 @@ const (
 )
 
 type startSessionInput struct {
-	WorkGroup            string               `json:"WorkGroup"`
-	Description          string               `json:"Description"`
-	NotebookVersion      string               `json:"NotebookVersion"`
-	NotebookID           string               `json:"NotebookId"`
-	SessionConfiguration SessionConfiguration `json:"SessionConfiguration"`
-	EngineConfiguration  EngineConfiguration  `json:"EngineConfiguration"`
+	MonitoringConfiguration MonitoringConfiguration `json:"MonitoringConfiguration"`
+	WorkGroup               string                  `json:"WorkGroup"`
+	Description             string                  `json:"Description"`
+	NotebookVersion         string                  `json:"NotebookVersion"`
+	NotebookID              string                  `json:"NotebookId"`
+	SessionConfiguration    SessionConfiguration    `json:"SessionConfiguration"`
+	EngineConfiguration     EngineConfiguration     `json:"EngineConfiguration"`
 }
 
 type sessionIDInput struct {
@@ -50,7 +51,8 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 
 			id, state, err := h.Backend.StartSession(
 				input.WorkGroup, input.Description, input.NotebookVersion,
-				input.EngineConfiguration, input.SessionConfiguration, input.NotebookID,
+				input.EngineConfiguration, input.SessionConfiguration,
+				input.MonitoringConfiguration, input.NotebookID,
 			)
 			if err != nil {
 				return nil, err
@@ -70,15 +72,16 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 			}
 
 			return map[string]any{
-				keySessionID:           s.SessionID,
-				"Description":          s.Description,
-				"WorkGroup":            s.WorkGroup,
-				"EngineVersion":        s.NotebookVersion,
-				"NotebookVersion":      s.NotebookVersion,
-				"EngineConfiguration":  s.EngineConfiguration,
-				"SessionConfiguration": s.SessionConfiguration,
-				keyStatus:              s.Status,
-				keyStatistics:          s.Statistics,
+				keySessionID:              s.SessionID,
+				"Description":             s.Description,
+				"WorkGroup":               s.WorkGroup,
+				"EngineVersion":           s.NotebookVersion,
+				"NotebookVersion":         s.NotebookVersion,
+				"EngineConfiguration":     s.EngineConfiguration,
+				"SessionConfiguration":    s.SessionConfiguration,
+				"MonitoringConfiguration": s.MonitoringConfiguration,
+				keyStatus:                 s.Status,
+				keyStatistics:             s.Statistics,
 			}, nil
 		},
 		"GetSessionStatus": func(b []byte) (any, error) {

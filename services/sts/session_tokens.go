@@ -13,20 +13,7 @@ func (b *InMemoryBackend) GetSessionToken(
 ) (*GetSessionTokenResponse, error) {
 	b.cntGetSessionToken.Add(1)
 
-	// Both SerialNumber and TokenCode must be provided together (MFA requires both).
-	if input.SerialNumber != "" && input.TokenCode == "" {
-		return nil, ErrMFACodeRequired
-	}
-
-	if input.TokenCode != "" && input.SerialNumber == "" {
-		return nil, ErrTokenCodeWithoutSerial
-	}
-
-	if err := validateMFASerialNumber(input.SerialNumber); err != nil {
-		return nil, err
-	}
-
-	if err := validateMFATokenCode(input.TokenCode); err != nil {
+	if err := validateMFAFields(input.SerialNumber, input.TokenCode); err != nil {
 		return nil, err
 	}
 

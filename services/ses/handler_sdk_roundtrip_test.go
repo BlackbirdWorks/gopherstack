@@ -1,0 +1,117 @@
+package ses_test
+
+import (
+	"net/http/httptest"
+	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	sessdk "github.com/aws/aws-sdk-go-v2/service/ses"
+	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/ses"
+)
+
+const rtTestRegion = "us-east-1"
+
+// newTestSESClient stands up the real aws-sdk-go-v2 SES client against an
+// httptest server running this package's Handler, wired through the same
+// pkgs/service registry/router used in production. Round-tripping through
+// the genuine SDK deserializer (rather than string-matching the raw XML
+// body) is what proves a response is wire-compatible: unrecognized
+// element names are skipped silently by the deserializer rather than
+// erroring, so a plausible-looking response can still decode to an empty
+// field or slice.
+func newTestSESClient(t *testing.T, h *ses.Handler) *sessdk.Client {
+	t.Helper()
+
+	e := echo.New()
+	registry := service.NewRegistry()
+	require.NoError(t, registry.Register(h))
+	e.Use(service.NewServiceRouter(registry).RouteHandler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
+		awscfg.WithRegion(rtTestRegion),
+		awscfg.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err)
+
+	return sessdk.NewFromConfig(cfg, func(o *sessdk.Options) {
+		o.BaseEndpoint = aws.String(srv.URL)
+	})
+}
+
+// TestSDKRoundTrip_MemberShapeFixes covers two independent decoding bugs
+// found by diffing gopherstack's ses XML list tags against the pinned
+// SDK's deserializer (ses@v1.37.4): ConfigurationSets and TemplatesMetadata
+// are lists of objects (each carrying a Name field, not a bare string), but
+// the handler emitted them via the generic chardata <member>name</member>
+// shape used elsewhere for real string lists (Identities, DkimTokens, ...).
+// A real client always decoded Name as nil for every item.
+func TestSDKRoundTrip_MemberShapeFixes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		run  func(t *testing.T, backend *ses.InMemoryBackend, client *sessdk.Client)
+		name string
+	}{
+		{testListConfigurationSets, "list configuration sets"},
+		{testListTemplates, "list templates"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := ses.NewInMemoryBackend()
+			h := ses.NewHandler(backend)
+			client := newTestSESClient(t, h)
+
+			tc.run(t, backend, client)
+		})
+	}
+}
+
+// testListConfigurationSets: the handler wrapped each entry in
+// <member>name</member> chardata, but the real deserializer
+// (ses@v1.37.4 deserializers.go:10043) reads types.ConfigurationSet as an
+// object with a nested <Name> element.
+func testListConfigurationSets(t *testing.T, backend *ses.InMemoryBackend, client *sessdk.Client) {
+	t.Helper()
+	ctx := t.Context()
+
+	require.NoError(t, backend.CreateConfigurationSet("rt-config-set"))
+
+	out, err := client.ListConfigurationSets(ctx, &sessdk.ListConfigurationSetsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.ConfigurationSets, 1)
+	assert.Equal(t, "rt-config-set", aws.ToString(out.ConfigurationSets[0].Name))
+}
+
+// testListTemplates: the handler wrapped each entry in <member>name</member>
+// chardata, but the real deserializer (ses@v1.37.4 deserializers.go:14808)
+// reads types.TemplateMetadata as an object with a nested <Name> element.
+func testListTemplates(t *testing.T, backend *ses.InMemoryBackend, client *sessdk.Client) {
+	t.Helper()
+	ctx := t.Context()
+
+	require.NoError(t, backend.CreateTemplate(ses.EmailTemplate{
+		TemplateName: "rt-template",
+		SubjectPart:  "hello",
+	}))
+
+	out, err := client.ListTemplates(ctx, &sessdk.ListTemplatesInput{})
+	require.NoError(t, err)
+	require.Len(t, out.TemplatesMetadata, 1)
+	assert.Equal(t, "rt-template", aws.ToString(out.TemplatesMetadata[0].Name))
+}

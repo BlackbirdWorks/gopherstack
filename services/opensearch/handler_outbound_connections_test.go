@@ -39,7 +39,7 @@ func TestOutboundConnections_CreateDescribeDelete(t *testing.T) {
 	assert.Equal(t, "local-dom", localInfo["DomainName"])
 
 	// Describe returns the connection.
-	dr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/cc/outboundConnection", nil)
+	dr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/cc/outboundConnection/search", nil)
 	defer dr.Body.Close()
 	require.Equal(t, http.StatusOK, dr.StatusCode)
 
@@ -50,7 +50,7 @@ func TestOutboundConnections_CreateDescribeDelete(t *testing.T) {
 	assert.Len(t, conns, 1)
 
 	// The mirrored inbound connection is discoverable on the remote side.
-	ir := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/cc/inboundConnection", nil)
+	ir := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/cc/inboundConnection/search", nil)
 	defer ir.Body.Close()
 	require.Equal(t, http.StatusOK, ir.StatusCode)
 

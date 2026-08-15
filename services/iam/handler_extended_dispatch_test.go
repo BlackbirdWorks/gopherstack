@@ -371,29 +371,39 @@ func TestIAMHandler_AdditionalActionsDispatch(t *testing.T) {
 			name:   "CreateDelegationRequest_success",
 			action: "CreateDelegationRequest",
 			params: map[string]string{
-				"OwnerAccountId": "111122223333",
+				"OwnerAccountId":                "111122223333",
+				"Description":                   "test delegation",
+				"NotificationChannel":           "arn:aws:sns:us-east-1:000000000000:topic",
+				"RequestorWorkflowId":           "workflow-1",
+				"SessionDuration":               "3600",
+				"Permissions.PolicyTemplateArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
 			},
 			wantCode:    http.StatusOK,
 			wantContain: "CreateDelegationRequestResponse",
 		},
-		// AcceptDelegationRequest
+		// AcceptDelegationRequest declares NoSuchEntity (404), not InvalidAction (400),
+		// for an unknown DelegationRequestId (api_op_AcceptDelegationRequest.go
+		// deserializeOpError switch: ConcurrentModification/NoSuchEntity/ServiceFailure).
 		{
 			name:   "AcceptDelegationRequest_not_found",
 			action: "AcceptDelegationRequest",
 			params: map[string]string{
 				"DelegationRequestId": "nonexistent-id",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode:    http.StatusNotFound,
+			wantContain: "NoSuchEntity",
 		},
-		// AssociateDelegationRequest
+		// AssociateDelegationRequest declares NoSuchEntity (404) the same way; the real
+		// AssociateDelegationRequestInput has no PolicyArn (api_op_AssociateDelegationRequest.go
+		// carries only DelegationRequestId), so none is sent here.
 		{
 			name:   "AssociateDelegationRequest_not_found",
 			action: "AssociateDelegationRequest",
 			params: map[string]string{
 				"DelegationRequestId": "nonexistent-id",
-				"PolicyArn":           "arn:aws:iam::123:policy/ReadOnly",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode:    http.StatusNotFound,
+			wantContain: "NoSuchEntity",
 		},
 		// ChangePassword
 		{

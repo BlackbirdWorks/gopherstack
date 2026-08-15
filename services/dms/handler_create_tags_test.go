@@ -190,16 +190,38 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 			name: "migration project",
 			setup: func(t *testing.T, client *dmssdk.Client) string {
 				t.Helper()
+
+				ip, err := client.CreateInstanceProfile(t.Context(), &dmssdk.CreateInstanceProfileInput{
+					InstanceProfileName: aws.String("mp-instance-profile"),
+				})
+				require.NoError(t, err)
+
+				src, err := client.CreateDataProvider(t.Context(), &dmssdk.CreateDataProviderInput{
+					DataProviderName: aws.String("mp-source-provider"),
+					Engine:           aws.String("mysql"),
+					Settings: &types.DataProviderSettingsMemberMySqlSettings{
+						Value: types.MySqlDataProviderSettings{},
+					},
+				})
+				require.NoError(t, err)
+
+				tgt, err := client.CreateDataProvider(t.Context(), &dmssdk.CreateDataProviderInput{
+					DataProviderName: aws.String("mp-target-provider"),
+					Engine:           aws.String("mysql"),
+					Settings: &types.DataProviderSettingsMemberMySqlSettings{
+						Value: types.MySqlDataProviderSettings{},
+					},
+				})
+				require.NoError(t, err)
+
 				out, err := client.CreateMigrationProject(t.Context(), &dmssdk.CreateMigrationProjectInput{
-					MigrationProjectName: aws.String("tagged-migration-project"),
-					InstanceProfileIdentifier: aws.String(
-						"arn:aws:dms:us-east-1:000000000000:instance-profile:dummy",
-					),
+					MigrationProjectName:      aws.String("tagged-migration-project"),
+					InstanceProfileIdentifier: ip.InstanceProfile.InstanceProfileName,
 					SourceDataProviderDescriptors: []types.DataProviderDescriptorDefinition{
-						{DataProviderIdentifier: aws.String("dummy-source-provider")},
+						{DataProviderIdentifier: src.DataProvider.DataProviderName},
 					},
 					TargetDataProviderDescriptors: []types.DataProviderDescriptorDefinition{
-						{DataProviderIdentifier: aws.String("dummy-target-provider")},
+						{DataProviderIdentifier: tgt.DataProvider.DataProviderName},
 					},
 					Tags: []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
 				})

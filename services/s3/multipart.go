@@ -88,14 +88,15 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	defer b.mu.Unlock()
 
 	b.uploads.Put(&StoredMultipartUpload{
-		UploadID:  uploadID,
-		Bucket:    bucketName,
-		Key:       key,
-		Parts:     make(map[int32]*StoredPart),
-		Initiated: time.Now().UTC(),
-		Tagging:   tagging,
-		SSE:       sse,
-		mu:        lockmetrics.New("s3.upload"),
+		UploadID:     uploadID,
+		Bucket:       bucketName,
+		Key:          key,
+		Parts:        make(map[int32]*StoredPart),
+		Initiated:    time.Now().UTC(),
+		Tagging:      tagging,
+		SSE:          sse,
+		StorageClass: string(input.StorageClass),
+		mu:           lockmetrics.New("s3.upload"),
 	})
 
 	return &s3.CreateMultipartUploadOutput{
@@ -166,12 +167,19 @@ func (b *InMemoryBackend) UploadPart(
 
 	quotedETag := "\"" + etag + "\""
 
-	// 3. Store the part.
+	// 3. Store the part, including the checksum values just verified above --
+	// ListParts (real Part.ChecksumCRC32/-CRC32C/-SHA1/-SHA256, api_op_ListParts.go)
+	// otherwise has no way to report them, since they exist only on this
+	// call's request/response and were never persisted onto the part before.
 	if sErr := b.storePart(bucketName, uploadID, partNumber, &StoredPart{
-		PartNumber: partNumber,
-		Data:       storedData,
-		ETag:       quotedETag,
-		Size:       originalSize,
+		PartNumber:     partNumber,
+		Data:           storedData,
+		ETag:           quotedETag,
+		Size:           originalSize,
+		ChecksumCRC32:  input.ChecksumCRC32,
+		ChecksumCRC32C: input.ChecksumCRC32C,
+		ChecksumSHA1:   input.ChecksumSHA1,
+		ChecksumSHA256: input.ChecksumSHA256,
 	}); sErr != nil {
 		return nil, sErr
 	}
@@ -208,16 +216,19 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, ErrNoSuchUpload
 	}
 
-	// Snapshot the upload's tagging + SSE before claiming (the upload is
-	// removed from the index during claim, so we must capture them first).
+	// Snapshot the upload's tagging + SSE + storage class before claiming (the
+	// upload is removed from the index during claim, so we must capture them
+	// first).
 	var tagging string
 	var sse sseInfo
+	var storageClass string
 	func() {
 		upload.mu.RLock("CompleteMultipartUpload.tagging")
 		defer upload.mu.RUnlock()
 
 		tagging = upload.Tagging
 		sse = upload.SSE
+		storageClass = upload.StorageClass
 	}()
 
 	// 2. Assemble and compress data. If this fails, the upload is untouched and
@@ -246,7 +257,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, err
 	}
 
-	versionID, err := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse)
+	versionID, err := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse, storageClass)
 	if err != nil {
 		return nil, err
 	}
@@ -447,6 +458,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 	assembled multipartAssemblyResult,
 	tagging string,
 	sse sseInfo,
+	storageClass string,
 ) (string, error) {
 	var obj *StoredObject
 	var newVersion *StoredObjectVersion
@@ -508,6 +520,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 			SSECKeyMD5:      sse.SSECKeyMD5,
 			EncryptionDEK:   dek,
 			EncryptionNonce: nonce,
+			StorageClass:    storageClass,
 		}
 
 		// Acquire obj.mu while bucket.mu is still held (the defer above releases
@@ -632,10 +645,24 @@ func (b *InMemoryBackend) collectAndSortUploads(bucketName, prefix string) []typ
 			continue
 		}
 
+		sc := u.StorageClass
+		if sc == "" {
+			sc = storageStandard
+		}
+
 		uploads = append(uploads, types.MultipartUpload{
-			Key:       aws.String(u.Key),
-			UploadId:  aws.String(u.UploadID),
-			Initiated: aws.Time(u.Initiated),
+			Key:          aws.String(u.Key),
+			UploadId:     aws.String(u.UploadID),
+			Initiated:    aws.Time(u.Initiated),
+			StorageClass: types.StorageClass(sc),
+			Owner: &types.Owner{
+				ID:          aws.String(gopherstackName),
+				DisplayName: aws.String(gopherstackName),
+			},
+			Initiator: &types.Initiator{
+				ID:          aws.String(gopherstackName),
+				DisplayName: aws.String(gopherstackName),
+			},
 		})
 	}
 
@@ -777,9 +804,13 @@ func (b *InMemoryBackend) ListParts(
 			}
 			p := upload.Parts[pn]
 			parts = append(parts, types.Part{
-				PartNumber: aws.Int32(pn),
-				ETag:       aws.String(p.ETag),
-				Size:       aws.Int64(p.Size),
+				PartNumber:     aws.Int32(pn),
+				ETag:           aws.String(p.ETag),
+				Size:           aws.Int64(p.Size),
+				ChecksumCRC32:  p.ChecksumCRC32,
+				ChecksumCRC32C: p.ChecksumCRC32C,
+				ChecksumSHA1:   p.ChecksumSHA1,
+				ChecksumSHA256: p.ChecksumSHA256,
 			})
 		}
 	}()

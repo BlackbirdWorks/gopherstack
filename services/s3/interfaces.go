@@ -233,6 +233,25 @@ type StorageBackend interface {
 	// Metadata Inventory / Journal Table Configurations (S3 Tables)
 	UpdateBucketMetadataInventoryTableConfig(ctx context.Context, bucket, configXML string) error
 	UpdateBucketMetadataJournalTableConfig(ctx context.Context, bucket, configXML string) error
+	UpdateBucketMetadataAnnotationTableConfig(ctx context.Context, bucket, configXML string) error
+
+	// Object Annotations
+	PutObjectAnnotation(
+		ctx context.Context,
+		input *s3.PutObjectAnnotationInput,
+	) (*s3.PutObjectAnnotationOutput, error)
+	GetObjectAnnotation(
+		ctx context.Context,
+		input *s3.GetObjectAnnotationInput,
+	) (*s3.GetObjectAnnotationOutput, error)
+	DeleteObjectAnnotation(
+		ctx context.Context,
+		input *s3.DeleteObjectAnnotationInput,
+	) (*s3.DeleteObjectAnnotationOutput, error)
+	ListObjectAnnotations(
+		ctx context.Context,
+		input *s3.ListObjectAnnotationsInput,
+	) (*s3.ListObjectAnnotationsOutput, error)
 
 	// GetObjectAttributes / RestoreObject / RenameObject
 	GetObjectAttributes(

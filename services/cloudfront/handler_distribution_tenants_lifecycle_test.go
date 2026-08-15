@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,7 +22,10 @@ func TestGetManagedCertificateDetails_NotFound(t *testing.T) {
 	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
-	rec := doXML(t, h, http.MethodGet, prefix+"distribution-tenant/does-not-exist/managed-certificate-details", nil)
+	// Real GetManagedCertificateDetails is GET /2020-05-31/managed-certificate/{Identifier}
+	// (cloudfront@v1.67.4 serializers.go: awsRestxml_serializeOpGetManagedCertificateDetails's
+	// SplitURI), not nested under distribution-tenant.
+	rec := doXML(t, h, http.MethodGet, prefix+"managed-certificate/does-not-exist", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Contains(t, rec.Body.String(), "NoSuchDistributionTenant")
 }
@@ -41,7 +46,7 @@ func TestGetManagedCertificateDetails_StableACrossCalls(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	tenantID := extractXMLID(t, createRec.Body.String())
 
-	path := prefix + "distribution-tenant/" + tenantID + "/managed-certificate-details"
+	path := prefix + "managed-certificate/" + tenantID
 	first := doXML(t, h, http.MethodGet, path, nil)
 	require.Equal(t, http.StatusOK, first.Code)
 	require.Contains(t, first.Body.String(), "SUCCESS")
@@ -266,8 +271,10 @@ func TestDistributionTenantCRUD(t *testing.T) {
 		t.Errorf("get response missing domain: %s", getResp)
 	}
 
-	// List tenants
-	listResp := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant", "")
+	// List tenants is POST to the plural "distribution-tenants" path (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpListDistributionTenants's SplitURI); the bare
+	// singular GET is GetDistributionTenantByDomain instead.
+	listResp := cfOK(t, h, http.MethodPost, prefix+"distribution-tenants", "")
 	if !strings.Contains(listResp, "DistributionTenantList") {
 		t.Errorf("expected DistributionTenantList, got: %s", listResp)
 	}
@@ -295,7 +302,7 @@ func TestDistributionTenantCRUD(t *testing.T) {
 	}
 
 	// List should be empty after delete.
-	listAfter := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant", "")
+	listAfter := cfOK(t, h, http.MethodPost, prefix+"distribution-tenants", "")
 	if strings.Contains(listAfter, tenantID) {
 		t.Errorf("deleted tenant still in list: %s", listAfter)
 	}
@@ -314,8 +321,10 @@ func TestDistributionTenantByDomain(t *testing.T) {
 	</CreateDistributionTenantRequest>`
 	cfOK(t, h, http.MethodPost, prefix+"distribution-tenant", createBody)
 
-	// Get by domain
-	resp := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant-by-domain?domain=mysite.com", "")
+	// Get by domain is the bare GET "distribution-tenant" (Domain travels as a
+	// "?domain=" query value; cloudfront@v1.67.4 serializers.go:
+	// awsRestxml_serializeOpGetDistributionTenantByDomain's SplitURI).
+	resp := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant?domain=mysite.com", "")
 	if !strings.Contains(resp, "mysite.com") {
 		t.Errorf("expected domain in response, got: %s", resp)
 	}
@@ -380,7 +389,7 @@ func TestGetManagedCertificateDetails(t *testing.T) {
 	tenantID := extractXMLID(t, tenantResp)
 
 	// Get managed certificate details
-	resp := cfOK(t, h, http.MethodGet, prefix+"distribution-tenant/"+tenantID+"/managed-certificate-details", "")
+	resp := cfOK(t, h, http.MethodGet, prefix+"managed-certificate/"+tenantID, "")
 	if !strings.Contains(resp, "ManagedCertificateDetails") {
 		t.Errorf("expected ManagedCertificateDetails, got: %s", resp)
 	}
@@ -473,7 +482,7 @@ func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
 
 			h := cloudfront.NewHandler(newTestBackend(t))
 			tenantID := tt.setup(h)
-			certPath := prefix + "distribution-tenant/" + tenantID + "/managed-certificate-details"
+			certPath := prefix + "managed-certificate/" + tenantID
 			rec := doTenantReq(t, h, http.MethodGet, certPath)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -484,61 +493,127 @@ func TestGetManagedCertificateDetails_TableDriven(t *testing.T) {
 	}
 }
 
-// TestListDomainConflicts_TableDriven validates domain conflict detection with real state.
+// TestListDomainConflicts_TableDriven validates domain conflict detection with real state,
+// including the required DomainControlValidationResource scoping (gopherstack-3izo): real AWS
+// excludes that resource from its own conflict list, and rejects the request outright when
+// either required member (Domain, DomainControlValidationResource) is missing or when the
+// referenced resource does not exist.
 func TestListDomainConflicts_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	const prefix = "/2020-05-31/"
 
 	tests := []struct {
-		setup    func(b *cloudfront.InMemoryBackend)
+		setup    func(b *cloudfront.InMemoryBackend) (domain, distID, tenantID string)
 		name     string
-		domain   string
+		bodyOvr  string // overrides the built body when non-empty; used for malformed-request cases
 		wantBody []string
 		wantNot  []string
 		wantCode int
 	}{
 		{
-			name:     "no_conflicts_returns_empty_list",
-			setup:    func(_ *cloudfront.InMemoryBackend) {},
-			domain:   "nonexistent.example.com",
+			name: "no_conflicts_returns_empty_list",
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
+				dist, err := b.CreateDistribution("ref-scope", "test", true, nil)
+				require.NoError(t, err)
+
+				return "nonexistent.example.com", dist.ID, ""
+			},
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "<DomainConflicts></DomainConflicts>"},
 		},
 		{
 			name: "conflict_via_distribution_alias",
-			setup: func(b *cloudfront.InMemoryBackend) {
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
 				dist, err := b.CreateDistribution("ref-1", "test", true, nil)
 				require.NoError(t, err)
 				err = b.AssociateAlias(dist.ID, "conflict.example.com")
 				require.NoError(t, err)
+
+				scope, err := b.CreateDistribution("ref-1-scope", "test", true, nil)
+				require.NoError(t, err)
+
+				return "conflict.example.com", scope.ID, ""
 			},
-			domain:   "conflict.example.com",
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "conflict.example.com"},
 			wantNot:  []string{"<DomainConflicts></DomainConflicts>"},
 		},
 		{
 			name: "conflict_via_distribution_tenant_domain",
-			setup: func(b *cloudfront.InMemoryBackend) {
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
 				dist, err := b.CreateDistribution("ref-2", "test", true, nil)
 				require.NoError(t, err)
 				_, err = b.CreateDistributionTenant(
 					dist.ID, "tenant-domain-tenant", []string{"tenant-domain.example.com"}, nil,
 				)
 				require.NoError(t, err)
+
+				scope, err := b.CreateDistribution("ref-2-scope", "test", true, nil)
+				require.NoError(t, err)
+
+				return "tenant-domain.example.com", scope.ID, ""
 			},
-			domain:   "tenant-domain.example.com",
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "tenant-domain.example.com"},
 			wantNot:  []string{"<DomainConflicts></DomainConflicts>"},
 		},
 		{
-			name:     "empty_domain_returns_empty_list",
-			setup:    func(_ *cloudfront.InMemoryBackend) {},
-			domain:   "",
+			name: "scoping_to_the_claiming_distribution_excludes_it",
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
+				dist, err := b.CreateDistribution("ref-3", "test", true, nil)
+				require.NoError(t, err)
+				err = b.AssociateAlias(dist.ID, "self-scoped.example.com")
+				require.NoError(t, err)
+
+				return "self-scoped.example.com", dist.ID, ""
+			},
 			wantCode: http.StatusOK,
 			wantBody: []string{"DomainConflictList", "<DomainConflicts></DomainConflicts>"},
+		},
+		{
+			name: "scoping_to_the_claiming_tenant_excludes_it",
+			setup: func(b *cloudfront.InMemoryBackend) (string, string, string) {
+				dist, err := b.CreateDistribution("ref-4", "test", true, nil)
+				require.NoError(t, err)
+				tenant, err := b.CreateDistributionTenant(
+					dist.ID, "self-scoped-tenant", []string{"self-scoped-tenant.example.com"}, nil,
+				)
+				require.NoError(t, err)
+
+				return "self-scoped-tenant.example.com", "", tenant.ID
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{"DomainConflictList", "<DomainConflicts></DomainConflicts>"},
+		},
+		{
+			name: "missing_domain_rejected",
+			bodyOvr: `<ListDomainConflictsRequest><DomainControlValidationResource>` +
+				`<DistributionId>d-x</DistributionId></DomainControlValidationResource>` +
+				`</ListDomainConflictsRequest>`,
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidArgument"},
+		},
+		{
+			name:     "missing_validation_resource_rejected",
+			bodyOvr:  `<ListDomainConflictsRequest><Domain>whatever.example.com</Domain></ListDomainConflictsRequest>`,
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidArgument"},
+		},
+		{
+			name: "both_distribution_and_tenant_id_rejected",
+			bodyOvr: `<ListDomainConflictsRequest><Domain>whatever.example.com</Domain>` +
+				`<DomainControlValidationResource><DistributionId>d-x</DistributionId>` +
+				`<DistributionTenantId>dt-x</DistributionTenantId></DomainControlValidationResource>` +
+				`</ListDomainConflictsRequest>`,
+			wantCode: http.StatusBadRequest,
+			wantBody: []string{"InvalidArgument"},
+		},
+		{
+			name:     "unknown_validation_resource_not_found",
+			bodyOvr:  listDomainConflictsBody("whatever.example.com", "does-not-exist", ""),
+			wantCode: http.StatusNotFound,
+			wantBody: []string{"EntityNotFound"},
 		},
 	}
 
@@ -547,16 +622,17 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend(t)
-			tt.setup(b)
-			h := cloudfront.NewHandler(b)
 
-			path := prefix + "domain-conflict"
-			if tt.domain != "" {
-				path += "?Domain=" + tt.domain
+			body := tt.bodyOvr
+			if tt.setup != nil {
+				domain, distID, tenantID := tt.setup(b)
+				body = listDomainConflictsBody(domain, distID, tenantID)
 			}
 
-			rec := cfRequest(t, h, http.MethodPost, path, "")
-			assert.Equal(t, tt.wantCode, rec.Code)
+			h := cloudfront.NewHandler(b)
+
+			rec := cfRequest(t, h, http.MethodPost, prefix+"domain-conflicts", body)
+			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
 			for _, want := range tt.wantBody {
 				assert.Contains(t, rec.Body.String(), want)
 			}
@@ -567,7 +643,13 @@ func TestListDomainConflicts_TableDriven(t *testing.T) {
 	}
 }
 
-// TestAssociateDistributionTenantWebACL covers the AssociateDistributionTenantWebACL operation.
+// TestAssociateDistributionTenantWebACL covers the AssociateDistributionTenantWebACL
+// operation. Regression coverage for gopherstack-4ara: the request bodies below use the
+// real AssociateDistributionTenantWebACLRequest>WebACLArn shape (cloudfront@v1.67.4
+// serializers.go: awsRestxml_serializeOpDocumentAssociateDistributionTenantWebACLInput),
+// not the previous invented WebACLAssociation>WebACLId shape this test used to send --
+// that invented body happened to match the pre-fix handler's (also wrong) expectation,
+// so this test passed even though every real client's request 400'd MalformedXML.
 func TestAssociateDistributionTenantWebACL(t *testing.T) {
 	t.Parallel()
 
@@ -582,15 +664,21 @@ func TestAssociateDistributionTenantWebACL(t *testing.T) {
 			name:     "associate_tenant_web_acl_success",
 			tenantID: "tenant-abc-123",
 			body: []byte(
-				`<WebACLAssociation><WebACLId>arn:aws:wafv2:us-east-1:123:global/webacl/tenant/abc</WebACLId></WebACLAssociation>`,
+				`<AssociateDistributionTenantWebACLRequest>` +
+					`<WebACLArn>arn:aws:wafv2:us-east-1:123:global/webacl/tenant/abc</WebACLArn>` +
+					`</AssociateDistributionTenantWebACLRequest>`,
 			),
 			wantStatus: http.StatusOK,
 			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
 		},
 		{
-			name:       "associate_tenant_web_acl_empty_tenant",
-			tenantID:   "",
-			body:       []byte(`<WebACLAssociation><WebACLId>some-acl</WebACLId></WebACLAssociation>`),
+			name:     "associate_tenant_web_acl_empty_tenant",
+			tenantID: "",
+			body: []byte(
+				`<AssociateDistributionTenantWebACLRequest>` +
+					`<WebACLArn>some-acl</WebACLArn>` +
+					`</AssociateDistributionTenantWebACLRequest>`,
+			),
 			wantStatus: http.StatusBadRequest,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -618,4 +706,65 @@ func TestAssociateDistributionTenantWebACL(t *testing.T) {
 			tt.check(t, rec)
 		})
 	}
+}
+
+// TestAssociateDistributionTenantWebACL_RealClient drives AssociateDistributionTenantWebACL
+// through the real aws-sdk-go-v2 CloudFront client (gopherstack-4ara), the only check that
+// cannot be fooled by a hand-typed body encoding the same wrong assumption as the handler.
+// Fails against the pre-fix root/field shape (confirmed by hand-reverting).
+func TestAssociateDistributionTenantWebACL_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	const prefix = "/2020-05-31/"
+
+	createBody := `<CreateDistributionTenantRequest>` +
+		`<DistributionId>dist-4ara-001</DistributionId>` +
+		`<Domain>gopherstack-4ara.example.com</Domain>` +
+		`</CreateDistributionTenantRequest>`
+	createRec := doXML(t, h, http.MethodPost, prefix+"distribution-tenant", []byte(createBody))
+	require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
+	tenantID := extractXMLID(t, createRec.Body.String())
+
+	client := newTestCloudFrontClient(t, h)
+	const webACLArn = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/real-client-acl/abc123"
+
+	_, err := client.AssociateDistributionTenantWebACL(t.Context(), &cfsdk.AssociateDistributionTenantWebACLInput{
+		Id:        aws.String(tenantID),
+		WebACLArn: aws.String(webACLArn),
+	})
+	require.NoError(t, err)
+
+	getRec := doXML(t, h, http.MethodGet, prefix+"distribution-tenant/"+tenantID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+	assert.Contains(t, getRec.Body.String(), webACLArn)
+}
+
+// TestListDistributionTenants_Domains_RealClient drives ListDistributionTenants through the
+// real aws-sdk-go-v2 CloudFront client and asserts DistributionTenantSummary.Domains is
+// populated. The real deserializer (awsRestxml_deserializeDocumentDistributionTenantSummary,
+// case "Domains") reads a <Domains><member><Domain>.../><Status>.../</member></Domains> list;
+// a flat Domain field on tenantSummaryXML (the pre-fix shape, confirmed by hand-reverting)
+// decodes to an always-empty Domains slice with the right item COUNT but blank content, even
+// though the singular GetDistributionTenant path already emitted the list correctly.
+func TestListDistributionTenants_Domains_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	const prefix = "/2020-05-31/"
+
+	createBody := `<CreateDistributionTenantRequest>` +
+		`<DistributionId>dist-domains-001</DistributionId>` +
+		`<Domain>list-domains.example.com</Domain>` +
+		`</CreateDistributionTenantRequest>`
+	createRec := doXML(t, h, http.MethodPost, prefix+"distribution-tenant", []byte(createBody))
+	require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
+
+	client := newTestCloudFrontClient(t, h)
+
+	listed, err := client.ListDistributionTenants(t.Context(), &cfsdk.ListDistributionTenantsInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.DistributionTenantList, 1)
+	require.Len(t, listed.DistributionTenantList[0].Domains, 1)
+	assert.Equal(t, "list-domains.example.com", aws.ToString(listed.DistributionTenantList[0].Domains[0].Domain))
 }

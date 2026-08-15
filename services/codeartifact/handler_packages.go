@@ -25,6 +25,29 @@ func packageToMap(pkg *Package) map[string]any {
 	return m
 }
 
+// packageSummaryToMap builds the types.PackageSummary shape (types.go:404)
+// -- no domainName, domainOwner, or repository, all of which are Get-only
+// (types.PackageDescription, not types.PackageSummary). Also fixes an
+// inverse bug: the real deserializer recognises the package identifier
+// only under key "package" (deserializers.go:10044), not "name" -- the
+// unscoped converter's "name" key was silently dropped by every real
+// client, so ListPackages leaked Get-only fields AND lost the identifier
+// at the same time.
+func packageSummaryToMap(pkg *Package) map[string]any {
+	m := map[string]any{
+		keyFormat:     pkg.Format,
+		keyPackageKey: pkg.Name,
+	}
+	if pkg.Namespace != "" {
+		m["namespace"] = pkg.Namespace
+	}
+	if pkg.OriginConfigPublish != "" || pkg.OriginConfigUpstream != "" {
+		m["originConfiguration"] = originConfigurationToMap(pkg.OriginConfigPublish, pkg.OriginConfigUpstream)
+	}
+
+	return m
+}
+
 // originConfigurationToMap builds the wire shape of PackageOriginConfiguration --
 // verified against aws-sdk-go-v2 deserializers.go's
 // awsRestjson1_deserializeDocumentPackageOriginConfiguration /
@@ -82,8 +105,15 @@ func (h *Handler) handleDeletePackage(c *echo.Context, domainName, repoName, for
 		return h.handleError(c, err)
 	}
 
+	// DeletePackageOutput.DeletedPackage is types.PackageSummary, NOT
+	// types.PackageDescription (confirmed against aws-sdk-go-v2
+	// api_op_DeletePackage.go) -- the same Get-vs-List split
+	// packageSummaryToMap's own doc comment covers, not the full packageToMap
+	// shape. Using packageToMap here dropped the required "package" key
+	// (PackageSummary has no "name" member) and leaked domainName/
+	// domainOwner/repository, none of which DeletePackageOutput declares.
 	return c.JSON(http.StatusOK, map[string]any{
-		"deletedPackage": packageToMap(pkg),
+		"deletedPackage": packageSummaryToMap(pkg),
 	})
 }
 
@@ -108,7 +138,7 @@ func (h *Handler) handleListPackages(c *echo.Context, domainName, repoName, form
 
 	items := make([]map[string]any, 0, len(page))
 	for _, pkg := range page {
-		items = append(items, packageToMap(pkg))
+		items = append(items, packageSummaryToMap(pkg))
 	}
 
 	resp := map[string]any{"packages": items}

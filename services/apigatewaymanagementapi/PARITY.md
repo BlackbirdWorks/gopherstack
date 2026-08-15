@@ -6,7 +6,7 @@ last_audit_date: 2026-07-29
 overall: A            # re-verified field-diff against downloaded SDK source this pass; 1 additional bug fixed (admin Broadcast non-delivery)
 ops:
   PostToConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass against aws-sdk-go-v2/service/apigatewaymanagementapi@v1.29.13 deserializers.go: PostToConnectionInput{ConnectionId,Data}/Output{} (empty) match; error set (ForbiddenException/GoneException/LimitExceededException/PayloadTooLargeException) and X-Amzn-ErrorType header + body __type/message resolution order match awsRestjson1_deserializeOpErrorPostToConnection. full downstream buffer returns LimitExceededException (429); PayloadTooLargeException (413) carries X-Amzn-Errortype header + __type body field"}
-  GetConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass: GetConnectionOutput{ConnectedAt,Identity,LastActiveAt} (no ConnectionId member -- gopherstack's extra connectionId field is a harmless addition) confirmed against api_op_GetConnection.go; connectedAt/lastActiveAt are __timestampIso8601 parsed via smithytime.ParseDateTime (RFC3339-family) in deserializers.go, matching Go's default time.Time JSON marshaling used here -- not epoch numbers. identity correctly nested per types.Identity{SourceIp,UserAgent}. connectedAt/lastActiveAt/identity are real backend-recorded state, not fabricated"}
+  GetConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-13: GetConnectionOutput{ConnectedAt,Identity,LastActiveAt} (no ConnectionId member) confirmed against aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4 api_op_GetConnection.go -- gopherstack's extra connectionId field on the wire response was deleted (handler.go's getConnectionResponse); the caller already supplied it as the path parameter. connectedAt/lastActiveAt are __timestampIso8601 parsed via smithytime.ParseDateTime (RFC3339-family) in deserializers.go, matching Go's default time.Time JSON marshaling used here -- not epoch numbers. identity correctly nested per types.Identity{SourceIp,UserAgent}. connectedAt/lastActiveAt/identity are real backend-recorded state, not fabricated. Raw-body regression test: TestHandler_GetConnection_NoConnectionIDField."}
   DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified this pass: DeleteConnectionInput{ConnectionId}/Output{} (empty) match; error set (ForbiddenException/GoneException/LimitExceededException) matches awsRestjson1_deserializeOpErrorDeleteConnection. forcibly disconnects (closes the connection's real downstream transport) instead of only removing the registry entry"}
 families:
   admin_diagnostics: {status: ok, note: "gopherstack-only /_gopherstack/apigwmgmt/* endpoints (list/broadcast/stats/prune/messages/timeline/ping) are not AWS API surface; audited only insofar as they share backend code paths with the 3 real ops. PruneIdle closes downstream on removal for consistency with DeleteConnection. fixed this pass: Broadcast now actually attempts delivery on each connection's real downstream channel (mirroring PostToConnection) instead of unconditionally reporting every active connection as having received the frame."}
@@ -119,9 +119,9 @@ Bug fixed this pass (2026-07-24 re-audit; local to this package):
 Not bugs (verified, do not re-flag):
 - `GetConnection` returning nested `identity: {sourceIp, userAgent}` — this
   *is* correct per the real `Identity` shape (real AWS omits `connectionId`
-  from the response since it's the request key; gopherstack's extra
-  `connectionId` field is harmless/ignored by the SDK, a deliberate UI
-  convenience, not a wire bug).
+  from the response since it's the request key). The wire response's extra
+  `connectionId` field (present until 2026-08-13) has since been deleted --
+  see the `GetConnection` ops entry above.
 - `maxPayloadBytes` boundary is `> 128*1024`, i.e. exactly 128 KiB is allowed
   and only the 129th KiB triggers `PayloadTooLargeException` — matches real
   AWS's "exceeded" (not "at") semantics; test table already covers both the

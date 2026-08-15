@@ -129,6 +129,7 @@ func (b *InMemoryBackend) GetCallAnalyticsCategory(
 	}
 
 	cp := *cat
+	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeCallAnalyticsCategory, categoryName))
 
 	return &cp, nil
 }
@@ -169,7 +170,9 @@ func (b *InMemoryBackend) ListCallAnalyticsCategories(
 
 	all := make([]CallAnalyticsCategory, 0, b.callAnalyticsCategories.Len())
 	for _, c := range b.callAnalyticsCategories.All() {
-		all = append(all, *c)
+		cp := *c
+		cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeCallAnalyticsCategory, c.CategoryName))
+		all = append(all, cp)
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].CategoryName < all[j].CategoryName })
@@ -229,6 +232,7 @@ func (b *InMemoryBackend) GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob
 	}
 
 	cp := *job
+	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeCallAnalyticsJob, jobName))
 
 	return &cp, nil
 }

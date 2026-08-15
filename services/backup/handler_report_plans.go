@@ -3,6 +3,7 @@ package backup
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
@@ -283,28 +284,107 @@ func (h *Handler) dispatchReportJobOps(
 			"ScanJobSummaries": []map[string]any{{"Count": len(jobs)}},
 		})
 	case opStartScanJob:
-		// StartScanJobInput carries BackupVaultName (not an ARN) in the JSON body.
-		var reqBody struct {
-			BackupVaultName string `json:"BackupVaultName"`
-		}
-		_ = json.Unmarshal(body, &reqBody)
-
-		vaultArn := reqBody.BackupVaultName
-		if v, err := h.Backend.DescribeBackupVault(reqBody.BackupVaultName); err == nil {
-			vaultArn = v.BackupVaultArn
-		}
-
-		job := h.Backend.StartScanJob(vaultArn)
-
-		// Real AWS: responseCode 201.
-		return true, c.JSON(http.StatusCreated, map[string]any{
-			keyScanJobID:    job.ScanJobID,
-			keyCreationDate: epochSeconds(job.CreationTime),
-		})
+		return true, h.handleStartScanJob(c, body)
 	case opGetPITRMalwareScanResults:
 
 		return true, h.handleGetPITRMalwareScanResults(c)
 	}
 
 	return false, nil
+}
+
+// handleStartScanJob serves StartScanJob: StartScanJobInput carries
+// BackupVaultName (not an ARN) plus five other required members in the JSON
+// body (api_op_StartScanJob.go:29-75, backup@v1.59.4).
+func (h *Handler) handleStartScanJob(c *echo.Context, body []byte) error {
+	var reqBody struct {
+		ContinuousScanEndTime    *float64 `json:"ContinuousScanEndTime"`
+		BackupVaultName          string   `json:"BackupVaultName"`
+		IamRoleArn               string   `json:"IamRoleArn"`
+		MalwareScanner           string   `json:"MalwareScanner"`
+		RecoveryPointArn         string   `json:"RecoveryPointArn"`
+		ScanMode                 string   `json:"ScanMode"`
+		ScannerRoleArn           string   `json:"ScannerRoleArn"`
+		IdempotencyToken         string   `json:"IdempotencyToken"`
+		ScanBaseRecoveryPointArn string   `json:"ScanBaseRecoveryPointArn"`
+	}
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterValueException", "invalid request body"),
+		)
+	}
+
+	if msg := validateStartScanJobParams(reqBody.BackupVaultName, reqBody.IamRoleArn,
+		reqBody.MalwareScanner, reqBody.RecoveryPointArn, reqBody.ScanMode, reqBody.ScannerRoleArn); msg != "" {
+		return c.JSON(http.StatusBadRequest, errResp("MissingParameterValueException", msg))
+	}
+
+	if reqBody.MalwareScanner != "GUARDDUTY" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterValueException", "MalwareScanner must be GUARDDUTY"),
+		)
+	}
+
+	if reqBody.ScanMode != "FULL_SCAN" && reqBody.ScanMode != "INCREMENTAL_SCAN" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterValueException", "ScanMode must be FULL_SCAN or INCREMENTAL_SCAN"),
+		)
+	}
+
+	vaultArn := reqBody.BackupVaultName
+	if v, err := h.Backend.DescribeBackupVault(reqBody.BackupVaultName); err == nil {
+		vaultArn = v.BackupVaultArn
+	}
+
+	var continuousScanEndTime *time.Time
+	if reqBody.ContinuousScanEndTime != nil {
+		t := time.Unix(int64(*reqBody.ContinuousScanEndTime), 0).UTC()
+		continuousScanEndTime = &t
+	}
+
+	job := h.Backend.StartScanJob(vaultArn, StartScanJobInput{
+		BackupVaultName:          reqBody.BackupVaultName,
+		IamRoleArn:               reqBody.IamRoleArn,
+		MalwareScanner:           reqBody.MalwareScanner,
+		RecoveryPointArn:         reqBody.RecoveryPointArn,
+		ScanMode:                 reqBody.ScanMode,
+		ScannerRoleArn:           reqBody.ScannerRoleArn,
+		IdempotencyToken:         reqBody.IdempotencyToken,
+		ScanBaseRecoveryPointArn: reqBody.ScanBaseRecoveryPointArn,
+		ContinuousScanEndTime:    continuousScanEndTime,
+	})
+
+	// Real AWS: responseCode 201.
+	return c.JSON(http.StatusCreated, map[string]any{
+		keyScanJobID:    job.ScanJobID,
+		keyCreationDate: epochSeconds(job.CreationTime),
+	})
+}
+
+// validateStartScanJobParams returns a non-empty MissingParameterValueException
+// message naming the first missing required field, or "" if all six are
+// present. All six are required on the real wire (StartScanJobInput,
+// api_op_StartScanJob.go:29-75, backup@v1.59.4).
+func validateStartScanJobParams(
+	backupVaultName, iamRoleArn, malwareScanner, recoveryPointArn, scanMode, scannerRoleArn string,
+) string {
+	switch {
+	case backupVaultName == "":
+		return "BackupVaultName is required"
+	case iamRoleArn == "":
+		return "IamRoleArn is required"
+	case malwareScanner == "":
+		return "MalwareScanner is required"
+	case recoveryPointArn == "":
+		return "RecoveryPointArn is required"
+	case scanMode == "":
+		return "ScanMode is required"
+	case scannerRoleArn == "":
+		return "ScannerRoleArn is required"
+	default:
+		return ""
+	}
 }

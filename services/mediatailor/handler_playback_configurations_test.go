@@ -377,6 +377,128 @@ func TestPutPlaybackConfiguration_ExtraConfigRoundTrips(t *testing.T) {
 	assertPlaybackConfigExtras(t, getResp)
 }
 
+// TestPutPlaybackConfiguration_AdsPersonalization verifies
+// AdsPersonalizationConcurrency/AdsPersonalizationTimeouts (added to the real
+// PlaybackConfiguration model after extractExtraConfig's key list was
+// written, see gopherstack-gt9o) round-trip when supplied and are absent
+// from the raw wire body -- not present as null/empty -- when the caller
+// never sent them.
+func TestPutPlaybackConfiguration_AdsPersonalization(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check func(t *testing.T, resp map[string]any)
+		body  map[string]any
+		name  string
+	}{
+		{
+			name: "supplied",
+			body: map[string]any{
+				"Name": "cfg-ads",
+				"AdsPersonalizationConcurrency": map[string]any{
+					"EnableVodVastParallelization": true,
+					"MaxConcurrentAdsRequests":     float64(4),
+				},
+				"AdsPersonalizationTimeouts": map[string]any{
+					"AdsRequestTimeoutMilliseconds":                     float64(2500),
+					"LiveMaximumAdsPersonalizationTimeMilliseconds":     float64(9000),
+					"PrefetchAdsRequestTimeoutMilliseconds":             float64(1500),
+					"PrefetchMaximumAdsPersonalizationTimeMilliseconds": float64(8000),
+					"VodMaximumAdsPersonalizationTimeMilliseconds":      float64(7000),
+				},
+			},
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+
+				concurrency, ok := resp["AdsPersonalizationConcurrency"].(map[string]any)
+				require.True(t, ok, "AdsPersonalizationConcurrency must round-trip")
+				assert.Equal(t, true, concurrency["EnableVodVastParallelization"])
+				assert.InDelta(t, float64(4), concurrency["MaxConcurrentAdsRequests"], 0.0001)
+
+				timeouts, ok := resp["AdsPersonalizationTimeouts"].(map[string]any)
+				require.True(t, ok, "AdsPersonalizationTimeouts must round-trip")
+				assert.InDelta(t, float64(2500), timeouts["AdsRequestTimeoutMilliseconds"], 0.0001)
+				assert.InDelta(t, float64(9000), timeouts["LiveMaximumAdsPersonalizationTimeMilliseconds"], 0.0001)
+			},
+		},
+		{
+			name: "absent",
+			body: map[string]any{
+				"Name": "cfg-no-ads",
+			},
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+
+				_, ok := resp["AdsPersonalizationConcurrency"]
+				assert.False(t, ok, "AdsPersonalizationConcurrency must be absent, not null/empty, when unset")
+
+				_, ok = resp["AdsPersonalizationTimeouts"]
+				assert.False(t, ok, "AdsPersonalizationTimeouts must be absent, not null/empty, when unset")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPut, "/playbackConfiguration", tt.body)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			var putResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			tt.check(t, putResp)
+
+			name, _ := tt.body["Name"].(string)
+			rec = doRequest(t, h, http.MethodGet, "/playbackConfiguration/"+name, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var getResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			tt.check(t, getResp)
+		})
+	}
+}
+
+// TestPutPlaybackConfiguration_DualStackFieldsAbsent verifies
+// DualStackPlaybackEndpointPrefix/DualStackSessionInitializationEndpointPrefix
+// and HlsConfiguration's own DualStackManifestEndpointPrefix (response-only
+// members with no PutPlaybackConfigurationInput counterpart) are absent from
+// the wire rather than a fabricated URL -- gopherstack has no dual-stack
+// endpoint to report, and an invented one a client might actually dial is
+// worse than an absent field.
+func TestPutPlaybackConfiguration_DualStackFieldsAbsent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPut, "/playbackConfiguration", map[string]any{"Name": "cfg-dualstack"})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var putResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+
+	rec = doRequest(t, h, http.MethodGet, "/playbackConfiguration/cfg-dualstack", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+
+	for _, resp := range []map[string]any{putResp, getResp} {
+		_, ok := resp["DualStackPlaybackEndpointPrefix"]
+		assert.False(t, ok, "DualStackPlaybackEndpointPrefix must be absent, not a fabricated URL")
+
+		_, ok = resp["DualStackSessionInitializationEndpointPrefix"]
+		assert.False(t, ok, "DualStackSessionInitializationEndpointPrefix must be absent, not a fabricated URL")
+
+		hlsCfg, ok := resp["HlsConfiguration"].(map[string]any)
+		require.True(t, ok, "HlsConfiguration must be present")
+
+		_, ok = hlsCfg["DualStackManifestEndpointPrefix"]
+		assert.False(t, ok, "HlsConfiguration.DualStackManifestEndpointPrefix must be absent, not a fabricated URL")
+	}
+}
+
 func assertPlaybackConfigExtras(t *testing.T, resp map[string]any) {
 	t.Helper()
 

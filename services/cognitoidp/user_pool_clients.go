@@ -94,28 +94,49 @@ func (b *InMemoryBackend) DescribeUserPoolClient(userPoolID, clientID string) (*
 	return &cp, nil
 }
 
-// AddUserPoolClientSecret generates and stores a client secret for the given app client.
-func (b *InMemoryBackend) AddUserPoolClientSecret(userPoolID, clientID string) (string, error) {
+// maxExtraClientSecrets is the real API's documented cap of 2 active secrets
+// per app client, minus the 1 slot the original CreateUserPoolClient/
+// UpdateUserPoolClient(GenerateSecret) secret already occupies.
+const maxExtraClientSecrets = 1
+
+// AddUserPoolClientSecret generates and stores a new, independently
+// ClientSecretId-keyed secret for the given app client, capped at
+// maxExtraClientSecrets (mirrors AWS Cognito's documented 2-active-secrets
+// limit; verified against the AddUserPoolClientSecret deserializer, which
+// declares LimitExceededException).
+func (b *InMemoryBackend) AddUserPoolClientSecret(userPoolID, clientID string) (*ClientSecretRecord, error) {
 	b.mu.Lock("AddUserPoolClientSecret")
 	defer b.mu.Unlock()
 
 	if _, ok := b.pools.Get(userPoolID); !ok {
-		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
 	client, ok := b.clients.Get(clientID)
 	if !ok {
-		return "", fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
 	if client.UserPoolID != userPoolID {
-		return "", fmt.Errorf("%w: client %q does not belong to pool %q", ErrClientNotFound, clientID, userPoolID)
+		return nil, fmt.Errorf("%w: client %q does not belong to pool %q", ErrClientNotFound, clientID, userPoolID)
 	}
 
-	secret := randomAlphanumeric(clientSecretLen)
-	client.ClientSecret = secret
+	if len(client.ExtraClientSecrets) >= maxExtraClientSecrets {
+		return nil, fmt.Errorf(
+			"%w: client %q already has the maximum number of active secrets",
+			ErrLimitExceeded,
+			clientID,
+		)
+	}
 
-	return secret, nil
+	record := ClientSecretRecord{
+		ClientSecretID:         randomAlphanumeric(clientSecretIDLen),
+		ClientSecretValue:      randomAlphanumeric(clientSecretLen),
+		ClientSecretCreateDate: time.Now(),
+	}
+	client.ExtraClientSecrets = append(client.ExtraClientSecrets, record)
+
+	return &record, nil
 }
 
 // UpdateUserPoolClient updates mutable properties of an app client.
@@ -314,8 +335,12 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 	return &cp, nil
 }
 
-// ListUserPoolClientSecrets returns the secret(s) for a client. AWS allows at most one active secret.
-func (b *InMemoryBackend) ListUserPoolClientSecrets(userPoolID, clientID string) ([]string, error) {
+// ListUserPoolClientSecrets returns the ClientSecretId-keyed secrets added via
+// AddUserPoolClientSecret for a client (up to maxExtraClientSecrets). The
+// original CreateUserPoolClient/UpdateUserPoolClient(GenerateSecret) secret
+// is not included -- it has no ClientSecretId (see ClientSecretRecord's doc
+// comment).
+func (b *InMemoryBackend) ListUserPoolClientSecrets(userPoolID, clientID string) ([]ClientSecretRecord, error) {
 	b.mu.RLock("ListUserPoolClientSecrets")
 	defer b.mu.RUnlock()
 
@@ -328,15 +353,15 @@ func (b *InMemoryBackend) ListUserPoolClientSecrets(userPoolID, clientID string)
 		return nil, fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
 	}
 
-	if client.ClientSecret == "" {
-		return []string{}, nil
-	}
+	out := make([]ClientSecretRecord, len(client.ExtraClientSecrets))
+	copy(out, client.ExtraClientSecrets)
 
-	return []string{client.ClientSecret}, nil
+	return out, nil
 }
 
-// DeleteUserPoolClientSecret removes the client secret from a pool client.
-func (b *InMemoryBackend) DeleteUserPoolClientSecret(userPoolID, clientID string) error {
+// DeleteUserPoolClientSecret removes the ClientSecretId-keyed secret matching
+// clientSecretID from a pool client (added via AddUserPoolClientSecret).
+func (b *InMemoryBackend) DeleteUserPoolClientSecret(userPoolID, clientID, clientSecretID string) error {
 	b.mu.Lock("DeleteUserPoolClientSecret")
 	defer b.mu.Unlock()
 
@@ -349,7 +374,13 @@ func (b *InMemoryBackend) DeleteUserPoolClientSecret(userPoolID, clientID string
 		return fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
 	}
 
-	client.ClientSecret = ""
+	for i, s := range client.ExtraClientSecrets {
+		if s.ClientSecretID == clientSecretID {
+			client.ExtraClientSecrets = append(client.ExtraClientSecrets[:i], client.ExtraClientSecrets[i+1:]...)
 
-	return nil
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: secret %q not found for client %q", ErrSecretNotFound, clientSecretID, clientID)
 }

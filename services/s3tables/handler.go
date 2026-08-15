@@ -31,6 +31,7 @@ const (
 	keyMetadataLocation  = "metadataLocation"
 	keyNamespace         = "namespace"
 	keyCreatedBy         = "createdBy"
+	keyNamespaceID       = "namespaceId"
 	keyContinuationToken = "continuationToken"
 	keyTableArnLower     = "tableArn"
 )

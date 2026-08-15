@@ -10,17 +10,115 @@ import (
 	"encoding/json"
 
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
-type updateTableReplicaAutoScalingInput struct {
-	TableName string `json:"TableName"`
+// autoScalingSettingsUpdateWire is the wire format for
+// types.AutoScalingSettingsUpdate (see serializers.go's
+// awsAwsjson10_serializeDocumentAutoScalingSettingsUpdate). AutoScalingRoleArn
+// is omitted: this emulator does not model IAM roles for scaling policies.
+type autoScalingSettingsUpdateWire struct {
+	ScalingPolicyUpdate *autoScalingPolicyUpdateWire `json:"ScalingPolicyUpdate,omitempty"`
+	MinimumUnits        *int64                       `json:"MinimumUnits,omitempty"`
+	MaximumUnits        *int64                       `json:"MaximumUnits,omitempty"`
+	AutoScalingDisabled *bool                        `json:"AutoScalingDisabled,omitempty"`
 }
 
+type autoScalingPolicyUpdateWire struct {
+	TargetTracking *autoScalingTargetTrackingUpdateWire `json:"TargetTrackingScalingPolicyConfiguration,omitempty"`
+	PolicyName     string                               `json:"PolicyName,omitempty"`
+}
+
+type autoScalingTargetTrackingUpdateWire struct {
+	TargetValue    float64 `json:"TargetValue"`
+	DisableScaleIn bool    `json:"DisableScaleIn,omitempty"`
+}
+
+// gsiAutoScalingUpdateWire is the wire format for
+// types.GlobalSecondaryIndexAutoScalingUpdate.
+type gsiAutoScalingUpdateWire struct {
+	WriteCapacityUpdate *autoScalingSettingsUpdateWire `json:"ProvisionedWriteCapacityAutoScalingUpdate,omitempty"`
+	IndexName           string                         `json:"IndexName,omitempty"`
+}
+
+// updateTableReplicaAutoScalingInput is the wire format for
+// UpdateTableReplicaAutoScaling. ReplicaUpdates (per-replica overrides) is
+// deliberately not modeled: this emulator's replica lifecycle is owned by
+// UpdateGlobalTable/CreateGlobalTable, and per-replica autoscaling overrides
+// don't map onto that model without a larger redesign.
+type updateTableReplicaAutoScalingInput struct {
+	WriteCapacityUpdate         *autoScalingSettingsUpdateWire `json:"ProvisionedWriteCapacityAutoScalingUpdate,omitempty"`
+	TableName                   string                         `json:"TableName"`
+	GlobalSecondaryIndexUpdates []gsiAutoScalingUpdateWire     `json:"GlobalSecondaryIndexUpdates,omitempty"`
+}
+
+// toSDKAutoScalingSettingsUpdate converts the wire form to the SDK type. w may
+// be nil, matching an omitted request member.
+func toSDKAutoScalingSettingsUpdate(w *autoScalingSettingsUpdateWire) *types.AutoScalingSettingsUpdate {
+	if w == nil {
+		return nil
+	}
+
+	out := &types.AutoScalingSettingsUpdate{
+		MinimumUnits:        w.MinimumUnits,
+		MaximumUnits:        w.MaximumUnits,
+		AutoScalingDisabled: w.AutoScalingDisabled,
+	}
+
+	if w.ScalingPolicyUpdate != nil && w.ScalingPolicyUpdate.TargetTracking != nil {
+		tt := w.ScalingPolicyUpdate.TargetTracking
+		out.ScalingPolicyUpdate = &types.AutoScalingPolicyUpdate{
+			PolicyName: ptrconv.NilIfEmpty(w.ScalingPolicyUpdate.PolicyName),
+			TargetTrackingScalingPolicyConfiguration: &types.AutoScalingTargetTrackingScalingPolicyConfigurationUpdate{
+				TargetValue:    &tt.TargetValue,
+				DisableScaleIn: &tt.DisableScaleIn,
+			},
+		}
+	}
+
+	return out
+}
+
+// toSDKGlobalSecondaryIndexAutoScalingUpdates converts the wire slice to SDK form.
+func toSDKGlobalSecondaryIndexAutoScalingUpdates(
+	w []gsiAutoScalingUpdateWire,
+) []types.GlobalSecondaryIndexAutoScalingUpdate {
+	if len(w) == 0 {
+		return nil
+	}
+
+	out := make([]types.GlobalSecondaryIndexAutoScalingUpdate, len(w))
+	for i, g := range w {
+		indexName := g.IndexName
+		out[i] = types.GlobalSecondaryIndexAutoScalingUpdate{
+			IndexName: &indexName,
+			ProvisionedWriteCapacityAutoScalingUpdate: toSDKAutoScalingSettingsUpdate(g.WriteCapacityUpdate),
+		}
+	}
+
+	return out
+}
+
+// autoScalingSettingsDescWire is the wire format for
+// types.AutoScalingSettingsDescription, trimmed to the members this emulator
+// tracks (min/max/disabled). AutoScalingRoleArn and ScalingPolicies'
+// full nested policy list are not modeled.
+type autoScalingSettingsDescWire struct {
+	MinimumUnits        *int64 `json:"MinimumUnits,omitempty"`
+	MaximumUnits        *int64 `json:"MaximumUnits,omitempty"`
+	AutoScalingDisabled *bool  `json:"AutoScalingDisabled,omitempty"`
+}
+
+// replicaAutoScalingDescWire is the wire format for
+// types.ReplicaAutoScalingDescription, trimmed to the members this emulator
+// tracks (GlobalSecondaryIndexes and the read-capacity settings are not
+// modeled).
 type replicaAutoScalingDescWire struct {
-	RegionName    string `json:"RegionName,omitempty"`
-	ReplicaStatus string `json:"ReplicaStatus,omitempty"`
+	WriteCapAutoScaling *autoScalingSettingsDescWire `json:"ReplicaProvisionedWriteCapacityAutoScalingSettings,omitempty"`
+	RegionName          string                       `json:"RegionName,omitempty"`
+	ReplicaStatus       string                       `json:"ReplicaStatus,omitempty"`
 }
 
 type tableAutoScalingDescWire struct {
@@ -46,26 +144,57 @@ func (h *DynamoDBHandler) handleUpdateTableReplicaAutoScaling(
 		ctx,
 		&sdkDDB.UpdateTableReplicaAutoScalingInput{
 			TableName: &req.TableName,
+			ProvisionedWriteCapacityAutoScalingUpdate: toSDKAutoScalingSettingsUpdate(req.WriteCapacityUpdate),
+			GlobalSecondaryIndexUpdates: toSDKGlobalSecondaryIndexAutoScalingUpdates(
+				req.GlobalSecondaryIndexUpdates,
+			),
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	desc := tableAutoScalingDescWire{}
-	if out.TableAutoScalingDescription != nil {
-		d := out.TableAutoScalingDescription
-		desc.TableName = ptrconv.String(d.TableName)
-		desc.TableStatus = string(d.TableStatus)
-		desc.Replicas = make([]replicaAutoScalingDescWire, 0, len(d.Replicas))
+	return &updateTableReplicaAutoScalingOutput{
+		TableAutoScalingDescription: buildTableAutoScalingDescWire(out.TableAutoScalingDescription),
+	}, nil
+}
 
-		for _, r := range d.Replicas {
-			desc.Replicas = append(desc.Replicas, replicaAutoScalingDescWire{
-				RegionName:    ptrconv.String(r.RegionName),
-				ReplicaStatus: string(r.ReplicaStatus),
-			})
-		}
+// buildTableAutoScalingDescWire converts the SDK TableAutoScalingDescription
+// to the wire shape, shared with DescribeTableReplicaAutoScaling.
+func buildTableAutoScalingDescWire(d *types.TableAutoScalingDescription) tableAutoScalingDescWire {
+	if d == nil {
+		return tableAutoScalingDescWire{}
 	}
 
-	return &updateTableReplicaAutoScalingOutput{TableAutoScalingDescription: desc}, nil
+	desc := tableAutoScalingDescWire{
+		TableName:   ptrconv.String(d.TableName),
+		TableStatus: string(d.TableStatus),
+		Replicas:    make([]replicaAutoScalingDescWire, 0, len(d.Replicas)),
+	}
+
+	for _, r := range d.Replicas {
+		desc.Replicas = append(desc.Replicas, replicaAutoScalingDescWire{
+			RegionName:    ptrconv.String(r.RegionName),
+			ReplicaStatus: string(r.ReplicaStatus),
+			WriteCapAutoScaling: autoScalingSettingsDescWireFromSDK(
+				r.ReplicaProvisionedWriteCapacityAutoScalingSettings,
+			),
+		})
+	}
+
+	return desc
+}
+
+// autoScalingSettingsDescWireFromSDK converts the SDK description to the wire
+// shape, trimmed the same way autoScalingSettingsDescWire is.
+func autoScalingSettingsDescWireFromSDK(d *types.AutoScalingSettingsDescription) *autoScalingSettingsDescWire {
+	if d == nil {
+		return nil
+	}
+
+	return &autoScalingSettingsDescWire{
+		MinimumUnits:        d.MinimumUnits,
+		MaximumUnits:        d.MaximumUnits,
+		AutoScalingDisabled: d.AutoScalingDisabled,
+	}
 }

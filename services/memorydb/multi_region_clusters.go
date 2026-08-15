@@ -46,6 +46,15 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 
 	tlsEnabled := req.TLSEnabled == nil || *req.TLSEnabled
 
+	numShards := int32(1)
+	if req.NumShards != nil {
+		numShards = *req.NumShards
+	}
+
+	if numShards < 1 || numShards > 500 {
+		return nil, fmt.Errorf("NumShards must be between 1 and 500: %w", ErrValidation)
+	}
+
 	mrc := &MultiRegionCluster{
 		MultiRegionClusterName:        fullName,
 		ARN:                           mrARN,
@@ -57,6 +66,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 		Status:                        multiRegionClusterStatusAvailable,
 		Tags:                          tagsFromSlice(req.Tags),
 		CreatedAt:                     time.Now(),
+		NumShards:                     numShards,
 		TLSEnabled:                    tlsEnabled,
 	}
 

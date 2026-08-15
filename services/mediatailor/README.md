@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 48 (47 ok, 1 partial) |
+| Operations audited | 48 (46 ok, 2 partial) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 2 |
 | Deferred items | 0 |
@@ -15,8 +15,8 @@
 
 ### Known gaps
 
-- NEW since v1.59.2 (found by gopherstack-u8my's pin-correction pass, not fixed): PlaybackConfiguration gained AdsPersonalizationConcurrency (EnableVodVastParallelization/MaxConcurrentAdsRequests) and AdsPersonalizationTimeouts (AdsRequestTimeoutMilliseconds and 4 sibling fields) input sub-configs. extractExtraConfig's pass-through key list (handler_helpers.go) is a fixed 14-key enumeration predating these fields, so PutPlaybackConfiguration silently drops both -- breaks the round-trip-fidelity claim Notes #6 makes for 'every optional sub-config'. Same treatment as the other 14 (decoded-JSON pass-through) would close it; just needs the two keys added to extractExtraConfig's list. (needs bd issue)
-- NEW since v1.59.2 (found by gopherstack-u8my's pin-correction pass, not fixed): PlaybackConfiguration/HlsConfiguration/SessionInitializationEndpoint responses gained dual-stack (IPv4+IPv6) URL fields -- DualStackManifestEndpointPrefix, DualStackSessionInitializationEndpointPrefix, DualStackPlaybackEndpointPrefix, and GetHlsManifestConfiguration's DualStackPlaybackUrl -- alongside the existing single-stack Prefix/Url fields. These are server-generated response fields (like their single-stack counterparts) that gopherstack's Get/Describe/List handlers do not populate. (needs bd issue)
+- FIXED by gopherstack-gt9o: PlaybackConfiguration's AdsPersonalizationConcurrency/AdsPersonalizationTimeouts input sub-configs now round-trip through extractExtraConfig, generalized from a fixed 14-key enumeration to exclude-known-handled-keys pass-through (handler_helpers.go). See Notes #13.
+- FIXED by gopherstack-ic73: PlaybackConfiguration's three response-only dual-stack fields (DualStackPlaybackEndpointPrefix, DualStackSessionInitializationEndpointPrefix, and HlsConfiguration's own DualStackManifestEndpointPrefix -- aws-sdk-go-v2/service/mediatailor@v1.63.4 types/types.go:688) are now modeled on the Go PlaybackConfiguration struct and wired into toPlaybackConfigOutput, but deliberately left unset -- no PutPlaybackConfigurationInput member sets any of them, and gopherstack has no real dual-stack endpoint to report; fabricating one would be a dialable-but-fake URL, worse than an absent field. The rest of gopherstack-ic73's premise did not hold: there is no GetHlsManifestConfiguration operation in the pinned SDK (v1.63.4 has no api_op_GetHlsManifestConfiguration.go and no such op in service-2.json's op list) -- that name does not exist to model. DualStackPlaybackUrl (types.go:1388) is real but belongs to a different, unrelated type -- ResponseOutputItem, part of Channel.Outputs (CreateChannel/DescribeChannel/UpdateChannel) -- out of scope for PlaybackConfiguration/HlsConfiguration entirely. There is also no separate 'SessionInitializationEndpoint' type in the pinned SDK; DualStackSessionInitializationEndpointPrefix appears exactly once, on PlaybackConfiguration itself, already covered above. Both claims were carried over from a prior pass's note and could not be verified against the pinned aws-sdk-go-v2 source.
 
 ## More
 

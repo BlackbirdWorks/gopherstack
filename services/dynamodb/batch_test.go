@@ -251,6 +251,42 @@ func TestBatchGetItem(t *testing.T) {
 	}
 }
 
+// TestBatchGetItem_ReturnConsumedCapacity_SurvivesWireConversion verifies that
+// ToSDKBatchGetItemInput actually copies ReturnConsumedCapacity from the wire-format
+// models.BatchGetItemInput onto the SDK input struct. models.BatchGetItemInput
+// previously had no ReturnConsumedCapacity field at all, so a real client's
+// "ReturnConsumedCapacity": "TOTAL" was silently dropped when parsed off the wire --
+// the backend always saw ReturnConsumedCapacity == "" regardless of what was
+// requested, exactly like an unrecognised awsjson1.0 key.
+func TestBatchGetItem_ReturnConsumedCapacity_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "Table1", "pk")
+	_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
+		TableName: aws.String("Table1"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "item1"},
+		},
+	})
+	require.NoError(t, err)
+
+	input := models.BatchGetItemInput{
+		ReturnConsumedCapacity: "TOTAL",
+		RequestItems: map[string]models.KeysAndAttributes{
+			"Table1": {Keys: []map[string]any{{"pk": map[string]any{"S": "item1"}}}},
+		},
+	}
+
+	sdkInput, convErr := models.ToSDKBatchGetItemInput(&input)
+	require.NoError(t, convErr)
+	require.Equal(t, types.ReturnConsumedCapacityTotal, sdkInput.ReturnConsumedCapacity)
+
+	res, getErr := db.BatchGetItem(t.Context(), sdkInput)
+	require.NoError(t, getErr)
+	require.NotEmpty(t, res.ConsumedCapacity, "ConsumedCapacity must be populated when requested")
+}
+
 func TestBatchWriteItem_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
@@ -802,6 +838,38 @@ func TestBatchWriteItem_ValidRequests_NotAffectedByValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("valid batch write should succeed: %v", err)
 	}
+}
+
+// TestBatchWriteItem_ReturnConsumedCapacity_SurvivesWireConversion verifies that
+// ToSDKBatchWriteItemInput actually copies ReturnConsumedCapacity from the
+// wire-format models.BatchWriteItemInput onto the SDK input struct.
+// models.BatchWriteItemInput previously had no ReturnConsumedCapacity field at all
+// (nor ReturnItemCollectionMetrics), so a real client's "ReturnConsumedCapacity":
+// "TOTAL" was silently dropped when parsed off the wire -- the backend always saw
+// ReturnConsumedCapacity == "" regardless of what was requested, exactly like an
+// unrecognised awsjson1.0 key.
+func TestBatchWriteItem_ReturnConsumedCapacity_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "Table1", "pk")
+
+	input := models.BatchWriteItemInput{
+		ReturnConsumedCapacity: "TOTAL",
+		RequestItems: map[string][]models.WriteRequest{
+			"Table1": {
+				{PutRequest: &models.PutRequest{Item: map[string]any{"pk": map[string]any{"S": "item1"}}}},
+			},
+		},
+	}
+
+	sdkInput, convErr := models.ToSDKBatchWriteItemInput(&input)
+	require.NoError(t, convErr)
+	require.Equal(t, types.ReturnConsumedCapacityTotal, sdkInput.ReturnConsumedCapacity)
+
+	res, writeErr := db.BatchWriteItem(t.Context(), sdkInput)
+	require.NoError(t, writeErr)
+	require.NotEmpty(t, res.ConsumedCapacity, "ConsumedCapacity must be populated when requested")
 }
 
 // TestBatchWriteItem_DuplicateKey_PutAndDelete_Rejected verifies that AWS's

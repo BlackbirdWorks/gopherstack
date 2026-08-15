@@ -86,7 +86,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	}))
 
 	_, err := original.CreateLakeFormationIdentityCenterConfiguration(
-		"123456789012", "arn:aws:sso:::instance/ssoins-1", nil, nil,
+		"123456789012", "arn:aws:sso:::instance/ssoins-1", nil, nil, nil,
 	)
 	require.NoError(t, err)
 

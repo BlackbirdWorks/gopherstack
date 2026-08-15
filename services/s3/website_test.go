@@ -258,6 +258,53 @@ func TestHandler_ServeWebsite(t *testing.T) {
 			},
 			wantStatus: http.StatusMovedPermanently,
 		},
+		{
+			// A routing rule scoped ONLY to HttpErrorCodeReturnedEquals=404 must not
+			// fire for a request that resolves successfully — it is not an
+			// unconditional or prefix-based rule.
+			name:   "error-code-only routing rule does not redirect an existing object",
+			bucket: "err-code-scoped-hit",
+			key:    "page.html",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "err-code-scoped-hit")
+				mustPutObject(t, backend, "err-code-scoped-hit", "page.html", []byte("real page"))
+
+				xmlCfg := "<WebsiteConfiguration>" +
+					"<IndexDocument><Suffix>index.html</Suffix></IndexDocument>" +
+					"<RoutingRules><RoutingRule>" +
+					"<Condition><HttpErrorCodeReturnedEquals>404</HttpErrorCodeReturnedEquals></Condition>" +
+					"<Redirect><HostName>fallback.example.com</HostName></Redirect>" +
+					"</RoutingRule></RoutingRules>" +
+					"</WebsiteConfiguration>"
+				err := backend.PutBucketWebsite(t.Context(), "err-code-scoped-hit", xmlCfg)
+				require.NoError(t, err)
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "real page",
+		},
+		{
+			// The same error-code-only rule must fire once the object genuinely
+			// fails to resolve, confirming the post-error phase still works.
+			name:   "error-code-only routing rule redirects a missing object",
+			bucket: "err-code-scoped-miss",
+			key:    "missing.html",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "err-code-scoped-miss")
+
+				xmlCfg := "<WebsiteConfiguration>" +
+					"<IndexDocument><Suffix>index.html</Suffix></IndexDocument>" +
+					"<RoutingRules><RoutingRule>" +
+					"<Condition><HttpErrorCodeReturnedEquals>404</HttpErrorCodeReturnedEquals></Condition>" +
+					"<Redirect><HostName>fallback.example.com</HostName></Redirect>" +
+					"</RoutingRule></RoutingRules>" +
+					"</WebsiteConfiguration>"
+				err := backend.PutBucketWebsite(t.Context(), "err-code-scoped-miss", xmlCfg)
+				require.NoError(t, err)
+			},
+			wantStatus: http.StatusFound,
+		},
 	}
 
 	for _, tt := range tests {

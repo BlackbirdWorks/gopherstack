@@ -13,15 +13,17 @@ import (
 // service environment association lives on the JobQueue's
 // ServiceEnvironmentOrder instead.
 type submitServiceJobInput struct {
-	Tags                  map[string]string        `json:"tags"`
-	RetryStrategy         *ServiceJobRetryStrategy `json:"retryStrategy,omitempty"`
-	TimeoutConfig         *ServiceJobTimeout       `json:"timeoutConfig,omitempty"`
-	SchedulingPriority    *int32                   `json:"schedulingPriority,omitempty"`
-	JobName               string                   `json:"jobName"`
-	JobQueue              string                   `json:"jobQueue"`
-	ServiceJobType        string                   `json:"serviceJobType"`
-	ServiceRequestPayload string                   `json:"serviceRequestPayload"`
-	ShareIdentifier       string                   `json:"shareIdentifier,omitempty"`
+	Tags                    map[string]string                  `json:"tags"`
+	RetryStrategy           *ServiceJobRetryStrategy           `json:"retryStrategy,omitempty"`
+	TimeoutConfig           *ServiceJobTimeout                 `json:"timeoutConfig,omitempty"`
+	PreemptionConfiguration *ServiceJobPreemptionConfiguration `json:"preemptionConfiguration,omitempty"`
+	SchedulingPriority      *int32                             `json:"schedulingPriority,omitempty"`
+	JobName                 string                             `json:"jobName"`
+	JobQueue                string                             `json:"jobQueue"`
+	ServiceJobType          string                             `json:"serviceJobType"`
+	ServiceRequestPayload   string                             `json:"serviceRequestPayload"`
+	ShareIdentifier         string                             `json:"shareIdentifier,omitempty"`
+	QuotaShareName          string                             `json:"quotaShareName,omitempty"`
 }
 
 type submitServiceJobOutput struct {
@@ -50,6 +52,8 @@ func (h *Handler) handleSubmitServiceJob(
 		in.TimeoutConfig,
 		schedulingPriority,
 		in.ShareIdentifier,
+		in.QuotaShareName,
+		in.PreemptionConfiguration,
 	)
 	if err != nil {
 		return nil, err
@@ -69,27 +73,32 @@ type describeServiceJobInput struct {
 // describeServiceJobOutput mirrors aws-sdk-go-v2/service/batch's
 // DescribeServiceJobOutput field names exactly (see deserializers.go's
 // awsRestjson1_deserializeOpDocumentDescribeServiceJobOutput case list).
-// Attempts/CapacityUsage/LatestAttempt aren't modeled -- this emulator
-// doesn't simulate SageMaker Training job execution/capacity details.
+// Attempts/CapacityUsage/LatestAttempt/PreemptionSummary aren't modeled --
+// this emulator doesn't simulate SageMaker Training job execution/capacity
+// details, or actually preempt service jobs (PreemptionConfiguration, by
+// contrast, is request-settable state with no execution simulation
+// required, so it IS modeled -- see ServiceJob.PreemptionConfiguration).
 type describeServiceJobOutput struct {
-	Tags                  map[string]string        `json:"tags"`
-	RetryStrategy         *ServiceJobRetryStrategy `json:"retryStrategy,omitempty"`
-	TimeoutConfig         *ServiceJobTimeout       `json:"timeoutConfig,omitempty"`
-	StartedAt             *int64                   `json:"startedAt,omitempty"`
-	StoppedAt             *int64                   `json:"stoppedAt,omitempty"`
-	ScheduledAt           *int64                   `json:"scheduledAt,omitempty"`
-	JobID                 string                   `json:"jobId"`
-	JobArn                string                   `json:"jobArn,omitempty"`
-	JobName               string                   `json:"jobName"`
-	JobQueue              string                   `json:"jobQueue"`
-	ServiceJobType        string                   `json:"serviceJobType"`
-	Status                string                   `json:"status"`
-	StatusReason          string                   `json:"statusReason,omitempty"`
-	ServiceRequestPayload string                   `json:"serviceRequestPayload,omitempty"`
-	ShareIdentifier       string                   `json:"shareIdentifier,omitempty"`
-	CreatedAt             int64                    `json:"createdAt"`
-	SchedulingPriority    int32                    `json:"schedulingPriority,omitempty"`
-	IsTerminated          bool                     `json:"isTerminated"`
+	Tags                    map[string]string                  `json:"tags"`
+	RetryStrategy           *ServiceJobRetryStrategy           `json:"retryStrategy,omitempty"`
+	TimeoutConfig           *ServiceJobTimeout                 `json:"timeoutConfig,omitempty"`
+	PreemptionConfiguration *ServiceJobPreemptionConfiguration `json:"preemptionConfiguration,omitempty"`
+	StartedAt               *int64                             `json:"startedAt,omitempty"`
+	StoppedAt               *int64                             `json:"stoppedAt,omitempty"`
+	ScheduledAt             *int64                             `json:"scheduledAt,omitempty"`
+	JobID                   string                             `json:"jobId"`
+	JobArn                  string                             `json:"jobArn,omitempty"`
+	JobName                 string                             `json:"jobName"`
+	JobQueue                string                             `json:"jobQueue"`
+	ServiceJobType          string                             `json:"serviceJobType"`
+	Status                  string                             `json:"status"`
+	StatusReason            string                             `json:"statusReason,omitempty"`
+	ServiceRequestPayload   string                             `json:"serviceRequestPayload,omitempty"`
+	ShareIdentifier         string                             `json:"shareIdentifier,omitempty"`
+	QuotaShareName          string                             `json:"quotaShareName,omitempty"`
+	CreatedAt               int64                              `json:"createdAt"`
+	SchedulingPriority      int32                              `json:"schedulingPriority,omitempty"`
+	IsTerminated            bool                               `json:"isTerminated"`
 }
 
 func (h *Handler) handleDescribeServiceJob(
@@ -106,24 +115,26 @@ func (h *Handler) handleDescribeServiceJob(
 	}
 
 	return &describeServiceJobOutput{
-		JobID:                 sj.JobID,
-		JobArn:                sj.JobArn,
-		JobName:               sj.JobName,
-		JobQueue:              sj.JobQueue,
-		ServiceJobType:        sj.ServiceJobType,
-		Status:                sj.Status,
-		StatusReason:          sj.StatusReason,
-		ServiceRequestPayload: sj.ServiceRequestPayload,
-		ShareIdentifier:       sj.ShareIdentifier,
-		CreatedAt:             sj.CreatedAt,
-		StartedAt:             sj.StartedAt,
-		StoppedAt:             sj.StoppedAt,
-		ScheduledAt:           sj.ScheduledAt,
-		SchedulingPriority:    sj.SchedulingPriority,
-		RetryStrategy:         sj.RetryStrategy,
-		TimeoutConfig:         sj.TimeoutConfig,
-		IsTerminated:          sj.IsTerminated,
-		Tags:                  tagsOrEmpty(sj.Tags),
+		JobID:                   sj.JobID,
+		JobArn:                  sj.JobArn,
+		JobName:                 sj.JobName,
+		JobQueue:                sj.JobQueue,
+		ServiceJobType:          sj.ServiceJobType,
+		Status:                  sj.Status,
+		StatusReason:            sj.StatusReason,
+		ServiceRequestPayload:   sj.ServiceRequestPayload,
+		ShareIdentifier:         sj.ShareIdentifier,
+		QuotaShareName:          sj.QuotaShareName,
+		CreatedAt:               sj.CreatedAt,
+		StartedAt:               sj.StartedAt,
+		StoppedAt:               sj.StoppedAt,
+		ScheduledAt:             sj.ScheduledAt,
+		SchedulingPriority:      sj.SchedulingPriority,
+		RetryStrategy:           sj.RetryStrategy,
+		TimeoutConfig:           sj.TimeoutConfig,
+		PreemptionConfiguration: sj.PreemptionConfiguration,
+		IsTerminated:            sj.IsTerminated,
+		Tags:                    tagsOrEmpty(sj.Tags),
 	}, nil
 }
 
@@ -141,6 +152,7 @@ type serviceJobSummary struct {
 	Status          string `json:"status,omitempty"`
 	StatusReason    string `json:"statusReason,omitempty"`
 	ShareIdentifier string `json:"shareIdentifier,omitempty"`
+	QuotaShareName  string `json:"quotaShareName,omitempty"`
 	CreatedAt       int64  `json:"createdAt,omitempty"`
 }
 
@@ -169,6 +181,7 @@ func (h *Handler) handleListServiceJobs(ctx context.Context, in *listServiceJobs
 			Status:          sj.Status,
 			StatusReason:    sj.StatusReason,
 			ShareIdentifier: sj.ShareIdentifier,
+			QuotaShareName:  sj.QuotaShareName,
 			CreatedAt:       sj.CreatedAt,
 			StartedAt:       sj.StartedAt,
 			StoppedAt:       sj.StoppedAt,

@@ -332,6 +332,421 @@ func buildSDKBackupDescription(b *Backup) *sdktypes.BackupDescription {
 	}
 }
 
+const (
+	continuousBackupsStatusEnabled  = "ENABLED"
+	continuousBackupsStatusDisabled = "DISABLED"
+)
+
+// continuousBackupsStatusForExistingTable is always ENABLED. Verified against
+// api_op_UpdateContinuousBackups.go: UpdateContinuousBackupsInput has exactly
+// two members, TableName and PointInTimeRecoverySpecification -- there is no
+// field anywhere in the SDK that lets a caller set ContinuousBackupsStatus
+// itself, only the nested PointInTimeRecoveryStatus (via
+// PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled). The two are
+// genuinely distinct fields; only PointInTimeRecoveryStatus is derived here,
+// from table.PITREnabled.
+const continuousBackupsStatusForExistingTable = sdktypes.ContinuousBackupsStatus(continuousBackupsStatusEnabled)
+
+// defaultRecoveryPeriodInDays matches PointInTimeRecoverySpecification's
+// documented default (types.go): "If no value is provided, the value will
+// default to 35".
+const defaultRecoveryPeriodInDays int32 = 35
+
+// pitrStateRLocked returns whether PITR is enabled, the configured recovery
+// period, and, when enabled with at least one snapshot taken, the
+// earliest/latest restorable timestamps, under a defer-protected
+// table.mu.RLock.
+func pitrStateRLocked(table *Table) (bool, int32, time.Time, time.Time) {
+	table.mu.RLock(opDescribeContinuousBackups)
+	defer table.mu.RUnlock()
+
+	pitrEnabled := table.PITREnabled
+	recoveryPeriodInDays := table.RecoveryPeriodInDays
+
+	var earliest, latest time.Time
+	// EarliestRestorableDateTime tracks the oldest available snapshot.
+	// LatestRestorableDateTime is "now" while PITR is active -- AWS
+	// guarantees you can always recover to the current instant.
+	if pitrEnabled && len(table.PITRSnapshots) > 0 {
+		earliest = table.PITRSnapshots[0].Taken
+		latest = time.Now().UTC()
+	}
+
+	return pitrEnabled, recoveryPeriodInDays, earliest, latest
+}
+
+// setPITREnabledLocked sets table.PITREnabled and table.RecoveryPeriodInDays
+// and, when disabling, releases the snapshot ring, under a defer-protected
+// table.mu.Lock. recoveryPeriodInDays is ignored when disabling.
+func setPITREnabledLocked(table *Table, pitrEnabled bool, recoveryPeriodInDays int32) {
+	table.mu.Lock(opUpdateContinuousBackups)
+	defer table.mu.Unlock()
+
+	table.PITREnabled = pitrEnabled
+	if !pitrEnabled {
+		// Releasing memory the moment the feature is turned off keeps the
+		// per-table footprint tight; re-enabling starts a fresh ring.
+		table.PITRSnapshots = nil
+		table.RecoveryPeriodInDays = 0
+
+		return
+	}
+
+	table.RecoveryPeriodInDays = recoveryPeriodInDays
+}
+
+// DescribeContinuousBackups returns the PITR settings for a table.
+// It satisfies the StorageBackend interface using official AWS SDK v2 types.
+func (db *InMemoryDB) DescribeContinuousBackups(
+	ctx context.Context,
+	input *sdkdynamodb.DescribeContinuousBackupsInput,
+) (*sdkdynamodb.DescribeContinuousBackupsOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	if tableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	table, err := db.getTable(ctx, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	pitrEnabled, recoveryPeriodInDays, earliest, latest := pitrStateRLocked(table)
+
+	desc := &sdktypes.PointInTimeRecoveryDescription{
+		PointInTimeRecoveryStatus: sdktypes.PointInTimeRecoveryStatusDisabled,
+	}
+	if pitrEnabled {
+		desc.PointInTimeRecoveryStatus = sdktypes.PointInTimeRecoveryStatusEnabled
+		desc.RecoveryPeriodInDays = aws.Int32(recoveryPeriodInDays)
+		if !earliest.IsZero() {
+			desc.EarliestRestorableDateTime = aws.Time(earliest)
+			desc.LatestRestorableDateTime = aws.Time(latest)
+		}
+	}
+
+	return &sdkdynamodb.DescribeContinuousBackupsOutput{
+		ContinuousBackupsDescription: &sdktypes.ContinuousBackupsDescription{
+			ContinuousBackupsStatus:        continuousBackupsStatusForExistingTable,
+			PointInTimeRecoveryDescription: desc,
+		},
+	}, nil
+}
+
+// UpdateContinuousBackups enables or disables PITR for a table.
+// It satisfies the StorageBackend interface using official AWS SDK v2 types.
+func (db *InMemoryDB) UpdateContinuousBackups(
+	ctx context.Context,
+	input *sdkdynamodb.UpdateContinuousBackupsInput,
+) (*sdkdynamodb.UpdateContinuousBackupsOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	if tableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	pitrEnabled := false
+	recoveryPeriodInDays := defaultRecoveryPeriodInDays
+	if spec := input.PointInTimeRecoverySpecification; spec != nil {
+		pitrEnabled = aws.ToBool(spec.PointInTimeRecoveryEnabled)
+		if spec.RecoveryPeriodInDays != nil {
+			recoveryPeriodInDays = *spec.RecoveryPeriodInDays
+		}
+	}
+
+	const minRecoveryPeriodInDays = 1
+
+	const maxRecoveryPeriodInDays = 35
+	if recoveryPeriodInDays < minRecoveryPeriodInDays || recoveryPeriodInDays > maxRecoveryPeriodInDays {
+		return nil, NewValidationException("RecoveryPeriodInDays must be between 1 and 35")
+	}
+
+	table, err := db.getTable(ctx, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	setPITREnabledLocked(table, pitrEnabled, recoveryPeriodInDays)
+
+	desc := &sdktypes.PointInTimeRecoveryDescription{
+		PointInTimeRecoveryStatus: sdktypes.PointInTimeRecoveryStatusDisabled,
+	}
+	if pitrEnabled {
+		desc.PointInTimeRecoveryStatus = sdktypes.PointInTimeRecoveryStatusEnabled
+		desc.RecoveryPeriodInDays = aws.Int32(recoveryPeriodInDays)
+	}
+
+	return &sdkdynamodb.UpdateContinuousBackupsOutput{
+		ContinuousBackupsDescription: &sdktypes.ContinuousBackupsDescription{
+			ContinuousBackupsStatus:        continuousBackupsStatusForExistingTable,
+			PointInTimeRecoveryDescription: desc,
+		},
+	}, nil
+}
+
+// tableDescriptionToSDK converts a models.TableDescription into the SDK type,
+// covering the subset of fields RestoreTableFromBackup and
+// RestoreTableToPointInTime populate.
+func tableDescriptionToSDK(d models.TableDescription) *sdktypes.TableDescription {
+	td := &sdktypes.TableDescription{
+		TableName:              aws.String(d.TableName),
+		TableStatus:            sdktypes.TableStatus(d.TableStatus),
+		TableArn:               aws.String(d.TableArn),
+		TableId:                aws.String(d.TableID),
+		KeySchema:              models.ToSDKKeySchema(d.KeySchema),
+		AttributeDefinitions:   models.ToSDKAttributeDefinitions(d.AttributeDefinitions),
+		GlobalSecondaryIndexes: models.ToSDKGlobalSecondaryIndexDescriptions(d.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:  models.ToSDKLocalSecondaryIndexDescriptions(d.LocalSecondaryIndexes),
+		ItemCount:              aws.Int64(int64(d.ItemCount)),
+	}
+	if d.BillingModeSummary != nil {
+		td.BillingModeSummary = &sdktypes.BillingModeSummary{
+			BillingMode: sdktypes.BillingMode(d.BillingModeSummary.BillingMode),
+		}
+	}
+
+	return td
+}
+
+// resolveGSIOverride returns the GSI list a restored table should use: a copy
+// of source when override is nil (omitted, meaning "keep the source's
+// GSIs"), or override converted to the wire type otherwise -- including an
+// explicit empty override, which means "restore with no GSIs at all".
+func resolveGSIOverride(
+	source []models.GlobalSecondaryIndex,
+	override []sdktypes.GlobalSecondaryIndex,
+) []models.GlobalSecondaryIndex {
+	if override == nil {
+		gsis := make([]models.GlobalSecondaryIndex, len(source))
+		copy(gsis, source)
+
+		return gsis
+	}
+
+	return models.FromSDKGlobalSecondaryIndexes(override)
+}
+
+// resolveSSEOverride applies SSESpecificationOverride to the source table's
+// encryption state, mirroring the CreateTable SSESpecification handling in
+// newTableFromCreateInput. override may be nil, matching an omitted request
+// member, in which case the source's encryption state passes through.
+func resolveSSEOverride(
+	enabled bool, sseType, kmsKeyArn string,
+	override *sdktypes.SSESpecification,
+) (bool, string, string) {
+	if override == nil {
+		return enabled, sseType, kmsKeyArn
+	}
+
+	newEnabled := override.Enabled == nil || aws.ToBool(override.Enabled)
+	if !newEnabled {
+		return false, "", ""
+	}
+
+	newType := string(override.SSEType)
+	if newType == "" {
+		newType = string(sdktypes.SSETypeKms)
+	}
+
+	return true, newType, aws.ToString(override.KMSMasterKeyId)
+}
+
+// resolveOnDemandThroughputOverride returns the on-demand throughput caps a
+// restored table should use: override when supplied, otherwise the source's
+// existing caps unchanged.
+func resolveOnDemandThroughputOverride(
+	sourceRead, sourceWrite *int64,
+	override *sdktypes.OnDemandThroughput,
+) (*int64, *int64) {
+	if override == nil {
+		return sourceRead, sourceWrite
+	}
+
+	return override.MaxReadRequestUnits, override.MaxWriteRequestUnits
+}
+
+// RestoreTableFromBackup creates a new table populated from an existing backup.
+// It satisfies the StorageBackend interface using official AWS SDK v2 types.
+func (db *InMemoryDB) RestoreTableFromBackup(
+	ctx context.Context,
+	input *sdkdynamodb.RestoreTableFromBackupInput,
+) (*sdkdynamodb.RestoreTableFromBackupOutput, error) {
+	backupArn := aws.ToString(input.BackupArn)
+	targetTableName := aws.ToString(input.TargetTableName)
+
+	if backupArn == "" {
+		return nil, NewValidationException("BackupArn is required")
+	}
+
+	if targetTableName == "" {
+		return nil, NewValidationException("TargetTableName is required")
+	}
+
+	backup, exists := db.getBackupRLocked(backupArn)
+	if !exists {
+		return nil, NewResourceNotFoundException("backup not found: " + backupArn)
+	}
+
+	region := getRegionFromContext(ctx, db)
+
+	var throughputOverride *models.ProvisionedThroughput
+	if input.ProvisionedThroughputOverride != nil {
+		throughputOverride = &models.ProvisionedThroughput{
+			ReadCapacityUnits:  input.ProvisionedThroughputOverride.ReadCapacityUnits,
+			WriteCapacityUnits: input.ProvisionedThroughputOverride.WriteCapacityUnits,
+		}
+	}
+
+	billingMode, provThroughput := resolveBillingAndThroughput(
+		backup.BillingMode, string(input.BillingModeOverride),
+		backup.ProvisionedThroughput, throughputOverride,
+	)
+
+	gsis := resolveGSIOverride(backup.GlobalSecondaryIndexes, input.GlobalSecondaryIndexOverride)
+	lsis := make([]models.LocalSecondaryIndex, len(backup.LocalSecondaryIndexes))
+	copy(lsis, backup.LocalSecondaryIndexes)
+	keySchema := make([]models.KeySchemaElement, len(backup.KeySchema))
+	copy(keySchema, backup.KeySchema)
+	attrDefs := make([]models.AttributeDefinition, len(backup.AttributeDefinitions))
+	copy(attrDefs, backup.AttributeDefinitions)
+
+	sseEnabled, sseType, sseKMSMasterKeyArn := resolveSSEOverride(
+		backup.SSEEnabled, backup.SSEType, backup.SSEKMSMasterKeyArn,
+		input.SSESpecificationOverride,
+	)
+	onDemandMaxReadRRU, onDemandMaxWriteRRU := resolveOnDemandThroughputOverride(
+		nil, nil, input.OnDemandThroughputOverride,
+	)
+
+	p := restoredTableParams{
+		Items: deepCopyItems(backup.Items), KeySchema: keySchema, AttributeDefinitions: attrDefs,
+		GlobalSecondaryIndexes: gsis, LocalSecondaryIndexes: lsis,
+		ProvisionedThroughput: provThroughput, BillingMode: billingMode,
+		SSEEnabled: sseEnabled, SSEType: sseType, SSEKMSMasterKeyArn: sseKMSMasterKeyArn,
+		StreamsEnabled: backup.StreamsEnabled, StreamViewType: backup.StreamViewType,
+		OnDemandMaxReadRRU: onDemandMaxReadRRU, OnDemandMaxWriteRRU: onDemandMaxWriteRRU,
+	}
+
+	newTable, newTableID, err := db.installRestoredTable(region, targetTableName, p)
+	if err != nil {
+		return nil, err
+	}
+
+	td := tableDescriptionToSDK(models.TableDescription{
+		TableName: targetTableName, TableStatus: models.TableStatusActive,
+		TableArn: newTable.TableArn, TableID: newTableID,
+		KeySchema: keySchema, AttributeDefinitions: attrDefs,
+		GlobalSecondaryIndexes: buildGSIDescriptions(gsis, int64(len(p.Items)), newTable.TableArn),
+		LocalSecondaryIndexes:  buildLSIDescriptions(lsis, newTable.TableArn),
+		BillingModeSummary:     billingModeSummary(billingMode),
+		ItemCount:              len(p.Items),
+	})
+	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
+	if onDemandMaxReadRRU != nil || onDemandMaxWriteRRU != nil {
+		td.OnDemandThroughput = &sdktypes.OnDemandThroughput{
+			MaxReadRequestUnits:  onDemandMaxReadRRU,
+			MaxWriteRequestUnits: onDemandMaxWriteRRU,
+		}
+	}
+
+	return &sdkdynamodb.RestoreTableFromBackupOutput{TableDescription: td}, nil
+}
+
+// RestoreTableToPointInTime creates a new table populated from a PITR snapshot
+// of an existing table. It satisfies the StorageBackend interface using
+// official AWS SDK v2 types.
+func (db *InMemoryDB) RestoreTableToPointInTime(
+	ctx context.Context,
+	input *sdkdynamodb.RestoreTableToPointInTimeInput,
+) (*sdkdynamodb.RestoreTableToPointInTimeOutput, error) {
+	sourceTableName := aws.ToString(input.SourceTableName)
+	targetTableName := aws.ToString(input.TargetTableName)
+
+	if sourceTableName == "" {
+		return nil, NewValidationException("SourceTableName is required")
+	}
+
+	if targetTableName == "" {
+		return nil, NewValidationException("TargetTableName is required")
+	}
+
+	sourceTable, err := db.getTable(ctx, sourceTableName)
+	if err != nil {
+		return nil, err
+	}
+
+	p, pitrEnabled, itemsCopy := snapshotSourceForPITR(sourceTable, input)
+
+	if !pitrEnabled {
+		return nil, NewValidationException(
+			"point in time recovery is not enabled for table: " + sourceTableName,
+		)
+	}
+
+	if itemsCopy == nil {
+		return nil, NewInvalidRestoreTimeException(
+			"requested RestoreDateTime is outside the available recovery window for table: " +
+				sourceTableName,
+		)
+	}
+
+	var throughputOverride *models.ProvisionedThroughput
+	if input.ProvisionedThroughputOverride != nil {
+		throughputOverride = &models.ProvisionedThroughput{
+			ReadCapacityUnits:  input.ProvisionedThroughputOverride.ReadCapacityUnits,
+			WriteCapacityUnits: input.ProvisionedThroughputOverride.WriteCapacityUnits,
+		}
+	}
+
+	billingMode, provThroughput := resolveBillingAndThroughput(
+		p.BillingMode,
+		string(input.BillingModeOverride),
+		p.ProvisionedThroughput,
+		throughputOverride,
+	)
+	p.Items = itemsCopy
+	p.BillingMode = billingMode
+	p.ProvisionedThroughput = provThroughput
+	p.GlobalSecondaryIndexes = resolveGSIOverride(p.GlobalSecondaryIndexes, input.GlobalSecondaryIndexOverride)
+
+	sseEnabled, sseType, sseKMSMasterKeyArn := resolveSSEOverride(
+		p.SSEEnabled, p.SSEType, p.SSEKMSMasterKeyArn, input.SSESpecificationOverride,
+	)
+	p.SSEEnabled, p.SSEType, p.SSEKMSMasterKeyArn = sseEnabled, sseType, sseKMSMasterKeyArn
+
+	p.OnDemandMaxReadRRU, p.OnDemandMaxWriteRRU = resolveOnDemandThroughputOverride(
+		p.OnDemandMaxReadRRU, p.OnDemandMaxWriteRRU, input.OnDemandThroughputOverride,
+	)
+
+	region := getRegionFromContext(ctx, db)
+	newTable, newTableID, installErr := db.installRestoredTable(region, targetTableName, p)
+	if installErr != nil {
+		return nil, installErr
+	}
+
+	td := tableDescriptionToSDK(models.TableDescription{
+		TableName: targetTableName, TableStatus: models.TableStatusActive,
+		TableArn: newTable.TableArn, TableID: newTableID,
+		KeySchema: p.KeySchema, AttributeDefinitions: p.AttributeDefinitions,
+		GlobalSecondaryIndexes: buildGSIDescriptions(
+			p.GlobalSecondaryIndexes,
+			int64(len(itemsCopy)),
+			newTable.TableArn,
+		),
+		LocalSecondaryIndexes: buildLSIDescriptions(p.LocalSecondaryIndexes, newTable.TableArn),
+		BillingModeSummary:    billingModeSummary(billingMode),
+		ItemCount:             len(itemsCopy),
+	})
+	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
+	if p.OnDemandMaxReadRRU != nil || p.OnDemandMaxWriteRRU != nil {
+		td.OnDemandThroughput = &sdktypes.OnDemandThroughput{
+			MaxReadRequestUnits:  p.OnDemandMaxReadRRU,
+			MaxWriteRequestUnits: p.OnDemandMaxWriteRRU,
+		}
+	}
+
+	return &sdkdynamodb.RestoreTableToPointInTimeOutput{TableDescription: td}, nil
+}
+
 // BatchExecuteStatement executes multiple PartiQL statements and returns their results.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
 //
@@ -374,12 +789,17 @@ func (db *InMemoryDB) BatchExecuteStatement(
 
 		result, err := runner.executeStatement(ctx, req)
 		if err != nil {
-			responses = append(responses, sdktypes.BatchStatementResponse{
+			resp := sdktypes.BatchStatementResponse{
 				Error: &sdktypes.BatchStatementError{
 					Code:    sdktypes.BatchStatementErrorCodeEnum("StatementError"),
 					Message: aws.String(err.Error()),
 				},
-			})
+			}
+			if tableName := extractPartiQLTableName(req.Statement); tableName != "" {
+				resp.TableName = aws.String(tableName)
+			}
+
+			responses = append(responses, resp)
 
 			continue
 		}

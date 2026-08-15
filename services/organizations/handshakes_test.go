@@ -866,20 +866,20 @@ func TestBackend_DescribeResponsibilityTransfer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		handshakeID string
-		seed        bool
-		wantErr     bool
+		name       string
+		transferID string
+		seed       bool
+		wantErr    bool
 	}{
 		{
-			name:        "found",
-			handshakeID: "h-rt00001",
-			seed:        true,
+			name:       "found",
+			transferID: "rt-00000001",
+			seed:       true,
 		},
 		{
-			name:        "not_found",
-			handshakeID: "h-notfound",
-			wantErr:     true,
+			name:       "not_found",
+			transferID: "rt-notfound",
+			wantErr:    true,
 		},
 	}
 
@@ -890,18 +890,17 @@ func TestBackend_DescribeResponsibilityTransfer(t *testing.T) {
 			b := newTestBackend()
 
 			if tt.seed {
-				now := time.Now()
-				b.AddHandshakeInternal(&organizations.Handshake{
-					ID:                  tt.handshakeID,
-					ARN:                 "arn:aws:organizations::123456789012:handshake/o/transfer/" + tt.handshakeID,
-					Action:              "APPROVE_ALL_FEATURES",
-					State:               "OPEN",
-					RequestedTimestamp:  now,
-					ExpirationTimestamp: now.Add(7 * 24 * time.Hour),
+				b.AddResponsibilityTransferInternal(&organizations.ResponsibilityTransfer{
+					ID:                tt.transferID,
+					ARN:               "arn:aws:organizations::123456789012:transfer/o-test/billing/outbound/" + tt.transferID,
+					ActiveHandshakeID: "h-rt00001",
+					Name:              "billing-transfer",
+					Status:            "REQUESTED",
+					Type:              "BILLING",
 				})
 			}
 
-			result, err := b.DescribeResponsibilityTransfer(tt.handshakeID)
+			result, err := b.DescribeResponsibilityTransfer(tt.transferID)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -911,9 +910,107 @@ func TestBackend_DescribeResponsibilityTransfer(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			assert.Equal(t, tt.handshakeID, result.ID)
+			assert.Equal(t, tt.transferID, result.ID)
+			assert.Equal(t, "billing-transfer", result.Name)
+			assert.Equal(t, "REQUESTED", result.Status)
 		})
 	}
+}
+
+// TestBackend_ResponsibilityTransfer_Lifecycle tests
+// Update/TerminateResponsibilityTransfer and the Handshake-lifecycle status sync.
+func TestBackend_ResponsibilityTransfer_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	t.Run("update_renames", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		b.AddResponsibilityTransferInternal(&organizations.ResponsibilityTransfer{
+			ID: "rt-update01", Status: "REQUESTED", Type: "BILLING",
+		})
+
+		result, err := b.UpdateResponsibilityTransfer("rt-update01", "new-name")
+		require.NoError(t, err)
+		assert.Equal(t, "new-name", result.Name)
+	})
+
+	t.Run("update_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+
+		_, err := b.UpdateResponsibilityTransfer("rt-missing", "new-name")
+		require.Error(t, err)
+	})
+
+	t.Run("terminate_requires_accepted", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		b.AddResponsibilityTransferInternal(&organizations.ResponsibilityTransfer{
+			ID: "rt-term01", Status: "REQUESTED", Type: "BILLING",
+		})
+
+		_, err := b.TerminateResponsibilityTransfer("rt-term01", nil)
+		require.Error(t, err)
+	})
+
+	t.Run("terminate_accepted_sets_end_timestamp", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		b.AddResponsibilityTransferInternal(&organizations.ResponsibilityTransfer{
+			ID: "rt-term02", Status: "ACCEPTED", Type: "BILLING",
+		})
+
+		result, err := b.TerminateResponsibilityTransfer("rt-term02", nil)
+		require.NoError(t, err)
+		assert.False(t, result.EndTimestamp.IsZero())
+	})
+
+	t.Run("terminate_already_ended", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		b.AddResponsibilityTransferInternal(&organizations.ResponsibilityTransfer{
+			ID: "rt-term03", Status: "ACCEPTED", Type: "BILLING",
+		})
+
+		_, err := b.TerminateResponsibilityTransfer("rt-term03", nil)
+		require.NoError(t, err)
+
+		_, err = b.TerminateResponsibilityTransfer("rt-term03", nil)
+		require.Error(t, err)
+	})
+
+	t.Run("accept_handshake_syncs_transfer_status", func(t *testing.T) {
+		t.Parallel()
+
+		b, _ := newOrgBackend(t)
+
+		hs, err := b.InviteOrganizationToTransferResponsibility(
+			organizations.HandshakeParty{ID: "888888888888", Type: "ACCOUNT"},
+			organizations.TransferResponsibilityParams{
+				SourceName:     "billing-transfer",
+				StartTimestamp: time.Now().Add(time.Hour),
+				Type:           "BILLING",
+			},
+		)
+		require.NoError(t, err)
+
+		outbound, err := b.ListOutboundResponsibilityTransfers("BILLING")
+		require.NoError(t, err)
+		require.Len(t, outbound, 1)
+		assert.Equal(t, "REQUESTED", outbound[0].Status)
+
+		_, err = b.AcceptHandshake(hs.ID)
+		require.NoError(t, err)
+
+		result, err := b.DescribeResponsibilityTransfer(outbound[0].ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ACCEPTED", result.Status)
+	})
 }
 
 // TestAddHandshakeInternal_SetsExpiry verifies expiry is set automatically.

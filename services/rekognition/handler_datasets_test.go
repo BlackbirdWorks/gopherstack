@@ -10,23 +10,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// extractLabels extracts the label list from a ListDatasetLabels response body.
-// AWS returns either DatasetLabelStats or DatasetLabels depending on the version.
+// extractLabels extracts the label list from a ListDatasetLabels response
+// body under the real wire key, "DatasetLabelDescriptions" (deserializers.go's
+// ListDatasetLabelsOutput switch -- confirmed no "DatasetLabelStats" case
+// exists).
 func extractLabels(t *testing.T, body []byte) []any {
 	t.Helper()
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(body, &resp))
 
-	if v, ok := resp["DatasetLabelStats"].([]any); ok {
-		return v
-	}
+	v, _ := resp["DatasetLabelDescriptions"].([]any)
 
-	if v, ok := resp["DatasetLabels"].([]any); ok {
-		return v
-	}
-
-	return nil
+	return v
 }
 
 // =============================================================================
@@ -60,7 +56,7 @@ func TestListDatasetLabels_SingleLabel(t *testing.T) { //nolint:paralleltest // 
 	for _, e := range [][]byte{entry1, entry2, entry3} {
 		rec = doRequest(t, h, "UpdateDatasetEntries", map[string]any{
 			"DatasetArn": dsARN,
-			"Changes":    e,
+			"Changes":    map[string]any{"GroundTruth": e},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -76,9 +72,9 @@ func TestListDatasetLabels_SingleLabel(t *testing.T) { //nolint:paralleltest // 
 	label0 := labels[0].(map[string]any)
 	label1 := labels[1].(map[string]any)
 	assert.Equal(t, "cat", label0["LabelName"])
-	assert.InDelta(t, float64(2), label0["EntryCount"], 0)
+	assert.InDelta(t, float64(2), label0["LabelStats"].(map[string]any)["EntryCount"], 0)
 	assert.Equal(t, "dog", label1["LabelName"])
-	assert.InDelta(t, float64(1), label1["EntryCount"], 0)
+	assert.InDelta(t, float64(1), label1["LabelStats"].(map[string]any)["EntryCount"], 0)
 }
 
 func TestListDatasetLabels_MultiLabel(t *testing.T) { //nolint:paralleltest // stateful sequential
@@ -102,7 +98,7 @@ func TestListDatasetLabels_MultiLabel(t *testing.T) { //nolint:paralleltest // s
 	entry := []byte(`{"source-ref":"s3://b/img.jpg","labels-metadata":{"class-map":{"sunglasses":1,"hat":1}}}`)
 	rec = doRequest(t, h, "UpdateDatasetEntries", map[string]any{
 		"DatasetArn": dsARN,
-		"Changes":    entry,
+		"Changes":    map[string]any{"GroundTruth": entry},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -144,7 +140,7 @@ func TestListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:paralleltest // 
 		})
 		rec = doRequest(t, h, "UpdateDatasetEntries", map[string]any{
 			"DatasetArn": dsARN,
-			"Changes":    entry,
+			"Changes":    map[string]any{"GroundTruth": entry},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
@@ -338,7 +334,7 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 	t.Run("UpdateDatasetEntries succeeds", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		rec := doRequest(t, h, "UpdateDatasetEntries", map[string]any{ //nolint:govet // existing issue.
 			"DatasetArn": datasetARN,
-			"Changes":    []byte(`{"source-ref": "s3://bucket/img.jpg"}`),
+			"Changes":    map[string]any{"GroundTruth": []byte(`{"source-ref": "s3://bucket/img.jpg"}`)},
 		})
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
@@ -370,7 +366,7 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.NotNil(t, resp["DatasetLabelStats"])
+		assert.NotNil(t, resp["DatasetLabelDescriptions"])
 	})
 
 	// DistributeDatasetEntries

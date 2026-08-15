@@ -24,6 +24,7 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 		RestAPIID:   restAPIID,
 		Description: description,
 		CreatedDate: now,
+		APISummary:  b.apiSummary(restAPIID),
 	}
 	b.deployments.Put(depl)
 
@@ -45,6 +46,36 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 	cp := *depl
 
 	return &cp, nil
+}
+
+// apiSummary snapshots restAPIID's current resources/methods for a new
+// deployment's Deployment.APISummary (types.Deployment.ApiSummary in the
+// SDK: resourcePath -> httpMethod -> MethodSnapshot). Caller must hold b.mu.
+func (b *InMemoryBackend) apiSummary(restAPIID string) map[string]map[string]MethodSnapshot {
+	resources := b.resourcesByAPI.Get(restAPIID)
+	if len(resources) == 0 {
+		return nil
+	}
+
+	summary := make(map[string]map[string]MethodSnapshot, len(resources))
+
+	for _, r := range resources {
+		if len(r.ResourceMethods) == 0 {
+			continue
+		}
+
+		methods := make(map[string]MethodSnapshot, len(r.ResourceMethods))
+		for httpMethod, m := range r.ResourceMethods {
+			methods[httpMethod] = MethodSnapshot{
+				AuthorizationType: m.AuthorizationType,
+				APIKeyRequired:    m.APIKeyRequired,
+			}
+		}
+
+		summary[r.Path] = methods
+	}
+
+	return summary
 }
 
 // GetDeployments returns all deployments for a REST API.

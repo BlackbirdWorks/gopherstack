@@ -9,28 +9,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// ImageBlockPublicAccessState is a flat scalar in the real shape (ec2@v1.319.1
+// deserializers.go, awsEc2query_deserializeOpDocumentGetImageBlockPublicAccessStateOutput):
+// <imageBlockPublicAccessState> holds the state text directly, no nested
+// <state> child. A nested struct here makes the real decoder's Value() call
+// hard-error (smithy-go xml_decoder.go's Value: "got StartElement instead"),
+// not just silently drop the field.
 type imageBlockPublicAccessStateResponse struct {
 	XMLName                     xml.Name `xml:"GetImageBlockPublicAccessStateResponse"`
 	RequestID                   string   `xml:"requestId"`
-	ImageBlockPublicAccessState struct {
-		State string `xml:"state"`
-	} `xml:"imageBlockPublicAccessState"`
+	ImageBlockPublicAccessState string   `xml:"imageBlockPublicAccessState"`
 }
 
 type enableImageBlockPublicAccessResponse struct {
 	XMLName                     xml.Name `xml:"EnableImageBlockPublicAccessResponse"`
 	RequestID                   string   `xml:"requestId"`
-	ImageBlockPublicAccessState struct {
-		State string `xml:"state"`
-	} `xml:"imageBlockPublicAccessState"`
+	ImageBlockPublicAccessState string   `xml:"imageBlockPublicAccessState"`
 }
 
 type disableImageBlockPublicAccessResponse struct {
 	XMLName                     xml.Name `xml:"DisableImageBlockPublicAccessResponse"`
 	RequestID                   string   `xml:"requestId"`
-	ImageBlockPublicAccessState struct {
-		State string `xml:"state"`
-	} `xml:"imageBlockPublicAccessState"`
+	ImageBlockPublicAccessState string   `xml:"imageBlockPublicAccessState"`
 }
 
 type describeInstanceImageMetadataResponse struct {
@@ -78,8 +78,7 @@ func (h *Handler) handleEnableImageBlockPublicAccess(vals url.Values, reqID stri
 		return nil, err
 	}
 
-	resp := &enableImageBlockPublicAccessResponse{RequestID: reqID}
-	resp.ImageBlockPublicAccessState.State = state
+	resp := &enableImageBlockPublicAccessResponse{RequestID: reqID, ImageBlockPublicAccessState: state}
 
 	return resp, nil
 }
@@ -87,15 +86,17 @@ func (h *Handler) handleEnableImageBlockPublicAccess(vals url.Values, reqID stri
 func (h *Handler) handleDisableImageBlockPublicAccess(_ url.Values, reqID string) (any, error) {
 	h.Backend.DisableImageBlockPublicAccess()
 
-	resp := &disableImageBlockPublicAccessResponse{RequestID: reqID}
-	resp.ImageBlockPublicAccessState.State = stateImageUnblocked
+	resp := &disableImageBlockPublicAccessResponse{
+		RequestID: reqID, ImageBlockPublicAccessState: stateImageUnblocked,
+	}
 
 	return resp, nil
 }
 
 func (h *Handler) handleGetImageBlockPublicAccessState(_ url.Values, reqID string) (any, error) {
-	resp := &imageBlockPublicAccessStateResponse{RequestID: reqID}
-	resp.ImageBlockPublicAccessState.State = h.Backend.GetImageBlockPublicAccessState()
+	resp := &imageBlockPublicAccessStateResponse{
+		RequestID: reqID, ImageBlockPublicAccessState: h.Backend.GetImageBlockPublicAccessState(),
+	}
 
 	return resp, nil
 }
@@ -159,10 +160,31 @@ func (h *Handler) handleDisableImageDeregistrationProtection(
 	}, nil
 }
 
+// Real ImageAttributeName values (ec2@v1.319.1 types/enums.go) that this
+// backend can round-trip through the generic imageAttributes string store.
+const (
+	imageAttrDescription = "description"
+	imageAttrImdsSupport = "imdsSupport"
+)
+
 func (h *Handler) handleModifyImageAttribute(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	attribute := vals.Get("Attribute")
 	value := vals.Get("Value")
+
+	// A real client typically sends the structured Description/ImdsSupport
+	// AttributeValue form (Description.Value=X) rather than the generic
+	// Attribute=description&Value=X pair; awsEc2query_serializeDocumentAttributeValue
+	// only ever emits a "Value" child, so this is unambiguous.
+	switch {
+	case vals.Get("Description.Value") != "":
+		attribute = imageAttrDescription
+		value = vals.Get("Description.Value")
+	case vals.Get("ImdsSupport.Value") != "":
+		attribute = imageAttrImdsSupport
+		value = vals.Get("ImdsSupport.Value")
+	}
+
 	if err := h.Backend.ModifyImageAttribute(imageID, attribute, value); err != nil {
 		return nil, err
 	}
@@ -838,13 +860,18 @@ func (h *Handler) handleDescribeAvailabilityZones(vals url.Values, reqID string)
 
 // ---- DescribeImageAttribute ----
 
+type imageAttributeValueItem struct {
+	Value string `xml:"value,omitempty"`
+}
+
 type describeImageAttributeResponse struct {
-	XMLName   xml.Name `xml:"DescribeImageAttributeResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"requestId"`
-	ImageID   string   `xml:"imageId"`
-	// LaunchPermission is the only attribute modelled here; others return empty.
-	LaunchPermission launchPermissionList `xml:"launchPermission"`
+	Description      *imageAttributeValueItem `xml:"description,omitempty"`
+	ImdsSupport      *imageAttributeValueItem `xml:"imdsSupport,omitempty"`
+	XMLName          xml.Name                 `xml:"DescribeImageAttributeResponse"`
+	Xmlns            string                   `xml:"xmlns,attr"`
+	RequestID        string                   `xml:"requestId"`
+	ImageID          string                   `xml:"imageId"`
+	LaunchPermission launchPermissionList     `xml:"launchPermission"`
 }
 
 type launchPermissionList struct {
@@ -870,16 +897,26 @@ func (h *Handler) handleDescribeImageAttribute(vals url.Values, reqID string) (a
 		return nil, fmt.Errorf("%w: Attribute is required", ErrInvalidParameter)
 	}
 
-	// Only launchPermission is modelled; all other attributes return an empty placeholder.
 	resp := &describeImageAttributeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		ImageID:   imageID,
 	}
 
-	if attribute == "launchPermission" {
+	switch attribute {
+	case "launchPermission":
+		// launchPermission grants aren't tracked per-grantee by this backend;
+		// stub a single "all" (public) grant rather than an empty list.
 		resp.LaunchPermission = launchPermissionList{
 			Items: []launchPermissionItem{{Group: "all"}},
+		}
+	case imageAttrDescription:
+		if v := h.Backend.GetImageAttribute(imageID, imageAttrDescription); v != "" {
+			resp.Description = &imageAttributeValueItem{Value: v}
+		}
+	case imageAttrImdsSupport:
+		if v := h.Backend.GetImageAttribute(imageID, imageAttrImdsSupport); v != "" {
+			resp.ImdsSupport = &imageAttributeValueItem{Value: v}
 		}
 	}
 

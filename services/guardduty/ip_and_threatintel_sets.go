@@ -16,6 +16,7 @@ func (b *InMemoryBackend) CreateIPSet(
 	detectorID, name, format, location string,
 	activate bool,
 	tags map[string]string,
+	expectedBucketOwner string,
 ) (*IPSet, error) {
 	b.mu.Lock("CreateIPSet")
 	defer b.mu.Unlock()
@@ -38,15 +39,16 @@ func (b *InMemoryBackend) CreateIPSet(
 
 	now := time.Now().UTC()
 	s := &IPSet{
-		IPSetID:    id,
-		Name:       name,
-		Format:     format,
-		Location:   location,
-		Status:     status,
-		Tags:       tags,
-		DetectorID: detectorID,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		IPSetID:             id,
+		Name:                name,
+		Format:              format,
+		Location:            location,
+		Status:              status,
+		Tags:                tags,
+		DetectorID:          detectorID,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		ExpectedBucketOwner: expectedBucketOwner,
 	}
 	b.ipSets.Put(s)
 
@@ -76,7 +78,11 @@ func (b *InMemoryBackend) GetIPSet(detectorID, ipSetID string) (*IPSet, error) {
 }
 
 // UpdateIPSet updates an IP set.
-func (b *InMemoryBackend) UpdateIPSet(detectorID, ipSetID, name, location string, activate *bool) error {
+func (b *InMemoryBackend) UpdateIPSet(
+	detectorID, ipSetID, name, location string,
+	activate *bool,
+	expectedBucketOwner string,
+) error {
 	b.mu.Lock("UpdateIPSet")
 	defer b.mu.Unlock()
 
@@ -103,6 +109,10 @@ func (b *InMemoryBackend) UpdateIPSet(detectorID, ipSetID, name, location string
 		} else {
 			s.Status = statusInactive
 		}
+	}
+
+	if expectedBucketOwner != "" {
+		s.ExpectedBucketOwner = expectedBucketOwner
 	}
 
 	s.UpdatedAt = time.Now().UTC()
@@ -156,6 +166,7 @@ func (b *InMemoryBackend) CreateThreatIntelSet(
 	detectorID, name, format, location string,
 	activate bool,
 	tags map[string]string,
+	expectedBucketOwner string,
 ) (*ThreatIntelSet, error) {
 	b.mu.Lock("CreateThreatIntelSet")
 	defer b.mu.Unlock()
@@ -178,15 +189,16 @@ func (b *InMemoryBackend) CreateThreatIntelSet(
 
 	now := time.Now().UTC()
 	s := &ThreatIntelSet{
-		ThreatIntelSetID: id,
-		Name:             name,
-		Format:           format,
-		Location:         location,
-		Status:           status,
-		Tags:             tags,
-		DetectorID:       detectorID,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ThreatIntelSetID:    id,
+		Name:                name,
+		Format:              format,
+		Location:            location,
+		Status:              status,
+		Tags:                tags,
+		DetectorID:          detectorID,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		ExpectedBucketOwner: expectedBucketOwner,
 	}
 	b.threatIntelSets.Put(s)
 
@@ -216,7 +228,11 @@ func (b *InMemoryBackend) GetThreatIntelSet(detectorID, setID string) (*ThreatIn
 }
 
 // UpdateThreatIntelSet updates a threat intelligence set.
-func (b *InMemoryBackend) UpdateThreatIntelSet(detectorID, setID, name, location string, activate *bool) error {
+func (b *InMemoryBackend) UpdateThreatIntelSet(
+	detectorID, setID, name, location string,
+	activate *bool,
+	expectedBucketOwner string,
+) error {
 	b.mu.Lock("UpdateThreatIntelSet")
 	defer b.mu.Unlock()
 
@@ -243,6 +259,10 @@ func (b *InMemoryBackend) UpdateThreatIntelSet(detectorID, setID, name, location
 		} else {
 			s.Status = statusInactive
 		}
+	}
+
+	if expectedBucketOwner != "" {
+		s.ExpectedBucketOwner = expectedBucketOwner
 	}
 
 	s.UpdatedAt = time.Now().UTC()

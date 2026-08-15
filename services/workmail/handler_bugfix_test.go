@@ -9,10 +9,13 @@ package workmail_test
 //     InternalServiceError) for any real SDK client that specified a domain.
 //   - DescribeEntity resolves by primary email address (the only field the
 //     real API documents), which the backend never implemented.
-//   - ListMailboxExportJobs reuses the full MailboxExportJob wire shape (not
-//     a narrower summary), so RoleArn/KmsKeyArn/S3Path/S3Prefix/
-//     EstimatedProgress/ErrorInfo must round-trip through the list, not just
-//     DescribeMailboxExportJob.
+//   - ListMailboxExportJobs uses the narrower types.MailboxExportJob shape,
+//     not the full DescribeMailboxExportJobOutput shape -- see
+//     TestBugfix_WorkMail_ListMailboxExportJobsNarrowShape below and
+//     wire_field_fixes_test.go's SDK round-trip for the corrected version of
+//     what this comment used to claim (that RoleArn/KmsKeyArn/S3Prefix/
+//     ErrorInfo round-trip through the list; they do not exist on the real
+//     list item type at all).
 
 import (
 	"fmt"
@@ -110,11 +113,19 @@ func TestBugfix_WorkMail_ListAccessControlRulesIpRangesCasing(t *testing.T) {
 	assert.False(t, hasWrongKey, "response must not use the wrong IPRanges casing")
 }
 
-func TestBugfix_WorkMail_ListMailboxExportJobsFullShape(t *testing.T) {
+// TestBugfix_WorkMail_ListMailboxExportJobsNarrowShape supersedes the old
+// "FullShape" version of this test, which asserted RoleArn/KmsKeyArn/
+// S3Prefix as correct on ListMailboxExportJobs items -- a ratifying test
+// for a shape that never existed on the real
+// types.MailboxExportJob (aws-sdk-go-v2/service/workmail@v1.39.4/
+// types/types.go). See wire_field_fixes_test.go's
+// Test_SDKRoundTrip_ListMailboxExportJobs_NarrowShape for the real-SDK-client
+// version of this proof.
+func TestBugfix_WorkMail_ListMailboxExportJobsNarrowShape(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	orgID := createTestOrg(t, h, "exportjobsfull")
+	orgID := createTestOrg(t, h, "exportjobsnarrow")
 	userID := createTestUser(t, h, orgID, "expuser", "Export User")
 
 	rec := doOp(t, h, "StartMailboxExportJob", fmt.Sprintf(
@@ -132,9 +143,16 @@ func TestBugfix_WorkMail_ListMailboxExportJobsFullShape(t *testing.T) {
 	require.Len(t, jobs, 1)
 	j := jobs[0].(map[string]any)
 
-	assert.Equal(t, "arn:aws:iam::000000000000:role/r", j["RoleArn"])
-	assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/k", j["KmsKeyArn"])
-	assert.Equal(t, "pfx", j["S3Prefix"])
+	assert.Equal(t, "bkt", j["S3BucketName"])
 	assert.NotEmpty(t, j["S3Path"])
 	assert.Contains(t, j, "EstimatedProgress")
+
+	_, hasRoleArn := j["RoleArn"]
+	_, hasKmsKeyArn := j["KmsKeyArn"]
+	_, hasS3Prefix := j["S3Prefix"]
+	_, hasErrorInfo := j["ErrorInfo"]
+	assert.False(t, hasRoleArn, "ListMailboxExportJobs must not include RoleArn: no such field on the real type")
+	assert.False(t, hasKmsKeyArn, "ListMailboxExportJobs must not include KmsKeyArn: no such field on the real type")
+	assert.False(t, hasS3Prefix, "ListMailboxExportJobs must not include S3Prefix: no such field on the real type")
+	assert.False(t, hasErrorInfo, "ListMailboxExportJobs must not include ErrorInfo: no such field on the real type")
 }

@@ -6,9 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/securityhub"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	securityhubsdk "github.com/aws/aws-sdk-go-v2/service/securityhub"
+	securityhubtypes "github.com/aws/aws-sdk-go-v2/service/securityhub/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
 func TestHandler_GetFindingsV2_Pagination(t *testing.T) {
@@ -622,34 +626,98 @@ func TestBatchUpdateFindingsV2_UnmatchedIdentifiers(t *testing.T) {
 	}
 }
 
-func TestGetFindingStatisticsV2_ReturnsStats(t *testing.T) {
-	t.Parallel()
+// seedSeverityFindings imports two HIGH-severity findings and one LOW, via
+// the raw ASFF BatchImportFindings wire (POST /findings/import). Severity is
+// nested under Severity.Label on the real wire (securityhub@v1.75.4
+// types/types.go AwsSecurityFinding.Severity), not a flat "SeverityLabel"
+// key -- a real BatchImportFindings caller can never populate a flat key.
+func seedSeverityFindings(t *testing.T, h *securityhub.Handler) {
+	t.Helper()
 
-	h := newTestHandler(t)
+	high := map[string]any{"Label": "HIGH"}
+	low := map[string]any{"Label": "LOW"}
 
-	rec := doRequest(t, h, http.MethodPost, "/findingsv2/statistics", map[string]any{
-		"GroupByAttributes": []any{"Severity.Label"},
+	rec := doRequest(t, h, http.MethodPost, "/findings/import", map[string]any{
+		"Findings": []any{
+			securityhub.ValidFinding(map[string]any{"Id": "sev-finding-1", "Severity": high}),
+			securityhub.ValidFinding(map[string]any{"Id": "sev-finding-2", "Severity": high}),
+			securityhub.ValidFinding(map[string]any{"Id": "sev-finding-3", "Severity": low}),
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotNil(t, resp["FindingStatistics"])
 }
 
-func TestGetFindingsTrendsV2_ReturnsTrends(t *testing.T) {
+// TestGetFindingStatisticsV2_RoundTrip drives GetFindingStatisticsV2 through
+// the real SDK client. Before the fix, the handler read a fabricated
+// body["GroupByAttributes"] ([]string) where the real required input member
+// is GroupByRules ([]types.GroupByRule), and emitted "FindingStatistics"
+// where the real (optional but only meaningful) output key is
+// "GroupByResults" (securityhub@v1.75.4 api_op_GetFindingStatisticsV2.go:
+// 22-57) -- a real client's request grouped by nothing, and its response
+// decoded a nil slice regardless.
+func TestGetFindingStatisticsV2_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	h := securityhub.NewHandler(backend)
+	seedSeverityFindings(t, h)
+	client := newTestSecurityHubClient(t, h)
 
-	rec := doRequest(t, h, http.MethodPost, "/findingsTrendsv2", map[string]any{
-		"GroupByAttribute": "Severity.Label",
-		"StartTime":        "2024-01-01T00:00:00Z",
-		"EndTime":          "2024-12-31T23:59:59Z",
+	out, err := client.GetFindingStatisticsV2(t.Context(), &securityhubsdk.GetFindingStatisticsV2Input{
+		GroupByRules: []securityhubtypes.GroupByRule{
+			{GroupByField: securityhubtypes.GroupByFieldSeverity},
+		},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, err)
+	require.NotEmpty(t, out.GroupByResults,
+		"unfixed handler emits FindingStatistics where the real key is GroupByResults; SDK decodes a nil slice")
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotNil(t, resp["FindingsTrends"])
+	result := out.GroupByResults[0]
+	assert.Equal(t, "severity", aws.ToString(result.GroupByField))
+	require.NotEmpty(t, result.GroupByValues)
+
+	byLabel := make(map[string]int32)
+	for _, v := range result.GroupByValues {
+		byLabel[aws.ToString(v.FieldValue)] = aws.ToInt32(v.Count)
+	}
+
+	assert.Equal(t, int32(2), byLabel["HIGH"])
+	assert.Equal(t, int32(1), byLabel["LOW"])
+}
+
+// TestGetFindingsTrendsV2_RoundTrip drives GetFindingsTrendsV2 through the
+// real SDK client. Before the fix, the handler read a fabricated
+// body["GroupByAttribute"] (which the real GetFindingsTrendsV2Input doesn't
+// have at all) and emitted "FindingsTrends", dropping the required
+// Granularity and TrendsMetrics members (securityhub@v1.75.4
+// api_op_GetFindingsTrendsV2.go:22-58) -- a real client decoded a nil slice
+// and an empty Granularity string, even though the backend already computed
+// real trend data.
+func TestGetFindingsTrendsV2_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	h := securityhub.NewHandler(backend)
+	seedSeverityFindings(t, h)
+	client := newTestSecurityHubClient(t, h)
+
+	start, err := time.Parse(time.RFC3339, "2024-01-01T00:00:00Z")
+	require.NoError(t, err)
+	end, err := time.Parse(time.RFC3339, "2024-01-02T00:00:00Z")
+	require.NoError(t, err)
+
+	out, err := client.GetFindingsTrendsV2(t.Context(), &securityhubsdk.GetFindingsTrendsV2Input{
+		StartTime: aws.Time(start),
+		EndTime:   aws.Time(end),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, out.Granularity, "Granularity is required on the real wire")
+	require.NotEmpty(t, out.TrendsMetrics,
+		"unfixed handler emits FindingsTrends where the real key is TrendsMetrics; SDK decodes a nil slice")
+
+	point := out.TrendsMetrics[0]
+	require.NotNil(t, point.TrendsValues)
+	require.NotNil(t, point.TrendsValues.SeverityTrends)
+	assert.Equal(t, int64(2), aws.ToInt64(point.TrendsValues.SeverityTrends.High))
+	assert.Equal(t, int64(1), aws.ToInt64(point.TrendsValues.SeverityTrends.Low))
 }

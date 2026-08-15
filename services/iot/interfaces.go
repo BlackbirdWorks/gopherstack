@@ -192,7 +192,7 @@ type StorageBackend interface {
 	CreateFleetMetric(input *CreateFleetMetricInput) (*FleetMetric, error)
 	DescribeFleetMetric(name string) (*FleetMetric, error)
 	ListFleetMetrics() []*FleetMetric
-	UpdateFleetMetric(name, queryString, description string, period int32, expectedVersion int64) error
+	UpdateFleetMetric(name string, input *UpdateFleetMetricInput) error
 	DeleteFleetMetric(name string) error
 
 	// Batch 2: CustomMetric operations.
@@ -340,7 +340,9 @@ type StorageBackend interface {
 	DeleteCommand(id string) error
 	ListCommands() []*IoTCommand
 	GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error)
+	GetCommandExecutionByID(executionID, targetARN string) (*IoTCommandExecution, error)
 	ListCommandExecutions(commandID string) []*IoTCommandExecution
+	ListCommandExecutionsByFilter(commandARN, targetARN, status string) []*IoTCommandExecution
 
 	// Fleet indexing: configuration.
 	GetIndexingConfiguration() *GetIndexingConfigurationOutput

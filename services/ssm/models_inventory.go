@@ -43,13 +43,26 @@ type InventoryTypeData struct {
 // ComplianceItem is a single compliance data item for a resource.
 // Fields are ordered for optimal struct alignment.
 type ComplianceItem struct {
-	Details        map[string]string `json:"Details,omitempty"`
-	ResourceID     string            `json:"ResourceId"`
-	ResourceType   string            `json:"ResourceType"`
-	ComplianceType string            `json:"ComplianceType,omitempty"`
-	Status         string            `json:"Status,omitempty"`
-	Severity       string            `json:"Severity,omitempty"`
-	Title          string            `json:"Title,omitempty"`
+	Details          map[string]string           `json:"Details,omitempty"`
+	ExecutionSummary *ComplianceExecutionSummary `json:"ExecutionSummary,omitempty"`
+	ResourceID       string                      `json:"ResourceId"`
+	ResourceType     string                      `json:"ResourceType"`
+	ComplianceType   string                      `json:"ComplianceType,omitempty"`
+	Status           string                      `json:"Status,omitempty"`
+	Severity         string                      `json:"Severity,omitempty"`
+	Title            string                      `json:"Title,omitempty"`
+	ID               string                      `json:"Id,omitempty"`
+}
+
+// ComplianceExecutionSummary is the required execution metadata for a
+// PutComplianceItems call (types.ComplianceExecutionSummary,
+// api_op_PutComplianceItems.go: ExecutionTime is required). ExecutionTime is
+// this package's usual epoch-seconds convention, matching every other
+// awsjson1.1 DateTime field.
+type ComplianceExecutionSummary struct {
+	ExecutionID   string  `json:"ExecutionId,omitempty"`
+	ExecutionType string  `json:"ExecutionType,omitempty"`
+	ExecutionTime float64 `json:"ExecutionTime"`
 }
 
 // PutInventoryInput is the request payload for PutInventory.
@@ -97,32 +110,47 @@ type ListInventoryEntriesInput struct {
 }
 
 // ListInventoryEntriesOutput is the response payload for ListInventoryEntries.
+// CaptureTime/SchemaVersion (real members, api_op_ListInventoryEntries.go)
+// were previously absent entirely -- the matched InventoryItem already
+// carries both, they were just never echoed back on the response envelope.
 type ListInventoryEntriesOutput struct {
-	InstanceID string              `json:"InstanceId,omitempty"`
-	TypeName   string              `json:"TypeName,omitempty"`
-	NextToken  string              `json:"NextToken,omitempty"`
-	Entries    []map[string]string `json:"Entries"`
+	InstanceID    string              `json:"InstanceId,omitempty"`
+	TypeName      string              `json:"TypeName,omitempty"`
+	NextToken     string              `json:"NextToken,omitempty"`
+	CaptureTime   string              `json:"CaptureTime,omitempty"`
+	SchemaVersion string              `json:"SchemaVersion,omitempty"`
+	Entries       []map[string]string `json:"Entries"`
 }
 
 // DeleteInventoryInput is the request payload for DeleteInventory.
+// SchemaDeleteOption/ClientToken are not modeled: this backend only tracks
+// items, not versioned schema state, so DisableSchema/DeleteSchema have no
+// distinct effect to honor (disclosed in PARITY.md rather than fabricated).
 type DeleteInventoryInput struct {
 	TypeName string `json:"TypeName"`
+	DryRun   bool   `json:"DryRun,omitempty"`
 }
 
 // PutComplianceItemsInput is the request payload for PutComplianceItems.
 type PutComplianceItemsInput struct {
-	ResourceID     string           `json:"ResourceId"`
-	ResourceType   string           `json:"ResourceType"`
-	ComplianceType string           `json:"ComplianceType,omitempty"`
-	Items          []ComplianceItem `json:"Items"`
+	ExecutionSummary *ComplianceExecutionSummary `json:"ExecutionSummary,omitempty"`
+	ResourceID       string                      `json:"ResourceId"`
+	ResourceType     string                      `json:"ResourceType"`
+	ComplianceType   string                      `json:"ComplianceType,omitempty"`
+	UploadType       string                      `json:"UploadType,omitempty"`
+	Items            []ComplianceItem            `json:"Items"`
 }
 
 // ListComplianceItemsInput is the request payload for ListComplianceItems.
+// ResourceIds/ResourceTypes are real *list* members
+// (api_op_ListComplianceItems.go) -- previously gopherstack modeled a
+// singular "ResourceId" wire key that no real client ever sends, so
+// filtering silently never matched.
 type ListComplianceItemsInput struct {
-	MaxResults   *int64 `json:"MaxResults,omitempty"`
-	ResourceID   string `json:"ResourceId,omitempty"`
-	ResourceType string `json:"ResourceType,omitempty"`
-	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults    *int64   `json:"MaxResults,omitempty"`
+	NextToken     string   `json:"NextToken,omitempty"`
+	ResourceIDs   []string `json:"ResourceIds,omitempty"`
+	ResourceTypes []string `json:"ResourceTypes,omitempty"`
 }
 
 // ListComplianceItemsOutput is the response payload for ListComplianceItems.

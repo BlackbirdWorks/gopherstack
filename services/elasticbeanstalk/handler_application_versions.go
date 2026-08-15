@@ -6,10 +6,19 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // --- Application Version operations ---
 
+// appVersionDescType mirrors types.ApplicationVersionDescription
+// (elasticbeanstalk@v1.37.4 types/types.go). BuildArn ("The build ARN for
+// the application version if it's an application deployed through AWS
+// CodeBuild") is not modeled: this backend has no CodeBuild integration
+// anywhere (SourceBuildInformation is stored-but-unvalidated, matching
+// CreatePlatformVersion's S3 bundle precedent), so there is no real ARN to
+// source -- a structural gap, not a dropped field.
 type appVersionDescType struct {
 	SourceBundle           *s3LocationType             `xml:"SourceBundle,omitempty"`
 	SourceBuildInformation *sourceBuildInformationType `xml:"SourceBuildInformation,omitempty"`
@@ -110,6 +119,7 @@ func (h *Handler) handleCreateApplicationVersion(ctx context.Context, vals url.V
 }
 
 type describeApplicationVersionsResult struct {
+	NextToken           string               `xml:"NextToken,omitempty"`
 	ApplicationVersions []appVersionDescType `xml:"ApplicationVersions>member"`
 }
 
@@ -125,9 +135,11 @@ func (h *Handler) handleDescribeApplicationVersions(ctx context.Context, vals ur
 	versionLabels := parseMembers(vals, "VersionLabels.member")
 	vers := h.Backend.DescribeApplicationVersions(ctx, appName, versionLabels)
 
-	members := make([]appVersionDescType, 0, len(vers))
+	pg := page.New(vers, vals.Get("NextToken"), parseMaxRecords(vals, "MaxRecords"), defaultListLimit)
 
-	for _, ver := range vers {
+	members := make([]appVersionDescType, 0, len(pg.Data))
+
+	for _, ver := range pg.Data {
 		members = append(members, toAppVersionDesc(ver))
 	}
 
@@ -135,6 +147,7 @@ func (h *Handler) handleDescribeApplicationVersions(ctx context.Context, vals ur
 		Xmlns: ebXMLNS,
 		DescribeApplicationVersionsResult: describeApplicationVersionsResult{
 			ApplicationVersions: members,
+			NextToken:           pg.Next,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-describe-vers"},
 	}, nil

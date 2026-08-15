@@ -167,6 +167,8 @@ func (b *InMemoryBackend) DeleteAgentActionGroup(
 }
 
 // ListAgentActionGroups returns all action groups for an agent version.
+//
+//nolint:dupl // structurally mirrors ListAgentKnowledgeBases but filters a distinct table/type
 func (b *InMemoryBackend) ListAgentActionGroups(
 	_ context.Context, agentID, agentVersion string, maxResults int, nextToken string,
 ) ([]*ActionGroupSummary, string, error) {

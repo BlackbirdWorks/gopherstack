@@ -46,7 +46,7 @@ type StorageBackend interface {
 	ListAll() []*Stack
 	// Drift detection
 	DetectStackDrift(nameOrID string) (string, error)
-	DetectStackResourceDrift(nameOrID, logicalID string) (string, error)
+	DetectStackResourceDrift(nameOrID, logicalID string) (*StackResourceDrift, error)
 	DescribeStackDriftDetectionStatus(detectionID string) (*DriftDetectionStatus, error)
 	DescribeStackResourceDrifts(nameOrID string) ([]StackResourceDrift, error)
 	// Stack policy
@@ -61,7 +61,7 @@ type StorageBackend interface {
 	DescribeAccountLimits() []AccountLimit
 	// Stack Sets
 	CreateStackSet(name, description, templateBody string, opts StackSetOptions) (*StackSet, error)
-	UpdateStackSet(name, description, templateBody string, opts StackSetOptions) (*StackSet, error)
+	UpdateStackSet(name, description, templateBody string, opts StackSetOptions) (*StackSet, string, error)
 	DeleteStackSet(name string) error
 	DescribeStackSet(name string) (*StackSet, error)
 	StackSetRegions(name string) []string
@@ -89,13 +89,13 @@ type StorageBackend interface {
 		stackSetName, operationID, nextToken string,
 	) ([]StackSetOperationResult, error)
 	ListStackSetAutoDeploymentTargets(stackSetName string) ([]AutoDeploymentTarget, error)
-	ImportStacksToStackSet(stackSetName string, stackIDs []string) error
+	ImportStacksToStackSet(stackSetName string, stackIDs []string) (string, error)
 	ListStackInstanceResourceDrifts(
 		stackSetName, operationID, account, region string,
 	) ([]StackResourceDrift, error)
 	// Generated templates
 	CreateGeneratedTemplate(name string, resources []string) (*GeneratedTemplate, error)
-	UpdateGeneratedTemplate(id, name string) error
+	UpdateGeneratedTemplate(id, name string) (*GeneratedTemplate, error)
 	DeleteGeneratedTemplate(id string) error
 	DescribeGeneratedTemplate(id string) (*GeneratedTemplate, error)
 	GetGeneratedTemplate(id string) (string, error)
@@ -107,13 +107,13 @@ type StorageBackend interface {
 	ListResourceScanResources(scanID, nextToken string) ([]ScannedResource, error)
 	ListResourceScanRelatedResources(scanID string, resources []string) ([]string, error)
 	// Type management
-	ActivateType(typeName, typeArn string) error
+	ActivateType(typeName, typeArn string) (string, error)
 	DeactivateType(typeName, typeArn string) error
 	RegisterType(typeName, schemaHandlerPackage string) (string, error)
 	DeregisterType(arn string) error
-	PublishType(typeName string) error
+	PublishType(typeName string) (string, error)
 	SetTypeDefaultVersion(arn, version string) error
-	SetTypeConfiguration(typeName, configuration string) error
+	SetTypeConfiguration(typeName, configuration string) (string, error)
 	BatchDescribeTypeConfigurations(
 		identifiers []TypeConfigurationIdentifier,
 	) ([]TypeConfigurationDetail, []BatchDescribeTypeConfigurationsError, []TypeConfigurationIdentifier)
@@ -141,7 +141,7 @@ type StorageBackend interface {
 	DescribeOrganizationsAccess() (string, error)
 	// Misc
 	SignalResource(stackName, logicalID, uniqueID, status string) error
-	RollbackStack(ctx context.Context, stackName string) error
+	RollbackStack(ctx context.Context, stackName string) (*Stack, error)
 	RecordHandlerProgress(bearerToken, operationStatus string) error
 	GetHookResult(hookResultToken string) (string, error)
 	ListHookResults(hookResultToken, nextToken string) ([]HookResult, error)

@@ -15,10 +15,11 @@ func TestDeleteLaunchTemplate(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	lt, err := b.CreateLaunchTemplate("my-template", "ami-0c55b159cbfafe1f0", "t3.micro")
+	lt, err := b.CreateLaunchTemplate("my-template", "ami-0c55b159cbfafe1f0", "t3.micro", nil)
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeleteLaunchTemplate(lt.ID))
+	_, err = b.DeleteLaunchTemplate(lt.ID)
+	require.NoError(t, err)
 
 	versions, err := b.DescribeLaunchTemplateVersions(lt.ID)
 	require.Error(t, err)
@@ -33,7 +34,7 @@ func TestDescribeLaunchTemplateVersions(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	lt, err := b.CreateLaunchTemplate("versioned", "ami-0c55b159cbfafe1f0", "t3.small")
+	lt, err := b.CreateLaunchTemplate("versioned", "ami-0c55b159cbfafe1f0", "t3.small", nil)
 	require.NoError(t, err)
 
 	versions, err := b.DescribeLaunchTemplateVersions(lt.ID)

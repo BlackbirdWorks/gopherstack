@@ -8,6 +8,24 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// extractEnforcedGuardrailConfigOperation mirrors
+// routeEnforcedGuardrailConfig's dispatch order exactly, so ExtractOperation
+// agrees with the real dispatch contract -- previously absent from
+// ExtractOperation's extractor list entirely (found by gopherstack-n1mb's
+// route table; Handler() itself already dispatched these correctly).
+func extractEnforcedGuardrailConfigOperation(path, method string) (string, bool) {
+	switch {
+	case path == enforcedGuardrailsPath && method == http.MethodGet:
+		return "ListEnforcedGuardrailsConfiguration", true
+	case path == enforcedGuardrailsPath && method == http.MethodPut:
+		return "PutEnforcedGuardrailConfiguration", true
+	case strings.HasPrefix(path, enforcedGuardrailsPath+"/") && method == http.MethodDelete:
+		return "DeleteEnforcedGuardrailConfiguration", true
+	}
+
+	return "", false
+}
+
 // routeEnforcedGuardrailConfig handles PutEnforcedGuardrailConfiguration,
 // ListEnforcedGuardrailsConfiguration, and DeleteEnforcedGuardrailConfiguration.
 //

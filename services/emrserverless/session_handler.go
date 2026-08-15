@@ -72,6 +72,30 @@ func sessionToMap(session *Session) map[string]any {
 	return out
 }
 
+// sessionSummaryToMap builds the types.SessionSummary shape
+// (types/types.go:981) -- no startedAt, endedAt, idleTimeoutMinutes,
+// configurationOverrides, or tags, all of which are Get-only (confirmed
+// against awsRestjson1_deserializeDocumentSessionSummary, which recognises
+// only applicationId/arn/createdAt/createdBy/executionRoleArn/name/
+// releaseLabel/sessionId/state/stateDetails/updatedAt -- note SessionSummary
+// uses "sessionId" only, unlike Application/JobRun's Summary types which key
+// their identifier as "id").
+func sessionSummaryToMap(session *Session) map[string]any {
+	return map[string]any{
+		keyApplicationID:   session.ApplicationID,
+		keySessionID:       session.SessionID,
+		keyArn:             session.Arn,
+		keyName:            session.Name,
+		keyState:           session.State,
+		keyStateDetails:    session.StateDetails,
+		keyCreatedBy:       session.CreatedBy,
+		"executionRoleArn": session.ExecutionRoleArn,
+		keyReleaseLabel:    session.ReleaseLabel,
+		keyCreatedAt:       epochSeconds(session.CreatedAt),
+		keyUpdatedAt:       epochSeconds(session.UpdatedAt),
+	}
+}
+
 func (h *Handler) handleGetSession(c *echo.Context, applicationID, sessionID string) error {
 	session, err := h.Backend.GetSession(applicationID, sessionID)
 	if err != nil {
@@ -92,7 +116,7 @@ func (h *Handler) handleListSessions(c *echo.Context, applicationID string) erro
 	}
 	list := make([]map[string]any, 0, len(sessions))
 	for _, session := range sessions {
-		list = append(list, sessionToMap(session))
+		list = append(list, sessionSummaryToMap(session))
 	}
 	resp := map[string]any{"sessions": list}
 	if outToken != "" {

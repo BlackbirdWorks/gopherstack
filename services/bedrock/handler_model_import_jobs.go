@@ -62,10 +62,32 @@ func (h *Handler) handleListModelImportJobs(c *echo.Context) error {
 	summaries := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
-		summaries = append(summaries, modelImportJobToOutput(j))
+		summaries = append(summaries, modelImportJobToSummary(j))
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"modelImportJobSummaries": summaries})
+}
+
+// modelImportJobToSummary mirrors types.ModelImportJobSummary: creationTime,
+// jobArn, jobName, status, endTime, importedModelArn, importedModelName,
+// lastModifiedTime (bedrock@v1.66.4 types/types.go:5479-5514). No roleArn,
+// modelDataSource or tags -- those are GetModelImportJob/CreateModelImportJob-only.
+func modelImportJobToSummary(j *ModelImportJob) map[string]any {
+	out := map[string]any{
+		keyJobArn:           j.JobArn,
+		keyJobName:          j.JobName,
+		"importedModelArn":  j.ImportedModelArn,
+		"importedModelName": j.ImportedModelName,
+		keyStatus:           j.Status,
+		keyCreationTime:     j.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
+	}
+
+	if j.EndTime != nil {
+		out["endTime"] = j.EndTime.Format(time.RFC3339)
+	}
+
+	return out
 }
 
 func (h *Handler) handleGetModelImportJob(c *echo.Context, jobARN string) error {

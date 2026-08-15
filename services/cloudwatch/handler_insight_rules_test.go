@@ -99,8 +99,11 @@ func TestPutManagedInsightRules_StoresRules(t *testing.T) {
 			listRec := postForm(t, h, "Action=ListManagedInsightRules")
 			require.Equal(t, http.StatusOK, listRec.Code)
 
+			// RuleName lives under the nested RuleState element, matching
+			// real ManagedRuleDescription (cloudwatch@v1.66.3
+			// schemas/schemas.go:3795-3799), not a flat top-level RuleName.
 			type ruleXML struct {
-				RuleName string `xml:"RuleName"`
+				RuleName string `xml:"RuleState>RuleName"`
 			}
 			type listResp struct {
 				XMLName xml.Name `xml:"ListManagedInsightRulesResponse"`

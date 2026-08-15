@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // validateSchemaDefinition checks a schema definition string against its DataFormat.
@@ -375,15 +376,21 @@ type getRegistryInput struct {
 	RegistryID *registryIDInput `json:"RegistryId"`
 }
 
-// getRegistryOutput holds the result for GetRegistry.
+// getRegistryOutput holds the result for GetRegistry. No Tags -- that member
+// exists on CreateRegistryOutput (api_op_CreateRegistry.go) but not here
+// (api_op_GetRegistry.go).
+//
+// CreatedTime/UpdatedTime are *string on the real type (glue@v1.152.0
+// deserializers.go's GetRegistryOutput switch: "expected CreatedTimestamp to
+// be of type string"), the same Schema Registry exception ListRegistries was
+// fixed for.
 type getRegistryOutput struct {
-	Tags         map[string]string `json:"Tags,omitempty"`
-	RegistryName string            `json:"RegistryName"`
-	RegistryArn  string            `json:"RegistryArn"`
-	Description  string            `json:"Description,omitempty"`
-	Status       string            `json:"Status"`
-	CreatedTime  float64           `json:"CreatedTime,omitempty"`
-	UpdatedTime  float64           `json:"UpdatedTime,omitempty"`
+	RegistryName string `json:"RegistryName"`
+	RegistryArn  string `json:"RegistryArn"`
+	Description  string `json:"Description,omitempty"`
+	Status       string `json:"Status"`
+	CreatedTime  string `json:"CreatedTime,omitempty"`
+	UpdatedTime  string `json:"UpdatedTime,omitempty"`
 }
 
 func (h *Handler) handleGetRegistry(
@@ -405,9 +412,8 @@ func (h *Handler) handleGetRegistry(
 		RegistryArn:  reg.ARN,
 		Status:       reg.Status,
 		Description:  reg.Description,
-		CreatedTime:  reg.CreatedTime,
-		UpdatedTime:  reg.UpdatedTime,
-		Tags:         reg.Tags,
+		CreatedTime:  formatGlueTimestampString(reg.CreatedTime),
+		UpdatedTime:  formatGlueTimestampString(reg.UpdatedTime),
 	}, nil
 }
 
@@ -416,18 +422,29 @@ type getSchemaInput struct {
 	SchemaID *schemaIDInput `json:"SchemaId"`
 }
 
-// getSchemaOutput holds the result for GetSchema.
+// getSchemaOutput holds the result for GetSchema. LatestSchemaVersion,
+// NextSchemaVersion and SchemaCheckpoint are real members
+// (api_op_GetSchema.go) this handler previously dropped even though the
+// backend's Schema model already tracks them (used by CreateSchema's output).
+//
+// CreatedTime/UpdatedTime are *string on the real type (glue@v1.152.0
+// deserializers.go's GetSchemaOutput switch: "expected CreatedTimestamp to
+// be of type string"), the same Schema Registry exception ListRegistries was
+// fixed for.
 type getSchemaOutput struct {
-	RegistryName  string  `json:"RegistryName"`
-	RegistryArn   string  `json:"RegistryArn"`
-	SchemaName    string  `json:"SchemaName"`
-	SchemaArn     string  `json:"SchemaArn"`
-	DataFormat    string  `json:"DataFormat"`
-	Compatibility string  `json:"Compatibility"`
-	SchemaStatus  string  `json:"SchemaStatus"`
-	Description   string  `json:"Description,omitempty"`
-	CreatedTime   float64 `json:"CreatedTime,omitempty"`
-	UpdatedTime   float64 `json:"UpdatedTime,omitempty"`
+	RegistryName        string `json:"RegistryName"`
+	RegistryArn         string `json:"RegistryArn"`
+	SchemaName          string `json:"SchemaName"`
+	SchemaArn           string `json:"SchemaArn"`
+	DataFormat          string `json:"DataFormat"`
+	Compatibility       string `json:"Compatibility"`
+	SchemaStatus        string `json:"SchemaStatus"`
+	Description         string `json:"Description,omitempty"`
+	CreatedTime         string `json:"CreatedTime,omitempty"`
+	UpdatedTime         string `json:"UpdatedTime,omitempty"`
+	LatestSchemaVersion int64  `json:"LatestSchemaVersion"`
+	NextSchemaVersion   int64  `json:"NextSchemaVersion"`
+	SchemaCheckpoint    int64  `json:"SchemaCheckpoint"`
 }
 
 func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSchemaOutput, error) {
@@ -443,16 +460,19 @@ func (h *Handler) handleGetSchema(_ context.Context, in *getSchemaInput) (*getSc
 	}
 
 	return &getSchemaOutput{
-		RegistryName:  s.RegistryName,
-		RegistryArn:   s.RegistryARN,
-		SchemaName:    s.SchemaName,
-		SchemaArn:     s.SchemaARN,
-		DataFormat:    s.DataFormat,
-		Compatibility: s.Compatibility,
-		SchemaStatus:  s.SchemaStatus,
-		Description:   s.Description,
-		CreatedTime:   s.CreatedTime,
-		UpdatedTime:   s.UpdatedTime,
+		RegistryName:        s.RegistryName,
+		RegistryArn:         s.RegistryARN,
+		SchemaName:          s.SchemaName,
+		SchemaArn:           s.SchemaARN,
+		DataFormat:          s.DataFormat,
+		Compatibility:       s.Compatibility,
+		SchemaStatus:        s.SchemaStatus,
+		Description:         s.Description,
+		CreatedTime:         formatGlueTimestampString(s.CreatedTime),
+		UpdatedTime:         formatGlueTimestampString(s.UpdatedTime),
+		LatestSchemaVersion: s.LatestSchemaVersion,
+		NextSchemaVersion:   s.NextSchemaVersion,
+		SchemaCheckpoint:    s.CheckpointVersion,
 	}, nil
 }
 
@@ -503,15 +523,18 @@ type getSchemaVersionInput struct {
 	SchemaVersionID string `json:"SchemaVersionId"`
 }
 
-// getSchemaVersionOutput holds the result for GetSchemaVersion.
+// getSchemaVersionOutput holds the result for GetSchemaVersion. CreatedTime
+// is *string on the real type (glue@v1.152.0 deserializers.go's
+// GetSchemaVersionOutput switch: "expected CreatedTimestamp to be of type
+// string"), the same Schema Registry exception ListRegistries was fixed for.
 type getSchemaVersionOutput struct {
-	SchemaVersionID  string  `json:"SchemaVersionId"`
-	SchemaArn        string  `json:"SchemaArn"`
-	SchemaDefinition string  `json:"SchemaDefinition,omitempty"`
-	DataFormat       string  `json:"DataFormat,omitempty"`
-	Status           string  `json:"Status"`
-	VersionNumber    int64   `json:"VersionNumber"`
-	CreatedTime      float64 `json:"CreatedTime,omitempty"`
+	SchemaVersionID  string `json:"SchemaVersionId"`
+	SchemaArn        string `json:"SchemaArn"`
+	SchemaDefinition string `json:"SchemaDefinition,omitempty"`
+	DataFormat       string `json:"DataFormat,omitempty"`
+	Status           string `json:"Status"`
+	CreatedTime      string `json:"CreatedTime,omitempty"`
+	VersionNumber    int64  `json:"VersionNumber"`
 }
 
 func (h *Handler) handleGetSchemaVersion(
@@ -541,7 +564,7 @@ func (h *Handler) handleGetSchemaVersion(
 		DataFormat:       sv.DataFormat,
 		Status:           sv.Status,
 		VersionNumber:    sv.VersionNumber,
-		CreatedTime:      sv.CreatedTime,
+		CreatedTime:      formatGlueTimestampString(sv.CreatedTime),
 	}, nil
 }
 
@@ -614,31 +637,114 @@ func (h *Handler) handleGetSchemaVersionsDiff(
 	return &getSchemaVersionsDiffOutput{Diff: diff}, nil
 }
 
+// defaultListRegistriesLimit is used when ListRegistriesInput.MaxResults is
+// unset, matching the real API's documented default (api_op_ListRegistries.go:
+// "If the value is not supplied, this will be defaulted to 25 per page.").
+const defaultListRegistriesLimit = 25
+
 // listRegistriesInput holds input for ListRegistries.
-type listRegistriesInput struct{}
+type listRegistriesInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
+
+// registryListItem mirrors types.RegistryListItem: RegistryName, RegistryArn,
+// Description, Status, CreatedTime, UpdatedTime. No Tags — that member exists
+// only on CreateRegistryOutput, not here or on GetRegistryOutput.
+//
+// CreatedTime/UpdatedTime are *string on the real type (glue@v1.152.0
+// types/types.go), not the usual unixTimestamp float -- Glue Schema
+// Registry's timestamps are a documented exception to the rest of this
+// service's wire shapes. A real client rejects a JSON number here
+// ("expected CreatedTimestamp to be of type string"). GetRegistry/GetSchema/
+// ListSchemas/ListSchemaVersions/GetSchemaVersion share this same fix
+// (gopherstack-7f5k).
+type registryListItem struct {
+	RegistryName string `json:"RegistryName"`
+	RegistryArn  string `json:"RegistryArn"`
+	Description  string `json:"Description,omitempty"`
+	Status       string `json:"Status"`
+	CreatedTime  string `json:"CreatedTime,omitempty"`
+	UpdatedTime  string `json:"UpdatedTime,omitempty"`
+}
+
+// formatGlueTimestampString renders an epoch-seconds float as the RFC3339
+// string real Glue Schema Registry timestamp fields use on the wire.
+func formatGlueTimestampString(epochSeconds float64) string {
+	if epochSeconds == 0 {
+		return ""
+	}
+
+	return time.Unix(int64(epochSeconds), 0).UTC().Format("2006-01-02T15:04:05Z")
+}
 
 // listRegistriesOutput holds the result for ListRegistries.
 type listRegistriesOutput struct {
-	Registries []*Registry `json:"Registries"`
+	NextToken  string              `json:"NextToken,omitempty"`
+	Registries []*registryListItem `json:"Registries"`
 }
 
 func (h *Handler) handleListRegistries(
 	_ context.Context,
-	_ *listRegistriesInput,
+	in *listRegistriesInput,
 ) (*listRegistriesOutput, error) {
 	regs := h.Backend.ListRegistries()
 
-	return &listRegistriesOutput{Registries: regs}, nil
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListRegistriesLimit
+	}
+
+	page, next := paginateSlice(regs, in.NextToken, limit)
+
+	items := make([]*registryListItem, 0, len(page))
+	for _, r := range page {
+		items = append(items, &registryListItem{
+			RegistryName: r.Name,
+			RegistryArn:  r.ARN,
+			Description:  r.Description,
+			Status:       r.Status,
+			CreatedTime:  formatGlueTimestampString(r.CreatedTime),
+			UpdatedTime:  formatGlueTimestampString(r.UpdatedTime),
+		})
+	}
+
+	return &listRegistriesOutput{Registries: items, NextToken: next}, nil
 }
+
+// defaultListSchemaVersionsLimit is used when ListSchemaVersionsInput.MaxResults
+// is unset, matching the real API's documented default (api_op_ListSchemaVersions.go:
+// "If the value is not supplied, this will be defaulted to 25 per page.").
+const defaultListSchemaVersionsLimit = 25
 
 // listSchemaVersionsInput holds input for ListSchemaVersions.
 type listSchemaVersionsInput struct {
-	SchemaID *schemaIDInput `json:"SchemaId"`
+	SchemaID   *schemaIDInput `json:"SchemaId"`
+	NextToken  string         `json:"NextToken,omitempty"`
+	MaxResults int32          `json:"MaxResults,omitempty"`
 }
 
-// listSchemaVersionsOutput holds the result for ListSchemaVersions.
+// schemaVersionListItem mirrors types.SchemaVersionListItem: SchemaVersionId,
+// SchemaArn, Status, VersionNumber, CreatedTime. No SchemaDefinition or
+// DataFormat — those live only on GetSchemaVersion's output.
+//
+// CreatedTime is *string on the real type (glue@v1.152.0 deserializers.go's
+// SchemaVersionListItem switch: "expected CreatedTimestamp to be of type
+// string"), the same Schema Registry exception ListRegistries was fixed for.
+type schemaVersionListItem struct {
+	SchemaVersionID string `json:"SchemaVersionId"`
+	SchemaArn       string `json:"SchemaArn"`
+	Status          string `json:"Status"`
+	CreatedTime     string `json:"CreatedTime,omitempty"`
+	VersionNumber   int64  `json:"VersionNumber"`
+}
+
+// listSchemaVersionsOutput holds the result for ListSchemaVersions. The real
+// field is Schemas, not SchemaVersions (api_op_ListSchemaVersions.go); the
+// wrong key meant a real client silently decoded to an empty slice.
 type listSchemaVersionsOutput struct {
-	SchemaVersions []*SchemaVersion `json:"SchemaVersions"`
+	NextToken string                   `json:"NextToken,omitempty"`
+	Schemas   []*schemaVersionListItem `json:"Schemas"`
 }
 
 func (h *Handler) handleListSchemaVersions(
@@ -652,21 +758,64 @@ func (h *Handler) handleListSchemaVersions(
 	}
 
 	versions := h.Backend.ListSchemaVersions(registryName, schemaName)
-	if versions == nil {
-		versions = []*SchemaVersion{}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListSchemaVersionsLimit
 	}
 
-	return &listSchemaVersionsOutput{SchemaVersions: versions}, nil
+	page, next := paginateSlice(versions, in.NextToken, limit)
+
+	items := make([]*schemaVersionListItem, 0, len(page))
+	for _, v := range page {
+		items = append(items, &schemaVersionListItem{
+			SchemaVersionID: v.SchemaVersionID,
+			SchemaArn:       v.SchemaARN,
+			Status:          v.Status,
+			VersionNumber:   v.VersionNumber,
+			CreatedTime:     formatGlueTimestampString(v.CreatedTime),
+		})
+	}
+
+	return &listSchemaVersionsOutput{Schemas: items, NextToken: next}, nil
 }
+
+// defaultListSchemasLimit is used when ListSchemasInput.MaxResults is unset,
+// matching the real API's documented default (api_op_ListSchemas.go: "If the
+// value is not supplied, this will be defaulted to 25 per page.").
+const defaultListSchemasLimit = 25
 
 // listSchemasInput holds input for ListSchemas.
 type listSchemasInput struct {
 	RegistryID *registryIDInput `json:"RegistryId"`
+	NextToken  string           `json:"NextToken,omitempty"`
+	MaxResults int32            `json:"MaxResults,omitempty"`
+}
+
+// schemaListItem mirrors types.SchemaListItem: SchemaName, SchemaArn,
+// RegistryName, SchemaStatus, Description, CreatedTime, UpdatedTime. No
+// RegistryArn, DataFormat, Compatibility, LatestSchemaVersion,
+// NextSchemaVersion, CheckpointVersion or Tags — those live only on
+// GetSchema/CreateSchema's output.
+//
+// CreatedTime/UpdatedTime are *string on the real type (glue@v1.152.0
+// deserializers.go's SchemaListItem switch: "expected CreatedTimestamp to be
+// of type string"), the same Schema Registry exception ListRegistries was
+// fixed for.
+type schemaListItem struct {
+	SchemaName   string `json:"SchemaName"`
+	SchemaArn    string `json:"SchemaArn"`
+	RegistryName string `json:"RegistryName"`
+	SchemaStatus string `json:"SchemaStatus"`
+	Description  string `json:"Description,omitempty"`
+	CreatedTime  string `json:"CreatedTime,omitempty"`
+	UpdatedTime  string `json:"UpdatedTime,omitempty"`
 }
 
 // listSchemasOutput holds the result for ListSchemas.
 type listSchemasOutput struct {
-	Schemas []*Schema `json:"Schemas"`
+	NextToken string            `json:"NextToken,omitempty"`
+	Schemas   []*schemaListItem `json:"Schemas"`
 }
 
 func (h *Handler) handleListSchemas(
@@ -680,7 +829,27 @@ func (h *Handler) handleListSchemas(
 
 	schemas := h.Backend.ListSchemas(registryName)
 
-	return &listSchemasOutput{Schemas: schemas}, nil
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListSchemasLimit
+	}
+
+	page, next := paginateSlice(schemas, in.NextToken, limit)
+
+	items := make([]*schemaListItem, 0, len(page))
+	for _, s := range page {
+		items = append(items, &schemaListItem{
+			SchemaName:   s.SchemaName,
+			SchemaArn:    s.SchemaARN,
+			RegistryName: s.RegistryName,
+			SchemaStatus: s.SchemaStatus,
+			Description:  s.Description,
+			CreatedTime:  formatGlueTimestampString(s.CreatedTime),
+			UpdatedTime:  formatGlueTimestampString(s.UpdatedTime),
+		})
+	}
+
+	return &listSchemasOutput{Schemas: items, NextToken: next}, nil
 }
 
 // putSchemaVersionMetadataInput holds input for PutSchemaVersionMetadata.

@@ -2,10 +2,11 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -31,22 +32,35 @@ func userProfileKeyString(k userProfileKey) string {
 	return k.DomainID + "|" + k.UserProfileName
 }
 
-// UserProfile represents a SageMaker Studio user profile.
+// UserProfile represents a SageMaker Studio user profile. UserSettings is
+// stored as opaque JSON (the json.RawMessage passthrough convention used
+// elsewhere in this service for deeply-nested config shapes).
 type UserProfile struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	DomainID         string            `json:"DomainId"`
-	UserProfileName  string            `json:"UserProfileName"`
-	UserProfileArn   string            `json:"UserProfileArn"`
-	Status           string            `json:"Status"`
+	CreationTime               time.Time         `json:"CreationTime"`
+	LastModifiedTime           time.Time         `json:"LastModifiedTime"`
+	Tags                       map[string]string `json:"Tags,omitempty"`
+	DomainID                   string            `json:"DomainId"`
+	UserProfileName            string            `json:"UserProfileName"`
+	UserProfileArn             string            `json:"UserProfileArn"`
+	Status                     string            `json:"Status"`
+	SingleSignOnUserIdentifier string            `json:"SingleSignOnUserIdentifier,omitempty"`
+	SingleSignOnUserValue      string            `json:"SingleSignOnUserValue,omitempty"`
+	UserSettings               json.RawMessage   `json:"UserSettings,omitempty"`
 }
 
 func cloneUserProfile(up *UserProfile) *UserProfile {
 	cp := *up
 	cp.Tags = maps.Clone(up.Tags)
+	cp.UserSettings = append(json.RawMessage(nil), up.UserSettings...)
 
 	return &cp
+}
+
+// CreateUserProfileOptions bundles CreateUserProfile's optional fields.
+type CreateUserProfileOptions struct {
+	SingleSignOnUserIdentifier string
+	SingleSignOnUserValue      string
+	UserSettings               json.RawMessage
 }
 
 // CreateUserProfile creates a new user profile in a domain.
@@ -54,6 +68,7 @@ func (b *InMemoryBackend) CreateUserProfile(
 	ctx context.Context,
 	domainID, name string,
 	tags map[string]string,
+	opts CreateUserProfileOptions,
 ) (*UserProfile, error) {
 	b.mu.Lock("CreateUserProfile")
 	defer b.mu.Unlock()
@@ -79,13 +94,16 @@ func (b *InMemoryBackend) CreateUserProfile(
 	now := time.Now()
 
 	up := &UserProfile{
-		DomainID:         domainID,
-		UserProfileName:  name,
-		UserProfileArn:   upArn,
-		Status:           statusInService,
-		CreationTime:     now,
-		LastModifiedTime: now,
-		Tags:             mergeTags(nil, tags),
+		DomainID:                   domainID,
+		UserProfileName:            name,
+		UserProfileArn:             upArn,
+		Status:                     statusInService,
+		CreationTime:               now,
+		LastModifiedTime:           now,
+		Tags:                       mergeTags(nil, tags),
+		SingleSignOnUserIdentifier: opts.SingleSignOnUserIdentifier,
+		SingleSignOnUserValue:      opts.SingleSignOnUserValue,
+		UserSettings:               opts.UserSettings,
 	}
 	b.userProfilesStore(region).Put(up)
 
@@ -114,10 +132,30 @@ func (b *InMemoryBackend) DescribeUserProfile(ctx context.Context, domainID, nam
 	return cloneUserProfile(up), nil
 }
 
-// ListUserProfiles returns user profiles for a domain sorted by name.
-//
-//nolint:dupl // UserProfile and App share pagination structure but are distinct resource types
-func (b *InMemoryBackend) ListUserProfiles(ctx context.Context, domainID, nextToken string) ([]*UserProfile, string) {
+// Enum values for ListUserProfiles' SortBy (aws-sdk-go-v2/service/sagemaker
+// types.UserProfileSortKey).
+const (
+	userProfileSortKeyCreationTime     = "CreationTime"
+	userProfileSortKeyLastModifiedTime = "LastModifiedTime"
+)
+
+// ListUserProfilesParams bundles ListUserProfiles' filter/sort/pagination
+// criteria.
+type ListUserProfilesParams struct {
+	DomainIDEquals          string
+	UserProfileNameContains string
+	SortBy                  string
+	SortOrder               string
+	NextToken               string
+	MaxResults              int32
+}
+
+// ListUserProfiles returns user profiles matching params, sorted per
+// params.SortBy (default CreationTime)/params.SortOrder (default
+// Ascending), capped at params.MaxResults.
+func (b *InMemoryBackend) ListUserProfiles(
+	ctx context.Context, params ListUserProfilesParams,
+) ([]*UserProfile, string) {
 	b.mu.RLock("ListUserProfiles")
 	defer b.mu.RUnlock()
 
@@ -126,31 +164,39 @@ func (b *InMemoryBackend) ListUserProfiles(ctx context.Context, domainID, nextTo
 	list := make([]*UserProfile, 0, store.Len())
 
 	for _, up := range store.All() {
-		if domainID == "" || up.DomainID == domainID {
-			list = append(list, cloneUserProfile(up))
+		if params.DomainIDEquals != "" && up.DomainID != params.DomainIDEquals {
+			continue
 		}
+
+		if params.UserProfileNameContains != "" &&
+			!strings.Contains(up.UserProfileName, params.UserProfileNameContains) {
+			continue
+		}
+
+		list = append(list, cloneUserProfile(up))
 	}
 
-	sort.Slice(
-		list,
-		func(i, j int) bool { return list[i].UserProfileName < list[j].UserProfileName },
-	)
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		var less bool
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(list) {
-		return []*UserProfile{}, ""
-	}
+		switch params.SortBy {
+		case userProfileSortKeyLastModifiedTime:
+			less = list[i].LastModifiedTime.Before(list[j].LastModifiedTime)
+		case userProfileSortKeyCreationTime:
+			fallthrough
+		default:
+			less = list[i].CreationTime.Before(list[j].CreationTime)
+		}
 
-	end := startIdx + sagemakerDefaultPageSize
-	var outToken string
+		if desc {
+			return !less
+		}
 
-	if end < len(list) {
-		outToken = strconv.Itoa(end)
-	} else {
-		end = len(list)
-	}
+		return less
+	})
 
-	return list[startIdx:end], outToken
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
 // DeleteUserProfile deletes a user profile.

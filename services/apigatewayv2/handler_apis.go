@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+	"gopkg.in/yaml.v3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -510,6 +511,20 @@ func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) 
 		return writeErr(c, http.StatusBadRequest, "specification must be OAS30")
 	}
 
+	// outputType is a required query param on the real ExportApiInput (verified
+	// against aws-sdk-go-v2/service/apigatewayv2's validateOpExportApiInput);
+	// valid values are JSON and YAML.
+	outputType := c.QueryParam("outputType")
+
+	switch {
+	case outputType == "":
+		return writeErr(c, http.StatusBadRequest, "outputType is required")
+	case strings.EqualFold(outputType, "JSON"):
+	case strings.EqualFold(outputType, "YAML"):
+	default:
+		return writeErr(c, http.StatusBadRequest, "outputType must be JSON or YAML")
+	}
+
 	spec, err := h.Backend.ExportAPI(apiID)
 	if err != nil {
 		if errors.Is(err, ErrAPINotFound) {
@@ -521,6 +536,15 @@ func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) 
 
 	// AWS returns the raw OpenAPI document as the HTTP response body (the SDK's
 	// ExportApi `Body` blob), not a wrapper object.
+	if strings.EqualFold(outputType, "YAML") {
+		blob, mErr := yaml.Marshal(spec)
+		if mErr != nil {
+			return writeErr(c, http.StatusInternalServerError, mErr.Error())
+		}
+
+		return c.Blob(http.StatusOK, "application/x-yaml", blob)
+	}
+
 	blob, mErr := json.Marshal(spec)
 	if mErr != nil {
 		return writeErr(c, http.StatusInternalServerError, mErr.Error())

@@ -61,6 +61,7 @@ func (b *InMemoryBackend) DescribeImageUsageReports() []*ImageUsageReport {
 // CreateLaunchTemplate creates a launch template.
 func (b *InMemoryBackend) CreateLaunchTemplate(
 	name, imageID, instanceType string,
+	tags map[string]string,
 ) (*LaunchTemplate, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: LaunchTemplateName is required", ErrInvalidParameter)
@@ -98,6 +99,7 @@ func (b *InMemoryBackend) CreateLaunchTemplate(
 		LatestVersionNumber:  1,
 	}
 	b.launchTemplates.Put(template)
+	b.setTagsLocked(template.ID, tags)
 	cp := *template
 
 	return &cp, nil

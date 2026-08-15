@@ -28,6 +28,7 @@ func (h *Handler) handleCreateLakeFormationIdentityCenterConfiguration(
 		in.InstanceArn,
 		in.ExternalFiltering,
 		in.ShareRecipients,
+		in.ServiceIntegrations,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -75,12 +76,12 @@ func (h *Handler) handleDescribeLakeFormationIdentityCenterConfiguration(
 	}
 
 	return c.JSON(http.StatusOK, describeLakeFormationIdentityCenterConfigurationOutput{
-		CatalogID:         cfg.CatalogID,
-		InstanceArn:       cfg.InstanceArn,
-		ApplicationArn:    cfg.ApplicationArn,
-		ApplicationStatus: cfg.ApplicationStatus,
-		ExternalFiltering: cfg.ExternalFiltering,
-		ShareRecipients:   cfg.ShareRecipients,
+		CatalogID:           cfg.CatalogID,
+		InstanceArn:         cfg.InstanceArn,
+		ApplicationArn:      cfg.ApplicationArn,
+		ExternalFiltering:   cfg.ExternalFiltering,
+		ShareRecipients:     cfg.ShareRecipients,
+		ServiceIntegrations: cfg.ServiceIntegrations,
 	})
 }
 
@@ -98,7 +99,7 @@ func (h *Handler) handleUpdateLakeFormationIdentityCenterConfiguration(
 		catalogID = h.AccountID
 	}
 	if err := h.Backend.UpdateLakeFormationIdentityCenterConfiguration(
-		catalogID, in.ExternalFiltering, in.ApplicationStatus,
+		catalogID, in.ExternalFiltering, in.ApplicationStatus, in.ShareRecipients, in.ServiceIntegrations,
 	); err != nil {
 		return h.handleError(c, err)
 	}

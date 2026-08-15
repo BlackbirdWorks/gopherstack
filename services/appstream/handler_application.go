@@ -10,14 +10,31 @@ import (
 
 // --- Application handlers ---
 
+// s3LocationJSON mirrors appstream@v1.64.5 types.S3Location's wire shape
+// (serializers.go: serializeCBOR_S3Location emits {"S3Bucket":..., "S3Key":...}).
+type s3LocationJSON struct {
+	S3Bucket string `json:"S3Bucket"`
+	S3Key    string `json:"S3Key"`
+}
+
+func (j *s3LocationJSON) toModel() S3Location {
+	if j == nil {
+		return S3Location{}
+	}
+
+	return S3Location(*j)
+}
+
 type createApplicationInput struct {
-	Tags        map[string]string `json:"Tags"`
-	Name        string            `json:"Name"`
-	DisplayName string            `json:"DisplayName"`
-	Description string            `json:"Description"`
-	LaunchPath  string            `json:"LaunchPath"`
-	AppBlockArn string            `json:"AppBlockArn"`
-	Platforms   []string          `json:"Platforms"`
+	Tags             map[string]string `json:"Tags"`
+	Name             string            `json:"Name"`
+	DisplayName      string            `json:"DisplayName"`
+	Description      string            `json:"Description"`
+	LaunchPath       string            `json:"LaunchPath"`
+	AppBlockArn      string            `json:"AppBlockArn"`
+	Platforms        []string          `json:"Platforms"`
+	IconS3Location   *s3LocationJSON   `json:"IconS3Location"`
+	InstanceFamilies []string          `json:"InstanceFamilies"`
 }
 
 func (h *Handler) opCreateApplication(_ context.Context, body []byte) (any, error) {
@@ -28,7 +45,7 @@ func (h *Handler) opCreateApplication(_ context.Context, body []byte) (any, erro
 
 	app, err := h.Backend.CreateApplication(
 		req.Name, req.DisplayName, req.Description, req.LaunchPath,
-		req.AppBlockArn, req.Platforms, req.Tags,
+		req.AppBlockArn, req.Platforms, req.IconS3Location.toModel(), req.InstanceFamilies, req.Tags,
 	)
 	if err != nil {
 		return nil, err
@@ -123,11 +140,15 @@ func (h *Handler) opAssociateApplicationFleet(_ context.Context, body []byte) (a
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	if err := h.Backend.AssociateApplicationFleet(req.ApplicationArn, req.FleetName); err != nil {
+	assoc, err := h.Backend.AssociateApplicationFleet(req.ApplicationArn, req.FleetName)
+	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return map[string]any{"ApplicationFleetAssociation": map[string]any{
+		"ApplicationArn": assoc.ApplicationArn,
+		keyFleetName:     assoc.FleetName,
+	}}, nil
 }
 
 func (h *Handler) opDisassociateApplicationFleet(_ context.Context, body []byte) (any, error) {
@@ -165,7 +186,7 @@ func (h *Handler) opDescribeApplicationFleetAssociations(_ context.Context, body
 	for _, a := range assocs {
 		resp = append(resp, map[string]any{
 			"ApplicationArn": a.ApplicationArn,
-			"FleetName":      a.FleetName,
+			keyFleetName:     a.FleetName,
 			"State":          a.State, //nolint:goconst // existing issue.
 		})
 	}
@@ -475,15 +496,20 @@ func (h *Handler) opUpdateDirectoryConfig(_ context.Context, body []byte) (any, 
 
 func applicationToResponse(app *Application) map[string]any {
 	return map[string]any{
-		"Name":        app.Name,        //nolint:goconst // existing issue.
-		"Arn":         app.Arn,         //nolint:goconst // existing issue.
-		"DisplayName": app.DisplayName, //nolint:goconst // existing issue.
-		"Description": app.Description, //nolint:goconst // existing issue.
-		"LaunchPath":  app.LaunchPath,
-		"AppBlockArn": app.AppBlockArn,
-		"Platforms":   app.Platforms,
-		"CreatedTime": awstime.Epoch(app.CreatedTime), //nolint:goconst // existing issue.
-		keyTags:       app.Tags,
+		"Name":         app.Name,        //nolint:goconst // existing issue.
+		"Arn":          app.Arn,         //nolint:goconst // existing issue.
+		"DisplayName":  app.DisplayName, //nolint:goconst // existing issue.
+		"Description":  app.Description, //nolint:goconst // existing issue.
+		"LaunchPath":   app.LaunchPath,
+		keyAppBlockArn: app.AppBlockArn,
+		"Platforms":    app.Platforms,
+		"CreatedTime":  awstime.Epoch(app.CreatedTime), //nolint:goconst // existing issue.
+		"IconS3Location": map[string]any{
+			"S3Bucket": app.IconS3Location.S3Bucket,
+			"S3Key":    app.IconS3Location.S3Key,
+		},
+		"InstanceFamilies": app.InstanceFamilies,
+		keyTags:            app.Tags,
 	}
 }
 
@@ -522,7 +548,7 @@ func directoryConfigToResponse(dc *DirectoryConfig) map[string]any {
 	if certAuth.CertificateAuthorityArn != "" || certAuth.Status != "" {
 		resp["CertificateBasedAuthProperties"] = map[string]any{
 			"CertificateAuthorityArn": certAuth.CertificateAuthorityArn,
-			"Status":                  certAuth.Status,
+			keyStatus:                 certAuth.Status,
 		}
 	}
 

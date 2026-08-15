@@ -99,26 +99,8 @@ func (h *DynamoDBHandler) deleteBackup(ctx context.Context, body []byte) (any, e
 		return nil, err
 	}
 
-	bd := out.BackupDescription
-
 	return &models.DeleteBackupOutput{
-		BackupDescription: models.BackupDescription{
-			BackupDetails: models.BackupDetails{
-				BackupArn:    aws.ToString(bd.BackupDetails.BackupArn),
-				BackupName:   aws.ToString(bd.BackupDetails.BackupName),
-				BackupStatus: string(bd.BackupDetails.BackupStatus),
-				BackupType:   string(bd.BackupDetails.BackupType),
-				BackupCreationDateTime: float64(
-					aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Unix(),
-				),
-				BackupSizeBytes: aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
-			},
-			SourceTableDetails: models.SourceTableDetails{
-				TableName: aws.ToString(bd.SourceTableDetails.TableName),
-				TableArn:  aws.ToString(bd.SourceTableDetails.TableArn),
-				TableID:   aws.ToString(bd.SourceTableDetails.TableId),
-			},
-		},
+		BackupDescription: buildBackupDescriptionFromSDK(out.BackupDescription),
 	}, nil
 }
 
@@ -210,6 +192,7 @@ func collectBackupSummaries(
 			TableName:              b.TableName,
 			TableArn:               b.TableArn,
 			TableID:                b.TableID,
+			BackupSizeBytes:        b.SizeBytes,
 		})
 	}
 
@@ -272,6 +255,8 @@ type restoredTableParams struct {
 	SSEType                string
 	SSEKMSMasterKeyArn     string
 	StreamViewType         string
+	OnDemandMaxReadRRU     *int64
+	OnDemandMaxWriteRRU    *int64
 	Items                  []map[string]any
 	KeySchema              []models.KeySchemaElement
 	AttributeDefinitions   []models.AttributeDefinition
@@ -315,6 +300,8 @@ func (db *InMemoryDB) installRestoredTable(
 		TableArn:               arn.Build("dynamodb", region, db.accountID, "table/"+tableName),
 		mu:                     lockmetrics.New("ddb.table." + tableName),
 		ProvisionedThroughput:  p.ProvisionedThroughput,
+		OnDemandMaxReadRRU:     p.OnDemandMaxReadRRU,
+		OnDemandMaxWriteRRU:    p.OnDemandMaxWriteRRU,
 	}
 	newTable.initializeIndexes()
 	newTable.rebuildIndexes()
@@ -333,6 +320,37 @@ func (db *InMemoryDB) getBackupRLocked(backupArn string) (*Backup, bool) {
 	return db.backups.Get(backupArn)
 }
 
+// toSDKProvisionedThroughputOverride converts the wire-format override to the
+// SDK type. pt may be nil, matching an omitted request member.
+func toSDKProvisionedThroughputOverride(pt *models.ProvisionedThroughput) *sdktypes.ProvisionedThroughput {
+	if pt == nil {
+		return nil
+	}
+
+	return &sdktypes.ProvisionedThroughput{
+		ReadCapacityUnits:  pt.ReadCapacityUnits,
+		WriteCapacityUnits: pt.WriteCapacityUnits,
+	}
+}
+
+// toSDKGSIOverride converts the wire-format GlobalSecondaryIndexOverride to
+// the SDK type, preserving the nil/empty distinction that
+// models.ToSDKGlobalSecondaryIndexes collapses: nil means the override was
+// omitted (restore keeps the source's GSIs), a non-nil empty slice means the
+// caller explicitly asked to exclude every GSI from the restored table.
+func toSDKGSIOverride(gsis []models.GlobalSecondaryIndex) []sdktypes.GlobalSecondaryIndex {
+	if gsis == nil {
+		return nil
+	}
+
+	out := models.ToSDKGlobalSecondaryIndexes(gsis)
+	if out == nil {
+		out = []sdktypes.GlobalSecondaryIndex{}
+	}
+
+	return out
+}
+
 func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byte) (any, error) {
 	var req models.RestoreTableFromBackupInput
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -347,55 +365,21 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 		return nil, NewValidationException("TargetTableName is required")
 	}
 
-	db, ok := h.Backend.(*InMemoryDB)
-	if !ok {
-		return nil, NewInternalServerError("backup operations require in-memory backend")
-	}
-
-	backup, exists := db.getBackupRLocked(req.BackupArn)
-	if !exists {
-		return nil, NewResourceNotFoundException("backup not found: " + req.BackupArn)
-	}
-
-	region := h.regionFromHandlerContext(ctx)
-
-	billingMode, provThroughput := resolveBillingAndThroughput(
-		backup.BillingMode, req.BillingModeOverride,
-		backup.ProvisionedThroughput, req.ProvisionedThroughputOverride,
-	)
-
-	gsis := make([]models.GlobalSecondaryIndex, len(backup.GlobalSecondaryIndexes))
-	copy(gsis, backup.GlobalSecondaryIndexes)
-	lsis := make([]models.LocalSecondaryIndex, len(backup.LocalSecondaryIndexes))
-	copy(lsis, backup.LocalSecondaryIndexes)
-	keySchema := make([]models.KeySchemaElement, len(backup.KeySchema))
-	copy(keySchema, backup.KeySchema)
-	attrDefs := make([]models.AttributeDefinition, len(backup.AttributeDefinitions))
-	copy(attrDefs, backup.AttributeDefinitions)
-
-	p := restoredTableParams{
-		Items: deepCopyItems(backup.Items), KeySchema: keySchema, AttributeDefinitions: attrDefs,
-		GlobalSecondaryIndexes: gsis, LocalSecondaryIndexes: lsis,
-		ProvisionedThroughput: provThroughput, BillingMode: billingMode,
-		SSEEnabled: backup.SSEEnabled, SSEType: backup.SSEType, SSEKMSMasterKeyArn: backup.SSEKMSMasterKeyArn,
-		StreamsEnabled: backup.StreamsEnabled, StreamViewType: backup.StreamViewType,
-	}
-
-	newTable, newTableID, err := db.installRestoredTable(region, req.TargetTableName, p)
+	out, err := h.Backend.RestoreTableFromBackup(ctx, &sdkdynamodb.RestoreTableFromBackupInput{
+		BackupArn:                     &req.BackupArn,
+		TargetTableName:               &req.TargetTableName,
+		BillingModeOverride:           sdktypes.BillingMode(req.BillingModeOverride),
+		ProvisionedThroughputOverride: toSDKProvisionedThroughputOverride(req.ProvisionedThroughputOverride),
+		GlobalSecondaryIndexOverride:  toSDKGSIOverride(req.GlobalSecondaryIndexOverride),
+		OnDemandThroughputOverride:    models.ToSDKOnDemandThroughput(req.OnDemandThroughputOverride),
+		SSESpecificationOverride:      models.ToSDKSSESpecification(req.SSESpecificationOverride),
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &models.RestoreTableFromBackupOutput{
-		TableDescription: models.TableDescription{
-			TableName: req.TargetTableName, TableStatus: models.TableStatusActive,
-			TableArn: newTable.TableArn, TableID: newTableID,
-			KeySchema: keySchema, AttributeDefinitions: attrDefs,
-			GlobalSecondaryIndexes: buildGSIDescriptions(gsis, int64(len(p.Items))),
-			LocalSecondaryIndexes:  buildLSIDescriptions(lsis),
-			BillingModeSummary:     billingModeSummary(billingMode),
-			ItemCount:              len(p.Items),
-		},
+		TableDescription: models.FromSDKTableDescription(out.TableDescription),
 	}, nil
 }
 
@@ -411,17 +395,13 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 //     empty table, when RestoreDateTime falls outside the recoverable window).
 func selectPITRItems(
 	sourceTable *Table,
-	req models.RestoreTableToPointInTimeInput,
+	input *sdkdynamodb.RestoreTableToPointInTimeInput,
 ) []map[string]any {
-	if req.UseLatestRestorableTime || req.RestoreDateTime == nil {
+	if aws.ToBool(input.UseLatestRestorableTime) || input.RestoreDateTime == nil {
 		return deepCopyItems(sourceTable.Items)
 	}
 
-	// RestoreDateTime is Unix epoch seconds (with optional fractional part),
-	// the wire shape the real AWS SDK's awsjson1_0 protocol emits.
-	secs := *req.RestoreDateTime
-	const nanosPerSec = float64(time.Second / time.Nanosecond)
-	t := time.Unix(int64(secs), int64((secs-float64(int64(secs)))*nanosPerSec)).UTC()
+	t := input.RestoreDateTime.UTC()
 
 	// Newest snapshot at-or-before t. Snapshots are appended in time order so
 	// scanning backwards is O(k) where k is the index from the end.
@@ -432,6 +412,21 @@ func selectPITRItems(
 	}
 
 	return nil
+}
+
+// toSDKRestoreDateTime converts the wire-format RestoreDateTime (Unix epoch
+// seconds, with optional fractional part -- the shape the real AWS SDK's
+// awsjson1_0 protocol emits) into a *time.Time. secs may be nil, matching an
+// omitted request member.
+func toSDKRestoreDateTime(secs *float64) *time.Time {
+	if secs == nil {
+		return nil
+	}
+
+	const nanosPerSec = float64(time.Second / time.Nanosecond)
+	t := time.Unix(int64(*secs), int64((*secs-float64(int64(*secs)))*nanosPerSec)).UTC()
+
+	return &t
 }
 
 func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []byte) (any, error) {
@@ -448,60 +443,23 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 		return nil, NewValidationException("TargetTableName is required")
 	}
 
-	db, ok := h.Backend.(*InMemoryDB)
-	if !ok {
-		return nil, NewInternalServerError("backup operations require in-memory backend")
-	}
-
-	sourceTable, err := db.getTable(ctx, req.SourceTableName)
+	out, err := h.Backend.RestoreTableToPointInTime(ctx, &sdkdynamodb.RestoreTableToPointInTimeInput{
+		SourceTableName:               &req.SourceTableName,
+		TargetTableName:               &req.TargetTableName,
+		BillingModeOverride:           sdktypes.BillingMode(req.BillingModeOverride),
+		ProvisionedThroughputOverride: toSDKProvisionedThroughputOverride(req.ProvisionedThroughputOverride),
+		UseLatestRestorableTime:       aws.Bool(req.UseLatestRestorableTime),
+		RestoreDateTime:               toSDKRestoreDateTime(req.RestoreDateTime),
+		GlobalSecondaryIndexOverride:  toSDKGSIOverride(req.GlobalSecondaryIndexOverride),
+		OnDemandThroughputOverride:    models.ToSDKOnDemandThroughput(req.OnDemandThroughputOverride),
+		SSESpecificationOverride:      models.ToSDKSSESpecification(req.SSESpecificationOverride),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	p, pitrEnabled, itemsCopy := snapshotSourceForPITR(sourceTable, req)
-
-	if !pitrEnabled {
-		return nil, NewValidationException(
-			"point in time recovery is not enabled for table: " + req.SourceTableName,
-		)
-	}
-
-	if itemsCopy == nil {
-		return nil, NewInvalidRestoreTimeException(
-			"requested RestoreDateTime is outside the available recovery window for table: " +
-				req.SourceTableName,
-		)
-	}
-
-	billingMode, provThroughput := resolveBillingAndThroughput(
-		p.BillingMode,
-		req.BillingModeOverride,
-		p.ProvisionedThroughput,
-		req.ProvisionedThroughputOverride,
-	)
-	p.Items = itemsCopy
-	p.BillingMode = billingMode
-	p.ProvisionedThroughput = provThroughput
-
-	region := h.regionFromHandlerContext(ctx)
-	newTable, newTableID, installErr := db.installRestoredTable(region, req.TargetTableName, p)
-	if installErr != nil {
-		return nil, installErr
-	}
-
 	return &models.RestoreTableToPointInTimeOutput{
-		TableDescription: models.TableDescription{
-			TableName: req.TargetTableName, TableStatus: models.TableStatusActive,
-			TableArn: newTable.TableArn, TableID: newTableID,
-			KeySchema: p.KeySchema, AttributeDefinitions: p.AttributeDefinitions,
-			GlobalSecondaryIndexes: buildGSIDescriptions(
-				p.GlobalSecondaryIndexes,
-				int64(len(itemsCopy)),
-			),
-			LocalSecondaryIndexes: buildLSIDescriptions(p.LocalSecondaryIndexes),
-			BillingModeSummary:    billingModeSummary(billingMode),
-			ItemCount:             len(itemsCopy),
-		},
+		TableDescription: models.FromSDKTableDescription(out.TableDescription),
 	}, nil
 }
 
@@ -510,13 +468,13 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 // requested RestoreDateTime.
 func snapshotSourceForPITR(
 	sourceTable *Table,
-	req models.RestoreTableToPointInTimeInput,
+	input *sdkdynamodb.RestoreTableToPointInTimeInput,
 ) (restoredTableParams, bool, []map[string]any) {
 	sourceTable.mu.RLock("RestoreTableToPointInTime")
 	defer sourceTable.mu.RUnlock()
 
 	pitrEnabled := sourceTable.PITREnabled
-	itemsCopy := selectPITRItems(sourceTable, req)
+	itemsCopy := selectPITRItems(sourceTable, input)
 
 	p := restoredTableParams{
 		ProvisionedThroughput: sourceTable.ProvisionedThroughput,
@@ -526,6 +484,8 @@ func snapshotSourceForPITR(
 		SSEKMSMasterKeyArn:    sourceTable.SSEKMSMasterKeyArn,
 		StreamsEnabled:        sourceTable.StreamsEnabled,
 		StreamViewType:        sourceTable.StreamViewType,
+		OnDemandMaxReadRRU:    sourceTable.OnDemandMaxReadRRU,
+		OnDemandMaxWriteRRU:   sourceTable.OnDemandMaxWriteRRU,
 	}
 	p.KeySchema = make([]models.KeySchemaElement, len(sourceTable.KeySchema))
 	copy(p.KeySchema, sourceTable.KeySchema)
@@ -575,6 +535,16 @@ func buildBackupDescriptionFromSDK(bd *sdktypes.BackupDescription) models.Backup
 			TableName: aws.ToString(bd.SourceTableDetails.TableName),
 			TableArn:  aws.ToString(bd.SourceTableDetails.TableArn),
 			TableID:   aws.ToString(bd.SourceTableDetails.TableId),
+			TableCreationDateTime: float64(
+				aws.ToTime(bd.SourceTableDetails.TableCreationDateTime).UTC().Unix(),
+			),
+		}
+
+		if pt := bd.SourceTableDetails.ProvisionedThroughput; pt != nil {
+			src.ProvisionedThroughput = models.ProvisionedThroughput{
+				ReadCapacityUnits:  pt.ReadCapacityUnits,
+				WriteCapacityUnits: pt.WriteCapacityUnits,
+			}
 		}
 
 		// Preserve key schema from SDK representation.

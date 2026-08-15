@@ -581,43 +581,40 @@ func TestExecuteStatement_CaseInsensitiveSQL(t *testing.T) {
 	}
 }
 
-// TestListStatements_HasResultSet verifies that ListStatements
-// reflects accurate HasResultSet values based on SQL type.
-func TestListStatements_HasResultSet(t *testing.T) {
+// TestListStatements_NoFabricatedFields is a raw-body assertion that
+// ListStatements items never carry ClusterIdentifier/WorkgroupName/Database/
+// DbUser/HasResultSet/Duration keys: types.StatementData (aws-sdk-go-v2/
+// service/redshiftdata@v1.43.4 types/types.go) has no such members -- those
+// six belong only to DescribeStatementOutput, a different real type (HasResultSet
+// there is covered by TestHasResultSet_BySQL above). An SDK client silently
+// discards unrecognized response keys, so a client-typed test would pass even
+// with the fields still fabricated onto the wire.
+func TestListStatements_NoFabricatedFields(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	fields := []string{"ClusterIdentifier", "WorkgroupName", "Database", "DbUser", "HasResultSet", "Duration"}
 
-	// Execute a SELECT (HasResultSet = true) and an INSERT (HasResultSet = false).
-	doRequest(t, h, "ExecuteStatement", map[string]any{
-		"Sql":           "SELECT * FROM orders",
-		"Database":      "testdb",
-		"StatementName": "read-stmt",
-	})
-	doRequest(t, h, "ExecuteStatement", map[string]any{
-		"Sql":           "INSERT INTO orders VALUES (1)",
-		"Database":      "testdb",
-		"StatementName": "write-stmt",
-	})
+	for _, field := range fields {
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
 
-	rec := doRequest(t, h, "ListStatements", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
+			h := newTestHandler(t)
+			doRequest(t, h, "ExecuteStatement", map[string]any{
+				"Sql":               "SELECT * FROM orders",
+				"Database":          "testdb",
+				"ClusterIdentifier": "my-cluster",
+				"DbUser":            "myuser",
+			})
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			rec := doRequest(t, h, "ListStatements", map[string]any{})
+			require.Equal(t, http.StatusOK, rec.Code)
 
-	stmts, ok := resp["Statements"].([]any)
-	require.True(t, ok)
-	require.Len(t, stmts, 2)
-
-	byName := map[string]bool{}
-	for _, s := range stmts {
-		sm := s.(map[string]any)
-		name, _ := sm["StatementName"].(string)
-		has, _ := sm["HasResultSet"].(bool)
-		byName[name] = has
+			var resp struct {
+				Statements []map[string]json.RawMessage `json:"Statements"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NotEmpty(t, resp.Statements)
+			assert.NotContains(t, resp.Statements[0], field)
+		})
 	}
-
-	assert.True(t, byName["read-stmt"], "SELECT should have HasResultSet=true in ListStatements")
-	assert.False(t, byName["write-stmt"], "INSERT should have HasResultSet=false in ListStatements")
 }

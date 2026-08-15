@@ -57,7 +57,7 @@ func findingAggregatorKeyFn(v *FindingAggregator) string { return v.FindingAggre
 
 func controlOverrideKeyFn(v *StandardsControl) string { return v.StandardsControlArn }
 
-func ticketV2KeyFn(v *TicketV2) string { return v.TicketConfigurationArn }
+func ticketV2KeyFn(v *TicketV2) string { return v.TicketId }
 
 func connectorV2KeyFn(v *ConnectorV2) string { return v.ConnectorId }
 

@@ -142,9 +142,16 @@ type copyDBClusterSnapshotResponse struct {
 	DBClusterSnapshot xmlDBClusterSnapshot `xml:"CopyDBClusterSnapshotResult>DBClusterSnapshot"`
 }
 
+// xmlDBClusterSnapshotAttributeList's member tag is "DBClusterSnapshotAttribute",
+// distinct from the plain-snapshot xmlDBSnapshotAttributeList's "DBSnapshotAttribute"
+// (rds@v1.124.1 deserializers.go: awsAwsquery_deserializeDocumentDBClusterSnapshotAttributeList).
+type xmlDBClusterSnapshotAttributeList struct {
+	Members []xmlDBSnapshotAttribute `xml:"DBClusterSnapshotAttribute"`
+}
+
 type xmlDBClusterSnapshotAttributesResult struct {
-	DBClusterSnapshotIdentifier string                     `xml:"DBClusterSnapshotIdentifier"`
-	DBClusterSnapshotAttributes xmlDBSnapshotAttributeList `xml:"DBClusterSnapshotAttributes"`
+	DBClusterSnapshotIdentifier string                            `xml:"DBClusterSnapshotIdentifier"`
+	DBClusterSnapshotAttributes xmlDBClusterSnapshotAttributeList `xml:"DBClusterSnapshotAttributes"`
 }
 
 type xmlClusterSnapshotAttrWrapper struct {
@@ -179,8 +186,11 @@ func (h *Handler) handleDescribeDBClusterSnapshotAttributes(vals url.Values) (an
 func (h *Handler) handleModifyDBClusterSnapshotAttribute(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	attributeName := vals.Get("AttributeName")
-	valuesToAdd := extractMemberList(vals, "ValuesToAdd.member.")
-	valuesToRemove := extractMemberList(vals, "ValuesToRemove.member.")
+	// Real wire key per rds@v1.124.1 serializers.go's
+	// awsAwsquery_serializeDocumentAttributeValueList: the list member's
+	// locationName is "AttributeValue", not the query-protocol default "member".
+	valuesToAdd := extractMemberList(vals, "ValuesToAdd.AttributeValue.")
+	valuesToRemove := extractMemberList(vals, "ValuesToRemove.AttributeValue.")
 	result, err := h.Backend.ModifyDBClusterSnapshotAttribute(snapshotID, attributeName, valuesToAdd, valuesToRemove)
 	if err != nil {
 		return nil, err
@@ -205,6 +215,6 @@ func toXMLClusterSnapshotAttributesResult(r *DBClusterSnapshotAttributesResult) 
 
 	return xmlDBClusterSnapshotAttributesResult{
 		DBClusterSnapshotIdentifier: r.DBClusterSnapshotIdentifier,
-		DBClusterSnapshotAttributes: xmlDBSnapshotAttributeList{Members: attrs},
+		DBClusterSnapshotAttributes: xmlDBClusterSnapshotAttributeList{Members: attrs},
 	}
 }

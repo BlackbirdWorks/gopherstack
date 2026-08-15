@@ -170,25 +170,51 @@ func (h *Handler) handleGetColumnStatisticsTaskRun(
 	return &getColumnStatisticsTaskRunOutput{ColumnStatisticsTaskRun: run}, nil
 }
 
+// defaultGetColumnStatisticsTaskRunsLimit is used when
+// GetColumnStatisticsTaskRunsInput.MaxResults is unset.
+const defaultGetColumnStatisticsTaskRunsLimit = 100
+
 // getColumnStatisticsTaskRunsInput holds input for GetColumnStatisticsTaskRuns.
-type getColumnStatisticsTaskRunsInput struct{}
+type getColumnStatisticsTaskRunsInput struct {
+	DatabaseName string `json:"DatabaseName"`
+	TableName    string `json:"TableName"`
+	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults   int32  `json:"MaxResults,omitempty"`
+}
 
 // getColumnStatisticsTaskRunsOutput holds the result for GetColumnStatisticsTaskRuns.
 type getColumnStatisticsTaskRunsOutput struct {
-	ColumnStatisticsTaskRuns []any `json:"ColumnStatisticsTaskRuns"`
+	NextToken                string `json:"NextToken,omitempty"`
+	ColumnStatisticsTaskRuns []any  `json:"ColumnStatisticsTaskRuns"`
 }
 
 func (h *Handler) handleGetColumnStatisticsTaskRuns(
 	_ context.Context,
-	_ *getColumnStatisticsTaskRunsInput,
+	in *getColumnStatisticsTaskRunsInput,
 ) (*getColumnStatisticsTaskRunsOutput, error) {
-	runs := h.Backend.GetColumnStatisticsTaskRuns()
-	result := make([]any, 0, len(runs))
-	for _, r := range runs {
+	all := h.Backend.GetColumnStatisticsTaskRuns()
+
+	matching := make([]*ColumnStatisticsTaskRun, 0, len(all))
+
+	for _, r := range all {
+		if r.DatabaseName == in.DatabaseName && r.TableName == in.TableName {
+			matching = append(matching, r)
+		}
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetColumnStatisticsTaskRunsLimit
+	}
+
+	page, next := paginateSlice(matching, in.NextToken, limit)
+
+	result := make([]any, 0, len(page))
+	for _, r := range page {
 		result = append(result, r)
 	}
 
-	return &getColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRuns: result}, nil
+	return &getColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRuns: result, NextToken: next}, nil
 }
 
 // getColumnStatisticsTaskSettingsInput holds input for GetColumnStatisticsTaskSettings.
@@ -211,25 +237,41 @@ func (h *Handler) handleGetColumnStatisticsTaskSettings(
 	return &getColumnStatisticsTaskSettingsOutput{ColumnStatisticsTaskSettings: s}, nil
 }
 
+// defaultListColumnStatisticsTaskRunsLimit is used when
+// ListColumnStatisticsTaskRunsInput.MaxResults is unset.
+const defaultListColumnStatisticsTaskRunsLimit = 100
+
 // listColumnStatisticsTaskRunsInput holds input for ListColumnStatisticsTaskRuns.
-type listColumnStatisticsTaskRunsInput struct{}
+type listColumnStatisticsTaskRunsInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
 
 // listColumnStatisticsTaskRunsOutput holds the result for ListColumnStatisticsTaskRuns.
 type listColumnStatisticsTaskRunsOutput struct {
+	NextToken                  string   `json:"NextToken,omitempty"`
 	ColumnStatisticsTaskRunIDs []string `json:"ColumnStatisticsTaskRunIds"`
 }
 
 func (h *Handler) handleListColumnStatisticsTaskRuns(
 	_ context.Context,
-	_ *listColumnStatisticsTaskRunsInput,
+	in *listColumnStatisticsTaskRunsInput,
 ) (*listColumnStatisticsTaskRunsOutput, error) {
-	runs := h.Backend.ListColumnStatisticsTaskRuns()
+	all := h.Backend.ListColumnStatisticsTaskRuns()
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListColumnStatisticsTaskRunsLimit
+	}
+
+	runs, next := paginateSlice(all, in.NextToken, limit)
+
 	ids := make([]string, 0, len(runs))
 	for _, r := range runs {
 		ids = append(ids, r.ColumnStatisticsTaskRunID)
 	}
 
-	return &listColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRunIDs: ids}, nil
+	return &listColumnStatisticsTaskRunsOutput{ColumnStatisticsTaskRunIDs: ids, NextToken: next}, nil
 }
 
 // startColumnStatisticsTaskRunInput holds input for StartColumnStatisticsTaskRun.

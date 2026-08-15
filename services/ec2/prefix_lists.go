@@ -39,21 +39,24 @@ func (b *InMemoryBackend) CreateManagedPrefixList(
 }
 
 // DeleteManagedPrefixList removes a managed prefix list.
-func (b *InMemoryBackend) DeleteManagedPrefixList(id string) error {
+func (b *InMemoryBackend) DeleteManagedPrefixList(id string) (*ManagedPrefixList, error) {
 	if id == "" {
-		return fmt.Errorf("%w: PrefixListId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: PrefixListId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteManagedPrefixList")
 	defer b.mu.Unlock()
 
-	if _, ok := b.managedPrefixLists.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
+	pl, ok := b.managedPrefixLists.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
+	cp := *pl
+	cp.State = "delete-complete"
 	b.managedPrefixLists.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeManagedPrefixLists returns managed prefix lists, optionally filtered by IDs.
@@ -103,9 +106,9 @@ func (b *InMemoryBackend) GetManagedPrefixListEntries(id string) ([]PrefixListEn
 func (b *InMemoryBackend) ModifyManagedPrefixList(
 	id string,
 	addEntries, removeEntries []PrefixListEntry,
-) error {
+) (*ManagedPrefixList, error) {
 	if id == "" {
-		return fmt.Errorf("%w: PrefixListId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: PrefixListId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("ModifyManagedPrefixList")
@@ -113,7 +116,7 @@ func (b *InMemoryBackend) ModifyManagedPrefixList(
 
 	pl, ok := b.managedPrefixLists.Get(id)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
+		return nil, fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
 
 	// Remove entries
@@ -136,13 +139,15 @@ func (b *InMemoryBackend) ModifyManagedPrefixList(
 	pl.Version++
 	pl.State = "modify-complete"
 
-	return nil
+	cp := *pl
+
+	return &cp, nil
 }
 
 // RestoreManagedPrefixListVersion restores a previous version of a prefix list.
-func (b *InMemoryBackend) RestoreManagedPrefixListVersion(id string, version int64) error {
+func (b *InMemoryBackend) RestoreManagedPrefixListVersion(id string, version int64) (*ManagedPrefixList, error) {
 	if id == "" {
-		return fmt.Errorf("%w: PrefixListId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: PrefixListId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("RestoreManagedPrefixListVersion")
@@ -150,12 +155,14 @@ func (b *InMemoryBackend) RestoreManagedPrefixListVersion(id string, version int
 
 	pl, ok := b.managedPrefixLists.Get(id)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
+		return nil, fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
 	pl.Version = version
 	pl.State = "restore-complete"
 
-	return nil
+	cp := *pl
+
+	return &cp, nil
 }
 
 // ---- ClientVpnEndpoint ----

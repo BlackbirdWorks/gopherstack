@@ -54,13 +54,14 @@ func (b *InMemoryBackend) recordServiceDeploymentLocked(svc *Service, dep *Deplo
 	}
 
 	b.serviceDeployments.Put(&ServiceDeployment{
-		ServiceDeploymentArn: depArn,
-		ClusterArn:           svc.ClusterArn,
-		ServiceArn:           svc.ServiceArn,
-		Status:               serviceDeploymentStatusFor(dep.RolloutState),
-		StatusReason:         dep.RolloutStateReason,
-		CreatedAt:            &createdAt,
-		UpdatedAt:            &updatedAt,
+		ServiceDeploymentArn:     depArn,
+		ClusterArn:               svc.ClusterArn,
+		ServiceArn:               svc.ServiceArn,
+		Status:                   serviceDeploymentStatusFor(dep.RolloutState),
+		StatusReason:             dep.RolloutStateReason,
+		CreatedAt:                &createdAt,
+		UpdatedAt:                &updatedAt,
+		TargetServiceRevisionArn: dep.ServiceRevisionArn,
 	})
 }
 
@@ -98,15 +99,15 @@ func (b *InMemoryBackend) AddServiceDeploymentInternal(sd *ServiceDeployment) {
 	b.serviceDeployments.Put(&c)
 }
 
-// ListServiceDeployments returns service deployment ARNs for a service in a cluster.
-func (b *InMemoryBackend) ListServiceDeployments(cluster, service string) ([]string, error) {
+// ListServiceDeployments returns service deployment briefs for a service in a cluster.
+func (b *InMemoryBackend) ListServiceDeployments(cluster, service string) ([]ServiceDeployment, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("ListServiceDeployments")
 	defer b.mu.RUnlock()
 
 	all := b.serviceDeployments.All()
-	out := make([]string, 0, len(all))
+	out := make([]ServiceDeployment, 0, len(all))
 
 	for _, sd := range all {
 		if sd.ClusterArn != "" && !strings.HasSuffix(sd.ClusterArn, "/"+clusterName) {
@@ -120,7 +121,7 @@ func (b *InMemoryBackend) ListServiceDeployments(cluster, service string) ([]str
 			}
 		}
 
-		out = append(out, sd.ServiceDeploymentArn)
+		out = append(out, *sd)
 	}
 
 	return out, nil

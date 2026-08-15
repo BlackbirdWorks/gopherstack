@@ -59,7 +59,7 @@ func (h *Handler) listCampaigns(input map[string]any) (map[string]any, error) {
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, c := range list {
-		summaries = append(summaries, campaignToMap(c))
+		summaries = append(summaries, campaignSummaryToMap(c))
 	}
 
 	result := map[string]any{"campaigns": summaries}
@@ -91,4 +91,19 @@ func campaignToMap(c *Campaign) map[string]any {
 	}
 
 	return m
+}
+
+// campaignSummaryToMap builds the types.CampaignSummary shape (types.go:481)
+// -- no solutionVersionArn, minProvisionedTPS, campaignConfig, or
+// latestCampaignUpdate. failureReason is a real CampaignSummary member, but
+// the backend's Campaign model has no source for it (campaigns never fail
+// asynchronously here), so it stays absent rather than being fabricated.
+func campaignSummaryToMap(c *Campaign) map[string]any {
+	return map[string]any{
+		keyCampaignArn:         c.CampaignArn,
+		keyName:                c.Name,
+		keyStatus:              c.Status,
+		keyCreationDateTime:    awstime.Epoch(c.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(c.LastUpdatedDateTime),
+	}
 }

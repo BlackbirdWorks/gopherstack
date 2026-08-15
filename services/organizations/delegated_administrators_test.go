@@ -82,11 +82,42 @@ func TestDelegatedServices(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, "CreateOrganization", map[string]any{"featureSet": "ALL"})
 
-	// ListDelegatedServicesForAccount
-	rec := doRequest(t, h, "ListDelegatedServicesForAccount", map[string]any{
-		"accountId": "123456789012",
+	createRec := doRequest(t, h, "CreateAccount", map[string]any{
+		"AccountName": "delegate-account",
+		"Email":       "delegate@example.com",
 	})
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createResp))
+	accountID := createResp["CreateAccountStatus"].(map[string]any)["AccountId"].(string)
+
+	rec := doRequest(t, h, "EnableAWSServiceAccess", map[string]any{
+		"ServicePrincipal": "ssm.amazonaws.com",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "RegisterDelegatedAdministrator", map[string]any{
+		"AccountId":        accountID,
+		"ServicePrincipal": "ssm.amazonaws.com",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	// ListDelegatedServicesForAccount must show the service just delegated.
+	rec = doRequest(t, h, "ListDelegatedServicesForAccount", map[string]any{
+		"AccountId": accountID,
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	services, ok := resp["DelegatedServices"].([]any)
+	require.True(t, ok)
+	require.Len(t, services, 1)
+
+	svc, ok := services[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "ssm.amazonaws.com", svc["ServicePrincipal"])
 }
 
 // TestDelegatedAdmin_MultiService tests registering one account across multiple services.

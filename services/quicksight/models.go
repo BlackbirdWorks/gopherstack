@@ -96,6 +96,8 @@ type storedDataSet struct {
 	LastUpdatedTime   time.Time                         `json:"lastUpdatedTime"`
 	RefreshSchedules  map[string]*storedRefreshSchedule `json:"refreshSchedules,omitempty"`
 	RefreshProperties *storedDataSetRefreshProperties   `json:"refreshProperties,omitempty"`
+	PhysicalTableMap  map[string]PhysicalTable          `json:"physicalTableMap,omitempty"`
+	LogicalTableMap   map[string]LogicalTable           `json:"logicalTableMap,omitempty"`
 	DataSetID         string                            `json:"dataSetId"`
 	Arn               string                            `json:"arn"`
 	Name              string                            `json:"name"`
@@ -105,13 +107,15 @@ type storedDataSet struct {
 
 func (d *storedDataSet) toDataSet() *DataSet {
 	return &DataSet{
-		CreatedTime:     d.CreatedTime,
-		LastUpdatedTime: d.LastUpdatedTime,
-		DataSetID:       d.DataSetID,
-		Arn:             d.Arn,
-		Name:            d.Name,
-		ImportMode:      d.ImportMode,
-		Permissions:     clonePermissions(d.Permissions),
+		CreatedTime:      d.CreatedTime,
+		LastUpdatedTime:  d.LastUpdatedTime,
+		DataSetID:        d.DataSetID,
+		Arn:              d.Arn,
+		Name:             d.Name,
+		ImportMode:       d.ImportMode,
+		Permissions:      clonePermissions(d.Permissions),
+		PhysicalTableMap: clonePhysicalTableMap(d.PhysicalTableMap),
+		LogicalTableMap:  cloneLogicalTableMap(d.LogicalTableMap),
 	}
 }
 

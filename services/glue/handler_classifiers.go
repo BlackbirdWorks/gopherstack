@@ -67,19 +67,35 @@ func (h *Handler) handleGetClassifier(
 	return &getClassifierOutput{Classifier: c}, nil
 }
 
+// defaultGetClassifiersLimit is used when GetClassifiersInput.MaxResults is unset.
+const defaultGetClassifiersLimit = 100
+
 // getClassifiersInput holds input for GetClassifiers.
-type getClassifiersInput struct{}
+type getClassifiersInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
+}
 
 // getClassifiersOutput holds the result for GetClassifiers.
 type getClassifiersOutput struct {
+	NextToken   string        `json:"NextToken,omitempty"`
 	Classifiers []*Classifier `json:"Classifiers"`
 }
 
 func (h *Handler) handleGetClassifiers(
 	_ context.Context,
-	_ *getClassifiersInput,
+	in *getClassifiersInput,
 ) (*getClassifiersOutput, error) {
-	return &getClassifiersOutput{Classifiers: h.Backend.GetClassifiers()}, nil
+	classifiers := h.Backend.GetClassifiers()
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetClassifiersLimit
+	}
+
+	page, next := paginateSlice(classifiers, in.NextToken, limit)
+
+	return &getClassifiersOutput{Classifiers: page, NextToken: next}, nil
 }
 
 // updateClassifierInput holds input for UpdateClassifier.

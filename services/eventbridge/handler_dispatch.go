@@ -219,24 +219,19 @@ func (h *Handler) GetSupportedOperations() []string {
 		// internal-only via policyActions() in the dispatch table below for
 		// any existing direct callers, but no real AWS SDK client can invoke
 		// them, so they must not be advertised as supported here.
-		"CreatePipe",
-		"DeletePipe",
-		"DescribePipe",
-		"ListPipes",
-		"UpdatePipe",
 		// Schema Registry operations.
-		"CreateRegistry",
-		"DeleteRegistry",
-		"DescribeRegistry",
-		"ListRegistries",
-		"UpdateRegistry",
-		"CreateSchema",
-		"DeleteSchema",
-		"DescribeSchema",
-		"ListSchemas",
-		"SearchSchemas",
-		"UpdateSchema",
-		"ListSchemaVersions",
+		opCreateRegistry,
+		opDeleteRegistry,
+		opDescribeRegistry,
+		opListRegistries,
+		opUpdateRegistry,
+		opCreateSchema,
+		opDeleteSchema,
+		opDescribeSchema,
+		opListSchemas,
+		opSearchSchemas,
+		opUpdateSchema,
+		opListSchemaVersions,
 		// DescribeSchemaVersion is deliberately NOT listed here: it is not a
 		// real Schemas SDK operation (no such method on
 		// aws-sdk-go-v2/service/schemas.Client at any version -- the real
@@ -245,10 +240,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		// reachable internal-only via schemaVersionActions() in the dispatch
 		// table below, but no real AWS SDK client can invoke it under this
 		// name, so it must not be advertised as supported here.
-		"DeleteSchemaVersion",
-		"GetDiscoveredSchema",
-		"PutCodeBinding",
-		"DescribeCodeBinding",
+		opDeleteSchemaVersion,
+		opGetDiscoveredSchema,
+		opPutCodeBinding,
+		opDescribeCodeBinding,
 		// ListCodeBindings is deliberately NOT listed here: it is not a real
 		// Schemas SDK operation (no such method on
 		// aws-sdk-go-v2/service/schemas.Client at any version -- checking a
@@ -257,7 +252,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		// remains reachable internal-only via codeBindingActions() in the
 		// dispatch table below, but no real AWS SDK client can invoke it
 		// under this name, so it must not be advertised as supported here.
-		"GetCodeBindingSource",
+		opGetCodeBindingSource,
 	}
 }
 
@@ -270,27 +265,61 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this EventBridge instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
-// RouteMatcher returns a matcher for EventBridge requests.
+// RouteMatcher returns a matcher for EventBridge requests. It matches
+// EventBridge's own JSON-RPC 1.1 X-Amz-Target prefixes (including the
+// fabricated "AWSSchemas." internal convention no real client sends) plus
+// the real schemas@v1.37.4 REST-JSON1 method+path templates (gopherstack-92ft)
+// -- schemasRESTOpForRequest.
+//
+// Path alone does not textually discriminate: Batch's RouteMatcher also
+// matches any "/v1/..." path (services/batch/handler.go's v1Prefix), and it
+// does not exclude these Schemas templates the way it already excludes
+// AppSync/CodeArtifact/Kafka's own "/v1/" paths. No SigV4 scoping is needed
+// to resolve this, though, unlike iot/iotdataplane's genuine same-path
+// collision (gopherstack-61i8): this handler's MatchPriority is already
+// PriorityHeaderExact (100), strictly above Batch's PriorityPathVersioned
+// (85), and pkgs/service's Router evaluates matchers in descending-priority
+// order, calling the first one that returns true (pkgs/service/router.go).
+// So this handler's matcher is always checked -- and wins -- before Batch's
+// ever runs for these literal paths, deterministically, the same way
+// codeartifact's higher-than-Batch priority already resolves an identical
+// "/v1/" overlap (services/codeartifact/handler.go's
+// codeartifactMatchPriority comment).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(target, "AmazonEventBridge.") ||
+		if strings.HasPrefix(target, "AmazonEventBridge.") ||
 			strings.HasPrefix(target, "AWSEvents.") ||
-			strings.HasPrefix(target, "AWSSchemas.")
+			strings.HasPrefix(target, "AWSSchemas.") {
+			return true
+		}
+
+		return schemasRESTOpForRequest(c.Request()) != ""
 	}
 }
 
 // MatchPriority returns the routing priority for the EventBridge handler.
 func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
-// ExtractOperation extracts the operation name from the X-Amz-Target header.
+// ExtractOperation extracts the operation name from the X-Amz-Target header
+// for EventBridge's own JSON-RPC 1.1 requests, or (for a real Schemas
+// REST-JSON1 request, which carries no X-Amz-Target at all) from the
+// method+path via schemasRESTOpForRequest.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
-	parts := strings.Split(target, ".")
-	const targetParts = 2
-	if len(parts) == targetParts {
-		return parts[1]
+	if target != "" {
+		parts := strings.Split(target, ".")
+		const targetParts = 2
+		if len(parts) == targetParts {
+			return parts[1]
+		}
+
+		return "Unknown"
+	}
+
+	if op := schemasRESTOpForRequest(c.Request()); op != "" {
+		return op
 	}
 
 	return "Unknown"
@@ -323,6 +352,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
 		ctx := context.WithValue(c.Request().Context(), regionContextKey{}, region)
 		c.SetRequest(c.Request().WithContext(ctx))
+
+		if op := schemasRESTOpForRequest(c.Request()); op != "" {
+			return h.handleSchemasREST(c, op)
+		}
 
 		return service.HandleTarget(
 			c, logger.Load(ctx),
@@ -360,7 +393,6 @@ func (h *Handler) newOpsActions() map[string]actionFn {
 	maps.Copy(table, h.extendedEndpointActions())
 	maps.Copy(table, h.eventBusManagementActions())
 	maps.Copy(table, h.policyActions())
-	maps.Copy(table, h.pipesActions())
 	maps.Copy(table, h.registryActions())
 	maps.Copy(table, h.schemaActions())
 	maps.Copy(table, h.schemaVersionActions())

@@ -416,20 +416,41 @@ func TestDescribeUserPoolClient_IncludesClientSecret(t *testing.T) {
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
 	assert.Empty(t, descResp["UserPoolClient"].(map[string]any)["ClientSecret"])
 
-	// Add secret.
-	doCognitoRequest(t, h, "AddUserPoolClientSecret", map[string]any{
+	// AddUserPoolClientSecret creates an independently ClientSecretId-keyed
+	// secret (real AWS's UserPoolClientType has no field for it, so
+	// DescribeUserPoolClient's top-level ClientSecret is untouched -- the new
+	// secret's value is returned once, on AddUserPoolClientSecret's own
+	// response, and its metadata thereafter only via ListUserPoolClientSecrets).
+	addRec := doCognitoRequest(t, h, "AddUserPoolClientSecret", map[string]any{
 		"UserPoolId": poolID,
 		"ClientId":   clientID,
 	})
+	var addResp map[string]any
+	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addResp))
+	descriptor, ok := addResp["ClientSecretDescriptor"].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, descriptor["ClientSecretId"])
+	assert.NotEmpty(t, descriptor["ClientSecretValue"])
 
-	// Secret now present.
 	descRec2 := doCognitoRequest(t, h, "DescribeUserPoolClient", map[string]any{
 		"UserPoolId": poolID,
 		"ClientId":   clientID,
 	})
 	var descResp2 map[string]any
 	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descResp2))
-	assert.NotEmpty(t, descResp2["UserPoolClient"].(map[string]any)["ClientSecret"])
+	assert.Empty(t, descResp2["UserPoolClient"].(map[string]any)["ClientSecret"])
+
+	listRec := doCognitoRequest(t, h, "ListUserPoolClientSecrets", map[string]any{
+		"UserPoolId": poolID,
+		"ClientId":   clientID,
+	})
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	secrets, ok := listResp["ClientSecrets"].([]any)
+	require.True(t, ok)
+	require.Len(t, secrets, 1)
+	assert.Equal(t, descriptor["ClientSecretId"], secrets[0].(map[string]any)["ClientSecretId"])
+	assert.Empty(t, secrets[0].(map[string]any)["ClientSecretValue"], "list must never reveal the secret value")
 }
 
 func TestListUserPoolClients_NonNilWhenEmpty(t *testing.T) {

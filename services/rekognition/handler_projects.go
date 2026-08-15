@@ -24,6 +24,8 @@ func (h *Handler) projectOps() map[string]service.JSONOpFunc {
 
 type createProjectReq struct {
 	ProjectName string `json:"ProjectName"`
+	AutoUpdate  string `json:"AutoUpdate"`
+	Feature     string `json:"Feature"`
 }
 
 type createProjectResp struct {
@@ -35,7 +37,10 @@ func (h *Handler) handleCreateProject(_ context.Context, req *createProjectReq) 
 		return nil, fmt.Errorf("%w: ProjectName is required", ErrValidation)
 	}
 
-	proj, err := h.Backend.CreateProject(req.ProjectName)
+	proj, err := h.Backend.CreateProject(req.ProjectName, CreateProjectParams{
+		AutoUpdate: req.AutoUpdate,
+		Feature:    req.Feature,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -63,15 +68,24 @@ func (h *Handler) handleDeleteProject(_ context.Context, req *deleteProjectReq) 
 	return &deleteProjectResp{Status: "DELETING"}, nil
 }
 
+// describeProjectsReq's filter field is ProjectNames, NOT ProjectArns --
+// confirmed against serializers.go's awsAwsjson11_serializeOpDocumentDescribeProjectsInput,
+// which has no ProjectArns member at all. The previous "ProjectArns" key was
+// a real key from the wrong side (echoing CreateProjectOutput's own
+// ProjectArn back at the caller): a real client's ProjectNames filter was
+// silently ignored, so every DescribeProjects call returned every project
+// regardless of the requested filter.
 type describeProjectsReq struct {
-	NextToken   string   `json:"NextToken"`
-	ProjectArns []string `json:"ProjectArns"`
-	MaxResults  int32    `json:"MaxResults"`
+	NextToken    string   `json:"NextToken"`
+	ProjectNames []string `json:"ProjectNames"`
+	MaxResults   int32    `json:"MaxResults"`
 }
 
 type projectDescription struct {
 	ProjectArn        string  `json:"ProjectArn"`
 	Status            string  `json:"Status"`
+	AutoUpdate        string  `json:"AutoUpdate,omitempty"`
+	Feature           string  `json:"Feature,omitempty"`
 	CreationTimestamp float64 `json:"CreationTimestamp"`
 }
 
@@ -83,7 +97,7 @@ type describeProjectsResp struct {
 func (h *Handler) handleDescribeProjects(
 	_ context.Context, req *describeProjectsReq,
 ) (*describeProjectsResp, error) {
-	projects, nextToken, err := h.Backend.DescribeProjects(req.ProjectArns, req.MaxResults, req.NextToken)
+	projects, nextToken, err := h.Backend.DescribeProjects(req.ProjectNames, req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +107,8 @@ func (h *Handler) handleDescribeProjects(
 		descriptions = append(descriptions, projectDescription{
 			ProjectArn:        p.ProjectARN,
 			Status:            p.Status,
+			AutoUpdate:        p.AutoUpdate,
+			Feature:           p.Feature,
 			CreationTimestamp: epochSeconds(p.CreationTimestamp),
 		})
 	}

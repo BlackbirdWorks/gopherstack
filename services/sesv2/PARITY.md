@@ -2,7 +2,7 @@
 service: sesv2
 sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.4   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
 last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
-last_audit_date: 2026-07-25
+last_audit_date: 2026-08-13
 overall: A            # route-matcher rewrite + wire-shape DTOs; this pass implemented the 2 new v1.66.0 ops and fixed a previously-mis-graded GetAccount wire-shape bug found while wiring PutAccountPricingAttributes in (see "This pass (2026-07-25)")
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -27,7 +27,7 @@ ops:
   PutConfigurationSetTrackingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutConfigurationSetVdmOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   SendEmail: {wire: ok, errors: ok, state: ok, persist: ok}
-  SendBulkEmail: {wire: fixed, errors: ok, state: ok, persist: ok, note: "request body was parsed into map[string]any with ad-hoc type assertions; now typed (bulkEmailEntry/bulkEmailDestination/messageHeader/messageTag/replacementEmailContent/replacementTemplate in send_email.go, field-diffed against types.BulkEmailEntry et al), and the response uses bulkEmailEntryResultOutput (types.BulkEmailEntryResult) instead of a raw map. Functional behavior unchanged."}
+  SendBulkEmail: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "request body was parsed into map[string]any with ad-hoc type assertions; now typed (bulkEmailEntry/bulkEmailDestination/messageHeader/messageTag/replacementEmailContent/replacementTemplate in send_email.go, field-diffed against types.BulkEmailEntry et al), and the response uses bulkEmailEntryResultOutput (types.BulkEmailEntryResult) instead of a raw map. gopherstack-afi1: DefaultContent (required, api_op_SendBulkEmail.go:43) was decoded into sendBulkEmailInput but never read -- SendEmail was called with hardcoded empty subject/HTML/text, so every bulk email was recorded with no content regardless of what the caller sent. Now resolves DefaultContent.Template (inline TemplateContent, or a TemplateName lookup against b.emailTemplates -- NotFoundException if missing) and applies {{var}} substitution (parseTemplateVars/renderTemplateVars, shared with TestRenderEmailTemplate) using TemplateData merged with each entry's ReplacementEmailContent.ReplacementTemplate.ReplacementTemplateData as a per-recipient override. DefaultContent.Template.Attachments/Headers and per-entry ReplacementHeaders/ReplacementTags remain unstored/inert -- consistent with SendEmail's existing scope, which doesn't model attachments/headers/tags on Email either."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -75,12 +75,12 @@ ops:
   PutAccountSuppressionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'suppression-attributes'; real is 'suppression'. Unroutable before fix."}
   PutAccountVdmAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'vdm-attributes'; real is 'vdm'. A dead top-level '/v2/email/vdm-attributes' route (not a real SES path at all) was also removed."}
   BatchGetMetricData: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "now derives real per-day SEND counts from b.emails (gopherstack's actual send history) for Metric=SEND with no dimension or the EMAIL_IDENTITY dimension (matched against each Email's From address/domain, same resolution SendEmail uses) -- genuine aggregated data, not a placeholder. Every other Metric (COMPLAINT/PERMANENT_BOUNCE/TRANSIENT_BOUNCE/OPEN/CLICK/DELIVERY*) and the CONFIGURATION_SET/ISP dimensions have no backing data source (no bounce/complaint/engagement pipeline, no per-email config-set/ISP association) and honestly fall back to a single zero-valued datapoint rather than a fabricated count. Values is now []int64 (was []float64), matching types.MetricDataResult. Request StartDate/EndDate/Dimensions were previously silently dropped by the handler; now decoded (JSON-body epoch-seconds, per serializers.go)."}
-  CreateExportJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetExportJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CreateExportJob/GetExportJob leaked lowerCamelCase jobId/jobStatus/createdAt; added exportJobOutput"}
+  CreateExportJob: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "previously graded 'wire: ok' in error (gopherstack-rcmn): the handler expected a flat DataSource string; real required members are ExportDataSource *types.ExportDataSource (nested MetricsDataSource|MessageInsightsDataSource, exactly one) and ExportDestination *types.ExportDestination (DataFormat required), both absent entirely. A body sending the invented flat field parsed identically to one that sent nothing, so the bug was silent. Now: both required members validated present (400 BadRequestException, matching CreateExportJob's declared error switch -- no ValidationException modeled for this op); ExportDataSource's two branches accepted opaquely via json.RawMessage (gopherstack has no metrics-aggregation or message-log engine to act on Dimensions/Metrics/Namespace/StartDate/EndDate/Exclude/Include/MaxResults) but which branch was set is used to derive and persist ExportSourceType, now echoed back via GetExportJob/ListExportJobs. ExportDestination.S3Url is accepted but not echoed back -- gopherstack never writes an export file, so there is no pre-signed URL to report."}
+  GetExportJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CreateExportJob/GetExportJob leaked lowerCamelCase jobId/jobStatus/createdAt; added exportJobOutput. Now also reports ExportSourceType (see CreateExportJob fix)."}
   CancelExportJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListExportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/list-export-jobs (filter/pagination in body) -- a distinct top-level path from /v2/email/export-jobs, not a GET on that same path. Previous GET-based route was gopherstack-invented and unroutable by a real client; removed and replaced."}
-  CreateImportJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetImportJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same lowerCamelCase leak as ExportJob; added importJobOutput"}
+  CreateImportJob: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "previously graded 'wire: ok' in error (gopherstack-rcmn): same bug class as CreateExportJob -- flat invented DataSource string vs real required ImportDataSource *types.ImportDataSource (DataFormat + S3Url, both required, flat and modeled directly) and ImportDestination *types.ImportDestination (nested ContactListDestination|SuppressionListDestination, exactly one, absent entirely). Now: ImportDataSource.DataFormat/S3Url and ImportDestination presence validated (400 BadRequestException); ImportDestination's selected branch (and its own required members -- ContactListImportAction+ContactListName, or SuppressionListImportAction) is stored as the backend ImportDestination and echoed back via GetImportJob/ListImportJobs. gopherstack has no S3 fetcher, so the job never actually applies any records to a contact list or the suppression list -- only which destination the (unfetchable) import targeted is recorded."}
+  GetImportJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same lowerCamelCase leak as ExportJob; added importJobOutput. Now also reports ImportDestination (see CreateImportJob fix)."}
   ListImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "real op is POST /v2/email/import-jobs/list (filter/pagination in body), not GET /v2/email/import-jobs. Previous GET-based route removed and replaced."}
   CreateEmailIdentityPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetEmailIdentityPolicies: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -121,9 +121,45 @@ ops:
   PutTenantSuppressionAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: ok, note: "new in aws-sdk-go-v2/service/sesv2 v1.66.0. Real path/verb confirmed against serializers.go: POST /v2/email/tenant/suppression -- note the *singular* 'tenant' top-level segment, a genuinely distinct path from the rest of this family's plural '/v2/email/tenants/...' (awsRestjson1_serializeOpPutTenantSuppressionAttributes's httpbinding.SplitURI; this service has a history of invented paths -- verified by grepping serializers.go directly rather than assuming it lives under 'tenants'). SuppressedReasons entries validated against the real SuppressionListReason enum (BOUNCE/COMPLAINT); SuppressionScope against SuppressionListScope (ACCOUNT/TENANT); NotFoundException for an unknown TenantName. Writes onto the existing per-tenant map entry in b.tenants (SuppressedReasons/SuppressionScope keys) -- no parallel store -- so it's cascade-deleted for free when DeleteTenant removes the tenant's map entry. Surfaced via CreateTenant/GetTenant's SuppressionAttributes field (types.TenantSuppressionAttributes; added tenantSuppressionAttributesOutput + toTenantSuppressionAttributesOutput, wire_output.go), which was previously entirely missing from tenantOutput."}
 # Families audited as a group (when per-op is impractical):
 families:
-  route-matcher: {status: fixed, note: "Built a full (method,path)->op regression matrix from aws-sdk-go-v2/service/sesv2 v1.60.1 serializers.go (services/sesv2/route_matrix_test.go, 110+ real routes, every real SDK route now covered -- see route_matrix_test.go). Original pass fixed 12/30 unroutable-or-misrouted routes; this pass closed the remaining 18: RPC-style tenant/resource-tenant paths (8 routes), deliverability-dashboard sub-resources (5 routes: test-reports x2, statistics-report, campaigns, domains/.../campaigns), insights/recommendations (3: email-address-insights, insights/{MessageId}, vdm/recommendations), reputation-entity listing (1, plus deletion of a gopherstack-invented duplicate 'reputation-entities' top-level path), and the POST-based list-export-jobs/import-jobs/list variants (2)."}
+  route-matcher: {status: fixed, note: "Built a full (method,path)->op regression matrix from aws-sdk-go-v2/service/sesv2 v1.60.1 serializers.go (services/sesv2/route_matrix_test.go, 110+ real routes, every real SDK route now covered -- see route_matrix_test.go). Original pass fixed 12/30 unroutable-or-misrouted routes; this pass closed the remaining 18: RPC-style tenant/resource-tenant paths (8 routes), deliverability-dashboard sub-resources (5 routes: test-reports x2, statistics-report, campaigns, domains/.../campaigns), insights/recommendations (3: email-address-insights, insights/{MessageId}, vdm/recommendations), reputation-entity listing (1, plus deletion of a gopherstack-invented duplicate 'reputation-entities' top-level path), and the POST-based list-export-jobs/import-jobs/list variants (2). gopherstack-jqh2: independently re-extracted all 112 real ops' method+path from the pinned sesv2@v1.66.4 serializers.go (no manual reliance on this file's prior citation) and diffed against ExtractOperation directly -- 112/112 match, confirming route_matrix_test.go is current and this family's 'fixed' status holds against the pinned SDK version; no new test added since route_matrix_test.go already covers this exact ground (including the 2 ops -- PutAccountPricingAttributes, PutTenantSuppressionAttributes -- that appeared between v1.60.1 and v1.66.4) and duplicating it would just be two tables to keep in sync. No query-flag-discriminated ops, no duplicate op-resolution table, no wrong-date-prefix paths found in this pass either."}
 leaks: {status: clean, note: "no goroutines/janitors spawned; email retention capped at maxRetainedEmails (10000, FIFO-compacted) so SendEmail/SendCustomVerificationEmail can't leak memory on a long-running instance. DeleteTenant now cascades its resource-association index cleanup (both tenantResources and resourceTenants maps) so deleting a tenant with associated resources doesn't leave ghost rows."}
 ---
+
+## This pass (2026-08-13): SendBulkEmail dropped DefaultContent (gopherstack-afi1)
+
+From the "five ops drop the fields that define what they do" required-member
+sweep. `send_email.go`'s `SendBulkEmail` called `SendEmail(from, to, "", "",
+"")` for every entry -- `DefaultContent`, required
+(`api_op_SendBulkEmail.go:43`), was never read, so every bulk email was
+stored with an empty subject and body no matter what the caller sent. See
+the `SendBulkEmail` `ops:` entry above for the full fix detail (template
+content/name resolution, `{{var}}` substitution, per-entry override).
+`TestSendBulkEmail` and `TestSendBulkEmailSDKRoundTrip` previously asserted
+only `http.StatusOK`/non-empty `MessageId` -- neither checked the recorded
+email's actual content, so both passed against the unfixed code exactly as
+easily as against the fix; both now assert on `ListEmails()` content.
+Added `TestSendBulkEmailRequiresDefaultContent` (missing `DefaultContent` ->
+`BadRequestException`, matching `SendBulkEmail`'s declared error switch,
+which has no dedicated validation exception).
+
+## This pass (2026-08-12): CreateExportJob/CreateImportJob wire-shape fix (gopherstack-rcmn)
+
+From the `gopherstack-7rq1` sweep for request fields present in the model but
+absent from wire structs. Both ops read an invented flat `DataSource` string;
+real required members are nested structs (`ExportDataSource`/
+`ExportDestination`, `ImportDataSource`/`ImportDestination`) entirely absent
+from the handlers. A body sending the invented flat field parsed identically
+to one sending nothing, so gopherstack silently accepted structurally-wrong
+requests -- see the `CreateExportJob`/`CreateImportJob` `ops:` entries above
+for the full field-diff/validation/error-model detail. Fixed for real:
+required members are now validated present (400 BadRequestException, each
+op's own declared error switch -- confirmed neither declares
+ValidationException), and the parts of each nested shape gopherstack can act
+on (`ExportSourceType` derivation, `ImportDestination`'s selected branch) are
+stored and echoed back via Get/List rather than merely validated and
+discarded. Leaves genuinely inert where there's no backend engine behind them
+(metrics/message-insights export contents, the unfetchable import file
+itself) -- documented per-field in the `ops:` notes, not silently dropped.
 
 ## Notes
 

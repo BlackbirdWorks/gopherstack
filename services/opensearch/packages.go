@@ -250,14 +250,31 @@ func (b *InMemoryBackend) UpdatePackage(packageID, description string) (*Package
 	return &cp, nil
 }
 
-// UpdatePackageScope is a no-op that returns the package (scope is not tracked in-memory).
-func (b *InMemoryBackend) UpdatePackageScope(packageID, _ string, _ []string) (*Package, error) {
-	b.mu.RLock("UpdatePackageScope")
-	defer b.mu.RUnlock()
+// UpdatePackageScope applies operation (ADD/REMOVE/OVERRIDE, types.
+// PackageScopeOperationEnum in the pinned SDK) to the package's user list and
+// returns the resulting scope.
+func (b *InMemoryBackend) UpdatePackageScope(packageID, operation string, users []string) (*Package, error) {
+	b.mu.Lock("UpdatePackageScope")
+	defer b.mu.Unlock()
 
 	pkg, exists := b.packages.Get(packageID)
 	if !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
+	}
+
+	switch operation {
+	case "ADD":
+		for _, u := range users {
+			if !slices.Contains(pkg.PackageUserList, u) {
+				pkg.PackageUserList = append(pkg.PackageUserList, u)
+			}
+		}
+	case "REMOVE":
+		pkg.PackageUserList = slices.DeleteFunc(pkg.PackageUserList, func(u string) bool {
+			return slices.Contains(users, u)
+		})
+	case "OVERRIDE":
+		pkg.PackageUserList = users
 	}
 
 	cp := *pkg

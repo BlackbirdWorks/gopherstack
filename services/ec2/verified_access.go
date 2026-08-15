@@ -33,21 +33,23 @@ func (b *InMemoryBackend) CreateVerifiedAccessEndpoint(
 }
 
 // DeleteVerifiedAccessEndpoint removes a Verified Access endpoint.
-func (b *InMemoryBackend) DeleteVerifiedAccessEndpoint(id string) error {
+func (b *InMemoryBackend) DeleteVerifiedAccessEndpoint(id string) (*VerifiedAccessEndpoint, error) {
 	if id == "" {
-		return fmt.Errorf("%w: VerifiedAccessEndpointId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: VerifiedAccessEndpointId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteVerifiedAccessEndpoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessEndpoints.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
+	ep, ok := b.verifiedAccessEndpoints.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
 	}
+	cp := *ep
 	b.verifiedAccessEndpoints.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeVerifiedAccessEndpoints returns Verified Access endpoints.
@@ -76,9 +78,9 @@ func (b *InMemoryBackend) DescribeVerifiedAccessEndpoints(ids []string) []*Verif
 }
 
 // ModifyVerifiedAccessEndpoint modifies a Verified Access endpoint.
-func (b *InMemoryBackend) ModifyVerifiedAccessEndpoint(id, description string) error {
+func (b *InMemoryBackend) ModifyVerifiedAccessEndpoint(id, description string) (*VerifiedAccessEndpoint, error) {
 	if id == "" {
-		return fmt.Errorf("%w: VerifiedAccessEndpointId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: VerifiedAccessEndpointId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("ModifyVerifiedAccessEndpoint")
@@ -86,13 +88,15 @@ func (b *InMemoryBackend) ModifyVerifiedAccessEndpoint(id, description string) e
 
 	ep, ok := b.verifiedAccessEndpoints.Get(id)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
+		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
 	}
 	if description != "" {
 		ep.Description = description
 	}
 
-	return nil
+	cp := *ep
+
+	return &cp, nil
 }
 
 // CreateVerifiedAccessGroup creates a Verified Access group.
@@ -119,21 +123,23 @@ func (b *InMemoryBackend) CreateVerifiedAccessGroup(
 }
 
 // DeleteVerifiedAccessGroup removes a Verified Access group.
-func (b *InMemoryBackend) DeleteVerifiedAccessGroup(id string) error {
+func (b *InMemoryBackend) DeleteVerifiedAccessGroup(id string) (*VerifiedAccessGroup, error) {
 	if id == "" {
-		return fmt.Errorf("%w: VerifiedAccessGroupId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: VerifiedAccessGroupId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteVerifiedAccessGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessGroups.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrVerifiedAccessGroupNotFound, id)
+	grp, ok := b.verifiedAccessGroups.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessGroupNotFound, id)
 	}
+	cp := *grp
 	b.verifiedAccessGroups.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeVerifiedAccessGroups returns Verified Access groups.
@@ -178,21 +184,23 @@ func (b *InMemoryBackend) CreateVerifiedAccessInstance(description string) (*Ver
 }
 
 // DeleteVerifiedAccessInstance removes a Verified Access instance.
-func (b *InMemoryBackend) DeleteVerifiedAccessInstance(id string) error {
+func (b *InMemoryBackend) DeleteVerifiedAccessInstance(id string) (*VerifiedAccessInstance, error) {
 	if id == "" {
-		return fmt.Errorf("%w: VerifiedAccessInstanceId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: VerifiedAccessInstanceId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteVerifiedAccessInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessInstances.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, id)
+	inst, ok := b.verifiedAccessInstances.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, id)
 	}
+	cp := *inst
 	b.verifiedAccessInstances.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeVerifiedAccessInstances returns Verified Access instances.
@@ -244,21 +252,23 @@ func (b *InMemoryBackend) CreateVerifiedAccessTrustProvider(
 }
 
 // DeleteVerifiedAccessTrustProvider removes a Verified Access trust provider.
-func (b *InMemoryBackend) DeleteVerifiedAccessTrustProvider(id string) error {
+func (b *InMemoryBackend) DeleteVerifiedAccessTrustProvider(id string) (*VerifiedAccessTrustProvider, error) {
 	if id == "" {
-		return fmt.Errorf("%w: VerifiedAccessTrustProviderId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: VerifiedAccessTrustProviderId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteVerifiedAccessTrustProvider")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessTrustProviders.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrVerifiedAccessTrustProviderNF, id)
+	tp, ok := b.verifiedAccessTrustProviders.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessTrustProviderNF, id)
 	}
+	cp := *tp
 	b.verifiedAccessTrustProviders.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeVerifiedAccessTrustProviders returns Verified Access trust providers.

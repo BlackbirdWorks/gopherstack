@@ -172,6 +172,7 @@ func replicationInfoDescriptionFrom(ri ReplicationInfoConfig) replicationInfoDes
 
 type createReplicatorInput struct {
 	Tags                    map[string]string    `json:"tags,omitempty"`
+	LogDelivery             *LogDelivery         `json:"logDelivery,omitempty"`
 	ReplicatorName          string               `json:"replicatorName"`
 	Description             string               `json:"description,omitempty"`
 	ServiceExecutionRoleArn string               `json:"serviceExecutionRoleArn"`
@@ -213,6 +214,7 @@ func (h *Handler) handleCreateReplicator(ctx context.Context, c *echo.Context, b
 		kafkaClusters,
 		replicationInfoList,
 		in.Tags,
+		in.LogDelivery,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -240,6 +242,7 @@ func (h *Handler) handleDeleteReplicator(
 // describeReplicatorOutput mirrors DescribeReplicatorOutput.
 type describeReplicatorOutput struct {
 	StateInfo               *replicationStateInfoDTO        `json:"stateInfo,omitempty"`
+	LogDelivery             *LogDelivery                    `json:"logDelivery,omitempty"`
 	Tags                    map[string]string               `json:"tags,omitempty"`
 	CreationTime            string                          `json:"creationTime,omitempty"`
 	CurrentVersion          string                          `json:"currentVersion,omitempty"`
@@ -280,6 +283,7 @@ func describeReplicatorOutputFrom(r *Replicator) describeReplicatorOutput {
 		CurrentVersion:          r.CurrentVersion,
 		CreationTime:            r.CreationTime,
 		Tags:                    r.Tags,
+		LogDelivery:             r.LogDelivery,
 		KafkaClusters:           kafkaClusters,
 		ReplicationInfoList:     replicationInfoList,
 	}

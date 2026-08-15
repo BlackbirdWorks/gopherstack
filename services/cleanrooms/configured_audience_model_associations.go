@@ -37,6 +37,25 @@ func toConfiguredAudienceModelAssociationSummary(
 	}
 }
 
+// toCollaborationConfiguredAudienceModelAssociationSummary builds the
+// collaboration-scoped shape, which carries creatorAccountId in place of
+// the membership-scoped membershipArn/membershipId (see
+// CollaborationConfiguredAudienceModelAssociationSummary).
+func toCollaborationConfiguredAudienceModelAssociationSummary(
+	a *ConfiguredAudienceModelAssociation, creatorAccountID string,
+) *CollaborationConfiguredAudienceModelAssociationSummary {
+	return &CollaborationConfiguredAudienceModelAssociationSummary{
+		Arn:              a.Arn,
+		CollaborationArn: a.CollaborationArn,
+		CollaborationID:  a.CollaborationID,
+		CreatorAccountID: creatorAccountID,
+		Name:             a.Name,
+		ID:               a.ID,
+		CreateTime:       a.CreateTime,
+		UpdateTime:       a.UpdateTime,
+	}
+}
+
 func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
 	membershipID, configuredAudienceModelArn, name, description string,
 	manageResourcePolicies bool,
@@ -178,10 +197,11 @@ func (b *InMemoryBackend) GetCollaborationConfiguredAudienceModelAssociation(
 
 func (b *InMemoryBackend) ListCollaborationConfiguredAudienceModelAssociations(
 	collaborationID, maxResults, nextToken string,
-) ([]*ConfiguredAudienceModelAssociationSummary, string, error) {
+) ([]*CollaborationConfiguredAudienceModelAssociationSummary, string, error) {
 	b.mu.RLock("ListCollaborationConfiguredAudienceModelAssociations")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations.Get(collaborationID); !ok {
+	collab, ok := b.collaborations.Get(collaborationID)
+	if !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listNestedItems(
@@ -189,8 +209,10 @@ func (b *InMemoryBackend) ListCollaborationConfiguredAudienceModelAssociations(
 		func(a *ConfiguredAudienceModelAssociation) bool {
 			return a.CollaborationID == collaborationID
 		},
-		toConfiguredAudienceModelAssociationSummary,
-		func(a, c *ConfiguredAudienceModelAssociationSummary) bool {
+		func(a *ConfiguredAudienceModelAssociation) *CollaborationConfiguredAudienceModelAssociationSummary {
+			return toCollaborationConfiguredAudienceModelAssociationSummary(a, collab.CreatorAccountID)
+		},
+		func(a, c *CollaborationConfiguredAudienceModelAssociationSummary) bool {
 			return a.ID < c.ID
 		},
 		maxResults, nextToken,

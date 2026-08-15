@@ -17,7 +17,7 @@ const describeCapacityProviderIncludeTags = "TAGS"
 
 type managedScalingView struct {
 	Status                    string `json:"status,omitempty"`
-	TargetCapacityPercent     int    `json:"targetCapacityPercent,omitempty"`
+	TargetCapacityPercent     int    `json:"targetCapacity,omitempty"`
 	MinimumScalingStepSize    int    `json:"minimumScalingStepSize,omitempty"`
 	MaximumScalingStepSize    int    `json:"maximumScalingStepSize,omitempty"`
 	InstanceWarmupPeriod      int    `json:"instanceWarmupPeriod,omitempty"`
@@ -84,7 +84,7 @@ func toCapacityProviderView(cp CapacityProvider) capacityProviderView {
 
 type managedScalingInput struct {
 	Status                    string `json:"status,omitempty"`
-	TargetCapacityPercent     int    `json:"targetCapacityPercent,omitempty"`
+	TargetCapacityPercent     int    `json:"targetCapacity,omitempty"`
 	MinimumScalingStepSize    int    `json:"minimumScalingStepSize,omitempty"`
 	MaximumScalingStepSize    int    `json:"maximumScalingStepSize,omitempty"`
 	InstanceWarmupPeriod      int    `json:"instanceWarmupPeriod,omitempty"`

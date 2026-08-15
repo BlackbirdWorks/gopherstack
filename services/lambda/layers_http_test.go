@@ -27,9 +27,9 @@ func TestGetLayerVersionByArn(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Get by ARN using /2018-10-31/layers-by-arn?Arn={arn}
+	// Get by ARN using /2018-10-31/layers?find=LayerVersion&Arn={arn}
 	rec := callInMemoryHandler(t, h, http.MethodGet,
-		"/2018-10-31/layers-by-arn?Arn="+url.QueryEscape(out.LayerVersionArn), "{}")
+		"/2018-10-31/layers?find=LayerVersion&Arn="+url.QueryEscape(out.LayerVersionArn), "{}")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "arn-test-layer")
 }
@@ -151,7 +151,7 @@ func TestLayer_GetVersionByArn(t *testing.T) {
 	require.NoError(t, json.NewDecoder(pubRec.Body).Decode(&pub))
 
 	rec := callInMemoryHandler(t, h, http.MethodGet,
-		"/2018-10-31/layers-by-arn?Arn="+pub.LayerVersionArn, "")
+		"/2018-10-31/layers?find=LayerVersion&Arn="+pub.LayerVersionArn, "")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var got lambda.GetLayerVersionOutput
@@ -164,7 +164,7 @@ func TestLayer_GetVersionByArn_MissingArn(t *testing.T) {
 
 	h, _ := newInMemoryHandler(t)
 
-	rec := callInMemoryHandler(t, h, http.MethodGet, "/2018-10-31/layers-by-arn", "")
+	rec := callInMemoryHandler(t, h, http.MethodGet, "/2018-10-31/layers?find=LayerVersion", "")
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 

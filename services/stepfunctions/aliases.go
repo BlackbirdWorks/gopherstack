@@ -71,6 +71,10 @@ func (b *InMemoryBackend) CreateStateMachineAlias(
 		Description:          description,
 		RoutingConfiguration: routing,
 		CreationDate:         now,
+		// AWS: "the date the state machine alias was last updated. For a
+		// newly created state machine, this is the same as the creation
+		// date" (DescribeStateMachineAliasOutput.UpdateDate).
+		UpdatedDate: now,
 	}
 
 	b.aliases.Put(alias)

@@ -3,6 +3,8 @@ package codeartifact_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -62,6 +64,11 @@ func doRawRequest(t *testing.T, h *codeartifact.Handler, path string, body []byt
 
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/octet-stream")
+	// PublishPackageVersion requires the real client to send the asset's
+	// SHA256 as X-Amz-Content-Sha256 (gopherstack-h910: this used to be
+	// silently ignored and computed server-side instead).
+	sum := sha256.Sum256(body)
+	req.Header.Set("X-Amz-Content-Sha256", hex.EncodeToString(sum[:]))
 
 	rec := httptest.NewRecorder()
 	e := echo.New()
@@ -508,9 +515,13 @@ func TestHandler_ErrorPaths(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "put_domain_permissions_not_found",
-			method:     http.MethodPut,
-			path:       "/v1/domain/permissions/policy?domain=nope",
+			name:   "put_domain_permissions_not_found",
+			method: http.MethodPut,
+			path:   "/v1/domain/permissions/policy?domain=nope",
+			// PolicyDocument is required on the real PutDomainPermissionsPolicyInput
+			// -- must be present so this case exercises the domain-not-found path,
+			// not the (now-enforced) required-field check.
+			body:       map[string]any{"policyDocument": `{"Version":"2012-10-17","Statement":[]}`},
 			wantStatus: http.StatusNotFound,
 		},
 		{

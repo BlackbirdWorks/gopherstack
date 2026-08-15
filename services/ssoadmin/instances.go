@@ -189,8 +189,11 @@ func (b *InMemoryBackend) AddInstanceInternal(name string) *Instance {
 	return &cp
 }
 
-// UpdateInstance updates the name of an SSO instance.
-func (b *InMemoryBackend) UpdateInstance(instanceArn, name string) error {
+// UpdateInstance updates the name and/or PermissionSetsEnabled of an SSO instance.
+// permissionSetsEnabled is nil when the caller omitted the field; whatever value
+// is supplied is stored verbatim (AWS documents "only true accepted" as a
+// business rule, not a wire-level constraint -- we don't reject other values).
+func (b *InMemoryBackend) UpdateInstance(instanceArn, name string, permissionSetsEnabled *bool) error {
 	b.mu.Lock("UpdateInstance")
 	defer b.mu.Unlock()
 
@@ -200,6 +203,10 @@ func (b *InMemoryBackend) UpdateInstance(instanceArn, name string) error {
 	}
 	if name != "" {
 		inst.Name = name
+	}
+	if permissionSetsEnabled != nil {
+		v := *permissionSetsEnabled
+		inst.PermissionSetsEnabled = &v
 	}
 
 	return nil

@@ -6,8 +6,24 @@ import (
 	"time"
 )
 
-func (h *Handler) handleDeleteLaunchTemplate(vals url.Values, _ string) (any, error) {
-	return nil, h.Backend.DeleteLaunchTemplate(vals.Get("LaunchTemplateId"))
+func (h *Handler) handleDeleteLaunchTemplate(vals url.Values, reqID string) (any, error) {
+	lt, err := h.Backend.DeleteLaunchTemplate(vals.Get("LaunchTemplateId"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteLaunchTemplateResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		LaunchTemplate: launchTemplateItem{
+			ID:                   lt.ID,
+			Name:                 lt.Name,
+			CreateTime:           lt.CreateTime.Format(time.RFC3339),
+			CreatedBy:            lt.CreatedBy,
+			DefaultVersionNumber: lt.DefaultVersionNumber,
+			LatestVersionNumber:  lt.LatestVersionNumber,
+		},
+	}, nil
 }
 
 func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID string) (any, error) {
@@ -16,16 +32,19 @@ func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID st
 		return nil, err
 	}
 
-	items := make([]launchTemplateItem, 0, len(versions))
+	items := make([]launchTemplateVersionItem, 0, len(versions))
 	for _, lt := range versions {
-		items = append(items, launchTemplateItem{
-			ID:                   lt.ID,
-			Name:                 lt.Name,
-			CreateTime:           lt.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
-			CreatedBy:            lt.CreatedBy,
-			DefaultVersionNumber: lt.DefaultVersionNumber,
-			LatestVersionNumber:  lt.LatestVersionNumber,
-		})
+		item := launchTemplateVersionItem{
+			LaunchTemplateID:   lt.ID,
+			LaunchTemplateName: lt.Name,
+			CreatedBy:          lt.CreatedBy,
+			CreateTime:         lt.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+			VersionNumber:      lt.LatestVersionNumber,
+			DefaultVersion:     lt.DefaultVersionNumber == lt.LatestVersionNumber,
+		}
+		item.LaunchTemplateData.ImageID = lt.ImageID
+		item.LaunchTemplateData.InstanceType = lt.InstanceType
+		items = append(items, item)
 	}
 
 	return &describeLaunchTemplateVersionsResponse{
@@ -36,6 +55,13 @@ func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID st
 }
 
 // ---- VPC endpoint delete handler ----
+
+type deleteLaunchTemplateResponse struct {
+	XMLName        xml.Name           `xml:"DeleteLaunchTemplateResponse"`
+	Xmlns          string             `xml:"xmlns,attr"`
+	RequestID      string             `xml:"requestId"`
+	LaunchTemplate launchTemplateItem `xml:"launchTemplate"`
+}
 
 type describeLaunchTemplateVersionsResponse struct {
 	XMLName   xml.Name                 `xml:"DescribeLaunchTemplateVersionsResponse"`
@@ -80,6 +106,7 @@ func (h *Handler) handleDescribeLaunchTemplates(vals url.Values, reqID string) (
 			CreatedBy:            template.CreatedBy,
 			DefaultVersionNumber: template.DefaultVersionNumber,
 			LatestVersionNumber:  template.LatestVersionNumber,
+			TagSet:               tagItemsFromMap(h.Backend.TagsForResource(template.ID)),
 		})
 	}
 
@@ -91,12 +118,13 @@ func (h *Handler) handleDescribeLaunchTemplates(vals url.Values, reqID string) (
 }
 
 type launchTemplateItem struct {
-	ID                   string `xml:"launchTemplateId"`
-	Name                 string `xml:"launchTemplateName"`
-	CreateTime           string `xml:"createTime"`
-	CreatedBy            string `xml:"createdBy"`
-	DefaultVersionNumber int64  `xml:"defaultVersionNumber"`
-	LatestVersionNumber  int64  `xml:"latestVersionNumber"`
+	ID                   string          `xml:"launchTemplateId"`
+	Name                 string          `xml:"launchTemplateName"`
+	CreateTime           string          `xml:"createTime"`
+	CreatedBy            string          `xml:"createdBy"`
+	TagSet               []simpleTagItem `xml:"tagSet>item"`
+	DefaultVersionNumber int64           `xml:"defaultVersionNumber"`
+	LatestVersionNumber  int64           `xml:"latestVersionNumber"`
 }
 
 type launchTemplateSet struct {

@@ -36,6 +36,10 @@ type ParityDoc struct {
 	Gaps            []string
 	StructuralGaps  []string
 	Deferred        []string
+	// Warnings holds "file:line: ..." diagnostics for ops:/families: lines
+	// that looked like a block entry but didn't parse as one, so a caller
+	// can surface them without failing the build (gopherstack-udc7).
+	Warnings []string
 }
 
 // bucket is the coarse health classification of a single status token (or of

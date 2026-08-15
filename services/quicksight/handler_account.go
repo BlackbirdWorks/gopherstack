@@ -243,6 +243,10 @@ func (h *Handler) handleDeleteAccountSubscription(c *echo.Context) error {
 	accountID := seg(pathSegsFromCtx(c), segAccountID)
 
 	if err := h.Backend.DeleteAccountSubscription(accountID); err != nil {
+		if errors.Is(err, ErrAccountTerminationProtectionEnabled) {
+			return writeError(c, http.StatusBadRequest, "PreconditionNotMetException", err.Error())
+		}
+
 		return httpErr(c, err)
 	}
 

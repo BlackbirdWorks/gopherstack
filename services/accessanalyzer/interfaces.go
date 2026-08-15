@@ -44,7 +44,12 @@ type StorageBackend interface {
 	) ([]*Finding, string, error)
 	UpdateFindings(analyzerName string, findingIDs []string, status FindingStatus) error
 	GetFindingV2(analyzerArn, findingID string) (*Finding, error)
-	ListFindingsV2(analyzerArn, status string, maxResults int, nextToken string) ([]*Finding, string, error)
+	ListFindingsV2(
+		analyzerArn, status string,
+		filter map[string]FilterCriterion,
+		maxResults int,
+		nextToken string,
+	) ([]*Finding, string, error)
 	GetFindingsStatistics(analyzerArn string) (map[string]int, error)
 
 	// Finding recommendations
@@ -72,10 +77,15 @@ type StorageBackend interface {
 	ListPolicyGenerations(principalArn string) ([]*PolicyGeneration, error)
 
 	// Access previews
-	CreateAccessPreview(analyzerArn string) (*AccessPreview, error)
+	CreateAccessPreview(analyzerArn string, configurations map[string]json.RawMessage) (*AccessPreview, error)
 	GetAccessPreview(accessPreviewID string) (*AccessPreview, error)
 	ListAccessPreviews(analyzerArn string) ([]*AccessPreview, error)
-	ListAccessPreviewFindings(accessPreviewID string, maxResults int, nextToken string) ([]*Finding, string, error)
+	ListAccessPreviewFindings(
+		accessPreviewID string,
+		filter map[string]FilterCriterion,
+		maxResults int,
+		nextToken string,
+	) ([]*Finding, string, error)
 
 	// Tag operations
 	TagResource(resourceARN string, kv map[string]string) error

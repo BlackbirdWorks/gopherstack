@@ -65,6 +65,7 @@ type ReplicationGroup struct {
 	KmsKeyID                   string                   `json:"kmsKeyId,omitempty"`
 	NotificationTopicArn       string                   `json:"notificationTopicArn,omitempty"`
 	TransitEncryptionMode      string                   `json:"transitEncryptionMode,omitempty"`
+	Durability                 string                   `json:"durability,omitempty"`
 	NodeGroups                 []NodeGroup              `json:"nodeGroups,omitempty"`
 	LogDeliveryConfigurations  []LogDeliveryConfig      `json:"logDeliveryConfigurations,omitempty"`
 	UserGroupIDs               []string                 `json:"userGroupIds,omitempty"`
@@ -101,20 +102,26 @@ type CacheSubnetGroup struct {
 
 // CacheSnapshot represents an ElastiCache snapshot.
 type CacheSnapshot struct {
-	CreatedAt          time.Time  `json:"createdAt"`
-	AvailableAt        time.Time  `json:"availableAt,omitzero"`
-	Tags               *tags.Tags `json:"tags,omitempty"`
-	SnapshotName       string     `json:"snapshotName"`
-	CacheClusterID     string     `json:"cacheClusterId"`
-	ReplicationGroupID string     `json:"replicationGroupId"`
-	Status             string     `json:"status"`
-	PendingStatus      string     `json:"pendingStatus,omitempty"`
-	ARN                string     `json:"arn"`
-	Engine             string     `json:"engine"`
-	EngineVersion      string     `json:"engineVersion"`
-	NodeType           string     `json:"nodeType"`
-	KmsKeyID           string     `json:"kmsKeyId,omitempty"`
-	SnapshotSource     string     `json:"snapshotSource"` // "manual" or "automated"
+	CreatedAt   time.Time `json:"createdAt"`
+	AvailableAt time.Time `json:"availableAt,omitzero"`
+	// SourceClusterCreatedAt is the source CacheCluster's own CreatedAt,
+	// captured at snapshot time. Zero when the snapshot was taken from a
+	// replication group instead (member-cluster creation time isn't tracked
+	// there). This backs the wire's CacheClusterCreateTime member, which is
+	// the source cluster's creation time -- not the snapshot's.
+	SourceClusterCreatedAt time.Time  `json:"sourceClusterCreatedAt,omitzero"`
+	Tags                   *tags.Tags `json:"tags,omitempty"`
+	SnapshotName           string     `json:"snapshotName"`
+	CacheClusterID         string     `json:"cacheClusterId"`
+	ReplicationGroupID     string     `json:"replicationGroupId"`
+	Status                 string     `json:"status"`
+	PendingStatus          string     `json:"pendingStatus,omitempty"`
+	ARN                    string     `json:"arn"`
+	Engine                 string     `json:"engine"`
+	EngineVersion          string     `json:"engineVersion"`
+	NodeType               string     `json:"nodeType"`
+	KmsKeyID               string     `json:"kmsKeyId,omitempty"`
+	SnapshotSource         string     `json:"snapshotSource"` // "manual" or "automated"
 }
 
 // StorageBackend defines the interface for the ElastiCache in-memory store.
@@ -276,18 +283,24 @@ type StorageBackend interface {
 		ctx context.Context,
 		id string,
 		nodeGroupCount int32,
+		applyImmediately bool,
 	) (*GlobalReplicationGroup, error)
 	DecreaseNodeGroupsInGlobalReplicationGroup(
 		ctx context.Context,
 		id string,
 		nodeGroupCount int32,
+		applyImmediately bool,
 	) (*GlobalReplicationGroup, error)
 	ModifyGlobalReplicationGroup(
 		ctx context.Context,
 		id, description, engineVersion string,
-		automaticFailoverEnabled bool,
+		automaticFailoverEnabled, applyImmediately bool,
 	) (*GlobalReplicationGroup, error)
-	RebalanceSlotsInGlobalReplicationGroup(ctx context.Context, id string) (*GlobalReplicationGroup, error)
+	RebalanceSlotsInGlobalReplicationGroup(
+		ctx context.Context,
+		id string,
+		applyImmediately bool,
+	) (*GlobalReplicationGroup, error)
 	// ReservedCacheNodes operations
 	DescribeReservedCacheNodes(
 		ctx context.Context,
@@ -325,22 +338,33 @@ type StorageBackend interface {
 	CreateServerlessCacheFull(ctx context.Context, opts ServerlessCreateOpts) (*ServerlessCache, error)
 	ModifyServerlessCacheFull(ctx context.Context, name string, opts ServerlessModifyOpts) (*ServerlessCache, error)
 	// Migration operations
-	StartMigration(ctx context.Context, replicationGroupID string) (*ReplicationGroup, error)
-	TestMigration(ctx context.Context, replicationGroupID string) (*ReplicationGroup, error)
+	StartMigration(
+		ctx context.Context,
+		replicationGroupID string,
+		customerNodeEndpoints []CustomerNodeEndpoint,
+	) (*ReplicationGroup, error)
+	TestMigration(
+		ctx context.Context,
+		replicationGroupID string,
+		customerNodeEndpoints []CustomerNodeEndpoint,
+	) (*ReplicationGroup, error)
 	IncreaseReplicaCount(
 		ctx context.Context,
 		replicationGroupID string,
 		newReplicaCount int32,
+		applyImmediately bool,
 	) (*ReplicationGroup, error)
 	DecreaseReplicaCount(
 		ctx context.Context,
 		replicationGroupID string,
 		newReplicaCount int32,
+		applyImmediately bool,
 	) (*ReplicationGroup, error)
 	ModifyReplicationGroupShardConfiguration(
 		ctx context.Context,
 		replicationGroupID string,
 		nodeGroupCount int32,
+		applyImmediately bool,
 	) (*ReplicationGroup, error)
 	// Cache info operations
 	DescribeCacheEngineVersions(
@@ -521,6 +545,7 @@ type ReplicationGroupCreateOpts struct {
 	NotificationTopicArn      string
 	CacheNodeType             string
 	SnapshotWindow            string
+	Durability                string
 	UserGroupIDs              []string
 	LogDeliveryConfigurations []LogDeliveryConfig
 	SnapshotRetentionLimit    int
@@ -551,10 +576,20 @@ type ReplicationGroupModifyOpts struct {
 	AuthTokenUpdateStrategy   string
 	NotificationTopicArn      string
 	TransitEncryptionMode     string
+	Durability                string
 	LogDeliveryConfigurations []LogDeliveryConfig
 	UserGroupIDsToAdd         []string
 	UserGroupIDsToRemove      []string
 	ApplyImmediately          bool
+}
+
+// CustomerNodeEndpoint is a source endpoint for StartMigration/TestMigration
+// (aws-sdk-go-v2/service/elasticache/types.CustomerNodeEndpoint). It has no
+// output-side wire counterpart -- AWS's ReplicationGroup response never
+// echoes it back -- so it exists purely as an input shape.
+type CustomerNodeEndpoint struct {
+	Address string
+	Port    int32
 }
 
 // ----------------------------------------
@@ -643,6 +678,7 @@ type ServerlessCache struct {
 	SubnetGroupName        string                   `json:"subnetGroupName,omitempty"`
 	DailySnapshotTime      string                   `json:"dailySnapshotTime,omitempty"`
 	MajorEngineVersion     string                   `json:"majorEngineVersion,omitempty"`
+	NetworkType            string                   `json:"networkType,omitempty"`
 	SubnetIDs              []string                 `json:"subnetIds,omitempty"`
 	SecurityGroupIDs       []string                 `json:"securityGroupIds,omitempty"`
 	SnapshotRetentionLimit int32                    `json:"snapshotRetentionLimit,omitempty"`
@@ -814,6 +850,7 @@ type ServerlessCreateOpts struct {
 	SubnetGroupName        string
 	DailySnapshotTime      string
 	MajorEngineVersion     string
+	NetworkType            string
 	SecurityGroupIDs       []string
 	SubnetIDs              []string
 	SnapshotRetentionLimit int32

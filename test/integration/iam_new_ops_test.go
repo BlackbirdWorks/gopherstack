@@ -197,3 +197,34 @@ func TestIntegration_IAM_Misc(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// TestIntegration_IAM_ListPoliciesGrantingServiceAccess drives the op via
+// the real AWS SDK v2 client. ListPoliciesGrantingServiceAccessOutput's
+// PoliciesGrantingServiceAccess is a required field but this backend has no
+// access-analysis state to populate it with (validation-only stub, always
+// empty) — so the only provable regression is the XML element name itself
+// (gopherstack-lx5h: was PolicyGroups, real name is
+// PoliciesGrantingServiceAccess). A query-protocol XML deserializer leaves a
+// required list field nil when its wrapper element is entirely absent from
+// the response and only allocates a non-nil empty slice when the (possibly
+// childless) element is present under the right name, so nil-vs-non-nil is
+// real proof here despite the collection itself being empty either way.
+func TestIntegration_IAM_ListPoliciesGrantingServiceAccess(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createIAMClient(t)
+	ctx := t.Context()
+
+	out, err := client.ListPoliciesGrantingServiceAccess(ctx, &iamsdk.ListPoliciesGrantingServiceAccessInput{
+		Arn:               aws.String("arn:aws:iam::123456789012:user/test-user"),
+		ServiceNamespaces: []string{"s3"},
+	})
+	require.NoError(t, err)
+	assert.NotNil(
+		t,
+		out.PoliciesGrantingServiceAccess,
+		"real element name is PoliciesGrantingServiceAccess; the previous wrong name "+
+			"(PolicyGroups) leaves this nil since the SDK never finds the wrapper element",
+	)
+	assert.False(t, out.IsTruncated)
+}

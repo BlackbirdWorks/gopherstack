@@ -172,7 +172,6 @@ type StorageBackend interface {
 		criteria map[string]any,
 		actions []map[string]any,
 		ruleOrder float64,
-		isTerminal bool,
 		tags map[string]string,
 	) (*AutomationRuleV2, error)
 	GetAutomationRuleV2(identifier string) (*AutomationRuleV2, error)
@@ -186,10 +185,10 @@ type StorageBackend interface {
 	ListConnectorsV2(nextToken string, maxResults int) ([]*ConnectorV2, string)
 	UpdateConnectorV2(connectorID, name, description string, provider map[string]any) (*ConnectorV2, error)
 	DeleteConnectorV2(connectorID string) error
-	RegisterConnectorV2(connectorID string, provider map[string]any) (*ConnectorV2, error)
+	RegisterConnectorV2(authCode, authState string) (*ConnectorV2, error)
 
 	// Tickets V2
-	CreateTicketV2(ticketConfig map[string]any, tags map[string]string) (*TicketV2, error)
+	CreateTicketV2(connectorID, findingMetadataUID, mode string) (*TicketV2, error)
 
 	// Findings V2
 	GetFindingsV2(
@@ -203,13 +202,13 @@ type StorageBackend interface {
 		metadataUids []string,
 		updates map[string]any,
 	) ([]map[string]any, []map[string]any)
-	GetFindingStatisticsV2(groupByAttributes []string) []map[string]any
-	GetFindingsTrendsV2(groupByAttribute string, startTime, endTime string) []map[string]any
+	GetFindingStatisticsV2(groupByFields []string) []map[string]any
+	GetFindingsTrendsV2(startTime, endTime string) []map[string]any
 
 	// Resources V2
 	GetResourcesV2(filters map[string]any, nextToken string, maxResults int) ([]map[string]any, string)
-	GetResourcesStatisticsV2(groupByAttributes []string) []map[string]any
-	GetResourcesTrendsV2(groupByAttribute string, startTime, endTime string) []map[string]any
+	GetResourcesStatisticsV2(groupByFields []string) []map[string]any
+	GetResourcesTrendsV2(startTime, endTime string) []map[string]any
 
 	// Products V2
 	DescribeProductsV2(nextToken string, maxResults int) ([]*Product, string)

@@ -215,3 +215,70 @@ func TestIntegration_Glue_CatalogLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, runsOut.JobRuns)
 }
+
+// TestIntegration_Glue_IntegrationLifecycle drives
+// CreateIntegration -> ModifyIntegration -> DeleteIntegration via the real
+// AWS SDK v2 client. All three outputs require CreateTime, IntegrationArn,
+// IntegrationName, SourceArn, Status, and TargetArn
+// (deserializers.go's respective Output switches); a wrong or missing key
+// leaves the SDK's corresponding field nil/zero regardless of what the raw
+// body holds, so decoded non-zero values are the only real proof
+// (gopherstack-lx5h). ModifyIntegration/DeleteIntegration are addressed by
+// IntegrationArn, matching their own SDK doc comments ("The Amazon Resource
+// Name (ARN) for the integration") rather than the bare name.
+func TestIntegration_Glue_IntegrationLifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createGlueClient(t)
+	ctx := t.Context()
+
+	const (
+		integrationName = "it-glue-integration"
+		sourceArn       = "arn:aws:s3:::it-glue-source-bucket"
+		targetArn       = "arn:aws:redshift:us-east-1:123456789012:cluster/it-glue-target"
+	)
+
+	createOut, err := client.CreateIntegration(ctx, &gluesdk.CreateIntegrationInput{
+		IntegrationName: aws.String(integrationName),
+		SourceArn:       aws.String(sourceArn),
+		TargetArn:       aws.String(targetArn),
+	})
+	require.NoError(t, err, "CreateIntegration should succeed")
+	assert.Equal(t, integrationName, aws.ToString(createOut.IntegrationName))
+	assert.Equal(t, sourceArn, aws.ToString(createOut.SourceArn))
+	assert.Equal(t, targetArn, aws.ToString(createOut.TargetArn))
+	assert.NotEmpty(t, aws.ToString(createOut.IntegrationArn), "IntegrationArn is a required response field")
+	assert.NotZero(t, aws.ToTime(createOut.CreateTime), "CreateTime is a required response field")
+	assert.NotEmpty(t, string(createOut.Status), "Status is a required response field")
+	integrationARN := aws.ToString(createOut.IntegrationArn)
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteIntegration(cleanupCtx, &gluesdk.DeleteIntegrationInput{
+			IntegrationIdentifier: aws.String(integrationARN),
+		})
+	})
+
+	modifyOut, err := client.ModifyIntegration(ctx, &gluesdk.ModifyIntegrationInput{
+		IntegrationIdentifier: aws.String(integrationARN),
+	})
+	require.NoError(t, err, "ModifyIntegration should succeed")
+	assert.Equal(t, integrationName, aws.ToString(modifyOut.IntegrationName))
+	assert.Equal(t, integrationARN, aws.ToString(modifyOut.IntegrationArn))
+	assert.Equal(t, sourceArn, aws.ToString(modifyOut.SourceArn))
+	assert.Equal(t, targetArn, aws.ToString(modifyOut.TargetArn))
+	assert.NotZero(t, aws.ToTime(modifyOut.CreateTime), "CreateTime is a required response field")
+
+	deleteOut, err := client.DeleteIntegration(ctx, &gluesdk.DeleteIntegrationInput{
+		IntegrationIdentifier: aws.String(integrationARN),
+	})
+	require.NoError(t, err, "DeleteIntegration should succeed")
+	assert.Equal(t, integrationName, aws.ToString(deleteOut.IntegrationName))
+	assert.Equal(t, integrationARN, aws.ToString(deleteOut.IntegrationArn))
+	assert.Equal(t, sourceArn, aws.ToString(deleteOut.SourceArn))
+	assert.Equal(t, targetArn, aws.ToString(deleteOut.TargetArn))
+	assert.NotZero(t, aws.ToTime(deleteOut.CreateTime), "CreateTime is a required response field")
+}

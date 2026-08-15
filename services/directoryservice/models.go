@@ -252,6 +252,7 @@ type storedCertificate struct {
 	CommonName         string    `json:"commonName"`
 	CertType           string    `json:"certType"`
 	State              string    `json:"state"`
+	OCSPUrl            string    `json:"ocspUrl"`
 }
 
 type storedLDAPSSetting struct {
@@ -504,6 +505,7 @@ type CertDetail struct {
 	CertType           string
 	State              string
 	CertData           string
+	OCSPUrl            string
 }
 
 // LDAPSSetting domain type.
@@ -553,10 +555,17 @@ type DirectoryDataAccessStatus struct {
 	Enabled     bool
 }
 
-// CAEnrollmentPolicy domain type.
+// CAEnrollmentPolicy domain type (aws-sdk-go-v2/service/directoryservice's
+// DescribeCAEnrollmentPolicyOutput). Status takes the wire values of
+// types.CaEnrollmentPolicyStatus: InProgress/Success/Failed/Disabling/
+// Disabled/Impaired (verified against types/enums.go -- not the
+// "Enabled"/"Disabled" pair the pre-fix shape used).
 type CAEnrollmentPolicy struct {
-	DirectoryID string
-	Enabled     bool
+	LastUpdatedDateTime time.Time `json:"lastUpdatedDateTime"`
+	DirectoryID         string    `json:"directoryId"`
+	Status              string    `json:"status"`
+	StatusReason        string    `json:"statusReason"`
+	PcaConnectorArn     string    `json:"pcaConnectorArn"`
 }
 
 // ADAssessmentConfiguration mirrors the real, optional

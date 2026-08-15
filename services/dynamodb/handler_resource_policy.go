@@ -13,9 +13,14 @@ import (
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
+// resourcePolicyInput is the wire format shared by Get and PutResourcePolicy.
+// ExpectedRevisionId is PutResourcePolicyInput's optimistic-concurrency
+// field (see serializers.go's awsAwsjson10_serializeOpDocumentPutResourcePolicyInput);
+// GetResourcePolicy ignores it when present.
 type resourcePolicyInput struct {
-	ResourceArn string `json:"ResourceArn"`
-	Policy      string `json:"Policy,omitempty"`
+	ExpectedRevisionID *string `json:"ExpectedRevisionId,omitempty"`
+	ResourceArn        string  `json:"ResourceArn"`
+	Policy             string  `json:"Policy,omitempty"`
 }
 
 type resourcePolicyOutput struct {
@@ -23,8 +28,12 @@ type resourcePolicyOutput struct {
 	RevisionID string `json:"RevisionId,omitempty"`
 }
 
+// deleteResourcePolicyInput is the wire format for DeleteResourcePolicy.
+// ExpectedRevisionId mirrors DeleteResourcePolicyInput's optimistic-concurrency
+// field (see serializers.go's awsAwsjson10_serializeOpDocumentDeleteResourcePolicyInput).
 type deleteResourcePolicyInput struct {
-	ResourceArn string `json:"ResourceArn"`
+	ExpectedRevisionID *string `json:"ExpectedRevisionId,omitempty"`
+	ResourceArn        string  `json:"ResourceArn"`
 }
 
 type deleteResourcePolicyOutput struct {
@@ -40,14 +49,20 @@ func (h *DynamoDBHandler) handleDeleteResourcePolicy(
 		return nil, err
 	}
 
-	_, err := h.Backend.DeleteResourcePolicy(ctx, &sdkDDB.DeleteResourcePolicyInput{
-		ResourceArn: &req.ResourceArn,
+	out, err := h.Backend.DeleteResourcePolicy(ctx, &sdkDDB.DeleteResourcePolicyInput{
+		ResourceArn:        &req.ResourceArn,
+		ExpectedRevisionId: req.ExpectedRevisionID,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &deleteResourcePolicyOutput{}, nil
+	resp := &deleteResourcePolicyOutput{}
+	if out != nil {
+		resp.RevisionID = aws.ToString(out.RevisionId)
+	}
+
+	return resp, nil
 }
 
 func (h *DynamoDBHandler) handleGetResourcePolicy(ctx context.Context, body []byte) (any, error) {
@@ -79,8 +94,9 @@ func (h *DynamoDBHandler) handlePutResourcePolicy(ctx context.Context, body []by
 	}
 
 	out, err := h.Backend.PutResourcePolicy(ctx, &sdkDDB.PutResourcePolicyInput{
-		ResourceArn: &req.ResourceArn,
-		Policy:      &req.Policy,
+		ResourceArn:        &req.ResourceArn,
+		Policy:             &req.Policy,
+		ExpectedRevisionId: req.ExpectedRevisionID,
 	})
 	if err != nil {
 		return nil, err

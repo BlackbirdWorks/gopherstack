@@ -150,7 +150,11 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*Location, error)
 	DescribeLocationNfs(locationArn string) (*LocationNfs, error)
-	UpdateLocationNfs(locationArn, subdirectory string, mountOptions *MountOptions, agentArns []string) error
+	UpdateLocationNfs(
+		locationArn, serverHostname, subdirectory string,
+		mountOptions *MountOptions,
+		agentArns []string,
+	) error
 
 	// Location operations (Object Storage)
 	CreateLocationObjectStorage(
@@ -162,7 +166,7 @@ type StorageBackend interface {
 	) (*Location, error)
 	DescribeLocationObjectStorage(locationArn string) (*LocationObjectStorage, error)
 	UpdateLocationObjectStorage(
-		locationArn, serverProtocol, subdirectory, accessKey, secretKey string,
+		locationArn, serverHostname, serverProtocol, subdirectory, accessKey, secretKey string,
 		serverPort int32,
 		agentArns []string,
 		secretConfig SecretConfig,
@@ -179,7 +183,7 @@ type StorageBackend interface {
 	) (*Location, error)
 	DescribeLocationSmb(locationArn string) (*LocationSmb, error)
 	UpdateLocationSmb(
-		locationArn, subdirectory, domain, user, password, authenticationType string,
+		locationArn, serverHostname, subdirectory, domain, user, password, authenticationType string,
 		mountOptions *MountOptions,
 		agentArns []string,
 		smbKerberos SmbKerberosConfig,
@@ -301,9 +305,10 @@ type Task struct {
 
 // TaskListEntry is a task entry in a list response.
 type TaskListEntry struct {
-	TaskArn string
-	Name    string
-	Status  string
+	TaskArn  string
+	Name     string
+	Status   string
+	TaskMode string
 }
 
 // TaskExecution represents a DataSync task execution.
@@ -313,6 +318,7 @@ type TaskExecution struct {
 	Options                  map[string]any
 	TaskExecutionArn         string
 	Status                   string
+	TaskMode                 string
 	EstimatedFilesToTransfer int64
 	EstimatedBytesToTransfer int64
 	FilesTransferred         int64
@@ -323,6 +329,7 @@ type TaskExecution struct {
 type TaskExecutionListEntry struct {
 	TaskExecutionArn string
 	Status           string
+	TaskMode         string
 }
 
 // SasConfiguration holds Azure Blob SAS token configuration.

@@ -227,16 +227,18 @@ func ruleMatchToJSON(m *RuleMatch) map[string]any {
 			"match": map[string]any{
 				m.PathMatchType: m.PathMatchValue,
 			},
+			"caseSensitive": m.PathCaseSensitive,
 		}
-		httpMatch["path"] = pathMatch
+		httpMatch["pathMatch"] = pathMatch
 	}
 
 	if len(m.HeaderMatches) > 0 {
 		headers := make([]any, 0, len(m.HeaderMatches))
 		for _, h := range m.HeaderMatches {
 			headers = append(headers, map[string]any{
-				keyName: h.Name,
-				"match": map[string]any{h.MatchType: h.MatchValue},
+				keyName:         h.Name,
+				"match":         map[string]any{h.MatchType: h.MatchValue},
+				"caseSensitive": h.CaseSensitive,
 			})
 		}
 
@@ -293,7 +295,7 @@ func extractRuleMatch(body map[string]any, key string) *RuleMatch {
 	}
 
 	match.HTTPMethod, _ = httpMatch["method"].(string)
-	match.PathMatchType, match.PathMatchValue = extractPathMatch(httpMatch)
+	match.PathMatchType, match.PathMatchValue, match.PathCaseSensitive = extractPathMatch(httpMatch)
 	match.HeaderMatches = extractHeaderMatches(httpMatch)
 
 	return match
@@ -302,16 +304,17 @@ func extractRuleMatch(body map[string]any, key string) *RuleMatch {
 // extractPathMatch pulls the path match type/value (e.g. "exact": "/api")
 // out of an httpMatch body. If multiple keys are present in the match
 // object, the last one encountered wins -- callers are expected to send
-// exactly one.
-func extractPathMatch(httpMatch map[string]any) (string, string) {
-	pathRaw, isMap := httpMatch["path"].(map[string]any)
+// exactly one. Real wire key is "pathMatch" (types.HttpMatch.PathMatch,
+// serializers.go:6541/deserializers.go), not "path".
+func extractPathMatch(httpMatch map[string]any) (string, string, bool) {
+	pathRaw, isMap := httpMatch["pathMatch"].(map[string]any)
 	if !isMap {
-		return "", ""
+		return "", "", false
 	}
 
 	matchRaw, isMap := pathRaw["match"].(map[string]any)
 	if !isMap {
-		return "", ""
+		return "", "", false
 	}
 
 	var pathMatchType, pathMatchValue string
@@ -323,7 +326,9 @@ func extractPathMatch(httpMatch map[string]any) (string, string) {
 		}
 	}
 
-	return pathMatchType, pathMatchValue
+	caseSensitive, _ := pathRaw["caseSensitive"].(bool)
+
+	return pathMatchType, pathMatchValue, caseSensitive
 }
 
 // extractHeaderMatches pulls the headerMatches list out of an httpMatch body.
@@ -343,6 +348,7 @@ func extractHeaderMatches(httpMatch map[string]any) []*HeaderMatch {
 
 		hm := &HeaderMatch{}
 		hm.Name, _ = hMap[keyName].(string)
+		hm.CaseSensitive, _ = hMap["caseSensitive"].(bool)
 
 		if matchRaw, hasMatch := hMap["match"].(map[string]any); hasMatch {
 			for k, v := range matchRaw {

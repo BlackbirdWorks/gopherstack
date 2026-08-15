@@ -119,7 +119,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	ap, err := original.CreateAccessPreview(analyzer.Arn)
+	ap, err := original.CreateAccessPreview(analyzer.Arn, map[string]json.RawMessage{
+		"arn:aws:s3:::bucket-2": json.RawMessage(`{"s3Bucket":{"bucketPolicy":"{}"}}`),
+	})
 	require.NoError(t, err)
 
 	ar, err := original.AddAnalyzedResource(analyzer.Arn, "arn:aws:s3:::bucket-2", "AWS::S3::Bucket", false)
@@ -188,6 +190,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotAP, err := fresh.GetAccessPreview(ap.ID)
 	require.NoError(t, err)
 	assert.Equal(t, analyzer.Arn, gotAP.AnalyzerArn)
+	require.Contains(t, gotAP.Configurations, "arn:aws:s3:::bucket-2",
+		"Configurations must survive Snapshot/Restore, not just the initial create")
 
 	// analyzedResources table (composite key from two real fields; not persisted pre-refactor).
 	gotAR, err := fresh.GetAnalyzedResource(analyzer.Arn, ar.ResourceArn)

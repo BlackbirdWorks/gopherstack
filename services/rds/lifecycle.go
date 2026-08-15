@@ -15,8 +15,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		registry:                store.NewRegistry(),
 		instanceReadyAt:         make(map[string]time.Time),
 		tags:                    make(map[string][]Tag),
-		clusterRoles:            make(map[string][]string),
-		instanceRoles:           make(map[string][]string),
+		clusterRoles:            make(map[string][]DBClusterRole),
+		instanceRoles:           make(map[string]map[string]string),
 		events:                  make([]Event, 0),
 		fisFailoverFaults:       make(map[string]time.Time),
 		proxyTargets:            make(map[string][]DBProxyTarget),
@@ -86,8 +86,8 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 	b.instanceReadyAt = make(map[string]time.Time)
 	b.tags = make(map[string][]Tag)
-	b.clusterRoles = make(map[string][]string)
-	b.instanceRoles = make(map[string][]string)
+	b.clusterRoles = make(map[string][]DBClusterRole)
+	b.instanceRoles = make(map[string]map[string]string)
 	b.events = make([]Event, 0)
 	b.fisFailoverFaults = make(map[string]time.Time)
 	b.proxyTargets = make(map[string][]DBProxyTarget)
@@ -143,6 +143,7 @@ func (b *InMemoryBackend) publishInstanceEventLocked(id, msg string) {
 		Message:          msg,
 		SourceIdentifier: id,
 		SourceType:       "db-instance",
+		SourceArn:        b.rdsARN("db", id),
 		CreatedAt:        time.Now(),
 	}
 

@@ -14,11 +14,17 @@ func (h *AgentsHandler) dispatchAgentKBRoutes(
 	body []byte,
 ) error {
 	// suffix like /agentversions/DRAFT/knowledgebases or /agentversions/DRAFT/knowledgebases/{kbId}
+	//
+	// ListAgentKnowledgeBases is real bedrock-agent@v1.58.4
+	// serializers.go:4341: POST .../knowledgebases/; AssociateAgentKnowledgeBase
+	// is real serializers.go:174: PUT (the SAME path) -- method alone
+	// disambiguates them. GET is accepted too as harmless extra leniency
+	// for this package's own tests.
 	if strings.HasSuffix(suffix, "/knowledgebases") && method == http.MethodPut {
 		return h.handleAssociateAgentKB(c, agentID, body)
 	}
 
-	if strings.HasSuffix(suffix, "/knowledgebases") && method == http.MethodGet {
+	if strings.HasSuffix(suffix, "/knowledgebases") && (method == http.MethodPost || method == http.MethodGet) {
 		return h.handleListAgentKBs(c, agentID)
 	}
 

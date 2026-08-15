@@ -72,22 +72,28 @@ type storedExport struct {
 
 // storedImport holds the fields needed to satisfy DescribeImport and ListImports.
 type storedImport struct {
-	CreatedAt          time.Time
-	StartTime          time.Time
-	EndTime            time.Time
-	ImportArn          string
-	ImportStatus       string
-	TableArn           string
-	S3Bucket           string
-	S3Prefix           string
-	InputFormat        string
-	InputCompression   string
-	FailureCode        string
-	FailureMessage     string
-	ImportedItemCount  int64
-	ProcessedItemCount int64
-	ProcessedSizeBytes int64
-	ErrorCount         int64
+	CreatedAt             time.Time
+	StartTime             time.Time
+	EndTime               time.Time
+	S3Prefix              string
+	InputFormat           string
+	TableArn              string
+	TableID               string
+	ClientToken           string
+	CloudWatchLogGroupArn string
+	S3Bucket              string
+	ImportArn             string
+	S3BucketOwner         string
+	ImportStatus          string
+	InputCompression      string
+	CsvDelimiter          string
+	FailureMessage        string
+	FailureCode           string
+	CsvHeaderList         []string
+	ImportedItemCount     int64
+	ProcessedItemCount    int64
+	ProcessedSizeBytes    int64
+	ErrorCount            int64
 }
 
 // autoScalingSettings records the last UpdateTableReplicaAutoScaling input
@@ -233,39 +239,54 @@ const (
 //
 
 type Table struct {
-	StreamCreatedAt        time.Time `json:"StreamCreatedAt"`
-	CreationDateTime       time.Time `json:"CreationDateTime"`
-	kinesisEmitter         KinesisEmitter
-	pkIndex                map[string]int
-	pkskIndex              map[string]map[string]int
-	itemsByOffset          map[int]map[string]any
-	mu                     *lockmetrics.RWMutex
-	activateTimer          *time.Timer
-	Tags                   *tags.Tags                    `json:"Tags,omitempty"`
-	AutoScaling            *autoScalingSettings          `json:"AutoScaling,omitempty"`
-	OnDemandMaxWriteRRU    *int64                        `json:"OnDemandMaxWriteRRU,omitempty"`
-	OnDemandMaxReadRRU     *int64                        `json:"OnDemandMaxReadRRU,omitempty"`
-	ResourcePolicy         string                        `json:"ResourcePolicy,omitempty"`
-	TTLAttribute           string                        `json:"TTLAttribute,omitempty"`
-	StreamViewType         string                        `json:"StreamViewType,omitempty"`
-	StreamARN              string                        `json:"StreamARN,omitempty"`
-	GlobalTableName        string                        `json:"GlobalTableName,omitempty"`
-	TableArn               string                        `json:"TableArn"`
-	Status                 string                        `json:"Status"`
-	TableID                string                        `json:"TableID"`
-	SSEType                string                        `json:"SSEType,omitempty"`
-	TableClass             string                        `json:"TableClass,omitempty"`
-	BillingMode            string                        `json:"BillingMode,omitempty"`
-	Name                   string                        `json:"Name"`
-	SSEKMSMasterKeyArn     string                        `json:"SSEKMSMasterKeyArn,omitempty"`
-	AttributeDefinitions   []models.AttributeDefinition  `json:"AttributeDefinitions"`
-	GlobalSecondaryIndexes []models.GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
-	Replicas               []models.ReplicaDescription   `json:"Replicas,omitempty"`
-	LocalSecondaryIndexes  []models.LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
-	KeySchema              []models.KeySchemaElement     `json:"KeySchema"`
-	KinesisDestinations    []KinesisDestinationEntry     `json:"KinesisDestinations,omitempty"`
-	Items                  []map[string]any              `json:"Items"`
-	itemSizes              []int
+	StreamCreatedAt               time.Time `json:"StreamCreatedAt"`
+	CreationDateTime              time.Time `json:"CreationDateTime"`
+	ContributorInsightsLastUpdate time.Time `json:"ContributorInsightsLastUpdate"`
+	kinesisEmitter                KinesisEmitter
+	pkIndex                       map[string]int
+	pkskIndex                     map[string]map[string]int
+	// gsiIndexes and lsiIndexes are keyed by IndexName; each maps that index's
+	// key value(s) to the set of item offsets sharing them (see
+	// secondary_index.go). Derived from Items + GlobalSecondaryIndexes/
+	// LocalSecondaryIndexes and rebuilt by rebuildIndexes -- never persisted,
+	// so adding them is not a snapshot-version change.
+	gsiIndexes map[string]*secondaryIndex
+	lsiIndexes map[string]*secondaryIndex
+	// activeSecondaryIndex is scratch space set on the throwaway snapshot
+	// Table built per-Query call (see snapshotTableForQuery); it holds a
+	// deep copy of the one GSI/LSI index the query targets, same role as
+	// itemsByOffset plays for primary-key queries.
+	activeSecondaryIndex    *secondaryIndex
+	itemsByOffset           map[int]map[string]any
+	mu                      *lockmetrics.RWMutex
+	activateTimer           *time.Timer
+	Tags                    *tags.Tags                    `json:"Tags,omitempty"`
+	AutoScaling             *autoScalingSettings          `json:"AutoScaling,omitempty"`
+	OnDemandMaxWriteRRU     *int64                        `json:"OnDemandMaxWriteRRU,omitempty"`
+	OnDemandMaxReadRRU      *int64                        `json:"OnDemandMaxReadRRU,omitempty"`
+	ResourcePolicy          string                        `json:"ResourcePolicy,omitempty"`
+	ResourcePolicyRevision  string                        `json:"ResourcePolicyRevision,omitempty"`
+	TTLAttribute            string                        `json:"TTLAttribute,omitempty"`
+	StreamViewType          string                        `json:"StreamViewType,omitempty"`
+	StreamARN               string                        `json:"StreamARN,omitempty"`
+	GlobalTableName         string                        `json:"GlobalTableName,omitempty"`
+	TableArn                string                        `json:"TableArn"`
+	Status                  string                        `json:"Status"`
+	TableID                 string                        `json:"TableID"`
+	SSEType                 string                        `json:"SSEType,omitempty"`
+	TableClass              string                        `json:"TableClass,omitempty"`
+	BillingMode             string                        `json:"BillingMode,omitempty"`
+	Name                    string                        `json:"Name"`
+	SSEKMSMasterKeyArn      string                        `json:"SSEKMSMasterKeyArn,omitempty"`
+	ContributorInsightsMode string                        `json:"ContributorInsightsMode,omitempty"`
+	AttributeDefinitions    []models.AttributeDefinition  `json:"AttributeDefinitions"`
+	GlobalSecondaryIndexes  []models.GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
+	Replicas                []models.ReplicaDescription   `json:"Replicas,omitempty"`
+	LocalSecondaryIndexes   []models.LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
+	KeySchema               []models.KeySchemaElement     `json:"KeySchema"`
+	KinesisDestinations     []KinesisDestinationEntry     `json:"KinesisDestinations,omitempty"`
+	Items                   []map[string]any              `json:"Items"`
+	itemSizes               []int
 	// PITRSnapshots is the per-table PITR ring buffer (see pitrSnapshot). It must be
 	// exported with a json tag -- encoding/json silently skips unexported fields, so an
 	// unexported name here means every PITR snapshot is discarded on restart even
@@ -280,11 +301,12 @@ type Table struct {
 	streamSeq                  int64
 	StreamHead                 int `json:"StreamHead,omitempty"`
 	streamTrimSeq              int64
-	PITREnabled                bool `json:"PITREnabled,omitempty"`
-	SSEEnabled                 bool `json:"SSEEnabled,omitempty"`
-	StreamsEnabled             bool `json:"StreamsEnabled"`
-	DeletionProtectionEnabled  bool `json:"DeletionProtectionEnabled"`
-	ContributorInsightsEnabled bool `json:"ContributorInsightsEnabled,omitempty"`
+	PITREnabled                bool  `json:"PITREnabled,omitempty"`
+	RecoveryPeriodInDays       int32 `json:"RecoveryPeriodInDays,omitempty"`
+	SSEEnabled                 bool  `json:"SSEEnabled,omitempty"`
+	StreamsEnabled             bool  `json:"StreamsEnabled"`
+	DeletionProtectionEnabled  bool  `json:"DeletionProtectionEnabled"`
+	ContributorInsightsEnabled bool  `json:"ContributorInsightsEnabled,omitempty"`
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -523,7 +545,8 @@ func BuildKeyString(item map[string]any, attrName string) string {
 	return dynamoattr.ToString(item[attrName])
 }
 
-// initializeIndexes creates empty index maps for a table.
+// initializeIndexes creates empty index maps for a table, including one
+// secondaryIndex per currently-defined GSI/LSI.
 func (t *Table) initializeIndexes() {
 	hasSortKey := len(t.KeySchema) > 1
 
@@ -531,6 +554,18 @@ func (t *Table) initializeIndexes() {
 		t.pkskIndex = make(map[string]map[string]int)
 	} else {
 		t.pkIndex = make(map[string]int)
+	}
+
+	t.gsiIndexes = make(map[string]*secondaryIndex, len(t.GlobalSecondaryIndexes))
+	for _, gsi := range t.GlobalSecondaryIndexes {
+		_, skDef := getPKAndSK(gsi.KeySchema)
+		t.gsiIndexes[gsi.IndexName] = newSecondaryIndex(skDef.AttributeName != "")
+	}
+
+	t.lsiIndexes = make(map[string]*secondaryIndex, len(t.LocalSecondaryIndexes))
+	for _, lsi := range t.LocalSecondaryIndexes {
+		_, skDef := getPKAndSK(lsi.KeySchema)
+		t.lsiIndexes[lsi.IndexName] = newSecondaryIndex(skDef.AttributeName != "")
 	}
 }
 
@@ -566,6 +601,8 @@ func (t *Table) rebuildIndexes() {
 		} else {
 			t.pkIndex[pkVal] = i
 		}
+
+		t.updateSecondaryIndexes(nil, 0, item, i)
 	}
 }
 
@@ -994,51 +1031,6 @@ func (db *InMemoryDB) collectExportSummariesRLocked(tableArn, requestRegion stri
 	}
 
 	return summaries
-}
-
-func (db *InMemoryDB) listExportsWire(
-	tableArn, nextToken string,
-	maxResults int,
-	requestRegion string,
-) *listExportsOutput {
-	summaries := db.collectExportSummariesRLocked(tableArn, requestRegion)
-
-	// Sort by ARN for deterministic ordering.
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].ExportArn < summaries[j].ExportArn
-	})
-
-	// Apply ExclusiveStart (NextToken is the last-seen ARN).
-	start := 0
-	if nextToken != "" {
-		for i, s := range summaries {
-			if s.ExportArn == nextToken {
-				start = i + 1
-
-				break
-			}
-		}
-	}
-	summaries = summaries[start:]
-
-	// Apply page cap.
-	const defaultMaxResults = 25
-
-	pageSize := defaultMaxResults
-	if maxResults > 0 {
-		pageSize = maxResults
-	}
-
-	var outNextToken string
-	if len(summaries) > pageSize {
-		outNextToken = summaries[pageSize-1].ExportArn
-		summaries = summaries[:pageSize]
-	}
-
-	return &listExportsOutput{
-		ExportSummaries: summaries,
-		NextToken:       outNextToken,
-	}
 }
 
 // storeImport persists an import record so it can be retrieved by DescribeImport/ListImports.

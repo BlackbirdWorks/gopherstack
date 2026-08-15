@@ -359,6 +359,7 @@ func buildCreateTableOutput(
 	for i, gsi := range input.GlobalSecondaryIndexes {
 		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  aws.ToString(gsi.IndexName),
+			IndexArn:   indexArn(t.TableArn, aws.ToString(gsi.IndexName)),
 			KeySchema:  models.FromSDKKeySchema(gsi.KeySchema),
 			Projection: models.FromSDKProjection(gsi.Projection),
 			ProvisionedThroughput: models.ProvisionedThroughputDescription{
@@ -373,6 +374,7 @@ func buildCreateTableOutput(
 	for i, lsi := range input.LocalSecondaryIndexes {
 		lsiDescs[i] = models.LocalSecondaryIndexDescription{
 			IndexName:  aws.ToString(lsi.IndexName),
+			IndexArn:   indexArn(t.TableArn, aws.ToString(lsi.IndexName)),
 			KeySchema:  models.FromSDKKeySchema(lsi.KeySchema),
 			Projection: models.FromSDKProjection(lsi.Projection),
 		}
@@ -394,6 +396,14 @@ func buildCreateTableOutput(
 			ReadCapacityUnits:  &rcu,
 			WriteCapacityUnits: &wcu,
 		},
+	}
+	// t.TableID is assigned once at creation, before newTable is published to
+	// db.tables, so it is immutable by the time buildCreateTableOutput runs --
+	// safe to read directly, same as t.TableArn above. DescribeTable already
+	// returns TableId (buildTableDescription); CreateTable's own response
+	// dropped it despite computing the same value.
+	if t.TableID != "" {
+		td.TableId = aws.String(t.TableID)
 	}
 	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
 
@@ -500,6 +510,7 @@ func (db *InMemoryDB) DeleteTable(
 		}
 		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  gsi.IndexName,
+			IndexArn:   indexArn(table.TableArn, gsi.IndexName),
 			KeySchema:  gsi.KeySchema,
 			Projection: gsi.Projection,
 			ProvisionedThroughput: models.ProvisionedThroughputDescription{
@@ -576,9 +587,23 @@ func (db *InMemoryDB) removeGlobalTableReplicaLocked(globalTableName, region str
 	}
 }
 
+// indexArn builds a secondary index's ARN from its table's ARN, matching
+// AWS's "arn:.../table/<name>/index/<indexName>" convention (confirmed by
+// the field's presence on both GlobalSecondaryIndexDescription and
+// LocalSecondaryIndexDescription -- dynamodb@v1.63.1 types/types.go:1676
+// and :2292 -- there's no other index-scoped ARN in the DynamoDB namespace).
+func indexArn(tableArn, indexName string) string {
+	if tableArn == "" || indexName == "" {
+		return ""
+	}
+
+	return tableArn + "/index/" + indexName
+}
+
 func buildGSIDescriptions(
 	gsiList []models.GlobalSecondaryIndex,
 	itemCount int64,
+	tableArn string,
 ) []models.GlobalSecondaryIndexDescription {
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsiList))
 	for i, gsi := range gsiList {
@@ -598,6 +623,7 @@ func buildGSIDescriptions(
 
 		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  gsi.IndexName,
+			IndexArn:   indexArn(tableArn, gsi.IndexName),
 			KeySchema:  gsi.KeySchema,
 			Projection: gsi.Projection,
 			ProvisionedThroughput: models.ProvisionedThroughputDescription{
@@ -614,11 +640,13 @@ func buildGSIDescriptions(
 
 func buildLSIDescriptions(
 	lsiList []models.LocalSecondaryIndex,
+	tableArn string,
 ) []models.LocalSecondaryIndexDescription {
 	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(lsiList))
 	for i, lsi := range lsiList {
 		lsiDescs[i] = models.LocalSecondaryIndexDescription{
 			IndexName:      lsi.IndexName,
+			IndexArn:       indexArn(tableArn, lsi.IndexName),
 			KeySchema:      lsi.KeySchema,
 			Projection:     lsi.Projection,
 			IndexSizeBytes: 0,
@@ -732,8 +760,8 @@ func snapshotTable(table *Table) tableSnapshot {
 func buildTableDescription(tableName *string, table *Table) *types.TableDescription {
 	s := snapshotTable(table)
 
-	gsiDescs := buildGSIDescriptions(s.gsiList, s.itemCount)
-	lsiDescs := buildLSIDescriptions(s.lsiList)
+	gsiDescs := buildGSIDescriptions(s.gsiList, s.itemCount, s.tableArn)
+	lsiDescs := buildLSIDescriptions(s.lsiList, s.tableArn)
 
 	rcu := int64(s.pt.ReadCapacityUnits)
 	wcu := int64(s.pt.WriteCapacityUnits)
@@ -926,17 +954,29 @@ func updateStreamARNIndexLocked(db *InMemoryDB, table *Table, oldARN, newARN str
 // UpdateTable to reduce cognitive complexity of the parent function.
 // countUpdateTableMutations counts the mutually-exclusive UpdateTable mutation
 // groups present in the input; AWS allows at most one per call.
+//
+// BillingMode shares ProvisionedThroughput's group because AWS requires them
+// together: "When switching from pay-per-request to provisioned capacity, initial
+// provisioned capacity values must be set" (api_op_UpdateTable.go:60-63, sdk
+// v1.63.1). A pair AWS mandates cannot also be mutually exclusive.
+//
+// The SDK's own exclusivity list is narrower than this function
+// (api_op_UpdateTable.go:17-24): only throughput, remove-GSI and create-GSI. The
+// other five entries below are stricter than AWS documents; left as-is here
+// because loosening them is unrelated to this fix. See bd gopherstack-dbvw.
 func countUpdateTableMutations(input *dynamodb.UpdateTableInput) int {
 	mutations := 0
+	if input.ProvisionedThroughput != nil || input.BillingMode != "" {
+		mutations++
+	}
+
 	for _, present := range []bool{
-		input.ProvisionedThroughput != nil,
 		len(input.GlobalSecondaryIndexUpdates) > 0,
 		len(input.ReplicaUpdates) > 0,
 		input.SSESpecification != nil,
 		input.StreamSpecification != nil,
 		input.DeletionProtectionEnabled != nil,
 		input.TableClass != "",
-		input.BillingMode != "",
 	} {
 		if present {
 			mutations++

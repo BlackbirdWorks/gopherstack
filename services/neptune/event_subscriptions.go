@@ -104,6 +104,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		SourceType:           sourceType,
 		SourceIDs:            ids,
 		Enabled:              enabled,
+		CustomerAwsID:        b.accountID,
 	}
 	b.eventSubscriptionPut(sub)
 	cp := cloneEventSubscription(sub)

@@ -67,6 +67,80 @@ func BenchmarkQuery(b *testing.B) {
 	})
 }
 
+// BenchmarkQuery_GSI measures Query against a GSI key condition. There is no
+// per-GSI index structure (services/dynamodb/store.go's Table only maintains
+// pkIndex/pkskIndex for the base table); filterCandidatesForKeyCondition in
+// item_ops_query.go only calls tryFilterUsingAuthoritativeIndex when
+// input.IndexName == "", so a GSI query always falls through to
+// filterCandidatesScan, an O(table size) linear scan regardless of how
+// selective the GSI key condition is.
+func BenchmarkQuery_GSI(b *testing.B) {
+	sizes := []int{10000, 100000}
+	for _, size := range sizes {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			db := setupDBWithGSI(b, size)
+			input := models.QueryInput{
+				TableName:              "BenchTable",
+				IndexName:              "gsi1",
+				KeyConditionExpression: "gsipk = :gsipk",
+				ExpressionAttributeValues: map[string]any{
+					":gsipk": map[string]any{"S": strconv.Itoa(size / 2)},
+				},
+			}
+			sdkInput, _ := models.ToSDKQueryInput(&input)
+
+			b.ResetTimer()
+			for range b.N {
+				_, _ = db.Query(b.Context(), sdkInput)
+			}
+		})
+	}
+}
+
+func setupDBWithGSI(b *testing.B, count int) *dynamodb.InMemoryDB {
+	b.Helper()
+	db := dynamodb.NewInMemoryDB()
+	createInput := models.CreateTableInput{
+		TableName: "BenchTable",
+		KeySchema: []models.KeySchemaElement{
+			{AttributeName: "id", KeyType: models.KeyTypeHash},
+		},
+		AttributeDefinitions: []models.AttributeDefinition{
+			{AttributeName: "id", AttributeType: "S"},
+			{AttributeName: "gsipk", AttributeType: "S"},
+		},
+		GlobalSecondaryIndexes: []models.GlobalSecondaryIndex{
+			{
+				IndexName: "gsi1",
+				KeySchema: []models.KeySchemaElement{
+					{AttributeName: "gsipk", KeyType: models.KeyTypeHash},
+				},
+				Projection: models.Projection{ProjectionType: "ALL"},
+			},
+		},
+	}
+	createSDKInput := models.ToSDKCreateTableInput(&createInput)
+	_, err := db.CreateTable(b.Context(), createSDKInput)
+	require.NoError(b, err)
+
+	for i := range count {
+		input := models.PutItemInput{
+			TableName: "BenchTable",
+			Item: map[string]any{
+				"id":    map[string]any{"S": strconv.Itoa(i)},
+				"gsipk": map[string]any{"S": strconv.Itoa(i)},
+				"val":   map[string]any{"N": strconv.Itoa(i * 10)},
+			},
+		}
+		putSDKInput, putErr := models.ToSDKPutItemInput(&input)
+		require.NoError(b, putErr)
+		_, putErr = db.PutItem(b.Context(), putSDKInput)
+		require.NoError(b, putErr)
+	}
+
+	return db
+}
+
 func BenchmarkScan(b *testing.B) {
 	b.Run("100k", func(b *testing.B) {
 		db := setupDBWithItems(b, 100000)

@@ -9,6 +9,25 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+// vpcEndpointSummaryJSON mirrors types.VpcEndpointSummary: DomainArn, Status,
+// VpcEndpointId, VpcEndpointOwner (opensearch@v1.75.4 types/types.go:3483-3498).
+// No Endpoint, VpcOptions, or the internal-only StatusUntil clock field.
+type vpcEndpointSummaryJSON struct {
+	DomainArn        string `json:"DomainArn"`
+	Status           string `json:"Status"`
+	VpcEndpointID    string `json:"VpcEndpointId"`
+	VpcEndpointOwner string `json:"VpcEndpointOwner"`
+}
+
+func toVpcEndpointSummary(ep *VpcEndpoint) vpcEndpointSummaryJSON {
+	return vpcEndpointSummaryJSON{
+		DomainArn:        ep.DomainArn,
+		Status:           ep.Status,
+		VpcEndpointID:    ep.VpcEndpointID,
+		VpcEndpointOwner: ep.VpcEndpointOwner,
+	}
+}
+
 // authorizeVpcEndpointAccessRequest is the JSON request body for AuthorizeVpcEndpointAccess.
 type authorizeVpcEndpointAccessRequest struct {
 	Account string `json:"Account"`
@@ -70,7 +89,7 @@ func (h *Handler) handleVpcEndpointsRoutes(w http.ResponseWriter, r *http.Reques
 
 	switch {
 	// POST /vpcEndpoints/describe → DescribeVpcEndpoints
-	case rest == "/describe" && r.Method == http.MethodPost:
+	case rest == pathSuffixDescribe && r.Method == http.MethodPost:
 		body, _ := httputils.ReadBody(r)
 		var req struct {
 			VpcEndpointIDs []string `json:"VpcEndpointIds"`
@@ -80,15 +99,48 @@ func (h *Handler) handleVpcEndpointsRoutes(w http.ResponseWriter, r *http.Reques
 		}
 		endpoints, errs := h.Backend.DescribeVpcEndpoints(req.VpcEndpointIDs)
 		h.writeJSON(r, w, map[string]any{"VpcEndpoints": endpoints, "VpcEndpointErrors": errs})
+	// POST /vpcEndpoints/update → UpdateVpcEndpoint. Real clients always POST here with
+	// VpcEndpointId in the JSON body (api_op_UpdateVpcEndpoint.go, opensearch@v1.75.4:
+	// no URL bindings at all -- the whole request travels in the body) -- gopherstack-l5ir.
+	case rest == pathSuffixUpdate && r.Method == http.MethodPost:
+		h.handleUpdateVpcEndpoint(w, r)
 	// Root: Create/List.
 	case rest == "" || rest == "/":
 		h.handleVpcEndpointRootRoutes(w, r)
-	// Per-ID: Delete/Update.
+	// Per-ID: Delete.
 	case strings.HasPrefix(rest, "/"):
 		h.handleVpcEndpointIDRoutes(w, r, strings.TrimPrefix(rest, "/"))
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+// handleUpdateVpcEndpoint handles UpdateVpcEndpoint: POST /vpcEndpoints/update,
+// VpcEndpointId carried in the body (not the URL).
+func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req struct {
+		VpcOptions    map[string]any `json:"VpcOptions"`
+		VpcEndpointID string         `json:"VpcEndpointId"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	ep, updateErr := h.Backend.UpdateVpcEndpoint(req.VpcEndpointID, req.VpcOptions)
+	if updateErr != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"VpcEndpoint": ep})
 }
 
 // handleVpcEndpointRootRoutes handles /vpcEndpoints and /vpcEndpoints/ requests.
@@ -117,10 +169,17 @@ func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Req
 		h.writeJSON(r, w, map[string]any{"VpcEndpoint": ep})
 	case http.MethodGet:
 		endpoints := h.Backend.ListVpcEndpoints()
-		if endpoints == nil {
-			endpoints = []*VpcEndpoint{}
+		summaries := make([]vpcEndpointSummaryJSON, 0, len(endpoints))
+		for _, ep := range endpoints {
+			summaries = append(summaries, toVpcEndpointSummary(ep))
 		}
-		h.writeJSON(r, w, map[string]any{"VpcEndpoints": endpoints})
+		// Real key is "VpcEndpointSummaryList", not "VpcEndpoints" -- verified
+		// against ListVpcEndpointsOutput in api_op_ListVpcEndpoints.go
+		// (opensearch@v1.75.4), matching the sibling ListVpcEndpointsForDomain.
+		// NextToken is also a required member of that same struct; this backend
+		// is single-page, so it is always emitted empty rather than omitted
+		// (gopherstack-r80d).
+		h.writeJSON(r, w, map[string]any{"VpcEndpointSummaryList": summaries, jsonKeyNextToken: ""})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -148,26 +207,6 @@ func (h *Handler) handleVpcEndpointIDRoutes(
 				"VpcEndpointOwner":   ep.VpcEndpointOwner,
 			},
 		})
-	case http.MethodPut:
-		body, err := httputils.ReadBody(r)
-		if err != nil {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
-
-			return
-		}
-		var req struct {
-			VpcOptions map[string]any `json:"VpcOptions"`
-		}
-		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
-		}
-		ep, updateErr := h.Backend.UpdateVpcEndpoint(endpointID, req.VpcOptions)
-		if updateErr != nil {
-			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
-
-			return
-		}
-		h.writeJSON(r, w, map[string]any{"VpcEndpoint": ep})
 	default:
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
@@ -186,11 +225,18 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, r *http.Requ
 			domainArn = domain.ARN
 		}
 		endpoints := h.Backend.ListVpcEndpointsForDomain(domainArn)
+		summaries := make([]vpcEndpointSummaryJSON, 0, len(endpoints))
+		for _, ep := range endpoints {
+			summaries = append(summaries, toVpcEndpointSummary(ep))
+		}
 		httputils.WriteJSON(
 			r.Context(),
 			w,
 			http.StatusOK,
-			map[string]any{"VpcEndpointSummaryList": endpoints},
+			// NextToken is a required member of ListVpcEndpointsForDomainOutput;
+			// this backend is single-page, so it is always emitted empty rather
+			// than omitted (gopherstack-r80d).
+			map[string]any{"VpcEndpointSummaryList": summaries, jsonKeyNextToken: ""},
 		)
 	case strings.HasSuffix(trimmed, "/listVpcEndpointAccess"):
 		// ListVpcEndpointAccess
@@ -203,7 +249,10 @@ func (h *Handler) dispatchDomainGetVpcRoutes(w http.ResponseWriter, r *http.Requ
 			r.Context(),
 			w,
 			http.StatusOK,
-			map[string]any{"AuthorizedPrincipalList": principals},
+			// NextToken is a required member of ListVpcEndpointAccessOutput;
+			// this backend is single-page, so it is always emitted empty rather
+			// than omitted (gopherstack-r80d).
+			map[string]any{"AuthorizedPrincipalList": principals, jsonKeyNextToken: ""},
 		)
 	default:
 		return false

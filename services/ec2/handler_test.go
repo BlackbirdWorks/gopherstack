@@ -516,7 +516,7 @@ func TestEC2Handler_DeepDiveOperations(t *testing.T) {
 			body: "Action=CreateImage&Version=2016-11-15&InstanceId=" + instanceID +
 				"&Name=test-image&Description=test",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"CreateImageResponse", "<imageId>ami-", "test-image"},
+			wantContains: []string{"CreateImageResponse", "<imageId>ami-"},
 		},
 		{
 			name:         "DescribeImageUsageReports",

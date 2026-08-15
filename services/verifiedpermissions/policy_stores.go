@@ -98,7 +98,10 @@ func (b *InMemoryBackend) GetPolicyStore(policyStoreID string) (*PolicyStore, er
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	return clonePolicyStore(ps), nil
+	out := clonePolicyStore(ps)
+	out.Tags = maps.Clone(b.resourceTags[ps.Arn])
+
+	return out, nil
 }
 
 // ListPolicyStores returns all policy stores sorted by creation date (newest first).

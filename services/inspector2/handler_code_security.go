@@ -99,7 +99,10 @@ func (h *Handler) handleDeleteCodeSecurityIntegration(c *echo.Context) error {
 		return h.mapError(c, deleteErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	// Real DeleteCodeSecurityIntegrationOutput carries integrationArn
+	// (awsRestjson1_deserializeOpDocumentDeleteCodeSecurityIntegrationOutput
+	// in the pinned inspector2 SDK's deserializers.go), not an empty envelope.
+	return c.JSON(http.StatusOK, map[string]any{keyIntegrationArn: req.IntegrationArn})
 }
 
 func (h *Handler) handleGetCodeSecurityIntegration(c *echo.Context) error {
@@ -239,7 +242,11 @@ func (h *Handler) handleDeleteCodeSecurityScanConfiguration(c *echo.Context) err
 		return h.mapError(c, deleteErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	// Real DeleteCodeSecurityScanConfigurationOutput carries
+	// scanConfigurationArn
+	// (awsRestjson1_deserializeOpDocumentDeleteCodeSecurityScanConfigurationOutput
+	// in the pinned inspector2 SDK's deserializers.go), not an empty envelope.
+	return c.JSON(http.StatusOK, map[string]any{keyScanConfigurationArn: req.ScanConfigurationArn})
 }
 
 func (h *Handler) handleGetCodeSecurityScanConfiguration(c *echo.Context) error {
@@ -403,7 +410,41 @@ func (h *Handler) handleListCodeSecurityScanConfigurations(c *echo.Context) erro
 	return c.JSON(http.StatusOK, map[string]any{"configurations": wire})
 }
 
-func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration( //nolint:dupl // existing issue.
+// codeSecurityBatchItemRequest is the wire shape of one
+// AssociateConfigurationRequest/DisassociateConfigurationRequest entry. Real
+// BatchAssociateCodeSecurityScanConfigurationInput/
+// BatchDisassociateCodeSecurityScanConfigurationInput carry NO top-level
+// scanConfigurationArn (confirmed against
+// awsRestjson1_serializeOpDocumentBatchAssociateCodeSecurityScanConfigurationInput
+// in the pinned inspector2 SDK's serializers.go) -- each item in the list
+// carries its own resource/scanConfigurationArn.
+type codeSecurityBatchItemRequest struct {
+	Resource struct {
+		ProjectID string `json:"projectId"`
+	} `json:"resource"`
+	ScanConfigurationArn string `json:"scanConfigurationArn"`
+}
+
+// resourcesAndArn extracts the project-id resources and the (shared) scan
+// configuration ARN from a batch of association requests.
+func resourcesAndArn(items []codeSecurityBatchItemRequest) ([]string, string) {
+	resources := make([]string, 0, len(items))
+	scanConfigARN := ""
+
+	for _, r := range items {
+		if r.Resource.ProjectID != "" {
+			resources = append(resources, r.Resource.ProjectID)
+		}
+
+		if scanConfigARN == "" {
+			scanConfigARN = r.ScanConfigurationArn
+		}
+	}
+
+	return resources, scanConfigARN
+}
+
+func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration(
 	c *echo.Context,
 ) error {
 	body, err := httputils.ReadBody(c.Request())
@@ -412,33 +453,69 @@ func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration( //nolint:du
 	}
 
 	var req struct {
-		ScanConfigurationArn           string           `json:"scanConfigurationArn"`
-		AssociateConfigurationRequests []map[string]any `json:"associateConfigurationRequests"`
+		AssociateConfigurationRequests []codeSecurityBatchItemRequest `json:"associateConfigurationRequests"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	resources := make([]string, 0, len(req.AssociateConfigurationRequests))
-	for _, r := range req.AssociateConfigurationRequests {
-		if res, ok := r["resource"].(string); ok {
-			resources = append(resources, res)
-		}
-	}
+	resources, scanConfigARN := resourcesAndArn(req.AssociateConfigurationRequests)
 
 	failed, assocErr := h.Backend.BatchAssociateCodeSecurityScanConfiguration(
-		req.ScanConfigurationArn,
+		scanConfigARN,
 		resources,
 	)
 	if assocErr != nil {
 		return h.mapError(c, assocErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"failedAssociations": failed})
+	// Real BatchAssociateCodeSecurityScanConfigurationOutput carries both
+	// failedAssociations and successfulAssociations
+	// (awsRestjson1_deserializeOpDocumentBatchAssociateCodeSecurityScanConfigurationOutput
+	// in the pinned inspector2 SDK's deserializers.go) -- dropping
+	// successfulAssociations left every real client's SuccessfulAssociations
+	// field always empty even when every resource associated cleanly.
+	return c.JSON(http.StatusOK, map[string]any{
+		"failedAssociations":     failed,
+		"successfulAssociations": successfulAssociations(scanConfigARN, resources, failed),
+	})
 }
 
-func (h *Handler) handleBatchDisassociateCodeSecurityScanConfiguration( //nolint:dupl // existing issue.
+// successfulAssociations reports the (arn, resource) pairs that were not
+// reported failed -- the real API only omits a resource from
+// successfulAssociations when it appears in failedAssociations instead.
+func successfulAssociations(scanConfigARN string, resources []string, failed []map[string]any) []map[string]any {
+	failedResources := make(map[string]bool, len(failed))
+
+	for _, f := range failed {
+		res, isMap := f["resource"].(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		if pid, isStr := res["projectId"].(string); isStr {
+			failedResources[pid] = true
+		}
+	}
+
+	successful := make([]map[string]any, 0, len(resources))
+
+	for _, r := range resources {
+		if failedResources[r] {
+			continue
+		}
+
+		successful = append(successful, map[string]any{
+			"resource":             map[string]any{"projectId": r},
+			"scanConfigurationArn": scanConfigARN,
+		})
+	}
+
+	return successful
+}
+
+func (h *Handler) handleBatchDisassociateCodeSecurityScanConfiguration(
 	c *echo.Context,
 ) error {
 	body, err := httputils.ReadBody(c.Request())
@@ -447,30 +524,35 @@ func (h *Handler) handleBatchDisassociateCodeSecurityScanConfiguration( //nolint
 	}
 
 	var req struct {
-		ScanConfigurationArn              string           `json:"scanConfigurationArn"`
-		DisassociateConfigurationRequests []map[string]any `json:"disassociateConfigurationRequests"`
+		DisassociateConfigurationRequests []codeSecurityBatchItemRequest `json:"disassociateConfigurationRequests"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	resources := make([]string, 0, len(req.DisassociateConfigurationRequests))
-	for _, r := range req.DisassociateConfigurationRequests {
-		if res, ok := r["resource"].(string); ok {
-			resources = append(resources, res)
-		}
-	}
+	resources, scanConfigARN := resourcesAndArn(req.DisassociateConfigurationRequests)
 
 	failed, disErr := h.Backend.BatchDisassociateCodeSecurityScanConfiguration(
-		req.ScanConfigurationArn,
+		scanConfigARN,
 		resources,
 	)
 	if disErr != nil {
 		return h.mapError(c, disErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"failedDisassociations": failed})
+	// Real BatchDisassociateCodeSecurityScanConfigurationOutput's members are
+	// failedAssociations and successfulAssociations -- the same names as
+	// BatchAssociate's output, NOT "failedDisassociations"
+	// (awsRestjson1_deserializeOpDocumentBatchDisassociateCodeSecurityScanConfigurationOutput
+	// in the pinned inspector2 SDK's deserializers.go only recognizes
+	// "failedAssociations"/"successfulAssociations"; the invented
+	// "failedDisassociations" key was silently ignored, leaving a real
+	// client's FailedAssociations always empty).
+	return c.JSON(http.StatusOK, map[string]any{
+		"failedAssociations":     failed,
+		"successfulAssociations": successfulAssociations(scanConfigARN, resources, failed),
+	})
 }
 
 func (h *Handler) handleListCodeSecurityScanConfigurationAssociations(c *echo.Context) error {

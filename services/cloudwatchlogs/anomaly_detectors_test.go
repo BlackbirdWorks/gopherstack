@@ -303,7 +303,28 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 		checkSuppression   bool
 	}{
 		{
+			// Real AWS: omitting suppressionType (empty string) ends any
+			// current suppression -- there is no "NO_SUPPRESSION" enum value
+			// on the wire.
 			name: "success_no_suppression",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
+				t.Helper()
+				detectorArn, err := b.CreateLogAnomalyDetector(
+					[]string{"arn:aws:logs:us-east-1:123:log-group:test"}, "det", "", "", "", 0,
+				)
+				require.NoError(t, err)
+				cloudwatchlogs.AddAnomalyInternal(b, cloudwatchlogs.Anomaly{
+					AnomalyDetectorArn: detectorArn,
+					AnomalyID:          "anomaly-1",
+					Active:             true,
+				})
+
+				return detectorArn
+			},
+			anomalyID: "anomaly-1",
+		},
+		{
+			name: "invalid_suppression_type",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) string {
 				t.Helper()
 				detectorArn, err := b.CreateLogAnomalyDetector(
@@ -320,6 +341,7 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 			},
 			anomalyID:       "anomaly-1",
 			suppressionType: "NO_SUPPRESSION",
+			wantErr:         cloudwatchlogs.ErrValidation,
 		},
 		{
 			name: "success_limited_suppression_clears_on_no_suppression",
@@ -383,12 +405,7 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 				arn = tt.setup(t, b)
 			}
 
-			suppressionType := tt.suppressionType
-			if suppressionType == "" {
-				suppressionType = "NO_SUPPRESSION"
-			}
-
-			err := b.UpdateAnomaly(tt.anomalyID, arn, suppressionType)
+			err := b.UpdateAnomaly(tt.anomalyID, arn, tt.suppressionType)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -399,12 +416,26 @@ func TestCloudWatchLogsBackend_UpdateAnomaly(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.checkSuppression {
-				// Verify the suppression state was persisted.
 				anomalies, _, listErr := b.ListAnomalies(arn, 10, "")
 				require.NoError(t, listErr)
 				require.Len(t, anomalies, 1)
-				assert.Equal(t, suppressionType, anomalies[0].SuppressedState)
+				assert.Equal(t, cloudwatchlogs.AnomalyStateSuppressed, anomalies[0].State)
+				require.NotNil(t, anomalies[0].Suppressed)
+				assert.True(t, *anomalies[0].Suppressed)
 				assert.NotZero(t, anomalies[0].SuppressedDate)
+
+				// Real AWS: calling UpdateAnomaly again and omitting
+				// suppressionType ends the suppression -- this is the bug
+				// this test's name refers to (a previous revision treated
+				// the empty string as "still suppressed").
+				require.NoError(t, b.UpdateAnomaly(tt.anomalyID, arn, ""))
+				cleared, _, clearErr := b.ListAnomalies(arn, 10, "")
+				require.NoError(t, clearErr)
+				require.Len(t, cleared, 1)
+				assert.Equal(t, cloudwatchlogs.AnomalyStateActive, cleared[0].State)
+				require.NotNil(t, cleared[0].Suppressed)
+				assert.False(t, *cleared[0].Suppressed)
+				assert.Zero(t, cleared[0].SuppressedDate)
 			}
 		})
 	}

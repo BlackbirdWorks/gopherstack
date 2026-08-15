@@ -64,7 +64,12 @@ func (h *Handler) handleListExtensions(c *echo.Context) error {
 	nameFilter := c.Request().URL.Query().Get("name")
 	exts, outToken := h.Backend.ListExtensions(nextToken, maxResults, nameFilter)
 
-	resp := map[string]any{keyItems: exts}
+	summaries := make([]ExtensionSummary, 0, len(exts))
+	for _, ext := range exts {
+		summaries = append(summaries, extensionToSummary(ext))
+	}
+
+	resp := map[string]any{keyItems: summaries}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -202,7 +207,12 @@ func (h *Handler) handleListExtensionAssociations(c *echo.Context) error {
 		maxResults,
 	)
 
-	resp := map[string]any{keyItems: assocs}
+	summaries := make([]ExtensionAssociationSummary, 0, len(assocs))
+	for _, a := range assocs {
+		summaries = append(summaries, extensionAssociationToSummary(a))
+	}
+
+	resp := map[string]any{keyItems: summaries}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}

@@ -11,6 +11,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// validResourceConfigJSON is a valid PutIntegrationInput.ResourceConfig body
+// fragment satisfying OpenSearchResourceConfig's required members
+// (dataSourceRoleArn/dashboardViewerPrincipals/retentionDays --
+// validateOpenSearchResourceConfig, validators.go).
+const validResourceConfigJSON = `{"openSearchResourceConfig":{` +
+	`"dataSourceRoleArn":"arn:aws:iam::123456789012:role/cwl-opensearch",` +
+	`"dashboardViewerPrincipals":["arn:aws:iam::123456789012:user/viewer"],` +
+	`"retentionDays":30}}`
+
+func validResourceConfigMap() map[string]any {
+	return map[string]any{
+		"openSearchResourceConfig": map[string]any{
+			"dataSourceRoleArn":         "arn:aws:iam::123456789012:role/cwl-opensearch",
+			"dashboardViewerPrincipals": []string{"arn:aws:iam::123456789012:user/viewer"},
+			"retentionDays":             30,
+		},
+	}
+}
+
 func TestHandler_Integration(t *testing.T) {
 	t.Parallel()
 
@@ -27,6 +46,7 @@ func TestHandler_Integration(t *testing.T) {
 			body: map[string]any{
 				"integrationName": "my-opensearch",
 				"integrationType": "OPENSEARCH",
+				"resourceConfig":  validResourceConfigMap(),
 			},
 			wantCode: http.StatusOK,
 		},
@@ -35,6 +55,16 @@ func TestHandler_Integration(t *testing.T) {
 			action: "PutIntegration",
 			body: map[string]any{
 				"integrationName": "",
+				"integrationType": "OPENSEARCH",
+				"resourceConfig":  validResourceConfigMap(),
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "PutIntegration/MissingResourceConfig",
+			action: "PutIntegration",
+			body: map[string]any{
+				"integrationName": "no-config",
 				"integrationType": "OPENSEARCH",
 			},
 			wantCode: http.StatusBadRequest,
@@ -46,7 +76,8 @@ func TestHandler_Integration(t *testing.T) {
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "PutIntegration",
-					`{"integrationName":"my-opensearch","integrationType":"OPENSEARCH"}`)
+					`{"integrationName":"my-opensearch","integrationType":"OPENSEARCH","resourceConfig":`+
+						validResourceConfigJSON+`}`)
 			},
 			wantCode: http.StatusOK,
 		},
@@ -62,8 +93,12 @@ func TestHandler_Integration(t *testing.T) {
 			body:   map[string]any{},
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
-				doLogsRequest(t, h, e, "PutIntegration", `{"integrationName":"ig1","integrationType":"OPENSEARCH"}`)
-				doLogsRequest(t, h, e, "PutIntegration", `{"integrationName":"ig2","integrationType":"OPENSEARCH"}`)
+				doLogsRequest(t, h, e, "PutIntegration",
+					`{"integrationName":"ig1","integrationType":"OPENSEARCH","resourceConfig":`+
+						validResourceConfigJSON+`}`)
+				doLogsRequest(t, h, e, "PutIntegration",
+					`{"integrationName":"ig2","integrationType":"OPENSEARCH","resourceConfig":`+
+						validResourceConfigJSON+`}`)
 			},
 			wantCode: http.StatusOK,
 		},
@@ -74,7 +109,8 @@ func TestHandler_Integration(t *testing.T) {
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "PutIntegration",
-					`{"integrationName":"my-opensearch","integrationType":"OPENSEARCH"}`)
+					`{"integrationName":"my-opensearch","integrationType":"OPENSEARCH","resourceConfig":`+
+						validResourceConfigJSON+`}`)
 			},
 			wantCode: http.StatusOK,
 		},
@@ -228,6 +264,7 @@ func TestHandler_IntegrationResponseShape(t *testing.T) {
 			body: map[string]any{
 				"integrationName": "ig",
 				"integrationType": "OPENSEARCH",
+				"resourceConfig":  validResourceConfigMap(),
 			},
 			wantFields: []string{"integrationName"},
 			wantCode:   http.StatusOK,

@@ -3,8 +3,6 @@ package eventbridge
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 )
 
@@ -61,24 +59,26 @@ func (b *InMemoryBackend) DescribeReplay(ctx context.Context, name string) (*Rep
 	return &cp, nil
 }
 
-// ListReplays returns replays optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error) {
+// ListReplays returns replays optionally filtered by name prefix,
+// EventSourceArn, and/or State, with pagination -- matching real
+// ListReplaysInput's filter fields (eventbridge@v1.48.4
+// api_op_ListReplays.go), previously parsed nowhere in this backend.
+func (b *InMemoryBackend) ListReplays(
+	ctx context.Context,
+	namePrefix, eventSourceArn, state, nextToken string,
+) ([]Replay, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
 	b.mu.RLock("ListReplays")
 	defer b.mu.RUnlock()
 
-	store := b.replaysTable(region)
-	all := make([]Replay, 0, store.Len())
-	for _, r := range store.All() {
-		if namePrefix == "" || strings.HasPrefix(r.ReplayName, namePrefix) {
-			all = append(all, *r)
-		}
-	}
-
-	sort.Slice(all, func(i, j int) bool { return all[i].ReplayName < all[j].ReplayName })
-
-	page, outToken := paginate(all, nextToken)
+	page, outToken := listNamedItems(
+		b.replaysTable(region), namePrefix, eventSourceArn, state, nextToken,
+		func(r *Replay) string { return r.ReplayName },
+		func(r *Replay) string { return r.EventSourceArn },
+		func(r *Replay) string { return r.State },
+		func(a, b Replay) bool { return a.ReplayName < b.ReplayName },
+	)
 
 	return page, outToken, nil
 }

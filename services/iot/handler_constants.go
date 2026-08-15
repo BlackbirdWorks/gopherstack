@@ -27,6 +27,7 @@ const (
 	keyLastModifiedDate        = "lastModifiedDate"
 	keyPolicyVersionID         = "policyVersionId"
 	keyInvalidPath             = "invalid path"
+	keyCommandArn              = "commandArn"
 
 	// URL path prefix constants.
 	pathPolicies         = "/policies"
@@ -51,6 +52,13 @@ const (
 	keyCertificates       = "certificates"
 	keyPolicies           = "policies"
 	keyThings             = "things"
+	pathCertificates      = "/certificates"
+	pathDestinations      = "/destinations"
+	pathV2LoggingOptions  = "/v2LoggingOptions"
+	pathLoggingOptions    = "/loggingOptions"
+	pathPackageConfig     = "/package-configuration"
+	pathRegistrationCode  = "/registrationcode"
+	pathEventConfigs      = "/event-configurations"
 )
 
 const (

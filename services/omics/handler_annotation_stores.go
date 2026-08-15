@@ -70,7 +70,16 @@ func (h *Handler) handleListAnnotationStores(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"annotationStores": stores, keyNextToken: next})
+	// Real ListAnnotationStoresOutput's element (AnnotationStoreItem) has no
+	// numVersions/storeOptions/tags member -- narrower than
+	// GetAnnotationStoreOutput, so this doesn't marshal the domain structs
+	// directly (see AnnotationStoreSummary).
+	summaries := make([]AnnotationStoreSummary, 0, len(stores))
+	for _, as := range stores {
+		summaries = append(summaries, newAnnotationStoreSummary(as))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"annotationStores": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateAnnotationStore(c *echo.Context, name string) error {
@@ -92,21 +101,37 @@ func (h *Handler) handleUpdateAnnotationStore(c *echo.Context, name string) erro
 
 func (h *Handler) handleStartAnnotationImportJob(c *echo.Context) error {
 	var req struct {
-		DestinationName string                 `json:"destinationName"`
-		RoleArn         string                 `json:"roleArn"`
-		Items           []AnnotationImportItem `json:"items"`
+		AnnotationFields     map[string]string      `json:"annotationFields"`
+		FormatOptions        map[string]any         `json:"formatOptions"`
+		DestinationName      string                 `json:"destinationName"`
+		RoleArn              string                 `json:"roleArn"`
+		VersionName          string                 `json:"versionName"`
+		Items                []AnnotationImportItem `json:"items"`
+		RunLeftNormalization bool                   `json:"runLeftNormalization"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	job, err := h.Backend.StartAnnotationImportJob(req.DestinationName, req.RoleArn, req.Items)
+	job, err := h.Backend.StartAnnotationImportJob(
+		req.DestinationName,
+		req.RoleArn,
+		req.Items,
+		req.AnnotationFields,
+		req.FormatOptions,
+		req.RunLeftNormalization,
+		req.VersionName,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, job)
+	// Real StartAnnotationImportJobOutput's only member is "jobId"
+	// (deserializers.go:17434) -- distinct from GetAnnotationImportJobOutput's
+	// "id" (deserializers.go:5954), so this doesn't marshal the domain
+	// struct directly the way most other Create/Get pairs in this file do.
+	return c.JSON(http.StatusCreated, map[string]any{"jobId": job.ID})
 }
 
 func (h *Handler) handleGetAnnotationImportJob(c *echo.Context, jobID string) error {
@@ -135,7 +160,19 @@ func (h *Handler) handleListAnnotationImportJobs(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: jobs, keyNextToken: next})
+	// Real ListAnnotationImportJobsOutput's element (AnnotationImportJobItem)
+	// has no items/formatOptions/statusMessage -- narrower than
+	// GetAnnotationImportJobOutput, so this doesn't marshal the domain
+	// structs directly (see AnnotationImportJobSummary).
+	summaries := make([]AnnotationImportJobSummary, 0, len(jobs))
+	for _, job := range jobs {
+		summaries = append(summaries, newAnnotationImportJobSummary(job))
+	}
+
+	// Real ListAnnotationImportJobsOutput wraps the list under
+	// "annotationImportJobs", not the generic "importJobs" ListReferenceImportJobs/
+	// ListReadSetImportJobs use (deserializers.go awsRestjson1_deserializeOpDocumentListAnnotationImportJobsOutput).
+	return c.JSON(http.StatusOK, map[string]any{"annotationImportJobs": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleCancelAnnotationImportJob(c *echo.Context, jobID string) error {
@@ -217,9 +254,19 @@ func (h *Handler) handleListAnnotationStoreVersions(c *echo.Context, name string
 		return h.mapError(c, err)
 	}
 
+	// Real ListAnnotationStoreVersionsOutput's element
+	// (AnnotationStoreVersionItem) has no tags or storeName member --
+	// narrower than GetAnnotationStoreVersionOutput, so this doesn't
+	// marshal the domain structs directly (see
+	// AnnotationStoreVersionSummary).
+	summaries := make([]AnnotationStoreVersionSummary, 0, len(versions))
+	for _, v := range versions {
+		summaries = append(summaries, newAnnotationStoreVersionSummary(v))
+	}
+
 	return c.JSON(
 		http.StatusOK,
-		map[string]any{"annotationStoreVersions": versions, keyNextToken: next},
+		map[string]any{"annotationStoreVersions": summaries, keyNextToken: next},
 	)
 }
 

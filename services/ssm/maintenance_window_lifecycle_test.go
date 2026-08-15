@@ -22,10 +22,28 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 	// now correctly reject an empty body with ValidationException — see
 	// TestGetAccessToken_RequiresAccessRequestID and
 	// TestAccessRequest_ValidationRequiresReasonAndTargets in sessions_test.go.
+	// ListNodesSummary is also NOT listed here: it has a real required field
+	// (Aggregators) and now correctly rejects an empty body with
+	// InvalidAggregatorException — see TestListNodesSummary_MissingAggregators
+	// in list_nodes_summary_test.go.
+	// StartChangeRequestExecution and UpdateResourceDataSync are also NOT
+	// listed here (gopherstack-4ggy): both now correctly reject an empty
+	// body -- Runbooks and SyncSource/SyncType respectively are required and
+	// were previously dropped entirely. See TestChangeRequest
+	// (automations_test.go) and TestResourceDataSync_CRUD (activations_test.go).
+	// DeleteResourcePolicy and PutResourcePolicy are also NOT listed here
+	// (gopherstack-enpq): both now correctly reject an empty body --
+	// ResourceArn/PolicyId/PolicyHash (Delete) and ResourceArn/Policy (Put)
+	// are required and were previously dropped entirely. See
+	// TestResourcePolicies_RequiredFields in resource_policies_test.go.
+	// PutComplianceItems is also NOT listed here (gopherstack-enpq): it now
+	// correctly rejects an empty body -- ResourceId/ResourceType/
+	// ComplianceType/ExecutionSummary (with ExecutionSummary.ExecutionTime)
+	// are all required and were previously dropped entirely. See
+	// TestPutComplianceItems_RequiredFields in inventory_test.go.
 	ops := []string{
 		"CreateResourceDataSync",
 		"DeleteInventory",
-		"DeleteResourcePolicy",
 		"DeregisterManagedInstance",
 		"DescribeActivations",
 		"DescribeAssociationExecutionTargets",
@@ -76,22 +94,18 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"ListDocumentMetadataHistory",
 		"ListInventoryEntries",
 		"ListNodes",
-		"ListNodesSummary",
 		"ListOpsItemEvents",
 		"ListOpsItemRelatedItems",
 		"ListOpsMetadata",
 		"ListResourceComplianceSummaries",
 		"ListResourceDataSync",
-		"PutComplianceItems",
 		"PutInventory",
-		"PutResourcePolicy",
 		"RegisterDefaultPatchBaseline",
 		"ResetServiceSetting",
 		"ResumeSession",
 		"SendAutomationSignal",
 		"StartAssociationsOnce",
 		"StartAutomationExecution",
-		"StartChangeRequestExecution",
 		"StartExecutionPreview",
 		"StartSession",
 		"StopAutomationExecution",
@@ -100,7 +114,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"UpdateDocumentDefaultVersion",
 		"UpdateDocumentMetadata",
 		"UpdateManagedInstanceRole",
-		"UpdateResourceDataSync",
 		"UpdateServiceSetting",
 	}
 

@@ -117,7 +117,8 @@ func (b *InMemoryBackend) hasReusableResult(
 		if prev.Query == query &&
 			prev.Status.State == stateSucceeded &&
 			prev.Status.CompletionDateTime >= cutoff &&
-			!prev.Statistics.ReusedPreviousResult {
+			(prev.Statistics.ResultReuseInformation == nil ||
+				!prev.Statistics.ResultReuseInformation.ReusedPreviousResult) {
 			return true
 		}
 	}
@@ -161,7 +162,7 @@ func newQueryExecution(
 			TotalExecutionTimeInMillis:    mockEngineMs,
 			ServiceProcessingTimeInMillis: 1,
 			DataScannedInBytes:            0,
-			ReusedPreviousResult:          reused,
+			ResultReuseInformation:        &ResultReuseInformation{ReusedPreviousResult: reused},
 		},
 	}
 }

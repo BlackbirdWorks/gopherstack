@@ -8,6 +8,15 @@ import (
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
 
+// Operation-name constants reused across GetSupportedOperations,
+// lambdaOpRoutes, and ExtractOperation's own resolution logic.
+const (
+	opGetFunctionCodeSigningConfig    = "GetFunctionCodeSigningConfig"
+	opPutFunctionCodeSigningConfig    = "PutFunctionCodeSigningConfig"
+	opDeleteFunctionCodeSigningConfig = "DeleteFunctionCodeSigningConfig"
+	opInvoke                          = "Invoke"
+)
+
 // lambda2017PathPrefix is the API date prefix used by the AWS SDK v2 for
 // reserved concurrency operations (PutFunctionConcurrency, DeleteFunctionConcurrency).
 const lambda2017PathPrefix = "/2017-10-31/functions"
@@ -25,11 +34,17 @@ const lambda2021PathPrefix = "/2021-10-31/functions"
 // lambda2021RuntimeMgmtPathPrefix is the path prefix for runtime management config endpoints.
 const lambda2021RuntimeMgmtPathPrefix = "/2021-07-20/functions"
 
-// lambda2024RecursionPathPrefix is the path prefix for function recursion config endpoints.
-const lambda2024RecursionPathPrefix = "/2024-08-28/functions"
+// lambda2024RecursionPathPrefix is the path prefix for function recursion
+// config endpoints. Real date is 2024-08-31 (api_op_GetFunctionRecursionConfig.go,
+// lambda@v1.101.2 serializers.go) -- gopherstack-l5ir, was 2024-08-28.
+const lambda2024RecursionPathPrefix = "/2024-08-31/functions"
 
-// lambda2023ScalingPathPrefix is the path prefix for function scaling config endpoints.
-const lambda2023ScalingPathPrefix = "/2023-10-26/functions"
+// lambda2025ScalingPathPrefix is the path prefix for function scaling config
+// endpoints. Real date is 2025-11-30, and the path segment is
+// "function-scaling-config" (api_op_GetFunctionScalingConfig.go,
+// lambda@v1.101.2 serializers.go) -- gopherstack-l5ir, was 2023-10-26 with
+// segment "scaling-config"; both were fictional.
+const lambda2025ScalingPathPrefix = "/2025-11-30/functions"
 
 // lambda2014AsyncPathPrefix is the path prefix for the legacy InvokeAsync endpoint.
 const lambda2014AsyncPathPrefix = "/2014-11-13/functions"
@@ -54,11 +69,23 @@ var lambdaFunctionPrefixes = []string{
 const esmPathPrefix = "/2015-03-31/event-source-mappings"
 
 // lambdaTagsPathPrefix is the path prefix for Lambda resource tag endpoints.
-const lambdaTagsPathPrefix = "/2015-03-31/tags"
+// Real date is 2017-03-31 (api_op_ListTags.go / api_op_TagResource.go /
+// api_op_UntagResource.go, lambda@v1.101.2 serializers.go) --
+// gopherstack-l5ir, was 2015-03-31.
+const lambdaTagsPathPrefix = "/2017-03-31/tags"
 
 // lambdaLayersPathPrefix is the path prefix for Lambda Layers endpoints.
 // The Lambda Layers API uses the 2018-10-31 date version.
 const lambdaLayersPathPrefix = "/2018-10-31/layers"
+
+// lambdaFindQueryParam and lambdaFindLayerVersion are GetLayerVersionByArn's
+// query-flag discriminator: it shares ListLayers' bare path, distinguished
+// only by ?find=LayerVersion (api_op_GetLayerVersionByArn.go, lambda@v1.101.2
+// serializers.go) -- gopherstack-l5ir.
+const (
+	lambdaFindQueryParam   = "find"
+	lambdaFindLayerVersion = "LayerVersion"
+)
 
 // lambdaCodeSigningPathPrefix is the path prefix for Lambda code signing config endpoints.
 const lambdaCodeSigningPathPrefix = "/2020-04-22/code-signing-configs"
@@ -120,9 +147,6 @@ func isDurableExecRootPath(path string) bool {
 // lambdaAccountSettingsPath is the exact path for the GetAccountSettings endpoint.
 const lambdaAccountSettingsPath = "/2016-08-19/account-settings"
 
-// lambdaLayersByArnPath is the path prefix for GetLayerVersionByArn (query-param based).
-const lambdaLayersByArnPath = "/2018-10-31/layers-by-arn"
-
 func isEmptyRest(rest string) bool { return rest == "" }
 
 func hasSuffixCode(rest string) bool { return strings.HasSuffix(rest, "/code") }
@@ -143,8 +167,13 @@ func hasSuffixEventInvokeConfig(rest string) bool {
 	return strings.HasSuffix(rest, "/event-invoke-config")
 }
 
+// hasSuffixEventInvokeConfigs matches ListFunctionEventInvokeConfigs' real
+// path suffix (api_op_ListFunctionEventInvokeConfigs.go, lambda@v1.101.2
+// serializers.go: ".../event-invoke-config/list", singular + "/list" --
+// NOT the plural "/event-invoke-configs" this used to check, which no real
+// client ever sends) -- gopherstack-l5ir.
 func hasSuffixEventInvokeConfigs(rest string) bool {
-	return strings.HasSuffix(rest, "/event-invoke-configs")
+	return strings.HasSuffix(rest, "/event-invoke-config/list")
 }
 
 func hasSuffixCodeSigningConfig(rest string) bool {
@@ -184,7 +213,11 @@ func extractNameAndPolicyStatement(rest string) (string, string) {
 
 func hasSuffixVersions(rest string) bool { return strings.HasSuffix(rest, "/versions") }
 
-func hasSuffixInvokeAsync(rest string) bool { return strings.HasSuffix(rest, "/invoke-async/") }
+// hasSuffixInvokeAsync matches InvokeAsync's real path suffix
+// (api_op_InvokeAsync.go, lambda@v1.101.2 serializers.go:
+// ".../invoke-async", no trailing slash -- real clients never send one)
+// -- gopherstack-l5ir.
+func hasSuffixInvokeAsync(rest string) bool { return strings.HasSuffix(rest, "/invoke-async") }
 
 func hasSuffixResponseStream(rest string) bool {
 	return strings.HasSuffix(rest, "/response-streaming-invocations")
@@ -207,7 +240,7 @@ var lambdaPathPrefixes = []string{
 	lambda2020PathPrefix,
 	lambda2021PathPrefix,
 	lambda2021RuntimeMgmtPathPrefix,
-	lambda2023ScalingPathPrefix,
+	lambda2025ScalingPathPrefix,
 	lambda2024RecursionPathPrefix,
 	lambda2014AsyncPathPrefix,
 	lambda2021StreamingPathPrefix,
@@ -223,7 +256,7 @@ var lambdaPathPrefixes = []string{
 
 // isLambdaPath returns true when the given path belongs to the Lambda service.
 func isLambdaPath(path string) bool {
-	if path == lambdaAccountSettingsPath || path == lambdaLayersByArnPath {
+	if path == lambdaAccountSettingsPath {
 		return true
 	}
 

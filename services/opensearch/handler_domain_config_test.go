@@ -22,7 +22,7 @@ func TestOpenSearchHandler_UpdateDomainConfig(t *testing.T) {
 	resp.Body.Close()
 
 	// Update config.
-	upResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/domain/config-domain/config",
+	upResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain/config-domain/config",
 		map[string]any{"EngineVersion": "OpenSearch_2.9"})
 	defer upResp.Body.Close()
 
@@ -50,7 +50,7 @@ func Test_UpdateDomainConfig_DryRun(t *testing.T) {
 		map[string]any{"DomainName": "dryrun-domain", "EngineVersion": "OpenSearch_2.7"})
 	resp.Body.Close()
 
-	dryResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/domain/dryrun-domain/config",
+	dryResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain/dryrun-domain/config",
 		map[string]any{"EngineVersion": "OpenSearch_2.9", "DryRun": true})
 	defer dryResp.Body.Close()
 	assert.Equal(t, http.StatusOK, dryResp.StatusCode)
@@ -84,7 +84,7 @@ func TestOpenSearchHandler_UpdateDomainConfig_NotFound(t *testing.T) {
 
 	h := newTestHandler()
 
-	resp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/domain/nonexistent/config",
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain/nonexistent/config",
 		map[string]any{"EngineVersion": "OpenSearch_2.9"})
 	defer resp.Body.Close()
 
@@ -439,7 +439,7 @@ func TestUpdateDomainConfig_AllOptions(t *testing.T) {
 			createResp.Body.Close()
 			require.Equal(t, http.StatusOK, createResp.StatusCode)
 
-			upResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/domain/upd-test/config",
+			upResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain/upd-test/config",
 				tt.updateBody)
 			defer upResp.Body.Close()
 			require.Equal(t, http.StatusOK, upResp.StatusCode)
@@ -589,7 +589,7 @@ func TestUpdateDomainConfig_MutatesState(t *testing.T) {
 			cr.Body.Close()
 			require.Equal(t, http.StatusOK, cr.StatusCode)
 
-			upResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/domain/mut-test/config",
+			upResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain/mut-test/config",
 				tt.updateBody)
 			upResp.Body.Close()
 			require.Equal(t, http.StatusOK, upResp.StatusCode)
@@ -645,7 +645,7 @@ func TestCancelDomainConfigChange_ReturnsLastChangeID(t *testing.T) {
 				resp = doRequest(
 					t,
 					h,
-					http.MethodPut,
+					http.MethodPost,
 					"/2021-01-01/opensearch/domain/"+tt.domainName+"/config",
 					map[string]any{
 						"AccessPolicies": `{"Version":"2012-10-17"}`,

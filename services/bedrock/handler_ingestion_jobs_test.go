@@ -28,7 +28,7 @@ func TestAgentsHandler_IngestionJobLifecycle(t *testing.T) {
 
 	// Start ingestion job.
 	rec := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "test ingestion"},
 	)
@@ -92,7 +92,7 @@ func TestAgentsHandler_StartIngestionJob_InvalidJSON(t *testing.T) {
 
 	e := echo.New()
 	req := httptest.NewRequest(
-		http.MethodPost,
+		http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kb.KnowledgeBaseID, ds.DataSourceID),
 		bytes.NewReader([]byte("bad json")),
 	)
@@ -112,7 +112,7 @@ func TestStopIngestionJob(t *testing.T) {
 
 	// Start ingestion job
 	startRec := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{},
 	)
@@ -143,7 +143,7 @@ func TestAccuracy_IngestionJob_StatusTransitions(t *testing.T) {
 	kbID, dsID := createKBAndDS(t, h)
 
 	rec := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "test ingestion"},
 	)
@@ -179,7 +179,7 @@ func TestAccuracy_IngestionJob_ListContainsStartedJob(t *testing.T) {
 
 	// AWS only allows one running job per data source; stop the first before starting the second.
 	rec1 := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "first job"},
 	)
@@ -194,7 +194,7 @@ func TestAccuracy_IngestionJob_ListContainsStartedJob(t *testing.T) {
 	require.Equal(t, http.StatusOK, stopRec.Code)
 
 	doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": "second job"},
 	)
@@ -218,7 +218,7 @@ func TestAccuracy_IngestionJob_DescriptionPreserved(t *testing.T) {
 	const desc = "my important ingestion job"
 
 	rec := doAgentRequest(
-		t, h, http.MethodPost,
+		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{"description": desc},
 	)
@@ -247,7 +247,7 @@ func TestBatch2AgentOps_StopIngestionJob_AlreadyStopped_Rejected(t *testing.T) {
 			h, _ := newTestAgentsHandler(t)
 			kbID, dsID := createKBAndDS(t, h)
 
-			startRec := doAgentRequest(t, h, http.MethodPost,
+			startRec := doAgentRequest(t, h, http.MethodPut,
 				fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 				map[string]any{})
 			require.Equal(t, http.StatusAccepted, startRec.Code)
@@ -281,7 +281,7 @@ func TestBatch2AgentOps_StopIngestionJob_Complete_Rejected(t *testing.T) {
 	h, _ := newTestAgentsHandler(t)
 	kbID, dsID := createKBAndDS(t, h)
 
-	startRec := doAgentRequest(t, h, http.MethodPost,
+	startRec := doAgentRequest(t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{})
 	require.Equal(t, http.StatusAccepted, startRec.Code)
@@ -329,7 +329,7 @@ func TestBatch2AgentOps_StopIngestionJob_Starting_Succeeds(t *testing.T) {
 	h, _ := newTestAgentsHandler(t)
 	kbID, dsID := createKBAndDS(t, h)
 
-	startRec := doAgentRequest(t, h, http.MethodPost,
+	startRec := doAgentRequest(t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
 		map[string]any{})
 	require.Equal(t, http.StatusAccepted, startRec.Code)
@@ -369,11 +369,11 @@ func TestBatch2AgentOps_StartIngestionJob_WhileRunning_Rejected(t *testing.T) {
 			ingestionPath := fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID)
 
 			// First start: must succeed.
-			rec1 := doAgentRequest(t, h, http.MethodPost, ingestionPath, map[string]any{})
+			rec1 := doAgentRequest(t, h, http.MethodPut, ingestionPath, map[string]any{})
 			assert.Equal(t, http.StatusAccepted, rec1.Code, "first ingestion job start should succeed")
 
 			// Second start while first is still STARTING: must fail.
-			rec2 := doAgentRequest(t, h, http.MethodPost, ingestionPath, map[string]any{})
+			rec2 := doAgentRequest(t, h, http.MethodPut, ingestionPath, map[string]any{})
 			assert.Equal(t, http.StatusConflict, rec2.Code,
 				"starting ingestion job while one is already running should return 409 ConflictException")
 
@@ -393,7 +393,7 @@ func TestBatch2AgentOps_StartIngestionJob_AfterStop_Succeeds(t *testing.T) {
 	ingestionPath := fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID)
 
 	// Start a job.
-	rec1 := doAgentRequest(t, h, http.MethodPost, ingestionPath, map[string]any{})
+	rec1 := doAgentRequest(t, h, http.MethodPut, ingestionPath, map[string]any{})
 	require.Equal(t, http.StatusAccepted, rec1.Code)
 
 	var started map[string]any
@@ -406,7 +406,7 @@ func TestBatch2AgentOps_StartIngestionJob_AfterStop_Succeeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, stopRec.Code)
 
 	// Now start a new job — must succeed (previous is stopped, not running).
-	rec2 := doAgentRequest(t, h, http.MethodPost, ingestionPath, map[string]any{})
+	rec2 := doAgentRequest(t, h, http.MethodPut, ingestionPath, map[string]any{})
 	assert.Equal(t, http.StatusAccepted, rec2.Code,
 		"starting ingestion job after previous is stopped should succeed")
 }

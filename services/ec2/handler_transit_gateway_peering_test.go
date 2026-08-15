@@ -30,13 +30,16 @@ func TestTGWPeeringAttachment(t *testing.T) { //nolint:paralleltest // existing 
 	})
 
 	t.Run("delete attachment", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteTransitGatewayPeeringAttachment(attID))
+		deleted, err := b.DeleteTransitGatewayPeeringAttachment(attID)
+		require.NoError(t, err)
+		assert.Equal(t, attID, deleted.TransitGatewayAttachmentID)
 		atts := b.DescribeTransitGatewayPeeringAttachments(nil)
 		assert.Empty(t, atts)
 	})
 
 	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.Error(t, b.DeleteTransitGatewayPeeringAttachment("tgw-attach-nonexistent"))
+		_, err := b.DeleteTransitGatewayPeeringAttachment("tgw-attach-nonexistent")
+		require.Error(t, err)
 	})
 }
 
@@ -77,13 +80,17 @@ func TestTGWConnect(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 
 	t.Run("delete connect peer", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteTransitGatewayConnectPeer(peerID))
+		deleted, err := b.DeleteTransitGatewayConnectPeer(peerID)
+		require.NoError(t, err)
+		assert.Equal(t, peerID, deleted.TransitGatewayConnectPeerID)
 		peers := b.DescribeTransitGatewayConnectPeers(nil)
 		assert.Empty(t, peers)
 	})
 
 	t.Run("delete connect", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteTransitGatewayConnect(connectID))
+		deleted, err := b.DeleteTransitGatewayConnect(connectID)
+		require.NoError(t, err)
+		assert.Equal(t, connectID, deleted.TransitGatewayAttachmentID)
 		conns := b.DescribeTransitGatewayConnects(nil)
 		assert.Empty(t, conns)
 	})
@@ -119,14 +126,17 @@ func TestTGWPrefixListReference(t *testing.T) { //nolint:paralleltest // existin
 	})
 
 	t.Run("delete reference", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DeleteTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123"))
+		deleted, err := b.DeleteTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123")
+		require.NoError(t, err)
+		assert.Equal(t, "pl-abc123", deleted.PrefixListID)
 		refs, err := b.GetTransitGatewayPrefixListReferences("tgw-rtb-111")
 		require.NoError(t, err)
 		assert.Empty(t, refs)
 	})
 
 	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.Error(t, b.DeleteTransitGatewayPrefixListReference("tgw-rtb-111", "pl-nonexistent"))
+		_, err := b.DeleteTransitGatewayPrefixListReference("tgw-rtb-111", "pl-nonexistent")
+		require.Error(t, err)
 	})
 }
 
@@ -149,7 +159,8 @@ func TestTGW_PeeringAttachmentCRUD(t *testing.T) {
 	require.Len(t, atts, 1)
 	assert.Equal(t, att.TransitGatewayAttachmentID, atts[0].TransitGatewayAttachmentID)
 
-	require.NoError(t, b.DeleteTransitGatewayPeeringAttachment(att.TransitGatewayAttachmentID))
+	_, err = b.DeleteTransitGatewayPeeringAttachment(att.TransitGatewayAttachmentID)
+	require.NoError(t, err)
 	atts2 := b.DescribeTransitGatewayPeeringAttachments(nil)
 	assert.Empty(t, atts2)
 }
@@ -197,8 +208,10 @@ func TestTGW_ConnectCRUD(t *testing.T) {
 	require.Len(t, peers, 1)
 	assert.Equal(t, "1.2.3.4", peers[0].PeerAddress)
 
-	require.NoError(t, b.DeleteTransitGatewayConnectPeer(peer.TransitGatewayConnectPeerID))
-	require.NoError(t, b.DeleteTransitGatewayConnect(conn.TransitGatewayAttachmentID))
+	_, err = b.DeleteTransitGatewayConnectPeer(peer.TransitGatewayConnectPeerID)
+	require.NoError(t, err)
+	_, err = b.DeleteTransitGatewayConnect(conn.TransitGatewayAttachmentID)
+	require.NoError(t, err)
 }
 
 // TestTGW_PrefixListRefCRUD verifies TGW prefix list reference CRUD.
@@ -218,7 +231,8 @@ func TestTGW_PrefixListRefCRUD(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, refs, 1)
 
-	require.NoError(t, b.DeleteTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123"))
+	_, err = b.DeleteTransitGatewayPrefixListReference("tgw-rtb-111", "pl-abc123")
+	require.NoError(t, err)
 	refs2, err := b.GetTransitGatewayPrefixListReferences("tgw-rtb-111")
 	require.NoError(t, err)
 	assert.Empty(t, refs2)

@@ -288,6 +288,23 @@ func (b *InMemoryBackend) ListExperimentDefinitions(
 	return page, token
 }
 
+// experimentDefinitionToSummary builds the types.ExperimentDefinitionSummary
+// shape -- see its doc comment in models.go.
+func experimentDefinitionToSummary(d ExperimentDefinition) ExperimentDefinitionSummary {
+	return ExperimentDefinitionSummary{
+		CreatedAt:              d.CreatedAt,
+		UpdatedAt:              d.UpdatedAt,
+		ApplicationID:          d.ApplicationID,
+		ID:                     d.ID,
+		Name:                   d.Name,
+		ConfigurationProfileID: d.ConfigurationProfileID,
+		EnvironmentID:          d.EnvironmentID,
+		FlagKey:                d.FlagKey,
+		Hypothesis:             d.Hypothesis,
+		Status:                 d.Status,
+	}
+}
+
 // buildExperimentDefinitionFilterLocked builds a predicate matching
 // ListExperimentDefinitions's optional identifier/status filters. Returns
 // ok=false when an identifier filter was supplied but could not be

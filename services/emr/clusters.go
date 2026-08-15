@@ -234,7 +234,7 @@ func (b *InMemoryBackend) buildNewCluster(region, id, releaseLabel string, param
 		groups = b.buildInstanceGroups(params.Instances.InstanceGroups)
 	}
 
-	steps := b.buildInitialSteps(params.Steps)
+	steps := b.buildInitialSteps(params.Steps, params.StepExecutionRoleArn)
 
 	// Clusters are created directly in WAITING state (no simulated
 	// STARTING/BOOTSTRAPPING/RUNNING transition), so the cluster is
@@ -550,7 +550,7 @@ func terminateSingle(cluster *Cluster, id string) error {
 		"Message": "Terminated by user request",
 	}
 	cluster.Status.Timeline[timelineKeyEnd] = awstime.Epoch(now)
-	cluster.TerminatedAt = now
+	cluster.terminatedAt = now
 
 	// A Spark Connect session cannot outlive the cluster it runs on -- see
 	// terminateClusterSessions (sessions.go) for the full cascade rationale.

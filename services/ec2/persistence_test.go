@@ -152,10 +152,10 @@ func TestPersistenceNewTypes(t *testing.T) {
 	b := newTestBackend()
 
 	// Add spot requests and placement groups
-	req, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
+	req, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.01", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreatePlacementGroup("persist-pg", "cluster")
+	_, err = b.CreatePlacementGroup("persist-pg", "cluster", nil)
 	require.NoError(t, err)
 
 	eni, err := b.CreateNetworkInterface("subnet-default", "persist-eni")

@@ -7,11 +7,14 @@ type DeleteResourcePolicyOutput struct{}
 type DeleteResourcePolicyInput struct {
 	ResourceARN string `json:"ResourceArn"`
 	PolicyID    string `json:"PolicyId"`
+	PolicyHash  string `json:"PolicyHash"`
 }
 
 // GetResourcePoliciesInput is the request payload.
 type GetResourcePoliciesInput struct {
 	ResourceARN string `json:"ResourceArn"`
+	NextToken   string `json:"NextToken"`
+	MaxResults  int32  `json:"MaxResults"`
 }
 
 // GetResourcePoliciesOutput is the response payload.
@@ -21,6 +24,8 @@ type GetResourcePoliciesOutput struct{}
 type PutResourcePolicyInput struct {
 	ResourceARN string `json:"ResourceArn"`
 	Policy      string `json:"Policy"`
+	PolicyID    string `json:"PolicyId"`
+	PolicyHash  string `json:"PolicyHash"`
 }
 
 // PutResourcePolicyOutput is the response payload.
@@ -35,7 +40,8 @@ type ResourcePolicy struct {
 
 // GetResourcePoliciesOutputFull extends the empty stub output.
 type GetResourcePoliciesOutputFull struct {
-	Policies []ResourcePolicy `json:"Policies"`
+	NextToken string           `json:"NextToken,omitempty"`
+	Policies  []ResourcePolicy `json:"Policies"`
 }
 
 // PutResourcePolicyOutputFull extends the empty stub.

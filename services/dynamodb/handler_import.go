@@ -21,20 +21,62 @@ type describeImportInput struct {
 	ImportArn string `json:"ImportArn"`
 }
 
-type importTableDescriptionWire struct {
-	ImportArn          string `json:"ImportArn,omitempty"`
-	ImportStatus       string `json:"ImportStatus,omitempty"`
-	TableArn           string `json:"TableArn,omitempty"`
-	InputFormat        string `json:"InputFormat,omitempty"`
-	FailureCode        string `json:"FailureCode,omitempty"`
-	FailureMessage     string `json:"FailureMessage,omitempty"`
-	ImportedItemCount  int64  `json:"ImportedItemCount,omitempty"`
-	ProcessedItemCount int64  `json:"ProcessedItemCount,omitempty"`
-	ProcessedSizeBytes int64  `json:"ProcessedSizeBytes,omitempty"`
-	ErrorCount         int64  `json:"ErrorCount,omitempty"`
+type importTableS3BucketSourceWire struct {
+	S3Bucket      string `json:"S3Bucket"`
+	S3KeyPrefix   string `json:"S3KeyPrefix,omitempty"`
+	S3BucketOwner string `json:"S3BucketOwner,omitempty"`
 }
 
-// importDescriptionWireFromSDK maps the SDK import description to the wire shape.
+type importTableCsvOptionsWire struct {
+	Delimiter  string   `json:"Delimiter,omitempty"`
+	HeaderList []string `json:"HeaderList,omitempty"`
+}
+
+type importTableInputFormatOptionsWire struct {
+	Csv *importTableCsvOptionsWire `json:"Csv,omitempty"`
+}
+
+// importTableDescriptionWire is a superset of the two real AWS wire shapes it
+// serves: the full ImportTableDescription (Describe/ImportTable) and the
+// narrower ImportSummary (ListImports, which has no TableId, ClientToken,
+// item counts, or failure fields -- see importSummaryWireFromSDK, which
+// deliberately leaves those unset for that path).
+type importTableDescriptionWire struct {
+	InputFormatOptions    *importTableInputFormatOptionsWire `json:"InputFormatOptions,omitempty"`
+	S3BucketSource        *importTableS3BucketSourceWire     `json:"S3BucketSource,omitempty"`
+	ImportArn             string                             `json:"ImportArn,omitempty"`
+	ImportStatus          string                             `json:"ImportStatus,omitempty"`
+	TableArn              string                             `json:"TableArn,omitempty"`
+	TableID               string                             `json:"TableId,omitempty"`
+	ClientToken           string                             `json:"ClientToken,omitempty"`
+	CloudWatchLogGroupArn string                             `json:"CloudWatchLogGroupArn,omitempty"`
+	InputFormat           string                             `json:"InputFormat,omitempty"`
+	FailureCode           string                             `json:"FailureCode,omitempty"`
+	FailureMessage        string                             `json:"FailureMessage,omitempty"`
+	StartTime             float64                            `json:"StartTime,omitempty"`
+	EndTime               float64                            `json:"EndTime,omitempty"`
+	ImportedItemCount     int64                              `json:"ImportedItemCount,omitempty"`
+	ProcessedItemCount    int64                              `json:"ProcessedItemCount,omitempty"`
+	ProcessedSizeBytes    int64                              `json:"ProcessedSizeBytes,omitempty"`
+	ErrorCount            int64                              `json:"ErrorCount,omitempty"`
+}
+
+// importS3BucketSourceWireFromSDK converts the SDK S3BucketSource to the wire
+// shape, or nil when absent (matching an omitted response member).
+func importS3BucketSourceWireFromSDK(s *types.S3BucketSource) *importTableS3BucketSourceWire {
+	if s == nil {
+		return nil
+	}
+
+	return &importTableS3BucketSourceWire{
+		S3Bucket:      ptrconv.String(s.S3Bucket),
+		S3KeyPrefix:   ptrconv.String(s.S3KeyPrefix),
+		S3BucketOwner: ptrconv.String(s.S3BucketOwner),
+	}
+}
+
+// importDescriptionWireFromSDK maps the full SDK ImportTableDescription
+// (Describe/ImportTable) to the wire shape.
 func importDescriptionWireFromSDK(d *types.ImportTableDescription) importTableDescriptionWire {
 	w := importTableDescriptionWire{}
 	if d == nil {
@@ -43,14 +85,54 @@ func importDescriptionWireFromSDK(d *types.ImportTableDescription) importTableDe
 	w.ImportArn = ptrconv.String(d.ImportArn)
 	w.ImportStatus = string(d.ImportStatus)
 	w.TableArn = ptrconv.String(d.TableArn)
+	w.TableID = ptrconv.String(d.TableId)
+	w.ClientToken = ptrconv.String(d.ClientToken)
+	w.CloudWatchLogGroupArn = ptrconv.String(d.CloudWatchLogGroupArn)
 	w.InputFormat = string(d.InputFormat)
 	w.FailureCode = ptrconv.String(d.FailureCode)
 	w.FailureMessage = ptrconv.String(d.FailureMessage)
 	w.ImportedItemCount = d.ImportedItemCount
 	w.ProcessedItemCount = d.ProcessedItemCount
 	w.ErrorCount = d.ErrorCount
+	w.S3BucketSource = importS3BucketSourceWireFromSDK(d.S3BucketSource)
 	if d.ProcessedSizeBytes != nil {
 		w.ProcessedSizeBytes = *d.ProcessedSizeBytes
+	}
+	if d.StartTime != nil {
+		w.StartTime = float64(d.StartTime.Unix())
+	}
+	if d.EndTime != nil {
+		w.EndTime = float64(d.EndTime.Unix())
+	}
+	if d.InputFormatOptions != nil && d.InputFormatOptions.Csv != nil {
+		w.InputFormatOptions = &importTableInputFormatOptionsWire{
+			Csv: &importTableCsvOptionsWire{
+				Delimiter:  ptrconv.String(d.InputFormatOptions.Csv.Delimiter),
+				HeaderList: d.InputFormatOptions.Csv.HeaderList,
+			},
+		}
+	}
+
+	return w
+}
+
+// importSummaryWireFromSDK maps the narrower SDK ImportSummary (ListImports)
+// to the wire shape. Deliberately does not set TableId, ClientToken, item
+// counts, or failure fields -- ImportSummary carries none of them.
+func importSummaryWireFromSDK(s types.ImportSummary) importTableDescriptionWire {
+	w := importTableDescriptionWire{
+		ImportArn:    ptrconv.String(s.ImportArn),
+		ImportStatus: string(s.ImportStatus),
+		TableArn:     ptrconv.String(s.TableArn),
+		InputFormat:  string(s.InputFormat),
+	}
+	w.S3BucketSource = importS3BucketSourceWireFromSDK(s.S3BucketSource)
+	w.CloudWatchLogGroupArn = ptrconv.String(s.CloudWatchLogGroupArn)
+	if s.StartTime != nil {
+		w.StartTime = float64(s.StartTime.Unix())
+	}
+	if s.EndTime != nil {
+		w.EndTime = float64(s.EndTime.Unix())
 	}
 
 	return w
@@ -80,23 +162,9 @@ func (h *DynamoDBHandler) handleDescribeImport(ctx context.Context, body []byte)
 
 // --- ImportTable handler ---
 
-type importTableS3BucketSourceWire struct {
-	S3Bucket      string `json:"S3Bucket"`
-	S3KeyPrefix   string `json:"S3KeyPrefix,omitempty"`
-	S3BucketOwner string `json:"S3BucketOwner,omitempty"`
-}
-
-type importTableCsvOptionsWire struct {
-	Delimiter  string   `json:"Delimiter,omitempty"`
-	HeaderList []string `json:"HeaderList,omitempty"`
-}
-
-type importTableInputFormatOptionsWire struct {
-	Csv *importTableCsvOptionsWire `json:"Csv,omitempty"`
-}
-
 type importTableInput struct {
 	InputFormatOptions      *importTableInputFormatOptionsWire `json:"InputFormatOptions,omitempty"`
+	ClientToken             string                             `json:"ClientToken,omitempty"`
 	S3BucketSource          importTableS3BucketSourceWire      `json:"S3BucketSource"`
 	InputFormat             string                             `json:"InputFormat,omitempty"`
 	InputCompressionType    string                             `json:"InputCompressionType,omitempty"`
@@ -135,6 +203,10 @@ func (h *DynamoDBHandler) handleImportTable(ctx context.Context, body []byte) (a
 		},
 	}
 
+	if req.ClientToken != "" {
+		in.ClientToken = aws.String(req.ClientToken)
+	}
+
 	if req.InputFormatOptions != nil && req.InputFormatOptions.Csv != nil {
 		in.InputFormatOptions = &types.InputFormatOptions{
 			Csv: &types.CsvOptions{
@@ -164,7 +236,7 @@ type listImportsOutput struct {
 type listImportsInput struct {
 	TableArn  string `json:"TableArn,omitempty"`
 	NextToken string `json:"NextToken,omitempty"`
-	PageSize  int    `json:"PageSize,omitempty"`
+	PageSize  int32  `json:"PageSize,omitempty"`
 }
 
 func (h *DynamoDBHandler) handleListImports(ctx context.Context, body []byte) (any, error) {
@@ -173,65 +245,29 @@ func (h *DynamoDBHandler) handleListImports(ctx context.Context, body []byte) (a
 		return nil, err
 	}
 
-	region := h.regionFromHandlerContext(ctx)
-
-	db, ok := h.Backend.(*InMemoryDB)
-	if !ok {
-		return &listImportsOutput{ImportSummaryList: []importTableDescriptionWire{}}, nil
+	in := &sdkDDB.ListImportsInput{}
+	if req.TableArn != "" {
+		in.TableArn = &req.TableArn
 	}
-
-	all := db.listImportsStored()
-
-	// Filter by region and optionally by TableArn.
-	filtered := make([]storedImport, 0, len(all))
-	for _, imp := range all {
-		if db.regionFromARN(imp.ImportArn) != region {
-			continue
-		}
-		if req.TableArn != "" && imp.TableArn != req.TableArn {
-			continue
-		}
-		filtered = append(filtered, imp)
-	}
-
-	// Apply ExclusiveStart cursor (NextToken = last-seen import ARN).
-	start := 0
 	if req.NextToken != "" {
-		for i, imp := range filtered {
-			if imp.ImportArn == req.NextToken {
-				start = i + 1
-
-				break
-			}
-		}
+		in.NextToken = &req.NextToken
 	}
-	filtered = filtered[start:]
-
-	// Apply page size cap.
-	const defaultPageSize = 25
-
-	pageSize := defaultPageSize
 	if req.PageSize > 0 {
-		pageSize = req.PageSize
+		in.PageSize = &req.PageSize
 	}
 
-	var outNextToken string
-	if len(filtered) > pageSize {
-		outNextToken = filtered[pageSize-1].ImportArn
-		filtered = filtered[:pageSize]
+	out, err := h.Backend.ListImports(ctx, in)
+	if err != nil {
+		return nil, err
 	}
 
-	summaries := make([]importTableDescriptionWire, 0, len(filtered))
-	for _, imp := range filtered {
-		summaries = append(summaries, importTableDescriptionWire{
-			ImportArn:    imp.ImportArn,
-			ImportStatus: imp.ImportStatus,
-			TableArn:     imp.TableArn,
-		})
+	summaries := make([]importTableDescriptionWire, 0, len(out.ImportSummaryList))
+	for _, s := range out.ImportSummaryList {
+		summaries = append(summaries, importSummaryWireFromSDK(s))
 	}
 
 	return &listImportsOutput{
 		ImportSummaryList: summaries,
-		NextToken:         outNextToken,
+		NextToken:         ptrconv.String(out.NextToken),
 	}, nil
 }

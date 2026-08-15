@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -623,10 +624,36 @@ func (b *InMemoryBackend) DeleteAssociation(ctx context.Context, sourceArn, dest
 	return nil
 }
 
-// ListAssociations returns associations, optionally filtered by source/destination ARN or type.
+// Enum values for ListAssociations' SortBy (aws-sdk-go-v2/service/sagemaker
+// types.SortAssociationsBy).
+const (
+	sortAssociationsBySourceArn       = "SourceArn"
+	sortAssociationsByDestinationArn  = "DestinationArn"
+	sortAssociationsBySourceType      = "SourceType"
+	sortAssociationsByDestinationType = "DestinationType"
+	sortAssociationsByCreationTime    = "CreationTime"
+)
+
+// ListAssociationsParams bundles the filter/sort criteria for ListAssociations.
+type ListAssociationsParams struct {
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	SourceArn       string
+	DestinationArn  string
+	SourceType      string
+	DestinationType string
+	AssociationType string
+	SortBy          string
+	SortOrder       string
+	NextToken       string
+	MaxResults      int32
+}
+
+// ListAssociations returns associations, optionally filtered by source/destination
+// ARN, source/destination entity type, association type, and creation-time window,
+// sorted per params.SortBy/SortOrder (real default: CreationTime, Descending).
 func (b *InMemoryBackend) ListAssociations(
-	ctx context.Context,
-	sourceArn, destinationArn, associationType, nextToken string,
+	ctx context.Context, params ListAssociationsParams,
 ) ([]*Association, string) {
 	b.mu.RLock("ListAssociations")
 	defer b.mu.RUnlock()
@@ -634,26 +661,105 @@ func (b *InMemoryBackend) ListAssociations(
 	region := getRegion(ctx, b.region)
 	store := b.associationsStoreRO(region)
 
-	filtered := make(map[string]*Association, store.Len())
+	needsType := params.SourceType != "" || params.DestinationType != "" ||
+		params.SortBy == sortAssociationsBySourceType || params.SortBy == sortAssociationsByDestinationType
+
+	list := make([]*Association, 0, store.Len())
 
 	for _, a := range store.All() {
-		if sourceArn != "" && a.SourceArn != sourceArn {
+		if !associationMatchesFilters(a, params) {
 			continue
 		}
 
-		if destinationArn != "" && a.DestinationArn != destinationArn {
+		if needsType && !b.associationMatchesTypeFilters(region, a, params) {
 			continue
 		}
 
-		if associationType != "" && a.AssociationType != associationType {
-			continue
-		}
-
-		filtered[associationKey(a.SourceArn, a.DestinationArn)] = a
+		list = append(list, cloneAssociation(a))
 	}
 
-	return sagemakerListPagedMap(filtered, nextToken, cloneAssociation,
-		func(a, b *Association) bool { return a.AssociationArn < b.AssociationArn })
+	sortAssociations(list, region, b, params.SortBy, params.SortOrder)
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
+}
+
+// associationMatchesFilters reports whether a passes every ListAssociations
+// filter that doesn't require resolving the source/destination entity type
+// (SourceArn/DestinationArn/AssociationType/CreatedAfter/CreatedBefore).
+func associationMatchesFilters(a *Association, params ListAssociationsParams) bool {
+	if params.SourceArn != "" && a.SourceArn != params.SourceArn {
+		return false
+	}
+
+	if params.DestinationArn != "" && a.DestinationArn != params.DestinationArn {
+		return false
+	}
+
+	if params.AssociationType != "" && a.AssociationType != params.AssociationType {
+		return false
+	}
+
+	if params.CreatedAfter != nil && !a.CreationTime.After(*params.CreatedAfter) {
+		return false
+	}
+
+	if params.CreatedBefore != nil && !a.CreationTime.Before(*params.CreatedBefore) {
+		return false
+	}
+
+	return true
+}
+
+// associationMatchesTypeFilters reports whether a passes the SourceType/
+// DestinationType filters, resolving both entity types via lineageEntityLookup.
+func (b *InMemoryBackend) associationMatchesTypeFilters(
+	region string, a *Association, params ListAssociationsParams,
+) bool {
+	_, srcType, _, _ := b.lineageEntityLookup(region, a.SourceArn)
+	_, dstType, _, _ := b.lineageEntityLookup(region, a.DestinationArn)
+
+	if params.SourceType != "" && srcType != params.SourceType {
+		return false
+	}
+
+	if params.DestinationType != "" && dstType != params.DestinationType {
+		return false
+	}
+
+	return true
+}
+
+// sortAssociations sorts in place per sortBy (default CreationTime) and
+// sortOrder (default Descending, matching real AWS's ListAssociations default).
+func sortAssociations(list []*Association, region string, b *InMemoryBackend, sortBy, sortOrder string) {
+	desc := !strings.EqualFold(sortOrder, "Ascending")
+
+	sort.Slice(list, func(i, j int) bool {
+		var less bool
+
+		switch sortBy {
+		case sortAssociationsBySourceArn:
+			less = list[i].SourceArn < list[j].SourceArn
+		case sortAssociationsByDestinationArn:
+			less = list[i].DestinationArn < list[j].DestinationArn
+		case sortAssociationsBySourceType:
+			_, iType, _, _ := b.lineageEntityLookup(region, list[i].SourceArn)
+			_, jType, _, _ := b.lineageEntityLookup(region, list[j].SourceArn)
+			less = iType < jType
+		case sortAssociationsByDestinationType:
+			_, iType, _, _ := b.lineageEntityLookup(region, list[i].DestinationArn)
+			_, jType, _, _ := b.lineageEntityLookup(region, list[j].DestinationArn)
+			less = iType < jType
+		default:
+			less = list[i].CreationTime.Before(list[j].CreationTime)
+		}
+
+		if desc {
+			return !less
+		}
+
+		return less
+	})
 }
 
 // ---------------------------------------------------------------------------

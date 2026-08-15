@@ -48,6 +48,10 @@ func TestDescribeInboundIntegrations(t *testing.T) {
 			for i := range tc.createCount {
 				rec := doGlueRequest(t, h, "CreateIntegration", map[string]any{
 					"IntegrationName": "integ-" + string(rune('a'+i)),
+					"SourceArn":       "arn:aws:s3:::integ-source-" + string(rune('a'+i)),
+					"TargetArn": "arn:aws:redshift:us-east-1:123456789012:cluster/integ-target-" + string(
+						rune('a'+i),
+					),
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -56,10 +60,10 @@ func TestDescribeInboundIntegrations(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
-				Integrations []any `json:"Integrations"`
+				InboundIntegrations []any `json:"InboundIntegrations"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.GreaterOrEqual(t, len(out.Integrations), tc.wantMinCount)
+			assert.GreaterOrEqual(t, len(out.InboundIntegrations), tc.wantMinCount)
 		})
 	}
 }
@@ -179,21 +183,63 @@ func TestIntegration(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create
-	rec := doGlueRequest(t, h, "CreateIntegration", map[string]any{"IntegrationName": "my-integration"})
+	rec := doGlueRequest(t, h, "CreateIntegration", map[string]any{
+		"IntegrationName": "my-integration",
+		"SourceArn":       "arn:aws:s3:::my-source-bucket",
+		"TargetArn":       "arn:aws:redshift:us-east-1:123456789012:cluster/my-target",
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	assert.Equal(t, "my-integration", createOut["IntegrationName"])
+	assert.Equal(t, "arn:aws:s3:::my-source-bucket", createOut["SourceArn"])
+	assert.Equal(t, "arn:aws:redshift:us-east-1:123456789012:cluster/my-target", createOut["TargetArn"])
+	assert.NotEmpty(t, createOut["IntegrationArn"])
+	assert.NotEmpty(t, createOut["Status"])
+	assert.NotZero(t, createOut["CreateTime"])
+	integrationARN, _ := createOut["IntegrationArn"].(string)
 
 	// DescribeIntegrations
 	rec = doGlueRequest(t, h, "DescribeIntegrations", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Integrations")
 
-	// ModifyIntegration
-	rec = doGlueRequest(t, h, "ModifyIntegration", map[string]any{"IntegrationIdentifier": "my-integration"})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	// DescribeInboundIntegrations, filtered by the real IntegrationArn.
+	rec = doGlueRequest(t, h, "DescribeInboundIntegrations", map[string]any{"IntegrationArn": integrationARN})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	// DeleteIntegration
+	var inboundOut struct {
+		InboundIntegrations []any `json:"InboundIntegrations"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inboundOut))
+	assert.Len(t, inboundOut.InboundIntegrations, 1, "IntegrationArn filter should match the created integration")
+
+	// ModifyIntegration, addressed by ARN like a real client would (see
+	// resolveIntegrationName).
+	rec = doGlueRequest(t, h, "ModifyIntegration", map[string]any{"IntegrationIdentifier": integrationARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var modifyOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &modifyOut))
+	assert.Equal(t, "my-integration", modifyOut["IntegrationName"])
+	assert.Equal(t, integrationARN, modifyOut["IntegrationArn"])
+	assert.Equal(t, "arn:aws:s3:::my-source-bucket", modifyOut["SourceArn"])
+	assert.Equal(t, "arn:aws:redshift:us-east-1:123456789012:cluster/my-target", modifyOut["TargetArn"])
+	assert.NotEmpty(t, modifyOut["Status"])
+	assert.NotZero(t, modifyOut["CreateTime"])
+
+	// DeleteIntegration, addressed by bare name.
 	rec = doGlueRequest(t, h, "DeleteIntegration", map[string]any{"IntegrationIdentifier": "my-integration"})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var deleteOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteOut))
+	assert.Equal(t, "my-integration", deleteOut["IntegrationName"])
+	assert.Equal(t, integrationARN, deleteOut["IntegrationArn"])
+	assert.Equal(t, "arn:aws:s3:::my-source-bucket", deleteOut["SourceArn"])
+	assert.Equal(t, "arn:aws:redshift:us-east-1:123456789012:cluster/my-target", deleteOut["TargetArn"])
+	assert.Equal(t, "DELETING", deleteOut["Status"])
 }
 
 // TestListIntegrationResourceProperties_ReturnsStoredEntries verifies the op
@@ -315,10 +361,32 @@ func TestIntegration_ErrorPropagation(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "create_ok",
-			action:   "CreateIntegration",
-			input:    map[string]any{"IntegrationName": "my-integration"},
+			name:   "create_ok",
+			action: "CreateIntegration",
+			input: map[string]any{
+				"IntegrationName": "my-integration",
+				"SourceArn":       "arn:aws:s3:::my-source",
+				"TargetArn":       "arn:aws:redshift:us-east-1:123456789012:cluster/my-target",
+			},
 			wantCode: http.StatusOK,
+		},
+		{
+			name:   "create_missing_source_arn",
+			action: "CreateIntegration",
+			input: map[string]any{
+				"IntegrationName": "no-source",
+				"TargetArn":       "arn:aws:redshift:us-east-1:123456789012:cluster/my-target",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "create_missing_target_arn",
+			action: "CreateIntegration",
+			input: map[string]any{
+				"IntegrationName": "no-target",
+				"SourceArn":       "arn:aws:s3:::my-source",
+			},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "delete_not_found",

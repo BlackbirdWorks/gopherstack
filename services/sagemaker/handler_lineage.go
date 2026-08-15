@@ -661,21 +661,43 @@ type associationSummary struct {
 	CreationTime    float64 `json:"CreationTime"`
 }
 
+// listAssociationsInput is the ListAssociations request shape (named, not
+// inline, so wire-field-audit tooling that only inspects named types can see
+// it — see gopherstack-oc9v).
+type listAssociationsInput struct {
+	CreatedAfter    *float64 `json:"CreatedAfter"`
+	CreatedBefore   *float64 `json:"CreatedBefore"`
+	SourceArn       string   `json:"SourceArn"`
+	DestinationArn  string   `json:"DestinationArn"`
+	SourceType      string   `json:"SourceType"`
+	DestinationType string   `json:"DestinationType"`
+	AssociationType string   `json:"AssociationType"`
+	SortBy          string   `json:"SortBy"`
+	SortOrder       string   `json:"SortOrder"`
+	NextToken       string   `json:"NextToken"`
+	MaxResults      int32    `json:"MaxResults"`
+}
+
 func (h *Handler) handleListAssociations(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		SourceArn       string `json:"SourceArn"`
-		DestinationArn  string `json:"DestinationArn"`
-		AssociationType string `json:"AssociationType"`
-		NextToken       string `json:"NextToken"`
-	}
+	var req listAssociationsInput
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	assocs, nextToken := h.Backend.ListAssociations(
-		ctx, req.SourceArn, req.DestinationArn, req.AssociationType, req.NextToken,
-	)
+	assocs, nextToken := h.Backend.ListAssociations(ctx, ListAssociationsParams{
+		SourceArn:       req.SourceArn,
+		DestinationArn:  req.DestinationArn,
+		SourceType:      req.SourceType,
+		DestinationType: req.DestinationType,
+		AssociationType: req.AssociationType,
+		SortBy:          req.SortBy,
+		SortOrder:       req.SortOrder,
+		NextToken:       req.NextToken,
+		CreatedAfter:    timeFromEpochSecondsPtr(req.CreatedAfter),
+		CreatedBefore:   timeFromEpochSecondsPtr(req.CreatedBefore),
+		MaxResults:      req.MaxResults,
+	})
 
 	return marshalSummaryPage("AssociationSummaries", nextToken, assocs, func(a *Association) associationSummary {
 		srcName, srcType, _, _ := h.Backend.LineageEntityInfo(ctx, a.SourceArn)

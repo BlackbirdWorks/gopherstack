@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -281,9 +284,11 @@ func TestUntagResource(t *testing.T) {
 	rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/tagging?Resource="+arn, []byte(tagBody))
 	require.Equal(t, http.StatusNoContent, rec2.Code)
 
-	// Untag using body with correct AWS format.
+	// Untag using body with correct AWS format. Real UntagResource is POST
+	// /2020-05-31/tagging?Operation=Untag (cloudfront@v1.67.4 serializers.go:
+	// awsRestxml_serializeOpUntagResource's SplitURI), never DELETE.
 	untagBody := `<TagKeys><Items><Key>env</Key></Items></TagKeys>`
-	rec3 := doXML(t, h, http.MethodDelete, "/2020-05-31/tagging?Resource="+arn, []byte(untagBody))
+	rec3 := doXML(t, h, http.MethodPost, "/2020-05-31/tagging?Operation=Untag&Resource="+arn, []byte(untagBody))
 	assert.Equal(t, http.StatusNoContent, rec3.Code)
 
 	// Verify env tag was removed.
@@ -291,4 +296,52 @@ func TestUntagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec4.Code)
 	assert.NotContains(t, rec4.Body.String(), "env")
 	assert.Contains(t, rec4.Body.String(), "owner")
+}
+
+// TestTagUntagResource_RealClient drives the real aws-sdk-go-v2 client to
+// prove TagResource and UntagResource are both reachable and distinguishable.
+// Real TagResource and UntagResource are both POST /2020-05-31/tagging,
+// disambiguated only by an "Operation=Tag"/"Operation=Untag" query value
+// (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOp{Tag,Untag}Resource's SplitURI); UntagResource is
+// never DELETE. gopherstack previously routed POST unconditionally to
+// TagResource and DELETE to UntagResource, so every real UntagResource call
+// (POST) landed on the TagResource handler instead, which then 400'd trying
+// to unmarshal an UntagResource body (root element TagKeys) as Tags
+// (gopherstack-o31x).
+func TestTagUntagResource_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	d, err := h.Backend.CreateDistribution("ref-tag-real-client", "tag-dist-real-client", true,
+		minimalDistConfig("ref-tag-real-client", "tag-dist-real-client", true))
+	require.NoError(t, err)
+
+	_, err = client.TagResource(t.Context(), &cfsdk.TagResourceInput{
+		Resource: aws.String(d.ARN),
+		Tags: &types.Tags{
+			Items: []types.Tag{
+				{Key: aws.String("env"), Value: aws.String("prod")},
+				{Key: aws.String("owner"), Value: aws.String("team")},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	tags, err := client.ListTagsForResource(t.Context(), &cfsdk.ListTagsForResourceInput{Resource: aws.String(d.ARN)})
+	require.NoError(t, err)
+	require.Len(t, tags.Tags.Items, 2)
+
+	_, err = client.UntagResource(t.Context(), &cfsdk.UntagResourceInput{
+		Resource: aws.String(d.ARN),
+		TagKeys:  &types.TagKeys{Items: []string{"env"}},
+	})
+	require.NoError(t, err)
+
+	tags, err = client.ListTagsForResource(t.Context(), &cfsdk.ListTagsForResourceInput{Resource: aws.String(d.ARN)})
+	require.NoError(t, err)
+	require.Len(t, tags.Tags.Items, 1)
+	assert.Equal(t, "owner", aws.ToString(tags.Tags.Items[0].Key))
 }

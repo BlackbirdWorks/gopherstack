@@ -331,7 +331,10 @@ func TestHandler_ResourceLimitExceededMapsTo400(t *testing.T) {
 
 	// Create 200 buses directly.
 	for i := range 200 {
-		_, err := b.CreateEventBus(context.Background(), fmt.Sprintf("bus-%d", i), "")
+		_, err := b.CreateEventBus(
+			context.Background(),
+			eventbridge.CreateEventBusParams{Name: fmt.Sprintf("bus-%d", i)},
+		)
 		require.NoError(t, err)
 	}
 
@@ -339,17 +342,6 @@ func TestHandler_ResourceLimitExceededMapsTo400(t *testing.T) {
 	rec := auditMakeRequest(t, h, e, "CreateEventBus", map[string]any{"Name": "bus-overflow"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ResourceLimitExceededException")
-}
-
-func TestHandler_GetSupportedOperationsIncludesPipes(t *testing.T) {
-	t.Parallel()
-	h := eventbridge.NewHandler(newBackend())
-	ops := h.GetSupportedOperations()
-
-	pipeOps := []string{"CreatePipe", "DeletePipe", "DescribePipe", "ListPipes", "UpdatePipe"}
-	for _, op := range pipeOps {
-		assert.Contains(t, ops, op, "GetSupportedOperations should include %s", op)
-	}
 }
 
 // TestHandler_GetSupportedOperationsExcludesPolicyOps verifies GetEventBusPolicy
@@ -385,7 +377,6 @@ func TestHandler_GetSupportedOperationsIncludesDeliveryTargetTypes(t *testing.T)
 		"CreateApiDestination", "DeleteApiDestination", "DescribeApiDestination",
 		"ListApiDestinations", "UpdateApiDestination",
 		"CreateEndpoint", "DeleteEndpoint", "DescribeEndpoint", "ListEndpoints", "UpdateEndpoint",
-		"CreatePipe", "DeletePipe", "DescribePipe", "ListPipes", "UpdatePipe",
 		"PutPermission", "RemovePermission",
 		"TagResource", "UntagResource", "ListTagsForResource",
 		"TestEventPattern", "ListRuleNamesByTarget",

@@ -75,21 +75,23 @@ type deleteTransitGatewayVpcAttachmentResponse struct {
 }
 
 type flowLogItem struct {
-	FlowLogID          string `xml:"flowLogId"`
-	ResourceID         string `xml:"resourceId"`
-	TrafficType        string `xml:"trafficType"`
-	LogDestinationType string `xml:"logDestinationType"`
-	LogDestination     string `xml:"logDestination"`
-	FlowLogStatus      string `xml:"flowLogStatus"`
-	CreationTime       string `xml:"creationTime"`
+	FlowLogID          string          `xml:"flowLogId"`
+	ResourceID         string          `xml:"resourceId"`
+	TrafficType        string          `xml:"trafficType"`
+	LogDestinationType string          `xml:"logDestinationType"`
+	LogDestination     string          `xml:"logDestination"`
+	FlowLogStatus      string          `xml:"flowLogStatus"`
+	CreationTime       string          `xml:"creationTime"`
+	TagSet             []simpleTagItem `xml:"tagSet>item"`
 }
 
 type createFlowLogsResponse struct {
 	XMLName    xml.Name `xml:"CreateFlowLogsResponse"`
 	RequestID  string   `xml:"requestId"`
-	FlowLogSet struct {
-		Items []flowLogItem `xml:"item"`
-	} `xml:"flowLogSet"`
+	FlowLogIDs struct {
+		Items []string `xml:"item"`
+	} `xml:"flowLogIdSet"`
+	Unsuccessful []unsuccessfulItemXML `xml:"unsuccessful>item"`
 }
 
 type describeFlowLogsResponse struct {
@@ -101,9 +103,9 @@ type describeFlowLogsResponse struct {
 }
 
 type deleteFlowLogsResponse struct {
-	XMLName   xml.Name `xml:"DeleteFlowLogsResponse"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName      xml.Name              `xml:"DeleteFlowLogsResponse"`
+	RequestID    string                `xml:"requestId"`
+	Unsuccessful []unsuccessfulItemXML `xml:"unsuccessful>item"`
 }
 
 type dhcpConfigurationItem struct {
@@ -161,6 +163,7 @@ type launchTemplateVersionItem struct {
 	} `xml:"launchTemplateData"`
 	LaunchTemplateID   string `xml:"launchTemplateId"`
 	LaunchTemplateName string `xml:"launchTemplateName"`
+	CreatedBy          string `xml:"createdBy"`
 	CreateTime         string `xml:"createTime"`
 	VersionNumber      int64  `xml:"versionNumber"`
 	DefaultVersion     bool   `xml:"defaultVersion"`
@@ -173,8 +176,9 @@ type createLaunchTemplateVersionResponse struct {
 }
 
 type deletedLaunchTemplateVersionItem struct {
-	LaunchTemplateID string `xml:"launchTemplateId"`
-	VersionNumber    int64  `xml:"versionNumber"`
+	LaunchTemplateID   string `xml:"launchTemplateId"`
+	LaunchTemplateName string `xml:"launchTemplateName"`
+	VersionNumber      int64  `xml:"versionNumber"`
 }
 
 type deleteLaunchTemplateVersionsResponse struct {
@@ -182,7 +186,10 @@ type deleteLaunchTemplateVersionsResponse struct {
 	RequestID                                 string   `xml:"requestId"`
 	SuccessfullyDeletedLaunchTemplateVersions struct {
 		Items []deletedLaunchTemplateVersionItem `xml:"item"`
-	} `xml:"successfullyDeletedLaunchTemplateVersions"`
+	} `xml:"successfullyDeletedLaunchTemplateVersionSet"`
+	UnsuccessfullyDeletedLaunchTemplateVersions struct {
+		Items []struct{} `xml:"item"`
+	} `xml:"unsuccessfullyDeletedLaunchTemplateVersionSet"`
 }
 
 type getLaunchTemplateDataResponse struct {
@@ -196,14 +203,20 @@ type getLaunchTemplateDataResponse struct {
 
 // ---- Handler implementations ----
 
-func tgwVpcAttachmentToItem(att *TransitGatewayVpcAttachment) tgwVpcAttachmentItem {
-	return tgwVpcAttachmentItem{
+func tgwVpcAttachmentToItem(att *TransitGatewayVpcAttachment, tags map[string]string) tgwVpcAttachmentItem {
+	item := tgwVpcAttachmentItem{
 		TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
 		TransitGatewayID:           att.TransitGatewayID,
 		VpcID:                      att.VpcID,
 		State:                      att.State,
 		SubnetIDs:                  att.SubnetIDs,
+		TagSet:                     tagItemsFromMap(tags),
 	}
+	if !att.CreationTime.IsZero() {
+		item.CreationTime = att.CreationTime.Format(time.RFC3339)
+	}
+
+	return item
 }
 
 func (h *Handler) handleCreateTransitGatewayVpcAttachment(
@@ -222,7 +235,7 @@ func (h *Handler) handleCreateTransitGatewayVpcAttachment(
 
 	return &createTransitGatewayVpcAttachmentResponse{
 		RequestID:  reqID,
-		Attachment: tgwVpcAttachmentToItem(att),
+		Attachment: tgwVpcAttachmentToItem(att, nil),
 	}, nil
 }
 
@@ -236,7 +249,10 @@ func (h *Handler) handleDescribeTransitGatewayVpcAttachments(
 	resp := &describeTransitGatewayVpcAttachmentsResponse{RequestID: reqID}
 
 	for _, att := range atts {
-		resp.AttachmentSet.Items = append(resp.AttachmentSet.Items, tgwVpcAttachmentToItem(att))
+		resp.AttachmentSet.Items = append(
+			resp.AttachmentSet.Items,
+			tgwVpcAttachmentToItem(att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID)),
+		)
 	}
 
 	return resp, nil
@@ -260,7 +276,7 @@ func (h *Handler) handleDeleteTransitGatewayVpcAttachment(
 	}, nil
 }
 
-func flowLogToItem(fl *FlowLog) flowLogItem {
+func flowLogToItem(fl *FlowLog, tags map[string]string) flowLogItem {
 	return flowLogItem{
 		FlowLogID:          fl.FlowLogID,
 		ResourceID:         fl.ResourceID,
@@ -269,16 +285,19 @@ func flowLogToItem(fl *FlowLog) flowLogItem {
 		LogDestination:     fl.LogDestination,
 		FlowLogStatus:      fl.FlowLogStatus,
 		CreationTime:       fl.CreationTime.Format(time.RFC3339),
+		TagSet:             tagItemsFromMap(tags),
 	}
 }
 
 func (h *Handler) handleCreateFlowLogs(vals url.Values, reqID string) (any, error) {
 	resourceIDs := parseMemberList(vals, "ResourceId")
+	tags := parseTagSpecification(vals, "vpc-flow-log")
 	logs, err := h.Backend.CreateFlowLogs(
 		resourceIDs,
 		vals.Get("TrafficType"),
 		vals.Get("LogDestinationType"),
 		vals.Get("LogDestination"),
+		tags,
 	)
 	if err != nil {
 		return nil, err
@@ -287,7 +306,7 @@ func (h *Handler) handleCreateFlowLogs(vals url.Values, reqID string) (any, erro
 	resp := &createFlowLogsResponse{RequestID: reqID}
 
 	for _, fl := range logs {
-		resp.FlowLogSet.Items = append(resp.FlowLogSet.Items, flowLogToItem(fl))
+		resp.FlowLogIDs.Items = append(resp.FlowLogIDs.Items, fl.FlowLogID)
 	}
 
 	return resp, nil
@@ -300,7 +319,10 @@ func (h *Handler) handleDescribeFlowLogs(vals url.Values, reqID string) (any, er
 	resp := &describeFlowLogsResponse{RequestID: reqID}
 
 	for _, fl := range logs {
-		resp.FlowLogSet.Items = append(resp.FlowLogSet.Items, flowLogToItem(fl))
+		resp.FlowLogSet.Items = append(
+			resp.FlowLogSet.Items,
+			flowLogToItem(fl, h.Backend.TagsForResource(fl.FlowLogID)),
+		)
 	}
 
 	return resp, nil
@@ -312,7 +334,7 @@ func (h *Handler) handleDeleteFlowLogs(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
-	return &deleteFlowLogsResponse{RequestID: reqID, Return: true}, nil
+	return &deleteFlowLogsResponse{RequestID: reqID}, nil
 }
 
 func dhcpOptsToItem(opts *DhcpOptions) dhcpOptionsItem {
@@ -407,6 +429,7 @@ func (h *Handler) handleModifyLaunchTemplate(vals url.Values, reqID string) (any
 			CreatedBy:            lt.CreatedBy,
 			DefaultVersionNumber: lt.DefaultVersionNumber,
 			LatestVersionNumber:  lt.LatestVersionNumber,
+			TagSet:               tagItemsFromMap(h.Backend.TagsForResource(lt.ID)),
 		},
 	}, nil
 }
@@ -429,6 +452,7 @@ func (h *Handler) handleCreateLaunchTemplateVersion(vals url.Values, reqID strin
 	item := launchTemplateVersionItem{
 		LaunchTemplateID:   ver.LaunchTemplateID,
 		LaunchTemplateName: ver.LaunchTemplateName,
+		CreatedBy:          ver.CreatedBy,
 		VersionNumber:      ver.VersionNumber,
 		DefaultVersion:     ver.DefaultVersion,
 		CreateTime:         ver.CreateTime.Format(time.RFC3339),
@@ -460,12 +484,17 @@ func (h *Handler) handleDeleteLaunchTemplateVersions(vals url.Values, reqID stri
 		return nil, err
 	}
 
+	ltName := ""
+	if lts, ltErr := h.Backend.DescribeLaunchTemplateVersions(ltID); ltErr == nil && len(lts) > 0 {
+		ltName = lts[0].Name
+	}
+
 	resp := &deleteLaunchTemplateVersionsResponse{RequestID: reqID}
 
 	for _, v := range deleted {
 		resp.SuccessfullyDeletedLaunchTemplateVersions.Items = append(
 			resp.SuccessfullyDeletedLaunchTemplateVersions.Items,
-			deletedLaunchTemplateVersionItem{LaunchTemplateID: ltID, VersionNumber: v},
+			deletedLaunchTemplateVersionItem{LaunchTemplateID: ltID, LaunchTemplateName: ltName, VersionNumber: v},
 		)
 	}
 

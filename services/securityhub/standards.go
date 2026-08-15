@@ -253,7 +253,7 @@ func defaultControls(subscriptionArn string) []*StandardsControl {
 			Title:                  "Ensure MFA is enabled for all IAM users with console password",
 			Description:            "Multi-Factor Authentication (MFA) adds an extra layer of protection.",
 			RemediationURL:         "https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-cis-controls.html",
-			SeverityRating:         "MEDIUM",
+			SeverityRating:         severityLabelMedium,
 			RelatedRequirements:    []string{"CIS AWS Foundations 1.2"},
 			ControlStatusUpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		},

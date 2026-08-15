@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // dispatchGeneratedTemplateOps handles generated template CRUD operations.
@@ -84,21 +86,39 @@ func (h *Handler) handleCreateGeneratedTemplate(form url.Values, c *echo.Context
 }
 
 func (h *Handler) handleUpdateGeneratedTemplate(form url.Values, c *echo.Context) error {
-	id := form.Get("GeneratedTemplateId")
-	if err := h.Backend.UpdateGeneratedTemplate(id, form.Get("NewGeneratedTemplateName")); err != nil {
+	// The real wire key is "GeneratedTemplateName" for all of
+	// Update/Delete/Describe/GetGeneratedTemplate (cloudformation@v1.76.1
+	// serializers.go: awsAwsquery_serializeOpDocumentUpdateGeneratedTemplateInput
+	// and siblings) -- it accepts a name *or* ARN, not the literal
+	// "GeneratedTemplateId" gopherstack used to read, which real clients never
+	// send, making every one of these four ops unreachable.
+	id := form.Get("GeneratedTemplateName")
+	gt, err := h.Backend.UpdateGeneratedTemplate(id, form.Get("NewGeneratedTemplateName"))
+	if err != nil {
 		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
+	}
+	type result struct {
+		GeneratedTemplateID string `xml:"GeneratedTemplateId"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"UpdateGeneratedTemplateResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"UpdateGeneratedTemplateResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
+	return writeXML(
+		c,
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{GeneratedTemplateID: gt.GeneratedTemplateID},
+			RequestID: uuid.New().String(),
+		},
+	)
 }
 
 func (h *Handler) handleDeleteGeneratedTemplate(form url.Values, c *echo.Context) error {
-	if err := h.Backend.DeleteGeneratedTemplate(form.Get("GeneratedTemplateId")); err != nil {
+	if err := h.Backend.DeleteGeneratedTemplate(form.Get("GeneratedTemplateName")); err != nil {
 		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}
 	type response struct {
@@ -111,7 +131,7 @@ func (h *Handler) handleDeleteGeneratedTemplate(form url.Values, c *echo.Context
 }
 
 func (h *Handler) handleDescribeGeneratedTemplate(form url.Values, c *echo.Context) error {
-	gt, err := h.Backend.DescribeGeneratedTemplate(form.Get("GeneratedTemplateId"))
+	gt, err := h.Backend.DescribeGeneratedTemplate(form.Get("GeneratedTemplateName"))
 	if err != nil {
 		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}
@@ -135,7 +155,7 @@ func (h *Handler) handleDescribeGeneratedTemplate(form url.Values, c *echo.Conte
 }
 
 func (h *Handler) handleGetGeneratedTemplate(form url.Values, c *echo.Context) error {
-	body, err := h.Backend.GetGeneratedTemplate(form.Get("GeneratedTemplateId"))
+	body, err := h.Backend.GetGeneratedTemplate(form.Get("GeneratedTemplateName"))
 	if err != nil {
 		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}
@@ -279,15 +299,40 @@ func (h *Handler) handleListResourceScans(form url.Values, c *echo.Context) erro
 	)
 }
 
+// xmlResourceIdentifierEntry mirrors the Query-protocol map wire shape for
+// ScannedResource.ResourceIdentifier (cloudformation@v1.76.1 deserializers.go:
+// awsAwsquery_deserializeDocumentJazzResourceIdentifierPropertiesUnwrapped
+// reads "entry"/"key"/"value" -- Go's map marshaling doesn't produce that).
+type xmlResourceIdentifierEntry struct {
+	Key   string `xml:"key"`
+	Value string `xml:"value"`
+}
+
+type xmlScannedResource struct {
+	ResourceType       string                       `xml:"ResourceType,omitempty"`
+	ResourceIdentifier []xmlResourceIdentifierEntry `xml:"ResourceIdentifier>entry,omitempty"`
+	ManagedByStack     bool                         `xml:"ManagedByStack,omitempty"`
+}
+
 func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Context) error {
 	scanned, err := h.Backend.ListResourceScanResources(form.Get("ResourceScanId"), "")
 	if err != nil {
 		return h.xmlError(c, "ResourceScanNotFound", err.Error())
 	}
-	type resourceXML = ScannedResource
-	members := append([]resourceXML(nil), scanned...)
+	members := make([]xmlScannedResource, 0, len(scanned))
+	for _, s := range scanned {
+		entries := make([]xmlResourceIdentifierEntry, 0, len(s.ResourceIdentifier))
+		for _, k := range collections.SortedKeys(s.ResourceIdentifier) {
+			entries = append(entries, xmlResourceIdentifierEntry{Key: k, Value: s.ResourceIdentifier[k]})
+		}
+		members = append(members, xmlScannedResource{
+			ResourceType:       s.ResourceType,
+			ResourceIdentifier: entries,
+			ManagedByStack:     s.ManagedByStack,
+		})
+	}
 	type result struct {
-		Resources []resourceXML `xml:"Resources>member"`
+		Resources []xmlScannedResource `xml:"Resources>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListResourceScanResourcesResponse"`

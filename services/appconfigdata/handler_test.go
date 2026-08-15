@@ -140,12 +140,18 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
+		auth string
 		want bool
 	}{
-		{name: "configurationsessions", path: "/configurationsessions", want: true},
-		{name: "configuration", path: "/configuration", want: true},
-		{name: "not_matched", path: "/restapis/something", want: false},
-		{name: "dashboard", path: "/dashboard/appconfigdata", want: false},
+		{name: "configurationsessions", path: "/configurationsessions", auth: "appconfig", want: true},
+		{name: "configuration", path: "/configuration", auth: "appconfig", want: true},
+		{name: "not_matched", path: "/restapis/something", auth: "appconfig", want: false},
+		{name: "dashboard", path: "/dashboard/appconfigdata", auth: "appconfig", want: false},
+		// gopherstack-op3e: "/configuration" is also Omics' bare
+		// ListConfigurations/CreateConfiguration path. A request signed for a
+		// different service must not match, even on an otherwise-claimed path.
+		{name: "configuration_wrong_signer", path: "/configuration", auth: "omics", want: false},
+		{name: "configuration_no_signer", path: "/configuration", want: false},
 	}
 
 	for _, tt := range tests {
@@ -155,6 +161,12 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			h := newTestHandler(t)
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.auth != "" {
+				req.Header.Set(
+					"Authorization",
+					"AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/"+tt.auth+"/aws4_request",
+				)
+			}
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 

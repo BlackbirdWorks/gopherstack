@@ -91,7 +91,7 @@ func (h *Handler) handleListInsights(c *echo.Context, clusterName string, body [
 
 	result := make([]map[string]any, len(insights))
 	for i, ins := range insights {
-		result[i] = insightToJSON(ins)
+		result[i] = insightToSummaryJSON(ins)
 	}
 
 	var in listInsightsBody
@@ -162,6 +162,34 @@ func insightToJSON(ins *Insight) map[string]any {
 
 	if ins.Recommendation != "" {
 		m["recommendation"] = ins.Recommendation
+	}
+
+	return m
+}
+
+// insightToSummaryJSON mirrors types.InsightSummary (eks@v1.90.4
+// types/types.go:1485-1514): category, description, id, insightStatus,
+// kubernetesVersion, lastRefreshTime, lastTransitionTime, name. No
+// recommendation -- that's DescribeInsight-only (types.Insight adds it,
+// along with additionalInfo/categorySpecificSummary/resources, none of
+// which gopherstack emits either). No clusterName either: neither
+// InsightSummary nor the full Insight type carries it on the wire (the
+// cluster is already identified by the URL path) -- insightToJSON leaks it
+// into DescribeInsight too, a separate pre-existing bug out of scope here
+// (gopherstack-uult covers ListInsights only). kubernetesVersion and name
+// have no honest source in this backend's Insight model and are left absent
+// rather than fabricated -- see PARITY.md gaps.
+func insightToSummaryJSON(ins *Insight) map[string]any {
+	m := map[string]any{
+		"id":                 ins.ID,
+		"category":           ins.Category,
+		"insightStatus":      map[string]any{"status": ins.Status, "reason": ins.Recommendation},
+		"lastRefreshTime":    ins.LastRefreshTime.Unix(),
+		"lastTransitionTime": ins.LastTransition.Unix(),
+	}
+
+	if ins.Description != "" {
+		m["description"] = ins.Description
 	}
 
 	return m

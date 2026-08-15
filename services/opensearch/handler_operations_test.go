@@ -121,7 +121,7 @@ func TestExtractOperation_NewRoutes(t *testing.T) {
 		{
 			name:   "list_domain_names",
 			method: http.MethodGet,
-			path:   "/2021-01-01/opensearch/domain",
+			path:   "/2021-01-01/domain",
 			wantOp: "ListDomainNames",
 		},
 		{
@@ -299,16 +299,24 @@ func TestOpenSearchHandler_ExtractOperation(t *testing.T) {
 			want:   "CreateDomain",
 		},
 		{
-			name:   "list_domain_names",
+			// ListDomainNames' real path is the un-prefixed openSearchLegacyDomainPath
+			// -- GET on the /opensearch/domain root has no real op (gopherstack-l5ir).
+			name:   "get_on_opensearch_domain_root_is_unknown",
 			method: http.MethodGet,
 			path:   "/2021-01-01/opensearch/domain",
+			want:   "Unknown",
+		},
+		{
+			name:   "list_domain_names",
+			method: http.MethodGet,
+			path:   "/2021-01-01/domain",
 			want:   "ListDomainNames",
 		},
 		{
-			name:   "list_domain_names_trailing_slash",
+			name:   "list_domain_names_trailing_slash_is_unknown",
 			method: http.MethodGet,
-			path:   "/2021-01-01/opensearch/domain/",
-			want:   "ListDomainNames",
+			path:   "/2021-01-01/domain/",
+			want:   "Unknown",
 		},
 		{
 			name:   "describe_domain",

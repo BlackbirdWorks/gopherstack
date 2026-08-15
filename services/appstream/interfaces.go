@@ -55,7 +55,7 @@ type StorageBackend interface {
 
 	// AppBlockBuilder-AppBlock associations. appBlockID accepts either the
 	// app block Name or its Arn (real AWS's request carries AppBlockArn).
-	AssociateAppBlockBuilderAppBlock(builderName, appBlockID string) error
+	AssociateAppBlockBuilderAppBlock(builderName, appBlockID string) (*AppBlockBuilderAppBlockAssociation, error)
 	DisassociateAppBlockBuilderAppBlock(builderName, appBlockID string) error
 	DescribeAppBlockBuilderAppBlockAssociations(
 		builderName, appBlockID string,
@@ -63,7 +63,8 @@ type StorageBackend interface {
 
 	// Applications
 	CreateApplication(name, displayName, description, launchPath, appBlockArn string,
-		platforms []string, tags map[string]string) (*Application, error)
+		platforms []string, iconS3Location S3Location, instanceFamilies []string,
+		tags map[string]string) (*Application, error)
 	DeleteApplication(name string) error
 	DescribeApplications(arns []string) ([]*Application, error)
 	UpdateApplication(name, displayName, description, launchPath string) (*Application, error)
@@ -71,7 +72,7 @@ type StorageBackend interface {
 
 	// Application-Fleet associations. appID accepts either the application
 	// Name or its Arn (real AWS's request carries ApplicationArn).
-	AssociateApplicationFleet(appID, fleetName string) error
+	AssociateApplicationFleet(appID, fleetName string) (*ApplicationFleetAssociation, error)
 	DisassociateApplicationFleet(appID, fleetName string) error
 	DescribeApplicationFleetAssociations(appID, fleetName string) ([]*ApplicationFleetAssociation, error)
 
@@ -107,7 +108,7 @@ type StorageBackend interface {
 	CopyImage(sourceName, destName, destRegion, description string) (*Image, error)
 	CreateImportedImage(name, description string, tags map[string]string) (*Image, error)
 	CreateUpdatedImage(imageName, newImageName, description string) (*Image, error)
-	DeleteImage(name string) error
+	DeleteImage(name string) (*Image, error)
 	DescribeImages(names []string) ([]*Image, error)
 	UpdateImagePermissions(imageName, accountID string, allowFleet, allowImageBuilder bool) error
 	DeleteImagePermissions(imageName, accountID string) error
@@ -115,7 +116,7 @@ type StorageBackend interface {
 
 	// ImageBuilders
 	CreateImageBuilder(name, description, platform, instanceType string, tags map[string]string) (*ImageBuilder, error)
-	DeleteImageBuilder(name string) (string, error)
+	DeleteImageBuilder(name string) (*ImageBuilder, error)
 	DescribeImageBuilders(names []string) ([]*ImageBuilder, error)
 	StartImageBuilder(name, appstreamAgentVersion string) error
 	StopImageBuilder(name string) (*ImageBuilder, error)
@@ -141,7 +142,12 @@ type StorageBackend interface {
 	DescribeUsageReportSubscriptions() ([]*UsageReportSubscription, error)
 
 	// Themes
-	CreateThemeForStack(stackName string) (*Theme, error)
+	CreateThemeForStack(
+		stackName string,
+		faviconS3Location, organizationLogoS3Location S3Location,
+		themeStyling, titleText string,
+		footerLinks []ThemeFooterLink,
+	) (*Theme, error)
 	DeleteThemeForStack(stackName string) error
 	DescribeThemeForStack(stackName string) (*Theme, error)
 	UpdateThemeForStack(stackName string) (*Theme, error)
@@ -230,17 +236,28 @@ type AppBlockBuilderAppBlockAssociation struct {
 	State               string
 }
 
+// S3Location mirrors appstream@v1.64.5 types.S3Location: an S3 bucket/key
+// pair. S3Key is only conditionally required depending on which field it's
+// used for (types/types.go:1434-1451) -- for IconS3Location on
+// CreateApplication and UpdateApplication, both members are required.
+type S3Location struct {
+	S3Bucket string
+	S3Key    string
+}
+
 // Application holds AppStream 2.0 application details.
 type Application struct {
-	CreatedTime time.Time
-	Tags        map[string]string
-	Name        string
-	Arn         string
-	DisplayName string
-	Description string
-	LaunchPath  string
-	AppBlockArn string
-	Platforms   []string
+	CreatedTime      time.Time
+	Tags             map[string]string
+	Name             string
+	Arn              string
+	DisplayName      string
+	Description      string
+	LaunchPath       string
+	AppBlockArn      string
+	Platforms        []string
+	IconS3Location   S3Location
+	InstanceFamilies []string
 }
 
 // ApplicationFleetAssociation represents an Application-Fleet link.
@@ -359,11 +376,25 @@ type UsageReportSubscription struct {
 	Schedule     string
 }
 
+// ThemeFooterLink mirrors appstream@v1.64.5 types.ThemeFooterLink: a link
+// displayed in the streaming application catalog page footer.
+type ThemeFooterLink struct {
+	DisplayName   string
+	FooterLinkURL string
+}
+
 // Theme holds visual customisation for a stack.
 type Theme struct {
-	CreatedTime time.Time
-	StackName   string
-	State       string
+	CreatedTime                time.Time
+	StackName                  string
+	State                      string
+	ThemeStyling               string
+	ThemeTitleText             string
+	ThemeFaviconURL            string
+	ThemeOrganizationLogoURL   string
+	FaviconS3Location          S3Location
+	OrganizationLogoS3Location S3Location
+	ThemeFooterLinks           []ThemeFooterLink
 }
 
 // User is an AppStream UserPool user.

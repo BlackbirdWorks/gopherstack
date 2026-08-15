@@ -1,9 +1,26 @@
 package guardduty
 
-import "net/http"
+import (
+	"encoding/json"
+	"net/http"
+)
 
-func (h *Handler) handleGetCoverageStatistics(detectorID string) (any, int, error) {
-	stats, err := h.Backend.GetCoverageStatistics(detectorID)
+func (h *Handler) handleGetCoverageStatistics(detectorID string, body []byte) (any, int, error) {
+	var req struct {
+		StatisticsType []string `json:"statisticsType"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, http.StatusBadRequest, ErrValidation
+		}
+	}
+
+	if len(req.StatisticsType) == 0 {
+		return nil, http.StatusBadRequest, ErrValidation
+	}
+
+	stats, err := h.Backend.GetCoverageStatistics(detectorID, req.StatisticsType)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}

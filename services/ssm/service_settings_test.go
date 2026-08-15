@@ -5,8 +5,12 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
 func TestServiceSetting_GetPutReset(t *testing.T) {
@@ -129,4 +133,42 @@ func TestServiceSettings_LifecycleRoundTrip(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), "Default")
 		})
 	}
+}
+
+// TestServiceSetting_ARNAndLastModifiedDate asserts the real ServiceSetting
+// members (types/types.go:5818) gopherstack previously had no Go struct
+// fields for at all: ARN (doc-comment-confirmed shape:
+// "arn:aws:ssm:<region>:<account>:servicesetting<settingId>",
+// api_op_UpdateServiceSetting.go:46) and LastModifiedDate, an epoch-seconds
+// DateTime populated once a setting has actually been customized.
+func TestServiceSetting_ARNAndLastModifiedDate(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	client := newTestSSMClient(t, ssm.NewHandler(backend))
+	settingID := "/ssm/parameter-store/high-throughput-enabled"
+
+	def, err := client.GetServiceSetting(t.Context(), &ssmsdk.GetServiceSettingInput{
+		SettingId: aws.String(settingID),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, def.ServiceSetting)
+	assert.Equal(
+		t, "arn:aws:ssm:us-east-1:123456789012:servicesetting/ssm/parameter-store/high-throughput-enabled",
+		aws.ToString(def.ServiceSetting.ARN),
+	)
+	assert.Nil(t, def.ServiceSetting.LastModifiedDate, "Default status must not carry a modification time")
+
+	_, err = client.UpdateServiceSetting(t.Context(), &ssmsdk.UpdateServiceSettingInput{
+		SettingId:    aws.String(settingID),
+		SettingValue: aws.String("true"),
+	})
+	require.NoError(t, err)
+
+	updated, err := client.GetServiceSetting(t.Context(), &ssmsdk.GetServiceSettingInput{
+		SettingId: aws.String(settingID),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.ServiceSetting.LastModifiedDate)
+	assert.False(t, updated.ServiceSetting.LastModifiedDate.IsZero())
 }

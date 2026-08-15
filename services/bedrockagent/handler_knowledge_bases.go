@@ -124,14 +124,41 @@ func classifyKBPath(method, path string) string {
 // KB document handlers
 // ---------------------------------------------------------------------------
 
+// documentContentWire mirrors just enough of the real DocumentContent shape
+// (types.DocumentContent) to recover the identifier AWS derives from
+// ingested content: CUSTOM content carries it at
+// custom.customDocumentIdentifier.id, S3 content at s3.s3Location.uri.
+type documentContentWire struct {
+	Custom *struct {
+		CustomDocumentIdentifier KBCustomDocumentIdentifier `json:"customDocumentIdentifier"`
+	} `json:"custom,omitempty"`
+	S3 *struct {
+		S3Location KBS3Location `json:"s3Location"`
+	} `json:"s3,omitempty"`
+	DataSourceType string `json:"dataSourceType"`
+}
+
+func (w documentContentWire) identifier() KBDocumentIdentifier {
+	id := KBDocumentIdentifier{DataSourceType: w.DataSourceType}
+
+	if w.Custom != nil {
+		id.Custom = &w.Custom.CustomDocumentIdentifier
+	}
+
+	if w.S3 != nil {
+		id.S3 = &w.S3.S3Location
+	}
+
+	return id
+}
+
 func (h *Handler) handleIngestKBDocs(
 	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
 		Documents []struct {
-			Metadata map[string]any `json:"metadata"`
-			Content  map[string]any `json:"content"`
-			DocID    string         `json:"documentId"`
+			Metadata map[string]any      `json:"metadata"`
+			Content  documentContentWire `json:"content"`
 		} `json:"documents"`
 	}
 
@@ -143,9 +170,8 @@ func (h *Handler) handleIngestKBDocs(
 
 	for _, d := range req.Documents {
 		docs = append(docs, KBDocument{
-			DocID:    d.DocID,
-			Metadata: d.Metadata,
-			Content:  d.Content,
+			Identifier: d.Content.identifier(),
+			Metadata:   d.Metadata,
 		})
 	}
 
@@ -161,14 +187,14 @@ func (h *Handler) handleGetKBDocs(
 	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
-		DocumentIDs []string `json:"documentIds"`
+		DocumentIdentifiers []KBDocumentIdentifier `json:"documentIdentifiers"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return handleErr(c, err)
 	}
 
-	details, err := h.Backend.GetKnowledgeBaseDocuments(ctx, kbID, dsID, req.DocumentIDs)
+	details, err := h.Backend.GetKnowledgeBaseDocuments(ctx, kbID, dsID, req.DocumentIdentifiers)
 	if err != nil {
 		return handleErr(c, err)
 	}
@@ -180,14 +206,14 @@ func (h *Handler) handleDeleteKBDocs(
 	ctx context.Context, c *echo.Context, kbID, dsID string, body []byte,
 ) error {
 	var req struct {
-		DocumentIDs []string `json:"documentIds"`
+		DocumentIdentifiers []KBDocumentIdentifier `json:"documentIdentifiers"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return handleErr(c, err)
 	}
 
-	details, err := h.Backend.DeleteKnowledgeBaseDocuments(ctx, kbID, dsID, req.DocumentIDs)
+	details, err := h.Backend.DeleteKnowledgeBaseDocuments(ctx, kbID, dsID, req.DocumentIdentifiers)
 	if err != nil {
 		return handleErr(c, err)
 	}

@@ -132,7 +132,7 @@ type StorageBackend interface {
 	) (*EventSubscription, error)
 	CreateGlobalCluster(
 		ctx context.Context,
-		globalClusterID, sourceDBClusterID string,
+		globalClusterID, sourceDBClusterID, databaseName string,
 	) (*GlobalCluster, error)
 	DescribeGlobalClusters(ctx context.Context) []GlobalCluster
 

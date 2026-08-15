@@ -1,6 +1,7 @@
 package accessanalyzer
 
 import (
+	"slices"
 	"sort"
 	"time"
 
@@ -58,10 +59,50 @@ func (b *InMemoryBackend) GetFinding(analyzerName, findingID string) (*Finding, 
 	return copyFinding(f), nil
 }
 
+// matchesFindingFilter reports whether f satisfies every criterion in
+// filter, using the Eq operator on the finding attributes this backend
+// tracks as scalar/list fields ("status", "resourceType", "resource", "id").
+// A criterion using Contains/Neq/Exists, or keyed by an attribute this
+// backend does not model as a direct Finding field (e.g. "principal.AWS",
+// "condition.KEY", "action", "isPublic", "createdAt", "resourceRegion"), is
+// not evaluated -- the finding is treated as matching that one criterion
+// rather than silently excluded, since gopherstack has no honest way to
+// decide it doesn't match. See PARITY.md.
+func matchesFindingFilter(f *Finding, filter map[string]FilterCriterion) bool {
+	for key, crit := range filter {
+		if len(crit.Eq) == 0 {
+			continue
+		}
+
+		var actual string
+
+		switch key {
+		case "status":
+			actual = string(f.Status)
+		case "resourceType":
+			actual = f.ResourceType
+		case "resource":
+			actual = f.ResourceArn
+		case "id":
+			actual = f.ID
+		default:
+			continue
+		}
+
+		matched := slices.Contains(crit.Eq, actual)
+
+		if !matched {
+			return false
+		}
+	}
+
+	return true
+}
+
 // ListFindings returns findings for an analyzer, optionally filtered.
 func (b *InMemoryBackend) ListFindings(
 	analyzerName string,
-	_ map[string]FilterCriterion,
+	filter map[string]FilterCriterion,
 	status string,
 	maxResults int,
 	nextToken string,
@@ -78,6 +119,10 @@ func (b *InMemoryBackend) ListFindings(
 
 	for _, f := range group {
 		if status != "" && string(f.Status) != status {
+			continue
+		}
+
+		if !matchesFindingFilter(f, filter) {
 			continue
 		}
 
@@ -165,6 +210,7 @@ func (b *InMemoryBackend) GetFindingV2(analyzerArn, findingID string) (*Finding,
 // ListFindingsV2 returns findings in V2 format for an analyzer identified by ARN.
 func (b *InMemoryBackend) ListFindingsV2(
 	analyzerArn, status string,
+	filter map[string]FilterCriterion,
 	maxResults int,
 	nextToken string,
 ) ([]*Finding, string, error) {
@@ -190,6 +236,10 @@ func (b *InMemoryBackend) ListFindingsV2(
 
 	for _, f := range group {
 		if status != "" && string(f.Status) != status {
+			continue
+		}
+
+		if !matchesFindingFilter(f, filter) {
 			continue
 		}
 

@@ -279,7 +279,9 @@ func (h *Handler) handleDeleteJourney(c *echo.Context, appID, journeyID string) 
 
 // handleGetJourneyDateRangeKpi handles GET /v1/apps/{appId}/journeys/{journeyId}/kpis/daterange/{kpiName}.
 func (h *Handler) handleGetJourneyDateRangeKpi(c *echo.Context, appID, journeyID, kpiName string) error {
-	resp, err := h.Backend.GetJourneyDateRangeKpi(appID, journeyID, kpiName)
+	start, end := parseKPIDateRange(c)
+
+	resp, err := h.Backend.GetJourneyDateRangeKpi(appID, journeyID, kpiName, start, end)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())

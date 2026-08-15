@@ -10,6 +10,7 @@ import (
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
+	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
@@ -366,7 +367,7 @@ func (rc *ResourceCreator) createEventBus(
 		name = logicalID
 	}
 
-	bus, err := rc.backends.EventBridge.Backend.CreateEventBus(ctx, name, "")
+	bus, err := rc.backends.EventBridge.Backend.CreateEventBus(ctx, eventbridge.CreateEventBusParams{Name: name})
 	if err != nil {
 		return "", fmt.Errorf("create EventBridge event bus %s: %w", name, err)
 	}
@@ -858,7 +859,7 @@ func (rc *ResourceCreator) createRoute53HostedZone(
 		comment = resolve(cfg["Comment"], params, physicalIDs)
 	}
 
-	zone, err := rc.backends.Route53.Backend.CreateHostedZone(name, uuid.New().String(), comment, false, "")
+	zone, err := rc.backends.Route53.Backend.CreateHostedZone(name, uuid.New().String(), comment, false, "", "", "")
 	if err != nil {
 		return "", fmt.Errorf("create Route53 hosted zone %s: %w", name, err)
 	}

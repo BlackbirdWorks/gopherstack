@@ -94,6 +94,14 @@ func (b *InMemoryBackend) DeleteGlobalCluster(_ context.Context, id string) (*Gl
 	if !exists {
 		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, id)
 	}
+
+	if gc.DeletionProtection {
+		return nil, fmt.Errorf(
+			"%w: cannot delete protected global cluster %s, disable deletion protection first",
+			ErrInvalidGlobalClusterState, id,
+		)
+	}
+
 	cp := copyGlobalCluster(gc)
 	b.globalClusters.Delete(id)
 

@@ -300,7 +300,13 @@ func isAPIGWTopLevelRESTPath(path string) bool {
 		}
 	}
 
-	return path == "/account" || strings.HasPrefix(path, "/account/")
+	// AWS's own SDK only ever emits the bare "/account" path (confirmed against
+	// aws-sdk-go-v2/service/apigateway's serializers.go SplitURI calls for both
+	// GetAccount and UpdateAccount) -- API Gateway's Account resource has no
+	// sub-paths. A "/account/" prefix claim here previously shadowed
+	// QuickSight's CreateAccountSubscription/DescribeAccountSubscription/
+	// DeleteAccountSubscription, which live at "/account/{AwsAccountId}".
+	return path == "/account"
 }
 
 // MatchPriority returns the routing priority for the API Gateway handler.

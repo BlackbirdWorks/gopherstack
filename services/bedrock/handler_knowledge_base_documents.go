@@ -19,7 +19,7 @@ import (
 func (h *AgentsHandler) dispatchDocumentOps(
 	c *echo.Context, kbID, dsID, dsSuffix, method string, body []byte,
 ) error {
-	if dsSuffix == "/documents" {
+	if dsSuffix == suffixDocuments {
 		switch method {
 		case http.MethodPut:
 			return h.handleIngestKBDocuments(c, kbID, dsID, body)

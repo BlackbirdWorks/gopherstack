@@ -93,12 +93,14 @@ func TestEMRResourceRegionIsolation(t *testing.T) {
 	// Same-named studio in both regions.
 	eastStudio, err := backend.CreateStudio(
 		ctxEast, "shared-studio", "", "IAM", "s3://east", "sg-east", "role-east", "vpc-east", "sg-w-east", nil, nil,
+		"", false,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastStudio.StudioArn, "us-east-1")
 
 	westStudio, err := backend.CreateStudio(
 		ctxWest, "shared-studio", "", "IAM", "s3://west", "sg-west", "role-west", "vpc-west", "sg-w-west", nil, nil,
+		"", false,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, westStudio.StudioArn, "us-west-2")
@@ -106,11 +108,11 @@ func TestEMRResourceRegionIsolation(t *testing.T) {
 	// Each region sees exactly one studio.
 	eastStudios, _ := backend.ListStudios(ctxEast, "")
 	require.Len(t, eastStudios, 1)
-	assert.Equal(t, "s3://east", eastStudios[0].DefaultS3Location)
+	assert.Contains(t, eastStudios[0].URL, "us-east-1")
 
 	westStudios, _ := backend.ListStudios(ctxWest, "")
 	require.Len(t, westStudios, 1)
-	assert.Equal(t, "s3://west", westStudios[0].DefaultS3Location)
+	assert.Contains(t, westStudios[0].URL, "us-west-2")
 
 	// Same-named security configuration in both regions, isolated.
 	_, err = backend.CreateSecurityConfiguration(ctxEast, "shared-sc", `{"k":"east"}`)

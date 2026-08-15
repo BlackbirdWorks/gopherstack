@@ -70,6 +70,10 @@ func (b *InMemoryBackend) DeleteVault(accountID, region, vaultName string) error
 		return ErrVaultNotFound
 	}
 
+	if err := b.checkVaultLockDelete(vArn, glacierActionDeleteVault, ""); err != nil {
+		return err
+	}
+
 	if len(v.Archives) > 0 {
 		return ErrVaultNotEmpty
 	}

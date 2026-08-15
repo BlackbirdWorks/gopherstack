@@ -216,9 +216,11 @@ type vpnTunnelOptionItem struct {
 	DPDTimeoutAction string `xml:"dpdTimeoutAction,omitempty"`
 	StartupAction    string `xml:"startupAction,omitempty"`
 	CertificateArn   string `xml:"certificateArn,omitempty"`
-	IKEVersionSet    struct {
+	// Real field name is "ikeVersionSet", not "ikeVersions"
+	// (ec2@v1.319.1 deserializers.go: awsEc2query_deserializeDocumentTunnelOption).
+	IKEVersionSet struct {
 		Items []ikeVersionItem `xml:"item"`
-	} `xml:"ikeVersions"`
+	} `xml:"ikeVersionSet"`
 	Phase1LifetimeSeconds  int32 `xml:"phase1LifetimeSeconds,omitempty"`
 	Phase2LifetimeSeconds  int32 `xml:"phase2LifetimeSeconds,omitempty"`
 	RekeyMarginTimeSeconds int32 `xml:"rekeyMarginTimeSeconds,omitempty"`
@@ -228,9 +230,11 @@ type vpnTunnelOptionItem struct {
 type vpnConnectionOptionsItem struct {
 	LocalIpv4NetworkCidr  string `xml:"localIpv4NetworkCidr,omitempty"`
 	RemoteIpv4NetworkCidr string `xml:"remoteIpv4NetworkCidr,omitempty"`
-	TunnelOptionsSet      struct {
+	// Real field name is "tunnelOptionSet", not "tunnelOptions"
+	// (ec2@v1.319.1 deserializers.go: awsEc2query_deserializeDocumentVpnConnectionOptions).
+	TunnelOptionsSet struct {
 		Items []vpnTunnelOptionItem `xml:"item"`
-	} `xml:"tunnelOptions"`
+	} `xml:"tunnelOptionSet"`
 	StaticRoutesOnly bool `xml:"staticRoutesOnly"`
 }
 
@@ -423,12 +427,32 @@ type rejectVpcPeeringConnectionResponse struct {
 	Return    bool     `xml:"return"`
 }
 
+type privateDNSNameConfigurationItem struct {
+	State string `xml:"state,omitempty"`
+}
+
 type vpcEndpointServiceConfigItem struct {
-	ServiceID           string `xml:"serviceId"`
-	ServiceName         string `xml:"serviceName"`
-	ServiceType         string `xml:"serviceType>item>serviceType"`
-	PayerResponsibility string `xml:"payerResponsibility,omitempty"`
-	AcceptanceRequired  bool   `xml:"acceptanceRequired"`
+	ServiceID                   string                          `xml:"serviceId"`
+	ServiceName                 string                          `xml:"serviceName"`
+	ServiceType                 string                          `xml:"serviceType>item>serviceType"`
+	PayerResponsibility         string                          `xml:"payerResponsibility,omitempty"`
+	PrivateDNSNameConfiguration privateDNSNameConfigurationItem `xml:"privateDnsNameConfiguration"`
+	NetworkLoadBalancerArnSet   []string                        `xml:"networkLoadBalancerArnSet>item"`
+	AcceptanceRequired          bool                            `xml:"acceptanceRequired"`
+}
+
+func toVpcEndpointServiceConfigItem(cfg *VpcEndpointServiceConfig) vpcEndpointServiceConfigItem {
+	return vpcEndpointServiceConfigItem{
+		ServiceID:                 cfg.ServiceID,
+		ServiceName:               cfg.ServiceName,
+		ServiceType:               cfg.ServiceType,
+		PayerResponsibility:       cfg.PayerResponsibility,
+		AcceptanceRequired:        cfg.AcceptanceRequired,
+		NetworkLoadBalancerArnSet: cfg.NetworkLoadBalancerARNs,
+		PrivateDNSNameConfiguration: privateDNSNameConfigurationItem{
+			State: cfg.PrivateDNSNameState,
+		},
+	}
 }
 
 type createVpcEndpointServiceConfigurationResponse struct {
@@ -448,9 +472,9 @@ type describeVpcEndpointServiceConfigurationsResponse struct {
 }
 
 type deleteVpcEndpointServiceConfigurationsResponse struct {
-	XMLName   xml.Name `xml:"DeleteVpcEndpointServiceConfigurationsResponse"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
+	XMLName      xml.Name              `xml:"DeleteVpcEndpointServiceConfigurationsResponse"`
+	RequestID    string                `xml:"requestId"`
+	Unsuccessful []unsuccessfulItemXML `xml:"unsuccessful>item"`
 }
 
 type modifyVpcEndpointServiceConfigurationResponse struct {
@@ -484,7 +508,7 @@ type ipamItem struct {
 	DefaultResourceDiscoveryAssociationID string `xml:"defaultResourceDiscoveryAssociationId,omitempty"`
 	OperatingRegionSet                    struct {
 		Items []ipamOperatingRegionItem `xml:"item"`
-	} `xml:"operatingRegions"`
+	} `xml:"operatingRegionSet"`
 	ScopeCount                        int32 `xml:"scopeCount,omitempty"`
 	ResourceDiscoveryAssociationCount int32 `xml:"resourceDiscoveryAssociationCount,omitempty"`
 }

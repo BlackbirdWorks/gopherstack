@@ -344,6 +344,9 @@ func resetRawState(b *InMemoryBackend) {
 	b.agentTags = make(map[string]map[string]string)
 	b.agentMemory = make(map[string][]any)
 	b.arpAnnotations = make(map[string][]any)
+	// arpAnnotationSetHash intentionally has no snapshot counterpart -- see
+	// its field doc comment in store.go.
+	b.arpAnnotationSetHash = make(map[string]string)
 	b.promptRoutersByName = make(map[string]string)
 	b.useCaseFormData = nil
 	b.accountDataRetention = nil

@@ -628,12 +628,19 @@ type ColumnStatisticsTaskRun struct {
 }
 
 // MaterializedViewRefreshRun represents a materialized view refresh task run.
+//
+// TaskRunID and StartedOn deliberately carry non-obvious json tags:
+// MaterializedViewRefreshTaskRunId and StartTime are the real member names
+// (glue@v1.152.0 types.MaterializedViewRefreshTaskRun), not TaskRunId/
+// StartedOn -- found while wiring ListMaterializedViewRefreshTaskRuns
+// (gopherstack-awzv) and fixed here since this struct is shared by that op's
+// output.
 type MaterializedViewRefreshRun struct {
 	DatabaseName string  `json:"DatabaseName"`
 	TableName    string  `json:"TableName"`
-	TaskRunID    string  `json:"TaskRunId"`
+	TaskRunID    string  `json:"MaterializedViewRefreshTaskRunId"`
 	Status       string  `json:"Status"`
-	StartedOn    float64 `json:"StartedOn,omitempty"`
+	StartedOn    float64 `json:"StartTime,omitempty"`
 }
 
 // Integration represents a Glue integration.
@@ -641,13 +648,17 @@ type Integration struct {
 	CreatedAt       time.Time         `json:"CreateTime"`
 	Tags            map[string]string `json:"Tags,omitempty"`
 	IntegrationName string            `json:"IntegrationName"`
+	IntegrationArn  string            `json:"IntegrationArn,omitempty"`
+	SourceArn       string            `json:"SourceArn"`
+	TargetArn       string            `json:"TargetArn"`
 	Status          string            `json:"Status"`
 }
 
 // IdentityCenterConfig represents the Glue Identity Center configuration.
 type IdentityCenterConfig struct {
-	InstanceARN string `json:"InstanceArn,omitempty"`
-	Status      string `json:"Status"`
+	InstanceARN    string `json:"InstanceArn,omitempty"`
+	ApplicationARN string `json:"ApplicationArn,omitempty"`
+	Status         string `json:"Status"`
 }
 
 // IntegrationResourceProperty stores resource-level properties for a Zero-ETL integration.
@@ -686,7 +697,37 @@ type ConnectionTypeInfo struct {
 	Description string `json:"Description,omitempty"`
 	// Category groups connectors (e.g. "DATABASE", "SAAS", "STREAMING").
 	Category string `json:"Category,omitempty"`
-	// Capabilities lists supported connector capabilities.
+	// ConnectionTypeArn is the real RegisterConnectionTypeOutput field
+	// (glue@v1.152.0 api_op_RegisterConnectionType.go:79-84); only populated
+	// for custom (non-built-in) types, which are the only ones RegisterConnectionType
+	// can create.
+	ConnectionTypeArn string `json:"ConnectionTypeArn,omitempty"`
+	// IntegrationType is required on RegisterConnectionType (only "REST" is a
+	// legal value) but has no corresponding field on DescribeConnectionType's
+	// real output, so it is captured for completeness but never echoed back.
+	IntegrationType string `json:"IntegrationType,omitempty"`
+	// ConnectionProperties/ConnectorAuthenticationConfiguration are required on
+	// RegisterConnectionType but stored as opaque nested documents: neither has
+	// a matching field on the real DescribeConnectionTypeOutput
+	// (its ConnectionProperties is a differently-shaped map[string]Property,
+	// and its AuthenticationConfiguration is *types.AuthConfiguration, a
+	// distinct type from *types.ConnectorAuthenticationConfiguration) so there
+	// is no real echo target -- captured, never echoed.
+	ConnectionProperties                 map[string]any `json:"connectionProperties,omitempty"`
+	ConnectorAuthenticationConfiguration map[string]any `json:"connectorAuthenticationConfiguration,omitempty"`
+	// RestConfiguration IS the same type on both RegisterConnectionType's
+	// input and DescribeConnectionTypeOutput.RestConfiguration, so it is
+	// stored and echoed verbatim on describe.
+	RestConfiguration map[string]any `json:"restConfiguration,omitempty"`
+	// Capabilities holds this connector's supported data operations
+	// ("READ"/"WRITE", matching types.DataOperation's only two enum values
+	// verbatim). This is internal storage, not the wire shape: the real
+	// DescribeConnectionTypeOutput/ConnectionTypeBrief.Capabilities is
+	// *types.Capabilities, a struct with this list nested under
+	// SupportedDataOperations alongside two more required members this
+	// backend does not track -- see connectionCapabilities/
+	// toConnectionCapabilities in handler_connection_types.go for the wire
+	// shaping.
 	Capabilities []string `json:"Capabilities,omitempty"`
 	// BuiltIn reports whether this is an AWS-managed (undeletable) type.
 	BuiltIn bool `json:"BuiltIn"`

@@ -601,9 +601,8 @@ func TestOpaqueNextToken(t *testing.T) {
 			resp := parseResponse(t, rec)
 
 			token, hasToken := resp["NextToken"]
-			if !hasToken || token == nil {
-				t.Skip("no NextToken returned — not enough items for pagination")
-			}
+			require.True(t, hasToken && token != nil,
+				"%s with MaxResults=1 and %d items must return a NextToken", tt.op, len(tt.items))
 
 			tokenStr, ok := token.(string)
 			require.True(t, ok, "NextToken should be a string")

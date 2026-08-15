@@ -12,9 +12,10 @@ func (h *Handler) handleDescribeAllManagedProducts(_ []byte) ([]byte, error) {
 
 	for _, mrg := range getManagedRuleGroups() {
 		products = append(products, map[string]any{
-			keyVendorName:        mrg.VendorName,
-			"ManagedRuleSetName": mrg.Name,
-			"ProductDescription": mrg.Description,
+			keyVendorName:           mrg.VendorName,
+			"ManagedRuleSetName":    mrg.Name,
+			"ProductDescription":    mrg.Description,
+			"IsVersioningSupported": mrg.VersioningSupported,
 		})
 	}
 
@@ -42,9 +43,10 @@ func (h *Handler) handleDescribeManagedProductsByVendor(body []byte) ([]byte, er
 		}
 
 		products = append(products, map[string]any{
-			keyVendorName:        mrg.VendorName,
-			"ManagedRuleSetName": mrg.Name,
-			"ProductDescription": mrg.Description,
+			keyVendorName:           mrg.VendorName,
+			"ManagedRuleSetName":    mrg.Name,
+			"ProductDescription":    mrg.Description,
+			"IsVersioningSupported": mrg.VersioningSupported,
 		})
 	}
 

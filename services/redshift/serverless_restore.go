@@ -18,7 +18,14 @@ import (
 // ---------------------------------------------------------------------------
 
 // RestoreFromSnapshotParams holds RestoreFromSnapshotInput's fields.
+//
+// MaintainIntegration is accepted for wire compatibility but intentionally
+// inert: real AWS uses it to gate whether data-sharing/zero-ETL/S3-event
+// integrations survive the restore, but this backend does not model
+// integration state on namespaces at all (nothing to maintain or drop), so
+// there is nothing honest to gate.
 type RestoreFromSnapshotParams struct {
+	MaintainIntegration         *bool
 	NamespaceName               string
 	WorkgroupName               string
 	SnapshotName                string
@@ -38,6 +45,8 @@ type RestoreFromSnapshotParams struct {
 // simulate real data content, so once the lookup/FK checks pass the existing
 // Namespace is returned unchanged, same as RestoreFromRecoveryPointSL.
 func (b *InMemoryBackend) RestoreFromSnapshotSL(p RestoreFromSnapshotParams) (*Namespace, string, error) {
+	_ = p.MaintainIntegration // no integration state modeled on namespaces, see RestoreFromSnapshotParams doc comment
+
 	b.mu.Lock("RestoreFromSnapshotSL")
 	defer b.mu.Unlock()
 

@@ -50,8 +50,21 @@ type ListAssociationVersionsInput struct {
 // ListAssociationVersionsOutput is the response payload.
 type ListAssociationVersionsOutput struct{}
 
+// AssociationFilterEntry filters ListAssociations results by InstanceId,
+// Name (document name), AssociationId or AssociationName
+// (api_op_ListAssociations.go AssociationFilterList member,
+// types.AssociationFilterKey).
+type AssociationFilterEntry struct {
+	Key   string `json:"key,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
 // ListAssociationsInput is the request payload.
-type ListAssociationsInput struct{}
+type ListAssociationsInput struct {
+	MaxResults            *int32                   `json:"MaxResults,omitempty"`
+	NextToken             string                   `json:"NextToken,omitempty"`
+	AssociationFilterList []AssociationFilterEntry `json:"AssociationFilterList,omitempty"`
+}
 
 // ListAssociationsOutput is the response payload.
 type ListAssociationsOutput struct {

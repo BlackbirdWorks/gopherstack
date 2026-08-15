@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -156,10 +157,13 @@ func (b *InMemoryBackend) DeleteResourceDataSync(
 	return &DeleteResourceDataSyncOutput{}, nil
 }
 
-// ListResourceDataSync returns all resource data syncs.
+// ListResourceDataSync returns resource data syncs, filtered by
+// input.SyncType and paginated by input.MaxResults/NextToken -- real,
+// optional ListResourceDataSyncInput members (api_op_ListResourceDataSync.go)
+// a literal struct{} input previously discarded from every request.
 func (b *InMemoryBackend) ListResourceDataSync(
 	ctx context.Context,
-	_ *ListResourceDataSyncInput,
+	input *ListResourceDataSyncInput,
 ) (*ListResourceDataSyncOutputFull, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("ListResourceDataSync")
@@ -167,7 +171,12 @@ func (b *InMemoryBackend) ListResourceDataSync(
 
 	syncs := b.resourceDataSyncsStore(region)
 	items := make([]ResourceDataSync, 0, syncs.Len())
+
 	for _, s := range syncs.All() {
+		if input.SyncType != "" && s.SyncType != input.SyncType {
+			continue
+		}
+
 		items = append(items, *s)
 	}
 
@@ -175,25 +184,62 @@ func (b *InMemoryBackend) ListResourceDataSync(
 		return items[i].SyncName < items[k].SyncName
 	})
 
-	return &ListResourceDataSyncOutputFull{ResourceDataSyncItems: items}, nil
+	var maxResults int
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(items, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &ListResourceDataSyncOutputFull{ResourceDataSyncItems: page, NextToken: next}, nil
 }
 
-// UpdateResourceDataSync updates an existing resource data sync.
+// UpdateResourceDataSync updates an existing resource data sync. SyncType and
+// SyncSource are, along with SyncName, required UpdateResourceDataSyncInput
+// members (verified against validateOpUpdateResourceDataSyncInput,
+// validators.go); SyncSource's own SourceType/SourceRegions are required
+// whenever SyncSource is present (validateResourceDataSyncSource). The
+// pre-fix handler read only SyncName, silently no-opped (returned success)
+// on an empty one instead of erroring, and never errored on an unknown sync
+// name either -- this API only supports updating a SyncFromSource sync
+// (doc comment on api_op_UpdateResourceDataSync.go), which is what the fix
+// below now actually models.
 func (b *InMemoryBackend) UpdateResourceDataSync(
 	ctx context.Context,
 	input *UpdateResourceDataSyncInput,
 ) (*UpdateResourceDataSyncOutput, error) {
+	if input.SyncName == "" {
+		return nil, fmt.Errorf("%w: SyncName is required", ErrValidationException)
+	}
+
+	if input.SyncType == "" {
+		return nil, fmt.Errorf("%w: SyncType is required", ErrValidationException)
+	}
+
+	if input.SyncSource == nil {
+		return nil, fmt.Errorf("%w: SyncSource is required", ErrValidationException)
+	}
+
+	if input.SyncSource.SourceType == "" {
+		return nil, fmt.Errorf("%w: SyncSource.SourceType is required", ErrValidationException)
+	}
+
+	if len(input.SyncSource.SourceRegions) == 0 {
+		return nil, fmt.Errorf("%w: SyncSource.SourceRegions is required", ErrValidationException)
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateResourceDataSync")
 	defer b.mu.Unlock()
 
-	if input.SyncName == "" {
-		return &UpdateResourceDataSyncOutput{}, nil
+	sync, exists := b.resourceDataSyncsStore(region).Get(input.SyncName)
+	if !exists {
+		return nil, ErrResourceDataSyncNotFound
 	}
 
-	if sync, exists := b.resourceDataSyncsStore(region).Get(input.SyncName); exists {
-		sync.LastSyncTime = UnixTimeFloat(time.Now())
-	}
+	sync.SyncType = input.SyncType
+	sync.SyncSource = input.SyncSource
+	sync.LastSyncTime = UnixTimeFloat(time.Now())
 
 	return &UpdateResourceDataSyncOutput{}, nil
 }
@@ -259,10 +305,32 @@ func (b *InMemoryBackend) DeleteActivation(
 	return &DeleteActivationOutput{}, nil
 }
 
-// DescribeActivations lists stored activations.
+// matchesActivationFilter reports whether an activation satisfies a single
+// DescribeActivationsFilter. FilterKey values outside the three the real API
+// defines (ActivationIds/DefaultInstanceName/IamRole,
+// types.DescribeActivationsFilterKeys) match every activation: this backend
+// has no other attribute to filter on, and accept-and-echo mirrors the
+// unknown-key handling ListNodes already established (instances.go).
+func matchesActivationFilter(a Activation, f DescribeActivationsFilter) bool {
+	switch f.FilterKey {
+	case "ActivationIds":
+		return slices.Contains(f.FilterValues, a.ActivationID)
+	case "DefaultInstanceName":
+		return slices.Contains(f.FilterValues, a.DefaultInstanceName)
+	case "IamRole":
+		return slices.Contains(f.FilterValues, a.IamRole)
+	default:
+		return true
+	}
+}
+
+// DescribeActivations lists stored activations, filtered by input.Filters and
+// paginated by input.MaxResults/NextToken -- real, optional
+// DescribeActivationsInput members (api_op_DescribeActivations.go) a literal
+// struct{} input previously discarded from every request.
 func (b *InMemoryBackend) DescribeActivations(
 	ctx context.Context,
-	_ *DescribeActivationsInput,
+	input *DescribeActivationsInput,
 ) (*DescribeActivationsOutput, error) {
 	region := getRegion(ctx)
 	b.mu.RLock("DescribeActivations")
@@ -278,8 +346,27 @@ func (b *InMemoryBackend) DescribeActivations(
 			cp.Tags = append(cp.Tags, Tag{Key: k, Value: v})
 		}
 		sort.Slice(cp.Tags, func(i, j int) bool { return cp.Tags[i].Key < cp.Tags[j].Key })
-		list = append(list, cp)
+
+		matched := true
+		for _, f := range input.Filters {
+			if !matchesActivationFilter(cp, f) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			list = append(list, cp)
+		}
 	}
 
-	return &DescribeActivationsOutput{ActivationList: list}, nil
+	var maxResults int
+	if input.MaxResults != nil {
+		maxResults = int(*input.MaxResults)
+	}
+
+	page, next := paginateSlice(list, input.NextToken, maxResults, defaultDescribeMaxResults)
+
+	return &DescribeActivationsOutput{ActivationList: page, NextToken: next}, nil
 }

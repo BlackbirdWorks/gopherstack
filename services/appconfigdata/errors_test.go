@@ -102,7 +102,7 @@ func TestHandler_ErrorBodyFormat(t *testing.T) {
 			assert.Equal(t, tt.wantErrorType, got, "response body must contain correct __type")
 
 			// Verify X-Amzn-ErrorType header.
-			assert.Equal(t, tt.wantErrorTypeHdr, rec.Header().Get("X-Amzn-ErrorType"),
+			assert.Equal(t, tt.wantErrorTypeHdr, rec.Header().Get("X-Amzn-Errortype"),
 				"X-Amzn-ErrorType header must match exception type")
 		})
 	}
@@ -131,7 +131,7 @@ func TestHandler_BadRequestException_Details(t *testing.T) {
 
 		rec := doRequest(t, h2, http.MethodGet, "/configuration?configuration_token=bad-token-format", nil)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
-		assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-ErrorType"))
+		assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-Errortype"))
 
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
@@ -177,7 +177,7 @@ func TestHandler_BadRequestException_Details(t *testing.T) {
 		// Immediately poll again with next token — should be too frequent.
 		rec2 := doRequest(t, h2, http.MethodGet, "/configuration?configuration_token="+nextTok, nil)
 		assert.Equal(t, http.StatusBadRequest, rec2.Code)
-		assert.Equal(t, "BadRequestException", rec2.Header().Get("X-Amzn-ErrorType"))
+		assert.Equal(t, "BadRequestException", rec2.Header().Get("X-Amzn-Errortype"))
 
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body))
@@ -213,7 +213,7 @@ func TestHandler_ResourceNotFoundException_Structure(t *testing.T) {
 		)
 		rec := doRequest(t, h, http.MethodPost, "/configurationsessions", body)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
-		assert.Equal(t, "ResourceNotFoundException", rec.Header().Get("X-Amzn-ErrorType"))
+		assert.Equal(t, "ResourceNotFoundException", rec.Header().Get("X-Amzn-Errortype"))
 
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -261,7 +261,7 @@ func TestHandler_ErrorTypeHeader(t *testing.T) {
 
 		rec := doRequest(t, h, http.MethodPost, "/configurationsessions",
 			[]byte(`{"ApplicationIdentifier":"a"}`))
-		assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-ErrorType"))
+		assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-Errortype"))
 	})
 
 	t.Run("resource_not_found_has_header", func(t *testing.T) {
@@ -269,14 +269,14 @@ func TestHandler_ErrorTypeHeader(t *testing.T) {
 
 		rec := doRequest(t, h, http.MethodPost, "/configurationsessions",
 			[]byte(`{"ApplicationIdentifier":"a","EnvironmentIdentifier":"e","ConfigurationProfileIdentifier":"p"}`))
-		assert.Equal(t, "ResourceNotFoundException", rec.Header().Get("X-Amzn-ErrorType"))
+		assert.Equal(t, "ResourceNotFoundException", rec.Header().Get("X-Amzn-Errortype"))
 	})
 
 	t.Run("invalid_token_has_header", func(t *testing.T) {
 		t.Parallel()
 
 		rec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token=garbage", nil)
-		assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-ErrorType"))
+		assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-Errortype"))
 	})
 }
 
@@ -373,7 +373,7 @@ func TestHandler_ErrorResponseShape(t *testing.T) {
 			rec := doRequest(t, h, tt.method, tt.path, tt.body)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
-			assert.Equal(t, tt.wantErrorType, rec.Header().Get("X-Amzn-ErrorType"),
+			assert.Equal(t, tt.wantErrorType, rec.Header().Get("X-Amzn-Errortype"),
 				"X-Amzn-ErrorType header must match exception type")
 
 			var body map[string]any

@@ -21,8 +21,9 @@ type jsonCreateStreamReq struct {
 }
 
 type jsonDeleteStreamReq struct {
-	StreamName string `json:"StreamName"`
-	StreamARN  string `json:"StreamARN"`
+	StreamName              string `json:"StreamName"`
+	StreamARN               string `json:"StreamARN"`
+	EnforceConsumerDeletion bool   `json:"EnforceConsumerDeletion"`
 }
 
 type jsonDescribeStreamReq struct {
@@ -180,7 +181,10 @@ func (h *Handler) handleDeleteStream(
 	}
 	regionCtx := contextWithRegion(ctx, region)
 
-	if err := h.Backend.DeleteStream(regionCtx, &DeleteStreamInput{StreamName: streamName}); err != nil {
+	if err := h.Backend.DeleteStream(regionCtx, &DeleteStreamInput{
+		StreamName:              streamName,
+		EnforceConsumerDeletion: req.EnforceConsumerDeletion,
+	}); err != nil {
 		return nil, err
 	}
 

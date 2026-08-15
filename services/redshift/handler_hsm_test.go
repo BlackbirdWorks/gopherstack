@@ -175,6 +175,12 @@ func TestHandler_DescribeHsmClientCertificates(t *testing.T) {
 
 // ---- CreateHsmConfiguration ----
 
+// hsmRequiredSecrets is appended to CreateHsmConfiguration request bodies
+// that need to satisfy the two required-but-never-echoed members:
+// HsmPartitionPassword (a credential) and HsmServerPublicCertificate.
+const hsmRequiredSecrets = "&HsmPartitionPassword=s3cr3t-partition-pw&HsmServerPublicCertificate=" +
+	"-----BEGIN+CERTIFICATE-----%0AfakeCertBytes%0A-----END+CERTIFICATE-----"
+
 func TestHandler_CreateHsmConfiguration(t *testing.T) {
 	t.Parallel()
 
@@ -191,7 +197,8 @@ func TestHandler_CreateHsmConfiguration(t *testing.T) {
 				"&Description=My+HSM+configuration" +
 				"&HsmIpAddress=192.168.1.100" +
 				"&HsmPartitionName=my-partition" +
-				"&Tags.Tag.1.Key=env&Tags.Tag.1.Value=prod",
+				"&Tags.Tag.1.Key=env&Tags.Tag.1.Value=prod" +
+				hsmRequiredSecrets,
 			wantCode: http.StatusOK,
 			wantContains: []string{
 				"CreateHsmConfigurationResponse", "my-hsm-config", "192.168.1.100", "my-partition",
@@ -200,16 +207,33 @@ func TestHandler_CreateHsmConfiguration(t *testing.T) {
 		},
 		{
 			name:         "missing_identifier",
-			body:         "Action=CreateHsmConfiguration&Version=2012-12-01",
+			body:         "Action=CreateHsmConfiguration&Version=2012-12-01" + hsmRequiredSecrets,
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "missing_partition_password",
+			body: "Action=CreateHsmConfiguration&Version=2012-12-01" +
+				"&HsmConfigurationIdentifier=nopw-config&HsmIpAddress=10.0.0.1&HsmPartitionName=p1" +
+				"&HsmServerPublicCertificate=-----BEGIN+CERTIFICATE-----",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue", "HsmPartitionPassword"},
+		},
+		{
+			name: "missing_server_public_certificate",
+			body: "Action=CreateHsmConfiguration&Version=2012-12-01" +
+				"&HsmConfigurationIdentifier=nocert-config&HsmIpAddress=10.0.0.1&HsmPartitionName=p1" +
+				"&HsmPartitionPassword=s3cr3t",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue", "HsmServerPublicCertificate"},
 		},
 		{
 			name: "duplicate",
 			body: "Action=CreateHsmConfiguration&Version=2012-12-01" +
 				"&HsmConfigurationIdentifier=dup-config" +
 				"&HsmIpAddress=10.0.0.1" +
-				"&HsmPartitionName=p1",
+				"&HsmPartitionName=p1" +
+				hsmRequiredSecrets,
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"HsmConfigurationAlreadyExists"},
 		},
@@ -222,7 +246,8 @@ func TestHandler_CreateHsmConfiguration(t *testing.T) {
 			h := newRedshiftHandler()
 			if tt.name == "duplicate" {
 				postRedshiftForm(t, h, "Action=CreateHsmConfiguration&Version=2012-12-01"+
-					"&HsmConfigurationIdentifier=dup-config&HsmIpAddress=10.0.0.1&HsmPartitionName=p1")
+					"&HsmConfigurationIdentifier=dup-config&HsmIpAddress=10.0.0.1&HsmPartitionName=p1"+
+					hsmRequiredSecrets)
 			}
 
 			rec := postRedshiftForm(t, h, tt.body)
@@ -231,6 +256,9 @@ func TestHandler_CreateHsmConfiguration(t *testing.T) {
 			for _, s := range tt.wantContains {
 				assert.Contains(t, rec.Body.String(), s)
 			}
+
+			assert.NotContains(t, rec.Body.String(), "s3cr3t",
+				"HsmPartitionPassword must never be echoed back in the response")
 		})
 	}
 }
@@ -273,7 +301,8 @@ func TestHandler_DeleteHsmConfiguration(t *testing.T) {
 			h := newRedshiftHandler()
 			if tt.name == "success" {
 				postRedshiftForm(t, h, "Action=CreateHsmConfiguration&Version=2012-12-01"+
-					"&HsmConfigurationIdentifier=my-config&HsmIpAddress=10.0.0.1&HsmPartitionName=p1")
+					"&HsmConfigurationIdentifier=my-config&HsmIpAddress=10.0.0.1&HsmPartitionName=p1"+
+					hsmRequiredSecrets)
 			}
 
 			rec := postRedshiftForm(t, h, tt.body)
@@ -330,7 +359,8 @@ func TestHandler_DescribeHsmConfigurations(t *testing.T) {
 			h := newRedshiftHandler()
 			if tt.name == "with_data" || tt.name == "filter_by_id" {
 				postRedshiftForm(t, h, "Action=CreateHsmConfiguration&Version=2012-12-01"+
-					"&HsmConfigurationIdentifier=hsm-config-1&HsmIpAddress=10.0.0.1&HsmPartitionName=p1")
+					"&HsmConfigurationIdentifier=hsm-config-1&HsmIpAddress=10.0.0.1&HsmPartitionName=p1"+
+					hsmRequiredSecrets)
 			}
 
 			rec := postRedshiftForm(t, h, tt.body)

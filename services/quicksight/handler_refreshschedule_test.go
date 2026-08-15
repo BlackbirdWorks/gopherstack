@@ -16,7 +16,7 @@ func TestQuickSight_DataSetRefreshScheduleCRUD(t *testing.T) {
 	h := newTestHandler(t)
 
 	createDataSetRec := doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-		"DataSetId": "ds1", "Name": "DataSet1", "ImportMode": "SPICE",
+		"DataSetId": "ds1", "Name": "DataSet1", "ImportMode": "SPICE", "PhysicalTableMap": testPhysicalTableMap(),
 	})
 	require.Equal(t, http.StatusCreated, createDataSetRec.Code)
 
@@ -89,7 +89,7 @@ func TestQuickSight_DataSetRefreshPropertiesCRUD(t *testing.T) {
 	h := newTestHandler(t)
 
 	createDataSetRec := doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-		"DataSetId": "ds1", "Name": "DataSet1", "ImportMode": "SPICE",
+		"DataSetId": "ds1", "Name": "DataSet1", "ImportMode": "SPICE", "PhysicalTableMap": testPhysicalTableMap(),
 	})
 	require.Equal(t, http.StatusCreated, createDataSetRec.Code)
 
@@ -132,7 +132,7 @@ func TestQuickSight_RefreshSchedule_StartAfterDateTime(t *testing.T) {
 	h := newTestHandler(t)
 
 	createDataSetRec := doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
-		"DataSetId": "ds1", "Name": "DataSet1", "ImportMode": "SPICE",
+		"DataSetId": "ds1", "Name": "DataSet1", "ImportMode": "SPICE", "PhysicalTableMap": testPhysicalTableMap(),
 	})
 	require.Equal(t, http.StatusCreated, createDataSetRec.Code)
 

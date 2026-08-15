@@ -98,7 +98,7 @@ func TestHandler_GetLatestConfiguration(t *testing.T) {
 				// returns 204 for this operation).
 				rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
 				assert.Equal(t, http.StatusOK, rec2.Code)
-				assert.Empty(t, rec2.Header().Get("ETag"), "ETag must not be set when unchanged")
+				assert.Empty(t, rec2.Header().Get("Etag"), "ETag must not be set when unchanged")
 				assert.Empty(t, rec2.Body.String())
 
 				return
@@ -112,7 +112,7 @@ func TestHandler_GetLatestConfiguration(t *testing.T) {
 			}
 
 			if tt.wantEtag {
-				assert.NotEmpty(t, rec.Header().Get("ETag"))
+				assert.NotEmpty(t, rec.Header().Get("Etag"))
 			}
 
 			if tt.wantStatus == http.StatusOK {
@@ -145,7 +145,7 @@ func TestHandler_NoContentHeaders(t *testing.T) {
 	// First poll sets PreviousContentHash.
 	rec1 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
-	assert.NotEmpty(t, rec1.Header().Get("ETag"), "first poll must include ETag")
+	assert.NotEmpty(t, rec1.Header().Get("Etag"), "first poll must include ETag")
 	assert.NotEmpty(t, rec1.Header().Get("Next-Poll-Configuration-Token"))
 	assert.NotEmpty(t, rec1.Header().Get("Next-Poll-Interval-In-Seconds"))
 	token = rec1.Header().Get("Next-Poll-Configuration-Token")
@@ -154,7 +154,7 @@ func TestHandler_NoContentHeaders(t *testing.T) {
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 	assert.Empty(t, rec2.Body.String(), "unchanged response must have an empty body")
-	assert.Empty(t, rec2.Header().Get("ETag"), "unchanged response must not include ETag")
+	assert.Empty(t, rec2.Header().Get("Etag"), "unchanged response must not include ETag")
 	// Poll-control headers must still be present.
 	assert.NotEmpty(t, rec2.Header().Get("Next-Poll-Configuration-Token"))
 	assert.NotEmpty(t, rec2.Header().Get("Next-Poll-Interval-In-Seconds"))
@@ -331,7 +331,7 @@ func TestHandler_TokenExpired_Returns400(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+tok, nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "expired/invalid token must return 400, not 401")
-	assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-ErrorType"))
+	assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-Errortype"))
 }
 
 // TestHandler_RetryAfterHeader verifies the Retry-After header is set on poll-too-frequent errors.
@@ -401,7 +401,7 @@ func TestHandler_VersionLabelHeaderNameIsVersionLabel(t *testing.T) {
 		"Version-Label header must be set on 200 responses")
 
 	// The old header name must NOT be set — it is not in the AWS protocol.
-	assert.Empty(t, rec.Header().Get("X-Amzn-AppConfig-Version-Label"),
+	assert.Empty(t, rec.Header().Get("X-Amzn-Appconfig-Version-Label"),
 		"X-Amzn-AppConfig-Version-Label is not in the AWS protocol and must not be set")
 }
 
@@ -441,7 +441,7 @@ func TestHandler_ConfigUpdateDetection(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 	assert.Equal(t, `{"v":1}`, rec1.Body.String())
 	t1 := rec1.Header().Get("Next-Poll-Configuration-Token")
-	etag1 := rec1.Header().Get("ETag")
+	etag1 := rec1.Header().Get("Etag")
 
 	// Second poll — no change → 200 with an empty body.
 	rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+t1, nil)
@@ -457,7 +457,7 @@ func TestHandler_ConfigUpdateDetection(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 	assert.Equal(t, `{"v":2}`, rec3.Body.String())
 
-	etag3 := rec3.Header().Get("ETag")
+	etag3 := rec3.Header().Get("Etag")
 	assert.NotEmpty(t, etag3, "changed content must include ETag")
 	assert.NotEqual(t, etag1, etag3, "ETag must change when content changes")
 
@@ -552,7 +552,7 @@ func TestHandler_ETagFormat(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	etag := rec.Header().Get("ETag")
+	etag := rec.Header().Get("Etag")
 	require.NotEmpty(t, etag)
 	assert.True(t, strings.HasPrefix(etag, `"`), "ETag must start with double-quote")
 	assert.True(t, strings.HasSuffix(etag, `"`), "ETag must end with double-quote")
@@ -649,7 +649,7 @@ func TestHandler_PollRateLimitEnforced(t *testing.T) {
 			// Immediate re-poll — rate limited.
 			rec2 := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+nextTok, nil)
 			assert.Equal(t, http.StatusBadRequest, rec2.Code)
-			assert.Equal(t, "BadRequestException", rec2.Header().Get("X-Amzn-ErrorType"))
+			assert.Equal(t, "BadRequestException", rec2.Header().Get("X-Amzn-Errortype"))
 			assert.Equal(t, tt.wantRetry, rec2.Header().Get("Retry-After"))
 
 			var body map[string]any
@@ -738,9 +738,9 @@ func TestHandler_ResponseHeaders(t *testing.T) {
 			assert.NotEmpty(t, rec.Header().Get("Next-Poll-Interval-In-Seconds"))
 
 			if tt.wantETag {
-				assert.NotEmpty(t, rec.Header().Get("ETag"), "ETag must be set when content changed")
+				assert.NotEmpty(t, rec.Header().Get("Etag"), "ETag must be set when content changed")
 			} else {
-				assert.Empty(t, rec.Header().Get("ETag"), "ETag must not be set when unchanged")
+				assert.Empty(t, rec.Header().Get("Etag"), "ETag must not be set when unchanged")
 			}
 
 			if tt.wantEmptyBody {

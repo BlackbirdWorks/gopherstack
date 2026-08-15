@@ -153,7 +153,13 @@ ops:
     UpdateAgentActionGroup."}
   ListAgentKnowledgeBases: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was totally unreachable: POST (real wire method) had no case at all and
-    404'd — fixed"}
+    404'd — fixed. SEPARATELY (gopherstack-dv4s, over-wide sweep): the prior
+    'wire: fixed' only verified reachability, never checked for extra fields —
+    the handler reused the full AgentKnowledgeBase struct (Get shape) for List,
+    leaking agentId/agentVersion/createdAt. Real types.AgentKnowledgeBaseSummary
+    (bedrockagent@v1.58.4, types/types.go) declares only knowledgeBaseId,
+    knowledgeBaseState, updatedAt, description. Fixed with a dedicated
+    AgentKnowledgeBaseSummary type."}
   CreateDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
   GetDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -203,7 +209,14 @@ ops:
   CreateFlowVersion: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same FlowStatus casing fix"}
   GetFlowVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFlowVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFlowVersions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFlowVersions: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "(gopherstack-dv4s, over-wide sweep) prior 'wire: ok' only checked
+    required fields were present, never that extras were absent. The
+    FlowVersionSummary builder leaked name/description, which real
+    types.FlowVersionSummary (bedrockagent@v1.58.4, types/types.go) does not
+    declare (only arn, createdAt, id, status, version) — those two members
+    live on the full FlowVersion (Get) type, not the List summary. Fixed by
+    narrowing FlowVersionSummary itself, which is dedicated to this op only."}
   CreateFlowAlias: {wire: fixed, errors: ok, state: fixed, persist: ok,
     note: "invented 'tags' wire field removed (real CreateFlowAliasOutput has
     no tags member); that field was tags' only storage before, so also added
@@ -257,7 +270,7 @@ ops:
     Removed from GetSupportedOperations() this pass; route/state kept for
     this package's own tests."}
   IngestKnowledgeBaseDocuments: {wire: fixed, errors: ok, state: ok, persist: ok,
-    note: "FIXED (parity-5, 2026-07-31, follow-up pass): dispatchKBDocuments
+    note: "Routing FIXED (parity-5, 2026-07-31, follow-up pass): dispatchKBDocuments
     (handler.go) had no case for PUT to the base .../datasources/{id}/documents
     path at all, so a real client's real, correctly-formed request 404'd
     ('unknown kb docs op'). Now routed on PUT, verified against the vendored
@@ -265,9 +278,55 @@ ops:
     (handler_knowledge_bases.go), the parallel ExtractOperation-facing
     classifier, updated to match. See TestKBDocumentsRealWireRouting
     (handler_ingestion_jobs_test.go) for the regression coverage, and the
-    gaps entry below for the fix history."}
-  GetKnowledgeBaseDocuments: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteKnowledgeBaseDocuments: {wire: ok, errors: ok, state: ok, persist: ok}
+    gaps entry below for the fix history.
+    Body FIXED (gopherstack-wzwn, 2026-08-13): the routing fix above only
+    proved the request *reached* handleIngestKBDocs -- the body decode was
+    still wrong. Each Documents[] entry's identity lives at
+    content.custom.customDocumentIdentifier.id or content.s3.s3Location.uri
+    (types.KnowledgeBaseDocument/DocumentContent/CustomContent/S3Content,
+    verified against api_op_IngestKnowledgeBaseDocuments.go and
+    serializeDocumentKnowledgeBaseDocument in the pinned SDK
+    aws-sdk-go-v2/service/bedrockagent@v1.58.4); there is no top-level
+    'documentId' field. The handler was reading exactly that nonexistent
+    'documentId' key, so every real client's ingested documents were stored
+    under an empty identity. Now decodes documentContentWire and derives
+    KBDocumentIdentifier{DataSourceType, Custom, S3} from the real nested
+    shape. See TestHandlerGetKBDocuments_RealWireIdentifier/
+    TestHandlerDeleteKBDocuments_RealWireIdentifier (handler_knowledge_bases_test.go)."}
+  GetKnowledgeBaseDocuments: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED (gopherstack-wzwn, 2026-08-13): was 'wire: ok', which was false --
+    nobody had diffed the request body against the real SDK. Real
+    GetKnowledgeBaseDocumentsInput.DocumentIdentifiers ([]types.DocumentIdentifier,
+    a list of {dataSourceType, custom:{id}, s3:{uri}} objects -- verified against
+    api_op_GetKnowledgeBaseDocuments.go and serializeDocumentDocumentIdentifier
+    in the pinned SDK aws-sdk-go-v2/service/bedrockagent@v1.58.4) was being decoded
+    as a struct tagged json:\"documentIds\" (a key no client sends) holding
+    []string (the wrong type on top of the wrong key). req.DocumentIDs was
+    therefore always empty and the op always returned an empty documentDetails
+    list for every real client, silently. Now decodes documentIdentifiers as
+    []KBDocumentIdentifier matching the real nested shape, and rejects an
+    identifier missing the sub-object its own dataSourceType requires as
+    ValidationException (declared in awsRestjson1_deserializeOpErrorGetKnowledgeBaseDocuments).
+    See TestHandlerGetKBDocuments_RealWireIdentifier and
+    TestHandlerKBDocuments_MissingIdentifierIsValidationException
+    (handler_knowledge_bases_test.go)."}
+  DeleteKnowledgeBaseDocuments: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED (gopherstack-wzwn, 2026-08-13): same bug and fix as
+    GetKnowledgeBaseDocuments above, worse impact -- Delete reported success
+    (202, real documentDetails-shaped body) having deleted nothing, on every
+    real client, for every call. Also fixed a second, independent fabrication
+    found while rewriting this op: on a found-and-deleted document the
+    response set status: 'DELETED', a value that does not exist in the real
+    DocumentStatus enum (types/enums.go: INDEXED, PARTIALLY_INDEXED, PENDING,
+    FAILED, METADATA_PARTIALLY_INDEXED, METADATA_UPDATE_FAILED, IGNORED,
+    NOT_FOUND, STARTING, IN_PROGRESS, DELETING, DELETE_IN_PROGRESS -- no
+    DELETED). Now uses DELETING, the declared status for 'you submitted the
+    delete job containing the document', matching this backend's existing
+    synchronous-completion convention (Ingest jumps straight to INDEXED
+    rather than modeling STARTING/PENDING/IN_PROGRESS). See
+    TestHandlerDeleteKBDocuments_RealWireIdentifier and
+    TestHandlerKBDocuments_MissingIdentifierIsValidationException
+    (handler_knowledge_bases_test.go)."}
   ListKnowledgeBaseDocuments: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "FIXED (parity-5, 2026-07-31, follow-up pass): dispatchKBDocuments
     routed POST-on-base unconditionally to handleIngestKBDocs (see
@@ -318,6 +377,27 @@ families:
     ConflictException, InternalServerException, ResourceNotFoundException,
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
 gaps:
+  - "FIXED (gopherstack-wzwn, 2026-08-13): GetKnowledgeBaseDocuments and
+    DeleteKnowledgeBaseDocuments decoded their request body against a struct
+    tagged json:\"documentIds\" holding []string. Real clients send
+    \"documentIdentifiers\", a list of {dataSourceType, custom:{id}, s3:{uri}}
+    objects (types.DocumentIdentifier) -- wrong key AND wrong type, so the
+    decoded slice was always empty and both ops silently no-opped on every
+    real request while returning success (Delete: 202 with a real-shaped
+    documentDetails body, having deleted nothing). The routing fix logged
+    below (parity-5, 2026-07-31) proved the request reached the handler; it
+    never proved the handler understood the body, and this survived that
+    pass's TestKBDocumentsRealWireRouting because that test's own fixture
+    helper (ingestionFixture.ingestDocs) sent the same invented
+    'documentId'/'documentIds' shape the handler expected, not the real SDK
+    shape. Sibling IngestKnowledgeBaseDocuments shared the same bug on its
+    own axis: it read a top-level 'documentId' key that doesn't exist on the
+    real wire either (the real identity lives inside content.custom.../
+    content.s3...). All three ops now decode the real nested shape via
+    KBDocumentIdentifier/documentContentWire; ListKnowledgeBaseDocuments was
+    checked and has no request-body identifier to get wrong (it lists
+    everything under a data source). See the three ops' rows above for
+    detail and the new regression tests in handler_knowledge_bases_test.go."
   - "GetSupportedOperations phantom-triage pass (parity-5, 2026-07-31): the reverse
     sdkcheck (gopherstack-vhw2) flagged GetPromptVersion and DeletePromptVersion as
     fabricated — neither is a real bedrock-agent operation (real AWS: GetPrompt/

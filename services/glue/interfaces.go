@@ -19,7 +19,9 @@ type StorageBackend interface {
 	StopReconciler()
 
 	// Connection-type registry operations.
-	RegisterConnectionType(name, description string) (*ConnectionTypeInfo, error)
+	RegisterConnectionType(
+		name, description string, spec RegisterConnectionTypeSpec,
+	) (*ConnectionTypeInfo, error)
 	DeleteConnectionType(name string) error
 	ListConnectionTypes() []*ConnectionTypeInfo
 	DescribeConnectionType(name string) (*ConnectionTypeInfo, error)
@@ -427,10 +429,10 @@ type StorageBackend interface {
 	ListMaterializedViewRefreshTaskRuns() []*MaterializedViewRefreshRun
 
 	// Integration operations.
-	CreateIntegration(name string, tags map[string]string) (*Integration, error)
-	DeleteIntegration(name string) error
+	CreateIntegration(name, sourceArn, targetArn string, tags map[string]string) (*Integration, error)
+	DeleteIntegration(identifier string) (*Integration, error)
 	ListIntegrations() []*Integration
-	ModifyIntegration(name string) error
+	ModifyIntegration(identifier string) (*Integration, error)
 	CreateIntegrationResourceProperty(
 		resourceArn string,
 		sourceProps, targetProps map[string]string,
@@ -454,7 +456,7 @@ type StorageBackend interface {
 	) error
 
 	// GlueIdentityCenter operations.
-	CreateGlueIdentityCenterConfiguration(instanceARN string) error
+	CreateGlueIdentityCenterConfiguration(instanceARN string) (*IdentityCenterConfig, error)
 	GetGlueIdentityCenterConfiguration() (*IdentityCenterConfig, error)
 	UpdateGlueIdentityCenterConfiguration(instanceARN string) error
 	DeleteGlueIdentityCenterConfiguration() error

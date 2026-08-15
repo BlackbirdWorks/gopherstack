@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 57 (57 ok) |
+| Operations audited | 67 (67 ok) |
 | Known gaps | 4 |
 | Deferred items | 4 |
 | Resource leaks | clean |
@@ -21,7 +21,7 @@
 
 ### Deferred
 
-- devices' deviceType.DeviceStatus is an extra field NOT present on the real DeviceType wire shape (verified by reading the complete SDK struct: only DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate exist; device remembered status is write-only in real Cognito, never returned by any Get/List device op). Not removed: several existing tests assert on it and no real client breaks from an extra unknown JSON key, so removing it purely for spec purity would cost test-observable state for no functional gain. Flagged for whoever next touches devices.go so it isn't mistaken for a verified-real field.
+- devices' deviceType.DeviceStatus is an extra field NOT present on the real DeviceType wire shape (verified by reading the complete SDK struct: only DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate exist; device remembered status is write-only in real Cognito, never returned by any Get/List device op). Not removed: several existing tests assert on it and no real client breaks from an extra unknown JSON key, so removing it purely for spec purity would cost test-observable state for no functional gain. Flagged for whoever next touches devices.go so it isn't mistaken for a verified-real field. Evidence: aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4, types/types.go:677-698, checked 2026-08-13 -- see families.devices above for the full citation including the deserializer default-case confirmation. This entry records a verdict as of that version; re-check the same struct before trusting it against a newer SDK pin.
 - risk_config: RiskConfigurationType.LastModifiedDate is a real response field this backend doesn't track at all internally (no LastModifiedAt on the risk-config storage type, unlike domains/managed_login_branding where CreatedAt/LastModifiedAt already existed and just needed echoing) -- would need a new tracked field plus updates at every SetRiskConfiguration call site, not a one-line echo fix.
 - Pagination is unimplemented on at least two List ops with real MaxResults/NextToken(or PaginationToken) contracts: ListUserImportJobs (MaxResults is REQUIRED on the real input, silently accepted by no field here) and ListResourceServers (MaxResults/PaginationToken optional, NextToken in output). Both always return every item in one page. ListUsers/ListWebAuthnCredentials/ListDevices already do this correctly (pkgs/page or hand-rolled token) -- the same pattern should be applied here in a future pass.
 - domains: Routing and Version, two more real DomainDescriptionType fields (multi-region failover routing config; app version string), remain unpopulated -- this backend has no multi-region-domain-routing model and no meaningful 'app version' to report. Left absent rather than fabricated, per the same standard as terms/ above, just far smaller in scope.

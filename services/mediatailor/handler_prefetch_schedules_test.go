@@ -283,7 +283,10 @@ func TestPrefetchSchedule_TagsAndScheduleTypeRoundTrip(t *testing.T) {
 	assert.Equal(t, "stream-9", resp["StreamId"])
 	tags, _ := resp["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
-	assert.NotNil(t, resp["CreationTime"])
+	assert.NotContains(
+		t, resp, "CreationTime",
+		"GetPrefetchScheduleOutput has no CreationTime member on the real API",
+	)
 }
 
 // TestCreatePrefetchSchedule_InvalidScheduleType verifies an unrecognized

@@ -102,6 +102,11 @@ func (h *ServerlessHandler) GetSupportedOperations() []string {
 		"ListManagedWorkgroups",
 		"RestoreFromSnapshot",
 		"ConvertRecoveryPointToSnapshot",
+		"UpdateSnapshot",
+		"GetTrack",
+		"ListTracks",
+		"UpdateLakehouseConfiguration",
+		opGetIdentityCenterAuthToken,
 	}
 }
 
@@ -131,6 +136,7 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.slRecoveryPoints.Reset()
 	h.Backend.slTableRestoreStatuses.Reset()
 	h.Backend.slEndpointAccesses.Reset()
+	h.Backend.slLakehouseConfig.Reset()
 	h.Backend.resetServerlessIndexes()
 }
 
@@ -278,6 +284,12 @@ var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte)
 
 	"RestoreFromSnapshot":            (*ServerlessHandler).handleRestoreFromSnapshot,
 	"ConvertRecoveryPointToSnapshot": (*ServerlessHandler).handleConvertRecoveryPointToSnapshot,
+
+	"UpdateSnapshot":               (*ServerlessHandler).handleUpdateSnapshot,
+	"GetTrack":                     (*ServerlessHandler).handleGetTrack,
+	"ListTracks":                   (*ServerlessHandler).handleListTracks,
+	"UpdateLakehouseConfiguration": (*ServerlessHandler).handleUpdateLakehouseConfiguration,
+	opGetIdentityCenterAuthToken:   (*ServerlessHandler).handleGetIdentityCenterAuthTokenSL,
 }
 
 // ---------------------------------------------------------------------------
@@ -288,10 +300,12 @@ func (h *ServerlessHandler) handleCreateNamespace(c *echo.Context, body []byte) 
 	var req struct {
 		NamespaceName               string      `json:"namespaceName"`
 		AdminUsername               string      `json:"adminUsername"`
+		AdminUserPassword           string      `json:"adminUserPassword"`
 		DBName                      string      `json:"dbName"`
 		KmsKeyID                    string      `json:"kmsKeyId"`
 		DefaultIamRoleArn           string      `json:"defaultIamRoleArn"`
 		AdminPasswordSecretKmsKeyID string      `json:"adminPasswordSecretKmsKeyId"`
+		RedshiftIdcApplicationArn   string      `json:"redshiftIdcApplicationArn"`
 		IamRoles                    []string    `json:"iamRoles"`
 		LogExports                  []string    `json:"logExports"`
 		Tags                        []slTagWire `json:"tags"`
@@ -309,10 +323,12 @@ func (h *ServerlessHandler) handleCreateNamespace(c *echo.Context, body []byte) 
 	ns, err := h.Backend.CreateNamespace(CreateNamespaceParams{
 		NamespaceName:               req.NamespaceName,
 		AdminUsername:               req.AdminUsername,
+		AdminUserPassword:           req.AdminUserPassword,
 		DBName:                      req.DBName,
 		KmsKeyID:                    req.KmsKeyID,
 		DefaultIamRoleArn:           req.DefaultIamRoleArn,
 		AdminPasswordSecretKmsKeyID: req.AdminPasswordSecretKmsKeyID,
+		RedshiftIdcApplicationArn:   req.RedshiftIdcApplicationArn,
 		ManageAdminPassword:         req.ManageAdminPassword,
 		IamRoles:                    req.IamRoles,
 		LogExports:                  req.LogExports,
@@ -368,7 +384,7 @@ func (h *ServerlessHandler) handleUpdateNamespace(c *echo.Context, body []byte) 
 	var req struct {
 		NamespaceName               string   `json:"namespaceName"`
 		AdminUsername               string   `json:"adminUsername"`
-		DBName                      string   `json:"dbName"`
+		AdminUserPassword           string   `json:"adminUserPassword"`
 		KmsKeyID                    string   `json:"kmsKeyId"`
 		DefaultIamRoleArn           string   `json:"defaultIamRoleArn"`
 		AdminPasswordSecretKmsKeyID string   `json:"adminPasswordSecretKmsKeyId"`
@@ -383,7 +399,7 @@ func (h *ServerlessHandler) handleUpdateNamespace(c *echo.Context, body []byte) 
 
 	ns, err := h.Backend.UpdateNamespace(req.NamespaceName, UpdateNamespaceParams{
 		AdminUsername:               req.AdminUsername,
-		DBName:                      req.DBName,
+		AdminUserPassword:           req.AdminUserPassword,
 		KmsKeyID:                    req.KmsKeyID,
 		DefaultIamRoleArn:           req.DefaultIamRoleArn,
 		AdminPasswordSecretKmsKeyID: req.AdminPasswordSecretKmsKeyID,
@@ -497,8 +513,9 @@ func (h *ServerlessHandler) handleGetWorkgroup(c *echo.Context, body []byte) err
 
 func (h *ServerlessHandler) handleListWorkgroups(c *echo.Context, body []byte) error {
 	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
+		OwnerAccount string `json:"ownerAccount"`
+		NextToken    string `json:"nextToken"`
+		MaxResults   int    `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -507,7 +524,7 @@ func (h *ServerlessHandler) handleListWorkgroups(c *echo.Context, body []byte) e
 		}
 	}
 
-	list, outToken := h.Backend.ListWorkgroups(req.MaxResults, req.NextToken)
+	list, outToken := h.Backend.ListWorkgroups(req.OwnerAccount, req.MaxResults, req.NextToken)
 	resp := map[string]any{"workgroups": list}
 
 	if outToken != "" {
@@ -624,6 +641,7 @@ func (h *ServerlessHandler) handleGetSnapshot(c *echo.Context, body []byte) erro
 	var req struct {
 		SnapshotName string `json:"snapshotName"`
 		SnapshotArn  string `json:"snapshotArn"`
+		OwnerAccount string `json:"ownerAccount"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -635,7 +653,7 @@ func (h *ServerlessHandler) handleGetSnapshot(c *echo.Context, body []byte) erro
 		lookup = req.SnapshotArn
 	}
 
-	snap, err := h.Backend.GetServerlessSnapshot(lookup)
+	snap, err := h.Backend.GetServerlessSnapshot(lookup, req.OwnerAccount)
 	if err != nil {
 		return slHandleErr(c, err)
 	}
@@ -645,9 +663,13 @@ func (h *ServerlessHandler) handleGetSnapshot(c *echo.Context, body []byte) erro
 
 func (h *ServerlessHandler) handleListSnapshots(c *echo.Context, body []byte) error {
 	var req struct {
-		NamespaceName string `json:"namespaceName"`
-		NextToken     string `json:"nextToken"`
-		MaxResults    int    `json:"maxResults"`
+		StartTime     *float64 `json:"startTime"`
+		EndTime       *float64 `json:"endTime"`
+		NamespaceName string   `json:"namespaceName"`
+		NamespaceArn  string   `json:"namespaceArn"`
+		OwnerAccount  string   `json:"ownerAccount"`
+		NextToken     string   `json:"nextToken"`
+		MaxResults    int      `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -656,7 +678,15 @@ func (h *ServerlessHandler) handleListSnapshots(c *echo.Context, body []byte) er
 		}
 	}
 
-	list, outToken := h.Backend.ListServerlessSnapshots(req.NamespaceName, req.MaxResults, req.NextToken)
+	list, outToken := h.Backend.ListServerlessSnapshots(ListServerlessSnapshotsParams{
+		NamespaceName: req.NamespaceName,
+		NamespaceArn:  req.NamespaceArn,
+		OwnerAccount:  req.OwnerAccount,
+		StartTime:     slEpochFromPtr(req.StartTime),
+		EndTime:       slEpochFromPtr(req.EndTime),
+		MaxResults:    req.MaxResults,
+		NextToken:     req.NextToken,
+	})
 	resp := map[string]any{"snapshots": list}
 
 	if outToken != "" {
@@ -676,6 +706,28 @@ func (h *ServerlessHandler) handleDeleteSnapshot(c *echo.Context, body []byte) e
 	}
 
 	snap, err := h.Backend.DeleteServerlessSnapshot(req.SnapshotName)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespSnapshot: snap})
+}
+
+func (h *ServerlessHandler) handleUpdateSnapshot(c *echo.Context, body []byte) error {
+	var req struct {
+		RetentionPeriod *int   `json:"retentionPeriod"`
+		SnapshotName    string `json:"snapshotName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	if req.SnapshotName == "" {
+		return slBadRequest(c, "snapshotName is required")
+	}
+
+	snap, err := h.Backend.UpdateServerlessSnapshot(req.SnapshotName, req.RetentionPeriod)
 	if err != nil {
 		return slHandleErr(c, err)
 	}
@@ -734,6 +786,7 @@ func (h *ServerlessHandler) handleGetUsageLimit(c *echo.Context, body []byte) er
 func (h *ServerlessHandler) handleListUsageLimits(c *echo.Context, body []byte) error {
 	var req struct {
 		ResourceArn string `json:"resourceArn"`
+		UsageType   string `json:"usageType"`
 		NextToken   string `json:"nextToken"`
 		MaxResults  int    `json:"maxResults"`
 	}
@@ -744,7 +797,7 @@ func (h *ServerlessHandler) handleListUsageLimits(c *echo.Context, body []byte) 
 		}
 	}
 
-	list, outToken := h.Backend.ListServerlessUsageLimits(req.ResourceArn, req.MaxResults, req.NextToken)
+	list, outToken := h.Backend.ListServerlessUsageLimits(req.ResourceArn, req.UsageType, req.MaxResults, req.NextToken)
 	resp := map[string]any{"usageLimits": list}
 
 	if outToken != "" {
@@ -983,6 +1036,114 @@ func (h *ServerlessHandler) handleDeleteScheduledAction(c *echo.Context, body []
 }
 
 // ---------------------------------------------------------------------------
+// Track handlers
+// ---------------------------------------------------------------------------
+
+func (h *ServerlessHandler) handleGetTrack(c *echo.Context, body []byte) error {
+	var req struct {
+		TrackName string `json:"trackName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	if req.TrackName == "" {
+		return slBadRequest(c, "trackName is required")
+	}
+
+	track, err := h.Backend.GetServerlessTrack(req.TrackName)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"track": track})
+}
+
+func (h *ServerlessHandler) handleListTracks(c *echo.Context, body []byte) error {
+	var req struct {
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return slBadRequest(c, "invalid request body")
+		}
+	}
+
+	list, outToken := h.Backend.ListServerlessTracks(req.MaxResults, req.NextToken)
+	resp := map[string]any{"tracks": list}
+
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// ---------------------------------------------------------------------------
+// Lakehouse configuration handler
+// ---------------------------------------------------------------------------
+
+func (h *ServerlessHandler) handleUpdateLakehouseConfiguration(c *echo.Context, body []byte) error {
+	var req struct {
+		NamespaceName              string `json:"namespaceName"`
+		CatalogName                string `json:"catalogName"`
+		LakehouseIdcApplicationArn string `json:"lakehouseIdcApplicationArn"`
+		LakehouseIdcRegistration   string `json:"lakehouseIdcRegistration"`
+		LakehouseRegistration      string `json:"lakehouseRegistration"`
+		DryRun                     bool   `json:"dryRun"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	if req.NamespaceName == "" {
+		return slBadRequest(c, "namespaceName is required")
+	}
+
+	result, err := h.Backend.UpdateLakehouseConfigurationSL(UpdateLakehouseConfigParams{
+		NamespaceName:              req.NamespaceName,
+		CatalogName:                req.CatalogName,
+		LakehouseIdcApplicationArn: req.LakehouseIdcApplicationArn,
+		LakehouseIdcRegistration:   req.LakehouseIdcRegistration,
+		LakehouseRegistration:      req.LakehouseRegistration,
+		DryRun:                     req.DryRun,
+	})
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, result)
+}
+
+// ---------------------------------------------------------------------------
+// Identity Center auth token handler
+// ---------------------------------------------------------------------------
+
+func (h *ServerlessHandler) handleGetIdentityCenterAuthTokenSL(c *echo.Context, body []byte) error {
+	var req struct {
+		WorkgroupNames []string `json:"workgroupNames"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	token, expiry, err := h.Backend.GetIdentityCenterAuthTokenSL(req.WorkgroupNames)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"token":          token,
+		"expirationTime": expiry,
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Response envelope keys and error helpers
 // ---------------------------------------------------------------------------
 
@@ -1028,7 +1189,8 @@ func slHandleErr(c *echo.Context, err error) error {
 		errors.Is(err, ErrSnapshotCopyConfigSLNotFound),
 		errors.Is(err, ErrRecoveryPointNotFound),
 		errors.Is(err, ErrTableRestoreSLNotFound),
-		errors.Is(err, ErrEndpointAccessSLNotFound):
+		errors.Is(err, ErrEndpointAccessSLNotFound),
+		errors.Is(err, ErrServerlessTrackNotFound):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrNamespaceAlreadyExists),
 		errors.Is(err, ErrWorkgroupAlreadyExists),
@@ -1036,6 +1198,8 @@ func slHandleErr(c *echo.Context, err error) error {
 		errors.Is(err, ErrCustomDomainSLConflict),
 		errors.Is(err, ErrEndpointAccessSLAlreadyExists):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ConflictException", err.Error()))
+	case errors.Is(err, ErrServerlessDryRun):
+		return c.JSON(http.StatusBadRequest, slErrorResponse("DryRunException", err.Error()))
 	default:
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ValidationException", err.Error()))
 	}

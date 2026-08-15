@@ -140,25 +140,28 @@ func (b *InMemoryBackend) DeleteTaskSet(cluster, service, taskSet string) (*Task
 	return &cp, nil
 }
 
-// DescribeTaskSets returns task sets for a service.
+// DescribeTaskSets returns task sets for a service. Task sets named in the
+// taskSets filter that don't exist are reported per-item in the returned
+// failures, matching every sibling batch-describe op (DescribeClusters,
+// DescribeServices, DescribeTasks) rather than failing the whole call.
 func (b *InMemoryBackend) DescribeTaskSets(
 	cluster, service string,
 	taskSets []string,
-) ([]TaskSet, error) {
+) ([]TaskSet, []Failure, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("DescribeTaskSets")
 	defer b.mu.RUnlock()
 
 	if !b.clusters.Has(clusterName) {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
+		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	svcKey := serviceKey(service)
 
 	svc, ok := b.services.Get(scopedKey(clusterName, svcKey))
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, service)
+		return nil, nil, fmt.Errorf("%w: %s", ErrServiceNotFound, service)
 	}
 
 	sets := b.taskSetsByService.Get(svc.ServiceArn)
@@ -169,21 +172,28 @@ func (b *InMemoryBackend) DescribeTaskSets(
 			out = append(out, *ts)
 		}
 
-		return out, nil
+		return out, nil, nil
 	}
 
 	out := make([]TaskSet, 0, len(taskSets))
+	failures := make([]Failure, 0, len(taskSets))
 
 	for _, ref := range taskSets {
 		ts, found := b.taskSets.Get(scopedKey(svc.ServiceArn, ref))
 		if !found {
-			return nil, fmt.Errorf("%w: %s", ErrTaskSetNotFound, ref)
+			failures = append(failures, Failure{
+				Arn:    ref,
+				Reason: statusMissing,
+				Detail: fmt.Sprintf("task set %s not found", ref),
+			})
+
+			continue
 		}
 
 		out = append(out, *ts)
 	}
 
-	return out, nil
+	return out, failures, nil
 }
 
 // UpdateTaskSet updates the scale of a task set.

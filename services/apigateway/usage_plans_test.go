@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	apigatewaysdk "github.com/aws/aws-sdk-go-v2/service/apigateway"
+	apigatewaytypes "github.com/aws/aws-sdk-go-v2/service/apigateway/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -267,7 +270,7 @@ func TestHandlerUsagePlan_ApiStages(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	body := `{"name":"stages-plan",` +
-		`"apiStages":[{"restApiId":"` + apiID + `","stage":"prod"}],` +
+		`"apiStages":[{"apiId":"` + apiID + `","stage":"prod"}],` +
 		`"throttle":{"rateLimit":500,"burstLimit":200}}`
 	rec = restRequest(t, h, http.MethodPost, "/usageplans", body)
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
@@ -278,7 +281,7 @@ func TestHandlerUsagePlan_ApiStages(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, apiStages, 1)
 	firstStage := apiStages[0].(map[string]any)
-	assert.Equal(t, apiID, firstStage["restApiId"])
+	assert.Equal(t, apiID, firstStage["apiId"])
 	assert.Equal(t, "prod", firstStage["stage"])
 }
 
@@ -422,4 +425,47 @@ func TestBackend_UsagePlan_ApiStages_CRUD(t *testing.T) {
 			tt.check(t, got)
 		})
 	}
+}
+
+// Test_SDKRoundTrip_UsagePlanApiStages proves the real wire field for an
+// apiStages entry is "apiId" (types.ApiStage in the pinned SDK), not
+// "restApiId". Before the fix, gopherstack emitted "restApiId" -- a real
+// client's deserializer only reads ApiId, so it decoded as nil/empty for
+// every usage plan's apiStages, even though the two sides of a hand-built
+// raw-JSON test (which controls both request and response encoding) agreed
+// with each other and thus could not catch the mismatch.
+func Test_SDKRoundTrip_UsagePlanApiStages(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	client := newTestAPIGatewayClient(t, h)
+
+	api, err := client.CreateRestApi(t.Context(), &apigatewaysdk.CreateRestApiInput{
+		Name: aws.String("sdk-usageplan-api"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDeployment(t.Context(), &apigatewaysdk.CreateDeploymentInput{
+		RestApiId: api.Id,
+		StageName: aws.String("prod"),
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateUsagePlan(t.Context(), &apigatewaysdk.CreateUsagePlanInput{
+		Name: aws.String("sdk-stages-plan"),
+		ApiStages: []apigatewaytypes.ApiStage{
+			{ApiId: api.Id, Stage: aws.String("prod")},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, created.ApiStages, 1)
+	assert.Equal(t, *api.Id, *created.ApiStages[0].ApiId)
+	assert.Equal(t, "prod", *created.ApiStages[0].Stage)
+
+	got, err := client.GetUsagePlan(t.Context(), &apigatewaysdk.GetUsagePlanInput{
+		UsagePlanId: created.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.ApiStages, 1)
+	assert.Equal(t, *api.Id, *got.ApiStages[0].ApiId)
 }

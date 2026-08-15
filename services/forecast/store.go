@@ -69,7 +69,9 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns backend account.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string]any, failed bool) (*Resource, error) {
+func (b *InMemoryBackend) create(
+	kind resourceKind, action, name string, data map[string]any, failed bool,
+) (*Resource, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: resource name is required", ErrValidation)
 	}
@@ -92,7 +94,7 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if err := b.validateCreateFieldsLocked(kind, data); err != nil {
+	if err := b.validateCreateFieldsLocked(kind, action, data); err != nil {
 		return nil, err
 	}
 

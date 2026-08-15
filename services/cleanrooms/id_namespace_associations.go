@@ -37,6 +37,27 @@ func toIDNamespaceAssociationSummary(a *IDNamespaceAssociation) *IDNamespaceAsso
 	}
 }
 
+// toCollaborationIDNamespaceAssociationSummary builds the
+// collaboration-scoped shape, which carries creatorAccountId in place of
+// the membership-scoped membershipArn/membershipId (see
+// CollaborationIDNamespaceAssociationSummary).
+func toCollaborationIDNamespaceAssociationSummary(
+	a *IDNamespaceAssociation, creatorAccountID string,
+) *CollaborationIDNamespaceAssociationSummary {
+	return &CollaborationIDNamespaceAssociationSummary{
+		InputReferenceConfig:     a.InputReferenceConfig,
+		InputReferenceProperties: a.InputReferenceProperties,
+		Arn:                      a.Arn,
+		CollaborationArn:         a.CollaborationArn,
+		CollaborationID:          a.CollaborationID,
+		CreatorAccountID:         creatorAccountID,
+		Name:                     a.Name,
+		ID:                       a.ID,
+		CreateTime:               a.CreateTime,
+		UpdateTime:               a.UpdateTime,
+	}
+}
+
 func (b *InMemoryBackend) CreateIDNamespaceAssociation(
 	membershipID, name, description string,
 	inputReferenceConfig map[string]any,
@@ -175,17 +196,20 @@ func (b *InMemoryBackend) GetCollaborationIDNamespaceAssociation(
 
 func (b *InMemoryBackend) ListCollaborationIDNamespaceAssociations(
 	collaborationID, maxResults, nextToken string,
-) ([]*IDNamespaceAssociationSummary, string, error) {
+) ([]*CollaborationIDNamespaceAssociationSummary, string, error) {
 	b.mu.RLock("ListCollaborationIDNamespaceAssociations")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations.Get(collaborationID); !ok {
+	collab, ok := b.collaborations.Get(collaborationID)
+	if !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listNestedItems(
 		b.idNamespaceAssociations.All(),
 		func(a *IDNamespaceAssociation) bool { return a.CollaborationID == collaborationID },
-		toIDNamespaceAssociationSummary,
-		func(a, c *IDNamespaceAssociationSummary) bool {
+		func(a *IDNamespaceAssociation) *CollaborationIDNamespaceAssociationSummary {
+			return toCollaborationIDNamespaceAssociationSummary(a, collab.CreatorAccountID)
+		},
+		func(a, c *CollaborationIDNamespaceAssociationSummary) bool {
 			return a.ID < c.ID
 		},
 		maxResults,

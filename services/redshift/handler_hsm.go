@@ -2,6 +2,7 @@ package redshift
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -102,8 +103,26 @@ type createHsmConfigurationResponse struct {
 // (confirmed against awsAwsquery_serializeOpDocumentCreateHsmConfigurationInput in
 // aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go) -- a real SDK client never
 // sends "HsmIPAddress", so the previous vals.Get("HsmIPAddress") silently dropped it.
+//
+// HsmPartitionPassword and HsmServerPublicCertificate are also required
+// (api_op_CreateHsmConfiguration.go:64,70), but HsmConfiguration's response
+// shape (types/types.go:1118-1137) carries neither back -- real AWS never
+// echoes them either. Following this service's existing precedent for
+// CreateCluster's MasterUserPassword (handler.go:543-549,551: validated,
+// never threaded into CreateCluster or stored), both are validated for
+// presence here and then discarded rather than passed to the backend.
+// HsmPartitionPassword is a credential: never logged or stored.
 func (h *Handler) handleCreateHsmConfiguration(vals url.Values) (any, error) {
 	id := vals.Get("HsmConfigurationIdentifier")
+
+	if vals.Get("HsmPartitionPassword") == "" {
+		return nil, fmt.Errorf("%w: HsmPartitionPassword is required", ErrInvalidParameter)
+	}
+
+	if vals.Get("HsmServerPublicCertificate") == "" {
+		return nil, fmt.Errorf("%w: HsmServerPublicCertificate is required", ErrInvalidParameter)
+	}
+
 	cfg, err := h.Backend.CreateHsmConfiguration(
 		id,
 		vals.Get("Description"),

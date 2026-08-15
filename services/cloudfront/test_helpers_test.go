@@ -197,30 +197,6 @@ func doReq(
 	return rec
 }
 
-// doJSONReq fires a JSON-body request through the handler.
-func doJSONReq(
-	t *testing.T,
-	h *cloudfront.Handler,
-	method, path, body string,
-	headers map[string]string,
-) *httptest.ResponseRecorder {
-	t.Helper()
-
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	rec := httptest.NewRecorder()
-	e := echo.New()
-	c := e.NewContext(req, rec)
-	err := h.Handler()(c)
-	require.NoError(t, err)
-
-	return rec
-}
-
 // newAuditBackend creates a fresh backend for testing.
 func newAuditBackend(t *testing.T) *cloudfront.InMemoryBackend {
 	t.Helper()

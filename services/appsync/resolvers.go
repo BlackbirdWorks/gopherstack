@@ -186,6 +186,10 @@ func (b *InMemoryBackend) UpdateResolver(apiID, typeName string, r *Resolver) (*
 		existing.Runtime = r.Runtime
 	}
 
+	if r.MetricsConfig != "" {
+		existing.MetricsConfig = r.MetricsConfig
+	}
+
 	cp := *existing
 
 	return &cp, nil

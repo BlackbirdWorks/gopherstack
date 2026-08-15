@@ -101,6 +101,7 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		Engine:                form.Get("Engine"),
 		EngineVersion:         form.Get("EngineVersion"),
 		CacheNodeType:         form.Get("CacheNodeType"),
+		Durability:            form.Get("Durability"),
 	}
 
 	opts.AuthTokenEnabled = !strings.EqualFold(form.Get("AuthToken"), "") ||
@@ -202,6 +203,10 @@ func (h *Handler) deleteReplicationGroup(ctx context.Context, c *echo.Context, f
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
 	}
+	if len(rgs.Data) == 0 {
+		return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+	}
+
 	rg := rgs.Data[0]
 	if err := h.Backend.DeleteReplicationGroup(ctx, id); err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
@@ -276,7 +281,18 @@ type rgUserGroupIDsXML struct {
 	UserGroupID []string `xml:"member"`
 }
 
-// replicationGroupXML is the XML representation of a single replication group.
+// replicationGroupXML is the XML representation of a single replication
+// group. Durability/EffectiveDurability/StorageEncryptionType
+// (deserializers.go:21351/21364/21564, awsAwsquery_deserializeDocumentReplicationGroup)
+// were added by the SDK after this service's last field diff
+// (gopherstack-31dm). Durability is echoed from
+// CreateReplicationGroupInput.Durability (serializers.go:6506) /
+// ModifyReplicationGroupInput.Durability (serializers.go:8171) -- both real
+// input members. EffectiveDurability and StorageEncryptionType have no
+// Create/Modify input member (EffectiveDurability is server-resolved from
+// engine version/cluster mode, StorageEncryptionType from KMS-key state) --
+// deliberately left always empty rather than guessed, per parity-principles.md's
+// no-fabrication rule.
 type replicationGroupXML struct {
 	PendingModifiedValues      *rgPendingModifiedXML  `xml:"PendingModifiedValues,omitempty"`
 	NodeGroups                 *nodeGroupsListXML     `xml:"NodeGroups,omitempty"`
@@ -294,11 +310,14 @@ type replicationGroupXML struct {
 	SnapshotWindow             string                 `xml:"SnapshotWindow,omitempty"`
 	PreferredMaintenanceWindow string                 `xml:"PreferredMaintenanceWindow,omitempty"`
 	EngineVersion              string                 `xml:"EngineVersion,omitempty"`
-	CreatedAt                  string                 `xml:"CreatingDate,omitempty"`
+	CreatedAt                  string                 `xml:"ReplicationGroupCreateTime,omitempty"`
 	KmsKeyID                   string                 `xml:"KmsKeyId,omitempty"`
 	NotificationTopicArn       string                 `xml:"NotificationTopicArn,omitempty"`
 	TransitEncryptionMode      string                 `xml:"TransitEncryptionMode,omitempty"`
 	DataTiering                string                 `xml:"DataTiering,omitempty"`
+	Durability                 string                 `xml:"Durability,omitempty"`
+	EffectiveDurability        string                 `xml:"EffectiveDurability,omitempty"`
+	StorageEncryptionType      string                 `xml:"StorageEncryptionType,omitempty"`
 	SnapshotRetentionLimit     int                    `xml:"SnapshotRetentionLimit,omitempty"`
 	NumCacheClusters           int                    `xml:"NumCacheClusters,omitempty"`
 	ClusterEnabled             bool                   `xml:"ClusterEnabled,omitempty"`
@@ -411,6 +430,7 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		KmsKeyID:                   rg.KmsKeyID,
 		NotificationTopicArn:       rg.NotificationTopicArn,
 		TransitEncryptionMode:      rg.TransitEncryptionMode,
+		Durability:                 rg.Durability,
 		SnapshotRetentionLimit:     rg.SnapshotRetentionLimit,
 		NumCacheClusters:           numCacheClusters,
 		ClusterEnabled:             rg.ClusterModeEnabled,
@@ -500,6 +520,7 @@ func parseModifyReplicationGroupOpts(form url.Values) ReplicationGroupModifyOpts
 		AuthTokenUpdateStrategy: form.Get("AuthTokenUpdateStrategy"),
 		NotificationTopicArn:    form.Get("NotificationTopicArn"),
 		TransitEncryptionMode:   form.Get("TransitEncryptionMode"),
+		Durability:              form.Get("Durability"),
 		ApplyImmediately:        strings.EqualFold(form.Get("ApplyImmediately"), "true"),
 	}
 
@@ -554,6 +575,10 @@ func mapReplicationGroupModifyErr(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 	case errors.Is(err, ErrTransitEncryptionModeInvalid):
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
+	case errors.Is(err, ErrClusterModeRequired):
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
+	case errors.Is(err, ErrApplyImmediatelyRequired):
+		return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 	case errors.Is(err, ErrReplicationGroupNotAvailable):
 		return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
 	default:
@@ -620,14 +645,18 @@ func (h *Handler) completeMigration(ctx context.Context, c *echo.Context, form u
 
 func (h *Handler) startMigration(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
+	endpoints := parseCustomerNodeEndpoints(form, "CustomerNodeEndpointList")
 
-	rg, err := h.Backend.StartMigration(ctx, replicationGroupID)
+	rg, err := h.Backend.StartMigration(ctx, replicationGroupID, endpoints)
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupNotFound) {
+		switch {
+		case errors.Is(err, ErrReplicationGroupNotFound):
 			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+		case errors.Is(err, ErrCustomerNodeEndpointsRequired):
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		default:
+			return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type result struct {
@@ -644,14 +673,18 @@ func (h *Handler) startMigration(ctx context.Context, c *echo.Context, form url.
 
 func (h *Handler) testMigration(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
+	endpoints := parseCustomerNodeEndpoints(form, "CustomerNodeEndpointList")
 
-	rg, err := h.Backend.TestMigration(ctx, replicationGroupID)
+	rg, err := h.Backend.TestMigration(ctx, replicationGroupID, endpoints)
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupNotFound) {
+		switch {
+		case errors.Is(err, ErrReplicationGroupNotFound):
 			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+		case errors.Is(err, ErrCustomerNodeEndpointsRequired):
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		default:
+			return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type result struct {
@@ -666,11 +699,33 @@ func (h *Handler) testMigration(ctx context.Context, c *echo.Context, form url.V
 	})
 }
 
+// parseCustomerNodeEndpoints parses "<prefix>.member.N.{Address,Port}" form
+// values into a []CustomerNodeEndpoint (StartMigration/TestMigration).
+func parseCustomerNodeEndpoints(form url.Values, prefix string) []CustomerNodeEndpoint {
+	var endpoints []CustomerNodeEndpoint
+
+	for i := 1; ; i++ {
+		base := fmt.Sprintf("%s.member.%d.", prefix, i)
+		address := form.Get(base + "Address")
+		portStr := form.Get(base + "Port")
+
+		if address == "" && portStr == "" {
+			break
+		}
+
+		port, _ := strconv.ParseInt(portStr, 10, 32)
+		endpoints = append(endpoints, CustomerNodeEndpoint{Address: address, Port: int32(port)})
+	}
+
+	return endpoints
+}
+
 func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	newReplicaCount, _ := strconv.ParseInt(form.Get("NewReplicaCount"), 10, 32)
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	rg, err := h.Backend.IncreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
+	rg, err := h.Backend.IncreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount), applyImmediately)
 	if err != nil {
 		return mapReplicationGroupModifyErr(c, err)
 	}
@@ -690,8 +745,9 @@ func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, for
 func (h *Handler) decreaseReplicaCount(ctx context.Context, c *echo.Context, form url.Values) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	newReplicaCount, _ := strconv.ParseInt(form.Get("NewReplicaCount"), 10, 32)
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	rg, err := h.Backend.DecreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
+	rg, err := h.Backend.DecreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount), applyImmediately)
 	if err != nil {
 		return mapReplicationGroupModifyErr(c, err)
 	}
@@ -715,22 +771,13 @@ func (h *Handler) modifyReplicationGroupShardConfiguration(
 ) error {
 	replicationGroupID := form.Get("ReplicationGroupId")
 	nodeGroupCount, _ := strconv.ParseInt(form.Get("NodeGroupCount"), 10, 32)
+	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
 
-	rg, err := h.Backend.ModifyReplicationGroupShardConfiguration(ctx, replicationGroupID, int32(nodeGroupCount))
+	rg, err := h.Backend.ModifyReplicationGroupShardConfiguration(
+		ctx, replicationGroupID, int32(nodeGroupCount), applyImmediately,
+	)
 	if err != nil {
-		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
-		}
-
-		if errors.Is(err, ErrClusterModeRequired) {
-			return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
-		}
-
-		if errors.Is(err, ErrReplicationGroupNotAvailable) {
-			return xmlError(c, http.StatusBadRequest, "InvalidReplicationGroupState", err.Error())
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return mapReplicationGroupModifyErr(c, err)
 	}
 
 	type result struct {

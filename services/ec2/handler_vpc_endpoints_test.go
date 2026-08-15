@@ -79,8 +79,10 @@ func TestVpcEndpointServicePermissions(t *testing.T) { //nolint:paralleltest // 
 	svcID := svcCfg.ServiceID
 
 	t.Run("modify adds principals", func(t *testing.T) {
-		require.NoError(t, b.ModifyVpcEndpointServicePermissions(svcID,
-			[]string{"arn:aws:iam::111111111111:root"}, nil))
+		added, err := b.ModifyVpcEndpointServicePermissions(svcID,
+			[]string{"arn:aws:iam::111111111111:root"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"arn:aws:iam::111111111111:root"}, added)
 		principals := b.DescribeVpcEndpointServicePermissions(svcID)
 		require.Len(t, principals, 1)
 		assert.Equal(t, "arn:aws:iam::111111111111:root", principals[0])
@@ -362,9 +364,9 @@ func TestModifyVpcEndpointServicePermissions_AddRemove(t *testing.T) {
 	const principal = "arn:aws:iam::111111111111:root"
 
 	_, err = ec2.ExportDispatch(h, url.Values{
-		"Action":                        {"ModifyVpcEndpointServicePermissions"},
-		"ServiceId":                     {svcID},
-		"AddAllowedPrincipals.member.1": {principal},
+		"Action":                 {"ModifyVpcEndpointServicePermissions"},
+		"ServiceId":              {svcID},
+		"AddAllowedPrincipals.1": {principal},
 	})
 	require.NoError(t, err)
 
@@ -378,9 +380,9 @@ func TestModifyVpcEndpointServicePermissions_AddRemove(t *testing.T) {
 
 	// Remove the principal.
 	_, err = ec2.ExportDispatch(h, url.Values{
-		"Action":                           {"ModifyVpcEndpointServicePermissions"},
-		"ServiceId":                        {svcID},
-		"RemoveAllowedPrincipals.member.1": {principal},
+		"Action":                    {"ModifyVpcEndpointServicePermissions"},
+		"ServiceId":                 {svcID},
+		"RemoveAllowedPrincipals.1": {principal},
 	})
 	require.NoError(t, err)
 

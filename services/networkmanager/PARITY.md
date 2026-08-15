@@ -187,13 +187,13 @@ families:
   update_network_resource_metadata: {status: ok, note: "1 op, real key-value store keyed by ResourceArn"}
   organizations_integration: {status: ok, note: "2 ops; real ENABLE/DISABLE state flip with a synthetic OrganizationId minted on first ENABLE -- this repo has no independent AWS Organizations backend to bind against, which is inherent to the API surface, not a shortcut taken here"}
   resource_policy: {status: ok, note: "3 ops, real JSON-document store with JSON-validity checking on Put"}
-  tagging: {status: ok, note: "3 ops, standard ARN-keyed tag store shared across all 9 taggable resource kinds; reachability through the full multi-service router required raising this package's own MatchPriority (this pass, handler.go) -- see gaps: below"}
+  tagging: {status: ok, note: "3 ops, standard ARN-keyed tag store shared across all 9 taggable resource kinds. STALE NOTE CORRECTED 2026-08-13 (gopherstack-jqh2 pass 2): this family's routing previously needed a MatchPriority workaround for a bedrockagent bug (see gaps: history below); that workaround was reverted in ef896bcf1 once bedrockagent's real bug was fixed -- handler.go now returns the plain service.PriorityPathVersioned, no custom priority constant. Re-verified via TestExtractOperation_SDKRouteTable."}
 gaps:
   - "AttachmentState's PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/UPDATING/FAILED values are real but never entered by this backend -- no segment-reassignment or tag-acceptance workflow is modeled; every attachment's real path is PENDING_ATTACHMENT_ACCEPTANCE -> (Accept ->) CREATING -> AVAILABLE or -> (Reject ->) REJECTED. Buildable with more effort (a real cross-account-acceptance/tag-acceptance state machine); not attempted this pass."
   - "StartRouteAnalysis's real walk is single-hop (anchor attachment's own TGW route table only) -- it does not chain across TGW-to-TGW peering attachments, so CYCLIC_PATH_DETECTED/MAX_HOPS_EXCEEDED/the real 64-hop limit are never exercised. Buildable with more effort (multi-hop traversal + cycle detection over services/ec2's modeled TransitGatewayPeeringAttachment state); not attempted this pass."
   - "GetCoreNetworkChangeSet/GetCoreNetworkChangeEvents's diff engine is document-level (segments/network-function-groups/segment-actions/attachment-policies/core-network-configuration sections), not correlated against live attachment membership -- 5 of the real 14 ChangeType values are covered (ATTACHMENT_MAPPING/ATTACHMENT_ROUTE_PROPAGATION/ATTACHMENT_ROUTE_STATIC/ROUTING_POLICY_* remain unproduced). Buildable with more effort (resolving which attachments belong to which segment); not attempted this pass."
   - "No AWS::NetworkManager::* CloudFormation resource type exists in this repo (grep -rli networkmanager services/cloudformation/*.go returns zero hits) -- confirmed absent this pass, not silently skipped."
-  - "bd gopherstack-sokq (open, filed this pass): services/bedrockagent's RouteMatcher has a pre-existing bug unrelated to this package -- its priority-87 path-prefix fallback (/tags/, /agents, /flows, /prompts, /resourcepolicy) has no SigV4-service-scope guard, so it swallows any OTHER service's request on those same path prefixes. Found because it was swallowing NetworkManager's own TagResource/UntagResource/ListTagsForResource. Worked around HERE by raising this package's own MatchPriority to 88 (handler.go's networkManagerMatchPriority) -- the real fix belongs in bedrockagent (out of scope for this pass) and may still affect other services below priority 87 sharing those same prefixes."
+  - "CLOSED 2026-08-13 (gopherstack-jqh2 pass 2, was stale): bd gopherstack-sokq (services/bedrockagent's RouteMatcher swallowing other services' /tags/, /agents, /flows, /prompts, /resourcepolicy requests due to a missing SigV4-service-scope guard, including this package's own TagResource/UntagResource/ListTagsForResource) is CLOSED, fixed directly in bedrockagent by ef896bcf1 -- bedrockagent's prefix fallback now declines when the SigV4 scope names a different service. This package's own MatchPriority workaround (raised to 88 via handler.go's since-removed networkManagerMatchPriority constant) was reverted in the same commit; handler.go now returns the plain service.PriorityPathVersioned again."
 deferred: []
 leaks: {status: clean, note: "Handler.Reset()/InMemoryBackend.Close() wiring confirmed present (store.go: Close() calls b.work.Stop(), stopping the pkgs/worker.Group backing every scheduleAdvance/scheduleRemoval timer -- global network/site/device/link/connection/core-network/attachment/connect-peer/peering/policy-changeset state machines). `go test -race -count=1 ./services/networkmanager/...` run this pass: clean."}
 structural_gaps:
@@ -264,15 +264,17 @@ a real EC2 Transit Gateway/route table/route, asserting a real `CONNECTED` verdi
 `make build-linux && go test -race -count=1 -run TestIntegration_NetworkManager
 ./test/integration/...` passes.
 
-**Found along the way, not this package's bug**: the integration suite's very first `TagResource`
-call failed with an `InternalServerException` originating from `services/bedrockagent`'s handler,
-not this package's -- `bedrockagent`'s `RouteMatcher` (priority 87) has a loose
-`strings.HasPrefix(path, "/tags/")` fallback with no SigV4-service-scope guard, so it was swallowing
-every `/tags/{ResourceArn}` request regardless of which service actually owned it. Filed as
-`bd gopherstack-sokq` (real fix belongs in `bedrockagent`, out of scope here) and worked around by
-raising this package's own `MatchPriority` to 88 (`handler.go`'s `networkManagerMatchPriority`,
-justified independent of the collision: an exact route-table match is strictly more specific than
-any prefix fallback and should outrank one on principle, not just to dodge this one bug).
+**Found along the way, not this package's bug (historical -- fixed since)**: the integration suite's
+very first `TagResource` call failed with an `InternalServerException` originating from
+`services/bedrockagent`'s handler, not this package's -- `bedrockagent`'s `RouteMatcher` (priority
+87) had a loose `strings.HasPrefix(path, "/tags/")` fallback with no SigV4-service-scope guard, so
+it was swallowing every `/tags/{ResourceArn}` request regardless of which service actually owned
+it. Filed as `bd gopherstack-sokq` and worked around at the time by raising this package's own
+`MatchPriority` to 88 (`handler.go`'s `networkManagerMatchPriority`). **Update (2026-08-13,
+gopherstack-jqh2 pass 2): `bd gopherstack-sokq` is closed -- `ef896bcf1` fixed the real bug directly
+in `bedrockagent` (its prefix fallback now declines when the SigV4 scope names a different service)
+and reverted this package's MatchPriority workaround in the same commit; `handler.go` now returns
+the plain `service.PriorityPathVersioned` again, no custom priority constant.**
 
 ## Implementation summary (this pass, 2026-08-05)
 

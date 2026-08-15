@@ -2,17 +2,31 @@ package omics
 
 import (
 	"fmt"
+	"maps"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ────────────────────────────────────────────────────────────────────────────
 
-// CreateConfiguration creates a configuration.
-func (b *InMemoryBackend) CreateConfiguration(name, description string) (*Configuration, error) {
+// CreateConfiguration creates a configuration. runConfigurations is a
+// required CreateConfigurationInput member (verified against
+// validateOpCreateConfigurationInput, validators.go) that the pre-fix
+// request never read at all.
+func (b *InMemoryBackend) CreateConfiguration(
+	name, description string, runConfigurations *ConfigurationRunConfigurations, tags map[string]string,
+) (*Configuration, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+
+	if runConfigurations == nil {
+		return nil, fmt.Errorf("%w: runConfigurations is required", ErrValidation)
 	}
 
 	b.mu.Lock("CreateConfiguration")
@@ -22,10 +36,19 @@ func (b *InMemoryBackend) CreateConfiguration(name, description string) (*Config
 		return nil, fmt.Errorf("%w: configuration %s already exists", ErrAlreadyExists, name)
 	}
 
+	id := uuid.NewString()
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
 	cfg := &Configuration{
-		Name:         name,
-		Description:  description,
-		CreationTime: time.Now().UTC(),
+		Name:              name,
+		Description:       description,
+		CreationTime:      time.Now().UTC(),
+		ARN:               arn.Build("omics", b.defaultRegion, b.accountID, "configuration/"+id),
+		UUID:              id,
+		Status:            statusActive,
+		Tags:              tagsCopy,
+		RunConfigurations: runConfigurations,
 	}
 	b.configurations.Put(cfg)
 

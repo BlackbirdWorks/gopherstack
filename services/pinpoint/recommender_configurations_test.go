@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	pinpointsdk "github.com/aws/aws-sdk-go-v2/service/pinpoint"
+	"github.com/aws/aws-sdk-go-v2/service/pinpoint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -164,9 +167,12 @@ func TestRecommender_InvalidIDTypeOnUpdate(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.UpdateRecommenderConfiguration(created.ID, pinpoint.ExportedCreateRecommenderConfigRequest{
-		RecommendationProviderIDType: "INVALID_TYPE",
-	})
+	_, err = b.UpdateRecommenderConfiguration(
+		created.ID,
+		pinpoint.ExportedCreateRecommenderConfigRequest{
+			RecommendationProviderIDType: "INVALID_TYPE",
+		},
+	)
 	require.Error(t, err)
 }
 
@@ -671,14 +677,16 @@ func TestPinpoint_Recommender_CRUD(t *testing.T) {
 		"RecommendationProviderUri":     "arn:aws:personalize:us-east-1:123456789012:campaign/my-campaign",
 		"RecommendationProviderRoleArn": "arn:aws:iam::123456789012:role/PinpointRole",
 	})
-	if rec.Code < 200 || rec.Code >= 300 {
-		t.Skipf("recommender creation returned %d, skipping rest of test", rec.Code)
-	}
+	require.Equal(
+		t,
+		http.StatusCreated,
+		rec.Code,
+		"CreateRecommenderConfiguration must succeed with only "+
+			"the SDK-required fields (RecommendationProviderRoleArn, RecommendationProviderUri); Name is optional",
+	)
 	resp := pinpointJSON(t, rec.Body.Bytes())
 	recommenderID, _ := resp["Id"].(string)
-	if recommenderID == "" {
-		t.Skip("recommender creation did not return ID")
-	}
+	require.NotEmpty(t, recommenderID, "CreateRecommenderConfiguration response must include Id")
 
 	rec = doPinpointRequest(t, h, http.MethodGet, "/v1/recommenders/"+recommenderID, nil)
 	assert.True(t, rec.Code >= 200 && rec.Code < 300)
@@ -716,8 +724,30 @@ func TestHandler_CreateRecommenderConfiguration(t *testing.T) {
 			wantID:     true,
 		},
 		{
-			name:       "rejects_empty_name",
-			body:       map[string]any{"Name": ""},
+			// CreateRecommenderConfigurationShape.Name is optional in the
+			// pinned SDK (aws-sdk-go-v2/service/pinpoint@v1.42.4
+			// types/types.go:1898, no "This member is required" comment,
+			// unlike RecommendationProviderRoleArn/RecommendationProviderUri
+			// just above it) so a real client omitting it must succeed.
+			name: "creates_recommender_without_name",
+			body: map[string]any{
+				"RecommendationProviderRoleArn": "arn:aws:iam::123:role/recommender",
+				"RecommendationProviderUri":     "arn:aws:personalize:us-east-1:123:campaign/my-campaign",
+			},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name: "rejects_missing_role_arn",
+			body: map[string]any{
+				"RecommendationProviderUri": "arn:aws:personalize:us-east-1:123:campaign/my-campaign",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "rejects_missing_provider_uri",
+			body: map[string]any{
+				"RecommendationProviderRoleArn": "arn:aws:iam::123:role/recommender",
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -738,4 +768,39 @@ func TestHandler_CreateRecommenderConfiguration(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCreateRecommenderConfiguration_SDK_NameOptional drives the real
+// aws-sdk-go-v2 pinpoint client to prove CreateRecommenderConfiguration
+// succeeds with only its two SDK-required fields
+// (RecommendationProviderRoleArn, RecommendationProviderUri) and no Name.
+// Before the fix, the handler additionally rejected a missing Name with
+// BadRequestException even though CreateRecommenderConfigurationShape.Name
+// (aws-sdk-go-v2/service/pinpoint@v1.42.4 types/types.go:1898) has no
+// "This member is required" comment, so a real client's request -- which
+// need not set Name -- was rejected. Reverting the handler fix reproduces:
+// "operation error Pinpoint: CreateRecommenderConfiguration, https response
+// error StatusCode: 400 ... BadRequestException: Name is required".
+func TestCreateRecommenderConfiguration_SDK_NameOptional(t *testing.T) {
+	t.Parallel()
+
+	h := pinpoint.NewHandler(pinpoint.NewInMemoryBackend("us-east-1", "123456789012"))
+	client := newTestPinpointClient(t, h)
+
+	out, err := client.CreateRecommenderConfiguration(
+		t.Context(),
+		&pinpointsdk.CreateRecommenderConfigurationInput{
+			CreateRecommenderConfiguration: &types.CreateRecommenderConfigurationShape{
+				RecommendationProviderRoleArn: aws.String(
+					"arn:aws:iam::123456789012:role/PinpointRole",
+				),
+				RecommendationProviderUri: aws.String(
+					"arn:aws:personalize:us-east-1:123456789012:campaign/my-campaign",
+				),
+			},
+		},
+	)
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(out.RecommenderConfigurationResponse.Id))
+	assert.Empty(t, aws.ToString(out.RecommenderConfigurationResponse.Name))
 }

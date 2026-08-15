@@ -16,8 +16,30 @@ type DescribeInstanceAssociationsStatusInput struct {
 // DescribeInstanceAssociationsStatusOutput is the response for DescribeInstanceAssociationsStatus.
 type DescribeInstanceAssociationsStatusOutput struct{}
 
+// InstanceInformationStringFilterEntry filters DescribeInstanceInformation
+// results by a free-form key (api_op_DescribeInstanceInformation.go Filters
+// member, types.InstanceInformationStringFilter).
+type InstanceInformationStringFilterEntry struct {
+	Key    string   `json:"Key,omitempty"`
+	Values []string `json:"Values,omitempty"`
+}
+
+// InstanceInformationFilterEntry filters DescribeInstanceInformation results
+// by the legacy InstanceInformationFilterList member (deprecated by the real
+// API in favor of Filters/InstanceInformationStringFilter above, but still a
+// live request field -- types.InstanceInformationFilter).
+type InstanceInformationFilterEntry struct {
+	Key      string   `json:"key,omitempty"`
+	ValueSet []string `json:"valueSet,omitempty"`
+}
+
 // DescribeInstanceInformationInput is the request for DescribeInstanceInformation.
-type DescribeInstanceInformationInput struct{}
+type DescribeInstanceInformationInput struct {
+	MaxResults                    *int32                                 `json:"MaxResults,omitempty"`
+	NextToken                     string                                 `json:"NextToken,omitempty"`
+	Filters                       []InstanceInformationStringFilterEntry `json:"Filters,omitempty"`
+	InstanceInformationFilterList []InstanceInformationFilterEntry       `json:"InstanceInformationFilterList,omitempty"`
+}
 
 // DescribeInstanceInformationOutput is the response for DescribeInstanceInformation.
 type DescribeInstanceInformationOutput struct{}
@@ -116,30 +138,118 @@ type DescribeInstancePropertiesOutput struct {
 	InstanceProperties []InstanceProperty `json:"InstanceProperties"`
 }
 
-// ListNodesInput is the request payload.
-type ListNodesInput struct{}
+// ListNodesInput is the request payload. Matches ListNodesInput in the
+// pinned SDK (api_op_ListNodes.go:31-53): Filters, MaxResults, NextToken and
+// SyncName are all optional -- unlike ListNodesSummaryInput's Aggregators,
+// nothing here is required, so an empty body is genuinely valid. The
+// previous literal struct{} still had a real bug: it silently discarded
+// Filters/MaxResults/NextToken/SyncName from every real request instead of
+// declining to bind them because none were required.
+type ListNodesInput struct {
+	MaxResults *int32       `json:"MaxResults,omitempty"`
+	NextToken  string       `json:"NextToken,omitempty"`
+	SyncName   string       `json:"SyncName,omitempty"`
+	Filters    []NodeFilter `json:"Filters,omitempty"`
+}
 
 // ListNodesOutput is the response payload.
 type ListNodesOutput struct{}
 
-// ListNodesSummaryInput is the request payload.
-type ListNodesSummaryInput struct{}
+// NodeInstanceInfo mirrors types.InstanceInfo (types/types.go:2693-2747,
+// ssm@v1.73.4), the payload of a Node's NodeType.Instance member. Only
+// AgentVersion and PlatformType have backing state in this in-memory
+// implementation (see nodeAttributeValue); every other member (AgentType,
+// AvailabilityZone, ComputerName, InstanceStatus, IpAddress, ManagedStatus,
+// Name, PlatformName, PlatformVersion, ResourceType, SourceId,
+// SourceLocation, SourceType) has none and is left absent rather than
+// fabricated.
+type NodeInstanceInfo struct {
+	AgentVersion string `json:"AgentVersion,omitempty"`
+	PlatformType string `json:"PlatformType,omitempty"`
+}
+
+// NodeType mirrors the types.NodeType tagged union (types/types.go:4172-
+// 4189, ssm@v1.73.4); Instance is its only known member
+// (NodeTypeMemberInstance), wire key "Instance"
+// (deserializers.go:36943).
+type NodeType struct {
+	Instance *NodeInstanceInfo `json:"Instance,omitempty"`
+}
+
+// NodeOwnerInfo mirrors types.NodeOwnerInfo (types/types.go:4155-4171,
+// ssm@v1.73.4). This backend has no account/OU tracking, so Node.Owner is
+// always nil rather than fabricated.
+type NodeOwnerInfo struct {
+	AccountID              string `json:"AccountId,omitempty"`
+	OrganizationalUnitID   string `json:"OrganizationalUnitId,omitempty"`
+	OrganizationalUnitPath string `json:"OrganizationalUnitPath,omitempty"`
+}
+
+// Node is the real ListNodesOutput element, types.Node (types/types.go:4087-
+// 4106, ssm@v1.73.4): CaptureTime, Id, NodeType, Owner and Region, all
+// optional. This backend previously serialized NodeInfo directly under
+// top-level InstanceId/PlatformType/AgentVersion/RegistrationDate keys, none
+// of which exist on the real wire -- PlatformType and AgentVersion are real
+// fields, but nested three levels down inside NodeType.Instance, and
+// RegistrationDate does not exist at all (the real field is CaptureTime,
+// deserializers.go:36710, an epoch-seconds number like every other
+// timestamp in this service).
+type Node struct {
+	NodeType    *NodeType      `json:"NodeType,omitempty"`
+	Owner       *NodeOwnerInfo `json:"Owner,omitempty"`
+	ID          string         `json:"Id,omitempty"`
+	Region      string         `json:"Region,omitempty"`
+	CaptureTime float64        `json:"CaptureTime,omitempty"`
+}
+
+// NodeAggregator mirrors types.NodeAggregator in the pinned SDK
+// (types/types.go:4109-4132): AggregatorType, AttributeName and TypeName are
+// all required. Nested Aggregators (multi-level grouping) are accepted on
+// the wire but not applied -- this backend only groups by the top-level
+// AttributeName.
+type NodeAggregator struct {
+	AggregatorType string           `json:"AggregatorType"`
+	AttributeName  string           `json:"AttributeName"`
+	TypeName       string           `json:"TypeName"`
+	Aggregators    []NodeAggregator `json:"Aggregators,omitempty"`
+}
+
+// NodeFilter mirrors types.NodeFilter (types/types.go:4135-4152).
+type NodeFilter struct {
+	Key    string   `json:"Key"`
+	Type   string   `json:"Type,omitempty"`
+	Values []string `json:"Values"`
+}
+
+// ListNodesSummaryInput is the request payload. Field set matches
+// ListNodesSummaryInput in the pinned SDK (api_op_ListNodesSummary.go:31-62):
+// Aggregators is required.
+type ListNodesSummaryInput struct {
+	MaxResults  *int32           `json:"MaxResults,omitempty"`
+	NextToken   string           `json:"NextToken,omitempty"`
+	SyncName    string           `json:"SyncName,omitempty"`
+	Aggregators []NodeAggregator `json:"Aggregators"`
+	Filters     []NodeFilter     `json:"Filters,omitempty"`
+}
 
 // ListNodesSummaryOutput is the response payload.
 type ListNodesSummaryOutput struct{}
 
-// NodeInfo represents an SSM managed node (instance).
+// NodeInfo is this backend's internal representation of a managed node,
+// used for filtering/aggregation (nodeAttributeValue, matchesNodeFilter,
+// aggregateNodes) and converted to the real wire shape Node by nodeToWire
+// before a ListNodes response is built. It is not itself marshaled.
 type NodeInfo struct {
-	InstanceID       string  `json:"InstanceId"`
-	PlatformType     string  `json:"PlatformType"`
-	AgentVersion     string  `json:"AgentVersion"`
-	RegistrationDate float64 `json:"RegistrationDate"`
+	InstanceID       string
+	PlatformType     string
+	AgentVersion     string
+	RegistrationDate float64
 }
 
 // ListNodesOutputFull has nodes list.
 type ListNodesOutputFull struct {
-	NextToken string     `json:"NextToken,omitempty"`
-	Nodes     []NodeInfo `json:"Nodes"`
+	NextToken string `json:"NextToken,omitempty"`
+	Nodes     []Node `json:"Nodes"`
 }
 
 // ListNodesSummaryOutputFull has summary.

@@ -4,7 +4,7 @@ sdk_module: aws-sdk-go-v2/service/opsworks@v1.31.0   # exists in the module cach
                                                        # note below) — audited by reading the
                                                        # module source directly, not via import.
 last_audit_commit: 5f0e2722b
-last_audit_date: 2026-08-10
+last_audit_date: 2026-08-15
 overall: B            # re-audited live (gopherstack-vjj2) after the 2026-06-03..2026-08-08
                        # unreachability window closed; 2 more real bugs found+fixed via live
                        # HTTP requests, but there is still no SDK-driven test/integration/
@@ -49,15 +49,16 @@ ops:
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "paginated via sorted-key nextToken; same stack/layer-only restriction as TagResource"}
 families:
   UserProfile: {status: ok, note: "CreateUserProfile/DeleteUserProfile/DescribeUserProfiles/UpdateUserProfile/DescribeMyUserProfile/UpdateMyUserProfile all mutate real state and persist"}
-  ElasticLoadBalancer: {status: ok, note: "Attach/Detach/Describe all real"}
-  ElasticIp: {status: ok, note: "Register/Deregister/Associate/Disassociate/Describe/Update all real"}
+  ElasticLoadBalancer: {status: ok, note: "Attach/Detach/Describe all real. FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): DescribeElasticLoadBalancers' real, plural LayerIds filter member (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_DescribeElasticLoadBalancers.go) was silently discarded -- the handler truncated it to only its first element and the backend method's own parameter was named `_`, never read at all. Now honors the full list via slices.Contains. Per-item fields AvailabilityZones/Ec2InstanceIds/SubnetIds/VpcId remain unmodeled on the wire -- see gaps, structural (this backend has no VPC/subnet/EC2-instance model to source them from)."}
+  ElasticIp: {status: ok, note: "Register/Deregister/Associate/Disassociate/Describe/Update all real. FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): RegisterElasticIpInput's real, required StackId member was entirely unmodeled -- the handler instead read a fabricated 'Region' field that does not exist on the real input at all, and an empty/missing StackId was never rejected (200 instead of the real API's required-member ValidationException). Now validates StackId is present (and that the referenced stack exists) and threads it through to DescribeElasticIps' real StackId filter member, which was also previously discarded. StackId is kept as an internal-only field (storedElasticIP/ElasticIP.StackID) and deliberately never serialized on the wire -- the real types.ElasticIp has no StackId member."}
   Volume: {status: ok, note: "Register/Deregister/Assign/Unassign/Describe/Update all real. DescribeVolumes now also filters by StackId (real DescribeVolumesInput supports it; this backend previously silently dropped the parameter). Wire no longer emits invented 'StackId' field (real types.Volume has none). AssignVolume now verifies the instance belongs to the same stack the volume was registered with. RegisterVolume now validates the required StackId member (gopherstack-4uhx). AssignVolume's own required VolumeId member is still not pre-validated (falls through to ResourceNotFoundException on empty) -- not in this pass's flagged list, see gaps."}
   RdsDbInstance: {status: ok, note: "Register/Deregister/Describe/Update all real. RegisterRdsDbInstance now validates all 4 required members (StackId/RdsDbInstanceArn/DbUser/DbPassword) and the wire now echoes DbPassword back as the literal '*****FILTERED*****' AWS always returns (gopherstack-4uhx). Engine and MissingOnRds remain unmodeled -- see gaps, this is structural (would need cross-service wiring to the rds backend, out of this package's scope)."}
   EcsCluster: {status: ok, note: "Register/Deregister/Describe all real. FIXED 2026-08-08: DescribeEcsClusters wire emitted an invented 'Status' field -- real types.EcsCluster (SDK v1.31.0) has no such member, only EcsClusterArn/EcsClusterName/StackId/RegisteredAt. Removed from the wire; internal storedEcsCluster.Status kept for bookkeeping only. RegisterEcsCluster now also validates the required StackId member (gopherstack-4uhx), alongside the already-validated EcsClusterArn."}
   Permission: {status: ok, note: "SetPermission/DescribePermissions real, composite-keyed by stackID+iamUserArn. SetPermission now validates both required members (StackId/IamUserArn) -- previously accepted an empty IamUserArn with no error at all, and an empty StackId fell through to ResourceNotFoundException instead of ValidationException. Level is now also restricted to the API's documented closed set (deny/show/deploy/manage/iam_only) -- previously accepted any string (gopherstack-4uhx)."}
   AutoScaling: {status: ok, note: "SetTimeBasedAutoScaling/DescribeTimeBasedAutoScaling/SetLoadBasedAutoScaling/DescribeLoadBasedAutoScaling all real"}
-  Misc: {status: ok, note: "GrantAccess/DescribeServiceErrors(always empty, correct)/DescribeRaidArrays(always empty, correct)/DescribeAgentVersions(static list)/DescribeOperatingSystems(static list) all match AWS's actual mostly-static/deprecated-service behavior. GetHostnameSuggestion FIXED 2026-08-08 (see gaps-closed note below) -- was entirely unaudited by the previous pass despite being in GetSupportedOperations."}
+  Misc: {status: ok, note: "GrantAccess/DescribeServiceErrors(always empty, correct)/DescribeRaidArrays(always empty, correct)/DescribeAgentVersions(static list)/DescribeOperatingSystems(static list) all match AWS's actual mostly-static/deprecated-service behavior. GetHostnameSuggestion FIXED 2026-08-08 (see gaps-closed note below) -- was entirely unaudited by the previous pass despite being in GetSupportedOperations. DescribeStackProvisioningParameters FIXED 2026-08-15 (gopherstack-6flj): the real, dedicated top-level AgentInstallerUrl member was also being duplicated under a fabricated 'AgentInstallerUrl' key inside the free-form Parameters map, which no real response ever carries -- Parameters is now returned empty (honest: this backend tracks none of AWS's real internal agent-bootstrap keys) rather than containing an invented one."}
 gaps:                     # divergences from the real API, not fixed this pass
+  - "ElasticLoadBalancer responses omit AvailabilityZones/Ec2InstanceIds/SubnetIds/VpcId -- all real, optional types.ElasticLoadBalancer members, but this backend's ElasticLoadBalancer domain struct has no VPC/subnet/EC2-instance concept at all to source them from (only ElasticLoadBalancerName/Region/DNSName/StackID/LayerID are tracked). Structural, same class as the App/Layer/Instance optional-surface gaps below, not fixed this pass (gopherstack-6flj)."
   - "RdsDbInstance responses still omit Engine and MissingOnRds (DbPassword is now fixed, see ops.RdsDbInstance -- gopherstack-4uhx). Both remaining fields are real (optional) members of types.RdsDbInstance, but neither has a source: Engine is not a RegisterRdsDbInstance input member at all (nothing to derive it from without inventing a value), and MissingOnRds requires simulated drift detection against a real RDS instance's existence, which is a cross-service concern this package has no model for (this backend does not talk to services/rds). Both are genuinely structural, not a scope choice -- modeling them would require either fabricating data (banned) or wiring opsworks to query the rds service backend by ARN, which is out of services/opsworks's bounds."
   - "AssignVolume's required VolumeId member (RegisterVolume's own required StackId was fixed this pass, see families.Volume -- gopherstack-4uhx) is not pre-validated for emptiness -- an empty VolumeId falls through to the volume-lookup's ResourceNotFoundException rather than ValidationException. Not in gopherstack-4uhx's explicitly-flagged op list; left for a future pass."
   - "No test/integration/*_parity_test.go suite exists for opsworks (the deprecated SDK isn't a go.mod dependency, so a client-driven integration test needs either vendoring it or hand-rolling raw HTTP requests in the integration-test harness style). This is why overall stays at B rather than A per the gopherstack-parity-audit skill's rubric, even though this pass's live-HTTP verification covered all 73 ops. Building that suite is a real, nontrivial follow-on task, not done this pass."
@@ -325,3 +326,156 @@ counts: it predates ever handling a live request, and (independent of that)
 it was never actually backed by the integration-suite proof the rubric
 requires. `B` reflects genuine, now-verified accuracy without overclaiming
 the untouched integration-test gap.
+
+## gopherstack-6flj wrapper-key sweep (2026-08-15)
+
+Swept fresh, per gopherstack-t0gq's instruction: a prior session on this same
+service was killed mid-verification by an API session limit and stashed
+(`stash@{0}`) rather than committed, since its work built but failed
+`TestElasticIps/RegisterElasticIp_without_StackId_returns_400` (expected 400,
+got 200) with nothing hand-reverted or verified. That stash was read
+read-only as a hint, never popped/applied. Independently re-derived and
+re-verified all findings below against the real SDK from scratch.
+
+**The ambiguous test, resolved:** `RegisterElasticIp_without_StackId_returns_400`
+did not exist at `HEAD` (`git show HEAD:services/opsworks/elastic_ips_test.go
+| grep StackId` — no match), so it was not a pre-existing test the stashed
+session broke. It was a *new* test that correctly caught a real,
+previously-missing required-field validation: `RegisterElasticIpInput` has
+`ElasticIp` and `StackId` both `"This member is required"`, and no `Region`
+member at all (confirmed against
+`aws-sdk-go-v2/service/opsworks@v1.31.0`'s `api_op_RegisterElasticIp.go`).
+The stashed backend accepted `StackId` as a new parameter but never validated
+it was non-empty, so its own new test correctly failed. Verdict: **(b)**, not
+(a). This closes gopherstack-t0gq for opsworks.
+
+**SDK availability:** `aws-sdk-go-v2/service/opsworks@v1.31.0` is present in
+the local module cache (`$(go env GOMODCACHE)`) but is **not** a `go.mod`
+dependency of this repo — confirmed via `grep opsworks go.mod go.sum`
+(no hits). All wire-shape verification below reads the cached module source
+directly, per the SDK-availability note above; no `go get` or `go.mod` edit
+was made. There is still no real-SDK-client test for this service (0 before
+and after this pass) for the same reason.
+
+**Protocol:** `awsAwsjson11` exclusively (confirmed via `serializers.go`'s
+`awsAwsjson11_serializeOp*` function names and every deserializer's own
+prefix). Case-sensitive plain Go string `switch key { case "Xxx": ... }` on
+decoded JSON keys (confirmed reading
+`awsAwsjson11_deserializeDocumentElasticIp`, `...DescribeElasticLoadBalancers`
+and others), not `smithyxml`'s `EqualFold`. All `EqualFold` hits in this SDK
+version (`grep -n EqualFold deserializers.go`) are in the `errorCode`
+matching branches only (`case strings.EqualFold("ResourceNotFoundException",
+errorCode)` etc.), never in a body-field-key switch. No second client:
+`go.mod`/`go.sum` have zero `opsworks` references, and this package's own
+`sdk_completeness_test.go` documents the same absence.
+
+**Router:** single top-level `X-Amz-Target` prefix match
+(`RouteMatcher`/`ExtractOperation`), one flat `buildOps()` dispatch map —
+no second-layer router to desync from `GetSupportedOperations()` the way
+elasticsearch's two-level dispatch could (`sdk_completeness_test.go` already
+asserts the two lists match exactly). Not a source of bugs here.
+
+**Phantom ops:** none. `GetSupportedOperations()`'s 74 op names were diffed
+1:1 against every `api_op_*.go` file in the pinned module — no gopherstack op
+absent from the real SDK, and no real op absent from gopherstack.
+
+**3 real bugs found and fixed**, all layer-2/5 (discarded input + missing
+validation + fabricated member), none previously flagged in this file's
+`gaps`/`deferred`:
+
+1. **RegisterElasticIp** (`elastic_ips.go`, `handler_elastic_ips.go`,
+   `interfaces.go`): fabricated `Region` request member (not real; region is
+   always the stack's own) replaced with the real, required `StackId`;
+   `StackId`'s required-ness is now validated (`ValidationException` on
+   empty, matching this service's established validate-then-existence-check
+   pattern from `RegisterInstance`/`RegisterVolume`/`RegisterRdsDBInstance`).
+   `StackId` is captured internally (`storedElasticIP`/`ElasticIP.StackID`)
+   but deliberately **not** put on the wire — real `types.ElasticIp` has no
+   `StackId` member.
+
+2. **DescribeElasticIps** (`elastic_ips.go`, `handler_elastic_ips.go`,
+   `interfaces.go`): real `StackId` filter member (confirmed
+   `api_op_DescribeElasticIps.go`) was entirely discarded — every call
+   ignored it and returned every IP regardless of stack. Now honored.
+
+3. **DescribeElasticLoadBalancers** (`elastic_load_balancers.go`,
+   `handler_elastic_load_balancers.go`, `interfaces.go`): real, plural
+   `LayerIds` filter member (confirmed
+   `api_op_DescribeElasticLoadBalancers.go`) was truncated to its first
+   element by the handler and then the backend's own parameter was literally
+   named `_` — never read at all. Now filters against the full list via
+   `slices.Contains`.
+
+**1 more real bug, same pass, different op family:**
+
+4. **DescribeStackProvisioningParameters** (`stacks.go`,
+   `handler_stacks.go`, `interfaces.go`): the real, dedicated top-level
+   `AgentInstallerUrl` member was correctly emitted, but its value was *also*
+   duplicated under a fabricated `"AgentInstallerUrl"` key inside the
+   free-form `Parameters` map — a key no real response ever puts there.
+   `Parameters` now returns empty (honest — this backend tracks none of
+   AWS's real internal agent-bootstrap keys) rather than an invented one.
+
+**Sibling/per-item field check (layer 2):** every `List`/`Describe`/`Get` op
+in `GetSupportedOperations()` (24 of 74 ops) had its top-level wrapper key
+diffed against the real deserializer's own top-level case list — all correct
+(`EcsClusters`, `Apps`, `Commands`, `Deployments`, `ElasticIps`,
+`ElasticLoadBalancers`, `Instances`, `Layers`,
+`LoadBasedAutoScalingConfigurations`, `MyUserProfile`->`UserProfile`,
+`OperatingSystems`, `Permissions`, `RaidArrays`, `RdsDbInstances`,
+`ServiceErrors`, `AgentInstallerUrl`+`Parameters`, `StackSummary`, `Stacks`,
+`TimeBasedAutoScalingConfigurations`, `UserProfiles`, `Volumes`, `Hostname`+
+`LayerId`, `Tags`). Every per-item `*ToJSON` conversion function (21 of them)
+was also field-diffed against its real deserializer's `case "Xxx":` list —
+every field gopherstack *does* emit uses the real key name. The large
+remaining gaps (most of `App`/`Layer`/`Instance`/`Stack`/`Volume`/`Deployment`'s
+optional surface, `ElasticLoadBalancer`'s VPC-ish fields) are all structural
+— the domain model genuinely doesn't track the value — and match this file's
+existing `deferred`/`gaps` entries (or were newly added to them this pass,
+see `ElasticLoadBalancer`'s new gap above); none are a "value already held
+but never emitted" bug.
+
+**Persistence check:** `storedElasticIP` (`models.go`) doubles as the
+snapshot/restore persistence DTO (`store.Table[storedElasticIP]`, see
+`persistence.go`). The new `StackID` field was added there (not retagged —
+existing fields/tags untouched), so old snapshots restore unchanged with
+`StackID` defaulting to `""`; no version bump needed. No `json:"-"` was
+applied to anything in this pass.
+
+**Tests:** `TestElasticIps/RegisterElasticIp_without_StackId_returns_400`
+(new), `TestElasticIps/DescribeElasticIps_filters_by_StackId` (new),
+`TestElasticLoadBalancers/DescribeElasticLoadBalancers_filters_by_LayerIds`
+(new), plus an assertion added to
+`TestDescribeStackProvisioningParameters` guarding against the fabricated
+`Parameters.AgentInstallerUrl` key. All 4 fixes hand-reverted individually
+(no git-mutating commands used — the harness's own file edits stood in for
+`git stash`) and confirmed to fail with the exact predicted symptom before
+being restored byte-identical: (1) `StackId` validation removed →
+`RegisterElasticIp_without_StackId_returns_400` got 404 instead of 400 (falls
+through to `ErrStackNotFound` instead of `ErrValidation` — different wrong
+code than the stashed session saw, but still not the expected 400,
+confirming the validation gap); (2) `StackId` filter removed from
+`DescribeElasticIps` → 2 IPs returned instead of 1; (3) `LayerIds` filter
+removed from `DescribeElasticLoadBalancers` → 2 ELBs returned instead of 1;
+(4) fabricated `Parameters.AgentInstallerUrl` re-added → assertion failed as
+predicted.
+
+**Real-client test ratio:** 0 before and after this pass (SDK not a `go.mod`
+dependency, see above — matches this repo's documented exception for
+services with no pinned client). All new tests are raw-body/`doTarget`-style,
+consistent with every other test in this package.
+
+**Gates:** scoped `go build`/`go vet ./services/opsworks/...` clean; full
+`go build ./...`/`go vet ./...` clean for this package (interface signature
+changes propagate; `directoryservice` was a live, separately-owned sibling
+mid-edit throughout this session — confirmed via repeated `git status`, never
+touched, and its transient build breaks were its own, not caused by this
+pass); `go test -race -count=1 ./services/opsworks/...` and
+`./pkgs/...` green; `go fix -diff` clean (no diff); `golangci-lint run
+./services/opsworks/...` 0 issues (1 `golines` line-length finding fixed by
+hand during the pass); 0 `cyclop`/`gocyclo`/`gocognit`/`funlen` nolints
+(grep-confirmed, none added or pre-existing).
+
+No subagents used. No git-mutating commands run — orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/opsworks/*` files touched by this pass.

@@ -232,6 +232,40 @@ func TestHandler_LogEventsOperations(t *testing.T) {
 	}
 }
 
+// TestHandler_PutBearerTokenAuthentication_RoundTrip proves gopherstack-4ggy's
+// fix: the pre-fix handler was a total stub (body param `_ []byte`, always
+// returned success with no backend effect). This drives a real log group
+// through Put and confirms DescribeLogGroups echoes the enabled state back
+// (types.LogGroup.BearerTokenAuthenticationEnabled, types.go:1366), and that
+// an unknown log group returns ResourceNotFoundException rather than a
+// silent success.
+func TestHandler_PutBearerTokenAuthentication_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+
+	rec := doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"bearer-grp"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doLogsRequest(t, h, e, "PutBearerTokenAuthentication",
+		`{"logGroupIdentifier":"bearer-grp","bearerTokenAuthenticationEnabled":true}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doLogsRequest(t, h, e, "DescribeLogGroups", `{"logGroupNamePrefix":"bearer-grp"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var desc struct {
+		LogGroups []map[string]any `json:"logGroups"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.Len(t, desc.LogGroups, 1)
+	assert.Equal(t, true, desc.LogGroups[0]["bearerTokenAuthenticationEnabled"])
+
+	rec = doLogsRequest(t, h, e, "PutBearerTokenAuthentication",
+		`{"logGroupIdentifier":"does-not-exist","bearerTokenAuthenticationEnabled":true}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 func TestHandler_LiveTailAndLogFieldOperations(t *testing.T) {
 	t.Parallel()
 
@@ -243,10 +277,14 @@ func TestHandler_LiveTailAndLogFieldOperations(t *testing.T) {
 		wantCode      int
 	}{
 		{
-			name:     "PutBearerTokenAuthentication/OK",
+			// logGroupIdentifier and bearerTokenAuthenticationEnabled are
+			// both required (validateOpPutBearerTokenAuthenticationInput,
+			// validators.go) -- the pre-fix stub accepted an empty body
+			// unconditionally.
+			name:     "PutBearerTokenAuthentication/RequiresFields",
 			action:   "PutBearerTokenAuthentication",
 			body:     map[string]any{},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			// StartLiveTail is validation-only: logGroupIdentifiers is required.

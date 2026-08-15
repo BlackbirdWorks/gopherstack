@@ -20,26 +20,28 @@ import (
 const iamSnapshotVersion = 1
 
 type backendSnapshot struct {
-	GroupInlinePolicies       map[string]map[string]string     `json:"groupInlinePolicies,omitempty"`
-	GroupPolicies             map[string][]string              `json:"groupPolicies,omitempty"`
-	PasswordPolicy            *PasswordPolicy                  `json:"passwordPolicy,omitempty"`
-	GroupMembers              map[string][]string              `json:"groupMembers,omitempty"`
-	UserPolicies              map[string][]string              `json:"userPolicies,omitempty"`
-	UserInlinePolicies        map[string]map[string]string     `json:"userInlinePolicies,omitempty"`
-	RoleInlinePolicies        map[string]map[string]string     `json:"roleInlinePolicies,omitempty"`
-	PolicyVersionCounters     map[string]int                   `json:"policyVersionCounters,omitempty"`
-	RolePolicies              map[string][]string              `json:"rolePolicies,omitempty"`
-	PolicyVersions            map[string][]StoredPolicyVersion `json:"policyVersions,omitempty"`
-	RoleByARN                 map[string]string                `json:"roleByARN,omitempty"`
-	PolicyByARN               map[string]string                `json:"policyByARN,omitempty"`
-	Tables                    map[string]json.RawMessage       `json:"tables"`
-	PolicyAttachments         map[string]policyAttachmentRefs  `json:"policyAttachments,omitempty"`
-	DeletedV1Policies         map[string]bool                  `json:"deletedV1Policies,omitempty"`
-	Comprehensive             *comprehensiveSnapshot           `json:"comprehensive,omitempty"`
-	OutboundFederationEnabled *bool                            `json:"outboundFederationEnabled,omitempty"`
-	AccountID                 string                           `json:"accountID,omitempty"`
-	AccountAliases            []string                         `json:"accountAliases,omitempty"`
-	Version                   int                              `json:"version"`
+	GroupInlinePolicies        map[string]map[string]string     `json:"groupInlinePolicies,omitempty"`
+	GroupPolicies              map[string][]string              `json:"groupPolicies,omitempty"`
+	PasswordPolicy             *PasswordPolicy                  `json:"passwordPolicy,omitempty"`
+	GroupMembers               map[string][]string              `json:"groupMembers,omitempty"`
+	UserPolicies               map[string][]string              `json:"userPolicies,omitempty"`
+	UserInlinePolicies         map[string]map[string]string     `json:"userInlinePolicies,omitempty"`
+	RoleInlinePolicies         map[string]map[string]string     `json:"roleInlinePolicies,omitempty"`
+	PolicyVersionCounters      map[string]int                   `json:"policyVersionCounters,omitempty"`
+	RolePolicies               map[string][]string              `json:"rolePolicies,omitempty"`
+	PolicyVersions             map[string][]StoredPolicyVersion `json:"policyVersions,omitempty"`
+	RoleByARN                  map[string]string                `json:"roleByARN,omitempty"`
+	PolicyByARN                map[string]string                `json:"policyByARN,omitempty"`
+	Tables                     map[string]json.RawMessage       `json:"tables"`
+	PolicyAttachments          map[string]policyAttachmentRefs  `json:"policyAttachments,omitempty"`
+	DeletedV1Policies          map[string]bool                  `json:"deletedV1Policies,omitempty"`
+	Comprehensive              *comprehensiveSnapshot           `json:"comprehensive,omitempty"`
+	OutboundFederationEnabled  *bool                            `json:"outboundFederationEnabled,omitempty"`
+	AccountID                  string                           `json:"accountID,omitempty"`
+	CurrentPassword            string                           `json:"currentPassword,omitempty"`
+	GlobalEndpointTokenVersion string                           `json:"globalEndpointTokenVersion,omitempty"`
+	AccountAliases             []string                         `json:"accountAliases,omitempty"`
+	Version                    int                              `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -67,26 +69,28 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:                   iamSnapshotVersion,
-		Tables:                    tables,
-		Comprehensive:             &comp,
-		UserPolicies:              b.userPolicies,
-		RolePolicies:              b.rolePolicies,
-		GroupPolicies:             b.groupPolicies,
-		GroupMembers:              b.groupMembers,
-		UserInlinePolicies:        b.userInlinePolicies,
-		RoleInlinePolicies:        b.roleInlinePolicies,
-		GroupInlinePolicies:       b.groupInlinePolicies,
-		AccountAliases:            b.accountAliases,
-		PolicyVersions:            b.policyVersions,
-		PolicyVersionCounters:     b.policyVersionCounters,
-		AccountID:                 b.accountID,
-		PolicyByARN:               b.policyByARN,
-		RoleByARN:                 b.roleByARN,
-		PolicyAttachments:         b.policyAttachments,
-		DeletedV1Policies:         b.deletedV1Policies,
-		PasswordPolicy:            b.passwordPolicy,
-		OutboundFederationEnabled: &outboundFederationEnabled,
+		Version:                    iamSnapshotVersion,
+		Tables:                     tables,
+		Comprehensive:              &comp,
+		UserPolicies:               b.userPolicies,
+		RolePolicies:               b.rolePolicies,
+		GroupPolicies:              b.groupPolicies,
+		GroupMembers:               b.groupMembers,
+		UserInlinePolicies:         b.userInlinePolicies,
+		RoleInlinePolicies:         b.roleInlinePolicies,
+		GroupInlinePolicies:        b.groupInlinePolicies,
+		AccountAliases:             b.accountAliases,
+		PolicyVersions:             b.policyVersions,
+		PolicyVersionCounters:      b.policyVersionCounters,
+		AccountID:                  b.accountID,
+		PolicyByARN:                b.policyByARN,
+		RoleByARN:                  b.roleByARN,
+		PolicyAttachments:          b.policyAttachments,
+		DeletedV1Policies:          b.deletedV1Policies,
+		PasswordPolicy:             b.passwordPolicy,
+		CurrentPassword:            b.currentPassword,
+		GlobalEndpointTokenVersion: b.globalEndpointTokenVersion,
+		OutboundFederationEnabled:  &outboundFederationEnabled,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "iam", snap)
@@ -162,6 +166,16 @@ func (b *InMemoryBackend) restoreSnapshotLocked(ctx context.Context, snap *backe
 		b.deletedV1Policies = make(map[string]bool)
 	}
 	b.passwordPolicy = snap.PasswordPolicy
+	b.currentPassword = snap.CurrentPassword
+
+	if snap.GlobalEndpointTokenVersion != "" {
+		b.globalEndpointTokenVersion = snap.GlobalEndpointTokenVersion
+	} else {
+		// Pre-existing snapshot from before this field was added, or a
+		// snapshot taken while still at the default: keep the same default
+		// NewInMemoryBackendWithConfig uses, not the Go zero value.
+		b.globalEndpointTokenVersion = globalEndpointTokenVersionV1
+	}
 
 	if snap.OutboundFederationEnabled != nil {
 		b.outboundFederationEnabled = *snap.OutboundFederationEnabled

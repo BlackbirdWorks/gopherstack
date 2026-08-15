@@ -675,7 +675,7 @@ func TestHandlerNetworkSpotPlacementOperations(t *testing.T) {
 		{
 			name: "DescribeSpotInstanceRequests_after_request",
 			setupFn: func(h *ec2.Handler) string {
-				_, _ = h.Backend.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
+				_, _ = h.Backend.RequestSpotInstances("ami-123", "t2.micro", "", "0.01", nil)
 
 				return "Action=DescribeSpotInstanceRequests&Version=2016-11-15"
 			},
@@ -685,7 +685,7 @@ func TestHandlerNetworkSpotPlacementOperations(t *testing.T) {
 		{
 			name: "CancelSpotInstanceRequests_success",
 			setupFn: func(h *ec2.Handler) string {
-				req, _ := h.Backend.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
+				req, _ := h.Backend.RequestSpotInstances("ami-123", "t2.micro", "", "0.01", nil)
 
 				return "Action=CancelSpotInstanceRequests&Version=2016-11-15&SpotInstanceRequestId.1=" + url.QueryEscape(
 					req.ID,
@@ -728,7 +728,7 @@ func TestHandlerNetworkSpotPlacementOperations(t *testing.T) {
 		{
 			name: "DescribePlacementGroups_after_create",
 			setupFn: func(h *ec2.Handler) string {
-				_, _ = h.Backend.CreatePlacementGroup("list-pg", "spread")
+				_, _ = h.Backend.CreatePlacementGroup("list-pg", "spread", nil)
 
 				return "Action=DescribePlacementGroups&Version=2016-11-15"
 			},
@@ -738,7 +738,7 @@ func TestHandlerNetworkSpotPlacementOperations(t *testing.T) {
 		{
 			name: "DeletePlacementGroup_success",
 			setupFn: func(h *ec2.Handler) string {
-				_, _ = h.Backend.CreatePlacementGroup("del-pg", "cluster")
+				_, _ = h.Backend.CreatePlacementGroup("del-pg", "cluster", nil)
 
 				return "Action=DeletePlacementGroup&Version=2016-11-15&GroupName=del-pg"
 			},

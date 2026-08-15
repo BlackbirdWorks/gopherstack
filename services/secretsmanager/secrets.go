@@ -775,6 +775,7 @@ func secretToListEntry(s *Secret) SecretListEntry {
 		Description:                    s.Description,
 		KmsKeyID:                       s.KmsKeyID,
 		RotationLambdaARN:              s.RotationLambdaARN,
+		PrimaryRegion:                  s.region,
 		RotationRules:                  cloneRotationRules(s.RotationRules),
 		RotationEnabled:                s.RotationEnabled,
 		DeletedDate:                    s.DeletedDate,

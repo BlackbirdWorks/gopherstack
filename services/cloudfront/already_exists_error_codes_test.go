@@ -86,11 +86,16 @@ func Test_AlreadyExists_ResourceSpecificErrorCodes(t *testing.T) {
 		{
 			name: "RealtimeLogConfig",
 			path: "/2020-05-31/realtime-log-config",
-			body: []byte(`<RealtimeLogConfig>` +
+			body: []byte(`<CreateRealtimeLogConfigRequest>` +
 				`<Name>dup-rt-log</Name>` +
 				`<SamplingRate>50</SamplingRate>` +
+				`<EndPoints><member><StreamType>Kinesis</StreamType>` +
+				`<KinesisStreamConfig>` +
+				`<StreamARN>arn:aws:kinesis:us-east-1:123456789012:stream/test</StreamARN>` +
+				`<RoleARN>arn:aws:iam::123456789012:role/test</RoleARN>` +
+				`</KinesisStreamConfig></member></EndPoints>` +
 				`<Fields><Field>timestamp</Field></Fields>` +
-				`</RealtimeLogConfig>`),
+				`</CreateRealtimeLogConfigRequest>`),
 			wantCode: "RealtimeLogConfigAlreadyExists",
 		},
 	}

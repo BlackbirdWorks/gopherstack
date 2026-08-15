@@ -429,6 +429,16 @@ func (h *Handler) handleUpdatePackageGroup(c *echo.Context, domainName string, b
 		pattern = in.PackageGroup
 	}
 
+	// PackageGroup is "This member is required." on the real
+	// UpdatePackageGroupInput (api_op_UpdatePackageGroup.go), same as on
+	// Create/Describe/Delete's own pattern params (already validated below
+	// them) -- was falling straight through to the backend and surfacing as
+	// a 404 "package group not found" instead of the real 400
+	// ValidationException.
+	if pattern == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
+	}
+
 	pg, err := h.Backend.UpdatePackageGroup(
 		c.Request().Context(),
 		domainName,

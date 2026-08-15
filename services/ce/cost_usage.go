@@ -386,83 +386,173 @@ func (b *InMemoryBackend) GetApproximateUsageRecords(
 	return lookbackStart, lookbackEnd, perService, total
 }
 
+// dimensionFieldValue returns the ledger entry's value for the given CE
+// dimension name, and whether that dimension is modeled by this emulator's
+// ledger. Dimensions like INSTANCE_TYPE/OPERATING_SYSTEM/TENANCY/
+// PURCHASE_TYPE/RECORD_TYPE are constant synthetic values not tied to any
+// per-entry field, so they report ok=true with a fixed value.
+func dimensionFieldValue(e CostEntry, dimension string) (string, bool) {
+	switch strings.ToUpper(dimension) {
+	case dimKeyService:
+		return e.Service, true
+	case dimKeyRegion, "AZ":
+		return e.Region, true
+	case dimKeyUsageType:
+		return e.UsageType, true
+	case dimKeyLinkedAccount:
+		return e.Account, true
+	case "INSTANCE_TYPE":
+		return syntheticInstanceType, true
+	case "OPERATING_SYSTEM":
+		return "Linux", true
+	case "TENANCY":
+		return "Shared", true
+	case "PURCHASE_TYPE":
+		return "On Demand", true
+	case "RECORD_TYPE":
+		return "Usage", true
+	default:
+		return "", false
+	}
+}
+
 // GetDimensionValues returns unique values for the given dimension from the cost ledger.
 func (b *InMemoryBackend) GetDimensionValues(dimension string) []string {
-	b.mu.RLock("GetDimensionValues")
+	return b.GetDimensionValuesFiltered(dimension, "", nil)
+}
+
+// GetDimensionValuesFiltered returns unique values for `dimension`, restricted to
+// ledger entries whose `constraintDimension` value is one of constraintValues (when
+// constraintDimension is non-empty). This gives a real, non-fabricated effect to
+// GetDimensionValuesInput.Filter when it carries a single (non-nested) Dimensions
+// clause.
+func (b *InMemoryBackend) GetDimensionValuesFiltered(
+	dimension, constraintDimension string, constraintValues []string,
+) []string {
+	b.mu.RLock("GetDimensionValuesFiltered")
 	defer b.mu.RUnlock()
 
 	seen := make(map[string]struct{})
 
 	for _, e := range b.costLedger {
-		var val string
-
-		switch strings.ToUpper(dimension) {
-		case dimKeyService:
-			val = e.Service
-		case dimKeyRegion, "AZ":
-			val = e.Region
-		case dimKeyUsageType:
-			val = e.UsageType
-		case dimKeyLinkedAccount:
-			val = e.Account
-		case "INSTANCE_TYPE":
-			val = syntheticInstanceType
-		case "OPERATING_SYSTEM":
-			val = "Linux"
-		case "TENANCY":
-			val = "Shared"
-		case "PURCHASE_TYPE":
-			val = "On Demand"
-		case "RECORD_TYPE":
-			val = "Usage"
-		default:
-			continue
+		if constraintDimension != "" {
+			cval, ok := dimensionFieldValue(e, constraintDimension)
+			if !ok || !stringSliceContainsFold(constraintValues, cval) {
+				continue
+			}
 		}
 
-		if val != "" {
+		val, ok := dimensionFieldValue(e, dimension)
+		if ok && val != "" {
 			seen[val] = struct{}{}
 		}
 	}
 
-	vals := collections.SortedKeys(seen)
+	return collections.SortedKeys(seen)
+}
 
-	return vals
+// DimensionValueCost sums the requested cost metric ("UnblendedCost" or any
+// other value, which defaults to BlendedCost) across ledger entries whose
+// `dimension` equals value. Used to give GetDimensionValues' SortBy a real,
+// non-fabricated ordering over the returned dimension values.
+func (b *InMemoryBackend) DimensionValueCost(dimension, value, metric string) float64 {
+	b.mu.RLock("DimensionValueCost")
+	defer b.mu.RUnlock()
+
+	var total float64
+
+	for _, e := range b.costLedger {
+		v, ok := dimensionFieldValue(e, dimension)
+		if !ok || v != value {
+			continue
+		}
+
+		if strings.Contains(strings.ToUpper(metric), "UNBLENDED") {
+			total += e.UnblendedCost
+		} else {
+			total += e.BlendedCost
+		}
+	}
+
+	return total
 }
 
 // GetTagKeys returns all distinct tag keys used across the cost ledger.
 func (b *InMemoryBackend) GetTagKeys() []string {
-	b.mu.RLock("GetTagKeys")
+	return b.GetTagKeysFiltered("", nil)
+}
+
+// GetTagKeysFiltered returns distinct tag keys, restricted to ledger entries
+// whose `constraintKey` tag value is one of constraintValues (when
+// constraintKey is non-empty). Gives GetTagsInput.Filter's Tags clause a
+// real, non-fabricated effect.
+func (b *InMemoryBackend) GetTagKeysFiltered(constraintKey string, constraintValues []string) []string {
+	b.mu.RLock("GetTagKeysFiltered")
 	defer b.mu.RUnlock()
 
 	seen := make(map[string]struct{})
 
 	for _, e := range b.costLedger {
+		if constraintKey != "" && !stringSliceContainsFold(constraintValues, e.Tags[constraintKey]) {
+			continue
+		}
+
 		for k := range e.Tags {
 			seen[k] = struct{}{}
 		}
 	}
 
-	keys := collections.SortedKeys(seen)
-
-	return keys
+	return collections.SortedKeys(seen)
 }
 
 // GetTagValues returns distinct values for a tag key.
 func (b *InMemoryBackend) GetTagValues(tagKey string) []string {
-	b.mu.RLock("GetTagValues")
+	return b.GetTagValuesFiltered(tagKey, "", nil)
+}
+
+// GetTagValuesFiltered returns distinct values of tagKey, restricted to ledger
+// entries whose `constraintKey` tag value is one of constraintValues (when
+// constraintKey is non-empty).
+func (b *InMemoryBackend) GetTagValuesFiltered(tagKey, constraintKey string, constraintValues []string) []string {
+	b.mu.RLock("GetTagValuesFiltered")
 	defer b.mu.RUnlock()
 
 	seen := make(map[string]struct{})
 
 	for _, e := range b.costLedger {
+		if constraintKey != "" && !stringSliceContainsFold(constraintValues, e.Tags[constraintKey]) {
+			continue
+		}
+
 		if v, ok := e.Tags[tagKey]; ok && v != "" {
 			seen[v] = struct{}{}
 		}
 	}
 
-	vals := collections.SortedKeys(seen)
+	return collections.SortedKeys(seen)
+}
 
-	return vals
+// TagValueCost sums the requested cost metric across ledger entries whose
+// tag `tagKey` equals value. Used to give GetTags' SortBy a real ordering.
+func (b *InMemoryBackend) TagValueCost(tagKey, value, metric string) float64 {
+	b.mu.RLock("TagValueCost")
+	defer b.mu.RUnlock()
+
+	var total float64
+
+	for _, e := range b.costLedger {
+		if e.Tags[tagKey] != value {
+			continue
+		}
+
+		if strings.Contains(strings.ToUpper(metric), "UNBLENDED") {
+			total += e.UnblendedCost
+		} else {
+			total += e.BlendedCost
+		}
+	}
+
+	return total
 }
 
 // GetForecastByTime returns per-bucket cost forecasts for a time range.

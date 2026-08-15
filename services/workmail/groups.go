@@ -153,10 +153,14 @@ func (b *InMemoryBackend) ListGroups(
 		if !groupMatchesFilter(g, filter) {
 			continue
 		}
-		gs = append(
-			gs,
-			&GroupSummary{GroupID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State},
-		)
+		gs = append(gs, &GroupSummary{
+			GroupID:      g.GroupID,
+			Name:         g.Name,
+			Email:        g.Email,
+			State:        g.State,
+			EnabledDate:  g.EnabledDate,
+			DisabledDate: g.DisabledDate,
+		})
 	}
 	sort.Slice(gs, func(i, j int) bool { return gs[i].Name < gs[j].Name })
 
@@ -255,9 +259,13 @@ func (b *InMemoryBackend) ListGroupMembers(
 		if u := b.findUser(orgID, memberID); u != nil {
 			m.Name = u.Name
 			m.MemberType = memberTypeUser
+			m.EnabledDate = u.EnabledDate
+			m.DisabledDate = u.DisabledDate
 		} else if grp := b.findGroup(orgID, memberID); grp != nil {
 			m.Name = grp.Name
 			m.MemberType = memberTypeGroup
+			m.EnabledDate = grp.EnabledDate
+			m.DisabledDate = grp.DisabledDate
 		}
 		members = append(members, m)
 	}

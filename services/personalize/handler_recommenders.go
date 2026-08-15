@@ -61,7 +61,7 @@ func (h *Handler) listRecommenders(input map[string]any) (map[string]any, error)
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, r := range list {
-		summaries = append(summaries, recommenderToMap(r))
+		summaries = append(summaries, recommenderSummaryToMap(r))
 	}
 
 	result := map[string]any{"recommenders": summaries}
@@ -109,6 +109,26 @@ func recommenderToMap(r *Recommender) map[string]any {
 	}
 	if r.LatestRecommenderUpdate != nil {
 		m["latestRecommenderUpdate"] = r.LatestRecommenderUpdate
+	}
+
+	return m
+}
+
+// recommenderSummaryToMap builds the types.RecommenderSummary shape
+// (types.go:1766). Unlike its siblings this Summary DOES declare
+// recommenderConfig -- only latestRecommenderUpdate is List-illegal here.
+func recommenderSummaryToMap(r *Recommender) map[string]any {
+	m := map[string]any{
+		keyRecommenderArn:      r.RecommenderArn,
+		keyName:                r.Name,
+		keyDatasetGroupArn:     r.DatasetGroupArn,
+		keyRecipeArn:           r.RecipeArn,
+		keyStatus:              r.Status,
+		keyCreationDateTime:    awstime.Epoch(r.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(r.LastUpdatedDateTime),
+	}
+	if r.RecommenderConfig != nil {
+		m["recommenderConfig"] = r.RecommenderConfig
 	}
 
 	return m

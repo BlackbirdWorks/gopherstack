@@ -177,7 +177,7 @@ func TestCustomBus_DeliverToSQS(t *testing.T) {
 		ruleName = "custom-rule"
 	)
 
-	_, err := b.CreateEventBus(context.Background(), busName, "")
+	_, err := b.CreateEventBus(context.Background(), eventbridge.CreateEventBusParams{Name: busName})
 	require.NoError(t, err)
 
 	_, err = b.PutRule(context.Background(), eventbridge.PutRuleInput{

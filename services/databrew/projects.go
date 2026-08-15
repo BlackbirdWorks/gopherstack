@@ -36,7 +36,7 @@ func (b *InMemoryBackend) CreateProject(
 	p := &Project{
 		Name: name, Arn: b.projectARN(region, name), DatasetName: datasetName,
 		RecipeName: recipeName, RoleArn: roleArn, Sample: sample,
-		Tags: maps.Clone(tags), SessionStatus: "READY", AccountID: b.accountID,
+		Tags: maps.Clone(tags), AccountID: b.accountID,
 		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
 	}
 	t.Put(p)
@@ -109,6 +109,26 @@ func (b *InMemoryBackend) UpdateProject(
 	p.LastModifiedDate = float64(time.Now().Unix())
 
 	return nil
+}
+
+// OpenProjectSession records that a project session was started against
+// name, setting OpenDate (a real types.Project member, deserializers.go's
+// awsRestjson1_deserializeDocumentProject case "OpenDate") to now. Real AWS
+// sets it when a working session is opened via StartProjectSession, the
+// only such backend event this in-memory emulator has.
+func (b *InMemoryBackend) OpenProjectSession(ctx context.Context, name string) (*Project, error) {
+	b.mu.Lock("OpenProjectSession")
+	defer b.mu.Unlock()
+	region := getRegion(ctx, b.defaultRegion)
+	p, ok := b.projectsTable(region).Get(name)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	p.OpenDate = float64(time.Now().Unix())
+	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
+
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) DeleteProject(ctx context.Context, name string) error {

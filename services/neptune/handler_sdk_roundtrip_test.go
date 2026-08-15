@@ -8,6 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	neptunesdk "github.com/aws/aws-sdk-go-v2/service/neptune"
+	"github.com/aws/aws-sdk-go-v2/service/neptune/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -257,4 +258,217 @@ func Test_SDKRoundTrip_DescribeGlobalClusters_ListsClusters(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.GlobalClusters, 1)
 	assert.Equal(t, "rt-gc", aws.ToString(out.GlobalClusters[0].GlobalClusterIdentifier))
+}
+
+// Test_SDKRoundTrip_RestoreDBClusterFromSnapshot proves the real SDK client's
+// RestoreDBClusterFromSnapshotInput.SnapshotIdentifier reaches the backend.
+// The real serializer (awsAwsquery_serializeOpDocumentRestoreDBClusterFromSnapshotInput,
+// neptune@v1.48.4 serializers.go:7631) encodes the field as "SnapshotIdentifier";
+// the handler used to read "DBClusterSnapshotIdentifier" instead (that key is
+// valid for CreateDBClusterSnapshot/DescribeDBClusterSnapshots, not this op),
+// so every real client's snapshot ID was silently dropped and the restore
+// always failed with DBClusterSnapshotNotFoundFault.
+func Test_SDKRoundTrip_RestoreDBClusterFromSnapshot(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-restore-source"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDBClusterSnapshot(ctx, &neptunesdk.CreateDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String("rt-restore-snap"),
+		DBClusterIdentifier:         aws.String("rt-restore-source"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.RestoreDBClusterFromSnapshot(ctx, &neptunesdk.RestoreDBClusterFromSnapshotInput{
+		DBClusterIdentifier: aws.String("rt-restored"),
+		SnapshotIdentifier:  aws.String("rt-restore-snap"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBCluster)
+	assert.Equal(t, "rt-restored", aws.ToString(out.DBCluster.DBClusterIdentifier))
+}
+
+// Test_SDKRoundTrip_CreateDBSubnetGroup_SubnetIds proves the real SDK client's
+// SubnetIds actually reach the backend. The real serializer
+// (awsAwsquery_serializeDocumentSubnetIdentifierList, neptune@v1.48.4
+// serializers.go:5174-5175) encodes each element as
+// "SubnetIds.SubnetIdentifier.N", not the generic "SubnetIds.member.N" the
+// handler used to parse -- so every subnet ID a real client sent was silently
+// dropped.
+func Test_SDKRoundTrip_CreateDBSubnetGroup_SubnetIds(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+
+	out, err := client.CreateDBSubnetGroup(t.Context(), &neptunesdk.CreateDBSubnetGroupInput{
+		DBSubnetGroupName:        aws.String("rt-subnet-group"),
+		DBSubnetGroupDescription: aws.String("roundtrip test"),
+		SubnetIds:                []string{"subnet-aaaa1111", "subnet-bbbb2222"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBSubnetGroup)
+
+	gotIDs := make([]string, 0, len(out.DBSubnetGroup.Subnets))
+	for _, s := range out.DBSubnetGroup.Subnets {
+		gotIDs = append(gotIDs, aws.ToString(s.SubnetIdentifier))
+	}
+	require.ElementsMatch(t, []string{"subnet-aaaa1111", "subnet-bbbb2222"}, gotIDs)
+}
+
+// Test_SDKRoundTrip_CreateDBCluster_VpcSecurityGroupIds proves the real SDK
+// client's VpcSecurityGroupIds actually reach the backend. The real
+// serializer (awsAwsquery_serializeDocumentVpcSecurityGroupIdList,
+// neptune@v1.48.4 serializers.go:5213-5214) encodes each element as
+// "VpcSecurityGroupIds.VpcSecurityGroupId.N", not the generic
+// "VpcSecurityGroupIds.member.N" the handler used to parse.
+func Test_SDKRoundTrip_CreateDBCluster_VpcSecurityGroupIds(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+
+	out, err := client.CreateDBCluster(t.Context(), &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-sg-cluster"),
+		Engine:              aws.String("neptune"),
+		VpcSecurityGroupIds: []string{"sg-11112222", "sg-33334444"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBCluster)
+
+	gotIDs := make([]string, 0, len(out.DBCluster.VpcSecurityGroups))
+	for _, sg := range out.DBCluster.VpcSecurityGroups {
+		gotIDs = append(gotIDs, aws.ToString(sg.VpcSecurityGroupId))
+	}
+	require.ElementsMatch(t, []string{"sg-11112222", "sg-33334444"}, gotIDs)
+}
+
+// Test_SDKRoundTrip_CreateDBCluster_AvailabilityZones proves the real SDK
+// client's AvailabilityZones actually reach the backend. The real serializer
+// (awsAwsquery_serializeDocumentAvailabilityZones, neptune@v1.48.4
+// serializers.go:4930-4931) encodes each AZ as
+// "AvailabilityZones.AvailabilityZone.N", not the generic
+// "AvailabilityZones.member.N" the handler used to parse.
+func Test_SDKRoundTrip_CreateDBCluster_AvailabilityZones(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+
+	out, err := client.CreateDBCluster(t.Context(), &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-az-cluster2"),
+		Engine:              aws.String("neptune"),
+		AvailabilityZones:   []string{"us-east-1a", "us-east-1b"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBCluster)
+	require.ElementsMatch(t, []string{"us-east-1a", "us-east-1b"}, out.DBCluster.AvailabilityZones)
+}
+
+// Test_SDKRoundTrip_DescribeDBClusters_EngineFilter proves the real SDK
+// client's DescribeDBClustersInput.Filters actually narrows results. The real
+// serializer (awsAwsquery_serializeDocumentFilterList, neptune@v1.48.4
+// serializers.go:5000-5001) wraps each Filters entry in "Filter" (not
+// "member") and each entry's Values in "Value"
+// (awsAwsquery_serializeDocumentFilterValueList, serializers.go:5012-5013) --
+// so the "engine" filter a real client sent was silently ignored and every
+// cluster was always returned regardless of engine.
+func Test_SDKRoundTrip_DescribeDBClusters_EngineFilter(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &neptunesdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-filter-cluster"),
+		Engine:              aws.String("neptune"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeDBClusters(ctx, &neptunesdk.DescribeDBClustersInput{
+		Filters: []types.Filter{
+			{Name: aws.String("engine"), Values: []string{"does-not-exist"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.DBClusters, "engine filter should have excluded the neptune cluster")
+}
+
+// Test_SDKRoundTrip_CreateGlobalCluster_DatabaseName proves the real SDK
+// client's CreateGlobalClusterInput.DatabaseName reaches the backend and is
+// echoed back by DescribeGlobalClusters. Real GlobalCluster.DatabaseName
+// (neptune@v1.48.4 types/types.go:1166, wire element "DatabaseName" --
+// deserializers.go's awsAwsquery_deserializeDocumentGlobalCluster) had zero
+// grep hits anywhere in this service before this fix: never modeled at all,
+// so every real client's DatabaseName was silently dropped on create and
+// DescribeGlobalClusters could never report it.
+func Test_SDKRoundTrip_CreateGlobalCluster_DatabaseName(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	createOut, err := client.CreateGlobalCluster(ctx, &neptunesdk.CreateGlobalClusterInput{
+		GlobalClusterIdentifier: aws.String("rt-gc-dbname"),
+		DatabaseName:            aws.String("mygraphdb"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createOut.GlobalCluster)
+	assert.Equal(t, "mygraphdb", aws.ToString(createOut.GlobalCluster.DatabaseName))
+
+	descOut, err := client.DescribeGlobalClusters(ctx, &neptunesdk.DescribeGlobalClustersInput{
+		GlobalClusterIdentifier: aws.String("rt-gc-dbname"),
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.GlobalClusters, 1)
+	assert.Equal(t, "mygraphdb", aws.ToString(descOut.GlobalClusters[0].DatabaseName))
+}
+
+// Test_SDKRoundTrip_CreateEventSubscription_CustomerAwsId proves
+// DescribeEventSubscriptions echoes CustomerAwsId. Real
+// EventSubscription.CustomerAwsId (neptune@v1.48.4 types/types.go:1063, wire
+// element "CustomerAwsId" -- deserializers.go's
+// awsAwsquery_deserializeDocumentEventSubscription) had zero grep hits
+// anywhere in this service before this fix: never modeled at all, even
+// though the backend already tracks the account ID for ARN construction.
+func Test_SDKRoundTrip_CreateEventSubscription_CustomerAwsId(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("111122223333", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	createOut, err := client.CreateEventSubscription(ctx, &neptunesdk.CreateEventSubscriptionInput{
+		SubscriptionName: aws.String("rt-sub-acct"),
+		SnsTopicArn:      aws.String("arn:aws:sns:us-east-1:111122223333:rt-topic"),
+		SourceType:       aws.String("db-cluster"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createOut.EventSubscription)
+	assert.Equal(t, "111122223333", aws.ToString(createOut.EventSubscription.CustomerAwsId))
+
+	descOut, err := client.DescribeEventSubscriptions(ctx, &neptunesdk.DescribeEventSubscriptionsInput{
+		SubscriptionName: aws.String("rt-sub-acct"),
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.EventSubscriptionsList, 1)
+	assert.Equal(t, "111122223333", aws.ToString(descOut.EventSubscriptionsList[0].CustomerAwsId))
 }

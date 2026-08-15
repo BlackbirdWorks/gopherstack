@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -154,7 +157,7 @@ func TestCreateStreamingDistributionWithTags_HTTP(t *testing.T) {
 		`<Tags><Items><Tag><Key>env</Key><Value>prod</Value></Tag></Items></Tags>` +
 		`</StreamingDistributionConfigWithTags>`
 
-	rec := doXML(t, h, http.MethodPost, prefix+"streaming-distribution?Resource=WithTags", []byte(body))
+	rec := doXML(t, h, http.MethodPost, prefix+"streaming-distribution?WithTags", []byte(body))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	id := extractXMLID(t, rec.Body.String())
@@ -165,6 +168,54 @@ func TestCreateStreamingDistributionWithTags_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, tagsRec.Code, tagsRec.Body.String())
 	assert.Contains(t, tagsRec.Body.String(), "<Key>env</Key>")
 	assert.Contains(t, tagsRec.Body.String(), "<Value>prod</Value>")
+}
+
+// TestCreateStreamingDistributionWithTags_RealClient drives the real
+// aws-sdk-go-v2 client to prove CreateStreamingDistributionWithTags is
+// reachable and distinct from CreateStreamingDistribution. Real
+// CreateStreamingDistributionWithTags sends a bare "?WithTags" query flag
+// with no value (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpCreateStreamingDistributionWithTags's SplitURI),
+// never "?Resource=WithTags" -- the same misread that broke
+// CreateDistributionWithTags (gopherstack-o31x).
+func TestCreateStreamingDistributionWithTags_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := client.CreateStreamingDistributionWithTags(
+		t.Context(),
+		&cfsdk.CreateStreamingDistributionWithTagsInput{
+			StreamingDistributionConfigWithTags: &types.StreamingDistributionConfigWithTags{
+				StreamingDistributionConfig: &types.StreamingDistributionConfig{
+					CallerReference: aws.String("real-client-sd-with-tags"),
+					Comment:         aws.String("tagged streaming dist"),
+					Enabled:         aws.Bool(false),
+					S3Origin: &types.S3Origin{
+						DomainName:           aws.String("bucket.s3.amazonaws.com"),
+						OriginAccessIdentity: aws.String(""),
+					},
+					TrustedSigners: &types.TrustedSigners{
+						Enabled:  aws.Bool(false),
+						Quantity: aws.Int32(0),
+					},
+				},
+				Tags: &types.Tags{Items: []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}}},
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, created.StreamingDistribution)
+
+	tags, err := client.ListTagsForResource(t.Context(), &cfsdk.ListTagsForResourceInput{
+		Resource: created.StreamingDistribution.ARN,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, tags.Tags)
+	require.Len(t, tags.Tags.Items, 1)
+	assert.Equal(t, "env", aws.ToString(tags.Tags.Items[0].Key))
+	assert.Equal(t, "prod", aws.ToString(tags.Tags.Items[0].Value))
 }
 
 // TestInMemoryBackend_StreamingDistribution exercises the in-memory backend directly, covering the

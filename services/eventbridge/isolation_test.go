@@ -15,11 +15,11 @@ func TestEventBridgeRegionIsolation(t *testing.T) { //nolint:paralleltest // exi
 	ctxWest := context.WithValue(context.Background(), regionContextKey{}, "us-west-2")
 
 	// 1. Create bus in us-east-1
-	_, err := backend.CreateEventBus(ctxEast, "bus-east", "")
+	_, err := backend.CreateEventBus(ctxEast, CreateEventBusParams{Name: "bus-east"})
 	require.NoError(t, err)
 
 	// 2. Create bus with SAME NAME in us-west-2
-	_, err = backend.CreateEventBus(ctxWest, "bus-east", "")
+	_, err = backend.CreateEventBus(ctxWest, CreateEventBusParams{Name: "bus-east"})
 	require.NoError(t, err)
 
 	// 3. Verify us-east-1 only sees its bus

@@ -336,6 +336,17 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 			CapacityProviderName: capacityProviderName,
 		}
 
+		// Mirror tags into the resourceTags side map so TagResource/UntagResource/
+		// ListTagsForResource (and DescribeTasks, which reads tags live from
+		// resourceTags -- see DescribeTasks below) see the tags applied at
+		// creation, matching the fix already applied to ExpressGatewayService and
+		// CapacityProvider. Without this, task.Tags and resourceTags are two
+		// independent stores and a TagResource call after RunTask is invisible to
+		// DescribeTasks.
+		if len(resolvedTags) > 0 {
+			b.setResourceTagsLocked(taskArn, resolvedTags)
+		}
+
 		if launchType == launchTypeFargate {
 			task.Attachments = []TaskAttachment{newFargateTaskAttachment(taskArn)}
 		} else {
@@ -388,7 +399,7 @@ func (b *InMemoryBackend) DescribeTasks(
 		clusterTasks := b.tasksByCluster.Get(clusterName)
 		out := make([]Task, 0, len(clusterTasks))
 		for _, t := range clusterTasks {
-			out = append(out, *t)
+			out = append(out, b.taskWithLiveTagsLocked(t))
 		}
 
 		return out, nil, nil
@@ -409,10 +420,21 @@ func (b *InMemoryBackend) DescribeTasks(
 			continue
 		}
 
-		out = append(out, *t)
+		out = append(out, b.taskWithLiveTagsLocked(t))
 	}
 
 	return out, failures, nil
+}
+
+// taskWithLiveTagsLocked returns a copy of t with Tags sourced from the
+// resourceTags side map instead of t's own creation-time snapshot, so tags
+// applied via TagResource/UntagResource after the task was started are
+// reflected. Must be called with at least a read lock held.
+func (b *InMemoryBackend) taskWithLiveTagsLocked(t *Task) Task {
+	cp := *t
+	cp.Tags = copyTags(b.resourceTags[resourceTagKey(t.TaskArn)])
+
+	return cp
 }
 
 // StopTask stops a running task.
@@ -475,7 +497,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 				reason:      reason,
 			}
 
-			cp := *task
+			cp := b.taskWithLiveTagsLocked(task)
 			delayedCp = &cp
 
 			return
@@ -488,7 +510,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
 
 		instanceArn = task.ContainerInstanceArn
-		fastCp = *task
+		fastCp = b.taskWithLiveTagsLocked(task)
 		fastTask = task
 	}()
 

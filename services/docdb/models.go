@@ -134,35 +134,38 @@ type DBCluster struct {
 	// are built by copyCluster/hand-assembled describe results, never by
 	// marshaling DBCluster directly), but persistence.go must carry it
 	// through a DTO explicitly since json.Marshal never sees unexported fields.
-	region                           string
-	Tags                             map[string]string `json:"tags"`
-	DBClusterArn                     string            `json:"dbClusterArn"`
-	EngineVersion                    string            `json:"engineVersion"`
-	Engine                           string            `json:"engine"`
-	PreferredMaintenanceWindow       string            `json:"preferredMaintenanceWindow"`
-	MasterUsername                   string            `json:"masterUsername"`
-	DatabaseName                     string            `json:"databaseName"`
-	DBClusterParameterGroupName      string            `json:"dbClusterParameterGroupName"`
-	Endpoint                         string            `json:"endpoint"`
-	DBClusterIdentifier              string            `json:"dbClusterIdentifier"`
-	ReaderEndpoint                   string            `json:"readerEndpoint"`
-	Status                           string            `json:"status"`
-	DBSubnetGroupName                string            `json:"dbSubnetGroupName"`
-	PreferredBackupWindow            string            `json:"preferredBackupWindow"`
-	ClusterCreateTime                string            `json:"clusterCreateTime"`
-	HostedZoneID                     string            `json:"hostedZoneId"`
-	KmsKeyID                         string            `json:"kmsKeyId"`
-	ReplicationSourceIdentifier      string            `json:"replicationSourceIdentifier"`
-	AvailabilityZones                []string          `json:"availabilityZones"`
-	VpcSecurityGroupIDs              []string          `json:"vpcSecurityGroupIds"`
-	EnabledCloudwatchLogsExports     []string          `json:"enabledCloudwatchLogsExports"`
-	ReadReplicaIdentifiers           []string          `json:"readReplicaIdentifiers"`
-	Port                             int               `json:"port"`
-	BackupRetentionPeriod            int               `json:"backupRetentionPeriod"`
-	StorageEncrypted                 bool              `json:"storageEncrypted"`
-	MultiAZ                          bool              `json:"multiAZ"`
-	DeletionProtection               bool              `json:"deletionProtection"`
-	IAMDatabaseAuthenticationEnabled bool              `json:"iamDatabaseAuthenticationEnabled"`
+	region                      string
+	Tags                        map[string]string `json:"tags"`
+	DBClusterArn                string            `json:"dbClusterArn"`
+	EngineVersion               string            `json:"engineVersion"`
+	Engine                      string            `json:"engine"`
+	PreferredMaintenanceWindow  string            `json:"preferredMaintenanceWindow"`
+	MasterUsername              string            `json:"masterUsername"`
+	DBClusterParameterGroupName string            `json:"dbClusterParameterGroupName"`
+	Endpoint                    string            `json:"endpoint"`
+	DBClusterIdentifier         string            `json:"dbClusterIdentifier"`
+	ReaderEndpoint              string            `json:"readerEndpoint"`
+	Status                      string            `json:"status"`
+	DBSubnetGroupName           string            `json:"dbSubnetGroupName"`
+	PreferredBackupWindow       string            `json:"preferredBackupWindow"`
+	ClusterCreateTime           string            `json:"clusterCreateTime"`
+	HostedZoneID                string            `json:"hostedZoneId"`
+	KmsKeyID                    string            `json:"kmsKeyId"`
+	ReplicationSourceIdentifier string            `json:"replicationSourceIdentifier"`
+	// WriterInstanceID names the cluster member FailoverDBCluster last
+	// promoted to writer; empty means GetClusterMembers falls back to its
+	// default (alphabetically first member). Backend-internal state, never
+	// itself on the wire -- only reflected via DBClusterMembers.IsClusterWriter.
+	WriterInstanceID             string   `json:"writerInstanceId"`
+	AvailabilityZones            []string `json:"availabilityZones"`
+	VpcSecurityGroupIDs          []string `json:"vpcSecurityGroupIds"`
+	EnabledCloudwatchLogsExports []string `json:"enabledCloudwatchLogsExports"`
+	ReadReplicaIdentifiers       []string `json:"readReplicaIdentifiers"`
+	Port                         int      `json:"port"`
+	BackupRetentionPeriod        int      `json:"backupRetentionPeriod"`
+	StorageEncrypted             bool     `json:"storageEncrypted"`
+	MultiAZ                      bool     `json:"multiAZ"`
+	DeletionProtection           bool     `json:"deletionProtection"`
 }
 
 type DBInstance struct {
@@ -182,6 +185,7 @@ type DBInstance struct {
 	DBSubnetGroupName            string            `json:"dbSubnetGroupName"`
 	PreferredMaintenanceWindow   string            `json:"preferredMaintenanceWindow"`
 	CACertificateIdentifier      string            `json:"caCertificateIdentifier"`
+	InstanceCreateTime           string            `json:"instanceCreateTime"`
 	EnabledCloudwatchLogsExports []string          `json:"enabledCloudwatchLogsExports"`
 	Port                         int               `json:"port"`
 	PromotionTier                int               `json:"promotionTier"`
@@ -230,13 +234,23 @@ type DBClusterSnapshot struct {
 	DBClusterIdentifier         string            `json:"dbClusterIdentifier"`
 	DBClusterArn                string            `json:"dbClusterArn"`
 	DBClusterSnapshotArn        string            `json:"dbClusterSnapshotArn"`
-	Engine                      string            `json:"engine"`
-	Status                      string            `json:"status"`
-	EngineVersion               string            `json:"engineVersion"`
-	SnapshotType                string            `json:"snapshotType"`
-	SnapshotCreateTime          string            `json:"snapshotCreateTime"`
-	PercentProgress             int               `json:"percentProgress"`
-	StorageEncrypted            bool              `json:"storageEncrypted"`
+	// SourceDBClusterSnapshotArn is only ever non-empty on a snapshot
+	// created via CopyDBClusterSnapshot (the copy's own source); a
+	// directly-created snapshot (CreateDBClusterSnapshot) has no source
+	// snapshot of its own, matching real types.DBClusterSnapshot.
+	SourceDBClusterSnapshotArn string   `json:"sourceDBClusterSnapshotArn"`
+	Engine                     string   `json:"engine"`
+	Status                     string   `json:"status"`
+	EngineVersion              string   `json:"engineVersion"`
+	SnapshotType               string   `json:"snapshotType"`
+	SnapshotCreateTime         string   `json:"snapshotCreateTime"`
+	ClusterCreateTime          string   `json:"clusterCreateTime"`
+	KmsKeyID                   string   `json:"kmsKeyId"`
+	MasterUsername             string   `json:"masterUsername"`
+	AvailabilityZones          []string `json:"availabilityZones"`
+	Port                       int      `json:"port"`
+	PercentProgress            int      `json:"percentProgress"`
+	StorageEncrypted           bool     `json:"storageEncrypted"`
 }
 
 type EventSubscription struct {
@@ -397,16 +411,15 @@ type InMemoryBackend struct {
 
 // CreateDBClusterOptions holds optional parameters for CreateDBCluster.
 type CreateDBClusterOptions struct {
-	KmsKeyID                         string
-	VpcSecurityGroupIDs              []string
-	EnabledCloudwatchLogsExports     []string
-	IAMDatabaseAuthenticationEnabled bool
+	KmsKeyID                     string
+	VpcSecurityGroupIDs          []string
+	EnabledCloudwatchLogsExports []string
 }
 
 // DeleteDBClusterOptions holds optional parameters for DeleteDBCluster.
 type DeleteDBClusterOptions struct {
-	FinalDBClusterSnapshotIdentifier string
-	SkipFinalSnapshot                bool
+	FinalDBSnapshotIdentifier string
+	SkipFinalSnapshot         bool
 }
 
 // ModifyDBClusterOptions holds optional extra parameters for ModifyDBCluster.

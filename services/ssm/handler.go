@@ -314,10 +314,73 @@ func classifySSMError(reqErr error) (string, int) {
 	return classifySSMErrorExtended(reqErr)
 }
 
-func classifySSMErrorExtended(reqErr error) (string, int) {
+// classifySSMResourceDataSyncError handles the two ResourceDataSync-specific
+// errors, split out of classifySSMErrorExtended purely to keep that
+// function's cyclomatic complexity under this repo's cyclop limit.
+func classifySSMResourceDataSyncError(reqErr error) (string, int, bool) {
 	statusCode := http.StatusBadRequest
 
 	switch {
+	case errors.Is(reqErr, ErrResourceDataSyncNotFound):
+		return "ResourceDataSyncNotFoundException", statusCode, true
+	case errors.Is(reqErr, ErrResourceDataSyncExists):
+		return "ResourceDataSyncAlreadyExistsException", statusCode, true
+	default:
+		return "", 0, false
+	}
+}
+
+// classifySSMResourcePolicyError handles the two ResourcePolicy-specific
+// errors, split out for the same cyclop-budget reason as
+// classifySSMResourceDataSyncError.
+func classifySSMResourcePolicyError(reqErr error) (string, int, bool) {
+	statusCode := http.StatusBadRequest
+
+	switch {
+	case errors.Is(reqErr, ErrResourcePolicyNotFound):
+		return "ResourcePolicyNotFoundException", statusCode, true
+	case errors.Is(reqErr, ErrResourcePolicyConflict):
+		return "ResourcePolicyConflictException", statusCode, true
+	default:
+		return "", 0, false
+	}
+}
+
+// classifySSMOpsError handles the OpsItem/OpsMetadata-specific errors, split
+// out for the same cyclop-budget reason as classifySSMResourceDataSyncError.
+func classifySSMOpsError(reqErr error) (string, int, bool) {
+	statusCode := http.StatusBadRequest
+
+	switch {
+	case errors.Is(reqErr, ErrOpsItemNotFound):
+		return "OpsItemNotFoundException", statusCode, true
+	case errors.Is(reqErr, ErrOpsMetadataNotFound):
+		return "OpsMetadataNotFoundException", statusCode, true
+	case errors.Is(reqErr, ErrOpsMetadataAlreadyExists):
+		return "OpsMetadataAlreadyExistsException", statusCode, true
+	default:
+		return "", 0, false
+	}
+}
+
+func classifySSMErrorExtended(reqErr error) (string, int) {
+	statusCode := http.StatusBadRequest
+
+	if code, status, ok := classifySSMResourceDataSyncError(reqErr); ok {
+		return code, status
+	}
+
+	if code, status, ok := classifySSMResourcePolicyError(reqErr); ok {
+		return code, status
+	}
+
+	if code, status, ok := classifySSMOpsError(reqErr); ok {
+		return code, status
+	}
+
+	switch {
+	case errors.Is(reqErr, ErrInvalidAggregator):
+		return "InvalidAggregatorException", statusCode
 	case errors.Is(reqErr, ErrCloudConnectorNotFound):
 		return "ResourceNotFoundException", statusCode
 	case errors.Is(reqErr, ErrAccessRequestNotFound):
@@ -330,12 +393,6 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 		return errCodeDoesNotExist, statusCode
 	case errors.Is(reqErr, ErrMaintenanceWindowNotFound):
 		return errCodeDoesNotExist, statusCode
-	case errors.Is(reqErr, ErrOpsItemNotFound):
-		return "OpsItemNotFoundException", statusCode
-	case errors.Is(reqErr, ErrOpsMetadataNotFound):
-		return "OpsMetadataNotFoundException", statusCode
-	case errors.Is(reqErr, ErrOpsMetadataAlreadyExists):
-		return "OpsMetadataAlreadyExistsException", statusCode
 	case errors.Is(reqErr, ErrPatchBaselineNotFound):
 		return errCodeDoesNotExist, statusCode
 	case errors.Is(reqErr, ErrUnknownOperation):

@@ -39,7 +39,7 @@ ops:
 
   # --- ConfigRule + compliance family ---
   PutConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeConfigRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-s7u1): unknown name in a non-empty ConfigRuleNames filter now errors NoSuchConfigRuleException instead of silently omitting it; backend signature changed to return an error (~14 call sites across this package updated)"}
+  DescribeConfigRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-s7u1): unknown name in a non-empty ConfigRuleNames filter now errors NoSuchConfigRuleException instead of silently omitting it; backend signature changed to return an error (~14 call sites across this package updated). ALSO fixed (gopherstack-m0ow): the real optional Filters *types.DescribeConfigRulesFilters (EvaluationMode/RuleEvaluationVisibility) was entirely absent from describeConfigRulesInput and therefore silently dropped by the JSON decoder even when a client sent it. Now modeled and accepted, but inert: gopherstack's ConfigRule has no EvaluationMode/RuleEvaluationVisibility concept at all (PutConfigRule doesn't model the real types.ConfigRule.EvaluationModes field either), so a filtered request currently returns the same unfiltered set -- there is no per-rule state to filter by, and none is fabricated."}
   DeleteConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
   GetComplianceDetailsByConfigRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-s7u1): unknown ConfigRuleName now errors NoSuchConfigRuleException instead of silently returning empty"}
   GetComplianceDetailsByResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -81,8 +81,8 @@ ops:
   GetAggregateConfigRuleComplianceSummary: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives a single-group compliant/non-compliant rollup keyed by the local account ID or region (GroupByKey), aggregator existence validated"}
   GetAggregateConformancePackComplianceSummary: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives compliant/non-compliant conformance-pack counts for the local account/region group, aggregator existence validated"}
   GetAggregateDiscoveredResourceCounts: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchGetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): decoded into *emptyInput, dropping ConfigurationAggregatorName/ResourceIdentifier and always returning 'the first resource config found' -- every distinct request returned the same arbitrary item. Now resolves the requested identifier against b.resourceConfigs (mirroring BatchGetAggregateResourceConfig), NoSuchConfigurationAggregatorException for an unknown aggregator, ResourceNotDiscoveredException for no match"}
+  BatchGetAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-ctaz): the aggregatorName parameter was discarded (blank identifier in the backend method signature), so an unknown ConfigurationAggregatorName never yielded NoSuchConfigurationAggregatorException, unlike its siblings ListAggregateDiscoveredResources and GetAggregateResourceConfig (fixed gopherstack-h910), both of which call requireAggregatorLocked. Now validates the aggregator first. Unlike GetAggregateResourceConfig's bug, this one was purely the missing validation -- each identifier in the batch was already resolved individually against b.resourceConfigs by its own ResourceType/ResourceID, never falling back to 'whichever resource came first'; confirmed by reading the resolution loop, not assumed from the shared bug report. Confirmed against the pinned SDK that a missing aggregator IS the right error to add: BatchGetAggregateResourceConfig's own deserializeOpError switch declares NoSuchConfigurationAggregatorException (and ValidationException) but no ResourceNotDiscovered-style exception -- a per-identifier miss is correctly reported via UnprocessedResourceIdentifiers, not an error, matching the pre-existing behavior."}
   SelectAggregateResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAggregateDiscoveredResources: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns local discovered resources of the requested type tagged with the local account/region as source, account/region/resourceId filters applied, aggregator existence validated"}
   DescribePendingAggregationRequests: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was an empty-list stub; now derives pending requests from AggregationAuthorizations this account granted that no local ConfigurationAggregator has yet incorporated into its AccountAggregationSources -- the only genuinely-derivable cross-account state a single-account emulator has"}
@@ -92,9 +92,9 @@ ops:
   PutRemediationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRemediationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRemediationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended: cascade-deletes any recorded remediation executions for the rule too (new remediationExecutions table introduced this pass)"}
-  PutRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
+  PutRemediationExceptions: {wire: fixed, errors: fixed, state: fixed, persist: n/a, note: "previously graded 'wire: ok' in error (gopherstack-m0ow): the handler read invented flat ConfigRuleName/ResourceType/ResourceId fields; real required member is ResourceKeys []types.RemediationExceptionResourceKey (a LIST, one exception per key -- 'Config adds exception for each resource key. For example, Config adds 3 exceptions for 3 resource keys'), with wire keys ResourceType/ResourceId nested PascalCase inside each array element. Also note RemediationExceptionResourceKey's wire keys are PascalCase, unlike the pre-existing, similarly-named ResourceKey type (used by StartRemediationExecution/DescribeRemediationExecutionStatus) whose wire keys are lowerCamelCase -- verified as two distinct serializers (awsAwsjson11_serializeDocumentRemediationExceptionResourceKey vs awsAwsjson11_serializeDocumentResourceKey), not the same shape reused. Backend signature changed to accept the key list, upserting one exception per key. ConfigRuleName/ResourceKeys presence now validated -- InvalidParameterValueException (new ErrInvalidParameterValue sentinel), not ValidationException: this op's declared error switch is InsufficientPermissionsException/InvalidParameterValueException only (verified against awsAwsjson11_deserializeOpErrorPutRemediationExceptions), matching this package's documented policy of not modeling ValidationException on ops that don't declare it. ExpirationTime/Message (real optional members) aren't modeled: gopherstack's RemediationException has no fields to reflect them into, so they're left for the JSON decoder to silently discard."}
   DescribeRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  DeleteRemediationExceptions: {wire: ok, errors: ok, state: ok, persist: n/a}
+  DeleteRemediationExceptions: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "previously graded 'wire: ok' in error (gopherstack-m0ow): the handler read ConfigRuleName + an invented ResourceGroupName field that doesn't exist on the real API surface, so a real client's request never populated it and nothing was ever actually deleted. Real required member is ResourceKeys []types.RemediationExceptionResourceKey (same PascalCase-nested list shape as PutRemediationExceptions -- see its note). Backend signature changed to accept the key list, deleting exceptions matching (ResourceType, ResourceID) pairs. No validation error added for a missing ConfigRuleName/ResourceKeys: this op's declared error switch is NoSuchRemediationExceptionException only (verified against awsAwsjson11_deserializeOpErrorDeleteRemediationExceptions) -- no ValidationException/InvalidParameterValueException modeled at all, so an empty request is treated as a no-op rather than inventing an error code AWS doesn't declare for this op."}
   StartRemediationExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was a no-op stub; now validates a remediation configuration exists for the rule (NoSuchRemediationConfigurationException) and records a SUCCEEDED execution per resource key (no real SSM Automation runner modeled), readable back via DescribeRemediationExecutionStatus"}
   DescribeRemediationExecutionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-e0f1): was an empty-list stub; now returns recorded executions for the rule, optionally filtered by resource key, NoSuchRemediationConfigurationException validation"}
 
@@ -123,7 +123,7 @@ ops:
   DeleteStoredQuery: {wire: ok, errors: ok, state: ok, persist: ok}
 
   # --- ResourceConfig (Get/List/BatchGet/Select) family ---
-  PutResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-h910): request struct omitted the required SchemaVersionId entirely. Now decoded and required (ValidationException if empty); not stored since real AWS uses it only to validate Configuration against the CloudFormation-registered schema for ResourceType, a check this emulator cannot perform, and no output ever echoes it"}
   DeleteResourceConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResourceConfigHistory: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDiscoveredResources: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -222,6 +222,25 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   still have no `store.Table` identity and are NOT persisted -- this is a pre-existing gap
   (not introduced or fixed this pass), see `persistence.go`'s doc comment.
 
+- 2026-08-13 pass (`gopherstack-h910`, required-member sweep pass 5): `GetAggregateResourceConfig`
+  decoded into `*emptyInput`, dropping `ConfigurationAggregatorName`/`ResourceIdentifier` and
+  always returning "the first resource config found" regardless of what was requested -- a
+  correctness bug, not just a dropped field. `PutResourceConfig` omitted the required
+  `SchemaVersionId` entirely. Both fixed -- see their `ops` entries above.
+
+- 2026-08-13 follow-up pass (`gopherstack-ctaz`, found alongside the `GetAggregateResourceConfig`
+  fix above): `BatchGetAggregateResourceConfig`'s backend method signature took
+  `aggregatorName string` but discarded it with a blank identifier, so an unknown
+  `ConfigurationAggregatorName` never yielded `NoSuchConfigurationAggregatorException` --
+  unlike `GetAggregateResourceConfig` and `ListAggregateDiscoveredResources`, both of which
+  validate via `requireAggregatorLocked`. Checked whether the batch variant also shared
+  `GetAggregateResourceConfig`'s worse defect (returning an arbitrary "first" item for every
+  distinct request): it did not -- each identifier in the batch was already correctly
+  resolved against `b.resourceConfigs` by its own `ResourceType`/`ResourceID`, so only the
+  aggregator-existence check was missing. Fixed by adding the same `requireAggregatorLocked`
+  call used by its siblings. See its `ops` entry above for the pinned-SDK verification that
+  a per-identifier miss is correctly `UnprocessedResourceIdentifiers`, not an error.
+
 - 2026-07-25 pass (SDK bump v1.61.2 -> v1.68.0 revealed 5 new operations): implemented
   all 5 for real rather than adding them to `notImplemented` -- `PutConnector`/
   `GetConnector`/`ListConnectors`/`DeleteConnector` (new Connector family, see their ops
@@ -240,6 +259,17 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
   ConflictException when the same ServicePrincipal reuses a different ConnectorArn -- "one
   recorder per service principal" is enforced, unlike the pre-existing, still-unenforced
   single-customer-managed-recorder limit noted in `gaps`).
+
+- 2026-08-12 pass (`gopherstack-m0ow`, from the `gopherstack-7rq1` sweep for request
+  fields present in the model but absent from wire structs): `Put`/`DeleteRemediationExceptions`
+  read invented flat fields (`ResourceType`/`ResourceId` at the top level for Put;
+  `ResourceGroupName` -- which doesn't exist on the real API at all -- for Delete) instead
+  of the real required `ResourceKeys []types.RemediationExceptionResourceKey` list, making
+  both ops unreachable by a real client. Fixed -- see their `ops` entries above for the
+  wire-shape/error-model detail, including the PascalCase-vs-lowerCamelCase gotcha between
+  the new `RemediationExceptionResourceKey` and the pre-existing, similarly-named
+  `ResourceKey`. Also added `DescribeConfigRules`' real optional `Filters` (accepted,
+  currently inert -- see its `ops` entry).
 
 - 2026-07-24 pass bug-class findings (see `.claude/memories/parity-principles.md` bug
   classes) -- this pass closed all remaining items from the prior audit's `gaps` list

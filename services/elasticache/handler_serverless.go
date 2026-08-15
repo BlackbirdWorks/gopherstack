@@ -135,7 +135,14 @@ func parseFormInt32(form url.Values, key string) int32 {
 // DescribeServerlessCaches response despite the domain ServerlessCache model
 // already storing all of them -- this was purely a missing-wire-mapping bug,
 // not a missing-data gap. CacheUsageLimits is now also wired (was the one
-// real field left unmodeled by the prior pass -- see PARITY.md).
+// real field left unmodeled by the prior pass -- see PARITY.md). NetworkType
+// and StorageEncryptionType (deserializers.go:23264/23332) were added by the
+// SDK after this service's last field diff (gopherstack-31dm); NetworkType
+// is echoed from CreateServerlessCacheInput.NetworkType (serializers.go:6709;
+// ModifyServerlessCacheInput has no such member, so it is create-only, matching
+// real AWS). StorageEncryptionType has no Create/Modify input member at all --
+// deliberately left always empty rather than derived from KmsKeyId, same
+// no-fabrication rule as FullEngineVersion below.
 type serverlessCacheXML struct {
 	Endpoint               *serverlessCacheEndpointXML `xml:"Endpoint,omitempty"`
 	ReaderEndpoint         *serverlessCacheEndpointXML `xml:"ReaderEndpoint,omitempty"`
@@ -152,6 +159,8 @@ type serverlessCacheXML struct {
 	FullEngineVersion      string                      `xml:"FullEngineVersion,omitempty"`
 	KmsKeyID               string                      `xml:"KmsKeyId,omitempty"`
 	MajorEngineVersion     string                      `xml:"MajorEngineVersion,omitempty"`
+	NetworkType            string                      `xml:"NetworkType,omitempty"`
+	StorageEncryptionType  string                      `xml:"StorageEncryptionType,omitempty"`
 	UserGroupID            string                      `xml:"UserGroupId,omitempty"`
 	SnapshotRetentionLimit int32                       `xml:"SnapshotRetentionLimit,omitempty"`
 }
@@ -172,6 +181,7 @@ func serverlessCacheToXML(sc *ServerlessCache) serverlessCacheXML {
 		DailySnapshotTime:      sc.DailySnapshotTime,
 		KmsKeyID:               sc.KmsKeyID,
 		MajorEngineVersion:     sc.MajorEngineVersion,
+		NetworkType:            sc.NetworkType,
 		UserGroupID:            sc.UserGroupID,
 		SnapshotRetentionLimit: sc.SnapshotRetentionLimit,
 		CacheUsageLimits:       cacheUsageLimitsToXML(sc.CacheUsageLimits),
@@ -228,6 +238,7 @@ func (h *Handler) createServerlessCache(ctx context.Context, c *echo.Context, fo
 		UserGroupID:            form.Get("UserGroupId"),
 		DailySnapshotTime:      form.Get("DailySnapshotTime"),
 		MajorEngineVersion:     form.Get("MajorEngineVersion"),
+		NetworkType:            form.Get("NetworkType"),
 		SecurityGroupIDs:       parseRepeatedField(form, "SecurityGroupIds.SecurityGroupId"),
 		SubnetIDs:              parseRepeatedField(form, "SubnetIds.SubnetId"),
 		SnapshotRetentionLimit: parseFormInt32(form, "SnapshotRetentionLimit"),

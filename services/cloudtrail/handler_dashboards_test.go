@@ -30,7 +30,8 @@ func TestCloudTrailDashboard(t *testing.T) {
 				resp := parseCloudTrailResp(t, rec)
 				assert.NotEmpty(t, resp["DashboardArn"])
 				assert.Equal(t, "my-dashboard", resp["Name"])
-				assert.Equal(t, "CREATED", resp["Status"])
+				_, hasStatus := resp["Status"]
+				assert.False(t, hasStatus, "CreateDashboardOutput has no Status field")
 			},
 		},
 		{
@@ -190,7 +191,8 @@ func TestUpdateDashboard_NoNameField(t *testing.T) {
 	resp := parseCloudTrailResp(t, updateRec)
 	assert.Equal(t, "update-dash", resp["Name"], "Name is unchanged -- there is no rename capability")
 	assert.Equal(t, true, resp["TerminationProtectionEnabled"])
-	assert.Equal(t, "UPDATED", resp["Status"])
+	_, hasStatus := resp["Status"]
+	assert.False(t, hasStatus, "UpdateDashboardOutput has no Status field")
 }
 
 // TestStartDashboardRefresh_RefreshIDOnly verifies StartDashboardRefresh
@@ -212,4 +214,94 @@ func TestStartDashboardRefresh_RefreshIDOnly(t *testing.T) {
 	assert.NotEmpty(t, resp["RefreshId"])
 	_, hasStatus := resp["Status"]
 	assert.False(t, hasStatus, "StartDashboardRefreshOutput has no Status field")
+}
+
+// TestDashboard_RawBody_PerOpShape asserts each dashboard op's raw JSON body
+// matches its own real output shape rather than the union dashToMap used to
+// return. Real CreateDashboardOutput/UpdateDashboardOutput have no Status
+// field (only GetDashboardOutput does); real GetDashboardOutput has no Name
+// field (only Create/UpdateDashboardOutput do); real CreateDashboardOutput
+// has a TagsList field that the shared helper never populated at all.
+func TestDashboard_RawBody_PerOpShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(t *testing.T, h *cloudtrail.Handler, dashARN string) map[string]any
+		check func(t *testing.T, resp map[string]any)
+		name  string
+	}{
+		{
+			name: "create_no_status_has_tagslist",
+			setup: func(t *testing.T, h *cloudtrail.Handler, _ string) map[string]any {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+					"Name": "shape-create",
+					"Tags": []any{map[string]any{"Key": "env", "Value": "prod"}},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return parseCloudTrailResp(t, rec)
+			},
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				_, hasStatus := resp["Status"]
+				assert.False(t, hasStatus, "CreateDashboardOutput has no Status field")
+
+				tagsList, ok := resp["TagsList"].([]any)
+				require.True(t, ok, "CreateDashboardOutput must echo TagsList")
+				require.Len(t, tagsList, 1)
+				tag, _ := tagsList[0].(map[string]any)
+				assert.Equal(t, "env", tag["Key"])
+				assert.Equal(t, "prod", tag["Value"])
+			},
+		},
+		{
+			name: "get_no_name_has_status",
+			setup: func(t *testing.T, h *cloudtrail.Handler, dashARN string) map[string]any {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "GetDashboard", map[string]any{"DashboardId": dashARN})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return parseCloudTrailResp(t, rec)
+			},
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				_, hasName := resp["Name"]
+				assert.False(t, hasName, "GetDashboardOutput has no Name field")
+				assert.NotEmpty(t, resp["Status"], "GetDashboardOutput does have a Status field")
+			},
+		},
+		{
+			name: "update_no_status_no_tagslist",
+			setup: func(t *testing.T, h *cloudtrail.Handler, dashARN string) map[string]any {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "UpdateDashboard", map[string]any{"DashboardId": dashARN})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return parseCloudTrailResp(t, rec)
+			},
+			check: func(t *testing.T, resp map[string]any) {
+				t.Helper()
+				_, hasStatus := resp["Status"]
+				assert.False(t, hasStatus, "UpdateDashboardOutput has no Status field")
+				_, hasTagsList := resp["TagsList"]
+				assert.False(t, hasTagsList, "UpdateDashboardOutput has no TagsList field")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestCloudTrailHandler()
+			createRec := doCloudTrailOp(t, h, "CreateDashboard", map[string]any{"Name": "shape-base-" + tt.name})
+			require.Equal(t, http.StatusOK, createRec.Code)
+			dashARN, _ := parseCloudTrailResp(t, createRec)["DashboardArn"].(string)
+			require.NotEmpty(t, dashARN)
+
+			resp := tt.setup(t, h, dashARN)
+			tt.check(t, resp)
+		})
+	}
 }

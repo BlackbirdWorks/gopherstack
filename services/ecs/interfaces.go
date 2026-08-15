@@ -58,7 +58,7 @@ type Backend interface {
 
 	CreateTaskSet(input CreateTaskSetInput) (*TaskSet, error)
 	DeleteTaskSet(cluster, service, taskSet string) (*TaskSet, error)
-	DescribeTaskSets(cluster, service string, taskSets []string) ([]TaskSet, error)
+	DescribeTaskSets(cluster, service string, taskSets []string) ([]TaskSet, []Failure, error)
 	UpdateTaskSet(cluster, service, taskSet string, scale TaskSetScale) (*TaskSet, error)
 	UpdateServicePrimaryTaskSet(cluster, service, primaryTaskSet string) (*TaskSet, error)
 
@@ -132,7 +132,7 @@ type Backend interface {
 	DescribeServiceDeployments(
 		serviceDeploymentArns []string,
 	) ([]ServiceDeployment, []Failure, error)
-	ListServiceDeployments(cluster, service string) ([]string, error)
+	ListServiceDeployments(cluster, service string) ([]ServiceDeployment, error)
 	StopServiceDeployment(serviceDeploymentArn string) (*ServiceDeployment, error)
 	ContinueServiceDeployment(serviceDeploymentArn, hookID, action string) (*ServiceDeployment, error)
 

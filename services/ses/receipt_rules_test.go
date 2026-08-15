@@ -212,6 +212,7 @@ func TestHandler_SetReceiptRulePosition_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup        func(t *testing.T, h *ses.Handler)
 		name         string
 		body         string
 		wantContains string
@@ -219,15 +220,30 @@ func TestHandler_SetReceiptRulePosition_Errors(t *testing.T) {
 	}{
 		{
 			name:         "ruleset_not_found",
-			body:         "Action=SetReceiptRulePosition&Version=2010-12-01&RuleSetName=missing&RuleName=r1&Position=1",
+			body:         "Action=SetReceiptRulePosition&Version=2010-12-01&RuleSetName=missing&RuleName=r1&After=r0",
 			wantCode:     http.StatusBadRequest,
 			wantContains: "RuleSetDoesNotExist",
 		},
 		{
-			name:         "invalid_position_treated_as_zero",
-			body:         "Action=SetReceiptRulePosition&Version=2010-12-01&RuleSetName=missing&RuleName=r1&Position=notanumber",
+			name: "rule_not_found",
+			setup: func(t *testing.T, h *ses.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.CreateReceiptRuleSet("rs1"))
+			},
+			body:         "Action=SetReceiptRulePosition&Version=2010-12-01&RuleSetName=rs1&RuleName=missing&After=r0",
 			wantCode:     http.StatusBadRequest,
-			wantContains: "RuleSetDoesNotExist",
+			wantContains: "RuleDoesNotExist",
+		},
+		{
+			name: "after_rule_not_found",
+			setup: func(t *testing.T, h *ses.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.CreateReceiptRuleSet("rs1"))
+				require.NoError(t, h.Backend.CreateReceiptRule("rs1", ses.ReceiptRule{Name: "r1"}, ""))
+			},
+			body:         "Action=SetReceiptRulePosition&Version=2010-12-01&RuleSetName=rs1&RuleName=r1&After=no-such-rule",
+			wantCode:     http.StatusBadRequest,
+			wantContains: "RuleDoesNotExist",
 		},
 	}
 
@@ -236,6 +252,9 @@ func TestHandler_SetReceiptRulePosition_Errors(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
 			rec := postForm(t, h, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.wantContains)
@@ -355,23 +374,60 @@ func TestReorderReceiptRuleSet_Handler(t *testing.T) {
 	assert.Equal(t, []string{"r3", "r1", "r2"}, ruleNames(rs.Rules))
 }
 
+// TestSetReceiptRulePosition_Handler proves the rule set ends up in the
+// AWS-documented order after SetReceiptRulePosition, not merely that the
+// request parses. The real wire field is After (SetReceiptRulePositionInput.After,
+// api_op_SetReceiptRulePosition.go:51) -- there is no numeric position field;
+// a handler reading a fabricated "Position" key would leave the After param
+// unread and always move the rule to the front, which these assertions catch.
 func TestSetReceiptRulePosition_Handler(t *testing.T) {
 	t.Parallel()
 
-	h := newHandler()
-	require.NoError(t, h.Backend.CreateReceiptRuleSet("rs1"))
-	require.NoError(t, h.Backend.CreateReceiptRule("rs1", ses.ReceiptRule{Name: "r1"}, ""))
-	require.NoError(t, h.Backend.CreateReceiptRule("rs1", ses.ReceiptRule{Name: "r2"}, ""))
-	require.NoError(t, h.Backend.CreateReceiptRule("rs1", ses.ReceiptRule{Name: "r3"}, ""))
+	tests := []struct {
+		name      string
+		ruleName  string
+		after     string
+		wantOrder []string
+	}{
+		{
+			name:      "after_named_rule_inserts_immediately_following_it",
+			ruleName:  "r3",
+			after:     "r1",
+			wantOrder: []string{"r2", "r1", "r3"},
+		},
+		{
+			name:      "empty_after_moves_rule_to_front",
+			ruleName:  "r1",
+			after:     "",
+			wantOrder: []string{"r1", "r3", "r2"},
+		},
+	}
 
-	rec := postForm(t, h, url.Values{
-		"Action":      {"SetReceiptRulePosition"},
-		"Version":     {"2010-12-01"},
-		"RuleSetName": {"rs1"},
-		"RuleName":    {"r3"},
-		"After":       {"r1"},
-	}.Encode())
-	assert.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			require.NoError(t, h.Backend.CreateReceiptRuleSet("rs1"))
+			// each CreateReceiptRule call with after="" prepends, so starting order is [r3, r2, r1].
+			require.NoError(t, h.Backend.CreateReceiptRule("rs1", ses.ReceiptRule{Name: "r1"}, ""))
+			require.NoError(t, h.Backend.CreateReceiptRule("rs1", ses.ReceiptRule{Name: "r2"}, ""))
+			require.NoError(t, h.Backend.CreateReceiptRule("rs1", ses.ReceiptRule{Name: "r3"}, ""))
+
+			rec := postForm(t, h, url.Values{
+				"Action":      {"SetReceiptRulePosition"},
+				"Version":     {"2010-12-01"},
+				"RuleSetName": {"rs1"},
+				"RuleName":    {tt.ruleName},
+				"After":       {tt.after},
+			}.Encode())
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			rs, err := h.Backend.DescribeReceiptRuleSet("rs1")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOrder, ruleNames(rs.Rules))
+		})
+	}
 }
 
 func TestReceiptRule_After_Parameter(t *testing.T) {

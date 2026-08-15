@@ -24,7 +24,7 @@ ops:
   CreateHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CallerReference reuse with different Name/Comment/PrivateZone now returns HostedZoneAlreadyExists (409) instead of silently returning the wrong zone; fixed this pass: DelegationSetId was parsed off the wire and then silently dropped — every zone got the same hardcoded default name servers regardless of what was requested. Now accepts a reusable delegation set (bare or /delegationset/-prefixed ID), validates it exists (NoSuchDelegationSet), and both the CreateHostedZone/GetHostedZone DelegationSet response element and the zone's auto-seeded NS/SOA records use the linked set's real name servers"}
   DeleteHostedZone: {wire: ok, errors: ok, state: ok, persist: ok}
   GetHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "DelegationSet response element now reflects the zone's actual linked reusable delegation set (Id + NameServers) instead of always the fixed default pair — see CreateHostedZone"}
-  ListHostedZones: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListHostedZones: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — Marker, a required output member (api_op_ListHostedZones.go: 'the value that you specified for the marker parameter in the request that produced the current response'), was never echoed back; the response struct only carried the optional NextMarker (next-page cursor). Prior wire: ok was false — see 2026-08-14 pass"}
   ListHostedZonesByName: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateHostedZoneComment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetHostedZoneCount: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -34,7 +34,7 @@ ops:
   GetChange: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CallerReference reuse with a different HealthCheckConfig now returns HealthCheckAlreadyExists (409); fixed: CALCULATED HealthThreshold > len(ChildHealthChecks) now rejected (InvalidInput)"}
   GetHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListHealthChecks: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListHealthChecks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — same missing required Marker echo as ListHostedZones/ListReusableDelegationSets. Prior wire: ok was false — see 2026-08-14 pass"}
   GetHealthCheckCount: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: HealthCheckVersion was entirely missing from the wire (CreateHealthCheck/GetHealthCheck/ListHealthChecks/UpdateHealthCheck responses never emitted it, even though it's a required field in the real HealthCheck shape). Now every health check carries a Version starting at 1, incremented on each successful update; UpdateHealthCheck's optional request-side HealthCheckVersion is checked for optimistic concurrency and returns HealthCheckVersionMismatch (409) on a stale value"}
@@ -53,7 +53,7 @@ ops:
   AssociateVPCWithHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: re-associating a VPC already associated with the same zone now returns success (idempotent no-op) instead of a fabricated InvalidInput error. AWS's documented error list has no duplicate-association error, and the one association-conflict error it does document (ConflictingDomainExists) is explicitly scoped to a *different* hosted zone with the same name, ruling it out for this case — confirmed against the AssociateVPCWithHostedZone API reference's Errors section"}
   DisassociateVPCFromHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: VPC not associated now returns VPCAssociationNotFound (404) instead of generic InvalidInput; LastVPCAssociation guard already correct"}
   ListVPCAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListHostedZonesByVPC: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListHostedZonesByVPC: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — MaxItems, a required output member (api_op_ListHostedZonesByVPC.go:36-40), was absent from the response struct entirely (not merely unset); the SDK always decoded a nil *int32. Handler now parses the optional maxitems query param (default 100, maxHZByVPC) and echoes it. Prior wire: ok was false — see 2026-08-14 pass"}
   CreateVPCAssociationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVPCAssociationAuthorization: {wire: ok, errors: ok, state: ok, persist: ok}
   ListVPCAssociationAuthorizations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -71,7 +71,7 @@ ops:
   CreateReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix (prior pass): NoSuchDelegationSet 404 -> 400. Fixed this pass: the HostedZoneId param (real AWS's 'mark an existing hosted zone's delegation set as reusable' mode, confirmed against the CreateReusableDelegationSet API reference) was parsed off the wire and silently discarded. Now validates the zone exists (HostedZoneNotFound, 400 — a distinct wire code from NoSuchHostedZone, confirmed against the same reference), rejects private zones (a reusable delegation set can't be associated with a private hosted zone, per the operation's own doc text), rejects a zone whose delegation set was already extracted this way (DelegationSetAlreadyReusable, 400), and returns a new reusable set carrying the zone's real name servers (tracked via a backend-internal, non-wire HostedZone.DelegationSetSourceUsed bookkeeping field, confirmed to survive Snapshot/Restore). Also fixed a second, previously-untracked bug found while auditing this op: reusing a CallerReference across two CreateReusableDelegationSet calls silently created two unrelated delegation sets instead of erroring — now returns DelegationSetAlreadyCreated (400, confirmed against the same API reference), matching real AWS's non-idempotent CallerReference-reuse behavior for this specific operation (unlike CreateHostedZone/CreateHealthCheck's idempotent-retry semantics)"}
   GetReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: now returns DelegationSetInUse (400) if any hosted zone is still linked to the set, instead of deleting it out from under live zones"}
-  ListReusableDelegationSets: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListReusableDelegationSets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — same missing required Marker echo as ListHostedZones/ListHealthChecks; handler didn't even read the marker query param. Prior wire: ok was false — see 2026-08-14 pass"}
   CountZonesByReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: previously always returned 0 (hosted zones were never linked to delegation sets at all); now counts real linked zones"}
   TestDNSAnswer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: classifyRouting never recognised GeoProximityLocation or CidrRoutingConfig at all (only Weight/Region/GeoLocation/Failover/MultiValueAnswer), so geoproximity- and CIDR-routed record sets silently fell through to routingSimple and TestDNSAnswer answered from whichever candidate sorted first by SetIdentifier instead of running real proximity/CIDR selection — a genuine wrong-answer bug, not just an unverified-but-correct algorithm. Implemented selectGeoProximity (great-circle distance from awsRegionCoords/parsed lat-lon, scaled by (1 - Bias/100) per AWS's documented bias direction — exact geometry is AWS-undocumented, so this is a faithful approximation, not a re-derivation of a public spec) and selectCIDR (longest-prefix-match against the CIDR collection's location blocks, reserved \"*\" location as the catch-all default, matching AWS's documented CIDR-routing specificity rule). Weighted/latency/failover/geolocation/multivalue selection re-read against AWS's routing-policy documentation this pass and found already correct; not fully re-derived against non-public AWS source, see deferred"}
   CreateTrafficPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix: TrafficPolicyAlreadyExists 400 -> 409"}
@@ -83,8 +83,8 @@ ops:
   GetTrafficPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteTrafficPolicyInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTrafficPolicyInstance: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTrafficPolicies: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTrafficPolicyVersions: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTrafficPolicies: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — response dropped TrafficPolicyIdMarker, a required member on ListTrafficPoliciesOutput (deserializers.go's ListTrafficPoliciesOutput switch) that AWS always serializes, not just when truncated. This backend is single-page (IsTruncated always false), so the marker is emitted as an always-present empty string rather than a fabricated next-page ID. Prior wire: ok was false"}
+  ListTrafficPolicyVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-lx5h) — same TrafficPolicyVersionMarker gap and fix as ListTrafficPolicies' TrafficPolicyIdMarker above. Prior wire: ok was false"}
   ListTrafficPolicyInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTrafficPolicyInstancesByHostedZone: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTrafficPolicyInstancesByPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -367,3 +367,97 @@ guidance. No dedicated `route53_parity_test.go` exists yet (the existing
 coverage is spread across `route53_test.go`/`route53_audit_test.go`/
 `route53_new_ops_test.go`/`route53_waiter_test.go`); creating one consolidated
 file is a housekeeping task for a future pass, not a correctness gap.
+
+## 2026-08-14 pass (gopherstack-r80d): required output member sweep
+
+Extracted every field marked `This member is required.` at the top level of
+an `<Op>Output` struct across all 71 `route53@v1.65.6` operations (parsed
+directly from the pinned SDK's `api_op_*.go` files, blank-line-separated
+field blocks, case-/tag-suffix-tolerant), yielding 108 required output
+members across 58 of 71 ops — validated against the extraction tool's
+known-answer case (kinesis's `DescribeLimits`, 4/4 exact match, matching the
+bug fixed in `be789761c`) and a negative case (kinesis's `ListShards`, 0/0)
+before trusting it at route53's scale.
+
+Every one of the 58 ops was read end-to-end (not grepped) to confirm each
+required field is actually written into the response, per
+parity-principles.md's "grep alone shows real-looking code, read the path to
+be sure" guidance. Found and fixed **4** silently-unset required output
+members, all one bug class — real AWS's `Marker` element ("the value you
+specified for the marker parameter in the request that produced the current
+response") being conflated with the *optional* `NextMarker` next-page
+cursor, or (for `ListHostedZonesByVPC`) `MaxItems` missing from the response
+struct entirely:
+
+- `ListHostedZones`, `ListHealthChecks`, `ListReusableDelegationSets`:
+  response structs only carried `NextMarker`; the required `Marker` echo of
+  the request's own `marker` parameter was never wired at all.
+  `ListReusableDelegationSets`'s handler didn't even parse the `marker`
+  query param.
+- `ListHostedZonesByVPC`: `MaxItems` — required, but the response struct had
+  no field for it and the handler never read the `maxitems` query param.
+
+All four are the same silent-zero-value class as batch one's lambda finding:
+a typed SDK client decodes a `nil`/`""` for a field AWS guarantees is always
+present, with no error surfaced. Each fix is covered by an SDK-driven round
+trip test (`wire_output_required_r80d_test.go`) that sets the corresponding
+request field to a distinguishing non-empty value and asserts it comes back
+unchanged (not merely non-nil) — verified to fail against the pre-fix code
+by hand-reverting each change and confirming an `md5sum`-identical restore
+afterward.
+
+The remaining 104 required output fields across the other 54 ops were all
+confirmed correctly populated by reading each handler's response-construction
+code. **route53 is settled for this bug class**: every required output
+member across every op that has one has been read and checked, not sampled.
+
+## 2026-08-13 pass (gopherstack-l5ir): route reachability audit
+
+All 71 real route53 ops were extracted from `route53@v1.65.6` serializers.go
+(`request.Method` + `httpbinding.SplitURI(...)` in each op's
+`awsRestxml_serializeOp<Op>.HandleSerialize`) and diffed against `routeRequest`'s
+dispatch tree. Found and fixed **one** op that resolved to a plausible WRONG
+op rather than 404ing: `GetHealthCheckLastFailureReason`
+(`GET .../healthcheck/{id}/lastfailurereason`) fell through `routeHealthCheck`'s
+generic method switch (which only special-cased the `/status` suffix, not
+`/lastfailurereason`) and silently returned the full `HealthCheck` object --
+`GetHealthCheck`'s response shape, not the failure-reason response -- for
+every real client call. The implementation (`getHealthCheckLastFailureReason`)
+already existed and was already correct; it was simply unreachable. This is
+exactly the "resolves to a plausible wrong op, not a 404" class of bug that a
+route-table diff alone (as opposed to a real per-op resolution test) misses
+-- see gopherstack-4nek's cloudfront findings for the precedent. Fixed by
+checking the `/lastfailurereason` suffix before the generic switch, mirroring
+the existing `/status` handling. The dead `routeCompletenessLimits` branch
+that appeared to handle this path (but never could, since `routeRequest`'s
+top-level switch always routes any `/healthcheck/...` path to `routeHealthCheck`
+first) was removed and documented rather than left as a misleading no-op.
+`extractHealthCheckOperation`/`iamActionForHealthCheck` (ExtractOperation's
+and IAMAction's own, separate implementations of the same shape) carried the
+identical bug and were fixed identically.
+
+All other 70 ops, including every shared-path pair method-disambiguated on
+the same URL (the tags trio, hostedzone GET/DELETE/POST, trafficpolicy
+GET/DELETE/POST at both the `{Id}` and `{Id}/{Version}` depths, and
+GetGeoLocation/ListGeoLocations sharing one switch case across two literal
+paths, `/geolocation` vs `/geolocations`, disambiguated by a
+continentcode/countrycode/subdivisioncode query filter rather than a bare
+flag) were confirmed correctly routed already -- route53 was, like `mgn`
+audited in the same pass, essentially clean going in. No query-parameter- or
+flag-discriminated pair was found to be *mis*-disambiguated.
+
+`ExtractOperation`, previously covering roughly half of the 71 ops (many
+newer families -- CIDR sub-paths, traffic-policy `{Id}/{Version}` vs `{Id}`,
+TPInstance updates, info/limit endpoints -- fell through to `"Unknown"` even
+though the real HTTP dispatch handled them correctly), was extended to mirror
+`routeRequest`'s real dispatch tree op-for-op. This is now backed by
+`TestExtractOperation_SDKRouteTable` (`handler_paths_sdk_diff_test.go`, one
+subtest per op) -- 71/71 pass, and it is the permanent regression guard for
+this sweep rather than a one-off report. No existing test encoded the old
+wrong behavior (none tested `GetHealthCheckLastFailureReason` via HTTP at
+all), so no test corrections were needed beyond the new file.
+
+Gates: `go build`, `go vet`, `go test -race`, `go fix -diff` (no diff),
+`golangci-lint run` (0 findings, after decomposing 3 new `cyclop` violations
+and adding op-name constants for 6 new `goconst` violations the extended
+`ExtractOperation` introduced) all clean.

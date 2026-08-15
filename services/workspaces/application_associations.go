@@ -149,7 +149,7 @@ func (b *InMemoryBackend) workspaceAssociationsLocked(workspaceID string) []Work
 // permanently return zero results even for associations it created itself.
 func (b *InMemoryBackend) DescribeApplicationAssociations(
 	applicationID string, associatedResourceTypes []string, _ int32, _ string,
-) ([]WorkspaceResourceAssociation, string, error) {
+) ([]ApplicationResourceAssociation, string, error) {
 	b.mu.RLock("DescribeApplicationAssociations")
 	defer b.mu.RUnlock()
 
@@ -157,7 +157,7 @@ func (b *InMemoryBackend) DescribeApplicationAssociations(
 		return nil, "", err
 	}
 
-	var result []WorkspaceResourceAssociation
+	var result []ApplicationResourceAssociation
 
 	for wsID, apps := range b.appAssociations {
 		a, ok := apps[applicationID]
@@ -165,9 +165,9 @@ func (b *InMemoryBackend) DescribeApplicationAssociations(
 			continue
 		}
 
-		result = append(result, WorkspaceResourceAssociation{
-			WorkspaceID:            wsID,
-			AssociatedResourceID:   applicationID,
+		result = append(result, ApplicationResourceAssociation{
+			ApplicationID:          applicationID,
+			AssociatedResourceID:   wsID,
 			AssociatedResourceType: "WORKSPACE",
 			State:                  a.State,
 			Created:                a.CreatedAt,
@@ -176,7 +176,7 @@ func (b *InMemoryBackend) DescribeApplicationAssociations(
 	}
 
 	if result == nil {
-		result = []WorkspaceResourceAssociation{}
+		result = []ApplicationResourceAssociation{}
 	}
 
 	return result, "", nil

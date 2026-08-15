@@ -119,13 +119,13 @@ func TestPersistenceRoundTrip_NewResourceTypes(t *testing.T) {
 	kg, err := b.CreateKeyGroup("persist-kg", "comment", []string{pk.ID})
 	require.NoError(t, err)
 
-	rl, err := b.CreateRealtimeLogConfig("persist-rl", 100, []string{"ts"})
+	rl, err := b.CreateRealtimeLogConfig("persist-rl", 100, []string{"ts"}, testEndPoints())
 	require.NoError(t, err)
 
 	kvs, err := b.CreateKeyValueStore("persist-kvs", "comment", nil)
 	require.NoError(t, err)
 
-	vpc, err := b.CreateVpcOrigin("persist-vpc", nil)
+	vpc, err := b.CreateVpcOrigin(testVpcOriginEndpointConfig("persist-vpc"), nil)
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)

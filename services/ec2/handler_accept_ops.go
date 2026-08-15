@@ -26,17 +26,22 @@ type capacityReservationItem struct {
 	CapacityReservationID  string `xml:"capacityReservationId"`
 	InstanceType           string `xml:"instanceType"`
 	AvailabilityZone       string `xml:"availabilityZone"`
-	OwnedBy                string `xml:"ownedBy,omitempty"`
+	OwnedBy                string `xml:"ownerId,omitempty"`
 	State                  string `xml:"state"`
 	AvailableInstanceCount int    `xml:"availableInstanceCount"`
 	TotalInstanceCount     int    `xml:"totalInstanceCount"`
 }
 
+// acceptCapacityReservationBillingOwnershipResponse matches the real
+// AcceptCapacityReservationBillingOwnershipOutput shape: it has no
+// CapacityReservation member at all, only Return
+// (ec2@v1.319.1 deserializers.go's
+// awsEc2query_deserializeOpDocumentAcceptCapacityReservationBillingOwnershipOutput).
 type acceptCapacityReservationBillingOwnershipResponse struct {
-	XMLName             xml.Name                `xml:"AcceptCapacityReservationBillingOwnershipResponse"`
-	Xmlns               string                  `xml:"xmlns,attr"`
-	RequestID           string                  `xml:"requestId"`
-	CapacityReservation capacityReservationItem `xml:"capacityReservation"`
+	XMLName   xml.Name `xml:"AcceptCapacityReservationBillingOwnershipResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
 }
 
 type acceptReservedInstancesExchangeQuoteResponse struct {
@@ -64,11 +69,22 @@ type acceptTransitGatewayMulticastDomainAssociationsResponse struct {
 	Associations tgwMulticastDomainAssociationSet `xml:"associations"`
 }
 
+type peeringTgwInfoItem struct {
+	TransitGatewayID string `xml:"transitGatewayId,omitempty"`
+}
+
+// tgwPeeringAttachmentItem mirrors the real TransitGatewayPeeringAttachment
+// wire shape (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeDocumentTransitGatewayPeeringAttachment): the
+// requester/accepter transit gateway IDs nest under requesterTgwInfo/
+// accepterTgwInfo, not flat top-level fields.
 type tgwPeeringAttachmentItem struct {
-	TransitGatewayAttachmentID string `xml:"transitGatewayAttachmentId"`
-	RequesterTransitGatewayID  string `xml:"requesterTransitGatewayId,omitempty"`
-	AccepterTransitGatewayID   string `xml:"accepterTransitGatewayId,omitempty"`
-	State                      string `xml:"state"`
+	TransitGatewayAttachmentID string             `xml:"transitGatewayAttachmentId"`
+	RequesterTgwInfo           peeringTgwInfoItem `xml:"requesterTgwInfo"`
+	AccepterTgwInfo            peeringTgwInfoItem `xml:"accepterTgwInfo"`
+	State                      string             `xml:"state"`
+	CreationTime               string             `xml:"creationTime,omitempty"`
+	TagSet                     []simpleTagItem    `xml:"tagSet>item"`
 }
 
 type acceptTransitGatewayPeeringAttachmentResponse struct {
@@ -79,11 +95,13 @@ type acceptTransitGatewayPeeringAttachmentResponse struct {
 }
 
 type tgwVpcAttachmentItem struct {
-	TransitGatewayAttachmentID string   `xml:"transitGatewayAttachmentId"`
-	TransitGatewayID           string   `xml:"transitGatewayId,omitempty"`
-	VpcID                      string   `xml:"vpcId,omitempty"`
-	State                      string   `xml:"state"`
-	SubnetIDs                  []string `xml:"subnetIds>item,omitempty"`
+	TransitGatewayAttachmentID string          `xml:"transitGatewayAttachmentId"`
+	TransitGatewayID           string          `xml:"transitGatewayId,omitempty"`
+	VpcID                      string          `xml:"vpcId,omitempty"`
+	State                      string          `xml:"state"`
+	CreationTime               string          `xml:"creationTime,omitempty"`
+	SubnetIDs                  []string        `xml:"subnetIds>item,omitempty"`
+	TagSet                     []simpleTagItem `xml:"tagSet>item"`
 }
 
 type acceptTransitGatewayVpcAttachmentResponse struct {
@@ -113,11 +131,32 @@ type acceptVpcEndpointConnectionsResponse struct {
 	Unsuccessful vpcEndpointConnectionSet `xml:"unsuccessful"`
 }
 
+type vpcPeeringConnectionVpcInfoItem struct {
+	VpcID string `xml:"vpcId,omitempty"`
+}
+
+type vpcPeeringConnectionStatusItem struct {
+	Code string `xml:"code,omitempty"`
+}
+
+// vpcPeeringConnectionItem mirrors the real VpcPeeringConnection wire shape
+// (ec2@v1.319.1 deserializers.go, awsEc2query_deserializeDocumentVpcPeeringConnection):
+// the VPC IDs nest under requesterVpcInfo/accepterVpcInfo, and status is a
+// {code, message} object, not flat top-level fields.
 type vpcPeeringConnectionItem struct {
-	VpcPeeringConnectionID string `xml:"vpcPeeringConnectionId"`
-	RequesterVpcID         string `xml:"requesterVpcId,omitempty"`
-	AccepterVpcID          string `xml:"accepterVpcId,omitempty"`
-	State                  string `xml:"statusCode"`
+	VpcPeeringConnectionID string                          `xml:"vpcPeeringConnectionId"`
+	RequesterVpcInfo       vpcPeeringConnectionVpcInfoItem `xml:"requesterVpcInfo"`
+	AccepterVpcInfo        vpcPeeringConnectionVpcInfoItem `xml:"accepterVpcInfo"`
+	Status                 vpcPeeringConnectionStatusItem  `xml:"status"`
+}
+
+func toVpcPeeringConnectionItem(pc *VpcPeeringConnection) vpcPeeringConnectionItem {
+	return vpcPeeringConnectionItem{
+		VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
+		RequesterVpcInfo:       vpcPeeringConnectionVpcInfoItem{VpcID: pc.RequesterVpcID},
+		AccepterVpcInfo:        vpcPeeringConnectionVpcInfoItem{VpcID: pc.AccepterVpcID},
+		Status:                 vpcPeeringConnectionStatusItem{Code: pc.State},
+	}
 }
 
 type acceptVpcPeeringConnectionResponse struct {
@@ -184,23 +223,14 @@ func (h *Handler) handleAcceptCapacityReservationBillingOwnership(
 		return nil, fmt.Errorf("%w: CapacityReservationId is required", ErrInvalidParameter)
 	}
 
-	cr, err := h.Backend.AcceptCapacityReservationBillingOwnership(capacityReservationID)
-	if err != nil {
+	if _, err := h.Backend.AcceptCapacityReservationBillingOwnership(capacityReservationID); err != nil {
 		return nil, err
 	}
 
 	return &acceptCapacityReservationBillingOwnershipResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		CapacityReservation: capacityReservationItem{
-			CapacityReservationID:  cr.CapacityReservationID,
-			InstanceType:           cr.InstanceType,
-			AvailabilityZone:       cr.AvailabilityZone,
-			AvailableInstanceCount: cr.AvailableInstanceCount,
-			TotalInstanceCount:     cr.TotalInstanceCount,
-			OwnedBy:                cr.OwnedBy,
-			State:                  cr.State,
-		},
+		Return:    true,
 	}, nil
 }
 
@@ -297,12 +327,9 @@ func (h *Handler) handleAcceptTransitGatewayPeeringAttachment(
 	return &acceptTransitGatewayPeeringAttachmentResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		TransitGatewayPeeringAtt: tgwPeeringAttachmentItem{
-			TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
-			RequesterTransitGatewayID:  att.RequesterTransitGatewayID,
-			AccepterTransitGatewayID:   att.AccepterTransitGatewayID,
-			State:                      att.State,
-		},
+		TransitGatewayPeeringAtt: toTGWPeeringAttachmentItem(
+			att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID),
+		),
 	}, nil
 }
 
@@ -321,14 +348,9 @@ func (h *Handler) handleAcceptTransitGatewayVpcAttachment(
 	}
 
 	return &acceptTransitGatewayVpcAttachmentResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		TransitGatewayVpcAtt: tgwVpcAttachmentItem{
-			TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
-			TransitGatewayID:           att.TransitGatewayID,
-			VpcID:                      att.VpcID,
-			State:                      att.State,
-		},
+		Xmlns:                ec2XMLNS,
+		RequestID:            reqID,
+		TransitGatewayVpcAtt: tgwVpcAttachmentToItem(att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID)),
 	}, nil
 }
 
@@ -375,14 +397,9 @@ func (h *Handler) handleAcceptVpcPeeringConnection(vals url.Values, reqID string
 	}
 
 	return &acceptVpcPeeringConnectionResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		VpcPeeringConnection: vpcPeeringConnectionItem{
-			VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
-			RequesterVpcID:         pc.RequesterVpcID,
-			AccepterVpcID:          pc.AccepterVpcID,
-			State:                  pc.State,
-		},
+		Xmlns:                ec2XMLNS,
+		RequestID:            reqID,
+		VpcPeeringConnection: toVpcPeeringConnectionItem(pc),
 	}, nil
 }
 
@@ -516,12 +533,23 @@ func (h *Handler) handleDescribeByoipCidrs(vals url.Values, reqID string) (any, 
 	return resp, nil
 }
 
+// hostPropertiesItem mirrors the real Host.HostProperties nested shape
+// (ec2@v1.319.1 types.go's HostProperties): InstanceType and InstanceFamily
+// live here, not as top-level Host fields.
+type hostPropertiesItem struct {
+	InstanceType   string `xml:"instanceType,omitempty"`
+	InstanceFamily string `xml:"instanceFamily,omitempty"`
+}
+
 type hostItem struct {
-	HostID           string `xml:"hostId"`
-	InstanceType     string `xml:"instanceType,omitempty"`
-	AvailabilityZone string `xml:"availabilityZone"`
-	State            string `xml:"state"`
-	OwnedBy          string `xml:"ownerId,omitempty"`
+	HostID           string             `xml:"hostId"`
+	AvailabilityZone string             `xml:"availabilityZone"`
+	State            string             `xml:"state"`
+	OwnedBy          string             `xml:"ownerId,omitempty"`
+	AutoPlacement    string             `xml:"autoPlacement,omitempty"`
+	HostRecovery     string             `xml:"hostRecovery,omitempty"`
+	HostMaintenance  string             `xml:"hostMaintenance,omitempty"`
+	HostProperties   hostPropertiesItem `xml:"hostProperties"`
 }
 
 type hostSet struct {
@@ -557,10 +585,16 @@ func (h *Handler) handleDescribeHosts(vals url.Values, reqID string) (any, error
 	for _, host := range hosts {
 		resp.Hosts.Items = append(resp.Hosts.Items, hostItem{
 			HostID:           host.HostID,
-			InstanceType:     host.InstanceType,
 			AvailabilityZone: host.AvailabilityZone,
 			State:            host.State,
 			OwnedBy:          host.OwnedBy,
+			AutoPlacement:    host.AutoPlacement,
+			HostRecovery:     host.HostRecovery,
+			HostMaintenance:  host.HostMaintenance,
+			HostProperties: hostPropertiesItem{
+				InstanceType:   host.InstanceType,
+				InstanceFamily: host.InstanceFamily,
+			},
 		})
 	}
 
@@ -598,13 +632,9 @@ func (h *Handler) handleDescribeVpcPeeringConnections(vals url.Values, reqID str
 	}
 
 	for _, pc := range connections {
-		resp.VpcPeeringConnections.Items = append(resp.VpcPeeringConnections.Items,
-			vpcPeeringConnectionItem{
-				VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
-				RequesterVpcID:         pc.RequesterVpcID,
-				AccepterVpcID:          pc.AccepterVpcID,
-				State:                  pc.State,
-			})
+		resp.VpcPeeringConnections.Items = append(
+			resp.VpcPeeringConnections.Items, toVpcPeeringConnectionItem(pc),
+		)
 	}
 
 	return resp, nil

@@ -28,8 +28,10 @@ func (b *InMemoryBackend) CreateDataSet(
 	accountID, dataSetID, name, importMode string,
 	permissions []ResourcePermission,
 	tags map[string]string,
+	physicalTableMap map[string]PhysicalTable,
+	logicalTableMap map[string]LogicalTable,
 ) (*DataSet, *Ingestion, error) {
-	if dataSetID == "" || name == "" {
+	if dataSetID == "" || name == "" || len(physicalTableMap) == 0 {
 		return nil, nil, ErrValidation
 	}
 
@@ -55,6 +57,8 @@ func (b *InMemoryBackend) CreateDataSet(
 		ImportMode:       importMode,
 		RefreshSchedules: make(map[string]*storedRefreshSchedule),
 		Permissions:      clonePermissions(permissions),
+		PhysicalTableMap: clonePhysicalTableMap(physicalTableMap),
+		LogicalTableMap:  cloneLogicalTableMap(logicalTableMap),
 	}
 	b.dataSets.Put(ds)
 
@@ -103,7 +107,15 @@ func (b *InMemoryBackend) DescribeDataSet(accountID, dataSetID string) (*DataSet
 // dataset effectively re-ingests on every update). This mirrors CreateDataSet
 // by creating a real, describable Ingestion record instead of fabricating an
 // ARN/ID, and only reporting one when the resulting ImportMode is SPICE.
-func (b *InMemoryBackend) UpdateDataSet(accountID, dataSetID, name, importMode string) (*DataSet, *Ingestion, error) {
+func (b *InMemoryBackend) UpdateDataSet(
+	accountID, dataSetID, name, importMode string,
+	physicalTableMap map[string]PhysicalTable,
+	logicalTableMap map[string]LogicalTable,
+) (*DataSet, *Ingestion, error) {
+	if len(physicalTableMap) == 0 {
+		return nil, nil, ErrValidation
+	}
+
 	b.mu.Lock("UpdateDataSet")
 	defer b.mu.Unlock()
 
@@ -119,6 +131,8 @@ func (b *InMemoryBackend) UpdateDataSet(accountID, dataSetID, name, importMode s
 	if importMode != "" {
 		ds.ImportMode = importMode
 	}
+	ds.PhysicalTableMap = clonePhysicalTableMap(physicalTableMap)
+	ds.LogicalTableMap = cloneLogicalTableMap(logicalTableMap)
 	ds.LastUpdatedTime = time.Now().UTC()
 
 	var ingestion *Ingestion

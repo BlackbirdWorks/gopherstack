@@ -309,7 +309,24 @@ func (b *InMemoryBackend) ListAnomalies(
 	return all[startIdx:end], outToken, nil
 }
 
+// validSuppressionTypes mirrors aws-sdk-go-v2 types.SuppressionType.Values()
+// (LIMITED/INFINITE). There is no "unsuppress" enum member on the real API:
+// per UpdateAnomalyInput's own doc comment, ending a suppression is done by
+// calling this operation again and omitting suppressionType (and
+// suppressionPeriod) entirely, not by passing a sentinel value.
+func validSuppressionTypes() map[string]bool {
+	return map[string]bool{"LIMITED": true, "INFINITE": true}
+}
+
 // UpdateAnomaly updates the suppression state of a stored anomaly.
+// suppressionType == "" ends any current suppression (real AWS semantics,
+// see validSuppressionTypes); a non-empty value must be LIMITED or INFINITE
+// and suppresses the anomaly. A previous revision treated the empty string
+// as the "still suppressed, set a fresh SuppressedDate" case (via an
+// inverted check against a gopherstack-invented "NO_SUPPRESSION" sentinel
+// that has no wire representation at all), so a real client ending a
+// suppression by omitting suppressionType was incorrectly marked as newly
+// suppressed instead.
 func (b *InMemoryBackend) UpdateAnomaly(
 	anomalyID, anomalyDetectorArn, suppressionType string,
 ) error {
@@ -319,6 +336,10 @@ func (b *InMemoryBackend) UpdateAnomaly(
 
 	if anomalyID == "" {
 		return fmt.Errorf("%w: anomalyId is required", ErrValidation)
+	}
+
+	if suppressionType != "" && !validSuppressionTypes()[suppressionType] {
+		return fmt.Errorf("%w: invalid suppressionType %q", ErrValidation, suppressionType)
 	}
 
 	b.mu.Lock("UpdateAnomaly")
@@ -342,12 +363,20 @@ func (b *InMemoryBackend) UpdateAnomaly(
 		)
 	}
 
-	anomaly.SuppressedState = suppressionType
-	if suppressionType == "NO_SUPPRESSION" {
+	if suppressionType == "" {
+		anomaly.State = AnomalyStateActive
+		suppressed := false
+		anomaly.Suppressed = &suppressed
 		anomaly.SuppressedDate = 0
-	} else {
-		anomaly.SuppressedDate = time.Now().UnixMilli()
+		anomaly.SuppressedUntil = 0
+
+		return nil
 	}
+
+	anomaly.State = AnomalyStateSuppressed
+	suppressed := true
+	anomaly.Suppressed = &suppressed
+	anomaly.SuppressedDate = time.Now().UnixMilli()
 
 	return nil
 }

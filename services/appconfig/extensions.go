@@ -155,6 +155,18 @@ func (b *InMemoryBackend) ListExtensions(
 	return page, token
 }
 
+// extensionToSummary builds the types.ExtensionSummary shape -- see its doc
+// comment in models.go.
+func extensionToSummary(e Extension) ExtensionSummary {
+	return ExtensionSummary{
+		Arn:           e.Arn,
+		Description:   e.Description,
+		ID:            e.ID,
+		Name:          e.Name,
+		VersionNumber: e.VersionNumber,
+	}
+}
+
 // UpdateExtension updates an extension's description, actions, and
 // parameters by creating a NEW version from the current highest version --
 // matching real AWS AppConfig, where every UpdateExtension call produces a
@@ -361,6 +373,16 @@ func (b *InMemoryBackend) ListExtensionAssociations(
 	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token
+}
+
+// extensionAssociationToSummary builds the types.ExtensionAssociationSummary
+// shape -- see its doc comment in models.go.
+func extensionAssociationToSummary(a ExtensionAssociation) ExtensionAssociationSummary {
+	return ExtensionAssociationSummary{
+		ExtensionArn: a.ExtensionArn,
+		ID:           a.ID,
+		ResourceArn:  a.ResourceArn,
+	}
 }
 
 // deleteExtensionAssociationsForResourceLocked removes every

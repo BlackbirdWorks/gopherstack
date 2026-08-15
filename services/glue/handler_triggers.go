@@ -110,40 +110,120 @@ func (h *Handler) handleGetTrigger(
 	return &getTriggerOutput{Trigger: t}, nil
 }
 
+// defaultGetTriggersLimit is used when MaxResults is unset on
+// GetTriggersInput/ListTriggersInput.
+const defaultGetTriggersLimit = 100
+
+// triggerHasDependentJob reports whether t has an action that starts job.
+func triggerHasDependentJob(t *Trigger, job string) bool {
+	for _, a := range t.Actions {
+		if a.JobName == job {
+			return true
+		}
+	}
+
+	return false
+}
+
+// filterByDependentJobName mirrors GetTriggers/ListTriggers'
+// DependentJobName semantics (api_op_GetTriggers.go: "The trigger that can
+// start this job is returned, and if there is no such trigger, all triggers
+// are returned"): filter to triggers with a matching action, but fall back
+// to the full list when nothing matches rather than returning empty.
+func filterByDependentJobName(triggers []*Trigger, job string) []*Trigger {
+	if job == "" {
+		return triggers
+	}
+
+	matching := make([]*Trigger, 0, len(triggers))
+
+	for _, t := range triggers {
+		if triggerHasDependentJob(t, job) {
+			matching = append(matching, t)
+		}
+	}
+
+	if len(matching) == 0 {
+		return triggers
+	}
+
+	return matching
+}
+
 // getTriggersInput holds input for GetTriggers.
-type getTriggersInput struct{}
+type getTriggersInput struct {
+	DependentJobName string `json:"DependentJobName,omitempty"`
+	NextToken        string `json:"NextToken,omitempty"`
+	MaxResults       int32  `json:"MaxResults,omitempty"`
+}
 
 // getTriggersOutput holds the result for GetTriggers.
 type getTriggersOutput struct {
-	Triggers []*Trigger `json:"Triggers"`
+	NextToken string     `json:"NextToken,omitempty"`
+	Triggers  []*Trigger `json:"Triggers"`
 }
 
 func (h *Handler) handleGetTriggers(
 	_ context.Context,
-	_ *getTriggersInput,
+	in *getTriggersInput,
 ) (*getTriggersOutput, error) {
-	return &getTriggersOutput{Triggers: h.Backend.GetTriggers()}, nil
+	triggers := filterByDependentJobName(h.Backend.GetTriggers(), in.DependentJobName)
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetTriggersLimit
+	}
+
+	page, next := paginateSlice(triggers, in.NextToken, limit)
+
+	return &getTriggersOutput{Triggers: page, NextToken: next}, nil
 }
 
 // listTriggersInput holds input for ListTriggers.
-type listTriggersInput struct{}
+type listTriggersInput struct {
+	Tags             map[string]string `json:"Tags,omitempty"`
+	DependentJobName string            `json:"DependentJobName,omitempty"`
+	NextToken        string            `json:"NextToken,omitempty"`
+	MaxResults       int32             `json:"MaxResults,omitempty"`
+}
 
 // listTriggersOutput holds the result for ListTriggers.
 type listTriggersOutput struct {
+	NextToken    string   `json:"NextToken,omitempty"`
 	TriggerNames []string `json:"TriggerNames"`
 }
 
 func (h *Handler) handleListTriggers(
 	_ context.Context,
-	_ *listTriggersInput,
+	in *listTriggersInput,
 ) (*listTriggersOutput, error) {
-	triggers := h.Backend.GetTriggers()
-	names := make([]string, 0, len(triggers))
-	for _, t := range triggers {
+	triggers := filterByDependentJobName(h.Backend.GetTriggers(), in.DependentJobName)
+
+	if len(in.Tags) > 0 {
+		filtered := make([]*Trigger, 0, len(triggers))
+
+		for _, t := range triggers {
+			if matchesTagFilter(t.Tags, in.Tags) {
+				filtered = append(filtered, t)
+			}
+		}
+
+		triggers = filtered
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetTriggersLimit
+	}
+
+	page, next := paginateSlice(triggers, in.NextToken, limit)
+
+	names := make([]string, 0, len(page))
+	for _, t := range page {
 		names = append(names, t.Name)
 	}
 
-	return &listTriggersOutput{TriggerNames: names}, nil
+	return &listTriggersOutput{TriggerNames: names, NextToken: next}, nil
 }
 
 // startTriggerInput holds input for StartTrigger.

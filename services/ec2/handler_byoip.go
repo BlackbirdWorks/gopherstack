@@ -24,10 +24,11 @@ type withdrawByoipCidrResponse struct {
 }
 
 type carrierGatewayItem struct {
-	CarrierGatewayID string `xml:"carrierGatewayId"`
-	VpcID            string `xml:"vpcId,omitempty"`
-	State            string `xml:"state,omitempty"`
-	OwnerID          string `xml:"ownerId,omitempty"`
+	CarrierGatewayID string          `xml:"carrierGatewayId"`
+	VpcID            string          `xml:"vpcId,omitempty"`
+	State            string          `xml:"state,omitempty"`
+	OwnerID          string          `xml:"ownerId,omitempty"`
+	TagSet           []simpleTagItem `xml:"tagSet>item"`
 }
 
 func (h *Handler) handleProvisionByoipCidr(vals url.Values, reqID string) (any, error) {

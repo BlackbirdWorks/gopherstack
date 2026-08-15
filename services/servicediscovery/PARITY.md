@@ -7,8 +7,8 @@
 service: servicediscovery
 sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.43.4   # version audited against; matches go.mod (verified)
 botocore_model: servicediscovery/2017-03-14/service-2.json (botocore 1.43.56)  # for shape constraints not carried into the Go SDK comments
-last_audit_commit: 778e7aa0                       # HEAD when this follow-up pass wrote the manifest; this pass's own commit was not yet cut (see re-audit protocol)
-last_audit_date: 2026-08-10
+last_audit_commit: 778e7aa0                       # this pass (2026-08-13, gopherstack-tuh5) fixed a ListServices Get-field leak; commit hash not yet known at edit time
+last_audit_date: 2026-08-13
 overall: A            # real bugs found and fixed this pass (follow-up to gopherstack-bq50)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -24,7 +24,7 @@ ops:
   UpdatePublicDnsNamespace: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateService: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "Tags field removed from response; ServiceAlreadyExists now enforced (case-insensitive within DNS namespaces, case-sensitive within HTTP namespaces); DnsConfig.RoutingPolicy/DnsRecords[].Type and HealthCheckConfig.Type now validated against their closed enums (see gopherstack-bq50 Notes) -- fixed"}
   GetService: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags field removed (see CreateService) -- fixed"}
-  ListServices: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Filters now implement NAMESPACE_ID/RESOURCE_OWNER -- fixed, see Notes"}
+  ListServices: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-tuh5: was reusing serviceToMap (the full GetService converter) unscoped, leaking a top-level NamespaceId that types.ServiceSummary does not declare (confirmed against awsAwsjson11_deserializeDocumentServiceSummary; the nested, deprecated DnsConfig.NamespaceId is a distinct field on both shapes and is unaffected). namespaceToMap in this same file was checked and is clean (types.NamespaceSummary matches exactly). serviceToMap now delegates to a dedicated serviceSummaryToMap plus the one extra field. Regression: raw-body assertion (an SDK client discards unrecognised keys and can't observe an over-wide response). Prior pass: Filters now implement NAMESPACE_ID/RESOURCE_OWNER -- fixed, see Notes"}
   DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "was silently auto-deregistering instances instead of failing ResourceInUse -- fixed prior pass"}
   UpdateService: {wire: ok, errors: fixed, state: ok, persist: ok, note: "DnsConfig.RoutingPolicy/DnsRecords[].Type and HealthCheckConfig.Type now validated (see CreateService) -- fixed"}
   GetServiceAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -60,6 +60,34 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+**2026-08-15 (gopherstack-3gbe):** investigated whether Cloud Map shares
+Omics' (gopherstack-keee) client-side host-prefix-rewrite reachability gap.
+It does: **2 ops, one literal prefix, `data-`** (DiscoverInstances
+`api_op_DiscoverInstances.go:186`, DiscoverInstancesRevision
+`api_op_DiscoverInstancesRevision.go:146`), confirmed against the pinned
+`servicediscovery@v1.43.4` module, exactly matching gopherstack-3gbe's
+filing.
+
+No routing/auth code needed changing. `Handler.RouteMatcher`
+(`handler.go:151`) matches on the `X-Amz-Target` header prefix
+`"Route53AutoNaming_v20170314."`, never `Host` or `Path`, so header-based
+dispatch is structurally immune to the path-collision class this bug family
+could otherwise cause. The reachability gap is a pure client-side DNS/dial
+failure, same as Omics.
+
+servicediscovery already had a real-SDK-client round trip
+(`handler_create_tags_test.go`), but it never exercised DiscoverInstances or
+DiscoverInstancesRevision, so this family's real-client reachability had
+never been proven either way. Added `host_prefix_reachability_test.go`
+following `services/omics/host_prefix_reachability_test.go`'s before/after
+pattern: a before-fix test proving the unmodified client can't dial, and an
+after-fix test that drives CreateHttpNamespace -> CreateService ->
+RegisterInstance -> DiscoverInstances/DiscoverInstancesRevision through a
+redial-to-the-real-listener transport, leaving the SDK's real, un-disabled
+`data-` rewrite intact on the wire, and asserts the full round trip succeeds
+with correctly decoded values. Gates green: build, vet, race, `go fix -diff`
+(no diff), golangci-lint (0 findings).
 
 **Route matcher**: `X-Amz-Target: Route53AutoNaming_v20170314.<Op>` confirmed against
 `aws-sdk-go-v2/service/servicediscovery@v1.43.4/serializers.go` (`SetHeader("X-Amz-Target").String("Route53AutoNaming_v20170314.<Op>")`

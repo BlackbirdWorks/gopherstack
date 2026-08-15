@@ -67,13 +67,13 @@ func TestDeleteCluster_CascadesServiceDeployments(t *testing.T) {
 	// PRIMARY deployment (see syncServiceDeploymentsLocked in
 	// service_deployments.go), keyed by ServiceDeploymentArn — not by
 	// ServiceArn. Confirm it exists before asserting the cascade delete.
-	deploymentArns, err := b.ListServiceDeployments("test-cluster", "my-svc")
+	deployments, err := b.ListServiceDeployments("test-cluster", "my-svc")
 	if err != nil {
 		t.Fatalf("ListServiceDeployments: %v", err)
 	}
 
-	if len(deploymentArns) != 1 {
-		t.Fatalf("ListServiceDeployments before delete = %d entries, want 1", len(deploymentArns))
+	if len(deployments) != 1 {
+		t.Fatalf("ListServiceDeployments before delete = %d entries, want 1", len(deployments))
 	}
 
 	// Also inject a second, independently-keyed entry (as an external caller
@@ -94,7 +94,7 @@ func TestDeleteCluster_CascadesServiceDeployments(t *testing.T) {
 
 	// Both the real and the injected service deployment should be gone.
 	b.mu.RLock("test-verify")
-	_, realStillExists := b.serviceDeployments.Get(deploymentArns[0])
+	_, realStillExists := b.serviceDeployments.Get(deployments[0].ServiceDeploymentArn)
 	_, extraStillExists := b.serviceDeployments.Get(extraArn)
 	b.mu.RUnlock()
 

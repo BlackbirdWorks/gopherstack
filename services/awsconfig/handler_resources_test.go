@@ -5,16 +5,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAWSConfigHandler_BatchGetAggregateResourceConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body         any
-		name         string
-		wantContains []string
-		wantCode     int
+		body           any
+		name           string
+		wantContains   []string
+		wantCode       int
+		skipAggregator bool
 	}{
 		{
 			name: "returns_unprocessed_identifiers",
@@ -41,6 +43,23 @@ func TestAWSConfigHandler_BatchGetAggregateResourceConfig(t *testing.T) {
 			wantCode:     http.StatusOK,
 			wantContains: []string{"BaseConfigurationItems"},
 		},
+		{
+			name: "unknown_aggregator_errors",
+			body: map[string]any{
+				"ConfigurationAggregatorName": "no-such-aggregator",
+				"ResourceIdentifiers": []map[string]any{
+					{
+						"SourceAccountId": "000000000000",
+						"SourceRegion":    "us-east-1",
+						"ResourceId":      "i-1234567890abcdef0",
+						"ResourceType":    "AWS::EC2::Instance",
+					},
+				},
+			},
+			skipAggregator: true,
+			wantCode:       http.StatusNotFound,
+			wantContains:   []string{"NoSuchConfigurationAggregatorException"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -48,6 +67,13 @@ func TestAWSConfigHandler_BatchGetAggregateResourceConfig(t *testing.T) {
 			t.Parallel()
 
 			h := newTestAWSConfigHandler(t)
+			if !tt.skipAggregator {
+				seedRec := doAWSConfigRequest(t, h, "PutConfigurationAggregator", map[string]any{
+					"ConfigurationAggregatorName": "my-aggregator",
+				})
+				require.Equal(t, http.StatusOK, seedRec.Code)
+			}
+
 			rec := doAWSConfigRequest(t, h, "BatchGetAggregateResourceConfig", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
@@ -68,9 +94,18 @@ func TestAWSConfigHandler_BatchGetResourceConfig(t *testing.T) {
 		wantCode     int
 	}{
 		{
+			// BatchGetResourceConfig is lowerCamelCase on the wire, unlike
+			// its BatchGetAggregateResourceConfig sibling (PascalCase) --
+			// confirmed at aws-sdk-go-v2/service/configservice's
+			// awsAwsjson11_serializeOpDocumentBatchGetResourceConfigInput
+			// and awsAwsjson11_deserializeOpDocumentBatchGetResourceConfigOutput.
+			// This test previously sent "ResourceKeys" (PascalCase) and
+			// asserted "BaseConfigurationItems"/"UnprocessedResourceKeys"
+			// (PascalCase) as correct -- both sides silently agreed with
+			// gopherstack's pre-fix bug, so the test caught nothing.
 			name: "returns_unprocessed_keys",
 			body: map[string]any{
-				"ResourceKeys": []map[string]any{
+				"resourceKeys": []map[string]any{
 					{
 						"resourceType": "AWS::EC2::Instance",
 						"resourceId":   "i-1234567890abcdef0",
@@ -78,15 +113,15 @@ func TestAWSConfigHandler_BatchGetResourceConfig(t *testing.T) {
 				},
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"BaseConfigurationItems", "UnprocessedResourceKeys"},
+			wantContains: []string{"baseConfigurationItems", "unprocessedResourceKeys"},
 		},
 		{
 			name: "empty_resource_keys",
 			body: map[string]any{
-				"ResourceKeys": []any{},
+				"resourceKeys": []any{},
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"BaseConfigurationItems"},
+			wantContains: []string{"baseConfigurationItems"},
 		},
 	}
 

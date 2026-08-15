@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -19,20 +20,31 @@ var ErrSpaceNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 // Space
 // ---------------------------------------------------------------------------
 
-// Space represents a SageMaker Studio space.
+// Space represents a SageMaker Studio space. OwnershipSettings/SpaceSettings/
+// SpaceSharingSettings are stored as opaque JSON (the json.RawMessage
+// passthrough convention used elsewhere in this service for deeply-nested
+// config shapes) — the client's Create payload is echoed back verbatim on
+// Describe.
 type Space struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	SpaceName        string            `json:"SpaceName"`
-	SpaceArn         string            `json:"SpaceArn"`
-	DomainID         string            `json:"DomainId"`
-	SpaceStatus      string            `json:"SpaceStatus"`
+	CreationTime         time.Time         `json:"CreationTime"`
+	LastModifiedTime     time.Time         `json:"LastModifiedTime"`
+	Tags                 map[string]string `json:"Tags,omitempty"`
+	SpaceName            string            `json:"SpaceName"`
+	SpaceArn             string            `json:"SpaceArn"`
+	DomainID             string            `json:"DomainId"`
+	SpaceStatus          string            `json:"SpaceStatus"`
+	SpaceDisplayName     string            `json:"SpaceDisplayName,omitempty"`
+	OwnershipSettings    json.RawMessage   `json:"OwnershipSettings,omitempty"`
+	SpaceSettings        json.RawMessage   `json:"SpaceSettings,omitempty"`
+	SpaceSharingSettings json.RawMessage   `json:"SpaceSharingSettings,omitempty"`
 }
 
 func cloneSpace(s *Space) *Space {
 	cp := *s
 	cp.Tags = maps.Clone(s.Tags)
+	cp.OwnershipSettings = append(json.RawMessage(nil), s.OwnershipSettings...)
+	cp.SpaceSettings = append(json.RawMessage(nil), s.SpaceSettings...)
+	cp.SpaceSharingSettings = append(json.RawMessage(nil), s.SpaceSharingSettings...)
 
 	return &cp
 }
@@ -79,11 +91,20 @@ func spaceKey(domainID, spaceName string) string {
 	return domainID + "/" + spaceName
 }
 
+// CreateSpaceOptions bundles CreateSpace's optional fields.
+type CreateSpaceOptions struct {
+	SpaceDisplayName     string
+	OwnershipSettings    json.RawMessage
+	SpaceSettings        json.RawMessage
+	SpaceSharingSettings json.RawMessage
+}
+
 // CreateSpace creates a SageMaker Studio space.
 func (b *InMemoryBackend) CreateSpace(
 	ctx context.Context,
 	domainID, spaceName string,
 	tags map[string]string,
+	opts CreateSpaceOptions,
 ) (*Space, error) {
 	b.mu.Lock("CreateSpace")
 	defer b.mu.Unlock()
@@ -108,13 +129,17 @@ func (b *InMemoryBackend) CreateSpace(
 	now := time.Now()
 
 	s := &Space{
-		SpaceName:        spaceName,
-		SpaceArn:         spaceARN,
-		DomainID:         domainID,
-		SpaceStatus:      "InService",
-		Tags:             mergeTags(nil, tags),
-		CreationTime:     now,
-		LastModifiedTime: now,
+		SpaceName:            spaceName,
+		SpaceArn:             spaceARN,
+		DomainID:             domainID,
+		SpaceStatus:          "InService",
+		Tags:                 mergeTags(nil, tags),
+		CreationTime:         now,
+		LastModifiedTime:     now,
+		SpaceDisplayName:     opts.SpaceDisplayName,
+		OwnershipSettings:    opts.OwnershipSettings,
+		SpaceSettings:        opts.SpaceSettings,
+		SpaceSharingSettings: opts.SpaceSharingSettings,
 	}
 	b.spacesStore(region).Put(s)
 
@@ -155,46 +180,68 @@ func (b *InMemoryBackend) DeleteSpace(ctx context.Context, domainID, spaceName s
 	return nil
 }
 
-// ListSpaces returns all spaces optionally filtered by domain ID.
-func (b *InMemoryBackend) ListSpaces(ctx context.Context, domainID, nextToken string) ([]*Space, string) {
+// Enum values for ListSpaces' SortBy (aws-sdk-go-v2/service/sagemaker
+// types.SpaceSortKey).
+const (
+	spaceSortKeyCreationTime     = "CreationTime"
+	spaceSortKeyLastModifiedTime = "LastModifiedTime"
+)
+
+// ListSpacesParams bundles ListSpaces' filter/sort/pagination criteria.
+type ListSpacesParams struct {
+	DomainIDEquals    string
+	SpaceNameContains string
+	SortBy            string
+	SortOrder         string
+	NextToken         string
+	MaxResults        int32
+}
+
+// ListSpaces returns spaces matching params, sorted per params.SortBy
+// (default CreationTime)/params.SortOrder (default Ascending), capped at
+// params.MaxResults.
+func (b *InMemoryBackend) ListSpaces(ctx context.Context, params ListSpacesParams) ([]*Space, string) {
 	b.mu.RLock("ListSpaces")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	var keys []string
-	for _, s := range b.spacesStoreRO(region).All() {
-		if domainID == "" || s.DomainID == domainID {
-			keys = append(keys, spaceKey(s.DomainID, s.SpaceName))
+	all := b.spacesStoreRO(region).All()
+	list := make([]*Space, 0, len(all))
+
+	for _, s := range all {
+		if params.DomainIDEquals != "" && s.DomainID != params.DomainIDEquals {
+			continue
 		}
-	}
 
-	sort.Strings(keys)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
+		if params.SpaceNameContains != "" && !strings.Contains(s.SpaceName, params.SpaceNameContains) {
+			continue
 		}
+
+		list = append(list, cloneSpace(s))
 	}
 
-	end := min(start+sagemakerDefaultPageSize, len(keys))
+	desc := strings.EqualFold(params.SortOrder, sortOrderDescending)
+	sort.Slice(list, func(i, j int) bool {
+		var less bool
 
-	out := make([]*Space, 0, end-start)
-	for _, k := range keys[start:end] {
-		out = append(out, cloneSpace(tableGet(b.spacesStoreRO(region), k)))
-	}
+		switch params.SortBy {
+		case spaceSortKeyLastModifiedTime:
+			less = list[i].LastModifiedTime.Before(list[j].LastModifiedTime)
+		case spaceSortKeyCreationTime:
+			fallthrough
+		default:
+			less = list[i].CreationTime.Before(list[j].CreationTime)
+		}
 
-	next := ""
-	if end < len(keys) {
-		next = keys[end]
-	}
+		if desc {
+			return !less
+		}
 
-	return out, next
+		return less
+	})
+
+	return paginateSlice(list, params.NextToken, params.MaxResults)
 }
 
 // UpdateSpace updates a space in a domain. Returns the updated space.

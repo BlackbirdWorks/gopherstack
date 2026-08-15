@@ -16,18 +16,23 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 	b.mu.Lock("CreateCapacityProvider")
 	defer b.mu.Unlock()
 
-	if _, exists := b.capacityProviders.Get(input.Name); exists {
+	if _, exists := b.capacityProviders.Get(input.CapacityProviderName); exists {
 		return nil, ErrFunctionAlreadyExists
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	cp := &CapacityProvider{
-		Name:                      input.Name,
-		CapacityProviderArn:       buildCapacityProviderARN(b.region, b.accountID, input.Name),
-		TargetOnDemandConcurrency: input.TargetOnDemandConcurrency,
-		Status:                    "ACTIVE",
-		LastModifiedTime:          now,
-		TelemetryConfig:           input.TelemetryConfig,
+		Name:                          input.CapacityProviderName,
+		CapacityProviderArn:           buildCapacityProviderARN(b.region, b.accountID, input.CapacityProviderName),
+		PermissionsConfig:             input.PermissionsConfig,
+		VpcConfig:                     input.VpcConfig,
+		CapacityProviderScalingConfig: input.CapacityProviderScalingConfig,
+		InstanceRequirements:          input.InstanceRequirements,
+		KmsKeyArn:                     input.KmsKeyArn,
+		PropagateTags:                 input.PropagateTags,
+		TelemetryConfig:               input.TelemetryConfig,
+		State:                         CapacityProviderStateActive,
+		LastModified:                  now,
 	}
 
 	b.capacityProviders.Put(cp)
@@ -48,18 +53,22 @@ func (b *InMemoryBackend) GetCapacityProvider(name string) (*CapacityProvider, e
 	return cp, nil
 }
 
-// DeleteCapacityProvider removes a capacity provider by name.
-func (b *InMemoryBackend) DeleteCapacityProvider(name string) error {
+// DeleteCapacityProvider removes a capacity provider by name and returns the
+// deleted provider's state. DeleteCapacityProviderOutput.CapacityProvider is
+// required on the wire (api_op_DeleteCapacityProvider.go:44-46), so the
+// caller must have the pre-deletion snapshot to echo back.
+func (b *InMemoryBackend) DeleteCapacityProvider(name string) (*CapacityProvider, error) {
 	b.mu.Lock("DeleteCapacityProvider")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capacityProviders.Get(name); !ok {
-		return ErrFunctionNotFound
+	cp, ok := b.capacityProviders.Get(name)
+	if !ok {
+		return nil, ErrFunctionNotFound
 	}
 
 	b.capacityProviders.Delete(name)
 
-	return nil
+	return cp, nil
 }
 
 // UpdateCapacityProvider updates an existing capacity provider.
@@ -75,15 +84,19 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 		return nil, ErrFunctionNotFound
 	}
 
-	if input.TargetOnDemandConcurrency > 0 {
-		cp.TargetOnDemandConcurrency = input.TargetOnDemandConcurrency
+	if input.CapacityProviderScalingConfig != nil {
+		cp.CapacityProviderScalingConfig = input.CapacityProviderScalingConfig
+	}
+
+	if input.PropagateTags != nil {
+		cp.PropagateTags = input.PropagateTags
 	}
 
 	if input.TelemetryConfig != nil {
 		cp.TelemetryConfig = input.TelemetryConfig
 	}
 
-	cp.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	cp.LastModified = time.Now().UTC().Format(time.RFC3339)
 	b.capacityProviders.Put(cp)
 
 	return cp, nil

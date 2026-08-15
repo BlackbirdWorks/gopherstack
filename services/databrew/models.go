@@ -105,8 +105,10 @@ type DatabaseInput struct {
 
 // Dataset represents a DataBrew dataset. AccountID mirrors
 // aws-sdk-go-v2/service/databrew/types.Dataset's AccountId member -- present
-// on ListDatasets items (and harmlessly ignored by the real SDK's
-// DescribeDataset deserializer, which has no AccountId case).
+// on ListDatasets items only. DescribeDatasetOutput
+// (api_op_DescribeDataset.go:39-88) has no AccountId member at all, so
+// handleDescribeDataset clears it before marshaling; a raw-body or non-SDK
+// caller would otherwise see a field the real API never sends.
 type Dataset struct {
 	PathOptions      *PathOptions         `json:"PathOptions,omitempty"`
 	FormatOptions    DatasetFormatOptions `json:"FormatOptions,omitzero"`
@@ -129,12 +131,19 @@ type RecipeStep struct {
 	ConditionExpressions []map[string]any `json:"ConditionExpressions,omitempty"`
 }
 
-// Recipe represents a DataBrew recipe.
+// Recipe represents a DataBrew recipe. ProjectName mirrors
+// aws-sdk-go-v2/service/databrew/types.Recipe's ProjectName member
+// (deserializers.go's awsRestjson1_deserializeDocumentRecipe, case
+// "ProjectName") -- this backend does not store the association on the
+// recipe itself, so it is derived at read time from the reverse link
+// CreateProject already stores (Project.RecipeName); see
+// InMemoryBackend.recipeProjectName.
 type Recipe struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	Name             string            `json:"Name"`
 	Arn              string            `json:"ResourceArn"`
 	Description      string            `json:"Description,omitempty"`
+	ProjectName      string            `json:"ProjectName,omitempty"`
 	PublishedBy      string            `json:"PublishedBy,omitempty"`
 	RecipeVersion    string            `json:"RecipeVersion,omitempty"`
 	CreatedBy        string            `json:"CreatedBy,omitempty"`
@@ -161,8 +170,19 @@ type Sample struct {
 
 // Project represents a DataBrew project. AccountID mirrors
 // aws-sdk-go-v2/service/databrew/types.Project's AccountId member -- see
-// Dataset's AccountID doc comment for why it's safe to include on Describe
-// responses too.
+// Dataset's AccountID doc comment; DescribeProjectOutput
+// (api_op_DescribeProject.go:39-97) has no AccountId member either.
+//
+// OpenDate/OpenedBy mirror types.Project's real members (deserializers.go's
+// awsRestjson1_deserializeDocumentProject, cases "OpenDate"/"OpenedBy") --
+// there is no "SessionStatus" member on the real type at all (confirmed
+// against that same deserializer's full case list: no such key exists), so
+// the field this struct previously carried under that name was fabricated,
+// a real API caller never sends it, and it has been removed. OpenDate is
+// set by StartProjectSession, the real trigger for it (see
+// InMemoryBackend.OpenProjectSession). OpenedBy stays unpopulated -- like
+// CreatedBy/LastModifiedBy above, this backend has no caller-identity
+// infrastructure to derive it from.
 type Project struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	Name             string            `json:"Name"`
@@ -170,13 +190,14 @@ type Project struct {
 	DatasetName      string            `json:"DatasetName,omitempty"`
 	RecipeName       string            `json:"RecipeName"`
 	RoleArn          string            `json:"RoleArn,omitempty"`
-	SessionStatus    string            `json:"SessionStatus,omitempty"`
 	CreatedBy        string            `json:"CreatedBy,omitempty"`
 	LastModifiedBy   string            `json:"LastModifiedBy,omitempty"`
 	AccountID        string            `json:"AccountId,omitempty"`
+	OpenedBy         string            `json:"OpenedBy,omitempty"`
 	Sample           Sample            `json:"Sample,omitzero"`
 	CreateDate       float64           `json:"CreateDate,omitempty"`
 	LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
+	OpenDate         float64           `json:"OpenDate,omitempty"`
 }
 
 // Output describes a DataBrew job output destination.
@@ -237,8 +258,8 @@ type JobSample struct {
 
 // Job represents a DataBrew job. AccountID mirrors
 // aws-sdk-go-v2/service/databrew/types.Job's AccountId member -- see
-// Dataset's AccountID doc comment for why it's safe to include on Describe
-// responses too.
+// Dataset's AccountID doc comment; DescribeJobOutput
+// (api_op_DescribeJob.go:39+) has no AccountId member either.
 type Job struct {
 	// ProfileConfiguration is left untyped: it nests 4 levels deep
 	// (ProfileConfiguration -> ColumnStatisticsConfigurations ->
@@ -303,16 +324,35 @@ type JobExtras struct {
 	Timeout                  int
 }
 
-// JobRun represents a single execution of a DataBrew job.
+// JobRun represents a single execution of a DataBrew job. Attempt/
+// DataCatalogOutputs/DatabaseOutputs/JobSample/LogSubscription/Outputs/
+// RecipeReference mirror real types.JobRun members (deserializers.go's
+// awsRestjson1_deserializeDocumentJobRun) that were previously never
+// emitted at all; StartJobRun now snapshots them from the parent Job, the
+// only backend state they could come from. ErrorMessage/StartedBy are also
+// real members, left always-unpopulated and disclosed in PARITY.md: this
+// backend's StartJobRun always transitions STARTING->SUCCEEDED (see
+// jobRunTransitionDelay) with no FAILED path to source an error message
+// from, and, like CreatedBy/LastModifiedBy elsewhere in this package, there
+// is no caller-identity infrastructure to derive StartedBy from.
 type JobRun struct {
-	DatasetName   string  `json:"DatasetName,omitempty"`
-	JobName       string  `json:"JobName"`
-	RunID         string  `json:"RunId"`
-	State         string  `json:"State"`
-	LogGroupName  string  `json:"LogGroupName,omitempty"`
-	StartedOn     float64 `json:"StartedOn,omitempty"`
-	CompletedOn   float64 `json:"CompletedOn,omitempty"`
-	ExecutionTime int     `json:"ExecutionTime,omitempty"`
+	RecipeReference    *RecipeRef          `json:"RecipeReference,omitempty"`
+	JobSample          *JobSample          `json:"JobSample,omitempty"`
+	DatasetName        string              `json:"DatasetName,omitempty"`
+	JobName            string              `json:"JobName"`
+	RunID              string              `json:"RunId"`
+	State              string              `json:"State"`
+	LogGroupName       string              `json:"LogGroupName,omitempty"`
+	LogSubscription    string              `json:"LogSubscription,omitempty"`
+	ErrorMessage       string              `json:"ErrorMessage,omitempty"`
+	StartedBy          string              `json:"StartedBy,omitempty"`
+	DataCatalogOutputs []DataCatalogOutput `json:"DataCatalogOutputs,omitempty"`
+	DatabaseOutputs    []DatabaseOutput    `json:"DatabaseOutputs,omitempty"`
+	Outputs            []Output            `json:"Outputs,omitempty"`
+	StartedOn          float64             `json:"StartedOn,omitempty"`
+	CompletedOn        float64             `json:"CompletedOn,omitempty"`
+	ExecutionTime      int                 `json:"ExecutionTime,omitempty"`
+	Attempt            int                 `json:"Attempt,omitempty"`
 }
 
 // Rule represents a data quality rule.
@@ -325,19 +365,21 @@ type Rule struct {
 	Disabled        bool              `json:"Disabled,omitempty"`
 }
 
-// Ruleset represents a DataBrew data quality ruleset.
+// Ruleset is the internal storage representation of a DataBrew data quality
+// ruleset. It is never marshaled directly.
 //
 // ListRulesets and DescribeRuleset use genuinely different wire shapes in
-// the real SDK: DescribeRulesetOutput carries Rules (the full rule list, no
-// AccountId/RuleCount), while ListRulesetsOutput.Rulesets is
-// []types.RulesetItem (AccountId + RuleCount -- an integer count -- instead
-// of the full Rules list; confirmed against
-// awsRestjson1_deserializeDocumentRulesetItem, whose key switch has
-// "RuleCount", not "Rules"). Rather than maintaining two marshal shapes,
-// this type carries both Rules and RuleCount together: DescribeRuleset's
-// real client ignores the extra RuleCount/AccountId keys it doesn't
-// recognize, and ListRulesets' real client ignores the extra Rules key it
-// doesn't recognize, so one shared struct is wire-safe both ways.
+// the real SDK: DescribeRulesetOutput (api_op_DescribeRuleset.go:39-77)
+// carries Rules (the full rule list), no AccountId/RuleCount at all, while
+// ListRulesetsOutput.Rulesets is []types.RulesetItem (types.go:1020) --
+// AccountId + RuleCount (an integer count), no Rules field at all (confirmed
+// against awsRestjson1_deserializeDocumentRulesetItem, deserializers.go:11521,
+// whose key switch has "RuleCount", not "Rules"). A real client silently
+// ignores unrecognized keys, but a raw-body or non-SDK caller reading
+// DescribeRuleset's response would see a fabricated AccountId/RuleCount, and
+// one reading ListRulesets would see every ruleset's full rule text leaked
+// even though real ListRulesets never sends it. newRulesetDescribeView and
+// newRulesetListItem below project this type into each op's real shape.
 type Ruleset struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	Name             string            `json:"Name"`
@@ -353,10 +395,62 @@ type Ruleset struct {
 	LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
 }
 
+// RulesetDescribeView is the wire shape for DescribeRulesetOutput
+// (api_op_DescribeRuleset.go:39-77): Rules, no AccountId/RuleCount.
+type RulesetDescribeView struct {
+	Tags             map[string]string `json:"Tags,omitempty"`
+	Name             string            `json:"Name"`
+	Arn              string            `json:"ResourceArn"`
+	Description      string            `json:"Description,omitempty"`
+	TargetArn        string            `json:"TargetArn"`
+	CreatedBy        string            `json:"CreatedBy,omitempty"`
+	LastModifiedBy   string            `json:"LastModifiedBy,omitempty"`
+	Rules            []Rule            `json:"Rules"`
+	CreateDate       float64           `json:"CreateDate,omitempty"`
+	LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
+}
+
+// RulesetListItem is the wire shape for ListRulesetsOutput.Rulesets
+// (types.RulesetItem, types/types.go:1020): AccountId + RuleCount, no Rules.
+type RulesetListItem struct {
+	Tags             map[string]string `json:"Tags,omitempty"`
+	Name             string            `json:"Name"`
+	Arn              string            `json:"ResourceArn"`
+	Description      string            `json:"Description,omitempty"`
+	TargetArn        string            `json:"TargetArn"`
+	CreatedBy        string            `json:"CreatedBy,omitempty"`
+	LastModifiedBy   string            `json:"LastModifiedBy,omitempty"`
+	AccountID        string            `json:"AccountId,omitempty"`
+	RuleCount        int               `json:"RuleCount"`
+	CreateDate       float64           `json:"CreateDate,omitempty"`
+	LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
+}
+
+// newRulesetDescribeView projects a Ruleset into DescribeRuleset's real
+// output shape.
+func newRulesetDescribeView(rs *Ruleset) RulesetDescribeView {
+	return RulesetDescribeView{
+		Tags: rs.Tags, Name: rs.Name, Arn: rs.Arn, Description: rs.Description,
+		TargetArn: rs.TargetArn, CreatedBy: rs.CreatedBy, LastModifiedBy: rs.LastModifiedBy,
+		Rules: rs.Rules, CreateDate: rs.CreateDate, LastModifiedDate: rs.LastModifiedDate,
+	}
+}
+
+// newRulesetListItem projects a Ruleset into ListRulesets' real per-item
+// shape (types.RulesetItem).
+func newRulesetListItem(rs *Ruleset) RulesetListItem {
+	return RulesetListItem{
+		Tags: rs.Tags, Name: rs.Name, Arn: rs.Arn, Description: rs.Description,
+		TargetArn: rs.TargetArn, CreatedBy: rs.CreatedBy, LastModifiedBy: rs.LastModifiedBy,
+		AccountID: rs.AccountID, RuleCount: rs.RuleCount,
+		CreateDate: rs.CreateDate, LastModifiedDate: rs.LastModifiedDate,
+	}
+}
+
 // Schedule represents a DataBrew schedule. AccountID mirrors
 // aws-sdk-go-v2/service/databrew/types.Schedule's AccountId member -- see
-// Dataset's AccountID doc comment for why it's safe to include on Describe
-// responses too.
+// Dataset's AccountID doc comment; DescribeScheduleOutput
+// (api_op_DescribeSchedule.go:38-76) has no AccountId member either.
 type Schedule struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	Name             string            `json:"Name"`

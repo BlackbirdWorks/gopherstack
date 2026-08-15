@@ -21,8 +21,25 @@ type listStateMachineVersionsInput struct {
 }
 
 type listStateMachineVersionsOutput struct {
-	NextToken            string                `json:"nextToken,omitempty"`
-	StateMachineVersions []StateMachineVersion `json:"stateMachineVersions"`
+	NextToken            string                        `json:"nextToken,omitempty"`
+	StateMachineVersions []stateMachineVersionListItem `json:"stateMachineVersions"`
+}
+
+// stateMachineVersionListItem mirrors AWS's StateMachineVersionListItem,
+// which -- unlike the full StateMachineVersion shape PublishStateMachineVersion
+// returns -- carries only the two fields below: no stateMachineArn, name,
+// definition, roleArn, type, status, description, or revisionId (types.go,
+// sfn@v1.45.4).
+type stateMachineVersionListItem struct {
+	StateMachineVersionArn string  `json:"stateMachineVersionArn"`
+	CreationDate           float64 `json:"creationDate"`
+}
+
+func newStateMachineVersionListItem(v *StateMachineVersion) stateMachineVersionListItem {
+	return stateMachineVersionListItem{
+		CreationDate:           v.CreationDate,
+		StateMachineVersionArn: v.StateMachineVersionArn,
+	}
 }
 
 // versionActions returns handler functions for state machine version operations.
@@ -64,8 +81,13 @@ func (h *Handler) versionActions() map[string]actionFn {
 				return nil, err
 			}
 
+			items := make([]stateMachineVersionListItem, len(versions))
+			for i := range versions {
+				items[i] = newStateMachineVersionListItem(&versions[i])
+			}
+
 			return &listStateMachineVersionsOutput{
-				StateMachineVersions: versions,
+				StateMachineVersions: items,
 				NextToken:            next,
 			}, nil
 		},

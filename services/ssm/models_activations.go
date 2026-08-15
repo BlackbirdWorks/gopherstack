@@ -38,16 +38,33 @@ type DeregisterManagedInstanceInput struct {
 	InstanceID string `json:"InstanceId"`
 }
 
+// DescribeActivationsFilter filters DescribeActivations results by
+// ActivationIds, DefaultInstanceName or IamRole (api_op_DescribeActivations.go,
+// types.DescribeActivationsFilterKeys).
+type DescribeActivationsFilter struct {
+	FilterKey    string   `json:"FilterKey,omitempty"`
+	FilterValues []string `json:"FilterValues,omitempty"`
+}
+
 // DescribeActivationsInput is the request for DescribeActivations.
-type DescribeActivationsInput struct{}
+type DescribeActivationsInput struct {
+	MaxResults *int32                      `json:"MaxResults,omitempty"`
+	NextToken  string                      `json:"NextToken,omitempty"`
+	Filters    []DescribeActivationsFilter `json:"Filters,omitempty"`
+}
 
 // DescribeActivationsOutput is the response for DescribeActivations.
 type DescribeActivationsOutput struct {
+	NextToken      string       `json:"NextToken,omitempty"`
 	ActivationList []Activation `json:"ActivationList"`
 }
 
 // ListResourceDataSyncInput is the request payload.
-type ListResourceDataSyncInput struct{}
+type ListResourceDataSyncInput struct {
+	MaxResults *int32 `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+	SyncType   string `json:"SyncType,omitempty"`
+}
 
 // ListResourceDataSyncOutput is the response payload.
 type ListResourceDataSyncOutput struct{}
@@ -58,9 +75,25 @@ type UpdateManagedInstanceRoleInput struct {
 	IamRole    string `json:"IamRole"`
 }
 
+// ResourceDataSyncSource mirrors types.ResourceDataSyncSource (types.go:5593)
+// on the request side and types.ResourceDataSyncSourceWithState (types.go:5641)
+// on the response side -- both wire shapes share the same field set here.
+// AwsOrganizationsSource is deliberately not modeled, matching this
+// backend's established shallow-scalar convention for optional deep-nested
+// sync-source config (same simplification Runbook/StartAutomationExecutionInput
+// already make for their own optional nested types).
+type ResourceDataSyncSource struct {
+	SourceType              string   `json:"SourceType"`
+	SourceRegions           []string `json:"SourceRegions"`
+	EnableAllOpsDataSources bool     `json:"EnableAllOpsDataSources,omitempty"`
+	IncludeFutureRegions    bool     `json:"IncludeFutureRegions,omitempty"`
+}
+
 // UpdateResourceDataSyncInput is the request payload.
 type UpdateResourceDataSyncInput struct {
-	SyncName string `json:"SyncName"`
+	SyncSource *ResourceDataSyncSource `json:"SyncSource"`
+	SyncName   string                  `json:"SyncName"`
+	SyncType   string                  `json:"SyncType"`
 }
 
 // Activation represents an SSM activation for managed instances.
@@ -96,11 +129,12 @@ type CreateActivationOutput struct {
 
 // ResourceDataSync represents a resource data sync configuration.
 type ResourceDataSync struct {
-	SyncName        string  `json:"SyncName"`
-	SyncType        string  `json:"SyncType"`
-	LastStatus      string  `json:"LastStatus"`
-	SyncCreatedTime float64 `json:"SyncCreatedTime"`
-	LastSyncTime    float64 `json:"LastSyncTime,omitempty"`
+	SyncSource      *ResourceDataSyncSource `json:"SyncSource,omitempty"`
+	SyncName        string                  `json:"SyncName"`
+	SyncType        string                  `json:"SyncType"`
+	LastStatus      string                  `json:"LastStatus"`
+	SyncCreatedTime float64                 `json:"SyncCreatedTime"`
+	LastSyncTime    float64                 `json:"LastSyncTime,omitempty"`
 }
 
 // CreateResourceDataSyncInputFull replaces the empty stub for CreateResourceDataSync.

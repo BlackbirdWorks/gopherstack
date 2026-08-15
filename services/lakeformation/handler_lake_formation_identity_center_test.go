@@ -225,6 +225,7 @@ func TestUpdateIdentityCenter_ApplicationStatus(t *testing.T) {
 				"arn:aws:sso:::instance/i",
 				nil,
 				nil,
+				nil,
 			)
 
 			rec := postJSON(t, h, "/UpdateLakeFormationIdentityCenterConfiguration", map[string]any{
@@ -234,6 +235,12 @@ func TestUpdateIdentityCenter_ApplicationStatus(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code, "test: %s", tt.name)
 
 			if tt.wantStatus == http.StatusOK {
+				// ApplicationStatus is accepted/validated on Update but has
+				// no wire home on Describe's response -- the real
+				// DescribeLakeFormationIdentityCenterConfigurationOutput has
+				// no ApplicationStatus member at all (it is real only as
+				// Update's request field). Assert it does NOT leak onto the
+				// response instead of asserting a value that was never real.
 				rec2 := postJSON(t, h, "/DescribeLakeFormationIdentityCenterConfiguration", map[string]any{
 					"CatalogId": "123456789012",
 				})
@@ -241,7 +248,7 @@ func TestUpdateIdentityCenter_ApplicationStatus(t *testing.T) {
 
 				var out map[string]any
 				require.NoError(t, jsonDecode(rec2.Body, &out))
-				assert.Equal(t, tt.appStatus, out["ApplicationStatus"])
+				assert.NotContains(t, out, "ApplicationStatus")
 			}
 		})
 	}

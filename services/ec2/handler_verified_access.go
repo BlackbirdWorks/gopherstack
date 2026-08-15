@@ -107,15 +107,27 @@ func (h *Handler) handleCreateVerifiedAccessEndpoint(vals url.Values, reqID stri
 
 func (h *Handler) handleDeleteVerifiedAccessEndpoint(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("VerifiedAccessEndpointId")
-	if err := h.Backend.DeleteVerifiedAccessEndpoint(id); err != nil {
+	ep, err := h.Backend.DeleteVerifiedAccessEndpoint(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVerifiedAccessEndpointResponse"},
+	return &deleteVerifiedAccessEndpointResponse{
 		RequestID: reqID,
-		Return:    true,
+		VerifiedAccessEndpoint: verifiedAccessEndpointItem{
+			VerifiedAccessEndpointID: ep.VerifiedAccessEndpointID,
+			VerifiedAccessGroupID:    ep.VerifiedAccessGroupID,
+			Status:                   ep.Status,
+			Description:              ep.Description,
+			EndpointType:             ep.EndpointType,
+		},
 	}, nil
+}
+
+type deleteVerifiedAccessEndpointResponse struct {
+	XMLName                xml.Name                   `xml:"DeleteVerifiedAccessEndpointResponse"`
+	RequestID              string                     `xml:"requestId"`
+	VerifiedAccessEndpoint verifiedAccessEndpointItem `xml:"verifiedAccessEndpoint"`
 }
 
 func (h *Handler) handleDescribeVerifiedAccessEndpoints(vals url.Values, reqID string) (any, error) {
@@ -142,15 +154,27 @@ func (h *Handler) handleDescribeVerifiedAccessEndpoints(vals url.Values, reqID s
 func (h *Handler) handleModifyVerifiedAccessEndpoint(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("VerifiedAccessEndpointId")
 	description := vals.Get("Description")
-	if err := h.Backend.ModifyVerifiedAccessEndpoint(id, description); err != nil {
+	ep, err := h.Backend.ModifyVerifiedAccessEndpoint(id, description)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyVerifiedAccessEndpointResponse"},
+	return &modifyVerifiedAccessEndpointResponse{
 		RequestID: reqID,
-		Return:    true,
+		VerifiedAccessEndpoint: verifiedAccessEndpointItem{
+			VerifiedAccessEndpointID: ep.VerifiedAccessEndpointID,
+			VerifiedAccessGroupID:    ep.VerifiedAccessGroupID,
+			Status:                   ep.Status,
+			Description:              ep.Description,
+			EndpointType:             ep.EndpointType,
+		},
 	}, nil
+}
+
+type modifyVerifiedAccessEndpointResponse struct {
+	XMLName                xml.Name                   `xml:"ModifyVerifiedAccessEndpointResponse"`
+	RequestID              string                     `xml:"requestId"`
+	VerifiedAccessEndpoint verifiedAccessEndpointItem `xml:"verifiedAccessEndpoint"`
 }
 
 func (h *Handler) handleCreateVerifiedAccessGroup(vals url.Values, reqID string) (any, error) {
@@ -175,15 +199,26 @@ func (h *Handler) handleCreateVerifiedAccessGroup(vals url.Values, reqID string)
 
 func (h *Handler) handleDeleteVerifiedAccessGroup(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("VerifiedAccessGroupId")
-	if err := h.Backend.DeleteVerifiedAccessGroup(id); err != nil {
+	grp, err := h.Backend.DeleteVerifiedAccessGroup(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVerifiedAccessGroupResponse"},
+	return &deleteVerifiedAccessGroupResponse{
 		RequestID: reqID,
-		Return:    true,
+		VerifiedAccessGroup: verifiedAccessGroupItem{
+			VerifiedAccessGroupID:    grp.VerifiedAccessGroupID,
+			VerifiedAccessInstanceID: grp.VerifiedAccessInstanceID,
+			Status:                   grp.Status,
+			Description:              grp.Description,
+		},
 	}, nil
+}
+
+type deleteVerifiedAccessGroupResponse struct {
+	XMLName             xml.Name                `xml:"DeleteVerifiedAccessGroupResponse"`
+	RequestID           string                  `xml:"requestId"`
+	VerifiedAccessGroup verifiedAccessGroupItem `xml:"verifiedAccessGroup"`
 }
 
 func (h *Handler) handleDescribeVerifiedAccessGroups(vals url.Values, reqID string) (any, error) {
@@ -226,15 +261,25 @@ func (h *Handler) handleCreateVerifiedAccessInstance(vals url.Values, reqID stri
 
 func (h *Handler) handleDeleteVerifiedAccessInstance(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("VerifiedAccessInstanceId")
-	if err := h.Backend.DeleteVerifiedAccessInstance(id); err != nil {
+	inst, err := h.Backend.DeleteVerifiedAccessInstance(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVerifiedAccessInstanceResponse"},
+	return &deleteVerifiedAccessInstanceResponse{
 		RequestID: reqID,
-		Return:    true,
+		VerifiedAccessInstance: verifiedAccessInstanceItem{
+			VerifiedAccessInstanceID: inst.VerifiedAccessInstanceID,
+			Status:                   inst.Status,
+			Description:              inst.Description,
+		},
 	}, nil
+}
+
+type deleteVerifiedAccessInstanceResponse struct {
+	XMLName                xml.Name                   `xml:"DeleteVerifiedAccessInstanceResponse"`
+	RequestID              string                     `xml:"requestId"`
+	VerifiedAccessInstance verifiedAccessInstanceItem `xml:"verifiedAccessInstance"`
 }
 
 func (h *Handler) handleDescribeVerifiedAccessInstances(vals url.Values, reqID string) (any, error) {
@@ -278,15 +323,26 @@ func (h *Handler) handleCreateVerifiedAccessTrustProvider(vals url.Values, reqID
 
 func (h *Handler) handleDeleteVerifiedAccessTrustProvider(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("VerifiedAccessTrustProviderId")
-	if err := h.Backend.DeleteVerifiedAccessTrustProvider(id); err != nil {
+	tp, err := h.Backend.DeleteVerifiedAccessTrustProvider(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteVerifiedAccessTrustProviderResponse"},
+	return &deleteVerifiedAccessTrustProviderResponse{
 		RequestID: reqID,
-		Return:    true,
+		VerifiedAccessTrustProvider: verifiedAccessTrustProviderItem{
+			VerifiedAccessTrustProviderID: tp.VerifiedAccessTrustProviderID,
+			TrustProviderType:             tp.TrustProviderType,
+			Status:                        tp.Status,
+			Description:                   tp.Description,
+		},
 	}, nil
+}
+
+type deleteVerifiedAccessTrustProviderResponse struct {
+	XMLName                     xml.Name                        `xml:"DeleteVerifiedAccessTrustProviderResponse"`
+	RequestID                   string                          `xml:"requestId"`
+	VerifiedAccessTrustProvider verifiedAccessTrustProviderItem `xml:"verifiedAccessTrustProvider"`
 }
 
 func (h *Handler) handleDescribeVerifiedAccessTrustProviders(

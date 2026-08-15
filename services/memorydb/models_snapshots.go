@@ -22,22 +22,29 @@ type Snapshot struct {
 	ClusterConfiguration snapshotClusterConfig `json:"clusterConfiguration"`
 }
 
-// snapshotClusterConfig holds the cluster configuration recorded at snapshot time.
+// snapshotClusterConfig holds the cluster configuration recorded at snapshot
+// time. MultiRegionClusterName/MultiRegionParameterGroupName are real
+// types.ClusterConfiguration members (types.go) that were never modeled --
+// distinct from Cluster.MultiRegionClusterName, which is already tracked at
+// the cluster level; ClusterConfiguration.Shards remains a disclosed gap
+// (see PARITY.md), genuinely un-derivable without fabricating shard sizes.
 type snapshotClusterConfig struct {
-	Engine                 string `json:"Engine,omitempty"`
-	VpcID                  string `json:"VpcId,omitempty"`
-	EngineVersion          string `json:"EngineVersion,omitempty"`
-	Description            string `json:"Description,omitempty"`
-	Name                   string `json:"Name,omitempty"`
-	SnapshotWindow         string `json:"SnapshotWindow,omitempty"`
-	TopicArn               string `json:"TopicArn,omitempty"`
-	MaintenanceWindow      string `json:"MaintenanceWindow,omitempty"`
-	NodeType               string `json:"NodeType,omitempty"`
-	ParameterGroupName     string `json:"ParameterGroupName,omitempty"`
-	SubnetGroupName        string `json:"SubnetGroupName,omitempty"`
-	Port                   int32  `json:"Port,omitempty"`
-	SnapshotRetentionLimit int32  `json:"SnapshotRetentionLimit,omitempty"`
-	NumShards              int32  `json:"NumShards,omitempty"`
+	Engine                        string `json:"Engine,omitempty"`
+	VpcID                         string `json:"VpcId,omitempty"`
+	EngineVersion                 string `json:"EngineVersion,omitempty"`
+	Description                   string `json:"Description,omitempty"`
+	Name                          string `json:"Name,omitempty"`
+	SnapshotWindow                string `json:"SnapshotWindow,omitempty"`
+	TopicArn                      string `json:"TopicArn,omitempty"`
+	MaintenanceWindow             string `json:"MaintenanceWindow,omitempty"`
+	NodeType                      string `json:"NodeType,omitempty"`
+	ParameterGroupName            string `json:"ParameterGroupName,omitempty"`
+	SubnetGroupName               string `json:"SubnetGroupName,omitempty"`
+	MultiRegionClusterName        string `json:"MultiRegionClusterName,omitempty"`
+	MultiRegionParameterGroupName string `json:"MultiRegionParameterGroupName,omitempty"`
+	Port                          int32  `json:"Port,omitempty"`
+	SnapshotRetentionLimit        int32  `json:"SnapshotRetentionLimit,omitempty"`
+	NumShards                     int32  `json:"NumShards,omitempty"`
 }
 
 type createSnapshotRequest struct {

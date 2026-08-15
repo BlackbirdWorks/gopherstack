@@ -94,12 +94,14 @@ func TestCreateTags_EmptyResourceId_Returns400(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Tags via CreateTags visible in DescribeWorkspaces
+// Tags via CreateTags visible in DescribeTags, absent from DescribeWorkspaces
 // ---------------------------------------------------------------------------
 
-// TestCreateTags_VisibleInDescribeWorkspaces verifies that tags added via
-// CreateTags after workspace creation appear in DescribeWorkspaces.
-func TestCreateTags_VisibleInDescribeWorkspaces(t *testing.T) {
+// TestCreateTags_VisibleInDescribeTags verifies that tags added via
+// CreateTags after workspace creation are readable back via DescribeTags --
+// the real API's tag-read path (types.Workspace has no Tags member; a
+// caller reads tags via a separate DescribeTags call).
+func TestCreateTags_VisibleInDescribeTags(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -113,29 +115,34 @@ func TestCreateTags_VisibleInDescribeWorkspaces(t *testing.T) {
 		},
 	})
 
-	rec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
-		"WorkspaceIds": []string{wsID},
+	rec := doTargetRequest(t, h, "DescribeTags", map[string]any{
+		"ResourceId": wsID,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]any
+	var resp struct {
+		TagList []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"TagList"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	wsList, _ := resp["Workspaces"].([]any)
-	require.Len(t, wsList, 1)
 
-	ws := wsList[0].(map[string]any)
-	tags, _ := ws["Tags"].(map[string]any)
-	assert.Equal(t, "prod", tags["env"], "CreateTags changes must be visible in DescribeWorkspaces")
+	tags := make(map[string]string, len(resp.TagList))
+	for _, tag := range resp.TagList {
+		tags[tag.Key] = tag.Value
+	}
+	assert.Equal(t, "prod", tags["env"], "CreateTags changes must be visible in DescribeTags")
 	assert.Equal(t, "platform", tags["team"])
 }
 
 // ---------------------------------------------------------------------------
-// DeleteTags removes tags from DescribeWorkspaces
+// DeleteTags removes tags from DescribeTags
 // ---------------------------------------------------------------------------
 
-// TestDeleteTags_RemovedFromDescribeWorkspaces verifies that DeleteTags
-// removes tags from the DescribeWorkspaces response.
-func TestDeleteTags_RemovedFromDescribeWorkspaces(t *testing.T) {
+// TestDeleteTags_RemovedFromDescribeTags verifies that DeleteTags removes
+// tags from the DescribeTags response.
+func TestDeleteTags_RemovedFromDescribeTags(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -154,21 +161,56 @@ func TestDeleteTags_RemovedFromDescribeWorkspaces(t *testing.T) {
 		"TagKeys":    []string{"env"},
 	})
 
+	rec := doTargetRequest(t, h, "DescribeTags", map[string]any{
+		"ResourceId": wsID,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		TagList []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"TagList"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	tags := make(map[string]string, len(resp.TagList))
+	for _, tag := range resp.TagList {
+		tags[tag.Key] = tag.Value
+	}
+	_, hasEnv := tags["env"]
+	assert.False(t, hasEnv, "deleted tag must not appear in DescribeTags")
+	assert.Equal(t, "yes", tags["keep"], "non-deleted tag must still appear")
+}
+
+// TestDescribeWorkspaces_NoTagsField is a raw-body assertion that a
+// Workspace item never carries a Tags key: types.Workspace (aws-sdk-go-v2/
+// service/workspaces@v1.73.1, types/types.go) has no such member -- tags are
+// read back only via DescribeTags. An SDK client silently discards unknown
+// response keys, so a client-typed test would pass even with the field
+// still fabricated onto the wire.
+func TestDescribeWorkspaces_NoTagsField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	wsID := createWorkspace(t, h)
+
+	doTargetRequest(t, h, "CreateTags", map[string]any{
+		"ResourceId": wsID,
+		"Tags":       []map[string]any{{"Key": "env", "Value": "prod"}},
+	})
+
 	rec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
 		"WorkspaceIds": []string{wsID},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]any
+	var resp struct {
+		Workspaces []map[string]json.RawMessage `json:"Workspaces"`
+	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	wsList, _ := resp["Workspaces"].([]any)
-	require.Len(t, wsList, 1)
-
-	ws := wsList[0].(map[string]any)
-	tags, _ := ws["Tags"].(map[string]any)
-	_, hasEnv := tags["env"]
-	assert.False(t, hasEnv, "deleted tag must not appear in DescribeWorkspaces")
-	assert.Equal(t, "yes", tags["keep"], "non-deleted tag must still appear")
+	require.Len(t, resp.Workspaces, 1)
+	assert.NotContains(t, resp.Workspaces[0], "Tags")
 }
 
 // ---------------------------------------------------------------------------

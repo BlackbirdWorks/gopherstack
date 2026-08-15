@@ -9,20 +9,75 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// computeConfigJSON mirrors types.ComputeConfig (types.go:190): every member
+// is optional (no "This member is required" marker on any field), only the
+// top-level ComputeConfig pointer itself is required on CreateReplicationConfigInput.
+type computeConfigJSON struct {
+	AvailabilityZone           *string  `json:"AvailabilityZone,omitempty"`
+	DNSNameServers             *string  `json:"DnsNameServers,omitempty"`
+	KMSKeyID                   *string  `json:"KmsKeyId,omitempty"`
+	MaxCapacityUnits           *int32   `json:"MaxCapacityUnits,omitempty"`
+	MinCapacityUnits           *int32   `json:"MinCapacityUnits,omitempty"`
+	MultiAZ                    *bool    `json:"MultiAZ,omitempty"`
+	PreferredMaintenanceWindow *string  `json:"PreferredMaintenanceWindow,omitempty"`
+	ReplicationSubnetGroupID   *string  `json:"ReplicationSubnetGroupId,omitempty"`
+	VPCSecurityGroupIDs        []string `json:"VpcSecurityGroupIds,omitempty"`
+}
+
+func computeConfigFromDomain(c *ComputeConfig) *computeConfigJSON {
+	if c == nil {
+		return nil
+	}
+
+	return &computeConfigJSON{
+		AvailabilityZone:           ptrconv.NilIfEmpty(c.AvailabilityZone),
+		DNSNameServers:             ptrconv.NilIfEmpty(c.DNSNameServers),
+		KMSKeyID:                   ptrconv.NilIfEmpty(c.KMSKeyID),
+		MaxCapacityUnits:           c.MaxCapacityUnits,
+		MinCapacityUnits:           c.MinCapacityUnits,
+		MultiAZ:                    c.MultiAZ,
+		PreferredMaintenanceWindow: ptrconv.NilIfEmpty(c.PreferredMaintenanceWindow),
+		ReplicationSubnetGroupID:   ptrconv.NilIfEmpty(c.ReplicationSubnetGroupID),
+		VPCSecurityGroupIDs:        c.VPCSecurityGroupIDs,
+	}
+}
+
+func (c *computeConfigJSON) toDomain() *ComputeConfig {
+	if c == nil {
+		return nil
+	}
+
+	return &ComputeConfig{
+		AvailabilityZone:           ptrconv.String(c.AvailabilityZone),
+		DNSNameServers:             ptrconv.String(c.DNSNameServers),
+		KMSKeyID:                   ptrconv.String(c.KMSKeyID),
+		MaxCapacityUnits:           c.MaxCapacityUnits,
+		MinCapacityUnits:           c.MinCapacityUnits,
+		MultiAZ:                    c.MultiAZ,
+		PreferredMaintenanceWindow: ptrconv.String(c.PreferredMaintenanceWindow),
+		ReplicationSubnetGroupID:   ptrconv.String(c.ReplicationSubnetGroupID),
+		VPCSecurityGroupIDs:        c.VPCSecurityGroupIDs,
+	}
+}
+
 type createReplicationConfigInput struct {
-	ReplicationConfigIdentifier *string    `json:"ReplicationConfigIdentifier"`
-	ReplicationType             *string    `json:"ReplicationType"`
-	SourceEndpointArn           *string    `json:"SourceEndpointArn"`
-	TargetEndpointArn           *string    `json:"TargetEndpointArn"`
-	Tags                        []tagEntry `json:"Tags"`
+	ComputeConfig               *computeConfigJSON `json:"ComputeConfig"`
+	ReplicationConfigIdentifier *string            `json:"ReplicationConfigIdentifier"`
+	ReplicationType             *string            `json:"ReplicationType"`
+	SourceEndpointArn           *string            `json:"SourceEndpointArn"`
+	TableMappings               *string            `json:"TableMappings"`
+	TargetEndpointArn           *string            `json:"TargetEndpointArn"`
+	Tags                        []tagEntry         `json:"Tags"`
 }
 
 type replicationConfigJSON struct {
-	ReplicationConfigIdentifier string `json:"ReplicationConfigIdentifier"`
-	ReplicationConfigArn        string `json:"ReplicationConfigArn"`
-	ReplicationType             string `json:"ReplicationType"`
-	SourceEndpointArn           string `json:"SourceEndpointArn"`
-	TargetEndpointArn           string `json:"TargetEndpointArn"`
+	ComputeConfig               *computeConfigJSON `json:"ComputeConfig,omitempty"`
+	ReplicationConfigIdentifier string             `json:"ReplicationConfigIdentifier"`
+	ReplicationConfigArn        string             `json:"ReplicationConfigArn"`
+	ReplicationType             string             `json:"ReplicationType"`
+	SourceEndpointArn           string             `json:"SourceEndpointArn"`
+	TableMappings               string             `json:"TableMappings,omitempty"`
+	TargetEndpointArn           string             `json:"TargetEndpointArn"`
 }
 
 type createReplicationConfigOutput struct {
@@ -36,6 +91,8 @@ func rcToJSON(rc *ReplicationConfig) replicationConfigJSON {
 		ReplicationType:             rc.ReplicationType,
 		SourceEndpointArn:           rc.SourceEndpointArn,
 		TargetEndpointArn:           rc.TargetEndpointArn,
+		TableMappings:               rc.TableMappings,
+		ComputeConfig:               computeConfigFromDomain(rc.ComputeConfig),
 	}
 }
 
@@ -47,13 +104,30 @@ func (h *Handler) handleCreateReplicationConfig(
 		return nil, fmt.Errorf("%w: ReplicationConfigIdentifier is required", ErrValidation)
 	}
 
+	// ComputeConfig and TableMappings are both required
+	// CreateReplicationConfigInput members (verified against
+	// validateOpCreateReplicationConfigInput, validators.go) that the
+	// pre-fix request never read at all.
+	if in.ComputeConfig == nil {
+		return nil, fmt.Errorf("%w: ComputeConfig is required", ErrValidation)
+	}
+
+	tableMappings := ptrconv.String(in.TableMappings)
+	if tableMappings == "" {
+		return nil, fmt.Errorf("%w: TableMappings is required", ErrValidation)
+	}
+
 	kv := tagsToMap(in.Tags)
 	rc, err := h.Backend.CreateReplicationConfig(
 		ctx,
-		identifier,
-		ptrconv.String(in.ReplicationType),
-		ptrconv.String(in.SourceEndpointArn),
-		ptrconv.String(in.TargetEndpointArn),
+		CreateReplicationConfigParams{
+			Identifier:        identifier,
+			ReplicationType:   ptrconv.String(in.ReplicationType),
+			SourceEndpointArn: ptrconv.String(in.SourceEndpointArn),
+			TargetEndpointArn: ptrconv.String(in.TargetEndpointArn),
+			TableMappings:     tableMappings,
+			ComputeConfig:     in.ComputeConfig.toDomain(),
+		},
 		kv,
 	)
 	if err != nil {

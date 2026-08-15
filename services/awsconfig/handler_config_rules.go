@@ -57,9 +57,22 @@ func configRuleSupportedOps() []string {
 	}
 }
 
+// describeConfigRulesFiltersInput mirrors types.DescribeConfigRulesFilters.
+// Both fields are accepted but inert: gopherstack's ConfigRule has no
+// EvaluationMode/RuleEvaluationVisibility concept (PutConfigRule doesn't
+// model the real types.ConfigRule.EvaluationModes field either), so there is
+// no per-rule state here to filter by -- a filtered request currently returns
+// the same unfiltered set as an unfiltered one, rather than silently dropping
+// the Filters object as an unknown JSON key.
+type describeConfigRulesFiltersInput struct {
+	EvaluationMode           string `json:"EvaluationMode,omitempty"`
+	RuleEvaluationVisibility string `json:"RuleEvaluationVisibility,omitempty"`
+}
+
 type describeConfigRulesInput struct {
-	NextToken       string   `json:"NextToken,omitempty"`
-	ConfigRuleNames []string `json:"ConfigRuleNames,omitempty"`
+	Filters         *describeConfigRulesFiltersInput `json:"Filters,omitempty"`
+	NextToken       string                           `json:"NextToken,omitempty"`
+	ConfigRuleNames []string                         `json:"ConfigRuleNames,omitempty"`
 }
 
 type describeConfigRulesOutput struct {
@@ -285,16 +298,21 @@ func (h *Handler) handleGetComplianceDetailsByResource(
 	}, nil
 }
 
-// GetComplianceSummaryByConfigRule request/response types and handler.
+// GetComplianceSummaryByConfigRule request/response types and handler. Real
+// GetComplianceSummaryByConfigRuleOutput wraps a single ComplianceSummary
+// object under "ComplianceSummary" (confirmed at
+// api_op_GetComplianceSummaryByConfigRule.go) -- this previously emitted an
+// invented "ComplianceSummariesByConfigRule" list key that doesn't exist on
+// the wire at all, so a real client's ComplianceSummary was always nil.
 type getComplianceSummaryByConfigRuleOutput struct {
-	ComplianceSummariesByConfigRule []ComplianceSummary `json:"ComplianceSummariesByConfigRule"`
+	ComplianceSummary ComplianceSummary `json:"ComplianceSummary"`
 }
 
 func (h *Handler) handleGetComplianceSummaryByConfigRule(
 	_ context.Context, _ *emptyInput,
 ) (*getComplianceSummaryByConfigRuleOutput, error) {
 	return &getComplianceSummaryByConfigRuleOutput{
-		ComplianceSummariesByConfigRule: h.Backend.GetComplianceSummaryByConfigRule(),
+		ComplianceSummary: h.Backend.GetComplianceSummaryByConfigRule(),
 	}, nil
 }
 
@@ -348,12 +366,17 @@ func (h *Handler) handleGetAggregateComplianceDetailsByConfigRule(
 	return &getAggregateComplianceDetailsByConfigRuleOutput{AggregateEvaluationResults: results}, nil
 }
 
-// GetAggregateConfigRuleComplianceSummary request/response types and handler.
+// GetAggregateConfigRuleComplianceSummary request/response types and
+// handler. Real GetAggregateConfigRuleComplianceSummaryOutput echoes the
+// request's GroupByKey ("the key passed into the request object" per
+// api_op_GetAggregateConfigRuleComplianceSummary.go) -- this was never
+// emitted at all.
 type getAggregateConfigRuleComplianceSummaryInput struct {
 	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
 	GroupByKey                  string `json:"GroupByKey,omitempty"`
 }
 type getAggregateConfigRuleComplianceSummaryOutput struct {
+	GroupByKey                string                     `json:"GroupByKey,omitempty"`
 	AggregateComplianceCounts []AggregateComplianceCount `json:"AggregateComplianceCounts"`
 }
 
@@ -365,7 +388,10 @@ func (h *Handler) handleGetAggregateConfigRuleComplianceSummary(
 		return nil, err
 	}
 
-	return &getAggregateConfigRuleComplianceSummaryOutput{AggregateComplianceCounts: counts}, nil
+	return &getAggregateConfigRuleComplianceSummaryOutput{
+		GroupByKey:                in.GroupByKey,
+		AggregateComplianceCounts: counts,
+	}, nil
 }
 
 // DescribeAggregateComplianceByConfigRules request/response types and handler.

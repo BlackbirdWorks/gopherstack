@@ -94,6 +94,10 @@ func (h *Handler) handleInstanceTypeLimitsRoutes(w http.ResponseWriter, r *http.
 }
 
 // handleInstanceTypeDetailsRoutes handles GET /2021-01-01/opensearch/instanceTypeDetails → ListInstanceTypeDetails.
+// handleInstanceTypeDetailsRoutes serves ListInstanceTypeDetails. EngineVersion
+// is a URI label, not a query param -- unlike domainName/instanceType
+// (api_op_ListInstanceTypeDetails.go, opensearch@v1.75.4 serializers.go:
+// GET /2021-01-01/opensearch/instanceTypeDetails/{EngineVersion}) -- gopherstack-l5ir.
 func (h *Handler) handleInstanceTypeDetailsRoutes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
@@ -101,7 +105,7 @@ func (h *Handler) handleInstanceTypeDetailsRoutes(w http.ResponseWriter, r *http
 		return
 	}
 
-	engineVersion := r.URL.Query().Get("engineVersion")
+	engineVersion := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, openSearchInstanceTypesPath), "/")
 	instanceType := r.URL.Query().Get("instanceType")
 	details := h.Backend.ListInstanceTypeDetails(engineVersion, instanceType)
 	h.writeJSON(r, w, map[string]any{"InstanceTypeDetails": details})
@@ -129,8 +133,21 @@ func (h *Handler) handleCompatibleVersionsRoutes(w http.ResponseWriter, r *http.
 	h.writeJSON(r, w, map[string]any{"CompatibleVersions": versions})
 }
 
-// handleUpgradeDomainRoutes handles POST /2021-01-01/opensearch/upgradeDomain → UpgradeDomain.
+// handleUpgradeDomainRoutes handles the /2021-01-01/opensearch/upgradeDomain
+// prefix: POST on the bare path is UpgradeDomain; GET .../{DomainName}/history
+// and .../{DomainName}/status are GetUpgradeHistory/GetUpgradeStatus (real
+// paths per api_op_GetUpgradeHistory.go / api_op_GetUpgradeStatus.go,
+// opensearch@v1.75.4 serializers.go -- NOT nested under the domain prefix,
+// unlike most other domain sub-ops) -- gopherstack-l5ir.
 func (h *Handler) handleUpgradeDomainRoutes(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, openSearchUpgradePath)
+
+	if rest != "" && rest != "/" {
+		h.dispatchUpgradeStatusRoutes(w, r, strings.TrimPrefix(rest, "/"))
+
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 
@@ -166,26 +183,21 @@ func (h *Handler) handleUpgradeDomainRoutes(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// dispatchDomainGetUpgradeRoutes handles upgrade-related GET sub-routes on a domain.
-// Returns true if handled.
-func (h *Handler) dispatchDomainGetUpgradeRoutes(
-	w http.ResponseWriter,
-	r *http.Request,
-	trimmed string,
-) bool {
+// dispatchUpgradeStatusRoutes handles GET {DomainName}/history and
+// {DomainName}/status under openSearchUpgradePath (GetUpgradeHistory /
+// GetUpgradeStatus).
+func (h *Handler) dispatchUpgradeStatusRoutes(w http.ResponseWriter, r *http.Request, trimmed string) {
 	switch {
-	case strings.HasSuffix(trimmed, "/upgradeHistory"):
-		// GetUpgradeHistory
-		domainName, _ := strings.CutSuffix(trimmed, "/upgradeHistory")
+	case r.Method == http.MethodGet && strings.HasSuffix(trimmed, "/history"):
+		domainName, _ := strings.CutSuffix(trimmed, "/history")
 		history, err := h.Backend.GetUpgradeHistory(domainName)
 		if err != nil {
 			history = []*UpgradeHistory{}
 		}
 
 		h.writeJSON(r, w, map[string]any{"UpgradeHistories": history})
-	case strings.HasSuffix(trimmed, "/upgrades"):
-		// GetUpgradeStatus
-		domainName, _ := strings.CutSuffix(trimmed, "/upgrades")
+	case r.Method == http.MethodGet && strings.HasSuffix(trimmed, "/status"):
+		domainName, _ := strings.CutSuffix(trimmed, "/status")
 		upgradeName, upgradeStatus, upgradeStep, err := h.Backend.GetUpgradeStatus(domainName)
 		if err != nil {
 			upgradeName, upgradeStatus, upgradeStep = "INITIAL", upgradeStatusSucceeded, upgradeStepUpgrade
@@ -197,8 +209,6 @@ func (h *Handler) dispatchDomainGetUpgradeRoutes(
 			"UpgradeStep": upgradeStep,
 		})
 	default:
-		return false
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
-
-	return true
 }

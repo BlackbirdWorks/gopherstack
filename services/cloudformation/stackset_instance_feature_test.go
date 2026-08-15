@@ -176,9 +176,8 @@ func TestStackSetOperationResults_HTTP(t *testing.T) {
 
 	// Find an operation ID in the response.
 	opID := extractField(opsResp.Body, "OperationId")
-	if opID == "" {
-		t.Skip("no operation ID found in response")
-	}
+	require.NotEmpty(t, opID, "ListStackSetOperations must return an OperationId "+
+		"after CreateStackInstances")
 
 	resp := postFormValues(t, h, url.Values{
 		"Action":       {"ListStackSetOperationResults"},
@@ -229,7 +228,7 @@ func TestListStackSetOperations_SortedByCreationTime(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.UpdateStackInstances("sort-ops-ss", []string{"111111111111"}, nil, []string{"us-east-1"})
 	require.NoError(t, err)
-	_, err = b.UpdateStackSet("sort-ops-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
+	_, _, err = b.UpdateStackSet("sort-ops-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
 	opsPage2, err := b.ListStackSetOperations("sort-ops-ss", "")

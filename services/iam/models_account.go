@@ -147,26 +147,55 @@ type ChangePasswordResponse struct {
 
 // ---- Delegation Request types ----
 
-// DelegationRequest represents an IAM delegation request (stub).
+// DelegationPolicyParameter is one entry of a delegation request's
+// Permissions.Parameters (aws-sdk-go-v2/service/iam/types.PolicyParameter).
+type DelegationPolicyParameter struct {
+	Name   string   `json:"Name,omitempty"`
+	Type   string   `json:"Type,omitempty"`
+	Values []string `json:"Values,omitempty"`
+}
+
+// DelegationRequest represents an IAM delegation request. GetHumanReadableSummary
+// and GetDelegationRequest are the only readers of this state (see PARITY.md);
+// gopherstack does not fabricate the LLM-generated summary itself.
 type DelegationRequest struct {
-	CreateDate      time.Time `json:"CreateDate"`
-	DelegationID    string    `json:"DelegationId,omitempty"`
-	TargetAccountID string    `json:"TargetAccountId,omitempty"`
-	Status          string    `json:"Status,omitempty"`
-	PolicyArn       string    `json:"PolicyArn,omitempty"`
+	CreateDate           time.Time                   `json:"CreateDate"`
+	DelegationID         string                      `json:"DelegationId,omitempty"`
+	RedirectURL          string                      `json:"RedirectUrl,omitempty"`
+	Status               string                      `json:"Status,omitempty"`
+	Description          string                      `json:"Description,omitempty"`
+	NotificationChannel  string                      `json:"NotificationChannel,omitempty"`
+	RequestorWorkflowID  string                      `json:"RequestorWorkflowId,omitempty"`
+	TargetAccountID      string                      `json:"TargetAccountId,omitempty"`
+	RequestMessage       string                      `json:"RequestMessage,omitempty"`
+	PolicyTemplateArn    string                      `json:"PolicyTemplateArn,omitempty"`
+	Notes                string                      `json:"Notes,omitempty"`
+	PermissionParameters []DelegationPolicyParameter `json:"PermissionParameters,omitempty"`
+	SessionDuration      int32                       `json:"SessionDuration,omitempty"`
+	OnlySendByOwner      bool                        `json:"OnlySendByOwner,omitempty"`
 }
 
-// DelegationRequestXML is the XML representation of a delegation request.
-type DelegationRequestXML struct {
-	DelegationID    string `xml:"DelegationId"`
-	TargetAccountID string `xml:"TargetAccountId"`
-	Status          string `xml:"Status"`
-	CreateDate      string `xml:"CreateDate"`
+// CreateDelegationRequestInput is the parsed, validated form of
+// CreateDelegationRequest's request parameters, passed to the backend.
+type CreateDelegationRequestInput struct {
+	Description          string
+	NotificationChannel  string
+	RequestorWorkflowID  string
+	OwnerAccountID       string
+	RedirectURL          string
+	RequestMessage       string
+	PolicyTemplateArn    string
+	PermissionParameters []DelegationPolicyParameter
+	SessionDuration      int32
+	OnlySendByOwner      bool
 }
 
-// CreateDelegationRequestResult wraps the created delegation request.
+// CreateDelegationRequestResult mirrors CreateDelegationRequestOutput's flat
+// ConsoleDeepLink/DelegationRequestId shape (api_op_CreateDelegationRequest.go) --
+// not a nested DelegationRequest object.
 type CreateDelegationRequestResult struct {
-	DelegationRequest DelegationRequestXML `xml:"DelegationRequest"`
+	ConsoleDeepLink     string `xml:"ConsoleDeepLink"`
+	DelegationRequestID string `xml:"DelegationRequestId"`
 }
 
 // CreateDelegationRequestResponse is the XML response for CreateDelegationRequest.
@@ -174,6 +203,23 @@ type CreateDelegationRequestResponse struct {
 	XMLName                       xml.Name                      `xml:"CreateDelegationRequestResponse"`
 	Xmlns                         string                        `xml:"xmlns,attr"`
 	CreateDelegationRequestResult CreateDelegationRequestResult `xml:"CreateDelegationRequestResult"`
+	ResponseMetadata              ResponseMetadata              `xml:"ResponseMetadata"`
+}
+
+// GetHumanReadableSummaryResult mirrors GetHumanReadableSummaryOutput's flat
+// Locale/SummaryContent/SummaryState shape (api_op_GetHumanReadableSummary.go).
+// gopherstack never generates SummaryContent -- see PARITY.md for why.
+type GetHumanReadableSummaryResult struct {
+	Locale         string `xml:"Locale"`
+	SummaryContent string `xml:"SummaryContent"`
+	SummaryState   string `xml:"SummaryState"`
+}
+
+// GetHumanReadableSummaryResponse is the XML response for GetHumanReadableSummary.
+type GetHumanReadableSummaryResponse struct {
+	XMLName                       xml.Name                      `xml:"GetHumanReadableSummaryResponse"`
+	Xmlns                         string                        `xml:"xmlns,attr"`
+	GetHumanReadableSummaryResult GetHumanReadableSummaryResult `xml:"GetHumanReadableSummaryResult"`
 	ResponseMetadata              ResponseMetadata              `xml:"ResponseMetadata"`
 }
 
@@ -207,10 +253,14 @@ type listDelegationRequestsResponse struct {
 
 // ---- Organizations ----
 
-// listOrganizationsFeaturesResult contains the (always-empty, mock) organizations features list.
+// listOrganizationsFeaturesResult contains the (always-empty, mock)
+// organizations features list. Real ListOrganizationsFeaturesOutput's members
+// are "EnabledFeatures" and "OrganizationId", not "OrganizationFeatures"/
+// "RootId" (iam@v1.58.1 deserializers.go:
+// awsAwsquery_deserializeOpDocumentListOrganizationsFeaturesOutput).
 type listOrganizationsFeaturesResult struct {
-	RootID               string   `xml:"RootId,omitempty"`
-	OrganizationFeatures []string `xml:"OrganizationFeatures>member"`
+	OrganizationID  string   `xml:"OrganizationId,omitempty"`
+	EnabledFeatures []string `xml:"EnabledFeatures>member"`
 }
 
 // listOrganizationsFeaturesResponse is the XML response for ListOrganizationsFeatures.
@@ -253,9 +303,14 @@ type getOrganizationsAccessReportResponse struct {
 }
 
 // listPGSAResult contains the (always-empty, mock) policies-granting-service-access list.
+// PoliciesGrantingServiceAccess is []string, not the real
+// []types.PolicyGrantingServiceAccess struct list, because the list is
+// always empty (see the handler's validation-only note) — an empty child
+// element serializes identically either way. Revisit the element type if
+// this op ever grows real emulation.
 type listPGSAResult struct {
-	PolicyGroups []string `xml:"PolicyGroups>member"`
-	IsTruncated  bool     `xml:"IsTruncated"`
+	PoliciesGrantingServiceAccess []string `xml:"PoliciesGrantingServiceAccess>member"`
+	IsTruncated                   bool     `xml:"IsTruncated"`
 }
 
 // listPoliciesGrantingServiceAccessResponse is the XML response for ListPoliciesGrantingServiceAccess.

@@ -90,13 +90,17 @@ func (h *Handler) handleGetCustomModelDeployment(c *echo.Context, deployARN stri
 		return h.writeError(c, err)
 	}
 
+	// GetCustomModelDeploymentOutput uses createdAt/lastUpdatedAt, not the
+	// keyCreationTime/keyLastModifiedTime ("creationTime"/"lastModifiedTime")
+	// constants correct for this package's job-summary ops (bedrock@v1.66.4
+	// deserializers.go, awsRestjson1_deserializeOpDocumentGetCustomModelDeploymentOutput).
 	return c.JSON(http.StatusOK, map[string]any{
 		keyCustomModelDeploymentArn: d.CustomModelDeploymentArn,
 		"modelDeploymentName":       d.ModelDeploymentName,
 		keyModelArn:                 d.ModelArn,
 		keyStatus:                   d.Status,
-		keyCreationTime:             d.CreationTime.Format(time.RFC3339),
-		keyLastModifiedTime:         d.LastModifiedTime.Format(time.RFC3339),
+		keyCreatedAt:                d.CreationTime.Format(time.RFC3339),
+		"lastUpdatedAt":             d.LastModifiedTime.Format(time.RFC3339),
 	})
 }
 
@@ -105,17 +109,23 @@ func (h *Handler) handleListCustomModelDeployments(c *echo.Context) error {
 	summaries := make([]map[string]any, 0, len(deployments))
 
 	for _, d := range deployments {
+		// CustomModelDeploymentSummary uses customModelDeploymentName (not
+		// modelDeploymentName, which only the singular Get shape uses) and
+		// createdAt/lastUpdatedAt (bedrock@v1.66.4 deserializers.go,
+		// awsRestjson1_deserializeDocumentCustomModelDeploymentSummary).
 		summaries = append(summaries, map[string]any{
 			keyCustomModelDeploymentArn: d.CustomModelDeploymentArn,
-			"modelDeploymentName":       d.ModelDeploymentName,
+			"customModelDeploymentName": d.ModelDeploymentName,
 			keyModelArn:                 d.ModelArn,
 			keyStatus:                   d.Status,
-			keyCreationTime:             d.CreationTime.Format(time.RFC3339),
-			keyLastModifiedTime:         d.LastModifiedTime.Format(time.RFC3339),
+			keyCreatedAt:                d.CreationTime.Format(time.RFC3339),
+			"lastUpdatedAt":             d.LastModifiedTime.Format(time.RFC3339),
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"deploymentSummaries": summaries})
+	// Real key is modelDeploymentSummaries (bedrock@v1.66.4 deserializers.go,
+	// awsRestjson1_deserializeOpDocumentListCustomModelDeploymentsOutput).
+	return c.JSON(http.StatusOK, map[string]any{"modelDeploymentSummaries": summaries})
 }
 
 func (h *Handler) handleUpdateCustomModelDeployment(c *echo.Context, deployARN string) error {

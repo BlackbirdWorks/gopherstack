@@ -69,16 +69,30 @@ func (h *Handler) handleGetJob(_ context.Context, in *getJobInput) (*getJobOutpu
 	return &getJobOutput{Job: j}, nil
 }
 
-type getJobsInput struct{}
+// defaultGetJobsLimit is used when GetJobsInput.MaxResults is unset.
+const defaultGetJobsLimit = 100
 
-type getJobsOutput struct {
-	Jobs []*Job `json:"Jobs"`
+type getJobsInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
 }
 
-func (h *Handler) handleGetJobs(_ context.Context, _ *getJobsInput) (*getJobsOutput, error) {
+type getJobsOutput struct {
+	NextToken string `json:"NextToken,omitempty"`
+	Jobs      []*Job `json:"Jobs"`
+}
+
+func (h *Handler) handleGetJobs(_ context.Context, in *getJobsInput) (*getJobsOutput, error) {
 	jobs := h.Backend.GetJobs()
 
-	return &getJobsOutput{Jobs: jobs}, nil
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetJobsLimit
+	}
+
+	page, next := paginateSlice(jobs, in.NextToken, limit)
+
+	return &getJobsOutput{Jobs: page, NextToken: next}, nil
 }
 
 // jobUpdatePayload models the allowed fields for Glue's JobUpdate shape.
@@ -294,23 +308,50 @@ func (h *Handler) handleBatchGetJobs(
 	return &batchGetJobsOutput{Jobs: found, JobsNotFound: missing}, nil
 }
 
+// defaultListJobsLimit is used when ListJobsInput.MaxResults is unset.
+const defaultListJobsLimit = 100
+
 // listJobsInput holds input for ListJobs.
-type listJobsInput struct{}
+type listJobsInput struct {
+	Tags       map[string]string `json:"Tags,omitempty"`
+	NextToken  string            `json:"NextToken,omitempty"`
+	MaxResults int32             `json:"MaxResults,omitempty"`
+}
 
 // listJobsOutput holds the result for ListJobs.
 type listJobsOutput struct {
-	JobNames []string `json:"JobNames"`
+	NextToken string   `json:"NextToken,omitempty"`
+	JobNames  []string `json:"JobNames"`
 }
 
-func (h *Handler) handleListJobs(_ context.Context, _ *listJobsInput) (*listJobsOutput, error) {
+func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJobsOutput, error) {
 	jobs := h.Backend.GetJobs()
-	names := make([]string, 0, len(jobs))
 
-	for _, j := range jobs {
+	if len(in.Tags) > 0 {
+		filtered := make([]*Job, 0, len(jobs))
+
+		for _, j := range jobs {
+			if matchesTagFilter(j.Tags, in.Tags) {
+				filtered = append(filtered, j)
+			}
+		}
+
+		jobs = filtered
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultListJobsLimit
+	}
+
+	page, next := paginateSlice(jobs, in.NextToken, limit)
+
+	names := make([]string, 0, len(page))
+	for _, j := range page {
 		names = append(names, j.Name)
 	}
 
-	return &listJobsOutput{JobNames: names}, nil
+	return &listJobsOutput{JobNames: names, NextToken: next}, nil
 }
 
 // jobSourceControlInput holds the shared input shape for

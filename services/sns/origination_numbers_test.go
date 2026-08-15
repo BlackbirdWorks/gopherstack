@@ -2,7 +2,10 @@ package sns_test
 
 import (
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -129,6 +132,41 @@ func TestListOriginationNumbersInvalidToken(t *testing.T) {
 
 	_, _, err := b.ListOriginationNumbers("not-a-valid-token", 0)
 	require.Error(t, err)
+}
+
+// TestListOriginationNumbers_CreatedAtAndStatusWireRoundTrip drives the real
+// aws-sdk-go-v2 SNS client against a seeded backend and asserts CreatedAt and
+// Status decode correctly. Both are real members of
+// aws-sdk-go-v2/service/sns/types.PhoneNumberInformation
+// (types/types.go:82-103) that were previously absent from gopherstack's own
+// XMLOriginationPhone wire struct entirely, so a real client always decoded
+// a nil CreatedAt and an empty Status regardless of what was seeded
+// (gopherstack-3tpf structural diff).
+func TestListOriginationNumbers_CreatedAtAndStatusWireRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := sns.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	h := sns.NewHandler(backend)
+	client := newTestSNSClient(t, h)
+
+	created := time.Date(2026, 1, 15, 12, 30, 0, 0, time.UTC)
+	backend.SeedOriginationNumber(sns.XMLOriginationPhone{
+		PhoneNumber:        "+12025550181",
+		Iso2CountryCode:    "US",
+		RouteType:          "Transactional",
+		Status:             "Verified",
+		CreatedAt:          &created,
+		NumberCapabilities: []string{"SMS"},
+	})
+
+	out, err := client.ListOriginationNumbers(t.Context(), &snssdk.ListOriginationNumbersInput{})
+	require.NoError(t, err)
+	require.Len(t, out.PhoneNumbers, 1)
+
+	got := out.PhoneNumbers[0]
+	assert.Equal(t, "Verified", aws.ToString(got.Status))
+	require.NotNil(t, got.CreatedAt)
+	assert.True(t, created.Equal(*got.CreatedAt), "want %s, got %s", created, *got.CreatedAt)
 }
 
 func pad4(i int) string {

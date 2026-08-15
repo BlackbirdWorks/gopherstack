@@ -325,14 +325,16 @@ func TestRDSHandler_NewOperations2(t *testing.T) {
 				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=role-inst&Engine=postgres",
 			},
 			body: "Action=AddRoleToDBInstance&Version=2014-10-31" +
-				"&DBInstanceIdentifier=role-inst&RoleArn=arn:aws:iam::000000000000:role/MyRole",
+				"&DBInstanceIdentifier=role-inst&RoleArn=arn:aws:iam::000000000000:role/MyRole" +
+				"&FeatureName=S3_INTEGRATION",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"AddRoleToDBInstanceResponse"},
 		},
 		{
 			name: "AddRoleToDBInstance_not_found",
 			body: "Action=AddRoleToDBInstance&Version=2014-10-31" +
-				"&DBInstanceIdentifier=no-such-db&RoleArn=arn:aws:iam::000000000000:role/MyRole",
+				"&DBInstanceIdentifier=no-such-db&RoleArn=arn:aws:iam::000000000000:role/MyRole" +
+				"&FeatureName=S3_INTEGRATION",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBInstanceNotFound"},
 		},
@@ -372,6 +374,26 @@ func TestRDSHandler_NewOperations2(t *testing.T) {
 		{
 			name:         "ApplyPendingMaintenanceAction_empty_resource_id",
 			body:         "Action=ApplyPendingMaintenanceAction&Version=2014-10-31&ApplyAction=system-update",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "ApplyPendingMaintenanceAction_missing_opt_in_type",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=maint-db-noopt&Engine=postgres",
+			},
+			body: "Action=ApplyPendingMaintenanceAction&Version=2014-10-31" +
+				"&ResourceIdentifier=maint-db-noopt&ApplyAction=system-update",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "ApplyPendingMaintenanceAction_invalid_opt_in_type",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=maint-db-badopt&Engine=postgres",
+			},
+			body: "Action=ApplyPendingMaintenanceAction&Version=2014-10-31" +
+				"&ResourceIdentifier=maint-db-badopt&ApplyAction=system-update&OptInType=whenever",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},

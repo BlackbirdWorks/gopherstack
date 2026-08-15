@@ -22,9 +22,8 @@ func (b *InMemoryBackend) CreateMembers(accounts []map[string]any) ([]*Member, [
 
 		if accountID == "" {
 			unprocessed = append(unprocessed, map[string]any{
-				keyAccountID:    accountID,
-				keyErrorCode:    errCodeInvalidInput,
-				keyErrorMessage: "AccountId is required",
+				keyAccountID:        accountID,
+				keyProcessingResult: "AccountId is required",
 			})
 
 			continue
@@ -32,9 +31,8 @@ func (b *InMemoryBackend) CreateMembers(accounts []map[string]any) ([]*Member, [
 
 		if b.members.Has(accountID) {
 			unprocessed = append(unprocessed, map[string]any{
-				keyAccountID:    accountID,
-				keyErrorCode:    "ResourceConflictException",
-				keyErrorMessage: "Member account already exists",
+				keyAccountID:        accountID,
+				keyProcessingResult: "Member account already exists",
 			})
 
 			continue
@@ -67,9 +65,8 @@ func (b *InMemoryBackend) DeleteMembers(accountIDs []string) ([]string, []map[st
 			deleted = append(deleted, id)
 		} else {
 			unprocessed = append(unprocessed, map[string]any{
-				keyAccountID:    id,
-				keyErrorCode:    errCodeResourceNotFound,
-				keyErrorMessage: msgMemberNotFound,
+				keyAccountID:        id,
+				keyProcessingResult: msgMemberNotFound,
 			})
 		}
 	}
@@ -90,9 +87,8 @@ func (b *InMemoryBackend) GetMembers(accountIDs []string) ([]*Member, []map[stri
 			found = append(found, &cp)
 		} else {
 			unprocessed = append(unprocessed, map[string]any{
-				keyAccountID:    id,
-				keyErrorCode:    errCodeResourceNotFound,
-				keyErrorMessage: msgMemberNotFound,
+				keyAccountID:        id,
+				keyProcessingResult: msgMemberNotFound,
 			})
 		}
 	}
@@ -115,9 +111,8 @@ func (b *InMemoryBackend) InviteMembers(accountIDs []string) []map[string]any {
 		m, ok := b.members.Get(id)
 		if !ok {
 			unprocessed = append(unprocessed, map[string]any{
-				keyAccountID:    id,
-				keyErrorCode:    errCodeResourceNotFound,
-				keyErrorMessage: msgMemberNotFound,
+				keyAccountID:        id,
+				keyProcessingResult: msgMemberNotFound,
 			})
 
 			continue

@@ -3,7 +3,6 @@ package docdb_test
 import (
 	"context"
 	"encoding/xml"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -711,11 +710,11 @@ func b2CreateInstance(t *testing.T, h *docdb.Handler, instanceID, clusterID stri
 func b2CreateSubnetGroup(t *testing.T, h *docdb.Handler, name string) {
 	t.Helper()
 	rr := doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {name},
-		"DBSubnetGroupDescription": {"test"},
-		"SubnetIds.SubnetId.1":     {"subnet-aaa"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {name},
+		"DBSubnetGroupDescription":     {"test"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-aaa"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code, "create subnet group %s: %s", name, rr.Body.String())
 }
@@ -743,7 +742,7 @@ func b2CreateParamGroup(t *testing.T, h *docdb.Handler, name string) {
 	require.Equal(t, http.StatusOK, rr.Code, "create param group %s: %s", name, rr.Body.String())
 }
 
-func pbCreateCluster(t *testing.T, h *docdb.Handler, clusterID string, extraVals url.Values) {
+func pbCreateCluster(t *testing.T, h *docdb.Handler, clusterID string) {
 	t.Helper()
 	vals := url.Values{
 		"Action":              {"CreateDBCluster"},
@@ -751,7 +750,6 @@ func pbCreateCluster(t *testing.T, h *docdb.Handler, clusterID string, extraVals
 		"DBClusterIdentifier": {clusterID},
 		"Engine":              {"docdb"},
 	}
-	maps.Copy(vals, extraVals)
 	rr := doRequest(t, h, vals)
 	require.Equal(t, http.StatusOK, rr.Code, "create cluster %s: %s", clusterID, rr.Body.String())
 }

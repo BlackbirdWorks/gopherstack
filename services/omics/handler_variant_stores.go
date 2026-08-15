@@ -60,7 +60,15 @@ func (h *Handler) handleListVariantStores(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"variantStores": stores, keyNextToken: next})
+	// Real ListVariantStoresOutput's element (VariantStoreItem) has no tags
+	// member -- narrower than GetVariantStoreOutput, so this doesn't
+	// marshal the domain structs directly (see VariantStoreSummary).
+	summaries := make([]VariantStoreSummary, 0, len(stores))
+	for _, vs := range stores {
+		summaries = append(summaries, newVariantStoreSummary(vs))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"variantStores": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleUpdateVariantStore(c *echo.Context, name string) error {
@@ -82,21 +90,33 @@ func (h *Handler) handleUpdateVariantStore(c *echo.Context, name string) error {
 
 func (h *Handler) handleStartVariantImportJob(c *echo.Context) error {
 	var req struct {
-		DestinationName string              `json:"destinationName"`
-		RoleArn         string              `json:"roleArn"`
-		Items           []VariantImportItem `json:"items"`
+		AnnotationFields     map[string]string   `json:"annotationFields"`
+		DestinationName      string              `json:"destinationName"`
+		RoleArn              string              `json:"roleArn"`
+		Items                []VariantImportItem `json:"items"`
+		RunLeftNormalization bool                `json:"runLeftNormalization"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	job, err := h.Backend.StartVariantImportJob(req.DestinationName, req.RoleArn, req.Items)
+	job, err := h.Backend.StartVariantImportJob(
+		req.DestinationName,
+		req.RoleArn,
+		req.Items,
+		req.AnnotationFields,
+		req.RunLeftNormalization,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, job)
+	// Real StartVariantImportJobOutput's only member is "jobId"
+	// (deserializers.go:18893) -- distinct from GetVariantImportJobOutput's
+	// "id" (deserializers.go:11383), so this doesn't marshal the domain
+	// struct directly the way most other Create/Get pairs in this file do.
+	return c.JSON(http.StatusCreated, map[string]any{"jobId": job.ID})
 }
 
 func (h *Handler) handleGetVariantImportJob(c *echo.Context, jobID string) error {
@@ -125,7 +145,19 @@ func (h *Handler) handleListVariantImportJobs(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyImportJobs: jobs, keyNextToken: next})
+	// Real ListVariantImportJobsOutput's element (VariantImportJobItem) has
+	// no items/statusMessage -- narrower than GetVariantImportJobOutput, so
+	// this doesn't marshal the domain structs directly (see
+	// VariantImportJobSummary).
+	summaries := make([]VariantImportJobSummary, 0, len(jobs))
+	for _, job := range jobs {
+		summaries = append(summaries, newVariantImportJobSummary(job))
+	}
+
+	// Real ListVariantImportJobsOutput wraps the list under "variantImportJobs",
+	// not the generic "importJobs" ListReferenceImportJobs/ListReadSetImportJobs
+	// use (deserializers.go awsRestjson1_deserializeOpDocumentListVariantImportJobsOutput).
+	return c.JSON(http.StatusOK, map[string]any{"variantImportJobs": summaries, keyNextToken: next})
 }
 
 func (h *Handler) handleCancelVariantImportJob(c *echo.Context, jobID string) error {

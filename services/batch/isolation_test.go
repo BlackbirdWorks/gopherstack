@@ -150,12 +150,12 @@ func TestBatchSchedulingPolicyRegionIsolation(t *testing.T) {
 	ctxEast := ctxRegion("us-east-1")
 	ctxWest := ctxRegion("us-west-2")
 
-	eastSP, err := backend.CreateSchedulingPolicy(ctxEast, "policy1", nil, nil)
+	eastSP, err := backend.CreateSchedulingPolicy(ctxEast, "policy1", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, eastSP.Arn, "us-east-1")
 
 	// Same name in us-west-2 must succeed (no collision via name index).
-	westSP, err := backend.CreateSchedulingPolicy(ctxWest, "policy1", nil, nil)
+	westSP, err := backend.CreateSchedulingPolicy(ctxWest, "policy1", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, westSP.Arn, "us-west-2")
 
@@ -174,7 +174,7 @@ func TestBatchSchedulingPolicyRegionIsolation(t *testing.T) {
 	assert.Empty(t, backend.ListSchedulingPolicies(ctxEast))
 	assert.Len(t, backend.ListSchedulingPolicies(ctxWest), 1)
 
-	_, err = backend.CreateSchedulingPolicy(ctxEast, "policy1", nil, nil)
+	_, err = backend.CreateSchedulingPolicy(ctxEast, "policy1", nil, nil, nil)
 	require.NoError(t, err)
 }
 

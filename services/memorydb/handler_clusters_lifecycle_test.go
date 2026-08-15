@@ -754,7 +754,7 @@ func TestHandler_NetworkType_DefaultsToIPv4(t *testing.T) {
 	})
 
 	assert.Equal(t, "ipv4", cl["NetworkType"])
-	assert.Equal(t, "ipv4", cl["IPDiscovery"])
+	assert.Equal(t, "ipv4", cl["IpDiscovery"])
 }
 
 func TestHandler_NetworkType_IPv6(t *testing.T) {
@@ -798,7 +798,7 @@ func TestHandler_NetworkType_IPv6(t *testing.T) {
 			h := newTestHandler(t)
 			cl := createClusterObj(t, h, tt.body)
 			assert.Equal(t, tt.wantNetworkType, cl["NetworkType"])
-			assert.Equal(t, tt.wantIPDiscovery, cl["IPDiscovery"])
+			assert.Equal(t, tt.wantIPDiscovery, cl["IpDiscovery"])
 		})
 	}
 }

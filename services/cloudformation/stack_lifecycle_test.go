@@ -883,7 +883,7 @@ func TestStackSet_CreateUpdateDeleteWithInstances(t *testing.T) {
 	assert.Equal(t, "CURRENT", inst.Status)
 
 	// Update set.
-	updated, err := b.UpdateStackSet("my-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
+	updated, _, err := b.UpdateStackSet("my-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "ACTIVE", updated.Status)
 
@@ -944,9 +944,11 @@ func TestDriftDetection_ResourceLevel(t *testing.T) {
 	_, err := b.CreateStack(t.Context(), "rdrift", tmpl, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
-	detectionID, err := b.DetectStackResourceDrift("rdrift", "Q")
+	drift, err := b.DetectStackResourceDrift("rdrift", "Q")
 	require.NoError(t, err)
-	assert.NotEmpty(t, detectionID)
+	assert.Equal(t, "Q", drift.LogicalResourceID)
+	assert.Equal(t, "AWS::SQS::Queue", drift.ResourceType)
+	assert.Equal(t, "IN_SYNC", drift.StackResourceDriftStatus)
 }
 
 // ---- Resource event history ----------------------------------------------------
@@ -1115,7 +1117,7 @@ func TestRollbackStack(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = b.RollbackStack(t.Context(), "rb-stack")
+	_, err = b.RollbackStack(t.Context(), "rb-stack")
 	require.NoError(t, err)
 }
 

@@ -58,6 +58,37 @@ func copyRecipe(r *Recipe) *Recipe {
 	return &cp
 }
 
+// recipeProjectName returns the name of the project (if any) that
+// currently uses name as its RecipeName. aws-sdk-go-v2/service/databrew's
+// types.Recipe.ProjectName documents "The name of the project that the
+// recipe is associated with," but this backend does not store that
+// association on the recipe itself -- CreateProject already stores the
+// reverse link (Project.RecipeName), so it is derived here by scanning
+// projects for a match. If more than one project references the same
+// recipe name, the first match in key order is returned (this backend does
+// not enforce recipe-to-project uniqueness, and neither does the real
+// service). Callers must hold at least b.mu.RLock.
+func (b *InMemoryBackend) recipeProjectName(region, name string) string {
+	t := b.projectsTable(region)
+	for _, k := range snapshotKeys(t, projectKeyFn) {
+		p, ok := t.Get(k)
+		if ok && p.RecipeName == name {
+			return p.Name
+		}
+	}
+
+	return ""
+}
+
+// copyRecipeWithProject is copyRecipe plus ProjectName derivation. Callers
+// must hold at least b.mu.RLock.
+func (b *InMemoryBackend) copyRecipeWithProject(region string, r *Recipe) *Recipe {
+	cp := copyRecipe(r)
+	cp.ProjectName = b.recipeProjectName(region, r.Name)
+
+	return cp
+}
+
 func (b *InMemoryBackend) CreateRecipe(
 	ctx context.Context,
 	name, description string,
@@ -109,19 +140,19 @@ func (b *InMemoryBackend) DescribeRecipe(ctx context.Context, name, version stri
 	switch version {
 	case "", recipeVersionLatestPublished:
 		if len(versions) > 0 {
-			return copyRecipe(versions[len(versions)-1]), nil
+			return b.copyRecipeWithProject(region, versions[len(versions)-1]), nil
 		}
 		if version == recipeVersionLatestPublished {
 			return nil, ErrNotFound
 		}
 
-		return copyRecipe(working), nil
+		return b.copyRecipeWithProject(region, working), nil
 	case recipeVersionLatestWorking:
-		return copyRecipe(working), nil
+		return b.copyRecipeWithProject(region, working), nil
 	default:
 		for _, v := range versions {
 			if v.RecipeVersion == version {
-				return copyRecipe(v), nil
+				return b.copyRecipeWithProject(region, v), nil
 			}
 		}
 
@@ -164,12 +195,12 @@ func (b *InMemoryBackend) ListRecipes(
 	for _, name := range pageKeys {
 		if showWorking {
 			v, _ := t.Get(name)
-			out = append(out, copyRecipe(v))
+			out = append(out, b.copyRecipeWithProject(region, v))
 
 			continue
 		}
 		vs := versions[name]
-		out = append(out, copyRecipe(vs[len(vs)-1]))
+		out = append(out, b.copyRecipeWithProject(region, vs[len(vs)-1]))
 	}
 
 	return out, next
@@ -221,7 +252,7 @@ func (b *InMemoryBackend) ListRecipeVersions(
 	out := make([]*Recipe, 0, max(endIdx-startIdx, 0))
 	if startIdx < len(versions) {
 		for _, v := range versions[startIdx:endIdx] {
-			out = append(out, copyRecipe(v))
+			out = append(out, b.copyRecipeWithProject(region, v))
 		}
 	}
 

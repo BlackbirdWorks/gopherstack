@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -393,7 +396,7 @@ func TestPublicKeyCRUD(t *testing.T) {
 				pk, err := h.Backend.CreatePublicKey("pk-upd-ref", "upd-pk", "original", testRSA2048PublicKeyPEM)
 				require.NoError(t, err)
 
-				return "/2020-05-31/public-key/" + pk.ID
+				return "/2020-05-31/public-key/" + pk.ID + "/config"
 			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
@@ -468,6 +471,66 @@ func TestPublicKeyCRUD(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestUpdatePublicKey_RealClient drives the real aws-sdk-go-v2 client to prove
+// UpdatePublicKey is reachable. Real UpdatePublicKey PUTs to
+// /public-key/{Id}/config (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpUpdatePublicKey's SplitURI); gopherstack previously
+// bound UpdatePublicKey to the bare /public-key/{Id} path instead, so every
+// real client call 404'd (gopherstack-o31x).
+func TestUpdatePublicKey_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := client.CreatePublicKey(t.Context(), &cfsdk.CreatePublicKeyInput{
+		PublicKeyConfig: &types.PublicKeyConfig{
+			CallerReference: aws.String("real-client-pk"),
+			EncodedKey:      aws.String(testRSA2048PublicKeyPEM),
+			Name:            aws.String("real-client-pk"),
+			Comment:         aws.String("original"),
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.PublicKey)
+
+	updated, err := client.UpdatePublicKey(t.Context(), &cfsdk.UpdatePublicKeyInput{
+		Id: created.PublicKey.Id,
+		PublicKeyConfig: &types.PublicKeyConfig{
+			CallerReference: created.PublicKey.PublicKeyConfig.CallerReference,
+			EncodedKey:      created.PublicKey.PublicKeyConfig.EncodedKey,
+			Name:            created.PublicKey.PublicKeyConfig.Name,
+			Comment:         aws.String("updated"),
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.PublicKey)
+	assert.Equal(t, "updated", aws.ToString(updated.PublicKey.PublicKeyConfig.Comment))
+}
+
+// TestListKeyGroups_RealClient drives ListKeyGroups through the real aws-sdk-go-v2 CloudFront
+// client. The real deserializer (awsRestxml_deserializeDocumentKeyGroupSummary, case
+// "KeyGroup") wraps a single nested KeyGroup child in each KeyGroupSummary; a KeyGroupSummary
+// with Id/Name/Comment flattened directly onto it (the pre-fix shape, confirmed by
+// hand-reverting) decodes to a KeyGroupSummary.KeyGroup that is nil for every item -- the right
+// item count, entirely blank content.
+func TestListKeyGroups_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, err := h.Backend.CreateKeyGroup("real-client-kg", "kg comment", nil)
+	require.NoError(t, err)
+
+	client := newTestCloudFrontClient(t, h)
+
+	listed, err := client.ListKeyGroups(t.Context(), &cfsdk.ListKeyGroupsInput{})
+	require.NoError(t, err)
+	require.NotNil(t, listed.KeyGroupList)
+	require.Len(t, listed.KeyGroupList.Items, 1)
+	require.NotNil(t, listed.KeyGroupList.Items[0].KeyGroup)
+	assert.Equal(t, "real-client-kg", aws.ToString(listed.KeyGroupList.Items[0].KeyGroup.KeyGroupConfig.Name))
 }
 
 // TestKeyGroupCRUD covers the full Key Group lifecycle via the HTTP handler.

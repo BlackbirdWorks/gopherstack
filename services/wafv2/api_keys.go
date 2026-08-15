@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -24,6 +25,7 @@ func (b *InMemoryBackend) CreateAPIKey(ctx context.Context, scope string, tokenD
 		Scope:        scope,
 		TokenDomains: cloneAddresses(tokenDomains),
 		Region:       region,
+		CreatedAt:    time.Now().Unix(),
 	}
 	b.apiKeys.Put(a)
 
@@ -31,6 +33,7 @@ func (b *InMemoryBackend) CreateAPIKey(ctx context.Context, scope string, tokenD
 		APIKeyValue:  a.APIKeyValue,
 		Scope:        a.Scope,
 		TokenDomains: cloneAddresses(a.TokenDomains),
+		CreatedAt:    a.CreatedAt,
 	}, nil
 }
 
@@ -64,6 +67,7 @@ func (b *InMemoryBackend) ListAPIKeys(ctx context.Context, scope string) []*APIK
 				APIKeyValue:  a.APIKeyValue,
 				Scope:        a.Scope,
 				TokenDomains: cloneAddresses(a.TokenDomains),
+				CreatedAt:    a.CreatedAt,
 			})
 		}
 	}
@@ -88,5 +92,6 @@ func (b *InMemoryBackend) GetDecryptedAPIKey(ctx context.Context, scope, apiKey 
 		APIKeyValue:  a.APIKeyValue,
 		Scope:        a.Scope,
 		TokenDomains: cloneAddresses(a.TokenDomains),
+		CreatedAt:    a.CreatedAt,
 	}, nil
 }

@@ -1,4 +1,4 @@
-.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins
+.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -131,6 +131,11 @@ lint: install-deps ui-lint ui-fmt ui-check
 	golangci-lint run --timeout 20m ./...
 	go vet -vettool=$$(go tool -n mulint-vet) ./...
 	go tool govulncheck ./...
+
+# Lint + vet only the packages touched by the diff (working tree, or
+# branch vs origin/main) instead of the whole repo -- see scripts/lint-changed.sh.
+lint-changed:
+	@bash scripts/lint-changed.sh
 
 lint-fix: install-deps ui-lint-fix ui-fmt-fix
 	@echo "Running fieldalignment..."

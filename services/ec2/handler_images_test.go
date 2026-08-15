@@ -173,9 +173,11 @@ func TestFastLaunch(t *testing.T) { //nolint:paralleltest // existing issue.
 }
 
 // TestImageBlockPublicAccess_ResponseState verifies that
-// EnableImageBlockPublicAccess returns the new state in an <imageBlockPublicAccessState>
-// element rather than <return>true</return>, matching AWS EC2 behaviour.
-// Similarly DisableImageBlockPublicAccess must return <state>unblocked</state>.
+// EnableImageBlockPublicAccess returns the new state directly in the
+// <imageBlockPublicAccessState> element's text, rather than <return>true</return>
+// or a nested <state> child -- the real deserializer (ec2@v1.319.1
+// deserializers.go, awsEc2query_deserializeOpDocumentEnableImageBlockPublicAccessOutput)
+// reads it as a flat scalar and hard-errors on a nested element.
 func TestImageBlockPublicAccess_ResponseState(t *testing.T) {
 	t.Parallel()
 
@@ -221,8 +223,10 @@ func TestImageBlockPublicAccess_ResponseState(t *testing.T) {
 
 			resp, err := ec2.ExportDispatch(h, vals)
 			require.NoError(t, err)
-			assert.Contains(t, resp, "<state>"+tt.wantState+"</state>",
-				"response must contain <state>%s</state>", tt.wantState)
+			assert.Contains(t, resp, "<imageBlockPublicAccessState>"+tt.wantState+"</imageBlockPublicAccessState>",
+				"response must contain <imageBlockPublicAccessState>%s</imageBlockPublicAccessState>", tt.wantState)
+			assert.NotContains(t, resp, "<state>",
+				"response must not nest the state under a <state> child element")
 			assert.NotContains(t, resp, tt.wantMissing,
 				"response must not contain %s", tt.wantMissing)
 		})

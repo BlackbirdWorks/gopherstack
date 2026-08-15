@@ -35,7 +35,7 @@ func TestInboundConnections_DescribeRejectDelete(t *testing.T) {
 	ar.Body.Close()
 
 	// Describe returns it.
-	dr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/cc/inboundConnection", nil)
+	dr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/cc/inboundConnection/search", nil)
 	defer dr.Body.Close()
 	require.Equal(t, http.StatusOK, dr.StatusCode)
 
@@ -177,7 +177,7 @@ func TestOutboundConnection_CreateThenAcceptMirrorsBothSides(t *testing.T) {
 	aConn := aOut["Connection"].(map[string]any)
 	assert.Equal(t, "ACTIVE", aConn["ConnectionStatus"].(map[string]any)["StatusCode"])
 
-	dr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/cc/outboundConnection", nil)
+	dr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/cc/outboundConnection/search", nil)
 	defer dr.Body.Close()
 
 	var dOut map[string]any

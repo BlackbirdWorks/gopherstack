@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -133,6 +135,42 @@ func createWorkspace(t *testing.T, h *workspaces.Handler) string {
 	require.True(t, ok)
 
 	return id
+}
+
+// createImage creates a real workspace image via CreateWorkspaceImage
+// (backed by a real workspace, since CreateWorkspaceImage validates
+// WorkspaceId) and returns its ImageId.
+func createImage(t *testing.T, h *workspaces.Handler) string {
+	t.Helper()
+
+	wsID := createWorkspace(t, h)
+
+	rec := doTargetRequest(t, h, "CreateWorkspaceImage", map[string]any{
+		"Name":        "img-for-test",
+		"Description": "test",
+		"WorkspaceId": wsID,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	id, ok := resp["ImageId"].(string)
+	require.True(t, ok)
+
+	return id
+}
+
+// idCounterSuffix parses the sequential hex counter store.go's nextID embeds
+// after prefix (e.g. "wsb-00000003" -> 3), letting a test prove the
+// backend's shared ID counter did or didn't advance across a call.
+func idCounterSuffix(t *testing.T, id, prefix string) int64 {
+	t.Helper()
+
+	n, err := strconv.ParseInt(strings.TrimPrefix(id, prefix), 16, 64)
+	require.NoError(t, err)
+
+	return n
 }
 
 // ---------------------------------------------------------------------------

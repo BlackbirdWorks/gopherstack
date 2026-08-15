@@ -182,6 +182,40 @@ type StorageBackend interface {
 		context.Context,
 		*dynamodb.DeleteBackupInput,
 	) (*dynamodb.DeleteBackupOutput, error)
+	DescribeContinuousBackups(
+		context.Context,
+		*dynamodb.DescribeContinuousBackupsInput,
+	) (*dynamodb.DescribeContinuousBackupsOutput, error)
+	UpdateContinuousBackups(
+		context.Context,
+		*dynamodb.UpdateContinuousBackupsInput,
+	) (*dynamodb.UpdateContinuousBackupsOutput, error)
+	RestoreTableFromBackup(
+		context.Context,
+		*dynamodb.RestoreTableFromBackupInput,
+	) (*dynamodb.RestoreTableFromBackupOutput, error)
+	RestoreTableToPointInTime(
+		context.Context,
+		*dynamodb.RestoreTableToPointInTimeInput,
+	) (*dynamodb.RestoreTableToPointInTimeOutput, error)
+	DescribeTableReplicaAutoScaling(
+		context.Context,
+		*dynamodb.DescribeTableReplicaAutoScalingInput,
+	) (*dynamodb.DescribeTableReplicaAutoScalingOutput, error)
+
+	// Export Operations
+	ExportTableToPointInTime(
+		context.Context,
+		*dynamodb.ExportTableToPointInTimeInput,
+	) (*dynamodb.ExportTableToPointInTimeOutput, error)
+	DescribeExport(
+		context.Context,
+		*dynamodb.DescribeExportInput,
+	) (*dynamodb.DescribeExportOutput, error)
+	ListExports(
+		context.Context,
+		*dynamodb.ListExportsInput,
+	) (*dynamodb.ListExportsOutput, error)
 
 	// PartiQL Batch Operations
 	BatchExecuteStatement(

@@ -52,7 +52,7 @@ func TestUsageAndManagedIdentifiers(t *testing.T) {
 			fn: func(t *testing.T, h *macie2.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodGet, "/managed-data-identifiers/list", nil)
+				rec := doRequest(t, h, http.MethodPost, "/managed-data-identifiers/list", nil)
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any

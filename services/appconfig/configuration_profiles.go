@@ -10,7 +10,7 @@ import (
 // CreateExperimentDefinition's doc comment for why tags are applied
 // directly to b.tags rather than via TagResource.
 func (b *InMemoryBackend) CreateConfigurationProfile(
-	applicationID, name, description, locationURI, profileType, retrievalRoleArn string,
+	applicationID, name, description, locationURI, profileType, retrievalRoleArn, kmsKeyIdentifier string,
 	validators []Validator,
 	tags map[string]string,
 ) (*ConfigurationProfile, error) {
@@ -46,6 +46,7 @@ func (b *InMemoryBackend) CreateConfigurationProfile(
 		LocationURI:      locationURI,
 		Type:             profileType,
 		RetrievalRoleArn: retrievalRoleArn,
+		KmsKeyIdentifier: kmsKeyIdentifier,
 		Validators:       validators,
 	}
 	b.configProfiles.Put(profile)
@@ -107,13 +108,32 @@ func (b *InMemoryBackend) ListConfigurationProfiles(
 	return page, token, nil
 }
 
+// configurationProfileToSummary builds the types.ConfigurationProfileSummary
+// shape -- see its doc comment in models.go. ValidatorTypes carries one
+// entry per Validators member, in the same order.
+func configurationProfileToSummary(p ConfigurationProfile) ConfigurationProfileSummary {
+	validatorTypes := make([]string, 0, len(p.Validators))
+	for _, v := range p.Validators {
+		validatorTypes = append(validatorTypes, v.Type)
+	}
+
+	return ConfigurationProfileSummary{
+		ApplicationID:  p.ApplicationID,
+		ID:             p.ID,
+		Name:           p.Name,
+		LocationURI:    p.LocationURI,
+		Type:           p.Type,
+		ValidatorTypes: validatorTypes,
+	}
+}
+
 // UpdateConfigurationProfile updates a configuration profile. A nil
 // name/description/retrievalRoleArn/validators means the request omitted
 // that field, and AWS AppConfig leaves an omitted field unchanged rather
 // than clearing it.
 func (b *InMemoryBackend) UpdateConfigurationProfile(
 	applicationID, profileID string,
-	name, description, retrievalRoleArn *string,
+	name, description, retrievalRoleArn, kmsKeyIdentifier *string,
 	validators *[]Validator,
 ) (*ConfigurationProfile, error) {
 	b.mu.Lock("UpdateConfigurationProfile")
@@ -139,6 +159,10 @@ func (b *InMemoryBackend) UpdateConfigurationProfile(
 
 	if retrievalRoleArn != nil {
 		updated.RetrievalRoleArn = *retrievalRoleArn
+	}
+
+	if kmsKeyIdentifier != nil {
+		updated.KmsKeyIdentifier = *kmsKeyIdentifier
 	}
 
 	if validators != nil {

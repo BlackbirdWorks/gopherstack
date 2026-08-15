@@ -273,16 +273,16 @@ func (b *InMemoryBackend) ListGrants(
 
 	keyID := key.KeyID
 
-	var grants []Grant
+	var stored []*Grant
 	for _, g := range b.grantsRegion(region).byKey.Get(keyID) {
 		// Filter by GrantId if specified.
 		if input.GrantID != "" && g.GrantID != input.GrantID {
 			continue
 		}
-		grants = append(grants, *g)
+		stored = append(stored, g)
 	}
 
-	sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
+	sort.Slice(stored, func(i, j int) bool { return stored[i].GrantID < stored[j].GrantID })
 
 	startIdx := parseMarker(input.Marker)
 	limit := int32(defaultListLimit)
@@ -291,8 +291,13 @@ func (b *InMemoryBackend) ListGrants(
 		limit = *input.Limit
 	}
 
+	grants := make([]GrantListEntry, len(stored))
+	for i, g := range stored {
+		grants[i] = toGrantListEntry(g)
+	}
+
 	if startIdx >= len(grants) {
-		return &ListGrantsOutput{Grants: []Grant{}}, nil
+		return &ListGrantsOutput{Grants: []GrantListEntry{}}, nil
 	}
 
 	end := startIdx + int(limit)
@@ -399,14 +404,14 @@ func (b *InMemoryBackend) ListRetirableGrants(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	grants := make([]Grant, 0)
+	stored := make([]*Grant, 0)
 	for _, g := range b.grantsStore(region).All() {
 		if g.RetiringPrincipal == input.RetiringPrincipal {
-			grants = append(grants, *g)
+			stored = append(stored, g)
 		}
 	}
 
-	sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
+	sort.Slice(stored, func(i, j int) bool { return stored[i].GrantID < stored[j].GrantID })
 
 	startIdx := parseMarker(input.Marker)
 	limit := int32(defaultListLimit)
@@ -415,8 +420,13 @@ func (b *InMemoryBackend) ListRetirableGrants(
 		limit = *input.Limit
 	}
 
+	grants := make([]GrantListEntry, len(stored))
+	for i, g := range stored {
+		grants[i] = toGrantListEntry(g)
+	}
+
 	if startIdx >= len(grants) {
-		return &ListGrantsOutput{Grants: []Grant{}}, nil
+		return &ListGrantsOutput{Grants: []GrantListEntry{}}, nil
 	}
 
 	end := startIdx + int(limit)

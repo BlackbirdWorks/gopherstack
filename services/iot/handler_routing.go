@@ -10,7 +10,80 @@ import (
 // matchIoTPath reports whether path belongs to the IoT control-plane.
 func matchIoTPath(path string) bool {
 	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) ||
-		matchFinalOpsPath(path) || matchTaggableResourcePath(path)
+		matchFinalOpsPath(path) || matchTaggableResourcePath(path) || matchCACertPath(path) ||
+		matchPolicyPrincipalPath(path) || matchCertificateTransferPath(path) || matchMiscUnroutedPath(path)
+}
+
+// matchMiscUnroutedPath reports whether path belongs to one of eight
+// singleton-resource ops (logging/authorizer/event/package config,
+// registration code, keys-and-certificate) that route_matcher_whitebox_test.go's
+// knownUnmatchedIoTPathsRaw had tracked as a known, pre-existing "no Tags
+// field so out of gopherstack-2mwl's scope" gap since that pass -- each op's
+// resolver was already correct (confirmed passing in
+// handler_sdk_route_table_test.go), only RouteMatcher never recognized the
+// path, so a real client 404'd before ever reaching it. Closed by
+// gopherstack-n1mb's route table alongside the CA-certificate/
+// principal-policy/certificate-transfer gaps above.
+func matchMiscUnroutedPath(path string) bool {
+	switch path {
+	case pathDefaultAuthorizer, pathLoggingOptions, pathV2LoggingLevel, pathV2LoggingOptions,
+		pathEventConfigs, pathPackageConfig, pathRegistrationCode, "/keys-and-certificate":
+		return true
+	}
+
+	return false
+}
+
+// matchCertificateTransferPath reports whether path belongs to the
+// certificate-transfer op family (TransferCertificate,
+// RejectCertificateTransfer, CancelCertificateTransfer). Only
+// "/accept-certificate-transfer/" was recognized before; these three
+// siblings' real paths ("/transfer-certificate/", "/reject-certificate-
+// transfer/", "/cancel-certificate-transfer/", iot@v1.77.4 serializers.go)
+// were not matched at all, so they 404'd before ever reaching op dispatch
+// regardless of their resolvers being correct. Found by gopherstack-n1mb's
+// route table.
+func matchCertificateTransferPath(path string) bool {
+	return strings.HasPrefix(path, "/transfer-certificate/") ||
+		strings.HasPrefix(path, "/reject-certificate-transfer/") ||
+		strings.HasPrefix(path, "/cancel-certificate-transfer/")
+}
+
+// matchPolicyPrincipalPath reports whether path belongs to the
+// principal/policy listing family resolvePolicyPrincipalPathOps resolves
+// (ListPrincipalPolicies, ListPolicyPrincipals, ListTargetsForPolicy,
+// ListPrincipalThings, ListPrincipalThingsV2, GetEffectivePolicies). None of
+// these paths were recognized by any matcher before -- only the unrelated
+// DELETE /principal-policies/{id} (DetachPrincipalPolicy) case was, via
+// matchFinalOpsPath -- so this entire family 404'd before ever reaching op
+// dispatch regardless of resolvePolicyPrincipalPathOps being correct. Found
+// by gopherstack-n1mb's route table.
+func matchPolicyPrincipalPath(path string) bool {
+	return path == "/principal-policies" ||
+		path == "/policy-principals" ||
+		strings.HasPrefix(path, "/policy-targets/") ||
+		path == "/principals/things" ||
+		path == "/principals/things-v2" ||
+		path == "/principal-things" ||
+		path == "/principal-things-v2" ||
+		path == "/effective-policies" ||
+		path == "/attached-policies" ||
+		strings.HasPrefix(path, "/attached-policies/")
+}
+
+// matchCACertPath reports whether path belongs to the CA-certificate
+// family. The real wire shapes use the singular "/cacertificate" (see
+// resolveCACertOps's doc comment) plus a separate "/certificates-by-ca/"
+// path for ListCertificatesByCA -- none of which any matcher recognized
+// before, so this entire sub-family 404'd before ever reaching op dispatch,
+// regardless of resolveCACertOps being correct. Found by gopherstack-n1mb's
+// route table.
+func matchCACertPath(path string) bool {
+	return path == "/cacertificates" ||
+		strings.HasPrefix(path, "/cacertificates/") ||
+		path == "/cacertificate" ||
+		strings.HasPrefix(path, "/cacertificate/") ||
+		strings.HasPrefix(path, "/certificates-by-ca/")
 }
 
 // matchTaggableResourcePath reports whether path belongs to one of the
@@ -160,11 +233,18 @@ func matchNewIoTPath(path string) bool {
 
 func matchNewIoTCertAndIndexPath(path string) bool {
 	return strings.HasPrefix(path, "/certificates/") ||
-		path == "/certificates" ||
+		path == pathCertificates ||
 		path == "/certificate/register" ||
 		path == "/certificate/register-no-ca" ||
 		strings.HasPrefix(path, pathRuleDestinations+"/") ||
 		path == pathRuleDestinations ||
+		// "/destinations" is the real TopicRuleDestination wire path
+		// (iot@v1.77.4 serializers.go); pathRuleDestinations
+		// ("/rule-destinations") above is the non-canonical shape this
+		// package's own tests still use. Found unreachable by
+		// gopherstack-n1mb's route table.
+		path == pathDestinations ||
+		strings.HasPrefix(path, "/destinations/") ||
 		strings.HasPrefix(path, "/certificate-providers/") ||
 		path == "/certificate-providers" ||
 		path == pathIndices ||
@@ -432,14 +512,41 @@ func resolveNewStatefulOps(path, method string) string {
 	return resolveCertificateProviderOps(path, method)
 }
 
+// resolvePolicyAndCertOps resolves the policy/certificate op family.
+//
+// DetachPolicy's real path is POST /target-policies/{policyName}
+// (iot@v1.77.4 serializers.go), which gopherstack previously mapped to
+// AttachPrincipalPolicy -- a genuine op-name mix-up. Real AttachPrincipalPolicy
+// is PUT /principal-policies/{policyName} (a different resource path
+// entirely), which no case here recognized at all. Both found by
+// gopherstack-n1mb's route table; see handler_policies.go's
+// handleAttachPrincipalPolicy for the matching header fix.
 func resolvePolicyAndCertOps(path, method string) string {
+	if op := resolvePolicyAttachOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolvePolicyCRUDAndCertOps(path, method)
+}
+
+func resolvePolicyAttachOps(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, "/target-policies/") && method == http.MethodPost:
+
+		return opDetachPolicy
+	case strings.HasPrefix(path, pathPrincipalPolicies+"/") && method == http.MethodPut:
 
 		return opAttachPrincipalPolicy
 	case strings.HasPrefix(path, "/target-policies/") && method == http.MethodPut:
 
 		return opAttachPolicy
+	}
+
+	return unknownOperation
+}
+
+func resolvePolicyCRUDAndCertOps(path, method string) string {
+	switch {
 	case path == pathPolicies && method == http.MethodGet:
 
 		return opListPolicies
@@ -529,6 +636,33 @@ func shadowOperation(method string) string {
 }
 
 func thingOperation(path, method string) string {
+	if op := thingSubResourceOperation(path, method); op != unknownOperation {
+		return op
+	}
+
+	switch method {
+	case http.MethodPost:
+
+		return opCreateThing
+	case http.MethodGet:
+
+		return opDescribeThing
+	case http.MethodDelete:
+
+		return opDeleteThing
+	case http.MethodPatch:
+
+		return opUpdateThing
+	}
+
+	return unknownOperation
+}
+
+// thingSubResourceOperation resolves the "/things/{thingName}/..." suffix
+// ops that must be checked before thingOperation's generic per-method
+// fallback (which would otherwise swallow them, exactly as it silently did
+// for DetachThingPrincipal before gopherstack-n1mb's route table found it).
+func thingSubResourceOperation(path, method string) string {
 	// GET /things/{thingName}/principals-v2 → ListThingPrincipalsV2
 	// (must be checked before the "/principals" suffix below.)
 	if method == http.MethodGet && strings.HasSuffix(path, "/principals-v2") {
@@ -550,37 +684,41 @@ func thingOperation(path, method string) string {
 		return opAttachThingPrincipal
 	}
 
+	// DELETE /things/{thingName}/principals → DetachThingPrincipal. Must be
+	// checked before the generic "case DELETE: return opDeleteThing" in
+	// thingOperation -- without this, a real client's DetachThingPrincipal
+	// request silently mis-routed to DeleteThing instead of merely 404ing
+	// (deleting the whole thing instead of detaching a principal). Found by
+	// gopherstack-n1mb's route table.
+	if method == http.MethodDelete && strings.HasSuffix(path, "/principals") {
+		return opDetachThingPrincipal
+	}
+
 	// POST /things/{thingName}/connectivity-data → GetThingConnectivityData
 	if method == http.MethodPost && strings.HasSuffix(path, "/connectivity-data") {
 		return opGetThingConnectivityData
 	}
 
-	switch method {
-	case http.MethodPost:
-
-		return opCreateThing
-	case http.MethodGet:
-
-		return opDescribeThing
-	case http.MethodDelete:
-
-		return opDeleteThing
-	case http.MethodPatch:
-
-		return opUpdateThing
-	}
-
 	return unknownOperation
 }
 
+// ruleOperation resolves the topic-rule op family.
+//
+// DisableTopicRule/EnableTopicRule's real method is POST, not PATCH
+// (iot@v1.77.4 serializers.go) -- checking PATCH meant a real client's
+// request fell through to the generic "case POST: return
+// opCreateTopicRule" below, silently mis-routing Enable/Disable to
+// CreateTopicRule instead of merely 404ing. Found by gopherstack-n1mb's
+// route table. PATCH is kept too as a non-canonical method wired for this
+// package's own tests.
 func ruleOperation(path, method string) string {
-	// PATCH /rules/{ruleName}/disable → DisableTopicRule
-	if method == http.MethodPatch && strings.HasSuffix(path, "/disable") {
+	// POST /rules/{ruleName}/disable → DisableTopicRule
+	if (method == http.MethodPost || method == http.MethodPatch) && strings.HasSuffix(path, "/disable") {
 		return opDisableTopicRule
 	}
 
-	// PATCH /rules/{ruleName}/enable → EnableTopicRule
-	if method == http.MethodPatch && strings.HasSuffix(path, "/enable") {
+	// POST /rules/{ruleName}/enable → EnableTopicRule
+	if (method == http.MethodPost || method == http.MethodPatch) && strings.HasSuffix(path, "/enable") {
 		return opEnableTopicRule
 	}
 
@@ -765,10 +903,10 @@ func resolveBatch3MiscOps(path, method string) string {
 		return op
 	}
 	switch {
-	case path == "/event-configurations" && method == http.MethodGet:
+	case path == pathEventConfigs && method == http.MethodGet:
 
 		return opDescribeEventConfigurations
-	case path == "/event-configurations" && method == http.MethodPatch:
+	case path == pathEventConfigs && method == http.MethodPatch:
 
 		return opUpdateEventConfigurations
 	}
@@ -855,6 +993,7 @@ func matchFinalOpsPath(path string) bool {
 		path == pathTestAuthorization ||
 		strings.HasPrefix(path, pathPrincipalPolicies+"/") ||
 		strings.HasPrefix(path, pathConfirmDestination+"/") ||
+		path == pathCommandExecutions ||
 		strings.HasPrefix(path, pathCommandExecutions+"/") ||
 		path == pathBehaviorModelTrainingSummaries ||
 		path == pathCertificatesOutgoing ||
@@ -893,6 +1032,8 @@ func resolveFinalOpsGroupB(path, method string) string {
 	switch {
 	case strings.HasPrefix(path, pathCommandExecutions+"/") && method == http.MethodDelete:
 		return opDeleteCommandExecution
+	case strings.HasPrefix(path, pathCommandExecutions+"/") && method == http.MethodGet:
+		return opGetCommandExecution
 	case path == pathBehaviorModelTrainingSummaries && method == http.MethodGet:
 		return opGetBehaviorModelTrainingSummaries
 	case path == pathCertificatesOutgoing && method == http.MethodGet:

@@ -437,7 +437,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		input *ListAssociationVersionsInput,
 	) (*ListAssociationVersionsOutputFull, error)
-	ListAssociations(ctx context.Context, _ *ListAssociationsInput) (*ListAssociationsOutput, error)
+	ListAssociations(ctx context.Context, _ *ListAssociationsInput) (*ListAssociationsOutputFull, error)
 	ListNodes(ctx context.Context, _ *ListNodesInput) (*ListNodesOutputFull, error)
 	ListNodesSummary(
 		ctx context.Context,

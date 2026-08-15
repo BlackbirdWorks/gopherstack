@@ -27,4 +27,5 @@ var (
 	ErrInvalidDBInstanceStateFault        = errors.New("InvalidDBInstanceStateFault")
 	ErrInvalidDBClusterSnapshotStateFault = errors.New("InvalidDBClusterSnapshotStateFault")
 	ErrSnapshotRequired                   = errors.New("InvalidParameterCombination")
+	ErrInvalidGlobalClusterState          = errors.New("InvalidGlobalClusterStateFault")
 )

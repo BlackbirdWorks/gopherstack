@@ -91,11 +91,18 @@ func (p *storedStreamProcessor) toStreamProcessor() *StreamProcessor {
 	}
 }
 
-// storedProject holds a Rekognition Custom Labels project.
+// storedProject holds a Rekognition Custom Labels project. Name is stored
+// separately from ProjectARN (rather than parsed back out of it) because
+// DescribeProjectsInput.ProjectNames filters by name, not ARN (confirmed
+// against serializers.go/api_op_DescribeProjects.go -- there is no
+// ProjectArns filter member at all).
 type storedProject struct {
 	CreationTimestamp time.Time `json:"creationTimestamp"`
 	ProjectARN        string    `json:"projectArn"`
+	Name              string    `json:"name"`
 	Status            string    `json:"status"`
+	AutoUpdate        string    `json:"autoUpdate,omitempty"`
+	Feature           string    `json:"feature,omitempty"`
 }
 
 func (p *storedProject) toProject() *Project {
@@ -103,6 +110,8 @@ func (p *storedProject) toProject() *Project {
 		CreationTimestamp: p.CreationTimestamp,
 		ProjectARN:        p.ProjectARN,
 		Status:            p.Status,
+		AutoUpdate:        p.AutoUpdate,
+		Feature:           p.Feature,
 	}
 }
 
@@ -236,17 +245,33 @@ type storedAsyncJob struct {
 
 // storedMediaAnalysisJob holds a media analysis job.
 type storedMediaAnalysisJob struct {
-	CreationTimestamp time.Time `json:"creationTimestamp"`
-	JobID             string    `json:"jobId"`
-	JobName           string    `json:"jobName"`
-	Status            string    `json:"status"`
+	CreationTimestamp                    time.Time `json:"creationTimestamp"`
+	DetectModerationLabelsMinConfidence  *float32  `json:"detectModerationLabelsMinConfidence,omitempty"`
+	JobID                                string    `json:"jobId"`
+	JobName                              string    `json:"jobName"`
+	Status                               string    `json:"status"`
+	InputS3Bucket                        string    `json:"inputS3Bucket,omitempty"`
+	InputS3Name                          string    `json:"inputS3Name,omitempty"`
+	InputS3Version                       string    `json:"inputS3Version,omitempty"`
+	OutputConfigS3Bucket                 string    `json:"outputConfigS3Bucket,omitempty"`
+	OutputConfigS3KeyPrefix              string    `json:"outputConfigS3KeyPrefix,omitempty"`
+	DetectModerationLabelsProjectVersion string    `json:"detectModerationLabelsProjectVersion,omitempty"`
+	HasDetectModerationLabels            bool      `json:"hasDetectModerationLabels,omitempty"`
 }
 
 func (j *storedMediaAnalysisJob) toMediaAnalysisJob() *MediaAnalysisJob {
 	return &MediaAnalysisJob{
-		CreationTimestamp: j.CreationTimestamp,
-		JobID:             j.JobID,
-		JobName:           j.JobName,
-		Status:            j.Status,
+		CreationTimestamp:                    j.CreationTimestamp,
+		JobID:                                j.JobID,
+		JobName:                              j.JobName,
+		Status:                               j.Status,
+		InputS3Bucket:                        j.InputS3Bucket,
+		InputS3Name:                          j.InputS3Name,
+		InputS3Version:                       j.InputS3Version,
+		OutputConfigS3Bucket:                 j.OutputConfigS3Bucket,
+		OutputConfigS3KeyPrefix:              j.OutputConfigS3KeyPrefix,
+		DetectModerationLabelsProjectVersion: j.DetectModerationLabelsProjectVersion,
+		DetectModerationLabelsMinConfidence:  j.DetectModerationLabelsMinConfidence,
+		HasDetectModerationLabels:            j.HasDetectModerationLabels,
 	}
 }

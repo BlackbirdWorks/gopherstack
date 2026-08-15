@@ -50,7 +50,8 @@ func (b *InMemoryBackend) SubmitServiceJob(
 	retryStrategy *ServiceJobRetryStrategy,
 	timeoutConfig *ServiceJobTimeout,
 	schedulingPriority int32,
-	shareIdentifier string,
+	shareIdentifier, quotaShareName string,
+	preemptionConfig *ServiceJobPreemptionConfiguration,
 ) (*ServiceJob, error) {
 	region := getRegion(ctx, b.region)
 
@@ -95,21 +96,29 @@ func (b *InMemoryBackend) SubmitServiceJob(
 		timeoutCopy = &tc
 	}
 
+	var preemptionCopy *ServiceJobPreemptionConfiguration
+	if preemptionConfig != nil {
+		pc := *preemptionConfig
+		preemptionCopy = &pc
+	}
+
 	sj := &ServiceJob{
-		region:                region,
-		JobID:                 jobID,
-		JobArn:                jobARN,
-		JobName:               name,
-		JobQueue:              jq.JobQueueArn,
-		ServiceJobType:        serviceJobType,
-		ServiceRequestPayload: serviceRequestPayload,
-		Status:                jobStatusSubmitted,
-		CreatedAt:             now,
-		Tags:                  tagsCopy,
-		RetryStrategy:         cloneServiceJobRetryStrategy(retryStrategy),
-		TimeoutConfig:         timeoutCopy,
-		SchedulingPriority:    schedulingPriority,
-		ShareIdentifier:       shareIdentifier,
+		region:                  region,
+		JobID:                   jobID,
+		JobArn:                  jobARN,
+		JobName:                 name,
+		JobQueue:                jq.JobQueueArn,
+		ServiceJobType:          serviceJobType,
+		ServiceRequestPayload:   serviceRequestPayload,
+		Status:                  jobStatusSubmitted,
+		CreatedAt:               now,
+		Tags:                    tagsCopy,
+		RetryStrategy:           cloneServiceJobRetryStrategy(retryStrategy),
+		TimeoutConfig:           timeoutCopy,
+		SchedulingPriority:      schedulingPriority,
+		ShareIdentifier:         shareIdentifier,
+		QuotaShareName:          quotaShareName,
+		PreemptionConfiguration: preemptionCopy,
 	}
 	b.serviceJobs.Put(sj)
 	cp := *sj

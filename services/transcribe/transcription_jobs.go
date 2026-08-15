@@ -166,6 +166,7 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 
 	advanceDeferredTranscriptionJob(job)
 	cp := *job
+	cp.Tags = b.liveTagsLocked(resourceARN(resourceTypeTranscriptionJob, job.JobName))
 
 	return &cp, nil
 }

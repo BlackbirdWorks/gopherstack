@@ -80,7 +80,7 @@ func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
 	for resourceID, kv := range tagsByResource {
 		tagList := make([]map[string]string, 0, len(kv))
 		for k, v := range kv {
-			tagList = append(tagList, map[string]string{"Key": k, "Value": v})
+			tagList = append(tagList, map[string]string{keyKey: k, keyValue: v})
 		}
 		resourceTagList = append(resourceTagList, map[string]any{
 			"ResourceId": resourceID,

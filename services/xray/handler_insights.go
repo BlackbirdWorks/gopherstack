@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -215,7 +216,33 @@ func (h *Handler) handleGetInsightSummaries(_ context.Context, body []byte) ([]b
 		}
 	}
 
-	summaries, err := h.Backend.GetInsightSummaries(in.States)
+	if in.GroupName == "" && in.GroupARN == "" {
+		return nil, fmt.Errorf("%w: GroupName or GroupARN is required", errInvalidRequest)
+	}
+
+	if in.StartTime == 0 || in.EndTime == 0 {
+		return nil, fmt.Errorf("%w: StartTime and EndTime are required", errInvalidRequest)
+	}
+
+	groupName := in.GroupName
+	if groupName == "" {
+		// GroupARN-only request: resolve to a name for GetInsightSummaries'
+		// group-scoping (see its own doc comment) -- an unresolvable ARN
+		// falls through to a groupName no real insight ever carries, which
+		// correctly yields an empty (not error) result, matching this op's
+		// modeled error set (InvalidRequestException/ThrottledException
+		// only -- no ResourceNotFoundException for an unknown group).
+		if g, err := h.Backend.GetGroupByARN(in.GroupARN); err == nil {
+			groupName = g.GroupName
+		} else {
+			groupName = in.GroupARN
+		}
+	}
+
+	summaries, err := h.Backend.GetInsightSummaries(
+		in.States, groupName,
+		time.Unix(int64(in.StartTime), 0), time.Unix(int64(in.EndTime), 0),
+	)
 	if err != nil {
 		return nil, err
 	}

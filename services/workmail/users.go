@@ -233,12 +233,16 @@ func (b *InMemoryBackend) ListUsers(
 			continue
 		}
 		users = append(users, &UserSummary{
-			UserID:      u.UserID,
-			Name:        u.Name,
-			Email:       u.Email,
-			DisplayName: u.DisplayName,
-			State:       u.State,
-			Role:        u.Role,
+			UserID:                          u.UserID,
+			Name:                            u.Name,
+			Email:                           u.Email,
+			DisplayName:                     u.DisplayName,
+			State:                           u.State,
+			Role:                            u.Role,
+			EnabledDate:                     u.EnabledDate,
+			DisabledDate:                    u.DisabledDate,
+			IdentityProviderIdentityStoreID: u.IdentityProviderIdentityStoreID,
+			IdentityProviderUserID:          u.IdentityProviderUserID,
 		})
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].Name < users[j].Name })

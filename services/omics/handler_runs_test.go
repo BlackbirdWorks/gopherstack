@@ -44,7 +44,7 @@ func TestOmics_RunGroup(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.NotNil(t, resp["runGroups"])
+				assert.NotNil(t, resp["items"])
 			},
 		},
 		{
@@ -413,7 +413,7 @@ func TestListRuns_FiltersByNameRunGroupBatchStatus(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	runs, ok := resp["runs"].([]any)
+	runs, ok := resp["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, runs, 1)
 	assert.Equal(t, "run-a", runs[0].(map[string]any)["name"])
@@ -423,7 +423,7 @@ func TestListRuns_FiltersByNameRunGroupBatchStatus(t *testing.T) {
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	runs2, ok := resp2["runs"].([]any)
+	runs2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, runs2, 1)
 	assert.Equal(t, "run-b", runs2[0].(map[string]any)["name"])
@@ -433,7 +433,7 @@ func TestListRuns_FiltersByNameRunGroupBatchStatus(t *testing.T) {
 
 	var resp3 map[string]any
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
-	runs3, ok := resp3["runs"].([]any)
+	runs3, ok := resp3["items"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, runs3, "no run has been cancelled yet")
 }
@@ -459,7 +459,7 @@ func TestListRunTasks_FiltersByStatus(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	tasks, ok := resp["tasks"].([]any)
+	tasks, ok := resp["items"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, tasks)
 
@@ -468,7 +468,7 @@ func TestListRunTasks_FiltersByStatus(t *testing.T) {
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	tasks2, ok := resp2["tasks"].([]any)
+	tasks2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tasks2, 1)
 }
@@ -487,7 +487,7 @@ func TestListRunGroups_FiltersByName(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	groups, ok := resp["runGroups"].([]any)
+	groups, ok := resp["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "rg-a", groups[0].(map[string]any)["name"])
@@ -509,7 +509,7 @@ func TestListRunBatches_FiltersByNameAndStatus(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	batches, ok := resp["runBatches"].([]any)
+	batches, ok := resp["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, batches, 1)
 	assert.Equal(t, "batch-a", batches[0].(map[string]any)["name"])
@@ -521,7 +521,7 @@ func TestListRunBatches_FiltersByNameAndStatus(t *testing.T) {
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	batches2, ok := resp2["runBatches"].([]any)
+	batches2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	assert.Len(t, batches2, 2)
 }

@@ -9,7 +9,9 @@ import (
 	"github.com/google/uuid"
 )
 
-func (b *InMemoryBackend) CreateTrafficMirrorFilter(description string) (*TrafficMirrorFilter, error) {
+func (b *InMemoryBackend) CreateTrafficMirrorFilter(
+	description string, tags map[string]string,
+) (*TrafficMirrorFilter, error) {
 	b.mu.Lock("CreateTrafficMirrorFilter")
 	defer b.mu.Unlock()
 
@@ -19,6 +21,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorFilter(description string) (*Traffi
 		Description:           description,
 	}
 	b.trafficMirrorFilters.Put(f)
+	b.setTagsLocked(id, tags)
 
 	cp := *f
 
@@ -60,13 +63,15 @@ func (b *InMemoryBackend) DescribeTrafficMirrorFilters(ids []string) []*TrafficM
 	return result
 }
 
-func (b *InMemoryBackend) ModifyTrafficMirrorFilterNetworkServices(id string, add, remove []string) error {
+func (b *InMemoryBackend) ModifyTrafficMirrorFilterNetworkServices(
+	id string, add, remove []string,
+) (*TrafficMirrorFilter, error) {
 	b.mu.Lock("ModifyTrafficMirrorFilterNetworkServices")
 	defer b.mu.Unlock()
 
 	f, ok := b.trafficMirrorFilters.Get(id)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrTrafficMirrorFilterNotFound, id)
+		return nil, fmt.Errorf("%w: %s", ErrTrafficMirrorFilterNotFound, id)
 	}
 
 	services := make(map[string]bool)
@@ -89,12 +94,15 @@ func (b *InMemoryBackend) ModifyTrafficMirrorFilterNetworkServices(id string, ad
 
 	sort.Strings(f.NetworkServices)
 
-	return nil
+	cp := *f
+
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) CreateTrafficMirrorFilterRule(
 	filterID, direction, action, srcCIDR, dstCIDR, description string,
 	ruleNumber, protocol int,
+	tags map[string]string,
 	ports ...TrafficMirrorPortRangePair,
 ) (*TrafficMirrorFilterRule, error) {
 	b.mu.Lock("CreateTrafficMirrorFilterRule")
@@ -129,6 +137,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorFilterRule(
 		f.IngressFilterRules = append(f.IngressFilterRules, rule)
 	}
 	b.trafficMirrorFilterRules.Put(rule)
+	b.setTagsLocked(id, tags)
 
 	cp := *rule
 
@@ -189,13 +198,15 @@ func (b *InMemoryBackend) DescribeTrafficMirrorFilterRules(filterID string) ([]*
 	return result, nil
 }
 
-func (b *InMemoryBackend) ModifyTrafficMirrorFilterRule(id, action, description string) error {
+func (b *InMemoryBackend) ModifyTrafficMirrorFilterRule(
+	id, action, description string,
+) (*TrafficMirrorFilterRule, error) {
 	b.mu.Lock("ModifyTrafficMirrorFilterRule")
 	defer b.mu.Unlock()
 
 	rule, ok := b.trafficMirrorFilterRules.Get(id)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrTrafficMirrorFilterRuleNotFound, id)
+		return nil, fmt.Errorf("%w: %s", ErrTrafficMirrorFilterRuleNotFound, id)
 	}
 
 	if action != "" {
@@ -206,12 +217,15 @@ func (b *InMemoryBackend) ModifyTrafficMirrorFilterRule(id, action, description 
 		rule.Description = description
 	}
 
-	return nil
+	cp := *rule
+
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) CreateTrafficMirrorSession(
 	networkInterfaceID, targetID, filterID, description string,
 	sessionNumber int,
+	tags map[string]string,
 	packetLength ...int,
 ) (*TrafficMirrorSession, error) {
 	b.mu.Lock("CreateTrafficMirrorSession")
@@ -235,6 +249,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorSession(
 		VirtualNetworkID:       trafficMirrorSessionVNI(id),
 	}
 	b.trafficMirrorSessions.Put(s)
+	b.setTagsLocked(id, tags)
 
 	cp := *s
 
@@ -288,13 +303,15 @@ func (b *InMemoryBackend) DescribeTrafficMirrorSessions(ids []string) []*Traffic
 	return result
 }
 
-func (b *InMemoryBackend) ModifyTrafficMirrorSession(id, targetID, filterID, description string) error {
+func (b *InMemoryBackend) ModifyTrafficMirrorSession(
+	id, targetID, filterID, description string,
+) (*TrafficMirrorSession, error) {
 	b.mu.Lock("ModifyTrafficMirrorSession")
 	defer b.mu.Unlock()
 
 	s, ok := b.trafficMirrorSessions.Get(id)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrTrafficMirrorSessionNotFound, id)
+		return nil, fmt.Errorf("%w: %s", ErrTrafficMirrorSessionNotFound, id)
 	}
 
 	if targetID != "" {
@@ -309,11 +326,14 @@ func (b *InMemoryBackend) ModifyTrafficMirrorSession(id, targetID, filterID, des
 		s.Description = description
 	}
 
-	return nil
+	cp := *s
+
+	return &cp, nil
 }
 
 func (b *InMemoryBackend) CreateTrafficMirrorTarget(
 	networkInterfaceID, networkLoadBalancerArn, description string,
+	tags map[string]string,
 	gatewayLoadBalancerEndpointID ...string,
 ) (*TrafficMirrorTarget, error) {
 	b.mu.Lock("CreateTrafficMirrorTarget")
@@ -339,6 +359,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorTarget(
 		Description: description,
 	}
 	b.trafficMirrorTargets.Put(t)
+	b.setTagsLocked(id, tags)
 
 	cp := *t
 

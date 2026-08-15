@@ -6,22 +6,25 @@ import (
 	"sort"
 )
 
-// DeleteLaunchTemplate removes a launch template by ID.
-func (b *InMemoryBackend) DeleteLaunchTemplate(id string) error {
+// DeleteLaunchTemplate removes a launch template by ID and returns the
+// deleted template.
+func (b *InMemoryBackend) DeleteLaunchTemplate(id string) (*LaunchTemplate, error) {
 	if id == "" {
-		return fmt.Errorf("%w: LaunchTemplateId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: LaunchTemplateId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteLaunchTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.launchTemplates.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
+	lt, ok := b.launchTemplates.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
 	}
+	cp := *lt
 	b.launchTemplates.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeLaunchTemplateVersions returns versions of a specific launch template.

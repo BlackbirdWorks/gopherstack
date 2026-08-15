@@ -42,13 +42,17 @@ func (v *storedVodSource) toSummary() *VodSourceSummary {
 	tags := make(map[string]string, len(v.Tags))
 	maps.Copy(tags, v.Tags)
 
+	cfgs := make([]HTTPPackageConfiguration, len(v.HTTPPackageConfigurations))
+	copy(cfgs, v.HTTPPackageConfigurations)
+
 	return &VodSourceSummary{
-		CreationTime:       v.CreationTime,
-		LastModified:       v.LastModified,
-		Tags:               tags,
-		SourceLocationName: v.SourceLocationName,
-		VodSourceName:      v.VodSourceName,
-		ARN:                v.ARN,
+		CreationTime:              v.CreationTime,
+		LastModified:              v.LastModified,
+		Tags:                      tags,
+		SourceLocationName:        v.SourceLocationName,
+		VodSourceName:             v.VodSourceName,
+		ARN:                       v.ARN,
+		HTTPPackageConfigurations: cfgs,
 	}
 }
 

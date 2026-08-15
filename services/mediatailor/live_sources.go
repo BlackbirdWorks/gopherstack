@@ -133,11 +133,17 @@ func (b *InMemoryBackend) ListLiveSources(
 
 	out := make([]*LiveSourceSummary, 0, len(pg.Data))
 	for _, ls := range pg.Data {
+		cfgs := make([]HTTPPackageConfiguration, len(ls.HTTPPackageConfigurations))
+		copy(cfgs, ls.HTTPPackageConfigurations)
+
 		out = append(out, &LiveSourceSummary{
-			Tags:               copyTags(b.tags[ls.ARN]),
-			SourceLocationName: ls.SourceLocationName,
-			LiveSourceName:     ls.LiveSourceName,
-			ARN:                ls.ARN,
+			Tags:                      copyTags(b.tags[ls.ARN]),
+			SourceLocationName:        ls.SourceLocationName,
+			LiveSourceName:            ls.LiveSourceName,
+			ARN:                       ls.ARN,
+			CreationTime:              ls.CreationTime,
+			LastModified:              ls.LastModified,
+			HTTPPackageConfigurations: cfgs,
 		})
 	}
 

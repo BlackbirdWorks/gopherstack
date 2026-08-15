@@ -126,14 +126,20 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	_, err = b.StartMaterializedViewRefreshTaskRun("db1", "view1")
 	require.NoError(t, err)
-	_, err = b.CreateIntegration("int1", nil)
+	_, err = b.CreateIntegration(
+		"int1",
+		"arn:aws:s3:::source-bucket",
+		"arn:aws:redshift:us-east-1:123456789012:cluster/target",
+		nil,
+	)
 	require.NoError(t, err)
 	_, err = b.CreateIntegrationResourceProperty("arn:aws:glue:resource1", nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, b.CreateIntegrationTableProperties("arn:aws:glue:resource1", "tbl1", nil, nil))
 	b.PutDataQualityStatisticAnnotation("profile1", "stat1", "INCLUDE")
-	require.NoError(t, b.CreateGlueIdentityCenterConfiguration("instance1"))
-	_, err = b.RegisterConnectionType("custom1", "a custom connector")
+	_, err = b.CreateGlueIdentityCenterConfiguration("instance1")
+	require.NoError(t, err)
+	_, err = b.RegisterConnectionType("custom1", "a custom connector", fullRegisterConnectionTypeSpec())
 	require.NoError(t, err)
 
 	// Business glossary / asset catalog (parity-4).

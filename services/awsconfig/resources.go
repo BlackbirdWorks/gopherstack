@@ -1,6 +1,7 @@
 package awsconfig
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -14,13 +15,23 @@ import (
 // SelectAggregateResourceConfig), so each identifier is resolved against
 // b.resourceConfigs (populated by PutResourceConfig) instead of being
 // blanket-reported unprocessed; only identifiers with no matching discovered
-// resource are unprocessed.
+// resource are unprocessed -- a missing resource is never an error for this
+// op (verified against aws-sdk-go-v2/service/configservice's
+// BatchGetAggregateResourceConfig deserializer, which declares
+// NoSuchConfigurationAggregatorException but no ResourceNotDiscovered-style
+// exception; real AWS reports it via UnprocessedResourceIdentifiers instead).
+// aggregatorName must name an existing aggregator
+// (NoSuchConfigurationAggregatorException), mirroring GetAggregateResourceConfig.
 func (b *InMemoryBackend) BatchGetAggregateResourceConfig(
-	_ string,
+	aggregatorName string,
 	identifiers []AggregateResourceIdentifier,
-) ([]BaseConfigurationItem, []AggregateResourceIdentifier) {
+) ([]BaseConfigurationItem, []AggregateResourceIdentifier, error) {
 	b.mu.RLock("BatchGetAggregateResourceConfig")
 	defer b.mu.RUnlock()
+
+	if err := b.requireAggregatorLocked(aggregatorName); err != nil {
+		return nil, nil, err
+	}
 
 	items := make([]BaseConfigurationItem, 0, len(identifiers))
 	unprocessed := make([]AggregateResourceIdentifier, 0, len(identifiers))
@@ -36,7 +47,7 @@ func (b *InMemoryBackend) BatchGetAggregateResourceConfig(
 		items = append(items, BaseConfigurationItem{ResourceType: item.ResourceType, ResourceID: item.ResourceID})
 	}
 
-	return items, unprocessed
+	return items, unprocessed, nil
 }
 
 // BatchGetResourceConfig returns configuration items for the requested resource
@@ -83,8 +94,17 @@ func (b *InMemoryBackend) DeleteResourceConfig(resourceType, resourceID string) 
 	return nil
 }
 
-// GetDiscoveredResourceCounts returns zero counts.
-func (b *InMemoryBackend) GetDiscoveredResourceCounts() int64 { return 0 }
+// GetDiscoveredResourceCounts returns the total number of discovered
+// resources tracked by resourceConfigs -- previously a hardcoded 0
+// regardless of how many resources PutResourceConfig had stored, unlike its
+// GetAggregateDiscoveredResourceCounts sibling, which already read
+// resourceConfigs.Len() correctly.
+func (b *InMemoryBackend) GetDiscoveredResourceCounts() int64 {
+	b.mu.RLock("GetDiscoveredResourceCounts")
+	defer b.mu.RUnlock()
+
+	return int64(b.resourceConfigs.Len())
+}
 
 // ListAggregateDiscoveredResources returns discovered resources of resourceType
 // as seen through aggregatorName, tagged with the local account/region as the
@@ -230,19 +250,32 @@ func (b *InMemoryBackend) GetAggregateDiscoveredResourceCounts() int32 {
 	return int32(b.resourceConfigs.Len()) //nolint:gosec // Len is non-negative and bounded
 }
 
-// GetAggregateResourceConfig returns the first resource config found, or an empty item.
-func (b *InMemoryBackend) GetAggregateResourceConfig() *BaseConfigurationItem {
+// GetAggregateResourceConfig returns the configuration item for a single
+// aggregate resource identified by identifier, resolved against
+// b.resourceConfigs (populated by PutResourceConfig) the same way
+// BatchGetAggregateResourceConfig resolves each identifier in its batch --
+// this emulator does not model multi-account aggregation separately from
+// the account's own resource-config state. aggregatorName must name an
+// existing aggregator (NoSuchConfigurationAggregatorException); an
+// identifier with no matching discovered resource is
+// ResourceNotDiscoveredException (verified against aws-sdk-go-v2/service/
+// configservice's GetAggregateResourceConfig deserializer).
+func (b *InMemoryBackend) GetAggregateResourceConfig(
+	aggregatorName string, identifier AggregateResourceIdentifier,
+) (*BaseConfigurationItem, error) {
 	b.mu.RLock("GetAggregateResourceConfig")
 	defer b.mu.RUnlock()
 
-	for _, item := range b.resourceConfigs.All() {
-		return &BaseConfigurationItem{
-			ResourceType: item.ResourceType,
-			ResourceID:   item.ResourceID,
-		}
+	if err := b.requireAggregatorLocked(aggregatorName); err != nil {
+		return nil, err
 	}
 
-	return &BaseConfigurationItem{}
+	item, ok := b.resourceConfigs.Get(resourceConfigItemKey(identifier.ResourceType, identifier.ResourceID))
+	if !ok {
+		return nil, fmt.Errorf("%w: %s/%s", ErrResourceNotDiscovered, identifier.ResourceType, identifier.ResourceID)
+	}
+
+	return &BaseConfigurationItem{ResourceType: item.ResourceType, ResourceID: item.ResourceID}, nil
 }
 
 // resourceConfigItemsLocked returns every discovered resource configuration

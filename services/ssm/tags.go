@@ -14,6 +14,20 @@ func (b *InMemoryBackend) miscResourceTagsStore(region string) map[string]map[st
 	return b.miscResourceTags[region]
 }
 
+// miscResourceTagList returns the sorted tag list for a non-Parameter resource
+// (e.g. a Document, keyed by name), the same tag store AddTagsToResource and
+// ListTagsForResource(ResourceType != Parameter) already read and write.
+func (b *InMemoryBackend) miscResourceTagList(region, resourceID string) []Tag {
+	src := b.miscResourceTagsStore(region)[resourceID]
+	tagList := make([]Tag, 0, len(src))
+	for k, v := range src {
+		tagList = append(tagList, Tag{Key: k, Value: v})
+	}
+	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
+
+	return tagList
+}
+
 // AddTagsToResource adds or updates tags for a resource.
 func (b *InMemoryBackend) AddTagsToResource(
 	ctx context.Context,

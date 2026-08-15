@@ -223,18 +223,16 @@ func (b *InMemoryBackend) DescribeComplianceByConfigRule(names []string) []Compl
 	return out
 }
 
-// GetComplianceSummaryByConfigRule returns a compliance summary aggregated from
-// the recorded rule evaluations. AWS returns counts of compliant and
-// non-compliant config rules; here we derive those counts from the stored
-// per-rule compliance types populated via PutEvaluation(s)/PutExternalEvaluation.
-// When no evaluations have been recorded the result is an empty slice.
-func (b *InMemoryBackend) GetComplianceSummaryByConfigRule() []ComplianceSummary {
+// GetComplianceSummaryByConfigRule returns a compliance summary aggregated
+// from the recorded rule evaluations. Real GetComplianceSummaryByConfigRuleOutput
+// carries a single ComplianceSummary object, not a list (confirmed at
+// aws-sdk-go-v2/service/configservice's api_op_GetComplianceSummaryByConfigRule.go);
+// counts are derived from the stored per-rule compliance types populated via
+// PutEvaluation(s)/PutExternalEvaluation. When no evaluations have been
+// recorded both counts are zero.
+func (b *InMemoryBackend) GetComplianceSummaryByConfigRule() ComplianceSummary {
 	b.mu.RLock("GetComplianceSummaryByConfigRule")
 	defer b.mu.RUnlock()
-
-	if len(b.ruleEvaluations) == 0 {
-		return []ComplianceSummary{}
-	}
 
 	var compliant, nonCompliant int32
 
@@ -247,18 +245,10 @@ func (b *InMemoryBackend) GetComplianceSummaryByConfigRule() []ComplianceSummary
 		}
 	}
 
-	complianceType := "COMPLIANT"
-	if nonCompliant > 0 {
-		complianceType = "NON_COMPLIANT"
+	return ComplianceSummary{
+		CompliantResourceCount:    ResourceCount{CappedCount: compliant},
+		NonCompliantResourceCount: ResourceCount{CappedCount: nonCompliant},
 	}
-
-	return []ComplianceSummary{{
-		ComplianceType: complianceType,
-		ComplianceSummary: ComplianceSummaryDetail{
-			CompliantResourceCount:    ResourceCount{CappedCount: compliant},
-			NonCompliantResourceCount: ResourceCount{CappedCount: nonCompliant},
-		},
-	}}
 }
 
 // PutEvaluations stores evaluation results from an AWS Lambda function for a
@@ -374,19 +364,11 @@ func (b *InMemoryBackend) GetAggregateConfigRuleComplianceSummary(
 		}
 	}
 
-	complianceType := complianceCompliant
-	if nonCompliant > 0 {
-		complianceType = complianceNonCompliant
-	}
-
 	return []AggregateComplianceCount{{
 		GroupName: groupName,
 		ComplianceSummary: ComplianceSummary{
-			ComplianceType: complianceType,
-			ComplianceSummary: ComplianceSummaryDetail{
-				CompliantResourceCount:    ResourceCount{CappedCount: compliant},
-				NonCompliantResourceCount: ResourceCount{CappedCount: nonCompliant},
-			},
+			CompliantResourceCount:    ResourceCount{CappedCount: compliant},
+			NonCompliantResourceCount: ResourceCount{CappedCount: nonCompliant},
 		},
 	}}, nil
 }

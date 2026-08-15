@@ -43,37 +43,58 @@ func (h *Handler) handleListConfigurationSets(vals url.Values, reqID string) any
 	}
 
 	p := h.Backend.ListConfigurationSets(nextToken, maxItems)
-	members := make([]xmlMember, 0, len(p.Data))
+	members := make([]xmlConfigurationSetMember, 0, len(p.Data))
 
 	for _, name := range p.Data {
-		members = append(members, xmlMember{Value: name})
+		members = append(members, xmlConfigurationSetMember{Name: name})
 	}
 
 	return &listConfigurationSetsResponse{
 		Xmlns: sesXMLNS,
 		Result: listConfigurationSetsResult{
-			ConfigurationSets: xmlMemberList{Members: members},
+			ConfigurationSets: xmlConfigurationSetList{Members: members},
 			NextToken:         p.Next,
 		},
 		RequestID: reqID,
 	}
 }
 
+type createConfigurationSetResult struct{}
+
 type createConfigurationSetResponse struct {
-	XMLName   xml.Name `xml:"CreateConfigurationSetResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                     `xml:"CreateConfigurationSetResponse"`
+	Xmlns     string                       `xml:"xmlns,attr"`
+	Result    createConfigurationSetResult `xml:"CreateConfigurationSetResult"`
+	RequestID string                       `xml:"ResponseMetadata>RequestId"`
 }
 
+type deleteConfigurationSetResult struct{}
+
 type deleteConfigurationSetResponse struct {
-	XMLName   xml.Name `xml:"DeleteConfigurationSetResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                     `xml:"DeleteConfigurationSetResponse"`
+	Xmlns     string                       `xml:"xmlns,attr"`
+	Result    deleteConfigurationSetResult `xml:"DeleteConfigurationSetResult"`
+	RequestID string                       `xml:"ResponseMetadata>RequestId"`
+}
+
+// xmlConfigurationSetMember mirrors types.ConfigurationSet, which on the
+// wire is an object carrying a single Name field, not a bare string --
+// confirmed against awsAwsquery_deserializeDocumentConfigurationSet in the
+// pinned SDK's deserializers.go. Emitting <member>name</member> as chardata
+// (the generic xmlMemberList shape) leaves ConfigurationSet.Name nil for
+// every item on a real client, because the deserializer only reads a
+// nested <Name> child element.
+type xmlConfigurationSetMember struct {
+	Name string `xml:"Name"`
+}
+
+type xmlConfigurationSetList struct {
+	Members []xmlConfigurationSetMember `xml:"member"`
 }
 
 type listConfigurationSetsResult struct {
-	NextToken         string        `xml:"NextToken,omitempty"`
-	ConfigurationSets xmlMemberList `xml:"ConfigurationSets"`
+	NextToken         string                  `xml:"NextToken,omitempty"`
+	ConfigurationSets xmlConfigurationSetList `xml:"ConfigurationSets"`
 }
 
 type listConfigurationSetsResponse struct {
@@ -110,16 +131,22 @@ func (h *Handler) handleDeleteConfigurationSetTrackingOptions(vals url.Values, r
 	}, nil
 }
 
+type createConfigurationSetTrackingOptionsResult struct{}
+
 type createConfigurationSetTrackingOptionsResponse struct {
-	XMLName   xml.Name `xml:"CreateConfigurationSetTrackingOptionsResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                                    `xml:"CreateConfigurationSetTrackingOptionsResponse"`
+	Xmlns     string                                      `xml:"xmlns,attr"`
+	Result    createConfigurationSetTrackingOptionsResult `xml:"CreateConfigurationSetTrackingOptionsResult"`
+	RequestID string                                      `xml:"ResponseMetadata>RequestId"`
 }
 
+type deleteConfigurationSetTrackingOptionsResult struct{}
+
 type deleteConfigurationSetTrackingOptionsResponse struct {
-	XMLName   xml.Name `xml:"DeleteConfigurationSetTrackingOptionsResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                                    `xml:"DeleteConfigurationSetTrackingOptionsResponse"`
+	Xmlns     string                                      `xml:"xmlns,attr"`
+	Result    deleteConfigurationSetTrackingOptionsResult `xml:"DeleteConfigurationSetTrackingOptionsResult"`
+	RequestID string                                      `xml:"ResponseMetadata>RequestId"`
 }
 
 func (h *Handler) handleDescribeConfigurationSet(vals url.Values, reqID string) (any, error) {

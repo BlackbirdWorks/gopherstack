@@ -112,10 +112,29 @@ func (h *Handler) listRecipes(input map[string]any) (map[string]any, error) {
 		end = len(recipes)
 	}
 
-	result := map[string]any{"recipes": recipes[start:end]}
+	page := recipes[start:end]
+	summaries := make([]map[string]any, 0, len(page))
+	for _, r := range page {
+		summaries = append(summaries, recipeSummaryToMap(r))
+	}
+
+	result := map[string]any{"recipes": summaries}
 	if outToken != "" {
 		result["nextToken"] = outToken
 	}
 
 	return result, nil
+}
+
+// recipeSummaryToMap builds the types.RecipeSummary shape (types.go:1647)
+// from a full built-in recipe entry -- no recipeType. domain,
+// creationDateTime, and lastUpdatedDateTime are real Summary members, but
+// the built-in recipe catalog is a static list with no source for any of
+// them, so all three stay absent rather than being fabricated.
+func recipeSummaryToMap(r map[string]any) map[string]any {
+	return map[string]any{
+		keyName:      r[keyName],
+		keyRecipeArn: r[keyRecipeArn],
+		keyStatus:    r[keyStatus],
+	}
 }

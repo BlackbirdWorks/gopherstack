@@ -36,7 +36,7 @@ func newTestZone(t *testing.T) (*InMemoryBackend, string) {
 	t.Helper()
 
 	b := NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref-"+t.Name(), "", false, "")
+	hz, err := b.CreateHostedZone("example.com", "ref-"+t.Name(), "", false, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateHostedZone: %v", err)
 	}

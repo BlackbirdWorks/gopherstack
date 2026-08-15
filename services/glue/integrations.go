@@ -4,18 +4,56 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var ErrIntegrationNotFound = fmt.Errorf("integration not found: %w", ErrNotFound)
 
+// integrationARN returns the ARN for a Glue Zero-ETL integration, following
+// this service's established "<resourceType>/<name>" convention (see
+// blueprintARN, connectionARN, etc.).
+func (b *InMemoryBackend) integrationARN(name string) string {
+	return arn.Build("glue", b.region, b.accountID, "integration/"+name)
+}
+
+// resolveIntegrationName resolves an IntegrationIdentifier to the
+// integration's name. Real CreateIntegration/ModifyIntegration/
+// DeleteIntegration's own SDK doc comments describe IntegrationIdentifier as
+// "The Amazon Resource Name (ARN) for the integration", so a real client
+// passes the ARN this backend itself generated, not the bare name; accept
+// either since this backend's store is keyed by name.
+func (b *InMemoryBackend) resolveIntegrationName(identifier string) string {
+	if _, name, ok := strings.Cut(identifier, "integration/"); ok {
+		return name
+	}
+
+	return identifier
+}
+
 // CreateIntegration stores a new integration.
-func (b *InMemoryBackend) CreateIntegration(name string, tags map[string]string) (*Integration, error) {
+func (b *InMemoryBackend) CreateIntegration(
+	name, sourceArn, targetArn string,
+	tags map[string]string,
+) (*Integration, error) {
 	b.mu.Lock("CreateIntegration")
 	defer b.mu.Unlock()
 
+	if sourceArn == "" {
+		return nil, fmt.Errorf("%w: SourceArn is required", ErrValidation)
+	}
+
+	if targetArn == "" {
+		return nil, fmt.Errorf("%w: TargetArn is required", ErrValidation)
+	}
+
 	ig := &Integration{
 		IntegrationName: name,
+		IntegrationArn:  b.integrationARN(name),
+		SourceArn:       sourceArn,
+		TargetArn:       targetArn,
 		Status:          "CREATING",
 		Tags:            tags,
 		CreatedAt:       time.Now().UTC(),
@@ -26,18 +64,24 @@ func (b *InMemoryBackend) CreateIntegration(name string, tags map[string]string)
 	return &cp, nil
 }
 
-// DeleteIntegration removes an integration.
-func (b *InMemoryBackend) DeleteIntegration(name string) error {
+// DeleteIntegration removes an integration, identified by name or ARN
+// (see resolveIntegrationName), and returns the record as it stood right
+// before deletion so the caller can echo the real required response fields.
+func (b *InMemoryBackend) DeleteIntegration(identifier string) (*Integration, error) {
 	b.mu.Lock("DeleteIntegration")
 	defer b.mu.Unlock()
 
-	if !b.integrations.Has(name) {
-		return fmt.Errorf("integration %q not found: %w", name, ErrNotFound)
+	name := b.resolveIntegrationName(identifier)
+
+	ig, ok := b.integrations.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("integration %q not found: %w", identifier, ErrNotFound)
 	}
 
+	cp := *ig
 	b.integrations.Delete(name)
 
-	return nil
+	return &cp, nil
 }
 
 // ListIntegrations returns all integrations.
@@ -59,16 +103,23 @@ func (b *InMemoryBackend) ListIntegrations() []*Integration {
 	return list
 }
 
-// ModifyIntegration updates an integration.
-func (b *InMemoryBackend) ModifyIntegration(name string) error {
+// ModifyIntegration updates an integration, identified by name or ARN (see
+// resolveIntegrationName), and returns the current record so the caller can
+// echo the real required response fields.
+func (b *InMemoryBackend) ModifyIntegration(identifier string) (*Integration, error) {
 	b.mu.Lock("ModifyIntegration")
 	defer b.mu.Unlock()
 
-	if !b.integrations.Has(name) {
-		return ErrIntegrationNotFound
+	name := b.resolveIntegrationName(identifier)
+
+	ig, ok := b.integrations.Get(name)
+	if !ok {
+		return nil, ErrIntegrationNotFound
 	}
 
-	return nil
+	cp := *ig
+
+	return &cp, nil
 }
 
 // cloneIntegrationResourceProperty returns a copy of p with cloned maps, so callers

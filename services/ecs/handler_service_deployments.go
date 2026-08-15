@@ -15,23 +15,78 @@ type listServiceDeploymentsInput struct {
 	MaxResults int    `json:"maxResults,omitempty"`
 }
 
+// serviceDeploymentBriefView mirrors types.ServiceDeploymentBrief. Alarms,
+// DeploymentCircuitBreaker and DeploymentConfiguration are absent: this
+// backend doesn't model deployment alarms/circuit-breaker/configuration on a
+// ServiceDeployment record, so there is nothing honest to source them from.
+type serviceDeploymentBriefView struct {
+	ClusterArn               string  `json:"clusterArn,omitempty"`
+	ServiceArn               string  `json:"serviceArn,omitempty"`
+	ServiceDeploymentArn     string  `json:"serviceDeploymentArn"`
+	Status                   string  `json:"status,omitempty"`
+	StatusReason             string  `json:"statusReason,omitempty"`
+	TargetServiceRevisionArn string  `json:"targetServiceRevisionArn,omitempty"`
+	CreatedAt                float64 `json:"createdAt,omitempty"`
+	StartedAt                float64 `json:"startedAt,omitempty"`
+	FinishedAt               float64 `json:"finishedAt,omitempty"`
+}
+
+func toServiceDeploymentBriefView(sd ServiceDeployment) serviceDeploymentBriefView {
+	v := serviceDeploymentBriefView{
+		ServiceDeploymentArn:     sd.ServiceDeploymentArn,
+		ClusterArn:               sd.ClusterArn,
+		ServiceArn:               sd.ServiceArn,
+		Status:                   sd.Status,
+		StatusReason:             sd.StatusReason,
+		TargetServiceRevisionArn: sd.TargetServiceRevisionArn,
+	}
+
+	if sd.CreatedAt != nil {
+		// The real full ServiceDeployment type has no separate "started"
+		// timestamp either -- only CreatedAt/FinishedAt -- so Brief.StartedAt
+		// carries the same moment this backend tracks as CreatedAt.
+		v.CreatedAt = float64(sd.CreatedAt.Unix())
+		v.StartedAt = v.CreatedAt
+	}
+
+	if isTerminalServiceDeploymentStatus(sd.Status) && sd.UpdatedAt != nil {
+		v.FinishedAt = float64(sd.UpdatedAt.Unix())
+	}
+
+	return v
+}
+
+func isTerminalServiceDeploymentStatus(status string) bool {
+	switch status {
+	case "SUCCESSFUL", statusStopped:
+		return true
+	default:
+		return false
+	}
+}
+
 type listServiceDeploymentsOutput struct {
-	NextToken             string   `json:"nextToken,omitempty"`
-	ServiceDeploymentArns []string `json:"serviceDeploymentArns"`
+	NextToken          string                       `json:"nextToken,omitempty"`
+	ServiceDeployments []serviceDeploymentBriefView `json:"serviceDeployments"`
 }
 
 func (h *Handler) handleListServiceDeployments(
 	_ context.Context,
 	in *listServiceDeploymentsInput,
 ) (*listServiceDeploymentsOutput, error) {
-	arns, err := h.Backend.ListServiceDeployments(in.Cluster, in.Service)
+	deployments, err := h.Backend.ListServiceDeployments(in.Cluster, in.Service)
 	if err != nil {
 		return nil, err
 	}
 
-	p := page.New(arns, in.NextToken, in.MaxResults, defaultECSMaxResults)
+	p := page.New(deployments, in.NextToken, in.MaxResults, defaultECSMaxResults)
 
-	return &listServiceDeploymentsOutput{ServiceDeploymentArns: p.Data, NextToken: p.Next}, nil
+	views := make([]serviceDeploymentBriefView, 0, len(p.Data))
+	for _, sd := range p.Data {
+		views = append(views, toServiceDeploymentBriefView(sd))
+	}
+
+	return &listServiceDeploymentsOutput{ServiceDeployments: views, NextToken: p.Next}, nil
 }
 
 // ----- StopServiceDeployment -----

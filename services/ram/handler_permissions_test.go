@@ -178,7 +178,6 @@ func TestBuiltInPermission_PermissionType(t *testing.T) {
 		name               string
 		permName           string
 		wantPermissionType string
-		wantScope          string
 		wantIsDefault      bool
 	}{
 		{
@@ -186,21 +185,18 @@ func TestBuiltInPermission_PermissionType(t *testing.T) {
 			permName:           "AWSRAMDefaultPermissionEC2Subnet",
 			wantPermissionType: "AWS_MANAGED",
 			wantIsDefault:      true,
-			wantScope:          "REGIONAL",
 		},
 		{
 			name:               "S3 Bucket built-in",
 			permName:           "AWSRAMDefaultPermissionS3Bucket",
 			wantPermissionType: "AWS_MANAGED",
 			wantIsDefault:      true,
-			wantScope:          "REGIONAL",
 		},
 		{
 			name:               "License Manager built-in",
 			permName:           "AWSRAMDefaultPermissionLicenseManagerLicenseConfiguration",
 			wantPermissionType: "AWS_MANAGED",
 			wantIsDefault:      true,
-			wantScope:          "REGIONAL",
 		},
 	}
 
@@ -219,14 +215,12 @@ func TestBuiltInPermission_PermissionType(t *testing.T) {
 			var resp struct {
 				Permission struct {
 					PermissionType        string `json:"permissionType"`
-					ResourceRegionScope   string `json:"resourceRegionScope"`
 					IsResourceTypeDefault bool   `json:"isResourceTypeDefault"`
 				} `json:"permission"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			assert.Equal(t, tt.wantPermissionType, resp.Permission.PermissionType)
 			assert.Equal(t, tt.wantIsDefault, resp.Permission.IsResourceTypeDefault)
-			assert.Equal(t, tt.wantScope, resp.Permission.ResourceRegionScope)
 		})
 	}
 }
@@ -291,26 +285,36 @@ func TestDeleteCustomPermission_Allowed(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestResourceRegionScope_OnPermissions(t *testing.T) {
+// TestPermissionResponses_NoResourceRegionScopeField verifies that permission
+// summary/detail responses never carry a resourceRegionScope key: neither
+// types.ResourceSharePermissionSummary nor types.ResourceSharePermissionDetail
+// (aws-sdk-go-v2/service/ram@v1.39.4) declares that member -- only
+// types.Resource and types.ServiceNameAndResourceType do (see
+// TestResourceRegionScope_InListResources in handler_resources_test.go for
+// those, which remain correct). A raw-body assertion because an SDK client
+// silently discards unrecognized response keys, so a client-typed test would
+// pass even with the fabricated field still present.
+func TestPermissionResponses_NoResourceRegionScopeField(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		permARN        string
-		wantScope      string
-		wantAWSManaged bool
+		body map[string]any
+		name string
+		path string
 	}{
 		{
-			name:           "built-in EC2 subnet permission has REGIONAL scope",
-			permARN:        "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet",
-			wantScope:      "REGIONAL",
-			wantAWSManaged: true,
+			name: "getpermission built-in AWS-managed",
+			path: "/getpermission",
+			body: map[string]any{"permissionArn": "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet"},
 		},
 		{
-			name:           "built-in S3 bucket permission has REGIONAL scope",
-			permARN:        "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionS3Bucket",
-			wantScope:      "REGIONAL",
-			wantAWSManaged: true,
+			name: "createpermission customer-managed",
+			path: "/createpermission",
+			body: map[string]any{
+				"name":           "custom-scope-perm-" + t.Name(),
+				"resourceType":   "ec2:Subnet",
+				"policyTemplate": `{"Effect":"Allow","Action":["ec2:DescribeSubnets"]}`,
+			},
 		},
 	}
 
@@ -319,49 +323,19 @@ func TestResourceRegionScope_OnPermissions(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRAMRequest(t, h, "/getpermission", map[string]any{
-				"permissionArn": tt.permARN,
-			})
+			rec := doRAMRequest(t, h, tt.path, tt.body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				Permission struct {
-					ResourceRegionScope string `json:"resourceRegionScope"`
-					PermissionType      string `json:"permissionType"`
-				} `json:"permission"`
+				Permission json.RawMessage `json:"permission"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, tt.wantScope, resp.Permission.ResourceRegionScope)
-			if tt.wantAWSManaged {
-				assert.Equal(t, "AWS_MANAGED", resp.Permission.PermissionType)
-			}
+
+			var permFields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(resp.Permission, &permFields))
+			assert.NotContains(t, permFields, "resourceRegionScope")
 		})
 	}
-}
-
-func TestCustomerPermission_HasRegionScope(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create a customer permission.
-	createRec := doRAMRequest(t, h, "/createpermission", map[string]any{
-		"name":           "custom-scope-perm",
-		"resourceType":   "ec2:Subnet",
-		"policyTemplate": `{"Effect":"Allow","Action":["ec2:DescribeSubnets"]}`,
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp struct {
-		Permission struct {
-			Arn                 string `json:"arn"`
-			PermissionType      string `json:"permissionType"`
-			ResourceRegionScope string `json:"resourceRegionScope"`
-		} `json:"permission"`
-	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	assert.Equal(t, "CUSTOMER_MANAGED", createResp.Permission.PermissionType)
-	assert.Equal(t, "REGIONAL", createResp.Permission.ResourceRegionScope)
 }
 
 func TestIsResourceTypeDefault(t *testing.T) {
@@ -1067,9 +1041,27 @@ func TestListPermissions_Smoke(t *testing.T) {
 
 	// ListPermissions
 	rec := doRAMRequest(t, h, "/listpermissions", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	// ListPermissionVersions
-	rec = doRAMRequest(t, h, "/permissions/aws:aws:ram::aws:permission/AWSRAMDefaultPermissionVPC/versions", nil)
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	perms, ok := listResp["permissions"].([]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, perms, "ListPermissions must return the built-in AWS-managed permissions")
+
+	// ListPermissionVersions on a real built-in permission ARN.
+	rec = doRAMRequest(t, h, "/listpermissionversions", map[string]any{
+		"permissionArn": "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var versionsResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &versionsResp))
+	versions, ok := versionsResp["permissions"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, versions, "AWSRAMDefaultPermissionEC2Subnet must have at least one version")
+
+	v0, ok := versions[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "AWSRAMDefaultPermissionEC2Subnet", v0["name"])
 }

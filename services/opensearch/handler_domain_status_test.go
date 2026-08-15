@@ -111,7 +111,7 @@ func TestOpenSearchHandler_DescribeDomainChangeProgress(t *testing.T) {
 	createTestDomain(t, h, "progress-domain")
 
 	// Update config to generate a change ID.
-	updateResp := doRequest(t, h, http.MethodPut,
+	updateResp := doRequest(t, h, http.MethodPost,
 		"/2021-01-01/opensearch/domain/progress-domain/config",
 		map[string]any{"EngineVersion": "OpenSearch_2.9"})
 	updateResp.Body.Close()
@@ -266,7 +266,7 @@ func TestDescribeDomainChangeProgress_Timestamps(t *testing.T) {
 	h := newTestHandler()
 	createTestDomain(t, h, "progress-ts-domain")
 
-	doRequest(t, h, http.MethodPut,
+	doRequest(t, h, http.MethodPost,
 		"/2021-01-01/opensearch/domain/progress-ts-domain/config",
 		map[string]any{"EngineVersion": "OpenSearch_2.9"}).Body.Close()
 
@@ -320,7 +320,7 @@ func TestGetDomainHealth_WarmNodeCount(t *testing.T) {
 
 	h := opensearch.NewHandler(b)
 
-	doRequest(t, h, http.MethodPut,
+	doRequest(t, h, http.MethodPost,
 		"/2021-01-01/opensearch/domain/warm-domain/config",
 		map[string]any{
 			"ClusterConfig": map[string]any{

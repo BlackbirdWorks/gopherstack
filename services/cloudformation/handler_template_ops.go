@@ -138,9 +138,11 @@ func (h *Handler) handleValidateTemplate(form url.Values, c *echo.Context) error
 		params = append(params, paramXML{ParameterKey: p.ParameterKey})
 	}
 	type result struct {
-		Description  string     `xml:"Description,omitempty"`
-		Parameters   []paramXML `xml:"Parameters>member,omitempty"`
-		Capabilities []string   `xml:"Capabilities>member,omitempty"`
+		Description        string     `xml:"Description,omitempty"`
+		CapabilitiesReason string     `xml:"CapabilitiesReason,omitempty"`
+		Parameters         []paramXML `xml:"Parameters>member,omitempty"`
+		Capabilities       []string   `xml:"Capabilities>member,omitempty"`
+		DeclaredTransforms []string   `xml:"DeclaredTransforms>member,omitempty"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ValidateTemplateResponse"`
@@ -150,8 +152,14 @@ func (h *Handler) handleValidateTemplate(form url.Values, c *echo.Context) error
 	}
 
 	return writeXML(c, response{
-		Xmlns:     cfnNS,
-		Result:    result{Description: summary.Description, Parameters: params},
+		Xmlns: cfnNS,
+		Result: result{
+			Description:        summary.Description,
+			Parameters:         params,
+			Capabilities:       summary.Capabilities,
+			CapabilitiesReason: summary.CapabilitiesReason,
+			DeclaredTransforms: summary.DeclaredTransforms,
+		},
 		RequestID: uuid.New().String(),
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -134,6 +135,98 @@ func TestAccountID_PopulatedOnCreate(t *testing.T) {
 	sc, err := b.CreateSchedule(ctx, "acct-sc", nil, "cron(0 12 * * ? *)", nil)
 	require.NoError(t, err)
 	assert.Equal(t, wantAccountID, sc.AccountID)
+}
+
+// TestHandlerDescribe_NoAccountIDLeak asserts the raw JSON body of each
+// Describe{Dataset,Job,Project,Schedule} response has no "AccountId" key --
+// none of DescribeDatasetOutput/DescribeJobOutput/DescribeProjectOutput/
+// DescribeScheduleOutput has an AccountId member (only their List item
+// counterparts do); an SDK client silently drops the unrecognized key, so
+// only a raw-body assertion catches the leak.
+func TestHandlerDescribe_NoAccountIDLeak(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		createPath string
+		createBody map[string]any
+		describe   string
+	}{
+		{
+			name:       "dataset",
+			createPath: "/databrew/v1/datasets",
+			createBody: map[string]any{
+				"Name": "leak-ds", "Format": "CSV",
+				"Input": map[string]any{"S3InputDefinition": map[string]any{"Bucket": "b"}},
+			},
+			describe: "/databrew/v1/datasets/leak-ds",
+		},
+		{
+			name:       "job",
+			createPath: "/databrew/v1/profileJobs",
+			createBody: map[string]any{"Name": "leak-j", "DatasetName": "leak-ds"},
+			describe:   "/databrew/v1/jobs/leak-j",
+		},
+		{
+			name:       "project",
+			createPath: "/databrew/v1/projects",
+			createBody: map[string]any{"Name": "leak-p", "RecipeName": "r1"},
+			describe:   "/databrew/v1/projects/leak-p",
+		},
+		{
+			name:       "schedule",
+			createPath: "/databrew/v1/schedules",
+			createBody: map[string]any{"Name": "leak-sc", "CronExpression": "cron(0 12 * * ? *)"},
+			describe:   "/databrew/v1/schedules/leak-sc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			if tt.name == "job" {
+				databrewReq(t, h, http.MethodPost, "/databrew/v1/datasets", map[string]any{
+					"Name": "leak-ds", "Format": "CSV",
+					"Input": map[string]any{"S3InputDefinition": map[string]any{"Bucket": "b"}},
+				})
+			}
+			createRec := databrewReq(t, h, http.MethodPost, tt.createPath, tt.createBody)
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			rec := databrewReq(t, h, http.MethodGet, tt.describe, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			_, hasAccountID := resp["AccountId"]
+			assert.False(t, hasAccountID, "Describe leaked AccountId; the real Describe*Output has no AccountId member")
+		})
+	}
+}
+
+// TestHandlerDescribeProject_NoSessionStatusFabrication asserts the raw JSON
+// body of a DescribeProject response has no "SessionStatus" key.
+// aws-sdk-go-v2/service/databrew/types.Project has no such member at all
+// (confirmed against awsRestjson1_deserializeDocumentProject's full case
+// list); a real SDK client silently drops the unrecognized key, so only a
+// raw-body assertion catches the fabrication -- same class as
+// TestHandlerDescribe_NoAccountIDLeak above.
+func TestHandlerDescribeProject_NoSessionStatusFabrication(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	createRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/projects", map[string]any{
+		"Name": "no-status-p", "RecipeName": "r1",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/projects/no-status-p", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	_, hasSessionStatus := resp["SessionStatus"]
+	assert.False(t, hasSessionStatus, "DescribeProject fabricated SessionStatus; types.Project has no such member")
 }
 
 func TestProvider_Name(t *testing.T) {

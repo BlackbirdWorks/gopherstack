@@ -24,7 +24,7 @@ func TestCapacityProvider_ASGBacked_Roundtrip(t *testing.T) {
 			"managedDraining":              "ENABLED",
 			"managedScaling": map[string]any{
 				"status":                 "ENABLED",
-				"targetCapacityPercent":  100,
+				"targetCapacity":         100,
 				"minimumScalingStepSize": 1,
 				"maximumScalingStepSize": 10,
 				"instanceWarmupPeriod":   300,
@@ -49,7 +49,7 @@ func TestCapacityProvider_ASGBacked_Roundtrip(t *testing.T) {
 
 	ms := asg["managedScaling"].(map[string]any)
 	assert.Equal(t, "ENABLED", ms["status"])
-	assert.InDelta(t, float64(100), ms["targetCapacityPercent"], 0.001)
+	assert.InDelta(t, float64(100), ms["targetCapacity"], 0.001)
 	assert.InDelta(t, float64(1), ms["minimumScalingStepSize"], 0.001)
 	assert.InDelta(t, float64(10), ms["maximumScalingStepSize"], 0.001)
 	assert.InDelta(t, float64(300), ms["instanceWarmupPeriod"], 0.001)
@@ -123,8 +123,8 @@ func TestCapacityProvider_Update_ManagedScaling(t *testing.T) {
 		"autoScalingGroupProvider": map[string]any{
 			"autoScalingGroupArn": wantArn,
 			"managedScaling": map[string]any{
-				"status":                "ENABLED",
-				"targetCapacityPercent": 75,
+				"status":         "ENABLED",
+				"targetCapacity": 75,
 			},
 		},
 	})
@@ -133,8 +133,8 @@ func TestCapacityProvider_Update_ManagedScaling(t *testing.T) {
 		"name": "asg-update-cp",
 		"autoScalingGroupProvider": map[string]any{
 			"managedScaling": map[string]any{
-				"status":                "ENABLED",
-				"targetCapacityPercent": 90,
+				"status":         "ENABLED",
+				"targetCapacity": 90,
 			},
 		},
 	})
@@ -145,7 +145,7 @@ func TestCapacityProvider_Update_ManagedScaling(t *testing.T) {
 	cp := out["capacityProvider"].(map[string]any)
 	asg := cp["autoScalingGroupProvider"].(map[string]any)
 	ms := asg["managedScaling"].(map[string]any)
-	assert.InDelta(t, float64(90), ms["targetCapacityPercent"], 0.001)
+	assert.InDelta(t, float64(90), ms["targetCapacity"], 0.001)
 	assert.Equal(t, wantArn, asg["autoScalingGroupArn"],
 		"the ASG's ARN must survive an update since it cannot be changed")
 }

@@ -25,8 +25,6 @@ const (
 	iotServiceName = "iot"
 	// headerIoTPrincipal is the HTTP header name for the IoT principal (certificate ARN or Cognito identity).
 	headerIoTPrincipal = "X-Amzn-Principal"
-	// headerIoTThingName is the HTTP header name for the thing name used in AttachPrincipalPolicy.
-	headerIoTThingName = "X-Amzn-Iot-Thingname"
 )
 
 // Handler is the Echo HTTP handler for IoT control-plane operations.

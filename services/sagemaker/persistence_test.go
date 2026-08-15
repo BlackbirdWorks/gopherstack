@@ -371,3 +371,40 @@ func TestPersistenceRoundtrip_AIAndGenericJobFamilies(t *testing.T) {
 		})
 	}
 }
+
+// TestPersistenceRoundtrip_Domain verifies that Domain's new fields
+// (gopherstack-oc9v: previously an anonymous inline request struct missing
+// most of CreateDomainInput, including the required DefaultUserSettings)
+// survive Snapshot/Restore, not just an in-process Describe.
+func TestPersistenceRoundtrip_Domain(t *testing.T) {
+	t.Parallel()
+
+	h1 := newTestHandler(t)
+
+	createRec := doSageMakerRequest(t, h1, "CreateDomain", map[string]any{
+		"DomainName":           "persist-domain",
+		"AppNetworkAccessType": "VpcOnly",
+		"SubnetIds":            []string{"subnet-1"},
+		"DefaultUserSettings":  map[string]any{"ExecutionRole": "arn:aws:iam::000000000000:role/test"},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	domainID := createOut["DomainId"].(string)
+
+	snap := h1.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	descRec := doSageMakerRequest(t, h2, "DescribeDomain", map[string]any{"DomainId": domainID})
+	require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	assert.Equal(t, "VpcOnly", out["AppNetworkAccessType"])
+	assert.ElementsMatch(t, []any{"subnet-1"}, out["SubnetIds"])
+	assert.NotEmpty(t, out["DefaultUserSettings"])
+}

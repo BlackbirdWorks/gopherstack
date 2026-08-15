@@ -7,6 +7,26 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// extractFoundationModelStubOperation mirrors routeStubFoundationModelOps's
+// dispatch order exactly, so ExtractOperation agrees with the real dispatch
+// contract -- previously absent from ExtractOperation's extractor list
+// entirely (found by gopherstack-n1mb's route table; Handler() itself
+// already dispatched these correctly). CreateFoundationModelAgreement is
+// handled separately by extractCustomModelOperation (handler_custom_models.go),
+// which already covered it before this pass.
+func extractFoundationModelStubOperation(path, method string) (string, bool) {
+	switch {
+	case strings.HasPrefix(path, foundationModelAvailPath+"/") && method == http.MethodGet:
+		return "GetFoundationModelAvailability", true
+	case strings.HasPrefix(path, foundationModelAgreementOffersPath+"/") && method == http.MethodGet:
+		return "ListFoundationModelAgreementOffers", true
+	case path == deleteFoundationModelAgreementPath && method == http.MethodPost:
+		return "DeleteFoundationModelAgreement", true
+	}
+
+	return "", false
+}
+
 // routeStubFoundationModelOps handles foundation model availability and agreement operations.
 func (h *Handler) routeStubFoundationModelOps(c *echo.Context, path, method string, body []byte) (bool, error) {
 	switch {
@@ -33,7 +53,7 @@ func (h *Handler) routeStubFoundationModelOps(c *echo.Context, path, method stri
 // client that inspects them.
 func (h *Handler) handleGetFoundationModelAvailability(c *echo.Context, modelID string) error {
 	return c.JSON(http.StatusOK, map[string]any{
-		"modelId":                 modelID,
+		keyModelID:                modelID,
 		"agreementAvailability":   map[string]string{keyStatus: statusAvailable},
 		"authorizationStatus":     "AUTHORIZED",
 		"entitlementAvailability": statusAvailable,
@@ -87,7 +107,7 @@ func (h *Handler) handleListFoundationModelAgreementOffers(c *echo.Context, mode
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"modelId": modelID, "offers": wire})
+	return c.JSON(http.StatusOK, map[string]any{keyModelID: modelID, "offers": wire})
 }
 
 type deleteFoundationModelAgreementInput struct {

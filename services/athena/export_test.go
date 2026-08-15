@@ -206,7 +206,8 @@ func PopulateEveryTable(t *testing.T, b *InMemoryBackend) Fixture {
 	notebookID, err := b.CreateNotebook("wg1", "nb1")
 	require.NoError(t, err)
 
-	_, _, err = b.StartSession("wg1", "", "", EngineConfiguration{}, SessionConfiguration{}, notebookID)
+	_, _, err = b.StartSession("wg1", "", "", EngineConfiguration{}, SessionConfiguration{},
+		MonitoringConfiguration{}, notebookID)
 	require.NoError(t, err)
 
 	sessions, err := b.ListSessions("wg1", "")

@@ -271,7 +271,10 @@ func TestHandler_CreateWebApp(t *testing.T) {
 // produces a VPC-typed web app with a synthesized VpcEndpointId, and that the
 // synthetic SecurityGroupIds/VpcId round-trip is available via DescribeWebApp under
 // the real DescribedWebAppVpcConfig shape (SubnetIds/VpcEndpointId/VpcId; no
-// SecurityGroupIds -- that field doesn't exist on the Described variant).
+// SecurityGroupIds -- that field doesn't exist on the Described variant). It also
+// pins that IpAddressType, accepted on create, never appears on Describe: real AWS's
+// DescribedWebAppVpcConfig has no IpAddressType field either (types/types.go:1417 in
+// aws-sdk-go-v2/service/transfer@v1.75.4), the same asymmetry as SecurityGroupIds.
 func TestHandler_CreateWebAppVpcEndpoint(t *testing.T) {
 	t.Parallel()
 
@@ -283,6 +286,7 @@ func TestHandler_CreateWebAppVpcEndpoint(t *testing.T) {
 			"SubnetIds":        []string{"subnet-1", "subnet-2"},
 			"SecurityGroupIds": []string{"sg-1"},
 			"VpcId":            "vpc-1",
+			"IpAddressType":    "DUALSTACK",
 		},
 	}
 
@@ -308,6 +312,10 @@ func TestHandler_CreateWebAppVpcEndpoint(t *testing.T) {
 	assert.NotEmpty(t, vpc["VpcEndpointId"], "VpcEndpointId is assigned by AWS")
 	_, hasSecurityGroups := vpc["SecurityGroupIds"]
 	assert.False(t, hasSecurityGroups, "DescribedWebAppVpcConfig has no SecurityGroupIds field in real AWS")
+	_, hasIPAddressType := vpc["IpAddressType"]
+	assert.False(t, hasIPAddressType, "DescribedWebAppVpcConfig has no IpAddressType field in real AWS")
+	assert.NotContains(t, descRec.Body.String(), "IpAddressType",
+		"raw DescribeWebApp body must never carry IpAddressType")
 }
 
 func TestHandler_DescribeWebApp(t *testing.T) {
@@ -370,6 +378,39 @@ func TestHandler_UpdateWebApp(t *testing.T) {
 		"WebAppId": webAppID,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestHandler_UpdateWebAppVpcIPAddressType verifies that UpdateWebApp accepts
+// EndpointDetails.Vpc.IpAddressType (UpdateWebAppVpcConfig gained this field in
+// aws-sdk-go-v2/service/transfer@v1.75.4, types/types.go:2648) and, per the same
+// Describe-side asymmetry as SecurityGroupIds, it never appears back on Describe.
+func TestHandler_UpdateWebAppVpcIPAddressType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doTransferRequest(t, h, "CreateWebApp", webAppCreateBody())
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	webAppID := createResp["WebAppId"].(string)
+
+	updateRec := doTransferRequest(t, h, "UpdateWebApp", map[string]any{
+		"WebAppId": webAppID,
+		"EndpointDetails": map[string]any{
+			"Vpc": map[string]any{
+				"SubnetIds":     []string{"subnet-1"},
+				"IpAddressType": "IPV4",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
+
+	descRec := doTransferRequest(t, h, "DescribeWebApp", map[string]any{"WebAppId": webAppID})
+	require.Equal(t, http.StatusOK, descRec.Code)
+	assert.NotContains(t, descRec.Body.String(), "IpAddressType",
+		"raw DescribeWebApp body must never carry IpAddressType")
 }
 
 // TestHandler_UpdateWebApp_NotFound verifies ResourceNotFoundException semantics.

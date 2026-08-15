@@ -1,23 +1,27 @@
 package opsworks
 
-// RegisterElasticIP registers an elastic IP address.
-func (b *InMemoryBackend) RegisterElasticIP(elasticIP, region string) (*ElasticIP, error) {
-	if elasticIP == "" {
+// RegisterElasticIP registers an elastic IP address with a stack. ElasticIp
+// and StackId are both "This member is required" on the real
+// RegisterElasticIpInput; there is no Region member on the real input at all
+// (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_RegisterElasticIp.go).
+func (b *InMemoryBackend) RegisterElasticIP(elasticIP, stackID string) (*ElasticIP, error) {
+	if elasticIP == "" || stackID == "" {
 		return nil, ErrValidation
 	}
 
 	b.mu.Lock("RegisterElasticIP")
 	defer b.mu.Unlock()
 
-	r := region
-	if r == "" {
-		r = b.region
+	if !b.stacks.Has(stackID) {
+		return nil, ErrStackNotFound
 	}
 
 	e := &storedElasticIP{
-		IP:     elasticIP,
-		Region: r,
-		Domain: "vpc",
+		IP:      elasticIP,
+		Region:  b.region,
+		Domain:  "vpc",
+		StackID: stackID,
 	}
 	b.elasticIPs.Put(e)
 
@@ -70,8 +74,11 @@ func (b *InMemoryBackend) DisassociateElasticIP(elasticIP string) error {
 	return nil
 }
 
-// DescribeElasticIps returns elastic IPs optionally filtered by instance or IP list.
-func (b *InMemoryBackend) DescribeElasticIps(instanceID string, ips []string) ([]*ElasticIP, error) {
+// DescribeElasticIps returns elastic IPs optionally filtered by stack,
+// instance, or IP list. StackId is a real DescribeElasticIpsInput filter
+// member (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_DescribeElasticIps.go), alongside InstanceId and Ips.
+func (b *InMemoryBackend) DescribeElasticIps(stackID, instanceID string, ips []string) ([]*ElasticIP, error) {
 	b.mu.RLock("DescribeElasticIps")
 	defer b.mu.RUnlock()
 
@@ -91,6 +98,9 @@ func (b *InMemoryBackend) DescribeElasticIps(instanceID string, ips []string) ([
 	result := make([]*ElasticIP, 0)
 	for _, e := range b.elasticIPs.All() {
 		if instanceID != "" && e.InstanceID != instanceID {
+			continue
+		}
+		if stackID != "" && e.StackID != stackID {
 			continue
 		}
 		result = append(result, e.toElasticIP())

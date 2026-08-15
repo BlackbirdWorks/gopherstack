@@ -11,22 +11,31 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// snapshotXML is the XML representation of a cache snapshot.
+// snapshotXML is the XML representation of a cache snapshot. Durability
+// (deserializers.go:24609, awsAwsquery_deserializeDocumentSnapshot) was added
+// by the SDK after this service's last field diff (gopherstack-31dm). Real
+// AWS captures it from the source replication group's Durability at
+// snapshot time, but CreateSnapshotInput/CopySnapshotInput have no Durability
+// member, and this domain model's CacheSnapshot has no source-durability
+// data to copy (snapshots may also come from a plain CacheCluster, which has
+// no Durability concept at all) -- deliberately left always empty rather than
+// guessed, per parity-principles.md's no-fabrication rule.
 type snapshotXML struct {
-	ARN                string `xml:"ARN"`
-	SnapshotName       string `xml:"SnapshotName"`
-	CacheClusterID     string `xml:"CacheClusterId,omitempty"`
-	ReplicationGroupID string `xml:"ReplicationGroupId,omitempty"`
-	SnapshotStatus     string `xml:"SnapshotStatus"`
-	Engine             string `xml:"Engine,omitempty"`
-	EngineVersion      string `xml:"EngineVersion,omitempty"`
-	CacheNodeType      string `xml:"CacheNodeType,omitempty"`
-	SnapshotSource     string `xml:"SnapshotSource"`
-	SnapshotCreateTime string `xml:"SnapshotCreateTime,omitempty"`
+	ARN                    string `xml:"ARN"`
+	SnapshotName           string `xml:"SnapshotName"`
+	CacheClusterID         string `xml:"CacheClusterId,omitempty"`
+	ReplicationGroupID     string `xml:"ReplicationGroupId,omitempty"`
+	SnapshotStatus         string `xml:"SnapshotStatus"`
+	Engine                 string `xml:"Engine,omitempty"`
+	EngineVersion          string `xml:"EngineVersion,omitempty"`
+	CacheNodeType          string `xml:"CacheNodeType,omitempty"`
+	SnapshotSource         string `xml:"SnapshotSource"`
+	Durability             string `xml:"Durability,omitempty"`
+	CacheClusterCreateTime string `xml:"CacheClusterCreateTime,omitempty"`
 }
 
 func snapshotToXML(snap *CacheSnapshot) snapshotXML {
-	return snapshotXML{
+	x := snapshotXML{
 		ARN:                snap.ARN,
 		SnapshotName:       snap.SnapshotName,
 		CacheClusterID:     snap.CacheClusterID,
@@ -36,8 +45,12 @@ func snapshotToXML(snap *CacheSnapshot) snapshotXML {
 		EngineVersion:      snap.EngineVersion,
 		CacheNodeType:      snap.NodeType,
 		SnapshotSource:     snap.SnapshotSource,
-		SnapshotCreateTime: snap.CreatedAt.UTC().Format(time.RFC3339),
 	}
+	if !snap.SourceClusterCreatedAt.IsZero() {
+		x.CacheClusterCreateTime = snap.SourceClusterCreatedAt.UTC().Format(time.RFC3339)
+	}
+
+	return x
 }
 
 func (h *Handler) createSnapshot(ctx context.Context, c *echo.Context, form url.Values) error {

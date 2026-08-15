@@ -4,7 +4,10 @@ last_audit_commit: 7c8077891728
 last_audit_date: 2026-08-10
 overall: A            # follow-up pass on gopherstack-o5ig: both deferred items from the prior
                        # pass (RunningMode-while-STOPPED, Applications family) fixed for real,
-                       # plus 3 more genuine bugs found via the same sweep classes
+                       # plus 3 more genuine bugs found via the same sweep classes.
+                       # gopherstack-gt9o (part of the gopherstack-u8my sdk_module pin sweep):
+                       # ClientProperties' ClientExperiencePolicy/LogUploadEnabled are now
+                       # threaded end-to-end; ClientProperties family moves partial -> ok.
 
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -41,35 +44,42 @@ ops:
   DescribeBundleAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — same class of stub as DescribeImageAssociations; now validates BundleId (checked against both Amazon-owned and custom bundles) and AssociatedResourceTypes, real BundleResourceAssociation shape."}
   DescribeAccountModifications: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — was a true stub always returning an empty list regardless of history. ModifyAccount now appends an AccountModification{ModificationState:\"COMPLETED\", DedicatedTenancySupport, DedicatedTenancyManagementCidrRange, StartTime} entry on every call (this backend applies changes synchronously, so there's no PENDING window to model); DescribeAccountModifications returns them most-recent-first, paginated via pkgs/page, and both accountConfig and this new history list are now included in backendSnapshot. Real DescribeAccountModificationsInput has no MaxResults field (only NextToken) — this backend uses a fixed internal page size (100), field-diffed against the real input shape."}
   ListAvailableManagementCidrRanges: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — was a stub returning the same 3 hardcoded CIDRs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) regardless of input, and ManagementCidrRangeConstraint (a real smithy-`required` field) wasn't validated at all. Now requires + validates the constraint is a real IPv4 CIDR (InvalidParameterValuesException otherwise) and derives up to 8 contained /26 sub-ranges from it (real AWS returns /26 management-interface blocks carved from the caller's constraint), paginated via pkgs/page."}
+  ModifyClientProperties: {wire: ok, errors: ok, state: ok, persist: deferred, note: "FIXED this pass (gopherstack-gt9o): request's ClientProperties gained ClientExperiencePolicy since v1.68.3 (*string, types/types.go:269); LogUploadEnabled (types/types.go:275, a real LogUploadEnum member) was also unthreaded and is now fixed too, per gopherstack-gt9o's instruction to thread whatever else the real input carries, not just the field named in the bd issue. Backend now merges (partial update) instead of overwriting the whole storedClientProps on every call -- ReconnectEnabled-only requests no longer silently clear a previously set ClientExperiencePolicy/LogUploadEnabled. ClientExperiencePolicy is a bare *string in the SDK with no @enum trait (unlike LogUploadEnabled/ReconnectEnabled, which are generated Go enum types) -- any value is accepted, not just the three FORCE_CLASSIC/FORCE_UI_2026/USER_CHOICE values the doc comment lists as examples. persist stays deferred: clientProperties was already, pre-existing, intentionally NOT part of backendSnapshot (see persistence.go's field comment and whitebox_test.go) -- out of scope for gopherstack-gt9o, which is about the missing fields, not this separate ephemeral-persistence gap."}
+  DescribeClientProperties: {wire: ok, errors: ok, state: ok, persist: deferred, note: "FIXED this pass (gopherstack-gt9o): now echoes ClientExperiencePolicy/LogUploadEnabled alongside the pre-existing ReconnectEnabled; each is omitted from the wire (omitempty) rather than emitted as an invented empty string when never set. persist: deferred for the same pre-existing reason as ModifyClientProperties."}
 
 families:
   ConnectionAlias: {status: ok, note: "Create/Describe/Delete/Associate/Disassociate/Permissions all mutate storedConnAlias state correctly; spot-checked against real WorkspaceRequest/ConnectionAlias field names"}
-  WorkspaceBundle_custom: {status: ok, note: "Create/Delete/Update custom bundles verified real mutation. FIXED this pass (gopherstack-o5ig): UpdateWorkspaceBundle accepted any ImageId, including nonexistent ones, and silently pointed the bundle at a phantom image — now validates ImageId against b.images (ResourceNotFoundException, real error list); empty ImageId remains a no-op (the real field is optional). CreateWorkspaceBundle.ImageId has the same gap and is NOT fixed this pass — see gaps note above."}
-  WorkspaceImage: {status: ok, note: "Copy/Create/Delete/Import/CreateUpdated/DescribePermissions/UpdatePermission all mutate storedImage table. FIXED this pass: Created was serialized as an ISO8601 string (\"2006-01-02T15:04:05Z\") in three response shapes (CreateWorkspaceImage, DescribeWorkspaceImages, DescribeCustomWorkspaceImageImport) — real WorkspaceImage.Created / DescribeCustomWorkspaceImageImportOutput.Created are *time.Time, and this is the awsjson1.1 protocol, which requires epoch-seconds numbers (unixTimestamp), not RFC3339 strings; a real client SDK would fail to deserialize the response. Fixed via awstime.Epoch, matching the bug class already fixed in QuickSight/IoT."}
+  WorkspaceBundle_custom: {status: ok, note: "Create/Delete/Update custom bundles verified real mutation. FIXED this pass (gopherstack-o5ig): UpdateWorkspaceBundle accepted any ImageId, including nonexistent ones, and silently pointed the bundle at a phantom image — now validates ImageId against b.images (ResourceNotFoundException, real error list); empty ImageId remains a no-op (the real field is optional). FIXED this pass (gopherstack-e5pd): CreateWorkspaceBundle had the same gap (ImageId is a real required field, unlike UpdateWorkspaceBundle's optional one) — now validates existence before b.nextID/b.customBundles.Put/b.tags are touched, so a rejected call consumes no ID and leaves no partial state."}
+  WorkspaceImage: {status: ok, note: "Copy/Create/Delete/Import/CreateUpdated/DescribePermissions/UpdatePermission all mutate storedImage table. FIXED this pass: Created was serialized as an ISO8601 string (\"2006-01-02T15:04:05Z\") in three response shapes (CreateWorkspaceImage, DescribeWorkspaceImages, DescribeCustomWorkspaceImageImport) — real WorkspaceImage.Created / DescribeCustomWorkspaceImageImportOutput.Created are *time.Time, and this is the awsjson1.1 protocol, which requires epoch-seconds numbers (unixTimestamp), not RFC3339 strings; a real client SDK would fail to deserialize the response. Fixed via awstime.Epoch, matching the bug class already fixed in QuickSight/IoT. FIXED this pass (gopherstack-e5pd): CreateWorkspaceImage's WorkspaceId parameter was discarded outright (`_ /*workspaceId*/`), so any value including a nonexistent one was accepted — now validated against b.workspaces (ResourceNotFoundException, real error list) before createImageLocked runs; the real CreateWorkspaceImageOutput/WorkspaceImage types carry no source-workspace field, so there is nothing else to derive from it. FIXED this pass (gopherstack-plmb): CreateUpdatedWorkspaceImage.SourceImageId had the same unvalidated-identifier shape — now validated against b.images (ResourceNotFoundException, real error list) before createImageLocked runs. CopyWorkspaceImage.SourceImageId is now validated too, but only when SourceRegion is empty or equals this backend's own region: this service instantiates one InMemoryBackend per (account, region) (NewInMemoryBackend/provider.go), and storedImage carries no region field, so a genuine cross-region SourceImageId legitimately lives in a different backend instance this one cannot see — validating it unconditionally would make gopherstack more restrictive than real AWS. A cross-region SourceImageId (SourceRegion set and not equal to this backend's region) is therefore deliberately left unvalidated; see TestCopyWorkspaceImage_SourceImageIDValidation for both cases. FIXED this pass (gopherstack-u90v): ImportWorkspaceImage dropped IngestionProcess (required, api_op_ImportWorkspaceImage.go:67); ImportCustomWorkspaceImage dropped ComputeType, ImageSource, InfrastructureConfigurationArn, OsVersion, Platform and Protocol (all required, api_op_ImportCustomWorkspaceImage.go:33-75 — two more required members, ComputeType and Platform, than the sweep that filed this issue caught). All six are now required (InvalidParameterValuesException if absent, the only op-declared error this backend already maps ErrInvalidParameter to — neither op's own deserializeOpError switch has a ValidationException case) and validated against the pinned SDK's own enum Values() where the field is an enum, never a hand-copied list. ImageSource is modeled as a proper tagged union (ImageSource type, mirroring types.ImageSourceIdentifierMember*) rather than flattened. ComputeType/OsVersion/Platform/Protocol have no corresponding field on real DescribeWorkspaceImages' WorkspaceImage type (types.go:1724-1768) so they are stored but not echoed anywhere on the wire — genuinely inert, not an omission. ImageSource and InfrastructureConfigurationArn ARE present on real DescribeCustomWorkspaceImageImportOutput (api_op_DescribeCustomWorkspaceImageImport.go:39-73) and are now echoed there. IngestionProcess has no echo target on any real response shape either."}
   WorkspacesPool: {status: ok, note: "Create/Describe/Start/Stop/Terminate/Update all real state transitions on storedPool.State. FIXED prior pass: (1) CreatedAt epoch-seconds bug; (2) CapacityStatus/RunningMode were entirely absent from the response, DesiredUserSessions was parsed but discarded. FIXED this pass (gopherstack-o5ig): UpdateWorkspacesPoolInput's real constraint 'The running mode can only be updated when the pool is in a stopped state' (doc comment on RunningMode) is now enforced -- previously applied unconditionally. The pool state machine genuinely reaches STOPPED via StopWorkspacesPool, so this is a real, reachable precondition, not a strand-the-operation trap: UpdateWorkspacesPool now returns InvalidResourceStateException (in the real error list) when RunningMode is set on a non-STOPPED pool, checked before any other field is mutated. See TestWorkspacesPool_UpdateRunningModeRequiresStopped."}
   WorkspacesPoolSession: {status: ok}
   Account: {status: ok, note: "DescribeAccount/ModifyAccount/ModifyEndpointEncryptionMode read/write storedAccountConfig; DescribeAccountModifications now has a real, persisted modification history (see ops table) instead of an always-empty stub."}
   ConnectClientAddIn: {status: ok}
   ClientBranding: {status: ok}
-  ClientProperties: {status: partial, note: "gopherstack-u8my: NEW since v1.68.3, not fixed -- ClientProperties gained ClientExperiencePolicy (*string: FORCE_CLASSIC/FORCE_UI_2026/USER_CHOICE). ModifyClientProperties(resourceID, reconnectEnabled string) only threads ReconnectEnabled; ClientExperiencePolicy is silently dropped (needs bd issue)."}
+  ClientProperties: {status: ok, note: "FIXED this pass (gopherstack-gt9o): ClientExperiencePolicy and LogUploadEnabled are now threaded end-to-end (Modify + Describe); see ModifyClientProperties/DescribeClientProperties ops entries. Persistence remains a separate, pre-existing, deliberately-out-of-scope ephemeral gap (persist: deferred on both ops)."}
   DirectoryModifyOps: {status: ok, note: "ModifyEndpointEncryptionMode/ModifyCertificateBasedAuthProperties/ModifySamlProperties/ModifySelfservicePermissions/ModifyStreamingProperties/ModifyWorkspaceAccessProperties/ModifyWorkspaceCreationProperties all write storedDirSettings.Properties map. FIXED this pass (gopherstack-o5ig): all 7 shared one root cause -- ensureDirSettings silently created a storedDirSettings row (and, for the 6 non-EndpointEncryptionMode ops, wrote real properties into it) for ANY DirectoryId, including one never registered via RegisterWorkspaceDirectory, and always reported success. Each real error list includes ResourceNotFoundException. Now all 7 validate the directory is actually REGISTERED (not merely present in b.dirSettings, since the old ensureDirSettings call could itself create a bare row) before mutating anything, returning errDirectoryNotFound otherwise; ensureDirSettings itself is now only called from RegisterWorkspaceDirectory."}
   AccountLinks: {status: ok, note: "Create/Accept/Reject/Delete/Get/List all mutate storedAccountLink.Status"}
   Applications: {status: ok, note: "FIXED this pass (gopherstack-o5ig): the family previously (1) accepted any WorkspaceId, including nonexistent ones, and always reported success -- Associate/Disassociate/Deploy/DescribeWorkspaceAssociations now validate WorkspaceId against b.workspaces (ResourceNotFoundException, real error list); (2) used a fabricated wire shape, `AssociationStatus: \"INSTALLED\"`/`\"UNINSTALLED\"` -- neither field name nor value exists on the real WorkspaceResourceAssociation type (field-diffed against deserializers.go's awsAwsjson11_deserializeDocumentWorkspaceResourceAssociation: real key is `State`, real enum is AssociationState with no INSTALLED/UNINSTALLED values). Now uses `State: \"COMPLETED\"`/`\"REMOVED\"` (real terminal enum values), matching this backend's synchronous apply -- see 'Applications family: legitimate simplification vs false claim' below. ApplicationId is deliberately NOT existence-checked (see same section) -- this backend never seeds the read-only applications catalog, so requiring a match would permanently strand the operation. DescribeWorkspaceAssociations/DescribeApplicationAssociations now also validate the real required AssociatedResourceTypes field against the real enum (WorkSpaceAssociatedResourceType: APPLICATION only; ApplicationAssociatedResourceType: WORKSPACE/BUNDLE/IMAGE)."}
   ImageBundleAssociations: {status: ok, note: "FIXED — see DescribeImageAssociations/DescribeBundleAssociations, now tracked individually in the ops table above (previously rolled up here only). Deep-audited this pass (previously marked deferred/not-audited): confirmed real AWS exposes no public create-association API for image/bundle<->application, so an always-empty (correctly validated + typed) response is genuine emulated behavior, not a gap."}
   DescribeWorkspaceSnapshots: {status: ok, note: "returns empty RebuildSnapshots/RestoreSnapshots lists — correct void-result shape since no snapshot state is modeled anywhere in this backend"}
 
-gaps: []
+gaps:
+  - "clientProperties (ModifyClientProperties/DescribeClientProperties, including the ClientExperiencePolicy/LogUploadEnabled fields fixed this pass, gopherstack-gt9o) is NOT part of backendSnapshot -- pre-existing, deliberate (see persistence.go's field comment and whitebox_test.go), out of scope for gopherstack-gt9o which is about the missing fields, not this separate ephemeral-persistence gap. (bd: none filed for the persistence gap itself)"
   # All gaps from the prior pass (CreateStandbyWorkspaces FailedStandbyRequests,
   # AssociateIpGroups/DisassociateIpGroups persistence) were closed for real this
   # pass — see the ops table entries above for what changed.
   #
   # gopherstack-o5ig (2026-08-10): both items previously listed as deferred below
   # (RunningMode-while-STOPPED, Applications family) are now fixed — see the
-  # WorkspacesPool and Applications family notes above. Known related-but-
-  # unfixed findings from this pass (out of scope, not part of gopherstack-o5ig):
-  # CreateWorkspaceBundle.ImageId and CreateWorkspaceImage.WorkspaceId also
-  # accept a nonexistent resource ID and report success (same bug class as
-  # UpdateWorkspaceBundle.ImageId, fixed this pass) — flagged for a future pass.
+  # WorkspacesPool and Applications family notes above. CreateWorkspaceBundle.ImageId
+  # and CreateWorkspaceImage.WorkspaceId, flagged then as a follow-up, are now
+  # fixed too (gopherstack-e5pd, 2026-08-11) — see WorkspaceBundle_custom and
+  # WorkspaceImage notes above. That same pass found CopyWorkspaceImage.SourceImageId
+  # and CreateUpdatedWorkspaceImage.SourceImageId have the identical gap; both are
+  # now fixed too (gopherstack-plmb, 2026-08-11) — see WorkspaceImage note above.
+  # CopyWorkspaceImage's fix is conditional on SourceRegion (see that note) rather
+  # than a full unconditional check, since this backend genuinely has no visibility
+  # into another region's image table.
 
 deferred: []
 
@@ -158,9 +168,16 @@ bug-class order:
     `DirectoryId`, registered or not) — fixed, see DirectoryModifyOps note.
   - `UpdateWorkspaceBundle` accepted any `ImageId` — fixed, see
     WorkspaceBundle_custom note. `CreateWorkspaceBundle.ImageId` and
-    `CreateWorkspaceImage.WorkspaceId` have the same gap and are **not**
-    fixed this pass (see gaps note) — flagged for a future pass rather than
-    expanded into out-of-scope territory.
+    `CreateWorkspaceImage.WorkspaceId` had the same gap, flagged then for a
+    future pass; fixed 2026-08-11 (gopherstack-e5pd) — see WorkspaceBundle_custom
+    and WorkspaceImage notes above. `CopyWorkspaceImage.SourceImageId` and
+    `CreateUpdatedWorkspaceImage.SourceImageId` turned out to share the same
+    gap, flagged then as a new follow-up (gopherstack-plmb); both fixed
+    2026-08-11 — see WorkspaceImage note above. `CopyWorkspaceImage`'s check
+    is conditional on `SourceRegion` matching this backend's own region,
+    since a genuine cross-region source image is invisible to this backend's
+    `b.images` table and an unconditional check would be a new
+    more-restrictive-than-AWS bug.
 - **More permissive than real AWS (unvalidated enums)**:
   `DescribeWorkspaceAssociations`/`DescribeApplicationAssociations` never
   validated the real required `AssociatedResourceTypes` field — fixed
@@ -294,12 +311,32 @@ are all clean.
   (renamed from `handler_parity3_test.go`'s `TestParity3_*` names by an
   unrelated file-naming cleanup pass; same tests, same rationale).
   Do not "fix" this without reading that test's rationale first.
-- `workspaceResp`/`pendingWorkspace` include a `Tags` JSON field on the `Workspace`
-  shape; real AWS's `Workspace` type has **no** `Tags` field (tags are fetched via
-  a separate `DescribeTags` call). This is harmless (aws-sdk-go-v2's json
-  deserializers silently ignore unrecognized keys via a `default:` case in every
-  generated switch), so it was left as-is rather than spending scope removing a
-  non-breaking extra field.
+- CLOSED 2026-08-13: `workspaceResp` (`DescribeWorkspaces`'s per-item shape) carried
+  a fabricated `Tags` JSON field. Evidence: `aws-sdk-go-v2/service/workspaces@v1.73.1`
+  `types/types.go`, `type Workspace struct` -- exhaustive field list is
+  `BundleId`/`ComputerName`/`DataReplicationSettings`/`DirectoryId`/`ErrorCode`/
+  `ErrorMessage`/`IpAddress`/`ModificationStates`/`RelatedWorkspaces`/
+  `RootVolumeEncryptionEnabled`/`StandbyWorkspacesProperties`/`State`/`SubnetId`/
+  `UserName`/`UserVolumeEncryptionEnabled`/`VolumeEncryptionKey`/`WorkspaceId`/
+  `WorkspaceName`/`WorkspaceProperties` -- no `Tags` member; real tags are read
+  back only via a separate `DescribeTags` call. Deleted the field from
+  `workspaceResp`/`toWorkspaceResp` (`handler_workspaces.go`); the internal
+  `Workspace.Tags` domain field is untouched (still backs `DescribeTags`). `pendingWorkspace`
+  (`CreateWorkspaces`'s pending-item shape) never had a `Tags` field in the first
+  place, despite this note's prior claim otherwise -- re-verified against the current
+  source, not assumed. Raw-body regression test: `TestDescribeWorkspaces_NoTagsField`
+  (`tags_test.go`); `TestCreateTags_VisibleInDescribeWorkspaces`/
+  `TestDeleteTags_RemovedFromDescribeWorkspaces` (which asserted the fabricated field)
+  were rewritten to `TestCreateTags_VisibleInDescribeTags`/`TestDeleteTags_RemovedFromDescribeTags`,
+  reading back through the real `DescribeTags` op instead.
+  INVERSE FOUND, not fixed (out of this pass's cheap-delete scope): the real
+  `Workspace` type also declares `DataReplicationSettings`, `IpAddress`,
+  `ModificationStates`, `RelatedWorkspaces`, `StandbyWorkspacesProperties`, and
+  `WorkspaceName` -- none of which this backend tracks or emits anywhere. `WorkspaceName`
+  in particular looks like the cheapest of these to close (a plain string, and
+  `WorkspaceRequest.WorkspaceName` is already a real *input* field accepted by
+  neither `createWorkspaceSpec` nor echoed by `workspaceRequestResp`) -- flagged for a
+  future pass, not filed as a bd issue yet.
 - `CreateIpGroup`/`DescribeIpGroups`/etc use **lowercase** wire keys (`groupId`,
   `groupName`, `groupDesc`, `userRules`, `ipRule`, `ruleDesc`) — this looks wrong
   at a glance (every other shape in this service is PascalCase) but is verified

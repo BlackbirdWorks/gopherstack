@@ -178,3 +178,24 @@ func TestIntegration_Kafka_Tags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, tagsOut2.Tags["team"])
 }
+
+// TestIntegration_Kafka_ListKafkaVersions drives ListKafkaVersions through
+// the real router (not h.Handler() directly) for gopherstack-op3e. Batch's
+// RouteMatcher claims a bare "/v1/" prefix as its final fallback and, before
+// this fix, excluded only kafka's "/v1/clusters" and "/v1/configurations"
+// paths -- leaving "/v1/kafka-versions" (this op), "/v1/compatible-kafka-
+// versions", "/v1/vpc-connection[s]" and "/v1/operations/" unexcluded. Batch
+// registers before Kafka in cli.go's getServiceProviders chain and both
+// match at the same PriorityPathVersioned tier, so pkgs/service/router.go
+// sent this request to Batch's handler, which 405s any non-POST /v1/ path
+// as ValidationException -- Kafka's own handler never ran.
+func TestIntegration_Kafka_ListKafkaVersions(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createKafkaSDKClient(t)
+
+	out, err := client.ListKafkaVersions(t.Context(), &kafkasvc.ListKafkaVersionsInput{})
+	require.NoError(t, err, "ListKafkaVersions should reach Kafka's handler, not Batch's /v1/ catch-all")
+	assert.NotEmpty(t, out.KafkaVersions, "Kafka's own ListKafkaVersions should return its seeded version list")
+}

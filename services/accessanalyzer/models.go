@@ -149,12 +149,20 @@ const (
 	AccessPreviewStatusFailed    AccessPreviewStatus = "FAILED"
 )
 
-// AccessPreview represents an access preview.
+// AccessPreview represents an access preview. Configurations is the raw
+// per-resource-ARN access control configuration submitted with
+// CreateAccessPreview (api_op_CreateAccessPreview.go:39-43, a 13-member
+// union per resource type -- types.Configuration). gopherstack's finding
+// generation for a preview reuses the analyzer's existing findings
+// (ListAccessPreviewFindings in access_previews.go) rather than deriving
+// findings from Configurations' semantic content, so it is stored and
+// echoed back opaquely as submitted instead of decoded into the full union.
 type AccessPreview struct {
-	CreatedAt   time.Time
-	ID          string
-	AnalyzerArn string
-	Status      AccessPreviewStatus
+	CreatedAt      time.Time
+	Configurations map[string]json.RawMessage
+	ID             string
+	AnalyzerArn    string
+	Status         AccessPreviewStatus
 }
 
 // AnalyzedResource represents a resource analyzed by an analyzer.
@@ -252,6 +260,9 @@ func copyPolicyGeneration(pg *PolicyGeneration) *PolicyGeneration {
 
 func copyAccessPreview(ap *AccessPreview) *AccessPreview {
 	cp := *ap
+	if ap.Configurations != nil {
+		cp.Configurations = maps.Clone(ap.Configurations)
+	}
 
 	return &cp
 }

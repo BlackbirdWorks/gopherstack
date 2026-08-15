@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,7 +36,7 @@ func TestListDistributionsByPolicyID_RoundTrip(t *testing.T) {
 			configField: "CachePolicyId",
 			configValue: "cache-policy-abc123",
 			listPath: func(id string) string {
-				return prefix + "distributions/by-cache-policy-id/" + id
+				return prefix + "distributionsByCachePolicyId/" + id
 			},
 		},
 		{
@@ -41,7 +44,7 @@ func TestListDistributionsByPolicyID_RoundTrip(t *testing.T) {
 			configField: "OriginRequestPolicyId",
 			configValue: "orp-def456",
 			listPath: func(id string) string {
-				return prefix + "distributions/by-origin-request-policy-id/" + id
+				return prefix + "distributionsByOriginRequestPolicyId/" + id
 			},
 		},
 		{
@@ -49,7 +52,7 @@ func TestListDistributionsByPolicyID_RoundTrip(t *testing.T) {
 			configField: "ResponseHeadersPolicyId",
 			configValue: "rhp-ghi789",
 			listPath: func(id string) string {
-				return prefix + "distributions/by-response-headers-policy-id/" + id
+				return prefix + "distributionsByResponseHeadersPolicyId/" + id
 			},
 		},
 	}
@@ -98,7 +101,11 @@ func TestListDistributionsByPolicyID_RoundTrip(t *testing.T) {
 }
 
 // TestListDistributionsByRealtimeLogConfig_RoundTrip verifies the realtime log config ARN is
-// read from the RealtimeLogConfigArn query parameter and used to filter real distributions.
+// read from the RealtimeLogConfigArn XML body element and used to filter real distributions.
+// Real ListDistributionsByRealtimeLogConfig is POST /2020-05-31/distributionsByRealtimeLogConfig
+// with RealtimeLogConfigArn in the body (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpDocumentListDistributionsByRealtimeLogConfigInput), not a GET with the
+// ARN as a query parameter.
 func TestListDistributionsByRealtimeLogConfig_RoundTrip(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
@@ -116,8 +123,9 @@ func TestListDistributionsByRealtimeLogConfig_RoundTrip(t *testing.T) {
 		t.Fatal("expected non-empty distribution ID from create")
 	}
 
-	foundResp := cfOK(t, h, http.MethodGet,
-		prefix+"distributions/by-realtime-log-config?RealtimeLogConfigArn="+arn, "")
+	foundResp := cfOK(t, h, http.MethodPost, prefix+"distributionsByRealtimeLogConfig",
+		`<ListDistributionsByRealtimeLogConfigRequest><RealtimeLogConfigArn>`+arn+
+			`</RealtimeLogConfigArn></ListDistributionsByRealtimeLogConfigRequest>`)
 	if !strings.Contains(foundResp, "DistributionList") {
 		t.Fatalf("expected DistributionList, got: %s", foundResp)
 	}
@@ -126,8 +134,9 @@ func TestListDistributionsByRealtimeLogConfig_RoundTrip(t *testing.T) {
 	}
 
 	otherARN := "arn:aws:cloudfront::123456789012:realtime-log-config/other"
-	notFoundResp := cfOK(t, h, http.MethodGet,
-		prefix+"distributions/by-realtime-log-config?RealtimeLogConfigArn="+otherARN, "")
+	notFoundResp := cfOK(t, h, http.MethodPost, prefix+"distributionsByRealtimeLogConfig",
+		`<ListDistributionsByRealtimeLogConfigRequest><RealtimeLogConfigArn>`+otherARN+
+			`</RealtimeLogConfigArn></ListDistributionsByRealtimeLogConfigRequest>`)
 	if !strings.Contains(notFoundResp, "<Quantity>0</Quantity>") {
 		t.Fatalf("expected empty list for non-matching arn, got: %s", notFoundResp)
 	}
@@ -186,7 +195,7 @@ func TestCreateDistributionWithTags_InvalidTagging(t *testing.T) {
 			t.Parallel()
 
 			h := newCFHandler(t)
-			rr := cfRequest(t, h, http.MethodPost, prefix+"distribution?Resource=WithTags", tc.body)
+			rr := cfRequest(t, h, http.MethodPost, prefix+"distribution?WithTags", tc.body)
 			if rr.Code != tc.wantCode {
 				t.Errorf("got %d want %d: %s", rr.Code, tc.wantCode, rr.Body.String())
 			}
@@ -395,7 +404,10 @@ func TestListDistributionsByTrustStore(t *testing.T) {
 		`</DistributionConfig>`
 	cfOK(t, h, http.MethodPost, prefix+"distribution", distBody)
 
-	resp := cfOK(t, h, http.MethodGet, prefix+"distributions/by-trust-store-id/"+tsID, "")
+	// Real ListDistributionsByTrustStore is GET /2020-05-31/distributionsByTrustStore with
+	// TrustStoreIdentifier as a query value, not a URI path segment (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpHttpBindingsListDistributionsByTrustStoreInput).
+	resp := cfOK(t, h, http.MethodGet, prefix+"distributionsByTrustStore?TrustStoreIdentifier="+tsID, "")
 	if !strings.Contains(resp, "DistributionList") {
 		t.Errorf("expected DistributionList, got: %s", resp)
 	}
@@ -403,7 +415,7 @@ func TestListDistributionsByTrustStore(t *testing.T) {
 		t.Errorf("expected non-empty list, got: %s", resp)
 	}
 
-	empty := cfOK(t, h, http.MethodGet, prefix+"distributions/by-trust-store-id/nonexistent-ts", "")
+	empty := cfOK(t, h, http.MethodGet, prefix+"distributionsByTrustStore?TrustStoreIdentifier=nonexistent-ts", "")
 	if !strings.Contains(empty, "<Quantity>0</Quantity>") {
 		t.Errorf("expected empty list for unrelated trust store, got: %s", empty)
 	}
@@ -416,7 +428,7 @@ func TestListDistributionsByWebACL(t *testing.T) {
 	const prefix = "/2020-05-31/"
 
 	// List empty
-	out := cfOK(t, h, http.MethodGet, prefix+"distributions/by-web-acl-id/my-waf-id", "")
+	out := cfOK(t, h, http.MethodGet, prefix+"distributionsByWebACLId/my-waf-id", "")
 	if !strings.Contains(out, "DistributionList") {
 		t.Errorf("unexpected response: %s", out)
 	}
@@ -441,7 +453,7 @@ func TestCreateDistributionWithTags(t *testing.T) {
 			</Items>
 		</Tags>
 	</DistributionConfigWithTags>`
-	resp := cfOK(t, h, http.MethodPost, prefix+"distribution?Resource=WithTags", body)
+	resp := cfOK(t, h, http.MethodPost, prefix+"distribution?WithTags", body)
 	if !strings.Contains(resp, "Distribution") {
 		t.Fatalf("expected Distribution in response, got: %s", resp)
 	}
@@ -466,6 +478,55 @@ func TestCreateDistributionWithTags(t *testing.T) {
 	}
 }
 
+// TestCreateDistributionWithTags_RealClient drives the real aws-sdk-go-v2
+// client to prove CreateDistributionWithTags is reachable and distinct from
+// CreateDistribution. Real CreateDistributionWithTags sends a bare
+// "?WithTags" query flag with no value (cloudfront@v1.67.4 serializers.go:
+// awsRestxml_serializeOpCreateDistributionWithTags's SplitURI on
+// ".../distribution?WithTags"), never "?Resource=WithTags". gopherstack
+// previously read the WithTags signal from a "Resource" query value that a
+// real client never sends, so every real CreateDistributionWithTags call
+// landed on plain CreateDistribution instead and silently dropped the tags
+// (gopherstack-o31x).
+func TestCreateDistributionWithTags_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := client.CreateDistributionWithTags(t.Context(), &cfsdk.CreateDistributionWithTagsInput{
+		DistributionConfigWithTags: &types.DistributionConfigWithTags{
+			DistributionConfig: &types.DistributionConfig{
+				CallerReference: aws.String("real-client-dist-with-tags"),
+				Comment:         aws.String("tagged"),
+				Enabled:         aws.Bool(true),
+				Origins: &types.Origins{
+					Quantity: aws.Int32(1),
+					Items: []types.Origin{
+						{Id: aws.String("origin1"), DomainName: aws.String("example.com")},
+					},
+				},
+				DefaultCacheBehavior: &types.DefaultCacheBehavior{
+					TargetOriginId:       aws.String("origin1"),
+					ViewerProtocolPolicy: types.ViewerProtocolPolicyAllowAll,
+				},
+			},
+			Tags: &types.Tags{Items: []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}}},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.Distribution)
+
+	tags, err := client.ListTagsForResource(t.Context(), &cfsdk.ListTagsForResourceInput{
+		Resource: created.Distribution.ARN,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, tags.Tags)
+	require.Len(t, tags.Tags.Items, 1)
+	assert.Equal(t, "env", aws.ToString(tags.Tags.Items[0].Key))
+	assert.Equal(t, "prod", aws.ToString(tags.Tags.Items[0].Value))
+}
+
 // TestListDistributionsByKeyGroup tests ListDistributionsByKeyGroup.
 func TestListDistributionsByKeyGroup(t *testing.T) {
 	t.Parallel()
@@ -481,7 +542,7 @@ func TestListDistributionsByKeyGroup(t *testing.T) {
 	cfOK(t, h, http.MethodPost, prefix+"distribution", distBody)
 
 	// List by key group - should find the distribution
-	resp := cfOK(t, h, http.MethodGet, prefix+"distributions/by-key-group/key-group-abc123", "")
+	resp := cfOK(t, h, http.MethodGet, prefix+"distributionsByKeyGroupId/key-group-abc123", "")
 	if !strings.Contains(resp, "DistributionList") {
 		t.Errorf("expected DistributionList, got: %s", resp)
 	}
@@ -491,7 +552,7 @@ func TestListDistributionsByKeyGroup(t *testing.T) {
 	}
 
 	// Different key group should return empty list
-	resp2 := cfOK(t, h, http.MethodGet, prefix+"distributions/by-key-group/nonexistent-key-group", "")
+	resp2 := cfOK(t, h, http.MethodGet, prefix+"distributionsByKeyGroupId/nonexistent-key-group", "")
 	if !strings.Contains(resp2, "DistributionList") {
 		t.Errorf("expected DistributionList for empty result, got: %s", resp2)
 	}
@@ -513,7 +574,7 @@ func TestDisassociateWebACL(t *testing.T) {
 
 	// Associate web ACL
 	cfOK(t, h, http.MethodPut, prefix+"distribution/"+distID+"/associate-web-acl",
-		`<WebACLAssociation><WebACLId>waf-123</WebACLId></WebACLAssociation>`)
+		`<AssociateDistributionWebACLRequest><WebACLArn>waf-123</WebACLArn></AssociateDistributionWebACLRequest>`)
 
 	// Disassociate web ACL
 	disResp := cfOK(t, h, http.MethodPut, prefix+"distribution/"+distID+"/disassociate-web-acl", "")
@@ -543,14 +604,40 @@ func TestUpdateDistributionWithStagingConfig(t *testing.T) {
 	)
 	stagingID := extractXMLID(t, stagingResp)
 
-	// Promote staging to primary
-	promoteBody := `<UpdateDistributionWithStagingConfigRequest>` +
-		`<StagingDistributionId>` + stagingID + `</StagingDistributionId>` +
-		`</UpdateDistributionWithStagingConfigRequest>`
-	promoteResp := cfOK(t, h, http.MethodPut, prefix+"distribution/"+primaryID+"/staging", promoteBody)
+	// Promote staging to primary. Real clients send StagingDistributionId as a query
+	// parameter to /promote-staging-config, never in the body (cloudfront@v1.67.4
+	// serializers.go: awsRestxml_serializeOpHttpBindingsUpdateDistributionWithStagingConfigInput).
+	promoteResp := cfOK(
+		t, h, http.MethodPut,
+		prefix+"distribution/"+primaryID+"/promote-staging-config?StagingDistributionId="+stagingID, "",
+	)
 	if !strings.Contains(promoteResp, "Distribution") {
 		t.Errorf("expected Distribution in response, got: %s", promoteResp)
 	}
+}
+
+// TestUpdateDistributionWithStagingConfig_MalformedBodyHandled verifies a malformed
+// request body is rejected with 400 MalformedXML instead of silently proceeding
+// (gopherstack-ob1g: the previous handler discarded xml.Unmarshal's error). It also
+// exercises the corrected /promote-staging-config route (gopherstack-ob1g: the route
+// table previously matched a "/staging" suffix no real client sends).
+func TestUpdateDistributionWithStagingConfig_MalformedBodyHandled(t *testing.T) {
+	t.Parallel()
+	h := newCFHandler(t)
+	const prefix = "/2020-05-31/"
+
+	primaryResp := cfOK(
+		t,
+		h,
+		http.MethodPost,
+		prefix+"distribution",
+		`<DistributionConfig><CallerReference>cr-primary-x</CallerReference><Enabled>true</Enabled></DistributionConfig>`,
+	)
+	primaryID := extractXMLID(t, primaryResp)
+
+	rec := cfRequest(t, h, http.MethodPut, prefix+"distribution/"+primaryID+"/promote-staging-config", "<<<not xml")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
 }
 
 func TestDistributionCreatesAsDeployed(t *testing.T) {

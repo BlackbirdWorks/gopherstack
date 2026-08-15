@@ -3,6 +3,7 @@ package kms
 import (
 	"context"
 	"encoding/json"
+	"sort"
 )
 
 // replicateKeyAction handles ReplicateKey dispatch, including tag validation and
@@ -31,9 +32,34 @@ func (h *Handler) replicateKeyAction(ctx context.Context, b []byte) (any, error)
 		return nil, err
 	}
 
-	h.copyTagsToReplica(sourceKeyID, out.ReplicaKeyMetadata.KeyID, input.Tags)
+	replicaKeyID := out.ReplicaKeyMetadata.KeyID
+
+	h.copyTagsToReplica(sourceKeyID, replicaKeyID, input.Tags)
+
+	if replicaTags := h.getTags(replicaKeyID); len(replicaTags) > 0 {
+		out.ReplicaTags = tagsFromMap(replicaTags)
+	}
+
+	if policyOut, policyErr := h.Backend.GetKeyPolicy(
+		ctx, &GetKeyPolicyInput{KeyID: replicaKeyID},
+	); policyErr == nil {
+		out.ReplicaPolicy = policyOut.Policy
+	}
 
 	return out, nil
+}
+
+// tagsFromMap converts a tag key/value map to the []Tag wire shape, sorted by
+// key for deterministic output.
+func tagsFromMap(kv map[string]string) []Tag {
+	out := make([]Tag, 0, len(kv))
+	for k, v := range kv {
+		out = append(out, Tag{TagKey: k, TagValue: v})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].TagKey < out[j].TagKey })
+
+	return out
 }
 
 func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn {

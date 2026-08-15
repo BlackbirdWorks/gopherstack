@@ -267,6 +267,48 @@ func TestSnapshotPreservesAgreementStatus(t *testing.T) {
 	assert.Equal(t, 1, transfer.AgreementCount(b2))
 }
 
+// TestSnapshotPreservesIPAddressType verifies Connector.IPAddressType and
+// WebApp.VpcConfig.IPAddressType survive Snapshot/Restore additively (no
+// transferSnapshotVersion bump required for an additive field).
+func TestSnapshotPreservesIPAddressType(t *testing.T) {
+	t.Parallel()
+
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+
+	conn, err := b.CreateConnectorFull(&transfer.CreateConnectorInput{
+		URL:           "https://partner.example.com",
+		IPAddressType: "DUALSTACK",
+	})
+	require.NoError(t, err)
+
+	webApp, err := b.CreateWebApp(&transfer.CreateWebAppInput{
+		IdentityCenterConfig: &transfer.WebAppIdentityCenterConfig{
+			InstanceArn: "arn:aws:sso:::instance/ssoins-persistence",
+			Role:        "arn:aws:iam::123456789012:role/webapp-idp",
+		},
+		VpcConfig: &transfer.WebAppVpcConfig{
+			SubnetIDs:     []string{"subnet-1"},
+			IPAddressType: "IPV4",
+		},
+	})
+	require.NoError(t, err)
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	restoredConn, err := b2.DescribeConnector(conn.ConnectorID)
+	require.NoError(t, err)
+	assert.Equal(t, "DUALSTACK", restoredConn.IPAddressType)
+
+	restoredWebApp, err := b2.DescribeWebApp(webApp.WebAppID)
+	require.NoError(t, err)
+	require.NotNil(t, restoredWebApp.VpcConfig)
+	assert.Equal(t, "IPV4", restoredWebApp.VpcConfig.IPAddressType)
+}
+
 // TestHandlerSnapshotNilBackend verifies Snapshot returns nil for non-InMemory backends.
 func TestHandlerSnapshotNilBackend(t *testing.T) {
 	t.Parallel()

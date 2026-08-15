@@ -60,7 +60,7 @@ const pinpointSnapshotVersion = 2
 // direct field-for-field mapping (no separate DTO type) is sufficient.
 type backendSnapshot struct {
 	Tables                 map[string]json.RawMessage       `json:"tables"`
-	AppSettings            map[string]*storedAppSettings    `json:"appSettings"`
+	AppSettings            map[string]*StoredAppSettings    `json:"appSettings"`
 	CampaignVersions       map[string][]*Campaign           `json:"campaignVersions"`
 	SegmentVersions        map[string][]*Segment            `json:"segmentVersions"`
 	TemplateVersionHistory map[string][]templateVersionItem `json:"templateVersionHistory"`
@@ -186,7 +186,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // pristine state as [InMemoryBackend.Reset], not with a nil map that would
 // panic on first write. The caller must hold b.mu.
 func (b *InMemoryBackend) resetMapStateLocked() {
-	b.appSettings = make(map[string]*storedAppSettings)
+	b.appSettings = make(map[string]*StoredAppSettings)
 	b.campaignVersions = make(map[string][]*Campaign)
 	b.segmentVersions = make(map[string][]*Segment)
 	b.templateVersionHistory = make(map[string][]templateVersionItem)
@@ -218,9 +218,9 @@ func (b *InMemoryBackend) restoreMapStateLocked(snap backendSnapshot) {
 // because Go generics cannot abstract over "map[string]T for varying T" here
 // without the caller repeating the type anyway, and separate named helpers
 // keep restoreMapStateLocked's call sites self-documenting.
-func nonNilAppSettingsMap(m map[string]*storedAppSettings) map[string]*storedAppSettings {
+func nonNilAppSettingsMap(m map[string]*StoredAppSettings) map[string]*StoredAppSettings {
 	if m == nil {
-		return make(map[string]*storedAppSettings)
+		return make(map[string]*StoredAppSettings)
 	}
 
 	return m

@@ -117,6 +117,7 @@ type importWorkspaceImageInput struct {
 	Ec2ImageId       string    `json:"Ec2ImageId"` //nolint:revive,staticcheck // existing issue.
 	ImageName        string    `json:"ImageName"`
 	ImageDescription string    `json:"ImageDescription"`
+	IngestionProcess string    `json:"IngestionProcess"`
 	Tags             []tagItem `json:"Tags"`
 }
 
@@ -128,7 +129,7 @@ func (h *Handler) handleImportWorkspaceImage(
 	_ context.Context, req *importWorkspaceImageInput,
 ) (*importWorkspaceImageOutput, error) {
 	id, err := h.Backend.ImportWorkspaceImage(
-		req.Ec2ImageId, req.ImageName, req.ImageDescription, tagsToMap(req.Tags),
+		req.Ec2ImageId, req.ImageName, req.ImageDescription, req.IngestionProcess, tagsToMap(req.Tags),
 	)
 	if err != nil {
 		return nil, err
@@ -137,9 +138,49 @@ func (h *Handler) handleImportWorkspaceImage(
 	return &importWorkspaceImageOutput{ImageId: id}, nil
 }
 
+// imageSourceJSON mirrors the ImageSourceIdentifier tagged union's wire
+// shape (workspaces@v1.73.1 serializers.go's
+// awsAwsjson11_serializeDocumentImageSourceIdentifier): exactly one key is
+// ever present, so all three fields are omitempty on both directions.
+type imageSourceJSON struct {
+	Ec2ImageId           string `json:"Ec2ImageId,omitempty"`      //nolint:revive,staticcheck // AWS wire name.
+	Ec2ImportTaskId      string `json:"Ec2ImportTaskId,omitempty"` //nolint:revive,staticcheck // AWS wire name.
+	ImageBuildVersionArn string `json:"ImageBuildVersionArn,omitempty"`
+}
+
+func (s *imageSourceJSON) toModel() *ImageSource {
+	if s == nil {
+		return nil
+	}
+
+	return &ImageSource{
+		Ec2ImageID:           s.Ec2ImageId,
+		Ec2ImportTaskID:      s.Ec2ImportTaskId,
+		ImageBuildVersionArn: s.ImageBuildVersionArn,
+	}
+}
+
+func imageSourceToJSON(s *ImageSource) *imageSourceJSON {
+	if s == nil {
+		return nil
+	}
+
+	return &imageSourceJSON{
+		Ec2ImageId:           s.Ec2ImageID,
+		Ec2ImportTaskId:      s.Ec2ImportTaskID,
+		ImageBuildVersionArn: s.ImageBuildVersionArn,
+	}
+}
+
 type importCustomWorkspaceImageInput struct {
-	ImageName        string `json:"ImageName"`
-	ImageDescription string `json:"ImageDescription"`
+	ImageSource                    *imageSourceJSON `json:"ImageSource"`
+	ImageName                      string           `json:"ImageName"`
+	ImageDescription               string           `json:"ImageDescription"`
+	ComputeType                    string           `json:"ComputeType"`
+	InfrastructureConfigurationArn string           `json:"InfrastructureConfigurationArn"`
+	OsVersion                      string           `json:"OsVersion"`
+	Platform                       string           `json:"Platform"`
+	Protocol                       string           `json:"Protocol"`
 }
 
 type importCustomWorkspaceImageOutput struct {
@@ -150,7 +191,16 @@ type importCustomWorkspaceImageOutput struct {
 func (h *Handler) handleImportCustomWorkspaceImage(
 	_ context.Context, req *importCustomWorkspaceImageInput,
 ) (*importCustomWorkspaceImageOutput, error) {
-	img, err := h.Backend.ImportCustomWorkspaceImage(req.ImageName, req.ImageDescription)
+	spec := customWorkspaceImageImportSpec{
+		ImageSource:                    req.ImageSource.toModel(),
+		ComputeType:                    req.ComputeType,
+		InfrastructureConfigurationArn: req.InfrastructureConfigurationArn,
+		OsVersion:                      req.OsVersion,
+		Platform:                       req.Platform,
+		Protocol:                       req.Protocol,
+	}
+
+	img, err := h.Backend.ImportCustomWorkspaceImage(req.ImageName, req.ImageDescription, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -277,9 +327,11 @@ type describeCustomWorkspaceImageImportInput struct {
 }
 
 type describeCustomWorkspaceImageImportOutput struct {
-	ImageId string  `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
-	State   string  `json:"State"`
-	Created float64 `json:"Created,omitempty"`
+	ImageSource                    *imageSourceJSON `json:"ImageSource,omitempty"`
+	ImageId                        string           `json:"ImageId"` //nolint:revive,staticcheck // existing issue.
+	State                          string           `json:"State"`
+	InfrastructureConfigurationArn string           `json:"InfrastructureConfigurationArn,omitempty"`
+	Created                        float64          `json:"Created,omitempty"`
 }
 
 func (h *Handler) handleDescribeCustomWorkspaceImageImport(
@@ -291,9 +343,11 @@ func (h *Handler) handleDescribeCustomWorkspaceImageImport(
 	}
 
 	return &describeCustomWorkspaceImageImportOutput{
-		ImageId: img.ImageID,
-		State:   img.State,
-		Created: awstime.Epoch(img.Created),
+		ImageId:                        img.ImageID,
+		State:                          img.State,
+		Created:                        awstime.Epoch(img.Created),
+		ImageSource:                    imageSourceToJSON(img.ImageSource),
+		InfrastructureConfigurationArn: img.InfrastructureConfigurationArn,
 	}, nil
 }
 

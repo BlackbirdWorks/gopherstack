@@ -49,15 +49,22 @@ func doOpenSearchRequest(t *testing.T, method, path string, body any) (int, map[
 }
 
 // TestIntegration_OpenSearch_DomainLifecycle tests create, describe, list, and delete.
+//
+// CreateDomain/DescribeDomain/DeleteDomain live under the "/opensearch/"
+// prefixed path, but ListDomainNames does not - it is wired to the
+// un-prefixed "/2021-01-01/domain" (api_op_ListDomainNames.go in the pinned
+// SDK), so each op below uses its own base path rather than one shared
+// basePath.
 func TestIntegration_OpenSearch_DomainLifecycle(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
 	domainName := "test-domain"
-	basePath := "/2021-01-01/opensearch/domain"
+	domainPath := "/2021-01-01/opensearch/domain"
+	listNamesPath := "/2021-01-01/domain"
 
 	// CreateDomain
-	statusCode, body := doOpenSearchRequest(t, http.MethodPost, basePath, map[string]any{
+	statusCode, body := doOpenSearchRequest(t, http.MethodPost, domainPath, map[string]any{
 		"DomainName":    domainName,
 		"EngineVersion": "OpenSearch_2.11",
 	})
@@ -74,7 +81,7 @@ func TestIntegration_OpenSearch_DomainLifecycle(t *testing.T) {
 	assert.NotEmpty(t, domainEndpoint, "Endpoint should be set")
 
 	// DescribeDomain
-	descCode, descBody := doOpenSearchRequest(t, http.MethodGet, fmt.Sprintf("%s/%s", basePath, domainName), nil)
+	descCode, descBody := doOpenSearchRequest(t, http.MethodGet, fmt.Sprintf("%s/%s", domainPath, domainName), nil)
 	require.Equal(t, http.StatusOK, descCode)
 
 	descStatus, ok := descBody["DomainStatus"].(map[string]any)
@@ -82,7 +89,7 @@ func TestIntegration_OpenSearch_DomainLifecycle(t *testing.T) {
 	assert.Equal(t, domainName, descStatus["DomainName"])
 
 	// ListDomainNames
-	listCode, listBody := doOpenSearchRequest(t, http.MethodGet, basePath, nil)
+	listCode, listBody := doOpenSearchRequest(t, http.MethodGet, listNamesPath, nil)
 	require.Equal(t, http.StatusOK, listCode)
 
 	names, ok := listBody["DomainNames"].([]any)
@@ -106,11 +113,11 @@ func TestIntegration_OpenSearch_DomainLifecycle(t *testing.T) {
 	assert.True(t, found, "domain should appear in ListDomainNames")
 
 	// DeleteDomain
-	delCode, _ := doOpenSearchRequest(t, http.MethodDelete, fmt.Sprintf("%s/%s", basePath, domainName), nil)
+	delCode, _ := doOpenSearchRequest(t, http.MethodDelete, fmt.Sprintf("%s/%s", domainPath, domainName), nil)
 	assert.Equal(t, http.StatusOK, delCode)
 
 	// Confirm deleted
-	notFoundCode, _ := doOpenSearchRequest(t, http.MethodGet, fmt.Sprintf("%s/%s", basePath, domainName), nil)
+	notFoundCode, _ := doOpenSearchRequest(t, http.MethodGet, fmt.Sprintf("%s/%s", domainPath, domainName), nil)
 	assert.Equal(t, http.StatusNotFound, notFoundCode)
 }
 

@@ -28,9 +28,11 @@ func TestGetAccuracyMetrics_Populated(t *testing.T) {
 	h := newHandler()
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
-		"PredictorName":   "acc-pred",
-		"ForecastHorizon": 7,
-		"ForecastTypes":   []any{"0.1", "0.5", "0.9"},
+		"PredictorName":       "acc-pred",
+		"ForecastHorizon":     7,
+		"ForecastTypes":       []any{"0.1", "0.5", "0.9"},
+		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+		"FeaturizationConfig": map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, code)
 	predictorArn, ok := created["PredictorArn"].(string)
@@ -78,6 +80,8 @@ func TestGetAccuracyMetrics_Deterministic(t *testing.T) {
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
 		"PredictorName": "det-pred", "ForecastHorizon": 7,
+		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+		"FeaturizationConfig": map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, code)
 	predictorArn, ok := created["PredictorArn"].(string)
@@ -99,6 +103,8 @@ func TestGetAccuracyMetrics_ResultsAndNotFound(t *testing.T) {
 
 	code, created := request(t, h, "CreatePredictor", map[string]any{
 		"PredictorName": "metrics-predictor", "ForecastHorizon": 7,
+		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+		"FeaturizationConfig": map[string]any{},
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn := created["PredictorArn"].(string)

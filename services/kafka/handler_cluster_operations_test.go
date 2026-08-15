@@ -211,6 +211,56 @@ func TestClusterOperationTracking_V2(t *testing.T) {
 	assert.Equal(t, opArn, opInfo["clusterOperationArn"])
 }
 
+// TestListClusterOperationsV2_OmitsDescribeOnlyFields covers gopherstack-dv4s:
+// ListClusterOperationsV2 previously marshaled the same *ClusterOperation
+// domain struct DescribeClusterOperationV2 uses, leaking sourceClusterInfo/
+// targetClusterInfo, which real types.ClusterOperationV2Summary never
+// declares (unlike V1, where List and Describe genuinely share one real
+// type, ClusterOperationInfo -- V2 splits them). UPDATE_MONITORING always
+// populates both source and target as non-nil *MutableClusterInfo, so even
+// with every sub-field left zero-valued they still serialize as
+// non-omitted `{}` objects -- enough for this fixture to actually fail
+// against the pre-fix code, not pass vacuously.
+func TestListClusterOperationsV2_OmitsDescribeOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	clusterArn := createTestClusterWithStorage(t, h, "op-v2-omit-test")
+	encoded := url.PathEscape(clusterArn)
+
+	resp, code := doKafkaRequestJSON(t, h, http.MethodPut,
+		"/v1/clusters/"+encoded+"/monitoring",
+		map[string]any{
+			"currentVersion":     kafka.DefaultClusterVersion,
+			"enhancedMonitoring": "PER_BROKER",
+		})
+	require.Equal(t, http.StatusOK, code)
+	opArn, _ := resp["clusterOperationArn"].(string)
+	require.NotEmpty(t, opArn)
+
+	listRec := doKafkaRequest(t, h, http.MethodGet, "/api/v2/clusters/"+encoded+"/operations", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	opList, ok := listResp["clusterOperationInfoList"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, opList)
+
+	op, ok := opList[0].(map[string]any)
+	require.True(t, ok)
+
+	forbidden := []string{"sourceClusterInfo", "targetClusterInfo", "clusterOperationArn"}
+	for _, key := range forbidden {
+		assert.NotContains(t, op, key)
+	}
+
+	assert.Equal(t, opArn, op["operationArn"])
+	assert.Equal(t, clusterArn, op["clusterArn"])
+	assert.Equal(t, "UPDATE_MONITORING", op["operationType"])
+	assert.Contains(t, op, "operationState")
+}
+
 func TestClusterOperation_DescribeNotFound(t *testing.T) {
 	t.Parallel()
 

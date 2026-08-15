@@ -39,14 +39,18 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	_, err = b.CreateAppBlockBuilder("builder1", "a builder", "WINDOWS", "stream.standard.medium", nil)
 	require.NoError(t, err)
 
-	require.NoError(t, b.AssociateAppBlockBuilderAppBlock("builder1", "appblock1"))
+	_, err = b.AssociateAppBlockBuilderAppBlock("builder1", "appblock1")
+	require.NoError(t, err)
 
 	_, err = b.CreateApplication(
-		"app1", "App One", "an app", "C:\\app.exe", "", []string{"WINDOWS"}, nil,
+		"app1", "App One", "an app", "C:\\app.exe", "", []string{"WINDOWS"},
+		appstream.S3Location{S3Bucket: "icon-bucket", S3Key: "icons/app1.png"},
+		[]string{"GENERAL_PURPOSE"}, nil,
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, b.AssociateApplicationFleet("app1", "fleet1"))
+	_, err = b.AssociateApplicationFleet("app1", "fleet1")
+	require.NoError(t, err)
 
 	_, err = b.CreateEntitlement("ent1", "stack1", "an entitlement", "ALL", nil)
 	require.NoError(t, err)
@@ -88,7 +92,13 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	_, err = b.CreateUsageReportSubscription("DAILY", "usage-bucket")
 	require.NoError(t, err)
 
-	_, err = b.CreateThemeForStack("stack1")
+	_, err = b.CreateThemeForStack(
+		"stack1",
+		appstream.S3Location{S3Bucket: "theme-assets", S3Key: "favicon.ico"},
+		appstream.S3Location{S3Bucket: "theme-assets", S3Key: "logo.png"},
+		"BLUE", "Stack One Streaming",
+		[]appstream.ThemeFooterLink{{DisplayName: "Support", FooterLinkURL: "https://support.example.com"}},
+	)
 	require.NoError(t, err)
 
 	return b
@@ -142,6 +152,9 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	apps, err := fresh.DescribeApplications([]string{"app1"})
 	require.NoError(t, err)
 	require.Len(t, apps, 1)
+	assert.Equal(t, "icon-bucket", apps[0].IconS3Location.S3Bucket)
+	assert.Equal(t, "icons/app1.png", apps[0].IconS3Location.S3Key)
+	assert.Equal(t, []string{"GENERAL_PURPOSE"}, apps[0].InstanceFamilies)
 
 	dirConfigs, err := fresh.DescribeDirectoryConfigs([]string{"dir1"})
 	require.NoError(t, err)
@@ -164,6 +177,11 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	theme, err := fresh.DescribeThemeForStack("stack1")
 	require.NoError(t, err)
 	assert.Equal(t, "stack1", theme.StackName)
+	assert.Equal(t, "BLUE", theme.ThemeStyling,
+		"ThemeStyling must survive Snapshot/Restore, not just the initial create")
+	assert.Equal(t, "Stack One Streaming", theme.ThemeTitleText)
+	require.Len(t, theme.ThemeFooterLinks, 1)
+	assert.Equal(t, "Support", theme.ThemeFooterLinks[0].DisplayName)
 
 	ents, err := fresh.DescribeEntitlements("ent1", "stack1")
 	require.NoError(t, err)

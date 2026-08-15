@@ -34,21 +34,23 @@ func (b *InMemoryBackend) CreateTransitGatewayPeeringAttachment(
 }
 
 // DeleteTransitGatewayPeeringAttachment removes a TGW peering attachment.
-func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) error {
+func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) (*TransitGatewayPeeringAttachment, error) {
 	if id == "" {
-		return fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteTransitGatewayPeeringAttachment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwPeeringAttachments.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidParameter, id)
+	att, ok := b.tgwPeeringAttachments.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, id)
 	}
+	cp := *att
 	b.tgwPeeringAttachments.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeTransitGatewayPeeringAttachments returns TGW peering attachments.
@@ -107,21 +109,23 @@ func (b *InMemoryBackend) CreateTransitGatewayConnect(
 }
 
 // DeleteTransitGatewayConnect removes a TGW connect attachment.
-func (b *InMemoryBackend) DeleteTransitGatewayConnect(id string) error {
+func (b *InMemoryBackend) DeleteTransitGatewayConnect(id string) (*TransitGatewayConnect, error) {
 	if id == "" {
-		return fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: TransitGatewayAttachmentId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteTransitGatewayConnect")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwConnects.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrTransitGatewayConnectNotFound, id)
+	conn, ok := b.tgwConnects.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayConnectNotFound, id)
 	}
+	cp := *conn
 	b.tgwConnects.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeTransitGatewayConnects returns TGW connect attachments.
@@ -182,21 +186,23 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 }
 
 // DeleteTransitGatewayConnectPeer removes a TGW connect peer.
-func (b *InMemoryBackend) DeleteTransitGatewayConnectPeer(id string) error {
+func (b *InMemoryBackend) DeleteTransitGatewayConnectPeer(id string) (*TransitGatewayConnectPeer, error) {
 	if id == "" {
-		return fmt.Errorf("%w: TransitGatewayConnectPeerId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: TransitGatewayConnectPeerId is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("DeleteTransitGatewayConnectPeer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwConnectPeers.Get(id); !ok {
-		return fmt.Errorf("%w: %s", ErrTransitGatewayConnectPeerNotFound, id)
+	peer, ok := b.tgwConnectPeers.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayConnectPeerNotFound, id)
 	}
+	cp := *peer
 	b.tgwConnectPeers.Delete(id)
 	delete(b.tags, id)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeTransitGatewayConnectPeers returns TGW connect peers.
@@ -257,9 +263,9 @@ func (b *InMemoryBackend) CreateTransitGatewayPrefixListReference(
 // DeleteTransitGatewayPrefixListReference removes a TGW prefix list reference.
 func (b *InMemoryBackend) DeleteTransitGatewayPrefixListReference(
 	routeTableID, prefixListID string,
-) error {
+) (*TransitGatewayPrefixListReference, error) {
 	if routeTableID == "" || prefixListID == "" {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: TransitGatewayRouteTableId and PrefixListId are required",
 			ErrInvalidParameter,
 		)
@@ -269,12 +275,15 @@ func (b *InMemoryBackend) DeleteTransitGatewayPrefixListReference(
 	defer b.mu.Unlock()
 
 	key := routeTableID + "/" + prefixListID
-	if _, ok := b.tgwPrefixListRefs.Get(key); !ok {
-		return fmt.Errorf("%w: %s/%s", ErrTGWPrefixListRefNotFound, routeTableID, prefixListID)
+
+	ref, ok := b.tgwPrefixListRefs.Get(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s/%s", ErrTGWPrefixListRefNotFound, routeTableID, prefixListID)
 	}
+	cp := *ref
 	b.tgwPrefixListRefs.Delete(key)
 
-	return nil
+	return &cp, nil
 }
 
 // GetTransitGatewayPrefixListReferences returns TGW prefix list references for a route table.

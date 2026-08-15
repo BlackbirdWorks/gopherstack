@@ -125,15 +125,21 @@ func toWireExportTask(t ExportTask) wireExportTask {
 }
 
 // --- DescribeImportTasks ---.
+// ImportId/"imports" are the real DescribeImportTasksInput/Output wire keys
+// (deserializers.go's awsAwsjson11_deserializeOpDocumentDescribeImportTasksOutput
+// case "imports":, serializers.go's ...DescribeImportTasksInput case "importId":).
+// A previous revision used "taskId"/"importTasks" -- ExportTask's own
+// convention, copied onto Import by mistake -- so a real client's ImportId
+// filter was silently ignored and its typed Imports field was always empty.
 type describeImportTasksInput struct {
-	TaskID    string `json:"taskId"`
+	ImportID  string `json:"importId"`
 	NextToken string `json:"nextToken"`
 	Limit     int    `json:"limit"`
 }
 
 type describeImportTasksOutput struct {
-	NextToken   string       `json:"nextToken,omitempty"`
-	ImportTasks []ImportTask `json:"importTasks"`
+	NextToken string       `json:"nextToken,omitempty"`
+	Imports   []ImportTask `json:"imports"`
 }
 
 func (h *Handler) handleCancelExportTask(
@@ -243,25 +249,32 @@ func (h *Handler) handleDescribeImportTasks(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	tasks, next, err := h.Backend.DescribeImportTasks(input.TaskID, input.Limit, input.NextToken)
+	tasks, next, err := h.Backend.DescribeImportTasks(input.ImportID, input.Limit, input.NextToken)
 	if err != nil {
 		return nil, err
 	}
 
-	return &describeImportTasksOutput{ImportTasks: tasks, NextToken: next}, nil
+	return &describeImportTasksOutput{Imports: tasks, NextToken: next}, nil
 }
 
 // handleDescribeImportTaskBatches validates the request and returns an
 // empty-but-valid response. The backend tracks import tasks (DescribeImportTasks)
-// but does not model per-task import batches, so this is validation-only: the
-// task identifier is required and, when supplied, must reference a known import
-// task; otherwise an empty importTaskBatches list is returned.
+// but does not model per-task import batches, so the list itself is
+// validation-only: the import identifier is required and, when supplied, must
+// reference a known import task; otherwise an empty importBatches list is
+// returned. importId/importBatches are the real DescribeImportTaskBatchesInput/
+// Output wire keys (serializers.go/deserializers.go's
+// ...DescribeImportTaskBatches{Input,Output} case "importId":/"importBatches":)
+// -- a previous revision used "taskId"/"importTaskBatches", so every real SDK
+// client request failed this handler's own required-field check regardless of
+// what it sent, and a structurally-populated response would still have gone
+// unread.
 func (h *Handler) handleDescribeImportTaskBatches(
 	ctx context.Context, //nolint:revive // existing issue.
 	body []byte,
 ) (any, error) {
 	var input struct {
-		TaskID string `json:"taskId"`
+		ImportID string `json:"importId"`
 	}
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
@@ -269,19 +282,24 @@ func (h *Handler) handleDescribeImportTaskBatches(
 		}
 	}
 
-	if input.TaskID == "" {
-		return nil, fmt.Errorf("%w: taskId is required", ErrValidation)
+	if input.ImportID == "" {
+		return nil, fmt.Errorf("%w: importId is required", ErrValidation)
 	}
 
+	resp := map[string]any{"importBatches": []any{}, "importId": input.ImportID}
+
 	if b := cwlBackend(h); b != nil {
-		tasks, _, err := b.DescribeImportTasks(input.TaskID, 1, "")
+		tasks, _, err := b.DescribeImportTasks(input.ImportID, 1, "")
 		if err != nil {
 			return nil, err
 		}
 		if len(tasks) == 0 {
-			return nil, fmt.Errorf("%w: import task %s not found", ErrImportTaskNotFound, input.TaskID)
+			return nil, fmt.Errorf("%w: import task %s not found", ErrImportTaskNotFound, input.ImportID)
+		}
+		if tasks[0].ImportSourceArn != "" {
+			resp["importSourceArn"] = tasks[0].ImportSourceArn
 		}
 	}
 
-	return map[string]any{"importTaskBatches": []any{}}, nil
+	return resp, nil
 }

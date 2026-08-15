@@ -429,7 +429,7 @@ func TestSchemaRegistry_SchemaVersion_CRUD(t *testing.T) {
 		"SchemaId": map[string]any{"RegistryName": "svr", "SchemaName": "sv-schema"},
 	})
 	require.Equal(t, http.StatusOK, listSchemaVersionsRec.Code)
-	assert.Contains(t, listSchemaVersionsRec.Body.String(), "SchemaVersions")
+	assert.Contains(t, listSchemaVersionsRec.Body.String(), "Schemas")
 
 	checkValidityRec := doGlueRequest(t, h, "CheckSchemaVersionValidity", map[string]any{
 		"DataFormat":       "AVRO",
@@ -894,6 +894,121 @@ func TestGetSchemaVersionsDiff(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestListRegistries_OmitsGetOnlyFields verifies gopherstack-uult:
+// ListRegistries must emit only types.RegistryListItem's members
+// (RegistryName, RegistryArn, Description, Status, CreatedTime, UpdatedTime)
+// -- aws-sdk-go-v2/service/glue@v1.152.0 types/types.go:9404-9424. Tags is
+// GetRegistry/CreateRegistry-only and must not leak. An SDK client would
+// silently drop the extra key, so this asserts on the raw body.
+func TestListRegistries_OmitsGetOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doGlueRequest(t, h, "CreateRegistry", map[string]any{
+		"RegistryName": "reg1",
+		"Tags":         map[string]any{"env": "prod"},
+	})
+
+	rec := doGlueRequest(t, h, "ListRegistries", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Registries []map[string]any `json:"Registries"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Registries, 1)
+
+	item := out.Registries[0]
+	assert.ElementsMatch(t,
+		[]string{"RegistryName", "RegistryArn", "Status", "CreatedTime", "UpdatedTime"},
+		mapKeys(item),
+	)
+	assert.NotContains(t, item, "Tags")
+}
+
+// TestListSchemas_OmitsGetOnlyFields verifies gopherstack-uult:
+// ListSchemas must emit only types.SchemaListItem's members (SchemaName,
+// SchemaArn, RegistryName, SchemaStatus, Description, CreatedTime,
+// UpdatedTime) -- aws-sdk-go-v2/service/glue@v1.152.0
+// types/types.go:10647-10671. RegistryArn, DataFormat, Compatibility,
+// LatestSchemaVersion, NextSchemaVersion, CheckpointVersion and Tags are
+// GetSchema/CreateSchema-only and must not leak.
+func TestListSchemas_OmitsGetOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRegistry(t, h, "reg1")
+	createSchema(t, h, "reg1", "schema1")
+
+	rec := doGlueRequest(t, h, "ListSchemas", map[string]any{
+		"RegistryId": map[string]any{"RegistryName": "reg1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Schemas []map[string]any `json:"Schemas"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Schemas, 1)
+
+	item := out.Schemas[0]
+	assert.ElementsMatch(t,
+		[]string{"SchemaName", "SchemaArn", "RegistryName", "SchemaStatus", "CreatedTime", "UpdatedTime"},
+		mapKeys(item),
+	)
+
+	for _, leaked := range []string{
+		"RegistryArn", "DataFormat", "Compatibility",
+		"LatestSchemaVersion", "NextSchemaVersion", "SchemaCheckpoint", "Tags",
+	} {
+		assert.NotContains(t, item, leaked)
+	}
+}
+
+// TestListSchemaVersions_OmitsGetOnlyFields verifies gopherstack-uult:
+// ListSchemaVersions must emit only types.SchemaVersionListItem's members
+// (SchemaVersionId, SchemaArn, Status, VersionNumber, CreatedTime) --
+// aws-sdk-go-v2/service/glue@v1.152.0 types/types.go:10703-10721.
+// SchemaDefinition and DataFormat are GetSchemaVersion-only and must not
+// leak.
+func TestListSchemaVersions_OmitsGetOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRegistry(t, h, "reg1")
+	createSchema(t, h, "reg1", "schema1")
+	registerSchemaVersion(t, h, "reg1", "schema1",
+		`{"type":"record","name":"T","fields":[]}`)
+
+	rec := doGlueRequest(t, h, "ListSchemaVersions", map[string]any{
+		"SchemaId": map[string]any{"RegistryName": "reg1", "SchemaName": "schema1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Schemas []map[string]any `json:"Schemas"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Schemas, 1)
+
+	item := out.Schemas[0]
+	assert.ElementsMatch(t,
+		[]string{"SchemaVersionId", "SchemaArn", "Status", "VersionNumber", "CreatedTime"},
+		mapKeys(item),
+	)
+	assert.NotContains(t, item, "SchemaDefinition")
+	assert.NotContains(t, item, "DataFormat")
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	return keys
 }
 
 // createRegistry is a test helper that creates a schema registry.

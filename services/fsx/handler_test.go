@@ -122,7 +122,10 @@ func createSVM(t *testing.T, h *fsx.Handler, fsID, name string) string {
 func createFileCache(t *testing.T, h *fsx.Handler, cacheType string) string {
 	t.Helper()
 	rec := doFSxRequest(t, h, "CreateFileCache", map[string]any{
-		"FileCacheType": cacheType,
+		"FileCacheType":        cacheType,
+		"FileCacheTypeVersion": "2.12",
+		"SubnetIds":            []string{"subnet-1"},
+		"StorageCapacity":      1200,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
@@ -220,6 +223,7 @@ func Test_CreationTime_IsEpochSecondsNumber(t *testing.T) {
 				return decodeField(t, doFSxRequest(t, h, "CreateDataRepositoryTask", map[string]any{
 					"FileSystemId": fsID,
 					"Type":         "EXPORT_TO_REPOSITORY",
+					"Report":       map[string]any{"Enabled": false},
 				}), "DataRepositoryTask")
 			},
 		},
@@ -230,7 +234,12 @@ func Test_CreationTime_IsEpochSecondsNumber(t *testing.T) {
 				t.Helper()
 
 				return decodeField(t, doFSxRequest(t, h, "CreateFileCache",
-					map[string]any{"FileCacheType": "LUSTRE"}), "FileCache")
+					map[string]any{
+						"FileCacheType":        "LUSTRE",
+						"FileCacheTypeVersion": "2.12",
+						"SubnetIds":            []string{"subnet-1"},
+						"StorageCapacity":      1200,
+					}), "FileCache")
 			},
 		},
 		{

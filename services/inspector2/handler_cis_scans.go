@@ -293,7 +293,7 @@ func (h *Handler) handleListCisScans(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"cisScans": scans})
+	return c.JSON(http.StatusOK, map[string]any{"scans": scans})
 }
 
 func (h *Handler) handleListCisScanResultsAggregatedByChecks(c *echo.Context) error {

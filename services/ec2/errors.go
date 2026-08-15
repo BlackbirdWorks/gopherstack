@@ -115,3 +115,17 @@ var (
 	// for the requested instance type cannot satisfy the request.
 	ErrInsufficientInstanceCapacity = errors.New("InsufficientInstanceCapacity")
 )
+
+// RunInstances allocation-safety bound (gopherstack-x6r7).
+var (
+	// ErrResourceCountExceeded backs the real EC2 error code
+	// "ResourceCountExceeded" (docs.aws.amazon.com/AWSEC2/latest/APIReference/
+	// errors-overview.html: "You have exceeded the number of resources
+	// allowed for this request; for example, if you try to launch more
+	// instances than AWS allows in a single request... If you get this
+	// error, break up your request into smaller requests"). Used for
+	// maxInstancesPerRunInstancesRequest, gopherstack's own per-call
+	// allocation cap -- distinct from InstanceLimitExceeded, the
+	// per-account/instance-type quota this repo does not model.
+	ErrResourceCountExceeded = errors.New("ResourceCountExceeded")
+)

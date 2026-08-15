@@ -813,7 +813,7 @@ func (h *Handler) handleModifyTransitGatewayVpcAttachment(vals url.Values, reqID
 	return &modifyTransitGatewayVpcAttachmentResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
-		Attachment: tgwVpcAttachmentToItem(att),
+		Attachment: tgwVpcAttachmentToItem(att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID)),
 	}, nil
 }
 
@@ -890,7 +890,7 @@ func (h *Handler) handleRejectTransitGatewayVpcAttachment(vals url.Values, reqID
 	return &rejectTransitGatewayVpcAttachmentResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
-		Attachment: tgwVpcAttachmentToItem(att),
+		Attachment: tgwVpcAttachmentToItem(att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID)),
 	}, nil
 }
 
@@ -906,12 +906,9 @@ func (h *Handler) handleRejectTransitGatewayPeeringAttachment(
 	return &rejectTransitGatewayPeeringAttachmentResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Attachment: tgwPeeringAttachmentItem{
-			TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
-			RequesterTransitGatewayID:  att.RequesterTransitGatewayID,
-			AccepterTransitGatewayID:   att.AccepterTransitGatewayID,
-			State:                      att.State,
-		},
+		Attachment: toTGWPeeringAttachmentItem(
+			att, h.Backend.TagsForResource(att.TransitGatewayAttachmentID),
+		),
 	}, nil
 }
 

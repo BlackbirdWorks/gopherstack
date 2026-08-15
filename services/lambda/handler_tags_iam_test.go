@@ -16,7 +16,7 @@ func TestHandler_TagsRoute(t *testing.T) {
 	t.Parallel()
 
 	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
-	tagsPath := "/2015-03-31/tags/" + arn
+	tagsPath := "/2017-03-31/tags/" + arn
 
 	tests := []struct {
 		wantTagValues   map[string]string
@@ -173,13 +173,13 @@ func TestHandler_IAMAction(t *testing.T) {
 		{
 			name:   "list_tags",
 			method: http.MethodGet,
-			path:   "/2015-03-31/tags/arn:aws:lambda:us-east-1:0:function:f",
+			path:   "/2017-03-31/tags/arn:aws:lambda:us-east-1:0:function:f",
 			want:   "lambda:ListTags",
 		},
 		{
 			name:   "tag_resource",
 			method: http.MethodPost,
-			path:   "/2015-03-31/tags/arn:aws:lambda:us-east-1:0:function:f",
+			path:   "/2017-03-31/tags/arn:aws:lambda:us-east-1:0:function:f",
 			want:   "lambda:TagResource",
 		},
 		{name: "non_lambda_path", method: http.MethodGet, path: "/s3/bucket", want: ""},

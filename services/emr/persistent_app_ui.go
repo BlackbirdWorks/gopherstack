@@ -100,6 +100,7 @@ func (b *InMemoryBackend) CreatePersistentAppUI(
 		TargetResourceArn:         targetResourceArn,
 		RuntimeRoleEnabledCluster: false,
 		region:                    region,
+		CreatedAt:                 time.Now(),
 	}
 
 	b.persistentAppUIPut(ui)

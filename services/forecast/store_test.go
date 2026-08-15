@@ -81,8 +81,14 @@ func TestARNFormat_AcrossResourceKinds(t *testing.T) {
 		{
 			name:   "predictor_arn",
 			action: "CreatePredictor",
-			body: func(*testing.T, *forecast.Handler) map[string]any {
-				return map[string]any{"PredictorName": "arn-predictor", "ForecastHorizon": 10}
+			body: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"PredictorName": "arn-predictor", "ForecastHorizon": 10,
+					"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+					"FeaturizationConfig": map[string]any{},
+				}
 			},
 			arnField: "PredictorArn",
 		},
@@ -298,8 +304,14 @@ func TestDelete_ResourceRemovedFromMap(t *testing.T) {
 		{
 			name:   "predictor",
 			create: "CreatePredictor",
-			createBody: func(*testing.T, *forecast.Handler) map[string]any {
-				return map[string]any{"PredictorName": "del-pred", "ForecastHorizon": 5}
+			createBody: func(t *testing.T, h *forecast.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"PredictorName": "del-pred", "ForecastHorizon": 5,
+					"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+					"FeaturizationConfig": map[string]any{},
+				}
 			},
 			arnField:  "PredictorArn",
 			describe:  "DescribePredictor",
@@ -389,6 +401,8 @@ func TestDeleteResourceTree_TransitiveDelete(t *testing.T) {
 	// Create predictor (root).
 	_, cp := request(t, h, "CreatePredictor", map[string]any{
 		"PredictorName": "tree-pred", "ForecastHorizon": 5,
+		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+		"FeaturizationConfig": map[string]any{},
 	})
 	predARN := cp["PredictorArn"].(string)
 
@@ -434,6 +448,8 @@ func TestUpdateResourceStatus_ARNIndex(t *testing.T) {
 	h := newHandler()
 	_, cp := request(t, h, "CreatePredictor", map[string]any{
 		"PredictorName": "arn-pred", "ForecastHorizon": 5,
+		"InputDataConfig":     map[string]any{"DatasetGroupArn": createDatasetGroup(t, h)},
+		"FeaturizationConfig": map[string]any{},
 	})
 	predARN := cp["PredictorArn"].(string)
 

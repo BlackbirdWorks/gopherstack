@@ -60,6 +60,9 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 				Space: "https://sns.amazonaws.com/doc/2010-03-31/",
 				Local: "TagResourceResponse",
 			},
+			Result: struct {
+				XMLName xml.Name `xml:""`
+			}{XMLName: xml.Name{Local: "TagResourceResult"}},
 		},
 	)
 }
@@ -76,6 +79,9 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 				Space: "https://sns.amazonaws.com/doc/2010-03-31/",
 				Local: "UntagResourceResponse",
 			},
+			Result: struct {
+				XMLName xml.Name `xml:""`
+			}{XMLName: xml.Name{Local: "UntagResourceResult"}},
 		},
 	)
 }

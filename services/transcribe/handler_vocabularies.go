@@ -165,9 +165,10 @@ type listVocabulariesInput struct {
 }
 
 type vocabularySummary struct {
-	VocabularyName  string `json:"VocabularyName"`
-	LanguageCode    string `json:"LanguageCode"`
-	VocabularyState string `json:"VocabularyState"`
+	LastModifiedTime *float64 `json:"LastModifiedTime,omitempty"`
+	VocabularyName   string   `json:"VocabularyName"`
+	LanguageCode     string   `json:"LanguageCode"`
+	VocabularyState  string   `json:"VocabularyState"`
 }
 
 type listVocabulariesOutput struct {
@@ -184,11 +185,17 @@ func (h *Handler) handleListVocabularies(
 
 	result := make([]vocabularySummary, 0, len(vocabs))
 	for _, v := range vocabs {
-		result = append(result, vocabularySummary{
+		s := vocabularySummary{
 			VocabularyName:  v.VocabularyName,
 			LanguageCode:    v.LanguageCode,
 			VocabularyState: v.VocabularyState,
-		})
+		}
+		if !v.LastModifiedTime.IsZero() {
+			t := awstime.Epoch(v.LastModifiedTime)
+			s.LastModifiedTime = &t
+		}
+
+		result = append(result, s)
 	}
 
 	return &listVocabulariesOutput{

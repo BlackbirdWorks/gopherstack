@@ -25,11 +25,39 @@ var topLevelKeyRe = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*):(.*)$`)
 // entryLineRe matches the start of an ops:/families: block entry, e.g.
 // "  CreateAgent: {wire: ok, ...". Indent is tolerated at any depth because
 // a handful of PARITY.md files have a mis-indented (0-space) final entry in
-// their families: block (e.g. services/mwaa, services/rekognition).
-var entryLineRe = regexp.MustCompile(`^\s*([A-Za-z0-9_]+):\s*\{(.*)$`)
+// their families: block (e.g. services/mwaa, services/rekognition). A key
+// that collides with a reserved word (e.g. rds's "leaks" family) is still
+// tolerated as an entry as long as it's indented -- only a column-0
+// occurrence is read as the reserved key's own section header; see
+// matchEntry/isBlockTerminator.
+//
+// The key class is wider than a Go identifier: real PARITY.md family keys
+// name multiple operations or add a parenthetical, e.g.
+// "AddPermission/RemovePermission", "Database/TableMetadata (Get/List)",
+// "Create/UpdateConfigurationTemplate response shape" (services/athena,
+// services/sqs, services/elasticbeanstalk). '/', '()', '-' and space are
+// therefore accepted in the key; anything else (',', '*', quotes, ...) is
+// deliberately excluded to keep this from matching wrapped note prose that
+// coincidentally contains ": {" (gopherstack-udc7).
+var entryLineRe = regexp.MustCompile(`^\s*([A-Za-z0-9_][A-Za-z0-9_/() -]*):\s*\{(.*)$`)
+
+// possibleEntryRe is a deliberately looser superset of entryLineRe, used
+// only to detect a line that looks like it was meant to be a block entry
+// but didn't match entryLineRe -- so the skip can be reported instead of
+// silently dropped (gopherstack-udc7). It additionally tolerates ',', '*'
+// and '>' (seen in real keys like "BatchDetect* (... 6 families, NOT
+// PiiEntities)" and "ec2-provisioning (ASG->EC2 ...)" in services/comprehend
+// and services/autoscaling) but still requires an identifier-ish start, so
+// it does not fire on quoted/backtick-code note prose or "- " list items.
+var possibleEntryRe = regexp.MustCompile(`^\s*[A-Za-z0-9_][A-Za-z0-9_/(),*>\- ]*:\s*\{`)
 
 // listItemRe matches a gaps:/deferred: list item, e.g. "  - some text".
 var listItemRe = regexp.MustCompile(`^\s*-\s+(.*)$`)
+
+// keyLeaks is the reserved top-level "leaks:" key. Named separately (rather
+// than inlined in isReservedKey) since it also collides with a real family
+// name in services/rds/PARITY.md — see matchEntry (gopherstack-jw5s).
+const keyLeaks = "leaks"
 
 // reservedTopLevelKeys are the only keys the schema defines at column 0.
 // Anything else found at column 0 inside an ops:/families: block is treated
@@ -37,7 +65,7 @@ var listItemRe = regexp.MustCompile(`^\s*-\s+(.*)$`)
 func isReservedKey(key string) bool {
 	switch key {
 	case "service", "sdk_module", "last_audit_commit", "last_audit_date",
-		"overall", "protocol", "ops", "families", "gaps", "structural_gaps", labelDeferred, "leaks":
+		"overall", "protocol", "ops", "families", "gaps", "structural_gaps", labelDeferred, keyLeaks:
 		return true
 	default:
 		return false
@@ -47,7 +75,9 @@ func isReservedKey(key string) bool {
 // ParseParityFile reads and tolerantly parses a services/<svc>/PARITY.md
 // file. It never returns an error for malformed/odd frontmatter content —
 // only for I/O failures — so callers can degrade gracefully on a partially
-// understood file.
+// understood file. Content it could not confidently parse is instead
+// reported in the returned doc's Warnings, so callers can surface it without
+// failing the build (gopherstack-udc7).
 func ParseParityFile(path string) (*ParityDoc, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -55,13 +85,17 @@ func ParseParityFile(path string) (*ParityDoc, error) {
 	}
 
 	lines := strings.Split(string(data), "\n")
+	frontmatter, offset := extractFrontmatter(lines)
 	doc := &ParityDoc{}
-	parseFrontmatter(extractFrontmatter(lines), doc)
+	parseFrontmatter(frontmatter, doc, path, offset)
 
 	return doc, nil
 }
 
-// extractFrontmatter returns the frontmatter lines of a PARITY.md file.
+// extractFrontmatter returns the frontmatter lines of a PARITY.md file,
+// along with the 0-indexed line number (in the original file) of the first
+// returned line, so callers can translate a frontmatter-relative line index
+// back into a real file:line for diagnostics.
 // The schema template opens with "---" and closes with a second "---", but a
 // number of real services/*/PARITY.md files in the corpus drop the opening
 // "---" (and sometimes the closing one too), starting directly with
@@ -70,9 +104,9 @@ func ParseParityFile(path string) (*ParityDoc, error) {
 // first: a "---" line, a "## " Markdown heading (the body's own section,
 // e.g. "## Notes", for files that dropped the closing "---" but still have a
 // body), or end of file (for files that are frontmatter top to bottom).
-func extractFrontmatter(lines []string) []string {
+func extractFrontmatter(lines []string) ([]string, int) {
 	if len(lines) == 0 {
-		return nil
+		return nil, 0
 	}
 
 	start := 0
@@ -83,18 +117,19 @@ func extractFrontmatter(lines []string) []string {
 	for i := start; i < len(lines); i++ {
 		t := strings.TrimSpace(lines[i])
 		if t == "---" || strings.HasPrefix(t, "## ") {
-			return lines[start:i]
+			return lines[start:i], start
 		}
 	}
 
-	return lines[start:]
+	return lines[start:], start
 }
 
 // parseFrontmatter walks the frontmatter lines as a small state machine:
 // scalar keys consume one line, ops:/families:/gaps:/structural_gaps:/deferred:
 // consume a block of subsequent lines, and anything unrecognized is skipped
-// until the next reserved key resumes normal parsing.
-func parseFrontmatter(lines []string, doc *ParityDoc) {
+// until the next reserved key resumes normal parsing. path and offset are
+// used only to attribute Warnings to a real file:line.
+func parseFrontmatter(lines []string, doc *ParityDoc, path string, offset int) {
 	i := 0
 	for i < len(lines) {
 		m := topLevelKeyRe.FindStringSubmatch(lines[i])
@@ -113,9 +148,9 @@ func parseFrontmatter(lines []string, doc *ParityDoc) {
 
 		switch key {
 		case "ops":
-			doc.Ops, i = parseOpsBlock(lines, i+1)
+			doc.Ops, i = parseOpsBlock(lines, i+1, doc, path, offset)
 		case "families":
-			doc.Families, i = parseFamiliesBlock(lines, i+1)
+			doc.Families, i = parseFamiliesBlock(lines, i+1, doc, path, offset)
 		case "gaps":
 			doc.Gaps, i = parseListBlock(lines, i, rest)
 		case "structural_gaps":
@@ -146,7 +181,7 @@ func parseScalarField(doc *ParityDoc, key, rest string) bool {
 		doc.Overall = cleanScalar(rest)
 	case "protocol":
 		doc.Protocol = cleanScalar(rest)
-	case "leaks":
+	case keyLeaks:
 		doc.LeaksStatus = extractLeaksStatus(rest)
 	default:
 		return false
@@ -210,16 +245,24 @@ func extractLeaksStatus(rest string) string {
 }
 
 // matchEntry reports whether line starts an ops:/families: block entry,
-// returning its key and the content following the opening brace. Lines
-// naming a reserved top-level key are never treated as entries even if they
-// happen to match the brace syntax (defensive; shouldn't occur in practice).
+// returning its key and the content following the opening brace. A line is
+// rejected as an entry only when isBlockTerminator would also claim it (a
+// reserved key at column 0) -- e.g. services/rds's "leaks" family entry is
+// indented like every other entry and must parse, while a genuine top-level
+// "leaks: {status: ..., note: ...}" header always sits at column 0. This
+// keeps matchEntry and isBlockTerminator in agreement: no line can fall
+// through both as neither an entry nor a terminator (gopherstack-jw5s).
 func matchEntry(line string) (string, string, bool) {
 	m := entryLineRe.FindStringSubmatch(line)
-	if m == nil || isReservedKey(m[1]) {
+	if m == nil {
 		return "", "", false
 	}
 
-	return m[1], m[2], true
+	if isBlockTerminator(line) {
+		return "", "", false
+	}
+
+	return strings.TrimSpace(m[1]), m[2], true
 }
 
 // isBlockTerminator reports whether line opens a new reserved top-level
@@ -235,8 +278,10 @@ func isBlockTerminator(line string) bool {
 // "  OpName: {wire: ok, errors: ok, state: ok, persist: ok, note: ...}"
 // starting at lines[start], including any wrapped continuation lines that
 // belong to a long note. Returns the parsed ops and the index of the first
-// line after the block.
-func parseOpsBlock(lines []string, start int) ([]OpStatus, int) {
+// line after the block. A line that looks like it was meant to be an entry
+// but didn't match entryLineRe is recorded on doc.Warnings rather than
+// silently folded into the previous note (gopherstack-udc7).
+func parseOpsBlock(lines []string, start int, doc *ParityDoc, path string, offset int) ([]OpStatus, int) {
 	var ops []OpStatus
 
 	i := start
@@ -260,6 +305,7 @@ func parseOpsBlock(lines []string, start int) ([]OpStatus, int) {
 			break
 		}
 
+		warnUnparsedEntry(doc, path, offset, i, lines[i])
 		i++ // continuation line (wrapped note text) — skip.
 	}
 
@@ -268,7 +314,7 @@ func parseOpsBlock(lines []string, start int) ([]OpStatus, int) {
 
 // parseFamiliesBlock consumes entries of the form
 // "  family_name: {status: ok, note: ...}", mirroring parseOpsBlock.
-func parseFamiliesBlock(lines []string, start int) ([]FamilyStatus, int) {
+func parseFamiliesBlock(lines []string, start int, doc *ParityDoc, path string, offset int) ([]FamilyStatus, int) {
 	var families []FamilyStatus
 
 	i := start
@@ -289,10 +335,26 @@ func parseFamiliesBlock(lines []string, start int) ([]FamilyStatus, int) {
 			break
 		}
 
+		warnUnparsedEntry(doc, path, offset, i, lines[i])
 		i++
 	}
 
 	return families, i
+}
+
+// warnUnparsedEntry appends a Warnings entry when line looks like it was
+// meant to open an ops:/families: block entry (per possibleEntryRe) but
+// entryLineRe rejected it -- otherwise the line is ordinary wrapped note
+// prose and stays silent.
+func warnUnparsedEntry(doc *ParityDoc, path string, offset, lineIdx int, line string) {
+	if !possibleEntryRe.MatchString(line) {
+		return
+	}
+
+	doc.Warnings = append(doc.Warnings, fmt.Sprintf(
+		"%s:%d: entry-like line did not parse as a block entry: %q",
+		path, offset+lineIdx+1, strings.TrimSpace(line),
+	))
 }
 
 // parseListBlock consumes a gaps:/deferred: block: either an inline "[]" on

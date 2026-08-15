@@ -13,8 +13,12 @@ import (
 )
 
 // insightRuleFailureXML is the XML representation of a failed insight rule operation.
+// The real member is FailureResource, not RuleName (cloudwatch@v1.66.3
+// schemas/schemas.go:3271, PartialFailure -- shared across both CBOR and this
+// service's legacy Query surface since it comes from the Smithy model, not
+// the protocol).
 type insightRuleFailureXML struct {
-	RuleName           string `xml:"RuleName"`
+	FailureResource    string `xml:"FailureResource"`
 	FailureCode        string `xml:"FailureCode"`
 	FailureDescription string `xml:"FailureDescription,omitempty"`
 }
@@ -32,7 +36,11 @@ func buildInsightRuleFailResult(failures []InsightRuleFailure) insightRuleFailRe
 
 	members := make([]insightRuleFailureXML, 0, len(failures))
 	for _, f := range failures {
-		members = append(members, insightRuleFailureXML(f))
+		members = append(members, insightRuleFailureXML{
+			FailureResource:    f.RuleName,
+			FailureCode:        f.FailureCode,
+			FailureDescription: f.FailureDescription,
+		})
 	}
 
 	return insightRuleFailResult{Failures: members}
@@ -242,7 +250,7 @@ func (h *Handler) handleGetInsightRuleReport(form url.Values, c *echo.Context) e
 		endTime = t
 	}
 
-	var contributors []AlarmContributor
+	var contributors []InsightRuleContributor
 	if bk, ok := h.Backend.(*InMemoryBackend); ok {
 		var innerErr error
 		func() {
@@ -298,11 +306,14 @@ func (h *Handler) handleListManagedInsightRules(form url.Values, c *echo.Context
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	type ruleStateXML struct {
+		RuleName string `xml:"RuleName,omitempty"`
+		State    string `xml:"State,omitempty"`
+	}
 	type managedRuleXML struct {
-		RuleName     string `xml:"RuleName"`
-		ResourceARN  string `xml:"ResourceARN,omitempty"`
-		RuleState    string `xml:"RuleState>Value,omitempty"`
-		TemplateName string `xml:"TemplateName,omitempty"`
+		TemplateName string       `xml:"TemplateName,omitempty"`
+		ResourceARN  string       `xml:"ResourceARN,omitempty"`
+		RuleState    ruleStateXML `xml:"RuleState"`
 	}
 	type listResult struct {
 		NextToken    string           `xml:"NextToken,omitempty"`
@@ -315,12 +326,16 @@ func (h *Handler) handleListManagedInsightRules(form url.Values, c *echo.Context
 		Result    listResult `xml:"ListManagedInsightRulesResult"`
 	}
 
+	// rule.Definition holds the managed rule's TemplateName (set by
+	// PutManagedInsightRules); rule.Name is the RuleName, which belongs
+	// under the nested RuleState, not at the top level (cloudwatch@v1.66.3
+	// schemas/schemas.go:3795-3799, ManagedRuleDescription).
 	members := make([]managedRuleXML, 0, len(p.Data))
 	for _, rule := range p.Data {
 		members = append(members, managedRuleXML{
-			RuleName:    rule.Name,
-			ResourceARN: rule.Arn,
-			RuleState:   rule.State,
+			TemplateName: rule.Definition,
+			ResourceARN:  rule.Arn,
+			RuleState:    ruleStateXML{RuleName: rule.Name, State: rule.State},
 		})
 	}
 
@@ -333,7 +348,7 @@ func (h *Handler) handleListManagedInsightRules(form url.Values, c *echo.Context
 
 func (h *Handler) handlePutManagedInsightRules(form url.Values, c *echo.Context) error {
 	type failureXML struct {
-		RuleName           string `xml:"RuleName"`
+		FailureResource    string `xml:"FailureResource"`
 		FailureCode        string `xml:"FailureCode"`
 		FailureDescription string `xml:"FailureDescription,omitempty"`
 	}
@@ -350,12 +365,19 @@ func (h *Handler) handlePutManagedInsightRules(form url.Values, c *echo.Context)
 	var failures []failureXML
 	for i := 1; ; i++ {
 		prefix := fmt.Sprintf("ManagedRules.member.%d.", i)
-		ruleName := form.Get(prefix + "RuleName")
-		if ruleName == "" {
-			break
-		}
 		templateName := form.Get(prefix + "TemplateName")
 		resourceARN := form.Get(prefix + "ResourceARN")
+		// A real client never sends RuleName (ManagedRule has no such
+		// member, only ResourceARN/TemplateName/Tags); fall back to the
+		// synthesized name only when one isn't present, so internal
+		// callers/tests can still pass an explicit name.
+		ruleName := form.Get(prefix + "RuleName")
+		if templateName == "" && resourceARN == "" && ruleName == "" {
+			break
+		}
+		if ruleName == "" {
+			ruleName = managedInsightRuleName(resourceARN, templateName)
+		}
 
 		if err := h.Backend.PutInsightRule(&InsightRule{
 			Name:        ruleName,
@@ -365,7 +387,7 @@ func (h *Handler) handlePutManagedInsightRules(form url.Values, c *echo.Context)
 			ManagedRule: true,
 		}); err != nil {
 			failures = append(failures, failureXML{
-				RuleName:           ruleName,
+				FailureResource:    ruleName,
 				FailureCode:        errCodeInternalFailure,
 				FailureDescription: err.Error(),
 			})

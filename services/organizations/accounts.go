@@ -130,7 +130,10 @@ func (b *InMemoryBackend) DescribeAccount(accountID string) (*Account, error) {
 		return nil, ErrAccountNotFound
 	}
 
-	return copyAccount(a), nil
+	cp := copyAccount(a)
+	cp.Paths = b.accountPathsLocked(accountID)
+
+	return cp, nil
 }
 
 func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
@@ -143,7 +146,9 @@ func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
 
 	out := make([]*Account, 0, b.accounts.Len())
 	for _, a := range b.accounts.All() {
-		out = append(out, copyAccount(a))
+		cp := copyAccount(a)
+		cp.Paths = b.accountPathsLocked(a.ID)
+		out = append(out, cp)
 	}
 
 	slices.SortFunc(out, func(a, b *Account) int { return cmp.Compare(a.ID, b.ID) })

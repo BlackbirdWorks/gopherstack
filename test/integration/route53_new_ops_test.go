@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	route53sdk "github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -291,6 +293,49 @@ func TestIntegration_Route53_ListTrafficPolicyVersions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listResp.StatusCode)
 	assert.Contains(t, listBody, "ListTrafficPolicyVersionsResponse")
 	assert.Contains(t, listBody, tpID)
+}
+
+// TestIntegration_Route53_ListTrafficPolicies_Markers drives
+// ListTrafficPolicies/ListTrafficPolicyVersions via the real AWS SDK v2
+// client. Both TrafficPolicyIdMarker and TrafficPolicyVersionMarker are
+// required response members (deserializers.go's
+// ListTrafficPolicies/ListTrafficPolicyVersionsOutput switches) that a real
+// client dereferences unconditionally in some codepaths — a wrong or absent
+// XML element leaves the SDK's *string field nil rather than an empty
+// string, which is the only observable proof for a marker this backend
+// never truncates on (gopherstack-lx5h).
+func TestIntegration_Route53_ListTrafficPolicies_Markers(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createRoute53Client(t)
+	ctx := t.Context()
+
+	createOut, err := client.CreateTrafficPolicy(ctx, &route53sdk.CreateTrafficPolicyInput{
+		Name:     aws.String("integ-marker-tp"),
+		Document: aws.String(`{"AWSPolicyFormatVersion":"2015-10-01","RecordType":"A","Endpoints":{},"Rules":{}}`),
+	})
+	require.NoError(t, err, "CreateTrafficPolicy should succeed")
+	require.NotNil(t, createOut.TrafficPolicy)
+	tpID := aws.ToString(createOut.TrafficPolicy.Id)
+
+	listOut, err := client.ListTrafficPolicies(ctx, &route53sdk.ListTrafficPoliciesInput{})
+	require.NoError(t, err, "ListTrafficPolicies should succeed")
+	assert.NotNil(
+		t,
+		listOut.TrafficPolicyIdMarker,
+		"TrafficPolicyIdMarker is a required response member",
+	)
+
+	versionsOut, err := client.ListTrafficPolicyVersions(ctx, &route53sdk.ListTrafficPolicyVersionsInput{
+		Id: aws.String(tpID),
+	})
+	require.NoError(t, err, "ListTrafficPolicyVersions should succeed")
+	assert.NotNil(
+		t,
+		versionsOut.TrafficPolicyVersionMarker,
+		"TrafficPolicyVersionMarker is a required response member",
+	)
 }
 
 func TestIntegration_Route53_GetTrafficPolicy(t *testing.T) {

@@ -55,8 +55,25 @@ type getLogAnomalyDetectorInput struct {
 	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
 }
 
+// getLogAnomalyDetectorOutput's members sit flat at the top level of the
+// response -- there is no "anomalyDetector" wrapper object (confirmed via
+// deserializers.go's awsAwsjson11_deserializeOpDocumentGetLogAnomalyDetectorOutput,
+// which switches directly on anomalyDetectorStatus/detectorName/etc., not a
+// nested key). anomalyDetectorArn is deliberately absent too: it is not a
+// member of the real GetLogAnomalyDetectorOutput type at all, only of its
+// ListLogAnomalyDetectors sibling. A previous revision wrapped the response
+// under "anomalyDetector" and echoed anomalyDetectorArn, so a real SDK
+// client's GetLogAnomalyDetectorOutput fields were never populated.
 type getLogAnomalyDetectorOutput struct {
-	AnomalyDetector *LogAnomalyDetector `json:"anomalyDetector,omitempty"`
+	DetectorName          string   `json:"detectorName,omitempty"`
+	AnomalyDetectorStatus string   `json:"anomalyDetectorStatus,omitempty"`
+	EvaluationFrequency   string   `json:"evaluationFrequency,omitempty"`
+	FilterPattern         string   `json:"filterPattern,omitempty"`
+	KmsKeyID              string   `json:"kmsKeyId,omitempty"`
+	LogGroupArnList       []string `json:"logGroupArnList"`
+	AnomalyVisibilityTime int64    `json:"anomalyVisibilityTime,omitempty"`
+	CreationTimeStamp     int64    `json:"creationTimeStamp"`
+	LastModifiedTimeStamp int64    `json:"lastModifiedTimeStamp,omitempty"`
 }
 
 // --- ListAnomalies ---.
@@ -168,7 +185,17 @@ func (h *Handler) handleGetLogAnomalyDetector(
 		return nil, err
 	}
 
-	return &getLogAnomalyDetectorOutput{AnomalyDetector: d}, nil
+	return &getLogAnomalyDetectorOutput{
+		DetectorName:          d.DetectorName,
+		AnomalyDetectorStatus: d.AnomalyDetectorStatus,
+		EvaluationFrequency:   d.EvaluationFrequency,
+		FilterPattern:         d.FilterPattern,
+		KmsKeyID:              d.KmsKeyID,
+		LogGroupArnList:       d.LogGroupArnList,
+		AnomalyVisibilityTime: d.AnomalyVisibilityTime,
+		CreationTimeStamp:     d.CreationTimeStamp,
+		LastModifiedTimeStamp: d.LastModifiedTimeStamp,
+	}, nil
 }
 
 func (h *Handler) handleListAnomalies(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.

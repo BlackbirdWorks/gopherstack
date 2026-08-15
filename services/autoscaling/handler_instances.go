@@ -328,6 +328,7 @@ type setInstanceHealthResponse struct {
 type setInstanceProtectionResponse struct {
 	XMLName          xml.Name            `xml:"SetInstanceProtectionResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"SetInstanceProtectionResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 

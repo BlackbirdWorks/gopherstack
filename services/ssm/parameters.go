@@ -872,6 +872,7 @@ func (b *InMemoryBackend) DescribeParameters(
 	input *DescribeParametersInput,
 ) (*DescribeParametersOutput, error) {
 	region := getRegion(ctx)
+	account := awsmeta.Account(ctx)
 
 	b.mu.RLock("DescribeParameters")
 	defer b.mu.RUnlock()
@@ -891,6 +892,7 @@ func (b *InMemoryBackend) DescribeParameters(
 			AllowedPattern:   p.AllowedPattern,
 			DataType:         p.DataType,
 			Policies:         p.Policies,
+			ARN:              parameterARN(region, account, p.Name),
 		})
 	}
 
@@ -964,7 +966,7 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 	var fieldValue string
 
 	switch f.Key {
-	case "Name":
+	case filterKeyName:
 		fieldValue = meta.Name
 	case "Type":
 		fieldValue = meta.Type

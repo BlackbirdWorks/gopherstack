@@ -239,11 +239,12 @@ type movingAddressStatusItem struct {
 }
 
 type addressItem struct {
-	AllocationID  string `xml:"allocationId"`
-	AssociationID string `xml:"associationId,omitempty"`
-	PublicIP      string `xml:"publicIp"`
-	InstanceID    string `xml:"instanceId,omitempty"`
-	Domain        string `xml:"domain"`
+	AllocationID  string          `xml:"allocationId"`
+	AssociationID string          `xml:"associationId,omitempty"`
+	PublicIP      string          `xml:"publicIp"`
+	InstanceID    string          `xml:"instanceId,omitempty"`
+	Domain        string          `xml:"domain"`
+	TagSet        []simpleTagItem `xml:"tagSet>item"`
 }
 
 type addressItemSet struct {
@@ -388,6 +389,7 @@ func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, e
 			PublicIP:      addr.PublicIP,
 			InstanceID:    addr.InstanceID,
 			Domain:        resourceTypeVPC,
+			TagSet:        tagItemsFromMap(h.Backend.TagsForResource(addr.AllocationID)),
 		})
 	}
 

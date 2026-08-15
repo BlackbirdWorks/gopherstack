@@ -437,7 +437,7 @@ func TestPasswordPolicy_ChangePassword_MinLength(t *testing.T) {
 		MinimumPasswordLength: 12,
 	}))
 
-	err := b.ChangePassword("short")
+	err := b.ChangePassword("OldPassword1!", "short")
 	require.Error(t, err)
 	require.ErrorIs(t, err, iam.ErrInvalidPassword,
 		"password below minimum length must return ErrInvalidPassword")
@@ -452,11 +452,11 @@ func TestPasswordPolicy_ChangePassword_Uppercase(t *testing.T) {
 		RequireUppercaseCharacters: true,
 	}))
 
-	err := b.ChangePassword("alllower1")
+	err := b.ChangePassword("OldPassword1!", "alllower1")
 	require.Error(t, err)
 	require.ErrorIs(t, err, iam.ErrInvalidPassword, "no uppercase must fail")
 
-	err = b.ChangePassword("HasUpper1")
+	err = b.ChangePassword("OldPassword1!", "HasUpper1")
 	require.NoError(t, err, "password with uppercase must succeed")
 }
 
@@ -469,11 +469,11 @@ func TestPasswordPolicy_ChangePassword_Lowercase(t *testing.T) {
 		RequireLowercaseCharacters: true,
 	}))
 
-	err := b.ChangePassword("ALLUPPER1")
+	err := b.ChangePassword("OldPassword1!", "ALLUPPER1")
 	require.Error(t, err)
 	require.ErrorIs(t, err, iam.ErrInvalidPassword, "no lowercase must fail")
 
-	err = b.ChangePassword("haslower1")
+	err = b.ChangePassword("OldPassword1!", "haslower1")
 	require.NoError(t, err, "password with lowercase must succeed")
 }
 
@@ -486,11 +486,11 @@ func TestPasswordPolicy_ChangePassword_Numbers(t *testing.T) {
 		RequireNumbers:        true,
 	}))
 
-	err := b.ChangePassword("NoDigits!")
+	err := b.ChangePassword("OldPassword1!", "NoDigits!")
 	require.Error(t, err)
 	require.ErrorIs(t, err, iam.ErrInvalidPassword, "no digit must fail")
 
-	err = b.ChangePassword("HasDigit1")
+	err = b.ChangePassword("OldPassword1!", "HasDigit1")
 	require.NoError(t, err, "password with digit must succeed")
 }
 
@@ -503,11 +503,11 @@ func TestPasswordPolicy_ChangePassword_Symbols(t *testing.T) {
 		RequireSymbols:        true,
 	}))
 
-	err := b.ChangePassword("NoSymbol1")
+	err := b.ChangePassword("OldPassword1!", "NoSymbol1")
 	require.Error(t, err)
 	require.ErrorIs(t, err, iam.ErrInvalidPassword, "no symbol must fail")
 
-	err = b.ChangePassword("HasSymbl!")
+	err = b.ChangePassword("OldPassword1!", "HasSymbl!")
 	require.NoError(t, err, "password with symbol must succeed")
 }
 

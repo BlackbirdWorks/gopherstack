@@ -72,7 +72,7 @@ func (b *InMemoryBackend) GetInsightRuleContributorsForTest(
 	startTime, endTime time.Time,
 	maxContributorCount int,
 	orderBy string,
-) ([]AlarmContributor, error) {
+) ([]InsightRuleContributor, error) {
 	b.mu.RLock("GetInsightRuleContributorsForTest")
 	defer b.mu.RUnlock()
 

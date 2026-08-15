@@ -455,11 +455,13 @@ func ToSDKGlobalSecondaryIndexDescriptions(
 		name := gsi.IndexName
 		status := types.IndexStatus(gsi.IndexStatus)
 		itemCount := int64(gsi.ItemCount)
+		indexSizeBytes := gsi.IndexSizeBytes
 		rcu := int64(gsi.ProvisionedThroughput.ReadCapacityUnits)
 		wcu := int64(gsi.ProvisionedThroughput.WriteCapacityUnits)
 
 		out[i] = types.GlobalSecondaryIndexDescription{
 			IndexName:   &name,
+			IndexArn:    ptrconv.NilIfEmpty(gsi.IndexArn),
 			IndexStatus: status,
 			KeySchema:   ToSDKKeySchema(gsi.KeySchema),
 			Projection:  ToSDKProjection(gsi.Projection),
@@ -467,7 +469,9 @@ func ToSDKGlobalSecondaryIndexDescriptions(
 				ReadCapacityUnits:  &rcu,
 				WriteCapacityUnits: &wcu,
 			},
-			ItemCount: &itemCount,
+			ItemCount:      &itemCount,
+			IndexSizeBytes: &indexSizeBytes,
+			Backfilling:    aws.Bool(gsi.Backfilling),
 		}
 	}
 
@@ -485,6 +489,7 @@ func ToSDKLocalSecondaryIndexDescriptions(
 
 		out[i] = types.LocalSecondaryIndexDescription{
 			IndexName:      &name,
+			IndexArn:       ptrconv.NilIfEmpty(lsi.IndexArn),
 			KeySchema:      ToSDKKeySchema(lsi.KeySchema),
 			Projection:     ToSDKProjection(lsi.Projection),
 			IndexSizeBytes: &size,

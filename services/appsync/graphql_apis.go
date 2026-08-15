@@ -82,6 +82,7 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 		Visibility:                        visibility,
 		AdditionalAuthenticationProviders: additionalAuthProviders,
 		Region:                            b.region,
+		Owner:                             b.accountID,
 		XrayEnabled:                       xrayEnabled,
 		APIType:                           apiType,
 		IntrospectionConfig:               IntrospectionConfigEnabled,

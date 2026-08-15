@@ -29,6 +29,8 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 	snapArn := b.clusterSnapshotARN(region, snapshotID)
+	azs := make([]string, len(c.AvailabilityZones))
+	copy(azs, c.AvailabilityZones)
 	snap := &DBClusterSnapshot{
 		region:                      region,
 		DBClusterSnapshotIdentifier: snapshotID,
@@ -40,6 +42,11 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		SnapshotType:                "manual",
 		PercentProgress:             snapshotPercentageComplete,
 		SnapshotCreateTime:          time.Now().UTC().Format(time.RFC3339),
+		ClusterCreateTime:           c.ClusterCreateTime,
+		KmsKeyID:                    c.KmsKeyID,
+		MasterUsername:              c.MasterUsername,
+		Port:                        c.Port,
+		AvailabilityZones:           azs,
 		DBClusterArn:                b.clusterARN(region, clusterID),
 		DBClusterSnapshotArn:        snapArn,
 		Tags:                        copyTags(tags),
@@ -119,10 +126,21 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(ctx context.Context, snapshotI
 	return &cp, nil
 }
 
-// CopyDBClusterSnapshot copies a DB cluster snapshot.
+// CopyDBClusterSnapshot copies a DB cluster snapshot. tags is the target's
+// own explicit "Tags" request member; copyTagsFromSource mirrors the
+// request's "CopyTags" flag ("Set to true to copy all tags from the source
+// cluster snapshot to the target cluster snapshot", CopyDBClusterSnapshotInput
+// doc comment). Neither was read from the request at all before this fix,
+// so a real client's CopyTags=true/Tags request was silently a no-op. The
+// SDK doc comment doesn't state a precedence rule for tags+CopyTags used
+// together, so this takes the more-specific explicit tags when given and
+// falls back to the source's tags only when tags is empty -- an
+// interpretation, not a confirmed AWS rule.
 func (b *InMemoryBackend) CopyDBClusterSnapshot(
 	ctx context.Context,
 	sourceSnapshotID, targetSnapshotID string,
+	tags map[string]string,
+	copyTagsFromSource bool,
 ) (*DBClusterSnapshot, error) {
 	if sourceSnapshotID == "" {
 		return nil, fmt.Errorf("%w: SourceDBClusterSnapshotIdentifier is required", ErrInvalidParameter)
@@ -144,18 +162,33 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 			targetSnapshotID,
 		)
 	}
+	azs := make([]string, len(src.AvailabilityZones))
+	copy(azs, src.AvailabilityZones)
+
+	snapTags := tags
+	if len(snapTags) == 0 && copyTagsFromSource {
+		snapTags = src.Tags
+	}
+
 	snap := &DBClusterSnapshot{
 		region:                      region,
 		DBClusterSnapshotIdentifier: targetSnapshotID,
 		DBClusterIdentifier:         src.DBClusterIdentifier,
 		DBClusterArn:                src.DBClusterArn,
 		DBClusterSnapshotArn:        b.clusterSnapshotARN(region, targetSnapshotID),
+		SourceDBClusterSnapshotArn:  src.DBClusterSnapshotArn,
 		Engine:                      src.Engine,
 		Status:                      statusAvailable,
 		EngineVersion:               src.EngineVersion,
 		StorageEncrypted:            src.StorageEncrypted,
 		SnapshotType:                src.SnapshotType,
 		PercentProgress:             src.PercentProgress,
+		ClusterCreateTime:           src.ClusterCreateTime,
+		KmsKeyID:                    src.KmsKeyID,
+		MasterUsername:              src.MasterUsername,
+		Port:                        src.Port,
+		AvailabilityZones:           azs,
+		Tags:                        copyTags(snapTags),
 		// SnapshotCreateTime is stamped fresh at copy time, not copied from
 		// src: real AWS's CopyDBClusterSnapshot creates a genuinely new
 		// snapshot resource with its own creation timestamp, distinct from
@@ -163,6 +196,9 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		SnapshotCreateTime: time.Now().UTC().Format(time.RFC3339),
 	}
 	b.clusterSnapshotPut(snap)
+	if len(snap.Tags) > 0 {
+		b.tagsStore(region)[snap.DBClusterSnapshotArn] = tagsFromMap(snap.Tags)
+	}
 	cp := *snap
 	cp.Tags = copyTags(snap.Tags)
 

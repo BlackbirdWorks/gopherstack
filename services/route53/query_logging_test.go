@@ -85,7 +85,7 @@ func TestDeleteZone_CascadesQueryLogging(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "", "", "")
 			require.NoError(t, err)
 
 			_, err = b.CreateQueryLoggingConfig(hz.ID, "arn:aws:logs:us-east-1:123456789012:log-group:test")
@@ -133,7 +133,7 @@ func TestCreateQueryLoggingConfig_Uniqueness(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "")
+	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "", "", "")
 	require.NoError(t, err)
 
 	_, err = b.CreateQueryLoggingConfig(hz.ID, "arn:aws:logs:us-east-1:123:log-group:test")

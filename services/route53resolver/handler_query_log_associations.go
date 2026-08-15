@@ -217,18 +217,23 @@ type listResolverQueryLogConfigAssociationsInput struct {
 
 type queryLogAssocOutputSlice = []resolverQueryLogConfigAssociationOutput
 
+// TotalCount/TotalFilteredCount -- see listResolverQueryLogConfigsOutput's
+// doc comment; same gap, same fix, ListResolverQueryLogConfigAssociations'
+// own real output members (gopherstack-6flj).
 type listResolverQueryLogConfigAssociationsOutput struct {
 	NextToken                          *string                  `json:"NextToken,omitempty"`
 	ResolverQueryLogConfigAssociations queryLogAssocOutputSlice `json:"ResolverQueryLogConfigAssociations"`
+	TotalCount                         int32                    `json:"TotalCount"`
+	TotalFilteredCount                 int32                    `json:"TotalFilteredCount"`
 }
 
 func (h *Handler) handleListResolverQueryLogConfigAssociations(
 	ctx context.Context,
 	in *listResolverQueryLogConfigAssociationsInput,
 ) (*listResolverQueryLogConfigAssociationsOutput, error) {
-	assocs := h.Backend.ListResolverQueryLogConfigAssociations(ctx)
+	all := h.Backend.ListResolverQueryLogConfigAssociations(ctx)
 	assocs, err := applyFilters(
-		assocs,
+		all,
 		in.Filters,
 		queryLogConfigAssociationFilterAliases,
 		matchQueryLogConfigAssociationFilter,
@@ -246,9 +251,12 @@ func (h *Handler) handleListResolverQueryLogConfigAssociations(
 	}
 	data, next := paginate(items, in.NextToken, in.MaxResults, defaultPageSizeLarge)
 
+	//nolint:gosec // conversion is safe: association counts are always small
 	return &listResolverQueryLogConfigAssociationsOutput{
 		ResolverQueryLogConfigAssociations: data,
 		NextToken:                          next,
+		TotalCount:                         int32(len(all)),
+		TotalFilteredCount:                 int32(len(assocs)),
 	}, nil
 }
 

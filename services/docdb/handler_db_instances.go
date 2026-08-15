@@ -110,12 +110,29 @@ func (h *Handler) handleRebootDBInstance(ctx context.Context, vals url.Values) (
 	}, nil
 }
 
-func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, error) {
-	members := []xmlOrderableDBInstanceOption{
+func (h *Handler) handleDescribeOrderableDBInstanceOptions(vals url.Values) (any, error) {
+	catalog := []xmlOrderableDBInstanceOption{
 		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBInstanceClass: "db.t3.medium"},
 		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBInstanceClass: "db.r5.large"},
 		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBInstanceClass: "db.t3.medium"},
 		{Engine: docDBEngine, EngineVersion: docDBEngineVersion5, DBInstanceClass: "db.r5.large"},
+	}
+
+	engine := vals.Get("Engine")
+	engineVersion := vals.Get("EngineVersion")
+	instanceClass := vals.Get("DBInstanceClass")
+	members := make([]xmlOrderableDBInstanceOption, 0, len(catalog))
+	for _, opt := range catalog {
+		if engine != "" && opt.Engine != engine {
+			continue
+		}
+		if engineVersion != "" && opt.EngineVersion != engineVersion {
+			continue
+		}
+		if instanceClass != "" && opt.DBInstanceClass != instanceClass {
+			continue
+		}
+		members = append(members, opt)
 	}
 
 	return &describeOrderableDBInstanceOptionsResponse{
@@ -149,6 +166,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		PreferredMaintenanceWindow:   inst.PreferredMaintenanceWindow,
 		CACertificateIdentifier:      inst.CACertificateIdentifier,
 		CopyTagsToSnapshot:           inst.CopyTagsToSnapshot,
+		InstanceCreateTime:           inst.InstanceCreateTime,
 		EnabledCloudwatchLogsExports: xmlLogTypeList{Members: logTypes},
 	}
 }
@@ -166,6 +184,7 @@ type xmlDBInstance struct {
 	DBSubnetGroupName            string         `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
 	PreferredMaintenanceWindow   string         `xml:"PreferredMaintenanceWindow,omitempty"`
 	CACertificateIdentifier      string         `xml:"CACertificateIdentifier,omitempty"`
+	InstanceCreateTime           string         `xml:"InstanceCreateTime,omitempty"`
 	EnabledCloudwatchLogsExports xmlLogTypeList `xml:"EnabledCloudwatchLogsExports"`
 	StorageEncrypted             bool           `xml:"StorageEncrypted"`
 	AutoMinorVersionUpgrade      bool           `xml:"AutoMinorVersionUpgrade"`

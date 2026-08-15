@@ -467,3 +467,159 @@ func Test_SDKRoundTrip_DescribeEventCategories(t *testing.T) {
 	require.NotEmpty(t, out.EventCategoriesMapList)
 	assert.NotEmpty(t, out.EventCategoriesMapList[0].EventCategories)
 }
+
+// Test_SDKRoundTrip_CreateDBInstance_InstanceCreateTime proves the real SDK
+// client's InstanceCreateTime is populated. types.DBInstance.InstanceCreateTime
+// ("Provides the date and time that the instance was created") was declared
+// on the real deserializer's field set (awsAwsquery_deserializeDocumentDBInstance)
+// but the backend never tracked or emitted it at all -- unlike DBCluster's
+// sibling ClusterCreateTime, which already did.
+func Test_SDKRoundTrip_CreateDBInstance_InstanceCreateTime(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-instance-create-time-cluster"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.CreateDBInstance(ctx, &docdbsdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("rt-instance-create-time"),
+		DBInstanceClass:      aws.String("db.t3.medium"),
+		Engine:               aws.String("docdb"),
+		DBClusterIdentifier:  aws.String("rt-instance-create-time-cluster"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBInstance)
+	require.NotNil(t, out.DBInstance.InstanceCreateTime,
+		"InstanceCreateTime must decode, not be left nil by a wire-shape gap")
+}
+
+// Test_SDKRoundTrip_CreateDBClusterSnapshot_DerivedFromSourceCluster proves
+// the real SDK client's AvailabilityZones/KmsKeyId/MasterUsername/Port/
+// ClusterCreateTime on a cluster snapshot are populated from the source
+// cluster. All five are real types.DBClusterSnapshot members
+// (awsAwsquery_deserializeDocumentDBClusterSnapshot) that the backend
+// already tracked on the source DBCluster but never copied onto the
+// snapshot record at all.
+func Test_SDKRoundTrip_CreateDBClusterSnapshot_DerivedFromSourceCluster(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-snap-source"),
+		Engine:              aws.String("docdb"),
+		MasterUsername:      aws.String("snapadmin"),
+		Port:                aws.Int32(27018),
+		AvailabilityZones:   []string{"us-east-1a", "us-east-1c"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.CreateDBClusterSnapshot(ctx, &docdbsdk.CreateDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String("rt-snap-derived"),
+		DBClusterIdentifier:         aws.String("rt-snap-source"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBClusterSnapshot)
+
+	snap := out.DBClusterSnapshot
+	require.ElementsMatch(t, []string{"us-east-1a", "us-east-1c"}, snap.AvailabilityZones)
+	assert.Equal(t, "snapadmin", aws.ToString(snap.MasterUsername))
+	assert.Equal(t, int32(27018), aws.ToInt32(snap.Port))
+	require.NotNil(t, snap.ClusterCreateTime, "ClusterCreateTime must decode, echoing the source cluster's own")
+}
+
+// Test_SDKRoundTrip_CopyDBClusterSnapshot_TagsAndSourceArn proves the real
+// SDK client's CopyTags and SourceDBClusterSnapshotArn actually apply.
+// CopyDBClusterSnapshotInput.CopyTags/Tags were parsed by neither the
+// handler nor the backend at all -- a real client's "copy the source's
+// tags to the target" request was a silent no-op -- and
+// types.DBClusterSnapshot.SourceDBClusterSnapshotArn (a real response
+// member) was never populated on a copy.
+func Test_SDKRoundTrip_CopyDBClusterSnapshot_TagsAndSourceArn(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-copy-source-cluster"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDBClusterSnapshot(ctx, &docdbsdk.CreateDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String("rt-copy-source-snap"),
+		DBClusterIdentifier:         aws.String("rt-copy-source-cluster"),
+		Tags: []types.Tag{
+			{Key: aws.String("env"), Value: aws.String("prod")},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.CopyDBClusterSnapshot(ctx, &docdbsdk.CopyDBClusterSnapshotInput{
+		SourceDBClusterSnapshotIdentifier: aws.String("rt-copy-source-snap"),
+		TargetDBClusterSnapshotIdentifier: aws.String("rt-copy-target-snap"),
+		CopyTags:                          aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBClusterSnapshot)
+	assert.Contains(t, aws.ToString(out.DBClusterSnapshot.SourceDBClusterSnapshotArn), "rt-copy-source-snap")
+
+	tagsOut, err := client.ListTagsForResource(ctx, &docdbsdk.ListTagsForResourceInput{
+		ResourceName: out.DBClusterSnapshot.DBClusterSnapshotArn,
+	})
+	require.NoError(t, err)
+	require.Len(t, tagsOut.TagList, 1, "CopyTags=true must have copied the source snapshot's tags")
+	assert.Equal(t, "env", aws.ToString(tagsOut.TagList[0].Key))
+	assert.Equal(t, "prod", aws.ToString(tagsOut.TagList[0].Value))
+}
+
+// Test_SDKRoundTrip_RestoreDBClusterFromSnapshot proves the real SDK client's
+// RestoreDBClusterFromSnapshotInput.SnapshotIdentifier reaches the backend.
+// The real serializer (awsAwsquery_serializeOpDocumentRestoreDBClusterFromSnapshotInput,
+// docdb@v1.51.4 serializers.go:5845) encodes the field as "SnapshotIdentifier";
+// the handler used to read "DBClusterSnapshotIdentifier" instead (that key is
+// valid for CreateDBClusterSnapshot/DescribeDBClusterSnapshots, not this op),
+// so every real client's snapshot ID was silently dropped and the restore
+// always failed with DBClusterSnapshotNotFoundFault.
+func Test_SDKRoundTrip_RestoreDBClusterFromSnapshot(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-restore-source"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDBClusterSnapshot(ctx, &docdbsdk.CreateDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String("rt-restore-snap"),
+		DBClusterIdentifier:         aws.String("rt-restore-source"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.RestoreDBClusterFromSnapshot(ctx, &docdbsdk.RestoreDBClusterFromSnapshotInput{
+		DBClusterIdentifier: aws.String("rt-restored"),
+		SnapshotIdentifier:  aws.String("rt-restore-snap"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.DBCluster)
+	assert.Equal(t, "rt-restored", aws.ToString(out.DBCluster.DBClusterIdentifier))
+}

@@ -1,6 +1,9 @@
 package bedrock
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Tag represents a key-value tag on a Bedrock resource.
 type Tag struct {
@@ -216,15 +219,21 @@ type EvaluationJob struct {
 
 // AutomatedReasoningPolicy represents an Automated Reasoning policy.
 type AutomatedReasoningPolicy struct {
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
-	PolicyArn      string    `json:"policyArn"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description,omitempty"`
-	Status         string    `json:"status"`
-	DefinitionHash string    `json:"definitionHash,omitempty"`
-	Version        string    `json:"version,omitempty"`
-	Tags           []Tag     `json:"tags,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	PolicyArn string    `json:"policyArn"`
+	Name      string    `json:"name"`
+	// PolicyDefinition is stored verbatim from UpdateAutomatedReasoningPolicy's
+	// required policyDefinition body member (bedrock@v1.66.4
+	// api_op_UpdateAutomatedReasoningPolicy.go:37-63). Kept as raw JSON rather
+	// than the real nested rules/types/variables union -- inert, never
+	// interpreted, but genuinely the caller's own content, not fabricated.
+	PolicyDefinition json.RawMessage `json:"policyDefinition,omitempty"`
+	Description      string          `json:"description,omitempty"`
+	Status           string          `json:"status"`
+	DefinitionHash   string          `json:"definitionHash,omitempty"`
+	Version          string          `json:"version,omitempty"`
+	Tags             []Tag           `json:"tags,omitempty"`
 }
 
 // AutomatedReasoningPolicyBuildWorkflow represents a build workflow for a policy.
@@ -232,6 +241,14 @@ type AutomatedReasoningPolicyBuildWorkflow struct {
 	BuildWorkflowID string `json:"buildWorkflowId"`
 	PolicyArn       string `json:"policyArn"`
 	Status          string `json:"status"`
+	// BuildWorkflowType and SourceContent come from
+	// StartAutomatedReasoningPolicyBuildWorkflow's real path/body
+	// (bedrock@v1.66.4 serializers.go:8008: buildWorkflowType is a path
+	// label, sourceContent is the entire JSON payload). SourceContent is
+	// stored verbatim and never interpreted -- same rationale as
+	// AutomatedReasoningPolicy.PolicyDefinition above.
+	BuildWorkflowType string          `json:"buildWorkflowType,omitempty"`
+	SourceContent     json.RawMessage `json:"sourceContent,omitempty"`
 }
 
 // AutomatedReasoningPolicyTestCase represents a test case for a policy.
@@ -323,9 +340,14 @@ type ModelCopyJob struct {
 	JobArn           string    `json:"jobArn"`
 	SourceModelArn   string    `json:"sourceModelArn"`
 	TargetModelArn   string    `json:"targetModelArn"`
-	Status           string    `json:"status"`
-	FailureMessage   string    `json:"failureMessage,omitempty"`
-	Tags             []Tag     `json:"tags,omitempty"`
+	// TargetModelName is the caller's real input (CreateModelCopyJobInput's
+	// required targetModelName, bedrock@v1.66.4 serializers.go:1720-1750) --
+	// not surfaced by GetModelCopyJobOutput itself, but kept as real backing
+	// state rather than discarded now that TargetModelArn is built from it.
+	TargetModelName string `json:"targetModelName,omitempty"`
+	Status          string `json:"status"`
+	FailureMessage  string `json:"failureMessage,omitempty"`
+	Tags            []Tag  `json:"tags,omitempty"`
 }
 
 // ModelImportJob represents a model import job.
@@ -343,6 +365,27 @@ type ModelImportJob struct {
 	Tags              []Tag      `json:"tags,omitempty"`
 }
 
+// OutputDataConfig mirrors bedrock@v1.66.4 types.OutputDataConfig
+// (api_op_CreateModelCustomizationJob.go), the S3 location a completed job
+// writes its output to.
+type OutputDataConfig struct {
+	S3Uri string `json:"s3Uri"`
+}
+
+// TrainingDataConfig mirrors bedrock@v1.66.4 types.TrainingDataConfig
+// (api_op_CreateModelCustomizationJob.go). InvocationLogSource is flattened
+// to InvocationLogSourceS3Uri, the same way ModelImportJob.ModelDataSourceS3
+// flattens ModelDataSource above -- it is the union's only member
+// (types.InvocationLogSourceMemberS3Uri). RequestMetadataFilters is not
+// modeled: a recursive filter-expression union (AndAll/OrAll/Equals/NotEquals)
+// that only prunes which invocation logs a Distillation job trains on, and
+// this backend has no invocation-log pipeline for such filters to act on.
+type TrainingDataConfig struct {
+	S3Uri                    string `json:"s3Uri,omitempty"`
+	InvocationLogSourceS3Uri string `json:"invocationLogSourceS3Uri,omitempty"`
+	UsePromptResponse        bool   `json:"usePromptResponse,omitempty"`
+}
+
 // ModelCustomizationJob represents a model customization job. BaseModelName is
 // the display name of the foundation model resolved from BaseModelArn (best
 // effort: only populated when the base model identifier matches a seeded
@@ -350,21 +393,30 @@ type ModelImportJob struct {
 // completion (see AdvanceCustomizationJobStatuses) can populate
 // CustomModelSummary's required baseModelName without a second lookup.
 type ModelCustomizationJob struct {
-	CreationTime      time.Time `json:"creationTime"`
-	LastModifiedTime  time.Time `json:"lastModifiedTime"`
-	EndTime           time.Time `json:"endTime"`
-	JobArn            string    `json:"jobArn"`
-	JobName           string    `json:"jobName"`
-	BaseModelArn      string    `json:"baseModelArn"`
-	BaseModelName     string    `json:"baseModelName,omitempty"`
-	OutputModelArn    string    `json:"outputModelArn"`
-	CustomModelName   string    `json:"customModelName"`
-	Status            string    `json:"status"`
-	CustomizationType string    `json:"customizationType,omitempty"`
-	Tags              []Tag     `json:"tags,omitempty"`
+	CreationTime       time.Time          `json:"creationTime"`
+	LastModifiedTime   time.Time          `json:"lastModifiedTime"`
+	EndTime            time.Time          `json:"endTime"`
+	JobArn             string             `json:"jobArn"`
+	JobName            string             `json:"jobName"`
+	BaseModelArn       string             `json:"baseModelArn"`
+	BaseModelName      string             `json:"baseModelName,omitempty"`
+	OutputModelArn     string             `json:"outputModelArn"`
+	CustomModelName    string             `json:"customModelName"`
+	Status             string             `json:"status"`
+	CustomizationType  string             `json:"customizationType,omitempty"`
+	RoleArn            string             `json:"roleArn"`
+	OutputDataConfig   OutputDataConfig   `json:"outputDataConfig"`
+	TrainingDataConfig TrainingDataConfig `json:"trainingDataConfig"`
+	Tags               []Tag              `json:"tags,omitempty"`
 }
 
-// InferenceProfile represents an inference profile resource.
+// InferenceProfile represents an inference profile resource. ModelSource is
+// the CopyFrom ARN from types.InferenceProfileModelSource
+// (api_op_CreateInferenceProfile.go), the union's only member -- the
+// foundation model or system-defined inference profile this profile tracks.
+// GetInferenceProfileOutput echoes it back as the required Models list
+// (types.InferenceProfileModel), not as ModelSource itself; see
+// inferenceProfileToOutput.
 type InferenceProfile struct {
 	CreatedAt            time.Time `json:"createdAt"`
 	UpdatedAt            time.Time `json:"updatedAt"`
@@ -374,6 +426,7 @@ type InferenceProfile struct {
 	Status               string    `json:"status"`
 	Type                 string    `json:"type"`
 	Description          string    `json:"description,omitempty"`
+	ModelSource          string    `json:"modelSource"`
 	Tags                 []Tag     `json:"tags,omitempty"`
 }
 

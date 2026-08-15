@@ -96,7 +96,7 @@ type StorageBackend interface {
 	) error
 	ListAgentKnowledgeBases(
 		ctx context.Context, agentID, agentVersion string, maxResults int, nextToken string,
-	) ([]*AgentKnowledgeBase, string, error)
+	) ([]*AgentKnowledgeBaseSummary, string, error)
 
 	// Data source operations.
 	CreateDataSource(ctx context.Context, kbID string, cfg DataSourceConfig) (*DataSource, error)
@@ -158,10 +158,10 @@ type StorageBackend interface {
 		ctx context.Context, kbID, dataSourceID string, docs []KBDocument,
 	) ([]KBDocumentDetail, error)
 	GetKnowledgeBaseDocuments(
-		ctx context.Context, kbID, dataSourceID string, docIDs []string,
+		ctx context.Context, kbID, dataSourceID string, ids []KBDocumentIdentifier,
 	) ([]KBDocumentDetail, error)
 	DeleteKnowledgeBaseDocuments(
-		ctx context.Context, kbID, dataSourceID string, docIDs []string,
+		ctx context.Context, kbID, dataSourceID string, ids []KBDocumentIdentifier,
 	) ([]KBDocumentDetail, error)
 	ListKnowledgeBaseDocuments(
 		ctx context.Context, kbID, dataSourceID string, maxResults int, nextToken string,

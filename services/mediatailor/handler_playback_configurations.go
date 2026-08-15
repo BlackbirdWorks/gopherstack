@@ -11,8 +11,8 @@ import (
 
 func (h *Handler) handlePutPlaybackConfiguration(c *echo.Context, body map[string]any) error {
 	name, _ := body[keyName].(string)
-	adsURL, _ := body["AdDecisionServerUrl"].(string)
-	videoURL, _ := body["VideoContentSourceUrl"].(string)
+	adsURL, _ := body[keyAdDecisionServerURL].(string)
+	videoURL, _ := body[keyVideoContentSourceURL].(string)
 	tags := extractTags(body)
 	extra := extractExtraConfig(body)
 
@@ -50,15 +50,21 @@ func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		item := map[string]any{
-			keyName:                    s.Name,
-			"PlaybackConfigurationArn": s.PlaybackConfigurationARN,
-			"AdDecisionServerUrl":      s.AdDecisionServerURL,
-			"VideoContentSourceUrl":    s.VideoContentSourceURL,
-			keyTags:                    nilToEmpty(s.Tags),
-		}
-		mergeExtraConfig(item, s.Extra)
-		out = append(out, item)
+		// ListPlaybackConfigurationsOutput.Items is []types.PlaybackConfiguration,
+		// the same full type GetPlaybackConfiguration returns, so reuse
+		// toPlaybackConfigOutput rather than re-deriving a slimmer shape.
+		out = append(out, toPlaybackConfigOutput(&PlaybackConfiguration{
+			Name:                        s.Name,
+			PlaybackConfigurationARN:    s.PlaybackConfigurationARN,
+			AdDecisionServerURL:         s.AdDecisionServerURL,
+			VideoContentSourceURL:       s.VideoContentSourceURL,
+			Tags:                        s.Tags,
+			PlaybackEndpointPrefix:      s.PlaybackEndpointPrefix,
+			SessionInitializationPrefix: s.SessionInitializationPrefix,
+			HlsManifestEndpointPrefix:   s.HlsManifestEndpointPrefix,
+			LogConfiguration:            s.LogConfiguration,
+			Extra:                       s.Extra,
+		}))
 	}
 
 	resp := map[string]any{keyItems: out}
@@ -73,21 +79,35 @@ func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 	out := map[string]any{
 		keyName:                               cfg.Name,
 		"PlaybackConfigurationArn":            cfg.PlaybackConfigurationARN,
-		"AdDecisionServerUrl":                 cfg.AdDecisionServerURL,
-		"VideoContentSourceUrl":               cfg.VideoContentSourceURL,
+		keyAdDecisionServerURL:                cfg.AdDecisionServerURL,
+		keyVideoContentSourceURL:              cfg.VideoContentSourceURL,
 		"PlaybackEndpointPrefix":              cfg.PlaybackEndpointPrefix,
 		"SessionInitializationEndpointPrefix": cfg.SessionInitializationPrefix,
 		keyTags:                               nilToEmpty(cfg.Tags),
 	}
 
 	if cfg.HlsManifestEndpointPrefix != "" {
-		out["HlsConfiguration"] = map[string]any{
+		hlsCfg := map[string]any{
 			"ManifestEndpointPrefix": cfg.HlsManifestEndpointPrefix,
 		}
+
+		if cfg.HlsDualStackManifestEndpointPrefix != "" {
+			hlsCfg["DualStackManifestEndpointPrefix"] = cfg.HlsDualStackManifestEndpointPrefix
+		}
+
+		out["HlsConfiguration"] = hlsCfg
 	}
 
 	if cfg.LogConfiguration != nil {
 		out["LogConfiguration"] = toLogConfigurationOutput(cfg.LogConfiguration)
+	}
+
+	if cfg.DualStackPlaybackEndpointPrefix != "" {
+		out["DualStackPlaybackEndpointPrefix"] = cfg.DualStackPlaybackEndpointPrefix
+	}
+
+	if cfg.DualStackSessionInitializationEndpointPrefix != "" {
+		out["DualStackSessionInitializationEndpointPrefix"] = cfg.DualStackSessionInitializationEndpointPrefix
 	}
 
 	mergeExtraConfig(out, cfg.Extra)

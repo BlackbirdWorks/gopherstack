@@ -24,7 +24,7 @@ func (h *Handler) handleGetCollaborationPrivacyBudgetTemplate(
 		return nil, err
 	}
 
-	return mustJSON(map[string]any{keyPrivacyBudgetTemplate: t}), nil
+	return mustJSON(map[string]any{keyCollaborationPrivacyBudgetTemplate: t}), nil
 }
 
 func (h *Handler) handleListCollaborationPrivacyBudgetTemplates(
@@ -44,7 +44,7 @@ func (h *Handler) handleListCollaborationPrivacyBudgetTemplates(
 	if err != nil {
 		return nil, err
 	}
-	resp := map[string]any{"privacyBudgetTemplateSummaries": items}
+	resp := map[string]any{"collaborationPrivacyBudgetTemplateSummaries": items}
 	if next != "" {
 		resp["nextToken"] = next
 	}
@@ -70,7 +70,7 @@ func (h *Handler) handleListCollaborationPrivacyBudgets(
 	if err != nil {
 		return nil, err
 	}
-	resp := map[string]any{"privacyBudgetSummaries": items}
+	resp := map[string]any{"collaborationPrivacyBudgetSummaries": items}
 	if next != "" {
 		resp["nextToken"] = next
 	}

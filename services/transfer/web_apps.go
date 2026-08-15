@@ -141,6 +141,7 @@ func (b *InMemoryBackend) ListWebApps() []*WebApp {
 type UpdateWebAppInput struct {
 	IdentityCenterRole *string
 	WebAppUnits        *int32
+	VpcIPAddressType   *string
 	WebAppID           string
 	AccessEndpoint     string
 	VpcSubnetIDs       []string
@@ -166,6 +167,14 @@ func (b *InMemoryBackend) UpdateWebApp(in *UpdateWebAppInput) (*WebApp, error) {
 		}
 
 		w.VpcConfig.SubnetIDs = append([]string(nil), in.VpcSubnetIDs...)
+	}
+
+	if in.VpcIPAddressType != nil {
+		if w.VpcConfig == nil {
+			w.VpcConfig = &WebAppVpcConfig{VpcEndpointID: "vpce-" + uuid.NewString()[:17]}
+		}
+
+		w.VpcConfig.IPAddressType = *in.VpcIPAddressType
 	}
 
 	if in.IdentityCenterRole != nil {

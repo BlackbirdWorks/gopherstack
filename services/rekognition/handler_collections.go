@@ -76,6 +76,7 @@ type describeCollectionResp struct {
 	FaceModelVersion  string  `json:"FaceModelVersion"`
 	CreationTimestamp float64 `json:"CreationTimestamp"`
 	FaceCount         int64   `json:"FaceCount"`
+	UserCount         int64   `json:"UserCount"`
 }
 
 func (h *Handler) handleDescribeCollection(
@@ -101,6 +102,7 @@ func (h *Handler) handleDescribeCollection(
 		CreationTimestamp: epochSeconds(coll.CreationTimestamp),
 		FaceCount:         int64(len(faces)),
 		FaceModelVersion:  coll.FaceModelVersion,
+		UserCount:         coll.UserCount,
 	}, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 )
 
 // CreateCluster creates a new MSK cluster.
@@ -64,6 +65,7 @@ func (b *InMemoryBackend) CreateCluster(
 		State:                ClusterStateCreating,
 		CurrentVersion:       DefaultClusterVersion,
 		Tags:                 nonNilTagsCopy(tags),
+		CreationTime:         time.Now().UTC().Format(time.RFC3339),
 	}
 	b.clusters.Put(cluster)
 
@@ -104,6 +106,7 @@ func (b *InMemoryBackend) CreateServerlessCluster(
 		CurrentVersion: DefaultClusterVersion,
 		Tags:           nonNilTagsCopy(tags),
 		Serverless:     cloneServerless(serverless),
+		CreationTime:   time.Now().UTC().Format(time.RFC3339),
 	}
 	b.clusters.Put(cluster)
 
@@ -196,6 +199,7 @@ func (b *InMemoryBackend) AddClusterInternal(name, kafkaVersion string) *Cluster
 		State:               ClusterStateActive,
 		CurrentVersion:      DefaultClusterVersion,
 		Tags:                make(map[string]string),
+		CreationTime:        time.Now().UTC().Format(time.RFC3339),
 	}
 	b.clusters.Put(cluster)
 
@@ -239,6 +243,7 @@ func cloneCluster(c *Cluster) *Cluster {
 	clone.OpenMonitoring = cloneOpenMonitoring(c.OpenMonitoring)
 	clone.LoggingInfo = cloneLoggingInfo(c.LoggingInfo)
 	clone.Serverless = cloneServerless(c.Serverless)
+	clone.Rebalancing = cloneRebalancing(c.Rebalancing)
 
 	if c.StateInfo != nil {
 		si := *c.StateInfo
@@ -396,6 +401,17 @@ func cloneLoggingInfo(li *LoggingInfo) *LoggingInfo {
 	}
 
 	return clone
+}
+
+// cloneRebalancing copies a Rebalancing.
+func cloneRebalancing(r *Rebalancing) *Rebalancing {
+	if r == nil {
+		return nil
+	}
+
+	clone := *r
+
+	return &clone
 }
 
 // cloneServerless deep-copies a ServerlessClusterInfo.

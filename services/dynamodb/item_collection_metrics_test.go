@@ -330,3 +330,123 @@ func TestDeleteUpdate_ItemCollectionMetrics(t *testing.T) {
 	assert.Contains(t, del.ItemCollectionMetrics.ItemCollectionKey, "pk")
 	assert.NotContains(t, del.ItemCollectionMetrics.ItemCollectionKey, "sk")
 }
+
+// batchWriteICMResult and transactWriteICMResult decode the per-table
+// ItemCollectionMetrics shape returned by BatchWriteItem/TransactWriteItems.
+type batchWriteICMResult struct {
+	ItemCollectionMetrics map[string][]struct {
+		ItemCollectionKey   map[string]any `json:"ItemCollectionKey"`
+		SizeEstimateRangeGB []float64      `json:"SizeEstimateRangeGB"`
+	} `json:"ItemCollectionMetrics"`
+}
+
+// TestBatchWriteItem_ItemCollectionMetrics verifies that BatchWriteItem returns
+// ItemCollectionMetrics, keyed by table name, when the target table has an LSI and
+// ReturnItemCollectionMetrics=SIZE is requested -- and omits the field entirely when
+// not requested. dynamodb.BatchWriteItemOutput.ItemCollectionMetrics
+// (api_op_BatchWriteItem.go) is a real, conditionally-populated response member that
+// the backend previously never set at all.
+func TestBatchWriteItem_ItemCollectionMetrics(t *testing.T) {
+	t.Parallel()
+
+	h := dynamodb.NewHandler(dynamodb.NewInMemoryDB())
+	w := makeHandlerJSONRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "bw-icm-tbl"))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	putReq := func(sk string) map[string]any {
+		return map[string]any{
+			"PutRequest": map[string]any{
+				"Item": map[string]any{
+					"pk":     map[string]any{"S": "user1"},
+					"sk":     map[string]any{"S": sk},
+					"lsi_sk": map[string]any{"S": sk},
+				},
+			},
+		}
+	}
+
+	w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.BatchWriteItem", marshalJSONBody(t, map[string]any{
+		"RequestItems": map[string]any{
+			"bw-icm-tbl": []map[string]any{putReq("ord1"), putReq("ord2")},
+		},
+		"ReturnItemCollectionMetrics": "SIZE",
+	}))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var withMetrics batchWriteICMResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &withMetrics))
+	require.Contains(t, withMetrics.ItemCollectionMetrics, "bw-icm-tbl")
+	metrics := withMetrics.ItemCollectionMetrics["bw-icm-tbl"]
+	require.Len(t, metrics, 2, "one metric per PutRequest")
+
+	for _, m := range metrics {
+		assert.Contains(t, m.ItemCollectionKey, "pk")
+		assert.NotContains(t, m.ItemCollectionKey, "sk")
+		require.Len(t, m.SizeEstimateRangeGB, 2)
+		assert.GreaterOrEqual(t, m.SizeEstimateRangeGB[0], 0.0)
+	}
+
+	// Without ReturnItemCollectionMetrics, the field must be entirely absent.
+	w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.BatchWriteItem", marshalJSONBody(t, map[string]any{
+		"RequestItems": map[string]any{
+			"bw-icm-tbl": []map[string]any{putReq("ord3")},
+		},
+	}))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Body.String(), "ItemCollectionMetrics",
+		"ItemCollectionMetrics must be omitted when not requested")
+}
+
+// TestTransactWriteItems_ItemCollectionMetrics verifies that TransactWriteItems
+// returns ItemCollectionMetrics, keyed by table name, when the target table has an
+// LSI and ReturnItemCollectionMetrics=SIZE is requested -- and omits the field
+// entirely when not requested. dynamodb.TransactWriteItemsOutput.ItemCollectionMetrics
+// (api_op_TransactWriteItems.go) is a real, conditionally-populated response member
+// that the backend previously never set at all.
+func TestTransactWriteItems_ItemCollectionMetrics(t *testing.T) {
+	t.Parallel()
+
+	h := dynamodb.NewHandler(dynamodb.NewInMemoryDB())
+	w := makeHandlerJSONRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "tw-icm-tbl"))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	putItem := func(sk string) map[string]any {
+		return map[string]any{
+			"Put": map[string]any{
+				"TableName": "tw-icm-tbl",
+				"Item": map[string]any{
+					"pk":     map[string]any{"S": "user1"},
+					"sk":     map[string]any{"S": sk},
+					"lsi_sk": map[string]any{"S": sk},
+				},
+			},
+		}
+	}
+
+	w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.TransactWriteItems", marshalJSONBody(t, map[string]any{
+		"TransactItems":               []map[string]any{putItem("ord1"), putItem("ord2")},
+		"ReturnItemCollectionMetrics": "SIZE",
+	}))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var withMetrics batchWriteICMResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &withMetrics))
+	require.Contains(t, withMetrics.ItemCollectionMetrics, "tw-icm-tbl")
+	metrics := withMetrics.ItemCollectionMetrics["tw-icm-tbl"]
+	require.Len(t, metrics, 2, "one metric per Put transact item")
+
+	for _, m := range metrics {
+		assert.Contains(t, m.ItemCollectionKey, "pk")
+		assert.NotContains(t, m.ItemCollectionKey, "sk")
+		require.Len(t, m.SizeEstimateRangeGB, 2)
+		assert.GreaterOrEqual(t, m.SizeEstimateRangeGB[0], 0.0)
+	}
+
+	// Without ReturnItemCollectionMetrics, the field must be entirely absent.
+	w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.TransactWriteItems", marshalJSONBody(t, map[string]any{
+		"TransactItems": []map[string]any{putItem("ord3")},
+	}))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Body.String(), "ItemCollectionMetrics",
+		"ItemCollectionMetrics must be omitted when not requested")
+}

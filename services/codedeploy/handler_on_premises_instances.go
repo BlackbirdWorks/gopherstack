@@ -103,6 +103,7 @@ func (h *Handler) handleDeregisterOnPremisesInstance(
 type onPremisesInstanceInfo struct {
 	DeregisterTime *float64   `json:"deregisterTime,omitempty"`
 	InstanceName   string     `json:"instanceName"`
+	InstanceArn    string     `json:"instanceArn,omitempty"`
 	IamSessionArn  string     `json:"iamSessionArn,omitempty"`
 	IamUserArn     string     `json:"iamUserArn,omitempty"`
 	Tags           []tagEntry `json:"tags"`
@@ -132,6 +133,7 @@ func (h *Handler) handleGetOnPremisesInstance(
 
 	info := onPremisesInstanceInfo{
 		InstanceName:  inst.InstanceName,
+		InstanceArn:   h.Backend.OnPremisesInstanceARN(inst.InstanceName),
 		RegisterTime:  awstime.Epoch(inst.RegisterTime),
 		IamSessionArn: inst.IamSessionArn,
 		IamUserArn:    inst.IamUserArn,
@@ -196,6 +198,7 @@ func (h *Handler) handleBatchGetOnPremisesInstances(
 	for _, inst := range instances {
 		info := onPremisesInstanceInfo{
 			InstanceName:  inst.InstanceName,
+			InstanceArn:   h.Backend.OnPremisesInstanceARN(inst.InstanceName),
 			RegisterTime:  awstime.Epoch(inst.RegisterTime),
 			IamSessionArn: inst.IamSessionArn,
 			IamUserArn:    inst.IamUserArn,

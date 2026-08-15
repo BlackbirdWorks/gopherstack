@@ -7,6 +7,7 @@ package dynamodb
 import (
 	"context"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
@@ -67,12 +68,12 @@ func throughputFromUpdate(u *types.AutoScalingSettingsUpdate) *autoScalingThroug
 }
 
 // applyAutoScalingSettingsLocked sets table.AutoScaling from input and
-// snapshots the table's name, status, and replica list, all under a single
-// defer-protected table.mu.Lock.
+// snapshots the table's name, status, replica list, and the just-applied
+// write-capacity settings, all under a single defer-protected table.mu.Lock.
 func applyAutoScalingSettingsLocked(
 	table *Table,
 	input *dynamodb.UpdateTableReplicaAutoScalingInput,
-) (string, string, []models.ReplicaDescription) {
+) (string, string, []models.ReplicaDescription, *autoScalingThroughput) {
 	table.mu.Lock("UpdateTableReplicaAutoScaling")
 	defer table.mu.Unlock()
 
@@ -80,7 +81,7 @@ func applyAutoScalingSettingsLocked(
 	replicas := make([]models.ReplicaDescription, len(table.Replicas))
 	copy(replicas, table.Replicas)
 
-	return table.Name, table.Status, replicas
+	return table.Name, table.Status, replicas, table.AutoScaling.Write
 }
 
 // --- UpdateTableReplicaAutoScaling ---
@@ -100,16 +101,18 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 		return nil, err
 	}
 
-	tableName, tableStatus, replicas := applyAutoScalingSettingsLocked(table, input)
+	tableName, tableStatus, replicas, write := applyAutoScalingSettingsLocked(table, input)
 
 	replicaDescs := make([]types.ReplicaAutoScalingDescription, 0, len(replicas))
 
 	for _, r := range replicas {
 		region := r.RegionName
+		status := r.ReplicaStatus
 
 		replicaDescs = append(replicaDescs, types.ReplicaAutoScalingDescription{
 			RegionName:    &region,
-			ReplicaStatus: types.ReplicaStatusActive,
+			ReplicaStatus: types.ReplicaStatus(status),
+			ReplicaProvisionedWriteCapacityAutoScalingSettings: sdkAutoScalingSettingsDescription(write),
 		})
 	}
 
@@ -118,6 +121,81 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 			TableName:   &tableName,
 			TableStatus: types.TableStatus(tableStatus),
 			Replicas:    replicaDescs,
+		},
+	}, nil
+}
+
+// sdkAutoScalingSettingsDescription converts a persisted autoScalingThroughput
+// into the SDK description type, or nil if t is nil (no settings configured).
+func sdkAutoScalingSettingsDescription(t *autoScalingThroughput) *types.AutoScalingSettingsDescription {
+	if t == nil {
+		return nil
+	}
+
+	disabled := t.Disabled
+
+	return &types.AutoScalingSettingsDescription{
+		MinimumUnits:        t.MinCapacity,
+		MaximumUnits:        t.MaxCapacity,
+		AutoScalingDisabled: &disabled,
+	}
+}
+
+// --- DescribeTableReplicaAutoScaling ---
+
+// replicaAutoScalingDescriptionsRLocked copies table.Status and table.Replicas,
+// along with the table's write-capacity autoscaling settings (applied
+// uniformly to every replica -- this emulator doesn't model per-replica
+// overrides), into the SDK description type under a defer-protected
+// table.mu.RLock.
+func replicaAutoScalingDescriptionsRLocked(table *Table) (string, []types.ReplicaAutoScalingDescription) {
+	table.mu.RLock(opDescribeTableReplicaAutoScaling)
+	defer table.mu.RUnlock()
+
+	var write *types.AutoScalingSettingsDescription
+	if table.AutoScaling != nil {
+		write = sdkAutoScalingSettingsDescription(table.AutoScaling.Write)
+	}
+
+	replicas := make([]types.ReplicaAutoScalingDescription, 0, len(table.Replicas))
+	for _, r := range table.Replicas {
+		region := r.RegionName
+		status := r.ReplicaStatus
+
+		replicas = append(replicas, types.ReplicaAutoScalingDescription{
+			RegionName:    &region,
+			ReplicaStatus: types.ReplicaStatus(status),
+			ReplicaProvisionedWriteCapacityAutoScalingSettings: write,
+		})
+	}
+
+	return table.Status, replicas
+}
+
+// DescribeTableReplicaAutoScaling returns the autoscaling settings for a
+// table's replicas. It satisfies the StorageBackend interface using official
+// AWS SDK v2 types.
+func (db *InMemoryDB) DescribeTableReplicaAutoScaling(
+	ctx context.Context,
+	input *dynamodb.DescribeTableReplicaAutoScalingInput,
+) (*dynamodb.DescribeTableReplicaAutoScalingOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	if tableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	table, err := db.getTable(ctx, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	tableStatus, replicas := replicaAutoScalingDescriptionsRLocked(table)
+
+	return &dynamodb.DescribeTableReplicaAutoScalingOutput{
+		TableAutoScalingDescription: &types.TableAutoScalingDescription{
+			TableName:   &tableName,
+			TableStatus: types.TableStatus(tableStatus),
+			Replicas:    replicas,
 		},
 	}, nil
 }

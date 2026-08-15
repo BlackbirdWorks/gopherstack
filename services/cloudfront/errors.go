@@ -6,6 +6,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
+// codeEntityNotFound is the generic not-found code several unrelated CloudFront operations
+// declare in place of a dedicated per-resource-type code (KVS, resource policies,
+// ListDomainConflicts's DomainControlValidationResource).
+const codeEntityNotFound = "EntityNotFound"
+
 var (
 	// ErrNotFound is returned when a requested distribution does not exist.
 	ErrNotFound = awserr.New("NoSuchDistribution", awserr.ErrNotFound)
@@ -97,11 +102,13 @@ var (
 	// ErrRealtimeLogConfigNotFound is returned when a requested realtime log config does not exist.
 	ErrRealtimeLogConfigNotFound = awserr.New("NoSuchRealtimeLogConfig", awserr.ErrNotFound)
 	// ErrKeyValueStoreNotFound is returned when a requested key value store does not exist.
-	ErrKeyValueStoreNotFound = awserr.New("EntityNotFound", awserr.ErrNotFound)
+	ErrKeyValueStoreNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 	// ErrVpcOriginNotFound is returned when a requested VPC origin does not exist.
 	ErrVpcOriginNotFound = awserr.New("NoSuchVpcOrigin", awserr.ErrNotFound)
-	// ErrResourcePolicyNotFound is returned when no resource policy has been put for a resource ARN.
-	ErrResourcePolicyNotFound = awserr.New("NoSuchResourcePolicy", awserr.ErrNotFound)
+	// ErrResourcePolicyNotFound is returned when no resource policy has been put for a
+	// resource ARN. Get/Put/DeleteResourcePolicy all declare EntityNotFound, not
+	// NoSuchResourcePolicy, in their deserializeOpError switch (deserializers.go).
+	ErrResourcePolicyNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 	// ErrMonitoringSubscriptionNotFound is returned when no monitoring subscription exists for a
 	// distribution.
 	ErrMonitoringSubscriptionNotFound = awserr.New("NoSuchMonitoringSubscription", awserr.ErrNotFound)
@@ -161,6 +168,13 @@ var ErrInvalidTagging = awserr.New("InvalidTagging", awserr.ErrInvalidParameter)
 // ErrDomainConflict is returned when a domain is already associated with another
 // distribution tenant or distribution.
 var ErrDomainConflict = awserr.New("DomainConflictException", awserr.ErrConflict)
+
+// ErrDomainControlValidationResourceNotFound is returned when ListDomainConflicts is given a
+// DomainControlValidationResource that does not identify an existing distribution or
+// distribution tenant. ListDomainConflicts's own error switch declares "EntityNotFound" for this
+// case (deserializers.go), not the per-resource-type codes (NoSuchDistribution /
+// NoSuchDistributionTenant) other operations use for the same underlying lookup failure.
+var ErrDomainControlValidationResourceNotFound = awserr.New(codeEntityNotFound, awserr.ErrNotFound)
 
 // ErrTrustStoreNotFound is returned when a trust store does not exist.
 var ErrTrustStoreNotFound = awserr.New("NoSuchTrustStore", awserr.ErrNotFound)

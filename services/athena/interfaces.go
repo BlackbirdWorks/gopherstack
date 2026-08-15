@@ -86,6 +86,7 @@ type StorageBackend interface {
 		workGroup, description, notebookVersion string,
 		engineCfg EngineConfiguration,
 		sessionCfg SessionConfiguration,
+		monitoringCfg MonitoringConfiguration,
 		notebookID string,
 	) (string, string, error)
 	GetSession(id string) (*Session, error)

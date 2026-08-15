@@ -22,17 +22,43 @@ func TestOmics_Configuration(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "CreateConfiguration returns 201",
-			method:   http.MethodPost,
-			path:     "/configuration",
-			body:     map[string]any{"name": "cfg1", "description": "desc"},
+			name:   "CreateConfiguration returns 201",
+			method: http.MethodPost,
+			path:   "/configuration",
+			body: map[string]any{
+				"name":        "cfg1",
+				"description": "desc",
+				"runConfigurations": map[string]any{
+					"vpcConfig": map[string]any{
+						"subnetIds":        []string{"subnet-1", "subnet-2"},
+						"securityGroupIds": []string{"sg-1"},
+					},
+				},
+			},
 			wantCode: http.StatusCreated,
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				assert.Equal(t, "cfg1", resp["name"])
+				assert.Equal(t, "ACTIVE", resp["status"])
+				assert.NotEmpty(t, resp["arn"])
+				assert.NotEmpty(t, resp["uuid"])
+
+				rc, ok := resp["runConfigurations"].(map[string]any)
+				require.True(t, ok, "runConfigurations must be echoed back on CreateConfiguration's response")
+				vpc, ok := rc["vpcConfig"].(map[string]any)
+				require.True(t, ok)
+				assert.ElementsMatch(t, []any{"subnet-1", "subnet-2"}, vpc["subnetIds"])
+				assert.ElementsMatch(t, []any{"sg-1"}, vpc["securityGroupIds"])
 			},
+		},
+		{
+			name:     "CreateConfiguration missing runConfigurations returns 400",
+			method:   http.MethodPost,
+			path:     "/configuration",
+			body:     map[string]any{"name": "cfg-missing-rc"},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "GetConfiguration unknown returns 404",

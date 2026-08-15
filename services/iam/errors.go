@@ -57,4 +57,15 @@ var (
 	ErrLimitExceeded = errors.New("LimitExceeded")
 	// ErrValidationError is returned when a parameter fails AWS constraint validation (e.g. MaxSessionDuration bounds).
 	ErrValidationError = errors.New("ValidationError")
+	// ErrOldPasswordIncorrect is returned when ChangePassword's required OldPassword
+	// is missing or does not match the account's current password.
+	ErrOldPasswordIncorrect = errors.New("PasswordPolicyViolation")
+	// ErrMalformedCertificate is returned when certificate/key material is not
+	// well-formed PEM (UploadServerCertificate's own declared error set).
+	ErrMalformedCertificate = errors.New("MalformedCertificate")
+	// ErrUnrecognizedPublicKeyEncoding is returned when GetSSHPublicKey's Encoding
+	// is not SSH/PEM, or the stored key can't be converted to the requested one.
+	ErrUnrecognizedPublicKeyEncoding = errors.New("UnrecognizedPublicKeyEncoding")
+	// ErrDelegationRequestNotFound is returned when a requested delegation request does not exist.
+	ErrDelegationRequestNotFound = errors.New("NoSuchEntity: delegation request")
 )

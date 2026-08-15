@@ -18,6 +18,7 @@ type webAppIdentityProviderDetailsInput struct {
 
 type webAppVpcConfigInput struct {
 	VpcID            string   `json:"VpcId,omitempty"`
+	IPAddressType    string   `json:"IpAddressType,omitempty"`
 	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
 	SubnetIDs        []string `json:"SubnetIds,omitempty"`
 }
@@ -65,6 +66,7 @@ func (h *Handler) handleCreateWebApp(
 			SecurityGroupIDs: in.EndpointDetails.Vpc.SecurityGroupIDs,
 			SubnetIDs:        in.EndpointDetails.Vpc.SubnetIDs,
 			VpcID:            in.EndpointDetails.Vpc.VpcID,
+			IPAddressType:    in.EndpointDetails.Vpc.IPAddressType,
 		}
 	}
 
@@ -208,7 +210,8 @@ type updateWebAppIdentityProviderDetailsInput struct {
 }
 
 type updateWebAppVpcConfigInput struct {
-	SubnetIDs []string `json:"SubnetIds,omitempty"`
+	IPAddressType string   `json:"IpAddressType,omitempty"`
+	SubnetIDs     []string `json:"SubnetIds,omitempty"`
 }
 
 type updateWebAppEndpointDetailsInput struct {
@@ -247,6 +250,11 @@ func (h *Handler) handleUpdateWebApp(
 
 	if in.EndpointDetails != nil && in.EndpointDetails.Vpc != nil {
 		backendIn.VpcSubnetIDs = in.EndpointDetails.Vpc.SubnetIDs
+
+		if in.EndpointDetails.Vpc.IPAddressType != "" {
+			ipType := in.EndpointDetails.Vpc.IPAddressType
+			backendIn.VpcIPAddressType = &ipType
+		}
 	}
 
 	if in.WebAppUnits != nil {

@@ -24,7 +24,7 @@ func TestHandler_DeletePermissionPolicy(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *wafv2.Handler) string {
-				rg, _ := h.Backend.CreateRuleGroup(context.Background(), "my-rg", "REGIONAL", "", "", 10, nil, nil)
+				rg, _ := h.Backend.CreateRuleGroup(context.Background(), "my-rg", "REGIONAL", "", "", 10, nil, nil, nil)
 				arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
 				require.NoError(t, h.Backend.PutPermissionPolicy(
 					context.Background(), arnStr, `{"Version":"2012-10-17"}`,

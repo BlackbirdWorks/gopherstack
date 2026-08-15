@@ -42,6 +42,11 @@ type Account struct {
 	JoinedMethod           string    `json:"joinedMethod"`
 	RoleName               string    `json:"roleName,omitempty"`
 	IamUserAccessToBilling string    `json:"iamUserAccessToBilling,omitempty"`
+	// Paths is derived from accountParent/ouParent at read time (see
+	// paths.go) and deliberately excluded from persistence: it is never
+	// source-of-truth state, just a formatting of the tree that is already
+	// stored.
+	Paths []string `json:"-"`
 }
 
 // Root represents the root container in an organization.
@@ -64,6 +69,9 @@ type OrganizationalUnit struct {
 	ARN      string `json:"arn"`
 	Name     string `json:"name"`
 	ParentID string `json:"parentID"`
+	// Path is derived from ParentID/ouParent at read time (see paths.go)
+	// and deliberately excluded from persistence -- see Account.Paths.
+	Path string `json:"-"`
 }
 
 // Policy represents an Organizations policy.
@@ -157,11 +165,56 @@ type HandshakeParty struct {
 	Type string `json:"type"`
 }
 
+// TransferResponsibilityParams groups
+// InviteOrganizationToTransferResponsibilityInput's fields beyond Target:
+// SourceName, StartTimestamp, and Type are all required members
+// (validateOpInviteOrganizationToTransferResponsibilityInput,
+// validators.go); Notes is optional, matching InviteAccountToOrganization's
+// Notes.
+type TransferResponsibilityParams struct {
+	StartTimestamp time.Time
+	SourceName     string
+	Type           string
+	Notes          string
+}
+
 // HandshakeResource holds a resource associated with a handshake.
 type HandshakeResource struct {
 	Type      string              `json:"type"`
 	Value     string              `json:"value"`
 	Resources []HandshakeResource `json:"resources,omitempty"`
+}
+
+// ResponsibilityTransfer represents a transfer arrangement between two
+// management accounts, one of which designates the other with specified
+// responsibilities (currently only BILLING) for its organization. Distinct
+// from Handshake: types.ResponsibilityTransfer
+// (awsAwsjson11_deserializeDocumentResponsibilityTransfer, deserializers.go)
+// is its own wire shape, not a Handshake. EndTimestamp is the zero time.Time
+// until TerminateResponsibilityTransfer sets it -- a transfer that hasn't
+// ended has no EndTimestamp on the wire, not a fabricated one.
+type ResponsibilityTransfer struct {
+	StartTimestamp    time.Time           `json:"startTimestamp"`
+	EndTimestamp      time.Time           `json:"endTimestamp"`
+	ID                string              `json:"id"`
+	ARN               string              `json:"arn"`
+	ActiveHandshakeID string              `json:"activeHandshakeID"`
+	Name              string              `json:"name"`
+	Status            string              `json:"status"`
+	Type              string              `json:"type"`
+	Source            TransferParticipant `json:"source"`
+	Target            TransferParticipant `json:"target"`
+}
+
+// TransferParticipant identifies one management account on either side of a
+// ResponsibilityTransfer. Fields are independently optional: a participant
+// invited by EMAIL has no known ManagementAccountID until they join, and one
+// invited by ACCOUNT has no known ManagementAccountEmail -- this backend
+// never fabricates the missing half (types.TransferParticipant,
+// awsAwsjson11_deserializeDocumentTransferParticipant, deserializers.go).
+type TransferParticipant struct {
+	ManagementAccountID    string `json:"managementAccountID"`
+	ManagementAccountEmail string `json:"managementAccountEmail"`
 }
 
 // ResourcePolicy represents the organization resource-based policy.

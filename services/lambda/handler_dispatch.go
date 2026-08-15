@@ -43,11 +43,11 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodPut, hasSuffixProvisionedConcurrency, "PutProvisionedConcurrencyConfig"},
 	{http.MethodGet, hasSuffixProvisionedConcurrency, opListProvisionedConcurrencyConfigs},
 	{http.MethodDelete, hasSuffixProvisionedConcurrency, "DeleteProvisionedConcurrencyConfig"},
-	{http.MethodGet, hasSuffixCodeSigningConfig, "GetFunctionCodeSigningConfig"},
-	{http.MethodPut, hasSuffixCodeSigningConfig, "PutFunctionCodeSigningConfig"},
-	{http.MethodDelete, hasSuffixCodeSigningConfig, "DeleteFunctionCodeSigningConfig"},
-	// SDK "Invoke" alias routes (same endpoint as InvokeFunction).
-	{http.MethodPost, hasSuffixInvocations, "Invoke"},
+	{http.MethodGet, hasSuffixCodeSigningConfig, opGetFunctionCodeSigningConfig},
+	{http.MethodPut, hasSuffixCodeSigningConfig, opPutFunctionCodeSigningConfig},
+	{http.MethodDelete, hasSuffixCodeSigningConfig, opDeleteFunctionCodeSigningConfig},
+	// Invoke (real SDK op name) alias route -- same endpoint as InvokeFunction above.
+	{http.MethodPost, hasSuffixInvocations, opInvoke},
 	// InvokeAsync: POST /2014-11-13/functions/{name}/invoke-async/
 	{http.MethodPost, hasSuffixInvokeAsync, "InvokeAsync"},
 	// InvokeWithResponseStream: POST /2021-11-15/functions/{name}/response-streaming-invocations
@@ -108,11 +108,19 @@ func extractLayerOperation(rest, method string) string {
 
 	n := len(parts)
 
-	// For versioned routes (n>=layerPolicyParts), the relevant discriminating segment is
-	// parts[3] (the "policy" marker); for shorter paths the version number in parts[2] is
-	// not a meaningful key so lastSeg stays empty.
+	// lastSeg is the discriminating segment layerOpTable keys on: "versions"
+	// itself for the /{layerName}/versions collection route (n==2, already
+	// confirmed above), "policy" for the policy sub-routes (n>=layerPolicyParts,
+	// parts[3]). For n==3 (a bare version-number route) there is no such
+	// marker, so lastSeg stays empty -- gopherstack-l5ir: the n==2 case was
+	// previously left empty too, so ListLayerVersions/PublishLayerVersion
+	// never resolved (always "Unknown").
 	lastSeg := ""
-	if n >= layerPolicyParts {
+
+	switch {
+	case n == layerVersionListParts:
+		lastSeg = layerVersionsPath
+	case n >= layerPolicyParts:
 		lastSeg = parts[layerVersionItemParts]
 	}
 
@@ -282,7 +290,7 @@ func (h *Handler) buildFunctionCRUDRoutes() []handlerEntry {
 			method: http.MethodPost,
 			match:  hasSuffixInvokeAsync,
 			execute: func(c *echo.Context, rest string) error {
-				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/invoke-async/")
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/invoke-async")
 
 				return h.handleInvokeAsync(c, name)
 			},
@@ -402,7 +410,7 @@ func (h *Handler) buildEventInvokeRoutes() []handlerEntry {
 			method: http.MethodGet,
 			match:  hasSuffixEventInvokeConfigs,
 			execute: func(c *echo.Context, rest string) error {
-				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/event-invoke-configs")
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/event-invoke-config/list")
 
 				return h.handleListFunctionEventInvokeConfigs(c, name)
 			},
@@ -547,9 +555,6 @@ func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (b
 		return true, h.handleESMRoute(c, path, method)
 	case strings.HasPrefix(path, lambdaTagsPathPrefix):
 		return true, h.handleTagsRoute(c, method)
-	// layers-by-arn must be checked before lambdaLayersPathPrefix (it's a prefix match)
-	case path == lambdaLayersByArnPath:
-		return true, h.handleGetLayerVersionByArn(c)
 	case strings.HasPrefix(path, lambdaLayersPathPrefix):
 		return true, h.handleLayersRoute(c, path, method)
 	case path == lambdaAccountSettingsPath:
@@ -566,7 +571,7 @@ func (h *Handler) dispatchSpecialRoutes(c *echo.Context, path, method string) (b
 		return true, h.handleRuntimeMgmtRoute(c, path, method)
 	case strings.HasPrefix(path, lambda2024RecursionPathPrefix):
 		return true, h.handleRecursionConfigRoute(c, path, method)
-	case strings.HasPrefix(path, lambda2023ScalingPathPrefix):
+	case strings.HasPrefix(path, lambda2025ScalingPathPrefix):
 		return true, h.handleScalingConfigRoute(c, path, method)
 	}
 

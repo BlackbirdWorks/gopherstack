@@ -291,6 +291,8 @@ func (b *InMemoryBackend) UpdateCrawlerWithOptions(
 	targets CrawlerTarget,
 	opts CrawlerOptions,
 ) error {
+	b.advanceStates(time.Now())
+
 	b.mu.Lock("UpdateCrawler")
 	defer b.mu.Unlock()
 
@@ -360,6 +362,8 @@ func (b *InMemoryBackend) UpdateCrawlerWithOptions(
 
 // DeleteCrawler deletes a Glue crawler by name.
 func (b *InMemoryBackend) DeleteCrawler(name string) error {
+	b.advanceStates(time.Now())
+
 	b.mu.Lock("DeleteCrawler")
 	defer b.mu.Unlock()
 
@@ -379,6 +383,8 @@ func (b *InMemoryBackend) DeleteCrawler(name string) error {
 
 // BatchGetCrawlers retrieves multiple crawlers by name.
 func (b *InMemoryBackend) BatchGetCrawlers(names []string) ([]*Crawler, []string) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("BatchGetCrawlers")
 	defer b.mu.RUnlock()
 
@@ -403,6 +409,8 @@ func (b *InMemoryBackend) BatchGetCrawlers(names []string) ([]*Crawler, []string
 // A background reconciler transitions the crawler to READY after crawlerTransitionDelay,
 // creating Glue Catalog tables for each configured S3 prefix.
 func (b *InMemoryBackend) StartCrawler(name string) error {
+	b.advanceStates(time.Now())
+
 	b.mu.Lock("StartCrawler")
 	defer b.mu.Unlock()
 
@@ -431,6 +439,8 @@ func (b *InMemoryBackend) StartCrawler(name string) error {
 
 // StopCrawler sets a crawler's state to STOPPING (requires RUNNING state).
 func (b *InMemoryBackend) StopCrawler(name string) error {
+	b.advanceStates(time.Now())
+
 	b.mu.Lock("StopCrawler")
 	defer b.mu.Unlock()
 
@@ -553,6 +563,8 @@ const crawlerDefaultRuntimeSeconds = 45.0
 // GetCrawlerMetrics returns metrics for one or all crawlers.
 // If crawlerNames is empty, metrics for all crawlers are returned.
 func (b *InMemoryBackend) GetCrawlerMetrics(crawlerNames []string) []*CrawlerMetrics {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetCrawlerMetrics")
 	defer b.mu.RUnlock()
 

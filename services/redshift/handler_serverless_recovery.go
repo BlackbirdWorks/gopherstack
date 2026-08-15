@@ -30,10 +30,12 @@ func (h *ServerlessHandler) handleGetRecoveryPoint(c *echo.Context, body []byte)
 
 func (h *ServerlessHandler) handleListRecoveryPoints(c *echo.Context, body []byte) error {
 	var req struct {
-		NamespaceArn  string `json:"namespaceArn"`
-		NamespaceName string `json:"namespaceName"`
-		NextToken     string `json:"nextToken"`
-		MaxResults    int    `json:"maxResults"`
+		StartTime     *float64 `json:"startTime"`
+		EndTime       *float64 `json:"endTime"`
+		NamespaceArn  string   `json:"namespaceArn"`
+		NamespaceName string   `json:"namespaceName"`
+		NextToken     string   `json:"nextToken"`
+		MaxResults    int      `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -42,7 +44,14 @@ func (h *ServerlessHandler) handleListRecoveryPoints(c *echo.Context, body []byt
 		}
 	}
 
-	list, outToken := h.Backend.ListRecoveryPointsSL(req.NamespaceName, req.NamespaceArn, req.MaxResults, req.NextToken)
+	list, outToken := h.Backend.ListRecoveryPointsSL(ListRecoveryPointsParams{
+		NamespaceName: req.NamespaceName,
+		NamespaceArn:  req.NamespaceArn,
+		StartTime:     slEpochFromPtr(req.StartTime),
+		EndTime:       slEpochFromPtr(req.EndTime),
+		MaxResults:    req.MaxResults,
+		NextToken:     req.NextToken,
+	})
 	resp := map[string]any{"recoveryPoints": list}
 
 	if outToken != "" {

@@ -106,7 +106,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	original.AddExportJobInternal("job1", "CREATED")
 
-	_, err = original.CreateImportJob("s3://bucket/key")
+	_, err = original.CreateImportJob(sesv2.ImportDestination{SuppressionListImportAction: "PUT"})
 	require.NoError(t, err)
 
 	require.NoError(t, original.PutSuppressedDestination("suppressed@example.com", "BOUNCE"))

@@ -36,12 +36,14 @@ func (h *Handler) handleAttachLoadBalancers(vals url.Values) (any, error) {
 type attachLoadBalancerTargetGroupsResponse struct {
 	XMLName          xml.Name            `xml:"AttachLoadBalancerTargetGroupsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"AttachLoadBalancerTargetGroupsResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 type attachLoadBalancersResponse struct {
 	XMLName          xml.Name            `xml:"AttachLoadBalancersResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"AttachLoadBalancersResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
@@ -160,11 +162,13 @@ type describeLoadBalancerTargetGroupsResponse struct {
 type detachLoadBalancerTargetGroupsResponse struct {
 	XMLName          xml.Name            `xml:"DetachLoadBalancerTargetGroupsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"DetachLoadBalancerTargetGroupsResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
 type detachLoadBalancersResponse struct {
 	XMLName          xml.Name            `xml:"DetachLoadBalancersResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	Result           emptyResultXML      `xml:"DetachLoadBalancersResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }

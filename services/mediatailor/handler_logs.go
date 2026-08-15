@@ -10,7 +10,7 @@ import (
 
 func (h *Handler) handleConfigureLogsForChannel(c *echo.Context, body map[string]any) error {
 	channelName, _ := body[keyChannelName].(string)
-	logTypes := extractStringSlice(body, "LogTypes")
+	logTypes := extractStringSlice(body, keyLogTypes)
 
 	name, types, err := h.Backend.ConfigureLogsForChannel(channelName, logTypes)
 	if err != nil {
@@ -19,7 +19,7 @@ func (h *Handler) handleConfigureLogsForChannel(c *echo.Context, body map[string
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyChannelName: name,
-		"LogTypes":     types,
+		keyLogTypes:    types,
 	})
 }
 

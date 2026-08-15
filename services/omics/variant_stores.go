@@ -38,11 +38,11 @@ func (b *InMemoryBackend) CreateVariantStore(
 		CreationTime: now,
 		UpdateTime:   now,
 	}
-	vs.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "variantStore/"+name)
+	vs.StoreArn = arn.Build("omics", b.defaultRegion, b.accountID, "variantStore/"+name)
 	b.variantStores.Put(vs)
 
 	if tags != nil {
-		b.tags[vs.Arn] = copyTags(tags)
+		b.tags[vs.StoreArn] = copyTags(tags)
 	}
 
 	result := *vs
@@ -60,7 +60,7 @@ func (b *InMemoryBackend) DeleteVariantStore(name string) (*VariantStore, error)
 		return nil, fmt.Errorf("%w: variant store %s not found", ErrNotFound, name)
 	}
 
-	delete(b.tags, vs.Arn)
+	delete(b.tags, vs.StoreArn)
 	b.variantStores.Delete(name)
 
 	result := *vs
@@ -122,6 +122,24 @@ func (b *InMemoryBackend) ListVariantStores(
 	return result, outToken, nil
 }
 
+// newVariantStoreSummary converts a persisted store record into the real
+// ListVariantStoresOutput element shape (see VariantStoreSummary's doc
+// comment for why List and Get differ).
+func newVariantStoreSummary(vs *VariantStore) VariantStoreSummary {
+	return VariantStoreSummary{
+		CreationTime:   vs.CreationTime,
+		UpdateTime:     vs.UpdateTime,
+		Reference:      vs.Reference,
+		StoreArn:       vs.StoreArn,
+		ID:             vs.ID,
+		Name:           vs.Name,
+		Description:    vs.Description,
+		Status:         vs.Status,
+		StatusMessage:  vs.StatusMessage,
+		StoreSizeBytes: vs.StoreSizeBytes,
+	}
+}
+
 // UpdateVariantStore updates a variant store.
 func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*VariantStore, error) {
 	b.mu.Lock("UpdateVariantStore")
@@ -142,10 +160,48 @@ func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*Variant
 	return &result, nil
 }
 
-// StartVariantImportJob starts a variant import job.
+// variantImportItemDetails converts the real StartVariantImportJobInput item
+// shape (VariantImportItem, source only) into the real
+// GetVariantImportJobOutput item shape (VariantImportItemDetail, jobStatus +
+// source), stamping every item with the job's own status. This backend
+// completes import jobs synchronously in one step, so that status is each
+// item's true final state, not a guess.
+func variantImportItemDetails(items []VariantImportItem, status string) []VariantImportItemDetail {
+	details := make([]VariantImportItemDetail, 0, len(items))
+	for _, item := range items {
+		details = append(details, VariantImportItemDetail{Source: item.Source, JobStatus: status})
+	}
+
+	return details
+}
+
+// newVariantImportJobSummary converts a persisted job record into the real
+// ListVariantImportJobsOutput element shape (see VariantImportJobSummary's
+// doc comment for why List and Get differ).
+func newVariantImportJobSummary(job *VariantImportJob) VariantImportJobSummary {
+	return VariantImportJobSummary{
+		CreationTime:         job.CreationTime,
+		CompletionTime:       job.CompletionTime,
+		UpdateTime:           job.UpdateTime,
+		AnnotationFields:     job.AnnotationFields,
+		ID:                   job.ID,
+		DestinationName:      job.DestinationName,
+		RoleARN:              job.RoleARN,
+		Status:               job.Status,
+		RunLeftNormalization: job.RunLeftNormalization,
+	}
+}
+
+// StartVariantImportJob starts a variant import job. annotationFields and
+// runLeftNormalization are real optional StartVariantImportJobInput members
+// (serializers.go:8737-8767) that were previously dropped on the floor -- the
+// handler never read them at all. Unlike annotation import jobs, variant
+// import jobs have no formatOptions or versionName field in the real API.
 func (b *InMemoryBackend) StartVariantImportJob(
 	destinationName, roleARN string,
 	items []VariantImportItem,
+	annotationFields map[string]string,
+	runLeftNormalization bool,
 ) (*VariantImportJob, error) {
 	b.mu.Lock("StartVariantImportJob")
 	defer b.mu.Unlock()
@@ -155,14 +211,18 @@ func (b *InMemoryBackend) StartVariantImportJob(
 	}
 
 	now := time.Now().UTC()
+	status := statusCompleted
 	job := &VariantImportJob{
-		ID:              newID(),
-		DestinationName: destinationName,
-		RoleARN:         roleARN,
-		Items:           items,
-		Status:          statusCompleted,
-		CreationTime:    now,
-		CompletionTime:  &now,
+		ID:                   newID(),
+		DestinationName:      destinationName,
+		RoleARN:              roleARN,
+		Items:                variantImportItemDetails(items, status),
+		AnnotationFields:     annotationFields,
+		RunLeftNormalization: runLeftNormalization,
+		Status:               status,
+		CreationTime:         now,
+		CompletionTime:       &now,
+		UpdateTime:           now,
 	}
 	b.variantImportJobs.Put(job)
 

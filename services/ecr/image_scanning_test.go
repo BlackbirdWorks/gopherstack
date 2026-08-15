@@ -472,8 +472,13 @@ func TestPutRegistryScanningConfiguration_ScanTypeEnhanced(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// PutRegistryScanningConfigurationOutput wraps its settings under
+	// "registryScanningConfiguration", NOT "scanningConfiguration" —
+	// that key belongs to GetRegistryScanningConfigurationOutput only
+	// (awsAwsjson11_deserializeOpDocumentPutRegistryScanningConfigurationOutput
+	// vs its Get counterpart, aws-sdk-go-v2/service/ecr@v1.60.4).
 	out := parseAccuracy(t, rec)
-	cfg, _ := out["scanningConfiguration"].(map[string]any)
+	cfg, _ := out["registryScanningConfiguration"].(map[string]any)
 	assert.Equal(t, "ENHANCED", cfg["scanType"])
 	rules, _ := cfg["rules"].([]any)
 	require.Len(t, rules, 1)

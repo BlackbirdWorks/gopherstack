@@ -742,6 +742,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	case errors.Is(err, ErrMissingParameter):
 		return h.writeError(c, http.StatusBadRequest, "MissingParameterValueException", err.Error())
+	case errors.Is(err, ErrVaultLockDenied):
+		return h.writeError(c, http.StatusForbidden, "AccessDeniedException", err.Error())
 	}
 
 	return h.writeError(

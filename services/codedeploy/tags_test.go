@@ -66,7 +66,7 @@ func TestTags_SortedListTagsForResource(t *testing.T) {
 		Tags []struct {
 			Key   string `json:"Key"`
 			Value string `json:"Value"`
-		} `json:"tags"`
+		} `json:"Tags"`
 	}
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -101,7 +101,7 @@ func TestTags_OnDeploymentGroups(t *testing.T) {
 		Tags []struct {
 			Key   string `json:"Key"`
 			Value string `json:"Value"`
-		} `json:"tags"`
+		} `json:"Tags"`
 	}
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))

@@ -450,6 +450,84 @@ func TestBackend_Persistence_NewFieldsRoundTrip(t *testing.T) {
 	assert.Equal(t, "arn:aws:sns:us-east-1:123:topic", rg.NotificationTopicArn)
 }
 
+// TestBackend_Persistence_gopherstack31dm_NewFields round-trips
+// ServerlessCache.NetworkType and ReplicationGroup.Durability -- the two
+// gopherstack-31dm fields with real, settable state (see
+// handler_new_sdk_fields_test.go for the wire-shape half of this coverage)
+// -- through Snapshot/Restore. Both are additive omitempty fields on structs
+// that persist whole (persistence.go's backendSnapshot embeds *ServerlessCache/
+// *ReplicationGroup directly), so no elasticacheSnapshotVersion bump is
+// needed or permitted for this change.
+func TestBackend_Persistence_gopherstack31dm_NewFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		seed  func(t *testing.T, b *elasticache.InMemoryBackend)
+		check func(t *testing.T, b *elasticache.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "serverlesscache_networktype",
+			seed: func(t *testing.T, b *elasticache.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateServerlessCacheFull(context.Background(), elasticache.ServerlessCreateOpts{
+					Name:        "persist-sc-networktype",
+					Engine:      "redis",
+					NetworkType: "dual_stack",
+				})
+				require.NoError(t, err)
+			},
+			check: func(t *testing.T, b *elasticache.InMemoryBackend) {
+				t.Helper()
+
+				page, err := b.DescribeServerlessCaches(context.Background(), "persist-sc-networktype", "", 0)
+				require.NoError(t, err)
+				require.Len(t, page.Data, 1)
+				assert.Equal(t, "dual_stack", page.Data[0].NetworkType)
+			},
+		},
+		{
+			name: "replicationgroup_durability",
+			seed: func(t *testing.T, b *elasticache.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
+					ID:          "persist-rg-durability",
+					Description: "durability persistence test",
+					Durability:  "sync",
+				})
+				require.NoError(t, err)
+			},
+			check: func(t *testing.T, b *elasticache.InMemoryBackend) {
+				t.Helper()
+
+				page, err := b.DescribeReplicationGroups(context.Background(), "persist-rg-durability", "", 0)
+				require.NoError(t, err)
+				require.Len(t, page.Data, 1)
+				assert.Equal(t, "sync", page.Data[0].Durability)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b1 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+			tt.seed(t, b1)
+
+			snap := b1.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			tt.check(t, b2)
+		})
+	}
+}
+
 // ----------------------------------------
 // GetSupportedOperations includes new ops
 // ----------------------------------------

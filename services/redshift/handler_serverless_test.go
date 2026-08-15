@@ -218,7 +218,7 @@ func TestServerless_WorkgroupCRUD(t *testing.T) {
 }
 
 // TestServerless_SnapshotCRUD covers CreateServerlessSnapshot, GetServerlessSnapshot,
-// ListServerlessSnapshots, DeleteServerlessSnapshot.
+// ListServerlessSnapshots, UpdateServerlessSnapshot, DeleteServerlessSnapshot.
 func TestServerless_SnapshotCRUD(t *testing.T) {
 	t.Parallel()
 
@@ -239,6 +239,28 @@ func TestServerless_SnapshotCRUD(t *testing.T) {
 
 	rec = doServerlessOp(t, h, "GetSnapshot", map[string]any{"snapshotName": "test-snapshot"})
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doServerlessOp(t, h, "UpdateSnapshot", map[string]any{
+		"snapshotName":    "test-snapshot",
+		"retentionPeriod": 30,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var updateResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updateResp))
+	updated, _ := updateResp["snapshot"].(map[string]any)
+	require.NotNil(t, updated)
+	assert.InEpsilon(t, float64(30), updated["snapshotRetentionPeriod"], 0)
+
+	rec = doServerlessOp(t, h, "GetSnapshot", map[string]any{"snapshotName": "test-snapshot"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	got, _ := getResp["snapshot"].(map[string]any)
+	require.NotNil(t, got)
+	assert.InEpsilon(t, float64(30), got["snapshotRetentionPeriod"], 0,
+		"retention period change from UpdateSnapshot must be observable via a subsequent GetSnapshot")
 
 	rec = doServerlessOp(t, h, "DeleteSnapshot", map[string]any{"snapshotName": "test-snapshot"})
 	assert.Equal(t, http.StatusOK, rec.Code)

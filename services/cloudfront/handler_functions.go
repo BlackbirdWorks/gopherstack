@@ -1,6 +1,8 @@
 package cloudfront
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"net/http"
@@ -251,25 +253,81 @@ func (h *Handler) handleDeleteFunction(c *echo.Context, name string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// testFunctionRequestXML models the real TestFunctionRequest body (cloudfront@v1.67.4
+// serializers.go:11847, awsRestxml_serializeOpDocumentTestFunctionInput). EventObject is
+// base64-encoded binary on the wire (el.Base64EncodeBytes); encoding/xml does NOT decode
+// base64 automatically on unmarshal (unlike the SDK client's own encode-on-send), so it's kept
+// as the raw wire string here and decoded explicitly below.
+type testFunctionRequestXML struct {
+	XMLName     xml.Name `xml:"TestFunctionRequest"`
+	EventObject string   `xml:"EventObject"`
+	Stage       string   `xml:"Stage"`
+}
+
+// handleTestFunction validates the request (function exists, If-Match matches, EventObject is
+// present and well-formed JSON) and then reports a structural gap: gopherstack vendors no
+// JavaScript engine, so it cannot genuinely execute the function against the event and refuses
+// to fabricate FunctionOutput/logs that would look like real execution. TestFunctionFailed is
+// TestFunction's own declared error for exactly this case ("the CloudFront function failed",
+// HTTP 500 per the API reference) -- distinct from InvalidArgument/InvalidIfMatchVersion, which
+// cover malformed requests rather than an execution failure.
 func (h *Handler) handleTestFunction(c *echo.Context, name string) error {
-	// TestFunction validates function logic; in-memory mock simply confirms it exists.
-	_, err := h.Backend.GetFunction(name)
+	current, err := h.Backend.GetFunction(name)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<TestResult xmlns="%s">`+
-		`<FunctionSummary>`+
-		`<Name>%s</Name>`+
-		`</FunctionSummary>`+
-		`<FunctionExecutionLogs></FunctionExecutionLogs>`+
-		`<FunctionErrorMessage></FunctionErrorMessage>`+
-		`<FunctionOutput></FunctionOutput>`+
-		`</TestResult>`,
-		cfNS, name)
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("InvalidIfMatchVersion", "the If-Match version is missing or not valid"),
+		)
+	}
 
-	return xmlResp(c, http.StatusOK, resp)
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	var req testFunctionRequestXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid TestFunctionRequest XML"),
+			)
+		}
+	}
+
+	if req.EventObject == "" {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "EventObject is required"))
+	}
+
+	eventObject, decodeErr := base64.StdEncoding.DecodeString(req.EventObject)
+	if decodeErr != nil {
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "EventObject must be base64-encoded"),
+		)
+	}
+
+	if !json.Valid(eventObject) {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "EventObject must be valid JSON"))
+	}
+
+	return xmlResp(
+		c,
+		http.StatusInternalServerError,
+		cfErrorXML(
+			"TestFunctionFailed",
+			"gopherstack does not implement a JavaScript engine and cannot execute CloudFront "+
+				"Function code; TestFunction is a structural parity gap (see PARITY.md)",
+		),
+	)
 }
 
 func functionResponseXML(fn *Function) string {

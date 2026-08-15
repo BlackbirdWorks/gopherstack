@@ -7,9 +7,13 @@ import (
 
 // ----- Custom Domain Association -----
 
+// createCustomDomainAssociationResult mirrors CreateCustomDomainAssociationOutput,
+// including CustomDomainCertExpiryTime (confirmed present against
+// aws-sdk-go-v2/service/redshift@v1.65.4/api_op_CreateCustomDomainAssociation.go).
 type createCustomDomainAssociationResult struct {
 	CustomDomainName           string `xml:"CustomDomainName"`
 	CustomDomainCertificateArn string `xml:"CustomDomainCertificateArn"`
+	CustomDomainCertExpiryTime string `xml:"CustomDomainCertExpiryTime"`
 	ClusterIdentifier          string `xml:"ClusterIdentifier"`
 }
 
@@ -35,6 +39,7 @@ func (h *Handler) handleCreateCustomDomainAssociation(vals url.Values) (any, err
 			ClusterIdentifier:          assoc.ClusterIdentifier,
 			CustomDomainName:           assoc.CustomDomainName,
 			CustomDomainCertificateArn: assoc.CustomDomainCertificateArn,
+			CustomDomainCertExpiryTime: assoc.CustomDomainCertExpiryTime,
 		},
 	}, nil
 }
@@ -83,7 +88,11 @@ func (h *Handler) handleDescribeCustomDomainAssociations(vals url.Values) (any, 
 	members := make([]customDomainAssociation, 0, len(assocs))
 
 	for _, a := range assocs {
-		members = append(members, customDomainAssociation(a))
+		members = append(members, customDomainAssociation{
+			ClusterIdentifier:          a.ClusterIdentifier,
+			CustomDomainName:           a.CustomDomainName,
+			CustomDomainCertificateArn: a.CustomDomainCertificateArn,
+		})
 	}
 
 	resp := &describeCustomDomainAssociationsResponse{Xmlns: redshiftXMLNS}
@@ -92,6 +101,8 @@ func (h *Handler) handleDescribeCustomDomainAssociations(vals url.Values) (any, 
 	return resp, nil
 }
 
+// modifyCustomDomainAssociationResponse mirrors ModifyCustomDomainAssociationOutput,
+// including CustomDomainCertExpiryTime (see createCustomDomainAssociationResult).
 type modifyCustomDomainAssociationResponse struct {
 	XMLName xml.Name `xml:"ModifyCustomDomainAssociationResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
@@ -99,6 +110,7 @@ type modifyCustomDomainAssociationResponse struct {
 		ClusterIdentifier          string `xml:"ClusterIdentifier"`
 		CustomDomainName           string `xml:"CustomDomainName"`
 		CustomDomainCertificateArn string `xml:"CustomDomainCertificateArn"`
+		CustomDomainCertExpiryTime string `xml:"CustomDomainCertExpiryTime"`
 	} `xml:"ModifyCustomDomainAssociationResult"`
 }
 
@@ -116,6 +128,7 @@ func (h *Handler) handleModifyCustomDomainAssociation(vals url.Values) (any, err
 	resp.Result.ClusterIdentifier = assoc.ClusterIdentifier
 	resp.Result.CustomDomainName = assoc.CustomDomainName
 	resp.Result.CustomDomainCertificateArn = assoc.CustomDomainCertificateArn
+	resp.Result.CustomDomainCertExpiryTime = assoc.CustomDomainCertExpiryTime
 
 	return resp, nil
 }

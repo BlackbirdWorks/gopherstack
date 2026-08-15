@@ -287,18 +287,26 @@ func (b *InMemoryBackend) DeleteRestoreTestingSelection(planName, selectionName 
 // --- Framework read/update/delete methods ---
 
 // StartScanJob creates a new scan job for a backup vault.
-func (b *InMemoryBackend) StartScanJob(backupVaultArn string) *ScanJob {
+func (b *InMemoryBackend) StartScanJob(backupVaultArn string, input StartScanJobInput) *ScanJob {
 	b.mu.Lock("StartScanJob")
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
 	done := now
 	job := &ScanJob{
-		ScanJobID:      "scan-job-" + uuid.New().String()[:8],
-		BackupVaultArn: backupVaultArn,
-		Status:         statusCompleted,
-		CreationTime:   now,
-		CompletionTime: &done,
+		ScanJobID:                "scan-job-" + uuid.New().String()[:8],
+		BackupVaultArn:           backupVaultArn,
+		Status:                   statusCompleted,
+		CreationTime:             now,
+		CompletionTime:           &done,
+		IamRoleArn:               input.IamRoleArn,
+		MalwareScanner:           input.MalwareScanner,
+		RecoveryPointArn:         input.RecoveryPointArn,
+		ScanMode:                 input.ScanMode,
+		ScannerRoleArn:           input.ScannerRoleArn,
+		ContinuousScanEndTime:    input.ContinuousScanEndTime,
+		IdempotencyToken:         input.IdempotencyToken,
+		ScanBaseRecoveryPointArn: input.ScanBaseRecoveryPointArn,
 	}
 	b.scanJobs.Put(job)
 

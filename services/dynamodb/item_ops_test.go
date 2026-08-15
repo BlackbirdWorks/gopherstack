@@ -159,8 +159,8 @@ func TestGetItem(t *testing.T) {
 	tests := []struct {
 		setup    func(*dynamodb.InMemoryDB)
 		validate func(*testing.T, any, error)
-		input    models.GetItemInput
 		name     string
+		input    models.GetItemInput
 	}{
 		{
 			name: "Success",
@@ -221,6 +221,112 @@ func TestGetItem(t *testing.T) {
 	}
 }
 
+// TestGetItem_ReturnConsumedCapacity_SurvivesWireConversion verifies that
+// ToSDKGetItemInput copies ReturnConsumedCapacity onto the SDK input and that
+// FromSDKGetItemOutput copies the resulting ConsumedCapacity back onto the wire
+// output. models.GetItemInput previously had no ReturnConsumedCapacity field (so a
+// client's request for it was silently dropped) and models.GetItemOutput had no
+// ConsumedCapacity field at all (so even if the backend computed it -- which it
+// does -- FromSDKGetItemOutput discarded it), unlike every other CRUD op which
+// round-trips ConsumedCapacity correctly.
+func TestGetItem_ReturnConsumedCapacity_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "ItemsTable", "id")
+	putItem(db, "1", "data")
+
+	input := models.GetItemInput{
+		TableName:              "ItemsTable",
+		Key:                    map[string]any{"id": map[string]any{"S": "1"}},
+		ReturnConsumedCapacity: "TOTAL",
+	}
+
+	sdkInput, err := models.ToSDKGetItemInput(&input)
+	require.NoError(t, err)
+	require.Equal(t, types.ReturnConsumedCapacityTotal, sdkInput.ReturnConsumedCapacity)
+
+	resp, getErr := db.GetItem(t.Context(), sdkInput)
+	require.NoError(t, getErr)
+	require.NotNil(t, resp.ConsumedCapacity, "backend must populate ConsumedCapacity when requested")
+
+	wireOut := models.FromSDKGetItemOutput(resp)
+	require.NotNil(t, wireOut.ConsumedCapacity, "wire output must carry ConsumedCapacity through")
+	assert.Positive(t, wireOut.ConsumedCapacity.CapacityUnits)
+}
+
+// TestGetItem_ConsistentRead_SurvivesWireConversion verifies that
+// ToSDKGetItemInput copies ConsistentRead onto the SDK input. models.GetItemInput
+// previously had no ConsistentRead field, so a client's ConsistentRead=true request
+// was always parsed as false, silently billing (and treating) every GetItem as
+// eventually consistent regardless of what was requested.
+func TestGetItem_ConsistentRead_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "ItemsTable", "id")
+	putItem(db, "1", "data")
+
+	consistentRead := true
+	input := models.GetItemInput{
+		TableName:              "ItemsTable",
+		Key:                    map[string]any{"id": map[string]any{"S": "1"}},
+		ConsistentRead:         &consistentRead,
+		ReturnConsumedCapacity: "TOTAL",
+	}
+
+	sdkInput, err := models.ToSDKGetItemInput(&input)
+	require.NoError(t, err)
+	require.NotNil(t, sdkInput.ConsistentRead)
+	assert.True(t, *sdkInput.ConsistentRead)
+
+	// A strongly-consistent read costs 2x an eventually-consistent one; use that as
+	// an outward-visible signal that ConsistentRead actually reached the backend.
+	resp, getErr := db.GetItem(t.Context(), sdkInput)
+	require.NoError(t, getErr)
+	require.NotNil(t, resp.ConsumedCapacity)
+
+	consistentRead = false
+	input.ConsistentRead = &consistentRead
+	sdkInput2, err2 := models.ToSDKGetItemInput(&input)
+	require.NoError(t, err2)
+	resp2, getErr2 := db.GetItem(t.Context(), sdkInput2)
+	require.NoError(t, getErr2)
+	require.NotNil(t, resp2.ConsumedCapacity)
+
+	assert.Greater(t, *resp.ConsumedCapacity.CapacityUnits, *resp2.ConsumedCapacity.CapacityUnits,
+		"ConsistentRead=true must consume more RCU than ConsistentRead=false")
+}
+
+// TestGetItem_AttributesToGet_SurvivesWireConversion verifies that
+// ToSDKGetItemInput copies AttributesToGet onto the SDK input. models.GetItemInput
+// previously had no AttributesToGet field, so a client using the legacy
+// AttributesToGet projection parameter (rather than ProjectionExpression) silently
+// got the full item back instead of the requested projection.
+func TestGetItem_AttributesToGet_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "ItemsTable", "id")
+	putItem(db, "1", "data")
+
+	input := models.GetItemInput{
+		TableName:       "ItemsTable",
+		Key:             map[string]any{"id": map[string]any{"S": "1"}},
+		AttributesToGet: []string{"id"},
+	}
+
+	sdkInput, err := models.ToSDKGetItemInput(&input)
+	require.NoError(t, err)
+	require.Equal(t, []string{"id"}, sdkInput.AttributesToGet)
+
+	resp, getErr := db.GetItem(t.Context(), sdkInput)
+	require.NoError(t, getErr)
+	got := models.FromSDKItem(resp.Item)
+	assert.Equal(t, map[string]any{"id": map[string]any{"S": "1"}}, got,
+		"AttributesToGet must restrict the returned item to the requested attributes")
+}
+
 func TestDeleteItem(t *testing.T) {
 	t.Parallel()
 
@@ -279,8 +385,8 @@ func TestItemOps_Scan(t *testing.T) {
 	tests := []struct {
 		setup    func(*dynamodb.InMemoryDB)
 		validate func(*testing.T, any, error)
-		input    models.ScanInput
 		name     string
+		input    models.ScanInput
 	}{
 		{
 			name: "Success",

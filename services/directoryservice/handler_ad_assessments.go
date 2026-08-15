@@ -1,7 +1,6 @@
 package directoryservice
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -62,7 +61,7 @@ func (h *Handler) handleStartADAssessment(c *echo.Context) error {
 		return h.mapError(c, startErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"AssessmentId": assessmentID}) //nolint:goconst // existing issue.
+	return c.JSON(http.StatusOK, map[string]any{"AssessmentId": assessmentID})
 }
 
 // parseAssessmentConfiguration validates and converts the wire-level
@@ -101,23 +100,17 @@ func parseAssessmentConfiguration(in *assessmentConfigurationInput) (*ADAssessme
 	}, ""
 }
 
+// handleDeleteADAssessment does not use handleTwoFieldOp: the real
+// DeleteADAssessmentInput (api_op_DeleteADAssessment.go) is {AssessmentId}
+// only, unlike every other handleTwoFieldOp consumer in this service (all of
+// which genuinely require DirectoryId per their own real Input shapes).
 func (h *Handler) handleDeleteADAssessment(c *echo.Context) error {
-	return h.handleTwoFieldOp(c, twoFieldOp{
-		secondKey: "AssessmentId",
-		invoke: func(ctx context.Context, dirID, second string) error {
-			return h.Backend.DeleteADAssessment(ctx, dirID, second)
-		},
-	})
-}
-
-func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
 	}
 
 	var req struct {
-		DirectoryID  string `json:"DirectoryId"`
 		AssessmentID string `json:"AssessmentId"`
 	}
 
@@ -125,14 +118,42 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
-	if req.DirectoryID == "" || req.AssessmentID == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			errResp("InvalidParameterException", "DirectoryId and AssessmentId are required"),
-		)
+	if req.AssessmentID == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "AssessmentId is required"))
 	}
 
-	a, descErr := h.Backend.DescribeADAssessment(h.contextWithRegion(c), req.DirectoryID, req.AssessmentID)
+	if delErr := h.Backend.DeleteADAssessment(h.contextWithRegion(c), req.AssessmentID); delErr != nil {
+		return h.mapError(c, delErr)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+// handleDescribeADAssessment requires only AssessmentId: the real
+// DescribeADAssessmentInput has no DirectoryId member at all (confirmed via
+// its serializer, which emits only "AssessmentId"). Every real typed SDK
+// client's request was previously rejected outright by this handler's own
+// validation, since it could never supply the DirectoryId this handler used
+// to require.
+func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
+	}
+
+	var req struct {
+		AssessmentID string `json:"AssessmentId"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
+	}
+
+	if req.AssessmentID == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "AssessmentId is required"))
+	}
+
+	a, descErr := h.Backend.DescribeADAssessment(h.contextWithRegion(c), req.AssessmentID)
 	if descErr != nil {
 		return h.mapError(c, descErr)
 	}
@@ -164,7 +185,16 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 	// backend cannot honestly populate -- see ADAssessmentInfo's doc comment.
 	// Left off the wire entirely rather than emitted empty.
 
-	return c.JSON(http.StatusOK, map[string]any{"ADAssessment": wire})
+	// Wrapper key is "Assessment" (singular, no "AD" prefix) -- confirmed
+	// against DescribeADAssessmentOutput; the fabricated "ADAssessment" key
+	// this handler used to emit meant a real typed client's resp.Assessment
+	// field silently decoded to nil on every call despite the backend
+	// genuinely tracking the data.
+	//
+	// AssessmentReports (DescribeADAssessmentOutput's second top-level
+	// member) is omitted: this backend tracks no per-domain-controller/
+	// test-category validation results to source it from.
+	return c.JSON(http.StatusOK, map[string]any{"Assessment": wire})
 }
 
 // assessmentSummaryWire builds the field set common to both DescribeADAssessment's
@@ -230,7 +260,7 @@ func (h *Handler) handleListADAssessments(c *echo.Context) error {
 		assessList = append(assessList, assessmentSummaryWire(&assessments[i]))
 	}
 
-	resp := map[string]any{"ADAssessments": assessList}
+	resp := map[string]any{"Assessments": assessList}
 	if nextToken != "" {
 		resp["NextToken"] = nextToken
 	}

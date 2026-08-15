@@ -35,6 +35,24 @@ func toPrivacyBudgetTemplateSummary(t *PrivacyBudgetTemplate) *PrivacyBudgetTemp
 	}
 }
 
+// toCollaborationPrivacyBudgetTemplateSummary builds the collaboration-scoped
+// shape, which carries creatorAccountId in place of the membership-scoped
+// membershipArn/membershipId (see CollaborationPrivacyBudgetTemplateSummary).
+func toCollaborationPrivacyBudgetTemplateSummary(
+	t *PrivacyBudgetTemplate, creatorAccountID string,
+) *CollaborationPrivacyBudgetTemplateSummary {
+	return &CollaborationPrivacyBudgetTemplateSummary{
+		Arn:               t.Arn,
+		CollaborationArn:  t.CollaborationArn,
+		CollaborationID:   t.CollaborationID,
+		CreatorAccountID:  creatorAccountID,
+		PrivacyBudgetType: t.PrivacyBudgetType,
+		ID:                t.ID,
+		CreateTime:        t.CreateTime,
+		UpdateTime:        t.UpdateTime,
+	}
+}
+
 func (b *InMemoryBackend) CreatePrivacyBudgetTemplate(
 	membershipID, privacyBudgetType, autoRefresh string,
 	parameters map[string]any,
@@ -268,6 +286,37 @@ func toPrivacyBudget(t *PrivacyBudgetTemplate) *PrivacyBudget {
 	}
 }
 
+// toCollaborationPrivacyBudget builds the collaboration-scoped shape, which
+// carries creatorAccountId in place of the membership-scoped
+// membershipArn/membershipId (see CollaborationPrivacyBudgetSummary). Same
+// nil-for-non-differential-privacy behavior as toPrivacyBudget.
+func toCollaborationPrivacyBudget(
+	t *PrivacyBudgetTemplate,
+	creatorAccountID string,
+) *CollaborationPrivacyBudgetSummary {
+	if t.PrivacyBudgetType != privacyBudgetTypeDifferentialPrivacy {
+		return nil
+	}
+
+	epsilon, noise, ok := extractDPEpsilonNoise(t.Parameters)
+	if !ok {
+		return nil
+	}
+
+	return &CollaborationPrivacyBudgetSummary{
+		Budget:                   differentialPrivacyBudgetPayload(epsilon, noise),
+		ID:                       t.ID,
+		PrivacyBudgetTemplateArn: t.Arn,
+		PrivacyBudgetTemplateID:  t.ID,
+		CollaborationArn:         t.CollaborationArn,
+		CollaborationID:          t.CollaborationID,
+		CreatorAccountID:         creatorAccountID,
+		PrivacyBudgetType:        t.PrivacyBudgetType,
+		CreateTime:               t.CreateTime,
+		UpdateTime:               t.UpdateTime,
+	}
+}
+
 func (b *InMemoryBackend) ListPrivacyBudgets(
 	membershipID, privacyBudgetType, _, _ string,
 ) ([]*PrivacyBudget, string, error) {
@@ -293,14 +342,15 @@ func (b *InMemoryBackend) ListPrivacyBudgets(
 
 func (b *InMemoryBackend) ListCollaborationPrivacyBudgets(
 	collaborationID, privacyBudgetType, _, _ string,
-) ([]*PrivacyBudget, string, error) {
+) ([]*CollaborationPrivacyBudgetSummary, string, error) {
 	b.mu.RLock("ListCollaborationPrivacyBudgets")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations.Get(collaborationID); !ok {
+	collab, ok := b.collaborations.Get(collaborationID)
+	if !ok {
 		return nil, "", ErrNotFound
 	}
 
-	budgets := make([]*PrivacyBudget, 0)
+	budgets := make([]*CollaborationPrivacyBudgetSummary, 0)
 	b.privacyBudgetTemplates.Range(func(t *PrivacyBudgetTemplate) bool {
 		if t.CollaborationID != collaborationID {
 			return true
@@ -310,7 +360,7 @@ func (b *InMemoryBackend) ListCollaborationPrivacyBudgets(
 			return true
 		}
 
-		if pb := toPrivacyBudget(t); pb != nil {
+		if pb := toCollaborationPrivacyBudget(t, collab.CreatorAccountID); pb != nil {
 			budgets = append(budgets, pb)
 		}
 
@@ -344,17 +394,20 @@ func (b *InMemoryBackend) GetCollaborationPrivacyBudgetTemplate(
 
 func (b *InMemoryBackend) ListCollaborationPrivacyBudgetTemplates(
 	collaborationID, maxResults, nextToken string,
-) ([]*PrivacyBudgetTemplateSummary, string, error) {
+) ([]*CollaborationPrivacyBudgetTemplateSummary, string, error) {
 	b.mu.RLock("ListCollaborationPrivacyBudgetTemplates")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations.Get(collaborationID); !ok {
+	collab, ok := b.collaborations.Get(collaborationID)
+	if !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listNestedItems(
 		b.privacyBudgetTemplates.All(),
 		func(t *PrivacyBudgetTemplate) bool { return t.CollaborationID == collaborationID },
-		toPrivacyBudgetTemplateSummary,
-		func(a, c *PrivacyBudgetTemplateSummary) bool {
+		func(t *PrivacyBudgetTemplate) *CollaborationPrivacyBudgetTemplateSummary {
+			return toCollaborationPrivacyBudgetTemplateSummary(t, collab.CreatorAccountID)
+		},
+		func(a, c *CollaborationPrivacyBudgetTemplateSummary) bool {
 			return a.ID < c.ID
 		},
 		maxResults, nextToken,
@@ -385,7 +438,8 @@ func (b *InMemoryBackend) PreviewPrivacyImpact(
 	epsilon, noise, ok := extractDPEpsilonNoise(parameters)
 	if !ok {
 		return nil, fmt.Errorf(
-			"%w: parameters.differentialPrivacy.{epsilon,usersNoisePerQuery} are required", ErrValidation,
+			"%w: parameters.differentialPrivacy.{epsilon,usersNoisePerQuery} are required",
+			ErrValidation,
 		)
 	}
 

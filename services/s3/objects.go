@@ -245,8 +245,18 @@ func (b *InMemoryBackend) RenameObject(
 	dstObj.Versions[newVersion.VersionID] = &newVersion
 	if existing, exists := bucket.Objects[targetKey]; exists {
 		// If a destination object already exists, replace its latest version.
+		// existing is a different *StoredObject than srcObj (targetKey !=
+		// sourceKey, checked above), so it needs its own lock: a concurrent
+		// GetObject/HeadObject on targetKey only takes bucket.mu briefly to
+		// fetch the obj pointer, then reads existing.Versions/LatestVersionID
+		// under existing.mu.RLock alone -- writing those fields here without
+		// existing.mu.Lock() raced with that read (confirmed with -race: a
+		// concurrent GetObject on the rename target hit an unsynchronized
+		// map write in mapassign_faststr from this line).
+		existing.mu.Lock("RenameObject.existing")
 		existing.LatestVersionID = newVersion.VersionID
 		existing.Versions[newVersion.VersionID] = &newVersion
+		existing.mu.Unlock()
 	} else {
 		bucket.Objects[targetKey] = dstObj
 	}

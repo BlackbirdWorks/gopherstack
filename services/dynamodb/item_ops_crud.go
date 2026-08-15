@@ -30,6 +30,10 @@ func (db *InMemoryDB) PutItem(
 		return nil, err
 	}
 
+	if err := applyLegacyPutParams(input); err != nil {
+		return nil, err
+	}
+
 	condExpr := aws.ToString(input.ConditionExpression)
 	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
 		return nil, err
@@ -193,16 +197,19 @@ func (db *InMemoryDB) checkPutCondition(
 func (db *InMemoryDB) doPut(table *Table, item map[string]any, matchIndex int) {
 	itemSize, _ := CalculateItemSize(item)
 	if matchIndex != -1 {
+		oldItem := table.Items[matchIndex]
 		table.totalItemSizeBytes += int64(itemSize) - int64(table.itemSizes[matchIndex])
 		table.itemSizes[matchIndex] = itemSize
 		table.Items[matchIndex] = item
 		db.updateIndexes(table, item, matchIndex)
+		table.updateSecondaryIndexes(oldItem, matchIndex, item, matchIndex)
 	} else {
 		idx := len(table.Items)
 		table.Items = append(table.Items, item)
 		table.itemSizes = append(table.itemSizes, itemSize)
 		table.totalItemSizeBytes += int64(itemSize)
 		db.updateIndexes(table, item, idx)
+		table.updateSecondaryIndexes(nil, 0, item, idx)
 	}
 }
 
@@ -467,6 +474,10 @@ func (db *InMemoryDB) DeleteItem(
 		return nil, err
 	}
 
+	if err := applyLegacyDeleteParams(input); err != nil {
+		return nil, err
+	}
+
 	condExpr := aws.ToString(input.ConditionExpression)
 	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
 		return nil, err
@@ -648,6 +659,10 @@ func (db *InMemoryDB) UpdateItem(
 		return nil, err
 	}
 
+	if err = applyLegacyUpdateParams(input); err != nil {
+		return nil, err
+	}
+
 	updateExpr := aws.ToString(input.UpdateExpression)
 	condExpr := aws.ToString(input.ConditionExpression)
 	allExprs := []string{updateExpr, condExpr}
@@ -818,12 +833,14 @@ func (db *InMemoryDB) doUpdate(
 		table.itemSizes[matchIndex] = updatedSize
 		table.Items[matchIndex] = updated
 		db.updateIndexes(table, updated, matchIndex)
+		table.updateSecondaryIndexes(existing, matchIndex, updated, matchIndex)
 	} else {
 		newIdx := len(table.Items)
 		table.Items = append(table.Items, updated)
 		table.itemSizes = append(table.itemSizes, updatedSize)
 		table.totalItemSizeBytes += int64(updatedSize)
 		db.updateIndexes(table, updated, newIdx)
+		table.updateSecondaryIndexes(nil, 0, updated, newIdx)
 	}
 
 	return updated, updatedPaths, nil
@@ -955,6 +972,8 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 		delete(table.pkIndex, pkVal)
 	}
 
+	table.updateSecondaryIndexes(item, matchIndex, nil, 0)
+
 	// Swap with last strategy for O(1) deletion
 	lastIdx := len(table.Items) - 1
 	deletedSize := table.itemSizes[matchIndex]
@@ -967,6 +986,7 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 
 		// Update index for the moved item
 		db.updateIndexes(table, lastItem, matchIndex)
+		table.updateSecondaryIndexes(lastItem, lastIdx, lastItem, matchIndex)
 	}
 
 	// Shrink slice

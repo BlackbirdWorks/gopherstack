@@ -357,16 +357,20 @@ func durationNanos(ms int64) int64 {
 }
 
 // statementToListItem converts a statement to the summary map used in ListStatements.
+// Matches types.StatementData (aws-sdk-go-v2/service/redshiftdata@v1.43.4
+// types/types.go, checked 2026-08-13): Id/CreatedAt/IsBatchStatement/
+// QueryParameters/QueryString/QueryStrings/ResultFormat/SecretArn/SessionId/
+// StatementName/Status/UpdatedAt only -- no ClusterIdentifier/Database/DbUser/
+// Duration/HasResultSet/WorkgroupName (those are real DescribeStatementOutput
+// members, see statementToDescribeResponse below, not ListStatements ones).
 func statementToListItem(stmt *Statement) map[string]any {
 	item := map[string]any{
 		"Id":               stmt.ID,
 		keyStatusField:     stmt.Status,
 		keyQueryString:     stmt.QueryString,
 		"IsBatchStatement": stmt.IsBatchStatement,
-		keyHasResultSet:    stmt.HasResultSet,
 		keyCreatedAt:       epochSeconds(stmt.CreatedAt),
 		keyUpdatedAt:       epochSeconds(stmt.UpdatedAt),
-		keyDuration:        durationNanos(stmt.DurationMs),
 		keyResultFormat:    statementResultFormat(stmt),
 	}
 
@@ -376,22 +380,6 @@ func statementToListItem(stmt *Statement) map[string]any {
 
 	if stmt.SecretARN != "" {
 		item["SecretArn"] = stmt.SecretARN
-	}
-
-	if stmt.Database != "" {
-		item["Database"] = stmt.Database
-	}
-
-	if stmt.ClusterIdentifier != "" {
-		item["ClusterIdentifier"] = stmt.ClusterIdentifier
-	}
-
-	if stmt.WorkgroupName != "" {
-		item["WorkgroupName"] = stmt.WorkgroupName
-	}
-
-	if stmt.DBUser != "" {
-		item["DbUser"] = stmt.DBUser
 	}
 
 	if stmt.SessionID != "" {

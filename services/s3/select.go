@@ -2,9 +2,11 @@ package s3
 
 import (
 	"bytes"
+	"compress/bzip2"
 	"context"
 	"encoding/binary"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -52,10 +54,17 @@ type selectRequestProgress struct {
 
 // selectInputSerialization describes how the source object is formatted.
 type selectInputSerialization struct {
-	CSV             *selectCSVInput  `xml:"CSV"`
-	JSON            *selectJSONInput `xml:"JSON"`
-	CompressionType string           `xml:"CompressionType"`
+	CSV             *selectCSVInput     `xml:"CSV"`
+	JSON            *selectJSONInput    `xml:"JSON"`
+	Parquet         *selectParquetInput `xml:"Parquet"`
+	CompressionType string              `xml:"CompressionType"`
 }
+
+// selectParquetInput marks that the source object is Parquet-formatted.
+// Only its presence is used - Parquet input is not supported and is rejected
+// with a clear error rather than being silently parsed as CSV, which the
+// zero-value InputSerialization would otherwise fall back to.
+type selectParquetInput struct{}
 
 // selectCSVInput holds CSV input settings.
 type selectCSVInput struct {
@@ -306,6 +315,15 @@ func (h *S3Handler) evaluateQuery(
 	data []byte,
 	req *selectRequest,
 ) (int64, error) {
+	if req.InputSerialization.Parquet != nil {
+		return 0, fmt.Errorf("UnsupportedFileType: %w", errParquetUnsupported)
+	}
+
+	data, decErr := decompressSelectInput(data, req.InputSerialization.CompressionType)
+	if decErr != nil {
+		return 0, decErr
+	}
+
 	switch {
 	case req.InputSerialization.CSV != nil:
 		return evaluateCSVQuery(w, query, data, req)
@@ -319,11 +337,50 @@ func (h *S3Handler) evaluateQuery(
 	}
 }
 
+var errParquetUnsupported = errors.New("parquet input serialization is not supported")
+
+// decompressSelectInput decompresses data per CompressionType before it reaches
+// the CSV/JSON parser. Previously CompressionType was parsed off the wire and
+// then never read: compressed bytes went straight into the CSV/JSON reader,
+// which either errored confusingly or - for CSV, whose reader is lenient -
+// silently produced zero rows, so a GZIP-compressed object came back as an
+// empty result instead of an error or its real content.
+func decompressSelectInput(data []byte, compressionType string) ([]byte, error) {
+	switch strings.ToUpper(compressionType) {
+	case "", "NONE":
+		return data, nil
+
+	case "GZIP":
+		out, err := (&GzipCompressor{}).Decompress(data)
+		if err != nil {
+			return nil, fmt.Errorf("GZIPDecompression: %w", err)
+		}
+
+		return out, nil
+
+	case "BZIP2":
+		out, err := io.ReadAll(bzip2.NewReader(bytes.NewReader(data)))
+		if err != nil {
+			return nil, fmt.Errorf("BZIP2Decompression: %w", err)
+		}
+
+		return out, nil
+
+	default:
+		return nil, fmt.Errorf("%w: %q", errInvalidCompressionFormat, compressionType)
+	}
+}
+
+var errInvalidCompressionFormat = errors.New("InvalidCompressionFormat: unsupported CompressionType")
+
 // parseSQLSelectError checks if err is a known SQL-level select error (e.g. MissingSQLColumn)
 // and returns the AWS error code, message, and true if so.
 func parseSQLSelectError(err error) (string, string, bool) {
 	msg := err.Error()
-	for _, knownCode := range []string{"MissingSQLColumn", "ParseException", "InvalidExpressionType"} {
+	for _, knownCode := range []string{
+		"MissingSQLColumn", "ParseException", "InvalidExpressionType", "UnsupportedFileType",
+		"GZIPDecompression", "BZIP2Decompression", "InvalidCompressionFormat",
+	} {
 		prefix := knownCode + ":"
 		if strings.HasPrefix(msg, prefix) {
 			return knownCode, strings.TrimSpace(msg[len(prefix):]), true

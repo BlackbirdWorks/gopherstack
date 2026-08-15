@@ -123,10 +123,25 @@ func TestBackend_UpdateConfigurationPolicy(t *testing.T) {
 			if tc.wantErrMsg != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrMsg)
-			} else {
-				require.NoError(t, err)
-				assert.NotNil(t, result)
+
+				return
 			}
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+
+			switch tc.updateField {
+			case "name":
+				assert.Equal(t, newName, result.Name)
+			case "desc":
+				assert.Equal(t, newDesc, result.Description)
+			case "policy":
+				assert.Equal(t, newPolicy, result.ConfigurationPolicy)
+			}
+
+			reread, err := b.GetConfigurationPolicy(identifier)
+			require.NoError(t, err)
+			assert.Equal(t, result, reread, "update must be visible on a subsequent read")
 		})
 	}
 }
@@ -221,8 +236,15 @@ func TestConfigurationPolicy(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						policies, _ := resp["ConfigurationPolicySummaryList"].([]any)
-						assert.Len(t, policies, 1)
+						// Real key is "ConfigurationPolicySummaries" (securityhub@v1.75.4
+						// deserializers.go) -- this test previously asserted the wrong
+						// key ("ConfigurationPolicySummaryList") as correct, which
+						// passed because the pre-fix handler emitted that same wrong
+						// key.
+						policies, _ := resp["ConfigurationPolicySummaries"].([]any)
+						require.Len(t, policies, 1)
+						summary, _ := policies[0].(map[string]any)
+						assert.Equal(t, true, summary["ServiceEnabled"])
 
 						return ""
 					},
@@ -293,7 +315,12 @@ func TestConfigurationPolicy(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						assocs, _ := resp["ConfigurationPolicyAssociationSummaryList"].([]any)
+						// Real key is "ConfigurationPolicyAssociationSummaries"
+						// (securityhub@v1.75.4 deserializers.go) -- this test
+						// previously asserted the wrong key as correct, which
+						// passed because the pre-fix handler emitted that same
+						// wrong key.
+						assocs, _ := resp["ConfigurationPolicyAssociationSummaries"].([]any)
 						assert.Len(t, assocs, 1)
 
 						return ""
@@ -342,7 +369,7 @@ func TestConfigurationPolicy(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						assocs, _ := resp["ConfigurationPolicyAssociationSummaryList"].([]any)
+						assocs, _ := resp["ConfigurationPolicyAssociationSummaries"].([]any)
 						assert.Empty(t, assocs)
 
 						return ""

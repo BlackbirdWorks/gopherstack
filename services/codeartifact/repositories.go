@@ -80,7 +80,9 @@ func (b *InMemoryBackend) DescribeRepository(ctx context.Context, domainName, re
 
 // ListRepositoriesInDomain returns all repositories in a domain, sorted by name.
 // Returns ErrNotFound if the domain does not exist.
-func (b *InMemoryBackend) ListRepositoriesInDomain(ctx context.Context, domainName string) ([]*Repository, error) {
+func (b *InMemoryBackend) ListRepositoriesInDomain(
+	ctx context.Context, domainName, repositoryPrefix string,
+) ([]*Repository, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListRepositoriesInDomain")
@@ -93,10 +95,14 @@ func (b *InMemoryBackend) ListRepositoriesInDomain(ctx context.Context, domainNa
 	entries := b.repositoriesByRegion.Get(region)
 	list := make([]*Repository, 0, len(entries))
 	for _, r := range entries {
-		if r.DomainName == domainName {
-			cp := *r
-			list = append(list, &cp)
+		if r.DomainName != domainName {
+			continue
 		}
+		if repositoryPrefix != "" && !strings.HasPrefix(r.Name, repositoryPrefix) {
+			continue
+		}
+		cp := *r
+		list = append(list, &cp)
 	}
 	slices.SortFunc(list, func(a, b *Repository) int {
 		return strings.Compare(a.Name, b.Name)
@@ -106,7 +112,7 @@ func (b *InMemoryBackend) ListRepositoriesInDomain(ctx context.Context, domainNa
 }
 
 // ListRepositories returns all repositories across all domains, sorted by name.
-func (b *InMemoryBackend) ListRepositories(ctx context.Context) []*Repository {
+func (b *InMemoryBackend) ListRepositories(ctx context.Context, repositoryPrefix string) []*Repository {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListRepositories")
@@ -115,6 +121,9 @@ func (b *InMemoryBackend) ListRepositories(ctx context.Context) []*Repository {
 	entries := b.repositoriesByRegion.Get(region)
 	list := make([]*Repository, 0, len(entries))
 	for _, r := range entries {
+		if repositoryPrefix != "" && !strings.HasPrefix(r.Name, repositoryPrefix) {
+			continue
+		}
 		cp := *r
 		list = append(list, &cp)
 	}

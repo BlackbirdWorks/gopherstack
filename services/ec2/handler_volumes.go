@@ -661,7 +661,7 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 	volType := vals.Get("VolumeType")
 	sizeStr := vals.Get("Size")
 	encryptedStr := vals.Get("Encrypted")
-	kmsKeyID := vals.Get("KmsKeyID")
+	kmsKeyID := vals.Get("KmsKeyId")
 	snapshotID := vals.Get("SnapshotId")
 
 	size := 0

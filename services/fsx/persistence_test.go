@@ -226,11 +226,17 @@ func assertFullStateRestored(t *testing.T, h *fsx.Handler, ids fullStateIDs) {
 
 	rec = doFSxRequest(t, h, "DescribeDataRepositoryTasks", map[string]any{"TaskIds": []string{ids.taskID}})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assertOutputLen(t, rec, "DataRepositoryTasks")
+	tasks := assertOutputLen(t, rec, "DataRepositoryTasks")
+	report, ok := tasks[0].(map[string]any)["Report"].(map[string]any)
+	require.True(t, ok, "Report must survive Snapshot/Restore")
+	assert.Equal(t, true, report["Enabled"])
+	assert.Equal(t, "s3://bucket/prefix", report["Path"])
 
 	rec = doFSxRequest(t, h, "DescribeFileCaches", map[string]any{"FileCacheIds": []string{ids.fileCacheID}})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assertOutputLen(t, rec, "FileCaches")
+	caches := assertOutputLen(t, rec, "FileCaches")
+	assert.Equal(t, "2.12", caches[0].(map[string]any)["FileCacheTypeVersion"],
+		"FileCacheTypeVersion must survive Snapshot/Restore")
 
 	rec = doFSxRequest(t, h, "DescribeStorageVirtualMachines",
 		map[string]any{"StorageVirtualMachineIds": []string{ids.svmID}})
@@ -264,7 +270,7 @@ func assertFullStateRestored(t *testing.T, h *fsx.Handler, ids fullStateIDs) {
 // assertOutputLen decodes rec's JSON body and asserts that the array under
 // field has exactly one element -- every Describe* call in
 // assertFullStateRestored looks up a single just-restored resource by ID.
-func assertOutputLen(t *testing.T, rec *httptest.ResponseRecorder, field string) {
+func assertOutputLen(t *testing.T, rec *httptest.ResponseRecorder, field string) []any {
 	t.Helper()
 
 	var out map[string]any
@@ -273,6 +279,8 @@ func assertOutputLen(t *testing.T, rec *httptest.ResponseRecorder, field string)
 	list, ok := out[field].([]any)
 	require.True(t, ok, "field %q missing or not an array in response %s", field, rec.Body.String())
 	assert.Len(t, list, 1)
+
+	return list
 }
 
 // taggedFSClientRequestToken is the ClientRequestToken createTaggedFS sends,
@@ -357,6 +365,12 @@ func createDRT(t *testing.T, h *fsx.Handler, fsID string) string {
 		"FileSystemId": fsID,
 		"Type":         "EXPORT_TO_REPOSITORY",
 		"Paths":        []string{"/data"},
+		"Report": map[string]any{
+			"Enabled": true,
+			"Format":  "REPORT_CSV_20191124",
+			"Path":    "s3://bucket/prefix",
+			"Scope":   "FAILED_FILES_ONLY",
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

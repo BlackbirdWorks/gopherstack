@@ -40,7 +40,7 @@ func (h *Handler) handleCreateEnvironment(c *echo.Context, applicationID string)
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, env)
+	return c.JSON(http.StatusCreated, environmentToOutput(*env))
 }
 
 func (h *Handler) handleGetEnvironment(c *echo.Context, applicationID, environmentID string) error {
@@ -53,7 +53,7 @@ func (h *Handler) handleGetEnvironment(c *echo.Context, applicationID, environme
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.JSON(http.StatusOK, env)
+	return c.JSON(http.StatusOK, environmentToOutput(*env))
 }
 
 func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) error {
@@ -67,7 +67,12 @@ func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) 
 		return internalServerErrorResponse(c, err)
 	}
 
-	resp := map[string]any{keyItems: envs}
+	items := make([]environmentOutput, 0, len(envs))
+	for _, env := range envs {
+		items = append(items, environmentToOutput(env))
+	}
+
+	resp := map[string]any{keyItems: items}
 	if outToken != "" {
 		resp["NextToken"] = outToken
 	}
@@ -102,7 +107,7 @@ func (h *Handler) handleUpdateEnvironment(
 		return internalServerErrorResponse(c, err)
 	}
 
-	return c.JSON(http.StatusOK, env)
+	return c.JSON(http.StatusOK, environmentToOutput(*env))
 }
 
 func (h *Handler) handleDeleteEnvironment(

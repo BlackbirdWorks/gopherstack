@@ -56,7 +56,7 @@ func TestDescribeType_Registered(t *testing.T) {
 			name: "published type has PUBLIC visibility",
 			setup: func(b *cloudformation.InMemoryBackend) {
 				_, _ = b.RegisterType("MyOrg::Pub::Type", "s3://pkg.zip")
-				_ = b.PublishType("MyOrg::Pub::Type")
+				_, _ = b.PublishType("MyOrg::Pub::Type")
 			},
 			typeName: "MyOrg::Pub::Type",
 			check: func(t *testing.T, d *cloudformation.TypeDetails) {
@@ -68,7 +68,7 @@ func TestDescribeType_Registered(t *testing.T) {
 			name: "activated type IsActivated is true",
 			setup: func(b *cloudformation.InMemoryBackend) {
 				_, _ = b.RegisterType("MyOrg::Act::Type", "s3://pkg.zip")
-				_ = b.ActivateType("MyOrg::Act::Type", "")
+				_, _ = b.ActivateType("MyOrg::Act::Type", "")
 			},
 			typeName: "MyOrg::Act::Type",
 			check: func(t *testing.T, d *cloudformation.TypeDetails) {
@@ -174,7 +174,7 @@ func TestHandler_DescribeType_Registered(t *testing.T) {
 			name: "published type shows PUBLIC visibility in response",
 			setup: func(b *cloudformation.InMemoryBackend) {
 				_, _ = b.RegisterType("Acme::Pub::Widget", "s3://schema.zip")
-				_ = b.PublishType("Acme::Pub::Widget")
+				_, _ = b.PublishType("Acme::Pub::Widget")
 			},
 			formValues: url.Values{
 				"Action":   {"DescribeType"},
@@ -296,7 +296,7 @@ func TestListTypes_Visibility(t *testing.T) {
 			name: "published type is PUBLIC",
 			setup: func(b *cloudformation.InMemoryBackend) {
 				_, _ = b.RegisterType("Acme::Pub::Type", "s3://pkg.zip")
-				_ = b.PublishType("Acme::Pub::Type")
+				_, _ = b.PublishType("Acme::Pub::Type")
 			},
 			wantPublic: []string{"Acme::Pub::Type"},
 		},

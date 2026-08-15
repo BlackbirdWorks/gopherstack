@@ -2,8 +2,8 @@
 service: ecr
 sdk_module: aws-sdk-go-v2/service/ecr@v1.60.4
 last_audit_commit: fba3c784+uncommitted  # this pass's changes are uncommitted working-tree edits; see Notes
-last_audit_date: 2026-07-24
-overall: A  # round 3 closed every remaining gaps: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.
+last_audit_date: 2026-08-15
+overall: A  # round 4 (gopherstack-6flj wrapper-key sweep) found and fixed 6 more real wire-shape bugs the round-3 "wire: ok" claims had missed -- see "Genuine fixes made this pass, round 4" below. Round 3 closed every remaining gap it found: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRepositories: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -13,7 +13,7 @@ ops:
   BatchDeleteImage: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeImages: {wire: ok, errors: ok, state: ok, persist: ok, note: "core fields (imageDigest, imageTags, imagePushedAt as epoch, imageSizeInBytes, imageManifestMediaType, imageStatus, registryId, repositoryName) verified correct via imageDetailView. FIXED (round 3) — the 7 previously-missing ImageDetail fields are now implemented: artifactMediaType/subjectManifestDigest are parsed from the pushed manifest's OCI 1.1 artifactType/subject.digest fields; imageScanFindingsSummary/imageScanStatus are annotated from the imageScanFindings store (present only for images that have actually been scanned); lastActivatedAt/lastArchivedAt are stamped by UpdateImageStorageClass; lastRecordedPullTime is stamped by BatchGetImage and GetDownloadUrlForLayer (the latter via a manifest-text substring match against the requested layer digest, since the backend does not otherwise model a per-image layer list)."}
   ListImages: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListImageReferrers: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListImageReferrers: {wire: ok, errors: ok, state: ok, persist: ok, note: "STRUCTURAL GAP (round 4, disclosed not fixed) -- 'wire: ok' overstated: the real ListImageReferrersInput/Output also carry Filter/MaxResults/NextToken, omitted here because PutImage never records an OCI-referrer edge from a pushed artifact's manifest 'subject' back to the subject image, so this op is structurally always empty regardless of those fields' presence; adding them would be a schema-only change with nothing to ratify. Referrer-relationship tracking itself is the real gap, out of scope for a wire-shape fix."}
   BatchCheckLayerAvailability: {wire: ok, errors: ok, state: ok, persist: ok}
   InitiateLayerUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIFO TTL pruning bounds layerUploads/layerUploadQueue"}
   UploadLayerPart: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — added part-sequencing validation (InvalidLayerPartException) for non-consecutive partFirstByte. FIXED (round 3) — now records each part's size on the upload session so CompleteLayerUpload can enforce the 5MiB minimum-part-size rule (LayerPartTooSmallException) against every part but the last. FIXED (round 3, genuinely new finding) — an unknown/wrong-repository uploadId incorrectly returned RepositoryNotFoundException (404); real AWS returns UploadNotFoundException (400) per UploadLayerPart's documented Errors list. Found while re-verifying this exact code path for the CompleteLayerUpload UploadNotFoundException gap; TestECR_RestoreClearsInFlightLayerUploads previously asserted the wrong (404) status and was corrected."}
@@ -26,7 +26,7 @@ ops:
   DeletePullThroughCacheRule: {wire: ok, errors: ok, state: ok, persist: ok}
   ValidatePullThroughCacheRule: {wire: ok, errors: ok, state: ok, persist: n/a}
   CreateRepositoryCreationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeRepositoryCreationTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeRepositoryCreationTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 4) -- the real DescribeRepositoryCreationTemplatesInput/Output carry maxResults/nextToken (confirmed against the real api_op file); this handler discarded both, always returning every template in one page. Now paginates via the same base64(prefix)-cursor convention used by DescribeRepositories/DescribePullThroughCacheRules elsewhere in this package."}
   UpdateRepositoryCreationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRepositoryCreationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   PutLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "applied immediately on Put, matching AWS's immediate evaluation. FIXED (round 2) — lastEvaluatedAt was a bare time.Time returned directly on the domain struct (RFC3339 string on the wire); real GetLifecyclePolicyOutput.lastEvaluatedAt deserializes via smithytime.ParseEpochSeconds(json.Number). Fixed via lifecyclePolicyResultView (epoch float64), same convention as repositoryView.createdAt."}
@@ -41,18 +41,18 @@ ops:
   PutRegistryPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — same invented 'status' field (\"SetComplete\") deleted; see GetRegistryPolicy note"}
   DeleteRegistryPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — same invented 'status' field (\"DELETED\") deleted; see GetRegistryPolicy note"}
   DescribeRegistry: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetRegistryScanningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutRegistryScanningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchGetRepositoryScanningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutImageScanningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetRegistryScanningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 4) -- registryId was declared on the wire struct but never populated (always emitted \"\" instead of the real account ID), unlike sibling ops DescribeRegistry/GetRegistryPolicy/PutRegistryPolicy/DescribeRepositoryCreationTemplates which all set it correctly. Now set from Backend.AccountID()."}
+  PutRegistryScanningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FLAGSHIP FIX (round 4) -- this op's response reused getRegistryScanningConfigurationOutput (Get's shape: wrapper key \"scanningConfiguration\" + top-level registryId), but the real PutRegistryScanningConfigurationOutput wraps under \"registryScanningConfiguration\" with NO registryId field at all (confirmed by direct diff of both ops' own awsAwsjson11_deserializeOpDocument...Output functions). A real SDK client parsing gopherstack's old response silently got a nil RegistryScanningConfiguration on every 200 response -- exactly the class of bug this issue hunts, hiding behind an at-first-glance-symmetric Get/Put pair. Fixed via a dedicated putRegistryScanningConfigurationOutput type. An existing raw-body test (TestPutRegistryScanningConfiguration_ScanTypeEnhanced) asserted the wrong key as correct and was rewritten."}
+  BatchGetRepositoryScanningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 4) -- RepositoryScanningConfiguration was missing appliedScanFilters entirely (real types.RepositoryScanningConfiguration field); when an ENHANCED registry's CONTINUOUS_SCAN rule matches a repo, the matching rule's RepositoryFilters are now surfaced there too (repoEffectiveScanFrequency extended to return both)."}
+  PutImageScanningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 4) -- registryId declared on the wire struct but never populated; same pattern as GetRegistryScanningConfiguration above. Now set from Backend.AccountID()."}
   PutImageTagMutability: {wire: ok, errors: ok, state: ok, persist: ok, note: "exclusion filters (WILDCARD + literal) enforced correctly"}
   StartImageScan: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeImageScanFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "BASIC vs ENHANCED finding shapes genuinely differ; paginated via index-based nextToken; ScanNotFoundException for never-scanned images. FIXED (round 2) — ImageScanFindingsResult.completedAt was a bare time.Time under the WRONG key entirely: real ecr.types.ImageScanFindings has no 'completedAt' field at all; the real key is 'imageScanCompletedAt' (epoch seconds, per awsAwsjson11_deserializeDocumentImageScanFindings), plus a second field 'vulnerabilitySourceUpdatedAt' that gopherstack didn't emit at all. A real SDK client parsing gopherstack's old response would silently get a nil/zero ImageScanCompletedAt (unknown JSON keys are ignored, so no hard failure, but the field was simply never populated client-side). Fixed: renamed to ImageScanCompletedAt/VulnerabilitySourceUpdatedAt (float64, epoch seconds); VulnerabilitySourceUpdatedAt is only populated for ENHANCED scans (BASIC omits it, matching AWS's Inspector-only semantics for that field)."}
+  DescribeImageScanFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "BASIC vs ENHANCED finding shapes genuinely differ; paginated via index-based nextToken; ScanNotFoundException for never-scanned images. FIXED (round 2) — ImageScanFindingsResult.completedAt was a bare time.Time under the WRONG key entirely: real ecr.types.ImageScanFindings has no 'completedAt' field at all; the real key is 'imageScanCompletedAt' (epoch seconds, per awsAwsjson11_deserializeDocumentImageScanFindings), plus a second field 'vulnerabilitySourceUpdatedAt' that gopherstack didn't emit at all. A real SDK client parsing gopherstack's old response would silently get a nil/zero ImageScanCompletedAt (unknown JSON keys are ignored, so no hard failure, but the field was simply never populated client-side). Fixed: renamed to ImageScanCompletedAt/VulnerabilitySourceUpdatedAt (float64, epoch seconds); VulnerabilitySourceUpdatedAt is only populated for ENHANCED scans (BASIC omits it, matching AWS's Inspector-only semantics for that field). FIXED (round 4) — the nested \"imageScanFindings\" object reused ImageScanFindingsResult wholesale, so it ALSO leaked imageId/repositoryName/registryId/status/description (the output's own top-level fields) into the nested object; the real nested ImageScanFindings type has only 5 fields, none of those. Harmless to a real client (unknown keys ignored) but a wire-shape imprecision; fixed via a purpose-built imageScanFindingsView."}
   PutReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeImageReplicationStatus: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 4) -- registryId omitted entirely; real GetSigningConfigurationOutput has it (unlike PutSigningConfigurationOutput, which genuinely lacks it -- three siblings, two shapes, confirmed against each op's own deserializer). Now set from Backend.AccountID()."}
+  PutSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified (round 4) -- correctly has no registryId, matching the real PutSigningConfigurationOutput shape; see GetSigningConfiguration/DeleteSigningConfiguration notes for the sibling contrast."}
+  DeleteSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 4) -- same registryId gap as GetSigningConfiguration (real DeleteSigningConfigurationOutput also has it); fixed the same way."}
   DescribeImageSigningStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateImageStorageClass: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 3) — now stamps lastArchivedAt/lastActivatedAt (see DescribeImages note) on ARCHIVE/re-activate transitions respectively."}
   GetAccountSetting: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -67,8 +67,9 @@ families:
   registry-v2-proxy: {status: ok, note: "docker distribution/v3 in-memory storage driver embedded for /v2/ blob+manifest paths; ExtractResource avoids buffering upload bodies"}
   lifecycle-evaluation: {status: ok, note: "priority-ordered rules, imageCountMoreThan + sinceImagePushed count types, tagStatus any/tagged/untagged with prefix+wildcard pattern matching, janitor sweeps on a timer independent of API calls"}
   mock-scanning: {status: ok, note: "deterministic per-digest CVE selection (sha256-seeded bitmask) so repeated scans of the same image are stable; BASIC and ENHANCED shapes are genuinely different data, not the same list reshaped"}
-gaps: []
-  # All gaps documented through round 2 were closed for real in round 3
+gaps:
+  - "ListImageReferrers (round 4, disclosed): PutImage never records an OCI-referrer edge from a pushed artifact manifest's 'subject' field back to the subject image, so this op is structurally always empty. Real AWS returns actual referrer artifacts here; gopherstack has no backing model for the relationship at all. Filter/MaxResults/NextToken deliberately left off the wire structs since there is nothing for them to affect."
+  # All other gaps documented through round 2 were closed for real in round 3
   # (2026-07-24), including the ImageAlreadyExistsException trigger condition
   # (previously deferred as unconfirmable without a live AWS account -- see
   # "Genuine fixes made this pass, round 3" below for how it was independently
@@ -455,3 +456,89 @@ New tests locking every fix above: `TestLayerUploadFlow/empty_upload_rejected`,
 `TestGetLifecyclePolicyPreview_ImageIds`,
 `TestGetLifecyclePolicyPreview_Pagination` (lifecycle_policy_test.go);
 `TestPullTimeUpdateExclusion_Pagination` (account_settings_test.go).
+
+### Genuine fixes made this pass, round 4 (2026-08-15, gopherstack-6flj)
+
+This round's assignment was the repo-wide wrapper-key sweep (gopherstack-6flj),
+not a fresh full-service audit — but re-deriving every L+D+G op's real shape
+from the pinned SDK independently of the round-3 "wire: ok" claims (rather
+than trusting them) found 6 more real bugs the prior rounds missed, all in
+the registry/signing-configuration family:
+
+1. **FLAGSHIP: `PutRegistryScanningConfiguration` reused `Get`'s response
+   shape.** Both ops' handlers returned the same
+   `getRegistryScanningConfigurationOutput` (wrapper key
+   `"scanningConfiguration"` + top-level `registryId`) — correct for `Get`,
+   but `PutRegistryScanningConfigurationOutput`'s own deserializer
+   (`awsAwsjson11_deserializeOpDocumentPutRegistryScanningConfigurationOutput`)
+   wraps under `"registryScanningConfiguration"` with **no** `registryId`
+   field at all. A real SDK client parsing gopherstack's old `Put` response
+   got a `nil RegistryScanningConfiguration` on every 200 — exactly this
+   issue's target bug class, hiding behind a plausible-looking symmetric
+   Get/Put pair. Fixed via a dedicated `putRegistryScanningConfigurationOutput`
+   type. `TestPutRegistryScanningConfiguration_ScanTypeEnhanced` was an
+   existing raw-body test that asserted the wrong key as correct; rewritten.
+
+2. **`GetRegistryScanningConfiguration`, `PutImageScanningConfiguration`,
+   `GetSigningConfiguration`, `DeleteSigningConfiguration` all declared a
+   `registryId` wire field that was never populated** (always emitted `""`
+   instead of the real account ID), while sibling ops in the same family
+   (`DescribeRegistry`, `GetRegistryPolicy`, `PutRegistryPolicy`,
+   `DescribeRepositoryCreationTemplates`) already set it correctly from
+   `Backend.AccountID()`. `PutSigningConfiguration` was independently
+   re-verified as correctly having **no** `registryId` — three signing-config
+   siblings, two real shapes, confirmed against each op's own deserializer
+   rather than assumed from the trio's surface symmetry.
+
+3. **`BatchGetRepositoryScanningConfiguration` missing `appliedScanFilters`
+   entirely.** The real `types.RepositoryScanningConfiguration` has this
+   field (the registry scan rule's repository filters that produced a repo's
+   effective `CONTINUOUS_SCAN` frequency); gopherstack's model never carried
+   it. `repoEffectiveScanFrequency` now returns the matched rule's filters
+   alongside the frequency.
+
+4. **`DescribeRepositoryCreationTemplates` discarded `maxResults`/`nextToken`
+   entirely** — the real Input/Output both carry them; this handler always
+   returned every template in one page. Now paginates via the same
+   `base64(prefix)`-cursor convention used by `DescribeRepositories`/
+   `DescribePullThroughCacheRules` elsewhere in this package.
+
+5. **`DescribeImageScanFindings`'s nested `imageScanFindings` object leaked
+   5 extra fields.** It reused `ImageScanFindingsResult` (this package's
+   internal domain struct, which also carries `ImageID`/`RepositoryName`/
+   `RegistryID`/`Status`/`Description` for other callers) directly as the
+   nested object, but the real nested `ImageScanFindings` type has only 5
+   fields (`findingSeverityCounts`/`findings`/`enhancedFindings`/
+   `imageScanCompletedAt`/`vulnerabilitySourceUpdatedAt`) — none of the
+   other five. Harmless to a real client (unknown JSON keys are silently
+   ignored), but a wire-shape imprecision; fixed via a purpose-built
+   `imageScanFindingsView`.
+
+6. **`ListImageReferrers` disclosed, not fixed.** The real
+   `ListImageReferrersInput`/`Output` carry `Filter`/`MaxResults`/`NextToken`,
+   but `PutImage` never records an OCI-referrer edge from a pushed artifact
+   manifest's `subject` field back to the subject image — this op is
+   structurally always empty. Adding the missing fields would be a
+   schema-only change with no real behavior to ratify (0 items either way),
+   so they were deliberately left off and the gap recorded in `gaps:` above
+   instead of papered over.
+
+Every fix above was hand-reverted individually, confirmed to fail against the
+reverted code with the predicted symptom, then restored byte-identical
+before moving to the next (per gopherstack-6flj's session protocol). New
+ratifying tests in `wire_field_fixes_test.go`:
+`TestPutRegistryScanningConfiguration_WrapperKey`,
+`TestGetRegistryScanningConfiguration_RegistryIDPopulated`,
+`TestPutImageScanningConfiguration_RegistryIDPopulated`,
+`TestGetSigningConfiguration_RegistryIDPopulated`,
+`TestDeleteSigningConfiguration_RegistryIDPopulated`,
+`TestBatchGetRepositoryScanningConfiguration_AppliedScanFilters`,
+`TestBatchGetRepositoryScanningConfiguration_NoRuleMatch_NoAppliedFilters`,
+`TestDescribeRepositoryCreationTemplates_Pagination`,
+`TestDescribeImageScanFindings_NestedObjectDoesNotLeakTopLevelFields`; plus
+one existing-test fix, `TestPutRegistryScanningConfiguration_ScanTypeEnhanced`
+in `image_scanning_test.go`.
+
+Everything else in this file (all other L+D+G ops, the router, the protocol,
+error mapping, credential sweep) was independently re-verified this round and
+found already correct — see the session report for the full per-op list.

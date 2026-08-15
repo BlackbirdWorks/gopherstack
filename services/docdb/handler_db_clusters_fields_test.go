@@ -118,26 +118,36 @@ func TestCreateCluster_VpcSecurityGroups(t *testing.T) {
 	}
 }
 
-func TestCreateCluster_IAMDatabaseAuth(t *testing.T) {
+// TestCreateCluster_PhantomFieldsNotWired guards against gopherstack-xou3:
+// DatabaseName and EnableIAMDatabaseAuthentication do not exist anywhere in
+// docdb's real CreateDBClusterInput or types.DBCluster (verified against
+// pinned docdb v1.51.4) -- a real client cannot send them and would never
+// see them echoed back. A client sending these fabricated fields must get a
+// normal, unmodified cluster back, with neither value reflected on the wire.
+func TestCreateCluster_PhantomFieldsNotWired(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		paramVal     string
-		wantContains string
-		wantStatus   int
+		vals url.Values
+		name string
 	}{
 		{
-			name:         "iam_auth_enabled",
-			paramVal:     "true",
-			wantContains: "IAMDatabaseAuthenticationEnabled",
-			wantStatus:   200,
+			name: "database_name",
+			vals: url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"phantom-dbname-cluster"},
+				"DatabaseName":        {"myinitialdb"},
+			},
 		},
 		{
-			name:         "iam_auth_disabled",
-			paramVal:     "false",
-			wantContains: "CreateDBClusterResponse",
-			wantStatus:   200,
+			name: "enable_iam_database_authentication",
+			vals: url.Values{
+				"Action":                          {"CreateDBCluster"},
+				"Version":                         {"2014-10-31"},
+				"DBClusterIdentifier":             {"phantom-iam-cluster"},
+				"EnableIAMDatabaseAuthentication": {"true"},
+			},
 		},
 	}
 
@@ -146,14 +156,14 @@ func TestCreateCluster_IAMDatabaseAuth(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rr := doRequest(t, h, url.Values{
-				"Action":                          {"CreateDBCluster"},
-				"Version":                         {"2014-10-31"},
-				"DBClusterIdentifier":             {"iam-auth-cluster"},
-				"EnableIAMDatabaseAuthentication": {tt.paramVal},
-			})
-			assert.Equal(t, tt.wantStatus, rr.Code)
-			assert.Contains(t, rr.Body.String(), tt.wantContains)
+			rr := doRequest(t, h, tt.vals)
+			require.Equal(t, http.StatusOK, rr.Code)
+
+			body := rr.Body.String()
+			assert.Contains(t, body, "CreateDBClusterResponse")
+			assert.NotContains(t, body, "DatabaseName")
+			assert.NotContains(t, body, "IAMDatabaseAuthenticationEnabled")
+			assert.NotContains(t, body, "myinitialdb")
 		})
 	}
 }

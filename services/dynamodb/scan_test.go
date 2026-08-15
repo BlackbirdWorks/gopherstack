@@ -647,3 +647,95 @@ func TestValidateScanSegment_NegativeSegment(t *testing.T) {
 	err := dynamodb.ValidateScanSegment(-1, 5)
 	assertErrorCode(t, err, "ValidationException")
 }
+
+// TestScan_ReturnConsumedCapacity_SurvivesWireConversion verifies that
+// ToSDKScanInput copies ReturnConsumedCapacity onto the SDK input and
+// FromSDKScanOutput copies the resulting ConsumedCapacity back onto the wire
+// output. models.ScanInput previously had no ReturnConsumedCapacity field (nor
+// ConsistentRead nor Select) and models.ScanOutput had no ConsumedCapacity field,
+// so a real client's "ReturnConsumedCapacity": "TOTAL" on Scan -- one of the two
+// ops this service is most likely to be hit with in a hot loop -- was silently
+// dropped on the way in and the computed capacity silently dropped on the way out.
+func TestScan_ReturnConsumedCapacity_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createSimpleTestTable(t, db, "ScanCCTable")
+	_, err := db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("ScanCCTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+	})
+	require.NoError(t, err)
+
+	input := models.ScanInput{
+		TableName:              "ScanCCTable",
+		ReturnConsumedCapacity: "TOTAL",
+	}
+
+	sdkInput, convErr := models.ToSDKScanInput(&input)
+	require.NoError(t, convErr)
+	require.Equal(t, types.ReturnConsumedCapacityTotal, sdkInput.ReturnConsumedCapacity)
+
+	resp, scanErr := db.Scan(t.Context(), sdkInput)
+	require.NoError(t, scanErr)
+	require.NotNil(t, resp.ConsumedCapacity, "backend must populate ConsumedCapacity when requested")
+
+	wireOut := models.FromSDKScanOutput(resp)
+	require.NotNil(t, wireOut.ConsumedCapacity, "wire output must carry ConsumedCapacity through")
+	assert.Positive(t, wireOut.ConsumedCapacity.CapacityUnits)
+}
+
+// TestScan_ConsistentRead_SurvivesWireConversion verifies that ToSDKScanInput
+// copies ConsistentRead onto the SDK input. models.ScanInput previously had no
+// ConsistentRead field, so a client's ConsistentRead=true request was always
+// parsed as false.
+func TestScan_ConsistentRead_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	consistentRead := true
+	input := models.ScanInput{
+		TableName:      "ScanCCTable",
+		ConsistentRead: &consistentRead,
+	}
+
+	sdkInput, err := models.ToSDKScanInput(&input)
+	require.NoError(t, err)
+	require.NotNil(t, sdkInput.ConsistentRead)
+	assert.True(t, *sdkInput.ConsistentRead)
+}
+
+// TestScan_Select_SurvivesWireConversion verifies that ToSDKScanInput copies
+// Select onto the SDK input, so a real client requesting Select=COUNT actually
+// gets the COUNT-only response (Items omitted) that AWS documents, instead of the
+// full item list. models.ScanInput previously had no Select field at all.
+func TestScan_Select_SurvivesWireConversion(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createSimpleTestTable(t, db, "ScanSelectTable")
+	_, err := db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("ScanSelectTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+	})
+	require.NoError(t, err)
+
+	input := models.ScanInput{
+		TableName: "ScanSelectTable",
+		Select:    "COUNT",
+	}
+
+	sdkInput, convErr := models.ToSDKScanInput(&input)
+	require.NoError(t, convErr)
+	require.Equal(t, types.SelectCount, sdkInput.Select)
+
+	resp, scanErr := db.Scan(t.Context(), sdkInput)
+	require.NoError(t, scanErr)
+	assert.Empty(t, resp.Items, "Select=COUNT must omit Items")
+	assert.Equal(t, int32(1), resp.Count)
+}

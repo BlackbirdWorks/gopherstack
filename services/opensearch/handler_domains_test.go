@@ -55,7 +55,7 @@ func TestStartServiceSoftwareUpdate_ScheduleAt(t *testing.T) {
 			}
 
 			resp := doRequest(t, h, http.MethodPost,
-				"/2021-01-01/opensearch/domain/sw-domain/serviceSoftwareUpdate", body)
+				"/2021-01-01/opensearch/serviceSoftwareUpdate/start", body)
 			defer resp.Body.Close()
 
 			require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -83,7 +83,7 @@ func TestStartServiceSoftwareUpdate_DomainNotFound(t *testing.T) {
 	h := newTestHandler()
 
 	resp := doRequest(t, h, http.MethodPost,
-		"/2021-01-01/opensearch/domain/no-such/serviceSoftwareUpdate",
+		"/2021-01-01/opensearch/serviceSoftwareUpdate/start",
 		map[string]any{"DomainName": "no-such", "ScheduleAt": "NOW"})
 	defer resp.Body.Close()
 
@@ -101,7 +101,7 @@ func TestOpenSearchHandler_DescribeDomains(t *testing.T) {
 	}
 
 	// Bulk describe with explicit names.
-	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/domain/describe",
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain-info",
 		map[string]any{"DomainNames": []string{"domain-a", "domain-b"}})
 	defer resp.Body.Close()
 
@@ -134,7 +134,7 @@ func TestOpenSearchHandler_DescribeDomains_All(t *testing.T) {
 	}
 
 	// GET with no body → returns all domains.
-	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/domain/describe", nil)
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain-info", nil)
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -175,8 +175,8 @@ func TestDescribeDomains_FullStatusShape(t *testing.T) {
 			b := h.Backend.(*opensearch.InMemoryBackend)
 			b.AddDomainInternal("full-domain", tt.engineVersion)
 
-			resp := doRequest(t, h, http.MethodGet,
-				"/2021-01-01/opensearch/domain/describe",
+			resp := doRequest(t, h, http.MethodPost,
+				"/2021-01-01/opensearch/domain-info",
 				map[string]any{"DomainNames": []string{"full-domain"}})
 			defer resp.Body.Close()
 
@@ -413,7 +413,7 @@ func TestListDomainNames_EngineTypeFilter(t *testing.T) {
 			createTestDomainWithVersion(t, h, "os-domain", "OpenSearch_2.11")
 			createTestDomainWithVersion(t, h, "es-domain", "Elasticsearch_7.10")
 
-			path := "/2021-01-01/opensearch/domain"
+			path := "/2021-01-01/domain"
 			if tt.engineType != "" {
 				path += "?engineType=" + tt.engineType
 			}
@@ -509,7 +509,7 @@ func TestDescribeDomains_FullDomainStatus(t *testing.T) {
 			cr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", tt.createBody)
 			cr.Body.Close()
 
-			resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/domain/describe", tt.describeBody)
+			resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain-info", tt.describeBody)
 			defer resp.Body.Close()
 
 			require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -571,7 +571,7 @@ func TestListDomainNames_ReturnsBothDomains(t *testing.T) {
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 			}
 
-			resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/domain", nil)
+			resp := doRequest(t, h, http.MethodGet, "/2021-01-01/domain", nil)
 			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -764,7 +764,7 @@ func TestOpenSearchHandler_ListDomainNames(t *testing.T) {
 		r.Body.Close()
 	}
 
-	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/domain", nil)
+	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/domain", nil)
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)

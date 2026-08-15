@@ -100,6 +100,52 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestListSignalMaps_OmitsGetOnlyFields verifies gopherstack-uult: ListSignalMaps
+// must emit only types.SignalMapSummary's members (arn, createdAt, id,
+// monitorDeploymentStatus, name, status, description, modifiedAt, tags) --
+// medialive@v1.101.4 types/types.go:7724-7765. discoveryEntryPointArn,
+// cloudWatchAlarmTemplateGroupIds and eventBridgeRuleTemplateGroupIds are
+// Get/Create/StartUpdate-only and must not leak. tags DOES belong on the
+// summary (unlike most siblings in this sweep) -- SignalMapSummary carries
+// it per deserializers.go:48922-48924, so it must NOT be dropped.
+func TestListSignalMaps_OmitsGetOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/prod/signal-maps", map[string]any{
+		"name":                   "sm-scoped",
+		"discoveryEntryPointArn": "arn:aws:medialive:us-east-1:000000000000:channel:abc123",
+		"tags":                   map[string]any{"env": "prod"},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/signal-maps", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		SignalMaps []map[string]any `json:"signalMaps"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.SignalMaps, 1)
+
+	item := out.SignalMaps[0]
+	keys := make([]string, 0, len(item))
+	for k := range item {
+		keys = append(keys, k)
+	}
+	assert.ElementsMatch(t,
+		[]string{
+			"arn", "id", "name", "description", "status",
+			"monitorDeploymentStatus", "createdAt", "modifiedAt", "tags",
+		},
+		keys,
+	)
+	assert.Contains(t, item, "tags")
+	assert.NotContains(t, item, "discoveryEntryPointArn")
+	assert.NotContains(t, item, "cloudWatchAlarmTemplateGroupIds")
+	assert.NotContains(t, item, "eventBridgeRuleTemplateGroupIds")
+}
+
 func TestStartDeleteMonitorDeployment(t *testing.T) {
 	t.Parallel()
 

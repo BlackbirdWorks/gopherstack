@@ -11,6 +11,10 @@ last_audit_date: <YYYY-MM-DD>
 overall: <A|B>            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
+# "Clients ignore unknown keys" is never a sufficient close for a List-vs-Get shape question --
+# name the specific SDK type + version checked, or state plainly that no narrower type exists.
+# A manifest may record a verdict, but must record the evidence with it -- never instruct a
+# future reader not to re-check; an unfalsifiable instruction just hides the next real bug.
 ops:
   <OpName>: {wire: ok, errors: ok, state: ok, persist: ok, note: <optional>}
 # Families audited as a group (when per-op is impractical):
@@ -35,3 +39,6 @@ leaks: {status: clean|found, note: <goroutine/janitor/map/ctx findings>}
 Freeform: AWS-behavior specifics worth remembering (exact algorithms, wire quirks,
 error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and any
 "looks-wrong-but-correct" traps so the next auditor doesn't re-flag them.
+
+For this service's actual pinned protocol and decode case-sensitivity, don't guess —
+check `services/_PROTOCOLS.md` first.

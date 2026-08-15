@@ -258,7 +258,12 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 			return nil, err
 		}
 
-		return json.Marshal(&listStateMachinesOutput{StateMachines: sms, NextToken: next})
+		items := make([]stateMachineListItem, len(sms))
+		for i := range sms {
+			items[i] = newStateMachineListItem(&sms[i])
+		}
+
+		return json.Marshal(&listStateMachinesOutput{StateMachines: items, NextToken: next})
 	case "CreateActivity":
 		resp, err := h.handleCreateActivity(ctx, body)
 		if err != nil {

@@ -220,6 +220,57 @@ func TestInMemoryBackend_SnapshotRestore_FullStateRoundTrip(t *testing.T) {
 	assert.Equal(t, "sched", scheduled.Name)
 }
 
+// TestInMemoryBackend_SnapshotRestore_ScheduledQueryLookupTableDestination
+// round-trips a scheduled query whose DestinationConfiguration carries the
+// LookupTableConfiguration alternative (added additively as an omitempty
+// field to ScheduledQueryDestinationConfig; cwlSnapshotVersion is unchanged
+// since older snapshots simply decode with the field absent).
+func TestInMemoryBackend_SnapshotRestore_ScheduledQueryLookupTableDestination(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	original := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	t.Cleanup(original.Close)
+
+	queryArn, err := original.CreateScheduledQuery(cloudwatchlogs.ScheduledQueryCreateParams{
+		Name:               "sched-lookup",
+		QueryString:        "fields @message",
+		QueryLanguage:      "CWLI",
+		ScheduleExpression: "cron(0 * * * ? *)",
+		ExecutionRoleArn:   "arn:aws:iam::123456789012:role/scheduled-query-role",
+		DestinationConfiguration: &cloudwatchlogs.ScheduledQueryDestinationConfig{
+			LookupTableConfiguration: &cloudwatchlogs.ScheduledQueryLookupTableConfiguration{
+				TableName:   "my-table",
+				RoleArn:     "arn:aws:iam::123456789012:role/lookup-role",
+				Description: "a lookup table",
+				KmsKeyID:    "kms-key",
+				Tags:        map[string]string{"env": "prod"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	snap := original.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	fresh := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	t.Cleanup(fresh.Close)
+	require.NoError(t, fresh.Restore(ctx, snap))
+
+	sq, err := fresh.GetScheduledQuery(queryArn)
+	require.NoError(t, err)
+	require.NotNil(t, sq.DestinationConfiguration)
+	assert.Nil(t, sq.DestinationConfiguration.S3Configuration)
+	require.NotNil(t, sq.DestinationConfiguration.LookupTableConfiguration)
+
+	lookup := sq.DestinationConfiguration.LookupTableConfiguration
+	assert.Equal(t, "my-table", lookup.TableName)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/lookup-role", lookup.RoleArn)
+	assert.Equal(t, "a lookup table", lookup.Description)
+	assert.Equal(t, "kms-key", lookup.KmsKeyID)
+	assert.Equal(t, map[string]string{"env": "prod"}, lookup.Tags)
+}
+
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
@@ -423,7 +474,7 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "integration_survives",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutIntegration("my-opensearch", "OPENSEARCH")
+				_, err := b.PutIntegration("my-opensearch", "OPENSEARCH", validOpenSearchResourceConfig())
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -431,6 +482,12 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 				ig, err := b.GetIntegration("my-opensearch")
 				require.NoError(t, err)
 				assert.Equal(t, "OPENSEARCH", ig.Type)
+				require.NotNil(t, ig.OpenSearchResourceConfig, "OpenSearchResourceConfig must survive Snapshot/Restore")
+				assert.Equal(
+					t,
+					"arn:aws:iam::123456789012:role/cwl-opensearch",
+					ig.OpenSearchResourceConfig.DataSourceRoleArn,
+				)
 			},
 		},
 		{

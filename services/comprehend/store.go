@@ -216,6 +216,11 @@ func (b *InMemoryBackend) CreateResource(
 			maxTagsPerResource,
 		)
 	}
+	for _, field := range requiredResourceFields[resourceType] {
+		if values[field] == nil {
+			return nil, fmt.Errorf("%w: %s is required", ErrValidation, field)
+		}
+	}
 	if err := validateKmsKeyID(stringValue(values, "ModelKmsKeyId", "")); err != nil {
 		return nil, err
 	}
@@ -687,6 +692,28 @@ func mergedTagKeyCount(current map[string]string, tags []Tag) int {
 	}
 
 	return len(merged)
+}
+
+// requiredResourceFields lists the resourceType-specific members that
+// CreateResource's generic pass-through path (which stores and echoes the
+// whole input map via cloneMap -- a supplied value already round-trips fine)
+// did not enforce for presence: CreateFlywheelInput's DataAccessRoleArn and
+// DataLakeS3Uri, and CreateEndpointInput's DesiredInferenceUnits.
+// FlywheelName/EndpointName are not listed here because CreateResource's own
+// Name-presence check above already covers every resourceSpecs() nameField.
+// Keying by resourceType (not by action) is safe here, unlike forecast's
+// action-keyed equivalent: no other operation creates a resourceTypeFlywheel
+// or resourceTypeEndpoint resource (ImportModel only ever creates
+// resourceTypeDocClassifier/resourceTypeEntityRecognizer). Verified against
+// aws-sdk-go-v2/service/comprehend@v1.43.4/validators.go's
+// validateOpCreateFlywheelInput/validateOpCreateEndpointInput
+// (gopherstack-wl0s); DataAccessRoleArn is required there too even though
+// the originating audit only named DataLakeS3Uri/DesiredInferenceUnits.
+//
+//nolint:gochecknoglobals // static declarative table, mirrors resourceSpecs above
+var requiredResourceFields = map[string][]string{
+	resourceTypeFlywheel: {"DataAccessRoleArn", "DataLakeS3Uri"},
+	resourceTypeEndpoint: {"DesiredInferenceUnits"},
 }
 
 // kmsKeyIDRe matches a bare KMS key ID (UUID form).

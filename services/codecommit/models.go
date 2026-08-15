@@ -139,11 +139,11 @@ type RuleEvaluation struct {
 
 // Comment represents a CodeCommit comment.
 type Comment struct {
-	CommentID        string `json:"commentId"`
-	Content          string `json:"content"`
-	AuthorARN        string `json:"authorArn"`
-	CreationDate     string `json:"creationDate"`
-	LastModifiedDate string `json:"lastModifiedDate"`
+	CreationDate     time.Time `json:"creationDate"`
+	LastModifiedDate time.Time `json:"lastModifiedDate"`
+	CommentID        string    `json:"commentId"`
+	Content          string    `json:"content"`
+	AuthorARN        string    `json:"authorArn"`
 	// InReplyTo links to parent comment for replies
 	InReplyTo string `json:"inReplyTo,omitempty"`
 	// PRid links comment to a pull request

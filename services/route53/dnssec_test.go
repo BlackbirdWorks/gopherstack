@@ -119,7 +119,7 @@ func TestEnableDNSSEC_RequiresActiveKSK(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "")
+	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "", "", "")
 	require.NoError(t, err)
 
 	// No KSK — should fail.

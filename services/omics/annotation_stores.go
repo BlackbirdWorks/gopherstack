@@ -42,11 +42,11 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 		CreationTime: now,
 		UpdateTime:   now,
 	}
-	as.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "annotationStore/"+name)
+	as.StoreArn = arn.Build("omics", b.defaultRegion, b.accountID, "annotationStore/"+name)
 	b.annotationStores.Put(as)
 
 	if tags != nil {
-		b.tags[as.Arn] = copyTags(tags)
+		b.tags[as.StoreArn] = copyTags(tags)
 	}
 
 	result := *as
@@ -64,7 +64,7 @@ func (b *InMemoryBackend) DeleteAnnotationStore(name string) (*AnnotationStore, 
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
-	delete(b.tags, as.Arn)
+	delete(b.tags, as.StoreArn)
 	b.annotationStores.Delete(name)
 
 	for _, v := range slices.Clone(b.annotationVersionsByStore.Get(name)) {
@@ -97,8 +97,18 @@ func (b *InMemoryBackend) GetAnnotationStore(name string) (*AnnotationStore, err
 	}
 
 	result := *as
+	result.NumVersions = b.numAnnotationVersionsLocked(name)
 
 	return &result, nil
+}
+
+// numAnnotationVersionsLocked returns the current version count for an
+// annotation store, computed live from annotationVersionsByStore (real
+// GetAnnotationStoreOutput's required "numVersions", deserializers.go:6225)
+// rather than stored, since a stored counter would drift as versions are
+// added/deleted. Caller must hold b.mu.
+func (b *InMemoryBackend) numAnnotationVersionsLocked(name string) int32 {
+	return int32(len(b.annotationVersionsByStore.Get(name))) //nolint:gosec // G115: bounded by realistic version counts
 }
 
 // ListAnnotationStores lists annotation stores, optionally filtered by status
@@ -127,7 +137,31 @@ func (b *InMemoryBackend) ListAnnotationStores(
 
 	result, outToken := paginatedCopies(names, nextToken, maxResults, b.annotationStores.Get)
 
+	for _, as := range result {
+		as.NumVersions = b.numAnnotationVersionsLocked(as.Name)
+	}
+
 	return result, outToken, nil
+}
+
+// newAnnotationStoreSummary converts a persisted store record into the real
+// ListAnnotationStoresOutput element shape (see AnnotationStoreSummary's doc
+// comment for why List and Get differ).
+func newAnnotationStoreSummary(as *AnnotationStore) AnnotationStoreSummary {
+	return AnnotationStoreSummary{
+		CreationTime:   as.CreationTime,
+		UpdateTime:     as.UpdateTime,
+		Reference:      as.Reference,
+		SseConfig:      as.SseConfig,
+		StoreArn:       as.StoreArn,
+		ID:             as.ID,
+		Name:           as.Name,
+		Description:    as.Description,
+		StoreFormat:    as.StoreFormat,
+		Status:         as.Status,
+		StatusMessage:  as.StatusMessage,
+		StoreSizeBytes: as.StoreSizeBytes,
+	}
 }
 
 // UpdateAnnotationStore updates an annotation store.
@@ -148,14 +182,55 @@ func (b *InMemoryBackend) UpdateAnnotationStore(
 
 	as.UpdateTime = time.Now().UTC()
 	result := *as
+	result.NumVersions = b.numAnnotationVersionsLocked(name)
 
 	return &result, nil
 }
 
-// StartAnnotationImportJob starts an annotation import job.
+// annotationImportItemDetails converts the real StartAnnotationImportJobInput
+// item shape (AnnotationImportItem, source only) into the real
+// GetAnnotationImportJobOutput item shape (AnnotationImportItemDetail,
+// jobStatus + source), stamping every item with the job's own status. This
+// backend completes import jobs synchronously in one step, so that status is
+// each item's true final state, not a guess.
+func annotationImportItemDetails(items []AnnotationImportItem, status string) []AnnotationImportItemDetail {
+	details := make([]AnnotationImportItemDetail, 0, len(items))
+	for _, item := range items {
+		details = append(details, AnnotationImportItemDetail{Source: item.Source, JobStatus: status})
+	}
+
+	return details
+}
+
+// newAnnotationImportJobSummary converts a persisted job record into the
+// real ListAnnotationImportJobsOutput element shape (see
+// AnnotationImportJobSummary's doc comment for why List and Get differ).
+func newAnnotationImportJobSummary(job *AnnotationImportJob) AnnotationImportJobSummary {
+	return AnnotationImportJobSummary{
+		CreationTime:         job.CreationTime,
+		CompletionTime:       job.CompletionTime,
+		UpdateTime:           job.UpdateTime,
+		AnnotationFields:     job.AnnotationFields,
+		ID:                   job.ID,
+		DestinationName:      job.DestinationName,
+		RoleARN:              job.RoleARN,
+		Status:               job.Status,
+		VersionName:          job.VersionName,
+		RunLeftNormalization: job.RunLeftNormalization,
+	}
+}
+
+// StartAnnotationImportJob starts an annotation import job. annotationFields,
+// formatOptions, runLeftNormalization, and versionName are real optional
+// StartAnnotationImportJobInput members (serializers.go:7892-7935) that were
+// previously dropped on the floor -- the handler never read them at all.
 func (b *InMemoryBackend) StartAnnotationImportJob(
 	destinationName, roleARN string,
 	items []AnnotationImportItem,
+	annotationFields map[string]string,
+	formatOptions map[string]any,
+	runLeftNormalization bool,
+	versionName string,
 ) (*AnnotationImportJob, error) {
 	b.mu.Lock("StartAnnotationImportJob")
 	defer b.mu.Unlock()
@@ -165,14 +240,20 @@ func (b *InMemoryBackend) StartAnnotationImportJob(
 	}
 
 	now := time.Now().UTC()
+	status := statusCompleted
 	job := &AnnotationImportJob{
-		ID:              newID(),
-		DestinationName: destinationName,
-		RoleARN:         roleARN,
-		Items:           items,
-		Status:          statusCompleted,
-		CreationTime:    now,
-		CompletionTime:  &now,
+		ID:                   newID(),
+		DestinationName:      destinationName,
+		RoleARN:              roleARN,
+		Items:                annotationImportItemDetails(items, status),
+		AnnotationFields:     annotationFields,
+		FormatOptions:        formatOptions,
+		RunLeftNormalization: runLeftNormalization,
+		VersionName:          versionName,
+		Status:               status,
+		CreationTime:         now,
+		CompletionTime:       &now,
+		UpdateTime:           now,
 	}
 	b.annotationImportJobs.Put(job)
 
@@ -276,7 +357,7 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 		CreationTime: now,
 		UpdateTime:   now,
 	}
-	v.Arn = arn.Build(
+	v.VersionArn = arn.Build(
 		"omics",
 		b.defaultRegion,
 		b.accountID,
@@ -285,7 +366,7 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 	b.annotationVersions.Put(v)
 
 	if tags != nil {
-		b.tags[v.Arn] = copyTags(tags)
+		b.tags[v.VersionArn] = copyTags(tags)
 	}
 
 	result := *v
@@ -319,7 +400,7 @@ func (b *InMemoryBackend) DeleteAnnotationStoreVersions(
 			continue
 		}
 
-		delete(b.tags, v.Arn)
+		delete(b.tags, v.VersionArn)
 		b.annotationVersions.Delete(parentKey(name, vn))
 	}
 
@@ -383,6 +464,23 @@ func (b *InMemoryBackend) ListAnnotationStoreVersions(
 	})
 
 	return result, outToken, nil
+}
+
+// newAnnotationStoreVersionSummary converts a persisted version record into
+// the real ListAnnotationStoreVersionsOutput element shape (see
+// AnnotationStoreVersionSummary's doc comment for why List and Get differ).
+func newAnnotationStoreVersionSummary(v *AnnotationStoreVersion) AnnotationStoreVersionSummary {
+	return AnnotationStoreVersionSummary{
+		CreationTime:     v.CreationTime,
+		UpdateTime:       v.UpdateTime,
+		VersionArn:       v.VersionArn,
+		StoreID:          v.StoreID,
+		VersionName:      v.VersionName,
+		Description:      v.Description,
+		Status:           v.Status,
+		StatusMessage:    v.StatusMessage,
+		VersionSizeBytes: v.VersionSizeBytes,
+	}
 }
 
 // UpdateAnnotationStoreVersion updates an annotation store version.

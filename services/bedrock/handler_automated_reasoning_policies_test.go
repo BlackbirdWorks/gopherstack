@@ -412,7 +412,10 @@ func TestAccuracy_ARP_UpdateDescriptionReflected(t *testing.T) {
 	updateRec := doRequest(
 		t, h, http.MethodPatch,
 		"/automated-reasoning-policies/"+policyARN,
-		map[string]any{"description": "updated description"},
+		map[string]any{
+			"description":      "updated description",
+			"policyDefinition": map[string]any{"version": "1"},
+		},
 	)
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
@@ -545,22 +548,47 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 	annPath := "/automated-reasoning-policies/" + url.PathEscape(policyARN) +
 		"/build-workflows/" + wf.BuildWorkflowID + "/annotations"
 
+	// A real client reads the current annotationSetHash before updating
+	// (bedrock@v1.66.4 GetAutomatedReasoningPolicyAnnotationsOutput.AnnotationSetHash
+	// is the token UpdateAutomatedReasoningPolicyAnnotations's required
+	// lastUpdatedAnnotationSetHash checks against).
+	preRec := doRequest(t, h, http.MethodGet, annPath, nil)
+	require.Equal(t, http.StatusOK, preRec.Code)
+
+	var preOut map[string]any
+	require.NoError(t, json.Unmarshal(preRec.Body.Bytes(), &preOut))
+	hash, ok := preOut["annotationSetHash"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, hash)
+
 	// Update annotations (needs URL-encoded ARN)
 	updateRec := doRequest(
 		t, h, http.MethodPatch, annPath,
-		map[string]any{"annotations": []map[string]any{
-			{"key": "env", "value": "prod"},
-		}},
+		map[string]any{
+			"annotations": []map[string]any{
+				{"key": "env", "value": "prod"},
+			},
+			"lastUpdatedAnnotationSetHash": hash,
+		},
 	)
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
-	// Get annotations - should not be empty
+	var updateOut map[string]any
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	assert.Equal(t, policyARN, updateOut["policyArn"])
+	assert.Equal(t, wf.BuildWorkflowID, updateOut["buildWorkflowId"])
+	assert.NotEmpty(t, updateOut["annotationSetHash"])
+	assert.NotEmpty(t, updateOut["updatedAt"])
+
+	// Get annotations - should reflect what was just updated.
 	getAnnRec := doRequest(t, h, http.MethodGet, annPath, nil)
 	require.Equal(t, http.StatusOK, getAnnRec.Code)
 
 	var annOut map[string]any
 	require.NoError(t, json.Unmarshal(getAnnRec.Body.Bytes(), &annOut))
-	assert.Contains(t, annOut, "annotations")
+	anns, ok := annOut["annotations"].([]any)
+	require.True(t, ok)
+	require.Len(t, anns, 1)
 }
 
 func TestHandler_GetAutomatedReasoningPolicy(t *testing.T) {
@@ -604,8 +632,37 @@ func TestHandler_UpdateAutomatedReasoningPolicy(t *testing.T) {
 	policyARN := created["policyArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPatch, "/automated-reasoning-policies/"+url.PathEscape(policyARN),
-		map[string]any{"description": "new-desc"})
+		map[string]any{
+			"description":      "new-desc",
+			"policyDefinition": map[string]any{"version": "1"},
+		})
 	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec2, &out)
+	assert.Equal(t, policyARN, out["policyArn"])
+	assert.NotEmpty(t, out["definitionHash"])
+	assert.NotContains(t, out, "status", "real UpdateAutomatedReasoningPolicyOutput has no status field")
+}
+
+// TestHandler_UpdateAutomatedReasoningPolicy_MissingPolicyDefinition locks in
+// that policyDefinition -- required on UpdateAutomatedReasoningPolicyInput
+// (bedrock@v1.66.4 api_op_UpdateAutomatedReasoningPolicy.go:37-63) -- is
+// actually enforced, not silently dropped.
+func TestHandler_UpdateAutomatedReasoningPolicy_MissingPolicyDefinition(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "upd-pol-nodef"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]any
+	mustUnmarshal(t, rec, &created)
+	policyARN := created["policyArn"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPatch, "/automated-reasoning-policies/"+url.PathEscape(policyARN),
+		map[string]any{"description": "new-desc"})
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 func TestHandler_DeleteAutomatedReasoningPolicy(t *testing.T) {
@@ -626,6 +683,10 @@ func TestHandler_DeleteAutomatedReasoningPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec3.Code)
 }
 
+// TestHandler_StartARPBuildWorkflow drives the real path AWS uses --
+// .../build-workflows/{buildWorkflowType}/start (bedrock@v1.66.4
+// serializers.go:8008), not the bare .../build-workflows path gopherstack
+// previously served (which no real client's Start request ever reached).
 func TestHandler_StartARPBuildWorkflow(t *testing.T) {
 	t.Parallel()
 
@@ -638,12 +699,16 @@ func TestHandler_StartARPBuildWorkflow(t *testing.T) {
 	policyARN := created["policyArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/build-workflows", nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/build-workflows/INGEST_CONTENT/start",
+		map[string]any{"policyDefinition": map[string]any{"version": "1"}})
 	assert.Equal(t, http.StatusCreated, rec2.Code)
 
 	var wf map[string]any
 	mustUnmarshal(t, rec2, &wf)
 	assert.NotEmpty(t, wf["buildWorkflowId"])
+	assert.NotContains(
+		t, wf, "status", "real StartAutomatedReasoningPolicyBuildWorkflowOutput has no status field",
+	)
 }
 
 func TestHandler_GetListDeleteARPBuildWorkflow(t *testing.T) {
@@ -658,7 +723,8 @@ func TestHandler_GetListDeleteARPBuildWorkflow(t *testing.T) {
 	policyARN := created["policyArn"].(string)
 
 	recWF := doRequest(t, h, http.MethodPost,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/build-workflows", nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/build-workflows/INGEST_CONTENT/start",
+		map[string]any{"policyDefinition": map[string]any{"version": "1"}})
 	require.Equal(t, http.StatusCreated, recWF.Code)
 
 	var wf map[string]any
@@ -670,6 +736,10 @@ func TestHandler_GetListDeleteARPBuildWorkflow(t *testing.T) {
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/build-workflows/"+wfID, nil)
 	assert.Equal(t, http.StatusOK, recGet.Code)
 
+	var getOut map[string]any
+	mustUnmarshal(t, recGet, &getOut)
+	assert.Equal(t, "INGEST_CONTENT", getOut["buildWorkflowType"])
+
 	// List
 	recList := doRequest(t, h, http.MethodGet,
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/build-workflows", nil)
@@ -677,7 +747,7 @@ func TestHandler_GetListDeleteARPBuildWorkflow(t *testing.T) {
 
 	var listOut map[string]any
 	mustUnmarshal(t, recList, &listOut)
-	assert.Len(t, listOut["buildWorkflows"], 1)
+	assert.Len(t, listOut["automatedReasoningPolicyBuildWorkflowSummaries"], 1)
 
 	// Delete
 	recDel := doRequest(t, h, http.MethodDelete,
@@ -689,7 +759,7 @@ func TestHandler_GetListDeleteARPBuildWorkflow(t *testing.T) {
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/build-workflows", nil)
 	var listOut2 map[string]any
 	mustUnmarshal(t, recList2, &listOut2)
-	assert.Empty(t, listOut2["buildWorkflows"])
+	assert.Empty(t, listOut2["automatedReasoningPolicyBuildWorkflowSummaries"])
 }
 
 func TestHandler_GetListDeleteARPTestCase(t *testing.T) {
@@ -910,7 +980,10 @@ func TestAccuracy_ARP_BuildWorkflowScopedSubResources(t *testing.T) {
 			name:       "update annotations",
 			method:     http.MethodPatch,
 			pathSuffix: func(wfID, _ string) string { return "/build-workflows/" + wfID + "/annotations" },
-			body:       map[string]any{"annotations": []map[string]any{{"key": "a", "value": "b"}}},
+			body: map[string]any{
+				"annotations":                  []map[string]any{{"key": "a", "value": "b"}},
+				"lastUpdatedAnnotationSetHash": "seed-hash",
+			},
 			wantStatus: http.StatusOK,
 		},
 		{

@@ -2,6 +2,7 @@ package ecr
 
 import (
 	"context"
+	"encoding/base64"
 )
 
 type repositoryCreationTemplateInput struct {
@@ -72,11 +73,14 @@ func (h *Handler) handleDeleteRepositoryCreationTemplate(
 }
 
 type describeRepositoryCreationTemplatesInput struct {
-	Prefixes []string `json:"prefixes,omitempty"`
+	NextToken  string   `json:"nextToken,omitempty"`
+	Prefixes   []string `json:"prefixes,omitempty"`
+	MaxResults int      `json:"maxResults,omitempty"`
 }
 
 type describeRepositoryCreationTemplatesOutput struct {
 	RegistryID                  string                           `json:"registryId"`
+	NextToken                   string                           `json:"nextToken,omitempty"`
 	RepositoryCreationTemplates []repositoryCreationTemplateView `json:"repositoryCreationTemplates"`
 }
 
@@ -89,6 +93,31 @@ func (h *Handler) handleDescribeRepositoryCreationTemplates(
 		return nil, err
 	}
 
+	// Apply nextToken cursor: token is base64(prefix) of the first template on this page.
+	if in.NextToken != "" && len(in.Prefixes) == 0 {
+		decoded, decErr := base64.StdEncoding.DecodeString(in.NextToken)
+		if decErr == nil {
+			cursorPrefix := string(decoded)
+			start := 0
+			for i, t := range tmpls {
+				if t.Prefix == cursorPrefix {
+					start = i
+
+					break
+				}
+			}
+
+			tmpls = tmpls[start:]
+		}
+	}
+
+	// Apply maxResults page limit; emit opaque token = base64(next prefix).
+	var nextToken string
+	if in.MaxResults > 0 && len(tmpls) > in.MaxResults {
+		nextToken = base64.StdEncoding.EncodeToString([]byte(tmpls[in.MaxResults].Prefix))
+		tmpls = tmpls[:in.MaxResults]
+	}
+
 	out := make([]repositoryCreationTemplateView, 0, len(tmpls))
 	for i := range tmpls {
 		out = append(out, *toRepositoryCreationTemplateView(&tmpls[i]))
@@ -97,6 +126,7 @@ func (h *Handler) handleDescribeRepositoryCreationTemplates(
 	return &describeRepositoryCreationTemplatesOutput{
 		RegistryID:                  h.Backend.AccountID(),
 		RepositoryCreationTemplates: out,
+		NextToken:                   nextToken,
 	}, nil
 }
 

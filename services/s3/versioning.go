@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 func (b *InMemoryBackend) PutBucketVersioning(
@@ -26,6 +27,10 @@ func (b *InMemoryBackend) PutBucketVersioning(
 	status := input.VersioningConfiguration.Status
 	bucket.Versioning = status
 
+	if mfaDelete := input.VersioningConfiguration.MFADelete; mfaDelete != "" {
+		bucket.MFADelete = string(mfaDelete)
+	}
+
 	return &s3.PutBucketVersioningOutput{}, nil
 }
 
@@ -47,6 +52,7 @@ func (b *InMemoryBackend) GetBucketVersioning(
 	defer bucket.mu.RUnlock()
 
 	return &s3.GetBucketVersioningOutput{
-		Status: bucket.Versioning,
+		Status:    bucket.Versioning,
+		MFADelete: types.MFADeleteStatus(bucket.MFADelete),
 	}, nil
 }

@@ -3,6 +3,7 @@ package models
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -54,10 +55,37 @@ func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
 		LocalSecondaryIndexes:     ToSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
 		ProvisionedThroughput:     pt,
 		StreamSpecification:       ss,
+		SSESpecification:          ToSDKSSESpecification(input.SSESpecification),
+		OnDemandThroughput:        ToSDKOnDemandThroughput(input.OnDemandThroughput),
 		DeletionProtectionEnabled: input.DeletionProtectionEnabled,
 		BillingMode:               types.BillingMode(input.BillingMode),
 		TableClass:                types.TableClass(input.TableClass),
 		Tags:                      sdkTags,
+	}
+}
+
+// ToSDKSSESpecification converts the wire-format SSESpecification to an AWS SDK type.
+func ToSDKSSESpecification(input *SSESpecification) *types.SSESpecification {
+	if input == nil {
+		return nil
+	}
+
+	return &types.SSESpecification{
+		Enabled:        input.Enabled,
+		KMSMasterKeyId: ptrconv.NilIfEmpty(input.KMSMasterKeyID),
+		SSEType:        types.SSEType(input.SSEType),
+	}
+}
+
+// ToSDKOnDemandThroughput converts the wire-format OnDemandThroughput to an AWS SDK type.
+func ToSDKOnDemandThroughput(input *OnDemandThroughput) *types.OnDemandThroughput {
+	if input == nil {
+		return nil
+	}
+
+	return &types.OnDemandThroughput{
+		MaxReadRequestUnits:  input.MaxReadRequestUnits,
+		MaxWriteRequestUnits: input.MaxWriteRequestUnits,
 	}
 }
 
@@ -146,13 +174,21 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 		}
 	}
 
-	gsiUpdates := make(
-		[]types.GlobalSecondaryIndexUpdate,
-		0,
-		len(input.GlobalSecondaryIndexUpdates),
-	)
+	out.SSESpecification = ToSDKSSESpecification(input.SSESpecification)
+	out.DeletionProtectionEnabled = input.DeletionProtectionEnabled
+	out.TableClass = types.TableClass(input.TableClass)
+	out.BillingMode = types.BillingMode(input.BillingMode)
+	out.GlobalSecondaryIndexUpdates = toSDKGSIUpdates(input.GlobalSecondaryIndexUpdates)
+	out.ReplicaUpdates = toSDKReplicationGroupUpdates(input.ReplicaUpdates)
 
-	for _, u := range input.GlobalSecondaryIndexUpdates {
+	return out, nil
+}
+
+// toSDKGSIUpdates converts UpdateTable's GlobalSecondaryIndexUpdates list.
+func toSDKGSIUpdates(updates []GlobalSecondaryIndexUpdate) []types.GlobalSecondaryIndexUpdate {
+	out := make([]types.GlobalSecondaryIndexUpdate, 0, len(updates))
+
+	for _, u := range updates {
 		update := types.GlobalSecondaryIndexUpdate{}
 
 		switch {
@@ -187,14 +223,17 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 			}
 		}
 
-		gsiUpdates = append(gsiUpdates, update)
+		out = append(out, update)
 	}
 
-	out.GlobalSecondaryIndexUpdates = gsiUpdates
+	return out
+}
 
-	// Convert replica updates (Global Tables v2).
-	replicaUpdates := make([]types.ReplicationGroupUpdate, 0, len(input.ReplicaUpdates))
-	for _, ru := range input.ReplicaUpdates {
+// toSDKReplicationGroupUpdates converts UpdateTable's ReplicaUpdates list (Global Tables v2).
+func toSDKReplicationGroupUpdates(updates []ReplicaUpdate) []types.ReplicationGroupUpdate {
+	out := make([]types.ReplicationGroupUpdate, 0, len(updates))
+
+	for _, ru := range updates {
 		sdkRU := types.ReplicationGroupUpdate{}
 		if ru.Create != nil {
 			sdkRU.Create = &types.CreateReplicationGroupMemberAction{
@@ -219,11 +258,10 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 				RegionName: &ru.Delete.RegionName,
 			}
 		}
-		replicaUpdates = append(replicaUpdates, sdkRU)
+		out = append(out, sdkRU)
 	}
-	out.ReplicaUpdates = replicaUpdates
 
-	return out, nil
+	return out
 }
 
 // FromSDKUpdateTableOutput converts the AWS SDK UpdateTableOutput to wire format.
@@ -342,6 +380,27 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 		}
 	}
 
+	if td.OnDemandThroughput != nil {
+		out.OnDemandThroughput = &OnDemandThroughput{
+			MaxReadRequestUnits:  td.OnDemandThroughput.MaxReadRequestUnits,
+			MaxWriteRequestUnits: td.OnDemandThroughput.MaxWriteRequestUnits,
+		}
+	}
+
+	if td.TableClassSummary != nil {
+		out.TableClassSummary = &TableClassSummaryDescription{
+			TableClass: string(td.TableClassSummary.TableClass),
+		}
+	}
+
+	if td.TableSizeBytes != nil {
+		out.TableSizeBytes = *td.TableSizeBytes
+	}
+
+	if td.CreationDateTime != nil {
+		out.CreationDateTime = awstime.Epoch(*td.CreationDateTime)
+	}
+
 	return out
 }
 
@@ -393,6 +452,7 @@ func FromSDKGlobalSecondaryIndexDescriptions(
 	for i, gsi := range gsis {
 		out[i] = GlobalSecondaryIndexDescription{
 			IndexName:   ptrconv.String(gsi.IndexName),
+			IndexArn:    ptrconv.String(gsi.IndexArn),
 			IndexStatus: string(gsi.IndexStatus),
 			KeySchema:   FromSDKKeySchema(gsi.KeySchema),
 			Projection:  FromSDKProjection(gsi.Projection),
@@ -402,7 +462,9 @@ func FromSDKGlobalSecondaryIndexDescriptions(
 					ptrconv.Int64(gsi.ProvisionedThroughput.WriteCapacityUnits),
 				),
 			},
-			ItemCount: int(ptrconv.Int64(gsi.ItemCount)),
+			ItemCount:      int(ptrconv.Int64(gsi.ItemCount)),
+			IndexSizeBytes: ptrconv.Int64(gsi.IndexSizeBytes),
+			Backfilling:    ptrconv.Bool(gsi.Backfilling),
 		}
 	}
 
@@ -419,6 +481,7 @@ func FromSDKLocalSecondaryIndexDescriptions(
 	for i, lsi := range lsis {
 		out[i] = LocalSecondaryIndexDescription{
 			IndexName:      ptrconv.String(lsi.IndexName),
+			IndexArn:       ptrconv.String(lsi.IndexArn),
 			KeySchema:      FromSDKKeySchema(lsi.KeySchema),
 			Projection:     FromSDKProjection(lsi.Projection),
 			IndexSizeBytes: ptrconv.Int64(lsi.IndexSizeBytes),

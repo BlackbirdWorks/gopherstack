@@ -142,6 +142,7 @@ type StorageBackend interface {
 	// Function
 	PutFunction(
 		functionID, functionType, description string,
+		customOutput, httpRequest, sequentialExecutor map[string]any,
 		tags map[string]string,
 	) (*Function, error)
 	GetFunction(functionID string) (*Function, error)
@@ -182,6 +183,21 @@ type PlaybackConfiguration struct {
 	PlaybackEndpointPrefix      string
 	SessionInitializationPrefix string
 	HlsManifestEndpointPrefix   string
+	// DualStackPlaybackEndpointPrefix and DualStackSessionInitializationEndpointPrefix
+	// are response-only members of the real PlaybackConfiguration type (no
+	// PutPlaybackConfigurationInput member sets them; aws-sdk-go-v2/service/mediatailor
+	// @v1.63.4 types/types.go:1049,1053). gopherstack never populates them -- doing so
+	// would mean fabricating a dual-stack URL a client might actually dial, which is
+	// worse than the field being absent, matching a real account with dual-stack
+	// endpoints not provisioned.
+	DualStackPlaybackEndpointPrefix              string
+	DualStackSessionInitializationEndpointPrefix string
+	// HlsDualStackManifestEndpointPrefix is HlsConfiguration's own response-only
+	// dual-stack member (no PutPlaybackConfigurationInput counterpart;
+	// aws-sdk-go-v2/service/mediatailor@v1.63.4 types/types.go:688). Same
+	// reasoning as the two fields above: never populated, absent rather than
+	// a fabricated dialable URL.
+	HlsDualStackManifestEndpointPrefix string
 }
 
 // PlaybackConfigurationLogConfiguration is the logging configuration for a
@@ -201,13 +217,16 @@ type SlateSource struct {
 
 // PlaybackConfigurationSummary is a playback configuration in a list response.
 type PlaybackConfigurationSummary struct {
-	Tags                     map[string]string
-	LogConfiguration         *PlaybackConfigurationLogConfiguration
-	Extra                    map[string]any
-	Name                     string
-	AdDecisionServerURL      string
-	VideoContentSourceURL    string
-	PlaybackConfigurationARN string
+	Tags                        map[string]string
+	LogConfiguration            *PlaybackConfigurationLogConfiguration
+	Extra                       map[string]any
+	Name                        string
+	AdDecisionServerURL         string
+	PlaybackEndpointPrefix      string
+	SessionInitializationPrefix string
+	HlsManifestEndpointPrefix   string
+	VideoContentSourceURL       string
+	PlaybackConfigurationARN    string
 }
 
 // TimeShiftConfiguration is the time-shifted viewing configuration for a channel.
@@ -347,12 +366,13 @@ type VodSource struct {
 
 // VodSourceSummary is a VOD source in a list response.
 type VodSourceSummary struct {
-	CreationTime       time.Time
-	LastModified       time.Time
-	Tags               map[string]string
-	SourceLocationName string
-	VodSourceName      string
-	ARN                string
+	CreationTime              time.Time
+	LastModified              time.Time
+	Tags                      map[string]string
+	SourceLocationName        string
+	VodSourceName             string
+	ARN                       string
+	HTTPPackageConfigurations []HTTPPackageConfiguration
 }
 
 // HTTPPackageConfiguration is a packaging configuration for a VOD source.
@@ -376,12 +396,13 @@ type LiveSource struct {
 
 // LiveSourceSummary is a live source in a list response.
 type LiveSourceSummary struct {
-	CreationTime       time.Time
-	LastModified       time.Time
-	Tags               map[string]string
-	SourceLocationName string
-	LiveSourceName     string
-	ARN                string
+	CreationTime              time.Time
+	LastModified              time.Time
+	Tags                      map[string]string
+	SourceLocationName        string
+	LiveSourceName            string
+	ARN                       string
+	HTTPPackageConfigurations []HTTPPackageConfiguration
 }
 
 // PrefetchRetrieval holds the retrieval configuration for a prefetch schedule.
@@ -544,21 +565,33 @@ type ProgramScheduleEntry struct {
 	ApproximateDurationSeconds int64
 }
 
-// Function represents a MediaTailor function.
+// Function represents a MediaTailor function. CustomOutputConfiguration,
+// HTTPRequestConfiguration and SequentialExecutorConfiguration are stored as
+// decoded-JSON pass-through (the FunctionType-specific config gopherstack
+// does not execute/interpret, matching PlaybackConfiguration's Extra
+// pattern in handler_helpers.go's extractExtraConfig/mergeExtraConfig) so a
+// client reads back exactly what it Put.
 type Function struct {
-	Tags         map[string]string
-	FunctionID   string
-	FunctionType string
-	ARN          string
-	Description  string
+	CustomOutputConfiguration       map[string]any
+	HTTPRequestConfiguration        map[string]any
+	SequentialExecutorConfiguration map[string]any
+	Tags                            map[string]string
+	FunctionID                      string
+	FunctionType                    string
+	ARN                             string
+	Description                     string
 }
 
 // FunctionSummary is a function in a list response.
 type FunctionSummary struct {
-	Tags         map[string]string
-	FunctionID   string
-	FunctionType string
-	ARN          string
+	CustomOutputConfiguration       map[string]any
+	HTTPRequestConfiguration        map[string]any
+	SequentialExecutorConfiguration map[string]any
+	Tags                            map[string]string
+	FunctionID                      string
+	FunctionType                    string
+	ARN                             string
+	Description                     string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

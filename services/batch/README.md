@@ -7,8 +7,8 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 45 (44 ok, 1 partial) |
-| Known gaps | 2 |
+| Operations audited | 45 (42 ok, 3 partial) |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -16,6 +16,8 @@
 
 - DescribeJobs (JobDetail) still does not model attempts/nodeDetails/ecsProperties/eksProperties(describe-side) -- these require simulating multi-node/ECS/EKS job execution details (per-attempt job execution, multi-node coordination, ECS/EKS placement), genuinely out of scope for an in-memory emulator this pass. Left un-implemented rather than faked (bd: file follow-up)
 - ContainerDetail (job-level, EKS-nested EksContainer/EksPodProperties) is missing a few leaf fields real AWS has (imagePullPolicy, imagePullSecrets on EKS container/pod types) -- spot-checked against the real serializer, not exhaustively field-by-field; low priority since these are pass-through config fields with no state-machine implications (bd: file follow-up, low priority)
+- gopherstack-6flj (this session): GetJobQueueSnapshotOutput.frontOfQuotaShares and .queueUtilization (types.FrontOfQuotaSharesDetail/QueueSnapshotUtilizationDetail) are unmodeled -- both require simulating quota-share-based job ordering and per-share capacity-usage accounting this backend doesn't do (no scheduler groups RUNNABLE jobs by quota share or tracks utilization at all). frontOfQuotaShares was a previously-unflagged coverage gap in the prior audit's own field-diff note, which named only FrontOfQueueDetail/FrontOfQueueJobSummary and queueUtilization (bd: file follow-up)
+- gopherstack-6flj (this session): DescribeServiceJobOutput.attempts/capacityUsage/latestAttempt/preemptionSummary are unmodeled -- same root cause as DescribeJobs's disclosed attempts/nodeDetails gap above (no per-attempt execution simulation), plus preemptionSummary specifically requires this backend to actually preempt service jobs under quota-share contention, which it never does (bd: file follow-up)
 
 ## More
 

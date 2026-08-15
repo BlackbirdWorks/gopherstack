@@ -155,21 +155,36 @@ func (h *Handler) handleGetMetricStream(form url.Values, c *echo.Context) error 
 		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
+	type filterXML struct {
+		Namespace   string   `xml:"Namespace"`
+		MetricNames []string `xml:"MetricNames>member,omitempty"`
+	}
 	type result struct {
-		Name           string `xml:"Name"`
-		Arn            string `xml:"Arn"`
-		FirehoseArn    string `xml:"FirehoseArn"`
-		RoleArn        string `xml:"RoleArn"`
-		State          string `xml:"State"`
-		OutputFormat   string `xml:"OutputFormat"`
-		CreationDate   string `xml:"CreationDate,omitempty"`
-		LastUpdateDate string `xml:"LastUpdateDate,omitempty"`
+		Name           string      `xml:"Name"`
+		Arn            string      `xml:"Arn"`
+		FirehoseArn    string      `xml:"FirehoseArn"`
+		RoleArn        string      `xml:"RoleArn"`
+		State          string      `xml:"State"`
+		OutputFormat   string      `xml:"OutputFormat"`
+		CreationDate   string      `xml:"CreationDate,omitempty"`
+		LastUpdateDate string      `xml:"LastUpdateDate,omitempty"`
+		IncludeFilters []filterXML `xml:"IncludeFilters>member,omitempty"`
+		ExcludeFilters []filterXML `xml:"ExcludeFilters>member,omitempty"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"GetMetricStreamResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 		Result    result   `xml:"GetMetricStreamResult"`
+	}
+
+	toFilterXML := func(filters []MetricStreamFilter) []filterXML {
+		out := make([]filterXML, 0, len(filters))
+		for _, f := range filters {
+			out = append(out, filterXML(f))
+		}
+
+		return out
 	}
 
 	return writeXML(c, response{
@@ -184,6 +199,8 @@ func (h *Handler) handleGetMetricStream(form url.Values, c *echo.Context) error 
 			OutputFormat:   stream.OutputFormat,
 			CreationDate:   formatTimeOmitZero(stream.CreationDate),
 			LastUpdateDate: formatTimeOmitZero(stream.LastUpdateDate),
+			IncludeFilters: toFilterXML(stream.IncludeFilters),
+			ExcludeFilters: toFilterXML(stream.ExcludeFilters),
 		},
 	})
 }

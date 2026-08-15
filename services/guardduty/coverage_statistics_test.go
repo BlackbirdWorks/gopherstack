@@ -32,9 +32,35 @@ func TestCoverage(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 				assert.NotNil(t, listResp["resources"])
 
-				// GetCoverageStatistics
+				// GetCoverageStatistics requires statisticsType (gopherstack-h910: this
+				// used to be silently ignored, so any request -- even one missing the
+				// required field -- succeeded and always computed both count maps).
 				rec = doRequest(t, h, http.MethodPost, "/detector/"+id+"/coverage/statistics", nil)
-				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+				rec = doRequest(t, h, http.MethodPost, "/detector/"+id+"/coverage/statistics", map[string]any{
+					"statisticsType": []string{"COUNT_BY_RESOURCE_TYPE"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var byTypeResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byTypeResp))
+				stats, ok := byTypeResp["coverageStatistics"].(map[string]any)
+				require.True(t, ok)
+				assert.Contains(t, stats, "countByResourceType")
+				assert.NotContains(t, stats, "countByCoverageStatus")
+
+				rec = doRequest(t, h, http.MethodPost, "/detector/"+id+"/coverage/statistics", map[string]any{
+					"statisticsType": []string{"COUNT_BY_COVERAGE_STATUS"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var byStatusResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &byStatusResp))
+				stats, ok = byStatusResp["coverageStatistics"].(map[string]any)
+				require.True(t, ok)
+				assert.Contains(t, stats, "countByCoverageStatus")
+				assert.NotContains(t, stats, "countByResourceType")
 			},
 		},
 	}

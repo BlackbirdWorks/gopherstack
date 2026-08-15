@@ -18,11 +18,18 @@ func (b *InMemoryBackend) ModifyEndpointEncryptionMode(directoryID, mode string)
 	return nil
 }
 
+// deletableCertBasedAuthPropertyCertificateAuthorityArn is the real
+// DeletableCertificateBasedAuthProperty enum value naming the
+// CertAuth_CertificateAuthorityArn ds.Properties key.
+const deletableCertBasedAuthPropertyCertificateAuthorityArn = "CERTIFICATE_BASED_AUTH_PROPERTIES_" +
+	"CERTIFICATE_AUTHORITY_ARN"
+
 // ModifyCertificateBasedAuthProperties stores certificate auth properties
 // for a registered directory. See ModifyEndpointEncryptionMode.
 func (b *InMemoryBackend) ModifyCertificateBasedAuthProperties(
 	directoryID string,
 	props map[string]string,
+	propertiesToDelete []string,
 ) error {
 	b.mu.Lock("ModifyCertificateBasedAuthProperties")
 	defer b.mu.Unlock()
@@ -34,6 +41,12 @@ func (b *InMemoryBackend) ModifyCertificateBasedAuthProperties(
 	ds, _ := b.dirSettings.Get(directoryID)
 	for k, v := range props {
 		ds.Properties["CertAuth_"+k] = v
+	}
+
+	for _, p := range propertiesToDelete {
+		if p == deletableCertBasedAuthPropertyCertificateAuthorityArn {
+			delete(ds.Properties, "CertAuth_CertificateAuthorityArn")
+		}
 	}
 
 	return nil

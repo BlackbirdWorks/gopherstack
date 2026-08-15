@@ -393,6 +393,16 @@ func TestInMemoryBackend_UpdateUserPoolClient(t *testing.T) {
 	}
 }
 
+// clientSecretsListResp mirrors ListUserPoolClientSecretsOutput's real shape
+// (aws-sdk-go-v2/service/cognitoidentityprovider): a ClientSecrets list of
+// descriptors, not the flat []string the pre-fix response fabricated.
+type clientSecretsListResp struct {
+	ClientSecrets []struct {
+		ClientSecretID    string `json:"ClientSecretId"`
+		ClientSecretValue string `json:"ClientSecretValue,omitempty"`
+	} `json:"ClientSecrets,omitempty"`
+}
+
 func TestClientSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -406,31 +416,53 @@ func TestClientSecrets(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var listResp struct {
-		Secrets []string `json:"Secrets,omitempty"`
-	}
+	var listResp clientSecretsListResp
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Empty(t, listResp.Secrets)
+	assert.Empty(t, listResp.ClientSecrets)
 
-	// Add a secret
+	// Add a secret; its ClientSecretId is required to delete it later
+	// (gopherstack-h910 -- DeleteUserPoolClientSecret used to ignore
+	// ClientSecretId entirely, so this round trip couldn't be modeled).
 	rec = doCognitoRequest(t, h, "AddUserPoolClientSecret", map[string]any{
 		"UserPoolId": poolID,
 		"ClientId":   clientID,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// List after adding — one secret
+	var addResp struct {
+		ClientSecretDescriptor struct {
+			ClientSecretID    string `json:"ClientSecretId"`
+			ClientSecretValue string `json:"ClientSecretValue"`
+		} `json:"ClientSecretDescriptor"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &addResp))
+	secretID := addResp.ClientSecretDescriptor.ClientSecretID
+	require.NotEmpty(t, secretID)
+	require.NotEmpty(t, addResp.ClientSecretDescriptor.ClientSecretValue)
+
+	// List after adding — one secret, value never revealed by List
 	rec = doCognitoRequest(t, h, "ListUserPoolClientSecrets", map[string]any{
 		"UserPoolId": poolID,
 		"ClientId":   clientID,
 	})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp.Secrets, 1)
+	require.Len(t, listResp.ClientSecrets, 1)
+	assert.Equal(t, secretID, listResp.ClientSecrets[0].ClientSecretID)
+	assert.Empty(t, listResp.ClientSecrets[0].ClientSecretValue)
 
-	// Delete the secret
+	// Deleting with the wrong ClientSecretId must not remove the real one.
 	rec = doCognitoRequest(t, h, "DeleteUserPoolClientSecret", map[string]any{
-		"UserPoolId": poolID,
-		"ClientId":   clientID,
+		"UserPoolId":     poolID,
+		"ClientId":       clientID,
+		"ClientSecretId": "not-the-real-id",
+	})
+	assert.NotEqual(t, http.StatusOK, rec.Code)
+
+	// Delete the secret by its real ClientSecretId
+	rec = doCognitoRequest(t, h, "DeleteUserPoolClientSecret", map[string]any{
+		"UserPoolId":     poolID,
+		"ClientId":       clientID,
+		"ClientSecretId": secretID,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -440,7 +472,7 @@ func TestClientSecrets(t *testing.T) {
 		"ClientId":   clientID,
 	})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Empty(t, listResp.Secrets)
+	assert.Empty(t, listResp.ClientSecrets)
 }
 
 func TestBackend_UpdateUserPoolClientWithOpts(t *testing.T) {

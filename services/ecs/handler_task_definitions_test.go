@@ -5,11 +5,53 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
+
+// TestECS_RegisterTaskDefinition_EchoesTags verifies that RegisterTaskDefinitionOutput
+// carries the supplied tags at the top level, unconditionally -- unlike
+// DescribeTaskDefinition/ListTagsForResource, which gate tags behind the
+// `include=TAGS` option (ecs@v1.90.0 deserializers.go:32428,
+// awsAwsjson11_deserializeOpDocumentRegisterTaskDefinitionOutput). Drives the
+// real aws-sdk-go-v2 client so a dropped or mis-keyed field decodes to a zero
+// value instead of failing outright.
+func TestECS_RegisterTaskDefinition_EchoesTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestECSClient(t, h)
+
+	out, err := client.RegisterTaskDefinition(t.Context(), &ecssdk.RegisterTaskDefinitionInput{
+		Family: aws.String("tagged-fam"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{Name: aws.String("c"), Image: aws.String("nginx"), Essential: aws.Bool(true)},
+		},
+		Tags: []ecstypes.Tag{
+			{Key: aws.String("env"), Value: aws.String("prod")},
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.Tags, "RegisterTaskDefinitionOutput.Tags must echo the supplied tags")
+	assert.Equal(t, "env", aws.ToString(out.Tags[0].Key))
+	assert.Equal(t, "prod", aws.ToString(out.Tags[0].Value))
+
+	// Cross-check against DescribeTaskDefinition(include=TAGS), the other
+	// surface that reports the same registration tags.
+	desc, err := client.DescribeTaskDefinition(t.Context(), &ecssdk.DescribeTaskDefinitionInput{
+		TaskDefinition: out.TaskDefinition.TaskDefinitionArn,
+		Include:        []ecstypes.TaskDefinitionField{"TAGS"},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, desc.Tags)
+	assert.Equal(t, aws.ToString(out.Tags[0].Key), aws.ToString(desc.Tags[0].Key))
+	assert.Equal(t, aws.ToString(out.Tags[0].Value), aws.ToString(desc.Tags[0].Value))
+}
 
 func TestECS_RegisterTaskDefinition(t *testing.T) {
 	t.Parallel()

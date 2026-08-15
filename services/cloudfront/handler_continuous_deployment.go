@@ -106,26 +106,34 @@ func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error 
 	return xmlResp(c, http.StatusCreated, resp)
 }
 
-func continuousDeploymentPolicyXML(ns string, policy *ContinuousDeploymentPolicy) string {
+// continuousDeploymentPolicyBodyXML renders the child elements of a ContinuousDeploymentPolicy
+// (everything a real ContinuousDeploymentPolicy element contains, without the element itself),
+// shared by the singular ContinuousDeploymentPolicy root and the nested
+// ContinuousDeploymentPolicySummary>ContinuousDeploymentPolicy used by ListContinuousDeploymentPolicies.
+func continuousDeploymentPolicyBodyXML(policy *ContinuousDeploymentPolicy) string {
 	var dnsNames strings.Builder
 	for _, dns := range policy.StagingDistributionDNSNames {
 		fmt.Fprintf(&dnsNames, `<DnsName>%s</DnsName>`, dns)
 	}
 
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ContinuousDeploymentPolicy xmlns="%s">`+
+	return fmt.Sprintf(
 		`<Id>%s</Id>`+
-		`<ARN>%s</ARN>`+
-		`<LastModifiedTime>%s</LastModifiedTime>`+
-		`<ContinuousDeploymentPolicyConfig>`+
-		`<StagingDistributionDnsNames><Quantity>%d</Quantity><Items>%s</Items></StagingDistributionDnsNames>`+
-		`<Enabled>%v</Enabled>`+
-		`<TrafficConfig><Type>%s</Type></TrafficConfig>`+
-		`</ContinuousDeploymentPolicyConfig>`+
-		`</ContinuousDeploymentPolicy>`,
-		ns, policy.ID, policy.ARN, policy.LastModifiedTime,
+			`<ARN>%s</ARN>`+
+			`<LastModifiedTime>%s</LastModifiedTime>`+
+			`<ContinuousDeploymentPolicyConfig>`+
+			`<StagingDistributionDnsNames><Quantity>%d</Quantity><Items>%s</Items></StagingDistributionDnsNames>`+
+			`<Enabled>%v</Enabled>`+
+			`<TrafficConfig><Type>%s</Type></TrafficConfig>`+
+			`</ContinuousDeploymentPolicyConfig>`,
+		policy.ID, policy.ARN, policy.LastModifiedTime,
 		len(policy.StagingDistributionDNSNames), dnsNames.String(),
 		policy.Enabled, policy.TrafficConfig.Type)
+}
+
+func continuousDeploymentPolicyXML(ns string, policy *ContinuousDeploymentPolicy) string {
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<ContinuousDeploymentPolicy xmlns="%s">%s</ContinuousDeploymentPolicy>`,
+		ns, continuousDeploymentPolicyBodyXML(policy))
 }
 
 func (h *Handler) handleGetContinuousDeploymentPolicy(c *echo.Context, id string) error {
@@ -218,12 +226,16 @@ func (h *Handler) handleListContinuousDeploymentPolicies(c *echo.Context) error 
 	sb.WriteString(`<IsTruncated>false</IsTruncated>`)
 	sb.WriteString(`<Items>`)
 
+	// A ContinuousDeploymentPolicySummary wraps a single nested <ContinuousDeploymentPolicy>
+	// child (awsRestxml_deserializeDocumentContinuousDeploymentPolicySummary case
+	// "ContinuousDeploymentPolicy"), not Id/Enabled flattened directly onto the summary -- a
+	// real client decodes ContinuousDeploymentPolicySummary.ContinuousDeploymentPolicy as nil
+	// for every item against the flattened shape, giving the right item count with entirely
+	// blank content.
 	for _, p := range policies {
-		fmt.Fprintf(
-			&sb,
-			`<ContinuousDeploymentPolicySummary><Id>%s</Id><Enabled>%v</Enabled></ContinuousDeploymentPolicySummary>`,
-			p.ID, p.Enabled,
-		)
+		sb.WriteString(`<ContinuousDeploymentPolicySummary><ContinuousDeploymentPolicy>`)
+		sb.WriteString(continuousDeploymentPolicyBodyXML(p))
+		sb.WriteString(`</ContinuousDeploymentPolicy></ContinuousDeploymentPolicySummary>`)
 	}
 
 	sb.WriteString(`</Items>`)

@@ -264,17 +264,22 @@ type networkInterfaceAttachment struct {
 }
 
 type networkInterfaceItem struct {
-	Attachment            *networkInterfaceAttachment  `xml:"attachment,omitempty"`
-	NetworkInterfaceID    string                       `xml:"networkInterfaceId"`
-	SubnetID              string                       `xml:"subnetId"`
-	VPCID                 string                       `xml:"vpcId"`
-	PrivateIPAddress      string                       `xml:"privateIpAddress"`
-	Description           string                       `xml:"description"`
-	Status                string                       `xml:"status"`
-	OwnerID               string                       `xml:"ownerId,omitempty"`
-	PrivateIPAddressesSet networkInterfacePrivateIPSet `xml:"privateIpAddressesSet"`
-	TagSet                []simpleTagItem              `xml:"tagSet>item"`
-	SourceDestCheck       bool                         `xml:"sourceDestCheck"`
+	Attachment             *networkInterfaceAttachment  `xml:"attachment,omitempty"`
+	PublicIPDNSNameOptions *publicIPDNSNameOptionsItem  `xml:"publicIpDnsNameOptions,omitempty"`
+	NetworkInterfaceID     string                       `xml:"networkInterfaceId"`
+	SubnetID               string                       `xml:"subnetId"`
+	VPCID                  string                       `xml:"vpcId"`
+	PrivateIPAddress       string                       `xml:"privateIpAddress"`
+	Description            string                       `xml:"description"`
+	Status                 string                       `xml:"status"`
+	OwnerID                string                       `xml:"ownerId,omitempty"`
+	PrivateIPAddressesSet  networkInterfacePrivateIPSet `xml:"privateIpAddressesSet"`
+	TagSet                 []simpleTagItem              `xml:"tagSet>item"`
+	SourceDestCheck        bool                         `xml:"sourceDestCheck"`
+}
+
+type publicIPDNSNameOptionsItem struct {
+	DNSHostnameType string `xml:"dnsHostnameType,omitempty"`
 }
 
 type networkInterfaceItemSet struct {
@@ -338,6 +343,10 @@ func toNetworkInterfaceItem(eni *NetworkInterface, tags map[string]string) netwo
 		SourceDestCheck:       eni.SourceDestCheck,
 		PrivateIPAddressesSet: networkInterfacePrivateIPSet{Items: privateIPs},
 		TagSet:                tagItemsFromMap(tags),
+	}
+
+	if eni.PublicDNSHostnameType != "" {
+		item.PublicIPDNSNameOptions = &publicIPDNSNameOptionsItem{DNSHostnameType: eni.PublicDNSHostnameType}
 	}
 
 	if eni.AttachmentID != "" {

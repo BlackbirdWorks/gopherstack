@@ -108,23 +108,24 @@ type StorageBackend interface {
 // FileSystem represents an Amazon FSx file system.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 type FileSystem struct {
-	CreationTime         epochTime             `json:"CreationTime"`
-	LustreConfiguration  *LustreConfiguration  `json:"LustreConfiguration,omitempty"`
-	WindowsConfiguration *WindowsConfiguration `json:"WindowsConfiguration,omitempty"`
-	OntapConfiguration   *OntapConfiguration   `json:"OntapConfiguration,omitempty"`
-	OpenZFSConfiguration *OpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
-	FileSystemID         string                `json:"FileSystemId"`
-	FileSystemType       string                `json:"FileSystemType"`
-	Lifecycle            string                `json:"Lifecycle"`
-	ResourceARN          string                `json:"ResourceARN"`
-	DNSName              string                `json:"DNSName,omitempty"`
-	StorageType          string                `json:"StorageType,omitempty"`
-	VpcID                string                `json:"VpcId,omitempty"`
-	OwnersID             string                `json:"OwnerId,omitempty"`
-	SubnetIDs            []string              `json:"SubnetIds,omitempty"`
-	NetworkInterfaceIDs  []string              `json:"NetworkInterfaceIds,omitempty"`
-	Tags                 []Tag                 `json:"Tags,omitempty"`
-	StorageCapacityGiB   int32                 `json:"StorageCapacity,omitempty"`
+	CreationTime          epochTime             `json:"CreationTime"`
+	LustreConfiguration   *LustreConfiguration  `json:"LustreConfiguration,omitempty"`
+	WindowsConfiguration  *WindowsConfiguration `json:"WindowsConfiguration,omitempty"`
+	OntapConfiguration    *OntapConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration  *OpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	FileSystemID          string                `json:"FileSystemId"`
+	FileSystemType        string                `json:"FileSystemType"`
+	FileSystemTypeVersion string                `json:"FileSystemTypeVersion,omitempty"`
+	Lifecycle             string                `json:"Lifecycle"`
+	ResourceARN           string                `json:"ResourceARN"`
+	DNSName               string                `json:"DNSName,omitempty"`
+	StorageType           string                `json:"StorageType,omitempty"`
+	VpcID                 string                `json:"VpcId,omitempty"`
+	OwnersID              string                `json:"OwnerId,omitempty"`
+	SubnetIDs             []string              `json:"SubnetIds,omitempty"`
+	NetworkInterfaceIDs   []string              `json:"NetworkInterfaceIds,omitempty"`
+	Tags                  []Tag                 `json:"Tags,omitempty"`
+	StorageCapacityGiB    int32                 `json:"StorageCapacity,omitempty"`
 }
 
 // WindowsConfiguration describes the Windows-specific configuration of an
@@ -246,19 +247,32 @@ type DataRepositoryAssociation struct {
 	Tags               []Tag     `json:"Tags,omitempty"`
 }
 
+// CompletionReport mirrors types.CompletionReport (types.go:468). Enabled is
+// the only required member (validateCompletionReport, validators.go);
+// Format/Path/Scope are "required if Enabled is true" per doc comment only,
+// not enforced by the SDK's own client-side validator, so this backend
+// doesn't enforce them either.
+type CompletionReport struct {
+	Enabled *bool  `json:"Enabled"`
+	Format  string `json:"Format,omitempty"`
+	Path    string `json:"Path,omitempty"`
+	Scope   string `json:"Scope,omitempty"`
+}
+
 // DataRepositoryTask represents a task that moves data between FSx and a data repository.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
 type DataRepositoryTask struct {
-	CreationTime epochTime `json:"CreationTime"`
-	TaskID       string    `json:"TaskId"`
-	FileSystemID string    `json:"FileSystemId"`
-	Type         string    `json:"Type"`
-	Lifecycle    string    `json:"Lifecycle"`
-	ResourceARN  string    `json:"ResourceARN"`
-	Paths        []string  `json:"Paths,omitempty"`
-	Tags         []Tag     `json:"Tags,omitempty"`
+	CreationTime epochTime         `json:"CreationTime"`
+	Report       *CompletionReport `json:"Report,omitempty"`
+	TaskID       string            `json:"TaskId"`
+	FileSystemID string            `json:"FileSystemId"`
+	Type         string            `json:"Type"`
+	Lifecycle    string            `json:"Lifecycle"`
+	ResourceARN  string            `json:"ResourceARN"`
+	Paths        []string          `json:"Paths,omitempty"`
+	Tags         []Tag             `json:"Tags,omitempty"`
 }
 
 // FileCache represents an Amazon FSx file cache.
@@ -266,13 +280,15 @@ type DataRepositoryTask struct {
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
 type FileCache struct {
-	CreationTime       epochTime `json:"CreationTime"`
-	FileCacheID        string    `json:"FileCacheId"`
-	FileCacheType      string    `json:"FileCacheType"`
-	Lifecycle          string    `json:"Lifecycle"`
-	ResourceARN        string    `json:"ResourceARN"`
-	Tags               []Tag     `json:"Tags,omitempty"`
-	StorageCapacityGiB int32     `json:"StorageCapacity,omitempty"`
+	CreationTime         epochTime `json:"CreationTime"`
+	FileCacheID          string    `json:"FileCacheId"`
+	FileCacheType        string    `json:"FileCacheType"`
+	FileCacheTypeVersion string    `json:"FileCacheTypeVersion,omitempty"`
+	Lifecycle            string    `json:"Lifecycle"`
+	ResourceARN          string    `json:"ResourceARN"`
+	Tags                 []Tag     `json:"Tags,omitempty"`
+	SubnetIDs            []string  `json:"SubnetIds,omitempty"`
+	StorageCapacityGiB   int32     `json:"StorageCapacity,omitempty"`
 }
 
 // Snapshot represents an FSx ONTAP or OpenZFS snapshot.

@@ -108,8 +108,13 @@ func (b *InMemoryBackend) CreateStateMachine(
 		}
 	}
 
+	now := float64(time.Now().Unix())
 	sm := &StateMachine{
-		CreationDate:    float64(time.Now().Unix()),
+		CreationDate: now,
+		// AWS: "the date and time the state machine ... was updated. For a
+		// newly created state machine, this is the same as the creation
+		// date" (DescribeStateMachineForExecutionOutput.UpdateDate).
+		UpdatedDate:     now,
 		Name:            name,
 		StateMachineArn: smARN,
 		Type:            smType,

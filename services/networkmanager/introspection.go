@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // This file implements PARITY.md family T (network introspection, 5 ops)
@@ -29,9 +30,14 @@ import (
 // PARITY.md's gaps list).
 
 // networkResourceItem is the concrete internal shape gathered per resource
-// before conversion to the wire NetworkResource.
+// before conversion to the wire NetworkResource. ResourceID/Tags mirror the
+// real NetworkResource.ResourceId/Tags members -- both are one field access
+// away on every source struct (SiteID/DeviceID/.../Tags) but were dropped
+// entirely by every gatherer below until this fix (gopherstack-6flj).
 type networkResourceItem struct {
+	Tags          *tags.Tags
 	Arn           string
+	ResourceID    string
 	ResourceType  string
 	CoreNetworkID string
 	Definition    string
@@ -75,7 +81,9 @@ func (b *InMemoryBackend) siteResourceItems(globalNetworkID string) []networkRes
 
 	for _, s := range b.sites.Snapshot() {
 		if s.GlobalNetworkID == globalNetworkID {
-			out = append(out, networkResourceItem{Arn: s.SiteArn, ResourceType: "site", Definition: mustJSON(s)})
+			out = append(out, networkResourceItem{
+				Arn: s.SiteArn, ResourceID: s.SiteID, ResourceType: "site", Definition: mustJSON(s), Tags: s.Tags,
+			})
 		}
 	}
 
@@ -87,7 +95,9 @@ func (b *InMemoryBackend) deviceResourceItems(globalNetworkID string) []networkR
 
 	for _, d := range b.devices.Snapshot() {
 		if d.GlobalNetworkID == globalNetworkID {
-			out = append(out, networkResourceItem{Arn: d.DeviceArn, ResourceType: "device", Definition: mustJSON(d)})
+			out = append(out, networkResourceItem{
+				Arn: d.DeviceArn, ResourceID: d.DeviceID, ResourceType: "device", Definition: mustJSON(d), Tags: d.Tags,
+			})
 		}
 	}
 
@@ -99,7 +109,9 @@ func (b *InMemoryBackend) linkResourceItems(globalNetworkID string) []networkRes
 
 	for _, l := range b.links.Snapshot() {
 		if l.GlobalNetworkID == globalNetworkID {
-			out = append(out, networkResourceItem{Arn: l.LinkArn, ResourceType: "link", Definition: mustJSON(l)})
+			out = append(out, networkResourceItem{
+				Arn: l.LinkArn, ResourceID: l.LinkID, ResourceType: "link", Definition: mustJSON(l), Tags: l.Tags,
+			})
 		}
 	}
 
@@ -112,7 +124,8 @@ func (b *InMemoryBackend) connectionResourceItems(globalNetworkID string) []netw
 	for _, c := range b.connections.Snapshot() {
 		if c.GlobalNetworkID == globalNetworkID {
 			out = append(out, networkResourceItem{
-				Arn: c.ConnectionArn, ResourceType: resourceTypeConnection, Definition: mustJSON(c),
+				Arn: c.ConnectionArn, ResourceID: c.ConnectionID, ResourceType: resourceTypeConnection,
+				Definition: mustJSON(c), Tags: c.Tags,
 			})
 		}
 	}
@@ -124,7 +137,9 @@ func (b *InMemoryBackend) connectionResourceItems(globalNetworkID string) []netw
 // to globalNetworkID plus the set of their CoreNetworkIds, so callers can
 // scope attachment/connect-peer/peering lookups (which key off CoreNetworkID,
 // not GlobalNetworkID directly) without a second full-table scan.
-func (b *InMemoryBackend) coreNetworkResourceItems(globalNetworkID string) ([]networkResourceItem, map[string]bool) {
+func (b *InMemoryBackend) coreNetworkResourceItems(
+	globalNetworkID string,
+) ([]networkResourceItem, map[string]bool) {
 	var out []networkResourceItem
 
 	coreNetworkIDs := map[string]bool{}
@@ -136,8 +151,8 @@ func (b *InMemoryBackend) coreNetworkResourceItems(globalNetworkID string) ([]ne
 
 		coreNetworkIDs[cn.CoreNetworkID] = true
 		out = append(out, networkResourceItem{
-			Arn: cn.CoreNetworkArn, ResourceType: resourceTypeCoreNetwork, CoreNetworkID: cn.CoreNetworkID,
-			Definition: mustJSON(cn),
+			Arn: cn.CoreNetworkArn, ResourceID: cn.CoreNetworkID, ResourceType: resourceTypeCoreNetwork,
+			CoreNetworkID: cn.CoreNetworkID, Definition: mustJSON(cn), Tags: cn.Tags,
 		})
 	}
 
@@ -146,14 +161,16 @@ func (b *InMemoryBackend) coreNetworkResourceItems(globalNetworkID string) ([]ne
 
 // coreNetworkScopedResourceItems returns every attachment/connect-peer/
 // peering whose CoreNetworkID is in coreNetworkIDs.
-func (b *InMemoryBackend) coreNetworkScopedResourceItems(coreNetworkIDs map[string]bool) []networkResourceItem {
+func (b *InMemoryBackend) coreNetworkScopedResourceItems(
+	coreNetworkIDs map[string]bool,
+) []networkResourceItem {
 	var out []networkResourceItem
 
 	for _, a := range b.attachments.Snapshot() {
 		if coreNetworkIDs[a.CoreNetworkID] {
 			out = append(out, networkResourceItem{
-				Arn: a.ResourceArn, ResourceType: resourceTypeAttachment, CoreNetworkID: a.CoreNetworkID,
-				Definition: mustJSON(a),
+				Arn: a.ResourceArn, ResourceID: a.AttachmentID, ResourceType: resourceTypeAttachment,
+				CoreNetworkID: a.CoreNetworkID, Definition: mustJSON(a), Tags: a.Tags,
 			})
 		}
 	}
@@ -161,8 +178,9 @@ func (b *InMemoryBackend) coreNetworkScopedResourceItems(coreNetworkIDs map[stri
 	for _, c := range b.connectPeers.Snapshot() {
 		if coreNetworkIDs[c.CoreNetworkID] {
 			out = append(out, networkResourceItem{
-				Arn: b.connectPeerARN(c.ConnectPeerID), ResourceType: resourceTypeConnectPeer,
-				CoreNetworkID: c.CoreNetworkID, Definition: mustJSON(c),
+				Arn: b.connectPeerARN(c.ConnectPeerID), ResourceID: c.ConnectPeerID,
+				ResourceType:  resourceTypeConnectPeer,
+				CoreNetworkID: c.CoreNetworkID, Definition: mustJSON(c), Tags: c.Tags,
 			})
 		}
 	}
@@ -170,7 +188,8 @@ func (b *InMemoryBackend) coreNetworkScopedResourceItems(coreNetworkIDs map[stri
 	for _, p := range b.peerings.Snapshot() {
 		if coreNetworkIDs[p.CoreNetworkID] {
 			out = append(out, networkResourceItem{
-				Arn: p.ResourceArn, ResourceType: "peering", CoreNetworkID: p.CoreNetworkID, Definition: mustJSON(p),
+				Arn: p.ResourceArn, ResourceID: p.PeeringID, ResourceType: "peering", CoreNetworkID: p.CoreNetworkID,
+				Definition: mustJSON(p), Tags: p.Tags,
 			})
 		}
 	}
@@ -218,7 +237,10 @@ func (b *InMemoryBackend) GetNetworkResources(
 	defer b.mu.RUnlock()
 
 	if !b.globalNetworkExists(globalNetworkID) {
-		return page.Page[networkResourceItem]{}, notFoundError(resourceGlobalNetwork, globalNetworkID)
+		return page.Page[networkResourceItem]{}, notFoundError(
+			resourceGlobalNetwork,
+			globalNetworkID,
+		)
 	}
 
 	all := b.gatherNetworkResources(globalNetworkID)
@@ -239,7 +261,9 @@ func (b *InMemoryBackend) GetNetworkResources(
 // with no ResourceNotFoundException in its real error set, unlike its three
 // siblings; an unknown GlobalNetworkID here honestly returns zero counts
 // rather than an error the real SDK client has no typed case for.
-func (b *InMemoryBackend) GetNetworkResourceCounts(globalNetworkID, resourceType string) map[string]int32 {
+func (b *InMemoryBackend) GetNetworkResourceCounts(
+	globalNetworkID, resourceType string,
+) map[string]int32 {
 	b.mu.RLock("GetNetworkResourceCounts")
 	defer b.mu.RUnlock()
 
@@ -321,7 +345,9 @@ func (b *InMemoryBackend) deviceLinkRelationships(globalNetworkID string) []netw
 
 // attachmentCoreNetworkRelationships returns one <underlying-resource>->
 // CoreNetwork edge per attachment whose CoreNetworkID is in coreNetworkIDs.
-func (b *InMemoryBackend) attachmentCoreNetworkRelationships(coreNetworkIDs map[string]bool) []networkRelationship {
+func (b *InMemoryBackend) attachmentCoreNetworkRelationships(
+	coreNetworkIDs map[string]bool,
+) []networkRelationship {
 	var rels []networkRelationship
 
 	for _, a := range b.attachments.Snapshot() {
@@ -352,7 +378,10 @@ func (b *InMemoryBackend) GetNetworkResourceRelationships(
 	defer b.mu.RUnlock()
 
 	if !b.globalNetworkExists(globalNetworkID) {
-		return page.Page[networkRelationship]{}, notFoundError(resourceGlobalNetwork, globalNetworkID)
+		return page.Page[networkRelationship]{}, notFoundError(
+			resourceGlobalNetwork,
+			globalNetworkID,
+		)
 	}
 
 	relGroups := [][]networkRelationship{
@@ -426,7 +455,10 @@ func (b *InMemoryBackend) GetNetworkTelemetry(
 	defer b.mu.RUnlock()
 
 	if !b.globalNetworkExists(globalNetworkID) {
-		return page.Page[networkTelemetryWire]{}, notFoundError(resourceGlobalNetwork, globalNetworkID)
+		return page.Page[networkTelemetryWire]{}, notFoundError(
+			resourceGlobalNetwork,
+			globalNetworkID,
+		)
 	}
 
 	var out []networkTelemetryWire
@@ -444,7 +476,10 @@ func (b *InMemoryBackend) GetNetworkTelemetry(
 		out = append(out, networkTelemetryWire{
 			AccountID: b.accountID, AwsRegion: b.region, ResourceArn: c.ConnectionArn, ResourceID: c.ConnectionID,
 			ResourceType: resourceTypeConnection,
-			Health:       &connectionHealthWire{Status: connectionStatusUp, Timestamp: epochPtr(nowUTC())},
+			Health: &connectionHealthWire{
+				Status:    connectionStatusUp,
+				Timestamp: epochPtr(nowUTC()),
+			},
 		})
 	}
 
@@ -462,7 +497,11 @@ func (b *InMemoryBackend) GetNetworkTelemetry(
 
 		arn := b.connectPeerARN(c.ConnectPeerID)
 
-		item := networkResourceItem{Arn: arn, ResourceType: resourceTypeConnectPeer, CoreNetworkID: c.CoreNetworkID}
+		item := networkResourceItem{
+			Arn:           arn,
+			ResourceType:  resourceTypeConnectPeer,
+			CoreNetworkID: c.CoreNetworkID,
+		}
 		if !filter.matches(item) {
 			continue
 		}
@@ -470,7 +509,10 @@ func (b *InMemoryBackend) GetNetworkTelemetry(
 		out = append(out, networkTelemetryWire{
 			AccountID: b.accountID, AwsRegion: b.region, CoreNetworkID: c.CoreNetworkID, ResourceArn: arn,
 			ResourceID: c.ConnectPeerID, ResourceType: resourceTypeConnectPeer,
-			Health: &connectionHealthWire{Status: connectionStatusUp, Timestamp: epochPtr(nowUTC())},
+			Health: &connectionHealthWire{
+				Status:    connectionStatusUp,
+				Timestamp: epochPtr(nowUTC()),
+			},
 		})
 	}
 

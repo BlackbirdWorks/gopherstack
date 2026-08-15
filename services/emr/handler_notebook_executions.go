@@ -69,8 +69,54 @@ type describeNotebookExecutionInput struct {
 	NotebookExecutionID string `json:"NotebookExecutionId"`
 }
 
+// notebookExecutionEngineWire is the real DescribeNotebookExecutionOutput
+// nested shape (types.ExecutionEngineConfig) -- see NotebookExecution's own
+// doc comment (models.go) for why this can't just be
+// NotebookExecution.ExecutionEngineID emitted flat. Type/ExecutionRoleArn/
+// MasterInstanceSecurityGroupId are real, non-required ExecutionEngineConfig
+// members this backend doesn't track (StartNotebookExecution only stores an
+// editor ID) -- left unset/omitted rather than fabricated.
+type notebookExecutionEngineWire struct {
+	ID string `json:"Id,omitempty"`
+}
+
+// notebookExecutionDetailWire is the real
+// DescribeNotebookExecutionOutput.NotebookExecution shape.
+type notebookExecutionDetailWire struct {
+	NotebookExecutionID   string                       `json:"NotebookExecutionId"`
+	EditorID              string                       `json:"EditorId,omitempty"`
+	NotebookExecutionName string                       `json:"NotebookExecutionName,omitempty"`
+	NotebookParams        string                       `json:"NotebookParams,omitempty"`
+	ExecutionEngine       *notebookExecutionEngineWire `json:"ExecutionEngine,omitempty"`
+	Status                string                       `json:"Status"`
+	Tags                  []Tag                        `json:"Tags"`
+	StartTime             float64                      `json:"StartTime,omitempty"`
+	EndTime               float64                      `json:"EndTime,omitempty"`
+}
+
+// newNotebookExecutionDetail projects a NotebookExecution into
+// DescribeNotebookExecution's real per-op response shape.
+func newNotebookExecutionDetail(ne *NotebookExecution) *notebookExecutionDetailWire {
+	var engine *notebookExecutionEngineWire
+	if ne.ExecutionEngineID != "" {
+		engine = &notebookExecutionEngineWire{ID: ne.ExecutionEngineID}
+	}
+
+	return &notebookExecutionDetailWire{
+		NotebookExecutionID:   ne.NotebookExecutionID,
+		EditorID:              ne.EditorID,
+		NotebookExecutionName: ne.NotebookExecutionName,
+		NotebookParams:        ne.NotebookParams,
+		ExecutionEngine:       engine,
+		Status:                ne.Status,
+		Tags:                  ne.Tags,
+		StartTime:             ne.StartTime,
+		EndTime:               ne.EndTime,
+	}
+}
+
 type describeNotebookExecutionOutput struct {
-	NotebookExecution *NotebookExecution `json:"NotebookExecution"`
+	NotebookExecution *notebookExecutionDetailWire `json:"NotebookExecution"`
 }
 
 func (h *Handler) handleDescribeNotebookExecution(
@@ -82,7 +128,7 @@ func (h *Handler) handleDescribeNotebookExecution(
 		return nil, err
 	}
 
-	return &describeNotebookExecutionOutput{NotebookExecution: ne}, nil
+	return &describeNotebookExecutionOutput{NotebookExecution: newNotebookExecutionDetail(ne)}, nil
 }
 
 // --- ListNotebookExecutions ---
@@ -94,8 +140,8 @@ type listNotebookExecutionsInput struct {
 }
 
 type listNotebookExecutionsOutput struct {
-	Marker             string              `json:"Marker,omitempty"`
-	NotebookExecutions []NotebookExecution `json:"NotebookExecutions"`
+	Marker             string                     `json:"Marker,omitempty"`
+	NotebookExecutions []NotebookExecutionSummary `json:"NotebookExecutions"`
 }
 
 func (h *Handler) handleListNotebookExecutions(
@@ -108,5 +154,10 @@ func (h *Handler) handleListNotebookExecutions(
 		Marker:   in.Marker,
 	})
 
-	return &listNotebookExecutionsOutput{NotebookExecutions: list, Marker: marker}, nil
+	summaries := make([]NotebookExecutionSummary, 0, len(list))
+	for _, ne := range list {
+		summaries = append(summaries, newNotebookExecutionSummary(ne))
+	}
+
+	return &listNotebookExecutionsOutput{NotebookExecutions: summaries, Marker: marker}, nil
 }

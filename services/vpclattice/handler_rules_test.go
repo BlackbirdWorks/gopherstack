@@ -60,8 +60,9 @@ func TestRule_CRUD(t *testing.T) {
 			"match": map[string]any{
 				"httpMatch": map[string]any{
 					"method": "GET",
-					"path": map[string]any{
-						"match": map[string]any{"exact": "/api"},
+					"pathMatch": map[string]any{
+						"match":         map[string]any{"exact": "/api"},
+						"caseSensitive": true,
 					},
 				},
 			},
@@ -73,7 +74,9 @@ func TestRule_CRUD(t *testing.T) {
 	require.NotEmpty(t, ruleID)
 	assert.InDelta(t, float64(10), rule["priority"], 0)
 
-	// get
+	// get -- match.httpMatch.pathMatch must round-trip under the real wire
+	// key ("pathMatch", not "path"); previously silently discarded on
+	// create since extractPathMatch/ruleMatchToJSON both used "path".
 	rec = doRequest(
 		t,
 		h,
@@ -82,6 +85,14 @@ func TestRule_CRUD(t *testing.T) {
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
+	got := parseBody(t, rec)
+	match, _ := got["match"].(map[string]any)
+	httpMatch, _ := match["httpMatch"].(map[string]any)
+	pathMatch, _ := httpMatch["pathMatch"].(map[string]any)
+	require.NotNil(t, pathMatch, "pathMatch must round-trip under its real wire key")
+	assert.Equal(t, true, pathMatch["caseSensitive"])
+	pathMatchMatch, _ := pathMatch["match"].(map[string]any)
+	assert.Equal(t, "/api", pathMatchMatch["exact"])
 
 	// list (includes default rule)
 	rec = doRequest(t, h, http.MethodGet, "/services/"+svcID+"/listeners/"+listenerID+"/rules", nil)

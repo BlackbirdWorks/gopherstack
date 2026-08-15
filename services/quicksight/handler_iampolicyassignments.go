@@ -252,7 +252,7 @@ func (h *Handler) handleListIAMPolicyAssignmentsForUser(c *echo.Context) error {
 func iamPolicyAssignmentListResponse(assignments []*IAMPolicyAssignment, next string) map[string]any {
 	items := make([]map[string]any, 0, len(assignments))
 	for _, a := range assignments {
-		items = append(items, iamPolicyAssignmentToMap(a))
+		items = append(items, iamPolicyAssignmentSummaryToMap(a))
 	}
 
 	resp := map[string]any{
@@ -265,6 +265,18 @@ func iamPolicyAssignmentListResponse(assignments []*IAMPolicyAssignment, next st
 	}
 
 	return resp
+}
+
+// iamPolicyAssignmentSummaryToMap renders the fields a declares that
+// types.IAMPolicyAssignmentSummary (types.go:12309-12318,
+// quicksight@v1.123.1) also declares: AssignmentName, AssignmentStatus
+// only. Mirrors the scoping ListIAMPolicyAssignmentsForUser already applies
+// for its own (narrower) ActiveIAMPolicyAssignment summary shape below.
+func iamPolicyAssignmentSummaryToMap(a *IAMPolicyAssignment) map[string]any {
+	return map[string]any{
+		keyAssignmentName:   a.AssignmentName,
+		keyAssignmentStatus: a.AssignmentStatus,
+	}
 }
 
 func iamPolicyAssignmentToMap(a *IAMPolicyAssignment) map[string]any {

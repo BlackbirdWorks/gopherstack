@@ -45,16 +45,20 @@ const (
 	// confirmed against aws-sdk-go-v2/service/mediatailor's (de)serializers
 	// and botocore's service-2.json. Sending/expecting "Tags" here silently
 	// drops tags to/from a real SDK client.
-	keyTags               = "tags"
-	keyItems              = "Items"
-	keyArn                = "Arn"
-	keySourceLocationName = "SourceLocationName"
-	keyName               = "Name"
-	keyChannelName        = "ChannelName"
-	keySourceGroup        = "SourceGroup"
-	keyVodSourceName      = "VodSourceName"
-	keyBaseURL            = "BaseUrl"
-	keyLiveSourceName     = "LiveSourceName"
+	keyTags                  = "tags"
+	keyItems                 = "Items"
+	keyArn                   = "Arn"
+	keySourceLocationName    = "SourceLocationName"
+	keyName                  = "Name"
+	keyChannelName           = "ChannelName"
+	keySourceGroup           = "SourceGroup"
+	keyVodSourceName         = "VodSourceName"
+	keyBaseURL               = "BaseUrl"
+	keyLiveSourceName        = "LiveSourceName"
+	keyAdDecisionServerURL   = "AdDecisionServerUrl"
+	keyVideoContentSourceURL = "VideoContentSourceUrl"
+	keyLogTypes              = "LogTypes"
+	keyHTTPPackageConfigs    = "HttpPackageConfigurations"
 
 	splitTwo   = 2
 	splitThree = 3

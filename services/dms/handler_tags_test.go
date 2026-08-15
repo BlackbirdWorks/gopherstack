@@ -1,6 +1,7 @@
 package dms_test
 
 import (
+	"maps"
 	"net/http"
 	"testing"
 
@@ -372,12 +373,15 @@ func TestHandler_TagsOnMigrationProject(t *testing.T) {
 			name: "create_with_tags_and_list",
 			run: func(t *testing.T, h *dms.Handler) {
 				t.Helper()
-				createRec := doDMS(t, h, "CreateMigrationProject", map[string]any{
+				createBody := map[string]any{
 					"MigrationProjectName": "tagged-mp",
 					"Tags": []map[string]string{
 						{"Key": "env", "Value": "prod"},
 					},
-				})
+				}
+				maps.Copy(createBody, migrationProjectDeps(t, h))
+
+				createRec := doDMS(t, h, "CreateMigrationProject", createBody)
 				require.Equal(t, http.StatusOK, createRec.Code)
 				mpArn := parseJSON(t, createRec)["MigrationProject"].(map[string]any)["MigrationProjectArn"].(string)
 
@@ -394,9 +398,10 @@ func TestHandler_TagsOnMigrationProject(t *testing.T) {
 			name: "add_tags_after_create",
 			run: func(t *testing.T, h *dms.Handler) {
 				t.Helper()
-				createRec := doDMS(t, h, "CreateMigrationProject", map[string]any{
-					"MigrationProjectName": "add-tag-mp",
-				})
+				createBody := map[string]any{"MigrationProjectName": "add-tag-mp"}
+				maps.Copy(createBody, migrationProjectDeps(t, h))
+
+				createRec := doDMS(t, h, "CreateMigrationProject", createBody)
 				require.Equal(t, http.StatusOK, createRec.Code)
 				mpArn := parseJSON(t, createRec)["MigrationProject"].(map[string]any)["MigrationProjectArn"].(string)
 
@@ -518,6 +523,8 @@ func TestHandler_TagsOnReplicationConfig(t *testing.T) {
 					"ReplicationType":             "full-load",
 					"SourceEndpointArn":           "arn:src",
 					"TargetEndpointArn":           "arn:tgt",
+					"TableMappings":               "{}",
+					"ComputeConfig":               map[string]any{},
 					"Tags": []map[string]string{
 						{"Key": "tier", "Value": "prod"},
 					},
@@ -543,6 +550,8 @@ func TestHandler_TagsOnReplicationConfig(t *testing.T) {
 					"ReplicationType":             "cdc",
 					"SourceEndpointArn":           "arn:src",
 					"TargetEndpointArn":           "arn:tgt",
+					"TableMappings":               "{}",
+					"ComputeConfig":               map[string]any{},
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				rcArn := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)["ReplicationConfigArn"].(string)

@@ -3,12 +3,23 @@ package eventbridge
 import "time"
 
 // EventBus represents an EventBridge event bus.
+//
+// DeadLetterConfig/KmsKeyIdentifier/LogConfig are real CreateEventBus/
+// UpdateEventBus/DescribeEventBus members (eventbridge@v1.48.4
+// deserializers.go's DescribeEventBusOutput case list) previously discarded
+// entirely on input and never echoed back -- absent from real AWS's plain
+// "EventBus" type used by ListEventBuses (deserializers.go's
+// awsAwsjson11_deserializeDocumentEventBus case list has neither), so they
+// are Describe/Create/Update-only, matching eventBusResponse's narrower List
+// shape in handler_event_buses.go.
 type EventBus struct {
-	CreatedTime      time.Time `json:"CreatedTime"`
-	LastModifiedTime time.Time `json:"LastModifiedTime,omitzero"`
-	Name             string    `json:"Name"`
-	Arn              string    `json:"Arn"`
-	Description      string    `json:"Description,omitempty"`
+	CreatedTime      time.Time         `json:"CreatedTime"`
+	LastModifiedTime time.Time         `json:"LastModifiedTime,omitzero"`
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+	LogConfig        *LogConfig        `json:"LogConfig,omitempty"`
+	Name             string            `json:"Name"`
+	Arn              string            `json:"Arn"`
+	Description      string            `json:"Description,omitempty"`
 	// Policy is NOT persisted on this struct -- the resource-based policy is
 	// stored separately (InMemoryBackend.busePolicies, keyed by bus) since
 	// EventBusPolicy carries no bus-name field of its own (see store_setup.go's
@@ -16,7 +27,15 @@ type EventBus struct {
 	// Describe/List response time by calling GetEventBusPolicy so callers get
 	// the same JSON shape AWS returns (DescribeEventBusOutput.Policy /
 	// types.EventBus.Policy), without a second, driftable source of truth.
-	Policy string `json:"Policy,omitempty"`
+	Policy           string `json:"Policy,omitempty"`
+	KmsKeyIdentifier string `json:"KmsKeyIdentifier,omitempty"`
+}
+
+// LogConfig holds the event-bus-level logging configuration
+// (types.LogConfig, eventbridge@v1.48.4 types.go:929).
+type LogConfig struct {
+	IncludeDetail string `json:"IncludeDetail,omitempty"`
+	Level         string `json:"Level,omitempty"`
 }
 
 // Rule represents an EventBridge rule.
@@ -48,6 +67,7 @@ type RetryPolicy struct {
 // BatchParameters holds batching configuration for a target (e.g. SQS).
 type BatchParameters struct {
 	ArrayProperties *BatchArrayProperties `json:"ArrayProperties,omitempty"`
+	RetryStrategy   *BatchRetryStrategy   `json:"RetryStrategy,omitempty"`
 	JobDefinition   string                `json:"JobDefinition,omitempty"`
 	JobName         string                `json:"JobName,omitempty"`
 }
@@ -55,6 +75,15 @@ type BatchParameters struct {
 // BatchArrayProperties defines the size of the array for a batch job.
 type BatchArrayProperties struct {
 	Size int `json:"Size,omitempty"`
+}
+
+// BatchRetryStrategy holds the retry configuration for a target's AWS Batch
+// job (types.BatchRetryStrategy, eventbridge@v1.48.4 types.go:159) -- real,
+// but previously absent here entirely, so a real client's BatchParameters.
+// RetryStrategy was silently dropped on PutTargets and never echoed back by
+// ListTargetsByRule.
+type BatchRetryStrategy struct {
+	Attempts int32 `json:"Attempts,omitempty"`
 }
 
 // Target represents an EventBridge rule target.
@@ -314,17 +343,18 @@ type APIDestination struct {
 
 // Archive represents an EventBridge archive.
 type Archive struct {
-	CreationTime   time.Time `json:"CreationTime"`
-	ArchiveName    string    `json:"ArchiveName"`
-	ArchiveArn     string    `json:"ArchiveArn"`
-	Description    string    `json:"Description,omitempty"`
-	EventPattern   string    `json:"EventPattern,omitempty"`
-	EventSourceArn string    `json:"EventSourceArn"`
-	State          string    `json:"State"`
-	StateReason    string    `json:"StateReason,omitempty"`
-	EventCount     int64     `json:"EventCount"`
-	RetentionDays  int       `json:"RetentionDays,omitempty"`
-	SizeBytes      int64     `json:"SizeBytes"`
+	CreationTime     time.Time `json:"CreationTime"`
+	ArchiveName      string    `json:"ArchiveName"`
+	ArchiveArn       string    `json:"ArchiveArn"`
+	Description      string    `json:"Description,omitempty"`
+	EventPattern     string    `json:"EventPattern,omitempty"`
+	EventSourceArn   string    `json:"EventSourceArn"`
+	State            string    `json:"State"`
+	StateReason      string    `json:"StateReason,omitempty"`
+	KmsKeyIdentifier string    `json:"KmsKeyIdentifier,omitempty"`
+	EventCount       int64     `json:"EventCount"`
+	RetentionDays    int       `json:"RetentionDays,omitempty"`
+	SizeBytes        int64     `json:"SizeBytes"`
 }
 
 // Connection represents an EventBridge connection.
@@ -403,6 +433,16 @@ type PartnerEventSource struct {
 	Account string `json:"Account,omitempty"`
 }
 
+// PartnerEventSourceAccountInfo mirrors aws-sdk-go-v2/service/eventbridge's
+// types.PartnerEventSourceAccount, ListPartnerEventSourceAccountsOutput's
+// element type.
+type PartnerEventSourceAccountInfo struct {
+	CreationTime   time.Time `json:"CreationTime,omitzero"`
+	ExpirationTime time.Time `json:"ExpirationTime,omitzero"`
+	Account        string    `json:"Account,omitempty"`
+	State          string    `json:"State,omitempty"`
+}
+
 // CreateAPIDestinationInput is the input for CreateAPIDestination.
 type CreateAPIDestinationInput struct {
 	ConnectionArn                string `json:"ConnectionArn"`
@@ -415,11 +455,12 @@ type CreateAPIDestinationInput struct {
 
 // CreateArchiveInput is the input for CreateArchive.
 type CreateArchiveInput struct {
-	ArchiveName    string `json:"ArchiveName"`
-	Description    string `json:"Description,omitempty"`
-	EventPattern   string `json:"EventPattern,omitempty"`
-	EventSourceArn string `json:"EventSourceArn"`
-	RetentionDays  int    `json:"RetentionDays,omitempty"`
+	ArchiveName      string `json:"ArchiveName"`
+	Description      string `json:"Description,omitempty"`
+	EventPattern     string `json:"EventPattern,omitempty"`
+	EventSourceArn   string `json:"EventSourceArn"`
+	KmsKeyIdentifier string `json:"KmsKeyIdentifier,omitempty"`
+	RetentionDays    int    `json:"RetentionDays,omitempty"`
 }
 
 // ConnectionAuthParameters holds the auth credentials for a connection.
@@ -504,10 +545,11 @@ type CreateEndpointInput struct {
 
 // UpdateArchiveInput is the input for UpdateArchive.
 type UpdateArchiveInput struct {
-	ArchiveName   string `json:"ArchiveName"`
-	Description   string `json:"Description,omitempty"`
-	EventPattern  string `json:"EventPattern,omitempty"`
-	RetentionDays int    `json:"RetentionDays,omitempty"`
+	ArchiveName      string `json:"ArchiveName"`
+	Description      string `json:"Description,omitempty"`
+	EventPattern     string `json:"EventPattern,omitempty"`
+	KmsKeyIdentifier string `json:"KmsKeyIdentifier,omitempty"`
+	RetentionDays    int    `json:"RetentionDays,omitempty"`
 }
 
 // UpdateConnectionInput is the input for UpdateConnection.
@@ -560,8 +602,11 @@ type StartReplayInput struct {
 
 // UpdateEventBusInput is the input for UpdateEventBus.
 type UpdateEventBusInput struct {
-	Description string `json:"Description,omitempty"`
-	Name        string `json:"Name"`
+	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
+	LogConfig        *LogConfig        `json:"LogConfig,omitempty"`
+	Description      string            `json:"Description,omitempty"`
+	KmsKeyIdentifier string            `json:"KmsKeyIdentifier,omitempty"`
+	Name             string            `json:"Name"`
 }
 
 // PutPermissionInput is the input for PutPermission.
@@ -602,43 +647,6 @@ type GetEventBusPolicyInput struct {
 type PutEventBusPolicyInput struct {
 	EventBusName string `json:"EventBusName,omitempty"`
 	Policy       string `json:"Policy"`
-}
-
-// Pipe represents an EventBridge Pipe.
-type Pipe struct {
-	CreationTime     time.Time `json:"CreationTime"`
-	LastModifiedTime time.Time `json:"LastModifiedTime"`
-	Arn              string    `json:"Arn"`
-	CurrentState     string    `json:"CurrentState"`
-	Description      string    `json:"Description,omitempty"`
-	DesiredState     string    `json:"DesiredState"`
-	EnrichmentArn    string    `json:"EnrichmentArn,omitempty"`
-	Name             string    `json:"Name"`
-	RoleArn          string    `json:"RoleArn"`
-	SourceArn        string    `json:"SourceArn"`
-	StateReason      string    `json:"StateReason,omitempty"`
-	TargetArn        string    `json:"TargetArn"`
-}
-
-// CreatePipeInput is the input for CreatePipe.
-type CreatePipeInput struct {
-	Description   string `json:"Description,omitempty"`
-	DesiredState  string `json:"DesiredState,omitempty"`
-	EnrichmentArn string `json:"EnrichmentArn,omitempty"`
-	Name          string `json:"Name"`
-	RoleArn       string `json:"RoleArn"`
-	SourceArn     string `json:"SourceArn"`
-	TargetArn     string `json:"TargetArn"`
-}
-
-// UpdatePipeInput is the input for UpdatePipe.
-type UpdatePipeInput struct {
-	Description   string `json:"Description,omitempty"`
-	DesiredState  string `json:"DesiredState,omitempty"`
-	EnrichmentArn string `json:"EnrichmentArn,omitempty"`
-	Name          string `json:"Name"`
-	RoleArn       string `json:"RoleArn,omitempty"`
-	TargetArn     string `json:"TargetArn,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

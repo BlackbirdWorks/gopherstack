@@ -234,6 +234,7 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(
 		SubnetGroupName:        opts.SubnetGroupName,
 		DailySnapshotTime:      opts.DailySnapshotTime,
 		MajorEngineVersion:     majorVer,
+		NetworkType:            opts.NetworkType,
 		SubnetIDs:              opts.SubnetIDs,
 		SecurityGroupIDs:       opts.SecurityGroupIDs,
 		SnapshotRetentionLimit: opts.SnapshotRetentionLimit,

@@ -38,11 +38,12 @@ func (h *Handler) handleModifyEndpointEncryptionMode(
 }
 
 type modifyCertificateBasedAuthPropertiesInput struct {
-	DirectoryId                    string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	ResourceId                     string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	CertificateBasedAuthProperties struct {
 		Status                  string `json:"Status"`
 		CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
 	} `json:"CertificateBasedAuthProperties"`
+	PropertiesToDelete []string `json:"PropertiesToDelete"`
 }
 
 func (h *Handler) handleModifyCertificateBasedAuthProperties(
@@ -53,11 +54,13 @@ func (h *Handler) handleModifyCertificateBasedAuthProperties(
 		"CertificateAuthorityArn": req.CertificateBasedAuthProperties.CertificateAuthorityArn,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifyCertificateBasedAuthProperties(req.DirectoryId, props)
+	return &emptyOutput{}, h.Backend.ModifyCertificateBasedAuthProperties(
+		req.ResourceId, props, req.PropertiesToDelete,
+	)
 }
 
 type modifySamlPropertiesInput struct {
-	DirectoryId    string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	ResourceId     string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	SamlProperties struct {
 		Status                  string `json:"Status"`
 		UserAccessUrl           string `json:"UserAccessUrl"` //nolint:revive,staticcheck // existing issue.
@@ -74,11 +77,11 @@ func (h *Handler) handleModifySamlProperties(
 		"RelayStateParameterName": req.SamlProperties.RelayStateParameterName,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifySamlProperties(req.DirectoryId, props)
+	return &emptyOutput{}, h.Backend.ModifySamlProperties(req.ResourceId, props)
 }
 
 type modifySelfservicePermissionsInput struct {
-	DirectoryId            string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	ResourceId             string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	SelfservicePermissions struct {
 		RestartWorkspace   string `json:"RestartWorkspace"`
 		IncreaseVolumeSize string `json:"IncreaseVolumeSize"`
@@ -99,11 +102,11 @@ func (h *Handler) handleModifySelfservicePermissions(
 		"RebuildWorkspace":   req.SelfservicePermissions.RebuildWorkspace,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifySelfservicePermissions(req.DirectoryId, props)
+	return &emptyOutput{}, h.Backend.ModifySelfservicePermissions(req.ResourceId, props)
 }
 
 type modifyStreamingPropertiesInput struct {
-	DirectoryId         string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	ResourceId          string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	StreamingProperties struct {
 		StreamingExperiencePreferredProtocol string `json:"StreamingExperiencePreferredProtocol"`
 		UserSettings                         []struct {
@@ -120,11 +123,11 @@ func (h *Handler) handleModifyStreamingProperties(
 		"StreamingExperiencePreferredProtocol": req.StreamingProperties.StreamingExperiencePreferredProtocol,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifyStreamingProperties(req.DirectoryId, props)
+	return &emptyOutput{}, h.Backend.ModifyStreamingProperties(req.ResourceId, props)
 }
 
 type modifyWorkspaceAccessPropertiesInput struct {
-	DirectoryId               string `json:"DirectoryId"` //nolint:revive,staticcheck // existing issue.
+	ResourceId                string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	WorkspaceAccessProperties struct {
 		DeviceTypeWindows    string `json:"DeviceTypeWindows"`
 		DeviceTypeOsx        string `json:"DeviceTypeOsx"`
@@ -151,5 +154,5 @@ func (h *Handler) handleModifyWorkspaceAccessProperties(
 		"DeviceTypeLinux":      req.WorkspaceAccessProperties.DeviceTypeLinux,
 	}
 
-	return &emptyOutput{}, h.Backend.ModifyWorkspaceAccessProperties(req.DirectoryId, props)
+	return &emptyOutput{}, h.Backend.ModifyWorkspaceAccessProperties(req.ResourceId, props)
 }

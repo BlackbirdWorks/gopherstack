@@ -248,9 +248,9 @@ func (h *Handler) dispatchThingRegistrationMiscOps(c *echo.Context, op string) (
 // resolveThingRegistrationCodeOps resolves the registration-code endpoints.
 func resolveThingRegistrationCodeOps(path, method string) string {
 	switch {
-	case path == "/registrationcode" && method == http.MethodGet:
+	case path == pathRegistrationCode && method == http.MethodGet:
 		return opGetRegistrationCode
-	case path == "/registrationcode" && method == http.MethodDelete:
+	case path == pathRegistrationCode && method == http.MethodDelete:
 		return opDeleteRegistrationCode
 	}
 

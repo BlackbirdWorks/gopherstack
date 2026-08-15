@@ -23,11 +23,16 @@ func (h *AgentsHandler) dispatchAgentCollabRoutes(
 		)
 	}
 
+	// ListAgentCollaborators is real bedrock-agent@v1.58.4
+	// serializers.go:4233: POST .../agentcollaborators/;
+	// AssociateAgentCollaborator is real serializers.go:49: PUT (the SAME
+	// path) -- method alone disambiguates them. GET is accepted too as
+	// harmless extra leniency for this package's own tests.
 	if collabSuffix == "/agentcollaborators" {
 		switch method {
-		case http.MethodPost:
+		case http.MethodPut:
 			return h.handleAssociateAgentCollaborator(c, agentID, body)
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return h.handleListAgentCollaborators(c, agentID)
 		}
 	}

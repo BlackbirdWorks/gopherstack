@@ -142,6 +142,7 @@ func TestServerCertificate_HandlerRoundtrip(t *testing.T) {
 	rec := callIAM(t, h, "UploadServerCertificate", map[string]string{
 		"ServerCertificateName": "handler-cert",
 		"CertificateBody":       certBody,
+		"PrivateKey":            "-----BEGIN PRIVATE KEY-----\nMA==\n-----END PRIVATE KEY-----",
 		"Path":                  "/",
 	})
 	assert.Equal(t, 200, rec.Code)

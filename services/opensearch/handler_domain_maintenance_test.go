@@ -17,7 +17,7 @@ func TestDomainMaintenance_StartListGet(t *testing.T) {
 
 	// Start maintenance.
 	sr := doRequest(t, h, http.MethodPost,
-		"/2021-01-01/opensearch/domain/maint-http-domain/maintenance",
+		"/2021-01-01/opensearch/domain/maint-http-domain/domainMaintenance",
 		map[string]any{"Action": "REBOOT_NODE", "NodeId": "node-0"})
 	defer sr.Body.Close()
 	require.Equal(t, http.StatusOK, sr.StatusCode)
@@ -29,7 +29,7 @@ func TestDomainMaintenance_StartListGet(t *testing.T) {
 
 	// List maintenances for domain.
 	lr := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/domain/maint-http-domain/maintenance", nil)
+		"/2021-01-01/opensearch/domain/maint-http-domain/domainMaintenances", nil)
 	defer lr.Body.Close()
 	require.Equal(t, http.StatusOK, lr.StatusCode)
 
@@ -39,9 +39,9 @@ func TestDomainMaintenance_StartListGet(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, maintenances, 1)
 
-	// Get maintenance status by ID.
+	// Get maintenance status by ID (maintenanceId is a query param, not a URL segment).
 	gr := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/domain/maint-http-domain/maintenance/"+maintID, nil)
+		"/2021-01-01/opensearch/domain/maint-http-domain/domainMaintenance?maintenanceId="+maintID, nil)
 	defer gr.Body.Close()
 	require.Equal(t, http.StatusOK, gr.StatusCode)
 
@@ -81,7 +81,7 @@ func TestDeleteDomain_CleansUpMaintenances(t *testing.T) {
 				t,
 				h,
 				http.MethodPost,
-				"/2021-01-01/opensearch/domain/"+tt.domainName+"/maintenance",
+				"/2021-01-01/opensearch/domain/"+tt.domainName+"/domainMaintenance",
 				map[string]any{"Action": tt.action},
 			)
 			resp.Body.Close()
@@ -102,7 +102,7 @@ func TestDeleteDomain_CleansUpMaintenances(t *testing.T) {
 				t,
 				h,
 				http.MethodGet,
-				"/2021-01-01/opensearch/domain/"+tt.domainName+"/maintenance",
+				"/2021-01-01/opensearch/domain/"+tt.domainName+"/domainMaintenances",
 				nil,
 			)
 			defer resp.Body.Close()

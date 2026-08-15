@@ -146,6 +146,10 @@ func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form 
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
 	}
+	if len(clusters.Data) == 0 {
+		return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
+	}
+
 	cl := clusters.Data[0]
 	if err := h.Backend.DeleteCluster(ctx, id); err != nil {
 		if errors.Is(err, ErrClusterNotFound) {

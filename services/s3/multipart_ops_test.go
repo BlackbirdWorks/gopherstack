@@ -765,3 +765,89 @@ func TestHandler_MultipartUpload(t *testing.T) {
 		})
 	}
 }
+
+// TestMultipartUpload_StorageClassAppliedToObject is a regression test: real S3
+// fixes an object's storage class at CreateMultipartUpload time (the
+// x-amz-storage-class header, same session-init semantics as SSE) and both
+// applies it to the object CompleteMultipartUpload produces and reports it back
+// from ListMultipartUploads. gopherstack's CreateMultipartUpload previously read
+// input.StorageClass into nothing -- the field was declared on the SDK input and
+// never referenced anywhere in multipart.go -- so any multipart upload silently
+// landed as STANDARD regardless of what the caller asked for, and
+// ListMultipartUploads never populated StorageClass/Owner/Initiator at all
+// (real aws-sdk-go-v2/service/s3@v1.106.5 deserializers.go's
+// awsRestxml_deserializeDocumentMultipartUpload decodes exactly these fields).
+// Driving the real SDK client (not a raw-body substring assertion) proves the
+// typed field actually decodes, not just that some XML text is present.
+func TestMultipartUpload_StorageClassAppliedToObject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		requested    types.StorageClass
+		wantReported types.StorageClass
+	}{
+		{name: "glacier", requested: types.StorageClassGlacier, wantReported: types.StorageClassGlacier},
+		{name: "standard ia", requested: types.StorageClassStandardIa, wantReported: types.StorageClassStandardIa},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRealS3ClientTest(t)
+			bucket := "mp-storage-class-" + strings.ReplaceAll(tt.name, " ", "-")
+			key := "obj.bin"
+
+			_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
+			require.NoError(t, err)
+
+			created, err := client.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+				Bucket:       aws.String(bucket),
+				Key:          aws.String(key),
+				StorageClass: tt.requested,
+			})
+			require.NoError(t, err)
+			uploadID := created.UploadId
+
+			// ListMultipartUploads must report StorageClass/Owner/Initiator for the
+			// still-in-progress upload -- these were never populated before this fix.
+			listed, err := client.ListMultipartUploads(t.Context(), &sdk_s3.ListMultipartUploadsInput{
+				Bucket: aws.String(bucket),
+			})
+			require.NoError(t, err)
+			require.Len(t, listed.Uploads, 1)
+			assert.Equal(t, tt.wantReported, listed.Uploads[0].StorageClass)
+			require.NotNil(t, listed.Uploads[0].Owner)
+			assert.NotEmpty(t, aws.ToString(listed.Uploads[0].Owner.ID))
+			require.NotNil(t, listed.Uploads[0].Initiator)
+			assert.NotEmpty(t, aws.ToString(listed.Uploads[0].Initiator.ID))
+
+			part, err := client.UploadPart(t.Context(), &sdk_s3.UploadPartInput{
+				Bucket:     aws.String(bucket),
+				Key:        aws.String(key),
+				UploadId:   uploadID,
+				PartNumber: aws.Int32(1),
+				Body:       strings.NewReader("payload"),
+			})
+			require.NoError(t, err)
+
+			_, err = client.CompleteMultipartUpload(t.Context(), &sdk_s3.CompleteMultipartUploadInput{
+				Bucket:   aws.String(bucket),
+				Key:      aws.String(key),
+				UploadId: uploadID,
+				MultipartUpload: &types.CompletedMultipartUpload{
+					Parts: []types.CompletedPart{{ETag: part.ETag, PartNumber: aws.Int32(1)}},
+				},
+			})
+			require.NoError(t, err)
+
+			head, err := client.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(key),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantReported, head.StorageClass)
+		})
+	}
+}

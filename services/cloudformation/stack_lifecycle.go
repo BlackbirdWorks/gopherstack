@@ -156,16 +156,16 @@ func (b *InMemoryBackend) DescribeAccountLimits() []AccountLimit {
 	}
 }
 
-func (b *InMemoryBackend) RollbackStack(_ context.Context, nameOrID string) error {
+func (b *InMemoryBackend) RollbackStack(_ context.Context, nameOrID string) (*Stack, error) {
 	b.mu.Lock("RollbackStack")
 	defer b.mu.Unlock()
 	stack, ok := b.resolveStack(nameOrID)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrStackNotFound, nameOrID)
+		return nil, fmt.Errorf("%w: %s", ErrStackNotFound, nameOrID)
 	}
 	stack.StackStatus = statusRollbackComplete
 
-	return nil
+	return stack, nil
 }
 
 func (b *InMemoryBackend) DescribeEvents(

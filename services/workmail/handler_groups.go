@@ -106,10 +106,12 @@ type listGroupsReq struct {
 }
 
 type groupSummaryResp struct {
-	ID    string `json:"Id"`
-	Name  string `json:"Name"`
-	Email string `json:"Email,omitempty"`
-	State string `json:"State"`
+	ID           string `json:"Id"`
+	Name         string `json:"Name"`
+	Email        string `json:"Email,omitempty"`
+	State        string `json:"State"`
+	EnabledDate  int64  `json:"EnabledDate,omitempty"`
+	DisabledDate int64  `json:"DisabledDate,omitempty"`
 }
 
 type listGroupsResp struct {
@@ -134,7 +136,14 @@ func (h *Handler) handleListGroups(_ context.Context, req *listGroupsReq) (*list
 
 	summaries := make([]groupSummaryResp, 0, len(groups))
 	for _, g := range groups {
-		summaries = append(summaries, groupSummaryResp{ID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State})
+		s := groupSummaryResp{ID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State}
+		if !g.EnabledDate.IsZero() {
+			s.EnabledDate = g.EnabledDate.Unix()
+		}
+		if !g.DisabledDate.IsZero() {
+			s.DisabledDate = g.DisabledDate.Unix()
+		}
+		summaries = append(summaries, s)
 	}
 
 	return &listGroupsResp{Groups: summaries, NextToken: next}, nil
@@ -175,11 +184,17 @@ type listGroupMembersReq struct {
 	MaxResults     int32  `json:"MaxResults"`
 }
 
+// memberResp mirrors aws-sdk-go-v2/service/workmail/types.Member, which also
+// carries EnabledDate/DisabledDate. The backend's Member model already
+// tracks both (see Member in interfaces.go) but the converter below never
+// read them back.
 type memberResp struct {
-	ID    string `json:"Id"`
-	Name  string `json:"Name"`
-	Type  string `json:"Type"`
-	State string `json:"State"`
+	ID           string `json:"Id"`
+	Name         string `json:"Name"`
+	Type         string `json:"Type"`
+	State        string `json:"State"`
+	EnabledDate  int64  `json:"EnabledDate,omitempty"`
+	DisabledDate int64  `json:"DisabledDate,omitempty"`
 }
 
 type listGroupMembersResp struct {
@@ -195,7 +210,14 @@ func (h *Handler) handleListGroupMembers(_ context.Context, req *listGroupMember
 
 	mresps := make([]memberResp, 0, len(members))
 	for _, m := range members {
-		mresps = append(mresps, memberResp{ID: m.MemberID, Name: m.Name, Type: m.MemberType, State: m.State})
+		mr := memberResp{ID: m.MemberID, Name: m.Name, Type: m.MemberType, State: m.State}
+		if !m.EnabledDate.IsZero() {
+			mr.EnabledDate = m.EnabledDate.Unix()
+		}
+		if !m.DisabledDate.IsZero() {
+			mr.DisabledDate = m.DisabledDate.Unix()
+		}
+		mresps = append(mresps, mr)
 	}
 
 	return &listGroupMembersResp{Members: mresps, NextToken: next}, nil

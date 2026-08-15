@@ -40,9 +40,14 @@ func (h *Handler) handleDescribeServiceRevisions(
 
 // --- DiscoverPollEndpoint ---
 
+// discoverPollEndpointInput mirrors DiscoverPollEndpointInput (ecs v1.90.0,
+// api_op_DiscoverPollEndpoint.go): Cluster/ContainerInstance, wire keys
+// "cluster"/"containerInstance" (serializers.go:10302-10314) — not
+// ClusterArn/ContainerInstanceArn, and not necessarily ARNs (the short name
+// is also accepted). Currently unused: the handler discards its input.
 type discoverPollEndpointInput struct {
-	ClusterArn           string `json:"clusterArn"`
-	ContainerInstanceArn string `json:"containerInstanceArn"`
+	Cluster           string `json:"cluster"`
+	ContainerInstance string `json:"containerInstance"`
 }
 
 type discoverPollEndpointOutput struct {

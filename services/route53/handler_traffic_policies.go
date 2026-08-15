@@ -48,11 +48,12 @@ type xmlCreateTrafficPolicyVersionResponse struct {
 }
 
 type xmlListTrafficPoliciesResponse struct {
-	XMLName         xml.Name                  `xml:"ListTrafficPoliciesResponse"`
-	Xmlns           string                    `xml:"xmlns,attr"`
-	MaxItems        string                    `xml:"MaxItems"`
-	TrafficPolicies []xmlTrafficPolicySummary `xml:"TrafficPolicySummaries>TrafficPolicySummary"`
-	IsTruncated     bool                      `xml:"IsTruncated"`
+	XMLName               xml.Name                  `xml:"ListTrafficPoliciesResponse"`
+	Xmlns                 string                    `xml:"xmlns,attr"`
+	MaxItems              string                    `xml:"MaxItems"`
+	TrafficPolicyIDMarker string                    `xml:"TrafficPolicyIdMarker"`
+	TrafficPolicies       []xmlTrafficPolicySummary `xml:"TrafficPolicySummaries>TrafficPolicySummary"`
+	IsTruncated           bool                      `xml:"IsTruncated"`
 }
 
 type xmlTrafficPolicySummary struct {
@@ -64,11 +65,12 @@ type xmlTrafficPolicySummary struct {
 }
 
 type xmlListTrafficPolicyVersionsResponse struct {
-	XMLName         xml.Name           `xml:"ListTrafficPolicyVersionsResponse"`
-	Xmlns           string             `xml:"xmlns,attr"`
-	MaxItems        string             `xml:"MaxItems"`
-	TrafficPolicies []xmlTrafficPolicy `xml:"TrafficPolicies>TrafficPolicy"`
-	IsTruncated     bool               `xml:"IsTruncated"`
+	XMLName                    xml.Name           `xml:"ListTrafficPolicyVersionsResponse"`
+	Xmlns                      string             `xml:"xmlns,attr"`
+	MaxItems                   string             `xml:"MaxItems"`
+	TrafficPolicyVersionMarker string             `xml:"TrafficPolicyVersionMarker"`
+	TrafficPolicies            []xmlTrafficPolicy `xml:"TrafficPolicies>TrafficPolicy"`
+	IsTruncated                bool               `xml:"IsTruncated"`
 }
 
 func (h *Handler) routeTrafficPolicyRoot(c *echo.Context, method string) error {
@@ -286,10 +288,11 @@ func (h *Handler) listTrafficPolicies(c *echo.Context) error {
 	}
 
 	return writeXML(c, http.StatusOK, xmlListTrafficPoliciesResponse{
-		Xmlns:           route53Namespace,
-		TrafficPolicies: summaries,
-		IsTruncated:     false,
-		MaxItems:        "100",
+		Xmlns:                 route53Namespace,
+		TrafficPolicies:       summaries,
+		IsTruncated:           false,
+		MaxItems:              "100",
+		TrafficPolicyIDMarker: "",
 	})
 }
 
@@ -310,10 +313,11 @@ func (h *Handler) listTrafficPolicyVersions(c *echo.Context, id string) error {
 	}
 
 	return writeXML(c, http.StatusOK, xmlListTrafficPolicyVersionsResponse{
-		Xmlns:           route53Namespace,
-		TrafficPolicies: xmlPolicies,
-		IsTruncated:     false,
-		MaxItems:        "100",
+		Xmlns:                      route53Namespace,
+		TrafficPolicies:            xmlPolicies,
+		IsTruncated:                false,
+		MaxItems:                   "100",
+		TrafficPolicyVersionMarker: "",
 	})
 }
 

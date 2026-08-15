@@ -70,15 +70,26 @@ func (h *Handler) handleCreateCapacityProvider(c *echo.Context, bk *InMemoryBack
 		}
 	}
 
-	if input.Name == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Name is required")
+	if input.CapacityProviderName == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"CapacityProviderName is required")
+	}
+
+	if input.PermissionsConfig == nil || input.PermissionsConfig.CapacityProviderOperatorRoleArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"PermissionsConfig.CapacityProviderOperatorRoleArn is required")
+	}
+
+	if input.VpcConfig == nil || len(input.VpcConfig.SubnetIDs) == 0 || len(input.VpcConfig.SecurityGroupIDs) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"VpcConfig.SubnetIds and VpcConfig.SecurityGroupIds are required")
 	}
 
 	cp, createErr := bk.CreateCapacityProvider(&input)
 	if createErr != nil {
 		if errors.Is(createErr, ErrFunctionAlreadyExists) {
 			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
-				"Capacity provider already exists: "+input.Name)
+				"Capacity provider already exists: "+input.CapacityProviderName)
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
@@ -103,8 +114,11 @@ func (h *Handler) handleGetCapacityProvider(c *echo.Context, bk *InMemoryBackend
 }
 
 // handleDeleteCapacityProvider handles DELETE /2025-11-30/capacity-providers/{name}.
+// Real AWS returns 200 with the deleted provider's state (CapacityProvider is a
+// required output member), not an empty 204.
 func (h *Handler) handleDeleteCapacityProvider(c *echo.Context, bk *InMemoryBackend, name string) error {
-	if err := bk.DeleteCapacityProvider(name); err != nil {
+	cp, err := bk.DeleteCapacityProvider(name)
+	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Capacity provider not found: "+name)
@@ -113,7 +127,7 @@ func (h *Handler) handleDeleteCapacityProvider(c *echo.Context, bk *InMemoryBack
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	return c.JSON(http.StatusOK, &DeleteCapacityProviderOutput{CapacityProvider: cp})
 }
 
 // handleUpdateCapacityProvider handles PUT /2025-11-30/capacity-providers/{name}.
@@ -154,9 +168,18 @@ func (h *Handler) handleListCapacityProviders(c *echo.Context, bk *InMemoryBacke
 
 // --- ListFunctionVersionsByCapacityProvider ---
 
+// functionVersionsByCapacityProviderListItem mirrors
+// types.FunctionVersionsByCapacityProviderListItem: each entry on the wire is
+// an object with FunctionArn and State, not a bare ARN string.
+type functionVersionsByCapacityProviderListItem struct {
+	FunctionArn string `json:"FunctionArn"`
+	State       string `json:"State"`
+}
+
 type listFunctionVersionsByCapacityProviderOutput struct {
-	NextMarker       string   `json:"NextMarker,omitempty"`
-	FunctionVersions []string `json:"FunctionVersions"`
+	NextMarker          string                                       `json:"NextMarker,omitempty"`
+	CapacityProviderArn string                                       `json:"CapacityProviderArn"`
+	FunctionVersions    []functionVersionsByCapacityProviderListItem `json:"FunctionVersions"`
 }
 
 // handleListFunctionVersionsByCapacityProvider returns the function-version ARNs
@@ -166,7 +189,9 @@ type listFunctionVersionsByCapacityProviderOutput struct {
 // AWS exposes no public API to assign function versions to a capacity provider in
 // this emulator's surface, so assignments are populated only via the internal
 // SeedCapacityProviderFunctionVersions helper (used by tests). When no versions
-// have been seeded, an empty list is returned for a valid provider.
+// have been seeded, an empty list is returned for a valid provider. This backend
+// doesn't track per-assignment lifecycle state, so every seeded version reports
+// State "Active" -- the value real ECS-managed function versions settle into.
 func (h *Handler) handleListFunctionVersionsByCapacityProvider(
 	c *echo.Context, bk *InMemoryBackend, name string,
 ) error {
@@ -178,8 +203,23 @@ func (h *Handler) handleListFunctionVersionsByCapacityProvider(
 			"Capacity provider not found: "+name)
 	}
 
+	cp, err := bk.GetCapacityProvider(name)
+	if err != nil {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			"Capacity provider not found: "+name)
+	}
+
+	items := make([]functionVersionsByCapacityProviderListItem, 0, len(p.Data))
+	for _, versionArn := range p.Data {
+		items = append(items, functionVersionsByCapacityProviderListItem{
+			FunctionArn: versionArn,
+			State:       string(FunctionStateActive),
+		})
+	}
+
 	return c.JSON(http.StatusOK, &listFunctionVersionsByCapacityProviderOutput{
-		FunctionVersions: p.Data,
-		NextMarker:       p.Next,
+		FunctionVersions:    items,
+		NextMarker:          p.Next,
+		CapacityProviderArn: cp.CapacityProviderArn,
 	})
 }

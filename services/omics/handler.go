@@ -172,11 +172,19 @@ const (
 	// response key constants.
 	keyNextToken  = "nextToken"
 	keyImportJobs = "importJobs"
-	keyErrors     = "errors"
-	keyTags       = "tags"
-	keyArn        = "arn"
-	keyStatus     = "status"
-	keyUUID       = "uuid"
+	// keyItems is the generic response-list wrap key most List ops use
+	// (ListRunGroups/ListRuns/ListRunTasks/ListRunCaches/ListBatch/ListWorkflows/
+	// ListWorkflowVersions/ListConfigurations) -- confirmed against each op's
+	// awsRestjson1_deserializeOpDocumentList<Op>Output in omics@v1.49.5
+	// deserializers.go. Some List ops use a resource-specific key instead
+	// (e.g. "annotationImportJobs", "runs" for ListRunsInBatch); those stay
+	// as their own literal at the call site.
+	keyItems  = "items"
+	keyErrors = "errors"
+	keyTags   = "tags"
+	keyArn    = "arn"
+	keyStatus = "status"
+	keyUUID   = "uuid"
 )
 
 // Handler handles HealthOmics HTTP requests.

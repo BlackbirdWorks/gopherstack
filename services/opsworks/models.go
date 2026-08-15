@@ -233,6 +233,7 @@ type storedElasticIP struct {
 	Name       string `json:"name"`
 	Region     string `json:"region"`
 	InstanceID string `json:"instanceId"`
+	StackID    string `json:"stackId"`
 }
 
 func (e *storedElasticIP) toElasticIP() *ElasticIP {
@@ -242,6 +243,7 @@ func (e *storedElasticIP) toElasticIP() *ElasticIP {
 		Name:       e.Name,
 		Region:     e.Region,
 		InstanceID: e.InstanceID,
+		StackID:    e.StackID,
 	}
 }
 

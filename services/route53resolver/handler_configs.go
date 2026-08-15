@@ -109,9 +109,12 @@ func (h *Handler) opsFirewallConfigs() map[string]service.JSONOpFunc {
 // --- ResolverConfig ---
 
 // resolverConfigOutput is the JSON representation of a ResolverConfig.
+// AWS does not return an ARN for ResolverConfig (verified against
+// aws-sdk-go-v2/service/route53resolver@v1.48.4 types/types.go: type
+// ResolverConfig has AutodefinedReverse/Id/OwnerId/ResourceId only, checked
+// 2026-08-13).
 type resolverConfigOutput struct {
 	ID                 string `json:"Id"`
-	Arn                string `json:"Arn"`
 	OwnerID            string `json:"OwnerId"`
 	ResourceID         string `json:"ResourceId"`
 	AutodefinedReverse string `json:"AutodefinedReverse"`
@@ -120,7 +123,6 @@ type resolverConfigOutput struct {
 func resolverConfigToOutput(c *ResolverConfig) resolverConfigOutput {
 	return resolverConfigOutput{
 		ID:                 c.ID,
-		Arn:                c.ARN,
 		OwnerID:            c.OwnerID,
 		ResourceID:         c.ResourceID,
 		AutodefinedReverse: c.AutodefinedReverse,

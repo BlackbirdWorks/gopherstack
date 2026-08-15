@@ -214,21 +214,21 @@ type listMailboxExportJobsReq struct {
 }
 
 // mailboxExportJobSummaryJSON mirrors aws-sdk-go-v2/service/workmail/types.
-// MailboxExportJob: unlike most other List* operations, ListMailboxExportJobs
-// reuses the SAME full shape as DescribeMailboxExportJob (RoleArn, KmsKeyArn,
-// S3Path, S3Prefix, EstimatedProgress, and ErrorInfo are all present on the
-// wire, not summarized away).
+// MailboxExportJob (the ListMailboxExportJobs item shape) -- a genuinely
+// NARROWER type than DescribeMailboxExportJobOutput. Confirmed against
+// types.MailboxExportJob (aws-sdk-go-v2/service/workmail@v1.39.4/types.go):
+// it has no RoleArn/KmsKeyArn/S3Prefix/ErrorInfo members at all. A prior
+// version of this struct carried those four fields anyway (an invented
+// shape, not a summarized-away omission) -- the raw wire body leaked the IAM
+// role ARN and KMS key ARN of every export job on every List call, fields no
+// real client can even decode since its own typed item has no such field.
 type mailboxExportJobSummaryJSON struct {
 	JobId             string `json:"JobId"`    //nolint:revive,staticcheck // existing issue.
 	EntityId          string `json:"EntityId"` //nolint:revive,staticcheck // existing issue.
 	Description       string `json:"Description,omitempty"`
-	RoleArn           string `json:"RoleArn,omitempty"`
-	KmsKeyArn         string `json:"KmsKeyArn,omitempty"`
 	S3BucketName      string `json:"S3BucketName,omitempty"`
-	S3Prefix          string `json:"S3Prefix,omitempty"`
 	S3Path            string `json:"S3Path,omitempty"`
 	State             string `json:"State"`
-	ErrorInfo         string `json:"ErrorInfo,omitempty"`
 	StartTime         int64  `json:"StartTime,omitempty"`
 	EndTime           int64  `json:"EndTime,omitempty"`
 	EstimatedProgress int32  `json:"EstimatedProgress"`
@@ -256,13 +256,9 @@ func (h *Handler) handleListMailboxExportJobs(
 			JobId:             j.JobID,
 			EntityId:          j.EntityID,
 			Description:       j.Description,
-			RoleArn:           j.RoleARN,
-			KmsKeyArn:         j.KmsKeyARN,
 			S3BucketName:      j.S3BucketName,
-			S3Prefix:          j.S3Prefix,
 			S3Path:            j.S3Path,
 			State:             j.State,
-			ErrorInfo:         j.ErrorInfo,
 			StartTime:         j.StartTime.Unix(),
 			EstimatedProgress: j.EstimatedProgress,
 		}

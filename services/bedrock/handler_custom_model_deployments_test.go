@@ -168,7 +168,7 @@ func TestAccuracy_CustomModelDeployment_ListAfterMultipleCreates(t *testing.T) {
 
 	var listOut map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
-	deployments := listOut["deploymentSummaries"].([]any)
+	deployments := listOut["modelDeploymentSummaries"].([]any)
 	assert.GreaterOrEqual(t, len(deployments), 3)
 }
 
@@ -219,7 +219,7 @@ func TestHandler_CustomModelDeployment_GetListUpdateDelete(t *testing.T) {
 
 	var listOut map[string]any
 	mustUnmarshal(t, rec2, &listOut)
-	assert.Len(t, listOut["deploymentSummaries"], 1)
+	assert.Len(t, listOut["modelDeploymentSummaries"], 1)
 
 	deployPath := "/model-customization/custom-model-deployments/" + url.PathEscape(deployARN)
 

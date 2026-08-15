@@ -577,6 +577,29 @@ hits are prose mentions inside this file, no actual directives. `go test -race -
 TestIntegration_MGN ./test/integration/...` — all 9 integration test functions pass against a real
 Docker container, run twice for confirmation.
 
+## 2026-08-13 pass (gopherstack-l5ir): route reachability audit -- zero mismatches
+
+All 95 real mgn ops were extracted from `mgn@v1.48.4` serializers.go (`request.Method` +
+`httpbinding.SplitURI(...)` in each op's `awsRestjson1_serializeOp<Op>.HandleSerialize`) and diffed
+mechanically against `handler_routes.go`'s flat `routeKey` table -- the same method that found 35
+routing bugs in cloudfront (gopherstack-o31x) and 22 in opensearch (this same pass). mgn came back
+clean: **zero mismatches across all 95 ops**, including the three that share a path
+(`ListTagsForResource`/`TagResource`/`UntagResource`, all `/tags/{resourceArn}`, correctly
+disambiguated by method -- GET/POST/DELETE, not a query-parameter discriminator) and the 25 ops
+namespaced under `/network-migration/`, whose `operationSegment` prefix-strip
+(`handler.go`'s doc comment) correctly recovers the operation name in both cases.
+
+The likely reason: mgn's router is a flat `map[string]routeEntry` keyed by `"<METHOD> <opSegment>"`
+(`handler_routes.go`), built directly from a mechanical `<OperationName>` == path-segment convention
+this SDK uses almost universally (92 of 95 ops are literal `POST /<OperationName>`). That shape has no
+room for the suffix-matching/nested-dispatch mistakes that produced most of opensearch's and
+cloudfront's bugs -- there is no hand-written suffix parsing to get wrong.
+
+Added as a permanent regression test, `TestExtractOperation_SDKRouteTable` in
+`handler_paths_sdk_diff_test.go` (one subtest per op, 95/95 pass) -- this converts the one-off audit
+into a standing guarantee rather than a report. No routing code changes were needed; only the new
+test file. No existing test encoded a wrong path (nothing needed correcting).
+
 ## Purpose of this document
 
 `services/mgn/` does not exist. This file is a pre-implementation audit: a complete SDK operation

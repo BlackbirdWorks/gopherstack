@@ -63,7 +63,7 @@ func newPersistenceTestBackend(t *testing.T) (*mediatailor.InMemoryBackend, pers
 	prog, err := b.CreateProgram("ch1", "prog1", "sl1", "vs1", "", testScheduleConfig(1_700_000_000_000), nil, nil, nil)
 	require.NoError(t, err)
 
-	fn, err := b.PutFunction("fn1", "HTTP_REQUEST", "test function", nil)
+	fn, err := b.PutFunction("fn1", "HTTP_REQUEST", "test function", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagResource(cfg.PlaybackConfigurationARN, map[string]string{"team": "mediatailor"}))
@@ -192,6 +192,49 @@ func TestInMemoryBackend_SnapshotRestore_ChannelPolicyNotPersisted(t *testing.T)
 
 	_, err := fresh.GetChannelPolicy(ids.channelName)
 	require.ErrorIs(t, err, mediatailor.ErrNotFound)
+}
+
+// TestInMemoryBackend_SnapshotRestore_PlaybackConfigAdsPersonalization
+// verifies AdsPersonalizationConcurrency/AdsPersonalizationTimeouts (stored
+// via PutPlaybackConfiguration's pre-existing Extra pass-through, see
+// gopherstack-gt9o) survive Snapshot -> Restore -- no new persisted field or
+// mediatailorSnapshotVersion bump was needed since Extra already carries
+// them.
+func TestInMemoryBackend_SnapshotRestore_PlaybackConfigAdsPersonalization(t *testing.T) {
+	t.Parallel()
+
+	original := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
+
+	extra := map[string]any{
+		"AdsPersonalizationConcurrency": map[string]any{
+			"MaxConcurrentAdsRequests": float64(3),
+		},
+		"AdsPersonalizationTimeouts": map[string]any{
+			"AdsRequestTimeoutMilliseconds": float64(4200),
+		},
+	}
+	_, err := original.PutPlaybackConfiguration(
+		"pc-ads", "https://ads.example.com", "https://video.example.com", nil, extra,
+	)
+	require.NoError(t, err)
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	cfg, err := fresh.GetPlaybackConfiguration("pc-ads")
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Extra)
+
+	concurrency, ok := cfg.Extra["AdsPersonalizationConcurrency"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, float64(3), concurrency["MaxConcurrentAdsRequests"], 0.0001)
+
+	timeouts, ok := cfg.Extra["AdsPersonalizationTimeouts"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, float64(4200), timeouts["AdsRequestTimeoutMilliseconds"], 0.0001)
 }
 
 // TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose

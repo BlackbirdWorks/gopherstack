@@ -8,9 +8,10 @@ import (
 // --- SchedulingPolicy handlers ---
 
 type createSchedulingPolicyInput struct {
-	Tags            map[string]string `json:"tags"`
-	FairsharePolicy *FairsharePolicy  `json:"fairsharePolicy,omitempty"`
-	Name            string            `json:"name"`
+	Tags             map[string]string `json:"tags"`
+	FairsharePolicy  *FairsharePolicy  `json:"fairsharePolicy,omitempty"`
+	QuotaSharePolicy *QuotaSharePolicy `json:"quotaSharePolicy,omitempty"`
+	Name             string            `json:"name"`
 }
 
 type createSchedulingPolicyOutput struct {
@@ -26,7 +27,7 @@ func (h *Handler) handleCreateSchedulingPolicy(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	sp, err := h.Backend.CreateSchedulingPolicy(ctx, in.Name, in.Tags, in.FairsharePolicy)
+	sp, err := h.Backend.CreateSchedulingPolicy(ctx, in.Name, in.Tags, in.FairsharePolicy, in.QuotaSharePolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -135,8 +136,9 @@ func (h *Handler) handleListSchedulingPolicies(
 // --- UpdateSchedulingPolicy handler ---
 
 type updateSchedulingPolicyInput struct {
-	FairsharePolicy *FairsharePolicy `json:"fairsharePolicy,omitempty"`
-	Arn             string           `json:"arn"`
+	FairsharePolicy  *FairsharePolicy  `json:"fairsharePolicy,omitempty"`
+	QuotaSharePolicy *QuotaSharePolicy `json:"quotaSharePolicy,omitempty"`
+	Arn              string            `json:"arn"`
 }
 
 func (h *Handler) handleUpdateSchedulingPolicy(
@@ -147,7 +149,7 @@ func (h *Handler) handleUpdateSchedulingPolicy(
 		return nil, fmt.Errorf("%w: arn is required", ErrValidation)
 	}
 
-	if err := h.Backend.UpdateSchedulingPolicy(ctx, in.Arn, in.FairsharePolicy); err != nil {
+	if err := h.Backend.UpdateSchedulingPolicy(ctx, in.Arn, in.FairsharePolicy, in.QuotaSharePolicy); err != nil {
 		return nil, err
 	}
 

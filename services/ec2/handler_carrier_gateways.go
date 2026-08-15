@@ -20,24 +20,26 @@ type describeCarrierGatewaysResponse struct {
 }
 
 type reservedInstanceItem struct {
-	ReservedInstancesID string  `xml:"reservedInstancesId"`
-	InstanceType        string  `xml:"instanceType,omitempty"`
-	AvailabilityZone    string  `xml:"availabilityZone,omitempty"`
-	ProductDescription  string  `xml:"productDescription,omitempty"`
-	State               string  `xml:"state,omitempty"`
-	OfferingType        string  `xml:"offeringType,omitempty"`
-	InstanceCount       int     `xml:"instanceCount,omitempty"`
-	Duration            int64   `xml:"duration"`
-	FixedPrice          float64 `xml:"fixedPrice"`
-	UsagePrice          float64 `xml:"usagePrice"`
+	ReservedInstancesID string          `xml:"reservedInstancesId"`
+	InstanceType        string          `xml:"instanceType,omitempty"`
+	AvailabilityZone    string          `xml:"availabilityZone,omitempty"`
+	ProductDescription  string          `xml:"productDescription,omitempty"`
+	State               string          `xml:"state,omitempty"`
+	OfferingType        string          `xml:"offeringType,omitempty"`
+	TagSet              []simpleTagItem `xml:"tagSet>item"`
+	InstanceCount       int             `xml:"instanceCount,omitempty"`
+	Duration            int64           `xml:"duration"`
+	FixedPrice          float64         `xml:"fixedPrice"`
+	UsagePrice          float64         `xml:"usagePrice"`
 }
 
-func toCarrierGatewayItem(gw *CarrierGateway) carrierGatewayItem {
+func toCarrierGatewayItem(gw *CarrierGateway, tags map[string]string) carrierGatewayItem {
 	return carrierGatewayItem{
 		CarrierGatewayID: gw.CarrierGatewayID,
 		VpcID:            gw.VpcID,
 		State:            gw.State,
 		OwnerID:          gw.OwnerID,
+		TagSet:           tagItemsFromMap(tags),
 	}
 }
 
@@ -51,20 +53,26 @@ func (h *Handler) handleCreateCarrierGateway(vals url.Values, reqID string) (any
 
 	return &createCarrierGatewayResponse{
 		RequestID:      reqID,
-		CarrierGateway: toCarrierGatewayItem(gw),
+		CarrierGateway: toCarrierGatewayItem(gw, nil),
 	}, nil
+}
+
+type deleteCarrierGatewayResponse struct {
+	XMLName        xml.Name           `xml:"DeleteCarrierGatewayResponse"`
+	RequestID      string             `xml:"requestId"`
+	CarrierGateway carrierGatewayItem `xml:"carrierGateway"`
 }
 
 func (h *Handler) handleDeleteCarrierGateway(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("CarrierGatewayId")
-	if err := h.Backend.DeleteCarrierGateway(id); err != nil {
+	gw, err := h.Backend.DeleteCarrierGateway(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteCarrierGatewayResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteCarrierGatewayResponse{
+		RequestID:      reqID,
+		CarrierGateway: toCarrierGatewayItem(gw, nil),
 	}, nil
 }
 
@@ -74,7 +82,9 @@ func (h *Handler) handleDescribeCarrierGateways(vals url.Values, reqID string) (
 
 	resp := &describeCarrierGatewaysResponse{RequestID: reqID}
 	for _, gw := range gateways {
-		resp.CarrierGateways.Items = append(resp.CarrierGateways.Items, toCarrierGatewayItem(gw))
+		resp.CarrierGateways.Items = append(
+			resp.CarrierGateways.Items, toCarrierGatewayItem(gw, h.Backend.TagsForResource(gw.CarrierGatewayID)),
+		)
 	}
 
 	return resp, nil

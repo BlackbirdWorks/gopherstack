@@ -3,8 +3,6 @@ package eventbridge
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 )
 
@@ -43,14 +41,15 @@ func (b *InMemoryBackend) CreateArchive(ctx context.Context, input CreateArchive
 	}
 
 	archive := &Archive{
-		ArchiveName:    input.ArchiveName,
-		ArchiveArn:     b.archiveARN(input.ArchiveName),
-		CreationTime:   time.Now(),
-		Description:    input.Description,
-		EventPattern:   input.EventPattern,
-		EventSourceArn: input.EventSourceArn,
-		RetentionDays:  input.RetentionDays,
-		State:          "ENABLED",
+		ArchiveName:      input.ArchiveName,
+		ArchiveArn:       b.archiveARN(input.ArchiveName),
+		CreationTime:     time.Now(),
+		Description:      input.Description,
+		EventPattern:     input.EventPattern,
+		EventSourceArn:   input.EventSourceArn,
+		KmsKeyIdentifier: input.KmsKeyIdentifier,
+		RetentionDays:    input.RetentionDays,
+		State:            "ENABLED",
 	}
 	b.archivesTable(region).Put(archive)
 
@@ -102,24 +101,29 @@ func (b *InMemoryBackend) DescribeArchive(ctx context.Context, name string) (*Ar
 	return &cp, nil
 }
 
-// ListArchives returns archives optionally filtered by name prefix, with pagination.
-func (b *InMemoryBackend) ListArchives(ctx context.Context, namePrefix, nextToken string) ([]Archive, string, error) {
+// ListArchives returns archives optionally filtered by name prefix,
+// EventSourceArn, and/or State, with pagination. eventSourceArn/state match
+// real ListArchivesInput's filter fields (eventbridge@v1.48.4
+// api_op_ListArchives.go) -- previously parsed nowhere in this backend, so a
+// real client's ListArchives(EventSourceArn: ...) or
+// ListArchives(State: ...) silently returned every archive instead of the
+// filtered subset.
+func (b *InMemoryBackend) ListArchives(
+	ctx context.Context,
+	namePrefix, eventSourceArn, state, nextToken string,
+) ([]Archive, string, error) {
 	region := getRegionFromContext(ctx, b.region)
 
 	b.mu.RLock("ListArchives")
 	defer b.mu.RUnlock()
 
-	store := b.archivesTable(region)
-	all := make([]Archive, 0, store.Len())
-	for _, a := range store.All() {
-		if namePrefix == "" || strings.HasPrefix(a.ArchiveName, namePrefix) {
-			all = append(all, *a)
-		}
-	}
-
-	sort.Slice(all, func(i, j int) bool { return all[i].ArchiveName < all[j].ArchiveName })
-
-	page, outToken := paginate(all, nextToken)
+	page, outToken := listNamedItems(
+		b.archivesTable(region), namePrefix, eventSourceArn, state, nextToken,
+		func(a *Archive) string { return a.ArchiveName },
+		func(a *Archive) string { return a.EventSourceArn },
+		func(a *Archive) string { return a.State },
+		func(a, b Archive) bool { return a.ArchiveName < b.ArchiveName },
+	)
 
 	return page, outToken, nil
 }
@@ -148,6 +152,9 @@ func (b *InMemoryBackend) UpdateArchive(ctx context.Context, input UpdateArchive
 	}
 	if input.RetentionDays >= 0 {
 		archive.RetentionDays = input.RetentionDays
+	}
+	if input.KmsKeyIdentifier != "" {
+		archive.KmsKeyIdentifier = input.KmsKeyIdentifier
 	}
 
 	cp := *archive

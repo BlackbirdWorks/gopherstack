@@ -32,12 +32,18 @@ type getManagedPrefixListEntriesResponse struct {
 	} `xml:"entrySet"`
 }
 
+// getManagedPrefixListAssociationsResponse wraps under prefixListAssociationSet,
+// not associationSet -- the real deserializer (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeOpDocumentGetManagedPrefixListAssociationsOutput) has
+// no case for "associationSet" at all. This backend doesn't track which
+// resources reference a managed prefix list, so the set is always empty
+// regardless of the key; fixed for correctness if that ever changes.
 type getManagedPrefixListAssociationsResponse struct {
 	XMLName        xml.Name `xml:"GetManagedPrefixListAssociationsResponse"`
 	RequestID      string   `xml:"requestId"`
 	AssociationSet struct {
 		Items []struct{} `xml:"item"`
-	} `xml:"associationSet"`
+	} `xml:"prefixListAssociationSet"`
 }
 
 // clientVpnEndpointStatusItem mirrors AWS's ClientVpnEndpointStatus shape
@@ -77,7 +83,7 @@ type clientVpnEndpointItem struct {
 	SplitTunnel          bool                        `xml:"splitTunnel,omitempty"`
 }
 
-func toManagedPrefixListItem(pl *ManagedPrefixList) managedPrefixListItem {
+func toManagedPrefixListItem(pl *ManagedPrefixList, tags map[string]string) managedPrefixListItem {
 	return managedPrefixListItem{
 		PrefixListID:   pl.PrefixListID,
 		PrefixListName: pl.PrefixListName,
@@ -87,6 +93,7 @@ func toManagedPrefixListItem(pl *ManagedPrefixList) managedPrefixListItem {
 		MaxEntries:     pl.MaxEntries,
 		Version:        pl.Version,
 		OwnerID:        pl.OwnerID,
+		TagSet:         tagItemsFromMap(tags),
 	}
 }
 
@@ -105,21 +112,29 @@ func (h *Handler) handleCreateManagedPrefixList(vals url.Values, reqID string) (
 
 	return &createManagedPrefixListResponse{
 		RequestID:  reqID,
-		PrefixList: toManagedPrefixListItem(pl),
+		PrefixList: toManagedPrefixListItem(pl, h.Backend.TagsForResource(pl.PrefixListID)),
 	}, nil
 }
 
 func (h *Handler) handleDeleteManagedPrefixList(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("PrefixListId")
-	if err := h.Backend.DeleteManagedPrefixList(id); err != nil {
+	tags := h.Backend.TagsForResource(id)
+
+	pl, err := h.Backend.DeleteManagedPrefixList(id)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteManagedPrefixListResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &deleteManagedPrefixListResponse{
+		RequestID:  reqID,
+		PrefixList: toManagedPrefixListItem(pl, tags),
 	}, nil
+}
+
+type deleteManagedPrefixListResponse struct {
+	XMLName    xml.Name              `xml:"DeleteManagedPrefixListResponse"`
+	RequestID  string                `xml:"requestId"`
+	PrefixList managedPrefixListItem `xml:"prefixList"`
 }
 
 func (h *Handler) handleDescribeManagedPrefixLists(vals url.Values, reqID string) (any, error) {
@@ -128,7 +143,10 @@ func (h *Handler) handleDescribeManagedPrefixLists(vals url.Values, reqID string
 
 	resp := &describeManagedPrefixListsResponse{RequestID: reqID}
 	for _, pl := range pls {
-		resp.PrefixListSet.Items = append(resp.PrefixListSet.Items, toManagedPrefixListItem(pl))
+		resp.PrefixListSet.Items = append(
+			resp.PrefixListSet.Items,
+			toManagedPrefixListItem(pl, h.Backend.TagsForResource(pl.PrefixListID)),
+		)
 	}
 
 	return resp, nil
@@ -175,43 +193,56 @@ func (h *Handler) handleModifyManagedPrefixList(vals url.Values, reqID string) (
 		removeEntries = append(removeEntries, PrefixListEntry{Cidr: cidr})
 	}
 
-	if err := h.Backend.ModifyManagedPrefixList(id, addEntries, removeEntries); err != nil {
+	pl, err := h.Backend.ModifyManagedPrefixList(id, addEntries, removeEntries)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "ModifyManagedPrefixListResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &modifyManagedPrefixListResponse{
+		RequestID:  reqID,
+		PrefixList: toManagedPrefixListItem(pl, h.Backend.TagsForResource(id)),
 	}, nil
+}
+
+type modifyManagedPrefixListResponse struct {
+	XMLName    xml.Name              `xml:"ModifyManagedPrefixListResponse"`
+	RequestID  string                `xml:"requestId"`
+	PrefixList managedPrefixListItem `xml:"prefixList"`
 }
 
 func (h *Handler) handleRestoreManagedPrefixListVersion(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("PrefixListId")
 	version := 0
 	parseIntValue(vals.Get("PreviousVersion"), &version)
-	if err := h.Backend.RestoreManagedPrefixListVersion(id, int64(version)); err != nil {
+	pl, err := h.Backend.RestoreManagedPrefixListVersion(id, int64(version))
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreManagedPrefixListVersionResponse"},
-		RequestID: reqID,
-		Return:    true,
+	return &restoreManagedPrefixListVersionResponse{
+		RequestID:  reqID,
+		PrefixList: toManagedPrefixListItem(pl, h.Backend.TagsForResource(id)),
 	}, nil
+}
+
+type restoreManagedPrefixListVersionResponse struct {
+	XMLName    xml.Name              `xml:"RestoreManagedPrefixListVersionResponse"`
+	RequestID  string                `xml:"requestId"`
+	PrefixList managedPrefixListItem `xml:"prefixList"`
 }
 
 // ---- ClientVPN handlers ----
 
 type managedPrefixListItem struct {
-	PrefixListID   string `xml:"prefixListId"`
-	PrefixListName string `xml:"prefixListName"`
-	PrefixListArn  string `xml:"prefixListArn"`
-	AddressFamily  string `xml:"addressFamily"`
-	State          string `xml:"state"`
-	OwnerID        string `xml:"ownerId"`
-	Version        int64  `xml:"version"`
-	MaxEntries     int    `xml:"maxEntries"`
+	PrefixListID   string          `xml:"prefixListId"`
+	PrefixListName string          `xml:"prefixListName"`
+	PrefixListArn  string          `xml:"prefixListArn"`
+	AddressFamily  string          `xml:"addressFamily"`
+	State          string          `xml:"state"`
+	OwnerID        string          `xml:"ownerId"`
+	TagSet         []simpleTagItem `xml:"tagSet>item"`
+	Version        int64           `xml:"version"`
+	MaxEntries     int             `xml:"maxEntries"`
 }
 
 // registerPrefixListsOps registers the PrefixLists operation handlers.

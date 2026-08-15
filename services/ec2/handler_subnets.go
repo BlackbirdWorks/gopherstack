@@ -3,6 +3,7 @@ package ec2
 import (
 	"encoding/xml"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 )
@@ -133,23 +134,41 @@ func (h *Handler) handleCreateSubnetCidrReservation(vals url.Values, reqID strin
 
 func (h *Handler) handleDeleteSubnetCidrReservation(vals url.Values, reqID string) (any, error) {
 	reservationID := vals.Get("SubnetCidrReservationId")
-	if err := h.Backend.DeleteSubnetCidrReservation(reservationID); err != nil {
+
+	reservation, err := h.Backend.DeleteSubnetCidrReservation(reservationID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DeleteSubnetCidrReservationResponse"},
+	return &deleteSubnetCidrReservationResponse{
 		RequestID: reqID,
-		Return:    true,
+		DeletedSubnetCidrReservation: subnetCidrReservationItem{
+			SubnetCidrReservationID: reservation.SubnetCIDRReservationID,
+			SubnetID:                reservation.SubnetID,
+			Cidr:                    reservation.CIDR,
+			ReservationType:         reservation.ReservationType,
+			Description:             reservation.Description,
+			OwnerID:                 reservation.OwnerID,
+			State:                   reservation.State,
+		},
 	}, nil
+}
+
+type deleteSubnetCidrReservationResponse struct {
+	XMLName                      xml.Name                  `xml:"DeleteSubnetCidrReservationResponse"`
+	RequestID                    string                    `xml:"requestId"`
+	DeletedSubnetCidrReservation subnetCidrReservationItem `xml:"deletedSubnetCidrReservation"`
 }
 
 type getSubnetCidrReservationsResponse struct {
 	XMLName                    xml.Name `xml:"GetSubnetCidrReservationsResponse"`
 	RequestID                  string   `xml:"requestId"`
 	SubnetIpv4CidrReservations struct {
-		Items []subnetCidrReservationItem2 `xml:"item"`
-	} `xml:"subnetIpv4CidrReservations"`
+		Items []subnetCidrReservationItem `xml:"item"`
+	} `xml:"subnetIpv4CidrReservationSet"`
+	SubnetIpv6CidrReservations struct {
+		Items []subnetCidrReservationItem `xml:"item"`
+	} `xml:"subnetIpv6CidrReservationSet"`
 }
 
 type sgForVpcItem struct {
@@ -167,16 +186,22 @@ func (h *Handler) handleGetSubnetCidrReservations(vals url.Values, reqID string)
 
 	resp := &getSubnetCidrReservationsResponse{RequestID: reqID}
 	for _, r := range reservations {
-		resp.SubnetIpv4CidrReservations.Items = append(
-			resp.SubnetIpv4CidrReservations.Items,
-			subnetCidrReservationItem2{
-				SubnetCidrReservationID: r.SubnetCIDRReservationID,
-				SubnetID:                r.SubnetID,
-				Cidr:                    r.CIDR,
-				ReservationType:         r.ReservationType,
-				State:                   r.State,
-			},
-		)
+		item := subnetCidrReservationItem{
+			SubnetCidrReservationID: r.SubnetCIDRReservationID,
+			SubnetID:                r.SubnetID,
+			Cidr:                    r.CIDR,
+			ReservationType:         r.ReservationType,
+			Description:             r.Description,
+			OwnerID:                 r.OwnerID,
+			State:                   r.State,
+		}
+
+		ip, _, parseErr := net.ParseCIDR(r.CIDR)
+		if parseErr == nil && ip.To4() == nil {
+			resp.SubnetIpv6CidrReservations.Items = append(resp.SubnetIpv6CidrReservations.Items, item)
+		} else {
+			resp.SubnetIpv4CidrReservations.Items = append(resp.SubnetIpv4CidrReservations.Items, item)
+		}
 	}
 
 	return resp, nil

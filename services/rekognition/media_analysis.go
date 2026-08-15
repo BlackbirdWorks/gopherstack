@@ -94,7 +94,7 @@ func (b *InMemoryBackend) GetAsyncJob(jobID string) (*AsyncJob, error) {
 // =============================================================================
 
 // StartMediaAnalysisJob creates a new media analysis job.
-func (b *InMemoryBackend) StartMediaAnalysisJob(jobName string) (string, error) {
+func (b *InMemoryBackend) StartMediaAnalysisJob(jobName string, params StartMediaAnalysisJobParams) (string, error) {
 	b.mu.Lock("StartMediaAnalysisJob")
 	defer b.mu.Unlock()
 
@@ -102,10 +102,18 @@ func (b *InMemoryBackend) StartMediaAnalysisJob(jobName string) (string, error) 
 
 	jobID := uuid.NewString()
 	b.mediaAnalysisJobs.Put(&storedMediaAnalysisJob{
-		CreationTimestamp: time.Now(),
-		JobID:             jobID,
-		JobName:           jobName,
-		Status:            jobStatusSucceeded,
+		CreationTimestamp:                    time.Now(),
+		JobID:                                jobID,
+		JobName:                              jobName,
+		Status:                               jobStatusSucceeded,
+		InputS3Bucket:                        params.InputS3Bucket,
+		InputS3Name:                          params.InputS3Name,
+		InputS3Version:                       params.InputS3Version,
+		OutputConfigS3Bucket:                 params.OutputConfigS3Bucket,
+		OutputConfigS3KeyPrefix:              params.OutputConfigS3KeyPrefix,
+		DetectModerationLabelsProjectVersion: params.DetectModerationLabelsProjectVersion,
+		DetectModerationLabelsMinConfidence:  params.DetectModerationLabelsMinConfidence,
+		HasDetectModerationLabels:            params.HasDetectModerationLabels,
 	})
 
 	return jobID, nil

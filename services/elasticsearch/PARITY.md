@@ -6,9 +6,24 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticsearch
 sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.45.4
-last_audit_commit: 59ab8f6a
-last_audit_date: 2026-08-10
-overall: A            # follow-up pass (gopherstack-toz8): SAMLOptions/MaintenanceSchedules/DeploymentStrategyOptions/Package timestamps closed; VPCOptions VPCId/AvailabilityZones and Processing remain documented gaps -- see Notes
+last_audit_commit: 8dc21e834
+last_audit_date: 2026-08-15
+overall: A            # gopherstack-6flj pass (2026-08-15): the outbound cross-cluster-search-connection
+                       # family -- adjacent territory none of the 6 prior audits' notes mention -- had 3 real
+                       # bugs: CreateOutboundCrossClusterSearchConnection's request/response used
+                       # LocalDomainInfo/RemoteDomainInfo (copied from this package's own internal struct)
+                       # instead of the real SourceDomainInfo/DestinationDomainInfo (sibling InboundConnection
+                       # already had it right); CreateOutboundCrossClusterSearchConnectionOutput was wrapped
+                       # in {"CrossClusterSearchConnection": ...} like its Delete/Accept/Reject siblings, but
+                       # the real Create output is flat at the response root; and the top-level route matcher
+                       # used `path == elasticsearchCCSOutbound` (exact match) instead of a prefix check like
+                       # its Inbound sibling, so DescribeOutboundCrossClusterSearchConnections and
+                       # DeleteOutboundCrossClusterSearchConnection were unroutable by any real client -- a
+                       # 404 before the handler ever ran. All three fixed; see Notes. Prior gopherstack-p2mx
+                       # pass: fixed CancelDomainConfigChange's borrowed-shape response and
+                       # CreateVpcEndpoint/UpdateVpcEndpoint's VpcOptions map[string]string that made every
+                       # real-SDK-client request 400 -- see Notes. Route audit (51/51) reconfirmed, no new
+                       # routing bugs. VPCOptions VPCId/AvailabilityZones and Processing remain documented gaps
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -19,7 +34,7 @@ ops:
   ListDomainNames: {wire: ok, errors: ok, state: ok, persist: ok, note: "route bug fixed this pass -- was served at the wrong path; see Notes"}
   UpdateElasticsearchDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10 pass added AdvancedSecurityOptions.SAMLOptions, AutoTuneOptions.MaintenanceSchedules, and DeploymentStrategyOptions; see Notes"}
   DescribeElasticsearchDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10 pass fixed AutoTuneOptions.Options/Status to use their real distinct shapes (types.AutoTuneOptions/types.AutoTuneStatus, not the DomainStatus response's AutoTuneOptionsOutput/generic OptionStatus) and added MaintenanceSchedules + DeploymentStrategyOptions; see Notes"}
-  CancelDomainConfigChange: {wire: ok, errors: ok, state: ok, persist: ok, note: "synchronous backend, so this is correctly a no-op read-back"}
+  CancelDomainConfigChange: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-p2mx) -- was echoing DescribeElasticsearchDomainConfig's DomainConfig-wrapped body (a borrowed shape, wrong operation entirely) instead of CancelDomainConfigChangeOutput's own {CancelledChangeIds,CancelledChangeProperties,DryRun}; DryRun was also never read from the request. Now returns the real shape: empty CancelledChangeIds/CancelledChangeProperties (this backend has no pending-change queue -- every config change already applied synchronously, so there is truly nothing to report as cancelled) and DryRun echoed from the request. Prior wire: ok was false; the old unit test asserted the wrong (bug-matching) shape and was corrected alongside the fix"}
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -28,7 +43,7 @@ ops:
   DeleteElasticsearchServiceRole: {wire: ok, errors: ok, state: ok, persist: n/a}
   UpgradeElasticsearchDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUpgradeHistory: {wire: ok, errors: ok, state: ok, persist: n/a, note: "no upgrade-history state tracked; always returns empty list"}
-  GetUpgradeStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always reports SUCCEEDED; no async upgrade state"}
+  GetUpgradeStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always reports SUCCEEDED; no async upgrade state. Disclosed gap (gopherstack-6flj): real UpgradeName (*string, optional, api_op_GetUpgradeStatus.go) is never emitted -- this backend has no upgrade-name/upgrade-history state at all (GetUpgradeHistory always returns empty), so there is no honest value to source it from; a fabricated 'Upgrade to X' string would be invented state. Not fixed -- see gaps"}
   DescribeDomainAutoTunes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always empty; no auto-tune state modeled"}
   DescribeDomainChangeProgress: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always COMPLETED; changes apply synchronously"}
   GetCompatibleElasticsearchVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -44,18 +59,18 @@ ops:
   GetPackageVersionHistory: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListDomainsForPackage: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListPackagesForDomain: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CreateVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateVpcEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-p2mx) -- request/response VpcOptions was map[string]string; real wire shape is types.VPCOptions/{SecurityGroupIds,SubnetIds} (request) and types.VPCDerivedInfo (response, same two fields plus unmodeled AvailabilityZones/VPCId -- matches the identical domain-level VPCOptions simplification). A real SDK client always serializes VpcOptions as {SecurityGroupIds:[...],SubnetIds:[...]}, so json.Unmarshal into map[string]string failed on every real call with a security group or subnet -- CreateVpcEndpoint 400'd unconditionally for any non-toy client. Reused the already-correct vpcOptionsRequestJSON/vpcDerivedInfoJSON/toVPCDerivedInfoJSON machinery built for domain-level VPCOptions (handler_domains.go) -- CreateVpcEndpointInput.VpcOptions is the literal same SDK type. Prior wire: ok was false; existing unit tests asserted the broken shape (flat VpcId/SubnetId keys) and were corrected. Proven via a real aws-sdk-go-v2 client round-trip (handler_sdk_roundtrip_test.go), verified to fail against the unfixed code by hand-revert"}
   DescribeVpcEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListVpcEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListVpcEndpointsForDomain: {wire: ok, errors: ok, state: ok, persist: n/a}
-  UpdateVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteVpcEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListVpcEndpoints: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — dropped required NextToken (ListVpcEndpointsOutput, deserializers.go). Single-page emulator (never truncated) so no data is lost, but a required pointer left nil could panic a client that dereferences it unconditionally; now always emitted as an empty string. Prior wire: ok was false. gopherstack-4gzs: CORRECTED (this pass) — see the 'Not a bug' note below (now removed), which argued returning the full vpcEndpointJSON shape (Endpoint/VpcOptions included) was harmless. Now emits vpcEndpointSummaryJSON via toVpcEndpointSummariesJSON (handler_vpc_endpoints.go)."}
+  ListVpcEndpointsForDomain: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — same required-NextToken gap and fix as ListVpcEndpoints above. Prior wire: ok was false. gopherstack-4gzs: CORRECTED (this pass) — same vpcEndpointSummaryJSON fix as ListVpcEndpoints above."}
+  UpdateVpcEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-p2mx) -- same VpcOptions map[string]string bug and fix as CreateVpcEndpoint above. Prior wire: ok was false"}
+  DeleteVpcEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-4gzs: CORRECTED (this pass) — DeleteVpcEndpointOutput.VpcEndpointSummary is *types.VpcEndpointSummary (api_op_DeleteVpcEndpoint.go:41-53), same narrower shape as the List ops; was emitting the full vpcEndpointJSON. Now emits vpcEndpointSummaryJSON via toVpcEndpointSummaryJSON."}
   AuthorizeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
   RevokeVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListVpcEndpointAccess: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CreateOutboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeOutboundCrossClusterSearchConnections: {wire: ok, errors: ok, state: ok, persist: n/a}
-  DeleteOutboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListVpcEndpointAccess: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-lx5h) — same required-NextToken gap and fix as ListVpcEndpoints (ListVpcEndpointAccessOutput, deserializers.go). Prior wire: ok was false"}
+  CreateOutboundCrossClusterSearchConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-6flj) -- request/response SourceDomainInfo/DestinationDomainInfo were tagged LocalDomainInfo/RemoteDomainInfo (sibling-copy from this package's own internal OutboundConnection struct); both are required request members with no matching wire key, so a real client's connection was always created with empty domain info on both ends. ALSO -- the response was wrapped in {CrossClusterSearchConnection: ...} like Delete/Accept/Reject, but CreateOutboundCrossClusterSearchConnectionOutput is genuinely flat at the response root (api_op_CreateOutboundCrossClusterSearchConnection.go/deserializers.go:1253); every field was nested one level too deep to ever decode. Prior wire: ok was false on both counts. Sibling InboundConnection already used the correct SourceDomainInfo/DestinationDomainInfo names throughout -- report per this issue's sibling-check instruction"}
+  DescribeOutboundCrossClusterSearchConnections: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-6flj) -- same SourceDomainInfo/DestinationDomainInfo rename as Create above. ALSO a routing bug: matchElasticsearchCorePaths used `path == elasticsearchCCSOutbound` (exact match against the bare path), so the real op's path (.../outboundConnection/search) never matched and every real client's call 404'd before reaching the handler at all -- unlike the correctly prefix-matched Inbound sibling. Now `strings.HasPrefix`, matching Inbound's pattern. Prior wire: ok was false"}
+  DeleteOutboundCrossClusterSearchConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-6flj) -- same SourceDomainInfo/DestinationDomainInfo rename and same routing-prefix fix as the two rows above (.../outboundConnection/{id} also never matched the exact-match core-path check). Prior wire: ok was false"}
   AcceptInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   RejectInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -64,6 +79,15 @@ ops:
   DescribeReservedElasticsearchInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   PurchaseReservedElasticsearchInstanceOffering: {wire: ok, errors: ok, state: ok, persist: ok}
 gaps:                     # known divergences NOT fixed — link bd issue ids
+  - "GetUpgradeStatus.UpgradeName (gopherstack-6flj, 2026-08-15): real, optional *string member \
+     never emitted -- no upgrade-name/upgrade-history state is tracked anywhere in this backend \
+     (GetUpgradeHistory always returns empty), so there is no honest source value; fabricating a \
+     plausible name would be invented state, not parity."
+  - "PackageDetails.AvailablePackageVersion and DomainPackageDetails.PackageVersion/ReferencePath/ \
+     LastUpdated (gopherstack-6flj, 2026-08-15): real members with no backing state at all in this \
+     backend's Package model (models.go) -- a structural modeling gap, not a value the backend \
+     already holds and fails to emit. ErrorDetails on both types already handled the same way \
+     (see packageJSON's doc comment)."
   - "Domains never transition through a Processing/creating state -- CreateElasticsearchDomain \
      returns Processing=false / DomainProcessingStatus=Active immediately, and Endpoint is \
      populated synchronously too, so every field a real client would poll on (Processing, \
@@ -99,6 +123,135 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/R
 ## Notes
 
 Protocol: **restjson1**. Base path prefix `/2015-01-01/`.
+
+### 2026-08-13 pass (gopherstack-p2mx): first full audit + two real bugs found and fixed
+
+This issue was filed on the premise that `services/elasticsearch` had **no** PARITY.md
+at all. That premise was false by the time this pass started: the file already existed
+(added by the 2026-07-12/07-24/08-10 passes above, `last_audit_commit: 59ab8f6a`,
+graded A) and was current -- it already reflected the `0190c00b0`
+NextToken fix on `ListVpcEndpoints`/`ListVpcEndpointAccess`/`ListVpcEndpointsForDomain`.
+Rather than skip the pass on that basis, this session treated the existing file as a
+baseline to re-verify (per parity-principles.md's own re-audit protocol) instead of
+trusting it blind, and found two real bugs the prior passes' route-level and
+field-level checks had missed:
+
+1. **`CancelDomainConfigChange` was returning the wrong operation's response shape**
+   (`handler_domain_config.go`, previously line ~447) -- a textbook instance of the
+   "operation reimplemented as a different operation entirely" bug class. The handler
+   called `buildDomainConfigOutput(d)`, which builds `{"DomainConfig": {...}}` --
+   the `DescribeElasticsearchDomainConfig`/`UpdateElasticsearchDomainConfig` response
+   shape. Real `CancelDomainConfigChangeOutput`
+   (confirmed via `awsRestjson1_deserializeOpDocumentCancelDomainConfigChangeOutput`,
+   deserializers.go:747) is `{CancelledChangeIds: []string, CancelledChangeProperties:
+   []types.CancelledChangeProperty, DryRun: *bool}` -- an entirely different shape with
+   no overlapping keys. None of the three real fields are required, so a real SDK
+   client wouldn't panic (restjson1 ignores unknown response keys and leaves absent
+   optional fields nil) -- but it would silently get `CancelledChangeIds`,
+   `CancelledChangeProperties`, and `DryRun` as permanently nil/false regardless of
+   what it asked for, and the request's own `DryRun` member was never read at all. The
+   existing unit test (`TestElasticsearchHandler_CancelDomainConfigChange`) asserted
+   the wrong (bug-matching) shape -- `wantContains: []string{"DomainConfig",
+   "ElasticsearchVersion"}` -- so it passed green against the bug, another instance of
+   parity-principles.md rule 3. Fixed: the handler now reads `DryRun` from the request
+   body and returns the real shape with empty `CancelledChangeIds`/
+   `CancelledChangeProperties` (this backend has no pending-config-change queue --
+   every change already applies synchronously, so "nothing is ever pending to cancel"
+   is the honest answer, not a stub) and `DryRun` echoed from the request. Test
+   corrected to assert the real keys; a new `Test_SDKRoundTrip_CancelDomainConfigChange`
+   (`handler_sdk_roundtrip_test.go`) drives the real SDK client and asserts `DryRun`
+   round-trips, verified to fail against the unfixed code by hand-revert.
+
+2. **`CreateVpcEndpoint`/`UpdateVpcEndpoint`'s `VpcOptions` was `map[string]string`**
+   (`models.go`, `vpc_endpoints.go`, `handler_vpc_endpoints.go`) instead of the real
+   `types.VPCOptions` shape (`{SecurityGroupIds: []string, SubnetIds: []string}`,
+   confirmed via `awsRestjson1_serializeDocumentVPCOptions`, serializers.go:5038, and
+   `awsRestjson1_deserializeDocumentVPCDerivedInfo` for the response side,
+   deserializers.go:15133). This is a client-breaking bug, not a cosmetic one: a real
+   `aws-sdk-go-v2` client always serializes `VpcOptions` as
+   `{"SecurityGroupIds":["sg-..."],"SubnetIds":["subnet-..."]}` -- decoding that into
+   `map[string]string` fails outright (`json: cannot unmarshal array into Go value of
+   type string`), so `CreateVpcEndpoint` 400'd with `ValidationException: invalid JSON
+   body` for *every* real caller that supplied a security group or subnet, which is to
+   say every real caller. `test/integration/elasticsearch_test.go`'s
+   `TestIntegration_Elasticsearch_VpcEndpointList_NextToken` even carried a comment
+   noting this as a known, out-of-scope, unfixed bug ("gopherstack-elsewhere") -- it
+   was in scope for this pass and is now fixed. The fix reuses the
+   `vpcOptionsRequestJSON`/`vpcDerivedInfoJSON`/`toVPCDerivedInfoJSON` machinery
+   `handler_domains.go` already built for domain-level `VPCOptions`, since
+   `CreateVpcEndpointInput.VpcOptions` is the literal same SDK type
+   (`*types.VPCOptions`) -- no new wire-shape modeling was needed, just correcting
+   which existing shape this operation used. `models.go`'s `VpcEndpoint.VpcOptions`
+   field changed from `map[string]string` to the existing `VPCOptions` model type;
+   `vpc_endpoints.go`'s deep-copy helper and `store.go`'s `vpcEndpointCopy` were
+   updated to clone the two slices instead of a map. `AvailabilityZones`/`VPCId` on the
+   response (`types.VPCDerivedInfo`'s other two members) are left unmodeled, matching
+   the identical, already-accepted domain-level VPCOptions simplification (see gaps
+   below) -- not a new gap, the same one extended to a second operation pair that
+   shares the type. Existing unit tests asserted the broken flat-key shape (`VpcId`,
+   `SubnetId` as top-level string values) and were corrected to the real
+   `SecurityGroupIds`/`SubnetIds` array shape. A new
+   `Test_SDKRoundTrip_CreateVpcEndpoint_VpcOptions` (`handler_sdk_roundtrip_test.go`)
+   drives the real SDK client with a real `types.VPCOptions` request and asserts the
+   response round-trips both fields; verified to fail against the unfixed code
+   (`ValidationException: invalid JSON body`) by hand-revert.
+
+**gopherstack-4gzs: CORRECTED** — this section previously argued, "not a bug,
+documented for the next auditor", that `ListVpcEndpoints`/
+`ListVpcEndpointsForDomain` returning the full `vpcEndpointJSON` shape
+(including `Endpoint` and `VpcOptions`) for every list entry was inert
+because restjson1 clients ignore unknown response keys, proven by the
+existing SDK round-trip test continuing to pass unmodified. The premise is
+true but the conclusion was wrong: `types.VpcEndpointSummary`
+(elasticsearchservice@v1.45.4 types/types.go:1911, deserializer at
+deserializers.go:15436) is a real, narrower type — only
+`DomainArn`/`Status`/`VpcEndpointId`/`VpcEndpointOwner`, no `Endpoint` or
+`VpcOptions` — so the superset response was a genuine wire-shape lie
+regardless of SDK-client tolerance: a raw-body or non-SDK caller sees a
+VPC endpoint's connection address and subnet/security-group IDs leaked
+through a list call. The existing SDK round-trip test passing was never
+proof of correctness here -- see parity-principles.md's no-stub rule on
+why a typed-client pass is not sufficient for a leaked-field bug; only a
+raw-body assertion catches it (see `TestElasticsearchHandler_VpcEndpointSummary_NoEndpointOrVpcOptionsLeak`,
+handler_vpc_endpoints_test.go). Fixed by emitting a dedicated
+`vpcEndpointSummaryJSON` via `toVpcEndpointSummaryJSON`/
+`toVpcEndpointSummariesJSON` (handler_vpc_endpoints.go) from
+`ListVpcEndpoints`, `ListVpcEndpointsForDomain`, and `DeleteVpcEndpoint`'s
+`VpcEndpointSummary` response (`DeleteVpcEndpointOutput.VpcEndpointSummary`
+is the same narrower `*types.VpcEndpointSummary`, api_op_DeleteVpcEndpoint.go:41-53
+-- this call site was not called out by name in the original "not a bug" note's
+heading but was mentioned in its last sentence and had the identical bug).
+`vpcEndpointJSON` (full shape, with `Endpoint`/`VpcOptions`) stays reserved for
+`CreateVpcEndpoint`/`UpdateVpcEndpoint`/`DescribeVpcEndpoints`, which really do
+return the full `types.VpcEndpoint`.
+
+**Route audit reconfirmed, not repeated from scratch**: the bd issue this pass closes
+(gopherstack-p2mx) cited a prior route audit (gopherstack-4nek) that traced all 51 ops
+in `buildOps()` plus all three prefix-router chains in `handler.go` against the SDK's
+`serializers.go` method/path pairs, 51/51 match, zero routing bugs -- see "Route audit
+method" below, which predates this pass and was spot-checked (not re-run end-to-end)
+against the two ops touched here; both were already correctly routed.
+
+**Bug-class coverage for this pass**: class 3 (borrowed shapes/behaviour) accounted for
+both bugs found -- `CancelDomainConfigChange` borrowed a different operation's entire
+response shape, and `CreateVpcEndpoint`/`UpdateVpcEndpoint` borrowed the wrong Go type
+for a field two operations happen to share with domain-level `VPCOptions`. Spot-checked
+for classes 1/2/4 (required-input-never-read, required-output-never-populated,
+empty-struct inputs) across `PurchaseReservedElasticsearchInstanceOffering`,
+`CreateOutboundCrossClusterSearchConnection`, `AuthorizeVpcEndpointAccess`,
+`RevokeVpcEndpointAccess`, the four inbound/outbound connection lifecycle ops,
+`UpgradeElasticsearchDomain`, `StartElasticsearchServiceSoftwareUpdate`, and all
+no-required-input read-only ops (`GetCompatibleElasticsearchVersions`,
+`ListElasticsearchVersions`, `ListElasticsearchInstanceTypes`,
+`DescribeElasticsearchInstanceTypeLimits`, `GetPackageVersionHistory`,
+`ListDomainsForPackage`, `ListPackagesForDomain`, `DescribeDomainAutoTunes`,
+`DescribeDomainChangeProgress`, `GetUpgradeHistory`, `GetUpgradeStatus`,
+`CancelElasticsearchServiceSoftwareUpdate`, `DeleteElasticsearchServiceRole`) --
+none had unread required inputs, unpopulated required outputs, or `struct{}`-typed
+inputs hiding real required members. `CreateElasticsearchDomain`/
+`UpdateElasticsearchDomainConfig`/`CreatePackage` were not re-audited field-by-field
+this pass (already exhaustively covered by the 2026-07-24/08-10 passes above, files
+unchanged since `59ab8f6a`) per the manifest's own re-audit protocol.
 
 ### 2026-08-10 pass (gopherstack-toz8 follow-up): SAMLOptions, MaintenanceSchedules, DeploymentStrategyOptions, Package timestamps
 

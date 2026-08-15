@@ -33,13 +33,20 @@ func TestAccountLinkLifecycle(t *testing.T) { //nolint:paralleltest // existing 
 			}
 			decodeJSON(t, rec.Body.Bytes(), &createOut)
 
-			linkID := createOut.AccountLink["LinkId"]
+			linkID := createOut.AccountLink["AccountLinkId"]
 			if linkID == "" {
-				t.Fatal("expected non-empty LinkId")
+				t.Fatal("expected non-empty AccountLinkId")
 			}
 
-			if createOut.AccountLink["Status"] != "PENDING_ACCEPTANCE" {
-				t.Fatalf("expected PENDING_ACCEPTANCE, got %s", createOut.AccountLink["Status"])
+			if _, ok := createOut.AccountLink["LinkId"]; ok {
+				t.Fatal("LinkId is not a field on the real AccountLink type")
+			}
+
+			if createOut.AccountLink["AccountLinkStatus"] != "PENDING_ACCEPTANCE_BY_TARGET_ACCOUNT" {
+				t.Fatalf(
+					"expected PENDING_ACCEPTANCE_BY_TARGET_ACCOUNT, got %s",
+					createOut.AccountLink["AccountLinkStatus"],
+				)
 			}
 
 			// GetAccountLink
@@ -89,8 +96,10 @@ func TestAccountLinkLifecycle(t *testing.T) { //nolint:paralleltest // existing 
 			}
 			decodeJSON(t, rec4.Body.Bytes(), &actionOut)
 
-			if actionOut.AccountLink["Status"] != expectedStatus {
-				t.Fatalf("expected %s, got %s", expectedStatus, actionOut.AccountLink["Status"])
+			if actionOut.AccountLink["AccountLinkStatus"] != expectedStatus {
+				t.Fatalf(
+					"expected %s, got %s", expectedStatus, actionOut.AccountLink["AccountLinkStatus"],
+				)
 			}
 
 			// Delete
@@ -106,8 +115,13 @@ func TestAccountLinkLifecycle(t *testing.T) { //nolint:paralleltest // existing 
 			}
 			decodeJSON(t, rec5.Body.Bytes(), &delOut)
 
-			if delOut.AccountLink["Status"] != "DELETED" {
-				t.Fatalf("expected DELETED, got %s", delOut.AccountLink["Status"])
+			// "DELETED" is not a member of the real AccountLinkStatusEnum; the
+			// deleted link keeps whatever status it already had (set by the
+			// accept/reject step above) rather than a fabricated one.
+			if delOut.AccountLink["AccountLinkStatus"] != expectedStatus {
+				t.Fatalf(
+					"expected %s, got %s", expectedStatus, delOut.AccountLink["AccountLinkStatus"],
+				)
 			}
 		})
 	}

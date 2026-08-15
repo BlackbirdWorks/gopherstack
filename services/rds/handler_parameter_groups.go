@@ -223,10 +223,15 @@ type copyDBParameterGroupResponse struct {
 	DBParameterGroup xmlDBParameterGroup `xml:"CopyDBParameterGroupResult>DBParameterGroup"`
 }
 
+type engineDefaults struct {
+	DBParameterGroupFamily string             `xml:"DBParameterGroupFamily"`
+	Parameters             xmlDBParameterList `xml:"Parameters"`
+}
+
 type describeEngineDefaultParametersResponse struct {
-	XMLName    xml.Name           `xml:"DescribeEngineDefaultParametersResponse"`
-	Xmlns      string             `xml:"xmlns,attr"`
-	Parameters xmlDBParameterList `xml:"DescribeEngineDefaultParametersResult>EngineDefaults>Parameters"`
+	XMLName xml.Name       `xml:"DescribeEngineDefaultParametersResponse"`
+	Xmlns   string         `xml:"xmlns,attr"`
+	Result  engineDefaults `xml:"DescribeEngineDefaultParametersResult>EngineDefaults"`
 }
 
 func (h *Handler) handleDescribeEngineDefaultParameters(vals url.Values) (any, error) {
@@ -241,7 +246,10 @@ func (h *Handler) handleDescribeEngineDefaultParameters(vals url.Values) (any, e
 	}
 
 	return &describeEngineDefaultParametersResponse{
-		Xmlns:      rdsXMLNS,
-		Parameters: xmlDBParameterList{Members: members},
+		Xmlns: rdsXMLNS,
+		Result: engineDefaults{
+			DBParameterGroupFamily: family,
+			Parameters:             xmlDBParameterList{Members: members},
+		},
 	}, nil
 }

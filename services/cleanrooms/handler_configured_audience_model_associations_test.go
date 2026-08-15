@@ -42,9 +42,9 @@ func TestConfiguredAudienceModelAssociations_Handlers(t *testing.T) {
 			method: "POST",
 			path:   "/memberships/" + memID + "/configuredaudiencemodelassociations",
 			body: map[string]any{
-				"name":                       "cama",
-				"configuredAudienceModelArn": "arn:aws:cam::123",
-				"manageResourcePolicies":     true,
+				"configuredAudienceModelAssociationName": "cama",
+				"configuredAudienceModelArn":             "arn:aws:cam::123",
+				"manageResourcePolicies":                 true,
 			},
 			wantStatus: http.StatusOK,
 		},

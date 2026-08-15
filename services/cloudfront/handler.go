@@ -34,11 +34,6 @@ const (
 	opCreateInvalidationForDistTenant       = "CreateInvalidationForDistributionTenant"
 	opCreateKeyGroup                        = "CreateKeyGroup"
 	opCreateKeyValueStore                   = "CreateKeyValueStore"
-	opGetKVSKey                             = "GetKey"
-	opPutKVSKey                             = "PutKey"
-	opDeleteKVSKey                          = "DeleteKey"
-	opListKVSKeys                           = "ListKeys"
-	opUpdateKVSKeys                         = "UpdateKeys"
 	opCreateMonitoringSubscription          = "CreateMonitoringSubscription"
 	opCreatePublicKey                       = "CreatePublicKey"
 	opCreateRealtimeLogConfig               = "CreateRealtimeLogConfig"
@@ -225,10 +220,21 @@ const (
 	opUpdateCloudFrontOAI = "UpdateCloudFrontOriginAccessIdentity"
 
 	// Path segment constants used in parseCFPath.
-	sfxDistribution   = "distribution"
-	sfxResourcePolicy = "resource-policy"
+	sfxDistribution = "distribution"
 
-	// resourceParamWithTags is the Resource query-param value marking the *WithTags create variant.
+	// Resource-policy ops are POST-only RPC-style calls to distinct paths
+	// (api_op_{Get,Put,Delete}ResourcePolicy.go), not REST verbs on a shared
+	// "resource-policy" resource.
+	sfxGetResourcePolicy    = "get-resource-policy"
+	sfxPutResourcePolicy    = "put-resource-policy"
+	sfxDeleteResourcePolicy = "delete-resource-policy"
+
+	// resourceParamWithTags is the sentinel passed as resourceParam to mark the
+	// *WithTags create variant. Real CreateDistributionWithTags/
+	// CreateStreamingDistributionWithTags requests carry this as a bare
+	// "?WithTags" query flag (cloudfront@v1.67.4 serializers.go: SplitURI on
+	// ".../distribution?WithTags"), not as a "Resource=WithTags" query value --
+	// see cfResourceParam.
 	resourceParamWithTags = "WithTags"
 )
 
@@ -353,7 +359,6 @@ func stubSupportedOperationsA() []string {
 		opDeleteFieldLevelEncryptionProfile,
 		opDeleteKeyGroup,
 		opDeleteKeyValueStore,
-		opDeleteKVSKey,
 		opDeleteMonitoringSubscription,
 		opDeletePublicKey,
 		opDeleteRealtimeLogConfig,
@@ -380,7 +385,6 @@ func stubSupportedOperationsA() []string {
 		opGetInvalidationForDistTenant,
 		opGetKeyGroup,
 		opGetKeyGroupConfig,
-		opGetKVSKey,
 		opGetManagedCertificateDetails,
 		opGetMonitoringSubscription,
 		opGetPublicKey,
@@ -423,7 +427,6 @@ func stubSupportedOperationsB() []string {
 		opListInvalidationsForDistTenant,
 		opListKeyGroups,
 		opListKeyValueStores,
-		opListKVSKeys,
 		opListPublicKeys,
 		opListRealtimeLogConfigs,
 		opListStreamingDistributions,
@@ -443,8 +446,6 @@ func stubSupportedOperationsB() []string {
 		opUpdateFieldLevelEncryptionProfile,
 		opUpdateKeyGroup,
 		opUpdateKeyValueStore,
-		opUpdateKVSKeys,
-		opPutKVSKey,
 		opUpdatePublicKey,
 		opUpdateRealtimeLogConfig,
 		opUpdateStreamingDistribution,
@@ -473,12 +474,30 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // MatchPriority returns the routing priority.
 func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
+// cfResourceParam extracts parseCFPath's resourceParam from the request query
+// string. It doubles as two unrelated things depending on the op: the tagged
+// resource's ARN (ListTagsForResource/TagResource/UntagResource, all
+// "?Resource=<arn>") and a bare "?WithTags" flag with no value
+// (CreateDistributionWithTags/CreateStreamingDistributionWithTags). A plain
+// Query().Get("Resource") only ever sees the first case -- the WithTags flag
+// lives under its own query key, not under "Resource", so it must be checked
+// first.
+func cfResourceParam(c *echo.Context) string {
+	q := c.Request().URL.Query()
+	if q.Has(resourceParamWithTags) {
+		return resourceParamWithTags
+	}
+
+	return q.Get("Resource")
+}
+
 // ExtractOperation extracts the CloudFront operation name from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	op, _ := parseCFPath(
 		c.Request().Method,
 		c.Request().URL.Path,
-		c.Request().URL.Query().Get("Resource"),
+		cfResourceParam(c),
+		c.Request().URL.Query().Get("Operation"),
 	)
 
 	return op
@@ -489,7 +508,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	_, res := parseCFPath(
 		c.Request().Method,
 		c.Request().URL.Path,
-		c.Request().URL.Query().Get("Resource"),
+		cfResourceParam(c),
+		c.Request().URL.Query().Get("Operation"),
 	)
 
 	return res
@@ -517,7 +537,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		operation, resource := parseCFPath(
 			c.Request().Method,
 			c.Request().URL.Path,
-			c.Request().URL.Query().Get("Resource"),
+			cfResourceParam(c),
+			c.Request().URL.Query().Get("Operation"),
 		)
 
 		log.Debug("cloudfront request", "operation", operation, "resource", resource)

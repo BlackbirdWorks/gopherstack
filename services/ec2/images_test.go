@@ -34,7 +34,7 @@ func TestDescribeImageReferences(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, instances, 1)
 
-	_, err = b.CreateLaunchTemplate("lt-name", "ami-refimg", "t3.micro")
+	_, err = b.CreateLaunchTemplate("lt-name", "ami-refimg", "t3.micro", nil)
 	require.NoError(t, err)
 
 	refs := b.DescribeImageReferences([]string{"ami-refimg"})

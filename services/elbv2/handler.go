@@ -307,6 +307,7 @@ func elbv2ErrorCode(opErr error) (string, int) {
 		{ErrTrustStoreNotFound, "TrustStoreNotFound", http.StatusBadRequest},
 		{ErrResourcePolicyNotFound, "ResourceNotFound", http.StatusBadRequest},
 		{ErrTrustStoreAssociationNotFound, "AssociationNotFound", http.StatusBadRequest},
+		{ErrRevocationIDNotFound, "RevocationIdNotFound", http.StatusBadRequest},
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusBadRequest},
 		{ErrTargetGroupAlreadyExists, "DuplicateTargetGroupName", http.StatusBadRequest},
 		{ErrTrustStoreAlreadyExists, "DuplicateTrustStoreName", http.StatusBadRequest},
@@ -467,6 +468,13 @@ type elbv2ErrorResponse struct {
 type xmlResponseMetadata struct {
 	RequestID string `xml:"RequestId"`
 }
+
+// emptyResultXML is the empty "<Op>Result" element real ELBv2 responses carry even when
+// the op's SDK output shape has no members. Their deserializers (e.g.
+// elasticloadbalancingv2@v1.58.5 deserializers.go:1277) unconditionally call
+// decoder.GetElement("<Op>Result"), so omitting the element entirely fails
+// deserialization with "node not found" for every real SDK client.
+type emptyResultXML struct{}
 
 type xmlStringValue struct {
 	Value string `xml:",chardata"`

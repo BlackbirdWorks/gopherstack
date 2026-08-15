@@ -440,16 +440,16 @@ func TestErrInvitationNotFound_HTTP(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "ResourceShareInvitationArnNotFoundException")
 }
 
-func TestInvitationOps_Smoke(t *testing.T) {
+func TestRejectResourceShareInvitation_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	_, err := h.Backend.CreateResourceShare("inv-share", true, nil, nil, nil)
 	require.NoError(t, err)
 
-	// RejectResourceShareInvitation (no invitations, exercises the code path)
 	rec := doRAMRequest(t, h, "/rejectresourceshareinvitation", map[string]any{
 		"resourceShareInvitationArn": "arn:aws:ram:us-east-1:123456789012:resource-share-invitation/nonexistent",
 	})
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ResourceShareInvitationArnNotFoundException")
 }

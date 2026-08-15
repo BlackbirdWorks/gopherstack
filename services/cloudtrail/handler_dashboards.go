@@ -93,7 +93,7 @@ func (h *Handler) handleCreateDashboard(c *echo.Context, body []byte) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, dashToMap(d))
+	return c.JSON(http.StatusOK, dashCreateToMap(d))
 }
 
 // --- DeleteDashboard ---
@@ -132,7 +132,7 @@ func (h *Handler) handleGetDashboard(c *echo.Context, body []byte) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, dashToMap(d))
+	return c.JSON(http.StatusOK, dashGetToMap(d))
 }
 
 // --- UpdateDashboard ---
@@ -165,7 +165,7 @@ func (h *Handler) handleUpdateDashboard(c *echo.Context, body []byte) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, dashToMap(d))
+	return c.JSON(http.StatusOK, dashUpdateToMap(d))
 }
 
 // --- ListDashboards ---
@@ -220,7 +220,7 @@ func (h *Handler) handleListDashboards(c *echo.Context, body []byte) error {
 func dashDetailToMap(d *Dashboard) map[string]any {
 	return map[string]any{
 		keyDashboardArn: d.DashboardARN,
-		"Type":          d.Type,
+		keyType:         d.Type,
 	}
 }
 
@@ -288,29 +288,68 @@ func refreshScheduleToMap(rs *RefreshSchedule) map[string]any {
 	}
 	if rs.Frequency != nil {
 		m["Frequency"] = map[string]any{
-			"Unit":  rs.Frequency.Unit,
-			"Value": rs.Frequency.Value,
+			"Unit":   rs.Frequency.Unit,
+			keyValue: rs.Frequency.Value,
 		}
 	}
 
 	return m
 }
 
-// dashToMap converts a Dashboard to the JSON map used in Create/Get/Update
-// API responses (the union of CreateDashboardOutput/GetDashboardOutput/
-// UpdateDashboardOutput fields; extra fields not present on a given op's
-// real output are harmless -- AWS JSON-protocol clients ignore unknown
-// response keys, same pattern as the pre-existing Status/CreationTime
-// extras documented in PARITY.md).
-func dashToMap(d *Dashboard) map[string]any {
+// dashTagsList renders a Dashboard's tags as the TagsList shape
+// (CreateDashboardOutput's only tag field; []types.Tag{Key,Value}).
+func dashTagsList(d *Dashboard) []map[string]string {
+	if d.Tags == nil || d.Tags.Len() == 0 {
+		return nil
+	}
+
+	kv := d.Tags.Clone()
+	out := make([]map[string]string, 0, len(kv))
+	for k, v := range kv {
+		out = append(out, map[string]string{keyKey: k, keyValue: v})
+	}
+
+	return out
+}
+
+// dashCreateToMap renders CreateDashboardOutput: DashboardArn, Name,
+// RefreshSchedule, TagsList, TerminationProtectionEnabled, Type, Widgets
+// (cloudtrail@v1.58.4 api_op_CreateDashboard.go). No Status, no
+// Created/UpdatedTimestamp, no LastRefreshId/LastRefreshFailureReason --
+// none of those exist on the real output.
+func dashCreateToMap(d *Dashboard) map[string]any {
 	m := map[string]any{
-		keyDashboardArn:                d.DashboardARN,
-		keyName:                        d.Name,
-		"Type":                         d.Type,
-		keyStatus:                      d.Status,
-		"TerminationProtectionEnabled": d.TerminationProtectionEnabled,
-		"CreatedTimestamp":             float64(d.CreatedTimestamp.Unix()),
-		"UpdatedTimestamp":             float64(d.UpdatedTimestamp.Unix()),
+		keyDashboardArn:                 d.DashboardARN,
+		keyName:                         d.Name,
+		keyType:                         d.Type,
+		keyTerminationProtectionEnabled: d.TerminationProtectionEnabled,
+	}
+	if widgets := widgetsToMaps(d.Widgets); widgets != nil {
+		m["Widgets"] = widgets
+	}
+	if rs := refreshScheduleToMap(d.RefreshSchedule); rs != nil {
+		m["RefreshSchedule"] = rs
+	}
+	if tl := dashTagsList(d); tl != nil {
+		m["TagsList"] = tl
+	}
+
+	return m
+}
+
+// dashGetToMap renders GetDashboardOutput: CreatedTimestamp, DashboardArn,
+// LastRefreshFailureReason, LastRefreshId, RefreshSchedule, Status,
+// TerminationProtectionEnabled, Type, UpdatedTimestamp, Widgets
+// (cloudtrail@v1.58.4 api_op_GetDashboard.go). No Name, no TagsList --
+// neither exists on the real output.
+func dashGetToMap(d *Dashboard) map[string]any {
+	m := map[string]any{
+		keyDashboardArn:                 d.DashboardARN,
+		keyType:                         d.Type,
+		keyStatus:                       d.Status,
+		keyTerminationProtectionEnabled: d.TerminationProtectionEnabled,
+		keyCreatedTimestamp:             float64(d.CreatedTimestamp.Unix()),
+		keyUpdatedTimestamp:             float64(d.UpdatedTimestamp.Unix()),
 	}
 	if widgets := widgetsToMaps(d.Widgets); widgets != nil {
 		m["Widgets"] = widgets
@@ -323,6 +362,30 @@ func dashToMap(d *Dashboard) map[string]any {
 	}
 	if d.LastRefreshFailureReason != "" {
 		m["LastRefreshFailureReason"] = d.LastRefreshFailureReason
+	}
+
+	return m
+}
+
+// dashUpdateToMap renders UpdateDashboardOutput: CreatedTimestamp,
+// DashboardArn, Name, RefreshSchedule, TerminationProtectionEnabled, Type,
+// UpdatedTimestamp, Widgets (cloudtrail@v1.58.4 api_op_UpdateDashboard.go).
+// No Status, no TagsList, no LastRefreshId/LastRefreshFailureReason -- none
+// of those exist on the real output.
+func dashUpdateToMap(d *Dashboard) map[string]any {
+	m := map[string]any{
+		keyDashboardArn:                 d.DashboardARN,
+		keyName:                         d.Name,
+		keyType:                         d.Type,
+		keyTerminationProtectionEnabled: d.TerminationProtectionEnabled,
+		keyCreatedTimestamp:             float64(d.CreatedTimestamp.Unix()),
+		keyUpdatedTimestamp:             float64(d.UpdatedTimestamp.Unix()),
+	}
+	if widgets := widgetsToMaps(d.Widgets); widgets != nil {
+		m["Widgets"] = widgets
+	}
+	if rs := refreshScheduleToMap(d.RefreshSchedule); rs != nil {
+		m["RefreshSchedule"] = rs
 	}
 
 	return m

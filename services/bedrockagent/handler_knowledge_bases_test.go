@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/bedrockagent"
 )
@@ -457,4 +459,170 @@ func TestHandlerResourcePolicyDelete(t *testing.T) {
 			wantErrType: "ResourceNotFoundException",
 		},
 	})
+}
+
+// kbDocumentIdentifierCase pairs a real IngestKnowledgeBaseDocuments
+// document.content body with the real GetKnowledgeBaseDocuments/
+// DeleteKnowledgeBaseDocuments documentIdentifiers entry that must resolve
+// to the document it ingests, for each DocumentIdentifier.DataSourceType
+// variant (gopherstack-wzwn: these ops used to decode a nonexistent
+// "documentIds" string-array key instead of the real "documentIdentifiers"
+// object-array key, so they always operated on an empty list).
+type kbDocumentIdentifierCase struct {
+	content    map[string]any
+	identifier map[string]any
+	name       string
+}
+
+//nolint:gochecknoglobals // shared table-driven cases reused by two test functions below
+var kbDocumentIdentifierCases = []kbDocumentIdentifierCase{
+	{
+		name: "custom",
+		content: map[string]any{
+			"dataSourceType": "CUSTOM",
+			"custom": map[string]any{
+				"customDocumentIdentifier": map[string]any{"id": "doc-custom-1"},
+				"sourceType":               "IN_LINE",
+			},
+		},
+		identifier: map[string]any{
+			"dataSourceType": "CUSTOM",
+			"custom":         map[string]any{"id": "doc-custom-1"},
+		},
+	},
+	{
+		name: "s3",
+		content: map[string]any{
+			"dataSourceType": "S3",
+			"s3": map[string]any{
+				"s3Location": map[string]any{"uri": "s3://kb-bucket/doc-1.txt"},
+			},
+		},
+		identifier: map[string]any{
+			"dataSourceType": "S3",
+			"s3":             map[string]any{"uri": "s3://kb-bucket/doc-1.txt"},
+		},
+	},
+}
+
+// ingestKBDocForIdentifierTest ingests one document with the given real
+// content body and requires the call to succeed.
+func ingestKBDocForIdentifierTest(t *testing.T, f ingestionFixture, content map[string]any) {
+	t.Helper()
+
+	rec := doRequest(t, f.h, f.e, http.MethodPut,
+		"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/documents",
+		map[string]any{"documents": []map[string]any{{"content": content}}})
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+}
+
+// listKBDocsForIdentifierTest returns the current documentDetails for the
+// fixture's data source.
+func listKBDocsForIdentifierTest(t *testing.T, f ingestionFixture) []map[string]any {
+	t.Helper()
+
+	rec := doRequest(t, f.h, f.e, http.MethodPost,
+		"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/documents", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp struct {
+		DocumentDetails []map[string]any `json:"documentDetails"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	return resp.DocumentDetails
+}
+
+// TestHandlerGetKBDocuments_RealWireIdentifier proves GetKnowledgeBaseDocuments
+// decodes the real "documentIdentifiers" object-array body and finds the
+// document ingested under that identifier, for both DataSourceType variants.
+func TestHandlerGetKBDocuments_RealWireIdentifier(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range kbDocumentIdentifierCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newIngestionFixture(t)
+			ingestKBDocForIdentifierTest(t, f, tc.content)
+
+			getRec := doRequest(t, f.h, f.e, http.MethodPost,
+				"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/documents/getDocuments",
+				map[string]any{"documentIdentifiers": []map[string]any{tc.identifier}})
+			require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
+
+			var resp struct {
+				DocumentDetails []map[string]any `json:"documentDetails"`
+			}
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.Len(t, resp.DocumentDetails, 1)
+
+			assert.Equal(t, "INDEXED", resp.DocumentDetails[0]["status"])
+			assert.Equal(t, tc.identifier, resp.DocumentDetails[0]["identifier"])
+		})
+	}
+}
+
+// TestHandlerDeleteKBDocuments_RealWireIdentifier proves
+// DeleteKnowledgeBaseDocuments decodes the real "documentIdentifiers" body
+// and actually deletes the targeted document -- not merely reports success
+// while the document (and every document, since the field never parsed)
+// remains untouched.
+func TestHandlerDeleteKBDocuments_RealWireIdentifier(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range kbDocumentIdentifierCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newIngestionFixture(t)
+			ingestKBDocForIdentifierTest(t, f, tc.content)
+
+			require.Len(t, listKBDocsForIdentifierTest(t, f), 1, "precondition: document must exist before delete")
+
+			deleteRec := doRequest(t, f.h, f.e, http.MethodPost,
+				"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/documents/deleteDocuments",
+				map[string]any{"documentIdentifiers": []map[string]any{tc.identifier}})
+			require.Equal(t, http.StatusAccepted, deleteRec.Code, deleteRec.Body.String())
+
+			var deleteResp struct {
+				DocumentDetails []map[string]any `json:"documentDetails"`
+			}
+			require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp))
+			require.Len(t, deleteResp.DocumentDetails, 1)
+			assert.Equal(t, "DELETING", deleteResp.DocumentDetails[0]["status"])
+
+			assert.Empty(t, listKBDocsForIdentifierTest(t, f),
+				"document must actually be gone after delete, not merely reported deleted")
+		})
+	}
+}
+
+// TestHandlerKBDocuments_MissingIdentifierIsValidationException proves an
+// identifier that doesn't carry the sub-object its own dataSourceType
+// requires (real AWS has no other way to name a document) is rejected as
+// ValidationException -- part of DocumentIdentifier's declared error set for
+// GetKnowledgeBaseDocuments/DeleteKnowledgeBaseDocuments -- rather than
+// silently matching nothing.
+func TestHandlerKBDocuments_MissingIdentifierIsValidationException(t *testing.T) {
+	t.Parallel()
+
+	paths := []string{"getDocuments", "deleteDocuments"}
+
+	for _, p := range paths {
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+
+			f := newIngestionFixture(t)
+
+			rec := doRequest(t, f.h, f.e, http.MethodPost,
+				"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/documents/"+p,
+				map[string]any{"documentIdentifiers": []map[string]any{
+					{"dataSourceType": "CUSTOM"},
+				}})
+
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			assert.Equal(t, "ValidationException", rec.Header().Get("X-Amzn-Errortype"))
+		})
+	}
 }

@@ -194,10 +194,11 @@ func (h *Handler) validateCreateFunctionCode(c *echo.Context, input *CreateFunct
 	return true
 }
 
-// applyImageConfig sets fn.ImageConfig from input when the package type is Image.
+// applyImageConfig sets fn.ImageConfigResponse from input when the package
+// type is Image, wrapping ImageConfig the way the real wire response does.
 func applyImageConfig(fn *FunctionConfiguration, input *CreateFunctionInput) {
 	if input.PackageType == PackageTypeImage && input.ImageConfig != nil {
-		fn.ImageConfig = input.ImageConfig
+		fn.ImageConfigResponse = &ImageConfigResponse{ImageConfig: input.ImageConfig}
 	}
 }
 

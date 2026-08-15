@@ -99,6 +99,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	_, pred := request(t, h, "CreatePredictor", map[string]any{
 		"PredictorName": "full-predictor", "ForecastHorizon": 14,
+		"InputDataConfig":     map[string]any{"DatasetGroupArn": dgARN},
+		"FeaturizationConfig": map[string]any{},
 	})
 	predARN := pred["PredictorArn"].(string)
 

@@ -425,12 +425,14 @@ type CheckIfPhoneNumberIsOptedOutResponse struct {
 // CreateSMSSandboxPhoneNumberResponse is the XML response for CreateSMSSandboxPhoneNumber.
 type CreateSMSSandboxPhoneNumberResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ CreateSMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	Result           snsEmptyResult   `xml:"CreateSMSSandboxPhoneNumberResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // DeleteSMSSandboxPhoneNumberResponse is the XML response for DeleteSMSSandboxPhoneNumber.
 type DeleteSMSSandboxPhoneNumberResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ DeleteSMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	Result           snsEmptyResult   `xml:"DeleteSMSSandboxPhoneNumberResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
@@ -472,10 +474,12 @@ type GetSMSSandboxAccountStatusResponse struct {
 
 // XMLOriginationPhone is the XML representation of an origination phone number.
 type XMLOriginationPhone struct {
-	PhoneNumber        string   `xml:"PhoneNumber"`
-	Iso2CountryCode    string   `xml:"Iso2CountryCode"`
-	RouteType          string   `xml:"RouteType"`
-	NumberCapabilities []string `xml:"NumberCapabilities>member"`
+	CreatedAt          *time.Time `xml:"CreatedAt,omitempty"`
+	PhoneNumber        string     `xml:"PhoneNumber"`
+	Iso2CountryCode    string     `xml:"Iso2CountryCode"`
+	RouteType          string     `xml:"RouteType"`
+	Status             string     `xml:"Status,omitempty"`
+	NumberCapabilities []string   `xml:"NumberCapabilities>member"`
 }
 
 // ListOriginationNumbersResult holds the result of ListOriginationNumbers.
@@ -533,18 +537,21 @@ type RemovePermissionResponse struct {
 // OptInPhoneNumberResponse is the XML response for OptInPhoneNumber.
 type OptInPhoneNumberResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ OptInPhoneNumberResponse"`
+	Result           snsEmptyResult   `xml:"OptInPhoneNumberResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // VerifySMSSandboxPhoneNumberResponse is the XML response for VerifySMSSandboxPhoneNumber.
 type VerifySMSSandboxPhoneNumberResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ VerifySMSSandboxPhoneNumberResponse"` //nolint:lll // XML namespace.
+	Result           snsEmptyResult   `xml:"VerifySMSSandboxPhoneNumberResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // SetSMSAttributesResponse is the XML response for SetSMSAttributes.
 type SetSMSAttributesResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ SetSMSAttributesResponse"`
+	Result           snsEmptyResult   `xml:"SetSMSAttributesResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
@@ -747,6 +754,22 @@ type snsListTagsResponse struct {
 
 // snsEmptyResponse is the XML response for tag mutation operations (TagResource, UntagResource).
 // The XMLName field is set dynamically per action.
+//
+// Result must be present even though TagResourceOutput/UntagResourceOutput carry no
+// members: unlike most empty-output SNS ops (DeleteTopic, Unsubscribe,
+// SetTopicAttributes), whose deserializers discard the response body outright, these
+// two explicitly call decoder.GetElement("TagResourceResult") /
+// GetElement("UntagResourceResult") and fail with "node not found" if it is absent
+// (sns@v1.42.4 deserializers.go:4469 and :4688). Result's XMLName is set dynamically
+// alongside the outer XMLName, per action.
 type snsEmptyResponse struct {
 	XMLName xml.Name `xml:""`
+	Result  struct {
+		XMLName xml.Name `xml:""`
+	}
 }
+
+// snsEmptyResult is the same empty "<Op>Result" element as snsEmptyResponse.Result, for
+// ops whose response struct already has a fixed per-action XMLName (so snsEmptyResponse's
+// dynamic-XMLName approach isn't needed) but which still need a typed field to carry it.
+type snsEmptyResult struct{}

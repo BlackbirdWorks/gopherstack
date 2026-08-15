@@ -114,12 +114,17 @@ func (h *S3Handler) renderListObjectsV2Response(
 	}
 
 	seenPrefixes := make(map[string]struct{})
+	// ListObjectsV2 only includes Owner on each Contents item when the request's
+	// FetchOwner is true (s3@v1.106.5 api_op_ListObjectsV2.go's FetchOwner doc:
+	// "the owner field is not returned" by default) -- unlike ListObjects V1,
+	// which has no such request member and always includes it.
 	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(
 		objects,
 		q.Get("prefix"),
 		q.Get("delimiter"),
 		seenPrefixes,
 		encodingType,
+		q.Get("fetch-owner") == sqlValTrue,
 	)
 	// Add common prefixes from backend (if any)
 	for _, cp := range commonPrefixes {

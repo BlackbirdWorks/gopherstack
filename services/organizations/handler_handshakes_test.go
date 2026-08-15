@@ -31,13 +31,42 @@ func TestHandshakeOps(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// ListHandshakesForOrganization
-	rec = doRequest(t, h, "ListHandshakesForOrganization", nil)
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	var inviteResp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&inviteResp))
+	invited := inviteResp["Handshake"].(map[string]any)
+	handshakeID, ok := invited["Id"].(string)
+	require.True(t, ok, "InviteAccountToOrganization must return a Handshake.Id")
 
-	// ListHandshakesForAccount
-	rec = doRequest(t, h, "ListHandshakesForAccount", nil)
-	assert.True(t, rec.Code >= 200 && rec.Code < 300 || rec.Code == 400)
+	// ListHandshakesForOrganization must include the invite just created.
+	rec = doRequest(t, h, "ListHandshakesForOrganization", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.True(t, handshakeListContains(t, rec, handshakeID),
+		"ListHandshakesForOrganization must include the just-created handshake")
+
+	// ListHandshakesForAccount must include the same invite.
+	rec = doRequest(t, h, "ListHandshakesForAccount", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.True(t, handshakeListContains(t, rec, handshakeID),
+		"ListHandshakesForAccount must include the just-created handshake")
+}
+
+func handshakeListContains(t *testing.T, rec *httptest.ResponseRecorder, handshakeID string) bool {
+	t.Helper()
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+	handshakes, ok := resp["Handshakes"].([]any)
+	require.True(t, ok)
+
+	for _, h := range handshakes {
+		entry, entryOK := h.(map[string]any)
+		if entryOK && entry["Id"] == handshakeID {
+			return true
+		}
+	}
+
+	return false
 }
 
 // TestEnableAllFeatures tests that EnableAllFeatures returns a Handshake.
@@ -478,28 +507,28 @@ func TestHandler_DescribeResponsibilityTransfer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		handshakeID string
-		seed        bool
-		wantStatus  int
+		name       string
+		transferID string
+		seed       bool
+		wantStatus int
 	}{
 		{
-			name:        "found",
-			handshakeID: "h-rt00001",
-			seed:        true,
-			wantStatus:  http.StatusOK,
+			name:       "found",
+			transferID: "rt-00000001",
+			seed:       true,
+			wantStatus: http.StatusOK,
 		},
 		{
-			name:        "not_found",
-			handshakeID: "h-missing",
-			seed:        false,
-			wantStatus:  http.StatusBadRequest,
+			name:       "not_found",
+			transferID: "rt-missing",
+			seed:       false,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:        "missing_id",
-			handshakeID: "",
-			seed:        false,
-			wantStatus:  http.StatusBadRequest,
+			name:       "missing_id",
+			transferID: "",
+			seed:       false,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -511,20 +540,19 @@ func TestHandler_DescribeResponsibilityTransfer(t *testing.T) {
 			h := organizations.NewHandler(b)
 
 			if tt.seed {
-				now := time.Now()
-				b.AddHandshakeInternal(&organizations.Handshake{
-					ID:                  tt.handshakeID,
-					ARN:                 "arn:aws:organizations::123456789012:handshake/o-test/transfer/" + tt.handshakeID,
-					Action:              "APPROVE_ALL_FEATURES",
-					State:               "OPEN",
-					RequestedTimestamp:  now,
-					ExpirationTimestamp: now.Add(7 * 24 * time.Hour),
+				b.AddResponsibilityTransferInternal(&organizations.ResponsibilityTransfer{
+					ID:                tt.transferID,
+					ARN:               "arn:aws:organizations::123456789012:transfer/o-test/billing/outbound/" + tt.transferID,
+					ActiveHandshakeID: "h-rt00001",
+					Name:              "billing-transfer",
+					Status:            "REQUESTED",
+					Type:              "BILLING",
 				})
 			}
 
 			body := map[string]any{}
-			if tt.handshakeID != "" {
-				body["HandshakeId"] = tt.handshakeID
+			if tt.transferID != "" {
+				body["Id"] = tt.transferID
 			}
 
 			rec := doRequest(t, h, "DescribeResponsibilityTransfer", body)
@@ -533,9 +561,11 @@ func TestHandler_DescribeResponsibilityTransfer(t *testing.T) {
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
 				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-				details, ok := resp["HandshakeDetails"].(map[string]any)
-				require.True(t, ok, "response must have HandshakeDetails")
-				assert.Equal(t, tt.handshakeID, details["Id"])
+				details, ok := resp["ResponsibilityTransfer"].(map[string]any)
+				require.True(t, ok, "response must have ResponsibilityTransfer")
+				assert.Equal(t, tt.transferID, details["Id"])
+				assert.Equal(t, "billing-transfer", details["Name"])
+				assert.Equal(t, "REQUESTED", details["Status"])
 			}
 		})
 	}

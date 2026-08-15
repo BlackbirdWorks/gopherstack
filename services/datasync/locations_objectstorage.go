@@ -95,7 +95,7 @@ func (b *InMemoryBackend) DescribeLocationObjectStorage(locationArn string) (*Lo
 }
 
 func (b *InMemoryBackend) UpdateLocationObjectStorage(
-	locationArn, serverProtocol, subdirectory, accessKey, secretKey string,
+	locationArn, serverHostname, serverProtocol, subdirectory, accessKey, secretKey string,
 	serverPort int32,
 	agentArns []string,
 	secretConfig SecretConfig,
@@ -116,9 +116,16 @@ func (b *InMemoryBackend) UpdateLocationObjectStorage(
 		l.ObjectStorage = &storedObjectStorageConfig{}
 	}
 
+	if serverHostname != "" {
+		l.ObjectStorage.ServerHostname = serverHostname
+	}
+
 	if subdirectory != "" {
 		l.Subdirectory = subdirectory
-		sub := strings.TrimPrefix(subdirectory, "/")
+	}
+
+	if serverHostname != "" || subdirectory != "" {
+		sub := strings.TrimPrefix(l.Subdirectory, "/")
 		l.LocationURI = fmt.Sprintf(
 			"object-storage://%s/%s/%s",
 			l.ObjectStorage.ServerHostname,
@@ -127,33 +134,45 @@ func (b *InMemoryBackend) UpdateLocationObjectStorage(
 		)
 	}
 
+	updateObjectStorageFields(l.ObjectStorage, serverProtocol, accessKey, secretKey, serverPort, agentArns)
+	updateObjectStorageSecretConfig(l.ObjectStorage, secretConfig)
+
+	return nil
+}
+
+func updateObjectStorageFields(
+	cfg *storedObjectStorageConfig,
+	serverProtocol, accessKey, secretKey string,
+	serverPort int32,
+	agentArns []string,
+) {
 	if serverProtocol != "" {
-		l.ObjectStorage.ServerProtocol = serverProtocol
+		cfg.ServerProtocol = serverProtocol
 	}
 
 	if accessKey != "" {
-		l.ObjectStorage.AccessKey = accessKey
+		cfg.AccessKey = accessKey
 	}
 
 	if secretKey != "" {
-		l.ObjectStorage.SecretKey = secretKey
+		cfg.SecretKey = secretKey
 	}
 
 	if serverPort > 0 {
-		l.ObjectStorage.ServerPort = serverPort
+		cfg.ServerPort = serverPort
 	}
 
 	if agentArns != nil {
-		l.ObjectStorage.AgentArns = agentArns
+		cfg.AgentArns = agentArns
 	}
+}
 
+func updateObjectStorageSecretConfig(cfg *storedObjectStorageConfig, secretConfig SecretConfig) {
 	if secretConfig.Cmk != nil {
-		l.ObjectStorage.CmkSecretConfig = toStoredCmkSecretConfig(secretConfig.Cmk)
+		cfg.CmkSecretConfig = toStoredCmkSecretConfig(secretConfig.Cmk)
 	}
 
 	if secretConfig.Custom != nil {
-		l.ObjectStorage.CustomSecretConfig = toStoredCustomSecretConfig(secretConfig.Custom)
+		cfg.CustomSecretConfig = toStoredCustomSecretConfig(secretConfig.Custom)
 	}
-
-	return nil
 }

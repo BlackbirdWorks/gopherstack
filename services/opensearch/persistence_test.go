@@ -267,6 +267,7 @@ func TestPersistence_DomainIndexesRoundTrip(t *testing.T) {
 		map[string]any{"properties": map[string]any{"field": "text"}},
 		map[string]any{"number_of_shards": 1},
 		map[string]any{},
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-index", idx.IndexName)
@@ -511,7 +512,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.AddDataSource(domain.Name, "ds-1", "a data source", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
-	_, err = original.CreateIndex(domain.Name, "idx-1", nil, nil, nil)
+	_, err = original.CreateIndex(domain.Name, "idx-1", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = original.GetDryRunProgress(domain.Name)

@@ -80,7 +80,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// certificates
-	certID, err := original.RegisterCertificate(ctx, dirID, testCertPEM, "ClientCertAuth")
+	certID, err := original.RegisterCertificate(ctx, dirID, testCertPEM, "ClientCertAuth", "http://ocsp.example.com")
 	require.NoError(t, err)
 
 	// ldapsSettings
@@ -104,7 +104,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.EnableDirectoryDataAccess(ctx, dirID))
 
 	// caEnrollment (raw map)
-	require.NoError(t, original.EnableCAEnrollmentPolicy(ctx, dirID))
+	require.NoError(
+		t,
+		original.EnableCAEnrollmentPolicy(
+			ctx,
+			dirID,
+			"arn:aws:pca-connector-ad:us-east-1:000000000000:connector/conn-1",
+		),
+	)
 
 	// adAssessments
 	assessmentID, err := original.StartADAssessment(ctx, dirID, nil)
@@ -238,6 +245,7 @@ func assertTrustStateRestored(t *testing.T, b *directoryservice.InMemoryBackend,
 	require.NoError(t, err)
 	assert.Equal(t, testCertPEM, cert.CertData)
 	assert.Equal(t, "test", cert.CommonName)
+	assert.Equal(t, "http://ocsp.example.com", cert.OCSPUrl)
 
 	ldaps, _, err := b.DescribeLDAPSSettings(ctx, dirID, "", 0, "")
 	require.NoError(t, err)
@@ -268,9 +276,10 @@ func assertSettingsStateRestored(t *testing.T, b *directoryservice.InMemoryBacke
 
 	policy, err := b.DescribeCAEnrollmentPolicy(ctx, dirID)
 	require.NoError(t, err)
-	assert.True(t, policy.Enabled)
+	assert.Equal(t, directoryservice.CaEnrollmentPolicyStatusSuccess, policy.Status)
+	assert.Equal(t, "arn:aws:pca-connector-ad:us-east-1:000000000000:connector/conn-1", policy.PcaConnectorArn)
 
-	assessment, err := b.DescribeADAssessment(ctx, dirID, assessmentID)
+	assessment, err := b.DescribeADAssessment(ctx, assessmentID)
 	require.NoError(t, err)
 	assert.Equal(t, "CUSTOMER", assessment.AssessType)
 

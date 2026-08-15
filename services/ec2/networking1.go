@@ -55,6 +55,7 @@ type LaunchTemplateVersion struct {
 	CreateTime         time.Time `json:"createTime"`
 	LaunchTemplateID   string    `json:"launchTemplateId,omitempty"`
 	LaunchTemplateName string    `json:"launchTemplateName,omitempty"`
+	CreatedBy          string    `json:"createdBy,omitempty"`
 	ImageID            string    `json:"imageId,omitempty"`
 	InstanceType       string    `json:"instanceType,omitempty"`
 	VersionNumber      int64     `json:"versionNumber"`
@@ -150,6 +151,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayVpcAttachment(id string) error {
 func (b *InMemoryBackend) CreateFlowLogs(
 	resourceIDs []string,
 	trafficType, logDestinationType, logDestination string,
+	tags map[string]string,
 ) ([]*FlowLog, error) {
 	if len(resourceIDs) == 0 {
 		return nil, fmt.Errorf("%w: at least one ResourceId is required", ErrInvalidParameter)
@@ -179,6 +181,7 @@ func (b *InMemoryBackend) CreateFlowLogs(
 			CreationTime:       time.Now().UTC(),
 		}
 		b.flowLogs.Put(fl)
+		b.setTagsLocked(fl.FlowLogID, tags)
 
 		cp := *fl
 		out = append(out, &cp)
@@ -390,6 +393,7 @@ func (b *InMemoryBackend) CreateLaunchTemplateVersion(
 	ver := &LaunchTemplateVersion{
 		LaunchTemplateID:   lt.ID,
 		LaunchTemplateName: lt.Name,
+		CreatedBy:          lt.CreatedBy,
 		ImageID:            lt.ImageID,
 		InstanceType:       lt.InstanceType,
 		CreateTime:         time.Now().UTC(),

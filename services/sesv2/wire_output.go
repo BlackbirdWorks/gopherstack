@@ -286,28 +286,77 @@ func toDeliverabilityTestReportItemOutput(r *DeliverabilityTestReport) deliverab
 // ---- export / import jobs ----
 
 // exportJobOutput mirrors both GetExportJobOutput's top-level fields and
-// types.ExportJobSummary, the ListExportJobs item shape (both reduce to
-// JobId/JobStatus/CreatedTimestamp for the fields gopherstack models).
+// types.ExportJobSummary, the ListExportJobs item shape (both share
+// JobId/JobStatus/CreatedTimestamp/ExportSourceType; GetExportJobOutput's
+// additional ExportDataSource/ExportDestination/Statistics/FailureInfo are
+// not modeled -- gopherstack never actually runs the export, so it has
+// nothing to report for them beyond what was already validated on create).
 type exportJobOutput struct {
 	JobID            string  `json:"JobId"`
 	JobStatus        string  `json:"JobStatus"`
+	ExportSourceType string  `json:"ExportSourceType,omitempty"`
 	CreatedTimestamp float64 `json:"CreatedTimestamp,omitempty"`
 }
 
 func toExportJobOutput(j *ExportJob) *exportJobOutput {
-	return &exportJobOutput{JobID: j.JobID, JobStatus: j.JobStatus, CreatedTimestamp: awstime.Epoch(j.CreatedAt)}
+	return &exportJobOutput{
+		JobID:            j.JobID,
+		JobStatus:        j.JobStatus,
+		ExportSourceType: j.ExportSourceType,
+		CreatedTimestamp: awstime.Epoch(j.CreatedAt),
+	}
+}
+
+// contactListDestinationOutput mirrors types.ContactListDestination.
+type contactListDestinationOutput struct {
+	ContactListImportAction string `json:"ContactListImportAction"`
+	ContactListName         string `json:"ContactListName"`
+}
+
+// suppressionListDestinationOutput mirrors types.SuppressionListDestination.
+type suppressionListDestinationOutput struct {
+	SuppressionListImportAction string `json:"SuppressionListImportAction"`
+}
+
+// importDestinationOutput mirrors types.ImportDestination.
+type importDestinationOutput struct {
+	ContactListDestination     *contactListDestinationOutput     `json:"ContactListDestination,omitempty"`
+	SuppressionListDestination *suppressionListDestinationOutput `json:"SuppressionListDestination,omitempty"`
+}
+
+func toImportDestinationOutput(d ImportDestination) *importDestinationOutput {
+	if d.ContactListImportAction != "" {
+		return &importDestinationOutput{ContactListDestination: &contactListDestinationOutput{
+			ContactListImportAction: d.ContactListImportAction,
+			ContactListName:         d.ContactListName,
+		}}
+	}
+
+	return &importDestinationOutput{SuppressionListDestination: &suppressionListDestinationOutput{
+		SuppressionListImportAction: d.SuppressionListImportAction,
+	}}
 }
 
 // importJobOutput mirrors both GetImportJobOutput's top-level fields and
-// types.ImportJobSummary, the ListImportJobs item shape.
+// types.ImportJobSummary, the ListImportJobs item shape (both share
+// JobId/JobStatus/CreatedTimestamp/ImportDestination; GetImportJobOutput's
+// additional ImportDataSource/FailureInfo/Processed*Count are not modeled --
+// gopherstack never actually runs the import, so it has nothing to report
+// for them beyond what was already validated on create).
 type importJobOutput struct {
-	JobID            string  `json:"JobId"`
-	JobStatus        string  `json:"JobStatus"`
-	CreatedTimestamp float64 `json:"CreatedTimestamp,omitempty"`
+	ImportDestination *importDestinationOutput `json:"ImportDestination,omitempty"`
+	JobID             string                   `json:"JobId"`
+	JobStatus         string                   `json:"JobStatus"`
+	CreatedTimestamp  float64                  `json:"CreatedTimestamp,omitempty"`
 }
 
 func toImportJobOutput(j *ImportJob) *importJobOutput {
-	return &importJobOutput{JobID: j.JobID, JobStatus: j.JobStatus, CreatedTimestamp: awstime.Epoch(j.CreatedAt)}
+	return &importJobOutput{
+		JobID:             j.JobID,
+		JobStatus:         j.JobStatus,
+		ImportDestination: toImportDestinationOutput(j.ImportDestination),
+		CreatedTimestamp:  awstime.Epoch(j.CreatedAt),
+	}
 }
 
 // ---- account ----

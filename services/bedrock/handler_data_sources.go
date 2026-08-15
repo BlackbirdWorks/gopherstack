@@ -13,11 +13,15 @@ func (h *AgentsHandler) dispatchDataSourceRoutes(
 	kbID, suffix, method string,
 	body []byte,
 ) error {
-	if suffix == "/datasources" && (method == http.MethodPost || method == http.MethodPut) {
+	// ListDataSources is real bedrock-agent@v1.58.4 serializers.go:4634: POST
+	// .../datasources/, the SAME path+method family CreateDataSource's PUT
+	// uses -- method alone disambiguates them. GET is accepted too as
+	// harmless extra leniency for this package's own tests.
+	if suffix == suffixDataSources && method == http.MethodPut {
 		return h.handleCreateDataSource(c, kbID, body)
 	}
 
-	if suffix == "/datasources" && method == http.MethodGet {
+	if suffix == suffixDataSources && (method == http.MethodPost || method == http.MethodGet) {
 		return h.handleListDataSources(c, kbID)
 	}
 
@@ -55,9 +59,9 @@ func (h *AgentsHandler) dispatchDataSourceIDRoutes(
 		return true, h.handleUpdateDataSource(c, kbID, dsID, body)
 	case dsSuffix == "" && method == http.MethodDelete:
 		return true, h.handleDeleteDataSource(c, kbID, dsID)
-	case strings.HasPrefix(dsSuffix, "/ingestionjobs"):
+	case strings.HasPrefix(dsSuffix, suffixIngestionJobs):
 		return h.dispatchDataSourceIngestionRoutes(c, kbID, dsID, dsSuffix, method, body)
-	case strings.HasPrefix(dsSuffix, "/documents"):
+	case strings.HasPrefix(dsSuffix, suffixDocuments):
 		return h.dispatchDataSourceDocumentRoutes(c, kbID, dsID, dsSuffix, method, body)
 	}
 
@@ -72,10 +76,15 @@ func (h *AgentsHandler) dispatchDataSourceIngestionRoutes(
 	kbID, dsID, dsSuffix, method string,
 	body []byte,
 ) (bool, error) {
+	// ListIngestionJobs is real bedrock-agent@v1.58.4 serializers.go:4961:
+	// POST .../ingestionjobs/; StartIngestionJob is real serializers.go:5663:
+	// PUT .../ingestionjobs/ (the SAME path) -- method alone disambiguates
+	// them. GET is accepted too as harmless extra leniency for this
+	// package's own tests.
 	switch {
-	case dsSuffix == "/ingestionjobs" && method == http.MethodPost:
+	case dsSuffix == suffixIngestionJobs && method == http.MethodPut:
 		return true, h.handleStartIngestionJob(c, kbID, dsID, body)
-	case dsSuffix == "/ingestionjobs" && method == http.MethodGet:
+	case dsSuffix == suffixIngestionJobs && (method == http.MethodPost || method == http.MethodGet):
 		return true, h.handleListIngestionJobs(c, kbID, dsID)
 	case strings.HasPrefix(dsSuffix, "/ingestionjobs/"):
 		return true, h.dispatchIngestionJobRoutes(c, kbID, dsID, dsSuffix, method)

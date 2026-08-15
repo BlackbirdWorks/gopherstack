@@ -298,7 +298,11 @@ func TestPersistence_NewFieldsRoundTrip(t *testing.T) {
 
 	// Create queue with new fields.
 	rp := &mediaconvert.ReservationPlan{ReservedSlots: 2, Status: "ACTIVE"}
-	q, err := b1.CreateQueueFull("snap-q2", "", "", "", nil, 4, rp, map[string]any{"x": true})
+	maxFeeds := 6
+	q, err := b1.CreateQueueFull(
+		"snap-q2", "", "", "", nil, 4, rp, map[string]any{"x": true},
+		mediaconvert.QueueCreateExtras{MaximumConcurrentFeeds: &maxFeeds},
+	)
 	require.NoError(t, err)
 
 	// Create job with new fields.
@@ -319,6 +323,8 @@ func TestPersistence_NewFieldsRoundTrip(t *testing.T) {
 	assert.Equal(t, 4, got.ConcurrentJobs)
 	require.NotNil(t, got.ReservationPlan)
 	assert.Equal(t, 2, got.ReservationPlan.ReservedSlots)
+	require.NotNil(t, got.MaximumConcurrentFeeds)
+	assert.Equal(t, 6, *got.MaximumConcurrentFeeds)
 
 	// Verify job.
 	gotJ, err := b2.GetJob(j.ID)

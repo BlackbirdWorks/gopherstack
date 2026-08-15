@@ -50,13 +50,17 @@ type describeConnectionAliasesInput struct {
 	Limit      int32    `json:"Limit"`
 }
 
+// connAliasResp mirrors the real ConnectionAlias shape (field-diffed against
+// deserializers.go's awsAwsjson11_deserializeDocumentConnectionAlias): there
+// is no top-level "ConnectionIdentifier" -- that field only exists on the
+// nested Associations[] entries (ConnectionAliasAssociation), and on
+// AssociateConnectionAliasOutput, a distinct op response.
 type connAliasResp struct {
-	AliasId              string               `json:"AliasId"` //nolint:revive,staticcheck // existing issue.
-	ConnectionString     string               `json:"ConnectionString"`
-	State                string               `json:"State"`
-	OwnerAccountId       string               `json:"OwnerAccountId"` //nolint:revive,staticcheck // existing issue.
-	ConnectionIdentifier string               `json:"ConnectionIdentifier,omitempty"`
-	Associations         []connAliasAssocResp `json:"Associations,omitempty"`
+	AliasId          string               `json:"AliasId"` //nolint:revive,staticcheck // existing issue.
+	ConnectionString string               `json:"ConnectionString"`
+	State            string               `json:"State"`
+	OwnerAccountId   string               `json:"OwnerAccountId"` //nolint:revive,staticcheck // existing issue.
+	Associations     []connAliasAssocResp `json:"Associations,omitempty"`
 }
 
 type connAliasAssocResp struct {
@@ -84,11 +88,10 @@ func (h *Handler) handleDescribeConnectionAliases(
 	items := make([]connAliasResp, 0, len(aliases))
 	for _, a := range aliases {
 		item := connAliasResp{
-			AliasId:              a.AliasID,
-			ConnectionString:     a.ConnectionString,
-			State:                a.State,
-			OwnerAccountId:       a.OwnerAccountID,
-			ConnectionIdentifier: a.ConnectionIdentifier,
+			AliasId:          a.AliasID,
+			ConnectionString: a.ConnectionString,
+			State:            a.State,
+			OwnerAccountId:   a.OwnerAccountID,
 		}
 		if a.AssociatedResource != "" {
 			item.Associations = []connAliasAssocResp{{

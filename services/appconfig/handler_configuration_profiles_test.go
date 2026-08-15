@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	appconfigsdk "github.com/aws/aws-sdk-go-v2/service/appconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -163,6 +165,49 @@ func TestHandler_UpdateConfigurationProfile_RetrievalRoleArnAndValidators(t *tes
 		"RetrievalRoleArn must be applied, not silently dropped")
 	require.Len(t, updated.Validators, 1, "Validators must be applied, not silently dropped")
 	assert.Equal(t, "keep-me", updated.Description, "omitted Description must be preserved")
+}
+
+// TestKmsKeyIdentifierViaSDKClient proves CreateConfigurationProfileInput's
+// real KmsKeyIdentifier member (appconfig@v1.48.4
+// api_op_CreateConfigurationProfile.go) is no longer silently discarded and
+// is echoed back on Create/Get/Update. KmsKeyArn is deliberately left
+// unmodeled (no honest ARN-resolution source, see ConfigurationProfile's
+// doc comment) so it is asserted absent, not present.
+func TestKmsKeyIdentifierViaSDKClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestAppConfigClient(t, h)
+
+	appOut, err := client.CreateApplication(t.Context(), &appconfigsdk.CreateApplicationInput{
+		Name: aws.String("kms-id-app"),
+	})
+	require.NoError(t, err)
+
+	createOut, err := client.CreateConfigurationProfile(t.Context(), &appconfigsdk.CreateConfigurationProfileInput{
+		ApplicationId:    appOut.Id,
+		Name:             aws.String("kms-id-profile"),
+		LocationUri:      aws.String("hosted"),
+		KmsKeyIdentifier: aws.String("alias/my-key"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "alias/my-key", aws.ToString(createOut.KmsKeyIdentifier))
+	assert.Empty(t, aws.ToString(createOut.KmsKeyArn), "no honest ARN source, must stay absent")
+
+	getOut, err := client.GetConfigurationProfile(t.Context(), &appconfigsdk.GetConfigurationProfileInput{
+		ApplicationId:          appOut.Id,
+		ConfigurationProfileId: createOut.Id,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "alias/my-key", aws.ToString(getOut.KmsKeyIdentifier))
+
+	updateOut, err := client.UpdateConfigurationProfile(t.Context(), &appconfigsdk.UpdateConfigurationProfileInput{
+		ApplicationId:          appOut.Id,
+		ConfigurationProfileId: createOut.Id,
+		KmsKeyIdentifier:       aws.String("alias/rotated-key"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "alias/rotated-key", aws.ToString(updateOut.KmsKeyIdentifier))
 }
 
 // TestHandler_CreateConfigurationProfile_TagsAppliedInline verifies that

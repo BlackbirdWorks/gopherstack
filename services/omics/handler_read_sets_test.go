@@ -126,7 +126,7 @@ func TestOmics_UploadReadSetPart_And_GetReadSet(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec4.Code)
 				var rsResp map[string]any
 				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &rsResp))
-				rsID := rsResp["id"].(string)
+				rsID := rsResp["readSetId"].(string)
 
 				rec5 := doRequestRaw(t, h, http.MethodGet,
 					fmt.Sprintf("/sequencestore/%s/readset/%s", storeID, rsID),
@@ -375,8 +375,23 @@ func TestReadSetMetadata_FilesField_MultipartUpload(t *testing.T) {
 			)
 			require.Equal(t, http.StatusOK, completeRec.Code)
 
+			// Real CompleteMultipartReadSetUploadOutput's only member is
+			// "readSetId" -- the files sub-object only ever appears on
+			// GetReadSetMetadata, so fetch it there.
+			var completeResp map[string]any
+			require.NoError(t, json.Unmarshal(completeRec.Body.Bytes(), &completeResp))
+			readSetID, ok := completeResp["readSetId"].(string)
+			require.True(t, ok, "readSetId must be present")
+			require.NotEmpty(t, readSetID)
+
+			getRec := doRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/sequencestore/%s/readset/%s/metadata", storeID, readSetID),
+				nil,
+			)
+			require.Equal(t, http.StatusOK, getRec.Code)
+
 			var rs map[string]any
-			require.NoError(t, json.Unmarshal(completeRec.Body.Bytes(), &rs))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &rs))
 			files, ok := rs["files"].(map[string]any)
 			require.True(t, ok, "files sub-object must be present")
 

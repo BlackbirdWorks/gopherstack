@@ -46,13 +46,19 @@ func matchResolverRuleAssociationFilter(a *ResolverRuleAssociation, name string,
 	}
 }
 
-// resolverRuleAssociationOutput is the JSON representation of a ResolverRuleAssociation.
+// resolverRuleAssociationOutput is the JSON representation of a
+// ResolverRuleAssociation. StatusMessage is a real, non-required
+// types.ResolverRuleAssociation member (deserializers.go) gopherstack never
+// emitted at all -- added (gopherstack-6flj); this backend has no async
+// failure state to source a real value from, so it is correctly always
+// empty/omitted rather than fabricated.
 type resolverRuleAssociationOutput struct {
 	ID             string `json:"Id"`
 	Name           string `json:"Name"`
 	ResolverRuleID string `json:"ResolverRuleId"`
 	VPCId          string `json:"VPCId"`
 	Status         string `json:"Status"`
+	StatusMessage  string `json:"StatusMessage,omitempty"`
 }
 
 // --- CreateFirewallRuleGroup ---

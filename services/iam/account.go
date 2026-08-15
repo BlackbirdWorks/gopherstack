@@ -225,19 +225,58 @@ func (b *InMemoryBackend) GetAccountSummary() AccountSummary {
 	}
 
 	return AccountSummary{
-		Users:             b.users.Len(),
-		Groups:            b.groups.Len(),
-		Roles:             b.roles.Len(),
-		Policies:          b.policies.Len(),
-		InstanceProfiles:  b.instanceProfiles.Len(),
-		SAMLProviders:     b.samlProviders.Len(),
-		MFADevices:        b.virtualMFADevices.Len(),
-		AccessKeysPerUser: totalKeys,
-		ActiveAccessKeys:  activeKeys,
-		AttachedPolicies:  attachedPolicies,
-		AccountAliases:    len(b.accountAliases),
-		OIDCProviders:     b.oidcProviders.Len(),
+		Users:                      b.users.Len(),
+		Groups:                     b.groups.Len(),
+		Roles:                      b.roles.Len(),
+		Policies:                   b.policies.Len(),
+		InstanceProfiles:           b.instanceProfiles.Len(),
+		SAMLProviders:              b.samlProviders.Len(),
+		MFADevices:                 b.virtualMFADevices.Len(),
+		AccessKeysPerUser:          totalKeys,
+		ActiveAccessKeys:           activeKeys,
+		AttachedPolicies:           attachedPolicies,
+		AccountAliases:             len(b.accountAliases),
+		OIDCProviders:              b.oidcProviders.Len(),
+		GlobalEndpointTokenVersion: globalEndpointTokenVersionOrdinal(b.globalEndpointTokenVersion),
 	}
+}
+
+// globalEndpointTokenVersionOrdinal maps the stored GlobalEndpointTokenVersion
+// enum to GetAccountSummary's SummaryMap integer value, per the SDK's
+// SummaryKeyTypeGlobalEndpointTokenVersion entry (aws-sdk-go-v2/service/iam,
+// types/enums.go). Real IAM exposes this preference only through that summary
+// map -- SetSecurityTokenServicePreferences itself has no dedicated getter.
+// globalEndpointTokenVersionOrdinalV1/V2 are GetAccountSummary's
+// GlobalEndpointTokenVersion SummaryMap integer values for v1Token/v2Token.
+const (
+	globalEndpointTokenVersionOrdinalV1 = 1
+	globalEndpointTokenVersionOrdinalV2 = 2
+)
+
+func globalEndpointTokenVersionOrdinal(version string) int {
+	if version == globalEndpointTokenVersionV2 {
+		return globalEndpointTokenVersionOrdinalV2
+	}
+
+	return globalEndpointTokenVersionOrdinalV1
+}
+
+// SetSecurityTokenServicePreferences sets the account's global endpoint token
+// version, observable afterward via GetAccountSummary's
+// GlobalEndpointTokenVersion entry (SetSecurityTokenServicePreferences itself
+// returns no body).
+func (b *InMemoryBackend) SetSecurityTokenServicePreferences(globalEndpointTokenVersion string) error {
+	if globalEndpointTokenVersion != globalEndpointTokenVersionV1 &&
+		globalEndpointTokenVersion != globalEndpointTokenVersionV2 {
+		return fmt.Errorf("%w: GlobalEndpointTokenVersion must be v1Token or v2Token", ErrValidationError)
+	}
+
+	b.mu.Lock("SetSecurityTokenServicePreferences")
+	defer b.mu.Unlock()
+
+	b.globalEndpointTokenVersion = globalEndpointTokenVersion
+
+	return nil
 }
 
 // accessKeyCountLocked returns total and active access key counts.
@@ -400,18 +439,62 @@ func (b *InMemoryBackend) CreateAccountAlias(alias string) error {
 	return nil
 }
 
-// CreateDelegationRequest creates a delegation request (stub implementation).
-func (b *InMemoryBackend) CreateDelegationRequest(targetAccountID string) (*DelegationRequest, error) {
+// delegationRequestArnResource is the resource-type segment gopherstack uses
+// for delegation request ARNs (arn:aws:iam::<account>:delegation-request/<id>).
+// Real AWS does not document an ARN format for delegation requests, but
+// GetHumanReadableSummary's EntityArn ("At this time, the only supported
+// entity type is delegation-request") requires one to resolve requests by
+// ARN, so this is a synthetic-but-plausible placeholder, not a claimed match.
+const delegationRequestArnResource = "delegation-request/"
+
+// delegationRequestConsoleDeepLink deterministically derives
+// CreateDelegationRequestOutput.ConsoleDeepLink. Real AWS does not publish
+// this URL's format, so this is a synthetic-but-plausible placeholder
+// (mirrors outboundFederationIssuerURL above), computed on demand rather
+// than stored.
+func delegationRequestConsoleDeepLink(delegationID string) string {
+	return "https://console.gopherstack.local/iam/delegation-requests/" + delegationID
+}
+
+// delegationRequestIDFromArn extracts the delegation request ID from an
+// EntityArn built by delegationRequestArnResource, e.g.
+// "arn:aws:iam::123456789012:delegation-request/abc" -> "abc".
+func delegationRequestIDFromArn(entityArn string) (string, bool) {
+	idx := strings.LastIndex(entityArn, delegationRequestArnResource)
+	if idx == -1 {
+		return "", false
+	}
+
+	id := entityArn[idx+len(delegationRequestArnResource):]
+	if id == "" {
+		return "", false
+	}
+
+	return id, true
+}
+
+// CreateDelegationRequest creates a delegation request. Caller (the handler)
+// has already validated in's required members.
+func (b *InMemoryBackend) CreateDelegationRequest(in CreateDelegationRequestInput) (*DelegationRequest, error) {
 	delegationID := uuid.New().String()
 
 	b.mu.Lock("CreateDelegationRequest")
 	defer b.mu.Unlock()
 
 	req := DelegationRequest{
-		DelegationID:    delegationID,
-		TargetAccountID: targetAccountID,
-		Status:          "PENDING",
-		CreateDate:      time.Now().UTC(),
+		DelegationID:         delegationID,
+		TargetAccountID:      in.OwnerAccountID,
+		Status:               "PENDING",
+		CreateDate:           time.Now().UTC(),
+		Description:          in.Description,
+		NotificationChannel:  in.NotificationChannel,
+		RequestorWorkflowID:  in.RequestorWorkflowID,
+		SessionDuration:      in.SessionDuration,
+		OnlySendByOwner:      in.OnlySendByOwner,
+		RedirectURL:          in.RedirectURL,
+		RequestMessage:       in.RequestMessage,
+		PolicyTemplateArn:    in.PolicyTemplateArn,
+		PermissionParameters: in.PermissionParameters,
 	}
 
 	b.delegationRequests.Put(&req)
@@ -419,14 +502,27 @@ func (b *InMemoryBackend) CreateDelegationRequest(targetAccountID string) (*Dele
 	return &req, nil
 }
 
-// AcceptDelegationRequest accepts a delegation request (stub implementation).
+// DelegationRequestExists reports whether a delegation request with the
+// given ID exists. Used by GetHumanReadableSummary to distinguish a real
+// (but unsummarizable, see PARITY.md) entity from an unknown one.
+func (b *InMemoryBackend) DelegationRequestExists(delegationID string) bool {
+	b.mu.RLock("DelegationRequestExists")
+	defer b.mu.RUnlock()
+
+	_, exists := b.delegationRequests.Get(delegationID)
+
+	return exists
+}
+
+// AcceptDelegationRequest accepts a delegation request, granting the
+// requested temporary access.
 func (b *InMemoryBackend) AcceptDelegationRequest(delegationID string) error {
 	b.mu.Lock("AcceptDelegationRequest")
 	defer b.mu.Unlock()
 
 	req, exists := b.delegationRequests.Get(delegationID)
 	if !exists {
-		return fmt.Errorf("%w: delegation request %q not found", ErrInvalidAction, delegationID)
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
 	}
 
 	req.Status = "ACCEPTED"
@@ -435,36 +531,109 @@ func (b *InMemoryBackend) AcceptDelegationRequest(delegationID string) error {
 	return nil
 }
 
-// AssociateDelegationRequest associates a delegation request with a policy ARN (stub implementation).
-func (b *InMemoryBackend) AssociateDelegationRequest(delegationID, policyArn string) error {
+// AssociateDelegationRequest associates a delegation request with the
+// current identity. The real AssociateDelegationRequestInput carries only
+// DelegationRequestId (api_op_AssociateDelegationRequest.go) -- there is no
+// PolicyArn on the wire, so this does not take or store one. gopherstack has
+// no caller-identity plumbing to honestly populate the real ownerId/
+// ownerAccount side effect, so this validates the request exists and stops
+// there, same as AcceptDelegationRequest's precondition-enforcement gap.
+func (b *InMemoryBackend) AssociateDelegationRequest(delegationID string) error {
 	b.mu.Lock("AssociateDelegationRequest")
+	defer b.mu.Unlock()
+
+	if _, exists := b.delegationRequests.Get(delegationID); !exists {
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
+	}
+
+	return nil
+}
+
+// RejectDelegationRequest denies a delegation request's requested temporary
+// access. Real RejectDelegationRequest (api_op_RejectDelegationRequest.go)
+// documents that a rejected request "cannot be accepted or updated later",
+// but declares no dedicated state-conflict error for violating that, so --
+// like AcceptDelegationRequest/AssociateDelegationRequest above -- this does
+// not enforce it.
+func (b *InMemoryBackend) RejectDelegationRequest(delegationID, notes string) error {
+	b.mu.Lock("RejectDelegationRequest")
 	defer b.mu.Unlock()
 
 	req, exists := b.delegationRequests.Get(delegationID)
 	if !exists {
-		return fmt.Errorf("%w: delegation request %q not found", ErrInvalidAction, delegationID)
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
 	}
 
-	req.PolicyArn = policyArn
+	req.Status = "REJECTED"
+	req.Notes = notes
 	b.delegationRequests.Put(req)
 
 	return nil
 }
 
-// ChangePassword changes the IAM user password, validating against the account password policy.
-// In real AWS, this operates on the currently authenticated user.
-func (b *InMemoryBackend) ChangePassword(newPassword string) error {
+// SendDelegationToken transitions a delegation request to FINALIZED, per
+// api_op_SendDelegationToken.go's documented state machine ("must be in the
+// ACCEPTED state... After the SendDelegationToken API call is successful,
+// the request transitions to a FINALIZED state").
+func (b *InMemoryBackend) SendDelegationToken(delegationID string) error {
+	b.mu.Lock("SendDelegationToken")
+	defer b.mu.Unlock()
+
+	req, exists := b.delegationRequests.Get(delegationID)
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
+	}
+
+	req.Status = "FINALIZED"
+	b.delegationRequests.Put(req)
+
+	return nil
+}
+
+// UpdateDelegationRequest records additional Notes on a delegation request
+// and transitions it to PENDING_APPROVAL, per
+// api_op_UpdateDelegationRequest.go's doc comment.
+func (b *InMemoryBackend) UpdateDelegationRequest(delegationID, notes string) error {
+	b.mu.Lock("UpdateDelegationRequest")
+	defer b.mu.Unlock()
+
+	req, exists := b.delegationRequests.Get(delegationID)
+	if !exists {
+		return fmt.Errorf("%w: %s", ErrDelegationRequestNotFound, delegationID)
+	}
+
+	req.Status = "PENDING_APPROVAL"
+	req.Notes = notes
+	b.delegationRequests.Put(req)
+
+	return nil
+}
+
+// ChangePassword changes the IAM user password, validating OldPassword against the
+// account's current password and NewPassword against the account password policy.
+// In real AWS, this operates on the currently authenticated user; this mock tracks a
+// single account-wide current password since it has no per-request caller identity.
+func (b *InMemoryBackend) ChangePassword(oldPassword, newPassword string) error {
+	if oldPassword == "" {
+		return fmt.Errorf("%w: OldPassword must not be empty", ErrOldPasswordIncorrect)
+	}
+
 	if newPassword == "" {
 		return fmt.Errorf("%w: new password must not be empty", ErrInvalidPassword)
 	}
 
-	b.mu.RLock("ChangePassword")
-	policy := b.passwordPolicy
-	b.mu.RUnlock()
+	b.mu.Lock("ChangePassword")
+	defer b.mu.Unlock()
 
-	if err := validatePasswordAgainstPolicy(newPassword, policy); err != nil {
+	if b.currentPassword != "" && oldPassword != b.currentPassword {
+		return fmt.Errorf("%w: old password does not match", ErrOldPasswordIncorrect)
+	}
+
+	if err := validatePasswordAgainstPolicy(newPassword, b.passwordPolicy); err != nil {
 		return err
 	}
+
+	b.currentPassword = newPassword
 
 	return nil
 }

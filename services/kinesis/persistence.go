@@ -32,12 +32,13 @@ const kinesisSnapshotVersion = 1
 // carries no identity of its own to hand a store.Table keyFn, so it is
 // persisted the same way it always was.
 type backendSnapshot struct {
-	Tables                   map[string]json.RawMessage   `json:"tables"`
-	ResourcePolicies         map[string]map[string]string `json:"resourcePolicies,omitempty"`
-	AccountID                string                       `json:"accountID"`
-	Region                   string                       `json:"region"`
-	OnDemandStreamCountLimit int                          `json:"onDemandStreamCountLimit,omitempty"`
-	Version                  int                          `json:"version"`
+	MinimumThroughputBillingCommitment MinimumThroughputBillingCommitmentOutput `json:"minimumThroughputBillingCommitment"`
+	Tables                             map[string]json.RawMessage               `json:"tables"`
+	ResourcePolicies                   map[string]map[string]string             `json:"resourcePolicies,omitempty"`
+	AccountID                          string                                   `json:"accountID"`
+	Region                             string                                   `json:"region"`
+	OnDemandStreamCountLimit           int                                      `json:"onDemandStreamCountLimit,omitempty"`
+	Version                            int                                      `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -55,12 +56,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:                  kinesisSnapshotVersion,
-		Tables:                   tables,
-		ResourcePolicies:         b.resourcePolicies,
-		AccountID:                b.accountID,
-		Region:                   b.region,
-		OnDemandStreamCountLimit: b.onDemandStreamCountLimit,
+		Version:                            kinesisSnapshotVersion,
+		Tables:                             tables,
+		ResourcePolicies:                   b.resourcePolicies,
+		AccountID:                          b.accountID,
+		Region:                             b.region,
+		OnDemandStreamCountLimit:           b.onDemandStreamCountLimit,
+		MinimumThroughputBillingCommitment: b.minimumThroughputBillingCommitment,
 	}
 
 	data, err := json.Marshal(snap)
@@ -122,6 +124,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.onDemandStreamCountLimit = snap.OnDemandStreamCountLimit
 	} else {
 		b.onDemandStreamCountLimit = defaultOnDemandStreamCountLimit
+	}
+
+	if snap.MinimumThroughputBillingCommitment.Status == "" {
+		b.minimumThroughputBillingCommitment = MinimumThroughputBillingCommitmentOutput{
+			Status: minimumThroughputBillingCommitmentDisabled,
+		}
+	} else {
+		b.minimumThroughputBillingCommitment = snap.MinimumThroughputBillingCommitment
 	}
 
 	return nil

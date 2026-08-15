@@ -72,7 +72,7 @@ func newPersistenceTestBackend(t *testing.T) (*opsworks.InMemoryBackend, persist
 	require.NoError(t, b.AttachElasticLoadBalancer("elb1", layer.LayerID))
 
 	elasticIP := "203.0.113.5"
-	_, err = b.RegisterElasticIP(elasticIP, "us-east-1")
+	_, err = b.RegisterElasticIP(elasticIP, stack.StackID)
 	require.NoError(t, err)
 	require.NoError(t, b.AssociateElasticIP(elasticIP, instance.InstanceID))
 
@@ -183,16 +183,17 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "alice", profiles[0].SSHUsername)
 
 	// elasticLBs table.
-	elbs, err := fresh.DescribeElasticLoadBalancers(ids.stackID, "")
+	elbs, err := fresh.DescribeElasticLoadBalancers(ids.stackID, nil)
 	require.NoError(t, err)
 	require.Len(t, elbs, 1)
 	assert.Equal(t, ids.elbName, elbs[0].ElasticLoadBalancerName)
 
 	// elasticIPs table.
-	eips, err := fresh.DescribeElasticIps("", []string{ids.elasticIP})
+	eips, err := fresh.DescribeElasticIps("", "", []string{ids.elasticIP})
 	require.NoError(t, err)
 	require.Len(t, eips, 1)
 	assert.Equal(t, ids.instanceID, eips[0].InstanceID)
+	assert.Equal(t, ids.stackID, eips[0].StackID)
 
 	// volumes table + volumesByStack index.
 	volumes, err := fresh.DescribeVolumes("", "", "", []string{ids.volumeID})

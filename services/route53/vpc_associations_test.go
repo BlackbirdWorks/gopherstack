@@ -25,7 +25,7 @@ func TestDisassociateVPC_NotAssociated(t *testing.T) {
 
 			b := route53.NewInMemoryBackend()
 
-			hz, err := b.CreateHostedZone("example.com", "ref-priv", "", true, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-priv", "", true, "", "", "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-aaa", "us-east-1"))
@@ -60,7 +60,7 @@ func TestDisassociateVPC_LastVPCRejected(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("private.example.com", "priv-ref", "", true, "")
+			hz, err := b.CreateHostedZone("private.example.com", "priv-ref", "", true, "", "", "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-only", "us-east-1"))
@@ -134,7 +134,7 @@ func TestDisassociateVPC_WithMultipleVPCs_Succeeds(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("private.example.com", "priv-multi-ref-"+tt.name, "", true, "")
+			hz, err := b.CreateHostedZone("private.example.com", "priv-multi-ref-"+tt.name, "", true, "", "", "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-keep", "us-east-1"))
@@ -181,7 +181,7 @@ func TestDuplicateVPC(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "", "", "")
 			require.NoError(t, err)
 
 			err = b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1")
@@ -228,7 +228,7 @@ func TestDeleteZone_CascadesVPC(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "")
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "", "", "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-abc", "us-east-1"))
@@ -332,7 +332,7 @@ func TestDisassociateVPCFromHostedZone(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("private.example.com", "ref", "", true, "")
+	hz, err := b.CreateHostedZone("private.example.com", "ref", "", true, "", "", "")
 	require.NoError(t, err)
 
 	// Associate two VPCs so we can remove one without hitting the last-VPC guard.

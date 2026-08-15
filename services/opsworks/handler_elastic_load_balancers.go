@@ -55,12 +55,7 @@ func (h *Handler) handleDescribeElasticLoadBalancers(_ context.Context, body []b
 		}
 	}
 
-	layerID := ""
-	if len(req.LayerIDs) > 0 {
-		layerID = req.LayerIDs[0]
-	}
-
-	elbs, err := h.Backend.DescribeElasticLoadBalancers(req.StackID, layerID)
+	elbs, err := h.Backend.DescribeElasticLoadBalancers(req.StackID, req.LayerIDs)
 	if err != nil {
 		return nil, err
 	}

@@ -19,7 +19,7 @@ type xmlAccountAttributeList struct {
 }
 
 type xmlDescribeAccountAttributesResult struct {
-	AccountAttributeList xmlAccountAttributeList `xml:"AccountAttributeList"`
+	AccountAttributeList xmlAccountAttributeList `xml:"AccountAttributes"`
 }
 
 type describeAccountAttributesResponse struct {

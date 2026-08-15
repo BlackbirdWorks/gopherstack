@@ -88,6 +88,7 @@ type policyStoreView struct {
 
 // getPolicyStoreOutput mirrors the real SDK's GetPolicyStoreOutput.
 type getPolicyStoreOutput struct {
+	Tags               map[string]string      `json:"tags,omitempty"`
 	PolicyStoreID      string                 `json:"policyStoreId"`
 	Arn                string                 `json:"arn"`
 	Description        string                 `json:"description"`
@@ -122,6 +123,7 @@ func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput
 		ValidationSettings: validationSettingsJSON{Mode: ps.ValidationMode},
 		CedarVersion:       cedarVersion,
 		DeletionProtection: ps.DeletionProtection,
+		Tags:               ps.Tags,
 	}, nil
 }
 

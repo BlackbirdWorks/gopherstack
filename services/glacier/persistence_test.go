@@ -237,7 +237,7 @@ func TestVaultLocks_Persistence(t *testing.T) {
 			_, err := b.CreateVault(testAccountID, testRegion, tt.vaultName)
 			require.NoError(t, err)
 
-			err = b.SetVaultLock(testAccountID, testRegion, tt.vaultName, "policy", tt.lockID)
+			err = b.SetVaultLock(testAccountID, testRegion, tt.vaultName, "{}", tt.lockID)
 			require.NoError(t, err)
 
 			snap := b.Snapshot(t.Context())

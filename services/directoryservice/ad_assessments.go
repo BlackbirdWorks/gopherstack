@@ -90,15 +90,16 @@ func (b *InMemoryBackend) StartADAssessment(
 	return b.startADAssessmentLocked(region, directoryID, cfg)
 }
 
-// DeleteADAssessment deletes an AD assessment.
-func (b *InMemoryBackend) DeleteADAssessment(ctx context.Context, directoryID, assessmentID string) error {
+// DeleteADAssessment deletes an AD assessment. Real DeleteADAssessmentInput
+// (directoryservice@v1.41.4 api_op_DeleteADAssessment.go) is {AssessmentId}
+// only -- assessment IDs are globally addressable, not directory-scoped.
+func (b *InMemoryBackend) DeleteADAssessment(ctx context.Context, assessmentID string) error {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("DeleteADAssessment")
 	defer b.mu.Unlock()
 
-	a, ok := b.adAssessmentGet(region, assessmentID)
-	if !ok || a.DirectoryID != directoryID {
+	if _, ok := b.adAssessmentGet(region, assessmentID); !ok {
 		return ErrAssessmentNotFound
 	}
 
@@ -107,10 +108,12 @@ func (b *InMemoryBackend) DeleteADAssessment(ctx context.Context, directoryID, a
 	return nil
 }
 
-// DescribeADAssessment returns details of an AD assessment.
+// DescribeADAssessment returns details of an AD assessment. Real
+// DescribeADAssessmentInput (api_op_DescribeADAssessment.go) is
+// {AssessmentId} only -- same rationale as DeleteADAssessment.
 func (b *InMemoryBackend) DescribeADAssessment(
 	ctx context.Context,
-	directoryID, assessmentID string,
+	assessmentID string,
 ) (*ADAssessmentInfo, error) {
 	region := getRegion(ctx, b.region)
 
@@ -118,7 +121,7 @@ func (b *InMemoryBackend) DescribeADAssessment(
 	defer b.mu.RUnlock()
 
 	a, ok := b.adAssessmentGet(region, assessmentID)
-	if !ok || a.DirectoryID != directoryID {
+	if !ok {
 		return nil, ErrAssessmentNotFound
 	}
 

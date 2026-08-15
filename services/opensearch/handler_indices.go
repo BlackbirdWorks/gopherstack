@@ -9,6 +9,64 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+// createIndexRealRequest and updateIndexRealRequest mirror
+// CreateIndexInput/UpdateIndexInput in the pinned SDK (api_op_CreateIndex.go:37-60,
+// api_op_UpdateIndex.go:32-52): IndexSchema is a smithy document.Interface, an
+// arbitrary JSON value with no fixed shape, decoded here as `any` and stored
+// verbatim rather than parsed into Mappings/Settings/Aliases.
+type createIndexRealRequest struct {
+	IndexSchema any    `json:"IndexSchema"`
+	IndexName   string `json:"IndexName"`
+}
+
+type updateIndexRealRequest struct {
+	IndexSchema any `json:"IndexSchema"`
+}
+
+// indexStatusResponseJSON is the response for the real CreateIndex/UpdateIndex/
+// DeleteIndex ops: Status is their only field (api_op_CreateIndex.go:62-73,
+// api_op_UpdateIndex.go:54-65, api_op_DeleteIndex.go:44-53).
+type indexStatusResponseJSON struct {
+	Status string `json:"Status"`
+}
+
+// handleCreateIndexRealRoute serves the real CreateIndex op: POST
+// {domainName}/index, with IndexName carried in the body (not the URL) --
+// see the dispatchDomainPostRoutesExtended doc comment. Returns true always
+// (this path is always "handled", success or error).
+func (h *Handler) handleCreateIndexRealRoute(w http.ResponseWriter, r *http.Request, trimmed string) bool {
+	domainName, ok := strings.CutSuffix(trimmed, "/index")
+	if !ok {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "invalid index path")
+
+		return true
+	}
+
+	body, _ := httputils.ReadBody(r)
+
+	var req createIndexRealRequest
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &req)
+	}
+
+	if req.IndexName == "" {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "IndexName is required")
+
+		return true
+	}
+
+	_, err := h.Backend.CreateIndex(domainName, req.IndexName, nil, nil, nil, req.IndexSchema)
+	if err != nil {
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+		return true
+	}
+
+	h.writeJSON(r, w, indexStatusResponseJSON{Status: indexStatusCreated})
+
+	return true
+}
+
 // handleUpdateIndexRoute handles PUT {domainName}/index/{indexName}.
 func (h *Handler) handleUpdateIndexRoute(w http.ResponseWriter, r *http.Request, trimmed string) {
 	parts := strings.SplitN(trimmed, "/index/", 2) //nolint:mnd // path split count
@@ -19,20 +77,18 @@ func (h *Handler) handleUpdateIndexRoute(w http.ResponseWriter, r *http.Request,
 	}
 
 	body, _ := httputils.ReadBody(r)
-	var req struct {
-		Mappings map[string]any `json:"Mappings"`
-		Settings map[string]any `json:"Settings"`
-	}
+	var req updateIndexRealRequest
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
-	idx, err := h.Backend.UpdateIndex(parts[0], parts[1], req.Mappings, req.Settings)
+
+	_, err := h.Backend.UpdateIndex(parts[0], parts[1], nil, nil, req.IndexSchema)
 	if err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return
 	}
-	h.writeJSON(r, w, toIndexResponseJSON(idx))
+	h.writeJSON(r, w, indexStatusResponseJSON{Status: indexStatusUpdated})
 }
 
 // handleIndexGetRoute handles GET routes under {domainName}/index/{indexName}:
@@ -74,7 +130,7 @@ func (h *Handler) handleIndexGetRoute(w http.ResponseWriter, r *http.Request, tr
 
 			return true
 		}
-		h.writeJSON(r, w, toIndexResponseJSON(idx))
+		h.writeJSON(r, w, getIndexResponseJSON{IndexSchema: toIndexSchema(idx)})
 	default:
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "unsupported index operation")
 	}
@@ -103,6 +159,37 @@ func toIndexResponseJSON(idx *DomainIndex) indexResponseJSON {
 		Settings:      idx.Settings,
 		Aliases:       idx.Aliases,
 		DocumentCount: idx.DocumentCount,
+	}
+}
+
+// getIndexResponseJSON is the response for the real GetIndex op: IndexSchema
+// is its only field (api_op_GetIndex.go: "The JSON schema of the index
+// including mappings, settings, and semantic enrichment configuration.
+// This member is required."), an opaque smithy document.Interface value --
+// NOT the IndexName/IndexStatus/DocumentCount metadata shape
+// toIndexResponseJSON builds (that shape belongs to no real op; it predates
+// this fix and was reused here by mistake, leaving the real client's
+// required IndexSchema permanently nil).
+type getIndexResponseJSON struct {
+	IndexSchema any `json:"IndexSchema"`
+}
+
+// toIndexSchema builds GetIndexOutput.IndexSchema from a backend index. When
+// the index was created via the real CreateIndex/UpdateIndex path, the raw
+// schema document is stored verbatim on DomainIndex.IndexSchema and echoed
+// back unchanged. Indices created via the classic mappings/settings/aliases
+// path (handleCreateIndex) have no such raw document, so an equivalent one
+// is synthesized from the same real backend state using the wire field
+// names CreateIndex/UpdateIndex use for their own IndexSchema body.
+func toIndexSchema(idx *DomainIndex) any {
+	if idx.IndexSchema != nil {
+		return idx.IndexSchema
+	}
+
+	return map[string]any{
+		"Mappings": idx.Mappings,
+		"Settings": idx.Settings,
+		"Aliases":  idx.Aliases,
 	}
 }
 
@@ -184,7 +271,7 @@ func (h *Handler) handleCreateIndex(w http.ResponseWriter, r *http.Request, sp i
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
-	idx, err := h.Backend.CreateIndex(sp.domain, sp.index, req.Mappings, req.Settings, req.Aliases)
+	idx, err := h.Backend.CreateIndex(sp.domain, sp.index, req.Mappings, req.Settings, req.Aliases, nil)
 	if err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
@@ -307,13 +394,17 @@ func (h *Handler) handleIndexDeleteRoute(w http.ResponseWriter, r *http.Request,
 		return true
 	}
 
-	idx, err := h.Backend.DeleteIndex(sp.domain, sp.index)
-	if err != nil {
+	// Real DeleteIndexOutput has exactly one field, Status (types.IndexStatus,
+	// api_op_DeleteIndex.go:44-53) -- NOT the full index-metadata shape GetIndex
+	// returns, which toIndexResponseJSON was previously reused for here. A real
+	// client's out.Status was always empty, and the wrong keys (IndexName/
+	// Mappings/Settings/...) were sent instead.
+	if _, err := h.Backend.DeleteIndex(sp.domain, sp.index); err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return true
 	}
-	h.writeJSON(r, w, toIndexResponseJSON(idx))
+	h.writeJSON(r, w, indexStatusResponseJSON{Status: indexStatusDeleted})
 
 	return true
 }

@@ -98,7 +98,10 @@ func (h *Handler) handleDescribeDataset(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(ds)
+	cp := *ds
+	cp.AccountID = ""
+
+	return json.Marshal(cp)
 }
 
 func (h *Handler) handleListDatasets(ctx context.Context, body []byte) ([]byte, error) {

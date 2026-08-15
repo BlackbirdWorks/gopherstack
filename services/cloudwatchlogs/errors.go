@@ -13,13 +13,21 @@ var (
 	ErrExportTaskNotFound            = errors.New("ResourceNotFoundException")
 	ErrImportTaskNotFound            = errors.New("ResourceNotFoundException")
 	ErrValidation                    = errors.New("InvalidParameterException")
-	ErrDeliveryNotFound              = errors.New("ResourceNotFoundException")
-	ErrLogAnomalyDetectorNotFound    = errors.New("ResourceNotFoundException")
-	ErrScheduledQueryNotFound        = errors.New("ResourceNotFoundException")
-	ErrMetricFilterNotFound          = errors.New("ResourceNotFoundException")
-	ErrQueryDefinitionNotFound       = errors.New("ResourceNotFoundException")
-	ErrOperationAborted              = errors.New("OperationAbortedException")
-	ErrInvalidOperation              = errors.New("InvalidOperationException")
+	// ErrValidationException is returned for the small set of operations whose
+	// own awsAwsjson11_deserializeOpError<Op> switch declares ValidationException
+	// rather than InvalidParameterException as its client-error code (e.g.
+	// ListAggregateLogGroupSummaries -- confirmed against
+	// aws-sdk-go-v2/service/cloudwatchlogs@v1.81.1/deserializers.go; most other
+	// ops in this service declare InvalidParameterException instead, which is
+	// what ErrValidation above maps to).
+	ErrValidationException        = errors.New("ValidationException")
+	ErrDeliveryNotFound           = errors.New("ResourceNotFoundException")
+	ErrLogAnomalyDetectorNotFound = errors.New("ResourceNotFoundException")
+	ErrScheduledQueryNotFound     = errors.New("ResourceNotFoundException")
+	ErrMetricFilterNotFound       = errors.New("ResourceNotFoundException")
+	ErrQueryDefinitionNotFound    = errors.New("ResourceNotFoundException")
+	ErrOperationAborted           = errors.New("OperationAbortedException")
+	ErrInvalidOperation           = errors.New("InvalidOperationException")
 )
 
 var (

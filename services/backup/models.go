@@ -465,11 +465,35 @@ type ReportJob struct {
 
 // ScanJob represents an AWS Backup restore testing scan job.
 type ScanJob struct {
-	CreationTime   time.Time  `json:"creationTime"`
-	CompletionTime *time.Time `json:"completionTime,omitempty"`
-	ScanJobID      string     `json:"scanJobId"`
-	BackupVaultArn string     `json:"backupVaultArn"`
-	Status         string     `json:"status"`
+	CreationTime             time.Time  `json:"creationTime"`
+	CompletionTime           *time.Time `json:"completionTime,omitempty"`
+	ContinuousScanEndTime    *time.Time `json:"continuousScanEndTime,omitempty"`
+	ScanJobID                string     `json:"scanJobId"`
+	BackupVaultArn           string     `json:"backupVaultArn"`
+	Status                   string     `json:"status"`
+	IamRoleArn               string     `json:"iamRoleArn"`
+	MalwareScanner           string     `json:"malwareScanner"`
+	RecoveryPointArn         string     `json:"recoveryPointArn"`
+	ScanMode                 string     `json:"scanMode"`
+	ScannerRoleArn           string     `json:"scannerRoleArn"`
+	IdempotencyToken         string     `json:"idempotencyToken,omitempty"`
+	ScanBaseRecoveryPointArn string     `json:"scanBaseRecoveryPointArn,omitempty"`
+}
+
+// StartScanJobInput mirrors StartScanJobInput in the pinned SDK
+// (api_op_StartScanJob.go:29-75): BackupVaultName, IamRoleArn,
+// MalwareScanner, RecoveryPointArn, ScanMode and ScannerRoleArn are all
+// required; the rest are optional.
+type StartScanJobInput struct {
+	ContinuousScanEndTime    *time.Time
+	BackupVaultName          string
+	IamRoleArn               string
+	MalwareScanner           string
+	RecoveryPointArn         string
+	ScanMode                 string
+	ScannerRoleArn           string
+	IdempotencyToken         string
+	ScanBaseRecoveryPointArn string
 }
 
 // ResourceSelection specifies which resources within a vault a tiering

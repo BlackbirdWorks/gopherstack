@@ -360,5 +360,71 @@ func TestBackup_DeleteAndDescribe_ReturnsError(t *testing.T) {
 	assertErrorCode(t, err, "ResourceNotFoundException")
 }
 
+// TestDescribeAndDeleteBackup_SourceTableDetails_WireFields drives
+// CreateBackup, DescribeBackup and DeleteBackup through the real SDK client
+// and asserts SourceTableDetails.ProvisionedThroughput and
+// TableCreationDateTime survive the wire round trip on both Describe and
+// Delete responses. Both are "This member is required" fields on the real
+// SourceTableDetails (dynamodb@v1.63.1 types/types.go:3116), and the
+// in-memory backend already computes them correctly
+// (buildSDKSourceTableDetails in backup_interface.go) -- but the wire
+// converter (buildBackupDescriptionFromSDK in backup_ops.go) dropped both,
+// so a real client reading resp.BackupDescription.SourceTableDetails.
+// ProvisionedThroughput or .TableCreationDateTime always saw a zero value.
+func TestDescribeAndDeleteBackup_SourceTableDetails_WireFields(t *testing.T) {
+	t.Parallel()
+
+	client := newTestDynamoDBClient(t, dynamodb.NewHandler(dynamodb.NewInMemoryDB()))
+
+	_, err := client.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
+		TableName: aws.String("backup-wire-table"),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		BillingMode: types.BillingModeProvisioned,
+		ProvisionedThroughput: &types.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(7),
+			WriteCapacityUnits: aws.Int64(3),
+		},
+	})
+	require.NoError(t, err)
+
+	backupOut, err := client.CreateBackup(t.Context(), &dynamodb_sdk.CreateBackupInput{
+		TableName:  aws.String("backup-wire-table"),
+		BackupName: aws.String("wire-backup"),
+	})
+	require.NoError(t, err)
+	backupARN := aws.ToString(backupOut.BackupDetails.BackupArn)
+
+	descOut, err := client.DescribeBackup(t.Context(), &dynamodb_sdk.DescribeBackupInput{
+		BackupArn: aws.String(backupARN),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, descOut.BackupDescription.SourceTableDetails.ProvisionedThroughput)
+	assert.Equal(t, int64(7),
+		aws.ToInt64(descOut.BackupDescription.SourceTableDetails.ProvisionedThroughput.ReadCapacityUnits))
+	assert.Equal(t, int64(3),
+		aws.ToInt64(descOut.BackupDescription.SourceTableDetails.ProvisionedThroughput.WriteCapacityUnits))
+	assert.False(t,
+		aws.ToTime(descOut.BackupDescription.SourceTableDetails.TableCreationDateTime).IsZero(),
+		"DescribeBackup must report the source table's creation time")
+
+	delOut, err := client.DeleteBackup(t.Context(), &dynamodb_sdk.DeleteBackupInput{
+		BackupArn: aws.String(backupARN),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, delOut.BackupDescription.SourceTableDetails.ProvisionedThroughput)
+	assert.Equal(t, int64(7),
+		aws.ToInt64(delOut.BackupDescription.SourceTableDetails.ProvisionedThroughput.ReadCapacityUnits))
+	assert.Equal(t, int64(3),
+		aws.ToInt64(delOut.BackupDescription.SourceTableDetails.ProvisionedThroughput.WriteCapacityUnits))
+	assert.False(t,
+		aws.ToTime(delOut.BackupDescription.SourceTableDetails.TableCreationDateTime).IsZero(),
+		"DeleteBackup must report the source table's creation time")
+}
+
 // validateTableName is called at the HTTP dispatch layer. Tests call the exported
 // wrapper to verify the constraint logic directly.

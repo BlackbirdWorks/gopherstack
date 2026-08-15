@@ -40,7 +40,7 @@ func (h *Handler) handleGetWorkUnitResults(_ context.Context, c *echo.Context, b
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
-	result, err := h.Backend.GetWorkUnitResults(in.QueryID, in.WorkUnitToken)
+	result, err := h.Backend.GetWorkUnitResults(in.QueryID, in.WorkUnitID, in.WorkUnitToken)
 	if err != nil {
 		return h.handleError(c, err)
 	}

@@ -15,11 +15,11 @@ func (h *Handler) createFilter(input map[string]any) (map[string]any, error) {
 		return nil, err
 	}
 
-	return map[string]any{"filterArn": f.FilterArn}, nil
+	return map[string]any{keyFilterArn: f.FilterArn}, nil
 }
 
 func (h *Handler) describeFilter(input map[string]any) (map[string]any, error) {
-	nameOrArn, _ := input["filterArn"].(string)
+	nameOrArn, _ := input[keyFilterArn].(string)
 
 	f, err := h.Backend.DescribeFilter(nameOrArn)
 	if err != nil {
@@ -30,7 +30,7 @@ func (h *Handler) describeFilter(input map[string]any) (map[string]any, error) {
 }
 
 func (h *Handler) deleteFilter(input map[string]any) (map[string]any, error) {
-	nameOrArn, _ := input["filterArn"].(string)
+	nameOrArn, _ := input[keyFilterArn].(string)
 
 	return map[string]any{}, h.Backend.DeleteFilter(nameOrArn)
 }
@@ -44,10 +44,17 @@ func (h *Handler) listFilters(input map[string]any) (map[string]any, error) {
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, f := range list {
-		summaries = append(summaries, filterToMap(f))
+		summaries = append(summaries, filterSummaryToMap(f))
 	}
 
-	result := map[string]any{"filters": summaries}
+	// Real key is "Filters" (PascalCase) -- deserializers.go's
+	// awsAwsjson11_deserializeOpDocumentListFiltersOutput, case "Filters":.
+	// The only PascalCase top-level wrapper key in this service; every
+	// sibling List op (ListDatasetGroups/ListDatasets/ListSolutions/...) uses
+	// lowerCamelCase. JSON-RPC 1.1 decode is case-sensitive, so a real
+	// client's typed ListFiltersOutput.Filters was always empty regardless of
+	// backend state before this fix.
+	result := map[string]any{"Filters": summaries}
 	if outToken != "" {
 		result["nextToken"] = outToken
 	}
@@ -57,10 +64,25 @@ func (h *Handler) listFilters(input map[string]any) (map[string]any, error) {
 
 func filterToMap(f *Filter) map[string]any {
 	return map[string]any{
-		"filterArn":            f.FilterArn,
+		keyFilterArn:           f.FilterArn,
 		keyName:                f.Name,
 		keyDatasetGroupArn:     f.DatasetGroupArn,
 		"filterExpression":     f.FilterExpression,
+		keyStatus:              f.Status,
+		keyCreationDateTime:    awstime.Epoch(f.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(f.LastUpdatedDateTime),
+	}
+}
+
+// filterSummaryToMap builds the types.FilterSummary shape (types.go:1370) --
+// no filterExpression. failureReason is a real member but the backend's
+// Filter model has no source for it, so it stays absent rather than being
+// fabricated.
+func filterSummaryToMap(f *Filter) map[string]any {
+	return map[string]any{
+		keyFilterArn:           f.FilterArn,
+		keyName:                f.Name,
+		keyDatasetGroupArn:     f.DatasetGroupArn,
 		keyStatus:              f.Status,
 		keyCreationDateTime:    awstime.Epoch(f.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(f.LastUpdatedDateTime),

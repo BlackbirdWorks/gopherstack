@@ -38,6 +38,8 @@ type AttributeDefinition struct {
 type CreateTableInput struct {
 	ProvisionedThroughput     any                    `json:"ProvisionedThroughput"`
 	StreamSpecification       any                    `json:"StreamSpecification,omitempty"`
+	SSESpecification          *SSESpecification      `json:"SSESpecification,omitempty"`
+	OnDemandThroughput        *OnDemandThroughput    `json:"OnDemandThroughput,omitempty"`
 	DeletionProtectionEnabled *bool                  `json:"DeletionProtectionEnabled,omitempty"`
 	TableName                 string                 `json:"TableName"`
 	BillingMode               string                 `json:"BillingMode,omitempty"`
@@ -47,6 +49,27 @@ type CreateTableInput struct {
 	GlobalSecondaryIndexes    []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes     []LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
 	Tags                      []Tag                  `json:"Tags,omitempty"`
+}
+
+// SSESpecification is the wire format for a table's server-side encryption
+// settings, mirrored on CreateTableInput and UpdateTableInput.
+type SSESpecification struct {
+	Enabled        *bool  `json:"Enabled,omitempty"`
+	KMSMasterKeyID string `json:"KMSMasterKeyId,omitempty"`
+	SSEType        string `json:"SSEType,omitempty"`
+}
+
+// OnDemandThroughput is the wire format for a table's on-demand max
+// read/write request units, mirrored on CreateTableInput and UpdateTableInput.
+type OnDemandThroughput struct {
+	MaxReadRequestUnits  *int64 `json:"MaxReadRequestUnits,omitempty"`
+	MaxWriteRequestUnits *int64 `json:"MaxWriteRequestUnits,omitempty"`
+}
+
+// TableClassSummaryDescription is the wire format for TableDescription's
+// TableClassSummary member.
+type TableClassSummaryDescription struct {
+	TableClass string `json:"TableClass,omitempty"`
 }
 
 type CreateTableOutput struct {
@@ -74,6 +97,8 @@ type TableDescription struct {
 	StreamSpecification       *StreamSpecificationInput         `json:"StreamSpecification,omitempty"`
 	BillingModeSummary        *BillingModeSummaryDescription    `json:"BillingModeSummary,omitempty"`
 	SSEDescription            *SSEDescription                   `json:"SSEDescription,omitempty"`
+	OnDemandThroughput        *OnDemandThroughput               `json:"OnDemandThroughput,omitempty"`
+	TableClassSummary         *TableClassSummaryDescription     `json:"TableClassSummary,omitempty"`
 	TableName                 string                            `json:"TableName"`
 	TableStatus               string                            `json:"TableStatus"`
 	TableArn                  string                            `json:"TableArn,omitempty"`
@@ -86,6 +111,8 @@ type TableDescription struct {
 	GlobalSecondaryIndexes    []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes     []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
 	Replicas                  []ReplicaDescription              `json:"Replicas,omitempty"`
+	CreationDateTime          float64                           `json:"CreationDateTime,omitempty"`
+	TableSizeBytes            int64                             `json:"TableSizeBytes"`
 	DeletionProtectionEnabled bool                              `json:"DeletionProtectionEnabled,omitempty"`
 	ItemCount                 int                               `json:"ItemCount"`
 }
@@ -117,11 +144,14 @@ type GlobalSecondaryIndex struct {
 
 type GlobalSecondaryIndexDescription struct {
 	IndexName             string                           `json:"IndexName"`
+	IndexArn              string                           `json:"IndexArn"`
 	IndexStatus           string                           `json:"IndexStatus"`
 	Projection            Projection                       `json:"Projection"`
 	KeySchema             []KeySchemaElement               `json:"KeySchema"`
 	ProvisionedThroughput ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	ItemCount             int                              `json:"ItemCount"`
+	IndexSizeBytes        int64                            `json:"IndexSizeBytes"`
+	Backfilling           bool                             `json:"Backfilling,omitempty"`
 }
 
 type LocalSecondaryIndex struct {
@@ -132,6 +162,7 @@ type LocalSecondaryIndex struct {
 
 type LocalSecondaryIndexDescription struct {
 	IndexName      string             `json:"IndexName"`
+	IndexArn       string             `json:"IndexArn"`
 	KeySchema      []KeySchemaElement `json:"KeySchema"`
 	Projection     Projection         `json:"Projection"`
 	IndexSizeBytes int64              `json:"IndexSizeBytes"`
@@ -152,7 +183,11 @@ type ProvisionedThroughput struct {
 type UpdateTableInput struct {
 	ProvisionedThroughput       *ProvisionedThroughput       `json:"ProvisionedThroughput,omitempty"`
 	StreamSpecification         *StreamSpecificationInput    `json:"StreamSpecification,omitempty"`
+	SSESpecification            *SSESpecification            `json:"SSESpecification,omitempty"`
+	DeletionProtectionEnabled   *bool                        `json:"DeletionProtectionEnabled,omitempty"`
 	TableName                   string                       `json:"TableName"`
+	BillingMode                 string                       `json:"BillingMode,omitempty"`
+	TableClass                  string                       `json:"TableClass,omitempty"`
 	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
 	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
 	ReplicaUpdates              []ReplicaUpdate              `json:"ReplicaUpdates,omitempty"`
@@ -245,16 +280,49 @@ type ListTablesOutput struct {
 
 // --- Item Operations ---
 
+// LegacyExpected is the wire format for one entry of the legacy
+// Expected parameter (pre-2013 conditional-write API, predates
+// ConditionExpression). AWS SDK: types.ExpectedAttributeValue; wire keys
+// confirmed against aws-sdk-go-v2/service/dynamodb@v1.63.1/serializers.go
+// (awsAwsjson10_serializeDocumentExpectedAttributeValue).
+type LegacyExpected struct {
+	Value              any    `json:"Value,omitempty"`
+	Exists             *bool  `json:"Exists,omitempty"`
+	ComparisonOperator string `json:"ComparisonOperator,omitempty"`
+	AttributeValueList []any  `json:"AttributeValueList,omitempty"`
+}
+
+// LegacyUpdate is the wire format for one entry of the legacy
+// AttributeUpdates parameter (pre-2013 UpdateItem API, predates
+// UpdateExpression). AWS SDK: types.AttributeValueUpdate; wire keys confirmed
+// against serializers.go (awsAwsjson10_serializeDocumentAttributeValueUpdate).
+type LegacyUpdate struct {
+	Value  any    `json:"Value,omitempty"`
+	Action string `json:"Action,omitempty"`
+}
+
+// LegacyCondition is the wire format for one entry of the legacy
+// KeyConditions/QueryFilter/ScanFilter parameters (pre-2013 Query/Scan API,
+// predates KeyConditionExpression/FilterExpression). AWS SDK: types.Condition;
+// wire keys confirmed against serializers.go
+// (awsAwsjson10_serializeDocumentCondition).
+type LegacyCondition struct {
+	ComparisonOperator string `json:"ComparisonOperator,omitempty"`
+	AttributeValueList []any  `json:"AttributeValueList,omitempty"`
+}
+
 type PutItemInput struct {
-	TableName                           string            `json:"TableName"`
-	Item                                map[string]any    `json:"Item"`
-	ConditionExpression                 string            `json:"ConditionExpression,omitempty"`
-	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ReturnValues                        string            `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity              string            `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics         string            `json:"ReturnItemCollectionMetrics,omitempty"`
-	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	Item                                map[string]any            `json:"Item"`
+	ExpressionAttributeNames            map[string]string         `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues           map[string]any            `json:"ExpressionAttributeValues,omitempty"`
+	Expected                            map[string]LegacyExpected `json:"Expected,omitempty"`
+	TableName                           string                    `json:"TableName"`
+	ConditionExpression                 string                    `json:"ConditionExpression,omitempty"`
+	ReturnValues                        string                    `json:"ReturnValues,omitempty"`
+	ReturnConsumedCapacity              string                    `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics         string                    `json:"ReturnItemCollectionMetrics,omitempty"`
+	ReturnValuesOnConditionCheckFailure string                    `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	ConditionalOperator                 string                    `json:"ConditionalOperator,omitempty"`
 }
 
 type PutItemOutput struct {
@@ -264,16 +332,19 @@ type PutItemOutput struct {
 }
 
 type UpdateItemInput struct {
-	TableName                           string            `json:"TableName"`
-	Key                                 map[string]any    `json:"Key"`
-	UpdateExpression                    string            `json:"UpdateExpression,omitempty"`
-	ConditionExpression                 string            `json:"ConditionExpression,omitempty"`
-	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ReturnValues                        string            `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity              string            `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics         string            `json:"ReturnItemCollectionMetrics,omitempty"`
-	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	ExpressionAttributeValues           map[string]any            `json:"ExpressionAttributeValues,omitempty"`
+	Key                                 map[string]any            `json:"Key"`
+	Expected                            map[string]LegacyExpected `json:"Expected,omitempty"`
+	AttributeUpdates                    map[string]LegacyUpdate   `json:"AttributeUpdates,omitempty"`
+	ExpressionAttributeNames            map[string]string         `json:"ExpressionAttributeNames,omitempty"`
+	ReturnValues                        string                    `json:"ReturnValues,omitempty"`
+	TableName                           string                    `json:"TableName"`
+	ReturnConsumedCapacity              string                    `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics         string                    `json:"ReturnItemCollectionMetrics,omitempty"`
+	ReturnValuesOnConditionCheckFailure string                    `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	ConditionalOperator                 string                    `json:"ConditionalOperator,omitempty"`
+	ConditionExpression                 string                    `json:"ConditionExpression,omitempty"`
+	UpdateExpression                    string                    `json:"UpdateExpression,omitempty"`
 }
 
 type UpdateItemOutput struct {
@@ -283,26 +354,32 @@ type UpdateItemOutput struct {
 }
 
 type GetItemInput struct {
+	ConsistentRead           *bool             `json:"ConsistentRead,omitempty"`
 	Key                      map[string]any    `json:"Key"`
 	ExpressionAttributeNames map[string]string `json:"ExpressionAttributeNames,omitempty"`
 	TableName                string            `json:"TableName"`
 	ProjectionExpression     string            `json:"ProjectionExpression,omitempty"`
+	ReturnConsumedCapacity   string            `json:"ReturnConsumedCapacity,omitempty"`
+	AttributesToGet          []string          `json:"AttributesToGet,omitempty"`
 }
 
 type GetItemOutput struct {
-	Item map[string]any `json:"Item,omitempty"`
+	ConsumedCapacity *ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
+	Item             map[string]any    `json:"Item,omitempty"`
 }
 
 type DeleteItemInput struct {
-	Key                                 map[string]any    `json:"Key"`
-	ExpressionAttributeNames            map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues           map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	TableName                           string            `json:"TableName"`
-	ConditionExpression                 string            `json:"ConditionExpression,omitempty"`
-	ReturnValues                        string            `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity              string            `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics         string            `json:"ReturnItemCollectionMetrics,omitempty"`
-	ReturnValuesOnConditionCheckFailure string            `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	Key                                 map[string]any            `json:"Key"`
+	ExpressionAttributeNames            map[string]string         `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues           map[string]any            `json:"ExpressionAttributeValues,omitempty"`
+	Expected                            map[string]LegacyExpected `json:"Expected,omitempty"`
+	TableName                           string                    `json:"TableName"`
+	ConditionExpression                 string                    `json:"ConditionExpression,omitempty"`
+	ReturnValues                        string                    `json:"ReturnValues,omitempty"`
+	ReturnConsumedCapacity              string                    `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics         string                    `json:"ReturnItemCollectionMetrics,omitempty"`
+	ReturnValuesOnConditionCheckFailure string                    `json:"ReturnValuesOnConditionCheckFailure,omitempty"`
+	ConditionalOperator                 string                    `json:"ConditionalOperator,omitempty"`
 }
 
 type DeleteItemOutput struct {
@@ -329,18 +406,23 @@ type StreamRecord struct {
 }
 
 type QueryInput struct {
-	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ScanIndexForward          *bool             `json:"ScanIndexForward,omitempty"`
-	ExclusiveStartKey         map[string]any    `json:"ExclusiveStartKey,omitempty"`
-	TableName                 string            `json:"TableName"`
-	IndexName                 string            `json:"IndexName,omitempty"`
-	KeyConditionExpression    string            `json:"KeyConditionExpression"`
-	FilterExpression          string            `json:"FilterExpression,omitempty"`
-	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
-	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
-	Limit                     int32             `json:"Limit,omitempty"`
-	ConsistentRead            bool              `json:"ConsistentRead,omitempty"`
+	ExpressionAttributeNames  map[string]string          `json:"ExpressionAttributeNames,omitempty"`
+	ExclusiveStartKey         map[string]any             `json:"ExclusiveStartKey,omitempty"`
+	ScanIndexForward          *bool                      `json:"ScanIndexForward,omitempty"`
+	ExpressionAttributeValues map[string]any             `json:"ExpressionAttributeValues,omitempty"`
+	KeyConditions             map[string]LegacyCondition `json:"KeyConditions,omitempty"`
+	QueryFilter               map[string]LegacyCondition `json:"QueryFilter,omitempty"`
+	KeyConditionExpression    string                     `json:"KeyConditionExpression"`
+	ProjectionExpression      string                     `json:"ProjectionExpression,omitempty"`
+	ReturnConsumedCapacity    string                     `json:"ReturnConsumedCapacity,omitempty"`
+	Select                    string                     `json:"Select,omitempty"`
+	FilterExpression          string                     `json:"FilterExpression,omitempty"`
+	IndexName                 string                     `json:"IndexName,omitempty"`
+	TableName                 string                     `json:"TableName"`
+	ConditionalOperator       string                     `json:"ConditionalOperator,omitempty"`
+	AttributesToGet           []string                   `json:"AttributesToGet,omitempty"`
+	Limit                     int32                      `json:"Limit,omitempty"`
+	ConsistentRead            bool                       `json:"ConsistentRead,omitempty"`
 }
 
 type QueryOutput struct {
@@ -378,29 +460,37 @@ type SearchResultItem struct {
 }
 
 type ScanInput struct {
-	Limit                     *int32            `json:"Limit,omitempty"`
-	Segment                   *int32            `json:"Segment,omitempty"`
-	TotalSegments             *int32            `json:"TotalSegments,omitempty"`
-	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ExclusiveStartKey         map[string]any    `json:"ExclusiveStartKey,omitempty"`
-	TableName                 string            `json:"TableName"`
-	IndexName                 string            `json:"IndexName,omitempty"`
-	FilterExpression          string            `json:"FilterExpression,omitempty"`
-	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
+	ConsistentRead            *bool                      `json:"ConsistentRead,omitempty"`
+	ExclusiveStartKey         map[string]any             `json:"ExclusiveStartKey,omitempty"`
+	ExpressionAttributeValues map[string]any             `json:"ExpressionAttributeValues,omitempty"`
+	ExpressionAttributeNames  map[string]string          `json:"ExpressionAttributeNames,omitempty"`
+	ScanFilter                map[string]LegacyCondition `json:"ScanFilter,omitempty"`
+	TotalSegments             *int32                     `json:"TotalSegments,omitempty"`
+	Segment                   *int32                     `json:"Segment,omitempty"`
+	Limit                     *int32                     `json:"Limit,omitempty"`
+	FilterExpression          string                     `json:"FilterExpression,omitempty"`
+	Select                    string                     `json:"Select,omitempty"`
+	ReturnConsumedCapacity    string                     `json:"ReturnConsumedCapacity,omitempty"`
+	ProjectionExpression      string                     `json:"ProjectionExpression,omitempty"`
+	IndexName                 string                     `json:"IndexName,omitempty"`
+	TableName                 string                     `json:"TableName"`
+	ConditionalOperator       string                     `json:"ConditionalOperator,omitempty"`
+	AttributesToGet           []string                   `json:"AttributesToGet,omitempty"`
 }
 
 type ScanOutput struct {
-	LastEvaluatedKey map[string]any   `json:"LastEvaluatedKey,omitempty"`
-	Items            []map[string]any `json:"Items"`
-	Count            int              `json:"Count"`
-	ScannedCount     int              `json:"ScannedCount"`
+	ConsumedCapacity *ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
+	LastEvaluatedKey map[string]any    `json:"LastEvaluatedKey,omitempty"`
+	Items            []map[string]any  `json:"Items"`
+	Count            int               `json:"Count"`
+	ScannedCount     int               `json:"ScannedCount"`
 }
 
 // --- Batch Operations ---
 
 type BatchGetItemInput struct {
-	RequestItems map[string]KeysAndAttributes `json:"RequestItems"`
+	RequestItems           map[string]KeysAndAttributes `json:"RequestItems"`
+	ReturnConsumedCapacity string                       `json:"ReturnConsumedCapacity,omitempty"`
 }
 
 type KeysAndAttributes struct {
@@ -417,7 +507,9 @@ type BatchGetItemOutput struct {
 }
 
 type BatchWriteItemInput struct {
-	RequestItems map[string][]WriteRequest `json:"RequestItems"`
+	RequestItems                map[string][]WriteRequest `json:"RequestItems"`
+	ReturnConsumedCapacity      string                    `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics string                    `json:"ReturnItemCollectionMetrics,omitempty"`
 }
 
 type WriteRequest struct {
@@ -624,12 +716,18 @@ type BackupDescription struct {
 }
 
 // SourceTableDetails describes the source table at backup creation time.
+//
+// TableCreationDateTime is Unix epoch seconds, matching how the real
+// aws-sdk-go-v2 awsjson1_0 protocol serializes a *time.Time (see
+// BackupDetails.BackupCreationDateTime above).
 type SourceTableDetails struct {
-	TableName string             `json:"TableName"`
-	TableArn  string             `json:"TableArn,omitempty"`
-	TableID   string             `json:"TableId,omitempty"`
-	KeySchema []KeySchemaElement `json:"KeySchema"`
-	ItemCount int64              `json:"ItemCount,omitempty"`
+	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
+	TableName             string                `json:"TableName"`
+	TableArn              string                `json:"TableArn,omitempty"`
+	TableID               string                `json:"TableId,omitempty"`
+	KeySchema             []KeySchemaElement    `json:"KeySchema"`
+	TableCreationDateTime float64               `json:"TableCreationDateTime"`
+	ItemCount             int64                 `json:"ItemCount,omitempty"`
 }
 
 // DescribeBackupInput is the wire format for DescribeBackup.
@@ -677,6 +775,7 @@ type BackupSummary struct {
 	TableArn               string  `json:"TableArn,omitempty"`
 	TableID                string  `json:"TableId,omitempty"`
 	BackupCreationDateTime float64 `json:"BackupCreationDateTime"`
+	BackupSizeBytes        int64   `json:"BackupSizeBytes,omitempty"`
 }
 
 // ListBackupsOutput is the wire format for ListBackups response.
@@ -688,9 +787,12 @@ type ListBackupsOutput struct {
 // RestoreTableFromBackupInput is the wire format for RestoreTableFromBackup.
 type RestoreTableFromBackupInput struct {
 	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
+	OnDemandThroughputOverride    *OnDemandThroughput    `json:"OnDemandThroughputOverride,omitempty"`
+	SSESpecificationOverride      *SSESpecification      `json:"SSESpecificationOverride,omitempty"`
 	BackupArn                     string                 `json:"BackupArn"`
 	TargetTableName               string                 `json:"TargetTableName"`
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
+	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
 }
 
 // RestoreTableFromBackupOutput is the wire format for RestoreTableFromBackup response.
@@ -709,9 +811,12 @@ type RestoreTableFromBackupOutput struct {
 type RestoreTableToPointInTimeInput struct {
 	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
 	RestoreDateTime               *float64               `json:"RestoreDateTime,omitempty"`
+	OnDemandThroughputOverride    *OnDemandThroughput    `json:"OnDemandThroughputOverride,omitempty"`
+	SSESpecificationOverride      *SSESpecification      `json:"SSESpecificationOverride,omitempty"`
 	SourceTableName               string                 `json:"SourceTableName"`
 	TargetTableName               string                 `json:"TargetTableName"`
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
+	GlobalSecondaryIndexOverride  []GlobalSecondaryIndex `json:"GlobalSecondaryIndexOverride,omitempty"`
 	UseLatestRestorableTime       bool                   `json:"UseLatestRestorableTime,omitempty"`
 }
 

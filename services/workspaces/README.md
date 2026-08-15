@@ -7,11 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 32 (32 ok) |
-| Feature families | 14 (13 ok, 1 partial) |
-| Known gaps | none |
+| Operations audited | 34 (32 ok, 2 deferred) |
+| Feature families | 14 (14 ok) |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- clientProperties (ModifyClientProperties/DescribeClientProperties, including the ClientExperiencePolicy/LogUploadEnabled fields fixed this pass, gopherstack-gt9o) is NOT part of backendSnapshot -- pre-existing, deliberate (see persistence.go's field comment and whitebox_test.go), out of scope for gopherstack-gt9o which is about the missing fields, not this separate ephemeral-persistence gap. (bd: none filed for the persistence gap itself) # All gaps from the prior pass (CreateStandbyWorkspaces FailedStandbyRequests, # AssociateIpGroups/DisassociateIpGroups persistence) were closed for real this # pass — see the ops table entries above for what changed. # # gopherstack-o5ig (2026-08-10): both items previously listed as deferred below # (RunningMode-while-STOPPED, Applications family) are now fixed — see the # WorkspacesPool and Applications family notes above. CreateWorkspaceBundle.ImageId # and CreateWorkspaceImage.WorkspaceId, flagged then as a follow-up, are now # fixed too (gopherstack-e5pd, 2026-08-11) — see WorkspaceBundle_custom and # WorkspaceImage notes above. That same pass found CopyWorkspaceImage.SourceImageId # and CreateUpdatedWorkspaceImage.SourceImageId have the identical gap; both are # now fixed too (gopherstack-plmb, 2026-08-11) — see WorkspaceImage note above. # CopyWorkspaceImage's fix is conditional on SourceRegion (see that note) rather # than a full unconditional check, since this backend genuinely has no visibility # into another region's image table.
 
 ## More
 

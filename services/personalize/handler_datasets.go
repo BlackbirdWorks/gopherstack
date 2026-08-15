@@ -57,7 +57,7 @@ func (h *Handler) listDatasets(input map[string]any) (map[string]any, error) {
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, ds := range list {
-		summaries = append(summaries, datasetToMap(ds))
+		summaries = append(summaries, datasetSummaryToMap(ds))
 	}
 
 	result := map[string]any{"datasets": summaries}
@@ -82,11 +82,11 @@ func (h *Handler) createDatasetImportJob(input map[string]any) (map[string]any, 
 		return nil, err
 	}
 
-	return map[string]any{"datasetImportJobArn": job.DatasetImportJobArn}, nil
+	return map[string]any{keyDatasetImportJobArn: job.DatasetImportJobArn}, nil
 }
 
 func (h *Handler) describeDatasetImportJob(input map[string]any) (map[string]any, error) {
-	jobArn, _ := input["datasetImportJobArn"].(string)
+	jobArn, _ := input[keyDatasetImportJobArn].(string)
 
 	job, err := h.Backend.DescribeDatasetImportJob(jobArn)
 	if err != nil {
@@ -105,7 +105,7 @@ func (h *Handler) listDatasetImportJobs(input map[string]any) (map[string]any, e
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, job := range list {
-		summaries = append(summaries, datasetImportJobToMap(job))
+		summaries = append(summaries, datasetImportJobSummaryToMap(job))
 	}
 
 	result := map[string]any{"datasetImportJobs": summaries}
@@ -130,11 +130,11 @@ func (h *Handler) createDatasetExportJob(input map[string]any) (map[string]any, 
 		return nil, err
 	}
 
-	return map[string]any{"datasetExportJobArn": job.DatasetExportJobArn}, nil
+	return map[string]any{keyDatasetExportJobArn: job.DatasetExportJobArn}, nil
 }
 
 func (h *Handler) describeDatasetExportJob(input map[string]any) (map[string]any, error) {
-	jobArn, _ := input["datasetExportJobArn"].(string)
+	jobArn, _ := input[keyDatasetExportJobArn].(string)
 
 	job, err := h.Backend.DescribeDatasetExportJob(jobArn)
 	if err != nil {
@@ -153,7 +153,7 @@ func (h *Handler) listDatasetExportJobs(input map[string]any) (map[string]any, e
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, job := range list {
-		summaries = append(summaries, datasetExportJobToMap(job))
+		summaries = append(summaries, datasetExportJobSummaryToMap(job))
 	}
 
 	result := map[string]any{"datasetExportJobs": summaries}
@@ -179,7 +179,7 @@ func datasetToMap(ds *Dataset) map[string]any {
 
 func datasetImportJobToMap(job *DatasetImportJob) map[string]any {
 	return map[string]any{
-		"datasetImportJobArn":  job.DatasetImportJobArn,
+		keyDatasetImportJobArn: job.DatasetImportJobArn,
 		keyJobName:             job.JobName,
 		keyDatasetArn:          job.DatasetArn,
 		keyRoleArn:             job.RoleArn,
@@ -192,11 +192,53 @@ func datasetImportJobToMap(job *DatasetImportJob) map[string]any {
 
 func datasetExportJobToMap(job *DatasetExportJob) map[string]any {
 	return map[string]any{
-		"datasetExportJobArn":  job.DatasetExportJobArn,
+		keyDatasetExportJobArn: job.DatasetExportJobArn,
 		keyJobName:             job.JobName,
 		keyDatasetArn:          job.DatasetArn,
 		keyRoleArn:             job.RoleArn,
 		keyJobOutput:           job.JobOutput,
+		keyStatus:              job.Status,
+		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
+	}
+}
+
+// datasetSummaryToMap builds the types.DatasetSummary shape (types.go:1040)
+// -- no datasetGroupArn or schemaArn.
+func datasetSummaryToMap(ds *Dataset) map[string]any {
+	return map[string]any{
+		keyDatasetArn:          ds.DatasetArn,
+		keyName:                ds.Name,
+		"datasetType":          ds.DatasetType,
+		keyStatus:              ds.Status,
+		keyCreationDateTime:    awstime.Epoch(ds.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(ds.LastUpdatedDateTime),
+	}
+}
+
+// datasetImportJobSummaryToMap builds the types.DatasetImportJobSummary
+// shape (types.go:952) -- no datasetArn, roleArn, or dataSource. importMode
+// and failureReason are real Summary members, but the backend's
+// DatasetImportJob model has no source for either, so both stay absent
+// rather than being fabricated.
+func datasetImportJobSummaryToMap(job *DatasetImportJob) map[string]any {
+	return map[string]any{
+		keyDatasetImportJobArn: job.DatasetImportJobArn,
+		keyJobName:             job.JobName,
+		keyStatus:              job.Status,
+		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
+	}
+}
+
+// datasetExportJobSummaryToMap builds the types.DatasetExportJobSummary
+// shape (types.go:780) -- no datasetArn, roleArn, or jobOutput.
+// failureReason is a real member but the backend's DatasetExportJob model
+// has no source for it, so it stays absent rather than being fabricated.
+func datasetExportJobSummaryToMap(job *DatasetExportJob) map[string]any {
+	return map[string]any{
+		keyDatasetExportJobArn: job.DatasetExportJobArn,
+		keyJobName:             job.JobName,
 		keyStatus:              job.Status,
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),

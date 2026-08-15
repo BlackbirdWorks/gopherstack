@@ -424,6 +424,7 @@ func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(
 		MultiAZEnabled:             opts.MultiAZEnabled,
 		SnapshotRetentionLimit:     opts.SnapshotRetentionLimit,
 		LogDeliveryConfigurations:  opts.LogDeliveryConfigurations,
+		Durability:                 opts.Durability,
 	}
 
 	applyAuthToken(rg, opts.AuthToken, opts.AuthTokenEnabled)
@@ -547,6 +548,10 @@ func (b *InMemoryBackend) applyModifyOptsLocked(rg *ReplicationGroup, opts Repli
 
 	if opts.NotificationTopicArn != "" {
 		rg.NotificationTopicArn = opts.NotificationTopicArn
+	}
+
+	if opts.Durability != "" {
+		rg.Durability = opts.Durability
 	}
 
 	if len(opts.LogDeliveryConfigurations) > 0 {
@@ -830,7 +835,19 @@ func pruneExpiredSnapshots(
 }
 
 // StartMigration starts a migration for a replication group.
-func (b *InMemoryBackend) StartMigration(ctx context.Context, replicationGroupID string) (*ReplicationGroup, error) {
+// CustomerNodeEndpointList is required on the wire (aws-sdk-go-v2's
+// StartMigrationInput); this backend has nowhere real to echo the endpoints
+// back (ReplicationGroup's response shape never carries them), so it acts on
+// the field by enforcing AWS's required-member contract instead.
+func (b *InMemoryBackend) StartMigration(
+	ctx context.Context,
+	replicationGroupID string,
+	customerNodeEndpoints []CustomerNodeEndpoint,
+) (*ReplicationGroup, error) {
+	if len(customerNodeEndpoints) == 0 {
+		return nil, ErrCustomerNodeEndpointsRequired
+	}
+
 	b.mu.Lock("StartMigration")
 	defer b.mu.Unlock()
 
@@ -846,8 +863,17 @@ func (b *InMemoryBackend) StartMigration(ctx context.Context, replicationGroupID
 	return &result, nil
 }
 
-// TestMigration tests a migration for a replication group.
-func (b *InMemoryBackend) TestMigration(ctx context.Context, replicationGroupID string) (*ReplicationGroup, error) {
+// TestMigration tests a migration for a replication group. See StartMigration's
+// doc comment for why CustomerNodeEndpointList is validated but not persisted.
+func (b *InMemoryBackend) TestMigration(
+	ctx context.Context,
+	replicationGroupID string,
+	customerNodeEndpoints []CustomerNodeEndpoint,
+) (*ReplicationGroup, error) {
+	if len(customerNodeEndpoints) == 0 {
+		return nil, ErrCustomerNodeEndpointsRequired
+	}
+
 	b.mu.Lock("TestMigration")
 	defer b.mu.Unlock()
 
@@ -863,11 +889,19 @@ func (b *InMemoryBackend) TestMigration(ctx context.Context, replicationGroupID 
 }
 
 // IncreaseReplicaCount increases the replica count for a replication group.
+// AWS documents ApplyImmediately as required and states "ApplyImmediately=False
+// is not currently supported" for this operation, so applyImmediately=false is
+// rejected rather than silently accepted or faked as a deferred change.
 func (b *InMemoryBackend) IncreaseReplicaCount(
 	ctx context.Context,
 	replicationGroupID string,
 	newReplicaCount int32,
+	applyImmediately bool,
 ) (*ReplicationGroup, error) {
+	if !applyImmediately {
+		return nil, ErrApplyImmediatelyRequired
+	}
+
 	b.mu.Lock("IncreaseReplicaCount")
 	defer b.mu.Unlock()
 
@@ -894,11 +928,18 @@ func (b *InMemoryBackend) IncreaseReplicaCount(
 }
 
 // DecreaseReplicaCount decreases the replica count for a replication group.
+// See IncreaseReplicaCount's doc comment: AWS documents ApplyImmediately=false
+// as unsupported for this operation too.
 func (b *InMemoryBackend) DecreaseReplicaCount(
 	ctx context.Context,
 	replicationGroupID string,
 	newReplicaCount int32,
+	applyImmediately bool,
 ) (*ReplicationGroup, error) {
+	if !applyImmediately {
+		return nil, ErrApplyImmediatelyRequired
+	}
+
 	b.mu.Lock("DecreaseReplicaCount")
 	defer b.mu.Unlock()
 
@@ -925,12 +966,19 @@ func (b *InMemoryBackend) DecreaseReplicaCount(
 }
 
 // ModifyReplicationGroupShardConfiguration modifies the shard configuration of a replication group.
-// Cluster mode must be enabled to use this operation.
+// Cluster mode must be enabled to use this operation. AWS documents
+// ApplyImmediately as required with "Value: true" -- "the only permitted
+// value for this parameter is true" -- so applyImmediately=false is rejected.
 func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
 	ctx context.Context,
 	replicationGroupID string,
 	nodeGroupCount int32,
+	applyImmediately bool,
 ) (*ReplicationGroup, error) {
+	if !applyImmediately {
+		return nil, ErrApplyImmediatelyRequired
+	}
+
 	b.mu.Lock("ModifyReplicationGroupShardConfiguration")
 	defer b.mu.Unlock()
 

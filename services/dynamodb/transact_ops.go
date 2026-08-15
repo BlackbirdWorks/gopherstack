@@ -23,6 +23,8 @@ var errConditionalCheckFailed = errors.New("conditional check failed")
 type tableStateSnapshot struct {
 	pkIndex            map[string]int
 	pkskIndex          map[string]map[string]int
+	gsiIndexes         map[string]*secondaryIndex
+	lsiIndexes         map[string]*secondaryIndex
 	items              []map[string]any
 	itemSizes          []int
 	totalItemSizeBytes int64
@@ -56,7 +58,7 @@ func (db *InMemoryDB) TransactWriteItems(
 	tableNames := db.transactTableNames(input.TransactItems)
 	region := getRegionFromContext(ctx, db)
 
-	payloads, applyErr := db.executeTransactWrite(ctx, tableNames, token, region, input)
+	payloads, itemMetrics, applyErr := db.executeTransactWrite(ctx, tableNames, token, region, input)
 	if applyErr != nil {
 		return nil, applyErr
 	}
@@ -70,6 +72,7 @@ func (db *InMemoryDB) TransactWriteItems(
 			input.ReturnConsumedCapacity,
 			input.TransactItems,
 		),
+		ItemCollectionMetrics: itemMetrics,
 	}
 
 	return out, nil
@@ -84,10 +87,10 @@ func (db *InMemoryDB) executeTransactWrite(
 	token string,
 	region string,
 	input *dynamodb.TransactWriteItemsInput,
-) ([]transactReplicationPayload, error) {
+) ([]transactReplicationPayload, map[string][]types.ItemCollectionMetrics, error) {
 	tables, lockErr := db.lockTablesWrite(ctx, tableNames)
 	if lockErr != nil {
-		return nil, lockErr
+		return nil, nil, lockErr
 	}
 
 	// released guards against double-unlocking: table locks are released
@@ -110,7 +113,13 @@ func (db *InMemoryDB) executeTransactWrite(
 
 	// Pre-phase: validate duplicate keys and total size.
 	if dupErr := validateTransactWriteItems(input.TransactItems, tables); dupErr != nil {
-		return nil, dupErr
+		return nil, nil, dupErr
+	}
+
+	// Enforce throughput per table before any condition is checked or write applied.
+	// PAY_PER_REQUEST tables bypass throttling.
+	if thrErr := db.enforceTransactWriteThroughput(region, tables, input.TransactItems); thrErr != nil {
+		return nil, nil, thrErr
 	}
 
 	// Phase 1: Check conditions.
@@ -127,12 +136,15 @@ func (db *InMemoryDB) executeTransactWrite(
 	}
 
 	if canceled {
-		return nil, NewTransactionCanceledException(txCancelPrefix, reasons)
+		return nil, nil, NewTransactionCanceledException(txCancelPrefix, reasons)
 	}
 
 	// Phase 2: Apply writes with rollback on failure.
-	if writeErr := db.applyTransactItems(ctx, tables, input.TransactItems); writeErr != nil {
-		return nil, writeErr
+	itemMetrics, writeErr := db.applyTransactItems(
+		ctx, tables, input.TransactItems, input.ReturnItemCollectionMetrics,
+	)
+	if writeErr != nil {
+		return nil, nil, writeErr
 	}
 
 	payloads := db.collectTransactReplicationPayloads(tables, region, input.TransactItems)
@@ -146,7 +158,7 @@ func (db *InMemoryDB) executeTransactWrite(
 		commitTransactTokenLocked(db, token)
 	}
 
-	return payloads, nil
+	return payloads, itemMetrics, nil
 }
 
 // commitTransactTokenLocked records token as committed (with its TTL expiry)
@@ -297,21 +309,78 @@ func deleteTransactPendingLocked(db *InMemoryDB, token string) {
 	delete(db.txnPending, token)
 }
 
+// transactItemMetric pairs a single committed write's ItemCollectionMetrics with
+// the table it belongs to, so applyTransactItems can group them by table for the
+// response's map[string][]types.ItemCollectionMetrics shape.
+type transactItemMetric struct {
+	tableName string
+	metric    types.ItemCollectionMetrics
+}
+
 // applyTransactItems applies write items atomically, rolling back on any failure.
+// Returns per-table ItemCollectionMetrics for the items actually written, when rim
+// requests them.
 func (db *InMemoryDB) applyTransactItems(
 	ctx context.Context,
 	tables map[string]*Table,
 	items []types.TransactWriteItem,
-) error {
+	rim types.ReturnItemCollectionMetrics,
+) (map[string][]types.ItemCollectionMetrics, error) {
 	snapshots := db.snapshotTables(tables)
+	metrics := make(map[string][]types.ItemCollectionMetrics)
+
 	for i, ti := range items {
-		if err := db.applyTransactWrite(ctx, tables, ti); err != nil {
+		m, err := db.applyTransactWrite(ctx, tables, ti, rim)
+		if err != nil {
 			logger.Load(ctx).
 				ErrorContext(ctx, "Transaction failed during apply phase, rolling back",
 					"error", err,
 					"itemIndex", i)
 			db.rollbackTables(tables, snapshots)
 
+			return nil, err
+		}
+		if m != nil {
+			metrics[m.tableName] = append(metrics[m.tableName], m.metric)
+		}
+	}
+
+	return metrics, nil
+}
+
+// enforceTransactWriteThroughput charges each involved table's WCU bucket, one unit
+// per write action targeting it (matching transactWriteConsumedCapacity's per-table
+// count), before any condition check or write is applied. tables' locks are already
+// held by the caller, so table.BillingMode is read directly. Real DynamoDB returns
+// ProvisionedThroughputExceededException from TransactWriteItems exactly as it does
+// from PutItem; without this, transactions silently bypassed throttling that every
+// other write path enforces.
+func (db *InMemoryDB) enforceTransactWriteThroughput(
+	region string,
+	tables map[string]*Table,
+	items []types.TransactWriteItem,
+) error {
+	perTable := make(map[string]int)
+	for _, ti := range items {
+		switch {
+		case ti.Put != nil:
+			perTable[aws.ToString(ti.Put.TableName)]++
+		case ti.Delete != nil:
+			perTable[aws.ToString(ti.Delete.TableName)]++
+		case ti.Update != nil:
+			perTable[aws.ToString(ti.Update.TableName)]++
+		case ti.ConditionCheck != nil:
+			perTable[aws.ToString(ti.ConditionCheck.TableName)]++
+		}
+	}
+
+	for name, n := range perTable {
+		table := tables[name]
+		if isOnDemandTable(table.BillingMode) {
+			continue
+		}
+
+		if err := db.throttler.ConsumeWrite(throttleKey(region, name), float64(n)); err != nil {
 			return err
 		}
 	}
@@ -392,6 +461,11 @@ func (db *InMemoryDB) TransactGetItems(
 		}
 	}()
 
+	region := getRegionFromContext(ctx, db)
+	if thrErr := db.enforceTransactReadThroughput(region, tables, input.TransactItems); thrErr != nil {
+		return nil, thrErr
+	}
+
 	responses := make([]types.ItemResponse, 0, len(input.TransactItems))
 
 	for _, ti := range input.TransactItems {
@@ -445,6 +519,42 @@ func (db *InMemoryDB) transactGetResponseItem(
 	sdkResult, _ := models.ToSDKItem(result)
 
 	return types.ItemResponse{Item: sdkResult}, nil
+}
+
+// enforceTransactReadThroughput charges each involved table's RCU bucket before any
+// item is read, using the same 0.5-RCU-per-read formula as transactReadConsumedCapacity.
+// tables' locks are already held (read) by the caller. Real DynamoDB returns
+// ProvisionedThroughputExceededException from TransactGetItems exactly as it does from
+// GetItem; without this, transactional reads silently bypassed throttling that every
+// other read path enforces.
+func (db *InMemoryDB) enforceTransactReadThroughput(
+	region string,
+	tables map[string]*Table,
+	items []types.TransactGetItem,
+) error {
+	const rcuPerRead = 0.5
+
+	perTable := make(map[string]int)
+	for _, ti := range items {
+		if ti.Get != nil {
+			perTable[aws.ToString(ti.Get.TableName)]++
+		}
+	}
+
+	for name, n := range perTable {
+		table := tables[name]
+		if isOnDemandTable(table.BillingMode) {
+			continue
+		}
+
+		cu := float64(n) * rcuPerRead
+
+		if err := db.throttler.ConsumeRead(throttleKey(region, name), cu); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func transactReadConsumedCapacity(
@@ -713,71 +823,156 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 	return nil
 }
 
+// lsiCollectionMetricFor returns the ItemCollectionMetrics for tableName/table given
+// its already-current (post-write) collectionBytes, or nil when rim doesn't request
+// metrics or the table has no LSI. Shared by the transactional put/delete/update
+// paths below.
+func lsiCollectionMetricFor(
+	table *Table,
+	tableName string,
+	rim types.ReturnItemCollectionMetrics,
+	itemKey map[string]types.AttributeValue,
+	collectionBytes int64,
+) *transactItemMetric {
+	if rim != types.ReturnItemCollectionMetricsSize || len(table.LocalSecondaryIndexes) == 0 {
+		return nil
+	}
+
+	m := buildItemCollectionMetrics(table, rim, pkOnlyKey(table, itemKey), collectionBytes)
+	if m == nil {
+		return nil
+	}
+
+	return &transactItemMetric{tableName: tableName, metric: *m}
+}
+
+func (db *InMemoryDB) applyTransactPut(
+	table *Table,
+	tableName string,
+	put *types.Put,
+	rim types.ReturnItemCollectionMetrics,
+) (*transactItemMetric, error) {
+	wireItem := models.FromSDKItem(put.Item)
+	if err := db.validateItem(wireItem, table); err != nil {
+		return nil, err
+	}
+
+	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
+
+	var metric *transactItemMetric
+	if rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0 {
+		pkDef, _ := getPKAndSK(table.KeySchema)
+		pkVal := BuildKeyString(wireItem, pkDef.AttributeName)
+		collectionBytes := computeLSICollectionSize(table, pkVal, wireItem, matchIndex)
+		metric = lsiCollectionMetricFor(table, tableName, rim, put.Item, collectionBytes)
+	}
+
+	db.doPut(table, wireItem, matchIndex)
+	// Capture stream event for the committed transactional write.
+	if matchIndex != -1 {
+		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem), "", "")
+	} else {
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem), "", "")
+	}
+
+	return metric, nil
+}
+
+func (db *InMemoryDB) applyTransactDelete(
+	table *Table,
+	tableName string,
+	del *types.Delete,
+	rim types.ReturnItemCollectionMetrics,
+) (*transactItemMetric, error) {
+	wireKey := models.FromSDKItem(del.Key)
+	oldItem, matchIndex := db.findMatchForPut(table, wireKey)
+	if matchIndex == -1 {
+		return nil, nil //nolint:nilnil // no matching item: nothing to delete, nothing to report
+	}
+
+	var metric *transactItemMetric
+	if rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0 {
+		pkDef, _ := getPKAndSK(table.KeySchema)
+		pkVal := BuildKeyString(wireKey, pkDef.AttributeName)
+		remaining := currentLSICollectionBytes(table, pkVal) - int64(table.itemSizes[matchIndex])
+		metric = lsiCollectionMetricFor(table, tableName, rim, del.Key, remaining)
+	}
+
+	// Capture stream event (REMOVE) before the item is removed.
+	table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil, "", "")
+	db.deleteItemAtIndex(table, matchIndex)
+
+	return metric, nil
+}
+
+func (db *InMemoryDB) applyTransactUpdate(
+	ctx context.Context,
+	table *Table,
+	tableName string,
+	upd *types.Update,
+	rim types.ReturnItemCollectionMetrics,
+) (*transactItemMetric, error) {
+	wireKey := models.FromSDKItem(upd.Key)
+	oldItem, matchIndex := db.findMatchForPut(table, wireKey)
+
+	dummyInput := &dynamodb.UpdateItemInput{
+		Key:                       upd.Key,
+		TableName:                 upd.TableName,
+		UpdateExpression:          upd.UpdateExpression,
+		ExpressionAttributeNames:  upd.ExpressionAttributeNames,
+		ExpressionAttributeValues: upd.ExpressionAttributeValues,
+	}
+
+	updated, _, err := db.doUpdate(ctx, table, dummyInput, oldItem, matchIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	// The item's post-write state is already committed to table.Items by doUpdate,
+	// so the collection's current bytes already reflect this write.
+	var metric *transactItemMetric
+	if rim == types.ReturnItemCollectionMetricsSize && len(table.LocalSecondaryIndexes) > 0 {
+		pkDef, _ := getPKAndSK(table.KeySchema)
+		pkVal := BuildKeyString(updated, pkDef.AttributeName)
+		metric = lsiCollectionMetricFor(table, tableName, rim, upd.Key, currentLSICollectionBytes(table, pkVal))
+	}
+
+	// Capture stream event for the committed transactional update.
+	if matchIndex != -1 {
+		table.appendStreamRecord(
+			streamEventModify, deepCopyItem(oldItem), deepCopyItem(updated), "", "",
+		)
+	} else {
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated), "", "")
+	}
+
+	return metric, nil
+}
+
 func (db *InMemoryDB) applyTransactWrite(
 	ctx context.Context,
 	tables map[string]*Table,
 	ti types.TransactWriteItem,
-) error {
+	rim types.ReturnItemCollectionMetrics,
+) (*transactItemMetric, error) {
 	switch {
 	case ti.Put != nil:
-		table := tables[aws.ToString(ti.Put.TableName)]
-		wireItem := models.FromSDKItem(ti.Put.Item)
-		if err := db.validateItem(wireItem, table); err != nil {
-			return err
-		}
-		oldItem, matchIndex := db.findMatchForPut(table, wireItem)
-		db.doPut(table, wireItem, matchIndex)
-		// Capture stream event for the committed transactional write.
-		if matchIndex != -1 {
-			table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem), "", "")
-		} else {
-			table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem), "", "")
-		}
+		tableName := aws.ToString(ti.Put.TableName)
+
+		return db.applyTransactPut(tables[tableName], tableName, ti.Put, rim)
 
 	case ti.Delete != nil:
-		table := tables[aws.ToString(ti.Delete.TableName)]
-		wireKey := models.FromSDKItem(ti.Delete.Key)
-		oldItem, matchIndex := db.findMatchForPut(table, wireKey)
-		if matchIndex != -1 {
-			// Capture stream event (REMOVE) before the item is removed.
-			table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil, "", "")
-			db.deleteItemAtIndex(table, matchIndex)
-		}
+		tableName := aws.ToString(ti.Delete.TableName)
+
+		return db.applyTransactDelete(tables[tableName], tableName, ti.Delete, rim)
 
 	case ti.Update != nil:
-		table := tables[aws.ToString(ti.Update.TableName)]
-		wireKey := models.FromSDKItem(ti.Update.Key)
-		oldItem, matchIndex := db.findMatchForPut(table, wireKey)
+		tableName := aws.ToString(ti.Update.TableName)
 
-		// doUpdate expects *dynamodb.UpdateItemInput.
-		// types.Update struct is similar but different package.
-		// Use internal logic or construct dummy input?
-		// Better to refactor doUpdate to take components, OR construct dummy input.
-		// Constructing dummy input is easier refactor.
-
-		dummyInput := &dynamodb.UpdateItemInput{
-			Key:                       ti.Update.Key,
-			TableName:                 ti.Update.TableName,
-			UpdateExpression:          ti.Update.UpdateExpression,
-			ExpressionAttributeNames:  ti.Update.ExpressionAttributeNames,
-			ExpressionAttributeValues: ti.Update.ExpressionAttributeValues,
-		}
-
-		updated, _, err := db.doUpdate(ctx, table, dummyInput, oldItem, matchIndex)
-		if err != nil {
-			return err
-		}
-		// Capture stream event for the committed transactional update.
-		if matchIndex != -1 {
-			table.appendStreamRecord(
-				streamEventModify, deepCopyItem(oldItem), deepCopyItem(updated), "", "",
-			)
-		} else {
-			table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated), "", "")
-		}
+		return db.applyTransactUpdate(ctx, tables[tableName], tableName, ti.Update, rim)
 	}
 
-	return nil
+	return nil, nil //nolint:nilnil // ConditionCheck-only item: no write applied, nothing to report
 }
 
 func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableStateSnapshot {
@@ -811,6 +1006,8 @@ func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableS
 			totalItemSizeBytes: t.totalItemSizeBytes,
 			pkIndex:            pkIdxCopy,
 			pkskIndex:          pkskIdxCopy,
+			gsiIndexes:         copySecondaryIndexMap(t.gsiIndexes),
+			lsiIndexes:         copySecondaryIndexMap(t.lsiIndexes),
 		}
 	}
 
@@ -828,6 +1025,8 @@ func (db *InMemoryDB) rollbackTables(
 			t.totalItemSizeBytes = s.totalItemSizeBytes
 			t.pkIndex = s.pkIndex
 			t.pkskIndex = s.pkskIndex
+			t.gsiIndexes = s.gsiIndexes
+			t.lsiIndexes = s.lsiIndexes
 		}
 	}
 }

@@ -11,6 +11,79 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudtrail"
 )
 
+// TestEventDataStoreWireShape asserts the per-op EventDataStore response
+// shapes: InsightSelectors never appears (it belongs only to
+// Get/PutInsightSelectorsOutput, never to any EventDataStore shape); TagsList
+// appears only on CreateEventDataStore's response; FederationRoleArn/
+// FederationStatus never appear on CreateEventDataStore's response (they do
+// on GetEventDataStore's, once federation is enabled) -- confirmed against
+// cloudtrail@v1.58.4's deserializers.go.
+func TestEventDataStoreWireShape(t *testing.T) {
+	t.Parallel()
+
+	t.Run("create_never_has_insight_selectors_or_federation_fields", func(t *testing.T) {
+		t.Parallel()
+		h := newTestCloudTrailHandler()
+		rec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+			"Name": "wire-shape-eds",
+			"TagsList": []map[string]string{
+				{"Key": "env", "Value": "test"},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseCloudTrailResp(t, rec)
+
+		_, hasInsightSelectors := resp["InsightSelectors"]
+		assert.False(t, hasInsightSelectors, "CreateEventDataStore response should not have InsightSelectors")
+		_, hasFederationRoleArn := resp["FederationRoleArn"]
+		assert.False(t, hasFederationRoleArn, "CreateEventDataStore response should not have FederationRoleArn")
+		_, hasFederationStatus := resp["FederationStatus"]
+		assert.False(t, hasFederationStatus, "CreateEventDataStore response should not have FederationStatus")
+
+		tagsList, ok := resp["TagsList"].([]any)
+		require.True(t, ok, "CreateEventDataStore response should have a TagsList")
+		require.Len(t, tagsList, 1)
+		tag, ok := tagsList[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "env", tag["Key"])
+		assert.Equal(t, "test", tag["Value"])
+	})
+
+	t.Run("get_never_has_insight_selectors_or_tags_list", func(t *testing.T) {
+		t.Parallel()
+		h := newTestCloudTrailHandler()
+		createRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+			"Name": "wire-shape-get-eds",
+			"TagsList": []map[string]string{
+				{"Key": "env", "Value": "test"},
+			},
+		})
+		createResp := parseCloudTrailResp(t, createRec)
+		edsARN, _ := createResp["EventDataStoreArn"].(string)
+		require.NotEmpty(t, edsARN)
+
+		// Populate real InsightSelectors on the EDS so a leak into
+		// GetEventDataStore's response is actually observable, not just
+		// absent because it was never set.
+		putRec := doCloudTrailOp(t, h, "PutInsightSelectors", map[string]any{
+			"EventDataStore": edsARN,
+			"InsightSelectors": []map[string]any{
+				{"InsightType": "ApiCallRateInsight"},
+			},
+		})
+		require.Equal(t, http.StatusOK, putRec.Code)
+
+		rec := doCloudTrailOp(t, h, "GetEventDataStore", map[string]any{"EventDataStore": edsARN})
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseCloudTrailResp(t, rec)
+
+		_, hasInsightSelectors := resp["InsightSelectors"]
+		assert.False(t, hasInsightSelectors, "GetEventDataStore response should not have InsightSelectors")
+		_, hasTagsList := resp["TagsList"]
+		assert.False(t, hasTagsList, "GetEventDataStore response should not have TagsList")
+	})
+}
+
 // TestCloudTrailEventDataStore exercises CreateEventDataStore and DeleteEventDataStore.
 func TestCloudTrailEventDataStore(t *testing.T) {
 	t.Parallel()
@@ -103,7 +176,21 @@ func TestEDSFederation(t *testing.T) {
 				})
 				assert.Equal(t, http.StatusOK, rec.Code)
 				resp := parseCloudTrailResp(t, rec)
-				assert.Equal(t, "DISABLED", resp["FederationStatus"])
+				// CreateEventDataStoreOutput has no FederationStatus field on
+				// the real API (confirmed against cloudtrail@v1.58.4's
+				// awsAwsjson11_deserializeOpDocumentCreateEventDataStoreOutput);
+				// observe the default via GetEventDataStore instead, which does.
+				_, hasFederationStatus := resp["FederationStatus"]
+				assert.False(t, hasFederationStatus, "CreateEventDataStore response should not have FederationStatus")
+				edsARN, _ := resp["EventDataStoreArn"].(string)
+				require.NotEmpty(t, edsARN)
+
+				getRec := doCloudTrailOp(t, h, "GetEventDataStore", map[string]any{
+					"EventDataStore": edsARN,
+				})
+				assert.Equal(t, http.StatusOK, getRec.Code)
+				getResp := parseCloudTrailResp(t, getRec)
+				assert.Equal(t, "DISABLED", getResp["FederationStatus"])
 			},
 		},
 		{
@@ -508,8 +595,17 @@ func TestCloudTrailFederationSmoke(t *testing.T) {
 	edsARN, _ := resp["EventDataStoreArn"].(string)
 	require.NotEmpty(t, edsARN)
 
-	// New EDS has DISABLED federation.
-	assert.Equal(t, "DISABLED", resp["FederationStatus"])
+	// CreateEventDataStoreOutput has no FederationStatus field on the real
+	// API; GetEventDataStore does, and shows the new EDS defaults to
+	// DISABLED federation.
+	_, hasFederationStatus := resp["FederationStatus"]
+	assert.False(t, hasFederationStatus, "CreateEventDataStore response should not have FederationStatus")
+	getRec := doCloudTrailOp(t, h, "GetEventDataStore", map[string]any{
+		"EventDataStore": edsARN,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	getResp := parseCloudTrailResp(t, getRec)
+	assert.Equal(t, "DISABLED", getResp["FederationStatus"])
 
 	// EnableFederation.
 	roleArn := "arn:aws:iam::123456789012:role/FedRole"

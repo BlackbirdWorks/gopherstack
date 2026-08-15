@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -9,6 +10,15 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+// newARPOpaqueHash mints an opaque, time-derived concurrency token, matching
+// the convention CreateAutomatedReasoningPolicy already uses for
+// DefinitionHash. It is not a content hash -- like AWS's own definitionHash/
+// annotationSetHash, this backend does not claim its algorithm, only that it
+// changes on every real mutation.
+func newARPOpaqueHash() string {
+	return fmt.Sprintf("%x", time.Now().UnixNano())
+}
 
 // newARPID generates a unique automated reasoning policy ID.
 func (b *InMemoryBackend) newARPID() string {
@@ -206,10 +216,20 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicies() []*AutomatedReasoning
 	return policies
 }
 
-// UpdateAutomatedReasoningPolicy updates description (and other mutable fields) of a policy.
+// UpdateAutomatedReasoningPolicy updates a policy's definition (required --
+// bedrock@v1.66.4 api_op_UpdateAutomatedReasoningPolicy.go:37-63) and,
+// optionally, its name and description. name only renames when non-empty:
+// unlike description, policy.Name backs the arpByName secondary index, so an
+// unconditional overwrite on every PATCH (including ones that omit name)
+// would orphan that index instead of leaving the name unchanged.
 func (b *InMemoryBackend) UpdateAutomatedReasoningPolicy(
-	policyARN, description string,
+	policyARN, name, description string,
+	policyDefinition json.RawMessage,
 ) (*AutomatedReasoningPolicy, error) {
+	if len(policyDefinition) == 0 {
+		return nil, fmt.Errorf("%w: policyDefinition is required", ErrValidation)
+	}
+
 	b.mu.Lock("UpdateAutomatedReasoningPolicy")
 	defer b.mu.Unlock()
 
@@ -218,7 +238,16 @@ func (b *InMemoryBackend) UpdateAutomatedReasoningPolicy(
 		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
+	policy.PolicyDefinition = policyDefinition
+	policy.DefinitionHash = newARPOpaqueHash()
 	policy.Description = description
+
+	if name != "" && name != policy.Name {
+		delete(b.arpByName, policy.Name)
+		policy.Name = name
+		b.arpByName[name] = policyARN
+	}
+
 	policy.UpdatedAt = time.Now().UTC()
 
 	cp := *policy
@@ -256,10 +285,19 @@ func (b *InMemoryBackend) DeleteAutomatedReasoningPolicy(policyARN string) error
 	return nil
 }
 
-// StartAutomatedReasoningPolicyBuildWorkflow creates a new build workflow for a policy.
+// StartAutomatedReasoningPolicyBuildWorkflow creates a new build workflow for
+// a policy. buildWorkflowType and sourceContent are both required
+// (bedrock@v1.66.4 api_op_StartAutomatedReasoningPolicyBuildWorkflow.go:37-53);
+// buildWorkflowType arrives as a URI label, sourceContent as the entire JSON
+// request body (serializers.go:8008-8058).
 func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(
-	policyARN string,
+	policyARN, buildWorkflowType string,
+	sourceContent json.RawMessage,
 ) (*AutomatedReasoningPolicyBuildWorkflow, error) {
+	if buildWorkflowType == "" {
+		return nil, fmt.Errorf("%w: buildWorkflowType is required", ErrValidation)
+	}
+
 	b.mu.Lock("StartAutomatedReasoningPolicyBuildWorkflow")
 	defer b.mu.Unlock()
 
@@ -271,9 +309,11 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(
 	id := "bw-" + strconv.Itoa(b.arpWorkflowCounter)
 
 	wf := &AutomatedReasoningPolicyBuildWorkflow{
-		BuildWorkflowID: id,
-		PolicyArn:       policyARN,
-		Status:          statusRunning,
+		BuildWorkflowID:   id,
+		PolicyArn:         policyARN,
+		Status:            statusRunning,
+		BuildWorkflowType: buildWorkflowType,
+		SourceContent:     sourceContent,
 	}
 	b.arpBuildWorkflows.Put(wf)
 	cp := *wf
@@ -438,43 +478,79 @@ func arpAnnotationsKey(policyARN, buildWorkflowID string) string {
 
 // GetAutomatedReasoningPolicyAnnotations returns annotations for a build workflow
 // (bedrock@v1.66.4 serializers.go:3874 — build-workflow-scoped, not policy-scoped).
+// annotationSetHash is required on the real output
+// (api_op_GetAutomatedReasoningPolicyAnnotations.go:54) and doubles as the
+// token UpdateAutomatedReasoningPolicyAnnotations's required
+// lastUpdatedAnnotationSetHash checks against, so it is minted here on first
+// read rather than left absent. Uses the write lock because that lazy mint
+// mutates arpAnnotationSetHash.
 func (b *InMemoryBackend) GetAutomatedReasoningPolicyAnnotations(
 	policyARN, buildWorkflowID string,
 ) (map[string]any, error) {
-	b.mu.RLock("GetAutomatedReasoningPolicyAnnotations")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetAutomatedReasoningPolicyAnnotations")
+	defer b.mu.Unlock()
 
 	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
 		return nil, err
 	}
 
-	anns := b.arpAnnotations[arpAnnotationsKey(policyARN, buildWorkflowID)]
+	key := arpAnnotationsKey(policyARN, buildWorkflowID)
+
+	anns := b.arpAnnotations[key]
 	if anns == nil {
-		return map[string]any{"annotations": []any{}}, nil
+		anns = []any{}
 	}
 
-	return map[string]any{"annotations": anns}, nil
+	hash, ok := b.arpAnnotationSetHash[key]
+	if !ok {
+		hash = newARPOpaqueHash()
+		b.arpAnnotationSetHash[key] = hash
+	}
+
+	return map[string]any{"annotations": anns, "annotationSetHash": hash}, nil
 }
 
-// UpdateAutomatedReasoningPolicyAnnotations stores annotations for a build workflow.
-func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyAnnotations(policyARN, buildWorkflowID string) error {
+// UpdateAutomatedReasoningPolicyAnnotations stores the caller's real annotations
+// for a build workflow (bedrock@v1.66.4
+// api_op_UpdateAutomatedReasoningPolicyAnnotations.go: both annotations and
+// lastUpdatedAnnotationSetHash are required). lastUpdatedAnnotationSetHash is
+// validated as present but not matched against the stored hash -- this
+// backend does not enforce optimistic-concurrency conflicts, the same
+// approach already taken for CreateAutomatedReasoningPolicyVersion's
+// lastUpdatedDefinitionHash. Response fields (annotationSetHash,
+// buildWorkflowId, policyArn, updatedAt) are all required on the real output.
+func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyAnnotations(
+	policyARN, buildWorkflowID string,
+	annotations []any,
+	lastUpdatedAnnotationSetHash string,
+) (map[string]any, error) {
+	if annotations == nil {
+		return nil, fmt.Errorf("%w: annotations is required", ErrValidation)
+	}
+
+	if lastUpdatedAnnotationSetHash == "" {
+		return nil, fmt.Errorf("%w: lastUpdatedAnnotationSetHash is required", ErrValidation)
+	}
+
 	b.mu.Lock("UpdateAutomatedReasoningPolicyAnnotations")
 	defer b.mu.Unlock()
 
 	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
-		return err
-	}
-
-	if b.arpAnnotations == nil {
-		b.arpAnnotations = make(map[string][]any)
+		return nil, err
 	}
 
 	key := arpAnnotationsKey(policyARN, buildWorkflowID)
-	if b.arpAnnotations[key] == nil {
-		b.arpAnnotations[key] = []any{}
-	}
+	b.arpAnnotations[key] = annotations
+	hash := newARPOpaqueHash()
+	b.arpAnnotationSetHash[key] = hash
+	now := time.Now().UTC()
 
-	return nil
+	return map[string]any{
+		"annotationSetHash": hash,
+		keyBuildWorkflowID:  buildWorkflowID,
+		keyPolicyArn:        policyARN,
+		keyUpdatedAt:        isoTime{now},
+	}, nil
 }
 
 // GetAutomatedReasoningPolicyNextScenario returns the next scenario for active-learning
@@ -492,7 +568,15 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyNextScenario(
 	return map[string]any{"scenario": nil, keyPolicyArn: policyARN}, nil
 }
 
-// GetAutomatedReasoningPolicyBuildWorkflowResultAssets returns result asset URLs for a workflow.
+// GetAutomatedReasoningPolicyBuildWorkflowResultAssets returns result asset
+// URLs for a workflow. Ignores the real, required AssetType filter
+// (bedrock@v1.66.4 api_op_GetAutomatedReasoningPolicyBuildWorkflowResultAssets.go)
+// deliberately rather than fixing it: this backend never generates
+// result-asset content (build workflows here don't run a real
+// document-ingestion/policy-generation pipeline), so resultAssets is always
+// []. Threading AssetType through to filter an always-empty list can't be
+// observed by any test, real-client or otherwise (gopherstack-4sov). Revisit
+// only if/when this backend starts producing real result-asset content.
 func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
 	policyARN, workflowID string,
 ) (map[string]any, error) {
@@ -542,10 +626,10 @@ func (b *InMemoryBackend) ExportAutomatedReasoningPolicyVersion(arnParam string)
 	}
 
 	return map[string]any{
-		keyPolicyArn:     v.PolicyArn,
-		"version":        v.Version,
-		"definitionHash": v.DefinitionHash,
-		keyCreatedAt:     v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		keyPolicyArn:      v.PolicyArn,
+		keyVersion:        v.Version,
+		keyDefinitionHash: v.DefinitionHash,
+		keyCreatedAt:      v.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}, nil
 }
 

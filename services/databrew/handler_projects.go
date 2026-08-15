@@ -120,7 +120,10 @@ func (h *Handler) handleDescribeProject(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(p)
+	cp := *p
+	cp.AccountID = ""
+
+	return json.Marshal(cp)
 }
 
 func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, error) {
@@ -180,7 +183,7 @@ func (h *Handler) handleStartProjectSession(ctx context.Context, body []byte) ([
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
-	if _, err := h.Backend.DescribeProject(ctx, req.Name); err != nil {
+	if _, err := h.Backend.OpenProjectSession(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
