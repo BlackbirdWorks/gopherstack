@@ -47,7 +47,14 @@ func (h *Handler) listFilters(input map[string]any) (map[string]any, error) {
 		summaries = append(summaries, filterSummaryToMap(f))
 	}
 
-	result := map[string]any{"filters": summaries}
+	// Real key is "Filters" (PascalCase) -- deserializers.go's
+	// awsAwsjson11_deserializeOpDocumentListFiltersOutput, case "Filters":.
+	// The only PascalCase top-level wrapper key in this service; every
+	// sibling List op (ListDatasetGroups/ListDatasets/ListSolutions/...) uses
+	// lowerCamelCase. JSON-RPC 1.1 decode is case-sensitive, so a real
+	// client's typed ListFiltersOutput.Filters was always empty regardless of
+	// backend state before this fix.
+	result := map[string]any{"Filters": summaries}
 	if outToken != "" {
 		result["nextToken"] = outToken
 	}

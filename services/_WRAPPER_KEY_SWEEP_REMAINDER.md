@@ -1,6 +1,6 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**66 of 162 services swept, 96 remain** (cognitoidp added this session — see
+**67 of 162 services swept, 95 remain** (personalize added this session — see
 its own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
@@ -98,7 +98,8 @@ elasticache, elbv2, forecast,
 glue, guardduty, iam, identitystore, inspector2, iot,
 iotwireless, kms, lambda, lightsail, macie2, medialive,
 mgn, networkmanager, networkmonitor, omics,
-opensearch, organizations, pinpoint, quicksight, rds, redshift,
+opensearch, organizations, **personalize** (this session), pinpoint,
+quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer.
@@ -125,13 +126,12 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 96 (networkmanager's 38, securityhub's
-47, macie2's 40, s3's 45, and cognitoidp's 37 removed, all swept prior
-to/this session): **1,394** candidate ops.
+Sum of the L+D+G column across all 95 (networkmanager's 38, securityhub's
+47, macie2's 40, s3's 45, cognitoidp's 37, and personalize's 39 removed, all
+swept prior to/this session): **1,355** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| personalize | 77 | 18 | 18 | 3 | 39 | dynamic-fallback |
 | apigatewayv2 | 103 | 5 | 0 | 32 | 37 | direct |
 | workmail | 97 | 18 | 9 | 9 | 36 | dynamic-fallback |
 | waf | 113 | 16 | 0 | 18 | 34 | dynamic-fallback |
@@ -1939,3 +1939,189 @@ than silently assumed clean). 66 of 162 services swept, 96 remain. Per
 the ranked table, personalize (39, likely mostly-clean per
 gopherstack-sm02) is now the largest candidate without a live-sibling
 collision observed this session; re-check `git status` before picking.
+
+## personalize (this session)
+
+Chosen as the largest unswept service per the ranked table (39 L+D+G: 18
+List/18 Describe/3 Get, `dynamic-fallback` resolution). `git status` at
+start showed the repo clean except 5 untracked host-prefix-reachability test
+files under `services/{cloudwatchlogs,lakeformation,mwaa,servicediscovery,
+stepfunctions}/` — a live sibling session's assigned territory per this
+session's own instructions, none of it touching personalize; left alone,
+confirmed untouched again at the end. Own enumeration of `buildOps()`'s
+literal map (a flat `map[string]opFunc` built in one function, no
+per-family helper indirection) confirms the table's 39 exactly: 18 List +
+18 Describe + 3 Get (GetSolutionMetrics, GetRecommendations,
+GetPersonalizedRanking).
+
+personalize was flagged by the prior session's note as "likely mostly-clean"
+because gopherstack-sm02 (`de3ccfb36`) already did a careful, well-cited
+List-vs-Get rescoping pass across all sixteen collection ops — a **different**
+bug class from this issue's own (over-wide response leaking Get-only fields,
+not a wrong wire key), but the fix was thorough enough that it also happened
+to get every wrapper key and per-item field name right except one. That
+prediction held: this was the cleanest large service swept in this campaign
+so far by finding count, but not empty.
+
+**PROTOCOL**: `awsAwsjson11_` (JSON-RPC 1.1) confirmed as the sole
+deserializer-function prefix in personalize@v1.50.4/deserializers.go (247
+`EqualFold` hits total, all either `errorCode` matches or `NaN`/`Infinity`/
+`-Infinity` float-parsing branches inside numeric-field decode — zero in a
+body-field `switch key { case "...": }` block, confirmed by grepping
+`EqualFold` lines lacking `errorCode` and inspecting each of the 24 remaining
+hits by hand). Case-sensitive, same distribution as awsconfig/
+cloudwatchlogs/macie2/cognitoidp. `handleRuntimeREST`'s two ops
+(`GetRecommendations`/`GetPersonalizedRanking`) are dispatched separately —
+real `personalizeruntime@v1.36.4` is a *different*, restjson1 SDK client with
+no `X-Amz-Target` header at all (`personalizeRuntimeRecommendationsPath`/
+`personalizeRuntimeRankingPath`, fixed prior to this session under
+gopherstack-92ft) — confirmed restjson1's own body-field switches are also
+case-sensitive plain `case "...":` with zero relevant `EqualFold` hits.
+
+**Dead-deserializer trap checked and found NOT to apply, either protocol**:
+traced `(*awsAwsjson11_deserializeOpListSolutions).HandleDeserialize`
+(deserializers.go:6628) for the classic JSON-RPC service — it decodes the
+body into `shape` and calls
+`awsAwsjson11_deserializeOpDocumentListSolutionsOutput(&output, shape)`
+directly, same pattern as every other awsAwsjson11_ service this campaign has
+checked. Also traced `(*awsRestjson1_deserializeOpGetRecommendations
+).HandleDeserialize` (personalizeruntime@v1.36.4/deserializers.go:358) for
+the runtime client — same direct-call pattern as guardduty/networkmanager's
+restjson1, not pinpoint's dead-wrapper shape.
+
+Read all 39 L+D+G ops' response shapes against their own
+`awsAwsjson11_deserializeOpDocument<Op>Output` case list (dumped per-op via
+awk), plus every List op's per-item `<Type>Summary` deserializer and every
+Describe op's full `<Type>` deserializer, field-for-field against
+`handler_*.go`'s `*ToMap`/`*SummaryToMap` converters — the same layer-1+2
+pass this campaign has run on every other service, extended here to also
+verify sm02's already-fixed Summary converters didn't introduce a new
+key-name mismatch while rescoping fields (they didn't, except the one bug
+below, which sm02 didn't touch — `ListFilters`' top-level key, not a `Filters`-Summary
+field).
+
+**2 real bugs found and fixed:**
+
+1. **`ListFilters` — wrong top-level wrapper key, sibling trap, flagship
+   silent-empty shape.** Real key is `Filters` (PascalCase) — confirmed at
+   `awsAwsjson11_deserializeOpDocumentListFiltersOutput`, `case "Filters":`,
+   and independently in `api_op_ListFilters.go`'s
+   `ListFiltersOutput.Filters` field. gopherstack emitted `"filters"`
+   (lowercase) — the **only** PascalCase top-level wrapper key in this
+   entire service; every sibling List op (`ListDatasetGroups`/
+   `ListDatasets`/`ListSolutions`/`ListCampaigns`/`ListEventTrackers`/...)
+   genuinely uses lowerCamelCase, confirmed per-op via the same awk dump.
+   Case-sensitive JSON-RPC 1.1 decode means a real client's typed
+   `ListFiltersOutput.Filters` was always empty regardless of backend
+   state — the same bug class as awsconfig's `ListDiscoveredResources` and
+   cloudwatchlogs's `DescribeImportTasks`, just inverted (one PascalCase
+   outlier among lowercase siblings instead of one lowercase outlier among
+   PascalCase siblings). Fixed in `handler_filters.go`'s `listFilters`.
+2. **`DescribeEventTracker` — backend-tracked-but-unemitted (layer 3),
+   this session's instance of the lead-question-2 pattern.** Real
+   `EventTracker.AccountId` ("The Amazon Web Services account that owns the
+   event tracker", types.go:1224-1227) was never emitted by
+   `eventTrackerToMap`, even though the backend already has the exact value
+   on hand — `InMemoryBackend.accountID`, the same field used to build every
+   ARN this service returns (`personalizeARN`, store.go). No accessor
+   existed to read it from a handler file, so one was added
+   (`Backend.AccountID()`, mirroring the existing `Backend.Region()`) and
+   threaded through `describeEventTracker` into `eventTrackerToMap`. Not
+   present on `EventTrackerSummary` (`ListEventTrackers`' item type) —
+   confirmed absent from that type's own deserializer case list, so the List
+   side correctly stays as-is.
+
+**Sibling-trap / generational-pair check**: no V1/V2 or plain/wrapped pairs
+exist in this service (unlike cognitoidp/securityhub) — every resource
+family has exactly one Create/Describe/List/Update/Delete set. The one
+sibling trap found (`ListFilters`) is a same-service, cross-op casing
+outlier, not a versioned pair.
+
+**Request side**: spot-checked every Create/Update op's largest bodies
+(`CreateSolution`, `CreateSolutionVersion`, `CreateCampaign`,
+`CreateRecommender`, `CreateBatchInferenceJob`, `CreateBatchSegmentJob`,
+`CreateDataDeletionJob`, `CreateMetricAttribution`) against their real
+`serializeOpDocument<Op>Input` field lists — all already correct, including
+`UpdateSolution`'s deliberate omission of `PerformAutoML`/`PerformHPO`
+(create-only fields, correctly not accepted on update, confirmed against
+the real `UpdateSolutionInput`, which has neither member). No request-side
+bugs found this session — the total-outage class this issue calls out
+(required-field read under the wrong key) does not appear anywhere in this
+service; every op's read keys matched the real request struct's tags.
+
+**Grep for discarded parameters / write-only fields**: no `_ bool`/`_
+string`-style discarded backend parameters found (unlike networkmanager's
+`UseMiddleboxes`). `FailureReason` (tracked only on `DatasetGroup` and
+`SolutionVersion` per `models.go`) is already conditionally emitted on both;
+every other Summary/full type missing `failureReason` does so because the
+backend genuinely has no such field on that resource's model — each such gap
+already carries its own pre-existing citing comment
+(`datasetGroupSummaryToMap`/`campaignSummaryToMap`/`filterSummaryToMap`/etc.
+all explicitly say so), independently spot-checked against `models.go` and
+confirmed accurate rather than trusted at face value.
+
+**Over-wide-field / credential check**: none found. No List item anywhere in
+this service reuses a full Get-scoped converter (that's exactly what sm02
+already fixed), and no Summary/full type in this service has anything
+resembling a secret, token, or credential field — personalize has no
+API-key/secret-bearing resource type at all.
+
+**Ratifying tests found and fixed: 1** —
+`handler_list_summary_test.go`'s table-driven `TestPersonalize_ListOps_
+SummaryShape` (the sm02-era test) called `listSingle(t, h, "ListFilters",
+"filters")`, asserting the wrong (lowercase) key as correct; both the
+handler and the test agreed on the bug, so it passed cleanly against broken
+code. Fixed to `"Filters"`. **Zero** found in the other two ratifying-test
+shapes this issue tracks (wrong value; assertion too weak to fail) — grepped
+every existing `*_test.go` assertion touching `Filters`/`filters` and
+`accountId`/`AccountId`: no other test in either shape references either
+field.
+
+**Phantom ops**: none — `sdk_completeness_test.go`'s
+`TestSDKCompleteness` already cross-checks every op name in
+`GetSupportedOperations()` against the real `personalizesdk.Client`/
+`personalizeruntimesdk.Client` method sets (split by the `runtimeOps` map
+since gopherstack's single Handler serves both real SDKs), and passed before
+and after this session's changes — confirmed as the existing mechanism
+rather than re-derived by hand.
+
+**False-positive rate**: 0 among reported bugs — both findings cite the
+real `deserializeOpDocument<Type>Output`/`deserializeDocument<Type>` case
+list or `types.go` struct definition, file+line, never a doc comment.
+
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint), confirmed to fail with the exact predicted
+symptom — `require.Len(t, out.Filters, 1)` failing with "`[]` should have 1
+item(s), but has 0" for the `ListFilters` key revert, and
+`assert.Equal(t, "000000000000", ...)` failing with an empty-string actual
+for the `DescribeEventTracker` revert — then restored and diffed
+byte-identical against the pre-revert file before moving to the next.
+
+2 real-SDK-client tests added in `services/personalize/wire_field_fixes_test.go`
+(`TestListFilters_RealSDKClient`, `TestDescribeEventTracker_AccountID`),
+plus a new `newTestPersonalizeClient` helper (the classic JSON-RPC control-
+plane client) mirroring the existing `newTestPersonalizeRuntimeClient`
+pattern already in `handler_runtime_real_client_test.go` for the separate
+restjson1 runtime client.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to
+`services/personalize`), `go fix -diff` (no diff), `fieldalignment` (0
+findings), `golangci-lint run` (0 issues, no cyclop/gocyclo/gocognit/funlen
+nolints added or present) all green. `go test -race ./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all `services/personalize` changes
+uncommitted — orchestrator must commit/push), the 5 host-prefix-
+reachability sibling files confirmed untouched via `git status` both before
+starting and again at the end. `.beads/issues.jsonl` appeared staged after
+running read-only `bd show`/`bd prime`-style commands — bd's own
+auto-export hook, not a manual `git add`; left as-is since undoing it would
+itself require a git-mutating command this session may not run. No
+`gendocs`/`make docs` run.
+
+personalize's List/Describe/Get families are now fully swept for this issue
+(39/39 ops verified against the real deserializer/serializer, both the
+classic JSON-RPC control plane and the restjson1 runtime client). 67 of 162
+services swept, 95 remain. Per the ranked table, apigatewayv2 (37, `direct`
+resolution) is the next largest unswept candidate — re-check `git status`
+for live sibling territory before picking.

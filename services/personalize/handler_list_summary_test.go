@@ -118,7 +118,7 @@ func TestPersonalize_ListOps_SummaryShape(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 
-				return listSingle(t, h, "ListFilters", "filters")
+				return listSingle(t, h, "ListFilters", "Filters")
 			},
 		},
 		{

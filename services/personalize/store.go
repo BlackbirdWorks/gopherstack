@@ -101,6 +101,9 @@ func (b *InMemoryBackend) Reset() {
 // Region returns the configured region.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AccountID returns the configured account ID.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
 func (b *InMemoryBackend) personalizeARN(resource, name string) string {
 	return arn.Build("personalize", b.region, b.accountID, resource+"/"+name)
 }
