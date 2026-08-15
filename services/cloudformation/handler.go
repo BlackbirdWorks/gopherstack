@@ -427,14 +427,15 @@ func parseStackOptions(form url.Values) StackOptions {
 	disableRollback := strings.EqualFold(form.Get("DisableRollback"), "true")
 
 	return StackOptions{
-		Tags:                  parseTags(form),
-		Capabilities:          parseCapabilities(form),
-		NotificationARNs:      parseNotificationARNs(form),
-		RoleARN:               form.Get("RoleARN"),
-		OnFailure:             form.Get("OnFailure"),
-		TimeoutInMinutes:      timeout,
-		DisableRollback:       disableRollback,
-		RollbackConfiguration: parseRollbackConfiguration(form),
+		Tags:                        parseTags(form),
+		Capabilities:                parseCapabilities(form),
+		NotificationARNs:            parseNotificationARNs(form),
+		RoleARN:                     form.Get("RoleARN"),
+		OnFailure:                   form.Get("OnFailure"),
+		TimeoutInMinutes:            timeout,
+		DisableRollback:             disableRollback,
+		RollbackConfiguration:       parseRollbackConfiguration(form),
+		StackPolicyDuringUpdateBody: form.Get("StackPolicyDuringUpdateBody"),
 	}
 }
 

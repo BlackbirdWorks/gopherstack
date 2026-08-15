@@ -17,11 +17,16 @@ type StackOptions struct {
 	RollbackConfiguration *RollbackConfiguration
 	RoleARN               string
 	OnFailure             string // DELETE | ROLLBACK | DO_NOTHING
-	Capabilities          []string
-	NotificationARNs      []string
-	Tags                  []Tag
-	TimeoutInMinutes      int
-	DisableRollback       bool
+	// StackPolicyDuringUpdateBody, when non-empty, overrides the stack's
+	// stored policy for this UpdateStack call only (UpdateStackInput's
+	// StackPolicyDuringUpdateBody, api_op_UpdateStack.go:223) -- it is never
+	// persisted to the stack's stored policy.
+	StackPolicyDuringUpdateBody string
+	Capabilities                []string
+	NotificationARNs            []string
+	Tags                        []Tag
+	TimeoutInMinutes            int
+	DisableRollback             bool
 }
 
 // CreateNestedStack implements NestedStackCreator. Must be called while b.mu is held by caller.
@@ -573,6 +578,14 @@ func (b *InMemoryBackend) UpdateStack(
 	stack, ok := b.resolveStack(nameOrID)
 	if !ok {
 		return nil, ErrStackNotFound
+	}
+
+	// Enforce the stack policy before mutating any state: computeChanges
+	// needs stack.TemplateBody as it stood before this update, and a denied
+	// update must fail atomically rather than partially transitioning the
+	// stack to UPDATE_IN_PROGRESS.
+	if err := b.checkStackPolicy(stack, templateBody, opts); err != nil {
+		return nil, err
 	}
 
 	now := time.Now()
