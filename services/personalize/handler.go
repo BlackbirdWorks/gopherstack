@@ -219,7 +219,7 @@ func (h *Handler) handleRuntimeRESTError(c *echo.Context, err error) error {
 	}
 
 	c.Response().Header().Set("Content-Type", personalizeRuntimeContentType)
-	c.Response().Header().Set("X-Amzn-ErrorType", errType)
+	c.Response().Header().Set("X-Amzn-Errortype", errType)
 
 	payload, marshalErr := json.Marshal(map[string]string{"message": err.Error()})
 	if marshalErr != nil {
