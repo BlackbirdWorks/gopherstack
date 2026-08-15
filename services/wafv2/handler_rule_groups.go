@@ -37,13 +37,14 @@ func (h *Handler) handleCheckCapacity(ctx context.Context, body []byte) ([]byte,
 
 // createRuleGroupRequest is the request body for CreateRuleGroup.
 type createRuleGroupRequest struct {
-	Name             string           `json:"Name"`
-	Scope            string           `json:"Scope"`
-	Description      string           `json:"Description"`
-	VisibilityConfig json.RawMessage  `json:"VisibilityConfig"`
-	Rules            []map[string]any `json:"Rules"`
-	Tags             []tags.KV        `json:"Tags"`
-	Capacity         int64            `json:"Capacity"`
+	Name                 string           `json:"Name"`
+	Scope                string           `json:"Scope"`
+	Description          string           `json:"Description"`
+	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
+	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
+	Rules                []map[string]any `json:"Rules"`
+	Tags                 []tags.KV        `json:"Tags"`
+	Capacity             int64            `json:"Capacity"`
 }
 
 func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byte, error) {
@@ -98,6 +99,7 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 		string(req.VisibilityConfig),
 		req.Capacity,
 		req.Rules,
+		req.CustomResponseBodies,
 		tags,
 	)
 	if err != nil {
@@ -156,16 +158,25 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 	arnStr := h.Backend.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
 	visConfig := parseVisibilityConfig(json.RawMessage(rg.VisibilityConfig), rg.Name)
 
+	ruleGroupMap := map[string]any{
+		"Id":                rg.ID,
+		keyName:             rg.Name,
+		keyARN:              arnStr,
+		keyDescription:      rg.Description,
+		keyCapacity:         rg.Capacity,
+		keyRules:            rg.Rules,
+		keyVisibilityConfig: visConfig,
+	}
+
+	if len(rg.CustomResponseBodies) > 0 {
+		var crb any
+		if json.Unmarshal(rg.CustomResponseBodies, &crb) == nil {
+			ruleGroupMap["CustomResponseBodies"] = crb
+		}
+	}
+
 	return json.Marshal(map[string]any{
-		"RuleGroup": map[string]any{
-			"Id":                rg.ID,
-			keyName:             rg.Name,
-			keyARN:              arnStr,
-			keyDescription:      rg.Description,
-			keyCapacity:         rg.Capacity,
-			keyRules:            rg.Rules,
-			keyVisibilityConfig: visConfig,
-		},
+		"RuleGroup":  ruleGroupMap,
 		keyLockToken: rg.LockToken,
 	})
 }
@@ -191,13 +202,14 @@ func (h *Handler) handleListRuleGroups(ctx context.Context, body []byte) ([]byte
 
 // updateRuleGroupRequest is the request body for UpdateRuleGroup.
 type updateRuleGroupRequest struct {
-	ID               string           `json:"Id"`
-	Name             string           `json:"Name"`
-	Scope            string           `json:"Scope"`
-	LockToken        string           `json:"LockToken"`
-	Description      string           `json:"Description"`
-	VisibilityConfig json.RawMessage  `json:"VisibilityConfig"`
-	Rules            []map[string]any `json:"Rules"`
+	ID                   string           `json:"Id"`
+	Name                 string           `json:"Name"`
+	Scope                string           `json:"Scope"`
+	LockToken            string           `json:"LockToken"`
+	Description          string           `json:"Description"`
+	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
+	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
+	Rules                []map[string]any `json:"Rules"`
 }
 
 func (h *Handler) handleUpdateRuleGroup(ctx context.Context, body []byte) ([]byte, error) {
@@ -221,6 +233,7 @@ func (h *Handler) handleUpdateRuleGroup(ctx context.Context, body []byte) ([]byt
 		string(req.VisibilityConfig),
 		req.LockToken,
 		req.Rules,
+		req.CustomResponseBodies,
 	)
 	if err != nil {
 		return nil, err

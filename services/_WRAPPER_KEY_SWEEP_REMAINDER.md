@@ -1,7 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**69 of 162 services swept, 93 remain** (apigatewayv2 and workmail both
-added this session, in parallel, by two different sessions — see each
+**70 of 162 services swept, 92 remain** (apigatewayv2, workmail, and wafv2
+all added this session, in parallel, by different sessions — see each
 service's own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
@@ -105,7 +105,7 @@ quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
-**workmail** (this session).
+**wafv2** (this session), **workmail** (this session).
 
 One service still has real, extensive wire-shape work under **other** issue
 classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
@@ -114,7 +114,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (97 of 162), ranked by List+Describe+Get op count
+## Unswept (92 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -129,15 +129,14 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 93 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 92 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
-apigatewayv2's 37, and workmail's 36 removed, all swept prior to/this
-session): **1,282** candidate ops.
+apigatewayv2's 37, workmail's 36, and wafv2's 32 removed, all swept prior
+to/this session): **1,250** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
 | waf | 113 | 16 | 0 | 18 | 34 | dynamic-fallback |
-| wafv2 | 59 | 13 | 3 | 16 | 32 | direct |
 | ce | 47 | 7 | 1 | 23 | 31 | direct |
 | vpclattice | 73 | 16 | 0 | 14 | 30 | direct |
 | eventbridge | 74 | 16 | 12 | 2 | 30 | direct |
@@ -2555,3 +2554,240 @@ swept, 93 remain. Per the ranked table, waf (34, `dynamic-fallback`) is
 next largest — re-check `git status` for live sibling territory (including
 apigatewayv2, still in flight as of this session's own last check) before
 picking.
+
+## wafv2 (this session)
+
+Chosen per this session's explicit direction: wafv2/waf are a V1/V2 pair
+(`waf` was already swept earlier this campaign, 13 candidates, clean), and
+`workmail` (36, next-largest in the ranked table) was a live sibling
+session's territory, confirmed via `git status` before starting. wafv2 (32
+L+D+G ops: 13 List/3 Describe/16 Get, `direct` resolution) was the largest
+remaining candidate that didn't collide.
+
+PROTOCOL: confirmed `awsAwsjson11_` (JSON-RPC 1.1) from
+wafv2@v1.77.3's `deserializers.go` function-prefix grep (sole prefix
+present — no `awsRestjson1_`/`awsEc2query_`/`awsAwsquery_`), matching the
+`AWSWAF_20190729.` X-Amz-Target prefix already in `handler.go`.
+Case-sensitive body-field decode, like awsconfig/cloudwatchlogs/guardduty.
+328 `EqualFold` hits total in `deserializers.go`; the 12 that don't match
+`errorCode` are all `NaN`/`Infinity`/`-Infinity` float-special-value parsing
+inside numeric-field decode branches, none in a body-field `switch key {
+case "...":}` block — spot-checked line by line, so body-field casing here
+is a non-issue by construction. **Second client**: none — `GetSupportedOperations`
+is one flat literal string slice (`handler.go`), no dispatch-table trap.
+
+**Dead-deserializer trap checked and found NOT to apply** — traced
+`HandleDeserialize` for `ListWebACLs` directly (deserializers.go:5936): it
+decodes the body into `shape` and calls
+`awsAwsjson11_deserializeOpDocumentListWebACLsOutput(&output, shape)`
+itself (deserializers.go:5976) — the `OpDocument*Output` function **is** the
+real, reached deserializer here, same JSON-RPC-1.1 shape as
+awsconfig/cloudwatchlogs/guardduty, not pinpoint's restjson1 wrapper-bypass
+shape.
+
+**V1-versus-V2 comparison**: waf (V1) was re-checked as a reference, not
+assumed clean from the campaign's earlier note. No V1-shaped field or
+convention was found leaking into wafv2's types — the two services share no
+Go types and no V1-only member (e.g. waf's `ChangeToken` state-machine
+concept) appears anywhere in wafv2's wire shapes. Clean in both directions;
+no securityhub/guardduty-style leak here.
+
+Read all 32 L+D+G ops' response shapes against their own
+`awsAwsjson11_deserializeOpDocument<Op>Output` case list (file+line), plus
+every nested-type deserializer they call into (`ManagedProductDescriptor`,
+`RuleGroup`/`RuleGroupSummary`, `WebACL`/`WebACLSummary`, `IPSet`/
+`IPSetSummary`, `RegexPatternSet`, `APIKeySummary`, `ManagedRuleSet`/
+`ManagedRuleSetSummary`, `RevenueBreakdown`, etc.), and the paired
+`serializeOp*Input` for every op whose request carries a field the handler
+reads or discards.
+
+**4 real bugs found and fixed:**
+
+1. **`ListAPIKeys` — wrong wrapper key, the core bug class this issue
+   tracks.** Emitted items under `"APIKeys"`; the real
+   `ListAPIKeysOutput` wraps them under `"APIKeySummaries"`
+   (deserializers.go:21185). A real typed client's `APIKeySummaries` field
+   was always empty regardless of how many keys existed — total silent data
+   loss for this op, same shape as omics' service-wide `items` bug from the
+   first pass on this issue. An existing raw-body test
+   (`TestHandler_ListAPIKeys`) asserted `resp["APIKeys"]` as correct and
+   passed cleanly against the bug, because the handler and the test agreed
+   on the wrong key — a ratifying test, fixed alongside (see below).
+2. **`APIKeySummary`/`GetDecryptedAPIKeyOutput` — missing `CreationTimestamp`
+   entirely, on both ops.** Real, always-populated member on both shapes
+   (deserializers.go's `smithytime.ParseEpochSeconds` case, `APIKey`
+   creation time) with no backing field anywhere in gopherstack's `APIKey`
+   model at all — not a rename, new modeling. Fixed by adding
+   `APIKey.CreatedAt int64` (Unix epoch seconds, matching this service's
+   existing epoch-int64 convention for `mobileSdkReleaseInfo.Timestamp`),
+   set at `CreateAPIKey`, threaded through `ListAPIKeys`/`GetDecryptedAPIKey`.
+3. **`RuleGroup` — sibling trap against `WebACL`, exactly the shape this
+   session was told to hunt for.** Real `CreateRuleGroupInput`/
+   `UpdateRuleGroupInput`/`GetRuleGroupOutput.RuleGroup` all carry
+   `CustomResponseBodies` (`api_op_CreateRuleGroup.go`) — used by
+   `CUSTOM_RESPONSE` block actions inside a rule group's own rules, same
+   concept `WebACL` already models end-to-end in this same file set
+   (`handler_web_acls.go`/`web_acls.go`: accepted on Create/Update, stored,
+   cloned, conditionally re-emitted). `RuleGroup` had no field for it at
+   all — a real client's `CustomResponseBodies` on `CreateRuleGroup`/
+   `UpdateRuleGroup` was silently discarded, and `GetRuleGroup` never had
+   anything to echo back regardless. Fixed by mirroring the exact
+   WebACL pattern onto RuleGroup: new `RuleGroup.CustomResponseBodies
+   json.RawMessage` field, accepted on Create/Update, deep-cloned in
+   `cloneRuleGroup` (byte-copy, matching `cloneWebACL`'s pattern), emitted
+   conditionally in `GetRuleGroup`.
+4. **`DescribeAllManagedProducts`/`DescribeManagedProductsByVendor` —
+   backend-tracked-but-unemitted.** Real `ManagedProductDescriptor.
+   IsVersioningSupported` (deserializers.go's case list) was never emitted
+   by either op, even though the backend's static catalog
+   (`managedRuleGroupInfo.VersioningSupported`) already tracks it correctly
+   and is already emitted correctly by the sibling op
+   `ListAvailableManagedRuleGroups` in the same file. Fixed by emitting it
+   on both ops.
+
+**Fabricated field found, disclosed not removed (harmless):**
+`DescribeManagedRuleGroup` emits a `"Description"` key that does not exist
+anywhere in the real `DescribeManagedRuleGroupOutput` (deserializers.go:20304
+-20360's case list is `AvailableLabels`/`Capacity`/`ConsumedLabels`/
+`LabelNamespace`/`Rules`/`SnsTopicArn`/`VersionName` — no `Description`
+member at all). A real typed client silently ignores unknown JSON keys, so
+this is a cosmetic invented field, not a bug — same non-bug class as rds's
+previously-noted `StorageOptimized`. Left in place rather than mutated,
+to keep this session's fix set to genuinely load-bearing findings; noted
+here for a future pass that wants a fabrication-cleanup sweep.
+
+Also noted, not fixed (harmless, same class): `IPSet`/`WebACL`/
+`ManagedRuleSet`'s full-object `Get*` responses each fabricate a `LockToken`
+member *inside* the nested object (`{"IPSet": {..., "LockToken": ...}}`)
+in addition to the real, correctly-placed top-level `LockToken` echo — the
+real `IPSet`/`WebACL`/`ManagedRuleSet` types have no `LockToken` member at
+all (confirmed against each type's own case list). By contrast the List-op
+summary types (`IPSetSummary`/`WebACLSummary`/`RuleGroupSummary`/
+`ManagedRuleSetSummary`/`RegexPatternSet`'s Create `Summary`) genuinely DO
+have a real `LockToken` member, so those are correct as written — this is
+a full-object-vs-summary-type distinction, not a service-wide bug, and
+every occurrence is a repeat of the same harmless pattern.
+
+**Over-wide field / secret check**: no leak found. `GetDecryptedAPIKey`
+and `ListAPIKeys`' per-item map both include a fabricated `"Scope"` key
+absent from the real `GetDecryptedAPIKeyOutput`/`APIKeySummary` types —
+harmless (Scope is public request-filter metadata already known to the
+caller, not a secret, and a real client's typed struct has no field to
+decode it into). `CreateAPIKey`'s only sensitive value (`APIKeyValue`) is
+already base64-encoded exactly as the real `APIKey`/`APIKeySummary.APIKey`
+wire member is, matching AWS's own opaque-token convention — not plaintext
+exposure of anything AWS itself keeps secret, unlike cognitoidp's
+`ClientSecret` finding from an earlier batch.
+
+**Discarded input**: `RuleGroup.CustomResponseBodies` (finding #3 above) is
+the only one found — a real, non-required request field silently dropped by
+both `CreateRuleGroup` and `UpdateRuleGroup`. Not a total-outage-severity
+discard like apigatewayv2's `CreateProductPage.DisplayContent` (that field
+was required; this one is optional), but the same variant: a real client
+setting it got silent data loss with no error.
+
+**Real-client test ratio**: 5 of 21 test files in this service
+(`handler_api_keys_test.go` as of this session's rewrite,
+`handler_create_tags_test.go`, `handler_rate_based_rules_test.go`,
+`sdk_completeness_test.go`, and the new `wire_field_fixes_test.go`) import
+the real SDK client; the other 16 unmarshal into raw `map[string]any` or
+gopherstack's own request/response structs, which cannot detect a wrong
+wire key by construction. `TestHandler_ListAPIKeys` (finding #1's ratifying
+test) is a
+direct instance: a raw-body assertion on `resp["APIKeys"]` that could only
+ever prove the wrong key was present, never that it was wrong. Rewritten to
+drive `newTestWAFV2Client` and assert `out.APIKeySummaries`, which cannot
+compile-pass, let alone assert-pass, against the unfixed key.
+
+**Ratifying tests**: 1 found and fixed (`TestHandler_ListAPIKeys`, above).
+No other existing test asserted a wrapper key or nested field this session
+touched, so no other ratifying instances exist among the 4 fixes.
+
+**Phantom ops**: none. All 59 op-name string literals in
+`GetSupportedOperations` correspond to a real `api_op_*.go` file in
+wafv2@v1.77.3, including the four AI-bot monetization-reporting ops
+(`GetRevenueStatistics*`/`ListSettlementRecords`) added in wafv2@v1.76.0.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>Output`/`deserializeDocument<Type>`/
+`serializeOp*Input` function actually reached from that op's own
+`HandleDeserialize`, file+line, never a doc comment or an assumption.
+
+**Every fix confirmed to fail against unfixed code**: hand-reverted
+individually (no git, per this session's hard no-git-mutation constraint),
+confirmed to fail with the exact predicted symptom — `APIKeySummaries`
+empty-slice-length mismatch (both `filter_scope_match` and `list_regional`
+subtests); `CreationTimestamp` nil; `RuleGroup.CustomResponseBodies` nil map
+missing the test's key entirely; `IsVersioningSupported` false on the one
+catalog entry that should be true — then restored and diffed byte-identical
+against the pre-revert file before moving to the next.
+
+**Disclosed, not fixed** (structural/optional-field gaps needing new
+backend modeling this session judged too speculative to fabricate, each
+independently verified absent from the backend's tracked state):
+- `RuleGroup`/`GetRuleGroupOutput.RuleGroup`'s `AvailableLabels`/
+  `ConsumedLabels`/`LabelNamespace` — real, non-required members; unlike the
+  static managed-rule-group catalog (which already computes labels from its
+  hardcoded rule data via `buildLabelList`), user-created `RuleGroup.Rules`
+  is an opaque `[]map[string]any` blob this backend never parses for label
+  statements, so there is nothing genuine to compute these from.
+- `ManagedProductDescriptor`'s `IsAdvancedManagedRuleSet`/`ProductId`/
+  `ProductLink`/`ProductTitle`/`SnsTopicArn` — no backing field anywhere in
+  the static `managedRuleGroupInfo` catalog; fabricating plausible-looking
+  product IDs/links would be invention, not a rename.
+- `WebACL`'s `Capacity`/`LabelNamespace`/`ManagedByFirewallManager`/
+  `MonetizationConfig`/`ApplicationConfig`/`DataProtectionConfig`/
+  `OnSourceDDoSProtectionConfig`/`{Pre,Post}ProcessFirewallManagerRuleGroups`/
+  `RetrofittedByFirewallManager` — none tracked anywhere in the `WebACL`
+  model; `Capacity` in particular would need a real WCU-accounting pass
+  (summing `CheckCapacity`-style costs across `Rules`) that doesn't exist
+  today, a genuine future-modeling gap rather than a quick emit.
+- `ManagedRuleSet`/`ManagedRuleSetSummary`'s `Description`/`LabelNamespace`
+  — this service has no `CreateManagedRuleSet` op (an existing, prior-session
+  PARITY.md-documented gap — Firewall-Manager-only resource, bootstrapped
+  here only via `PutManagedRuleSetVersions` on a pre-seeded ID), so there is
+  no write path that could ever populate either field honestly.
+- `APIKeySummary.Version` — real member, but doc-commented "Internal value
+  used by WAF to manage the key"; no defensible way to synthesize an AWS
+  internal bookkeeping value.
+- `GetRevenueStatistics`/`GetRevenueStatisticsTimeSeries`/
+  `ListSettlementRecords`'s `NextMarker` — all three already correctly
+  return the full unpaginated result in one call (no backend pagination
+  cursor for this all-honest-zeros analytics family), so there's never a
+  next page to point to; consistent with the file's existing "honestly
+  empty, never fabricated" design already documented in
+  `handler_revenue_statistics.go`.
+
+Tests: 4 real-SDK-client tests in the new
+`services/wafv2/wire_field_fixes_test.go` (`TestRuleGroup_CustomResponseBodies`,
+`TestDescribeAllManagedProducts_IsVersioningSupported`) plus
+`TestHandler_ListAPIKeys` (rewritten to drive `newTestWAFV2Client`) and the
+new `TestHandler_GetDecryptedAPIKey_CreationTimestamp` in
+`services/wafv2/handler_api_keys_test.go`. Three pre-existing direct-backend
+test call sites (`handler_permission_policies_test.go`,
+`persistence_test.go` x2) updated for `CreateRuleGroup`'s new
+`customResponseBodies` parameter — no behavior change, just the added
+positional argument.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to `services/wafv2`), `go
+fix -diff` (no diff), `golangci-lint run` (0 issues; no cyclop/gocyclo/
+gocognit/funlen nolints added or present) all green. `go test -race
+./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all `services/wafv2` changes
+uncommitted — orchestrator must commit/push); `services/workmail` (this
+session's assigned-off-limits sibling) and `services/ce` (a second,
+unannounced sibling session discovered mid-session via `git status`)
+confirmed untouched throughout; no `gendocs`/`make docs` run.
+
+wafv2's List/Describe/Get families are now fully swept for this issue
+(32/32 ops verified against the real deserializer/serializer). 70 of 162
+services swept, 92 remain. Per the ranked table, waf (34,
+`dynamic-fallback`) is next largest — re-check `git status` for live
+sibling territory before picking. This session was told waf had already
+come back clean across 13 candidates earlier in this campaign, but that
+claim wasn't independently re-verified here (no citation for it was found
+in this file or in `bd show gopherstack-6flj`'s comments) — a future pass
+should confirm it against this issue's own op-by-op standard (all
+Describe/List/Get ops, not just 13) rather than trust it secondhand.

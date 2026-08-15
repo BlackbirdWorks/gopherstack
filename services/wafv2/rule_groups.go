@@ -46,6 +46,7 @@ func (b *InMemoryBackend) CreateRuleGroup(
 	name, scope, description, visibilityConfig string,
 	capacity int64,
 	rules []map[string]any,
+	customResponseBodies json.RawMessage,
 	tags map[string]string,
 ) (*RuleGroup, error) {
 	b.mu.Lock("CreateRuleGroup")
@@ -60,16 +61,17 @@ func (b *InMemoryBackend) CreateRuleGroup(
 	id := uuid.NewString()
 	arnStr := b.buildRuleGroupARN(name, id, scope, region)
 	rg := &RuleGroup{
-		ARN:              arnStr,
-		ID:               id,
-		Name:             name,
-		Scope:            scope,
-		Description:      description,
-		VisibilityConfig: visibilityConfig,
-		Capacity:         capacity,
-		Rules:            cloneRules(rules),
-		LockToken:        uuid.NewString(),
-		Tags:             cloneTags(tags),
+		ARN:                  arnStr,
+		ID:                   id,
+		Name:                 name,
+		Scope:                scope,
+		Description:          description,
+		VisibilityConfig:     visibilityConfig,
+		Capacity:             capacity,
+		Rules:                cloneRules(rules),
+		CustomResponseBodies: customResponseBodies,
+		LockToken:            uuid.NewString(),
+		Tags:                 cloneTags(tags),
 	}
 	b.ruleGroups.Put(rg)
 
@@ -173,6 +175,7 @@ func (b *InMemoryBackend) UpdateRuleGroup(
 	ctx context.Context,
 	id, description, visibilityConfig, lockToken string,
 	rules []map[string]any,
+	customResponseBodies json.RawMessage,
 ) (*RuleGroup, error) {
 	b.mu.Lock("UpdateRuleGroup")
 	defer b.mu.Unlock()
@@ -199,6 +202,10 @@ func (b *InMemoryBackend) UpdateRuleGroup(
 		rg.Rules = cloneRules(rules)
 	}
 
+	if len(customResponseBodies) > 0 {
+		rg.CustomResponseBodies = customResponseBodies
+	}
+
 	rg.LockToken = uuid.NewString()
 
 	return cloneRuleGroup(rg), nil
@@ -207,6 +214,12 @@ func cloneRuleGroup(rg *RuleGroup) *RuleGroup {
 	cp := *rg
 	cp.Tags = maps.Clone(rg.Tags)
 	cp.Rules = cloneRules(rg.Rules)
+
+	if rg.CustomResponseBodies != nil {
+		crb := make(json.RawMessage, len(rg.CustomResponseBodies))
+		copy(crb, rg.CustomResponseBodies)
+		cp.CustomResponseBodies = crb
+	}
 
 	return &cp
 }

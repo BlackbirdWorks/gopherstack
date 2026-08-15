@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
+	"github.com/aws/aws-sdk-go-v2/service/wafv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -126,43 +128,47 @@ func TestAPIKeyBase64Encoding(t *testing.T) {
 
 // ---- Gap 24: Error header x-amzn-errortype ---------------------------------
 
+// TestHandler_ListAPIKeys drives the real aws-sdk-go-v2 client rather than
+// asserting a raw response map: ListAPIKeysOutput wraps items under
+// "APIKeySummaries" (deserializers.go's
+// awsAwsjson11_deserializeOpDocumentListAPIKeysOutput), not "APIKeys" -- a
+// raw-body assertion on resp["APIKeys"] passed cleanly against the old,
+// wrong wrapper key because the handler and the test agreed on it. Only a
+// typed client's APIKeySummaries field can prove the key is right.
 func TestHandler_ListAPIKeys(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
-		scope      string
-		setupScope string
+		scope      types.Scope
+		setupScope types.Scope
 		setupCount int
 		wantCount  int
-		wantStatus int
 	}{
 		{
-			name:       "empty",
-			wantStatus: http.StatusOK,
-			wantCount:  0,
+			name:      "empty",
+			scope:     types.ScopeRegional,
+			wantCount: 0,
 		},
 		{
-			name:       "list_all",
-			setupScope: "REGIONAL",
+			name:       "list_regional",
+			setupScope: types.ScopeRegional,
 			setupCount: 2,
-			wantStatus: http.StatusOK,
+			scope:      types.ScopeRegional,
 			wantCount:  2,
 		},
 		{
 			name:       "filter_scope_match",
-			setupScope: "REGIONAL",
+			setupScope: types.ScopeRegional,
 			setupCount: 1,
-			scope:      "REGIONAL",
-			wantStatus: http.StatusOK,
+			scope:      types.ScopeRegional,
 			wantCount:  1,
 		},
 		{
 			name:       "filter_scope_no_match",
-			setupScope: "REGIONAL",
+			setupScope: types.ScopeRegional,
 			setupCount: 1,
-			scope:      "CLOUDFRONT",
-			wantStatus: http.StatusOK,
+			scope:      types.ScopeCloudfront,
 			wantCount:  0,
 		},
 	}
@@ -172,24 +178,24 @@ func TestHandler_ListAPIKeys(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			client := newTestWAFV2Client(t, h)
 
 			for range tt.setupCount {
-				rec := doWafv2Request(t, h, "CreateAPIKey", map[string]any{
-					"Scope":        tt.setupScope,
-					"TokenDomains": []string{"example.com"},
+				_, err := client.CreateAPIKey(t.Context(), &wafv2sdk.CreateAPIKeyInput{
+					Scope:        tt.setupScope,
+					TokenDomains: []string{"example.com"},
 				})
-				require.Equal(t, http.StatusOK, rec.Code)
+				require.NoError(t, err)
 			}
 
-			rec := doWafv2Request(t, h, "ListAPIKeys", map[string]any{"Scope": tt.scope})
-			assert.Equal(t, tt.wantStatus, rec.Code)
+			out, err := client.ListAPIKeys(t.Context(), &wafv2sdk.ListAPIKeysInput{Scope: tt.scope})
+			require.NoError(t, err)
+			require.Len(t, out.APIKeySummaries, tt.wantCount)
 
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			items, ok := resp["APIKeys"].([]any)
-			require.True(t, ok)
-			assert.Len(t, items, tt.wantCount)
+			for _, summary := range out.APIKeySummaries {
+				assert.NotNil(t, summary.CreationTimestamp)
+				assert.False(t, summary.CreationTimestamp.IsZero())
+			}
 		})
 	}
 }
@@ -267,4 +273,30 @@ func TestHandler_GetDecryptedAPIKey(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_GetDecryptedAPIKey_CreationTimestamp drives the real
+// aws-sdk-go-v2 client: GetDecryptedAPIKeyOutput.CreationTimestamp is a real,
+// always-populated member (deserializers.go's smithytime.ParseEpochSeconds
+// case) that the handler previously never emitted at all.
+func TestHandler_GetDecryptedAPIKey_CreationTimestamp(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestWAFV2Client(t, h)
+
+	created, err := client.CreateAPIKey(t.Context(), &wafv2sdk.CreateAPIKeyInput{
+		Scope:        types.ScopeRegional,
+		TokenDomains: []string{"example.com"},
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetDecryptedAPIKey(t.Context(), &wafv2sdk.GetDecryptedAPIKeyInput{
+		Scope:  types.ScopeRegional,
+		APIKey: created.APIKey,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.CreationTimestamp)
+	assert.False(t, out.CreationTimestamp.IsZero())
+	assert.Equal(t, []string{"example.com"}, out.TokenDomains)
 }

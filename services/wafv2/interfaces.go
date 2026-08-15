@@ -70,6 +70,7 @@ type StorageBackend interface {
 		name, scope, description, visibilityConfig string,
 		capacity int64,
 		rules []map[string]any,
+		customResponseBodies json.RawMessage,
 		tags map[string]string,
 	) (*RuleGroup, error)
 	GetRuleGroup(ctx context.Context, id string) (*RuleGroup, error)
@@ -78,6 +79,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		id, description, visibilityConfig, lockToken string,
 		rules []map[string]any,
+		customResponseBodies json.RawMessage,
 	) (*RuleGroup, error)
 	DeleteRuleGroup(ctx context.Context, id, lockToken string) error
 	DeleteAPIKey(ctx context.Context, scope, apiKey string) error

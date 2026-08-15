@@ -95,16 +95,17 @@ type RegexPatternSet struct {
 
 // RuleGroup represents an AWS WAFv2 Rule Group.
 type RuleGroup struct {
-	Tags             map[string]string `json:"tags,omitempty"`
-	ARN              string            `json:"arn,omitempty"`
-	ID               string            `json:"id"`
-	Name             string            `json:"name"`
-	Scope            string            `json:"scope"`
-	Description      string            `json:"description"`
-	VisibilityConfig string            `json:"visibilityConfig"`
-	LockToken        string            `json:"lockToken"`
-	Rules            []map[string]any  `json:"rules,omitempty"`
-	Capacity         int64             `json:"capacity"`
+	Tags                 map[string]string `json:"tags,omitempty"`
+	ARN                  string            `json:"arn,omitempty"`
+	ID                   string            `json:"id"`
+	Name                 string            `json:"name"`
+	Scope                string            `json:"scope"`
+	Description          string            `json:"description"`
+	VisibilityConfig     string            `json:"visibilityConfig"`
+	CustomResponseBodies json.RawMessage   `json:"customResponseBodies,omitempty"`
+	LockToken            string            `json:"lockToken"`
+	Rules                []map[string]any  `json:"rules,omitempty"`
+	Capacity             int64             `json:"capacity"`
 }
 
 // ManagedRuleSetVersion holds metadata for a single published version of a managed rule set.
@@ -149,4 +150,9 @@ type APIKey struct {
 	// mirroring ManagedRuleSet.Region.
 	Region       string   `json:"-"`
 	TokenDomains []string `json:"tokenDomains,omitempty"`
+	// CreatedAt is the key's creation time (Unix epoch seconds), echoed as
+	// APIKeySummary.CreationTimestamp / GetDecryptedAPIKeyOutput.CreationTimestamp
+	// -- both real, always-populated members (deserializers.go's
+	// smithytime.ParseEpochSeconds case for each).
+	CreatedAt int64 `json:"createdAt"`
 }
