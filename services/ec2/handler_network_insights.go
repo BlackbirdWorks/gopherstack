@@ -59,10 +59,19 @@ type describeNetworkInsightsAccessScopesResponse struct {
 	} `xml:"networkInsightsAccessScopeSet"`
 }
 
+// networkInsightsAccessScopeContentItem matches the real
+// NetworkInsightsAccessScopeContent shape (networkInsightsAccessScopeId plus
+// matchPathSet/excludePathSet). This backend does not track match/exclude
+// paths, so those lists are always empty; that is a modeling gap, not this
+// wrapper-key bug.
+type networkInsightsAccessScopeContentItem struct {
+	NetworkInsightsAccessScopeID string `xml:"networkInsightsAccessScopeId,omitempty"`
+}
+
 type getNetworkInsightsAccessScopeContentResponse struct {
-	XMLName                    xml.Name                       `xml:"GetNetworkInsightsAccessScopeContentResponse"`
-	RequestID                  string                         `xml:"requestId"`
-	NetworkInsightsAccessScope networkInsightsAccessScopeItem `xml:"networkInsightsAccessScope"`
+	XMLName                    xml.Name                              `xml:"GetNetworkInsightsAccessScopeContentResponse"`
+	RequestID                  string                                `xml:"requestId"`
+	NetworkInsightsAccessScope networkInsightsAccessScopeContentItem `xml:"networkInsightsAccessScopeContent"`
 }
 
 type networkInsightsAccessScopeAnalysisItem struct {
@@ -89,11 +98,11 @@ type describeNetworkInsightsAccessScopeAnalysesResponse struct {
 type getNetworkInsightsAccessScopeAnalysisFindingsResponse struct {
 	XMLName        xml.Name `xml:"GetNetworkInsightsAccessScopeAnalysisFindingsResponse"`
 	RequestID      string   `xml:"requestId"`
-	AnalysisID     string   `xml:"analysisId,omitempty"`
+	AnalysisID     string   `xml:"networkInsightsAccessScopeAnalysisId,omitempty"`
 	AnalysisStatus string   `xml:"analysisStatus,omitempty"`
 	Findings       struct {
 		Items []struct{} `xml:"item"`
-	} `xml:"accessScopeAnalysisFindingSet"`
+	} `xml:"analysisFindingSet"`
 }
 
 func toNetworkInsightsPathItem(p *NetworkInsightsPath) networkInsightsPathItem {
@@ -294,8 +303,10 @@ func (h *Handler) handleGetNetworkInsightsAccessScopeContent(
 	}
 
 	return &getNetworkInsightsAccessScopeContentResponse{
-		RequestID:                  reqID,
-		NetworkInsightsAccessScope: toNetworkInsightsAccessScopeItem(scopes[0]),
+		RequestID: reqID,
+		NetworkInsightsAccessScope: networkInsightsAccessScopeContentItem{
+			NetworkInsightsAccessScopeID: scopes[0].NetworkInsightsAccessScopeID,
+		},
 	}, nil
 }
 

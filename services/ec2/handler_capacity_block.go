@@ -15,7 +15,7 @@ type capacityBlockOfferingItem struct {
 	AvailabilityZone           string `xml:"availabilityZone,omitempty"`
 	Tenancy                    string `xml:"tenancy,omitempty"`
 	CurrencyCode               string `xml:"currencyCode,omitempty"`
-	UpfrontPrice               string `xml:"upfrontPrice,omitempty"`
+	UpfrontPrice               string `xml:"upfrontFee,omitempty"`
 	StartDate                  string `xml:"startDate,omitempty"`
 	EndDate                    string `xml:"endDate,omitempty"`
 	CapacityBlockDurationHours int32  `xml:"capacityBlockDurationHours,omitempty"`
@@ -136,7 +136,7 @@ type capacityBlockExtensionOfferingItem struct {
 	InstanceType                        string `xml:"instanceType,omitempty"`
 	AvailabilityZone                    string `xml:"availabilityZone,omitempty"`
 	CurrencyCode                        string `xml:"currencyCode,omitempty"`
-	UpfrontPrice                        string `xml:"upfrontPrice,omitempty"`
+	UpfrontPrice                        string `xml:"upfrontFee,omitempty"`
 	StartDate                           string `xml:"startDate,omitempty"`
 	CapacityBlockExtensionStartDate     string `xml:"capacityBlockExtensionStartDate,omitempty"`
 	CapacityBlockExtensionEndDate       string `xml:"capacityBlockExtensionEndDate,omitempty"`

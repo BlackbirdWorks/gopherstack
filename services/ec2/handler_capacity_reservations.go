@@ -37,6 +37,7 @@ func toCapacityReservationItem(cr *CapacityReservation) capacityReservationItem 
 		CapacityReservationID:  cr.CapacityReservationID,
 		InstanceType:           cr.InstanceType,
 		AvailabilityZone:       cr.AvailabilityZone,
+		OwnedBy:                cr.OwnedBy,
 		State:                  cr.State,
 		TotalInstanceCount:     cr.TotalInstanceCount,
 		AvailableInstanceCount: cr.AvailableInstanceCount,

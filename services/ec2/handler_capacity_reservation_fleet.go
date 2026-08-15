@@ -73,22 +73,49 @@ func (h *Handler) handleCreateCapacityReservationFleet(vals url.Values, reqID st
 		return nil, err
 	}
 
-	resp := &createCapacityReservationFleetResponse{Xmlns: ec2XMLNS, RequestID: reqID}
-	resp.capacityReservationFleetItem = toCapacityReservationFleetItem(
-		fleet, h.Backend.TagsForResource(fleet.CapacityReservationFleetID),
-	)
+	item := toCapacityReservationFleetItem(fleet, h.Backend.TagsForResource(fleet.CapacityReservationFleetID))
 
-	return resp, nil
+	return &createCapacityReservationFleetResponse{
+		Xmlns:                      ec2XMLNS,
+		RequestID:                  reqID,
+		CapacityReservationFleetID: item.CapacityReservationFleetID,
+		AllocationStrategy:         item.AllocationStrategy,
+		State:                      item.State,
+		InstanceMatchCriteria:      item.InstanceMatchCriteria,
+		Tenancy:                    item.Tenancy,
+		CreateTime:                 item.CreateTime,
+		EndDate:                    item.EndDate,
+		InstanceTypeSpecifications: item.InstanceTypeSpecifications,
+		TagSet:                     item.TagSet,
+		TotalFulfilledCapacity:     item.TotalFulfilledCapacity,
+		TotalTargetCapacity:        item.TotalTargetCapacity,
+	}, nil
 }
 
 // createCapacityReservationFleetResponse is the CreateCapacityReservationFleet
-// response, whose Capacity Reservation Fleet fields sit directly under the
-// response root rather than under a nested element, matching the real API shape.
+// response. Its fields sit directly under the response root rather than
+// under a nested element, matching the real API shape - but its constituent-
+// reservation list is wrapped under "fleetCapacityReservationSet", NOT
+// "instanceTypeSpecificationSet" like the sibling CapacityReservationFleet
+// type used by DescribeCapacityReservationFleets (ec2@v1.319.1
+// deserializers.go's awsEc2query_deserializeOpDocumentCreateCapacityReservationFleetOutput
+// vs awsEc2query_deserializeDocumentCapacityReservationFleet) - so it cannot
+// share capacityReservationFleetItem's tag for that one field.
 type createCapacityReservationFleetResponse struct {
-	XMLName   xml.Name `xml:"CreateCapacityReservationFleetResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"requestId"`
-	capacityReservationFleetItem
+	XMLName                    xml.Name                                   `xml:"CreateCapacityReservationFleetResponse"`
+	Xmlns                      string                                     `xml:"xmlns,attr"`
+	RequestID                  string                                     `xml:"requestId"`
+	CapacityReservationFleetID string                                     `xml:"capacityReservationFleetId"`
+	AllocationStrategy         string                                     `xml:"allocationStrategy,omitempty"`
+	State                      string                                     `xml:"state,omitempty"`
+	InstanceMatchCriteria      string                                     `xml:"instanceMatchCriteria,omitempty"`
+	Tenancy                    string                                     `xml:"tenancy,omitempty"`
+	CreateTime                 string                                     `xml:"createTime,omitempty"`
+	EndDate                    string                                     `xml:"endDate,omitempty"`
+	InstanceTypeSpecifications []capacityReservationFleetInstanceSpecItem `xml:"fleetCapacityReservationSet>item"`
+	TagSet                     []simpleTagItem                            `xml:"tagSet>item"`
+	TotalFulfilledCapacity     float64                                    `xml:"totalFulfilledCapacity,omitempty"`
+	TotalTargetCapacity        int32                                      `xml:"totalTargetCapacity,omitempty"`
 }
 
 type capacityReservationFleetSet struct {

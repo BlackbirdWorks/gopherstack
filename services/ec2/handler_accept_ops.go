@@ -26,17 +26,22 @@ type capacityReservationItem struct {
 	CapacityReservationID  string `xml:"capacityReservationId"`
 	InstanceType           string `xml:"instanceType"`
 	AvailabilityZone       string `xml:"availabilityZone"`
-	OwnedBy                string `xml:"ownedBy,omitempty"`
+	OwnedBy                string `xml:"ownerId,omitempty"`
 	State                  string `xml:"state"`
 	AvailableInstanceCount int    `xml:"availableInstanceCount"`
 	TotalInstanceCount     int    `xml:"totalInstanceCount"`
 }
 
+// acceptCapacityReservationBillingOwnershipResponse matches the real
+// AcceptCapacityReservationBillingOwnershipOutput shape: it has no
+// CapacityReservation member at all, only Return
+// (ec2@v1.319.1 deserializers.go's
+// awsEc2query_deserializeOpDocumentAcceptCapacityReservationBillingOwnershipOutput).
 type acceptCapacityReservationBillingOwnershipResponse struct {
-	XMLName             xml.Name                `xml:"AcceptCapacityReservationBillingOwnershipResponse"`
-	Xmlns               string                  `xml:"xmlns,attr"`
-	RequestID           string                  `xml:"requestId"`
-	CapacityReservation capacityReservationItem `xml:"capacityReservation"`
+	XMLName   xml.Name `xml:"AcceptCapacityReservationBillingOwnershipResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
 }
 
 type acceptReservedInstancesExchangeQuoteResponse struct {
@@ -218,23 +223,14 @@ func (h *Handler) handleAcceptCapacityReservationBillingOwnership(
 		return nil, fmt.Errorf("%w: CapacityReservationId is required", ErrInvalidParameter)
 	}
 
-	cr, err := h.Backend.AcceptCapacityReservationBillingOwnership(capacityReservationID)
-	if err != nil {
+	if _, err := h.Backend.AcceptCapacityReservationBillingOwnership(capacityReservationID); err != nil {
 		return nil, err
 	}
 
 	return &acceptCapacityReservationBillingOwnershipResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		CapacityReservation: capacityReservationItem{
-			CapacityReservationID:  cr.CapacityReservationID,
-			InstanceType:           cr.InstanceType,
-			AvailabilityZone:       cr.AvailabilityZone,
-			AvailableInstanceCount: cr.AvailableInstanceCount,
-			TotalInstanceCount:     cr.TotalInstanceCount,
-			OwnedBy:                cr.OwnedBy,
-			State:                  cr.State,
-		},
+		Return:    true,
 	}, nil
 }
 
