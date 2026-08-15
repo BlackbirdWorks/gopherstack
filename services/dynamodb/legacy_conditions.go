@@ -85,7 +85,7 @@ func mergeEAN(existing, extra map[string]string) map[string]string {
 		return existing
 	}
 
-	out := make(map[string]string, len(existing)+len(extra))
+	out := make(map[string]string, len(existing))
 	maps.Copy(out, existing)
 	maps.Copy(out, extra)
 
@@ -101,7 +101,7 @@ func mergeEAV(
 		return existing
 	}
 
-	out := make(map[string]types.AttributeValue, len(existing)+len(extra))
+	out := make(map[string]types.AttributeValue, len(existing))
 	maps.Copy(out, existing)
 	maps.Copy(out, extra)
 

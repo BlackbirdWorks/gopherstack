@@ -58,7 +58,9 @@ var dirModuleOverride = map[string]string{
 }
 
 var (
-	sdkImportRe   = regexp.MustCompile(`github\.com/aws/aws-sdk-go-v2/service/([a-z0-9]+)`)
+	// Leading quote anchors this to a real import line; unanchored, it also
+	// matches a host that merely embeds the path (evil.com/github.com/...).
+	sdkImportRe   = regexp.MustCompile(`"github\.com/aws/aws-sdk-go-v2/service/([a-z0-9]+)`)
 	summaryNameRe = regexp.MustCompile(`(Summary|Item|Brief|Entry|Ref|Preview|Metadata|Info)$`)
 	sliceFieldRe  = regexp.MustCompile(`(?m)^\s*(\w+)\s+\[\](\*?)(\w+\.)?(\w+)`)
 	ptrFieldRe    = regexp.MustCompile(`(?m)^\s*(\w+)\s+\*(\w+\.)?(\w+)\b`)
