@@ -954,17 +954,29 @@ func updateStreamARNIndexLocked(db *InMemoryDB, table *Table, oldARN, newARN str
 // UpdateTable to reduce cognitive complexity of the parent function.
 // countUpdateTableMutations counts the mutually-exclusive UpdateTable mutation
 // groups present in the input; AWS allows at most one per call.
+//
+// BillingMode shares ProvisionedThroughput's group because AWS requires them
+// together: "When switching from pay-per-request to provisioned capacity, initial
+// provisioned capacity values must be set" (api_op_UpdateTable.go:60-63, sdk
+// v1.63.1). A pair AWS mandates cannot also be mutually exclusive.
+//
+// The SDK's own exclusivity list is narrower than this function
+// (api_op_UpdateTable.go:17-24): only throughput, remove-GSI and create-GSI. The
+// other five entries below are stricter than AWS documents; left as-is here
+// because loosening them is unrelated to this fix. See bd gopherstack-dbvw.
 func countUpdateTableMutations(input *dynamodb.UpdateTableInput) int {
 	mutations := 0
+	if input.ProvisionedThroughput != nil || input.BillingMode != "" {
+		mutations++
+	}
+
 	for _, present := range []bool{
-		input.ProvisionedThroughput != nil,
 		len(input.GlobalSecondaryIndexUpdates) > 0,
 		len(input.ReplicaUpdates) > 0,
 		input.SSESpecification != nil,
 		input.StreamSpecification != nil,
 		input.DeletionProtectionEnabled != nil,
 		input.TableClass != "",
-		input.BillingMode != "",
 	} {
 		if present {
 			mutations++
