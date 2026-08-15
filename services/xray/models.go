@@ -281,9 +281,19 @@ type tsBucket struct {
 	TotalRespTime float64
 }
 
+// AnnotationOccurrence holds one distinct value observed for an annotation key
+// within a trace, together with the services that reported it -- mirrors the
+// real API's per-key map[string][]ValueWithServiceIds shape, where different
+// segments/services within one trace can report different values for the
+// same annotation key.
+type AnnotationOccurrence struct {
+	Value      any
+	ServiceIDs []TraceSummaryServiceID
+}
+
 // TraceSummaryData holds derived data for GetTraceSummaries response.
 type TraceSummaryData struct {
-	Annotations  map[string]any
+	Annotations  map[string][]AnnotationOccurrence
 	HTTP         *TraceSummaryHTTP
 	EntryPoint   *TraceSummaryServiceID
 	TraceID      string

@@ -172,16 +172,20 @@ func TestEvaluateFilter_AllExpressionTypes(t *testing.T) {
 			want: false,
 		},
 		{
-			name:    "annotation filter matches",
-			expr:    `annotation.env = "prod"`,
-			summary: xray.TraceSummaryData{Annotations: map[string]any{"env": "prod"}},
-			want:    true,
+			name: "annotation filter matches",
+			expr: `annotation.env = "prod"`,
+			summary: xray.TraceSummaryData{
+				Annotations: map[string][]xray.AnnotationOccurrence{"env": {{Value: "prod"}}},
+			},
+			want: true,
 		},
 		{
-			name:    "annotation filter no match",
-			expr:    `annotation.env = "prod"`,
-			summary: xray.TraceSummaryData{Annotations: map[string]any{"env": "staging"}},
-			want:    false,
+			name: "annotation filter no match",
+			expr: `annotation.env = "prod"`,
+			summary: xray.TraceSummaryData{
+				Annotations: map[string][]xray.AnnotationOccurrence{"env": {{Value: "staging"}}},
+			},
+			want: false,
 		},
 		{
 			name:    "unknown filter returns false",

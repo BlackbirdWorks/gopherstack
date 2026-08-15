@@ -2,7 +2,8 @@ package xray
 
 import (
 	"fmt"
-	"maps"
+	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -141,11 +142,57 @@ func accumulateServiceID(summary *TraceSummaryData, seg *Segment, seen map[servi
 	}
 }
 
+// accumulateAnnotations merges seg's raw annotations into summary.Annotations,
+// matching the real GetTraceSummariesOutput shape: each key maps to the list of
+// distinct values reported for it, each tagged with the services that reported
+// that value (not a flat key->value map -- see buildTraceSummaryView).
+func accumulateAnnotations(summary *TraceSummaryData, seg *Segment) {
+	if len(seg.Annotations) == 0 {
+		return
+	}
+
+	svcType := seg.Origin
+	if svcType == "" {
+		svcType = seg.Namespace
+	}
+
+	svc := TraceSummaryServiceID{Name: seg.Name, Type: svcType}
+
+	for key, val := range seg.Annotations {
+		occs := summary.Annotations[key]
+
+		idx := -1
+
+		for i := range occs {
+			if reflect.DeepEqual(occs[i].Value, val) {
+				idx = i
+
+				break
+			}
+		}
+
+		if idx == -1 {
+			summary.Annotations[key] = append(
+				occs,
+				AnnotationOccurrence{Value: val, ServiceIDs: []TraceSummaryServiceID{svc}},
+			)
+
+			continue
+		}
+
+		seenSvc := slices.Contains(occs[idx].ServiceIDs, svc)
+
+		if !seenSvc {
+			occs[idx].ServiceIDs = append(occs[idx].ServiceIDs, svc)
+		}
+	}
+}
+
 // BuildTraceSummary derives TraceSummaryData from parsed segments.
 func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 	summary := TraceSummaryData{
 		TraceID:     traceID,
-		Annotations: map[string]any{},
+		Annotations: map[string][]AnnotationOccurrence{},
 	}
 
 	if len(segs) == 0 {
@@ -171,7 +218,7 @@ func BuildTraceSummary(traceID string, segs []*Segment) TraceSummaryData {
 			maxEnd = seg.EndTime
 		}
 
-		maps.Copy(summary.Annotations, seg.Annotations)
+		accumulateAnnotations(&summary, seg)
 		accumulateUserFromAnnotations(&summary, seg, seenUsers)
 		accumulateServiceID(&summary, seg, seen)
 
@@ -265,7 +312,7 @@ func evaluateResponseTimeFilter(expr string, rt float64) bool {
 }
 
 // evaluateAnnotationFilter matches `annotation.KEY = "VALUE"` expressions.
-func evaluateAnnotationFilter(expr string, annotations map[string]any) bool {
+func evaluateAnnotationFilter(expr string, annotations map[string][]AnnotationOccurrence) bool {
 	parts := strings.SplitN(expr, "=", filterParts2)
 	if len(parts) != filterParts2 {
 		return false
@@ -276,9 +323,13 @@ func evaluateAnnotationFilter(expr string, annotations map[string]any) bool {
 	val := strings.TrimSpace(parts[1])
 	val = strings.Trim(val, `"`)
 
-	v, ok := annotations[key]
+	for _, occ := range annotations[key] {
+		if fmt.Sprintf("%v", occ.Value) == val {
+			return true
+		}
+	}
 
-	return ok && fmt.Sprintf("%v", v) == val
+	return false
 }
 
 // evaluateFilter checks a trace summary against a simple filter expression.

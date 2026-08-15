@@ -35,7 +35,9 @@ func TestInsightDetection_FaultRateTriggers(t *testing.T) {
 	// An insight should have been created.
 	assert.Positive(t, b.InsightCount(), "expected at least one insight to be auto-detected")
 
-	summaries, err := b.GetInsightSummaries([]string{"ACTIVE"})
+	summaries, err := b.GetInsightSummaries(
+		[]string{"ACTIVE"}, "default", time.Now().Add(-time.Hour), time.Now().Add(time.Hour),
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, summaries, "expected active insight summaries")
 	assert.Equal(t, "ACTIVE", summaries[0].State)
@@ -64,7 +66,9 @@ func TestInsightDetection_PopulatesCategoriesAndImpactStatistics(t *testing.T) {
 	unprocessed := b.PutTraceSegments(segs)
 	require.Empty(t, unprocessed)
 
-	summaries, err := b.GetInsightSummaries([]string{"ACTIVE"})
+	summaries, err := b.GetInsightSummaries(
+		[]string{"ACTIVE"}, "default", time.Now().Add(-time.Hour), time.Now().Add(time.Hour),
+	)
 	require.NoError(t, err)
 	require.NotEmpty(t, summaries)
 

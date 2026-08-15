@@ -35,7 +35,7 @@ type StorageBackend interface {
 	// Insight operations
 	GetInsight(insightID string) (*Insight, error)
 	GetInsightEvents(insightID string) ([]*InsightEvent, error)
-	GetInsightSummaries(states []string) ([]Insight, error)
+	GetInsightSummaries(states []string, groupName string, startTime, endTime time.Time) ([]Insight, error)
 	// Resource policy operations
 	CancelTraceRetrieval(retrievalToken string) error
 	DeleteResourcePolicy(policyName, policyRevisionID string) error

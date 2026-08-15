@@ -7988,3 +7988,288 @@ matching precedent), so cross-reference against both the enumerated list
 and the per-service sections, not the table's row order alone, before
 picking. The next tier starts at 19 (`transcribe`, `mediatailor`); re-run
 `go run ./cmd/opcensus` and re-check `git status` before picking, as usual.
+
+## xray (this session, 2026-08-15)
+
+Read this file's header/tail, ran `go run ./cmd/opcensus` fresh (unchanged
+for this tier), read `bd show gopherstack-6flj`'s comments, and read `git
+show 38eab5c5c` (the ecr pass immediately preceding this one) per the
+assignment. `git status` was clean at pick time.
+
+**TIE: `xray` vs `directconnect`, both 20 L+D+G, `direct` resolution** (the
+next tier after `dynamodb`/`neptune`/`ecr` were already swept). Broken on
+sibling-trap surface (widest spread of distinct resource-family
+`handler_*.go` files), per this issue's own instruction and precedent
+(neptune/ecr broke the same way, 10 vs 14). `xray`: `handler_encryption_config.go`,
+`handler_groups.go`, `handler_indexing_rules.go`, `handler_insights.go`,
+`handler_resource_policies.go`, `handler_sampling_rules.go`,
+`handler_sampling_statistics.go`, `handler_service_graph.go`,
+`handler_tags.go`, `handler_telemetry.go`, `handler_trace_retrieval.go`,
+`handler_trace_segment_destination.go`, `handler_trace_segments.go`,
+`handler_traces.go` -- 14 files. `directconnect`: `handler_bgp.go`,
+`handler_connections.go`, `handler_gateways.go`, `handler_lags_interconnects.go`,
+`handler_static.go`, `handler_vifs.go` -- 6 files. Picked `xray`. (The
+`directconnect` session that ran concurrently independently derived the
+same 14-vs-6 count and the same pick, then switched to `directconnect`
+itself once `git status` showed this session's edits appearing mid-flight
+-- see its own section above; no collision occurred, `services/directconnect/*`
+was never touched here.)
+
+**IMPORTANT CONTEXT this session did NOT expect going in**: `xray` already
+carried an extremely thorough `PARITY.md` from a dedicated 2026-08-10 pass
+(`b72533e7a`, unrelated to 6flj) that had already fixed several wrapper-key-
+class bugs by the same method this issue uses (`GetTraceSummaries.EntryPoint`
+string-vs-object, `ListRetrievedTraces` `Segments`->`Spans`, an invented
+per-item `ApproximateTime`). This made a "grade A, already covered" result
+plausible. It was NOT a clean sweep: the flagship finding below is a Go-KIND
+mismatch that pass's own method (member-name/nesting diff) did not check.
+
+**FLAGSHIP BUG, `GetTraceSummaries.Annotations`** (survived one prior
+dedicated pass): emitted as a flat `map[string]<scalar>` end-to-end
+(`TraceSummaryData.Annotations map[string]any`, populated via
+`maps.Copy(summary.Annotations, seg.Annotations)`, serialized as-is). The
+real shape (`types.TraceSummary.Annotations`, confirmed
+`xray@v1.39.4/deserializers.go:6443`'s
+`awsRestjson1_deserializeDocumentAnnotations`) is
+`map[string][]ValueWithServiceIds{AnnotationValue,ServiceIds}` -- a JSON
+ARRAY of tagged-union objects per key, not a bare value.
+`awsRestjson1_deserializeDocumentValuesWithServiceIds`
+(deserializers.go:12711) type-asserts `value.([]interface{})` and
+hard-errors `"unexpected JSON type"` on anything else -- this is the
+"array-versus-map/flat-string-versus-struct hard-fails on deserialization"
+class this issue's checklist leads with, and it is service-wide: EVERY real
+`GetTraceSummaries` call against a trace carrying at least one annotation
+failed outright (not silent-empty) for every caller of this op, always.
+Confirmed why the 2026-08-10 pass missed it: that pass field-diffed member
+names and nesting (catching `EntryPoint`'s string-vs-object and
+`ApproximateTime`'s placement) but never checked the Go KIND of a
+map-of-collections value -- same axis gap as the elasticsearch/lakeformation
+prior-audit pattern, not an argued-away bug.
+
+FIX: `AnnotationOccurrence{Value any, ServiceIDs []TraceSummaryServiceID}`
+added to `models.go`; `TraceSummaryData.Annotations` changed from
+`map[string]any` to `map[string][]AnnotationOccurrence` (each key holds the
+DISTINCT values reported for it, tagged with the reporting service(s) --
+two segments reporting the SAME value merge into one occurrence with both
+services listed, matching real per-value `ServiceIds` semantics, verified
+with `reflect.DeepEqual` for value comparison since annotation values are
+`any` and could theoretically be uncomparable if a caller sends malformed
+input). `traces.go`'s new `accumulateAnnotations` replaces the old
+`maps.Copy` one-liner. `handler_traces.go` gained `annotationValueView`
+(tagged union `StringValue`/`NumberValue`/`BooleanValue`, selected by the
+value's Go kind -- X-Ray segment-document annotations are only ever
+string/number/bool per the segment spec) and
+`valueWithServiceIDsView{AnnotationValue,ServiceIds}`, wired through
+`buildTraceSummaryView`.
+
+**SECOND BUG, `GetInsightSummaries` (discarded-filter class, both
+directions)**: `GroupARN`/`GroupName` (one required per
+`api_op_GetInsightSummaries.go`'s doc comments) and `StartTime`/`EndTime`
+(both required, client-SDK-enforced via `validators.go`'s
+`validateOpGetInsightSummariesInput`) were parsed by the handler and then
+never passed to the backend at all -- `h.Backend.GetInsightSummaries(in.States)`
+ignored all four. Every group and every time window returned the exact same
+unfiltered set of insights; a caller scoping to one group, or to a window
+that excluded an insight's active period, silently got insights back it
+never asked for. Root-caused to this backend's insight detector
+(`detectInsights`, `insights.go`) having no per-group filter-expression
+evaluation at all -- every detected insight is unconditionally labelled
+`GroupName="default"` regardless of what real `Group` records exist, so the
+group filter had nothing correct to enforce against without this fix.
+FIXED at the tractable layer: `GetInsightSummaries`'s signature gained
+`groupName string, startTime, endTime time.Time`; results are now filtered
+to insights whose `GroupName` matches the resolved group (ARN resolved via
+existing `GetGroupByARN`, falling back to a guaranteed-no-match sentinel for
+an unresolvable ARN -- correctly empty, not an error, matching this op's
+declared error set of `InvalidRequestException`/`ThrottledException` only,
+no `ResourceNotFoundException`) and whose active window `[StartTime,EndTime)`
+overlaps the request's. Handler now validates both required-field groups
+(`errInvalidRequest`) matching the sibling validate-then-query pattern
+already used by `GetServiceGraph`/`GetTraceGraph` in this same package.
+**DISCLOSED, not further fixed** (recorded in `PARITY.md`'s `gaps:` and
+the op's own `state: partial` -- was `ok`): a request scoped to `"default"`
+now returns every detected insight, same as before this fix, because the
+detector still doesn't evaluate that group's real `FilterExpression`
+against traffic -- true per-group detection is a detector redesign, out of
+scope for a wire-shape fix. This is a genuine remaining structural gap, not
+papered over.
+
+**NEVER-MODELLED MEMBER, disclosed not fabricated**: `GetTraceSummariesInput`'s
+optional `Sampling` (bool, parsed and discarded) and `SamplingStrategy`
+(`{Name,Value}`, not modeled at all) have no effect -- this backend has no
+sampling engine on the trace-summary read path, so every call returns the
+full unsampled set regardless of what a client requests. Judged a safe
+superset (more data than the client said was acceptable, never less), not a
+correctness bug; recorded in `PARITY.md gaps:` per this issue's "disclose
+rather than fabricate" instruction rather than silently left unmentioned.
+
+**FULL LAYER-1/2 SWEEP, all 20 L+D+G ops, each read against its own real
+`api_op_<Op>.go`/`types/types.go` in the pinned `xray@v1.39.4` module cache**
+(not against the 2026-08-10 PARITY.md's notes, though those turned out
+accurate everywhere except the flagship bug above): `GetEncryptionConfig`,
+`GetGroup`, `GetGroups`, `GetIndexingRules`, `GetInsight`, `GetInsightEvents`,
+`GetInsightImpactGraph`, `GetInsightSummaries` (fixed above), `GetRetrievedTracesGraph`,
+`GetSamplingRules`, `GetSamplingStatisticSummaries`, `GetSamplingTargets`,
+`GetServiceGraph`, `GetTimeSeriesServiceStatistics`, `GetTraceGraph`,
+`GetTraceSegmentDestination`, `GetTraceSummaries` (fixed above),
+`ListResourcePolicies`, `ListRetrievedTraces`, `ListTagsForResource` -- all
+20 confirmed clean at layer 1/2 except the two fixes above.
+
+**SHARED CONVERTERS, EACH CHECKED AGAINST ITS OWN REAL TYPE (this issue's
+lead check)**: `GetEncryptionConfig`/`PutEncryptionConfig` share
+`keyEncryptionConfig`/`EncryptionConfig` -- confirmed a REAL symmetric pair
+(`GetEncryptionConfigOutput.EncryptionConfig` and
+`PutEncryptionConfigOutput.EncryptionConfig` are both genuinely
+`*types.EncryptionConfig`-only, `api_op_GetEncryptionConfig.go`/
+`api_op_PutEncryptionConfig.go`), not a disguised-asymmetry trap like ecr's
+registry-scanning-config pair. `GetGroup`/`GetGroups` share `groupView` --
+confirmed `types.Group` and `types.GroupSummary` are field-for-field
+identical in this SDK version, not a trap. `toIndexingRuleView` shared by
+`GetIndexingRules`/`UpdateIndexingRule` -- confirmed correct, real
+`IndexingRuleValue`/`IndexingRuleValueUpdate` both tag as `"Probabilistic"`
+(`deserializers.go:8273`, `serializers.go:3432`).
+
+**GO-KIND CHECK, per this issue's explicit instruction**: `Annotations`
+(flagship bug above, map-of-scalar vs map-of-array-of-object) and
+`UploadLayerPart`-style `[]byte` checks (n/a to this service -- no binary
+blob fields in the L+D+G set) were the only candidates; every other
+collection/field's Go kind matched its real counterpart (slice-of-struct
+throughout, no other map-of-collection fields in this op set).
+
+**NEVER-MODELLED MEMBERS**: `GetTraceSummariesInput.Sampling`/`SamplingStrategy`
+(disclosed above) is the only instance found in the 20-op L+D+G set.
+
+**EMPTY/204 RESPONSES CHECKED**: none in this op set -- all 20 L+D+G ops are
+non-void GET-style reads with a real response body.
+
+**REQUIRED-MEMBER DIFFS, BOTH DIRECTIONS**: `GetInsightSummaries` (fixed
+above) was the only gap found; every other op's request/response required
+members matched the real `*Input`/`*Output` structs in both directions.
+
+**FILTERS/PAGINATION**: `GetInsightSummaries`'s `GroupARN`/`GroupName`/
+`StartTime`/`EndTime` (fixed above) was the only discarded-filter instance;
+every other op's declared filter/pagination parameter (`NextToken`/
+`MaxResults` throughout, `GetTraceSummaries`' `FilterExpression`/
+`TimeRangeType`, `GetServiceGraph`/`GetTraceGraph`'s `StartTime`/`EndTime`/
+`TraceIds`) reaches its query.
+
+**PROTOCOL / SECOND CLIENT / EqualFold**: `restjson1` exclusively
+(`awsRestjson1_` deserializer prefix throughout, confirmed both from
+gopherstack's own path-based `RouteMatcher` dispatch and the pinned SDK).
+All 136 `EqualFold` call sites in `xray@v1.39.4/deserializers.go` grepped
+and confirmed `errorCode`-matching only (`grep -v "errorCode)"` = 0 hits) --
+zero body-field-key `EqualFold` calls, so body-field decode is
+case-SENSITIVE as expected for restjson1 (the bug class this issue flags
+for JSON-RPC/restjson1). No second cross-service SDK client bridge found
+(`grep -rln "aws-sdk-go-v2/service/xray"` outside `services/xray/` and its
+own tests: zero hits).
+
+**ROUTER**: `xray` uses REAL PER-OP REST PATHS (not a flat `X-Amz-Target`
+switch), so this issue's "flat JSON-RPC switch is structurally immune"
+shortcut does NOT apply here -- this is exactly the path-segment-router
+class the checklist calls out as needing per-op verification. Not re-swept
+this pass (out of scope -- the prior 2026-08-10 pass already audited all 34
+routed ops' REST paths against `serializers.go` opPath literals and fixed 6
+mismatches, per `PARITY.md`'s "Route-matcher bug class" note; unchanged
+since, confirmed by re-reading `handler.go`'s path-constant table, and
+`TestSDKCompleteness`/the existing route-matcher tests still pass).
+
+**PHANTOM OPS**: none -- all 37 `GetSupportedOperations()` entries map 1:1
+to a real `api_op_*.go` file in the pinned module cache (spot-checked; the
+existing `sdk_completeness_test.go` already asserts this and passes).
+
+**SIBLING TRAP, REVERSE VARIANT CHECKED**: none found this session (no
+invented enum sat beside an already-correct real value in this op set).
+
+**PRIOR-AUDIT-REASONING CHECK (this issue's item 2)**: the 2026-08-10
+`PARITY.md` pass is **grade A but simply never covered the Go-kind axis for
+`Annotations`** -- it is not an instance of a note arguing a bug away (no
+note claims `Annotations`' shape was checked and found fine); it is a
+genuine coverage gap on a different axis than that pass's own method
+checked, the same "thorough but different axis" result the
+elasticsearch/lakeformation/directoryservice passes reported for their own
+services, not the kafka-style "wrong about ops it did cover" result.
+
+**OVER-WIDE FIELD / CREDENTIAL SWEEP**: clean, deliberately run (not
+skipped). `grep -rniE "password|secret|credential|privatekey|clientsecret"`
+across all non-test `.go` files: zero hits -- this service has no such
+domain concept at all. `GroupARN`/`RuleARN`/`ResourceARN`/
+`EncryptionConfig.KeyID` (a KMS key ID/ARN) are all real, intentional
+response members confirmed against their own real `types.go` shapes, not
+leaks. Segment `annotations`/`metadata` carry arbitrary customer-supplied
+trace data verbatim by design (the entire point of the API), not a
+gopherstack-introduced leak.
+
+**PERSISTENCE TRAP CHECKED**: none of the structs touched this pass
+(`TraceSummaryData`, `AnnotationOccurrence`, the new view types) are
+`store.Table`-backed persistence DTOs -- `TraceSummaryData` is a purely
+derived, request-scoped struct rebuilt fresh from parsed segments on every
+`GetTraceSummaries`/`BatchGetTraces` call, never persisted. `Insight`
+itself (touched only via its existing `GroupName`/`StartTime`/`EndTime`
+fields, no new fields added) IS the persistence DTO (confirmed
+`insights.go`'s `store.Table`); no field was added or retagged on it this
+pass, only read differently in `GetInsightSummaries`'s new filter, so no
+persistence-compat risk.
+
+**SDK PINNING / REAL-CLIENT TEST RATIO**: `xray@v1.39.4` pinned in `go.mod`
+(matches `PARITY.md`'s cited version, no drift, no dependency-boundary
+exception needed). Real-client test ratio before this pass: 0 SDK-client
+tests out of 37 ops (all prior tests drove `h.Handler()` directly or via
+hand-built `httptest` requests, never the real `aws-sdk-go-v2/service/xray`
+client through the full `pkgs/service` router). Added 2 (`services/xray/wire_field_fixes_test.go`):
+`TestGetTraceSummaries_Annotations_RealClient` and
+`TestGetInsightSummaries_GroupAndTimeFiltering`, both driven through
+`service.NewRegistry`/`NewServiceRouter` (the router-inclusive path).
+
+**TESTS, hand-revert protocol**: both new tests hand-reverted against the
+pre-fix code (restored via `git show HEAD:<file>` for the 3-4 files each
+fix spans, since this session's hard constraint bans even `git checkout --`)
+and confirmed to fail with the exact predicted symptom before being
+restored byte-identical (diffed against a saved copy):
+`TestGetTraceSummaries_Annotations_RealClient` failed with
+`deserialization failed ... unexpected JSON type true` (a hard client
+failure, not silent-empty, exactly as the real deserializer's
+`value.([]interface{})` assertion predicts); `TestGetInsightSummaries_GroupAndTimeFiltering`
+failed on its first assertion (missing-required-field validation absent)
+and, independently re-verified by temporarily removing that first
+assertion, also failed on both the group-scoping assertion (a different
+group's request returned the "default" group's insight) and the
+time-window assertion (a non-overlapping window still returned the
+insight) -- all three predicted symptoms individually confirmed. 8
+existing tests in `handler_insights_test.go`/`insights_test.go`/
+`persistence_test.go` updated to supply the now-required `GroupName`/
+`StartTime`/`EndTime` fields and matching `GroupName: "default"` on seeded
+insights (a genuinely-required-field gap these tests had been silently
+relying on, not a wrong-key assertion to rewrite).
+
+GATES: scoped `go build`/`go vet ./services/xray/...` clean; full `go build
+./...`/`go vet ./...` clean (interface signature change on
+`StorageBackend.GetInsightSummaries` propagates; confirmed no other package
+references it); `go test -race -count=1 ./services/xray/...` and
+`./pkgs/...` both green; `go fix -diff ./services/xray/...` clean (one real
+modernize finding applied by hand: `slices.Contains` replacing a manual
+loop, not via `-fix`); `golangci-lint run ./services/xray/...` 0 issues
+(fixed by hand: `gofmt`/`golines` formatting, one `revive` var-naming
+finding on a new type -- `valueWithServiceIdsView` -> `valueWithServiceIDsView`
+-- and one line-length overflow from struct-tag column realignment, all
+fixed by hand, not `-fix`, per this campaign's `fieldalignment -fix`
+nolint-stripping hazard); `fieldalignment ./services/xray/...` 0 hits; 0
+`cyclop`/`gocyclo`/`gocognit`/`funlen` nolints (grep-confirmed, none added).
+
+No subagents used (Read/Grep/Bash/Edit only, per this session's hard
+constraint). No git-mutating commands run -- orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/xray/*` and this remainder file touched throughout (the
+`directconnect` sibling that appeared mid-session, per its own section
+above, was never read or touched here).
+
+`xray`'s List/Describe/Get families are now fully swept for this issue
+(20/20 ops layer-1/2/3 clean; 2 real bugs found and fixed -- 1 flagship
+Go-kind wrapper-shape bug affecting every call with an annotation present,
+1 discarded-filter bug on GroupARN/GroupName/StartTime/EndTime; 1 remaining
+structural gap disclosed, not papered over; 1 never-modelled request-member
+pair disclosed; no real-data leak found). **93 of 162 services swept, 69
+remain.** Per the ranked table, the next tier starts at 19 L+D+G
+(`transcribe`, `mediatailor`); re-run `go run ./cmd/opcensus` and re-check
+`git status` before picking, as usual -- siblings have appeared mid-session
+on every pass today.

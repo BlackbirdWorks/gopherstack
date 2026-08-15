@@ -168,10 +168,23 @@ func isValidInsightState(s string) bool {
 	return s == statusActive || s == "CLOSED"
 }
 
-// GetInsightSummaries returns all insights as summaries, optionally filtered by state.
-// If states is empty, all insights are returned. "ALL" matches both ACTIVE and CLOSED.
-// Unknown states return ErrValidation.
-func (b *InMemoryBackend) GetInsightSummaries(states []string) ([]Insight, error) {
+// GetInsightSummaries returns insight summaries whose active window overlaps
+// [startTime, endTime] and whose GroupName matches groupName, optionally
+// filtered by state. If states is empty, all states are returned. "ALL"
+// matches both ACTIVE and CLOSED. Unknown states return ErrValidation.
+//
+// groupName scoping is honest but not full parity: this backend's insight
+// detector (detectInsights) has no per-group filter-expression evaluation --
+// every detected insight is unconditionally labelled with the fixed group
+// name "default" regardless of how many real Group records exist or their
+// FilterExpression. Filtering by groupName here correctly returns empty for
+// any group other than "default" (previously the group filter was discarded
+// entirely and every group got the same "default" insights back), but a
+// request for "default" is not itself scoped to a real Group's filter
+// expression -- see PARITY.md.
+func (b *InMemoryBackend) GetInsightSummaries(
+	states []string, groupName string, startTime, endTime time.Time,
+) ([]Insight, error) {
 	b.mu.RLock("GetInsightSummaries")
 	defer b.mu.RUnlock()
 
@@ -198,6 +211,18 @@ func (b *InMemoryBackend) GetInsightSummaries(states []string) ([]Insight, error
 
 	for _, i := range all {
 		if !wantAll && !stateSet[i.State] {
+			continue
+		}
+
+		if i.GroupName != groupName {
+			continue
+		}
+
+		if i.StartTime.After(endTime) {
+			continue
+		}
+
+		if !i.EndTime.IsZero() && i.EndTime.Before(startTime) {
 			continue
 		}
 

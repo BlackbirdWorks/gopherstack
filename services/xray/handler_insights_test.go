@@ -14,16 +14,34 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
+// insightSummariesWindowBody returns the GroupName/StartTime/EndTime fields
+// GetInsightSummaries requires on every request (see handleGetInsightSummaries),
+// merged with extra.
+func insightSummariesWindowBody(groupName string, extra map[string]any) map[string]any {
+	body := map[string]any{
+		"GroupName": groupName,
+		"StartTime": float64(time.Now().Add(-2 * time.Hour).Unix()),
+		"EndTime":   float64(time.Now().Add(2 * time.Hour).Unix()),
+	}
+	maps.Copy(body, extra)
+
+	return body
+}
+
 func TestGetInsightSummaries_ALLState(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	b.AddInsightInternal(xray.Insight{InsightID: "all-active", State: "ACTIVE", StartTime: time.Now()})
-	b.AddInsightInternal(xray.Insight{InsightID: "all-closed", State: "CLOSED", StartTime: time.Now()})
+	b.AddInsightInternal(
+		xray.Insight{InsightID: "all-active", GroupName: "default", State: "ACTIVE", StartTime: time.Now()},
+	)
+	b.AddInsightInternal(
+		xray.Insight{InsightID: "all-closed", GroupName: "default", State: "CLOSED", StartTime: time.Now()},
+	)
 
-	rec := doXrayRequest(t, h, "/InsightSummaries", map[string]any{
+	rec := doXrayRequest(t, h, "/InsightSummaries", insightSummariesWindowBody("default", map[string]any{
 		"States": []any{"ALL"},
-	})
+	}))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -39,9 +57,9 @@ func TestGetInsightSummaries_UnknownState(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doXrayRequest(t, h, "/InsightSummaries", map[string]any{
+	rec := doXrayRequest(t, h, "/InsightSummaries", insightSummariesWindowBody("default", map[string]any{
 		"States": []any{"BOGUS"},
-	})
+	}))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -65,9 +83,15 @@ func TestGetInsightSummariesStateFilter(t *testing.T) {
 	t.Parallel()
 
 	h, b := newTestHandlerWithBackend(t)
-	b.AddInsightInternal(xray.Insight{InsightID: "active-1", State: "ACTIVE", StartTime: time.Now()})
-	b.AddInsightInternal(xray.Insight{InsightID: "active-2", State: "ACTIVE", StartTime: time.Now()})
-	b.AddInsightInternal(xray.Insight{InsightID: "closed-1", State: "CLOSED", StartTime: time.Now()})
+	b.AddInsightInternal(
+		xray.Insight{InsightID: "active-1", GroupName: "default", State: "ACTIVE", StartTime: time.Now()},
+	)
+	b.AddInsightInternal(
+		xray.Insight{InsightID: "active-2", GroupName: "default", State: "ACTIVE", StartTime: time.Now()},
+	)
+	b.AddInsightInternal(
+		xray.Insight{InsightID: "closed-1", GroupName: "default", State: "CLOSED", StartTime: time.Now()},
+	)
 
 	tests := []struct {
 		name      string
@@ -84,12 +108,12 @@ func TestGetInsightSummariesStateFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			body := map[string]any{}
+			extra := map[string]any{}
 			if tt.states != nil {
-				body["States"] = tt.states
+				extra["States"] = tt.states
 			}
 
-			rec := doXrayRequest(t, h, "/InsightSummaries", body)
+			rec := doXrayRequest(t, h, "/InsightSummaries", insightSummariesWindowBody("default", extra))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -362,7 +386,7 @@ func TestHandler_GetInsightSummaries(t *testing.T) {
 	}{
 		{
 			name:       "returns empty list",
-			body:       map[string]any{"StartTime": 1700000000.0, "EndTime": 1700001000.0},
+			body:       insightSummariesWindowBody("default", nil),
 			wantStatus: http.StatusOK,
 			wantCount:  0,
 		},
@@ -371,16 +395,18 @@ func TestHandler_GetInsightSummaries(t *testing.T) {
 			setup: func(b *xray.InMemoryBackend) {
 				b.AddInsightInternal(xray.Insight{
 					InsightID: "i-a",
+					GroupName: "default",
 					State:     "ACTIVE",
 					StartTime: time.Now(),
 				})
 				b.AddInsightInternal(xray.Insight{
 					InsightID: "i-b",
+					GroupName: "default",
 					State:     "CLOSED",
 					StartTime: time.Now(),
 				})
 			},
-			body:       map[string]any{"StartTime": 1700000000.0, "EndTime": 1700001000.0},
+			body:       insightSummariesWindowBody("default", nil),
 			wantStatus: http.StatusOK,
 			wantCount:  2,
 		},
@@ -565,12 +591,12 @@ func TestHandler_GetInsightSummaries_Pagination(t *testing.T) {
 			for i := range tt.insightCount {
 				seedInsight(b,
 					fmt.Sprintf("insight-%d", i),
-					fmt.Sprintf("group-%d", i),
-					fmt.Sprintf("arn:aws:xray:us-east-1:123:group/default/group-%d", i),
+					"default",
+					"arn:aws:xray:us-east-1:123:group/default/default",
 				)
 			}
 
-			rec := doXrayRequest(t, h, "/InsightSummaries", tt.body)
+			rec := doXrayRequest(t, h, "/InsightSummaries", insightSummariesWindowBody("default", tt.body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus != http.StatusOK {
@@ -627,7 +653,7 @@ func TestHandler_GetInsightSummaries_ResponseShape(t *testing.T) {
 
 	seedInsight(b, "summary-shape-id", "my-group", "arn:aws:xray:us-east-1:123456789012:group/default/my-group")
 
-	rec := doXrayRequest(t, h, "/InsightSummaries", nil)
+	rec := doXrayRequest(t, h, "/InsightSummaries", insightSummariesWindowBody("my-group", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -669,7 +695,7 @@ func TestGetInsightSummaries_LastUpdateTimeReflectsActivity(t *testing.T) {
 		LastUpdateTime: now,
 	})
 
-	rec := doXrayRequest(t, h, "/InsightSummaries", nil)
+	rec := doXrayRequest(t, h, "/InsightSummaries", insightSummariesWindowBody("my-group", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -876,15 +902,19 @@ func TestGetInsightSummaries_StatesValidation(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandlerWithBackend(t)
-			b.AddInsightInternal(xray.Insight{InsightID: "sum-active-001", State: "ACTIVE", StartTime: time.Now()})
-			b.AddInsightInternal(xray.Insight{InsightID: "sum-closed-001", State: "CLOSED", StartTime: time.Now()})
+			b.AddInsightInternal(
+				xray.Insight{InsightID: "sum-active-001", GroupName: "default", State: "ACTIVE", StartTime: time.Now()},
+			)
+			b.AddInsightInternal(
+				xray.Insight{InsightID: "sum-closed-001", GroupName: "default", State: "CLOSED", StartTime: time.Now()},
+			)
 
-			body := map[string]any{}
+			extra := map[string]any{}
 			if tt.states != nil {
-				body["States"] = tt.states
+				extra["States"] = tt.states
 			}
 
-			rec := doXrayRequest(t, h, "/InsightSummaries", body)
+			rec := doXrayRequest(t, h, "/InsightSummaries", insightSummariesWindowBody("default", extra))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK && tt.wantCount > 0 {
