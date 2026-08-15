@@ -9,28 +9,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// ImageBlockPublicAccessState is a flat scalar in the real shape (ec2@v1.319.1
+// deserializers.go, awsEc2query_deserializeOpDocumentGetImageBlockPublicAccessStateOutput):
+// <imageBlockPublicAccessState> holds the state text directly, no nested
+// <state> child. A nested struct here makes the real decoder's Value() call
+// hard-error (smithy-go xml_decoder.go's Value: "got StartElement instead"),
+// not just silently drop the field.
 type imageBlockPublicAccessStateResponse struct {
 	XMLName                     xml.Name `xml:"GetImageBlockPublicAccessStateResponse"`
 	RequestID                   string   `xml:"requestId"`
-	ImageBlockPublicAccessState struct {
-		State string `xml:"state"`
-	} `xml:"imageBlockPublicAccessState"`
+	ImageBlockPublicAccessState string   `xml:"imageBlockPublicAccessState"`
 }
 
 type enableImageBlockPublicAccessResponse struct {
 	XMLName                     xml.Name `xml:"EnableImageBlockPublicAccessResponse"`
 	RequestID                   string   `xml:"requestId"`
-	ImageBlockPublicAccessState struct {
-		State string `xml:"state"`
-	} `xml:"imageBlockPublicAccessState"`
+	ImageBlockPublicAccessState string   `xml:"imageBlockPublicAccessState"`
 }
 
 type disableImageBlockPublicAccessResponse struct {
 	XMLName                     xml.Name `xml:"DisableImageBlockPublicAccessResponse"`
 	RequestID                   string   `xml:"requestId"`
-	ImageBlockPublicAccessState struct {
-		State string `xml:"state"`
-	} `xml:"imageBlockPublicAccessState"`
+	ImageBlockPublicAccessState string   `xml:"imageBlockPublicAccessState"`
 }
 
 type describeInstanceImageMetadataResponse struct {
@@ -78,8 +78,7 @@ func (h *Handler) handleEnableImageBlockPublicAccess(vals url.Values, reqID stri
 		return nil, err
 	}
 
-	resp := &enableImageBlockPublicAccessResponse{RequestID: reqID}
-	resp.ImageBlockPublicAccessState.State = state
+	resp := &enableImageBlockPublicAccessResponse{RequestID: reqID, ImageBlockPublicAccessState: state}
 
 	return resp, nil
 }
@@ -87,15 +86,17 @@ func (h *Handler) handleEnableImageBlockPublicAccess(vals url.Values, reqID stri
 func (h *Handler) handleDisableImageBlockPublicAccess(_ url.Values, reqID string) (any, error) {
 	h.Backend.DisableImageBlockPublicAccess()
 
-	resp := &disableImageBlockPublicAccessResponse{RequestID: reqID}
-	resp.ImageBlockPublicAccessState.State = stateImageUnblocked
+	resp := &disableImageBlockPublicAccessResponse{
+		RequestID: reqID, ImageBlockPublicAccessState: stateImageUnblocked,
+	}
 
 	return resp, nil
 }
 
 func (h *Handler) handleGetImageBlockPublicAccessState(_ url.Values, reqID string) (any, error) {
-	resp := &imageBlockPublicAccessStateResponse{RequestID: reqID}
-	resp.ImageBlockPublicAccessState.State = h.Backend.GetImageBlockPublicAccessState()
+	resp := &imageBlockPublicAccessStateResponse{
+		RequestID: reqID, ImageBlockPublicAccessState: h.Backend.GetImageBlockPublicAccessState(),
+	}
 
 	return resp, nil
 }

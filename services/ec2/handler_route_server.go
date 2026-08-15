@@ -308,13 +308,37 @@ type getRouteServerRoutingDatabaseResponse struct {
 	Routes        struct {
 		Items []routeServerRouteItem `xml:"item"`
 	} `xml:"routeSet"`
+	AreRoutesPersisted bool `xml:"areRoutesPersisted,omitempty"`
 }
 
 // ---- Route Server handlers ----
 
+const (
+	routeServerPersistRoutesStateEnabled  = "enabled"
+	routeServerPersistRoutesStateDisabled = "disabled"
+)
+
+// routeServerPersistRoutesStateFromAction translates the request-side
+// RouteServerPersistRoutesAction ("enable"/"disable"/"reset") into the
+// response-side RouteServerPersistRoutesState ("enabled"/"disabled"/...).
+// The two are distinct real enums (ec2@v1.319.1 types/enums.go) with
+// different wire values for the same verb; storing the action string
+// unnormalized would make DescribeRouteServers/GetRouteServerRoutingDatabase
+// emit "enable" instead of the real "enabled".
+func routeServerPersistRoutesStateFromAction(action string) string {
+	switch action {
+	case "enable":
+		return routeServerPersistRoutesStateEnabled
+	case "disable", "reset":
+		return routeServerPersistRoutesStateDisabled
+	default:
+		return action
+	}
+}
+
 func (h *Handler) handleCreateRouteServer(vals url.Values, reqID string) (any, error) {
 	amazonSideAsn, _ := strconv.ParseInt(vals.Get("AmazonSideAsn"), 10, 64)
-	persistRoutesState := vals.Get("PersistRoutes")
+	persistRoutesState := routeServerPersistRoutesStateFromAction(vals.Get("PersistRoutes"))
 
 	persistRoutesDuration, _ := strconv.ParseInt(vals.Get("PersistRoutesDuration"), 10, 64)
 	snsNotificationsEnabled, _ := strconv.ParseBool(vals.Get("SnsNotificationsEnabled"))
@@ -365,7 +389,7 @@ func (h *Handler) handleDeleteRouteServer(vals url.Values, reqID string) (any, e
 
 func (h *Handler) handleModifyRouteServer(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("RouteServerId")
-	persistRoutesState := vals.Get("PersistRoutes")
+	persistRoutesState := routeServerPersistRoutesStateFromAction(vals.Get("PersistRoutes"))
 
 	persistRoutesDuration, _ := strconv.ParseInt(vals.Get("PersistRoutesDuration"), 10, 64)
 	snsNotificationsEnabled, _ := strconv.ParseBool(vals.Get("SnsNotificationsEnabled"))
@@ -566,7 +590,14 @@ func (h *Handler) handleGetRouteServerRoutingDatabase(vals url.Values, reqID str
 		return nil, err
 	}
 
-	resp := &getRouteServerRoutingDatabaseResponse{Xmlns: ec2XMLNS, RequestID: reqID, RouteServerID: routeServerID}
+	var arePersisted bool
+	if servers := h.Backend.DescribeRouteServers([]string{routeServerID}); len(servers) == 1 {
+		arePersisted = servers[0].PersistRoutesState == routeServerPersistRoutesStateEnabled
+	}
+
+	resp := &getRouteServerRoutingDatabaseResponse{
+		Xmlns: ec2XMLNS, RequestID: reqID, RouteServerID: routeServerID, AreRoutesPersisted: arePersisted,
+	}
 	for _, r := range routes {
 		resp.Routes.Items = append(resp.Routes.Items, routeServerRouteItem{
 			RouteServerEndpointID: r.RouteServerEndpointID,

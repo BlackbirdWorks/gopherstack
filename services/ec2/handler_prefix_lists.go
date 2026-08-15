@@ -32,12 +32,18 @@ type getManagedPrefixListEntriesResponse struct {
 	} `xml:"entrySet"`
 }
 
+// getManagedPrefixListAssociationsResponse wraps under prefixListAssociationSet,
+// not associationSet -- the real deserializer (ec2@v1.319.1 deserializers.go,
+// awsEc2query_deserializeOpDocumentGetManagedPrefixListAssociationsOutput) has
+// no case for "associationSet" at all. This backend doesn't track which
+// resources reference a managed prefix list, so the set is always empty
+// regardless of the key; fixed for correctness if that ever changes.
 type getManagedPrefixListAssociationsResponse struct {
 	XMLName        xml.Name `xml:"GetManagedPrefixListAssociationsResponse"`
 	RequestID      string   `xml:"requestId"`
 	AssociationSet struct {
 		Items []struct{} `xml:"item"`
-	} `xml:"associationSet"`
+	} `xml:"prefixListAssociationSet"`
 }
 
 // clientVpnEndpointStatusItem mirrors AWS's ClientVpnEndpointStatus shape

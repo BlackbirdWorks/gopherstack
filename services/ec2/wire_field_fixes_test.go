@@ -73,6 +73,15 @@ func TestCreateNetworkInsightsPath_RealWireKeys(t *testing.T) {
 // name of a different, response-only field (RouteServer.PersistRoutesState,
 // botocore ec2 2016-11-15 service-2.json) -- so a client's requested
 // PersistRoutes action was always discarded.
+//
+// The request and response sides use two distinct real enums with different
+// wire values for the same verb: RouteServerPersistRoutesAction ("enable"/
+// "disable"/"reset", ec2@v1.319.1 types/enums.go:10663) on the way in, vs
+// RouteServerPersistRoutesState ("enabled"/"disabled"/..., enums.go:10685)
+// on the way out. This test previously asserted the response echoed the raw
+// action string "enable" as correct -- gopherstack-6flj's exact raw-body/
+// wrong-value blind spot -- when the real state enum has no "enable" value
+// at all.
 func TestCreateRouteServer_RealWireKeys(t *testing.T) {
 	t.Parallel()
 
@@ -85,8 +94,9 @@ func TestCreateRouteServer_RealWireKeys(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t,
-		string(types.RouteServerPersistRoutesActionEnable),
+		string(types.RouteServerPersistRoutesStateEnabled),
 		string(out.RouteServer.PersistRoutesState),
+		"real RouteServerPersistRoutesState has no \"enable\" value, only \"enabled\"",
 	)
 }
 
