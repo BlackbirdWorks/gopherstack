@@ -1,11 +1,12 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**84 of 162 services swept, 78 remain** (directoryservice added this session,
-2026-08-15, see its own section at the end of this file; opsworks, apigatewayv2,
-workmail, wafv2, ce, waf, vpclattice, emr, eventbridge, kafka, route53resolver,
-appsync, workspaces, lakeformation, elasticsearch, and rekognition all added
-this session, in parallel, by different sessions — see each service's own
-section at the end of this file for full detail).
+**85 of 162 services swept, 77 remain** (cloudtrail added this session,
+2026-08-15, see its own section at the end of this file; directoryservice
+(still in progress by a live sibling as of this addition), opsworks,
+apigatewayv2, workmail, wafv2, ce, waf, vpclattice, emr, eventbridge, kafka,
+route53resolver, appsync, workspaces, lakeformation, elasticsearch, and
+rekognition all added this session, in parallel, by different sessions — see
+each service's own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -5995,3 +5996,268 @@ issue (25/25 ops layer-1/2/3 clean; 6 real bugs found and fixed, one found
 independently of the stashed hint; 1 fabricated-but-harmless field disclosed
 rather than removed; no real-data leak found despite this service's
 AD-credential/trust-password surface). 84 of 162 services swept, 78 remain.
+
+## cloudtrail (this session, 2026-08-15)
+
+Assigned directly (gopherstack-6flj). Per the ranked table, `directoryservice`
+(80 ops, 25 L+D+G, `direct`) was the largest unswept candidate but a
+live sibling was actively editing it all session (confirmed via `git status`
+showing 19 modified + 1 untracked `services/directoryservice/*` files, and
+that this remainder file's own header already credited directoryservice to
+that sibling this session) -- never touched. `opsworks` (74 ops, 24 L+D+G)
+was already swept earlier this same session (`0f5a7d360`). That left a
+three-way tie at 24 L+D+G ops: `codeartifact` (48 total ops), `cloudtrail`
+(60 total ops), `appconfig` (56 total ops). Chose `cloudtrail`: largest total
+op count of the three, and the widest number of distinct resource-family
+handler files (9: channels, dashboards, event_data_stores, event_selectors,
+events, imports, queries, resource_policies, trails), maximizing the
+sibling-trap surface this issue targets. Confirmed via `go run
+./cmd/opcensus` immediately before picking (60/11/2/11/24, matching the
+table exactly).
+
+**SDK availability:** `aws-sdk-go-v2/service/cloudtrail@v1.58.4` is pinned in
+`go.mod`/`go.sum` (unlike several recent sweep targets) -- no dependency
+boundary issue to disclose here.
+
+**Protocol:** `awsAwsjson11` exclusively (100 `func awsAwsjson11_serialize*`
++ 363 `func awsAwsjson11_deserialize*` matches in the pinned module;
+0 `awsEc2query_`/`awsAwsquery_`/`awsRestxml_` matches). Case-sensitive plain
+Go `switch key { case "Xxx": }` on decoded JSON keys, confirmed by reading
+several `awsAwsjson11_deserializeOpDocument*Output` functions directly. All
+`EqualFold` hits in this SDK version are in `errorCode` matching only
+(confirmed via `grep -n EqualFold deserializers.go` -- every hit is
+`strings.EqualFold("SomeException", errorCode)`), never a body-field switch,
+so casing near-misses in field names ARE real silent-empty bugs here (found
+one -- see below). No second client: no `cloudtrail-data`/`cloudtraildata`
+service exists in the module cache or `go.mod`.
+
+**Dead-deserializer trap:** does not apply. This is JSON-RPC 1.1
+(`awsAwsjson11`) codegen, not restjson1 -- each op's own
+`HandleDeserialize` method calls its own uniquely-named
+`awsAwsjson11_deserializeOpDocument<Op>Output` function directly (spot
+verified for `GetTrail` and `ListChannels`), unlike restjson1's shared/dead
+generic-shape deserializer pattern that tripped up an agent on pinpoint.
+
+**Router:** single top-level `X-Amz-Target` prefix match
+(`CloudTrail_20131101.<Op>`), one flat `h.ops` dispatch map built in
+`buildOps()`. All 61 `GetSupportedOperations()` op names have a
+corresponding `h.ops["Xxx"] = h.handleXxx` entry (grep-diffed 1:1); no
+second-layer router to desync, no 404-at-router gap found (checked
+separately from the handler bodies, per this issue's elasticsearch lesson).
+
+**Phantom ops:** none found among the 24 L+D+G ops audited (each op's
+handler + real `api_op_<Op>.go` were both located and read; no gopherstack
+op name failed to resolve to a real SDK operation).
+
+**Ignored filters:** none of the 24 L+D+G ops discard a declared filter
+member. `ListQueries`' `EventDataStore`/`QueryStatus` filters, `ListImports`'
+`Destination`/`ImportStatus` filters, and `DescribeTrails`' `TrailNameList`
+were all spot-checked and reach the query. (Pre-existing, not this pass:
+`ListQueries`' `EventDataStore` filter is real AWS's required field but left
+optional here for backward test compatibility -- already disclosed in
+PARITY.md `gaps`, not new.)
+
+**2 real wrapper-key/shape bugs found and fixed** (the headline class this
+issue tracks), plus a related 3rd bug (fabricated + missing fields sharing
+one function across 5 sibling ops) found while verifying the two:
+
+1. `ListInsightsData`: response wrapped the (always-empty, stub) event list
+   under a fabricated `"Insights"` key. Real `ListInsightsDataOutput` wraps
+   it under `"Events"` (confirmed:
+   `awsAwsjson11_deserializeOpDocumentListInsightsDataOutput`,
+   deserializers.go:20403, case `"Events"` ->
+   `deserializeDocumentEventsList`, reached from
+   `awsAwsjson11_deserializeOpListInsightsData.HandleDeserialize`). Silently
+   dropped by any real client, case-sensitive JSON-RPC. Not currently
+   *observable* as data loss (the backend never populates the list -- no
+   Insights-event generation exists, an existing, disclosed limitation), but
+   a real, latent bug: the day this stub grows real data, every typed client
+   would still see an empty `Events` slice. Fixed; also added
+   `DataType`/`InsightSource` required-field validation (previously the
+   entire request body was ignored, `_ []byte`).
+2. `ListInsightsMetricData`: response was `{"Values": <always-empty-list>}`.
+   Real `ListInsightsMetricDataOutput` is an entirely different shape -- a
+   flat time series (`ErrorCode`/`EventName`/`EventSource`/`InsightType`/
+   `NextToken`/`Timestamps`/`TrailARN`/`Values`, `Values` being `[]float64`
+   parallel to `Timestamps []time.Time`), not a list-of-records wrapper at
+   all (confirmed:
+   `awsAwsjson11_deserializeOpDocumentListInsightsMetricDataOutput`,
+   deserializers.go:20673). The handler also ignored its entire request body
+   (`_ []byte`), so the three real required inputs (`EventName`,
+   `EventSource`, `InsightType`) went unvalidated and unechoed. Fixed: now
+   validates the three required fields, echoes them plus optional
+   `ErrorCode`/`TrailARN` (`TrailName` resolved via the existing
+   `Backend.GetTrail` lookup, reusing the `ErrNotFound` ->
+   `TrailNotFoundException` error path already wired for `GetTrail`), and
+   returns real-shaped (empty) `Timestamps`/`Values` arrays. Backend
+   `ListInsightsMetricData()`'s return type also corrected from
+   `[]map[string]any` to `[]float64` to match the real `Values` field type.
+3. **Sibling-trap, found while fixing (1)/(2):** `edsToMap` was one function
+   shared across `CreateEventDataStore`/`GetEventDataStore`/
+   `UpdateEventDataStore`/`ListEventDataStores`(items)/`RestoreEventDataStore`
+   -- but these 5 ops' real output shapes genuinely differ (same class this
+   issue already fixed once for this exact service's Dashboard family, see
+   `GetDashboard`/`CreateDashboard`/`UpdateDashboard`'s PARITY.md history).
+   Diffed all 5 real deserializers field-by-field
+   (`awsAwsjson11_deserializeOpDocumentCreateEventDataStoreOutput`
+   /Get/Update/Restore, deserializers.go:18529/19598/22128/21294) and found:
+   - **Fabricated member, all 5 ops:** `InsightSelectors` emitted whenever
+     `len(eds.InsightSelectors) > 0` -- this field exists on **no**
+     EventDataStore output shape in the real API at all (only on
+     `Get`/`PutInsightSelectorsOutput`, a completely different op pair).
+     Verified reachable, not just theoretical: added a test that calls
+     `PutInsightSelectors` on an EDS first, then asserts `GetEventDataStore`
+     does not leak it back.
+   - **Missing member, Create only:** real `CreateEventDataStoreOutput` has
+     `TagsList` (`Create`, `Get`, `Update`, `Restore` differ on this: only
+     Create has it) -- a value the backend already held (tags are captured
+     into `eds.Tags` at creation, converted from the request's own
+     `TagsList` field) but never echoed back on any response. Now populated
+     on Create only.
+   - **Fabricated member, Create+Restore:** `FederationRoleArn`/
+     `FederationStatus` emitted whenever set, but real
+     `CreateEventDataStoreOutput`/`RestoreEventDataStoreOutput` have neither
+     field (only `Get`/`UpdateEventDataStoreOutput` do -- federation is only
+     ever set post-creation via `EnableFederation`, so this was mostly
+     unreachable for `Create`, but real and reachable for `Restore` if a
+     store had federation enabled before being soft-deleted).
+   Split into `edsCommonToMap` (shared real fields) +
+   `edsCreateToMap`/`edsRestoreToMap`/`edsGetOrUpdateToMap` (per-op deltas),
+   plus a new `edsTagsList` helper mirroring the pre-existing `dashTagsList`
+   pattern this same file's Dashboard fix already established. `Get` and
+   `Update` share one function (`edsGetOrUpdateToMap`) because their real
+   output shapes are identical in what this backend can populate (see
+   PartitionKeys gap below).
+   **Two pre-existing tests were asserting the fabricated Create-side
+   `FederationStatus` field directly** (`TestEDSFederation/
+   new_eds_has_disabled_federation` and `TestCloudTrailFederationSmoke`) --
+   exactly this issue's "test fixture that cannot fail" trap, except this
+   one actively enshrined the bug as expected behavior. Fixed both to
+   observe the same real invariant (a fresh EDS defaults to `DISABLED`
+   federation) via `GetEventDataStore` instead, which really does have the
+   field.
+
+**Sibling pairs / families checked and found correct** (24 wrapper keys, all
+diffed against the real deserializer's own case list):
+`DescribeTrails`'s **lowercase** `trailList` key (a legacy CloudTrail quirk
+predating the `Trails`-prefixed naming convention) -- correct, matches
+`case "trailList":` exactly, case-sensitive protocol so this one actually
+matters. `ListTrails`'s `Trails` key with the narrower `TrailInfo` item shape
+(`TrailARN`/`Name`/`HomeRegion` only) -- correct, distinct from
+`DescribeTrails`'s full `Trail` object, not conflated. `GetDashboard`'s
+already-established `dashGetToMap` (no `Name` field, confirmed absent from
+the real output) vs `dashCreateToMap`/`dashUpdateToMap` -- re-verified
+correct, the precedent this pass's `edsCreateToMap` split followed.
+`GetChannel`/`ListChannels`: item shape (`ChannelArn`+`Name` only) vs full
+`GetChannel` shape, correctly distinct, not conflated. `ListImportFailures`'s
+`"Failures"` key (not `"ImportFailures"`) -- correct. `ListInsightsData`'s
+sibling `ListInsightsMetricData` looks similar on the surface (both "list
+insights-ish data") but has a completely different real shape -- confirmed
+each independently rather than assuming a shared pattern, per this issue's
+"copying the majority convention can be the error" warning; here neither
+convention was safe to copy from the other. `GetEventConfiguration`'s
+`TrailARN`/`EventDataStoreArn` split (real API itself is inconsistent about
+`ARN` casing between these two identifier fields) -- correctly reproduced
+verbatim, not normalized to one casing.
+
+**No fabricated required-response members or unenforced required requests
+found beyond what's listed above** -- `GetEventSelectors`, `GetImport`,
+`GetResourcePolicy`, `GetTrailStatus` (already had a detailed, re-verified-
+accurate PARITY.md note from a prior pass citing all 16 real fields),
+`GetInsightSelectors`, `GetQueryResults`, `DescribeQuery` were all
+field-diffed against their real deserializers and matched (module-cache
+citations for each are in the PARITY.md updates this pass made).
+
+**Discarded inputs / fields never set:** `StartImport`'s real, optional
+`StartEventTime`/`EndEventTime` inputs are silently discarded (no struct
+field to receive them) -- disclosed in PARITY.md rather than fixed, since
+import execution itself is an already-documented, pre-existing "not real"
+limitation (honoring a time filter over data that's never actually replayed
+would be misleading, not more correct).
+
+**Over-wide fields, sorted:** none found in the informational-leak sense
+this issue tracks (no client secrets/ARNs/env vars). One borderline case
+disclosed, not fixed: real `types.EventDataStore` (the `ListEventDataStores`
+item type) marks every field except `EventDataStoreArn`/`Name` as
+"Deprecated: no longer returned by ListEventDataStores" in the SDK's own doc
+comments -- AWS's real server has stopped populating them for this specific
+op, but gopherstack's list items still return the full rich shape (same as
+`GetEventDataStore`). Harmless/informational (a typed client just receives
+extra populated fields it wasn't guaranteed), not the silent-empty class
+this issue targets, so left as-is.
+
+**Structural gaps disclosed, not fabricated** (backend doesn't hold the
+value at all): `GetChannel` missing `IngestionStatus`/`SourceConfig`;
+`GetEventDataStore` missing `PartitionKeys`; `GetInsightSelectors` missing
+`InsightsDestination`; `GetResourcePolicy` missing
+`DelegatedAdminResourcePolicy` (same root cause as this service's
+pre-existing, already-documented lack of org-admin state); `GetImport`
+missing `StartEventTime`/`EndEventTime`/`ImportStatistics`. All added to
+PARITY.md's `gaps` list this pass with the specific missing field names and
+why.
+
+**Prior audit accuracy:** this service's PARITY.md `last_audit_date:
+2026-07-23` had marked `ListInsightsData`, `ListInsightsMetricData`,
+`CreateEventDataStore`, `GetEventDataStore`/`UpdateEventDataStore`/
+`RestoreEventDataStore` all `wire: ok` with no caveat -- **all six of those
+claims were wrong** (bugs 1/2/3 above). The rest of that same prior audit
+(24 other ops, including the detailed multi-paragraph Dashboard/Query/Import
+fixes) held up under this pass's independent re-verification -- silence and
+error looked identical from outside until each op's real deserializer was
+actually read, consistent with this issue's kafka/pinpoint lesson that a
+prior audit can be right about most of its surface and wrong about a
+specific, unverified corner of it.
+
+**Tests:** 2 new dedicated wire-shape test functions
+(`TestCloudTrailListInsightsWireShape`, 4 subtests;
+`TestEventDataStoreWireShape`, 2 subtests) plus 2 pre-existing tests fixed
+(see above) and the pre-existing ancillary smoke test's bodies updated to
+supply the newly-required fields. Every new assertion was run against the
+unfixed code first and confirmed to fail with the exact predicted symptom,
+then the fix was restored and confirmed byte-identical via `diff` against a
+saved copy (no git-mutating commands used): (1) `ListInsightsData`'s key
+hand-reverted to `"Insights"` -> `TestCloudTrailListInsightsWireShape/
+list_insights_data_uses_events_key` failed on both of its two assertions
+with the literal messages `"response should have an Events key"` /
+`"response should not have the wrong Insights key"`, exactly as predicted;
+(3) `edsCommonToMap`'s `InsightSelectors` emission hand-reverted back in ->
+`TestEventDataStoreWireShape/get_never_has_insight_selectors_or_tags_list`
+failed with `"GetEventDataStore response should not have InsightSelectors"`,
+exactly as predicted (the sibling `create_never_has_insight_selectors...`
+subtest didn't catch this revert since Create's own EDS never had
+InsightSelectors set on it -- confirming per this issue's method note that a
+"does this test even exercise a populated value" check matters, not just
+"does the field appear").
+
+**Real-client test ratio:** SDK is pinned (`go.mod`), no disclosed exception
+needed for this service, but this pass didn't specifically measure the
+existing suite's real-vs-raw-body ratio (all new tests added this pass are
+raw-body/httptest, matching this file's existing convention throughout).
+
+Gates: scoped `go build`/`go vet ./services/cloudtrail/...` clean; full `go
+build ./...`/`go vet ./...` clean (`ListInsightsMetricData`'s backend return
+type changed from `[]map[string]any` to `[]float64`, grep-confirmed no
+external callers); `go test -race -count=1 ./services/cloudtrail/...` and
+`./pkgs/...` green; `go fix -diff` clean; `golangci-lint run
+./services/cloudtrail/...` 0 issues (one `goconst` finding on a newly
+duplicated `"Key"` string literal fixed by adding a shared `keyKey` const,
+matching the pre-existing `keyValue` const's pattern, applied consistently
+across all 3 existing `"Key"`/`keyValue` map-literal sites in the package;
+one `golines` formatting finding fixed by hand); 0
+cyclop/gocyclo/gocognit/funlen nolints (grep-confirmed, none added).
+
+No subagents used. No git-mutating commands run -- orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/cloudtrail/*` files and this remainder file touched;
+`services/directoryservice/*`'s live sibling changes never read or touched
+beyond the initial `git status`/`git log` scan used to confirm it was taken.
+
+cloudtrail's List/Describe/Get families are now fully swept for this issue
+(24/24 ops layer-1/2 clean; 2 headline wrapper-key/shape bugs fixed plus 1
+related sibling-trap bug spanning 5 ops; 6 structural gaps disclosed, not
+fabricated; 2 pre-existing tests that enshrined a fabricated field corrected;
+no real-data leak found). 85 of 162 services swept, 77 remain. Per the ranked
+table, `directoryservice` (80 ops, 25 L+D+G, `direct`) remains the largest
+unswept candidate once its live sibling session ends; after that, the
+three-way tie at 24 L+D+G (`codeartifact`, `appconfig`) is next -- re-check
+`git status` and this file's header before picking either.

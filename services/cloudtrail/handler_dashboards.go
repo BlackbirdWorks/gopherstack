@@ -306,7 +306,7 @@ func dashTagsList(d *Dashboard) []map[string]string {
 	kv := d.Tags.Clone()
 	out := make([]map[string]string, 0, len(kv))
 	for k, v := range kv {
-		out = append(out, map[string]string{"Key": k, keyValue: v})
+		out = append(out, map[string]string{keyKey: k, keyValue: v})
 	}
 
 	return out

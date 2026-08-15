@@ -276,16 +276,96 @@ func eventConfigToMap(resourceARN string, isTrail bool, cfg *EventConfiguration)
 
 // --- ListInsightsData ---
 
-func (h *Handler) handleListInsightsData(c *echo.Context, _ []byte) error {
+// listInsightsDataBody mirrors ListInsightsDataInput's two required fields.
+type listInsightsDataBody struct {
+	DataType      string `json:"DataType"`
+	InsightSource string `json:"InsightSource"`
+}
+
+func (h *Handler) handleListInsightsData(c *echo.Context, body []byte) error {
+	var in listInsightsDataBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("InvalidParameterCombinationException", "invalid request body"),
+			)
+		}
+	}
+	if in.DataType == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "DataType is required"))
+	}
+	if in.InsightSource == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "InsightSource is required"),
+		)
+	}
+
 	data := h.Backend.ListInsightsData()
 
-	return c.JSON(http.StatusOK, map[string]any{"Insights": data})
+	// Real ListInsightsDataOutput wraps its list under "Events" (types.Event),
+	// not "Insights" -- confirmed against cloudtrail@v1.58.4's
+	// awsAwsjson11_deserializeOpDocumentListInsightsDataOutput.
+	return c.JSON(http.StatusOK, map[string]any{"Events": data})
 }
 
 // --- ListInsightsMetricData ---
 
-func (h *Handler) handleListInsightsMetricData(c *echo.Context, _ []byte) error {
-	data := h.Backend.ListInsightsMetricData()
+// listInsightsMetricDataBody mirrors ListInsightsMetricDataInput's real
+// fields relevant to this backend: EventName, EventSource, and InsightType
+// are all required; ErrorCode and TrailName are optional.
+type listInsightsMetricDataBody struct {
+	EventName   string `json:"EventName"`
+	EventSource string `json:"EventSource"`
+	InsightType string `json:"InsightType"`
+	ErrorCode   string `json:"ErrorCode"`
+	TrailName   string `json:"TrailName"`
+}
 
-	return c.JSON(http.StatusOK, map[string]any{"Values": data})
+func (h *Handler) handleListInsightsMetricData(c *echo.Context, body []byte) error {
+	var in listInsightsMetricDataBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+	}
+	if in.EventName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "EventName is required"))
+	}
+	if in.EventSource == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "EventSource is required"),
+		)
+	}
+	if in.InsightType == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "InsightType is required"),
+		)
+	}
+
+	// Real ListInsightsMetricDataOutput is a flat time series
+	// (ErrorCode/EventName/EventSource/InsightType/NextToken/Timestamps/
+	// TrailARN/Values), not a "Values"-wrapped list of records -- confirmed
+	// against cloudtrail@v1.58.4's
+	// awsAwsjson11_deserializeOpDocumentListInsightsMetricDataOutput.
+	resp := map[string]any{
+		"EventName":   in.EventName,
+		"EventSource": in.EventSource,
+		"InsightType": in.InsightType,
+		"Timestamps":  []float64{},
+		"Values":      h.Backend.ListInsightsMetricData(),
+	}
+	if in.ErrorCode != "" {
+		resp["ErrorCode"] = in.ErrorCode
+	}
+	if in.TrailName != "" {
+		trail, err := h.Backend.GetTrail(in.TrailName)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+		resp["TrailARN"] = trail.TrailARN
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }

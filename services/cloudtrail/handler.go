@@ -33,6 +33,7 @@ const (
 	keyInsightSelectors             = "InsightSelectors"
 	keyType                         = "Type"
 	keyTerminationProtectionEnabled = "TerminationProtectionEnabled"
+	keyKey                          = "Key"
 	keyValue                        = "Value"
 	statusEnabled                   = "ENABLED"
 	statusDisabled                  = "DISABLED"

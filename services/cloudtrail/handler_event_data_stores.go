@@ -56,7 +56,7 @@ func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, edsToMap(eds))
+	return c.JSON(http.StatusOK, edsCreateToMap(eds))
 }
 
 // --- DeleteEventDataStore ---
@@ -95,7 +95,7 @@ func (h *Handler) handleGetEventDataStore(c *echo.Context, body []byte) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, edsToMap(eds))
+	return c.JSON(http.StatusOK, edsGetOrUpdateToMap(eds))
 }
 
 // --- UpdateEventDataStore ---
@@ -130,7 +130,7 @@ func (h *Handler) handleUpdateEventDataStore(c *echo.Context, body []byte) error
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, edsToMap(eds))
+	return c.JSON(http.StatusOK, edsGetOrUpdateToMap(eds))
 }
 
 // --- ListEventDataStores ---
@@ -156,7 +156,7 @@ func (h *Handler) handleListEventDataStores(c *echo.Context, body []byte) error 
 
 	items := make([]map[string]any, 0, len(p.Data))
 	for _, eds := range p.Data {
-		items = append(items, edsToMap(eds))
+		items = append(items, edsGetOrUpdateToMap(eds))
 	}
 
 	resp := map[string]any{"EventDataStores": items}
@@ -184,7 +184,7 @@ func (h *Handler) handleRestoreEventDataStore(c *echo.Context, body []byte) erro
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, edsToMap(eds))
+	return c.JSON(http.StatusOK, edsRestoreToMap(eds))
 }
 
 // --- StartEventDataStoreIngestion ---
@@ -287,8 +287,27 @@ func (h *Handler) handleEnableFederation(c *echo.Context, body []byte) error {
 	})
 }
 
-// edsToMap converts an EventDataStore to the JSON map used in API responses.
-func edsToMap(eds *EventDataStore) map[string]any {
+// edsTagsList renders an EventDataStore's tags as the TagsList shape
+// (CreateEventDataStoreOutput's only tag field; []types.Tag{Key,Value}).
+func edsTagsList(eds *EventDataStore) []map[string]string {
+	if eds.Tags == nil || eds.Tags.Len() == 0 {
+		return nil
+	}
+
+	kv := eds.Tags.Clone()
+	out := make([]map[string]string, 0, len(kv))
+	for k, v := range kv {
+		out = append(out, map[string]string{keyKey: k, keyValue: v})
+	}
+
+	return out
+}
+
+// edsCommonToMap renders the fields shared by every real EventDataStore
+// output shape: AdvancedEventSelectors, BillingMode, CreatedTimestamp,
+// EventDataStoreArn, KmsKeyId, MultiRegionEnabled, Name, OrganizationEnabled,
+// RetentionPeriod, Status, TerminationProtectionEnabled, UpdatedTimestamp.
+func edsCommonToMap(eds *EventDataStore) map[string]any {
 	m := map[string]any{
 		keyEDSArn:                       eds.EventDataStoreARN,
 		keyName:                         eds.Name,
@@ -307,12 +326,6 @@ func edsToMap(eds *EventDataStore) map[string]any {
 	if eds.BillingMode != "" {
 		m["BillingMode"] = eds.BillingMode
 	}
-	if eds.FederationStatus != "" {
-		m["FederationStatus"] = eds.FederationStatus
-	}
-	if eds.FederationRoleArn != "" {
-		m["FederationRoleArn"] = eds.FederationRoleArn
-	}
 	if eds.KMSKeyID != "" {
 		m["KmsKeyId"] = eds.KMSKeyID
 	}
@@ -321,8 +334,46 @@ func edsToMap(eds *EventDataStore) map[string]any {
 		advSels = []AdvancedEventSelector{}
 	}
 	m["AdvancedEventSelectors"] = advSels
-	if len(eds.InsightSelectors) > 0 {
-		m[keyInsightSelectors] = eds.InsightSelectors
+
+	return m
+}
+
+// edsCreateToMap renders CreateEventDataStoreOutput: edsCommonToMap's fields
+// plus TagsList (cloudtrail@v1.58.4 api_op_CreateEventDataStore.go). No
+// FederationRoleArn, no FederationStatus, no InsightSelectors, no
+// PartitionKeys -- none of those exist on the real output.
+func edsCreateToMap(eds *EventDataStore) map[string]any {
+	m := edsCommonToMap(eds)
+	if tl := edsTagsList(eds); tl != nil {
+		m["TagsList"] = tl
+	}
+
+	return m
+}
+
+// edsRestoreToMap renders RestoreEventDataStoreOutput: exactly
+// edsCommonToMap's fields, no TagsList (cloudtrail@v1.58.4
+// api_op_RestoreEventDataStore.go).
+func edsRestoreToMap(eds *EventDataStore) map[string]any {
+	return edsCommonToMap(eds)
+}
+
+// edsGetOrUpdateToMap renders GetEventDataStoreOutput and
+// UpdateEventDataStoreOutput (identical wire shapes in this backend):
+// edsCommonToMap's fields plus FederationRoleArn/FederationStatus
+// (cloudtrail@v1.58.4 api_op_GetEventDataStore.go /
+// api_op_UpdateEventDataStore.go). The real GetEventDataStoreOutput
+// additionally has PartitionKeys, which this backend does not model (see
+// PARITY.md); neither op has TagsList or InsightSelectors --
+// InsightSelectors belongs only to Get/PutInsightSelectorsOutput, never to
+// any EventDataStore shape.
+func edsGetOrUpdateToMap(eds *EventDataStore) map[string]any {
+	m := edsCommonToMap(eds)
+	if eds.FederationStatus != "" {
+		m["FederationStatus"] = eds.FederationStatus
+	}
+	if eds.FederationRoleArn != "" {
+		m["FederationRoleArn"] = eds.FederationRoleArn
 	}
 
 	return m
