@@ -77,14 +77,26 @@ func (h *Handler) handleBatchGetAggregateResourceConfig(
 	}, nil
 }
 
-// BatchGetResourceConfig request/response types and handler.
+// BatchGetResourceConfig request/response types and handler. Sibling trap:
+// BatchGetAggregateResourceConfig genuinely uses PascalCase
+// ("ResourceIdentifiers"/"BaseConfigurationItems"/
+// "UnprocessedResourceIdentifiers" -- confirmed at deserializers.go's
+// awsAwsjson11_deserializeOpDocumentBatchGetAggregateResourceConfigOutput),
+// but this plain (non-aggregate) sibling is lowerCamelCase on both sides
+// ("resourceKeys" request; "baseConfigurationItems"/"unprocessedResourceKeys"
+// response -- confirmed at serializers.go's
+// awsAwsjson11_serializeOpDocumentBatchGetResourceConfigInput and
+// deserializers.go's awsAwsjson11_deserializeOpDocumentBatchGetResourceConfigOutput).
+// Reusing the aggregate op's casing here meant a real client's request never
+// carried its ResourceKeys (always parsed as empty) and its response was
+// always an empty BaseConfigurationItems regardless.
 type batchGetResourceConfigInput struct {
-	ResourceKeys []ResourceKey `json:"ResourceKeys"`
+	ResourceKeys []ResourceKey `json:"resourceKeys"`
 }
 
 type batchGetResourceConfigOutput struct {
-	BaseConfigurationItems  []BaseConfigurationItem `json:"BaseConfigurationItems"`
-	UnprocessedResourceKeys []ResourceKey           `json:"UnprocessedResourceKeys"`
+	BaseConfigurationItems  []BaseConfigurationItem `json:"baseConfigurationItems"`
+	UnprocessedResourceKeys []ResourceKey           `json:"unprocessedResourceKeys"`
 }
 
 func (h *Handler) handleBatchGetResourceConfig(
@@ -158,9 +170,20 @@ func (h *Handler) handleGetResourceConfigHistory(
 	return &getResourceConfigHistoryOutput{ConfigurationItems: items, NextToken: next}, nil
 }
 
-// GetDiscoveredResourceCounts request/response types and handler.
+// GetDiscoveredResourceCounts request/response types and handler. Real
+// GetDiscoveredResourceCountsOutput is lowerCamelCase
+// ("totalDiscoveredResources"/"resourceCounts"/"nextToken" -- confirmed at
+// deserializers.go's
+// awsAwsjson11_deserializeOpDocumentGetDiscoveredResourceCountsOutput),
+// unlike most of this service's DescribeXxx wrappers -- TotalDiscoveredResources
+// was always 0 for a real client regardless of how many resources this
+// backend had discovered. The real, required ResourceCounts (per-type
+// breakdown) member is not modeled: this backend's resourceConfigsByType
+// index has no method to enumerate its group keys with counts, so adding it
+// needs new pkgs/store surface, not a wire-key rename -- left as a disclosed
+// gap rather than fabricated.
 type getDiscoveredResourceCountsOutput struct {
-	TotalDiscoveredResources int64 `json:"TotalDiscoveredResources"`
+	TotalDiscoveredResources int64 `json:"totalDiscoveredResources"`
 }
 
 func (h *Handler) handleGetDiscoveredResourceCounts(
@@ -172,14 +195,29 @@ func (h *Handler) handleGetDiscoveredResourceCounts(
 }
 
 // GetAggregateDiscoveredResourceCounts request/response types and handler.
+// Real GetAggregateDiscoveredResourceCountsOutput also echoes the request's
+// GroupByKey and, only when GroupByKey was provided, a GroupedResourceCounts
+// breakdown ("If GroupByKey is not provided, the result will be empty" per
+// api_op_GetAggregateDiscoveredResourceCounts.go) -- GroupByKey is not read
+// from the request at all here, and GroupedResourceCounts is not modeled;
+// this backend has no per-group (account/region) resource-count breakdown
+// surface to source it from without new tracking, so it is disclosed as a
+// gap rather than fabricated. TotalDiscoveredResources ("This member is
+// required") is unaffected by that gap and already correctly cased/emitted.
+type getAggregateDiscoveredResourceCountsInput struct {
+	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+	GroupByKey                  string `json:"GroupByKey,omitempty"`
+}
 type getAggregateDiscoveredResourceCountsOutput struct {
-	TotalDiscoveredResources int32 `json:"TotalDiscoveredResources"`
+	GroupByKey               string `json:"GroupByKey,omitempty"`
+	TotalDiscoveredResources int32  `json:"TotalDiscoveredResources"`
 }
 
 func (h *Handler) handleGetAggregateDiscoveredResourceCounts(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getAggregateDiscoveredResourceCountsInput,
 ) (*getAggregateDiscoveredResourceCountsOutput, error) {
 	return &getAggregateDiscoveredResourceCountsOutput{
+		GroupByKey:               in.GroupByKey,
 		TotalDiscoveredResources: h.Backend.GetAggregateDiscoveredResourceCounts(),
 	}, nil
 }
@@ -204,12 +242,26 @@ func (h *Handler) handleGetAggregateResourceConfig(
 	return &getAggregateResourceConfigOutput{ConfigurationItem: item}, nil
 }
 
-// ListDiscoveredResources request/response types and handler.
+// ListDiscoveredResources request/response types and handler. Real
+// ListDiscoveredResourcesOutput wraps its list under "resourceIdentifiers"
+// (lowercase; confirmed against configservice's
+// awsAwsjson11_deserializeOpDocumentListDiscoveredResourcesOutput, unlike
+// this service's DescribeXxx ops which are PascalCase) -- ResourceType,
+// ResourceID were previously emitted under "ResourceIdentifiers", a key
+// that does not exist on the real shape at all, so a real client's
+// ResourceIdentifiers was always empty. ResourceConfigItem's per-item
+// resourceType/resourceId are already correct for the real
+// types.ResourceIdentifier shape used here; Configuration and
+// ConfigurationItemCaptureTime are extra fields this op's real response
+// doesn't have (harmless -- a real client ignores unknown keys), and
+// ResourceName/ResourceDeletionTime (real, optional members) go unpopulated
+// because this backend never tracks a discovered resource's display name or
+// deletion time.
 type listDiscoveredResourcesInput struct {
 	ResourceType string `json:"resourceType"`
 }
 type listDiscoveredResourcesOutput struct {
-	ResourceIdentifiers []ResourceConfigItem `json:"ResourceIdentifiers"`
+	ResourceIdentifiers []ResourceConfigItem `json:"resourceIdentifiers"`
 }
 
 func (h *Handler) handleListDiscoveredResources(

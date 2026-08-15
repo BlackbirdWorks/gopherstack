@@ -257,21 +257,20 @@ func TestGetComplianceSummaryByConfigRule(t *testing.T) {
 
 	b := awsconfig.NewInMemoryBackend()
 	out := b.GetComplianceSummaryByConfigRule()
-	if out == nil {
-		t.Fatal("expected non-nil slice")
-	}
-
-	if len(out) != 0 {
-		t.Fatalf("expected empty summary for fresh backend, got %v", out)
-	}
+	assert.Zero(t, out.CompliantResourceCount.CappedCount)
+	assert.Zero(t, out.NonCompliantResourceCount.CappedCount)
 }
 
+// TestGetComplianceSummaryByConfigRule_Aggregates verifies the real AWS
+// shape: GetComplianceSummaryByConfigRuleOutput carries a single
+// ComplianceSummary object (CompliantResourceCount/NonCompliantResourceCount),
+// not a list keyed by ComplianceType (confirmed at aws-sdk-go-v2/service/
+// configservice's api_op_GetComplianceSummaryByConfigRule.go).
 func TestGetComplianceSummaryByConfigRule_Aggregates(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name             string
-		wantType         string
 		evaluations      []awsconfig.EvaluationResult
 		wantCompliant    int32
 		wantNonCompliant int32
@@ -284,17 +283,15 @@ func TestGetComplianceSummaryByConfigRule_Aggregates(t *testing.T) {
 			},
 			wantCompliant:    2,
 			wantNonCompliant: 0,
-			wantType:         "COMPLIANT",
 		},
 		{
-			name: "mixed becomes non-compliant",
+			name: "mixed",
 			evaluations: []awsconfig.EvaluationResult{
 				{ConfigRuleName: "r1", ComplianceType: "COMPLIANT"},
 				{ConfigRuleName: "r2", ComplianceType: "NON_COMPLIANT"},
 			},
 			wantCompliant:    1,
 			wantNonCompliant: 1,
-			wantType:         "NON_COMPLIANT",
 		},
 		{
 			name: "not applicable ignored in counts",
@@ -303,7 +300,6 @@ func TestGetComplianceSummaryByConfigRule_Aggregates(t *testing.T) {
 			},
 			wantCompliant:    0,
 			wantNonCompliant: 0,
-			wantType:         "COMPLIANT",
 		},
 	}
 
@@ -312,29 +308,11 @@ func TestGetComplianceSummaryByConfigRule_Aggregates(t *testing.T) {
 			t.Parallel()
 
 			b := awsconfig.NewInMemoryBackend()
-			if err := b.PutEvaluations(tc.evaluations); err != nil {
-				t.Fatalf("PutEvaluations: %v", err)
-			}
+			require.NoError(t, b.PutEvaluations(tc.evaluations))
 
-			out := b.GetComplianceSummaryByConfigRule()
-			if len(out) != 1 {
-				t.Fatalf("expected one summary, got %v", out)
-			}
-
-			got := out[0]
-			if got.ComplianceType != tc.wantType {
-				t.Errorf("ComplianceType = %q, want %q", got.ComplianceType, tc.wantType)
-			}
-
-			if got.ComplianceSummary.CompliantResourceCount.CappedCount != tc.wantCompliant {
-				t.Errorf("CompliantResourceCount = %d, want %d",
-					got.ComplianceSummary.CompliantResourceCount.CappedCount, tc.wantCompliant)
-			}
-
-			if got.ComplianceSummary.NonCompliantResourceCount.CappedCount != tc.wantNonCompliant {
-				t.Errorf("NonCompliantResourceCount = %d, want %d",
-					got.ComplianceSummary.NonCompliantResourceCount.CappedCount, tc.wantNonCompliant)
-			}
+			got := b.GetComplianceSummaryByConfigRule()
+			assert.Equal(t, tc.wantCompliant, got.CompliantResourceCount.CappedCount)
+			assert.Equal(t, tc.wantNonCompliant, got.NonCompliantResourceCount.CappedCount)
 		})
 	}
 }

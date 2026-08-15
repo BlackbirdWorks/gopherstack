@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	configservicesdk "github.com/aws/aws-sdk-go-v2/service/configservice"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -131,23 +132,39 @@ func TestConfigRuleScopeRoundtrip(t *testing.T) {
 	assert.Equal(t, "env", out.ConfigRules[0].Scope.TagKey)
 }
 
-// TestComplianceSummaryShape verifies GetComplianceSummaryByConfigRule uses CappedCount shape.
+// TestComplianceSummaryShape drives GetComplianceSummaryByConfigRule through
+// a real SDK client and proves CompliantResourceCount/NonCompliantResourceCount
+// round-trip. Real GetComplianceSummaryByConfigRuleOutput wraps a single
+// ComplianceSummary object under "ComplianceSummary" (confirmed at
+// aws-sdk-go-v2/service/configservice's
+// api_op_GetComplianceSummaryByConfigRule.go); the previous version of this
+// test only asserted the raw body *contained* the substring "ComplianceSummary"
+// -- which stayed true even under the pre-fix bug, since the wrong shape
+// nested a field also spelled "ComplianceSummary" one level inside an
+// invented "ComplianceSummariesByConfigRule" list, so this test caught
+// nothing. A real client's typed ComplianceSummary.CompliantResourceCount
+// was always nil under the old shape; asserting the exact counts closes
+// that gap.
 func TestComplianceSummaryShape(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAWSConfigHandler(t)
+	client := newTestAWSConfigSDKClient(t, h)
 	b := h.Backend
-	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "r1"}))
-	require.NoError(t, b.StartConfigRulesEvaluation())
+	require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
+		{ConfigRuleName: "r1", ComplianceType: "COMPLIANT", ResourceType: "AWS::EC2::Instance", ResourceID: "i-1"},
+		{ConfigRuleName: "r2", ComplianceType: "NON_COMPLIANT", ResourceType: "AWS::EC2::Instance", ResourceID: "i-2"},
+	}))
 
-	rec := doAWSConfigRequest(t, h, "GetComplianceSummaryByConfigRule", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Real AWS shape: ComplianceSummary.CompliantResourceCount.CappedCount
-	body := rec.Body.String()
-	assert.Contains(t, body, "CappedCount")
-	assert.Contains(t, body, "CapExceeded")
-	assert.Contains(t, body, `"ComplianceSummary"`)
+	out, err := client.GetComplianceSummaryByConfigRule(
+		t.Context(), &configservicesdk.GetComplianceSummaryByConfigRuleInput{},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, out.ComplianceSummary)
+	require.NotNil(t, out.ComplianceSummary.CompliantResourceCount)
+	require.NotNil(t, out.ComplianceSummary.NonCompliantResourceCount)
+	assert.Equal(t, int32(1), out.ComplianceSummary.CompliantResourceCount.CappedCount)
+	assert.Equal(t, int32(1), out.ComplianceSummary.NonCompliantResourceCount.CappedCount)
 }
 
 // TestConfigRuleEvaluationStatusTimestampStrings verifies timestamps are strings not numbers.

@@ -94,8 +94,17 @@ func (b *InMemoryBackend) DeleteResourceConfig(resourceType, resourceID string) 
 	return nil
 }
 
-// GetDiscoveredResourceCounts returns zero counts.
-func (b *InMemoryBackend) GetDiscoveredResourceCounts() int64 { return 0 }
+// GetDiscoveredResourceCounts returns the total number of discovered
+// resources tracked by resourceConfigs -- previously a hardcoded 0
+// regardless of how many resources PutResourceConfig had stored, unlike its
+// GetAggregateDiscoveredResourceCounts sibling, which already read
+// resourceConfigs.Len() correctly.
+func (b *InMemoryBackend) GetDiscoveredResourceCounts() int64 {
+	b.mu.RLock("GetDiscoveredResourceCounts")
+	defer b.mu.RUnlock()
+
+	return int64(b.resourceConfigs.Len())
+}
 
 // ListAggregateDiscoveredResources returns discovered resources of resourceType
 // as seen through aggregatorName, tagged with the local account/region as the

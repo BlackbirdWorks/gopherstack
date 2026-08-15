@@ -131,6 +131,7 @@ type describeConformancePackComplianceInput struct {
 	ConformancePackName string                                        `json:"ConformancePackName"`
 }
 type describeConformancePackComplianceOutput struct {
+	ConformancePackName               string                          `json:"ConformancePackName"`
 	ConformancePackRuleComplianceList []ConformancePackComplianceItem `json:"ConformancePackRuleComplianceList"`
 }
 
@@ -150,7 +151,10 @@ func (h *Handler) handleDescribeConformancePackCompliance(
 		return nil, err
 	}
 
-	return &describeConformancePackComplianceOutput{ConformancePackRuleComplianceList: items}, nil
+	return &describeConformancePackComplianceOutput{
+		ConformancePackName:               in.ConformancePackName,
+		ConformancePackRuleComplianceList: items,
+	}, nil
 }
 
 // GetConformancePackComplianceDetails request/response types and handler.
@@ -214,13 +218,17 @@ func (h *Handler) handleGetConformancePackComplianceSummary(
 	return &getConformancePackComplianceSummaryOutput{Summaries: summaries}, nil
 }
 
-// GetAggregateConformancePackComplianceSummary request/response types and handler.
+// GetAggregateConformancePackComplianceSummary request/response types and
+// handler. Real GetAggregateConformancePackComplianceSummaryOutput echoes
+// the request's GroupByKey (api_op_GetAggregateConformancePackComplianceSummary.go)
+// -- this was never emitted at all.
 type getAggregateConformancePackComplianceSummaryInput struct {
 	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
 	GroupByKey                  string `json:"GroupByKey,omitempty"`
 }
 type getAggregateConformancePackComplianceSummaryOutput struct {
-	Summaries []AggregateConformancePackComplianceSummary `json:"AggregateConformancePackComplianceSummaries"`
+	GroupByKey string                                      `json:"GroupByKey,omitempty"`
+	Summaries  []AggregateConformancePackComplianceSummary `json:"AggregateConformancePackComplianceSummaries"`
 }
 
 func (h *Handler) handleGetAggregateConformancePackComplianceSummary(
@@ -233,7 +241,10 @@ func (h *Handler) handleGetAggregateConformancePackComplianceSummary(
 		return nil, err
 	}
 
-	return &getAggregateConformancePackComplianceSummaryOutput{Summaries: summaries}, nil
+	return &getAggregateConformancePackComplianceSummaryOutput{
+		GroupByKey: in.GroupByKey,
+		Summaries:  summaries,
+	}, nil
 }
 
 // ListConformancePackComplianceScores request/response types and handler.

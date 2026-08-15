@@ -294,10 +294,16 @@ type ComplianceSummaryDetail struct {
 	NonCompliantResourceCount ResourceCount `json:"NonCompliantResourceCount"`
 }
 
-// ComplianceSummary holds a compliance summary by type.
+// ComplianceSummary holds compliant/noncompliant counts. Real shape per
+// aws-sdk-go-v2/service/configservice types.ComplianceSummary
+// (deserializers.go's ComplianceSummary case list: "CompliantResourceCount",
+// "NonCompliantResourceCount" -- no ComplianceType member and no extra
+// nesting; the previous shape here wrapped ComplianceSummaryDetail under a
+// second "ComplianceSummary" key and added an invented "ComplianceType",
+// neither of which exists on the wire).
 type ComplianceSummary struct {
-	ComplianceType    string                  `json:"ComplianceType"`
-	ComplianceSummary ComplianceSummaryDetail `json:"ComplianceSummary"`
+	CompliantResourceCount    ResourceCount `json:"CompliantResourceCount"`
+	NonCompliantResourceCount ResourceCount `json:"NonCompliantResourceCount"`
 }
 
 // ComplianceSummaryByResourceType holds a compliance summary for one resource type.
@@ -420,12 +426,20 @@ type OrganizationConformancePackDetailedStatus struct {
 	Status              string `json:"Status"`
 }
 
-// ResourceConfigItem holds configuration info for a discovered resource.
+// ResourceConfigItem holds configuration info for a discovered resource. Real
+// shape per aws-sdk-go-v2/service/configservice's
+// awsAwsjson11_deserializeDocumentConfigurationItem (used by
+// GetResourceConfigHistory/BatchGetResourceConfig): the four members this
+// backend tracks are all lowerCamelCase on the wire ("resourceType",
+// "resourceId", "configuration", "configurationItemCaptureTime"), unlike the
+// PascalCase used by the service's DescribeXxx wrapper keys -- the tags here
+// previously carried the PascalCase convention instead, so every consumer
+// always decoded these four fields as empty/zero.
 type ResourceConfigItem struct {
-	ResourceType                 string  `json:"ResourceType"`
-	ResourceID                   string  `json:"ResourceId"`
-	Configuration                string  `json:"Configuration"`
-	ConfigurationItemCaptureTime float64 `json:"ConfigurationItemCaptureTime"`
+	ResourceType                 string  `json:"resourceType"`
+	ResourceID                   string  `json:"resourceId"`
+	Configuration                string  `json:"configuration"`
+	ConfigurationItemCaptureTime float64 `json:"configurationItemCaptureTime"`
 }
 
 // AggregatedSourceStatus holds the sync status of one configuration

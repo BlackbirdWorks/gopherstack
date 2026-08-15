@@ -94,9 +94,18 @@ func TestAWSConfigHandler_BatchGetResourceConfig(t *testing.T) {
 		wantCode     int
 	}{
 		{
+			// BatchGetResourceConfig is lowerCamelCase on the wire, unlike
+			// its BatchGetAggregateResourceConfig sibling (PascalCase) --
+			// confirmed at aws-sdk-go-v2/service/configservice's
+			// awsAwsjson11_serializeOpDocumentBatchGetResourceConfigInput
+			// and awsAwsjson11_deserializeOpDocumentBatchGetResourceConfigOutput.
+			// This test previously sent "ResourceKeys" (PascalCase) and
+			// asserted "BaseConfigurationItems"/"UnprocessedResourceKeys"
+			// (PascalCase) as correct -- both sides silently agreed with
+			// gopherstack's pre-fix bug, so the test caught nothing.
 			name: "returns_unprocessed_keys",
 			body: map[string]any{
-				"ResourceKeys": []map[string]any{
+				"resourceKeys": []map[string]any{
 					{
 						"resourceType": "AWS::EC2::Instance",
 						"resourceId":   "i-1234567890abcdef0",
@@ -104,15 +113,15 @@ func TestAWSConfigHandler_BatchGetResourceConfig(t *testing.T) {
 				},
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"BaseConfigurationItems", "UnprocessedResourceKeys"},
+			wantContains: []string{"baseConfigurationItems", "unprocessedResourceKeys"},
 		},
 		{
 			name: "empty_resource_keys",
 			body: map[string]any{
-				"ResourceKeys": []any{},
+				"resourceKeys": []any{},
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"BaseConfigurationItems"},
+			wantContains: []string{"baseConfigurationItems"},
 		},
 	}
 
