@@ -42,6 +42,10 @@ func (h *Handler) handleDescribeProducts(c *echo.Context) error {
 			"IntegrationTypes": p.IntegrationTypes,
 			"MarketplaceUrl":   p.MarketplaceURL,
 			"ActivationUrl":    p.ActivationURL,
+			// Real, optional DescribeProductsOutput member
+			// (securityhub@v1.75.4 deserializers.go's Product case list) --
+			// already tracked on the Product model but never read here.
+			"ProductSubscriptionResourcePolicy": p.ProductSubscriptionResourcePolicy,
 		}
 	}
 

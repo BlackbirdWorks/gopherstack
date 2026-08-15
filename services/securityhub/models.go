@@ -169,9 +169,13 @@ type AggregatorV2 struct {
 	Regions           []string `json:"Regions"`
 }
 
-// AutomationRuleV2 represents a Security Hub V2 automation rule.
+// AutomationRuleV2 represents a Security Hub V2 automation rule. Identifier
+// is the store key (also the URL path segment); on the wire it is "RuleId"
+// (securityhub@v1.75.4 types.go:905-935), not "Identifier" -- see
+// automationRuleV2ToResponse. Unlike the V1 AutomationRule, the real V2
+// shape has no IsTerminal member at all.
 type AutomationRuleV2 struct {
-	Identifier  string           `json:"Identifier"`
+	Identifier  string           `json:"RuleId"`
 	RuleArn     string           `json:"RuleArn"`
 	RuleName    string           `json:"RuleName"`
 	RuleStatus  string           `json:"RuleStatus"`
@@ -181,7 +185,6 @@ type AutomationRuleV2 struct {
 	Criteria    map[string]any   `json:"Criteria"`
 	Actions     []map[string]any `json:"Actions"`
 	RuleOrder   float64          `json:"RuleOrder"`
-	IsTerminal  bool             `json:"IsTerminal"`
 }
 
 // ConnectorV2 represents a Security Hub V2 connector.
@@ -267,12 +270,16 @@ type Invitation struct {
 	MemberStatus string `json:"MemberStatus"`
 }
 
-// AdminAccount represents the administrator account relationship.
+// AdminAccount represents the administrator account relationship. It wires
+// the real securityhub@v1.75.4 types.Invitation shape (GetAdministratorAccountOutput.
+// Administrator / GetMasterAccountOutput.Master are both *types.Invitation),
+// whose status member is "MemberStatus" -- the same real field the sibling
+// Invitation model (used by ListInvitations) already names correctly.
 type AdminAccount struct {
-	AccountId          string `json:"AccountId"`    //nolint:revive,staticcheck // existing issue.
-	InvitationId       string `json:"InvitationId"` //nolint:revive,staticcheck // existing issue.
-	InvitedAt          string `json:"InvitedAt"`
-	RelationshipStatus string `json:"RelationshipStatus"`
+	AccountId    string `json:"AccountId"`    //nolint:revive,staticcheck // existing issue.
+	InvitationId string `json:"InvitationId"` //nolint:revive,staticcheck // existing issue.
+	InvitedAt    string `json:"InvitedAt"`
+	MemberStatus string `json:"MemberStatus"`
 }
 
 // OrgConfig represents the organization configuration.

@@ -1,5 +1,8 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
+**63 of 162 services swept, 99 remain** (securityhub added this session —
+see its own section near the end of this file for full detail).
+
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
 at "~144 Describe/Get handlers" and was really ~220-264 depending on how you
@@ -77,7 +80,7 @@ rather than a range over a literal table:
   member diff there is thorough enough that this issue's own prior notes
   already listed ssm as layer-1 swept).
 
-## Swept (62 of 162) — do not re-sweep without reading the cited work first
+## Swept (63 of 162) — do not re-sweep without reading the cited work first
 
 Every op in these services has had at least one full layer-1 (wrapper key)
 pass; most also have layer-2 (nesting) and layer-3 (backend-tracked-but-
@@ -96,8 +99,8 @@ iotwireless, kms, lambda, lightsail, medialive, mgn, **networkmanager**
 (this session), networkmonitor, omics,
 opensearch, organizations, pinpoint, quicksight, rds, redshift,
 resiliencehub, resourcegroupstaggingapi, route53, s3control, s3tables,
-sagemaker, secretsmanager, servicediscovery, ses, sesv2, sns, sqs, ssm,
-ssoadmin, stepfunctions, transfer.
+sagemaker, secretsmanager, **securityhub** (this session), servicediscovery,
+ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer.
 
 Two services have real, extensive wire-shape work under **other** issue
 classes (gopherstack-enpq's required-member diff, gopherstack-h910/ctaz's
@@ -105,7 +108,7 @@ backend-logic fixes) but **no 6flj-specific wrapper-key pass on record** —
 s3 and dynamodb. They are listed in the unswept table below on purpose;
 don't assume "heavily worked on" means "settled for this issue."
 
-## Unswept (100 of 162), ranked by List+Describe+Get op count
+## Unswept (99 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -120,12 +123,11 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 100 (networkmanager's 38 removed, swept
-this session): **1,563** candidate ops.
+Sum of the L+D+G column across all 99 (networkmanager's 38 and securityhub's
+47 removed, both swept prior to/this session): **1,516** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| securityhub | 116 | 15 | 8 | 24 | 47 | dynamic-fallback |
 | s3 | 115 | 12 | 0 | 33 | 45 | chased |
 | macie2 | 81 | 15 | 3 | 22 | 40 | direct |
 | personalize | 77 | 18 | 18 | 3 | 39 | dynamic-fallback |
@@ -1120,3 +1122,291 @@ of this session (gopherstack-n3zi/op3e work, plus the live RouteMatcher
 sweep) — personalize (39, but already had a direct List-scoping fix under
 gopherstack-sm02, so may come back mostly clean) or cognitoidp (37) are the
 next candidates least likely to collide.
+
+## securityhub (this session)
+
+Chosen as the largest unswept service per the ranked table (116 total ops,
+47 L+D+G: 15 List/8 Describe/24 Get). `git status` at start showed the repo
+clean except an untracked `cmd/routecollisions/`/`routecollisions`/
+`services/_ROUTE_COLLISIONS.md` (the live RouteMatcher-sweep sibling this
+issue's assignment note says to avoid) and a modified
+`test/integration/kafka_test.go` (that sibling's regression-guard test for a
+false positive it found and did NOT fix) — neither touches securityhub, so
+it was clear to take. securityhub itself had one prior fix landed just
+before this session (`a309b74fc`, already in `git log`) but that was scoped
+to `gopherstack-n3zi`/`gopherstack-op3e` (a RouteMatcher collision plus 3
+findings-filter bugs it exposed) — 12 ops driven end to end, not a
+6flj-scoped L+D+G pass, so all 47 ops here still needed a fresh read.
+
+**PROTOCOL**: `awsRestjson1_` confirmed as the sole prefix in
+securityhub@v1.75.4's `deserializers.go` (3,848 hits, no `awsAwsjson1{0,1}_`/
+`awsEc2query_`/`awsAwsquery_`). Case-sensitive. All 697 `EqualFold` hits in
+`deserializers.go`: 90 lack `errorCode` on the same line, and every one of
+those 90 is `case strings.EqualFold(jtv, "NaN"|"Infinity"|"-Infinity"):`
+inside numeric-field decode branches (grepped for `EqualFold` lines with
+neither `errorCode` nor `NaN`/`Infinity` on them: zero matches). Body-field
+casing is a non-issue by construction, same shape as guardduty/
+networkmanager's prior restjson1 results in this codebase.
+
+**Dead-deserializer trap checked and found NOT to apply**: traced
+`HandleDeserialize` for `GetFindings` in full (deserializers.go:11073) — it
+decodes the body into `shape` and calls
+`awsRestjson1_deserializeOpDocumentGetFindingsOutput(&output, shape)`
+directly (line 11113). Spot-checked four more ops spanning different
+families (`ListMembers`, `DescribeStandards`, `GetConfigurationPolicy`,
+`ListFindingAggregators`) before trusting the pattern generally, all the
+same shape.
+
+Read all 47 L+D+G ops' response shapes against their own
+`awsRestjson1_deserializeOpDocument<Op>Output` case list (dumped via a
+per-op awk script, file+line implicit), plus every shared nested type
+(Member, Invitation, StandardsSubscription, StandardsControl,
+ConfigurationPolicySummary, ConfigurationPolicyAssociationSummary,
+AutomationRulesMetadataV2, ConnectorSummary, SecurityControlDefinition,
+Product, FindingHistoryRecord, GroupByResult, TrendsMetricsResult, and
+more) against `types.go`. Findings and BatchImportFindings/BatchUpdateFindings
+are confirmed pass-through (stored and returned as opaque
+`map[string]any`, never reshaped), so the OCSF/ASFF finding body itself is
+structurally immune to this bug class and wasn't swept field-by-field.
+
+**8 real bugs found and fixed**, spanning every variant this issue's brief
+calls out:
+
+1. **`ListConfigurationPolicies` — wrong wrapper key, silent-empty
+   (flagship pattern).** Emitted `ConfigurationPolicySummaryList`; real key
+   is `ConfigurationPolicySummaries`
+   (`awsRestjson1_deserializeOpDocumentListConfigurationPoliciesOutput`). A
+   real client's typed `.ConfigurationPolicySummaries` was always empty
+   regardless of backend state. **Same bug, same fix, on
+   `ListConfigurationPolicyAssociations`**: emitted
+   `ConfigurationPolicyAssociationSummaryList`, real key is
+   `ConfigurationPolicyAssociationSummaries`. Three existing raw-body tests
+   in `configuration_policies_test.go` asserted the wrong keys as correct
+   (both handler and test agreed on the bug) — rewritten to the real keys.
+2. **`ConfigurationPolicySummary.ServiceEnabled` never emitted — value the
+   backend already holds, one step from the wire.** The real, required
+   `ConfigurationPolicySummary` member (types.go) sits inside the opaque
+   `ConfigurationPolicy` document the backend already stores verbatim
+   (`p.ConfigurationPolicy["SecurityHub"]["ServiceEnabled"]`, confirmed
+   against the real single-variant `types.Policy` union,
+   `PolicyMemberSecurityHub`) — never extracted into the List summary.
+   Fixed via a new `configPolicyServiceEnabled` helper.
+3. **`StandardsSubscription` — wrong key, sibling trap.** Emitted
+   `StatusReason`; real key is `StandardsStatusReason`
+   (`awsRestjson1_deserializeDocumentStandardsSubscription`). This backend
+   never sets a subscription's status-reason (no INCOMPLETE/FAILED
+   lifecycle), so the *value* is unobservably nil either way — only the key
+   name was wrong, fixed and disclosed as untested for the value (see
+   below). A ratifying test explicitly asserted the wrong key's presence as
+   correct; renamed to assert the real key.
+4. **`GetAdministratorAccount`/`GetMasterAccount` — wrong key, sibling
+   trap.** Both real outputs are `*types.Invitation{AccountId, InvitationId,
+   InvitedAt, MemberStatus}` (confirmed same type both ops). gopherstack
+   emitted `RelationshipStatus` instead of `MemberStatus` — a genuine
+   sibling trap against the correctly-named `Invitation` model used three
+   lines away by `ListInvitations` in the same file. A real client's typed
+   `.MemberStatus` was always empty regardless of backend state. Fixed by
+   renaming the `AdminAccount.RelationshipStatus` field itself (4 call
+   sites total) to `MemberStatus`.
+5. **AutomationRuleV2 family (`GetAutomationRuleV2`, `ListAutomationRulesV2`
+   in L+D+G scope; the same shared builder also serves
+   `CreateAutomationRuleV2`/`UpdateAutomationRuleV2`) — two stacked bugs,
+   one generational sibling trap.** `RuleId` (real member on both
+   `GetAutomationRuleV2Output` and `AutomationRulesMetadataV2`, types.go)
+   was emitted as `Identifier` — always empty for a real client. `IsTerminal`
+   was fabricated: it's a real member on the **V1** `AutomationRulesMetadata`
+   only (types.go:872, confirmed still correctly used by this service's own
+   V1 `ListAutomationRules`/`BatchGetAutomationRules` three functions away
+   in the same file) and does not exist anywhere in the V2 shapes — a
+   generational sibling trap, V1's field carried over onto V2 by mistake.
+   Also fixed on the **request side**: `CreateAutomationRuleV2Input`/
+   `UpdateAutomationRuleV2Input` have no `IsTerminal` member at all
+   (confirmed against both real Input structs) — the handler was reading a
+   key no real client ever sends; removed the dead read and threaded-through
+   backend parameter/model field. Two existing raw-body tests
+   (`TestAutomationRulesV2`'s CRUD-lifecycle steps,
+   `TestUpdateAutomationRuleV2_ActionsApplied`) asserted `Identifier` as
+   correct — rewritten to `RuleId`; the lifecycle test actually panics
+   (nil-interface-to-string) against the unfixed key, not just fails an
+   assertion.
+6. **`ListOrganizationAdminAccounts` — missing required-echo, request side
+   never read.** Real `ListOrganizationAdminAccountsInput.Feature` (query
+   param, "Defaults to Security Hub CSPM if not specified") is always
+   echoed back on `ListOrganizationAdminAccountsOutput.Feature`
+   (confirmed both directions in `api_op_ListOrganizationAdminAccounts.go`).
+   gopherstack read neither. This backend doesn't track admin accounts
+   per-feature, so the echo isn't filtered by it, only reflected back
+   (default `"SecurityHub"` when unset) — a real client's typed `.Feature`
+   was always empty regardless of the request before this fix.
+7. **`ListConnectorsV2` — wrong per-item shape, invented + missing fields
+   stacked on one op.** Real `types.ConnectorSummary` (types.go:14833)
+   requires a nested `ProviderSummary{ConnectorStatus, ProviderConfiguration,
+   ProviderName}` object; gopherstack emitted a flat `Provider` plus a
+   top-level `ConnectorStatus`/`UpdatedAt` that don't exist on
+   `ConnectorSummary` at all. `ProviderName` is derivable without new
+   backend state — mirrored the already-correct V1 `CspmConnector` sibling
+   pattern exactly (`extractCspmProviderTag` + `strings.ToUpper`,
+   `connectors.go`), which `ConnectorV2` had never picked up. Added a new
+   `connectorV2ToSummaryResponse` used only by `ListConnectorsV2`, leaving
+   `connectorV2ToResponse` (Create/Update/Register — genuinely different
+   real shapes each, disclosed below, out of L+D+G scope) unchanged. A real
+   client's typed `.ProviderSummary` was always the zero value regardless
+   of backend state.
+8. **`DescribeProducts` — backend-tracked-but-unemitted (layer 3).**
+   `Product.ProductSubscriptionResourcePolicy` is a real, tracked model
+   field (models.go) that the item builder never read — a real,
+   non-required `DescribeProductsOutput` member
+   (`awsRestjson1_deserializeDocumentProduct`). No seed/create path in this
+   backend ever sets a non-empty value today, so (like finding #3) the fix
+   is shape-correct but its value is currently unobservable; disclosed as
+   untested for the same reason.
+
+**Checked and confirmed correct, not new findings**: `DescribeActionTargets`,
+`DescribeHub`, `DescribeSecurityHubV2` (+ nested `FeatureDetail`),
+`DescribeOrganizationConfiguration` (+ nested `OrganizationConfiguration`),
+`GetInsights`/`GetInsightResults`, `GetEnabledStandards`,
+`DescribeStandards`/`DescribeStandardsControls`, `ListStandardsControlAssociations`
+(+ both its Summary/Detail sibling item types — genuinely different real
+shapes, both matched exactly), `GetConfigurationPolicy`,
+`GetConnector`/`ListConnectors` (V1 — has its own citing comment from prior
+work, re-verified), `GetConnectorV2` (partially — see disclosed below),
+`GetAggregatorV2` (+ `ListAggregatorsV2`, see disclosed below),
+`GetFindingAggregator`/`ListFindingAggregators`, `GetSecurityControlDefinition`/
+`ListSecurityControlDefinitions` (all but the disclosed `Provider` gap),
+`GetFindingHistory` (+ nested `FindingHistoryRecord`/`FindingHistoryUpdateSource`),
+`GetFindingsV2`, `GetFindingStatisticsV2`/`GetResourcesStatisticsV2` (+
+nested `GroupByResult` — already had citing comments from prior work),
+`GetFindingsTrendsV2`/`GetResourcesTrendsV2` (+ nested `TrendsMetricsResult`
+— ditto), `GetResourcesV2`, `ListTagsForResource`.
+
+**Request side**: checked as part of every fix above (#2, #5, #6 are all
+request-or-both-directions bugs); additionally spot-checked
+`CreateConfigurationPolicy`/`CreateConnectorV2`/`CreateAggregatorV2`/
+`CreateFindingAggregator` request bodies against their real
+`serializeOpDocument<Op>Input` functions — all clean, no additional
+request-only gaps found beyond what's listed.
+
+**Wrong-value check**: none found — every mismatch in this batch was a
+missing/wrong-named/wrong-shaped field, not a same-key-wrong-enum-value bug.
+
+**Ratifying tests found and fixed — 5, ranging across two of the three
+shapes this issue tracks (wrong key; none found with an assertion too weak
+to fail)**: the three `ConfigurationPolicy*SummaryList` raw-body assertions
+(#1), the `StatusReason` raw-body assertion (#3), and the two
+`Identifier`-asserting AutomationRuleV2 tests, one of which panics rather
+than merely fails against the unfixed code (#5).
+
+**Phantom ops**: none. Extracted all 117 op-name string literals from
+`handler.go`'s `op*` const declarations (116 real + the `opUnknown =
+"Unknown"` sentinel) and confirmed an `api_op_<Name>.go` file exists for
+every one in securityhub@v1.75.4.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>Output`/`deserializeDocument<Type>`
+function's own case list or the real `types.go`/`api_op_*.go` struct
+definition, file+line, never a doc comment or an assumption.
+
+**Disclosed, not fixed** (structural gaps needing new backend modeling this
+session judged too speculative to fabricate, or genuinely unobservable
+values where only the key/shape was fixable):
+- `GetConnectorV2` never emits `EnablementStatus`/`EnablementStatusReason`/
+  `KmsKeyArn` (all real, optional `GetConnectorV2Output` members) — the
+  `ConnectorV2` model has no enablement-lifecycle concept at all (always
+  created `ConnectorStatus: "ACTIVE"`, no PENDING state unlike V1's
+  `CspmConnector`), so there's no real value to source these from without
+  inventing new backend state.
+- `CreateConnectorV2Output`/`UpdateConnectorV2Output`/
+  `RegisterConnectorV2Output` each have their own, genuinely different real
+  shape from `ConnectorSummary` and from each other (`UpdateConnectorV2Output`
+  is just `{ConnectorStatus, EnablementStatus}`, no ID/ARN/Name at all;
+  `RegisterConnectorV2Output` is just `{ConnectorId, ConnectorArn}`) — all
+  three currently reuse the single `connectorV2ToResponse` builder, which
+  matches none of them exactly. Found, not fixed: these are Create/Update
+  ops, outside this issue's List/Describe/Get scope, and building three more
+  correct-shaped response functions is a larger side quest than this pass's
+  settle-securityhub goal justified. Flagging for a future request-side/
+  non-L+D+G pass.
+- `GetAggregatorV2`/`ListAggregatorsV2` (`AggregatorV2` per-item type) both
+  emit harmless extra fields (`CreatedAt`/`UpdatedAt` on Get; the full
+  Get-shaped object on List, where the real `types.AggregatorV2` list item
+  is genuinely just `{AggregatorV2Arn}`) — not fixed, since nothing real is
+  dropped, matching this issue's established "harmless extra field, real
+  client ignores it" non-bug precedent (rds `StorageOptimized`, guardduty
+  `MalwareProtectionPlanSummary.arn`).
+- `GetSecurityControlDefinition`/`ListSecurityControlDefinitions`/
+  `BatchGetSecurityControls` never emit the real, optional `Provider`
+  member (`SecurityControlsProvider`-typed) — this backend has no
+  multi-cloud-provider concept for controls at all (every control is
+  implicitly AWS-native), and this session couldn't confirm the enum's
+  exact wire spelling from the pinned SDK's `enums.go` in the time
+  available, so defaulting to a guessed value was judged worse than
+  omitting.
+- **`GetRecommendedPolicyV2`/`GenerateRecommendedPolicyV2` — entirely
+  invented response shape, the most severe finding this session, not
+  fixed.** Real `GetRecommendedPolicyV2Output` is `{Error, NextToken,
+  RecommendationSteps, RecommendationType, ResourceArn, Status}` (a
+  genuinely async, poll-style op — `GenerateRecommendedPolicyV2Output` is
+  empty, just a trigger); gopherstack's `RecommendedPolicyV2` model instead
+  synchronously computes and returns `{MetadataUid, Policy, GenerationTime}`,
+  none of which exist on the real type. A real client's typed
+  `RecommendationSteps`/`ResourceArn`/`Status`/`RecommendationType` fields
+  are always nil/empty regardless of backend state today. Not fixed because
+  `RecommendationStep` is a non-trivial union type and this backend tracks
+  no resource/finding-linkage data to source `ResourceArn`/meaningful step
+  content from — fabricating plausible-looking recommendation content would
+  be worse than the current gap. **Flag, don't fix**, exactly per this
+  issue's own guidance for genuinely-unmodeled invented shapes.
+- `FindingHistoryRecord`'s real, optional per-record `NextToken` member
+  (types.go) has no natural single value in this backend's pagination model
+  (top-level `GetFindingHistoryOutput.NextToken` already covers real
+  pagination correctly) — omitted, not fabricated.
+
+3 real-SDK-client tests added in `services/securityhub/wire_field_fixes_test.go`
+(`TestGetAdministratorAndMasterAccount_MemberStatus`,
+`TestListOrganizationAdminAccounts_FeatureEcho`,
+`TestListConnectorsV2_ProviderSummaryShape`), plus 5 existing raw-body tests
+rewritten to the real keys (see ratifying-tests above). Every fix hand-
+reverted individually (no git, per this session's hard no-git-mutation
+constraint), confirmed to fail with the exact predicted symptom (quoted
+wrong/empty values, or a panic for the AutomationRuleV2 lifecycle test),
+then restored and diffed byte-identical against the pre-revert file before
+moving to the next. **Two fixes (#3 `StandardsStatusReason`, #8
+`ProductSubscriptionResourcePolicy`) were explicitly NOT given a new
+value-asserting test** — the backend never populates either value today, so
+a test could only ever assert "still empty" regardless of correctness;
+disclosed as untested rather than written as a hollow test. The #5
+`IsTerminal` *removal* (as opposed to the `RuleId` rename, which the
+lifecycle test does cover) is similarly untestable by assertion — re-adding
+the fabricated field back in and rerunning the full suite produced zero
+failures, confirmed by hand before concluding it needed disclosure instead
+of a test.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to `services/securityhub`),
+`go fix -diff` (no diff), `fieldalignment` (0 findings), `golangci-lint run`
+(0 issues after removing one now-stale `//nolint:goconst` — the V1
+`IsTerminal` string literal dropped below goconst's 3-occurrence threshold
+once the V2 duplicate was deleted — and adding one `//nolint:staticcheck`
+for the intentional, in-scope use of the SDK-deprecated-but-still-real
+`GetMasterAccount`; no cyclop/gocyclo/gocognit/funlen nolints added) all
+green. `go test -race ./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all changes uncommitted — orchestrator
+must commit/push), `cmd/routecollisions/`/`services/_ROUTE_COLLISIONS.md`/
+`routecollisions`/`test/integration/kafka_test.go` (the live sibling
+RouteMatcher sweep's output) confirmed untouched via `git status` both
+before starting and again at the end — a second sibling session's
+`services/apigateway/handler.go`/`test/integration/apigateway_quicksight_account_test.go`
+changes appeared partway through this session and were also left alone
+(confirmed via `git status`, not securityhub-related), no `gendocs`/
+`make docs` run.
+
+securityhub's List/Describe/Get families are now fully swept for this issue
+(47/47 ops verified against the real deserializer/serializer). 63 of 162
+services swept, 99 remain. Per the ranked table, s3 (45 L+D+G ops, `chased`
+resolution) is next largest but is flagged in this file's own header as
+"heavily worked under other issues but not 6flj-swept" — a poor fit for
+settling in one session; macie2 (40) or personalize (39, may come back
+mostly clean per gopherstack-sm02) are the next candidates, but re-check
+`git status` before picking either given this session's own experience of
+two different sibling sessions touching unrelated services mid-flight.

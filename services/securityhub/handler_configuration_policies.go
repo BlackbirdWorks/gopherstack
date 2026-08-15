@@ -172,11 +172,12 @@ func (h *Handler) handleListConfigurationPolicies(c *echo.Context) error {
 
 	for _, p := range policies {
 		out = append(out, map[string]any{
-			"Arn":         p.Arn,
-			"Id":          p.Id,
-			"Name":        p.Name,
-			"Description": p.Description, //nolint:goconst // existing issue.
-			"UpdatedAt":   p.UpdatedAt,   //nolint:goconst // existing issue.
+			"Arn":            p.Arn,
+			"Id":             p.Id,
+			"Name":           p.Name,
+			"Description":    p.Description, //nolint:goconst // existing issue.
+			"UpdatedAt":      p.UpdatedAt,   //nolint:goconst // existing issue.
+			"ServiceEnabled": configPolicyServiceEnabled(p),
 		})
 	}
 
@@ -184,7 +185,11 @@ func (h *Handler) handleListConfigurationPolicies(c *echo.Context) error {
 		out = []map[string]any{}
 	}
 
-	resp := map[string]any{"ConfigurationPolicySummaryList": out}
+	// Real key is "ConfigurationPolicySummaries" (securityhub@v1.75.4
+	// deserializers.go, awsRestjson1_deserializeOpDocumentListConfigurationPoliciesOutput)
+	// -- a real client's typed field was always empty regardless of backend
+	// state.
+	resp := map[string]any{"ConfigurationPolicySummaries": out}
 
 	if next != "" {
 		resp["NextToken"] = next
@@ -272,7 +277,9 @@ func (h *Handler) handleListConfigurationPolicyAssociations(c *echo.Context, bod
 		out = []map[string]any{}
 	}
 
-	resp := map[string]any{"ConfigurationPolicyAssociationSummaryList": out}
+	// Real key is "ConfigurationPolicyAssociationSummaries" (securityhub@v1.75.4
+	// deserializers.go), same wrapper-key bug as ListConfigurationPolicies above.
+	resp := map[string]any{"ConfigurationPolicyAssociationSummaries": out}
 
 	if next != "" {
 		resp["NextToken"] = next
@@ -357,6 +364,24 @@ func (h *Handler) handleBatchGetConfigurationPolicyAssociations(c *echo.Context,
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// configPolicyServiceEnabled extracts ServiceEnabled from the opaque
+// ConfigurationPolicy document -- a real ConfigurationPolicySummary member
+// (securityhub@v1.75.4 deserializers.go's ConfigurationPolicySummary case
+// list). The policy document is a Smithy tagged union whose only real
+// variant is SecurityHub (types.PolicyMemberSecurityHub), so the value is
+// already on hand under p.ConfigurationPolicy["SecurityHub"]["ServiceEnabled"]
+// -- this was never read into the List summary before.
+func configPolicyServiceEnabled(p *ConfigurationPolicy) bool {
+	sh, ok := p.ConfigurationPolicy["SecurityHub"].(map[string]any)
+	if !ok {
+		return false
+	}
+
+	enabled, _ := sh["ServiceEnabled"].(bool)
+
+	return enabled
 }
 
 func configPolicyToResponse(p *ConfigurationPolicy) map[string]any {

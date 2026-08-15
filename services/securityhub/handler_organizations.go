@@ -82,12 +82,22 @@ func (h *Handler) handleDisableOrganizationAdminAccount(c *echo.Context, body ma
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// defaultSecurityHubFeature is the real ListOrganizationAdminAccountsInput.Feature
+// default ("Defaults to Security Hub CSPM if not specified" --
+// securityhub@v1.75.4 api_op_ListOrganizationAdminAccounts.go).
+const defaultSecurityHubFeature = "SecurityHub"
+
 func (h *Handler) handleListOrganizationAdminAccounts(c *echo.Context) error {
 	nextToken := c.QueryParam("NextToken")
 	maxResults := 0
 
 	if v := c.QueryParam("MaxResults"); v != "" {
 		maxResults, _ = strconv.Atoi(v)
+	}
+
+	feature := c.QueryParam("Feature")
+	if feature == "" {
+		feature = defaultSecurityHubFeature
 	}
 
 	accounts, next := h.Backend.ListOrganizationAdminAccounts(nextToken, maxResults)
@@ -105,7 +115,12 @@ func (h *Handler) handleListOrganizationAdminAccounts(c *echo.Context) error {
 		out = []map[string]any{}
 	}
 
-	resp := map[string]any{"AdminAccounts": out}
+	// Real ListOrganizationAdminAccountsOutput always echoes Feature (the
+	// request's filter, or its default) -- confirmed
+	// api_op_ListOrganizationAdminAccounts.go. This backend doesn't track
+	// admin accounts per-feature, so the echo isn't filtered by it, only
+	// reflected back.
+	resp := map[string]any{"AdminAccounts": out, "Feature": feature}
 
 	if next != "" {
 		resp["NextToken"] = next

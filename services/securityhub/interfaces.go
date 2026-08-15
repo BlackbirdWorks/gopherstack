@@ -172,7 +172,6 @@ type StorageBackend interface {
 		criteria map[string]any,
 		actions []map[string]any,
 		ruleOrder float64,
-		isTerminal bool,
 		tags map[string]string,
 	) (*AutomationRuleV2, error)
 	GetAutomationRuleV2(identifier string) (*AutomationRuleV2, error)

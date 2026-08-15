@@ -10,10 +10,10 @@ func (b *InMemoryBackend) AcceptAdministratorInvitation(administratorID, invitat
 	defer b.mu.Unlock()
 
 	b.adminAccount = &AdminAccount{
-		AccountId:          administratorID,
-		InvitationId:       invitationID,
-		InvitedAt:          time.Now().UTC().Format(time.RFC3339),
-		RelationshipStatus: statusEnabled,
+		AccountId:    administratorID,
+		InvitationId: invitationID,
+		InvitedAt:    time.Now().UTC().Format(time.RFC3339),
+		MemberStatus: statusEnabled,
 	}
 
 	return nil

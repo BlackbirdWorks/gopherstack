@@ -95,7 +95,7 @@ func (h *Handler) handleListConnectorsV2(c *echo.Context) error {
 	var out []map[string]any //nolint:prealloc // existing issue.
 
 	for _, conn := range connectors {
-		out = append(out, connectorV2ToResponse(conn))
+		out = append(out, connectorV2ToSummaryResponse(conn))
 	}
 
 	if out == nil {
@@ -178,6 +178,33 @@ func connectorV2ToResponse(conn *ConnectorV2) map[string]any {
 		keyUpdatedAt:       conn.UpdatedAt,
 		keyConnectorStatus: conn.ConnectorStatus,
 		"Provider":         conn.Provider,
+	}
+}
+
+// connectorV2ToSummaryResponse builds one types.ConnectorSummary entry for
+// ListConnectorsV2 (securityhub@v1.75.4 types.go:14833-14871). Unlike
+// connectorV2ToResponse above (which renders Create/Update/RegisterConnectorV2's
+// own, differently-shaped outputs), ConnectorSummary nests the health/provider
+// fields under a required ProviderSummary object, not a flat "Provider" key,
+// and has no top-level ConnectorStatus/UpdatedAt at all -- a real client's
+// typed ProviderSummary field was always the zero value regardless of
+// backend state. ProviderName mirrors the V1 CspmConnector pattern
+// (extractCspmProviderTag + strings.ToUpper, connectors.go) since ConnectorV2
+// has no dedicated ProviderName field of its own to read.
+func connectorV2ToSummaryResponse(conn *ConnectorV2) map[string]any {
+	tag, _ := extractCspmProviderTag(conn.Provider)
+
+	return map[string]any{
+		keyConnectorID:  conn.ConnectorId,
+		keyConnectorArn: conn.ConnectorArn,
+		keyName:         conn.Name,
+		keyDescription:  conn.Description,
+		keyCreatedAt:    conn.CreatedAt,
+		"ProviderSummary": map[string]any{
+			keyConnectorStatus:      conn.ConnectorStatus,
+			"ProviderConfiguration": conn.Provider,
+			"ProviderName":          strings.ToUpper(tag),
+		},
 	}
 }
 

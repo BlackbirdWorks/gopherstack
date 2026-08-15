@@ -236,8 +236,15 @@ func TestConfigurationPolicy(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						policies, _ := resp["ConfigurationPolicySummaryList"].([]any)
-						assert.Len(t, policies, 1)
+						// Real key is "ConfigurationPolicySummaries" (securityhub@v1.75.4
+						// deserializers.go) -- this test previously asserted the wrong
+						// key ("ConfigurationPolicySummaryList") as correct, which
+						// passed because the pre-fix handler emitted that same wrong
+						// key.
+						policies, _ := resp["ConfigurationPolicySummaries"].([]any)
+						require.Len(t, policies, 1)
+						summary, _ := policies[0].(map[string]any)
+						assert.Equal(t, true, summary["ServiceEnabled"])
 
 						return ""
 					},
@@ -308,7 +315,12 @@ func TestConfigurationPolicy(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						assocs, _ := resp["ConfigurationPolicyAssociationSummaryList"].([]any)
+						// Real key is "ConfigurationPolicyAssociationSummaries"
+						// (securityhub@v1.75.4 deserializers.go) -- this test
+						// previously asserted the wrong key as correct, which
+						// passed because the pre-fix handler emitted that same
+						// wrong key.
+						assocs, _ := resp["ConfigurationPolicyAssociationSummaries"].([]any)
 						assert.Len(t, assocs, 1)
 
 						return ""
@@ -357,7 +369,7 @@ func TestConfigurationPolicy(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						assocs, _ := resp["ConfigurationPolicyAssociationSummaryList"].([]any)
+						assocs, _ := resp["ConfigurationPolicyAssociationSummaries"].([]any)
 						assert.Empty(t, assocs)
 
 						return ""

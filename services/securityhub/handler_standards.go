@@ -106,6 +106,12 @@ func (h *Handler) handleGetEnabledStandards(c *echo.Context, body map[string]any
 	return c.JSON(http.StatusOK, resp)
 }
 
+// standardsSubscriptionsToMaps builds the wire shape shared by
+// BatchEnableStandards/BatchDisableStandards/GetEnabledStandards. The real
+// key is "StandardsStatusReason", not "StatusReason" (securityhub@v1.75.4
+// deserializers.go's StandardsSubscription case list) -- this backend never
+// sets StatusReason (no INCOMPLETE/FAILED subscription state), so the value
+// itself stays permanently nil either way; only the key name was wrong.
 func standardsSubscriptionsToMaps(subs []*StandardsSubscription) []map[string]any {
 	items := make([]map[string]any, len(subs))
 
@@ -115,7 +121,7 @@ func standardsSubscriptionsToMaps(subs []*StandardsSubscription) []map[string]an
 			keyStandardsArn:            s.StandardsArn,
 			"StandardsInput":           s.StandardsInput,
 			"StandardsStatus":          s.StandardsStatus,
-			"StatusReason":             s.StatusReason,
+			"StandardsStatusReason":    s.StatusReason,
 		}
 	}
 

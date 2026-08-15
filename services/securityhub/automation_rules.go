@@ -268,7 +268,6 @@ func (b *InMemoryBackend) CreateAutomationRuleV2(
 	criteria map[string]any,
 	actions []map[string]any,
 	ruleOrder float64,
-	isTerminal bool,
 	tags map[string]string,
 ) (*AutomationRuleV2, error) {
 	b.mu.Lock("CreateAutomationRuleV2")
@@ -290,7 +289,6 @@ func (b *InMemoryBackend) CreateAutomationRuleV2(
 		Criteria:    criteria,
 		Actions:     actions,
 		RuleOrder:   ruleOrder,
-		IsTerminal:  isTerminal,
 	}
 	b.automationRulesV2.Put(rule)
 
@@ -398,10 +396,6 @@ func (b *InMemoryBackend) UpdateAutomationRuleV2(
 
 	if v, ok := updates["RuleOrder"].(float64); ok {
 		target.RuleOrder = v
-	}
-
-	if v, ok := updates["IsTerminal"].(bool); ok {
-		target.IsTerminal = v
 	}
 
 	target.UpdatedAt = now

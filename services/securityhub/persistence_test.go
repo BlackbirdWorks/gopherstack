@@ -120,7 +120,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	autoRuleV2, err := b.CreateAutomationRuleV2(
-		"my-rule-v2", "ENABLED", "desc", map[string]any{"k": "v"}, nil, 1, false, nil,
+		"my-rule-v2", "ENABLED", "desc", map[string]any{"k": "v"}, nil, 1, nil,
 	)
 	require.NoError(t, err)
 

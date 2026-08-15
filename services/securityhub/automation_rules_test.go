@@ -272,7 +272,7 @@ func TestUpdateAutomationRuleV2_ActionsApplied(t *testing.T) {
 
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	identifier, _ := createResp["Identifier"].(string)
+	identifier, _ := createResp["RuleId"].(string)
 	require.NotEmpty(t, identifier)
 
 	updateRec := doRequest(t, h, http.MethodPatch, "/automationrulesv2/"+identifier, map[string]any{
@@ -493,7 +493,7 @@ func TestAutomationRulesV2(t *testing.T) {
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
-						id, _ := resp["Identifier"].(string)
+						id, _ := resp["RuleId"].(string)
 						assert.NotEmpty(t, id)
 						assert.Equal(t, "TestRuleV2", resp["RuleName"])
 
@@ -512,7 +512,7 @@ func TestAutomationRulesV2(t *testing.T) {
 						assert.Len(t, rules, 1)
 						r, _ := rules[0].(map[string]any)
 
-						return r["Identifier"].(string)
+						return r["RuleId"].(string)
 					},
 				},
 				{
