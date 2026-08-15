@@ -165,6 +165,9 @@ type ManagedActionHistory struct {
 type EventRecord struct {
 	ApplicationName string `json:"applicationName,omitempty"`
 	EnvironmentName string `json:"environmentName,omitempty"`
+	PlatformArn     string `json:"platformArn,omitempty"`
+	TemplateName    string `json:"templateName,omitempty"`
+	VersionLabel    string `json:"versionLabel,omitempty"`
 	EventDate       string `json:"eventDate"`
 	Message         string `json:"message"`
 	Severity        string `json:"severity"`

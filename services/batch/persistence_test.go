@@ -116,6 +116,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	sp, err := original.CreateSchedulingPolicy(t.Context(), "sp-1", nil, &batch.FairsharePolicy{
 		ShareDecaySeconds: 60,
+	}, &batch.QuotaSharePolicy{
+		IdleResourceAssignmentStrategy: "FIFO",
 	})
 	require.NoError(t, err)
 
@@ -123,8 +125,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		[]batch.CapacityLimit{{CapacityUnit: "NUM_INSTANCES", MaxCapacity: 10}}, nil)
 	require.NoError(t, err)
 
+	preemptionRetries := int32(3)
 	sj, err := original.SubmitServiceJob(
-		t.Context(), "sj-1", "queue-1", "SAGEMAKER_TRAINING", "{}", nil, nil, nil, 0, "",
+		t.Context(), "sj-1", "queue-1", "SAGEMAKER_TRAINING", "{}", nil, nil, nil, 0, "", "qs-1",
+		&batch.ServiceJobPreemptionConfiguration{PreemptionRetriesBeforeTermination: &preemptionRetries},
 	)
 	require.NoError(t, err)
 
@@ -192,8 +196,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	spList := fresh.DescribeSchedulingPolicies(t.Context(), []string{sp.Arn})
 	require.Len(t, spList, 1)
 	assert.Equal(t, int32(60), spList[0].FairsharePolicy.ShareDecaySeconds)
+	require.NotNil(t, spList[0].QuotaSharePolicy)
+	assert.Equal(t, "FIFO", spList[0].QuotaSharePolicy.IdleResourceAssignmentStrategy)
 
-	_, err = fresh.CreateSchedulingPolicy(t.Context(), "sp-1", nil, nil)
+	_, err = fresh.CreateSchedulingPolicy(t.Context(), "sp-1", nil, nil, nil)
 	require.ErrorIs(t, err, batch.ErrAlreadyExists)
 
 	// serviceEnvironments table.
@@ -205,6 +211,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	sjGot, err := fresh.DescribeServiceJob(t.Context(), sj.JobID)
 	require.NoError(t, err)
 	assert.Equal(t, "sj-1", sjGot.JobName)
+	assert.Equal(t, "qs-1", sjGot.QuotaShareName)
+	require.NotNil(t, sjGot.PreemptionConfiguration)
+	require.NotNil(t, sjGot.PreemptionConfiguration.PreemptionRetriesBeforeTermination)
+	assert.Equal(t, int32(3), *sjGot.PreemptionConfiguration.PreemptionRetriesBeforeTermination)
 
 	// quotaShares table + byRegion index (ListQuotaShares by job queue).
 	qsGot, err := fresh.DescribeQuotaShare(t.Context(), qs.QuotaShareArn)

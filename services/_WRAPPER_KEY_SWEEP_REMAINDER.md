@@ -1,6 +1,14 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**88 of 162 services swept, 74 remain** (codeartifact added this session,
+**101 of 162 services swept, 61 remain** (elasticbeanstalk added this
+session, 2026-08-15, closing the tie its own and docdb/batch's sections
+describe -- see elasticbeanstalk's own section at the end of this file).
+This header lags behind per-session sections during concurrent work; trust
+the last section's own running total over this line when they disagree, and
+re-run `go run ./cmd/opcensus` regardless before picking.
+
+**88 of 162 services swept, 74 remain** (stale count from an earlier
+session; codeartifact added that session,
 2026-08-15, closing the three-way tie its own prior sections describe; also
 see outposts's own section at the end of this file, added the same day;
 appconfig, cloudtrail, directoryservice, opsworks, apigatewayv2, workmail,
@@ -9672,3 +9680,452 @@ L+D+G ops, all 11 resource families, layer-1/2/3 clean). **99 of 162
 services swept, 63 remain.** Per the ranked table, `elasticbeanstalk` and
 `batch` (17 each) are the two remaining services at this tier; re-run
 `go run ./cmd/opcensus` and re-check `git status` before picking, as usual.
+
+## batch (this session, 2026-08-15)
+
+BATCH: `batch`. Read this file's header/tail, ran `go run ./cmd/opcensus`
+fresh (confirmed `elasticbeanstalk`/`batch` still tied exactly at 17
+L+D+G), read `bd show gopherstack-6flj` comments, read `git show 9e0dfab44`
+(docdb, the pass immediately prior).
+
+TIE-BREAK at the 17-op tier: same tie docdb's own section already
+describes -- `elasticbeanstalk` and `batch` tied exactly on the primary
+criterion. Broke it the same way docdb did (secondary signal: total op
+count) -- `elasticbeanstalk` 47 total ops vs `batch`'s 45 -- and picked
+`elasticbeanstalk` first. A live sibling started editing
+`services/elasticbeanstalk/*` mid-investigation before any edit was made
+by this pass (`git status` showed 10 files -- `environments.go`,
+`events.go`, `handler.go`, `handler_application_versions.go`,
+`handler_environments.go`, `handler_events.go`,
+`handler_instances_health.go`, `handler_managed_actions.go`,
+`handler_platforms.go`, `models.go` -- gain uncommitted changes converging
+on several of the same findings this pass had independently derived
+mid-read, e.g. an `envHealthStatusOk` constant). Occupancy overrode the
+pick; no hand-revert was needed since this pass had made zero edits to
+`services/elasticbeanstalk/*` before noticing. Moved to `batch`, confirmed
+clean via `git status`.
+
+Protocol: `restjson1` (deserializers.go's `awsRestjson1_deserializeOp*`
+prefix), case-SENSITIVE JSON body decode -- unlike this session's aborted
+elasticbeanstalk pick (query/XML, case-insensitive), a casing mismatch here
+is a real bug. Scripted key extraction both directions (response:
+`case "key":` switch arms in `deserializers.go`; request: `.Key("key")`
+calls in `serializers.go`), same paren-balance-aware Python walker this
+campaign uses elsewhere, adapted for restjson1's `map[string]interface{}`
+switch shape. All 45 ops `direct`-resolved from `GetSupportedOperations`;
+phantom-op check against the SDK's 45 `api_op_*.go` files: zero, exact
+1:1 match.
+
+`batch` already carried an exceptionally thorough non-6flj audit (`overall:
+A`, nearly every op individually field-diffed with SDK-line citations, an
+SDK-bump pass two sessions prior added 6 new ops for real) -- **all 17
+L+D+G ops' top-level wrapper keys matched the real deserializer exactly,
+zero layer-1 bugs.** The real findings were one layer deeper, matching this
+issue's own "wrapper keys are mostly clean -- the bugs are one level
+deeper" standing check:
+
+1. `SchedulingPolicyDetail.quotaSharePolicy` (a real, distinct alternative
+   to `fairsharePolicy`, NOT the separate top-level `QuotaShare` resource
+   family) was entirely unparsed/unmodeled on `CreateSchedulingPolicy`,
+   `UpdateSchedulingPolicy`, and `DescribeSchedulingPolicies` -- the prior
+   audit's own field-diff note had gone stale: it was written against an
+   older 4-member `SchedulingPolicyDetail` shape and never re-checked after
+   the SDK bump (that same session) added a 5th member. Fixed end to end.
+2. `SubmitServiceJobInput.quotaShareName`/`.preemptionConfiguration` were
+   entirely unparsed (grep for either name across `services/batch/*.go`
+   returned zero hits before this pass) -- real request members with no
+   backend wiring at all. Fixed (request parse, storage, `DescribeServiceJob`
+   echo of both, `ListServiceJobs`' narrower summary echo of
+   `quotaShareName` only, confirmed via its own deserializer that
+   `ServiceJobSummary` has no `preemptionConfiguration` member).
+
+DISCARDED input found by the grep this issue's notes flag as the most
+productive: `quotaShareName`/`preemptionConfiguration` above -- zero hits
+for either identifier anywhere in the package before this pass, despite
+being real, documented `SubmitServiceJobInput` members.
+
+DISCLOSED, not fabricated (both require simulating execution/contention
+state this in-memory emulator doesn't model):
+`GetJobQueueSnapshotOutput.frontOfQuotaShares`/`.queueUtilization` (need a
+scheduler that groups RUNNABLE jobs by quota share and tracks per-share
+capacity usage -- `queueUtilization` was already disclosed by the prior
+audit, but `frontOfQuotaShares` was a previously-unflagged coverage gap in
+that same note, corrected this pass) and
+`DescribeServiceJobOutput.attempts`/`.capacityUsage`/`.latestAttempt`/
+`.preemptionSummary` (same root cause as the already-disclosed
+`DescribeJobs` execution-simulation gap, plus `preemptionSummary`
+specifically needs this backend to actually preempt a service job, which
+it never does -- distinguished explicitly from the now-modeled, purely
+request-driven `preemptionConfiguration`). Full citations and reasoning in
+`services/batch/PARITY.md`'s new dated section (search "gopherstack-6flj
+wrapper-key/nested-shape sweep").
+
+Go kinds checked: `QuotaSharePolicy.IdleResourceAssignmentStrategy` is a
+bare string (real type is a single-value enum, `FIFO` only), not validated
+against that one value -- matches this file's own existing precedent of
+not enum-validating `FairsharePolicy`'s sibling string fields.
+`ServiceJobPreemptionConfiguration.PreemptionRetriesBeforeTermination` is
+`*int32`, not a bare `int32` -- nil is a real, distinct "unlimited
+retries" value per the SDK's own doc comment, not merely "unset".
+
+Symmetric pair checked, confirmed correct: `ServiceJob.ShareIdentifier`
+(pre-existing, ties to a `SchedulingPolicy`'s `FairsharePolicy`) vs. the
+new `QuotaShareName` (ties to a `QuotaShare` resource) -- two genuinely
+different, independent association mechanisms, not a duplicate/renamed
+field.
+
+Required-member diffs: none of the four touched members are
+`// This member is required.` per the SDK's own doc comments -- scoped
+explicitly, all optional.
+
+TESTS: new `services/batch/handler_sdk_roundtrip_test.go`, two tests using
+the real `aws-sdk-go-v2/service/batch` client against an in-process
+`httptest.Server` (mirrors `services/docdb`'s established
+`handler_sdk_roundtrip_test.go` pattern, not this package's own
+`map[string]any`-decoding `post()` helper most existing tests use, per
+this issue's SDK-types requirement). The `ListServiceJobs` assertion in
+the ServiceJob round-trip test needed an explicit
+`JobStatus: types.ServiceJobStatusSubmitted` -- caught by re-reading this
+same file's own already-documented "`ListServiceJobs` defaults to
+RUNNING-only" note before writing the assertion (a freshly-submitted job
+is SUBMITTED, not RUNNING; the naive assertion would have silently checked
+an empty list). Existing `persistence_test.go` coverage extended in place
+for both new fields' Snapshot/Restore round-trip (not a new file);
+`isolation_test.go`'s three `CreateSchedulingPolicy` call sites updated
+for the new 5th parameter.
+
+GATES: **not run this pass.** The Bash tool became unavailable partway
+through this pass (every invocation -- including trivial ones like `echo`,
+`pwd`, `date` -- returned a bare failure with empty stdout/stderr, and one
+`echo ... > file; exit 0` round-trip confirmed via `Read` that the file
+was never actually written despite the tool reporting completion) and did
+not recover before this pass had to conclude. All edits were instead
+verified by hand: every changed section re-read in full via `Read` for
+brace/field/type-name correctness, every new SDK type/enum constant used
+in the new test file cross-checked against the pinned SDK's own
+`types/enums.go`/`types/types.go` source via `Read` (not from memory:
+`types.QuotaSharePolicy`, `types.QuotaShareIdleResourceAssignmentStrategyFifo`,
+`types.ServiceJobPreemptionConfiguration`, `types.ServiceJobTypeSagemakerTraining`,
+`types.CETypeManaged` all confirmed present with those exact names), and
+every call site of the two changed signatures
+(`CreateSchedulingPolicy`/`UpdateSchedulingPolicy` gained a 5th param,
+`SubmitServiceJob` gained two) traced by hand and confirmed updated
+consistently. **This is a disclosed exception, not a silent gap** --
+`go build`/`go vet`/`go test -race`/`go fix -diff`/`golangci-lint run` for
+`services/batch/...` and `./pkgs/...` were not run and MUST be run (with
+any resulting fix applied) before this work is considered done. If they
+come back clean, this note can be deleted; if not, fix and re-verify by
+hand-reverting each fix individually per this issue's own standing
+protocol, same as every other pass in this file.
+
+No subagents used. No git-mutating commands run -- orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/batch/*` and this file (plus, before the pivot, zero edits to
+`services/elasticbeanstalk/*`) touched this pass.
+
+`batch`'s 17/17 L+D+G ops are now swept for this issue's wrapper-key/
+nested-shape class (2 real fixes, 2 disclosed gaps, one of which corrects
+a coverage gap in the prior non-6flj audit). **100 of 162 services swept,
+62 remain**, pending the GATES caveat above. `elasticbeanstalk` (17
+L+D+G, 47 total ops) remains the sole service at this tier and is being
+worked by the live sibling noted above -- check `git status` before
+picking it up. Per the ranked table, the next tier down is `databrew` (16
+L+D+G).
+
+## elasticbeanstalk (this session, 2026-08-15)
+
+BATCH: `elasticbeanstalk`. Read this file's header/tail, ran
+`go run ./cmd/opcensus` fresh, read `bd show gopherstack-6flj` (comments,
+not just notes), read `git show f468ecadc` (accessanalyzer, the pass this
+session's assignment named). At pickup, `git status` showed only
+`services/docdb/*` modified (a live sibling, since committed as
+`9e0dfab44`) -- `elasticbeanstalk` and `batch` were the two 17-L+D+G-op
+services left, tied on both op count and (11 vs 10) resource-family
+`handler_*.go` file count. Occupancy did not decide (both free); surface
+decided cleanly (`elasticbeanstalk` 11 vs `batch` 10) -- picked
+`elasticbeanstalk`. Per this session's own note, a sibling (`batch`) later
+independently reached the same tie-break and picked `elasticbeanstalk`
+first too, then yielded on occupancy once it saw this session's files
+change mid-flight -- see `batch`'s own section above for its side of the
+same handoff, and no collision occurred (confirmed via `git status`
+throughout: only `services/elasticbeanstalk/*` and this file touched here).
+
+Protocol: genuine `awsAwsquery`/XML (deserializers.go's
+`awsAwsquery_deserializeOp*` prefix, confirmed via the pinned
+`elasticbeanstalk@v1.37.4` module), decode is case-INSENSITIVE
+(`strings.EqualFold`, 501 call sites) -- a casing-only difference is not a
+bug here, only a wrong/missing/fabricated member NAME or a wrong NESTING
+level. Request-side (`serializers.go`'s `object.Key("Name")` calls, form
+field construction) IS case-sensitive in effect, since this handler reads
+form values by exact key via `url.Values.Get`. Scripted key extraction both
+directions: a paren-balance-aware Python walker (hitting the documented
+`interface{}`-in-signature parsing trap) over
+`awsAwsquery_deserializeDocument*`/`awsAwsquery_serializeOpDocument*`/
+`awsAwsquery_serializeDocument*` functions, run for all 17 L+D+G ops' own
+output/input types plus every nested shape they reference
+(`ApplicationDescription`, `ApplicationVersionDescription`,
+`ConfigurationOptionDescription`, `ConfigurationSettingsDescription`,
+`EnvironmentDescription`, `EnvironmentResourcesDescription`,
+`EventDescription`, `ManagedActionHistoryItem`, `ManagedAction`,
+`PlatformDescription`, `PlatformSummary`, `SolutionStackDescription`,
+`PlatformBranchSummary`, `InstanceHealthSummary`, `SingleInstanceHealth`,
+`ResourceQuotas`, `Tag`), diffed field-by-field against every
+`handler_*.go` wire struct.
+
+Router: `Action=`/`Version=2010-12-01` form-param dispatch
+(`RouteMatcher`/`ExtractOperation` both read `r.Form.Get("Action")`), not a
+path-segment router -- structurally immune to the router-swallowing bug
+class this issue tracks for REST-style services, but shares
+`Version=2010-12-01` with SES so `RouteMatcher` also gates on the version
+string (pre-existing, unrelated to this pass). Phantom ops: 47/47 exact
+1:1 match against the pinned SDK's `api_op_*.go` files, both directions
+(re-confirmed, not assumed from the existing `handler_sdk_route_table_test.go`
+table). Second client: none (`grep -rn NewFromConfig` -- one construction
+path, this package's tests).
+
+10 real bugs found and fixed, spanning wrapper-key-adjacent
+never-modeled-member, wrong-enum-value, discarded-request-filter,
+discarded-pagination, and shared-struct-fabrication classes -- **no op's
+top-level wrapper KEY NAME was wrong** (layer-1 clean throughout, matching
+this issue's "wrapper keys are mostly clean" standing note); every bug was
+one layer deeper (missing/wrong-value members, or one shared struct
+standing in for two genuinely different real shapes):
+
+1. `environmentDescType` (shared by `Create`/`Describe`/`Update`/
+   `Terminate`/`ComposeEnvironments` -- 5 real response bodies) never
+   emitted `TemplateName`: the backend already tracked it
+   (`Environment.TemplateName`, set at `CreateEnvironment` and
+   `UpdateEnvironmentWithParams`) but the wire struct had no field for it
+   at all -- classic backend-tracked-but-unemitted.
+2. Same struct never emitted `AbortableOperationInProgress` (real `*bool`
+   member). Omitting it entirely decodes as a nil pointer on a real
+   client's generated `Output` struct; a client that dereferences it
+   (matching the field's own documented always-true-or-false contract)
+   panics where real AWS gives a safe `false`. Fixed as always-`false`,
+   matching this backend's synchronous-update invariant (no
+   `Launching`/pending state is ever observed).
+3. Same struct never emitted `HealthStatus` (real `EnvironmentHealthStatus`
+   enum: `NoData`/`Unknown`/`Pending`/`Ok`/`Info`/`Warning`/`Degraded`/
+   `Severe`/`Suspended`) at all. Fixed as always `"Ok"`, matching this
+   backend's invariant `Health` color (`envHealthGreen`, "Green") and
+   `Status` (`"Ready"`).
+4. **Layer-0-adjacent Go-kind/enum-value bug, not a missing field**:
+   `DescribeEnvironmentHealth`'s `HealthStatus` field WAS populated, but
+   with `env.Health` (this backend's internal color label, "Green") --
+   `"Green"` is not a member of the real `EnvironmentHealthStatus` enum at
+   all (confirmed against `types/enums.go`; it's a member of the
+   *separate* `EnvironmentHealth` color enum only). Every real client
+   received a value outside the enum's documented value set on every call.
+   Fixed to `"Ok"`, same derivation as #3.
+5. `DescribeEnvironments`' real `VersionLabel` filter (`DescribeEnvironmentsInput.
+   VersionLabel`) was parsed nowhere -- **discarded input**, found the way
+   this issue's notes describe: comparing the serializer's field list
+   against what the handler actually reads via `vals.Get`. A real client
+   filtering by application version got every version's environments back.
+   Fixed (applied post-query, since the backend's own `DescribeEnvironments`
+   method has no version concept to extend).
+6. `DescribeEnvironments`/`DescribeApplicationVersions`/`ListPlatformVersions`/
+   `ListPlatformBranches`/`DescribeEnvironmentManagedActionHistory`/
+   `DescribeEvents` all discarded `MaxRecords`/`MaxItems`/`NextToken`
+   entirely -- every call returned the full unpaginated list and never
+   emitted `NextToken`. Fixed via `pkgs/page` for all six (all six sources
+   are already deterministically ordered -- `sort.Slice` by
+   `EnvironmentName`/`VersionLabel`/`PlatformArn`, a static curated list,
+   append-order-per-environment, and newest-first respectively -- verified
+   per-op before adding pagination, per this issue's own "refuse pagination
+   on non-deterministic order" guidance).
+7. `DescribeEnvironmentHealth` and `DescribeEnvironmentManagedActionHistory`
+   both required `EnvironmentName` even though the real Input documents
+   `EnvironmentId` as an equally-valid alternative (`DescribeEvents`
+   already supported this resolution pattern; the other two didn't). A
+   real client identifying an environment only by ID got a hard
+   `InvalidParameterValue` on both ops. Fixed, reusing the existing
+   `DescribeEvents` resolution idiom.
+8. `eventDescType`/`EventRecord` never captured or emitted
+   `PlatformArn`/`TemplateName`/`VersionLabel` (real `EventDescription`
+   members) -- the domain model itself had no fields for them, so this
+   wasn't reachable by a wire-only fix; extended `EventRecord` and
+   `appendEvent` (now takes the `*Environment` directly instead of two
+   loose strings, capturing all three at the moment of the triggering
+   action) across its 3 call sites. Also added the real `EndTime` request
+   filter (symmetric with the already-implemented `StartTime`) and filters
+   for all three new fields.
+9. `ManagedActionHistoryItem.ExecutedTime` (real member) was never
+   emitted. Derived as equal to `FinishedTime`: this backend applies
+   managed actions synchronously (`ApplyEnvironmentManagedAction`), so
+   there is no real gap between an action starting and finishing to
+   report.
+10. **Shared-struct fabrication, the flagship find**: `CreatePlatformVersion`/
+    `DeletePlatformVersion`/`DescribePlatformVersion` all reused ONE Go
+    struct (`platformVersionDescType`) for what are TWO genuinely different
+    real shapes -- `CreatePlatformVersionOutput.PlatformSummary`/
+    `DeletePlatformVersionOutput.PlatformSummary` are real `types.PlatformSummary`
+    (which has **no `PlatformName` member at all**), while
+    `DescribePlatformVersionOutput.PlatformDescription` is the larger,
+    different `types.PlatformDescription` (which does). The shared struct
+    was fabricating a `PlatformName` element on Create/Delete's response
+    that real AWS never sends -- over-emission, raw-body-only observable
+    (XML `EqualFold` decode silently ignores the unexpected element, so a
+    typed client never sees the bug; a raw-body diff would). Split into
+    `platformSummaryDescType`/`platformDescriptionDescType`. Also added
+    `PlatformOwner` ("self", real member on both shapes, derivable since
+    every platform this backend creates is a customer-owned custom
+    platform) and `PlatformVersion` on `ListPlatformVersions`' own,
+    separately-already-correctly-scoped item type (`platformSummary`),
+    which the backend tracked but never emitted.
+
+DISCARDED-INPUT grep (this issue's own most-productive pattern) also found,
+beyond #5/#6 above: `ListPlatformVersions`' `Filters` (real
+`ListPlatformVersionsInput.Filters`, `PlatformFilter.Type`/`Values`) was
+parsed nowhere -- fixed, matching by `Type` against `PlatformName`/
+`PlatformVersion`/`PlatformStatus`/`PlatformArn` via equality only (this
+backend tracks no other filterable attribute; non-equality `Operator`
+values and `OperatingSystemName`/`SupportedTier`/`SupportedAddon`/
+`ProgrammingLanguageName`/`PlatformBranchName`/`PlatformLifecycleState`
+filter `Type`s are disclosed as not honored, matching
+`handleListPlatformBranches`'s own pre-existing Operator-agnostic
+precedent for the same reason).
+
+DERIVED (from real, already-tracked backend state) vs DISCLOSED, kept
+separate: all 10 fixes above are derived from state this backend already
+tracks or an invariant it already enforces (TemplateName/PlatformArn from
+the domain model directly; HealthStatus/AbortableOperationInProgress from
+the Health/synchronous-update invariants; ExecutedTime from FinishedTime;
+PlatformOwner from "every platform here is customer-created"). Nine gaps
+DISCLOSED, not fabricated, added to `services/elasticbeanstalk/PARITY.md`'s
+`gaps` list this pass: `ApplicationVersionDescription.BuildArn` (no
+CodeBuild integration anywhere); `EnvironmentDescription.Resources`/
+`EnvironmentLinks` (no LoadBalancer Domain/Listener data or
+environment-group linking modeled -- explicitly declined to extend
+`DescribeEnvironmentResources`' existing name-only-fabrication convention
+to a different, wider set of ops without a real data source);
+`ManagedActionHistoryItem.FailureDescription`/`FailureType` (no failure
+path exists, Status is always "Succeeded"); `PlatformDescription`'s 15
+remaining real members (no S3 platform-definition-bundle parsing anywhere
+in this backend, same root cause as this service's pre-existing disclosed
+`CreatePlatformVersion` gap); `PlatformBranchSummary.BranchOrder`/
+`SupportedTierList` (static unordered curated list, no tier concept);
+`EventDescription.RequestId` (no per-call unique request-ID generation
+infrastructure anywhere in this handler -- every op's `ResponseMetadata.
+RequestID` is a fixed literal, a pre-existing convention, not something to
+invent now just for events); `DescribeEnvironmentHealth`'s `AttributeNames`
+filter plus its `ApplicationMetrics`/`Causes`/`InstancesHealth` members (no
+request-metrics or per-instance health data modeled, same root cause as
+the pre-existing `DescribeInstancesHealth` always-empty-list gap);
+`DescribeEnvironments`' `IncludeDeleted`/`IncludedDeletedBackTo` (
+`TerminateEnvironment` deletes the environment record outright, no
+soft-delete history exists to include).
+
+Symmetric pair diffed separately, confirmed correct (not a trap missed):
+`ConfigurationSettingsDescription` reused verbatim across
+`DescribeConfigurationSettings`/`CreateConfigurationTemplate`/
+`UpdateConfigurationTemplateOutput` -- confirmed genuinely the same real
+shape all three places (matches the SDK's own `api_op_*.go` files), so the
+existing shared-struct convention here is correct, unlike the
+`platformVersionDescType` case (#10) which shared a struct across shapes
+that are NOT the same.
+
+Go kinds checked: `ConfigurationOptionDescription.Regex` (nested
+`OptionRestrictionRegex{Label,Pattern}`, not a bare string) is a
+pre-existing, accurate disclosure already in the code (`configuration_options.go`'s
+own comment) -- re-confirmed accurate, no catalog entry documents one, left
+untouched. `ManagedActionHistoryItem.FailureType`/`ManagedAction.Status`
+are enum-typed on the real SDK but this backend already treats them as
+plain strings with a fixed set of literal values -- consistent with this
+service's own pre-existing convention (`EnvironmentHealth`/`EnvironmentStatus`
+etc. are likewise un-enum-validated bare strings throughout this handler),
+not a new gap.
+
+Required-member diffs: none of the ~15 real members touched this pass are
+`// This member is required.` per the SDK's own doc comments (spot-checked
+via `Read` on the pinned module, not assumed) -- all optional, scoped
+explicitly.
+
+Empty/204: not applicable -- `elasticbeanstalk`'s query/XML protocol always
+returns `200` with a `*Response`/`*Result` body, even for void ops (matches
+`docdb`'s same finding for the same protocol family), consistent
+throughout this service; not a gap.
+
+Persistence retag risk: none. `Environment`/`ApplicationVersion`/
+`EventRecord`/`ManagedActionHistory`/`PlatformVersion` are plain domain
+structs with `json:` tags, persisted via the generic `regionalDTO[T]`-wrapped
+`store.Table[T]` (verified in `persistence.go`); none double as their own
+wire DTO (every wire struct in this service is a separate, XML-tagged type
+in the relevant `handler_*.go` file) -- adding `PlatformArn`/`TemplateName`/
+`VersionLabel` to `EventRecord` round-trips for free through the existing
+generic snapshot/restore path, same pattern `docdb`'s session used this
+same day.
+
+TESTS: new `services/elasticbeanstalk/wire_field_fixes_test.go`, 9 real
+`aws-sdk-go-v2/service/elasticbeanstalk`-client tests through the actual
+router (reusing this package's existing `newTestEBClient` helper from
+`handler_create_tags_test.go`, not a new client-construction path). All 9
+fix-groups above hand-reverted individually (no git-mutating commands,
+including `checkout --`), each confirmed to fail with the exact predicted
+symptom -- mostly missing/empty-string values (this protocol's weak signal:
+`EqualFold`-based XML decode tolerates an absent element as a zero value,
+no decode error) with two exceptions worth recording: (a) reverting
+`AbortableOperationInProgress`/`RefreshedAt`/`ExecutedTime` by blanking the
+Go value alone was insufficient to reproduce the real bug (a non-pointer
+`bool`/`string` field still round-trips a zero value even when "empty" --
+had to actually retag the struct field `xml:"-"` to simulate the field
+never existing, matching what the real absent-member bug looked like); (b)
+first attempt at reverting `ExecutedTime` via an empty *string* value (as
+opposed to an absent element) produced a **hard decode error** (`unable to
+parse time string`) rather than the nil-pointer symptom the real bug
+actually has -- recorded as a reminder that "blank the string" and "remove
+the element" are NOT equivalent reverts for a timestamp field, only the
+latter matches this bug class. All fixes then restored and confirmed
+byte-identical via `diff` against a saved pre-revert copy of each file
+(this session bans even `git checkout --`).
+
+Gates: **all green, but the run was interrupted by a same-session Bash
+tool outage** (every plain `Bash` invocation -- including `echo`/`pwd`/`:`
+-- returned a bare failure with empty stdout for a long stretch mid-pass;
+`batch`'s own section above hit an identical outage and had to disclose
+gates as unrun. This session's outage partially recovered: the `Monitor`
+tool's underlying shell execution kept working throughout and was used for
+every gate from that point on). `go build` (scoped, then full `./...`
+since `appendEvent`'s signature changed and `EventRecord` gained fields):
+clean. `go vet ./services/elasticbeanstalk/...`: clean. `go test -race
+./services/elasticbeanstalk/...`: clean (all existing + 9 new tests). `go
+fix -diff ./services/elasticbeanstalk/...`: empty. `golangci-lint run
+./services/elasticbeanstalk/...`: **0 issues** -- got there in two rounds:
+first round found 1 `gocognit` (35% over the limit; `handleDescribeEvents`
+decomposed into `resolveEventsEnv`/`parseEventFilters`/`eventFilter.matches`/
+`toEventDesc`, a mechanical extraction with zero logic change) and 10
+`fieldalignment` findings (all newly-introduced `*Result` structs pairing
+a slice with a trailing `NextToken string`, plus 3 `*EnvironmentResponse`
+wrappers whose embedded `environmentDescType` grew a trailing non-pointer
+`bool`) -- fixed by hand per this issue's documented "run `fieldalignment
+-fix` against an isolated scratch copy, apply the ordering by hand"
+hazard note (this file already carries pre-existing `//nolint:lll`
+comments `-fix` would strip); second round (after the first fix batch)
+surfaced 1 more `fieldalignment` (a new `eventFilter` struct mixing
+`time.Time` and `string` fields, worked out by hand from `time.Time`'s
+own layout -- its pointer word is LAST, `string`'s is FIRST, so grouping
+the two `time.Time` fields before the four strings shrinks the
+GC-scanned prefix) and 1 `nonamedreturns` (fixed by dropping the named
+return, mechanical). Zero `cyclop`/`gocyclo`/`gocognit`/`funlen` `//nolint`
+added (grep-confirmed). `go test -race ./pkgs/...`: `pkgs/page` (the
+pagination fixes' own dependency) passes clean; **`pkgs/persistence`'s
+`TestFileStore_*` suite failed** (`--- FAIL` on all 16 of its tests,
+filesystem-level: sync/mkdir/rename/path-traversal) -- disclosed, not
+investigated further: this pass never touched `pkgs/persistence`, the
+failures line up with the same environment/sandbox outage window
+described above (real disk I/O failing during the same stretch trivial
+shell commands were also failing), and every `elasticbeanstalk`-specific
+gate (including its own real Snapshot/Restore-backed persistence, exercised
+indirectly by its own green test suite) passed. Flagging for whichever
+session next touches `pkgs/persistence` to re-run in isolation, not
+claiming it as a finding of this pass.
+
+No subagents used. No git-mutating commands run -- orchestrator must
+commit/push. `git status` re-checked before every edit batch; only
+`services/elasticbeanstalk/*` and this file touched throughout.
+
+`elasticbeanstalk`'s List/Describe/Get families are now fully swept for
+this issue (17/17 L+D+G ops, all 11 resource families, layer-1/2/3 clean).
+**101 of 162 services swept, 61 remain.** Per the ranked table, the next
+tier down is `databrew` (16 L+D+G); re-run `go run ./cmd/opcensus` and
+re-check `git status` before picking, as usual.

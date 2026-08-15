@@ -57,6 +57,21 @@ const (
 	healthColorGreen = "Green"
 	// healthRefreshedAt is a placeholder refresh timestamp for environment health responses.
 	healthRefreshedAt = "2026-01-01T00:00:00Z"
+	// envHealthStatusOk is the EnvironmentHealthStatus enum value ("Ok") that
+	// corresponds to this backend's invariant Health color (envHealthGreen,
+	// "Green") and Status ("Ready") -- see types.EnvironmentHealthStatus
+	// (elasticbeanstalk@v1.37.4 types/enums.go:216-224): "Green" is not a
+	// member of that enum at all, only of the separate EnvironmentHealth
+	// (color) enum.
+	envHealthStatusOk = "Ok"
+	// platformOwnerSelf is the PlatformOwner value AWS documents for
+	// customer-created (as opposed to AWS-managed) custom platform versions,
+	// which is the only kind CreatePlatformVersion produces here.
+	platformOwnerSelf = "self"
+
+	// defaultListLimit is the page size applied when a request does not
+	// specify MaxRecords/MaxItems (or specifies a non-positive value).
+	defaultListLimit = 100
 )
 
 // formOpFunc is the function type for a dispatched form-encoded operation.

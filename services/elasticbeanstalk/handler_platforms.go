@@ -6,20 +6,61 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// platformVersionDescType is used in XML responses for platform versions.
-type platformVersionDescType struct {
+// platformSummaryDescType mirrors types.PlatformSummary
+// (elasticbeanstalk@v1.37.4 types/types.go), used by CreatePlatformVersion's
+// and DeletePlatformVersion's real PlatformSummary output member. Unlike
+// PlatformDescription (see platformDescriptionDescType below), the real
+// PlatformSummary shape has NO PlatformName member at all -- reusing one
+// shared struct for both shapes previously fabricated a PlatformName field
+// on these two ops' responses that real AWS never sends.
+//
+// OperatingSystemName/OperatingSystemVersion/PlatformBranchLifecycleState/
+// PlatformBranchName/PlatformCategory/PlatformLifecycleState/
+// SupportedAddonList/SupportedTierList are not modeled: this backend never
+// parses the CreatePlatformVersion request's S3 platform-definition bundle
+// (see handleCreatePlatformVersion's doc comment), so there is no real
+// source for any platform metadata beyond the four fields the domain model
+// (PlatformVersion) tracks -- a structural gap, not a dropped field.
+type platformSummaryDescType struct {
 	PlatformArn     string `xml:"PlatformArn"`
-	PlatformName    string `xml:"PlatformName"`
+	PlatformOwner   string `xml:"PlatformOwner"`
 	PlatformVersion string `xml:"PlatformVersion"`
 	PlatformStatus  string `xml:"PlatformStatus"`
 }
 
-func toPlatformVersionDesc(pv *PlatformVersion) platformVersionDescType {
-	return platformVersionDescType{
+// platformDescriptionDescType mirrors types.PlatformDescription, the real
+// output shape of DescribePlatformVersion only (types.PlatformSummary above
+// is the shape CreatePlatformVersion/DeletePlatformVersion actually use).
+// Same disclosed-gap set as platformSummaryDescType, plus CustomAmiList/
+// DateCreated/DateUpdated/Description/Frameworks/Maintainer/
+// ProgrammingLanguages/SolutionStackName -- all likewise unreachable without
+// real bundle parsing.
+type platformDescriptionDescType struct {
+	PlatformArn     string `xml:"PlatformArn"`
+	PlatformName    string `xml:"PlatformName"`
+	PlatformOwner   string `xml:"PlatformOwner"`
+	PlatformVersion string `xml:"PlatformVersion"`
+	PlatformStatus  string `xml:"PlatformStatus"`
+}
+
+func toPlatformSummaryDesc(pv *PlatformVersion) platformSummaryDescType {
+	return platformSummaryDescType{
+		PlatformArn:     pv.PlatformArn,
+		PlatformOwner:   platformOwnerSelf,
+		PlatformVersion: pv.PlatformVersion,
+		PlatformStatus:  pv.PlatformStatus,
+	}
+}
+
+func toPlatformDescriptionDesc(pv *PlatformVersion) platformDescriptionDescType {
+	return platformDescriptionDescType{
 		PlatformArn:     pv.PlatformArn,
 		PlatformName:    pv.PlatformName,
+		PlatformOwner:   platformOwnerSelf,
 		PlatformVersion: pv.PlatformVersion,
 		PlatformStatus:  pv.PlatformStatus,
 	}
@@ -27,7 +68,7 @@ func toPlatformVersionDesc(pv *PlatformVersion) platformVersionDescType {
 
 // createPlatformVersionResult is the result body for CreatePlatformVersion.
 type createPlatformVersionResult struct {
-	PlatformSummary platformVersionDescType `xml:"PlatformSummary"`
+	PlatformSummary platformSummaryDescType `xml:"PlatformSummary"`
 }
 
 // createPlatformVersionResponse is the XML response for CreatePlatformVersion.
@@ -76,7 +117,7 @@ func (h *Handler) handleCreatePlatformVersion(ctx context.Context, vals url.Valu
 	return &createPlatformVersionResponse{
 		Xmlns: ebXMLNS,
 		CreatePlatformVersionResult: createPlatformVersionResult{
-			PlatformSummary: toPlatformVersionDesc(pv),
+			PlatformSummary: toPlatformSummaryDesc(pv),
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-create-platform-ver"},
 	}, nil
@@ -84,7 +125,7 @@ func (h *Handler) handleCreatePlatformVersion(ctx context.Context, vals url.Valu
 
 // deletePlatformVersionResponse is the XML response for DeletePlatformVersion.
 type deletePlatformVersionResult struct {
-	PlatformSummary platformVersionDescType `xml:"PlatformSummary"`
+	PlatformSummary platformSummaryDescType `xml:"PlatformSummary"`
 }
 
 type deletePlatformVersionResponse struct {
@@ -108,7 +149,7 @@ func (h *Handler) handleDeletePlatformVersion(ctx context.Context, vals url.Valu
 	return &deletePlatformVersionResponse{
 		Xmlns: ebXMLNS,
 		DeletePlatformVersionResult: deletePlatformVersionResult{
-			PlatformSummary: toPlatformVersionDesc(pv),
+			PlatformSummary: toPlatformSummaryDesc(pv),
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-delete-platform-ver"},
 	}, nil
@@ -116,7 +157,7 @@ func (h *Handler) handleDeletePlatformVersion(ctx context.Context, vals url.Valu
 
 // describePlatformVersionResponse is the XML response for DescribePlatformVersion.
 type describePlatformVersionResult struct {
-	PlatformDescription platformVersionDescType `xml:"PlatformDescription"`
+	PlatformDescription platformDescriptionDescType `xml:"PlatformDescription"`
 }
 
 type describePlatformVersionResponse struct {
@@ -140,13 +181,18 @@ func (h *Handler) handleDescribePlatformVersion(ctx context.Context, vals url.Va
 	return &describePlatformVersionResponse{
 		Xmlns: ebXMLNS,
 		DescribePlatformVersionResult: describePlatformVersionResult{
-			PlatformDescription: toPlatformVersionDesc(pv),
+			PlatformDescription: toPlatformDescriptionDesc(pv),
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-describe-platform-ver"},
 	}, nil
 }
 
 // listPlatformBranchesResponse is the XML response for ListPlatformBranches.
+// platformBranchSummary mirrors types.PlatformBranchSummary; BranchOrder
+// ("an ordering number... default branch is assigned 100") and
+// SupportedTierList are not modeled -- this backend's allPlatformBranches
+// below is a static, unordered curated list with no tier-compatibility
+// concept, so there is no real value to derive either from.
 type platformBranchSummary struct {
 	PlatformName   string `xml:"PlatformName"`
 	BranchName     string `xml:"BranchName"`
@@ -154,6 +200,7 @@ type platformBranchSummary struct {
 }
 
 type listPlatformBranchesResult struct {
+	NextToken                 string                  `xml:"NextToken,omitempty"`
 	PlatformBranchSummaryList []platformBranchSummary `xml:"PlatformBranchSummaryList>member"`
 }
 
@@ -245,22 +292,32 @@ func (h *Handler) handleListPlatformBranches(_ context.Context, vals url.Values)
 		}
 	}
 
+	pg := page.New(branches, vals.Get("NextToken"), parseMaxRecords(vals, "MaxRecords"), defaultListLimit)
+
 	return &listPlatformBranchesResponse{
 		Xmlns: ebXMLNS,
 		ListPlatformBranchesResult: listPlatformBranchesResult{
-			PlatformBranchSummaryList: branches,
+			PlatformBranchSummaryList: pg.Data,
+			NextToken:                 pg.Next,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-list-platform-branches"},
 	}, nil
 }
 
 // listPlatformVersionsResponse is the XML response for ListPlatformVersions.
+// platformSummary mirrors types.PlatformSummary -- see platformSummaryDescType's
+// doc comment in this file for the same disclosed-gap set (this backend
+// tracks no platform metadata beyond PlatformArn/PlatformName/
+// PlatformVersion/PlatformStatus).
 type platformSummary struct {
-	PlatformArn    string `xml:"PlatformArn"`
-	PlatformStatus string `xml:"PlatformStatus"`
+	PlatformArn     string `xml:"PlatformArn"`
+	PlatformOwner   string `xml:"PlatformOwner"`
+	PlatformVersion string `xml:"PlatformVersion"`
+	PlatformStatus  string `xml:"PlatformStatus"`
 }
 
 type listPlatformVersionsResult struct {
+	NextToken           string            `xml:"NextToken,omitempty"`
 	PlatformSummaryList []platformSummary `xml:"PlatformSummaryList>member"`
 }
 
@@ -271,14 +328,59 @@ type listPlatformVersionsResponse struct {
 	ListPlatformVersionsResult listPlatformVersionsResult `xml:"ListPlatformVersionsResult"`
 }
 
-func (h *Handler) handleListPlatformVersions(ctx context.Context, _ url.Values) (any, error) {
+// listPlatformVersionsFilterValue applies a single PlatformFilter's Type
+// against a *PlatformVersion, matching by equality only (this backend has no
+// other filterable attribute -- OperatingSystemName/SupportedTier/
+// SupportedAddon/ProgrammingLanguageName/PlatformBranchName/
+// PlatformLifecycleState are all unmodeled, see platformSummaryDescType --
+// and, matching handleListPlatformBranches's existing precedent, Operator is
+// not honored beyond implicit equality).
+func listPlatformVersionsFilterValue(pv *PlatformVersion, filterType string) (string, bool) {
+	switch filterType {
+	case "PlatformName":
+		return pv.PlatformName, true
+	case "PlatformVersion":
+		return pv.PlatformVersion, true
+	case "PlatformStatus":
+		return pv.PlatformStatus, true
+	case "PlatformArn":
+		return pv.PlatformArn, true
+	default:
+		return "", false
+	}
+}
+
+func (h *Handler) handleListPlatformVersions(ctx context.Context, vals url.Values) (any, error) {
 	pvs := h.Backend.ListPlatformVersions(ctx)
 
-	summaries := make([]platformSummary, 0, len(pvs))
-	for _, pv := range pvs {
+	for i := 1; ; i++ {
+		filterType := vals.Get(fmt.Sprintf("Filters.member.%d.Type", i))
+		if filterType == "" {
+			break
+		}
+
+		want := vals.Get(fmt.Sprintf("Filters.member.%d.Values.member.1", i))
+
+		filtered := make([]*PlatformVersion, 0, len(pvs))
+
+		for _, pv := range pvs {
+			if got, known := listPlatformVersionsFilterValue(pv, filterType); !known || strings.EqualFold(got, want) {
+				filtered = append(filtered, pv)
+			}
+		}
+
+		pvs = filtered
+	}
+
+	pg := page.New(pvs, vals.Get("NextToken"), parseMaxRecords(vals, "MaxRecords"), defaultListLimit)
+
+	summaries := make([]platformSummary, 0, len(pg.Data))
+	for _, pv := range pg.Data {
 		summaries = append(summaries, platformSummary{
-			PlatformArn:    pv.PlatformArn,
-			PlatformStatus: pv.PlatformStatus,
+			PlatformArn:     pv.PlatformArn,
+			PlatformOwner:   platformOwnerSelf,
+			PlatformVersion: pv.PlatformVersion,
+			PlatformStatus:  pv.PlatformStatus,
 		})
 	}
 
@@ -286,6 +388,7 @@ func (h *Handler) handleListPlatformVersions(ctx context.Context, _ url.Values) 
 		Xmlns: ebXMLNS,
 		ListPlatformVersionsResult: listPlatformVersionsResult{
 			PlatformSummaryList: summaries,
+			NextToken:           pg.Next,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-list-platform-versions"},
 	}, nil

@@ -30,20 +30,20 @@ ops:
   UpdateConsumableResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "gap #2 closed: ConsumableResourceProperty.Quantity is now int64, matching types.ConsumableResourceRequirement.Quantity (a Long) exactly"}
   ListConsumableResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: wire key was \"consumableResourceSummaryList\"; real ListConsumableResourcesOutput key is \"consumableResources\" -- a real SDK client always saw an empty list. Also added maxResults/nextToken pagination (previously absent) and narrowed the response item shape to match types.ConsumableResourceSummary (no tags/createdAt on this op, unlike DescribeConsumableResource)."}
   ListJobsByConsumableResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: returned the full Job shape under \"jobs\"; real ListJobsByConsumableResourceOutput.Jobs is []ListJobsByConsumableResourceSummary, a narrower/differently-named shape (jobQueueArn not jobQueue, jobStatus not status, plus quantity -- the requested amount of the queried resource). Added maxResults/nextToken pagination."}
-  CreateSchedulingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: handler hardcoded fairsharePolicy to nil regardless of what the caller sent -- SchedulingPolicy backend already accepted/stored it, only the handler wiring was missing"}
+  CreateSchedulingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: handler hardcoded fairsharePolicy to nil regardless of what the caller sent -- SchedulingPolicy backend already accepted/stored it, only the handler wiring was missing. gopherstack-6flj (this session): a SECOND real bug in the same op -- quotaSharePolicy (types.QuotaSharePolicy, a real alternative to fairsharePolicy, distinct from the separate top-level QuotaShare resource family) was parsed nowhere at all. Now modeled end to end (request parse, SchedulingPolicy.QuotaSharePolicy storage, Describe echo)."}
   DeleteSchedulingPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeSchedulingPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against types.SchedulingPolicyDetail (arn/name/fairsharePolicy/tags) -- matches"}
+  DescribeSchedulingPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against types.SchedulingPolicyDetail (arn/name/fairsharePolicy/tags) -- matches. gopherstack-6flj (this session): re-diffed against the current SDK's SchedulingPolicyDetail, which gained a fifth member, quotaSharePolicy, since this note was written -- was entirely unmodeled (a coverage gap in the prior field-diff, not argued-away); now emitted."}
   ListSchedulingPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: returned the full SchedulingPolicy shape; real ListSchedulingPoliciesOutput.SchedulingPolicies is []SchedulingPolicyListingDetail, which has only \"arn\" (no name/fairsharePolicy/tags -- callers use DescribeSchedulingPolicies for those). Added maxResults/nextToken pagination (previously absent)."}
-  UpdateSchedulingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: handler hardcoded fairsharePolicy to nil, same class of bug as CreateSchedulingPolicy"}
+  UpdateSchedulingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: handler hardcoded fairsharePolicy to nil, same class of bug as CreateSchedulingPolicy. gopherstack-6flj (this session): quotaSharePolicy was likewise parsed nowhere on Update -- now applied the same way fairsharePolicy already was (nil means \"leave unchanged\", matching this op's existing partial-update semantics)."}
   CreateServiceEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: CapacityLimits was missing from the ServiceEnvironment model entirely, even though it's a REQUIRED field on both CreateServiceEnvironmentInput and ServiceEnvironmentDetail -- a real SDK client's CapacityLimits was silently dropped on every create (confirmed: test/integration/batch_test.go's TestIntegration_Batch_ServiceEnvironmentLifecycle already sends CapacityLimits and never verified it round-tripped). Now required and validated (ErrValidation if empty)."}
   DeleteServiceEnvironment: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeServiceEnvironments: {wire: ok, errors: ok, state: ok, persist: ok, note: "added maxResults/nextToken pagination (previously absent; real API supports it)"}
   UpdateServiceEnvironment: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityLimits param"}
-  SubmitServiceJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FULL REWRITE this pass -- see families.ServiceJob below for the invented-field deletion and wire-shape fixes"}
-  DescribeServiceJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "see families.ServiceJob"}
-  ListServiceJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "see families.ServiceJob; now filters by jobQueue (was serviceEnvironment) and defaults to RUNNING-only when jobStatus is unspecified, matching documented AWS behavior"}
+  SubmitServiceJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FULL REWRITE this pass -- see families.ServiceJob below for the invented-field deletion and wire-shape fixes. gopherstack-6flj (this session): two more real request members, quotaShareName and preemptionConfiguration (types.ServiceJobPreemptionConfiguration), were parsed nowhere -- now modeled (ServiceJob.QuotaShareName/.PreemptionConfiguration)."}
+  DescribeServiceJob: {wire: partial, errors: ok, state: ok, persist: ok, note: "see families.ServiceJob. gopherstack-6flj (this session): quotaShareName and preemptionConfiguration now echoed (see SubmitServiceJob). STILL NOT modeled: attempts/capacityUsage/latestAttempt/preemptionSummary -- these require simulating per-attempt SageMaker Training job execution and actual preemption events, genuinely out of scope for an in-memory emulator (same reasoning as DescribeJobs's disclosed attempts/nodeDetails gap above); not reclassified to ok."}
+  ListServiceJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "see families.ServiceJob; now filters by jobQueue (was serviceEnvironment) and defaults to RUNNING-only when jobStatus is unspecified, matching documented AWS behavior. gopherstack-6flj (this session): ServiceJobSummary's quotaShareName member was likewise unmodeled -- now emitted (ServiceJobSummary has no preemptionConfiguration member at all, confirmed via its own deserializer case list, so nothing else to add here)."}
   TerminateServiceJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "input key fixed from \"serviceJob\" to \"jobId\", matching TerminateServiceJobInput exactly"}
-  GetJobQueueSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: response used an invented \"timestamp\" field (seconds, float64) instead of the real \"lastUpdatedAt\" (epoch-milliseconds, int64), and each job's earliestTimeAtPosition was likewise wrongly seconds-float instead of epoch-milliseconds-int64. A real SDK client parsing this response got wrong timestamps in both places (silently, since floats decode into *int64 fields as zero, not an error). Field-diffed against types.FrontOfQueueDetail/FrontOfQueueJobSummary; QueueUtilization (optional) is not modeled -- this emulator doesn't track per-share-identifier fair-share utilization stats."}
+  GetJobQueueSnapshot: {wire: partial, errors: ok, state: ok, persist: ok, note: "REAL BUG found and fixed this pass: response used an invented \"timestamp\" field (seconds, float64) instead of the real \"lastUpdatedAt\" (epoch-milliseconds, int64), and each job's earliestTimeAtPosition was likewise wrongly seconds-float instead of epoch-milliseconds-int64. A real SDK client parsing this response got wrong timestamps in both places (silently, since floats decode into *int64 fields as zero, not an error). Field-diffed against types.FrontOfQueueDetail/FrontOfQueueJobSummary; QueueUtilization (optional) is not modeled -- this emulator doesn't track per-share-identifier fair-share utilization stats. gopherstack-6flj (this session): re-checked GetJobQueueSnapshotOutput's full member set against the pinned SDK -- a THIRD top-level member, frontOfQuotaShares (types.FrontOfQuotaSharesDetail), is also entirely unmodeled and was not mentioned by the prior note at all (a coverage gap, not argued-away). Both frontOfQuotaShares and queueUtilization require simulating quota-share-based job ordering/capacity-usage accounting this backend doesn't do; left disclosed, not faked. STILL wire: partial for this reason, not reclassified to ok."}
   UpdateServiceJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (SDK bump). Mutates the REAL existing ServiceJob record created by SubmitServiceJob (b.serviceJobs table, keyed by jobId) -- not a fresh/parallel store. Only schedulingPriority is applied, matching UpdateServiceJobInput exactly (jobId + schedulingPriority, both required, no other fields exist on the real input). Rejects with ClientException when the job is already SUCCEEDED or FAILED (terminal), mirroring CancelJob's existing terminal-state guard on regular jobs; also bounds-checks schedulingPriority to the documented 0-9999 range. Covered by TestHandler_UpdateServiceJob (new table test in handler_service_jobs_test.go), including a describeservicejob round-trip proving the mutation lands on the same record."}
   CreateQuotaShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (SDK bump), part of the QuotaShare family -- see families.QuotaShare below."}
   DescribeQuotaShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW op (SDK bump); see families.QuotaShare."}
@@ -55,6 +55,8 @@ families:
 gaps:
   - "DescribeJobs (JobDetail) still does not model attempts/nodeDetails/ecsProperties/eksProperties(describe-side) -- these require simulating multi-node/ECS/EKS job execution details (per-attempt job execution, multi-node coordination, ECS/EKS placement), genuinely out of scope for an in-memory emulator this pass. Left un-implemented rather than faked (bd: file follow-up)"
   - "ContainerDetail (job-level, EKS-nested EksContainer/EksPodProperties) is missing a few leaf fields real AWS has (imagePullPolicy, imagePullSecrets on EKS container/pod types) -- spot-checked against the real serializer, not exhaustively field-by-field; low priority since these are pass-through config fields with no state-machine implications (bd: file follow-up, low priority)"
+  - "gopherstack-6flj (this session): GetJobQueueSnapshotOutput.frontOfQuotaShares and .queueUtilization (types.FrontOfQuotaSharesDetail/QueueSnapshotUtilizationDetail) are unmodeled -- both require simulating quota-share-based job ordering and per-share capacity-usage accounting this backend doesn't do (no scheduler groups RUNNABLE jobs by quota share or tracks utilization at all). frontOfQuotaShares was a previously-unflagged coverage gap in the prior audit's own field-diff note, which named only FrontOfQueueDetail/FrontOfQueueJobSummary and queueUtilization (bd: file follow-up)"
+  - "gopherstack-6flj (this session): DescribeServiceJobOutput.attempts/capacityUsage/latestAttempt/preemptionSummary are unmodeled -- same root cause as DescribeJobs's disclosed attempts/nodeDetails gap above (no per-attempt execution simulation), plus preemptionSummary specifically requires this backend to actually preempt service jobs under quota-share contention, which it never does (bd: file follow-up)"
 deferred: []
 leaks: {status: clean, note: "janitor.go's advanceJobs/sweep* all take/release the coarse lockmetrics.RWMutex correctly; every new backend method added this pass (SubmitServiceJob, ListServiceJobs, buildJobContainerDetail, describeResourcesPaginated) follows the same lock-then-defer-unlock pattern; go test -race clean. No new reverse-index maps were introduced that require cascade-cleanup on delete."}
 ---
@@ -192,3 +194,179 @@ rather than under a scheduling-policy resource. It does, however, reference
 a real `JobQueue` (required `jobQueue` parameter, validated against
 `b.lookupJQByNameOrARN` -- the same lookup `SubmitServiceJob` uses -- so an
 unknown queue name is rejected rather than silently accepted).
+
+### gopherstack-6flj wrapper-key/nested-shape sweep (this session, 2026-08-15)
+
+Picked via this issue's own method: read `services/_WRAPPER_KEY_SWEEP_REMAINDER.md`'s
+header/tail, ran `go run ./cmd/opcensus` fresh (17 L+D+G, tied exactly with
+`elasticbeanstalk`), read `bd show gopherstack-6flj` comments, read
+`git show 9e0dfab44` (docdb, the pass immediately prior). Started on
+`elasticbeanstalk` first (tied on the primary criterion, broken toward it on
+total op count: 47 vs `batch`'s 45, mirroring the docdb-vs-elasticbeanstalk
+tie-break the prior pass used) but a live sibling started editing
+`services/elasticbeanstalk/*` mid-investigation -- `git status` showed 10
+files (`environments.go`, `events.go`, `handler.go`,
+`handler_application_versions.go`, `handler_environments.go`,
+`handler_events.go`, `handler_instances_health.go`,
+`handler_managed_actions.go`, `handler_platforms.go`, `models.go`) gain
+uncommitted changes with zero edits made by this pass. Occupancy overrode
+the pick (no hand-revert needed -- this pass made no edits to
+elasticbeanstalk before the collision was noticed); moved to `batch`, the
+other 17-op-tier service, confirmed clean via `git status`.
+
+Protocol: `restjson1` (confirmed via `deserializers.go`'s
+`awsRestjson1_deserializeOp*` function prefix, not `_PROTOCOLS.md` alone),
+JSON body decode is case-SENSITIVE (Go struct `json:` tags matched via
+`encoding/json`, not `strings.EqualFold`) -- unlike query/XML services, a
+casing mismatch here is a real bug. Scripted key extraction both
+directions: response (`deserializers.go`, `case "key":` switch arms inside
+each `awsRestjson1_deserializeDocument*`/`*OpDocument*Output` function) and
+request (`serializers.go`, `.Key("key")` calls inside each
+`awsRestjson1_serializeDocument*`/`*OpDocument*Input` function), via the
+same paren-balance-aware Python walker used elsewhere in this campaign,
+adapted for restjson1's `map[string]interface{}` switch-over-key shape
+instead of query/XML's `strings.EqualFold(t.Name.Local, ...)` shape. All 45
+ops resolved `direct` from `GetSupportedOperations`; phantom-op check: zero
+(diffed the SDK's 45 `api_op_*.go` op names 1:1 against
+`GetSupportedOperations`'s own 45 entries, exact match).
+
+This service already carried an exceptionally thorough prior audit
+(`last_audit_commit` unchanged from the SDK-bump pass, `overall: A`, nearly
+every op individually field-diffed with SDK-line citations and several
+"REAL BUG found and fixed" entries) -- the top-level wrapper key on every
+one of the 17 List/Describe/Get ops matched the real deserializer exactly
+(no layer-1 bugs at all: `computeEnvironments`, `jobQueues`,
+`jobDefinitions`, `jobSummaryList`, `jobs`, `tags`, `schedulingPolicies`,
+`consumableResources`, `serviceEnvironments`, `quotaShares` all confirmed
+against both the Go struct tags and the extracted deserializer key lists).
+The real findings this pass were one layer deeper (this issue's own
+"wrapper keys are mostly clean -- the bugs are one level deeper" standing
+check held again):
+
+1. **`SchedulingPolicyDetail.quotaSharePolicy` (types.QuotaSharePolicy) was
+   entirely unmodeled** on `CreateSchedulingPolicy`, `UpdateSchedulingPolicy`,
+   and `DescribeSchedulingPolicies` -- a real, distinct alternative to
+   `fairsharePolicy` (confirmed via `types.SchedulingPolicyDetail`'s struct
+   definition and both ops' serializer `.Key("quotaSharePolicy")` calls).
+   NOT to be confused with the separate top-level `QuotaShare` resource
+   family added in the SDK-bump pass -- `QuotaSharePolicy` is a
+   single-field struct (`IdleResourceAssignmentStrategy`, real docs:
+   "Currently, only FIFO is supported") that lives directly on
+   `SchedulingPolicy`, the pre-existing resource. This is exactly the prior
+   audit's own field-diff note going stale: it was written against an
+   older `SchedulingPolicyDetail` shape (`arn`/`name`/`fairsharePolicy`/
+   `tags`, 4 members) and never re-checked after the SDK bump added a 5th.
+   Fixed: request parsing on both Create/Update, `SchedulingPolicy.
+   QuotaSharePolicy` storage, `DescribeSchedulingPolicies` echo.
+2. **`SubmitServiceJobInput.quotaShareName`/`.preemptionConfiguration`
+   (types.ServiceJobPreemptionConfiguration) were entirely unmodeled** --
+   real request members with zero backend wiring (grep for
+   `QuotaShareName`/`PreemptionConfiguration` across `services/batch/*.go`
+   returned zero hits before this pass). `PreemptionConfiguration` is a
+   single-field struct (`PreemptionRetriesBeforeTermination *int32`,
+   request-settable state, not execution-derived) -- distinct from the
+   response-only `PreemptionSummary` (actual preemption history, disclosed
+   below). Fixed: request parsing, `ServiceJob.QuotaShareName`/
+   `.PreemptionConfiguration` storage, `DescribeServiceJob` echo (both
+   fields) and `ListServiceJobs`'s narrower `ServiceJobSummary` echo
+   (`quotaShareName` only -- confirmed `ServiceJobSummary` has no
+   `preemptionConfiguration` member via its own deserializer case list).
+
+DISCLOSED, not fabricated (kept in a separate list from the two fixes
+above, each because it requires simulating execution/contention state this
+in-memory emulator doesn't model, and inventing plausible values would be
+exactly the fabrication this issue warns against):
+
+- `GetJobQueueSnapshotOutput.frontOfQuotaShares`
+  (types.FrontOfQuotaSharesDetail) and `.queueUtilization`
+  (types.QueueSnapshotUtilizationDetail) -- both require grouping RUNNABLE
+  jobs by quota share and tracking per-share capacity usage, which no
+  scheduler in this backend does. `queueUtilization` was already disclosed
+  by the prior audit; `frontOfQuotaShares` was NOT -- a coverage gap in
+  that prior field-diff note (named only `FrontOfQueueDetail`/
+  `FrontOfQueueJobSummary` and `queueUtilization`), not an
+  argued-away/reconsidered item. Corrected in both the `ops:` entry and a
+  new `gaps:` bullet.
+- `DescribeServiceJobOutput.attempts`/`.capacityUsage`/`.latestAttempt` --
+  same root cause as `DescribeJobs`'s already-disclosed
+  `attempts`/`nodeDetails`/`ecsProperties`/`eksProperties` gap (no
+  per-attempt execution simulation); extended the existing reasoning to
+  `ServiceJob` rather than treating it as a new class of gap.
+- `DescribeServiceJobOutput.preemptionSummary`
+  (types.ServiceJobPreemptionSummary) -- response-only actual-preemption
+  history; this backend never preempts a service job (no quota-share
+  contention simulation), so the field can never have real content.
+  `PreemptionConfiguration`, by contrast, is the request-driven
+  *configuration* for that behavior and IS modeled (fix #2 above) -- the
+  two are easy to conflate by name alone; distinguished explicitly via
+  in-code comment on `describeServiceJobOutput` and in the `ServiceJob`
+  model.
+
+Go kinds checked: `QuotaSharePolicy.IdleResourceAssignmentStrategy` is a
+bare string (real type is a single-value string enum, `FIFO` only) --
+accepted and stored verbatim, not validated against that one value, matching
+this file's existing precedent of not enum-validating `FairsharePolicy`'s
+own string-typed sibling fields. `ServiceJobPreemptionConfiguration.
+PreemptionRetriesBeforeTermination` is `*int32` (nil is a real, distinct
+"unlimited retries" value per the SDK's own doc comment, not just "unset");
+modeled as a pointer, not a bare `int32` defaulting to `0`, to preserve that
+distinction.
+
+Required-member diffs: none of the four new/echoed members
+(`quotaSharePolicy`, `quotaShareName`, `preemptionConfiguration`,
+`preemptionConfiguration.preemptionRetriesBeforeTermination`) are
+`// This member is required.` per the SDK's own doc comments -- scoped
+explicitly, all optional.
+
+Symmetric pair checked, confirmed correct rather than a trap missed:
+`ServiceJob.ShareIdentifier` (pre-existing, a `SchedulingPolicy`'s
+`FairsharePolicy.ShareDistribution` share label) vs. the new
+`QuotaShareName` (a `QuotaShare` resource's name) -- genuinely two
+different association mechanisms for two different scheduling-policy
+types, both real, both now correctly modeled independently; not a
+duplicate/renamed field.
+
+TESTS: `services/batch/handler_sdk_roundtrip_test.go` (new), two tests
+using the real `aws-sdk-go-v2/service/batch` client against an in-process
+`httptest.Server` (mirrors `services/docdb`'s established
+`handler_sdk_roundtrip_test.go` pattern for this campaign, not the
+`map[string]any`-decoding `post()` helper most of this package's other
+tests use, per this issue's "SDK's own types" requirement):
+`Test_SDKRoundTrip_SchedulingPolicy_QuotaSharePolicy` (Create with
+`QuotaSharePolicy` set, Describe confirms it round-trips, Update applies a
+new value, re-Describe confirms) and
+`Test_SDKRoundTrip_ServiceJob_QuotaShareAndPreemption` (SubmitServiceJob
+with both new fields, DescribeServiceJob and ListServiceJobs both confirmed
+-- the list assertion required explicitly passing
+`JobStatus: types.ServiceJobStatusSubmitted`, since `ListServiceJobs`
+defaults to RUNNING-only per this file's own already-documented "Verified
+NOT bugs" note, and a freshly-submitted job is SUBMITTED, not RUNNING; the
+test would have silently asserted against an empty list otherwise -- caught
+by re-reading that existing note before writing the assertion, not by a
+failing run). Existing `persistence_test.go` coverage extended in place
+(not a new file) for both new fields' Snapshot/Restore round-trip:
+`TestInMemoryBackend_SnapshotRestore_FullState`'s existing
+`CreateSchedulingPolicy`/`SubmitServiceJob` calls now also set
+`QuotaSharePolicy`/`QuotaShareName`+`PreemptionConfiguration`, with new
+post-restore assertions. `isolation_test.go`'s three existing
+`CreateSchedulingPolicy` call sites updated for the new 5th parameter
+(passing `nil`, unrelated to what that test verifies).
+
+GATES: **NOT independently confirmed this pass** -- the Bash tool became
+unavailable partway through this pass (every invocation, including
+trivial ones like `echo`/`pwd`, returned a bare failure with no stdout/stderr)
+and did not recover before this pass had to report out. All edits were
+instead verified by hand: re-reading every changed section in full via the
+Read tool for brace/field/type-name correctness, cross-checking every new
+SDK type/enum constant used in the new test file (`types.QuotaSharePolicy`,
+`types.QuotaShareIdleResourceAssignmentStrategyFifo`,
+`types.ServiceJobPreemptionConfiguration`, `types.ServiceJobTypeSagemaker
+Training`, `types.CETypeManaged`) against the pinned SDK's own
+`types/enums.go`/`types/types.go` source via Read (not from memory), and
+manually tracing every call site of the two signature changes
+(`CreateSchedulingPolicy`, `UpdateSchedulingPolicy`, `SubmitServiceJob`) to
+confirm each was updated consistently. This is a disclosed exception, not a
+silent gap: `go build`/`go vet`/`go test -race`/`go fix -diff`/
+`golangci-lint run` for `services/batch/...` and `./pkgs/...` were NOT run
+by this pass and must be run (and any resulting fix applied) before this
+work is considered done.

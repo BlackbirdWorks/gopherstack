@@ -25,12 +25,19 @@ func (b *InMemoryBackend) eventsSliceRO(region string) []*EventRecord {
 	return []*EventRecord{}
 }
 
-// appendEvent appends an event record to the backend's event log.
+// appendEvent appends an event record to the backend's event log, capturing
+// env's PlatformArn/TemplateName/VersionLabel at the moment of the action
+// (real EventDescription.PlatformArn/TemplateName/VersionLabel: "associated
+// with this event" -- i.e. the environment's configuration at event time,
+// not a live join against its current state).
 // Caller must hold at least a write lock.
-func (b *InMemoryBackend) appendEvent(region, appName, envName, message, severity string) {
+func (b *InMemoryBackend) appendEvent(region string, env *Environment, message, severity string) {
 	events := append(b.eventsSlice(region), &EventRecord{
-		ApplicationName: appName,
-		EnvironmentName: envName,
+		ApplicationName: env.ApplicationName,
+		EnvironmentName: env.EnvironmentName,
+		PlatformArn:     env.PlatformARN,
+		TemplateName:    env.TemplateName,
+		VersionLabel:    env.VersionLabel,
 		EventDate:       nowISO8601(),
 		Message:         message,
 		Severity:        severity,
