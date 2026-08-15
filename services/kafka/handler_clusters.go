@@ -32,6 +32,13 @@ type brokerSoftwareInfo struct {
 }
 
 // clusterInfoV1 is the V1 cluster response shape (DescribeCluster / ListClusters).
+//
+// Field-diffed against kafka@v1.57.2 deserializers.go's
+// awsRestjson1_deserializeDocumentClusterInfo switch: the real types.ClusterInfo
+// has no top-level KafkaVersion or ConfigurationInfo member (KafkaVersion only
+// appears nested under CurrentBrokerSoftwareInfo; ConfigurationInfo is a
+// MutableClusterInfo/ClusterOperation-only field, not emitted here by AWS) --
+// both were previously fabricated on this DTO and are not modeled at all.
 type clusterInfoV1 struct {
 	Tags                      map[string]string     `json:"tags,omitempty"`
 	CurrentBrokerSoftwareInfo *brokerSoftwareInfo   `json:"currentBrokerSoftwareInfo,omitempty"`
@@ -40,16 +47,17 @@ type clusterInfoV1 struct {
 	OpenMonitoring            *OpenMonitoring       `json:"openMonitoring,omitempty"`
 	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
 	StateInfo                 *StateInfo            `json:"stateInfo,omitempty"`
-	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 	Rebalancing               *Rebalancing          `json:"rebalancing,omitempty"`
 	ClusterArn                string                `json:"clusterArn"`
 	ClusterName               string                `json:"clusterName"`
-	KafkaVersion              string                `json:"kafkaVersion"`
 	State                     string                `json:"state"`
 	CurrentVersion            string                `json:"currentVersion"`
 	ActiveOperationArn        string                `json:"activeOperationArn,omitempty"`
 	EnhancedMonitoring        string                `json:"enhancedMonitoring,omitempty"`
+	StorageMode               string                `json:"storageMode,omitempty"`
+	CreationTime              string                `json:"creationTime,omitempty"`
 	ZookeeperConnectString    string                `json:"zookeeperConnectString,omitempty"`
+	ZookeeperConnectStringTLS string                `json:"zookeeperConnectStringTls,omitempty"`
 	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
 }
@@ -63,31 +71,45 @@ type listClustersOutput struct {
 	ClusterInfoList []*clusterInfoV1 `json:"clusterInfoList"`
 }
 
+// provisionedClusterInfo is the V2 "provisioned" arm (types.Provisioned).
+// Field-diffed against deserializers.go's
+// awsRestjson1_deserializeDocumentProvisioned switch: unlike ClusterInfo(V1),
+// the real type has no State member at all (State lives one level up, on the
+// V2 response's top-level Cluster) and, like V1, no KafkaVersion or
+// ConfigurationInfo member -- all three were previously fabricated here.
 type provisionedClusterInfo struct {
 	CurrentBrokerSoftwareInfo *brokerSoftwareInfo   `json:"currentBrokerSoftwareInfo,omitempty"`
 	ClientAuthentication      *ClientAuthentication `json:"clientAuthentication,omitempty"`
 	EncryptionInfo            *EncryptionInfo       `json:"encryptionInfo,omitempty"`
 	OpenMonitoring            *OpenMonitoring       `json:"openMonitoring,omitempty"`
 	LoggingInfo               *LoggingInfo          `json:"loggingInfo,omitempty"`
-	ConfigurationInfo         *ConfigurationInfo    `json:"configurationInfo,omitempty"`
 	Rebalancing               *Rebalancing          `json:"rebalancing,omitempty"`
-	KafkaVersion              string                `json:"kafkaVersion"`
-	State                     string                `json:"state"`
 	EnhancedMonitoring        string                `json:"enhancedMonitoring,omitempty"`
 	StorageMode               string                `json:"storageMode,omitempty"`
+	ZookeeperConnectString    string                `json:"zookeeperConnectString,omitempty"`
+	ZookeeperConnectStringTLS string                `json:"zookeeperConnectStringTls,omitempty"`
 	BrokerNodeGroupInfo       BrokerNodeGroupInfo   `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes       int32                 `json:"numberOfBrokerNodes"`
 }
 
+// clusterInfoV2 is the real top-level types.Cluster (DescribeClusterV2 /
+// ListClustersV2). Field-diffed against
+// awsRestjson1_deserializeDocumentCluster: ActiveOperationArn/CreationTime/
+// StateInfo are real members this DTO previously dropped even though the
+// backend already tracks all three (see toClusterInfoV1, which already
+// emitted them correctly on the V1 sibling).
 type clusterInfoV2 struct {
-	Tags           map[string]string       `json:"tags,omitempty"`
-	Provisioned    *provisionedClusterInfo `json:"provisioned,omitempty"`
-	Serverless     *ServerlessClusterInfo  `json:"serverless,omitempty"`
-	ClusterArn     string                  `json:"clusterArn"`
-	ClusterName    string                  `json:"clusterName"`
-	ClusterType    string                  `json:"clusterType"`
-	State          string                  `json:"state"`
-	CurrentVersion string                  `json:"currentVersion,omitempty"`
+	Tags               map[string]string       `json:"tags,omitempty"`
+	Provisioned        *provisionedClusterInfo `json:"provisioned,omitempty"`
+	Serverless         *ServerlessClusterInfo  `json:"serverless,omitempty"`
+	StateInfo          *StateInfo              `json:"stateInfo,omitempty"`
+	ClusterArn         string                  `json:"clusterArn"`
+	ClusterName        string                  `json:"clusterName"`
+	ClusterType        string                  `json:"clusterType"`
+	State              string                  `json:"state"`
+	CurrentVersion     string                  `json:"currentVersion,omitempty"`
+	ActiveOperationArn string                  `json:"activeOperationArn,omitempty"`
+	CreationTime       string                  `json:"creationTime,omitempty"`
 }
 
 type describeClusterV2Output struct {
@@ -477,7 +499,6 @@ func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
 	return &clusterInfoV1{
 		ClusterArn:                cl.ClusterArn,
 		ClusterName:               cl.ClusterName,
-		KafkaVersion:              cl.KafkaVersion,
 		State:                     cl.State,
 		CurrentVersion:            cl.CurrentVersion,
 		BrokerNodeGroupInfo:       cl.BrokerNodeGroupInfo,
@@ -489,32 +510,43 @@ func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
 		StateInfo:                 cl.StateInfo,
 		ActiveOperationArn:        cl.ActiveOperationArn,
 		EnhancedMonitoring:        cl.EnhancedMonitoring,
-		ZookeeperConnectString:    zookeeperConnectStringFor(cl.ClusterArn),
+		StorageMode:               cl.StorageMode,
+		CreationTime:              cl.CreationTime,
+		ZookeeperConnectString:    zookeeperConnectStringFor(cl.ClusterArn, zkPortPlaintext),
+		ZookeeperConnectStringTLS: zookeeperConnectStringFor(cl.ClusterArn, zkPortTLS),
 		Tags:                      maps.Clone(cl.Tags),
 		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
-		ConfigurationInfo:         cl.ConfigurationInfo,
 		Rebalancing:               cl.Rebalancing,
 	}
 }
 
-// zookeeperConnectStringFor synthesises a ZooKeeper connect string from the cluster ARN.
-// This mirrors the legacy ZooKeeper endpoint format used by older MSK clusters.
-func zookeeperConnectStringFor(clusterArn string) string {
+// ZooKeeper connect string ports: 2181 is the standard plaintext port, 2182
+// the TLS port, per MSK's documented ZooKeeper endpoint convention.
+const (
+	zkPortPlaintext = 2181
+	zkPortTLS       = 2182
+)
+
+// zookeeperConnectStringFor synthesises a ZooKeeper connect string from the
+// cluster ARN. This mirrors the legacy ZooKeeper endpoint format used by
+// older MSK clusters; there is no real per-broker ZooKeeper state in this
+// in-memory emulator to draw the value from instead.
+func zookeeperConnectStringFor(clusterArn string, port int) string {
 	if clusterArn == "" {
 		return ""
 	}
 
 	// Synthesise a deterministic-looking ZK endpoint from the ARN suffix.
-	// Format: z-1.<cluster-id>.kafka.<region>.amazonaws.com:2181,...
+	// Format: z-1.<cluster-id>.kafka.<region>.amazonaws.com:<port>,...
 	clusterID, region := parseClusterIDAndRegion(clusterArn)
 
 	return fmt.Sprintf(
-		"z-1.%s.kafka.%s.amazonaws.com:2181,"+
-			"z-2.%s.kafka.%s.amazonaws.com:2181,"+
-			"z-3.%s.kafka.%s.amazonaws.com:2181",
-		clusterID, region,
-		clusterID, region,
-		clusterID, region,
+		"z-1.%s.kafka.%s.amazonaws.com:%d,"+
+			"z-2.%s.kafka.%s.amazonaws.com:%d,"+
+			"z-3.%s.kafka.%s.amazonaws.com:%d",
+		clusterID, region, port,
+		clusterID, region, port,
+		clusterID, region, port,
 	)
 }
 
@@ -550,12 +582,15 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 	}
 
 	info := &clusterInfoV2{
-		ClusterArn:     cl.ClusterArn,
-		ClusterName:    cl.ClusterName,
-		ClusterType:    clusterType,
-		State:          cl.State,
-		CurrentVersion: cl.CurrentVersion,
-		Tags:           maps.Clone(cl.Tags),
+		ClusterArn:         cl.ClusterArn,
+		ClusterName:        cl.ClusterName,
+		ClusterType:        clusterType,
+		State:              cl.State,
+		CurrentVersion:     cl.CurrentVersion,
+		ActiveOperationArn: cl.ActiveOperationArn,
+		CreationTime:       cl.CreationTime,
+		StateInfo:          cl.StateInfo,
+		Tags:               maps.Clone(cl.Tags),
 	}
 
 	if clusterType == ClusterTypeServerless {
@@ -563,9 +598,7 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 	} else {
 		info.Provisioned = &provisionedClusterInfo{
 			BrokerNodeGroupInfo:       cl.BrokerNodeGroupInfo,
-			KafkaVersion:              cl.KafkaVersion,
 			NumberOfBrokerNodes:       cl.NumberOfBrokerNodes,
-			State:                     cl.State,
 			ClientAuthentication:      cl.ClientAuthentication,
 			EncryptionInfo:            cl.EncryptionInfo,
 			OpenMonitoring:            cl.OpenMonitoring,
@@ -573,7 +606,8 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 			EnhancedMonitoring:        cl.EnhancedMonitoring,
 			StorageMode:               cl.StorageMode,
 			CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
-			ConfigurationInfo:         cl.ConfigurationInfo,
+			ZookeeperConnectString:    zookeeperConnectStringFor(cl.ClusterArn, zkPortPlaintext),
+			ZookeeperConnectStringTLS: zookeeperConnectStringFor(cl.ClusterArn, zkPortTLS),
 			Rebalancing:               cl.Rebalancing,
 		}
 	}

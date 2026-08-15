@@ -1,7 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**75 of 162 services swept, 87 remain** (apigatewayv2, workmail, wafv2, ce,
-waf, vpclattice, emr, and now eventbridge all added this session, in
+**76 of 162 services swept, 86 remain** (apigatewayv2, workmail, wafv2, ce,
+waf, vpclattice, emr, eventbridge, and now kafka all added this session, in
 parallel, by different sessions — see each service's own section at the end
 of this file for full detail).
 
@@ -100,7 +100,7 @@ cognitoidp, datasync, dlm, dynamodbstreams, ec2, ecs, eks,
 elasticache, elbv2, **emr** (this session), **eventbridge** (this session),
 forecast,
 glue, guardduty, iam, identitystore, inspector2, iot,
-iotwireless, kms, lambda, lightsail, macie2, medialive,
+iotwireless, **kafka** (this session), kms, lambda, lightsail, macie2, medialive,
 mgn, networkmanager, networkmonitor, omics,
 opensearch, organizations, personalize, pinpoint,
 quicksight, rds, redshift,
@@ -117,7 +117,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (87 of 162), ranked by List+Describe+Get op count
+## Unswept (86 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -132,16 +132,15 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 87 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 86 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
 apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34,
-vpclattice's 30, emr's 30, and eventbridge's 30 removed, all swept prior
-to/this session): **1,095** candidate ops.
+vpclattice's 30, emr's 30, eventbridge's 30, and kafka's 29 removed, all
+swept prior to/this session): **1,066** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
 | route53resolver | 30 | 16 | 0 | 14 | 30 | manual (range target unresolved by tool) |
-| kafka | 64 | 15 | 11 | 3 | 29 | direct |
 | appsync | 74 | 13 | 0 | 15 | 28 | direct |
 | workspaces | 111 | 2 | 24 | 1 | 27 | dynamic-fallback |
 | lakeformation | 61 | 8 | 3 | 15 | 26 | direct |
@@ -4077,3 +4076,156 @@ collisions after the emr near-miss at the start.
 candidates are `route53resolver` (30, `manual`, unresolved by
 `cmd/opcensus`, hand-counted) and `kafka` (29, `direct`) — re-check
 `git status` before picking either.
+
+## kafka (this session)
+
+Chosen as the next-largest unswept service (29 L+D+G ops: 15 List/11
+Describe/3 Get) that didn't collide with the live sibling on eventbridge
+(confirmed via `git status` at start — only `services/eventbridge` and a
+one-line `services/cloudformation` cross-reference were modified; both
+untouched by this session). Single client (MSK — no second/companion client
+in this service, unlike eventbridge's Schemas surface), matching the
+"settle completely" preference from the emr pass.
+
+PROTOCOL: confirmed `awsRestjson1_` from kafka@v1.57.2 deserializers.go's
+sole function prefix. Case-sensitive: all 398 `EqualFold` hits are either
+`errorCode` matching or float `NaN`/`Infinity`/`-Infinity` special-value
+parsing inside numeric-field decode branches — none in a body-field `switch
+key { case "...": }` block, confirmed by reading `HandleDeserialize` for
+`ListClustersV2` directly (it calls
+`awsRestjson1_deserializeOpDocumentListClustersV2Output` itself; no dead
+`OpDocument...Output` wrapper sits between them, so the dead-deserializer
+trap does not apply here, unlike pinpoint's restjson1).
+
+**This service already had an unusually deep PARITY.md audit history**
+(gopherstack-h910, jqh2, dv4s, mk3t) with nearly every op marked `wire: ok`
+and "field-diffed against deserializers.go" — including DescribeCluster/
+ListClusters/DescribeClusterV2/ListClustersV2, the four ops this session
+found the most bugs in. **That prior confidence was wrong.** A fresh,
+independent per-field diff of `ClusterInfo`/the V2 top-level `Cluster`/
+`Provisioned` against the real deserializer's own case list (not trusting
+the PARITY.md notes) found a dense cluster of bugs concentrated in exactly
+the area repeatedly marked safest:
+
+1. **Fabricated members, both V1 and V2 (5 fields across 4 ops).**
+   `ClusterInfo` (DescribeCluster/ListClusters) emitted a top-level
+   `kafkaVersion` and `configurationInfo` that don't exist on the real type
+   at all (confirmed: no such case in
+   `awsRestjson1_deserializeDocumentClusterInfo`). `Provisioned`
+   (DescribeClusterV2/ListClustersV2's nested arm) emitted the same two
+   plus a fabricated `state` (real `state` lives only on the V2 response's
+   top-level `Cluster`, confirmed absent from `Provisioned`'s own
+   deserializer). Harmless to a real client (unknown JSON keys are silently
+   ignored — confirmed via the deserializer's `default: _, _ = key, value`
+   case), but still wrong. All five removed.
+2. **A real key, but it belongs on a different type (echo of last pass's
+   flagship finding).** `kafkaVersion`/`configurationInfo` genuinely exist
+   on the real API — as members of `MutableClusterInfo`, used by
+   `ClusterOperationInfo`'s `sourceClusterInfo`/`targetClusterInfo` (the
+   operation-tracking family), not `ClusterInfo`/`Provisioned`. gopherstack's
+   own `MutableClusterInfo`/`ClusterOperation` types don't model either
+   field yet, and that family already carries a disclosed, deliberately-
+   deferred note about a wider V2/`ClusterOperation` remodel (the
+   `operationArn` vs `clusterOperationArn` key bug in
+   `clusterOperationV2SummaryOutput`'s doc comment). Relocating these two
+   fields there is disclosed, not fixed, to avoid scope-creeping into that
+   already-tracked, larger gap.
+3. **Backend-tracked but never emitted (layer 3, "one sibling correct
+   beside the broken one").** `storageMode`/`creationTime` missing from
+   `ClusterInfo` (V1) despite `Cluster.StorageMode`/`CreationTime` already
+   being tracked and already correctly emitted by `Provisioned`(V2)/(for
+   StorageMode) — sibling trap, V2 right, V1 wrong. `activeOperationArn`/
+   `creationTime`/`stateInfo` missing from the V2 top-level `Cluster`
+   despite all three already being correctly emitted by the V1 sibling
+   (`ClusterInfo`) — same pattern, mirrored. Investigating `CreationTime`
+   further found it was never actually **set** anywhere in this backend
+   (always `""`) despite having a real field and JSON tag — fixed at
+   `CreateCluster`/`CreateClusterV2`/`CreateServerlessCluster`/
+   `AddClusterInternal`, matching the `time.Now().UTC().Format(time.RFC3339)`
+   pattern every other resource in this service (Configuration/Replicator/
+   VpcConnection/Channel) already used.
+4. **Missing real fields, fixed by extending an existing synthesis
+   precedent.** `zookeeperConnectStringTls` (V1) and both
+   `zookeeperConnectString`/`zookeeperConnectStringTls` (V2 `Provisioned`,
+   which had neither) are real members this backend never emitted. The
+   existing `zookeeperConnectStringFor` helper already synthesizes a
+   plausible ZK endpoint from the cluster ARN for V1's plaintext port (a
+   pre-existing, already-accepted documented simplification — this backend
+   has no real per-broker ZK state) — extended to take a port parameter and
+   wired to both the TLS port (2182) and the V2 response, which never had it
+   at all.
+5. **Discarded input (6th instance of this class across the campaign, after
+   apigatewayv2/ce/vpclattice/emr×2).** `CreateReplicatorInput.LogDelivery`
+   (real, optional member, `api_op_CreateReplicator.go`) was parsed nowhere
+   — silently dropped on every call, never stored, never echoed by
+   `DescribeReplicator` (whose real output also carries it, confirmed via
+   deserializers.go). Fixed: accepted, stored (`Replicator.LogDelivery`,
+   deep-cloned via a new `cloneLogDelivery`), and echoed. Reused the
+   existing `CloudWatchLogs`/`Firehose`/`S3Logs` types as-is rather than
+   inventing new ones — their wire field names are identical to the real
+   `ReplicatorCloudWatchLogs`/`ReplicatorFirehose`/`ReplicatorS3`.
+
+**Ratifying test found and fixed**: `TestUpdateClusterConfiguration_V2Path`
+asserted `provisioned["configurationInfo"]["arn"]` as the correct shape — a
+raw-body (`map[string]any`) test that only passed because the handler and
+the test agreed on the fabricated field (finding #1 above). Reverting the
+fix reproduced the exact predicted failure (`expected:
+"arn:aws:kafka:...", actual: <nil>`). Rewritten to assert the field is
+genuinely absent (`assert.NotContains`) with an explanatory comment; the
+persisted-configuration behavior itself remains covered by the sibling
+domain-level tests (`TestUpdateClusterConfiguration_PersistsConfig`/
+`_HTTP`, which read the backend's own `*Cluster` struct directly rather than
+the wire JSON, and were never wrong).
+
+**Everything else spot-checked came back clean.** Topics family
+(`DescribeTopic`/`ListTopics`) matches `types.TopicInfo`/
+`DescribeTopicOutput` field-for-field. `ListKafkaVersions`/`ListNodes` both
+have a real, unmodeled `nextToken` pagination member this backend's
+single-page response omits — disclosed, not fixed (this in-memory backend's
+version/node lists are never large enough to need real pagination, and an
+always-empty cursor would be fabrication, not a fix). `ListNodes`' existing
+"wire: partial" note (missing `BrokerNodeInfo`/`ControllerNodeInfo`/
+`ZookeeperNodeInfo`/`NodeARN` on the real `types.NodeInfo` shape, filed
+under gopherstack-mk3t, a different — and larger — bug than this issue's
+wrapper-key class) was re-confirmed still accurate and is not duplicated
+here.
+
+**Phantom ops**: none — every op string in `GetSupportedOperations`
+corresponds to a real `api_op_*.go` file in kafka@v1.57.2 (all 64 checked).
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `awsRestjson1_deserializeDocument<Type>`/`deserializeOpDocument<Op>
+Output` function's own case list, file-grepped directly, never a doc
+comment or a prior PARITY.md claim taken on faith (the whole point of this
+pass — the prior claims were the thing that turned out wrong).
+
+**Real-client test ratio**: 9 real-aws-sdk-go-v2-client tests added
+(`services/kafka/cluster_field_fixes_test.go` ×4 covering finding #3/#4,
+`services/kafka/replicator_log_delivery_test.go` ×1 covering finding #5)
+plus the 1 ratifying-test rewrite, covering every fix above except
+`activeOperationArn` — genuinely untestable for a non-empty value, since
+nothing in this backend ever sets it to non-empty (a pre-existing gap this
+pass did not expand scope to fix; the wire plumbing is now correct for
+whenever it is set). Every fix hand-reverted individually (no git, per this
+session's hard no-git-mutation constraint), confirmed to fail with the
+exact predicted symptom (assertion diffs quoted in each test's own commit
+history), then restored and diffed byte-identical against the pre-revert
+file before moving to the next.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to `services/kafka`),
+`go fix -diff` (no diff), `gofmt`/`goimports`/`golines` (3 formatting
+findings from golangci-lint's goimports/golines checks, fixed by running the
+actual formatters rather than hand-wrapping), `fieldalignment` (0 hits),
+`golangci-lint run` (0 issues; no cyclop/gocyclo/gocognit/funlen nolints
+added) all green for `services/kafka`. `go test -race ./pkgs/...` green.
+
+No subagents used (Read/Grep/Bash only, per this session's hard constraint).
+No git-mutating commands run — orchestrator must commit/push. `git status`
+re-checked before starting and again at the end; only `services/kafka` files
+touched, no sibling collisions (the eventbridge/cloudformation diff from the
+session start had already been committed locally by that sibling session by
+the time this pass finished, confirmed via `git log`).
+
+76 of 162 services swept, 86 remain. Per the ranked table, `route53resolver`
+(30, `manual`, unresolved by `cmd/opcensus`, hand-counted) is next largest —
+re-check `git status` before picking it.

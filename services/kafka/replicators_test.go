@@ -36,6 +36,7 @@ func TestCreateReplicator(t *testing.T) {
 					nil,
 					nil,
 					nil,
+					nil,
 				)
 			},
 			wantErr: true,
@@ -53,6 +54,7 @@ func TestCreateReplicator(t *testing.T) {
 				tt.repName,
 				"test replicator",
 				"arn:aws:iam::000000000000:role/my-role",
+				nil,
 				nil,
 				nil,
 				nil,
@@ -107,7 +109,7 @@ func TestCreateReplicator_TopologyAndAliasResolution(t *testing.T) {
 
 	replicator, err := b.CreateReplicator(
 		context.Background(), "topo-replicator", "", "arn:aws:iam::000000000000:role/r",
-		kafkaClusters, replicationInfoList, nil,
+		kafkaClusters, replicationInfoList, nil, nil,
 	)
 	require.NoError(t, err)
 	require.Len(t, replicator.KafkaClusters, 2)
@@ -127,7 +129,7 @@ func TestCreateReplicator_TopologyAndAliasResolution(t *testing.T) {
 	unknownArn := "arn:aws:kafka:us-east-1:000000000000:cluster/ghost-cluster/uuid-1"
 	ghost, err := b.CreateReplicator(
 		context.Background(), "ghost-replicator", "", "arn:aws:iam::000000000000:role/r",
-		[]kafka.ClusterConfig{{MskClusterArn: unknownArn}}, nil, nil,
+		[]kafka.ClusterConfig{{MskClusterArn: unknownArn}}, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "uuid-1", ghost.KafkaClusters[0].Alias)
@@ -149,6 +151,7 @@ func TestDeleteReplicator(t *testing.T) {
 					"my-replicator",
 					"",
 					"arn:aws:iam::000000000000:role/my-role",
+					nil,
 					nil,
 					nil,
 					nil,
@@ -190,7 +193,7 @@ func TestCreateReplicator_RequiresName(t *testing.T) {
 	t.Parallel()
 
 	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
-	_, err := b.CreateReplicator(context.Background(), "", "", "", nil, nil, nil)
+	_, err := b.CreateReplicator(context.Background(), "", "", "", nil, nil, nil, nil)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, kafka.ErrValidation)
@@ -223,6 +226,7 @@ func replicationInfoFixture(
 			SourceKafkaClusterArn: source.ClusterArn,
 			TargetKafkaClusterArn: target.ClusterArn,
 		}},
+		nil,
 		nil,
 	)
 	require.NoError(t, err)

@@ -97,7 +97,7 @@ func TestErrAlreadyExistsMapping(t *testing.T) {
 			name: "duplicate_replicator",
 			fn: func(b *kafka.InMemoryBackend) error {
 				b.AddReplicatorInternal("dup-rep")
-				_, err := b.CreateReplicator(context.Background(), "dup-rep", "", "", nil, nil, nil)
+				_, err := b.CreateReplicator(context.Background(), "dup-rep", "", "", nil, nil, nil, nil)
 
 				return err
 			},

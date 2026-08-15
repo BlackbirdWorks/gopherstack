@@ -594,7 +594,16 @@ func TestUpdateClusterConfiguration_V2Path(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	assert.NotEmpty(t, resp["clusterOperationArn"])
 
-	// Verify configurationInfo persisted.
+	// The real DescribeClusterV2Output.Provisioned (types.Provisioned) has no
+	// configurationInfo member -- field-diffed against kafka@v1.57.2
+	// deserializers.go's awsRestjson1_deserializeDocumentProvisioned, which
+	// has no such case. AWS only surfaces the active/target configuration via
+	// the cluster operation record (DescribeClusterOperation's
+	// sourceClusterInfo/targetClusterInfo), not via DescribeCluster(V2).
+	// gopherstack previously fabricated this field here; this test used to
+	// assert that wrong shape as correct. The persisted configuration itself
+	// is covered at the domain level by TestUpdateClusterConfiguration_HTTP/
+	// TestUpdateClusterConfiguration_PersistsConfig.
 	descRec := doKafkaRequest(t, h, http.MethodGet, "/api/v2/clusters/"+encoded, nil)
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -602,7 +611,6 @@ func TestUpdateClusterConfiguration_V2Path(t *testing.T) {
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
 	clusterInfo, _ := descResp["clusterInfo"].(map[string]any)
 	provisioned, _ := clusterInfo["provisioned"].(map[string]any)
-	cfgInfo, _ := provisioned["configurationInfo"].(map[string]any)
-	assert.Equal(t, configArn, cfgInfo["arn"])
-	assert.InDelta(t, float64(1), cfgInfo["revision"], 0)
+	assert.NotContains(t, provisioned, "configurationInfo",
+		"configurationInfo is not a real Provisioned member; must not be on the wire")
 }

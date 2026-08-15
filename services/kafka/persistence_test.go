@@ -151,7 +151,7 @@ func TestBackend_SnapshotRestoreFullState(t *testing.T) {
 	require.NoError(t, original.TagResource(ctx, config.Arn, map[string]string{"team": "data"}))
 
 	replicator, err := original.CreateReplicator(
-		ctx, "repl1", "desc", "arn:aws:iam::999999999999:role/r", nil, nil, nil,
+		ctx, "repl1", "desc", "arn:aws:iam::999999999999:role/r", nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 

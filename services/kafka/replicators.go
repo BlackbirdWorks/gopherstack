@@ -20,6 +20,7 @@ func (b *InMemoryBackend) CreateReplicator(
 	kafkaClusters []ClusterConfig,
 	replicationInfoList []ReplicationInfoConfig,
 	tags map[string]string,
+	logDelivery *LogDelivery,
 ) (*Replicator, error) {
 	if name == "" {
 		return nil, fmt.Errorf("replicatorName is required: %w", ErrValidation)
@@ -48,6 +49,7 @@ func (b *InMemoryBackend) CreateReplicator(
 		Tags:                    nonNilTagsCopy(tags),
 		KafkaClusters:           cloneKafkaClusterConfigs(kafkaClusters),
 		ReplicationInfoList:     cloneReplicationInfoConfigs(replicationInfoList),
+		LogDelivery:             cloneLogDelivery(logDelivery),
 	}
 	b.replicators.Put(replicator)
 
@@ -221,7 +223,33 @@ func cloneReplicator(r *Replicator) *Replicator {
 		Tags:                    nonNilTagsCopy(r.Tags),
 		KafkaClusters:           cloneKafkaClusterConfigs(r.KafkaClusters),
 		ReplicationInfoList:     cloneReplicationInfoConfigs(r.ReplicationInfoList),
+		LogDelivery:             cloneLogDelivery(r.LogDelivery),
 	}
+}
+
+// cloneLogDelivery deep-copies a *LogDelivery.
+func cloneLogDelivery(ld *LogDelivery) *LogDelivery {
+	if ld == nil || ld.ReplicatorLogDelivery == nil {
+		return nil
+	}
+
+	rld := *ld.ReplicatorLogDelivery
+	if rld.CloudWatchLogs != nil {
+		cw := *rld.CloudWatchLogs
+		rld.CloudWatchLogs = &cw
+	}
+
+	if rld.Firehose != nil {
+		fh := *rld.Firehose
+		rld.Firehose = &fh
+	}
+
+	if rld.S3 != nil {
+		s3 := *rld.S3
+		rld.S3 = &s3
+	}
+
+	return &LogDelivery{ReplicatorLogDelivery: &rld}
 }
 
 // cloneKafkaClusterConfigs deep-copies a []ClusterConfig.

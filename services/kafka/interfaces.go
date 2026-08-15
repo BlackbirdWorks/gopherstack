@@ -59,6 +59,7 @@ type StorageBackend interface {
 		kafkaClusters []ClusterConfig,
 		replicationInfoList []ReplicationInfoConfig,
 		tags map[string]string,
+		logDelivery *LogDelivery,
 	) (*Replicator, error)
 	DeleteReplicator(ctx context.Context, replicatorArn string) error
 	DescribeReplicator(ctx context.Context, replicatorArn string) (*Replicator, error)
