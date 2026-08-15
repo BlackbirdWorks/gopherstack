@@ -77,6 +77,35 @@ func toSDKAttributeUpdates(
 	return out, nil
 }
 
+// toSDKLegacyConditions converts a wire-format legacy KeyConditions/
+// QueryFilter/ScanFilter map into its SDK form. Returns nil when m is empty.
+func toSDKLegacyConditions(m map[string]LegacyCondition) (map[string]types.Condition, error) {
+	if len(m) == 0 {
+		return nil, nil //nolint:nilnil // no legacy condition entries supplied
+	}
+
+	out := make(map[string]types.Condition, len(m))
+	for k, v := range m {
+		cond := types.Condition{ComparisonOperator: types.ComparisonOperator(v.ComparisonOperator)}
+
+		if len(v.AttributeValueList) > 0 {
+			list := make([]types.AttributeValue, len(v.AttributeValueList))
+			for i, item := range v.AttributeValueList {
+				av, err := ToSDKAttributeValue(item)
+				if err != nil {
+					return nil, err
+				}
+				list[i] = av
+			}
+			cond.AttributeValueList = list
+		}
+
+		out[k] = cond
+	}
+
+	return out, nil
+}
+
 // applyLegacyExpectedFields converts the wire-format legacy Expected map and
 // writes it (plus the ConditionalOperator) into the SDK struct fields pointed
 // to by outExpected/outConditionalOperator. Shared by ToSDKPutItemInput,
@@ -325,7 +354,14 @@ func ToSDKScanInput(input *ScanInput) (*dynamodb.ScanInput, error) {
 		ConsistentRead:           input.ConsistentRead,
 		ReturnConsumedCapacity:   types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
 		Select:                   types.Select(input.Select),
+		ConditionalOperator:      types.ConditionalOperator(input.ConditionalOperator),
 	}
+
+	scanFilter, err := toSDKLegacyConditions(input.ScanFilter)
+	if err != nil {
+		return nil, err
+	}
+	out.ScanFilter = scanFilter
 
 	if len(input.ExpressionAttributeValues) > 0 {
 		vals, valsErr := ToSDKItem(input.ExpressionAttributeValues)
@@ -383,11 +419,24 @@ func ToSDKQueryInput(input *QueryInput) (*dynamodb.QueryInput, error) {
 		ScanIndexForward:         input.ScanIndexForward,
 		ReturnConsumedCapacity:   types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
 		Select:                   types.Select(input.Select),
+		ConditionalOperator:      types.ConditionalOperator(input.ConditionalOperator),
 	}
 
 	if input.Limit > 0 {
 		out.Limit = &input.Limit
 	}
+
+	keyConditions, err := toSDKLegacyConditions(input.KeyConditions)
+	if err != nil {
+		return nil, err
+	}
+	out.KeyConditions = keyConditions
+
+	queryFilter, err := toSDKLegacyConditions(input.QueryFilter)
+	if err != nil {
+		return nil, err
+	}
+	out.QueryFilter = queryFilter
 
 	if len(input.ExpressionAttributeValues) > 0 {
 		vals, valsErr := ToSDKItem(input.ExpressionAttributeValues)

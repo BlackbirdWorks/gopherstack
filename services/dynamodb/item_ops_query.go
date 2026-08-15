@@ -77,6 +77,12 @@ func (db *InMemoryDB) QueryWithContext(
 
 	idxName := aws.ToString(input.IndexName)
 
+	if err = applyLegacyQueryParams(
+		db, table, idxName, aws.ToBool(input.ConsistentRead), input,
+	); err != nil {
+		return nil, err
+	}
+
 	// Pre-parse PK value before locking so we can do a targeted index copy.
 	precomputedPKValue := preParseQueryPKValue(input)
 	snapshotTable, billingMode, ttlAttr := db.snapshotTableForQuery(

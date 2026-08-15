@@ -68,6 +68,10 @@ func (db *InMemoryDB) ScanWithContext(
 		return nil, err
 	}
 
+	if err := applyLegacyScanParams(input); err != nil {
+		return nil, err
+	}
+
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {

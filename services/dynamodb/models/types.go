@@ -301,6 +301,16 @@ type LegacyUpdate struct {
 	Action string `json:"Action,omitempty"`
 }
 
+// LegacyCondition is the wire format for one entry of the legacy
+// KeyConditions/QueryFilter/ScanFilter parameters (pre-2013 Query/Scan API,
+// predates KeyConditionExpression/FilterExpression). AWS SDK: types.Condition;
+// wire keys confirmed against serializers.go
+// (awsAwsjson10_serializeDocumentCondition).
+type LegacyCondition struct {
+	ComparisonOperator string `json:"ComparisonOperator,omitempty"`
+	AttributeValueList []any  `json:"AttributeValueList,omitempty"`
+}
+
 type PutItemInput struct {
 	Item                                map[string]any            `json:"Item"`
 	ExpressionAttributeNames            map[string]string         `json:"ExpressionAttributeNames,omitempty"`
@@ -396,20 +406,23 @@ type StreamRecord struct {
 }
 
 type QueryInput struct {
-	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	ExclusiveStartKey         map[string]any    `json:"ExclusiveStartKey,omitempty"`
-	ScanIndexForward          *bool             `json:"ScanIndexForward,omitempty"`
-	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	KeyConditionExpression    string            `json:"KeyConditionExpression"`
-	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
-	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
-	Select                    string            `json:"Select,omitempty"`
-	FilterExpression          string            `json:"FilterExpression,omitempty"`
-	IndexName                 string            `json:"IndexName,omitempty"`
-	TableName                 string            `json:"TableName"`
-	AttributesToGet           []string          `json:"AttributesToGet,omitempty"`
-	Limit                     int32             `json:"Limit,omitempty"`
-	ConsistentRead            bool              `json:"ConsistentRead,omitempty"`
+	ExpressionAttributeNames  map[string]string          `json:"ExpressionAttributeNames,omitempty"`
+	ExclusiveStartKey         map[string]any             `json:"ExclusiveStartKey,omitempty"`
+	ScanIndexForward          *bool                      `json:"ScanIndexForward,omitempty"`
+	ExpressionAttributeValues map[string]any             `json:"ExpressionAttributeValues,omitempty"`
+	KeyConditions             map[string]LegacyCondition `json:"KeyConditions,omitempty"`
+	QueryFilter               map[string]LegacyCondition `json:"QueryFilter,omitempty"`
+	KeyConditionExpression    string                     `json:"KeyConditionExpression"`
+	ProjectionExpression      string                     `json:"ProjectionExpression,omitempty"`
+	ReturnConsumedCapacity    string                     `json:"ReturnConsumedCapacity,omitempty"`
+	Select                    string                     `json:"Select,omitempty"`
+	FilterExpression          string                     `json:"FilterExpression,omitempty"`
+	IndexName                 string                     `json:"IndexName,omitempty"`
+	TableName                 string                     `json:"TableName"`
+	ConditionalOperator       string                     `json:"ConditionalOperator,omitempty"`
+	AttributesToGet           []string                   `json:"AttributesToGet,omitempty"`
+	Limit                     int32                      `json:"Limit,omitempty"`
+	ConsistentRead            bool                       `json:"ConsistentRead,omitempty"`
 }
 
 type QueryOutput struct {
@@ -447,20 +460,22 @@ type SearchResultItem struct {
 }
 
 type ScanInput struct {
-	ConsistentRead            *bool             `json:"ConsistentRead,omitempty"`
-	ExclusiveStartKey         map[string]any    `json:"ExclusiveStartKey,omitempty"`
-	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
-	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
-	TotalSegments             *int32            `json:"TotalSegments,omitempty"`
-	Segment                   *int32            `json:"Segment,omitempty"`
-	Limit                     *int32            `json:"Limit,omitempty"`
-	FilterExpression          string            `json:"FilterExpression,omitempty"`
-	Select                    string            `json:"Select,omitempty"`
-	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
-	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
-	IndexName                 string            `json:"IndexName,omitempty"`
-	TableName                 string            `json:"TableName"`
-	AttributesToGet           []string          `json:"AttributesToGet,omitempty"`
+	ConsistentRead            *bool                      `json:"ConsistentRead,omitempty"`
+	ExclusiveStartKey         map[string]any             `json:"ExclusiveStartKey,omitempty"`
+	ExpressionAttributeValues map[string]any             `json:"ExpressionAttributeValues,omitempty"`
+	ExpressionAttributeNames  map[string]string          `json:"ExpressionAttributeNames,omitempty"`
+	ScanFilter                map[string]LegacyCondition `json:"ScanFilter,omitempty"`
+	TotalSegments             *int32                     `json:"TotalSegments,omitempty"`
+	Segment                   *int32                     `json:"Segment,omitempty"`
+	Limit                     *int32                     `json:"Limit,omitempty"`
+	FilterExpression          string                     `json:"FilterExpression,omitempty"`
+	Select                    string                     `json:"Select,omitempty"`
+	ReturnConsumedCapacity    string                     `json:"ReturnConsumedCapacity,omitempty"`
+	ProjectionExpression      string                     `json:"ProjectionExpression,omitempty"`
+	IndexName                 string                     `json:"IndexName,omitempty"`
+	TableName                 string                     `json:"TableName"`
+	ConditionalOperator       string                     `json:"ConditionalOperator,omitempty"`
+	AttributesToGet           []string                   `json:"AttributesToGet,omitempty"`
 }
 
 type ScanOutput struct {

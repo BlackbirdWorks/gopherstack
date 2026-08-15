@@ -7,8 +7,8 @@
 // condition-evaluation engine.
 //
 // KeyConditions, QueryFilter, and ScanFilter (the Query/Scan legacy
-// parameters) are deliberately NOT covered here -- see PARITY.md and
-// gopherstack-lze5 for why.
+// parameters) are covered separately in legacy_query_scan.go, which reuses
+// the placeholder machinery and renderComparison defined here.
 
 package dynamodb
 
