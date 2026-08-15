@@ -18,6 +18,9 @@ func (h *Handler) handleRegisterCertificate(c *echo.Context) error {
 	}
 
 	var req struct {
+		ClientCertAuthSettings *struct {
+			OCSPUrl string `json:"OCSPUrl"`
+		} `json:"ClientCertAuthSettings"`
 		DirectoryID     string `json:"DirectoryId"`
 		CertificateData string `json:"CertificateData"`
 		Type            string `json:"Type"`
@@ -42,11 +45,17 @@ func (h *Handler) handleRegisterCertificate(c *echo.Context) error {
 		certType = "ClientLDAPS"
 	}
 
+	var ocspURL string
+	if req.ClientCertAuthSettings != nil {
+		ocspURL = req.ClientCertAuthSettings.OCSPUrl
+	}
+
 	certID, regErr := h.Backend.RegisterCertificate(
 		h.contextWithRegion(c),
 		req.DirectoryID,
 		req.CertificateData,
 		certType,
+		ocspURL,
 	)
 	if regErr != nil {
 		return h.mapError(c, regErr)
@@ -142,16 +151,19 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 		return h.mapError(c, descErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"Certificate": map[string]any{
-			"CertificateId":      cert.CertificateID,
-			"CommonName":         cert.CommonName,
-			"Type":               cert.CertType,
-			"State":              cert.State,
-			"RegisteredDateTime": awstime.Epoch(cert.RegisteredDateTime),
-			"ExpiryDateTime":     awstime.Epoch(cert.ExpiryDateTime),
-		},
-	})
+	certJSON := map[string]any{
+		"CertificateId":      cert.CertificateID,
+		"CommonName":         cert.CommonName,
+		"Type":               cert.CertType,
+		"State":              cert.State,
+		"RegisteredDateTime": awstime.Epoch(cert.RegisteredDateTime),
+		"ExpiryDateTime":     awstime.Epoch(cert.ExpiryDateTime),
+	}
+	if cert.OCSPUrl != "" {
+		certJSON["ClientCertAuthSettings"] = map[string]any{"OCSPUrl": cert.OCSPUrl}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Certificate": certJSON})
 }
 
 // --- CA Enrollment Policy ---

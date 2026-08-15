@@ -37,7 +37,7 @@ func TestADAssessments(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
 			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
-			assessments, _ := r2["ADAssessments"].([]any)
+			assessments, _ := r2["Assessments"].([]any)
 			assert.Len(t, assessments, 1)
 
 			// Describe
@@ -48,7 +48,7 @@ func TestADAssessments(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec3.Code)
 			var r3 map[string]any
 			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3))
-			assessment, _ := r3["ADAssessment"].(map[string]any)
+			assessment, _ := r3["Assessment"].(map[string]any)
 			assert.Equal(t, assessID, assessment["AssessmentId"])
 
 			// ReportType is a real Assessment field ("CUSTOMER" or "SYSTEM");
@@ -70,7 +70,7 @@ func TestADAssessments(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec5.Code)
 			var r5 map[string]any
 			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &r5))
-			assessments2, _ := r5["ADAssessments"].([]any)
+			assessments2, _ := r5["Assessments"].([]any)
 			assert.Empty(t, assessments2)
 
 			_ = tc
@@ -194,7 +194,7 @@ func TestStartADAssessment_ConfigurationRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 			var descResp map[string]any
 			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
-			assessment, _ := descResp["ADAssessment"].(map[string]any)
+			assessment, _ := descResp["Assessment"].(map[string]any)
 
 			assert.ElementsMatch(t, []any{"10.0.0.1", "10.0.0.2"}, assessment["CustomerDnsIps"])
 			assert.Equal(t, "corp.example.com", assessment["DnsName"])
@@ -219,7 +219,7 @@ func TestStartADAssessment_ConfigurationRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var listResp map[string]any
 			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-			summaries, _ := listResp["ADAssessments"].([]any)
+			summaries, _ := listResp["Assessments"].([]any)
 			require.Len(t, summaries, 1)
 			summary, _ := summaries[0].(map[string]any)
 

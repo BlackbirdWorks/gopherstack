@@ -101,13 +101,28 @@ func (h *Handler) handleAcceptSharedDirectory(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "SharedDirectoryId is required"))
 	}
 
-	id, acceptErr := h.Backend.AcceptSharedDirectory(h.contextWithRegion(c), req.SharedDirectoryID)
+	info, acceptErr := h.Backend.AcceptSharedDirectory(h.contextWithRegion(c), req.SharedDirectoryID)
 	if acceptErr != nil {
 		return h.mapError(c, acceptErr)
 	}
 
+	// AcceptSharedDirectoryOutput.SharedDirectory is a full types.SharedDirectory,
+	// not just the ID (confirmed against api_op_AcceptSharedDirectory.go);
+	// every other field silently decoded to nil on a real client before this
+	// fix. DescribeSharedDirectories's sibling response already emitted the
+	// full shape correctly -- only this op was broken.
 	return c.JSON(http.StatusOK, map[string]any{
-		"SharedDirectory": map[string]any{"SharedDirectoryId": id},
+		"SharedDirectory": map[string]any{
+			"SharedDirectoryId":    info.SharedDirectoryID,
+			"OwnerDirectoryId":     info.OwnerDirectoryID,
+			"OwnerAccountId":       info.OwnerAccountID,
+			"SharedAccountId":      info.SharedAccountID,
+			"ShareMethod":          info.ShareMethod,
+			"ShareStatus":          info.ShareStatus,
+			"ShareNotes":           info.ShareNotes,
+			keyCreatedDateTime:     awstime.Epoch(info.CreatedDateTime),
+			keyLastUpdatedDateTime: awstime.Epoch(info.LastUpdatedDateTime),
+		},
 	})
 }
 
@@ -171,15 +186,15 @@ func (h *Handler) handleDescribeSharedDirectories(c *echo.Context) error {
 	dirList := make([]map[string]any, 0, len(dirs))
 	for _, d := range dirs {
 		dirList = append(dirList, map[string]any{
-			"SharedDirectoryId":   d.SharedDirectoryID,
-			"OwnerDirectoryId":    d.OwnerDirectoryID,
-			"OwnerAccountId":      d.OwnerAccountID,
-			"SharedAccountId":     d.SharedAccountID,
-			"ShareMethod":         d.ShareMethod,
-			"ShareStatus":         d.ShareStatus,
-			"ShareNotes":          d.ShareNotes,
-			"CreatedDateTime":     awstime.Epoch(d.CreatedDateTime),     //nolint:goconst // existing issue.
-			"LastUpdatedDateTime": awstime.Epoch(d.LastUpdatedDateTime), //nolint:goconst // existing issue.
+			"SharedDirectoryId":    d.SharedDirectoryID,
+			"OwnerDirectoryId":     d.OwnerDirectoryID,
+			"OwnerAccountId":       d.OwnerAccountID,
+			"SharedAccountId":      d.SharedAccountID,
+			"ShareMethod":          d.ShareMethod,
+			"ShareStatus":          d.ShareStatus,
+			"ShareNotes":           d.ShareNotes,
+			keyCreatedDateTime:     awstime.Epoch(d.CreatedDateTime),
+			keyLastUpdatedDateTime: awstime.Epoch(d.LastUpdatedDateTime),
 		})
 	}
 

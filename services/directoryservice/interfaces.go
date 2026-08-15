@@ -120,7 +120,7 @@ type StorageBackend interface {
 
 	ShareDirectory(ctx context.Context, directoryID, shareMethod, shareNotes, targetID string) (string, error)
 	UnshareDirectory(ctx context.Context, directoryID, targetID string) (string, error)
-	AcceptSharedDirectory(ctx context.Context, sharedDirectoryID string) (string, error)
+	AcceptSharedDirectory(ctx context.Context, sharedDirectoryID string) (*SharedDirInfo, error)
 	RejectSharedDirectory(ctx context.Context, sharedDirectoryID string) (string, error)
 	DescribeSharedDirectories(
 		ctx context.Context,
@@ -130,7 +130,7 @@ type StorageBackend interface {
 		nextToken string,
 	) ([]SharedDirInfo, string, error)
 
-	RegisterCertificate(ctx context.Context, directoryID, certData, certType string) (string, error)
+	RegisterCertificate(ctx context.Context, directoryID, certData, certType, ocspURL string) (string, error)
 	DeregisterCertificate(ctx context.Context, directoryID, certID string) error
 	ListCertificates(ctx context.Context, directoryID string, limit int32, nextToken string) ([]CertInfo, string, error)
 	DescribeCertificate(ctx context.Context, directoryID, certID string) (*CertDetail, error)
@@ -165,8 +165,8 @@ type StorageBackend interface {
 	DescribeCAEnrollmentPolicy(ctx context.Context, directoryID string) (*CAEnrollmentPolicy, error)
 
 	StartADAssessment(ctx context.Context, directoryID string, cfg *ADAssessmentConfiguration) (string, error)
-	DeleteADAssessment(ctx context.Context, directoryID, assessmentID string) error
-	DescribeADAssessment(ctx context.Context, directoryID, assessmentID string) (*ADAssessmentInfo, error)
+	DeleteADAssessment(ctx context.Context, assessmentID string) error
+	DescribeADAssessment(ctx context.Context, assessmentID string) (*ADAssessmentInfo, error)
 	ListADAssessments(
 		ctx context.Context,
 		directoryID string,

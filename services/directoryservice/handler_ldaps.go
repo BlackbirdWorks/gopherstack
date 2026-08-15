@@ -115,6 +115,14 @@ func (h *Handler) handleDescribeLDAPSSettings(c *echo.Context) error {
 	settingList := make([]map[string]any, 0, len(settings))
 	for _, s := range settings {
 		settingList = append(settingList, map[string]any{
+			// LDAPSType/CertificateId/CertificateExpiryDateTime are NOT real
+			// types.LDAPSSettingInfo members (the real shape is exactly
+			// {LDAPSStatus, LDAPSStatusReason, LastUpdatedDateTime},
+			// directoryservice@v1.41.4 types/types.go) -- left in place
+			// (disclosed, not removed) since a real client simply ignores
+			// unknown JSON fields and no sensitive data is involved.
+			// LDAPSStatusReason (real, optional) is genuinely omitted: this
+			// backend tracks no LDAPS state-change reason anywhere.
 			"LDAPSType":                 s.LDAPSType,
 			"CertificateId":             s.CertificateID, //nolint:goconst // existing issue.
 			"LDAPSStatus":               s.State,

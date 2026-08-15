@@ -17,7 +17,7 @@ import (
 // mirroring how AWS Directory Service actually validates and reads the cert.
 func (b *InMemoryBackend) RegisterCertificate(
 	ctx context.Context,
-	directoryID, certData, certType string,
+	directoryID, certData, certType, ocspURL string,
 ) (string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -45,6 +45,7 @@ func (b *InMemoryBackend) RegisterCertificate(
 		State:              "Registered",
 		RegisteredDateTime: now,
 		ExpiryDateTime:     cert.NotAfter,
+		OCSPUrl:            ocspURL,
 	})
 
 	return id, nil
@@ -161,6 +162,7 @@ func (b *InMemoryBackend) DescribeCertificate(ctx context.Context, directoryID, 
 		CertData:           cert.CertData,
 		RegisteredDateTime: cert.RegisteredDateTime,
 		ExpiryDateTime:     cert.ExpiryDateTime,
+		OCSPUrl:            cert.OCSPUrl,
 	}, nil
 }
 

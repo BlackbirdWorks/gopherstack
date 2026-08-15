@@ -43,6 +43,18 @@ func TestSharedDirectories(t *testing.T) {
 					"SharedDirectoryId": sharedDirID,
 				})
 				assert.Equal(t, http.StatusOK, rec2.Code)
+				var r2 map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+				sd, _ := r2["SharedDirectory"].(map[string]any)
+				require.NotNil(t, sd, "AcceptSharedDirectoryOutput.SharedDirectory must be present")
+				assert.Equal(t, sharedDirID, sd["SharedDirectoryId"])
+				assert.Equal(t, dirID, sd["OwnerDirectoryId"])
+				assert.Equal(t, "111111111111", sd["SharedAccountId"])
+				assert.Equal(t, "HANDSHAKE", sd["ShareMethod"])
+				assert.Equal(t, "Shared", sd["ShareStatus"])
+				assert.NotEmpty(t, sd["OwnerAccountId"])
+				assert.NotZero(t, sd["CreatedDateTime"])
+				assert.NotZero(t, sd["LastUpdatedDateTime"])
 
 				// Describe
 				rec3 := doRequest(t, h, "DescribeSharedDirectories", map[string]any{

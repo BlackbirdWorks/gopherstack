@@ -54,11 +54,11 @@ func (h *Handler) handleDescribeEventTopics(c *echo.Context) error {
 	topicList := make([]map[string]any, 0, len(topics))
 	for _, t := range topics {
 		topicList = append(topicList, map[string]any{
-			keyDirectoryID:    t.DirectoryID,
-			"TopicName":       t.TopicName,
-			"TopicArn":        t.TopicARN,
-			keyStatus:         t.Status,
-			"CreatedDateTime": awstime.Epoch(t.CreatedDateTime), //nolint:goconst // existing issue.
+			keyDirectoryID:     t.DirectoryID,
+			"TopicName":        t.TopicName,
+			"TopicArn":         t.TopicARN,
+			keyStatus:          t.Status,
+			keyCreatedDateTime: awstime.Epoch(t.CreatedDateTime),
 		})
 	}
 

@@ -1,11 +1,11 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**83 of 162 services swept, 79 remain** (opsworks added this session,
-2026-08-15, see its own section at the end of this file; apigatewayv2, workmail, wafv2, ce,
-waf, vpclattice, emr, eventbridge, kafka, route53resolver, appsync,
-workspaces, lakeformation, elasticsearch, and now rekognition all added this
-session, in parallel, by different sessions — see each service's own section
-at the end of this file for full detail).
+**84 of 162 services swept, 78 remain** (directoryservice added this session,
+2026-08-15, see its own section at the end of this file; opsworks, apigatewayv2,
+workmail, wafv2, ce, waf, vpclattice, emr, eventbridge, kafka, route53resolver,
+appsync, workspaces, lakeformation, elasticsearch, and rekognition all added
+this session, in parallel, by different sessions — see each service's own
+section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -143,12 +143,11 @@ Sum of the L+D+G column across all 80 (networkmanager's 38, securityhub's
 apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34,
 vpclattice's 30, emr's 30, eventbridge's 30, kafka's 29,
 route53resolver's 30, appsync's 28, workspaces's 27, lakeformation's 26,
-elasticsearch's 25, and rekognition's 25 removed, all swept prior to/this
-session): **905** candidate ops.
+elasticsearch's 25, rekognition's 25, and directoryservice's 25 removed, all
+swept prior to/this session): **880** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| directoryservice | 80 | 6 | 17 | 2 | 25 | direct |
 | opsworks | 74 | 1 | 22 | 1 | 24 | direct |
 | codeartifact | 48 | 12 | 5 | 7 | 24 | direct |
 | cloudtrail | 60 | 11 | 2 | 11 | 24 | direct |
@@ -5718,3 +5717,281 @@ documented). 83 of 162 services swept, 79 remain. `directoryservice` (80
 ops, 25 L+D+G, `direct`) remains the next largest -- re-check `git status`
 before picking it (it was still a live, uncommitted sibling as of this
 session's end).
+
+## directoryservice (this session, 2026-08-15)
+
+Picked up per opsworks's own note (next largest, 80 ops, 25 L+D+G, `direct`
+resolution). **This service was the subject of a killed-mid-edit prior
+attempt** (`gopherstack-t0gq`, stashed as `stash@{0}`, message "wip: killed
+by session limit"), which did NOT compile (mid-refactor splitting
+`handleDeleteADAssessment`, unused `context` import left behind, ~18 files
+touched, nothing verified). Per this session's hard constraint, the stash
+was read ONLY via `git stash show -p stash@{0}` as a hint about where to
+look -- never popped/applied/dropped -- and every finding it hinted at was
+independently re-derived and verified against the pinned SDK from scratch,
+not trusted. All 5 of its hints turned out to point at real bugs; none of
+its actual code was reused verbatim (backend signatures, comments, and the
+`toSharedDirInfo` helper were re-written independently, though they
+converged on essentially the same shape as a correct fix necessarily would).
+
+PROTOCOL: `awsAwsjson11` (JSON-RPC 1.1) exclusively, single client
+(`directoryservice@v1.41.4`, matches `go.mod` -- no second/stray client
+found). Case-SENSITIVE decode (confirmed via `api_op_*.go` middleware
+registration, e.g. `awsAwsjson11_serializeOp*`/`awsAwsjson11_deserializeOp*`
+on every op checked). All 453 `strings.EqualFold` hits in `deserializers.go`
+are `errorCode` matching only (`grep -vc 'errorCode)'` = 0) -- none in a
+body-field-key switch. The restjson1 dead-deserializer trap does not apply
+to this protocol family (awsjson11, not restjson1). PHANTOM OPS: none --
+`GetSupportedOperations`'s 80 op-name strings all resolve to a real
+`api_op_*.go` file (diffed both directions: 0 phantom, 0 missing -- full
+80/80 coverage, confirmed independently of `sdk_completeness_test.go`, which
+also already passes). ROUTER, checked separately from the handlers:
+`RouteMatcher` dispatches by `X-Amz-Target` header prefix into a flat
+`map[string]HandlerFunc` keyed by exact op name (`handler.go`'s
+`doDispatch`) -- structurally immune to the elasticsearch-style "op
+unreachable at the top-level router" class, since there is no path-segment
+matching to get wrong (JSON-RPC has no per-op URL path at all, only one
+shared endpoint). Not a per-op risk the way restjson1 path-matching is.
+
+6 real bugs found and fixed, all in the 25-op L+D+G surface, each confirmed
+against `directoryservice@v1.41.4`'s own `api_op_*.go`/`types/types.go` with
+file citation, hand-reverted individually and confirmed to fail with the
+exact predicted symptom before being restored byte-identical:
+
+1. **`DeleteADAssessment`/`DescribeADAssessment` wrongly required
+   `DirectoryId`** -- real `DeleteADAssessmentInput`/`DescribeADAssessmentInput`
+   are `{AssessmentId}` only (confirmed via both ops' own `api_op_*.go`;
+   assessment IDs are globally addressable, not directory-scoped). Every real
+   typed client's Delete/Describe call was rejected outright by this
+   handler's own validation with `InvalidParameterException` before ever
+   reaching the backend -- a total op failure, not silent-empty.
+   `DeleteADAssessment` used the generic `handleTwoFieldOp` helper (which
+   always requires `DirectoryId`, correct for every OTHER consumer of that
+   helper but wrong for this one op); `DescribeADAssessment` had its own
+   bespoke but equally wrong check. Hand-revert symptom: real-client test
+   failed with `InvalidParameterException: DirectoryId and AssessmentId are
+   required`, exactly as predicted.
+2. **`DescribeADAssessment`/`ListADAssessments` wrapper keys were
+   fabricated** -- `"ADAssessment"`/`"ADAssessments"` instead of the real
+   `DescribeADAssessmentOutput.Assessment`/`ListADAssessmentsOutput.Assessments`
+   (confirmed against both ops' `Output` structs directly). Even a request
+   that got past bug 1 would have decoded to nil/empty on every call --
+   distinct from bug 1 (a request-shape bug), this is a pure response
+   wrapper-key bug, this issue's core class. Hand-revert symptom: real-client
+   test failed with `Assessments` decoding to `[]` (len 0) instead of 1,
+   exactly as predicted.
+3. **`RegisterCertificate` discarded `ClientCertAuthSettings.OCSPUrl`
+   entirely** -- a real, optional `RegisterCertificateInput` member
+   (`types.ClientCertAuthSettings{OCSPUrl}`, confirmed via
+   `api_op_RegisterCertificate.go`) with no equivalent field ANYWHERE in this
+   backend before this fix (not just unemitted on the wire -- genuinely
+   untracked, confirmed via a repo-wide grep for `OCSPUrl`/`ClientCertAuthSettings`
+   turning up zero hits pre-fix). Now captured, persisted
+   (`storedCertificate.OCSPUrl`, the same struct that is also the
+   persistence DTO -- confirmed the addition is a pure field addition, not a
+   retag, so `TestInMemoryBackend_SnapshotRestore_FullState` round-tripping
+   it proves no persistence break), and echoed on `DescribeCertificate`'s
+   `Certificate.ClientCertAuthSettings`. Discarded-input instance (13th+ this
+   campaign, per the running count in gopherstack-6flj's own comments; this
+   session did not attempt to re-derive the exact running total). Hand-revert
+   symptom: real-client test failed with `ClientCertAuthSettings` nil,
+   exactly as predicted.
+4. **`DescribeUpdateDirectory` wrapper key was fabricated, AND its per-item
+   shape was wire-breaking** -- `"UpdateDirectoryInfo"` instead of the real
+   `DescribeUpdateDirectoryOutput.UpdateActivities` (confirmed via
+   `api_op_DescribeUpdateDirectory.go`; silent-empty in isolation). Separately
+   and more severely: every entry emitted `NewValue`/`PreviousValue` as flat
+   `""` strings, but the real `types.UpdateInfoEntry` member type is
+   `*types.UpdateValue{OSUpdateSettings}` (`types/types.go`), a nested
+   struct -- a real client's decode HARD-FAILED with a JSON
+   type-mismatch/unmarshal error on every call that returned at least one
+   entry (i.e. every call after any `UpdateDirectorySetup`), not just
+   silent-empty. Confirmed this backend never populates real
+   `NewValue`/`PreviousValue` content for ANY `UpdateType` (OS/NETWORK/SIZE
+   alike -- always the Go zero value, traced through `settings.go`'s
+   `UpdateDirectorySetup`/`DescribeUpdateDirectory`), so both are now omitted
+   entirely (matching AWS's nil-omission convention for an optional member
+   with nothing honest to report) rather than fabricated into the real
+   nested shape. Two independent hand-revert symptoms confirmed: wrapper-key
+   revert -> `UpdateActivities` decoded to `[]` (len 0); NewValue/PreviousValue
+   revert -> real-client call failed outright with `deserialization failed
+   ... unexpected JSON type`, both exactly as predicted.
+5. **`DescribeSettings`' `SettingEntry` emitted the request-side filter
+   field's name** -- `"Status"` (matching `DescribeSettingsInput.Status`, a
+   real but DIFFERENT field -- the response filter parameter) instead of the
+   real response member `SettingEntry.RequestStatus` (confirmed `SettingEntry`
+   has NO `Status` member at all in `types/types.go`). A real client's
+   `RequestStatus` field silently decoded to its zero value on every call.
+   Real-key-from-the-wrong-side pattern (this campaign's recurring class --
+   the request filter's own name was copied onto the response by mistake).
+   Hand-revert symptom: real-client test failed with `RequestStatus` == ""
+   instead of `"Updated"`, exactly as predicted.
+6. **`AcceptSharedDirectory` returned only `{SharedDirectoryId}`** -- the
+   real `AcceptSharedDirectoryOutput.SharedDirectory` is a full
+   `types.SharedDirectory` object (confirmed via `api_op_AcceptSharedDirectory.go`),
+   the EXACT SAME shape its sibling `DescribeSharedDirectories` already
+   emitted correctly (every field independently diffed against
+   `types.SharedDirectory` and confirmed clean). Every other field
+   (`OwnerDirectoryId`, `OwnerAccountId`, `SharedAccountId`, `ShareMethod`,
+   `ShareStatus`, `ShareNotes`, `CreatedDateTime`, `LastUpdatedDateTime`)
+   silently decoded to nil/zero on a real client. Fixed by sharing the same
+   field-mapping helper (`toSharedDirInfo`) `DescribeSharedDirectories`
+   already used -- "the correct sibling sat right beside the broken one,"
+   this campaign's most repeated pattern, again. Hand-revert symptom:
+   real-client test failed with `SharedAccountId`/`ShareStatus` empty and
+   `LastUpdatedDateTime` nil, exactly as predicted.
+
+DISCLOSED, NOT FIXED (1, genuine fabricated-but-harmless fields, not a
+leak): `DescribeLDAPSSettings`'s `LDAPSType`/`CertificateId`/
+`CertificateExpiryDateTime` are NOT real `types.LDAPSSettingInfo` members at
+all (the real shape is exactly `{LDAPSStatus, LDAPSStatusReason,
+LastUpdatedDateTime}`) -- left in place rather than removed, since no
+sensitive data is involved and a real client simply ignores unknown JSON
+fields; removing them buys nothing testable, matching this issue's own
+"fields that are merely informational should be disclosed, not removed"
+guidance and the elasticsearch/rekognition precedent for the same pattern.
+`LDAPSStatusReason` (real, optional) is genuinely absent -- this backend
+tracks no LDAPS state-change reason anywhere.
+
+REAL-DATA LEAK SWEEP (this service holds AD credentials and trust
+passwords, called out explicitly for this pass -- checked deliberately, not
+skipped): **no leak found.** `Password`/`TrustPassword`/`NewPassword`
+request fields are read only for backend invocation and grepped confirmed
+never placed into any `map[string]any` response body anywhere in this
+service. `TrustPassword` is accepted on `CreateTrust` and never echoed by
+`DescribeTrusts` (matches AWS's own real behavior -- `types.Trust` genuinely
+has no password member either, confirmed). `SecretArn`
+(`CreateHybridAD`/`UpdateHybridAD`, a real Secrets Manager ARN) is
+"used once and not stored" per its own doc comment (pre-existing, this pass
+verified it still holds) and never appears in any Describe response --
+confirmed `types.HybridUpdateInfoEntry` has no `SecretArn` member either.
+`PcaConnectorArn` (`DescribeCAEnrollmentPolicy`) IS a real, intentional
+response member per the real `Output` struct, not a leak. No
+environment-variable- or KMS-ARN-shaped fields exist anywhere in this
+service's op surface at all (this service has no ECS/Lambda-style env-var
+concept, and no KMS integration).
+
+SIBLINGS CHECKED, ALREADY CORRECT (full per-op wrapper-key AND per-item
+member-set diff against each op's own real `Output`/per-item `types.go`
+struct, not assumed from a passing family): `DescribeDirectories`
+(`DirectoryDescriptions`), `GetDirectoryLimits` (`DirectoryLimits`),
+`DescribeSnapshots` (`Snapshots`), `GetSnapshotLimits` (`SnapshotLimits`),
+`ListTagsForResource` (`Tags`), `DescribeCAEnrollmentPolicy` (flat, 5
+fields), `DescribeClientAuthenticationSettings`
+(`ClientAuthenticationSettingsInfo`, per-item `{LastUpdatedDateTime,Status,Type}`
+exact match), `DescribeConditionalForwarders` (`ConditionalForwarders`,
+per-item exact match incl. `DnsIpv6Addrs`), `DescribeDirectoryDataAccess`
+(flat `DataAccessStatus`), `DescribeDomainControllers`
+(`DomainControllers`), `DescribeEventTopics` (`EventTopics`, per-item exact
+match), `DescribeHybridADUpdate` (`UpdateActivities{HybridAdministratorAccount,SelfManagedInstances}`
+nested shape, exact match), `DescribeRegions` (`RegionsDescription`),
+`DescribeSharedDirectories` (`SharedDirectories`, the correct sibling beside
+bug 6), `DescribeTrusts` (`Trusts`, per-item exact match, confirmed
+`types.Trust` genuinely has no `TrustPassword` member), `ListCertificates`
+(`CertificatesInfo`), `ListIpRoutes` (`IpRoutesInfo`), `ListLogSubscriptions`
+(`LogSubscriptions`), `ListSchemaExtensions` (`SchemaExtensionsInfo`) -- all
+19 hold their real wrapper key and real per-item member set, individually
+diffed, not assumed.
+
+No discarded inputs found beyond bug 3's `ClientCertAuthSettings.OCSPUrl`.
+No struct retagged this pass doubles as a persistence DTO in a way that
+risked breaking persistence -- checked deliberately per this issue's "two
+near-misses" warning (`storedCertificate`, the one struct touched that IS
+also the persistence DTO, only had a pure field ADDITION, not a retag or
+removal; verified safe by the existing full-state snapshot/restore test
+round-tripping the new field). No invented enum values, no request struct
+copied wholesale from a sibling, no handler-massages-values-to-fit-a-wrong-shape
+pattern found anywhere in the 25-op surface.
+
+PRIOR AUDITS ACTUALLY COVERED (established, not assumed): this service
+carries an extremely detailed `PARITY.md` from 5+ prior focused passes
+(`b8552fe92`, `gopherstack-h910`, `gopherstack-10hx` and two follow-ups, a
+2026-07-23 and 2026-08-13 pass) that individually field-diffed nearly every
+domain type in this service against `types.go` member-by-member and held an
+A grade. **None of the 6 bugs above fall in an op any prior pass's own notes
+claim to have specifically re-verified as clean** -- all 6 are in ops those
+passes' field-diffs marked `wire: ok`/`wire: FIXED` on the strength of a
+MEMBER-SET diff (does the struct have the right fields) that never
+independently checked the top-level WRAPPER KEY the handler actually emits,
+nor which request members are actually required vs. inherited from a
+generic multi-op helper. This is the same "prior audits were thorough but
+checked a different axis" result the elasticsearch/lakeformation passes
+reported, not the kafka-style "wrong about ops it did cover" result.
+
+RATIFYING TEST FOUND AND FIXED: 1. `TestSharedDirectories`'s "share accept
+describe unshare" case previously asserted only `http.StatusOK` on the
+Accept step, never the response body -- passed against the unfixed code
+despite exercising the exact broken op (the "assertion too weak to fail"
+trap). Rewritten to assert every `SharedDirectory` field
+(`SharedDirectoryId`/`OwnerDirectoryId`/`SharedAccountId`/`ShareMethod`/
+`ShareStatus`/`OwnerAccountId`/`CreatedDateTime`/`LastUpdatedDateTime`); this
+version does fail against the unfixed code. 5 other pre-existing raw-body
+tests (`ADAssessment`/`ADAssessments` key assertions in
+`handler_ad_assessments_test.go`, `handler_test.go`; `UpdateDirectoryInfo`
+key assertion in `handler_settings_test.go`) were updated to the real keys
+but were not independently "cannot fail" instances beyond that key mismatch
+-- fixed in place.
+
+REAL-CLIENT TEST RATIO: 1 file (`handler_ca_enrollment_sdk_test.go`, 2
+tests) before this pass, out of 80 ops. Added `wire_field_fixes_test.go`: 5
+new real-SDK-client tests, each driven through
+`newTestDirectoryServiceClient`'s full `service.NewServiceRouter`/
+`RouteHandler` stack (the same router-inclusive path the elasticsearch
+routing bug required to be caught, not just `h.ServeHTTP` directly), each
+hand-reverted individually against the specific fix it covers and confirmed
+to fail with the exact predicted symptom before being restored
+byte-identical (all 6 fixes covered; bug 2's two wrapper-key fixes and bug
+4's two-part fix were each reverted and confirmed separately, 8 hand-revert
+cycles total across 6 fixes).
+
+Every fix from `stash@{0}` that this pass's independent verification
+CONFIRMED as a real bug (read-only, never applied): the
+`DeleteADAssessment`/`DescribeADAssessment` `DirectoryId` removal (bug 1),
+the `ADAssessment`/`ADAssessments` wrapper-key rename (bug 2), the
+`RegisterCertificate`/`DescribeCertificate` `OCSPUrl` addition (bug 3), the
+`DescribeLDAPSSettings` fabricated-field finding (disclosed here rather than
+removed, unlike the stash's approach of removing them -- a judgment call,
+not a contradiction: removing them is defensible too, this pass chose
+disclosure per this issue's own stated preference), the `UpdateDirectoryInfo`
+-> `UpdateActivities` wrapper-key rename and `UpdateType`/`NewValue`/
+`PreviousValue` field pruning (bug 4, though this pass's fix keeps
+`UpdateType` disclosed rather than removed, another disclosure-over-removal
+judgment call), and the `AcceptSharedDirectory` full-object fix (bug 6, this
+pass independently arrived at the same `toSharedDirInfo`-shaped helper).
+**Not present in the stash and found independently by this pass**: bug 5
+(`DescribeSettings`' `Status`->`RequestStatus`) -- the stash's diff did not
+touch `handleDescribeSettings` at all.
+
+Gates: full `go build ./...` (mandatory -- `DeleteADAssessment`/
+`DescribeADAssessment`/`RegisterCertificate`/`AcceptSharedDirectory`
+interface+backend signatures all changed; clean, confirmed no other package
+in the repo references this service's backend/interfaces directly), `go
+vet` (scoped + full `./...`), `go test -race` (scoped + `./pkgs/...`), `go
+fix -diff` (no diff), `gofmt -l` (clean), `golangci-lint run
+./services/directoryservice/...` (0 issues after fixing 2 `goconst`/
+`nolintlint` findings from introducing a new `keyCreatedDateTime` constant
+and 1 `fieldalignment` finding on `RegisterCertificate`'s new anonymous
+request struct, all fixed BY HAND, not `-fix`, per this campaign's
+documented `fieldalignment -fix` nolint-stripping hazard). 0
+`cyclop`/`gocyclo`/`gocognit`/`funlen` nolints added (grep-confirmed).
+
+FALSE-POSITIVE RATE: 0 among the 6 reported bugs -- every finding cites the
+real `api_op_*.go`/`types/types.go` file, confirmed reached via each op's
+own middleware registration, and every fix was hand-reverted and confirmed
+to fail with the exact predicted symptom via a real SDK client before being
+restored byte-identical.
+
+No subagents used (Read/Grep/Bash/Edit only, per this session's hard
+constraint). No git-mutating commands run -- orchestrator must commit/push.
+`git status` re-checked before every edit batch; the opsworks sibling was
+live at session start (`services/opsworks/*` modified) and its tree went
+clean partway through this session (its own pass completed and, per its
+section above, was left uncommitted for the orchestrator) -- only
+`services/directoryservice/*` files and this remainder file were ever
+touched by this session.
+
+directoryservice's List/Describe/Get families are now fully swept for this
+issue (25/25 ops layer-1/2/3 clean; 6 real bugs found and fixed, one found
+independently of the stashed hint; 1 fabricated-but-harmless field disclosed
+rather than removed; no real-data leak found despite this service's
+AD-credential/trust-password surface). 84 of 162 services swept, 78 remain.

@@ -71,7 +71,7 @@ func (b *InMemoryBackend) UnshareDirectory(ctx context.Context, directoryID, tar
 }
 
 // AcceptSharedDirectory accepts a shared directory.
-func (b *InMemoryBackend) AcceptSharedDirectory(ctx context.Context, sharedDirectoryID string) (string, error) {
+func (b *InMemoryBackend) AcceptSharedDirectory(ctx context.Context, sharedDirectoryID string) (*SharedDirInfo, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("AcceptSharedDirectory")
@@ -79,13 +79,33 @@ func (b *InMemoryBackend) AcceptSharedDirectory(ctx context.Context, sharedDirec
 
 	sd, ok := b.sharedDirectoryGet(region, sharedDirectoryID)
 	if !ok {
-		return "", ErrSharedDirectoryNotFound
+		return nil, ErrSharedDirectoryNotFound
 	}
 
 	sd.ShareStatus = "Shared"
 	sd.LastUpdatedDateTime = time.Now().UTC()
 
-	return sharedDirectoryID, nil
+	info := toSharedDirInfo(sd)
+
+	return &info, nil
+}
+
+// toSharedDirInfo converts a stored shared-directory record to the domain
+// type shared by AcceptSharedDirectory's response and DescribeSharedDirectories
+// (both real types.SharedDirectory, confirmed against
+// api_op_AcceptSharedDirectory.go/api_op_DescribeSharedDirectories.go).
+func toSharedDirInfo(sd *storedSharedDirectory) SharedDirInfo {
+	return SharedDirInfo{
+		SharedDirectoryID:   sd.SharedDirectoryID,
+		OwnerDirectoryID:    sd.OwnerDirectoryID,
+		OwnerAccountID:      sd.OwnerAccountID,
+		SharedAccountID:     sd.SharedAccountID,
+		ShareMethod:         sd.ShareMethod,
+		ShareStatus:         sd.ShareStatus,
+		ShareNotes:          sd.ShareNotes,
+		CreatedDateTime:     sd.CreatedDateTime,
+		LastUpdatedDateTime: sd.LastUpdatedDateTime,
+	}
 }
 
 // RejectSharedDirectory rejects a shared directory.
@@ -156,17 +176,7 @@ func (b *InMemoryBackend) DescribeSharedDirectories(
 	result := make([]SharedDirInfo, 0, end-start)
 	for _, id := range ids[start:end] {
 		sd, _ := b.sharedDirectoryGet(region, id)
-		result = append(result, SharedDirInfo{
-			SharedDirectoryID:   sd.SharedDirectoryID,
-			OwnerDirectoryID:    sd.OwnerDirectoryID,
-			OwnerAccountID:      sd.OwnerAccountID,
-			SharedAccountID:     sd.SharedAccountID,
-			ShareMethod:         sd.ShareMethod,
-			ShareStatus:         sd.ShareStatus,
-			ShareNotes:          sd.ShareNotes,
-			CreatedDateTime:     sd.CreatedDateTime,
-			LastUpdatedDateTime: sd.LastUpdatedDateTime,
-		})
+		result = append(result, toSharedDirInfo(sd))
 	}
 
 	var outToken string

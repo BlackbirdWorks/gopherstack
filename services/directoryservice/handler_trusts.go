@@ -134,8 +134,8 @@ func (h *Handler) handleDescribeTrusts(c *echo.Context) error {
 			"TrustType":                t.TrustType,
 			"TrustState":               t.TrustState,
 			"SelectiveAuth":            t.SelectiveAuth,
-			"CreatedDateTime":          awstime.Epoch(t.CreatedDateTime),     //nolint:goconst // existing issue.
-			"LastUpdatedDateTime":      awstime.Epoch(t.LastUpdatedDateTime), //nolint:goconst // existing issue.
+			keyCreatedDateTime:         awstime.Epoch(t.CreatedDateTime),
+			keyLastUpdatedDateTime:     awstime.Epoch(t.LastUpdatedDateTime),
 			"StateLastUpdatedDateTime": awstime.Epoch(t.StateLastUpdatedTime),
 		}
 		if t.TrustStateReason != "" {

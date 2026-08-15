@@ -593,7 +593,7 @@ func TestTimestamps_AreEpochSeconds(t *testing.T) {
 				t.Helper()
 				listRec := doRequest(t, h, "ListADAssessments", map[string]any{"DirectoryId": dirID})
 				listResp := respBody(t, listRec)
-				assessments, _ := listResp["ADAssessments"].([]any)
+				assessments, _ := listResp["Assessments"].([]any)
 				require.Len(t, assessments, 1)
 				entry, _ := assessments[0].(map[string]any)
 				assessmentID, _ := entry["AssessmentId"].(string)
@@ -605,7 +605,7 @@ func TestTimestamps_AreEpochSeconds(t *testing.T) {
 			},
 			extract: func(t *testing.T, resp map[string]any) any {
 				t.Helper()
-				assessment, _ := resp["ADAssessment"].(map[string]any)
+				assessment, _ := resp["Assessment"].(map[string]any)
 
 				return assessment["StartTime"]
 			},

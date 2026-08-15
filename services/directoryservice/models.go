@@ -252,6 +252,7 @@ type storedCertificate struct {
 	CommonName         string    `json:"commonName"`
 	CertType           string    `json:"certType"`
 	State              string    `json:"state"`
+	OCSPUrl            string    `json:"ocspUrl"`
 }
 
 type storedLDAPSSetting struct {
@@ -504,6 +505,7 @@ type CertDetail struct {
 	CertType           string
 	State              string
 	CertData           string
+	OCSPUrl            string
 }
 
 // LDAPSSetting domain type.
