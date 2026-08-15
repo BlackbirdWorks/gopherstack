@@ -200,19 +200,35 @@ func (h *Handler) handleGetReservationUtilization(
 	}, nil
 }
 
-type getRightsizingRecommendationInput struct {
-	Service       string `json:"Service"`
-	Filter        any    `json:"Filter"`
-	Configuration any    `json:"Configuration"`
-	NextPageToken string `json:"NextPageToken"`
-	PageSize      int    `json:"PageSize"`
+// rightsizingRecommendationConfiguration mirrors aws-sdk-go-v2/service/costexplorer/types'
+// RightsizingRecommendationConfiguration exactly. Both members are always
+// present on the real response (server-applied defaults: BenefitsConsidered
+// defaults true, RecommendationTarget defaults SAME_INSTANCE_FAMILY -- see
+// types.RightsizingRecommendationConfiguration's doc comments), not only when
+// the request set them.
+type rightsizingRecommendationConfiguration struct {
+	RecommendationTarget string `json:"RecommendationTarget"`
+	BenefitsConsidered   bool   `json:"BenefitsConsidered"`
 }
 
+type getRightsizingRecommendationInput struct {
+	Service       string                                  `json:"Service"`
+	Filter        any                                     `json:"Filter"`
+	Configuration *rightsizingRecommendationConfiguration `json:"Configuration"`
+	NextPageToken string                                  `json:"NextPageToken"`
+	PageSize      int                                     `json:"PageSize"`
+}
+
+// getRightsizingRecommendationOutput's Configuration echo was previously
+// missing entirely -- see aws-sdk-go-v2/service/costexplorer's
+// GetRightsizingRecommendationOutput. A real client's typed .Configuration
+// was nil regardless of what (if anything) it requested.
 type getRightsizingRecommendationOutput struct {
-	Summary                    map[string]string           `json:"Summary,omitempty"`
-	Metadata                   any                         `json:"Metadata,omitempty"`
-	NextPageToken              string                      `json:"NextPageToken,omitempty"`
-	RightsizingRecommendations []RightsizingRecommendation `json:"RightsizingRecommendations"`
+	Summary                    map[string]string                      `json:"Summary,omitempty"`
+	Metadata                   any                                    `json:"Metadata,omitempty"`
+	Configuration              rightsizingRecommendationConfiguration `json:"Configuration"`
+	NextPageToken              string                                 `json:"NextPageToken,omitempty"`
+	RightsizingRecommendations []RightsizingRecommendation            `json:"RightsizingRecommendations"`
 }
 
 func (h *Handler) handleGetRightsizingRecommendation(
@@ -237,9 +253,18 @@ func (h *Handler) handleGetRightsizingRecommendation(
 		summary["SavingsPercentage"] = "50.0000"
 	}
 
+	config := rightsizingRecommendationConfiguration{
+		RecommendationTarget: "SAME_INSTANCE_FAMILY",
+		BenefitsConsidered:   true,
+	}
+	if in.Configuration != nil {
+		config = *in.Configuration
+	}
+
 	return &getRightsizingRecommendationOutput{
 		RightsizingRecommendations: recs,
 		Summary:                    summary,
+		Configuration:              config,
 	}, nil
 }
 

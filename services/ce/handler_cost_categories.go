@@ -251,9 +251,16 @@ type getCostCategoriesInput struct {
 	MaxResults       int                `json:"MaxResults"`
 }
 
+// getCostCategoriesOutput's CostCategoryNames/CostCategoryValues split matches
+// real AWS CE's GetCostCategoriesOutput: CostCategoryValues is only populated
+// when the request specifies CostCategoryName, otherwise the response carries
+// CostCategoryNames instead (api_op_GetCostCategories.go). A prior revision
+// unconditionally returned CostCategoryValues and never emitted
+// CostCategoryNames at all.
 type getCostCategoriesOutput struct {
 	NextPageToken      string   `json:"NextPageToken,omitempty"`
-	CostCategoryValues []string `json:"CostCategoryValues"`
+	CostCategoryNames  []string `json:"CostCategoryNames,omitempty"`
+	CostCategoryValues []string `json:"CostCategoryValues,omitempty"`
 	ReturnSize         int      `json:"ReturnSize"`
 	TotalSize          int      `json:"TotalSize"`
 }
@@ -304,6 +311,16 @@ func (h *Handler) handleGetCostCategories(
 	_ context.Context,
 	in *getCostCategoriesInput,
 ) (*getCostCategoriesOutput, error) {
+	if in.CostCategoryName == "" {
+		names := applyCostCategoriesSort(h.Backend.GetCostCategoryNames(), in.SortBy)
+
+		return &getCostCategoriesOutput{
+			CostCategoryNames: names,
+			ReturnSize:        len(names),
+			TotalSize:         len(names),
+		}, nil
+	}
+
 	values := h.Backend.GetCostCategories(in.CostCategoryName)
 	values = applyCostCategoriesFilter(values, in.Filter)
 	values = applyCostCategoriesSort(values, in.SortBy)

@@ -12,9 +12,39 @@ type listCostAllocationTagBackfillHistoryInput struct {
 	MaxResults int    `json:"MaxResults"`
 }
 
+// backfillRequest mirrors aws-sdk-go-v2/service/costexplorer/types'
+// CostAllocationTagBackfillRequest exactly. BackfillJob (the backend's
+// internal/persisted model) carries lowerCamelCase JSON tags for storage;
+// emitting it directly on the wire under those tags was a real bug under
+// this service's case-sensitive JSON-RPC 1.1 protocol -- a real client's
+// typed BackfillFrom/BackfillStatus/CompletedAt/LastUpdatedAt/RequestedAt
+// were all nil/empty regardless of backend state, on both
+// ListCostAllocationTagBackfillHistory and StartCostAllocationTagBackfill.
+type backfillRequest struct {
+	BackfillFrom   string `json:"BackfillFrom,omitempty"`
+	BackfillStatus string `json:"BackfillStatus,omitempty"`
+	CompletedAt    string `json:"CompletedAt,omitempty"`
+	LastUpdatedAt  string `json:"LastUpdatedAt,omitempty"`
+	RequestedAt    string `json:"RequestedAt,omitempty"`
+}
+
+func toBackfillRequest(j *BackfillJob) backfillRequest {
+	if j == nil {
+		return backfillRequest{}
+	}
+
+	return backfillRequest{
+		BackfillFrom:   j.BackfillFrom,
+		BackfillStatus: j.BackfillStatus,
+		CompletedAt:    j.CompletedAt,
+		LastUpdatedAt:  j.LastUpdatedAt,
+		RequestedAt:    j.RequestedAt,
+	}
+}
+
 type listCostAllocationTagBackfillHistoryOutput struct {
-	NextToken        string         `json:"NextToken,omitempty"`
-	BackfillRequests []*BackfillJob `json:"BackfillRequests"`
+	NextToken        string            `json:"NextToken,omitempty"`
+	BackfillRequests []backfillRequest `json:"BackfillRequests"`
 }
 
 func (h *Handler) handleListCostAllocationTagBackfillHistory(
@@ -23,8 +53,13 @@ func (h *Handler) handleListCostAllocationTagBackfillHistory(
 ) (*listCostAllocationTagBackfillHistoryOutput, error) {
 	jobs := h.Backend.ListBackfillHistory()
 
+	items := make([]backfillRequest, 0, len(jobs))
+	for _, j := range jobs {
+		items = append(items, toBackfillRequest(j))
+	}
+
 	return &listCostAllocationTagBackfillHistoryOutput{
-		BackfillRequests: jobs,
+		BackfillRequests: items,
 	}, nil
 }
 
@@ -78,7 +113,7 @@ type startCostAllocationTagBackfillInput struct {
 }
 
 type startCostAllocationTagBackfillOutput struct {
-	BackfillRequest *BackfillJob `json:"BackfillRequest,omitempty"`
+	BackfillRequest *backfillRequest `json:"BackfillRequest,omitempty"`
 }
 
 func (h *Handler) handleStartCostAllocationTagBackfill(
@@ -90,9 +125,10 @@ func (h *Handler) handleStartCostAllocationTagBackfill(
 	}
 
 	job := h.Backend.CreateBackfillJob(in.BackfillFrom)
+	req := toBackfillRequest(job)
 
 	return &startCostAllocationTagBackfillOutput{
-		BackfillRequest: job,
+		BackfillRequest: &req,
 	}, nil
 }
 

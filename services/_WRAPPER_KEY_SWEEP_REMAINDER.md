@@ -1,7 +1,7 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**70 of 162 services swept, 92 remain** (apigatewayv2, workmail, and wafv2
-all added this session, in parallel, by different sessions — see each
+**71 of 162 services swept, 91 remain** (apigatewayv2, workmail, wafv2, and
+ce all added this session, in parallel, by different sessions — see each
 service's own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
@@ -93,7 +93,7 @@ non-bug, rds's `GlobalClusterMember` shared-name non-bug).
 
 apigateway, **apigatewayv2** (this session), appstream, athena, autoscaling,
 awsconfig, backup, bedrock,
-bedrockagent, cleanrooms, cloudformation, cloudfront,
+bedrockagent, **ce** (this session), cleanrooms, cloudformation, cloudfront,
 cloudfrontkeyvaluestore, cloudwatch, cloudwatchlogs, codebuild, codecommit,
 cognitoidp, datasync, dlm, dynamodbstreams, ec2, ecs, eks,
 elasticache, elbv2, forecast,
@@ -129,15 +129,14 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 92 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 91 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
-apigatewayv2's 37, workmail's 36, and wafv2's 32 removed, all swept prior
-to/this session): **1,250** candidate ops.
+apigatewayv2's 37, workmail's 36, wafv2's 32, and ce's 31 removed, all swept
+prior to/this session): **1,219** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
 | waf | 113 | 16 | 0 | 18 | 34 | dynamic-fallback |
-| ce | 47 | 7 | 1 | 23 | 31 | direct |
 | vpclattice | 73 | 16 | 0 | 14 | 30 | direct |
 | eventbridge | 74 | 16 | 12 | 2 | 30 | direct |
 | emr | 65 | 13 | 8 | 9 | 30 | direct |
@@ -2791,3 +2790,241 @@ claim wasn't independently re-verified here (no citation for it was found
 in this file or in `bd show gopherstack-6flj`'s comments) — a future pass
 should confirm it against this issue's own op-by-op standard (all
 Describe/List/Get ops, not just 13) rather than trust it secondhand.
+
+## ce (this session)
+
+Chosen as the largest unswept service (31 L+D+G ops: 7 List/1 Describe/23
+Get) that a live sibling session wasn't already in — `git status` was clean
+at start and the sibling was independently confirmed to be on waf/wafv2 (per
+this session's own instructions, later corroborated by wafv2's own section
+above landing concurrently in this file). All 31 ops read against
+`costexplorer@v1.67.4` before any fix, plus the 16 non-L/D/G ops touched by
+the fixes below (Create/Start/Update siblings sharing a response type).
+
+PROTOCOL: confirmed `awsAwsjson11_` (JSON-RPC 1.1) — the only prefix present
+in `deserializers.go`. Case-sensitive. All 173 `EqualFold` hits are either
+`errorCode` matching or `NaN`/`Infinity`/`-Infinity` float-string parsing
+inside numeric-field decode branches (spot-checked every occurrence, none in
+a body-field `switch key {}` block) — a non-issue by construction, same as
+awsconfig/cloudwatchlogs/guardduty. One client only: grepped the whole
+service for a second `costexplorer.NewFromConfig`/`costexplorersdk.` import
+and found exactly one, in `handler_error_type_test.go`'s
+`newTestCEClient` helper — no separate runtime module.
+
+**Dead-deserializer trap checked and does not apply**: read
+`awsAwsjson11_deserializeOpGetCostAndUsage.HandleDeserialize`
+(deserializers.go:1404) directly — it decodes the body into `shape` and
+calls `awsAwsjson11_deserializeOpDocumentGetCostAndUsageOutput(&output,
+shape)` itself; the `OpDocument...Output` function **is** the real, reached
+deserializer for every op in this service (JSON-RPC 1.1, same pattern as
+every other `awsAwsjson1{0,1}` service this campaign has swept).
+
+**Real-client test ratio: 2 of ~146 tests (about 1.4%) drove a real SDK
+client before this session**, both in `handler_error_type_test.go`, and both
+about malformed-JSON error handling, not field/wire-shape correctness. Every
+other test in the package (`handler_cost_usage_test.go`,
+`handler_reservations_test.go`, etc.) calls the handler directly via
+`doRequest` and decodes the raw response body into a hand-picked anonymous
+struct whose JSON tags the test author chose to match whatever the handler
+already emits — the exact shape of test that cannot detect a wrong wire key
+by construction, worse even than apigatewayv2's 3/36 and on par with mwaa's
+0/12 as a "lots could be hiding" signal.
+
+**6 real bugs found and fixed**, two of them the same class repeated on two
+different op-families (a service-wide sibling trap once one instance was
+spotted):
+
+1. **`ListCostAllocationTagBackfillHistory`/`StartCostAllocationTagBackfill`
+   — internal model emitted directly on the wire.** The backend's
+   `BackfillJob` struct (used for snapshot persistence) carries
+   lowerCamelCase JSON tags (`backfillFrom`, `backfillStatus`, ...); both
+   handlers embedded `*BackfillJob`/`[]*BackfillJob` directly as the response
+   type instead of converting to a wire-shape struct, unlike this file's own
+   sibling `CostAllocationTag`→`costAllocationTagEntry` converter two
+   functions above it. Under this service's case-sensitive JSON-RPC 1.1, a
+   real client's typed `BackfillFrom`/`BackfillStatus`/`CompletedAt`/
+   `LastUpdatedAt`/`RequestedAt` were nil/empty on every item and on the
+   single `BackfillRequest`, regardless of backend state — confirmed against
+   `types.CostAllocationTagBackfillRequest`'s deserializer
+   (deserializers.go:7192). Fixed with a `backfillRequest` wire struct +
+   `toBackfillRequest` converter.
+2. **`ListCommitmentPurchaseAnalyses` — the identical bug, same file
+   family, same fix shape.** The backend's `CommitmentAnalysis` struct
+   (also dual-purposed for persistence) carries the same lowerCamelCase
+   tags; `ListCommitmentPurchaseAnalyses` embedded `[]*CommitmentAnalysis`
+   directly. A real client's typed `AnalysisId`/`AnalysisStatus`/
+   `AnalysisStartedTime`/`EstimatedCompletionTime`/`ErrorCode` were
+   nil/empty on every item, confirmed against `types.AnalysisSummary`'s
+   deserializer (deserializers.go:6129). A third sibling in the same file
+   family, `ListSavingsPlansPurchaseRecommendationGeneration`, already had
+   this exact fix applied by a prior pass (its own citing comment says so)
+   — this is the "lone outlier among consistent siblings is real" pattern
+   inverted: two of three siblings had the bug, one didn't, and finding the
+   one correct sibling is what pointed at the pattern. Fixed with an
+   `analysisSummary` wire struct + `toAnalysisSummary` converter.
+3. **`StartCommitmentPurchaseAnalysis` discarded its entire input.** The
+   handler's signature was `_ *startCommitmentPurchaseAnalysisInput` —
+   the request body, including the required
+   `CommitmentPurchaseAnalysisConfiguration` member
+   (`api_op_StartCommitmentPurchaseAnalysis.go`: "This member is
+   required"), was never read, validated, or stored. A request missing it
+   entirely got a 200 instead of the real API's rejection; a request
+   supplying it had the value silently dropped. Same variant as
+   apigatewayv2's `CreateProductPage` discarding its input with `_`. Fixed:
+   the field is now required (400 if absent), stored on a new
+   `CommitmentAnalysis.Configuration any` field, and echoed back verbatim
+   on Get/List (confirmed both carry it via `types.GetCommitmentPurchaseAnalysisOutput`/
+   `types.AnalysisSummary`'s `CommitmentPurchaseAnalysisConfiguration`
+   member) — but *not* echoed on Start's own output, since
+   `StartCommitmentPurchaseAnalysisOutput` genuinely has no such member
+   (`api_op_StartCommitmentPurchaseAnalysis.go`; only
+   `AnalysisId`/`AnalysisStartedTime`/`EstimatedCompletionTime`) — caught
+   this as a self-correction via `go vet` after first over-adding the field
+   there too.
+4. **`GetCommitmentPurchaseAnalysisOutput` had an invented field name.**
+   `EstimatedSavings any` named no real member of
+   `GetCommitmentPurchaseAnalysisOutput` at all and was never populated
+   (dead field, always omitted). The real member is `AnalysisDetails`
+   (nested `SavingsPlansPurchaseAnalysisDetails`, deserializers.go:16334) —
+   disclosed as not modeled below, since this backend never simulates
+   analysis internals. Fixed by removing the fabricated field and adding
+   the real `CommitmentPurchaseAnalysisConfiguration` echo instead.
+5. **`GetCostCategories` never emitted `CostCategoryNames`, always emitted
+   `CostCategoryValues` regardless of whether `CostCategoryName` was set.**
+   Real `GetCostCategoriesOutput` (api_op_GetCostCategories.go) documents:
+   "If the CostCategoryName key isn't specified in the request, the
+   CostCategoryValues fields aren't returned" — implying `CostCategoryNames`
+   is what's returned instead. A real client asking "what cost categories
+   exist" (the common no-name discovery call) got an empty typed
+   `.CostCategoryNames` back every time, with values dumped in the wrong
+   field. Fixed: added `Backend.GetCostCategoryNames()` (distinct category
+   names, sorted) and branched the handler on `CostCategoryName` presence.
+6. **`GetRightsizingRecommendationOutput` never echoed `Configuration`.**
+   Real `GetRightsizingRecommendationOutput`
+   (api_op_GetRightsizingRecommendation.go) always carries `Configuration`
+   (`RecommendationTarget`/`BenefitsConsidered`, server-applied defaults
+   `SAME_INSTANCE_FAMILY`/`true` per `types.RightsizingRecommendationConfiguration`'s
+   doc comments) — the field was absent from gopherstack's response
+   entirely, so a real client's typed `.Configuration` was always nil
+   regardless of what it requested. Fixed by echoing the request's
+   Configuration (or the documented defaults when absent).
+
+**Over-wide/sensitive-field check**: none of the 6 findings involve a
+secret, credential, or a resource ARN the caller couldn't already see —
+all are missing/miscased/mislabeled fields or a discarded request value,
+not data leakage. `CommitmentAnalysis.Configuration`/`BackfillJob`'s fields
+are the caller's own request data being echoed back, not backend-internal
+state.
+
+**Sibling/version pairs**: the `CostAllocationTag`→`costAllocationTagEntry`
+converter (already correct, cited above as the pattern the two bugs
+deviated from) and
+`SavingsPlansGeneration`→`generationSummary`/`RecommendationId`-not-`GenerationId`
+converter (already correct, own prior-session citing comment) are two
+already-correct siblings in the same "start a job / list job history"
+shape as the two bugs found — confirming the fix shape rather than
+inventing one. `GetSavingsPlansCoverage`/`GetSavingsPlansUtilizationDetails`
+(`NextToken`) vs. most other paginated ops (`NextPageToken`) is a genuine,
+already-correctly-modeled split in this service (verified per-op against
+each op's own deserializer, not assumed) — not a bug, a real AWS CE
+convention inconsistency this service already tracks correctly.
+`GetSavingsPlansUtilization` (no token field at all) is also correct as
+written — a third, already-correct data point on the same axis.
+
+**Ratifying tests found and fixed — 4**, spanning two of the three
+documented shapes (wrong key, weak assertion; no wrong-value case found
+here):
+- `TestHandler_GetCostCategories`'s `returns_all_values_when_no_filter`
+  subtest asserted 2 `CostCategoryValues` when no `CostCategoryName` was
+  given — exactly the pre-fix bug, passing because the test's own
+  expectation was written to match broken behavior. Renamed to
+  `returns_all_names_when_no_filter` and rewritten to assert
+  `CostCategoryNames` populated / `CostCategoryValues` empty.
+- `TestCommitmentPurchaseAnalysis_Lifecycle`'s list-assertion decoded
+  `AnalysisSummaryList[].AnalysisId` under the wrong-case tag
+  `json:"analysisId"` — passed only because the pre-fix handler emitted
+  that same wrong case. Fixed to the real `"AnalysisId"` tag and
+  strengthened to assert the decoded ID actually matches the started
+  analysis (previously only checked list length).
+- `TestCommitmentAnalysis_MultipleStartsListed` decoded
+  `AnalysisSummaryList` into `[]map[string]any` and asserted only `Len ==
+  3` — a weak-assertion ratifying test that could never fail on a wrong key
+  since it never looked at any key. Strengthened to assert each item's
+  `AnalysisId` is non-empty and the decoded ID set matches the started IDs.
+
+**Phantom ops**: none — all 47 op-name string literals in
+`GetSupportedOperations` confirmed against `api_op_*.go` files in
+`costexplorer@v1.67.4`.
+
+**False-positive rate**: 0 among reported bugs — every finding cites the
+real `deserializeOpDocument<Type>Output`/`deserializeDocument<Type>`/
+`serializeOpDocument<Type>Input` function actually reached from that op's
+own `HandleDeserialize`, file+line, or the real `api_op_*.go`/`types.go`
+struct definition for request-side/missing-member gaps, never a doc
+comment or an assumption. One self-caught false step during the session
+(bug 3's fix initially over-added `CommitmentPurchaseAnalysisConfiguration`
+to `StartCommitmentPurchaseAnalysisOutput` too) was caught by `go vet`
+failing to compile against the real SDK type before any test ran, not
+shipped.
+
+**Disclosed, not fixed** (structural/optional-field gaps needing new
+backend modeling, each independently verified absent from tracked state):
+- `GetCommitmentPurchaseAnalysisOutput`/`AnalysisSummary`'s
+  `AnalysisDetails`/`SavingsPlansPurchaseAnalysisDetails` (computed
+  estimated-savings figures) and `AnalysisSummary`'s
+  `AnalysisCompletionTime` — this backend's commitment analyses never
+  leave `PROCESSING` and never compute a savings estimate, so there is no
+  non-fabricated value for either.
+- `Anomaly`'s `RootCauses` items are missing real `types.RootCause`'s
+  `LinkedAccountName`/`Impact` (a nested `RootCauseImpact`) — the backend
+  has no anomaly-generation path that populates `RootCauses` at all
+  (`AddAnomaly` is exported but uncalled outside tests), so there's no
+  live call site to source either from.
+- `CostAllocationTag` is missing real `types.CostAllocationTag`'s
+  `LastUsedDate` — not tracked anywhere in the backend's cost-allocation-tag
+  model; would require joining tag usage against the cost-and-usage ledger,
+  new modeling.
+- `ActivityResponse`-adjacent gaps not applicable here; the equivalent
+  under-modeled areas in this service
+  (`ReservationRecommendationDetail`/`RightsizingRecommendation`'s deeper
+  nested nested fields, `GetCostComparisonDrivers`'s always-empty list) were
+  already correctly disclosed by prior-session citing comments throughout
+  `handler_cost_usage.go`/`handler_reservations.go` and re-verified rather
+  than re-disclosed here.
+
+**Request-side check**: performed for every fix above (all are
+request+response pairs except #6, response-only since `Configuration` is
+already read correctly on the request side and only the echo was missing,
+and #5, response-shape-selection-only since `GetCostCategoriesInput` has no
+corresponding request-side bug).
+
+7 real-SDK-client tests added in the new
+`services/ce/wire_field_fixes_test.go`
+(`TestBackfillHistory_RealClient`, `TestCommitmentPurchaseAnalysis_RealClient`,
+`TestStartCommitmentPurchaseAnalysis_MissingConfigurationReturns400`,
+`TestGetCostCategories_NamesVsValues_RealClient`,
+`TestGetRightsizingRecommendation_Configuration_RealClient`), plus the 3
+ratifying-test rewrites above. Every fix hand-reverted individually (no
+git, per this session's hard no-git-mutation constraint), confirmed to fail
+with the exact predicted symptom (quoted in each test's failure output —
+empty typed fields, wrong enum zero-value, or 200 instead of 400), then
+restored and diffed byte-identical against the pre-revert file before
+moving to the next.
+
+Gates: `go build`/`go vet`/`go test -race` (scoped to `services/ce`), `go
+fix -diff` (no diff), `golangci-lint run` (0 issues after a `golines`
+line-length fix on the new test file; no cyclop/gocyclo/gocognit/funlen
+nolints added or present) all green. `go test -race ./pkgs/...` green.
+
+Per this session's hard constraints: no subagents used (Read/Grep/Bash
+only), no git-mutating commands run (all `services/ce` changes uncommitted
+— orchestrator must commit/push); `services/waf`/`services/wafv2` (the
+assigned-off-limits sibling territory) confirmed untouched throughout,
+verified again at the end via `git status`; no `gendocs`/`make docs` run.
+
+ce's List/Describe/Get families are now fully swept for this issue (31/31
+ops verified against the real deserializer/serializer). 71 of 162 services
+swept, 91 remain. Per the ranked table, waf (34, `dynamic-fallback`) is
+still next largest and still not independently re-verified clean per this
+issue's own op-by-op standard (see wafv2's note above) — re-check `git
+status` for live sibling territory before picking.

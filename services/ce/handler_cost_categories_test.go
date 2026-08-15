@@ -372,11 +372,12 @@ func TestHandler_GetCostCategories(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup             func(*testing.T, *ce.Handler)
-		name              string
-		costCategoryName  string
-		wantValuesContain string
-		wantLen           int
+		setup              func(*testing.T, *ce.Handler)
+		name               string
+		costCategoryName   string
+		wantValuesContain  string
+		wantLen            int
+		wantNamesNotValues bool
 	}{
 		{
 			name:    "returns_empty_when_no_categories",
@@ -397,7 +398,14 @@ func TestHandler_GetCostCategories(t *testing.T) {
 			wantLen:           1,
 		},
 		{
-			name: "returns_all_values_when_no_filter",
+			// Real GetCostCategories returns CostCategoryNames (not
+			// CostCategoryValues) when the request omits CostCategoryName --
+			// see api_op_GetCostCategories.go: "If the CostCategoryName key
+			// isn't specified in the request, the CostCategoryValues fields
+			// aren't returned." A prior revision always returned
+			// CostCategoryValues regardless, so a real client's typed
+			// .CostCategoryNames was always empty.
+			name: "returns_all_names_when_no_filter",
 			setup: func(t *testing.T, h *ce.Handler) {
 				t.Helper()
 				doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
@@ -411,7 +419,8 @@ func TestHandler_GetCostCategories(t *testing.T) {
 					"Rules":       []map[string]any{{"Value": "Platform"}},
 				})
 			},
-			wantLen: 2,
+			wantLen:            2,
+			wantNamesNotValues: true,
 		},
 	}
 
@@ -436,14 +445,26 @@ func TestHandler_GetCostCategories(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
+				CostCategoryNames  []string `json:"CostCategoryNames"`
 				CostCategoryValues []string `json:"CostCategoryValues"`
 				ReturnSize         int      `json:"ReturnSize"`
 				TotalSize          int      `json:"TotalSize"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Len(t, out.CostCategoryValues, tt.wantLen)
 			assert.Equal(t, tt.wantLen, out.ReturnSize)
 			assert.Equal(t, tt.wantLen, out.TotalSize)
+
+			if tt.wantNamesNotValues {
+				assert.Len(t, out.CostCategoryNames, tt.wantLen)
+				assert.Empty(t, out.CostCategoryValues)
+				assert.Contains(t, out.CostCategoryNames, "Env")
+				assert.Contains(t, out.CostCategoryNames, "Team")
+
+				return
+			}
+
+			assert.Len(t, out.CostCategoryValues, tt.wantLen)
+			assert.Empty(t, out.CostCategoryNames)
 
 			if tt.wantValuesContain != "" {
 				assert.Contains(t, out.CostCategoryValues, tt.wantValuesContain)

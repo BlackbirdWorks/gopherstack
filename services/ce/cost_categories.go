@@ -177,3 +177,22 @@ func (b *InMemoryBackend) GetCostCategories(costCategoryName string) []string {
 
 	return values
 }
+
+// GetCostCategoryNames returns the distinct cost category names stored in the
+// backend, sorted alphabetically. Real GetCostCategories emits this list
+// instead of CostCategoryValues when the request omits CostCategoryName (see
+// api_op_GetCostCategories.go: "If the CostCategoryName key isn't specified
+// in the request, the CostCategoryValues fields aren't returned").
+func (b *InMemoryBackend) GetCostCategoryNames() []string {
+	b.mu.RLock("GetCostCategoryNames")
+	defer b.mu.RUnlock()
+
+	names := make([]string, 0, b.costCategories.Len())
+	for _, cat := range b.costCategories.All() {
+		names = append(names, cat.Name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}

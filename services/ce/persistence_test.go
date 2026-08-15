@@ -134,7 +134,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "commitment_analysis_round_trip",
 			setup: func(b *ce.InMemoryBackend) string {
-				a := b.CreateCommitmentAnalysis()
+				a := b.CreateCommitmentAnalysis(nil)
 
 				return a.AnalysisID
 			},
@@ -235,7 +235,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 		{TagKey: "team", Status: "Active"},
 	})
 
-	analysis := original.CreateCommitmentAnalysis()
+	analysis := original.CreateCommitmentAnalysis(nil)
 	job := original.CreateBackfillJob("2024-02-01T00:00:00Z")
 
 	snap := original.Snapshot(t.Context())

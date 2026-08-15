@@ -130,6 +130,7 @@ type SavingsPlansGeneration struct {
 
 // CommitmentAnalysis represents a commitment purchase analysis.
 type CommitmentAnalysis struct {
+	Configuration           any    `json:"configuration,omitempty"`
 	AnalysisID              string `json:"analysisId"`
 	AnalysisStatus          string `json:"analysisStatus"` // SUCCEEDED|PROCESSING|FAILED
 	AnalysisStartedTime     string `json:"analysisStartedTime"`

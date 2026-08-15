@@ -8,7 +8,12 @@ import (
 )
 
 // CreateCommitmentAnalysis starts a new commitment purchase analysis.
-func (b *InMemoryBackend) CreateCommitmentAnalysis() *CommitmentAnalysis {
+// configuration is stored and echoed back verbatim on Get/List/Start (real
+// GetCommitmentPurchaseAnalysisOutput/AnalysisSummary both carry
+// CommitmentPurchaseAnalysisConfiguration) -- this backend doesn't simulate
+// analysis internals, so it round-trips the request's configuration rather
+// than fabricating computed contents.
+func (b *InMemoryBackend) CreateCommitmentAnalysis(configuration any) *CommitmentAnalysis {
 	b.mu.Lock("CreateCommitmentAnalysis")
 	defer b.mu.Unlock()
 
@@ -19,6 +24,7 @@ func (b *InMemoryBackend) CreateCommitmentAnalysis() *CommitmentAnalysis {
 		AnalysisStatus:          statusProcessing,
 		AnalysisStartedTime:     now.Format(time.RFC3339),
 		EstimatedCompletionTime: estimated.Format(time.RFC3339),
+		Configuration:           configuration,
 	}
 
 	b.commitmentAnalyses.Put(a)
