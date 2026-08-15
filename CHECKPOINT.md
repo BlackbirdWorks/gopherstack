@@ -1,6 +1,43 @@
 # Checkpoint — wire-parity campaign, 2026-08-13/14
 
-Branch `chore/queue-2026-08-11`, PR #2417 (draft). Merged `origin/main` early;
+## Status as of 2026-08-15 (read this first)
+
+**PR #2417 is READY and MERGEABLE — 37/37 checks green, zero non-green.** All
+four CodeQL checks pass. Eight CI failures were fixed to get there: `docs`,
+`check-pins`, `CodeFactor`, `unit-tests (2)`, `integration-tests (2)`,
+`e2e-tests`, `terraform-tests (3)`, `CodeQL`.
+
+**The queue is exhausted.** Every item in the heartbeat cron's list — `zit`,
+`e5it`, `7rq1`, `9q6f`, `ky42`, `nejg`, `ic73`, `2vgi`, `b9mg` — is CLOSED,
+verified against live code rather than against bd's close text. The cron prompt
+still names all nine and will keep proposing them; it needs editing or every
+wake-up generates phantom work.
+
+**Three things need a human and must not be decided by an agent:**
+`gopherstack-ylyb` (CodeQL alert 254 dismissal — technical review is done and
+sound; only the wording remains), `gopherstack-377m` (repo-wide fail-open
+posture), `gopherstack-cu4g` (per-request caller identity, now blocking three
+disclosed gaps).
+
+**Filed this session:** `gopherstack-c1g8` (ci.yml's codeql job runs ~19.5 min
+under `cancel-in-progress`, so rapid pushes cancel it — it reads as "never
+reports" but does report when left alone), `gopherstack-dbvw` (our `UpdateTable`
+treats eight fields as mutually exclusive; AWS documents three).
+
+**Latent on main:** the DynamoDB `UpdateTable` bug fixed here also exists on
+`main`, unexercised — it only fires once `BillingMode` reaches the wire, which
+this branch's de-stub work enabled.
+
+**Two gate holes worth remembering:** `go build ./...` does not compile
+build-tagged packages (`-tags e2e` and `-tags integration` are separate builds),
+and a PR's check rollup is not the same set as its workflow run — a 30/30 run
+sat alongside a failing `CodeQL` check.
+
+**Sweep paused at 102/162; 60 services remain.**
+
+---
+
+Branch `chore/queue-2026-08-11`, PR #2417. Merged `origin/main` early;
 the only conflict was `.beads/issues.jsonl`, resolved with ours after checking
 that no field on their side was newer.
 
