@@ -1,8 +1,8 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**101 of 162 services swept, 61 remain** (elasticbeanstalk added this
-session, 2026-08-15, closing the tie its own and docdb/batch's sections
-describe -- see elasticbeanstalk's own section at the end of this file).
+**102 of 162 services swept, 60 remain** (databrew added this session,
+2026-08-15, the next tier down (16 L+D+G) once elasticbeanstalk/batch closed
+out at 17 -- see databrew's own section at the end of this file).
 This header lags behind per-session sections during concurrent work; trust
 the last section's own running total over this line when they disagree, and
 re-run `go run ./cmd/opcensus` regardless before picking.
@@ -10129,3 +10129,287 @@ this issue (17/17 L+D+G ops, all 11 resource families, layer-1/2/3 clean).
 **101 of 162 services swept, 61 remain.** Per the ranked table, the next
 tier down is `databrew` (16 L+D+G); re-run `go run ./cmd/opcensus` and
 re-check `git status` before picking, as usual.
+
+## databrew (this session, 2026-08-15)
+
+**READ THIS FIRST — the environment had a Bash outage this session.** Bare
+`true`/`echo` returned exit 1 with empty stdout/stderr from the orchestrator's
+Bash tool. Probed immediately per protocol; Monitor's shell execution still
+worked (confirmed with an explicit `$?`-capturing probe before trusting it),
+so every gate below ran through Monitor, not Bash. One further wrinkle:
+Monitor's own outer per-task status field (`status: failed`) was **also**
+unreliable this session -- it reported "failed (exit 1)" on commands whose
+own in-stream `$?` markers showed 0 -- so every gate result below was read
+from the command's own printed `RC=`/`===...RC=$?===` marker inside the
+stdout stream, never from the wrapper status. File redirects (`> file`) into
+the scratchpad and into Monitor's own `.output` bookkeeping files also came
+back empty on `Read` even after the underlying command succeeded (confirmed
+separately by `pkgs/persistence`'s "disk quota exceeded" test failures,
+below) -- worked around by never redirecting to a file and reading results
+only from the streamed stdout events, filtered with `grep` (not `tail -N`,
+which buffers to EOF before emitting anything and produced long silent gaps
+on this session's slower golangci-lint/`go test -race ./pkgs/...` runs).
+
+BATCH: `databrew`. Read this file's header/tail, ran `go run ./cmd/opcensus`
+fresh, read `bd show gopherstack-6flj` (comments, not just notes), read
+`git show 473fc02b6` (elasticbeanstalk+batch, the pass immediately prior).
+At pickup HEAD was already `473fc02b6` and `git status` was clean -- no live
+sibling. Per batch's own section above and this session's fresh opcensus
+run, `databrew` (44 total ops, 16 L+D+G: 9 list/7 describe/0 get, `direct`
+resolution) is the next tier down once elasticbeanstalk/batch closed the
+17-op tier. No occupancy conflict at any point.
+
+Protocol: `restjson1` (deserializers.go's `awsRestjson1_deserializeOp*`
+prefix, confirmed at pinned `databrew@v1.42.4`), case-SENSITIVE JSON body
+decode -- confirmed by grepping for `strings.EqualFold` inside every
+`awsRestjson1_deserializeDocument*` function body: 0 hits (the 117
+file-wide `EqualFold` hits are all in HTTP header/query-param binding code,
+never body key matching). Also confirmed (unlike pinpoint's session, which
+hit a dead-wrapper trap) that every op's `OpDocument*Output` function IS the
+one actually invoked from `HandleDeserialize` -- read `HandleDeserialize`
+for `ListDatasets` directly, saw it call
+`awsRestjson1_deserializeOpDocumentListDatasetsOutput` itself, not a dead
+wrapper.
+
+`databrew` already carried an exceptionally thorough non-6flj audit
+(`overall: A`, dated fixes through 2026-08-11 across gopherstack-4gzs/jqh2/
+gvdm covering AccountId leaks, Ruleset's Describe/List shape split, and
+typed JobSample/DataCatalogOutputs/DatabaseOutputs) -- **layer-1 wrapper
+keys were already clean** for every op checked (Dataset/Recipe/Project/
+Job/JobRun/Schedule's top-level response bodies all matched their real
+deserializer's field switch exactly, confirmed by reading
+`awsRestjson1_deserializeDocument{Dataset,Recipe,Project,JobRun,Schedule}`
+directly, file+line). Every real finding this pass was one layer deeper --
+never-emitted real members or a fabricated member, matching this issue's own
+"wrapper keys are mostly clean" standing note:
+
+1. `Recipe.ProjectName` (real `types.Recipe` member, deserializers.go's
+   `awsRestjson1_deserializeDocumentRecipe` case `"ProjectName"`) was never
+   modeled at all -- absent from the Go struct entirely, not just unset.
+   This backend has no direct recipe-to-project association to source it
+   from, but `CreateProject` already stores the reverse link
+   (`Project.RecipeName`), so `DescribeRecipe`/`ListRecipes`/
+   `ListRecipeVersions` now derive it at read time
+   (`recipeProjectName`/`copyRecipeWithProject` in recipes.go): a scan for
+   a project whose `RecipeName` references the recipe, first match in key
+   order if more than one exists (this backend doesn't enforce uniqueness
+   here, and neither does the real service). **DERIVED**, from state the
+   backend already holds.
+2. `Project` carried a `"SessionStatus"` field (always `"READY"` from
+   `CreateProject`, never changed by anything else) with **no such member
+   on the real `types.Project` at all** -- confirmed absent from
+   `awsRestjson1_deserializeDocumentProject`'s full case list
+   (AccountId/CreateDate/CreatedBy/DatasetName/LastModifiedBy/
+   LastModifiedDate/Name/OpenDate/OpenedBy/RecipeName/ResourceArn/RoleArn/
+   Sample/Tags -- 13 real keys, no others). A real SDK client silently
+   drops the unrecognized key (same tolerance this file's `ruleset_list_
+   shape`/`account_id_field` entries already established doesn't excuse
+   fabrication), but a raw-body or non-SDK caller saw a field real AWS
+   never sends. **Fabricated member, raw-body-only leak** -- removed
+   (`TestHandlerDescribeProject_NoSessionStatusFabrication`, a new
+   raw-body test mirroring the existing `TestHandlerDescribe_
+   NoAccountIDLeak` pattern in store_test.go).
+3. `Project.OpenDate` (real member, same deserializer, case `"OpenDate"`)
+   was never modeled -- replaced the fabricated `SessionStatus` slot with
+   it. `StartProjectSession` is real AWS's documented trigger for this
+   field; the existing handler previously ran only a `DescribeProject`
+   existence check and never mutated project state at all. Added
+   `InMemoryBackend.OpenProjectSession` (new interface method) and wired
+   `handleStartProjectSession` to call it. **DERIVED**, from the real
+   event this backend already models (an existence-checked
+   StartProjectSession call).
+4. `JobRun` never emitted `Attempt`/`DataCatalogOutputs`/`DatabaseOutputs`/
+   `JobSample`/`LogSubscription`/`Outputs`/`RecipeReference` -- **7 real
+   `types.JobRun` members** (deserializers.go's
+   `awsRestjson1_deserializeDocumentJobRun`) with zero coverage in any
+   prior audit of this service (the pre-existing PARITY.md rows for
+   `StartJobRun`/`ListJobRuns`/`DescribeJobRun` just said "unchanged from
+   prior audit" / had no note at all). `StartJobRun` now snapshots all
+   seven from the parent `Job` at the moment the run starts -- the only
+   backend state they could come from. `Attempt` is always 1: this backend
+   never retries a run (`StartJobRun` always transitions
+   STARTING->SUCCEEDED after `jobRunTransitionDelay`, no retry path
+   exists). **DERIVED**, from the parent Job's own already-tracked state
+   plus the run-never-retries invariant.
+
+**No `*bool`/`*time.Time`-shaped nil-pointer-risk field found this pass** --
+the closest candidate, `JobSample.Size` (real type `*int64`), was already
+present pre-pass as a non-pointer `int64` with `omitempty`; re-verified this
+is wire-safe (not a new finding) since 0 is never a real, distinguishable
+value for this field (only meaningful when `Mode=CUSTOM_ROWS`, which always
+implies a positive row count), so omitting it at 0 produces the same wire
+absence a real `nil *int64` would.
+
+**No enum value borrowed from a neighbouring enum found this pass** --
+`QuotaSharePolicy`-style bugs are absent here; the closest enum-adjacent
+check, `Job.Type`/`JobRun.State`, are backend-owned literal strings
+(`"PROFILE"`/`"RECIPE"`, `"STARTING"`/`"SUCCEEDED"`/`"STOPPED"`) confirmed
+against `types.JobType`/`types.JobRunState`'s real members, all correct.
+
+**No prior-audit note found stale after an SDK bump** -- `sdk_module:
+aws-sdk-go-v2/service/databrew@v1.42.4` in PARITY.md matches the pinned
+`go.mod` version exactly (`go.mod:171`), no bump since the last audit.
+
+**Discarded-input grep**: none of this pass's own findings came from a
+discarded request field (all four are missing/fabricated *response*
+members). Re-confirmed `ListJobsInput`'s `DatasetName`/`ProjectName` are
+both real fields (found and read `api_op_ListJobs.go`'s full `ListJobsInput`
+struct directly after an initial `sed` window cut `DatasetName` out of view
+-- a reminder to read the whole struct, not a windowed snippet) and both
+are already parsed and applied by `handleListJobs`/`ListJobs` -- correct,
+not a gap.
+
+**Scripted both directions**: response side per the four findings above;
+request side spot-checked via `awsRestjson1_serializeOpHttpBindingsCreate*`/
+`serializeOpDocument*` for the ops this pass's fixes touch
+(`CreateProject`, `StartProjectSession`, `CreateRecipeJob`) -- no discarded
+request field found on either.
+
+**DERIVED** (all four fixes above, from state this backend already tracks
+or an invariant it already enforces) vs **DISCLOSED** (new, this pass, added
+to PARITY.md's `gaps` list): `Project.OpenedBy` (real member, no
+caller-identity infrastructure anywhere in this package -- same root cause
+as `CreatedBy`/`LastModifiedBy` staying empty across every entity, a
+pre-existing pattern this pass didn't invent); `JobRun.ErrorMessage` (no
+FAILED path exists -- `StartJobRun` always succeeds); `JobRun.StartedBy`
+(same no-identity-infrastructure cause as `OpenedBy`). **Declined to
+derive**: a synthetic non-empty value for `OpenedBy`/`StartedBy` (e.g. an
+"admin" literal, which this package's own `PublishRecipe` uses for
+`PublishedBy`) -- declined for lack of a *consistent* in-repo precedent:
+`CreatedBy`/`LastModifiedBy` on every other entity in this same package stay
+empty forever, and matching that majority pattern was judged more honest
+than picking the one outlier (`PublishedBy`) to justify fabricating a value
+this backend has no real source for.
+
+**No systemic gap found this pass** (contrast with elasticbeanstalk's "all
+16 ops parsing a `Filters` member nowhere" or awsconfig's casing-family
+bugs) -- the four findings are independent, in four different resource
+families.
+
+Symmetric pairs checked, confirmed correct (not a trap missed): `Dataset`/
+`Job`/`Project`/`Schedule` all still correctly split Describe (leaks nothing)
+from List (has AccountId) per the pre-existing `account_id_field` fix;
+`Ruleset`'s pre-existing `RulesetDescribeView`/`RulesetListItem` split still
+correct, untouched, re-verified against
+`awsRestjson1_deserializeDocumentRulesetItem` (deserializers.go:11521 area)
+matching this file's own prior citation.
+
+List item Go-kind check: `ListDatasets`/`ListJobs`/`ListProjects`/
+`ListRecipes`/`ListSchedules`/`ListJobRuns`/`ListRecipeVersions` all use the
+SAME full type as their Describe counterpart (`[]types.Dataset`,
+`[]types.Job`, etc., confirmed by reading each `List*Output` struct in
+`api_op_List*.go`) -- no hidden narrower `*Summary`/`*Item` type gopherstack
+needed to split out beyond the pre-existing `Ruleset` case, so no new
+shared-struct-fabrication trap found.
+
+Union keys: none in this service's L+D+G surface (no oneof/union-typed
+response members among the 16 ops).
+
+Empty/204 responses: none of the 16 ops return one (all 16 have a real JSON
+body per their `api_op_*.go` Output struct).
+
+Pagination: all 6 List ops and `ListRecipeVersions`/`ListJobRuns` already
+had real `MaxResults`/`NextToken` pagination wired from a prior pass --
+re-verified still correct, not re-derived, no changes needed.
+
+Router: path-segment-based (`/datasets/{Name}`, `/projects/{Name}/
+startProjectSession`, etc., not flat `X-Amz-Target`) -- NOT structurally
+immune to the router-swallowing bug class, but re-verified against
+`handler_sdk_route_table_test.go`'s existing `TestExtractOperation_
+SDKRouteTable` (all 44 ops, from a 2026-08-13 pass) -- still green, no
+routing regression introduced by this pass's new `OpenProjectSession`
+(reuses the existing `startProjectSession` sub-op route, no new path).
+
+Phantom ops: not separately re-verified this pass (out of scope -- the
+2026-08-13 route-table pass and this session's opcensus run already confirm
+the op-name list 1:1 against the pinned SDK's 44 `api_op_*.go` files).
+
+TESTS: 3 new real-`aws-sdk-go-v2/service/databrew`-client round-trip tests
+in `handler_sdk_roundtrip_test.go` (`Test_SDKRoundTrip_Project_OpenDate`,
+`Test_SDKRoundTrip_Recipe_ProjectName`, `Test_SDKRoundTrip_JobRun_
+FieldsFromJob`), 1 new raw-body test in store_test.go
+(`TestHandlerDescribeProject_NoSessionStatusFabrication`, `map[string]any`
+key-presence check -- deliberately NOT decoded with the SDK's own type,
+since the whole point is proving an SDK client's tolerance masks the bug),
+plus `persistence_test.go`'s existing `assertJobRunsRestored` extended in
+place with `Attempt`/`RecipeReference`/`Outputs` assertions (not a new
+function) since `job-1`'s seed data already threads a real
+`RecipeReference` through `CreateJob`. `projects_test.go`'s pre-existing
+`TestCreateProject_Success` updated (its `SessionStatus` assertion no
+longer compiles once the field is removed) to assert `OpenDate` is zero
+immediately after `CreateProject` instead.
+
+Each of the four fixes hand-reverted individually (no git-mutating commands,
+including `checkout --`), confirmed to fail with the exact predicted
+symptom, then restored and confirmed **byte-identical** (both by literal
+diff-free restoration and independently by `go test`'s build cache
+returning `(cached)` on the post-restore run, which only happens on an
+unchanged content hash):
+- `Recipe.ProjectName`: reverted by removing the *call site* that sets it
+  (`copyRecipeWithProject` stopped calling `recipeProjectName`), NOT by
+  blanking a stored value -- since the bug class is "field is a real struct
+  member that's simply never assigned," commenting out the one assignment
+  reproduces the exact pre-fix code path. Predicted/actual: `expected:
+  "pn-proj", actual: ""`.
+- `Project.OpenDate`: same technique -- commented out the one assignment in
+  `OpenProjectSession` rather than blanking a stored value elsewhere.
+  Predicted/actual: `Expected value not to be nil` / got nil (a
+  **non-pointer `float64` field with `omitempty`**, so this revert
+  technique is sufficient here per this session's own finding about
+  blanking-vs-omission: the pre-fix bug WAS "never assigned," which
+  naturally IS the zero value via Go's own zero-initialization -- there is
+  no distinct "explicitly present zero" state this field's real SDK type
+  (`*time.Time`) could take that a blanked non-pointer float64 fails to
+  simulate, unlike a genuine present-vs-absent case).
+- `JobRun`'s 7 fields: reverted by dropping the whole populated-fields
+  block back to the pre-fix 4-field literal (`JobName`/`RunID`/`State`/
+  `StartedOn` only). Predicted/actual (checked `Attempt`, an `int`):
+  `expected: 1, actual: 0`.
+- `SessionStatus` fabrication: reverted in the OPPOSITE direction from the
+  other three (re-ADDING the fabricated field to both the struct and
+  `CreateProject`, not removing a fix) to confirm the raw-body test
+  actually catches re-introduction. Predicted/actual: raw-body test's
+  `hasSessionStatus` assertion flipped from false to true, failing with
+  `Should be false ... DescribeProject fabricated SessionStatus`.
+
+GATES, all run through Monitor (Bash dead this session, see note at the top
+of this section), all green, read from in-stream `RC=` markers only, never
+Monitor's own status field:
+- `go build ./services/databrew/...`: clean.
+- `go build ./...` (full repo -- `StorageBackend` interface gained
+  `OpenProjectSession`, a signature change): clean.
+- `go vet ./services/databrew/...`: clean.
+- `go fix -diff ./services/databrew/...`: empty diff.
+- `gofmt -l services/databrew/*.go`: empty (one file needed reformatting
+  after the JobRun struct edit -- `gofmt -w`'d before the first build
+  attempt, not left for the gate to catch).
+- `go test -race ./services/databrew/...`: all green, including all 4
+  post-revert-restore reruns.
+- `golangci-lint run ./services/databrew/...`: 0 issues, run 4 times total
+  across this pass (2 real findings caught and fixed along the way -- both
+  `lll`/`golines` line-length violations in the new round-trip test file,
+  not present in any hand-written non-test code; NO `//nolint` for
+  cyclop/gocyclo/gocognit/funlen anywhere, none needed).
+- `go test -race ./pkgs/...`: green except `pkgs/persistence`'s
+  `TestFileStore_*` suite -- **16 of 16 failing**, all with literal `disk
+  quota exceeded` errors writing to `/tmp`, exactly matching this issue's
+  own documented "known unrelated breakage" for this exact suite during an
+  outage window. Untouched by this pass, flagged not chased, matches the
+  documented pattern exactly (same 16-count).
+
+No subagents used. No git-mutating commands run (including `checkout --`)
+-- orchestrator must commit/push. `git status` re-checked before this
+section was written; only `services/databrew/*` and this file touched this
+pass.
+
+`databrew`'s 16/16 L+D+G ops are now swept for this issue's wrapper-key/
+nested-shape class (4 real fixes -- 1 fabrication removed, 3 never-emitted
+real members added -- 3 disclosed gaps, all with SDK line citations in
+PARITY.md's new `recipe_project_name`/`session_status_fabrication`/
+`jobrun_job_snapshot` families). **102 of 162 services swept, 60 remain.**
+Per the ranked table (stale -- not re-derived this pass beyond the header
+count; a future session should regenerate it fully per this file's own
+"Regenerate" section), the next unswept tier below 16 is `ram`/`fis`/
+`codepipeline`/`apprunner`/`appmesh`/`amplify`/`acm` (all 15 L+D+G) --
+re-run `go run ./cmd/opcensus` and re-check `git status` before picking, as
+usual.

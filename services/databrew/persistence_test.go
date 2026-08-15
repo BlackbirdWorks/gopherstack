@@ -301,4 +301,12 @@ func assertJobRunsRestored(ctx context.Context, t *testing.T, fresh *InMemoryBac
 	require.Len(t, runs, 2)
 	assert.Equal(t, seed.run2ID, runs[0].RunID, "newest run must be listed first")
 	assert.Equal(t, seed.run1ID, runs[1].RunID, "oldest run must be listed second")
+
+	// Fields snapshotted from the parent Job at StartJobRun time (Attempt,
+	// RecipeReference, Outputs) must survive the round trip too, not just
+	// RunID/order.
+	assert.Equal(t, 1, runs[0].Attempt)
+	require.NotNil(t, runs[0].RecipeReference)
+	assert.Equal(t, seed.recipe.Name, runs[0].RecipeReference.Name)
+	require.Len(t, runs[0].Outputs, 1)
 }

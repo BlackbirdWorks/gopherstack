@@ -131,12 +131,19 @@ type RecipeStep struct {
 	ConditionExpressions []map[string]any `json:"ConditionExpressions,omitempty"`
 }
 
-// Recipe represents a DataBrew recipe.
+// Recipe represents a DataBrew recipe. ProjectName mirrors
+// aws-sdk-go-v2/service/databrew/types.Recipe's ProjectName member
+// (deserializers.go's awsRestjson1_deserializeDocumentRecipe, case
+// "ProjectName") -- this backend does not store the association on the
+// recipe itself, so it is derived at read time from the reverse link
+// CreateProject already stores (Project.RecipeName); see
+// InMemoryBackend.recipeProjectName.
 type Recipe struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	Name             string            `json:"Name"`
 	Arn              string            `json:"ResourceArn"`
 	Description      string            `json:"Description,omitempty"`
+	ProjectName      string            `json:"ProjectName,omitempty"`
 	PublishedBy      string            `json:"PublishedBy,omitempty"`
 	RecipeVersion    string            `json:"RecipeVersion,omitempty"`
 	CreatedBy        string            `json:"CreatedBy,omitempty"`
@@ -165,6 +172,17 @@ type Sample struct {
 // aws-sdk-go-v2/service/databrew/types.Project's AccountId member -- see
 // Dataset's AccountID doc comment; DescribeProjectOutput
 // (api_op_DescribeProject.go:39-97) has no AccountId member either.
+//
+// OpenDate/OpenedBy mirror types.Project's real members (deserializers.go's
+// awsRestjson1_deserializeDocumentProject, cases "OpenDate"/"OpenedBy") --
+// there is no "SessionStatus" member on the real type at all (confirmed
+// against that same deserializer's full case list: no such key exists), so
+// the field this struct previously carried under that name was fabricated,
+// a real API caller never sends it, and it has been removed. OpenDate is
+// set by StartProjectSession, the real trigger for it (see
+// InMemoryBackend.OpenProjectSession). OpenedBy stays unpopulated -- like
+// CreatedBy/LastModifiedBy above, this backend has no caller-identity
+// infrastructure to derive it from.
 type Project struct {
 	Tags             map[string]string `json:"Tags,omitempty"`
 	Name             string            `json:"Name"`
@@ -172,13 +190,14 @@ type Project struct {
 	DatasetName      string            `json:"DatasetName,omitempty"`
 	RecipeName       string            `json:"RecipeName"`
 	RoleArn          string            `json:"RoleArn,omitempty"`
-	SessionStatus    string            `json:"SessionStatus,omitempty"`
 	CreatedBy        string            `json:"CreatedBy,omitempty"`
 	LastModifiedBy   string            `json:"LastModifiedBy,omitempty"`
 	AccountID        string            `json:"AccountId,omitempty"`
+	OpenedBy         string            `json:"OpenedBy,omitempty"`
 	Sample           Sample            `json:"Sample,omitzero"`
 	CreateDate       float64           `json:"CreateDate,omitempty"`
 	LastModifiedDate float64           `json:"LastModifiedDate,omitempty"`
+	OpenDate         float64           `json:"OpenDate,omitempty"`
 }
 
 // Output describes a DataBrew job output destination.
@@ -305,16 +324,35 @@ type JobExtras struct {
 	Timeout                  int
 }
 
-// JobRun represents a single execution of a DataBrew job.
+// JobRun represents a single execution of a DataBrew job. Attempt/
+// DataCatalogOutputs/DatabaseOutputs/JobSample/LogSubscription/Outputs/
+// RecipeReference mirror real types.JobRun members (deserializers.go's
+// awsRestjson1_deserializeDocumentJobRun) that were previously never
+// emitted at all; StartJobRun now snapshots them from the parent Job, the
+// only backend state they could come from. ErrorMessage/StartedBy are also
+// real members, left always-unpopulated and disclosed in PARITY.md: this
+// backend's StartJobRun always transitions STARTING->SUCCEEDED (see
+// jobRunTransitionDelay) with no FAILED path to source an error message
+// from, and, like CreatedBy/LastModifiedBy elsewhere in this package, there
+// is no caller-identity infrastructure to derive StartedBy from.
 type JobRun struct {
-	DatasetName   string  `json:"DatasetName,omitempty"`
-	JobName       string  `json:"JobName"`
-	RunID         string  `json:"RunId"`
-	State         string  `json:"State"`
-	LogGroupName  string  `json:"LogGroupName,omitempty"`
-	StartedOn     float64 `json:"StartedOn,omitempty"`
-	CompletedOn   float64 `json:"CompletedOn,omitempty"`
-	ExecutionTime int     `json:"ExecutionTime,omitempty"`
+	RecipeReference    *RecipeRef          `json:"RecipeReference,omitempty"`
+	JobSample          *JobSample          `json:"JobSample,omitempty"`
+	DatasetName        string              `json:"DatasetName,omitempty"`
+	JobName            string              `json:"JobName"`
+	RunID              string              `json:"RunId"`
+	State              string              `json:"State"`
+	LogGroupName       string              `json:"LogGroupName,omitempty"`
+	LogSubscription    string              `json:"LogSubscription,omitempty"`
+	ErrorMessage       string              `json:"ErrorMessage,omitempty"`
+	StartedBy          string              `json:"StartedBy,omitempty"`
+	DataCatalogOutputs []DataCatalogOutput `json:"DataCatalogOutputs,omitempty"`
+	DatabaseOutputs    []DatabaseOutput    `json:"DatabaseOutputs,omitempty"`
+	Outputs            []Output            `json:"Outputs,omitempty"`
+	StartedOn          float64             `json:"StartedOn,omitempty"`
+	CompletedOn        float64             `json:"CompletedOn,omitempty"`
+	ExecutionTime      int                 `json:"ExecutionTime,omitempty"`
+	Attempt            int                 `json:"Attempt,omitempty"`
 }
 
 // Rule represents a data quality rule.

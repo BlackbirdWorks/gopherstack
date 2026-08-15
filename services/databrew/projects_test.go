@@ -28,7 +28,7 @@ func TestCreateProject_Success(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-project", p.Name)
-	assert.Equal(t, "READY", p.SessionStatus)
+	assert.Zero(t, p.OpenDate)
 	assert.Equal(t, "v", p.Tags["k"])
 	assert.NotEmpty(t, p.Arn)
 }

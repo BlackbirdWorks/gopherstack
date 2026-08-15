@@ -205,6 +205,30 @@ func TestHandlerDescribe_NoAccountIDLeak(t *testing.T) {
 	}
 }
 
+// TestHandlerDescribeProject_NoSessionStatusFabrication asserts the raw JSON
+// body of a DescribeProject response has no "SessionStatus" key.
+// aws-sdk-go-v2/service/databrew/types.Project has no such member at all
+// (confirmed against awsRestjson1_deserializeDocumentProject's full case
+// list); a real SDK client silently drops the unrecognized key, so only a
+// raw-body assertion catches the fabrication -- same class as
+// TestHandlerDescribe_NoAccountIDLeak above.
+func TestHandlerDescribeProject_NoSessionStatusFabrication(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	createRec := databrewReq(t, h, http.MethodPost, "/databrew/v1/projects", map[string]any{
+		"Name": "no-status-p", "RecipeName": "r1",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/projects/no-status-p", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	_, hasSessionStatus := resp["SessionStatus"]
+	assert.False(t, hasSessionStatus, "DescribeProject fabricated SessionStatus; types.Project has no such member")
+}
+
 func TestProvider_Name(t *testing.T) {
 	t.Parallel()
 	p := &databrew.Provider{}
