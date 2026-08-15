@@ -1,5 +1,10 @@
 package workspaces
 
+// accountLinkStatusPendingAcceptance is the real AccountLinkStatusEnum value
+// for a newly created, not-yet-accepted invitation. The previous
+// "PENDING_ACCEPTANCE" here was not a member of the real enum at all.
+const accountLinkStatusPendingAcceptance = "PENDING_ACCEPTANCE_BY_TARGET_ACCOUNT"
+
 // CreateAccountLinkInvitation creates an account link invitation.
 func (b *InMemoryBackend) CreateAccountLinkInvitation(
 	targetAccountID string,
@@ -10,7 +15,7 @@ func (b *InMemoryBackend) CreateAccountLinkInvitation(
 	id := b.nextID("wsal-")
 	link := &storedAccountLink{
 		LinkID:          id,
-		Status:          "PENDING_ACCEPTANCE",
+		Status:          accountLinkStatusPendingAcceptance,
 		SourceAccountID: b.accountID,
 		TargetAccountID: targetAccountID,
 	}
@@ -53,7 +58,11 @@ func (b *InMemoryBackend) RejectAccountLinkInvitation(linkID string) (*storedAcc
 	return &cp, nil
 }
 
-// DeleteAccountLinkInvitation deletes an account link.
+// DeleteAccountLinkInvitation deletes a pending account link invitation.
+// "DELETED" is not a member of the real AccountLinkStatusEnum, so the
+// returned AccountLink keeps whatever status it already had (this backend
+// only reaches this op while a link is still
+// PENDING_ACCEPTANCE_BY_TARGET_ACCOUNT) rather than fabricating one.
 func (b *InMemoryBackend) DeleteAccountLinkInvitation(linkID string) (*storedAccountLink, error) {
 	b.mu.Lock("DeleteAccountLinkInvitation")
 	defer b.mu.Unlock()
@@ -63,7 +72,6 @@ func (b *InMemoryBackend) DeleteAccountLinkInvitation(linkID string) (*storedAcc
 		return nil, errAccountLinkNotFound
 	}
 
-	link.Status = "DELETED"
 	cp := *link
 	b.accountLinks.Delete(linkID)
 

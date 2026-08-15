@@ -151,9 +151,37 @@ type describeApplicationAssociationsInput struct {
 	MaxResults              int32    `json:"MaxResults"`
 }
 
+// applicationResourceAssociationResp mirrors the real ApplicationResourceAssociation
+// shape (field-diffed against deserializers.go's
+// awsAwsjson11_deserializeDocumentApplicationResourceAssociation): the
+// identifying wire key is "ApplicationId", not "WorkspaceId" -- a distinct
+// type from workspaceAssocResp/WorkspaceResourceAssociation, which describes
+// the same association from the WorkSpace's side instead.
+type applicationResourceAssociationResp struct {
+	ApplicationId          string  `json:"ApplicationId,omitempty"`        //nolint:revive,staticcheck // existing issue.
+	AssociatedResourceId   string  `json:"AssociatedResourceId,omitempty"` //nolint:revive,staticcheck // existing issue.
+	AssociatedResourceType string  `json:"AssociatedResourceType,omitempty"`
+	State                  string  `json:"State,omitempty"`
+	Created                float64 `json:"Created,omitempty"`
+	LastUpdatedTime        float64 `json:"LastUpdatedTime,omitempty"`
+}
+
+func toApplicationResourceAssociationResp(
+	a ApplicationResourceAssociation,
+) applicationResourceAssociationResp {
+	return applicationResourceAssociationResp{
+		ApplicationId:          a.ApplicationID,
+		AssociatedResourceId:   a.AssociatedResourceID,
+		AssociatedResourceType: a.AssociatedResourceType,
+		State:                  a.State,
+		Created:                awstime.Epoch(a.Created),
+		LastUpdatedTime:        awstime.Epoch(a.LastUpdatedTime),
+	}
+}
+
 type describeApplicationAssociationsOutput struct {
-	NextToken    string               `json:"NextToken,omitempty"`
-	Associations []workspaceAssocResp `json:"Associations"`
+	NextToken    string                               `json:"NextToken,omitempty"`
+	Associations []applicationResourceAssociationResp `json:"Associations"`
 }
 
 func (h *Handler) handleDescribeApplicationAssociations(
@@ -166,9 +194,9 @@ func (h *Handler) handleDescribeApplicationAssociations(
 		return nil, err
 	}
 
-	items := make([]workspaceAssocResp, 0, len(assocs))
+	items := make([]applicationResourceAssociationResp, 0, len(assocs))
 	for _, a := range assocs {
-		items = append(items, toWorkspaceAssocResp(a))
+		items = append(items, toApplicationResourceAssociationResp(a))
 	}
 
 	return &describeApplicationAssociationsOutput{Associations: items, NextToken: nextToken}, nil

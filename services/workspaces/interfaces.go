@@ -222,7 +222,7 @@ type StorageBackend interface {
 	) ([]WorkspaceResourceAssociation, error)
 	DescribeApplicationAssociations(
 		applicationID string, associatedResourceTypes []string, maxResults int32, nextToken string,
-	) ([]WorkspaceResourceAssociation, string, error)
+	) ([]ApplicationResourceAssociation, string, error)
 	DescribeApplications(
 		appIDs []string,
 		maxResults int32,
@@ -346,6 +346,21 @@ type WorkspaceResourceAssociation struct {
 	AssociatedResourceType string
 	State                  string
 	WorkspaceID            string
+}
+
+// ApplicationResourceAssociation describes an association between an
+// application and the resource it is associated with (a WorkSpace), matching
+// the real ApplicationResourceAssociation SDK type. Unlike
+// WorkspaceResourceAssociation, the identifying field here is ApplicationId,
+// not WorkspaceId -- the wire shape describes the operation "from the
+// application's side".
+type ApplicationResourceAssociation struct {
+	Created                time.Time
+	LastUpdatedTime        time.Time
+	AssociatedResourceID   string
+	AssociatedResourceType string
+	ApplicationID          string
+	State                  string
 }
 
 // ImageResourceAssociation describes an application association for an image,

@@ -1,9 +1,9 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**78 of 162 services swept, 84 remain** (apigatewayv2, workmail, wafv2, ce,
-waf, vpclattice, emr, eventbridge, kafka, route53resolver, and now appsync
-all added this session, in parallel, by different sessions — see each
-service's own section at the end of this file for full detail).
+**79 of 162 services swept, 83 remain** (apigatewayv2, workmail, wafv2, ce,
+waf, vpclattice, emr, eventbridge, kafka, route53resolver, appsync, and now
+workspaces all added this session, in parallel, by different sessions — see
+each service's own section at the end of this file for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -110,7 +110,7 @@ session), s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
 **vpclattice** (this session), **waf** (this session), **wafv2** (this
-session), **workmail** (this session).
+session), **workmail** (this session), **workspaces** (this session).
 
 One service still has real, extensive wire-shape work under **other** issue
 classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
@@ -119,7 +119,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (84 of 162), ranked by List+Describe+Get op count
+## Unswept (83 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -134,16 +134,15 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 84 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 83 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
 apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34,
 vpclattice's 30, emr's 30, eventbridge's 30, kafka's 29,
-route53resolver's 30, and appsync's 28 removed, all swept prior to/this
-session): **1,008** candidate ops.
+route53resolver's 30, appsync's 28, and workspaces's 27 removed, all swept
+prior to/this session): **981** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| workspaces | 111 | 2 | 24 | 1 | 27 | dynamic-fallback |
 | lakeformation | 61 | 8 | 3 | 15 | 26 | direct |
 | rekognition | 75 | 9 | 5 | 11 | 25 | dynamic-fallback |
 | elasticsearch | 51 | 9 | 12 | 4 | 25 | direct |
@@ -4725,3 +4724,188 @@ appsync's List/Describe/Get families are now fully swept for this issue
 across the wider field surface). 78 of 162 services swept, 84 remain. Per
 the ranked table, `workspaces` (111 ops, 27 L+D+G, `dynamic-fallback`) is
 next largest — re-check `git status` before picking it.
+
+## workspaces (this session, 2026-08-15)
+
+Chosen as the largest unswept service in the ranked table (111 ops, 27
+L+D+G: 2 List, 24 Describe, 1 Get; `dynamic-fallback` resolution, flagged in
+this file's own notes as "worth a second look" for a shared-converter
+pattern). `git status` was clean at start except a live sibling actively
+editing `services/appsync/*.go`; that sibling's commit (`7d2a46e44`) landed
+mid-session and was left untouched. A second sibling (`services/lakeformation/*`)
+appeared uncommitted by session end; also left untouched throughout.
+
+PROTOCOL: `application/x-amz-json-1.1` (JSON-RPC 1.1), confirmed from
+`handler.go`'s `Handler()`/`RouteMatcher()` and cross-checked against
+workspaces@v1.73.1's `deserializers.go` (`awsAwsjson11_` prefix
+exclusively). Case-sensitive plain Go map-key switch, not smithyxml
+`EqualFold`: all 369 `EqualFold` hits in `deserializers.go` are `errorCode`
+matches inside `deserializeOpError*` functions (grepped and confirmed none
+sit in a body-field switch). Dead-deserializer trap checked and does NOT
+apply: `HandleDeserialize` (e.g. `awsAwsjson11_deserializeOpDescribeWorkspaces`,
+deserializers.go:5553) calls the real `OpDocument...Output` function
+directly (deserializers.go:5593) -- same shape as sqs/cloudwatchlogs/
+route53resolver, not pinpoint's restjson1. Second client: none, single
+Amazon WorkSpaces SDK module (`workspaces@v1.73.1`, resolved from `go.mod`).
+
+All 27 L+D+G ops resolved directly against `deserializers.go` line numbers
+and layer-1/2 swept; several adjacent non-L+D+G response shapes (account
+links, connection aliases) were also field-diffed since they share types
+with the swept ops. 4 real bugs found and fixed, all layer-2 (wrong key or
+wrong per-item field, not a missing wrapper):
+
+1. **Real key from the wrong type/direction, systemic across a whole
+   6-op family** (after emr/kafka/route53resolver, the 4th instance this
+   campaign has found). `accountLinkResp` (the nested `AccountLink` object
+   returned by CreateAccountLinkInvitation, AcceptAccountLinkInvitation,
+   RejectAccountLinkInvitation, DeleteAccountLinkInvitation, GetAccountLink,
+   and ListAccountLinks) emitted `"LinkId"`/`"Status"` -- the *request-side*
+   field names (genuinely correct on `AcceptAccountLinkInvitationInput.LinkId`
+   etc., confirmed at `api_op_AcceptAccountLinkInvitation.go:36`) bled into
+   the response type, which really uses `"AccountLinkId"`/`"AccountLinkStatus"`
+   (confirmed: `awsAwsjson11_deserializeDocumentAccountLink`,
+   deserializers.go, case list `AccountLinkId`/`AccountLinkStatus`/
+   `SourceAccountId`/`TargetAccountId` -- no `LinkId`/`Status` case exists,
+   so a real client decoded both as permanently empty/zero across all six
+   ops). Fixed by renaming the wire tags; `toAccountLinkResp`'s Go-side
+   field names updated to match.
+2. **Invented default/status enum values, found while fixing #1.** This
+   backend used `"PENDING_ACCEPTANCE"` (CreateAccountLinkInvitation) and
+   `"DELETED"` (DeleteAccountLinkInvitation) for `AccountLinkStatus`; neither
+   is a member of the real `AccountLinkStatusEnum`
+   (`LINKED`/`LINKING_FAILED`/`LINK_NOT_FOUND`/
+   `PENDING_ACCEPTANCE_BY_TARGET_ACCOUNT`/`REJECTED`, enums.go:45-49). Fixed
+   the create-time value to the real
+   `PENDING_ACCEPTANCE_BY_TARGET_ACCOUNT`; for delete, there is no real
+   "deleted" status at all, so the fix stops mutating status on delete and
+   returns the link's last real status instead of fabricating one.
+3. **Real key from the wrong type, request field bled into response
+   again, on a per-op family basis.** `DescribeApplicationAssociations`
+   reused the `WorkspaceResourceAssociation`-shaped response
+   (`workspaceAssocResp`, `"WorkspaceId"` key) instead of the real
+   `ApplicationResourceAssociation` shape (`"ApplicationId"` key; confirmed
+   `awsAwsjson11_deserializeDocumentApplicationResourceAssociation`'s case
+   list has `ApplicationId`/`AssociatedResourceId`/`AssociatedResourceType`/
+   `Created`/`LastUpdatedTime`/`State`/`StateReason`, no `WorkspaceId`).
+   Worse than a bare key-name swap: the backend method also swapped the
+   *values* -- it put the application's own ID under `AssociatedResourceId`
+   (which per the real type's doc comment ["The identifier of the
+   associated resource"] should hold the workspace ID) and the workspace ID
+   under the wrong-named `WorkspaceId`/would-be-`ApplicationId` slot. **This
+   is exactly the sibling-trap pattern documented for `DescribeBundleAssociations`/
+   `DescribeImageAssociations` already getting their own correctly-typed
+   response structs (`bundleResourceAssociationResp`/
+   `imageResourceAssociationResp` with `BundleId`/`ImageId` keys) right next
+   to the broken one -- three siblings correct, one (the actively-populated
+   one, unlike the other two which are always-empty stubs) wrong.** Fixed by
+   adding a backend-level `ApplicationResourceAssociation` type (mirroring
+   the `ImageResourceAssociation`/`BundleResourceAssociation` pattern) and a
+   dedicated `applicationResourceAssociationResp` wire type; this changed
+   `StorageBackend.DescribeApplicationAssociations`'s return type, so full
+   `go build ./...` was run (clean).
+4. **Invented top-level member, duplicate of a correctly-modeled nested
+   one.** `connAliasResp` (top-level `ConnectionAlias`) fabricated a
+   `"ConnectionIdentifier"` field; the real top-level `ConnectionAlias` type
+   has only `AliasId`/`Associations`/`ConnectionString`/`OwnerAccountId`/
+   `State` (confirmed `awsAwsjson11_deserializeDocumentConnectionAlias`'s
+   case list). `ConnectionIdentifier` **is** real, but only nested inside
+   each `Associations[]` entry (`ConnectionAliasAssociation`) -- which
+   gopherstack already modeled correctly in `connAliasAssocResp` right next
+   to the bug, and also correctly at the top level of the *different*
+   `AssociateConnectionAliasOutput` response (a distinct op, confirmed
+   correct). Harmless (an unknown extra top-level key is silently ignored by
+   a real client) but wrong; removed.
+
+**Sibling/version-pair check, explicitly**: `DescribeWorkspaceAssociations`
+(real use of `WorkspaceResourceAssociation`), `DescribeBundleAssociations`,
+and `DescribeImageAssociations` were all independently re-verified and hold
+correct -- each already has its own right-shaped response type, making
+`DescribeApplicationAssociations` (finding #3) the lone outlier among four
+siblings, not a service-wide pattern. `DescribeIpGroups`'s unusual `"Result"`
+wrapper key (not `"Groups"`) was checked hardest as a plausible bug and
+confirmed genuinely correct (real deserializer case is `"Result"`,
+deserializers.go:21050) -- reported per this issue's "report siblings you
+check and find already correct" ask.
+
+**Backend-tracked-but-unemitted (layer 3)**: none found with a real
+backend-side source. Genuine, disclosed-not-fixed modeling gaps found
+instead (backend has no slot to source the value from at all, so filling it
+in would be fabrication, matching the no-stub rule): `Workspace` is missing
+six real members (`DataReplicationSettings`/`IpAddress`/`Ipv6Address`/
+`ModificationStates`/`RelatedWorkspaces`/`StandbyWorkspacesProperties`) and
+`WorkspaceProperties` three more (`GlobalAccelerator`/`OperatingSystemName`/
+`Protocols`) -- already filed as gopherstack-jukr, re-confirmed accurate
+here, not duplicated. `DescribeAccount`'s `DedicatedTenancyAccountType`/
+`Message` (BYOL source/target-account sharing, a feature this backend has no
+model for) and `DescribeCustomWorkspaceImageImport`'s
+`ErrorDetails`/`ImageBuilderInstanceId`/`LastUpdatedTime`/
+`ProgressPercentage`/`StateMessage` (this backend's `storedImage` has no
+slots for any of the five) are newly-disclosed gaps of the same shape, left
+alone. `ConnectionAliasAssociation.AssociatedAccountId` is also never
+populated (this backend has one account, so it would always equal the
+account's own ID) -- disclosed, not fixed, to avoid conflating "always this
+account" with a real multi-account model.
+
+**Discarded input**: none found (7th instance search came back clean this
+session -- every request field this session touched is read by its
+handler).
+
+**Phantom ops**: none -- all 27 op strings in the L+D+G set, and every
+other op string in `buildOps()`'s merged table, map to a real
+`api_op_*.go` file in workspaces@v1.73.1.
+
+**False-positive rate**: 0 among reported findings -- every one cites the
+real deserializer/serializer case list or `types.go`/`api_op_*.go` struct,
+file-grepped, never a doc comment or PARITY.md claim taken on faith
+(this service's own `PARITY.md` was not consulted before the independent
+diff).
+
+**Real-client test ratio**: workspaces already had a `newTestHandlerAndClient`
+helper and several real-SDK-client round-trip tests (image import,
+workspace creation) before this session. Added
+`services/workspaces/wire_field_fixes_test.go`: 4 new tests, 3 real-SDK-client
+(`TestCreateAccountLinkInvitation_RealSDKClient_UsesRealFieldNames`,
+`TestDeleteAccountLinkInvitation_RealSDKClient_NoFabricatedStatus`,
+`TestDescribeApplicationAssociations_RealSDKClient_UsesApplicationId`) and 1
+raw-body (`TestDescribeConnectionAliases_NoFabricatedTopLevelConnectionIdentifier`
+-- necessarily raw-body, since a typed client has no field to receive an
+unmodeled top-level member into, so it can never observe the leak directly).
+Every fix hand-reverted individually (no git, per this session's hard
+no-git-mutation constraint): finding #1 confirmed via `AccountLinkId`
+`nil`/empty on the real typed client; #3 confirmed via `ApplicationId` `nil`
+on the real typed client; #4's first test attempt passed unchanged against
+the unfixed code (`ConnectionIdentifier` was zero-valued pre-Associate, so
+`omitempty` masked the bug either way -- the "assertion too weak to fail"
+trap this issue tracks) and was corrected to associate a resource first
+before asserting absence, then re-verified to fail against the unfixed code
+with the field genuinely present. All reverts restored and diffed
+byte-identical against the pre-revert file before moving to the next.
+`TestAccountLinkLifecycle` (existing raw-body ratifying test,
+`account_links_test.go`) asserted the wrong `"LinkId"`/`"Status"` keys and
+the fabricated `"PENDING_ACCEPTANCE"`/`"DELETED"` values as correct;
+rewritten to assert the real keys/values, verified to fail against the
+unfixed code with the exact predicted symptom (`expected non-empty
+AccountLinkId`), then restored to pass.
+
+Gates: full `go build ./...` (backend method signature changed --
+`DescribeApplicationAssociations`'s return type -- so this was mandatory,
+not just precautionary; clean), `go vet`, `go test -race` (scoped and full
+`./pkgs/...`), `go fix -diff` (one real modernization surfaced in the new
+test file, a manual loop replaced by `slices.Contains` -- applied, `go fix
+-diff` clean after), `gofmt` clean throughout, `golangci-lint run` (0
+issues; no cyclop/gocyclo/gocognit/funlen nolints added) all green for
+`services/workspaces`.
+
+No subagents used (Read/Grep/Bash only, per this session's hard
+constraint). No git-mutating commands run -- orchestrator must commit/push.
+`git status` checked at start and re-checked before/after each edit batch;
+the appsync and lakeformation siblings' files were confirmed untouched
+throughout.
+
+workspaces's List/Describe/Get families are now fully swept for this issue
+(27/27 ops layer-1/2 clean; 4 bugs found and fixed, all layer-2). 79 of 162
+services swept, 83 remain. Per the ranked table, `lakeformation` (61 ops, 26
+L+D+G, `direct`) is next largest but had a live, uncommitted sibling as of
+this session's end -- re-check `git status` before picking it; pick
+`rekognition` (75 ops, 25 L+D+G, `dynamic-fallback`) next if lakeformation
+is still claimed.
