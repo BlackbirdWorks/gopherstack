@@ -122,10 +122,11 @@ type ImageFailure struct {
 
 // RepositoryScanningConfiguration represents scanning configuration for a repository.
 type RepositoryScanningConfiguration struct {
-	RepositoryARN  string `json:"repositoryArn,omitempty"`
-	RepositoryName string `json:"repositoryName"`
-	ScanFrequency  string `json:"scanFrequency"`
-	ScanOnPush     bool   `json:"scanOnPush"`
+	RepositoryARN      string             `json:"repositoryArn,omitempty"`
+	RepositoryName     string             `json:"repositoryName"`
+	ScanFrequency      string             `json:"scanFrequency"`
+	AppliedScanFilters []RepositoryFilter `json:"appliedScanFilters,omitempty"`
+	ScanOnPush         bool               `json:"scanOnPush"`
 }
 
 // RepositoryScanningConfigurationFailure represents a failure in getting scanning config.

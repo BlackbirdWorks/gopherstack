@@ -7120,3 +7120,325 @@ unfixable). 89 of 162 services swept, 73 remain. Per the ranked table,
 `neptune` and `ecr` (21 L+D+G each) are next — `ecr` had a live sibling
 throughout this session and may already be swept or mid-flight; re-check
 `git status` before picking either.
+
+## ecr (this session, 2026-08-15)
+
+Chosen per this issue's own instruction: re-ran `go run ./cmd/opcensus` fresh
+(confirmed the ranked table unchanged for this tier) and read the remainder
+file's own tail plus `bd show gopherstack-6flj`'s comments before picking.
+Both pointed at `neptune` and `ecr` tied at 21 L+D+G ops as the next
+candidates once `dynamodb` (heavily-worked-under-other-issues caveat) was
+correctly ruled out again by the immediately-preceding session. `git status`
+was clean at the very start of this session (the `codeartifact` sibling
+active in the prompt's briefing had already landed as `d9fd9f761` before
+this session's first tool call); a `dynamodb` sibling appeared and finished
+mid-session (`6f48b1673`), confirmed via repeated `git status` checks to
+never touch `services/ecr/*` — the dynamodb session's own write-up
+explicitly names `services/ecr/*` as "the live sibling that appeared
+mid-session" and reports leaving it untouched, which this session
+independently confirms from its own side.
+
+**TIE-BREAK: `neptune` vs `ecr`, both 21 L+D+G ops, `direct` resolution.**
+Broke it on sibling-trap surface (widest spread of distinct resource-family
+handler files) per this issue's instruction. `neptune`'s family handler
+files: `handler_cluster_endpoints.go`, `handler_cluster_parameter_groups.go`,
+`handler_cluster_snapshots.go`, `handler_db_clusters.go`,
+`handler_db_instances.go`, `handler_event_subscriptions.go`,
+`handler_global_clusters.go`, `handler_parameter_groups.go`,
+`handler_subnet_groups.go`, `handler_tags.go` — 10 files. `ecr`'s:
+`handler_account_settings.go`, `handler_auth_token.go`,
+`handler_image_scanning.go`, `handler_images.go`, `handler_layers.go`,
+`handler_lifecycle_policy.go`, `handler_pull_through_cache.go`,
+`handler_registry_policy.go`, `handler_replication.go`,
+`handler_repositories.go`, `handler_repository_creation_templates.go`,
+`handler_repository_policy.go`, `handler_signing.go`, `handler_tags.go` — 14
+files, the wider spread. Picked `ecr`.
+
+**Protocol / second client / EqualFold:** AWS JSON-RPC 1.1
+(`application/x-amz-json-1.1`), confirmed both from gopherstack's own
+`ecrTargetPrefix = "AmazonEC2ContainerRegistry_V20150921."` +
+`X-Amz-Target`-header dispatch in `handler.go`, and from the pinned SDK's own
+deserializer function-name prefix (`awsAwsjson11_deserializeOp...`,
+`aws/protocol/restjson` is only imported for the shared error-body decoder,
+not the body-field switches). Grepped all 274 `EqualFold` call sites in
+`ecr@v1.60.4/deserializers.go`: every one is either `errorCode` matching (the
+per-op error-type switches) or `NaN`/`Infinity`/`-Infinity` float-literal
+matches in the numeric decoders (lines ~9156-9698) — zero body-field-name
+`EqualFold` calls, so this service's 274-count distribution matches the
+pattern the prior `outposts`/other passes established: JSON-RPC/restjson1
+body-field switches are case-sensitive plain `case "foo":` throughout,
+confirmed by direct inspection rather than counted alone. No second
+cross-service SDK client bridge in this service.
+
+**Router:** confirmed a flat `X-Amz-Target` map (`buildOps` = `buildCoreOps`
++ `buildExtOps`, merged via `maps.Copy` into one `map[string]service.JSONOpFunc`,
+dispatched by `h.ops[action]` in `dispatch`) — structurally immune to the
+path-segment-router class of bug this issue's checklist item 7 warns about.
+Confirmed reachable, not just present: `GetSupportedOperations()`'s 58
+entries diffed against the SDK's own `api_op_*.go` file list, both
+directions, exact match — 0 phantom ops, 0 missing.
+
+**Sweep scope:** all 21 L+D+G ops (4 List, 8 Describe, 9 Get) read against
+their own real `api_op_*.go` Input/Output structs and
+`awsAwsjson11_deserializeOpDocument*Output`/`awsAwsjson11_deserializeDocument*`
+functions in the pinned `ecr@v1.60.4` module cache — never against a doc
+comment, PARITY.md claim, or existing test taken on faith.
+
+**Converters shared across ops, checked against each call site's own real
+type:**
+- `repositoryView` (shared by `CreateRepository`, `DescribeRepositories`,
+  `DeleteRepository`, `PutImageTagMutability`) — confirmed correct at all 4
+  call sites; real `types.Repository`'s 9 fields diffed key-by-key against
+  `awsAwsjson11_deserializeDocumentRepository`, including nested
+  `encryptionConfiguration`/`imageScanningConfiguration`/
+  `imageTagMutabilityExclusionFilters`.
+- `imageView` (shared by `PutImage`, `BatchGetImage`) — already fixed in a
+  prior round (round 2, PARITY.md); re-verified correct against
+  `awsAwsjson11_deserializeDocumentImage`'s 5-field shape.
+- `tagView` (shared by `TagResource`, `UntagResource`, `ListTagsForResource`)
+  — confirmed correct including the unusual capitalized `"Key"`/`"Value"`
+  wire keys (verified against `awsAwsjson11_deserializeDocumentTag`; ECR's
+  `Tag` type is genuinely capitalized unlike almost every other field in
+  this service).
+- `createPullThroughCacheRuleOutput` (shared by `CreatePullThroughCacheRule`,
+  `DescribePullThroughCacheRules`, `UpdatePullThroughCacheRule`) — confirmed
+  correct at all 3 sites.
+- `RepositoryPolicyResult` (shared by `GetRepositoryPolicy`,
+  `SetRepositoryPolicy`, `DeleteRepositoryPolicy`) — confirmed correct
+  against all 3 real Output shapes (`policyText`/`registryId`/
+  `repositoryName`), each independently diffed.
+- `lifecyclePolicyResultView` (shared by `DeleteLifecyclePolicy`,
+  `GetLifecyclePolicy`, `PutLifecyclePolicy`) — confirmed correct (fixed in
+  round 2 per PARITY.md; the epoch-seconds convention re-verified here).
+- `repositoryCreationTemplateView` (shared by `CreateRepositoryCreationTemplate`,
+  `DescribeRepositoryCreationTemplates`, `UpdateRepositoryCreationTemplate`,
+  `DeleteRepositoryCreationTemplate`) — the per-item shape confirmed correct
+  at all 4 sites; the wrapping `describeRepositoryCreationTemplatesOutput`
+  had the separate pagination bug fixed below.
+- **`getRegistryScanningConfigurationOutput` shared by `Get` AND `Put`
+  (FLAGSHIP BUG, fixed)** — see finding 1 below. This is the shared-converter
+  trap this issue's checklist leads with, found on the 21st op checked this
+  session, not the 1st.
+- `signingConfigurationInput` shared by `Get`/`Put`/`Delete`
+  `SigningConfiguration` (FIXED — see findings 2/6) — a second instance of
+  the same failure mode (assumed Get/Put/Delete symmetry that the real SDK
+  doesn't have) inside the same service, in a sibling family.
+
+**Empty/204 responses checked against real output shape:** `TagResource`,
+`UntagResource` both confirmed genuinely empty (`ResultMetadata` only, real
+`TagResourceOutput`/`UntagResourceOutput`) — not the appconfig
+`StopDeployment` trap. No other void ops in this service's L+D+G-adjacent
+set.
+
+**Required-member diffs, both directions:** all input structs for the 21
+L+D+G ops diffed against their real `*Input` — no field demanded that the
+real Input lacks; the only *missing* required-input-shape issue found was
+the discarded `maxResults`/`nextToken` on `DescribeRepositoryCreationTemplates`
+(finding 4) and the deliberately-not-added `Filter`/`MaxResults`/`NextToken`
+on `ListImageReferrers` (finding 6, disclosed not fixed since functionally
+inert).
+
+**Filters:** all declared filters (`DescribeImages.filter.tagStatus`,
+`ListImages.filter.tagStatus`, `GetLifecyclePolicyPreview.filter.tagStatus`,
+`DescribeRepositories`/`DescribePullThroughCacheRules`'s name/prefix
+filters) confirmed reaching their respective queries — no truncated-then-
+discarded plural list found in this service.
+
+**Nested-shape / `[]byte` check:** `UploadLayerPart`'s `LayerPartBlob []byte`
+verified correct, NOT the rekognition trap — the real
+`UploadLayerPartInput.LayerPartBlob` genuinely is `[]byte` (base64-encoded
+JSON blob per AWS JSON-RPC 1.1 convention, confirmed via
+`serializers.go:5440`'s `object.Key("layerPartBlob")`), so Go's automatic
+`[]byte`→base64-string JSON marshaling is the CORRECT wire shape here, unlike
+the rekognition case where a flat `[]byte` masked a broken nested struct.
+
+**Discarded inputs / fields never set (8 found, all fixed except 1
+disclosed):**
+1. **FLAGSHIP — `PutRegistryScanningConfigurationOutput` shape entirely
+   wrong.** `handlePutRegistryScanningConfiguration` returned
+   `getRegistryScanningConfigurationOutput` (wrapper key
+   `"scanningConfiguration"` + `registryId`) — `Get`'s real shape. The real
+   `PutRegistryScanningConfigurationOutput` wraps under
+   `"registryScanningConfiguration"` with **no** `registryId` at all
+   (`awsAwsjson11_deserializeOpDocumentPutRegistryScanningConfigurationOutput`,
+   confirmed by direct diff against the Get op's own deserializer function).
+   A real client's `Put` call previously always got `nil
+   RegistryScanningConfiguration` back despite `200 OK` — the exact "shared
+   converter serving ops with different real shapes" bug class this issue's
+   checklist leads with (cloudtrail/ce precedent), except here the two ops
+   LOOK symmetric (a Get/Put pair) which is exactly why it survived 3 prior
+   audit rounds. Fixed via a dedicated `putRegistryScanningConfigurationOutput`
+   type. An **existing raw-body test asserted the wrong key as correct**:
+   `TestPutRegistryScanningConfiguration_ScanTypeEnhanced` in
+   `image_scanning_test.go` read `out["scanningConfiguration"]` on `Put`'s
+   own response — rewritten to `out["registryScanningConfiguration"]` with a
+   comment citing the two deserializer functions.
+2. `GetRegistryScanningConfiguration.registryId` — declared, never
+   populated. Sibling ops `DescribeRegistry`/`GetRegistryPolicy`/
+   `PutRegistryPolicy`/`DescribeRepositoryCreationTemplates` all correctly
+   set it from `b.accountID`/`Backend.AccountID()`; this one didn't. Fixed.
+3. `PutImageScanningConfiguration.registryId` — same pattern, same fix.
+4. `GetSigningConfiguration.registryId` — same pattern; the real
+   `GetSigningConfigurationOutput` has `registryId` (confirmed via its own
+   deserializer). Fixed.
+5. `DeleteSigningConfiguration.registryId` — same; real
+   `DeleteSigningConfigurationOutput` also has it. Fixed. (`PutSigningConfigurationOutput`
+   was independently re-verified to have **no** `registryId` — three
+   signing-config siblings, two real shapes; not assumed from surface
+   symmetry, confirmed per-op.)
+6. `BatchGetRepositoryScanningConfiguration` — `RepositoryScanningConfiguration`
+   was missing `appliedScanFilters` entirely (a real field on
+   `types.RepositoryScanningConfiguration`: the registry scan rule's
+   repository filters that produced a repo's effective `CONTINUOUS_SCAN`
+   frequency). `repoEffectiveScanFrequency` extended to return the matched
+   rule's filters alongside the frequency; both `BatchGetRepositoryScanningConfiguration`
+   and `PutImageScanningConfiguration`'s backend method feed from it, both
+   fixed together.
+7. `DescribeRepositoryCreationTemplates` — real Input/Output both carry
+   `maxResults`/`nextToken` (confirmed: `MaxResults`/`NextToken` appear 4/5
+   times respectively in the real `api_op_DescribeRepositoryCreationTemplates.go`);
+   this handler discarded both, always returning every template in one page.
+   Fixed via the same `base64(prefix)`-cursor pagination convention already
+   used by `DescribeRepositories`/`DescribePullThroughCacheRules` in this
+   same package — the fix that `ListPullTimeUpdateExclusions` got in round 3
+   (per PARITY.md) but this sibling op didn't.
+8. `ListImageReferrers` — **disclosed, not fixed.** Real
+   `ListImageReferrersInput`/`Output` carry `Filter`/`MaxResults`/`NextToken`,
+   but `PutImage` never records an OCI-referrer edge from a pushed artifact
+   manifest's `subject` field back to the subject image (verified: grepped
+   the whole package for `referrer`/`subject` state — `DescribeImages`
+   parses `subjectManifestDigest` for display but nothing indexes it), so
+   `ListImageReferrers` is structurally always empty regardless of what the
+   wire shape declares. Adding the 3 fields would be schema-only with
+   nothing to ratify (0 items either way) — built the fields, wrote a test,
+   confirmed the test could not fail pre- or post-fix (see "worthless test"
+   below), and reverted rather than keep dead schema. Recorded as a
+   structural `gaps:` entry in PARITY.md instead.
+
+**Nested-shape overshoot (extra fields leaked, inverse of a missing-field
+bug):** `DescribeImageScanFindings`'s nested `"imageScanFindings"` object
+reused `ImageScanFindingsResult` — this package's internal domain struct,
+which ALSO carries `ImageID`/`RepositoryName`/`RegistryID`/`Status`/
+`Description` for other callers (`StartImageScan`'s backend return, etc.) —
+directly as the nested wire object. The real nested `ImageScanFindings` type
+(`awsAwsjson11_deserializeDocumentImageScanFindings`) has only 5 fields:
+`findingSeverityCounts`/`findings`/`enhancedFindings`/`imageScanCompletedAt`/
+`vulnerabilitySourceUpdatedAt` — none of those other five. Harmless to a
+real client (unknown JSON keys are silently ignored by the SDK deserializer,
+confirmed via its `default: _, _ = key, value` case), but a real wire-shape
+imprecision nonetheless. Fixed via a purpose-built `imageScanFindingsView`
+carrying only the real 5 fields.
+
+**Over-wide field / credential sweep:** clean. `authorizationDataView.AuthorizationToken`
+is `base64("AWS:dummy-password")` — a deliberately synthetic, non-cryptographic
+placeholder (`dummyPassword = "dummy-password"` constant, confirmed by
+reading `handler_auth_token.go`), not a real secret leak. `RepositoryARN`/
+`SigningProfileArn`/`CredentialArn`/`CustomRoleArn` fields are caller-supplied
+or backend-generated resource identifiers (informational, matching this
+service's existing pattern), not credentials. No plaintext client secret,
+private key, or customer environment-variable field exists anywhere in this
+service's wire surface — deliberate check run, clean, disclosed per this
+issue's instruction to record the sweep even when nothing is found.
+
+**Persistence check:** `RepositoryScanningConfiguration` (gained
+`AppliedScanFilters`) and `RegistryScanningSettings`/`SigningSettings`
+(unchanged) are NOT `store.Table`-backed persistence DTOs — grepped
+`persistence.go` and confirmed `RepositoryScanningConfiguration` is computed
+fresh on every `BatchGetRepositoryScanningConfiguration` call from
+`Repository`+`registryScanningConfig` state, never itself persisted. No
+`json:"-"` retagging done anywhere this pass; every fix either added a new
+field to a non-persisted view/domain struct or a new field to an already-
+non-persisted computed-result struct. Zero persistence risk.
+
+**Prior-audit-reasoning check (this issue's item 2):** PARITY.md's `overall:
+A` and every one of the 6 op entries this session fixed were previously
+marked `wire: ok` without qualification — none of the 3 prior audit rounds'
+notes explicitly argued any of these 6 fields' absence away (unlike
+appconfig's precedent); they were simply not re-verified against the pinned
+SDK's own deserializer per-field, which is exactly why a symmetric-looking
+Get/Put or Get/Put/Delete trio survived 3 rounds. Recorded as a correction to
+each entry, not a silent overwrite — see PARITY.md round 4 section for full
+detail.
+
+**Worthless-test check (this issue's explicit requirement):** the first
+`ListImageReferrers` fix attempt added `Filter`/`MaxResults`/`NextToken` to
+the wire structs and a test exercising them. Hand-reverting that fix and
+re-running the test showed it **still passed** — because the backend always
+returns an empty referrer list regardless of what's in the request, a real
+SDK client decodes the same empty response whether or not gopherstack's Go
+struct declares those fields (unknown JSON keys are silently dropped by
+`encoding/json` on decode either way). This is a test that cannot fail
+pre-fix, caught before it entered the final diff — reverted both the "fix"
+and the test rather than keep dead schema, and recorded the underlying
+structural gap in PARITY.md's `gaps:` instead. Every other new test in this
+session's `wire_field_fixes_test.go` (9 remaining) was individually
+hand-reverted, confirmed to fail against the reverted code with the exact
+predicted symptom (quoted per-finding above), then restored byte-identical
+before moving to the next fix.
+
+**Siblings checked, confirmed already correct (not bugs):** `imageView`
+(round 2 fix, re-verified); `repositoryView` and its 4 call sites;
+`ImageIdentifier`/`ImageDetail` full field diff (both directions);
+`ImageReferrer`'s own per-item shape (`annotations`/`digest`/`mediaType`/
+`artifactStatus`/`artifactType`/`size`) — correct even though the collection
+around it is always empty; `RepositoryFilter` shared correctly across
+scanning/signing/replication configs (all three genuinely use the same real
+shape); `ReplicationConfig`/`ReplicationRule`/`ReplicationDestination`
+nesting; `tagView`'s capitalized `Key`/`Value`; `PutSigningConfiguration`'s
+correct lack of `registryId` (the one signing-config sibling that was
+already right).
+
+**Phantom ops:** none — `GetSupportedOperations()`'s 58 entries exact-match
+the SDK's 58 `api_op_*.go` files, both directions.
+
+SDK pinned: `ecr@v1.60.4` (`go.mod`), no dependency-boundary exception
+needed.
+
+RATIFYING TESTS: 9 new real-`aws-sdk-go-v2`-client tests in the new
+`services/ecr/wire_field_fixes_test.go` (`TestPutRegistryScanningConfiguration_WrapperKey`,
+`TestGetRegistryScanningConfiguration_RegistryIDPopulated`,
+`TestPutImageScanningConfiguration_RegistryIDPopulated`,
+`TestGetSigningConfiguration_RegistryIDPopulated`,
+`TestDeleteSigningConfiguration_RegistryIDPopulated`,
+`TestBatchGetRepositoryScanningConfiguration_AppliedScanFilters`,
+`TestBatchGetRepositoryScanningConfiguration_NoRuleMatch_NoAppliedFilters`,
+`TestDescribeRepositoryCreationTemplates_Pagination`, plus one raw-body test
+`TestDescribeImageScanFindings_NestedObjectDoesNotLeakTopLevelFields` for the
+nested-overshoot fix, which a typed client can't observe since Go's SDK
+client type simply wouldn't have had the extra fields to check). 1 existing
+test fixed (`TestPutRegistryScanningConfiguration_ScanTypeEnhanced`, which
+asserted the wrong wrapper key on `Put`'s raw response). 1 test written then
+deleted after it proved unable to fail pre-fix (`ListImageReferrers` filter
+fields), per this issue's worthless-test-check requirement.
+
+GATES: scoped `go build`/`go vet ./services/ecr/...` clean; full `go build
+./...`/`go vet ./...` clean (required — `repoEffectiveScanFrequency`'s
+signature changed to return the applied filters, and it's unexported with no
+callers outside `services/ecr`, grep-confirmed, but the full build was still
+run per this session's own rule for any signature change); `go test -race
+-count=1 ./services/ecr/...` and `./pkgs/...` both green; `go fix -diff
+./services/ecr/...` clean (no diff); `golangci-lint run ./services/ecr/...`
+0 issues; `fieldalignment ./services/ecr/...` 0 hits; 0
+cyclop/gocyclo/gocognit/funlen nolints (grep-confirmed, none added).
+
+No subagents used (Read/Grep/Bash/Edit only, per this session's hard
+constraint). No git-mutating commands run — orchestrator must commit/push.
+`git status` re-checked before every edit batch; only `services/ecr/*` and
+this remainder file touched throughout.
+
+`ecr`'s List/Describe/Get families are now fully swept for this issue (21/21
+ops layer-1/2/3 clean; 6 real bugs found and fixed — 1 flagship shared-
+converter wrapper-key bug, 4 discarded-output-field bugs sharing one root
+cause (registryId never threaded through 4 sibling ops), 1 missing-member
+bug (appliedScanFilters), plus 1 pagination-discarded-input bug and 1
+nested-shape-overshoot bug; 1 structural gap disclosed rather than
+papered over; no real-data leak found). 90 of 162 services swept, 72 remain.
+Per the ranked table, `neptune` (21 L+D+G, `direct`) was the last candidate
+at this tier; `git status` at the end of this session shows a live sibling
+already mid-edit in `services/neptune/*` (event_subscriptions.go,
+global_clusters.go, handler_event_subscriptions.go,
+handler_global_clusters.go, interfaces.go, models.go, uncommitted) — never
+read or touched by this session. With both members of the 21-L+D+G tier
+taken, the next unswept tier starts at `dynamodb`'s sibling group and below
+— re-check `git status` and this file's header before picking, since
+siblings have appeared mid-session all day.

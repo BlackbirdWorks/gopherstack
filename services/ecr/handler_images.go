@@ -458,6 +458,16 @@ func (h *Handler) handlePutImageTagMutability(
 	}, nil
 }
 
+// listImageReferrersInput is the request body for ListImageReferrers.
+//
+// The real ListImageReferrersInput also carries Filter/MaxResults/NextToken
+// (see ListImageReferrersFilter), deliberately omitted here: PutImage never
+// records an OCI-referrer edge from a pushed artifact's manifest "subject"
+// back to the subject image, so ListImageReferrers is structurally always
+// empty (see ListImageReferrers's backend implementation) and those fields
+// would have no observable effect on any response this handler can produce —
+// adding them would be a schema-only change with no real behavior to ratify.
+// Disclosed as a structural gap rather than papered over.
 type listImageReferrersInput struct {
 	RepositoryName string          `json:"repositoryName"`
 	SubjectID      ImageIdentifier `json:"subjectId"`

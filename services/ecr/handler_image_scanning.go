@@ -49,12 +49,42 @@ type imageInput struct {
 }
 
 type describeImageScanFindingsOutput struct {
-	ImageID           ImageIdentifier          `json:"imageId"`
-	ImageScanFindings *ImageScanFindingsResult `json:"imageScanFindings"`
-	ImageScanStatus   scanStatusView           `json:"imageScanStatus"`
-	RegistryID        string                   `json:"registryId"`
-	RepositoryName    string                   `json:"repositoryName"`
-	NextToken         string                   `json:"nextToken,omitempty"`
+	ImageID           ImageIdentifier        `json:"imageId"`
+	ImageScanFindings *imageScanFindingsView `json:"imageScanFindings"`
+	ImageScanStatus   scanStatusView         `json:"imageScanStatus"`
+	RegistryID        string                 `json:"registryId"`
+	RepositoryName    string                 `json:"repositoryName"`
+	NextToken         string                 `json:"nextToken,omitempty"`
+}
+
+// imageScanFindingsView is the JSON representation of DescribeImageScanFindings'
+// nested "imageScanFindings" object (real AWS type: ImageScanFindings). Unlike
+// ImageScanFindingsResult — this package's internal domain struct, which also
+// carries imageId/repositoryName/registryId/status/description for other
+// callers — the real nested ImageScanFindings shape has ONLY these five
+// fields; those other five belong solely at DescribeImageScanFindingsOutput's
+// own top level (confirmed against awsAwsjson11_deserializeDocumentImageScanFindings,
+// which has no case for any of them).
+type imageScanFindingsView struct {
+	FindingSeverityCounts        map[string]int32           `json:"findingSeverityCounts,omitempty"`
+	Findings                     []ImageScanFinding         `json:"findings,omitempty"`
+	EnhancedFindings             []EnhancedImageScanFinding `json:"enhancedFindings,omitempty"`
+	ImageScanCompletedAt         float64                    `json:"imageScanCompletedAt"`
+	VulnerabilitySourceUpdatedAt float64                    `json:"vulnerabilitySourceUpdatedAt,omitempty"`
+}
+
+func toImageScanFindingsView(r *ImageScanFindingsResult) *imageScanFindingsView {
+	if r == nil {
+		return nil
+	}
+
+	return &imageScanFindingsView{
+		FindingSeverityCounts:        r.FindingSeverityCounts,
+		Findings:                     r.Findings,
+		EnhancedFindings:             r.EnhancedFindings,
+		ImageScanCompletedAt:         r.ImageScanCompletedAt,
+		VulnerabilitySourceUpdatedAt: r.VulnerabilitySourceUpdatedAt,
+	}
 }
 
 type scanStatusView struct {
@@ -87,7 +117,7 @@ func (h *Handler) handleDescribeImageScanFindings(
 
 	return &describeImageScanFindingsOutput{
 		ImageID:           findings.ImageID,
-		ImageScanFindings: findings,
+		ImageScanFindings: toImageScanFindingsView(findings),
 		ImageScanStatus: scanStatusView{
 			Description: findings.Description,
 			Status:      findings.Status,
@@ -153,5 +183,6 @@ func (h *Handler) handlePutImageScanningConfiguration(
 	return &putImageScanningConfigurationOutput{
 		ImageScanningConfiguration: imageScanningConfigurationView{ScanOnPush: cfg.ScanOnPush},
 		RepositoryName:             cfg.RepositoryName,
+		RegistryID:                 h.Backend.AccountID(),
 	}, nil
 }
