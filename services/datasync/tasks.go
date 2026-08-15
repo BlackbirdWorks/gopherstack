@@ -272,6 +272,17 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 		return ErrNotFound
 	}
 
+	// Same terminal-state guard UpdateTaskExecution already applies (see
+	// below): once an execution has settled into SUCCESS or ERROR -- whether
+	// via the lazy advance in DescribeTaskExecution or a prior Cancel --
+	// cancelling it again must not silently overwrite that outcome.
+	if isTerminalExecutionStatus(e.Status) {
+		return fmt.Errorf(
+			"%w: task execution %s is in terminal state %s and cannot be cancelled",
+			ErrInvalidParameter, taskExecutionArn, e.Status,
+		)
+	}
+
 	e.Status = executionStatusError
 
 	if t, found := b.tasks.Get(taskArn); found && t.CurrentTaskExecutionArn == taskExecutionArn {
