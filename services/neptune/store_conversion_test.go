@@ -71,7 +71,7 @@ func TestFullStateSnapshotRestore(t *testing.T) {
 	require.NoError(t, original.AddRoleToDBCluster(ctxWest, sharedName, "arn:aws:iam::000000000000:role/west"))
 
 	// A global cluster: partition-scoped, must survive without region nesting.
-	_, err = original.CreateGlobalCluster(ctxEast, "global-shared", sharedName)
+	_, err = original.CreateGlobalCluster(ctxEast, "global-shared", sharedName, "")
 	require.NoError(t, err)
 
 	// Tags on the west cluster's ARN (raw nested map, left unconverted).

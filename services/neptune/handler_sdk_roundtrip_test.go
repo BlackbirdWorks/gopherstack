@@ -408,3 +408,67 @@ func Test_SDKRoundTrip_DescribeDBClusters_EngineFilter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, out.DBClusters, "engine filter should have excluded the neptune cluster")
 }
+
+// Test_SDKRoundTrip_CreateGlobalCluster_DatabaseName proves the real SDK
+// client's CreateGlobalClusterInput.DatabaseName reaches the backend and is
+// echoed back by DescribeGlobalClusters. Real GlobalCluster.DatabaseName
+// (neptune@v1.48.4 types/types.go:1166, wire element "DatabaseName" --
+// deserializers.go's awsAwsquery_deserializeDocumentGlobalCluster) had zero
+// grep hits anywhere in this service before this fix: never modeled at all,
+// so every real client's DatabaseName was silently dropped on create and
+// DescribeGlobalClusters could never report it.
+func Test_SDKRoundTrip_CreateGlobalCluster_DatabaseName(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("000000000000", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	createOut, err := client.CreateGlobalCluster(ctx, &neptunesdk.CreateGlobalClusterInput{
+		GlobalClusterIdentifier: aws.String("rt-gc-dbname"),
+		DatabaseName:            aws.String("mygraphdb"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createOut.GlobalCluster)
+	assert.Equal(t, "mygraphdb", aws.ToString(createOut.GlobalCluster.DatabaseName))
+
+	descOut, err := client.DescribeGlobalClusters(ctx, &neptunesdk.DescribeGlobalClustersInput{
+		GlobalClusterIdentifier: aws.String("rt-gc-dbname"),
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.GlobalClusters, 1)
+	assert.Equal(t, "mygraphdb", aws.ToString(descOut.GlobalClusters[0].DatabaseName))
+}
+
+// Test_SDKRoundTrip_CreateEventSubscription_CustomerAwsId proves
+// DescribeEventSubscriptions echoes CustomerAwsId. Real
+// EventSubscription.CustomerAwsId (neptune@v1.48.4 types/types.go:1063, wire
+// element "CustomerAwsId" -- deserializers.go's
+// awsAwsquery_deserializeDocumentEventSubscription) had zero grep hits
+// anywhere in this service before this fix: never modeled at all, even
+// though the backend already tracks the account ID for ARN construction.
+func Test_SDKRoundTrip_CreateEventSubscription_CustomerAwsId(t *testing.T) {
+	t.Parallel()
+
+	backend := neptune.NewInMemoryBackend("111122223333", testRegion)
+	h := neptune.NewHandler(backend)
+	client := newTestNeptuneClient(t, h)
+	ctx := t.Context()
+
+	createOut, err := client.CreateEventSubscription(ctx, &neptunesdk.CreateEventSubscriptionInput{
+		SubscriptionName: aws.String("rt-sub-acct"),
+		SnsTopicArn:      aws.String("arn:aws:sns:us-east-1:111122223333:rt-topic"),
+		SourceType:       aws.String("db-cluster"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createOut.EventSubscription)
+	assert.Equal(t, "111122223333", aws.ToString(createOut.EventSubscription.CustomerAwsId))
+
+	descOut, err := client.DescribeEventSubscriptions(ctx, &neptunesdk.DescribeEventSubscriptionsInput{
+		SubscriptionName: aws.String("rt-sub-acct"),
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.EventSubscriptionsList, 1)
+	assert.Equal(t, "111122223333", aws.ToString(descOut.EventSubscriptionsList[0].CustomerAwsId))
+}

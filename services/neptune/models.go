@@ -272,28 +272,41 @@ type EventSubscription struct {
 	// region is the AWS region this event subscription belongs to; see
 	// DBCluster.region for the composite-key rationale.
 	region                   string
-	CustSubscriptionID       string   `json:"CustSubscriptionID"`
-	SnsTopicARN              string   `json:"SnsTopicARN"`
-	EventSubscriptionArn     string   `json:"EventSubscriptionArn"`
-	Status                   string   `json:"Status"`
-	SourceType               string   `json:"SourceType"`
-	SubscriptionCreationTime string   `json:"SubscriptionCreationTime"`
-	SourceIDs                []string `json:"SourceIDs"`
-	EventCategoriesList      []string `json:"EventCategoriesList"`
-	Enabled                  bool     `json:"Enabled"`
+	CustSubscriptionID       string `json:"CustSubscriptionID"`
+	SnsTopicARN              string `json:"SnsTopicARN"`
+	EventSubscriptionArn     string `json:"EventSubscriptionArn"`
+	Status                   string `json:"Status"`
+	SourceType               string `json:"SourceType"`
+	SubscriptionCreationTime string `json:"SubscriptionCreationTime"`
+	// CustomerAwsID is the account that owns the subscription. Real
+	// EventSubscription.CustomerAwsId (neptune@v1.48.4 types/types.go:1063)
+	// had zero grep hits anywhere in this service before this field --
+	// never modeled at all, not mis-keyed. Fresh tag, additive: old
+	// snapshots decode fine with this empty.
+	CustomerAwsID       string   `json:"CustomerAwsID"`
+	SourceIDs           []string `json:"SourceIDs"`
+	EventCategoriesList []string `json:"EventCategoriesList"`
+	Enabled             bool     `json:"Enabled"`
 }
 
 // GlobalCluster represents a Neptune global cluster.
 type GlobalCluster struct {
-	GlobalClusterIdentifier string                `json:"GlobalClusterIdentifier"`
-	GlobalClusterArn        string                `json:"GlobalClusterArn"`
-	GlobalClusterResourceID string                `json:"GlobalClusterResourceId"`
-	Status                  string                `json:"Status"`
-	Engine                  string                `json:"Engine"`
-	EngineVersion           string                `json:"EngineVersion"`
-	GlobalClusterMembers    []GlobalClusterMember `json:"GlobalClusterMembers"`
-	StorageEncrypted        bool                  `json:"StorageEncrypted"`
-	DeletionProtection      bool                  `json:"DeletionProtection"`
+	GlobalClusterIdentifier string `json:"GlobalClusterIdentifier"`
+	GlobalClusterArn        string `json:"GlobalClusterArn"`
+	GlobalClusterResourceID string `json:"GlobalClusterResourceId"`
+	Status                  string `json:"Status"`
+	Engine                  string `json:"Engine"`
+	EngineVersion           string `json:"EngineVersion"`
+	// DatabaseName is the initial database name supplied to
+	// CreateGlobalCluster. Real GlobalCluster.DatabaseName
+	// (neptune@v1.48.4 types/types.go:1166) had zero grep hits anywhere in
+	// this service before this field -- never modeled at all, not
+	// mis-keyed. Fresh tag, additive: old snapshots decode fine with this
+	// empty.
+	DatabaseName         string                `json:"DatabaseName"`
+	GlobalClusterMembers []GlobalClusterMember `json:"GlobalClusterMembers"`
+	StorageEncrypted     bool                  `json:"StorageEncrypted"`
+	DeletionProtection   bool                  `json:"DeletionProtection"`
 }
 
 // GlobalClusterMember represents a member cluster in a global cluster.

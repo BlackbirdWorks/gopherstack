@@ -26,11 +26,12 @@ func (h *Handler) handleDescribeGlobalClusters(ctx context.Context, _ url.Values
 func (h *Handler) handleCreateGlobalCluster(ctx context.Context, vals url.Values) (any, error) {
 	globalClusterID := vals.Get("GlobalClusterIdentifier")
 	sourceDBClusterID := vals.Get("SourceDBClusterIdentifier")
+	databaseName := vals.Get("DatabaseName")
 	tags := parseTagEntries(vals)
 	if err := validateTagEntries(tags); err != nil {
 		return nil, err
 	}
-	gc, err := h.Backend.CreateGlobalCluster(ctx, globalClusterID, sourceDBClusterID)
+	gc, err := h.Backend.CreateGlobalCluster(ctx, globalClusterID, sourceDBClusterID, databaseName)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +134,7 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		Status:                  gc.Status,
 		Engine:                  gc.Engine,
 		EngineVersion:           gc.EngineVersion,
+		DatabaseName:            gc.DatabaseName,
 		GlobalClusterMembers:    xmlGlobalClusterMemberList{Members: members},
 		StorageEncrypted:        gc.StorageEncrypted,
 		DeletionProtection:      gc.DeletionProtection,
@@ -171,6 +173,7 @@ type xmlGlobalCluster struct {
 	Status                  string                     `xml:"Status"`
 	Engine                  string                     `xml:"Engine,omitempty"`
 	EngineVersion           string                     `xml:"EngineVersion,omitempty"`
+	DatabaseName            string                     `xml:"DatabaseName,omitempty"`
 	GlobalClusterMembers    xmlGlobalClusterMemberList `xml:"GlobalClusterMembers"`
 	StorageEncrypted        bool                       `xml:"StorageEncrypted"`
 	DeletionProtection      bool                       `xml:"DeletionProtection"`

@@ -25,7 +25,7 @@ func (b *InMemoryBackend) globalClusterARN(id string) string {
 // Global clusters are partition-scoped (not region-isolated), but the optional
 // source DB cluster is looked up in the ctx region where it resides.
 func (b *InMemoryBackend) CreateGlobalCluster(
-	ctx context.Context, globalClusterID, sourceDBClusterID string,
+	ctx context.Context, globalClusterID, sourceDBClusterID, databaseName string,
 ) (*GlobalCluster, error) {
 	if globalClusterID == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier is required", ErrInvalidParameter)
@@ -47,6 +47,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 		Status:                  clusterStatusAvailable,
 		Engine:                  neptuneEngine,
 		EngineVersion:           defaultEngineVersion,
+		DatabaseName:            databaseName,
 	}
 	if sourceDBClusterID != "" {
 		if cl, exists := b.clusterGet(region, sourceDBClusterID); exists {

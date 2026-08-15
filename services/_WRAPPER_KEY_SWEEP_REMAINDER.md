@@ -7442,3 +7442,292 @@ read or touched by this session. With both members of the 21-L+D+G tier
 taken, the next unswept tier starts at `dynamodb`'s sibling group and below
 — re-check `git status` and this file's header before picking, since
 siblings have appeared mid-session all day.
+
+## neptune (this session, 2026-08-15)
+
+Chosen per this issue's own instruction: read this file's header/ranked
+table, ran `go run ./cmd/opcensus` fresh (unchanged for this tier), read `bd
+show gopherstack-6flj`, and read `git show 6f48b1673` (the immediately
+preceding pass, `fix(dynamodb): DescribeContributorInsights never tracked
+two real members` — dynamodb was the unique largest unswept candidate at 22
+L+D+G, strictly above `neptune`/`ecr` at 21 each, so that pass needed no
+tiebreak). `git status` at the start of this session showed a live sibling
+already mid-edit in `services/ecr/*` (handler_image_scanning.go,
+handler_images.go, handler_registry_policy.go,
+handler_repository_creation_templates.go, image_scanning.go,
+image_scanning_test.go, models.go, plus an untracked
+wire_field_fixes_test.go) — confirmed via repeated `git status` re-checks
+throughout to never touch `services/neptune/*`.
+
+**TIE-BREAK: `neptune` vs `ecr`, both 21 L+D+G ops, `direct` resolution.**
+Occupancy resolved it before surface needed to: `ecr` had a live sibling
+from before this session's first tool call, so `neptune` was the only
+available member of the tied pair — no genuine choice to make. For the
+record, sibling-trap surface (widest spread of distinct resource-family
+handler files) was checked anyway and would have pointed the other way:
+`neptune`'s family handler files are `handler_cluster_endpoints.go`,
+`handler_cluster_parameter_groups.go`, `handler_cluster_snapshots.go`,
+`handler_db_clusters.go`, `handler_db_instances.go`,
+`handler_event_subscriptions.go`, `handler_global_clusters.go`,
+`handler_parameter_groups.go`, `handler_subnet_groups.go`,
+`handler_tags.go` — 10 files, versus `ecr`'s 14 (confirmed independently by
+`ecr`'s own section above, added by the sibling session after this one
+picked). Occupancy is the actual reason `neptune` was taken, not surface.
+
+**PRIOR AUDIT NOTE QUALITY, checked before doing anything else.**
+`services/neptune/PARITY.md` is already grade A, with an extensive
+2026-08-11 pass (`gopherstack-gt9o`/`uhsb`, not 6flj) that substantively
+covers this exact bug class: it explicitly diffed every named list-item
+element op-by-op against the SDK's `deserializeDocument*List` functions, and
+separately hunted (and fixed) three "looks-void-but-the-SDK-calls-
+GetElement-unconditionally" bugs (`ModifyDBClusterSnapshotAttribute`,
+`ApplyPendingMaintenanceAction`, `DeleteDBClusterEndpoint`) plus one
+mis-named response element (`DescribeValidDBInstanceModifications`'
+`ValidProcessorFeatures` vs the real `Storage`). This is the **coverage-gap**
+case, not the **argued-away** case: the note is accurate about everything it
+covers, and simply never looked at `GlobalCluster.DatabaseName`,
+`EventSubscription.CustomerAwsId`, or `GlobalCluster.FailoverState`, all
+three genuinely never modeled anywhere in the service (see below) — nothing
+in the prior note claims those fields were checked or reasons them away, so
+this is a gap in scope, not a false claim. The prior note's
+`last_audit_commit` field (`087cb59186751418d9d49b88434f13cf214c7609`) is
+flagged as **unverifiable/likely wrong**: that hash resolves to an unrelated
+`parity(sesv2)` commit from `Jul 12 12:25:58 2026`, not a neptune commit —
+probably a stale/copy-pasted field never updated across the several
+same-file passes the frontmatter's own note-history implies. Not chased
+further; noted so the next pass doesn't trust it either.
+
+**WRAPPER-KEY SWEEP, all 21 L+D+G ops (1 List: `ListTagsForResource`; 20
+Describe), each diffed individually against its own
+`awsAwsquery_deserializeOpDocument<Op>Output` in
+`neptune@v1.48.4/deserializers.go`:** all 21 top-level wrapper key(s) matched
+exactly as gopherstack already had them --
+`DBClusters`/`DBInstances`/`DBClusterSnapshots`/`DBSubnetGroups`/
+`DBClusterParameterGroups`/`DBClusterParameters(Parameters)`/
+`DBClusterEndpoints`/`DBClusterSnapshotAttributesResult`/`DBEngineVersions`/
+`DBParameterGroups`/`Parameters`/`EngineDefaults`(x2, cluster and
+non-cluster default-parameter ops share the same real wrapper name)/
+`EventCategoriesMapList`/`GlobalClusters`/`OrderableDBInstanceOptions`/
+`ValidDBInstanceModificationsMessage`/`PendingMaintenanceActions`/`Events`/
+`TagList`, and the one genuinely-surprising case
+(`DescribeEventSubscriptions` -> `EventSubscriptionsList`, NOT the more
+obvious `EventSubscriptions`) was already correct too. **Zero wrapper-key
+bugs found in this family** -- this pass's own contribution is entirely in
+the never-modeled-member and discarded-input classes below, not wrapper
+keys. Every collection's Go kind also checked: this is query/xml, and every
+real collection here is a named-element list (`<Xs><X>...`), never a map --
+gopherstack's Go types are `[]T`/`xmlXList{Members []T}` throughout, no
+array-vs-map mismatch found (this bug class needs a JSON/REST protocol with
+a real map-shaped member to manifest, which this service's protocol
+structurally doesn't have among its L+D+G ops).
+
+**LEAD CHECK: converters shared across ops.** `toXMLParameter` (4 call
+sites: `DescribeDBClusterParameters`, `DescribeDBParameters`,
+`DescribeEngineDefaultClusterParameters`, `DescribeEngineDefaultParameters`)
+-- confirmed **legitimately shared**: all four wrap the identical real
+`types.Parameter` (neptune@v1.48.4 types/types.go:1320), same 10 members,
+same meaning at both cluster- and instance-level (matches the
+already-documented "Neptune parameter names are shared across both
+instance- and cluster-level groups" note). `toXMLEventSubscription` (6 call
+sites: Add/RemoveSourceIdentifier, Create/Modify/Delete
+EventSubscription, DescribeEventSubscriptions' list) -- confirmed
+**legitimately shared**: all six wrap the identical real
+`types.EventSubscription` (types.go:1058). `toXMLGlobalCluster` (7 call
+sites: Create/Delete/Failover/Modify/RemoveFromGlobalCluster/Switchover,
+DescribeGlobalClusters' list) -- confirmed **legitimately shared**: all
+seven wrap the identical real `types.GlobalCluster` (types.go:1163). Three
+shared converters checked, three confirmed legitimately shared, zero
+sibling-trap bugs found among them.
+
+**NEVER-MODELED MEMBERS, two found, both fixed.** Full field-by-field diff
+of `types.EventSubscription`/`types.GlobalCluster` against gopherstack's
+domain model (`models.go`) and wire structs turned up two members with zero
+grep hits anywhere in the service before this pass:
+- `EventSubscription.CustomerAwsId` (types.go:1063-1064, wire element
+  `CustomerAwsId` -- deserializers.go's
+  `awsAwsquery_deserializeDocumentEventSubscription`). **Fixed and emitted**:
+  the backend already tracks `accountID` (used throughout for ARN
+  construction, e.g. `eventSubscriptionARN`), so this was purely a threading
+  gap, not a data gap -- `CreateEventSubscription` now sets
+  `CustomerAwsID: b.accountID` on the domain struct, and the wire converter
+  emits it as `xml:"CustomerAwsId,omitempty"`.
+- `GlobalCluster.DatabaseName` (types.go:1165-1166, wire element
+  `DatabaseName`; also a real, optional, non-required member of
+  `CreateGlobalClusterInput`, api_op_CreateGlobalCluster.go:44). **Fixed and
+  emitted only when supplied**: `CreateGlobalCluster`'s handler now reads
+  `vals.Get("DatabaseName")` and threads it through the backend
+  (`InMemoryBackend.CreateGlobalCluster` gained a third `databaseName`
+  parameter; `StorageBackend.CreateGlobalCluster` in `interfaces.go` updated
+  to match) into the stored `GlobalCluster.DatabaseName`, echoed by every
+  global-cluster response op via the shared `toXMLGlobalCluster` converter
+  above -- an untouched-DatabaseName create still emits nothing
+  (`omitempty`), matching AWS leaving it empty for real when the caller
+  didn't supply one, rather than fabricating a value.
+
+**DISCLOSED, not fixed:** `GlobalCluster.FailoverState`
+(types.go:1177-1178, real type `*types.FailoverState`) is also never
+modeled, but deliberately left that way -- real AWS docs it as "empty unless
+the SwitchoverGlobalCluster or FailoverGlobalCluster operation was called on
+this global cluster," i.e. a genuinely transient in-process record with a
+`pending`/`failing-over`/`cancelling`/etc. status. This backend's
+Failover/Switchover (per the existing PARITY.md `GlobalCluster` note) apply
+member promotion synchronously with no in-process window to observe --
+exactly the same "no failure/transition window to model honestly" reasoning
+this service's PARITY.md already applies to `RebootDBInstance` and the
+Failover/Switchover synchronicity itself. Fabricating a `FailoverState`
+object (even a `"complete"`-shaped one) would invent state transitions this
+backend cannot actually distinguish from each other; omitting it is more
+honest than guessing.
+
+**DISCARDED INPUT, disclosed not fixed (out of this pass's scope):**
+`CreateGlobalClusterInput.EngineVersion`/`DeletionProtection`/
+`StorageEncrypted` (all real, optional members of the real Create input,
+api_op_CreateGlobalCluster.go) are silently ignored by
+`handleCreateGlobalCluster` at create time -- `EngineVersion` only ever gets
+set from an attached source DB cluster (or the hardcoded default) never from
+the caller's own input; `DeletionProtection` can only be set later via
+`ModifyGlobalCluster`; `StorageEncrypted` is likewise only ever derived from
+a source cluster. This service doesn't use typed `*Input` structs (routes
+raw `url.Values` through `vals.Get(...)`, so a literal `grep '_ SomeInput'`
+finds nothing here -- the discarded-input bug class still applies, just
+without that specific grep signature), and was found by manually diffing
+`CreateGlobalClusterInput`'s full member list against what
+`handleCreateGlobalCluster` actually reads. Left disclosed rather than fixed
+because unlike `DatabaseName` (pure echo, zero validation risk) these three
+have real semantic/validation surface (engine-version format checking,
+deletion-protection interacting with `DeleteGlobalCluster`'s existing
+protection check, storage-encryption's interaction with the source-cluster
+derivation path already there) that deserves its own pass rather than a
+rushed same-session bolt-on.
+
+**PERSISTENCE TRAP, checked before adding fields.** Both `EventSubscription`
+and `GlobalCluster` double as their own snapshot DTOs
+(`regionalDTO[EventSubscription]` and `GlobalCluster` directly, per
+`persistence.go`'s `buildPersistenceDTORegistry`) -- both new fields
+(`CustomerAwsID`, `DatabaseName`) were added with **fresh json tags**, not
+retagged onto an existing field, so old snapshots decode cleanly with the
+new fields simply absent/zero-valued. `neptuneSnapshotVersion` left at `1`,
+unchanged -- correct per this file's persistence-trap precedent (a fresh
+additive field never invalidates old snapshots the way a retag or type
+change would).
+
+**Describe/List asymmetry:** none found needing correction this pass. The
+one place asymmetry could plausibly appear -- `Parameter` shared across
+cluster- and instance-level Describe/EngineDefault ops -- was confirmed
+identical on the real SDK side (single `types.Parameter`, see LEAD CHECK
+above), not assumed.
+
+**Empty/204 responses:** none newly found: the three real GetElement-
+required-but-looked-void bugs in this service
+(`ModifyDBClusterSnapshotAttribute`/`ApplyPendingMaintenanceAction`/
+`DeleteDBClusterEndpoint`) were already fixed by the prior (non-6flj) pass;
+independently re-verified this pass that all three still return their
+required `*Result` element and that the documented genuinely-void ops
+(`DeleteDBSubnetGroup`/`DeleteDBClusterParameterGroup`/
+`DeleteDBParameterGroup`/`AddTagsToResource`/`RemoveTagsFromResource`/
+`AddRoleToDBCluster`/`RemoveRoleFromDBCluster`) still have no `GetElement`
+call in their op's `HandleDeserialize`, confirming the existing PARITY.md
+claim rather than re-deriving it from scratch.
+
+**Required-member diffs, both directions:** `CreateGlobalClusterInput.
+GlobalClusterIdentifier` (real: required) is enforced (`handleCreateGlobalCluster`
+returns `ErrInvalidParameter` when empty via the backend). No case found this
+pass of gopherstack demanding a field the real Input lacks. Not exhaustively
+re-diffed for all 70 ops (out of this pass's L+D+G-focused scope) --
+disclosed as unchecked beyond the ops actually touched.
+
+**Filters:** not independently re-audited this pass beyond what the prior
+PARITY.md pass already covers (`DBClusterFilters`/id-list-vs-Filters
+handling was the subject of `d91efb1b7`/`bd334b7a4`/`72903f3c0`, all prior
+sessions) -- disclosed as relying on that existing work rather than
+re-verifying every filter this pass.
+
+**Protocol / second client / EqualFold:** confirmed `query/xml`
+(`awsAwsquery_*` deserializer prefix throughout), matching PARITY.md's own
+documented protocol. No JSON-RPC/restjson1 casing risk here -- query/xml
+element-name matching is case-insensitive by design
+(`strings.EqualFold("DBClusters", t.Name.Local)` etc., confirmed directly in
+the deserializer snippets read for the wrapper-key sweep above), so this
+service structurally cannot hit the JSON-RPC casing bug class. No second
+SDK client bridge found in this service.
+
+**Router:** `Handler.dispatch` (handler.go:422) is a single-entry function
+that chains through `dispatchDBClusterAction` ->
+`dispatchClusterParameterGroupAction`/`dispatchParameterGroupAction`/etc., a
+flat `switch action { case "OpName": ... }` on the decoded `Action` form
+parameter throughout -- not a path-segment router, so structurally immune to
+the desync bug class that hit elasticsearch's two ops. Stated as the correct
+shortcut per this service's protocol/dispatch style, matching the existing
+PARITY.md router note.
+
+**Sibling families confirmed correct:** the three shared converters above
+(`toXMLParameter`/`toXMLEventSubscription`/`toXMLGlobalCluster`), all
+verified against their own real per-context Output/types shape rather than
+assumed correct from one call site.
+
+**Over-wide field / credential sweep:** none found. No API-key/client-
+secret/token-bearing resource type exists in this service (matches the
+existing PARITY.md's own note); the two ARNs newly threaded onto the wire
+this pass (`eventSubscriptionARN` was already emitted;
+`globalClusterARN`/`GlobalClusterMembers[].DBClusterARN` likewise
+pre-existing) are ARNs the caller already owns/constructed, not a leak of
+another principal's resource. Deliberate credential-shaped-field check run
+specifically: no plaintext secret, IAM/KMS ARN belonging to a different
+principal, or customer-environment-variable-shaped field anywhere in this
+service's 70 ops.
+
+**Phantom ops:** zero. `GetSupportedOperations()`'s 70 entries exact-match
+the SDK's 70 `api_op_*.go` files (both directions, confirmed by `ls
+$(go env GOMODCACHE)/github.com/aws/aws-sdk-go-v2/service/neptune@v1.48.4/api_op_*.go`
+count and the pre-existing `TestSDKCompleteness`, re-run this session and
+still green).
+
+SDK pinned: `neptune@v1.48.4` (go.mod), no dependency-boundary exception
+needed.
+
+RATIFYING TESTS: 2 new real-`aws-sdk-go-v2`-client tests added to the
+existing `handler_sdk_roundtrip_test.go`
+(`Test_SDKRoundTrip_CreateGlobalCluster_DatabaseName`,
+`Test_SDKRoundTrip_CreateEventSubscription_CustomerAwsId`), both create a
+real resource via the typed SDK client and assert the value round-trips
+through the corresponding Describe op. Both hand-reverted individually
+(commented out the one field-population line each), re-run, and confirmed
+to fail with the exact predicted symptom (`expected: "mygraphdb"/
+"111122223333", actual: ""`), then restored -- `git diff` after restoring
+showed exactly the intended one-line addition in each file, nothing else
+disturbed.
+
+GATES: scoped `go build`/`go vet ./services/neptune/...` clean; full `go
+build ./...` clean (required -- `StorageBackend.CreateGlobalCluster`'s
+signature changed, grep-confirmed no external package implements or calls
+it directly, but the full build was still run per this session's own rule
+for any signature change); `go test -race ./services/neptune/...` and `go
+test -race ./pkgs/...` both green; `go fix -diff ./services/neptune/...`
+clean (no diff); `golangci-lint run ./services/neptune/...` 0 issues after
+a `fieldalignment` finding on both edited structs (`EventSubscription`/
+`GlobalCluster`, new fields pushed pointer-bytes over the optimal packing)
+was fixed **by hand** (reordered the new string field ahead of the existing
+`[]string`/`bool` tail, then `gofmt -w` to re-align columns) rather than
+running `fieldalignment -fix`, per this file's own toolchain-hazard note
+about that tool stripping `//nolint` comments -- moot here since no
+`//nolint` existed on either struct, but the by-hand approach was used
+regardless to stay consistent with the documented precedent; 0
+cyclop/gocyclo/gocognit/funlen nolints (grep-confirmed, none added).
+
+No subagents used (Read/Grep/Bash/Edit only, per this session's hard
+constraint). No git-mutating commands run -- orchestrator must commit/push.
+`git status` re-checked before every edit batch; only `services/neptune/*`
+and this remainder file touched throughout.
+
+`neptune`'s List/Describe/Get families are now fully swept for this issue
+(21/21 ops layer-1/2/3 clean against the SDK; wrapper keys were already
+100% correct going in -- this pass's real contribution is 2 never-modeled
+members fixed, 1 disclosed as genuinely unobservable, and 1 discarded-input
+family disclosed as out-of-scope; no real-data leak found; the prior
+non-6flj PARITY.md pass is confirmed a coverage gap on this specific
+surface, not a false claim). 91 of 162 services swept, 71 remain. Both
+members of the prior 21-L+D+G tier (`neptune`, `ecr`) are now done; the next
+unswept tier starts at `dynamodb`'s neighborhood in the ranked table above
+(re-run `go run ./cmd/opcensus` and re-check `git status` before picking, as
+usual -- multiple same-tier siblings have collided by count alone all
+session, not just today).

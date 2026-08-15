@@ -216,6 +216,7 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 
 	return xmlEventSubscription{
 		CustSubscriptionID:       sub.CustSubscriptionID,
+		CustomerAwsID:            sub.CustomerAwsID,
 		EventSubscriptionArn:     sub.EventSubscriptionArn,
 		SnsTopicARN:              sub.SnsTopicARN,
 		Status:                   sub.Status,
@@ -266,6 +267,7 @@ type xmlEventCategoryItemList struct {
 
 type xmlEventSubscription struct {
 	CustSubscriptionID       string                   `xml:"CustSubscriptionId"`
+	CustomerAwsID            string                   `xml:"CustomerAwsId,omitempty"`
 	EventSubscriptionArn     string                   `xml:"EventSubscriptionArn,omitempty"`
 	SnsTopicARN              string                   `xml:"SnsTopicArn"`
 	Status                   string                   `xml:"Status"`
