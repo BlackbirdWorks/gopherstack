@@ -212,7 +212,9 @@ func (h *Handler) dispatchTypeManagementOps(
 }
 
 func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
-	arn, err := h.Backend.ActivateType(form.Get("TypeName"), form.Get("TypeArn"))
+	// ActivateTypeInput has no "TypeArn" member; the ARN identifier is
+	// "PublicTypeArn" (cloudformation@v1.76.1 serializers.go:7181).
+	arn, err := h.Backend.ActivateType(form.Get("TypeName"), form.Get("PublicTypeArn"))
 	if err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
@@ -230,7 +232,9 @@ func (h *Handler) handleActivateType(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleDeactivateType(form url.Values, c *echo.Context) error {
-	if err := h.Backend.DeactivateType(form.Get("TypeName"), form.Get("TypeArn")); err != nil {
+	// DeactivateTypeInput sends "Arn", not "TypeArn"
+	// (cloudformation@v1.76.1 serializers.go:7751).
+	if err := h.Backend.DeactivateType(form.Get("TypeName"), form.Get("Arn")); err != nil {
 		return h.xmlError(c, "TypeNotFoundException", err.Error())
 	}
 	type result struct{}
