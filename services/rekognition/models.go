@@ -91,11 +91,18 @@ func (p *storedStreamProcessor) toStreamProcessor() *StreamProcessor {
 	}
 }
 
-// storedProject holds a Rekognition Custom Labels project.
+// storedProject holds a Rekognition Custom Labels project. Name is stored
+// separately from ProjectARN (rather than parsed back out of it) because
+// DescribeProjectsInput.ProjectNames filters by name, not ARN (confirmed
+// against serializers.go/api_op_DescribeProjects.go -- there is no
+// ProjectArns filter member at all).
 type storedProject struct {
 	CreationTimestamp time.Time `json:"creationTimestamp"`
 	ProjectARN        string    `json:"projectArn"`
+	Name              string    `json:"name"`
 	Status            string    `json:"status"`
+	AutoUpdate        string    `json:"autoUpdate,omitempty"`
+	Feature           string    `json:"feature,omitempty"`
 }
 
 func (p *storedProject) toProject() *Project {
@@ -103,6 +110,8 @@ func (p *storedProject) toProject() *Project {
 		CreationTimestamp: p.CreationTimestamp,
 		ProjectARN:        p.ProjectARN,
 		Status:            p.Status,
+		AutoUpdate:        p.AutoUpdate,
+		Feature:           p.Feature,
 	}
 }
 

@@ -35,7 +35,7 @@ type StorageBackend interface {
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 
 	// Projects and Project Versions
-	CreateProject(name string) (*Project, error)
+	CreateProject(name string, params CreateProjectParams) (*Project, error)
 	DeleteProject(projectARN string) error
 	DescribeProjects(projectARNs []string, maxResults int32, nextToken string) ([]*Project, string, error)
 	CreateProjectVersion(
@@ -106,6 +106,7 @@ type Collection struct {
 	CollectionID      string
 	CollectionARN     string
 	FaceModelVersion  string
+	UserCount         int64
 }
 
 // Face represents an indexed face.
@@ -234,6 +235,19 @@ type Project struct {
 	CreationTimestamp time.Time
 	ProjectARN        string
 	Status            string
+	AutoUpdate        string
+	Feature           string
+}
+
+// CreateProjectParams groups CreateProjectInput's fields beyond
+// ProjectName/Tags. Feature defaults to CUSTOM_LABELS when empty per
+// api_op_CreateProject.go's documented "If no value is provided
+// CUSTOM_LABELS is used as a default." AutoUpdate has no documented
+// default, so an empty value is stored and echoed back as empty rather
+// than guessed.
+type CreateProjectParams struct {
+	AutoUpdate string
+	Feature    string
 }
 
 // ProjectVersion represents a model version within a project.
@@ -304,6 +318,18 @@ type Dataset struct {
 	DatasetType          string
 	Status               string
 	StatusMessage        string
+	Stats                DatasetStats
+}
+
+// DatasetStats mirrors types.DatasetStats (TotalEntries/LabeledEntries/
+// TotalLabels, computed from the dataset's stored manifest entries;
+// ErrorEntries is always 0 -- this backend has no entry-level error
+// concept, so 0 is the accurate value, not a fabrication).
+type DatasetStats struct {
+	TotalEntries   int64
+	LabeledEntries int64
+	TotalLabels    int64
+	ErrorEntries   int64
 }
 
 // DatasetLabel represents a label entry in a dataset.

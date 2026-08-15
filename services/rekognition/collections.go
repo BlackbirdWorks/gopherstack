@@ -97,6 +97,7 @@ func (b *InMemoryBackend) DescribeCollection(collectionID string) (*Collection, 
 
 	result := c.toCollection()
 	result.Tags = b.tags[c.CollectionARN]
+	result.UserCount = int64(len(b.usersByCollection.Get(collectionID)))
 
 	return result, nil
 }

@@ -67,7 +67,7 @@ func newPersistenceTestBackend(t *testing.T) (*rekognition.InMemoryBackend, pers
 	)
 	require.NoError(t, err)
 
-	proj, err := b.CreateProject("proj1")
+	proj, err := b.CreateProject("proj1", rekognition.CreateProjectParams{})
 	require.NoError(t, err)
 
 	_, err = b.CreateProjectVersion(proj.ProjectARN, "v1", rekognition.CreateProjectVersionParams{}, nil)

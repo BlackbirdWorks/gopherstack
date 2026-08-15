@@ -5363,3 +5363,229 @@ routing-level unreachability, not just a wire-shape mismatch). 81 of 162
 services swept, 81 remain. Per the ranked table, `directoryservice` (80
 ops, 25 L+D+G, `direct`) is next largest not held by the `rekognition`
 sibling -- re-check `git status` before picking either.
+
+## rekognition (this session, 2026-08-15)
+
+Chosen per the prior `workspaces` session's own note: `lakeformation` (26
+L+D+G, next-largest) was a live, uncommitted sibling at session start
+(`git status` showed 9 modified files + 1 untracked in
+`services/lakeformation/`) -- switched to `rekognition` (75 ops, 25 L+D+G,
+`dynamic-fallback`) as directed. `elasticsearch` (also 25 L+D+G) was picked
+up concurrently by a different sibling partway through this session; `git
+status` was re-checked before every edit batch and confirmed only
+`services/rekognition/*` and this file were ever touched by this session.
+
+PROTOCOL: `application/x-amz-json-1.1`, awsAwsjson11 exclusively (confirmed:
+every `deserializeOpDocument*Output`/`deserializeDocument*` function is
+`awsAwsjson11_*`, no `awsRestjson1_` or query/XML path anywhere in
+deserializers.go). Single client -- go.mod pins only
+`aws-sdk-go-v2/service/rekognition`, no second/legacy/streaming client.
+Case-SENSITIVE: confirmed via `awsAwsjson11_deserializeOpDocumentDescribeCollectionOutput`
+and every other op's `switch key { case "ExactName": ... }` -- a plain Go
+string switch over decoded JSON map keys, not smithyxml's EqualFold. The
+754 `EqualFold` hits in this SDK version are ALL `strings.EqualFold(jtv,
+"NaN"|"Infinity"|"-Infinity")` float special-value checks inside numeric
+deserializers, none on `errorCode` and none on a body-field switch --
+casing is a real bug surface here (matches cloudwatch/sqs's prior-session
+finding for the same reason), though no casing-specific bug was found this
+pass. Dead-deserializer trap does NOT apply (restjson1-only class of bug;
+this service is awsjson11).
+
+TestSDKCompleteness (pre-existing) confirms zero phantom ops: all 75
+`GetSupportedOperations` entries map to a real SDK method, resolved via
+`dynamic-fallback` (this service builds `h.ops` from 15 per-family
+`h*Ops()` map-literal contributions merged with `maps.Copy` in `buildOps`,
+not a single literal table).
+
+6 real bugs found and fixed, spanning the Project/Dataset/Collection
+families:
+
+1. **UpdateDatasetEntries.Changes -- flat vs nested, total op failure.**
+   The request field `Changes []byte` expected the base64 manifest bytes
+   directly at the "Changes" key. The real `UpdateDatasetEntriesInput.Changes`
+   is `*types.DatasetChanges{GroundTruth []byte}`, serialized as
+   `{"Changes":{"GroundTruth":"<base64>"}}` (confirmed:
+   `awsAwsjson11_serializeDocumentDatasetChanges`, serializers.go:4948). A
+   real client's call sent a JSON object where gopherstack expected a bare
+   base64 string -- `json.Unmarshal` into a `[]byte` field hard-errors on an
+   object, so every real UpdateDatasetEntries call failed outright, not
+   silent-empty. All 9 raw-body test call sites in `handler_datasets_test.go`
+   passed a flat `"Changes": <bytes>` (Go's `json.Marshal` base64-encodes
+   `[]byte` as a bare string automatically), which is exactly why this
+   never showed up: the raw-body tests unknowingly matched the bug, not the
+   real shape. Fixed by nesting `Changes *datasetChangesWire{GroundTruth
+   []byte}`; updated all 4 affected test call sites to wrap `"Changes"` in
+   `{"GroundTruth": ...}`.
+
+2. **ListDatasetLabels -- fabricated wrapper key + flat-vs-nested, silent-empty.**
+   The response emitted the collection under the fabricated top-level key
+   "DatasetLabelStats" with a flat per-item shape (`LabelName`/`EntryCount`
+   siblings). The real `ListDatasetLabelsOutput` key is
+   "DatasetLabelDescriptions" (confirmed: `awsAwsjson11_deserializeOpDocumentListDatasetLabelsOutput`,
+   deserializers.go, has no "DatasetLabelStats" case at all), and each item
+   nests `EntryCount` one level down under `LabelStats`
+   (`types.DatasetLabelDescription{LabelName, LabelStats
+   *types.DatasetLabelStats{BoundingBoxCount, EntryCount}}`). A real typed
+   client's `DatasetLabelDescriptions` field silently decoded to an empty
+   slice on every call. `BoundingBoxCount` is a disclosed gap, not fixed:
+   this backend's label counts come from `-metadata` blocks in stored
+   manifest JSON-lines entries with no per-image bounding-box-vs-
+   classification distinction to source it from. Existing raw-body test
+   (`handler_datasets_test.go`'s `extractLabels` helper) checked for either
+   "DatasetLabelStats" or "DatasetLabels" -- neither the real key -- and
+   flat `label0["EntryCount"]` assertions; both fixed to use
+   "DatasetLabelDescriptions" and nested `LabelStats.EntryCount`.
+
+3. **DescribeProjects.ProjectNames -- a real key from the wrong side, filter silently ignored.**
+   The request field was named `ProjectArns`, matching
+   `CreateProjectOutput`/`ProjectDescription`'s real singular `ProjectArn`
+   member pluralized -- but the real `DescribeProjectsInput` filter member
+   is `ProjectNames []string` (confirmed:
+   `awsAwsjson11_serializeOpDocumentDescribeProjectsInput`, serializers.go,
+   has no `ProjectArns` member; AWS docs confirm `ProjectNames` filters by
+   name, "If you don't specify a value, the response includes descriptions
+   for all the projects"). A real client's filter was silently ignored and
+   every call returned every project regardless of the requested filter --
+   the fifth instance of this campaign's "real key from the wrong side"
+   pattern (after emr, kafka, route53resolver, workspaces). Filtering by
+   name required adding a `Name` field to `storedProject` (previously only
+   derivable by re-parsing the ARN, which this backend never did). NOT
+   fixed, disclosed instead: `DescribeProjectsInput.Features` (a second,
+   independent filter) is also fully discarded -- AWS's own docs state "If
+   no value is specified, CUSTOM_LABELS is used as a default" for that
+   filter, meaning a real `DescribeProjects()` call with neither filter set
+   may only return CUSTOM_LABELS-feature projects in production. Whether
+   that default composes with a simultaneous `ProjectNames` filter is not
+   documented precisely enough to implement with confidence, so it was left
+   alone rather than risk trading one filter bug for a different one.
+
+4. **DescribeCollection.UserCount -- backend-tracked, never emitted.**
+   The backend has tracked per-collection users since `ListUsers` was
+   implemented (`b.usersByCollection` index), but `DescribeCollection` never
+   counted them -- a real client's `UserCount` was always the Go zero value
+   regardless of how many users existed in the collection. Fixed by
+   counting `len(b.usersByCollection.Get(collectionID))` under the same
+   RLock `DescribeCollection` already holds (mirrors the existing
+   `ListFaces`-for-`FaceCount` pattern one line above it).
+
+5. **DescribeDataset.DatasetStats -- entirely missing member, computable from stored data.**
+   The real `types.DatasetDescription` has a `DatasetStats
+   *types.DatasetStats{ErrorEntries, LabeledEntries, TotalEntries,
+   TotalLabels}` member that gopherstack never emitted at all (confirmed:
+   `awsAwsjson11_deserializeDocumentDatasetDescription`, deserializers.go:12814
+   -- no `DatasetArn`/`ProjectArn`/`DatasetType` cases exist on this type
+   either, see disclosed-fabrication note below). The raw ingredients were
+   already on hand: `b.datasetEntries[datasetARN]` (used by
+   `ListDatasetEntries`) and the same label-counting logic
+   `ListDatasetLabels` already used. Fixed by extracting
+   `countLabelsFromEntry` to also report whether an entry carried a
+   `-metadata` block, then a `computeDatasetStats` helper derives
+   TotalEntries/LabeledEntries/TotalLabels from the stored entries.
+   `ErrorEntries` is always 0 -- disclosed, not fabricated: this backend has
+   no entry-level error concept, so 0 is the accurate value for a backend
+   that can't produce one, not a guess.
+
+6. **CreateProject discarded AutoUpdate/Feature; DescribeProjects never echoed them.**
+   `CreateProjectInput.AutoUpdate` and `.Feature` were silently dropped (the
+   backend method took only a name); `ProjectDescription.AutoUpdate`/
+   `.Feature` were correspondingly always empty. Feature defaults to
+   "CUSTOM_LABELS" per AWS's own documented default ("If no value is
+   provided CUSTOM\_LABELS is used as a default.", verified against the
+   live API reference doc, not guessed) when the request omits it.
+   AutoUpdate has no documented default anywhere found, so an empty request
+   value is stored and echoed back as empty rather than guessed. NOT fixed,
+   disclosed instead: `CreateProjectInput.Tags` -- unlike Collection/
+   StreamProcessor/model tags, both `TagResource`'s and
+   `ListTagsForResource`'s own AWS docs scope `ResourceArn` to "the model,
+   collection, or stream processor" (Project ARNs are absent from both
+   descriptions), so this backend's own API surface has no read path that
+   could ever observe project tags, real or fabricated -- storing them
+   would be untestable dead infrastructure, not a verifiable fix.
+
+Sibling/version pairs checked and found already correct (byte-exact against
+deserializers.go, no changes needed): `ListCollections`,
+`DescribeStreamProcessor`/`ListStreamProcessors` (this file already carried
+detailed prior-session SDK-line citations and held completely -- an "A
+grade confirmed" result, same shape as route53resolver's precedent),
+`GetCelebrityInfo`/`GetCelebrityRecognition`/`RecognizeCelebrities`,
+`GetLabelDetection`, `GetContentModeration`, `GetTextDetection`,
+`GetPersonTracking`/`GetFaceDetection`/`GetFaceSearch`,
+`GetSegmentDetection` (including its `SelectedSegmentTypes` per-item
+nesting), `GetMediaAnalysisJob`/`ListMediaAnalysisJobs` (confirmed the
+file's own comment claim that `GetMediaAnalysisJobOutput` is genuinely
+flattened onto the response root, not a wrapper-key miss), `ListFaces`,
+`ListUsers`, `ListDatasetEntries`, `ListProjectPolicies`,
+`DescribeProjectVersions` (also carried detailed prior citations, held
+completely).
+
+No handler-massages-values-to-fit-a-wrong-shape pattern found (unlike
+workspaces' `DescribeApplicationAssociations` precedent). No invented enum
+values found -- `AutoUpdate`/`Feature`/dataset-`Status` values used
+throughout are all real, doc-confirmed enum members.
+
+Over-wide fields sorted: `datasetDescription`'s `DatasetArn`/`ProjectArn`/
+`DatasetType` are NOT real `types.DatasetDescription` members at all
+(confirmed absent from deserializers.go's case list) -- disclosed, left in
+place rather than removed: no sensitive data (just resource identifiers the
+caller already knows from the request/CreateDataset), a real client's
+unknown-key-drop means they're never observed, and removing them buys
+nothing testable. No plaintext-secret/ARN-of-a-different-resource/customer-
+data leak found anywhere in this service's over-wide surface.
+
+Prior audit claim check: `project_versions.go`/`stream_processors.go` both
+carried unusually detailed prior-session comments citing exact
+deserializers.go/serializers.go line numbers for every field -- re-verified
+independently against the pinned SDK rather than trusted, and held
+completely (an honest "prior claim confirmed" result, not the kafka
+precedent where deep coverage still hid 5 fabricated members).
+
+DISCARDED INPUTS this pass: 3 -- `CreateProjectInput.AutoUpdate`/`.Feature`
+(fixed), `CreateProjectInput.Tags` (disclosed, unfixed -- see #6 above),
+`DescribeProjectsInput.Features` (disclosed, unfixed -- see #3 above).
+
+Real-client test ratio: 0 real-SDK-client tests existed for this service
+before this session (the one pre-existing SDK import,
+`sdk_completeness_test.go`, only reflects over the client's method set for
+the phantom-op check -- it never issues a call). Added
+`services/rekognition/wire_field_fixes_test.go`, 6 new tests covering all 6
+bugs above, all driven through a real `rekognitionsdk.Client` against an
+`httptest.Server`-backed handler (bug #1's Changes shape is exercised
+indirectly through every other test too, since all of them create datasets
+via `UpdateDatasetEntries`). Every one of the 6 was hand-reverted
+individually (no git, per this session's hard constraint), run against the
+unfixed code, confirmed to fail with the exact predicted symptom (quoted
+above per-bug), restored, and re-verified green -- including bug #1, whose
+predicted symptom was a hard `json: cannot unmarshal object into Go struct
+field ... of type []uint8` error rather than a silent pass/fail, confirmed
+verbatim.
+
+Gates: full `go build ./...` (mandatory -- `CreateProject`,
+`DescribeProjects`'s first-parameter semantics, and `DescribeCollection`/
+`DescribeDataset`'s domain types all changed; clean, one caller updated in
+`persistence_test.go`), `go vet`, `go test -race` (scoped and full
+`./pkgs/...`), `go fix -diff` (no diff), `golangci-lint run
+./services/rekognition/...` (2 `fieldalignment` findings in the two new
+`datasetDescription`/`datasetLabelDescriptionEntry` structs, fixed by
+hand -- not via `fieldalignment -fix`, so no risk to this file's zero
+pre-existing `//nolint` comments; 0 issues after), no cyclop/gocyclo/
+gocognit/funlen nolints added (grep-confirmed 0 in this service) -- all
+green.
+
+No subagents used (Read/Grep/Bash/Edit/WebFetch only, per this session's
+hard constraint -- WebFetch used solely to confirm two AWS API doc defaults
+that the pinned SDK's Go comments state but don't fully resolve
+unambiguously: `Feature`'s CUSTOM_LABELS default, and `Features`'s
+scoping language that led to leaving that filter disclosed rather than
+guessed at). No git-mutating commands run -- orchestrator must commit/push.
+`git status` checked at start and re-checked before every edit batch; this
+file was edited concurrently by the `elasticsearch` sibling throughout --
+each edit here re-read the live file immediately beforehand and applied as
+a minimal, additive diff rather than a wholesale rewrite, to avoid
+clobbering that session's concurrent work.
+
+rekognition's List/Describe/Get families are now fully swept for this issue
+(25/25 ops layer-1/2/3 clean; 6 bugs found and fixed, one of them a total
+op failure for real clients (#1), one a fifth instance of the "real key
+from the wrong side" pattern (#3)). 82 of 162 services swept, 80 remain.
+Per the ranked table, `directoryservice` (80 ops, 25 L+D+G, `direct`) is
+next largest -- re-check `git status` before picking it.

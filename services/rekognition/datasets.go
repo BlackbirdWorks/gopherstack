@@ -88,7 +88,10 @@ func (b *InMemoryBackend) DescribeDataset(datasetARN string) (*Dataset, error) {
 		return nil, ErrDatasetNotFound
 	}
 
-	return ds.toDataset(), nil
+	result := ds.toDataset()
+	result.Stats = computeDatasetStats(b.datasetEntries[datasetARN])
+
+	return result, nil
 }
 
 // ListDatasetEntries returns a paginated list of dataset entries.
@@ -139,12 +142,16 @@ type datasetPaginationToken struct {
 	Offset int `json:"o"`
 }
 
-// countLabelsFromEntry parses one JSON-lines entry and accumulates label counts.
-func countLabelsFromEntry(entry string, counts map[string]int64) {
+// countLabelsFromEntry parses one JSON-lines entry and accumulates label
+// counts, returning whether the entry carried at least one -metadata block
+// (i.e. is "labeled" for DatasetStats.LabeledEntries purposes).
+func countLabelsFromEntry(entry string, counts map[string]int64) bool {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(entry), &obj); err != nil {
-		return
+		return false
 	}
+
+	labeled := false
 
 	for key, val := range obj {
 		const metaSuffix = "-metadata"
@@ -152,7 +159,33 @@ func countLabelsFromEntry(entry string, counts map[string]int64) {
 			continue
 		}
 
+		labeled = true
+
 		countLabelsFromMeta(val, counts)
+	}
+
+	return labeled
+}
+
+// computeDatasetStats mirrors types.DatasetStats: TotalEntries/
+// LabeledEntries/TotalLabels are derived from the dataset's stored
+// manifest entries; ErrorEntries is always 0 (this backend has no
+// entry-level error concept, so 0 is accurate, not fabricated).
+func computeDatasetStats(entries []string) DatasetStats {
+	counts := make(map[string]int64)
+
+	var labeled int64
+
+	for _, entry := range entries {
+		if countLabelsFromEntry(entry, counts) {
+			labeled++
+		}
+	}
+
+	return DatasetStats{
+		TotalEntries:   int64(len(entries)),
+		LabeledEntries: labeled,
+		TotalLabels:    int64(len(counts)),
 	}
 }
 
