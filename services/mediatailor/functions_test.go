@@ -18,7 +18,7 @@ func TestListFunctions_Paginates(t *testing.T) {
 	b := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
 
 	for _, id := range []string{"fn-a", "fn-b", "fn-c"} {
-		_, err := b.PutFunction(id, "HTTP_REQUEST", "", nil)
+		_, err := b.PutFunction(id, "HTTP_REQUEST", "", nil, nil, nil, nil)
 		require.NoError(t, err)
 	}
 

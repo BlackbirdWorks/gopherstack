@@ -50,15 +50,21 @@ func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		item := map[string]any{
-			keyName:                    s.Name,
-			"PlaybackConfigurationArn": s.PlaybackConfigurationARN,
-			keyAdDecisionServerURL:     s.AdDecisionServerURL,
-			keyVideoContentSourceURL:   s.VideoContentSourceURL,
-			keyTags:                    nilToEmpty(s.Tags),
-		}
-		mergeExtraConfig(item, s.Extra)
-		out = append(out, item)
+		// ListPlaybackConfigurationsOutput.Items is []types.PlaybackConfiguration,
+		// the same full type GetPlaybackConfiguration returns, so reuse
+		// toPlaybackConfigOutput rather than re-deriving a slimmer shape.
+		out = append(out, toPlaybackConfigOutput(&PlaybackConfiguration{
+			Name:                        s.Name,
+			PlaybackConfigurationARN:    s.PlaybackConfigurationARN,
+			AdDecisionServerURL:         s.AdDecisionServerURL,
+			VideoContentSourceURL:       s.VideoContentSourceURL,
+			Tags:                        s.Tags,
+			PlaybackEndpointPrefix:      s.PlaybackEndpointPrefix,
+			SessionInitializationPrefix: s.SessionInitializationPrefix,
+			HlsManifestEndpointPrefix:   s.HlsManifestEndpointPrefix,
+			LogConfiguration:            s.LogConfiguration,
+			Extra:                       s.Extra,
+		}))
 	}
 
 	resp := map[string]any{keyItems: out}

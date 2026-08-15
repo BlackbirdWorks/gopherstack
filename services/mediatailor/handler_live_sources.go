@@ -1,4 +1,4 @@
-package mediatailor //nolint:dupl // VodSource/LiveSource CRUD handlers are structurally identical by AWS API design
+package mediatailor
 
 import (
 	"net/http"
@@ -69,6 +69,7 @@ func (h *Handler) handleListLiveSources(c *echo.Context, sourceLocationName stri
 			keyLiveSourceName:     s.LiveSourceName,
 			keySourceLocationName: s.SourceLocationName,
 			keyArn:                s.ARN,
+			keyHTTPPackageConfigs: httpPackageConfigurationsWire(s.HTTPPackageConfigurations),
 			keyTags:               nilToEmpty(s.Tags),
 		}
 		addTimestamps(item, s.CreationTime, s.LastModified)
@@ -84,21 +85,12 @@ func (h *Handler) handleListLiveSources(c *echo.Context, sourceLocationName stri
 }
 
 func toLiveSourceOutput(ls *LiveSource) map[string]any {
-	cfgs := make([]map[string]any, 0, len(ls.HTTPPackageConfigurations))
-	for _, cfg := range ls.HTTPPackageConfigurations {
-		cfgs = append(cfgs, map[string]any{
-			"Path":         cfg.Path,
-			keySourceGroup: cfg.SourceGroup,
-			"Type":         cfg.Type,
-		})
-	}
-
 	out := map[string]any{
-		keyLiveSourceName:           ls.LiveSourceName,
-		keySourceLocationName:       ls.SourceLocationName,
-		keyArn:                      ls.ARN,
-		"HttpPackageConfigurations": cfgs,
-		keyTags:                     nilToEmpty(ls.Tags),
+		keyLiveSourceName:     ls.LiveSourceName,
+		keySourceLocationName: ls.SourceLocationName,
+		keyArn:                ls.ARN,
+		keyHTTPPackageConfigs: httpPackageConfigurationsWire(ls.HTTPPackageConfigurations),
+		keyTags:               nilToEmpty(ls.Tags),
 	}
 	addTimestamps(out, ls.CreationTime, ls.LastModified)
 

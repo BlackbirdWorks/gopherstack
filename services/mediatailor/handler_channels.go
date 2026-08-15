@@ -31,7 +31,15 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, name string) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, toChannelOutput(ch))
+	out := toChannelOutput(ch)
+	// LogConfiguration is required on DescribeChannelOutput only --
+	// Create/UpdateChannelOutput have no such member (confirmed against
+	// both real structs).
+	out["LogConfiguration"] = map[string]any{
+		keyLogTypes: nilToEmptyStrings(ch.LogConfiguration.LogTypes),
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) handleUpdateChannel(c *echo.Context, name string, body map[string]any) error {
@@ -65,14 +73,7 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		out = append(out, map[string]any{
-			keyChannelName: s.Name,
-			keyArn:         s.ARN,
-			"PlaybackMode": s.PlaybackMode,
-			"ChannelState": s.ChannelState,
-			"Tier":         s.Tier,
-			keyTags:        nilToEmpty(s.Tags),
-		})
+		out = append(out, toChannelSummaryOutput(s))
 	}
 
 	resp := map[string]any{keyItems: out}
@@ -99,32 +100,77 @@ func (h *Handler) handleStopChannel(c *echo.Context, name string) error {
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func toChannelOutput(ch *Channel) map[string]any {
-	outputs := make([]map[string]any, 0, len(ch.Outputs))
-	for _, o := range ch.Outputs {
-		out := map[string]any{
+func channelOutputsWire(outputs []OutputItem) []map[string]any {
+	out := make([]map[string]any, 0, len(outputs))
+	for _, o := range outputs {
+		item := map[string]any{
 			"ManifestName": o.ManifestName,
 			keySourceGroup: o.SourceGroup,
 		}
 		if o.HlsPlaylistSettings != nil {
-			out["HlsPlaylistSettings"] = map[string]any{
+			item["HlsPlaylistSettings"] = map[string]any{
 				"ManifestWindowSeconds": o.HlsPlaylistSettings.ManifestWindowSeconds,
 			}
 		}
-		outputs = append(outputs, out)
+		out = append(out, item)
 	}
 
+	return out
+}
+
+func fillerSlateWire(slate *SlateSource) map[string]any {
+	if slate == nil {
+		return nil
+	}
+
+	return map[string]any{
+		keySourceLocationName: slate.SourceLocationName,
+		keyVodSourceName:      slate.VodSourceName,
+	}
+}
+
+// toChannelSummaryOutput builds a ListChannels item, matching the real
+// types.Channel shape used by ListChannelsOutput.Items -- the SAME full
+// type DescribeChannel returns (confirmed against mediatailor@v1.63.4's
+// deserializeDocumentChannel), not a slimmer summary. Real types.Channel
+// has LogConfiguration but no TimeShiftConfiguration, the opposite
+// asymmetry from toChannelOutput's Create/Update shape.
+func toChannelSummaryOutput(s *ChannelSummary) map[string]any {
+	result := map[string]any{
+		keyChannelName: s.Name,
+		keyArn:         s.ARN,
+		"PlaybackMode": s.PlaybackMode,
+		"ChannelState": s.ChannelState,
+		"Tier":         s.Tier,
+		"Outputs":      channelOutputsWire(s.Outputs),
+		keyTags:        nilToEmpty(s.Tags),
+		"LogConfiguration": map[string]any{
+			keyLogTypes: nilToEmptyStrings(s.LogConfiguration.LogTypes),
+		},
+	}
+
+	if len(s.Audiences) > 0 {
+		result["Audiences"] = s.Audiences
+	}
+
+	addTimestamps(result, s.CreationTime, s.LastModified)
+
+	if slate := fillerSlateWire(s.FillerSlate); slate != nil {
+		result["FillerSlate"] = slate
+	}
+
+	return result
+}
+
+func toChannelOutput(ch *Channel) map[string]any {
 	result := map[string]any{
 		keyChannelName: ch.Name,
 		keyArn:         ch.ARN,
 		"PlaybackMode": ch.PlaybackMode,
 		"ChannelState": ch.ChannelState,
 		"Tier":         ch.Tier,
-		"Outputs":      outputs,
+		"Outputs":      channelOutputsWire(ch.Outputs),
 		keyTags:        nilToEmpty(ch.Tags),
-		"LogConfiguration": map[string]any{
-			"LogTypes": nilToEmptyStrings(ch.LogConfiguration.LogTypes),
-		},
 	}
 
 	if len(ch.Audiences) > 0 {
@@ -133,11 +179,8 @@ func toChannelOutput(ch *Channel) map[string]any {
 
 	addTimestamps(result, ch.CreationTime, ch.LastModified)
 
-	if ch.FillerSlate != nil {
-		result["FillerSlate"] = map[string]any{
-			keySourceLocationName: ch.FillerSlate.SourceLocationName,
-			keyVodSourceName:      ch.FillerSlate.VodSourceName,
-		}
+	if slate := fillerSlateWire(ch.FillerSlate); slate != nil {
+		result["FillerSlate"] = slate
 	}
 
 	if ch.TimeShift != nil {

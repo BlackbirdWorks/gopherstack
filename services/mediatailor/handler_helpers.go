@@ -181,7 +181,7 @@ func extractOutputs(body map[string]any) []OutputItem {
 }
 
 func extractHTTPPackageConfigurations(body map[string]any) []HTTPPackageConfiguration {
-	raw, _ := body["HttpPackageConfigurations"].([]any)
+	raw, _ := body[keyHTTPPackageConfigs].([]any)
 	if len(raw) == 0 {
 		return nil
 	}
@@ -202,6 +202,19 @@ func extractHTTPPackageConfigurations(body map[string]any) []HTTPPackageConfigur
 	}
 
 	return cfgs
+}
+
+func httpPackageConfigurationsWire(cfgs []HTTPPackageConfiguration) []map[string]any {
+	out := make([]map[string]any, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		out = append(out, map[string]any{
+			"Path":         cfg.Path,
+			keySourceGroup: cfg.SourceGroup,
+			"Type":         cfg.Type,
+		})
+	}
+
+	return out
 }
 
 func stringField(m map[string]any, key string) string {

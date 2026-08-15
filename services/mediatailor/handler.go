@@ -57,6 +57,8 @@ const (
 	keyLiveSourceName        = "LiveSourceName"
 	keyAdDecisionServerURL   = "AdDecisionServerUrl"
 	keyVideoContentSourceURL = "VideoContentSourceUrl"
+	keyLogTypes              = "LogTypes"
+	keyHTTPPackageConfigs    = "HttpPackageConfigurations"
 
 	splitTwo   = 2
 	splitThree = 3

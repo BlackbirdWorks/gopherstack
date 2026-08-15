@@ -1,4 +1,4 @@
-package mediatailor //nolint:dupl // VodSource/LiveSource CRUD handlers are structurally identical by AWS API design
+package mediatailor
 
 import (
 	"net/http"
@@ -30,7 +30,14 @@ func (h *Handler) handleDescribeVodSource(c *echo.Context, sourceLocationName, v
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, toVodSourceOutput(vs))
+	out := toVodSourceOutput(vs)
+	// AdBreakOpportunities is real only on DescribeVodSourceOutput, not
+	// Create/UpdateVodSourceOutput (confirmed against both real structs) --
+	// this backend never parses VOD manifests for SCTE-35 markers, so an
+	// honest empty list (never a fabricated detection) is correct here.
+	out["AdBreakOpportunities"] = []map[string]any{}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) handleUpdateVodSource(
@@ -69,6 +76,7 @@ func (h *Handler) handleListVodSources(c *echo.Context, sourceLocationName strin
 			keyVodSourceName:      s.VodSourceName,
 			keySourceLocationName: s.SourceLocationName,
 			keyArn:                s.ARN,
+			keyHTTPPackageConfigs: httpPackageConfigurationsWire(s.HTTPPackageConfigurations),
 			keyTags:               nilToEmpty(s.Tags),
 		}
 		addTimestamps(item, s.CreationTime, s.LastModified)
@@ -84,21 +92,12 @@ func (h *Handler) handleListVodSources(c *echo.Context, sourceLocationName strin
 }
 
 func toVodSourceOutput(vs *VodSource) map[string]any {
-	cfgs := make([]map[string]any, 0, len(vs.HTTPPackageConfigurations))
-	for _, cfg := range vs.HTTPPackageConfigurations {
-		cfgs = append(cfgs, map[string]any{
-			"Path":         cfg.Path,
-			keySourceGroup: cfg.SourceGroup,
-			"Type":         cfg.Type,
-		})
-	}
-
 	out := map[string]any{
-		keyVodSourceName:            vs.VodSourceName,
-		keySourceLocationName:       vs.SourceLocationName,
-		keyArn:                      vs.ARN,
-		"HttpPackageConfigurations": cfgs,
-		keyTags:                     nilToEmpty(vs.Tags),
+		keyVodSourceName:      vs.VodSourceName,
+		keySourceLocationName: vs.SourceLocationName,
+		keyArn:                vs.ARN,
+		keyHTTPPackageConfigs: httpPackageConfigurationsWire(vs.HTTPPackageConfigurations),
+		keyTags:               nilToEmpty(vs.Tags),
 	}
 	addTimestamps(out, vs.CreationTime, vs.LastModified)
 

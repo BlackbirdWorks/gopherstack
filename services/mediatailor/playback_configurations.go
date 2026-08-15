@@ -45,13 +45,16 @@ func (s *storedPlaybackConfiguration) toSummary() *PlaybackConfigurationSummary 
 	maps.Copy(tags, s.Tags)
 
 	return &PlaybackConfigurationSummary{
-		Tags:                     tags,
-		LogConfiguration:         s.LogConfiguration,
-		Extra:                    s.Extra,
-		Name:                     s.Name,
-		AdDecisionServerURL:      s.AdDecisionServerURL,
-		VideoContentSourceURL:    s.VideoContentSourceURL,
-		PlaybackConfigurationARN: s.PlaybackConfigurationARN,
+		Tags:                        tags,
+		LogConfiguration:            s.LogConfiguration,
+		Extra:                       s.Extra,
+		Name:                        s.Name,
+		AdDecisionServerURL:         s.AdDecisionServerURL,
+		VideoContentSourceURL:       s.VideoContentSourceURL,
+		PlaybackConfigurationARN:    s.PlaybackConfigurationARN,
+		PlaybackEndpointPrefix:      s.PlaybackEndpointPrefix,
+		SessionInitializationPrefix: s.SessionInitializationPrefix,
+		HlsManifestEndpointPrefix:   s.HlsManifestEndpointPrefix,
 	}
 }
 

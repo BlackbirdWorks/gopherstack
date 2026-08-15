@@ -8423,3 +8423,277 @@ service left at this tier -- once its live sibling session ends, the next
 tier below starts around `memorydb`/`codedeploy`/`accessanalyzer` (18 each,
 all still unswept per this file); re-run `go run ./cmd/opcensus` and
 re-check `git status` before picking, as usual.
+
+## mediatailor (this session, 2026-08-15)
+
+Read this file's header/tail, ran `go run ./cmd/opcensus` fresh (unchanged
+for this tier: `mediatailor` 19 L+D+G, `direct`), read `bd show
+gopherstack-6flj`'s comments, and read `git show 61e04cfa5` (the
+directconnect pass cited by this session's assignment). `git status` at
+pick time showed only `services/xray/*` uncommitted (a live sibling, later
+confirmed committed as `df32fb2c0` mid-session, unrelated to this pick).
+
+**TIE-BREAK: `mediatailor` vs `transcribe`, both 19 L+D+G, `direct`.**
+Surface (widest spread of distinct resource-family `handler_*.go` files)
+pointed at `mediatailor`: 12 files (`handler_alerts.go`,
+`handler_channel_policy.go`, `handler_channels.go`, `handler_functions.go`,
+`handler_live_sources.go`, `handler_logs.go`,
+`handler_playback_configurations.go`, `handler_prefetch_schedules.go`,
+`handler_programs.go`, `handler_source_locations.go`, `handler_tags.go`,
+`handler_vod_sources.go`) versus `transcribe`'s 9 (`handler_call_analytics.go`,
+`handler_language_models.go`, `handler_medical_scribe.go`,
+`handler_medical_transcription_jobs.go`, `handler_medical_vocabularies.go`,
+`handler_tags.go`, `handler_transcription_jobs.go`, `handler_vocabularies.go`,
+`handler_vocabulary_filters.go`). No live sibling on either at pick time --
+picked cleanly on surface, no occupancy override needed. (The `transcribe`
+pass that ran concurrently independently reports reaching the same surface
+conclusion and yielding on occupancy once it saw this session's files
+change mid-flight -- confirmed from both sides, no collision, matching this
+issue's own precedent for how simultaneous picks should resolve.)
+
+**KEY-SET EXTRACTION: scripted, not hand-transcribed.** A small Python
+helper (paren-balance-aware, since a naive `func ... {` search breaks on
+`interface{}` appearing in a signature before the real body) walked
+`mediatailor@v1.63.4/deserializers.go`, located each op's own
+`awsRestjson1_deserializeOpDocument<Op>Output` function, and regex-extracted
+every top-level `case "<key>":` -- run individually for all 19 in-scope ops
+plus every Create/Update sibling sharing a converter (28 functions total)
+and every shared nested type (`SourceLocation`, `VodSource`, `LiveSource`,
+`PlaybackConfiguration`, `Function`, `Channel`, `AdBreak`,
+`ScheduleAdBreak`, `AccessConfiguration`, etc).
+
+**PROTOCOL, ROUTER, SECOND CLIENT, EQUALFOLD:** restjson1 (confirmed:
+`awsRestjson1_` prefix throughout `deserializers.go`/`serializers.go`).
+Zero `EqualFold` calls anywhere in `services/mediatailor/*.go` -- casing IS
+a real bug class for this protocol (plain `switch key { case "Foo": }` in
+the real deserializer, case-sensitive), but no mismatch found. Router is
+path-segment-based (`RouteMatcher`/`ExtractOperation`), NOT structurally
+immune the way a flat `X-Amz-Target` dispatch would be -- this service
+already carries a permanent regression test for exactly that class
+(`handler_sdk_route_table_test.go`'s `TestExtractOperation_SDKRouteTable`,
+one subtest per op, added 2026-08-13 under a different issue), re-run clean
+this pass rather than re-derived from scratch. Every one of the 19 in-scope
+ops' `HandleDeserialize` was individually confirmed (not assumed) to call
+its generated `OpDocument*Output` function directly -- no dead-wrapper trap
+like `pinpoint`'s. `GetSupportedOperations`' 48 ops exact-matched the SDK's
+48 `api_op_*.go` files both directions via `cmd/opcensus` -- 0 phantom ops.
+No second SDK client import anywhere outside `_test.go` files.
+
+**8 real bugs found and fixed, all layer-2 (missing-or-fabricated fields,
+never a top-level wrapper-key rename) -- every one caught by diffing a
+shared converter's OTHER call sites against their own real Output type,
+this issue's stated lead:**
+
+1. `GetFunction`/`PutFunction` never emitted `CustomOutputConfiguration`/
+   `HttpRequestConfiguration`/`SequentialExecutorConfiguration` at all -- a
+   real client's Function object was always nil on all three regardless of
+   FunctionType, on the entire Functions feature. Fixed as decoded-JSON
+   pass-through (matching `PlaybackConfiguration.Extra`'s existing
+   convention -- this backend doesn't execute functions).
+2. `ListFunctions`' `Items` is `[]types.Function` (same full type
+   `GetFunction` returns) but dropped `Description` and all three configs
+   per item -- `FunctionSummary` didn't carry them either. Fixed.
+3. `ListChannels`' `Items` is `[]types.Channel` (same full type
+   `DescribeChannel` returns, minus `TimeShiftConfiguration`, plus
+   `LogConfiguration` -- confirmed the OPPOSITE asymmetry from bug 6) but
+   dropped 6 of 12 real fields despite `ChannelSummary` already tracking
+   every one -- pure wire-emission gap. Fixed.
+4. `ListVodSources`/`ListLiveSources` dropped `HttpPackageConfigurations`
+   (real on both `types.VodSource`/`types.LiveSource`). Also found in the
+   same pass: `ListLiveSources`' OWN backend method never populated
+   `CreationTime`/`LastModified` on `LiveSourceSummary` at all, while
+   `ListVodSources`' equivalent method already did -- a genuine
+   sibling-family asymmetry, verified per-op rather than assumed uniform.
+   Fixed both.
+5. `ListPlaybackConfigurations`' `Items` is `[]types.PlaybackConfiguration`
+   (same full type `GetPlaybackConfiguration` returns) but dropped
+   `LogConfiguration`/`PlaybackEndpointPrefix`/
+   `SessionInitializationEndpointPrefix` despite the backend already
+   tracking all three. Fixed by reusing `toPlaybackConfigOutput` directly
+   instead of re-deriving a slimmer shape -- its existing dual-stack `if !=
+   ""` guards correctly no-op on the already-disclosed-empty dual-stack
+   fields (Notes #13 in `services/mediatailor/PARITY.md`), confirmed not
+   accidentally reopened.
+6. `CreateChannel`/`UpdateChannel` FABRICATED a `LogConfiguration` field
+   neither real Output type has (real member only on
+   `DescribeChannelOutput`) -- the inverse of bugs 2-5 (over-emission, not
+   under-), harmless to a real typed client (unknown JSON keys silently
+   ignored) and only observable via a **raw-body test**
+   (`TestCreateChannel_NoLogConfigurationOnWire`). Fixed by moving the
+   field out of the shared converter into `handleDescribeChannel` only.
+7. `GetPrefetchSchedule`/`CreatePrefetchSchedule` fabricated a top-level
+   `CreationTime` with no real member at all (confirmed via both ops' own
+   9-key deserializer switches) -- same over-emission/raw-body-only class
+   as bug 6. An existing test asserted the fabricated field as correct;
+   fixed.
+8. `DescribeVodSource` never modeled `AdBreakOpportunities` (real, only on
+   `DescribeVodSourceOutput` -- diffed separately from
+   `Create`/`UpdateVodSourceOutput`, confirmed absent on both). Same
+   structural class as the already-disclosed `ScheduleAdBreaks` gap
+   (manifest/SCTE-35 scanning this backend has no engine for anywhere in
+   the fleet) -- fixed by emitting an honest, always-empty list on the
+   Describe path only, never fabricated non-empty.
+
+**SHARED CONVERTERS CHECKED, CONFIRMED GENUINELY SHARED (no bug):**
+`toLiveSourceOutput`/`toVodSourceOutput`-style Create/Describe/Update
+triples for `LiveSource`, `SourceLocation`, `Program` -- all 3 real Output
+types per family diffed individually, byte-identical (unlike `Channel`'s
+asymmetry). `toPrefetchScheduleOutput` (Create/Get) and `toFunctionOutput`
+(Put/Get) are genuinely identical real shapes once bugs 1/7 were fixed.
+
+**SYMMETRIC-LOOKING PAIR DIFFED SEPARATELY, CONFIRMED A REAL ASYMMETRY, NOT
+A TRAP MISSED:** `Channel` (List item) vs `Create`/`UpdateChannelOutput`
+looks like the same shape at a glance -- it is NOT: real `types.Channel`
+has `LogConfiguration` but no `TimeShiftConfiguration`; real
+`Create`/`UpdateChannelOutput` have `TimeShiftConfiguration` but no
+`LogConfiguration`. Both directions of this asymmetry were bugs in
+gopherstack before this pass (bugs 3 and 6) -- diffing the pair separately,
+not trusting either as a template for the other, is what caught both.
+
+**STRUCTURALLY IMPOSSIBLE FOR THIS PROTOCOL:** none found this pass --
+restjson1's collections are always named JSON arrays or maps as declared,
+no array-vs-map ambiguity like query/XML's named-element-list case.
+
+**NEVER-MODELLED MEMBERS, fixed or disclosed:** bugs 1 and 8 above (fixed).
+Also reconfirmed (not touched, already correctly disclosed by a prior
+general-parity pass) `ProgramScheduleEntry.ScheduleAdBreaks` --this session
+nearly proposed deriving it from `Program.AdBreaks` before reading
+`PARITY.md`'s own note, which already explains why that would be exactly
+the fabrication this issue warns against (AdBreaks is client-configured ad
+splicing; ScheduleAdBreaks is MediaTailor-detected SCTE-35 avails --
+materially different concepts). New disclosure this pass:
+`ProgramScheduleEntry.Audiences` is declared but never assigned anywhere in
+`programs.go` (always empty, correctly-but-incompletely omitted by the
+wire's existing `if len > 0` guard) -- a plausible derivation exists
+(`Program.AudienceMedia`'s per-entry `Audience` field), but this pass found
+no primary source confirming that mapping against the pinned SDK (whose own
+doc comment is circular) or a live account, so it was disclosed in
+`PARITY.md`'s `items_still_open` rather than guessed. No member marked
+`Deprecated` in the SDK's own doc comments was found in this service's
+touched surface.
+
+**NO FIX WITHDRAWN THIS PASS** -- every hand-revert (8 of them, one per
+bug) reproduced the exact predicted symptom before being restored;
+`go test -race -run <name> -v` output for each revert is quoted in the
+session's own report.
+
+**VERIFIED PER-OP, NOT ASSUMED UNIFORM:** `HttpPackageConfigurations` was
+missing on `ListVodSources` AND `ListLiveSources` but present and correct
+on `DescribeVodSource`/`DescribeLiveSource`/`CreateVodSource`/
+`CreateLiveSource` -- checked each op individually rather than assuming the
+List-vs-Describe split was uniform across the whole service (it wasn't:
+`ListSourceLocations`' equivalent fields were already fully correct, using
+the same `addAccessConfiguration`/`addSegmentDeliveryConfigurations`
+helpers as `DescribeSourceLocation`).
+
+**EVERY EMPTY/204 RESPONSE CHECKED:** `DeleteFunction`/
+`DeletePrefetchSchedule`/`DeletePlaybackConfiguration`/`TagResource`/
+`UntagResource` return `c.NoContent(204)`; all 5 real Output types are
+confirmed genuinely empty (`ResultMetadata` only, no body members) --
+correct, not a truncated real body. `DeleteChannel`/`DeleteSourceLocation`/
+`DeleteVodSource`/`DeleteLiveSource`/`DeleteProgram`/`DeleteChannelPolicy`
+return `200 {}` instead of `204` -- inconsistent with the 5 above but
+harmless (their real Output types are also empty; a real client only reads
+`ResultMetadata` either way) -- noted, not changed (out of this issue's
+scope, no data loss).
+
+**PRIOR AUDIT NOTE QUALITY: two stale/incorrect claims found and
+corrected, both the ARGUED-AWAY case (asserted something as done that a
+grep does not support), not a coverage gap** -- this service's
+`PARITY.md` is unusually thorough (Notes #1-13, several full re-audits) so
+most of its history held up; these two didn't: `CreateChannel`'s note
+claimed a prior pass correctly added `LogConfiguration` (it added it to a
+shape that should never have had it -- bug 6); `GetChannelSchedule`'s note
+claimed `Audiences` was fixed to match real `ScheduleEntry` (never actually
+populated -- see disclosure above). Both corrected in place in
+`services/mediatailor/PARITY.md`, not silently rewritten. `last_audit_commit`
+(`a874b0df`) was NOT re-pointed -- this pass's method (deserializer key
+switches) is a narrower/deeper check than that audit's Go-struct-level
+method, not a full re-audit superseding it, so the existing pointer is
+still the right one for "what a general-parity re-audit should diff from."
+
+**REQUIRED-MEMBER DIFFS, both directions, scoped to the 19 ops touched (not
+all 48):** the pinned SDK ships zero `validateOpInput*` functions with
+conditional (FunctionType-dependent) required-field enforcement for
+`PutFunction`'s three config blocks -- each is documented "Required when
+FunctionType is X" in prose only, never enforced client-side. No case found
+of gopherstack demanding a field the real Input structurally lacks, or of a
+real required field going unenforced, among the 19 touched ops.
+
+**FILTERS/PAGINATION:** all 8 ops taking `maxResults`/`nextToken`
+(`ListChannels`, `ListFunctions`, `ListLiveSources`, `GetChannelSchedule`,
+`ListPlaybackConfigurations`, `ListPrefetchSchedules`, `ListVodSources`,
+`ListSourceLocations`) route through `extractPaginationParams`/
+`extractBodyPaginationParams` into `pkgs/page` -- confirmed, none
+discarded. `ListTagsForResource`/`ListAlerts` correctly take no pagination
+params (matching the real API, both single-page ops).
+
+**DISCARDED INPUTS:** grepped `_ .*Input\b` across every non-test file --
+zero hits, no discarded input parameter found in this service.
+
+**OVER-WIDE FIELD / CREDENTIAL SWEEP:** nothing new introduced by this
+pass's fixes touches secrets/ARNs beyond what this `PARITY.md`'s Notes
+#6-#13 already covered and cleared (`SecretsManagerAccessTokenConfiguration`'s
+fields are identifiers, not secret values).
+
+**PERSISTENCE TRAP:** checked before adding fields. `Channel`/
+`ChannelSummary`/`VodSourceSummary`/`LiveSourceSummary`/`FunctionSummary`/
+`PlaybackConfigurationSummary` (all extended this pass) are plain Go
+structs with no `json:`/other tags read by `pkgs/store` for field-name
+purposes -- this service's `store.Table[T]` persists via Go's native
+`encoding/json` over the untagged struct field names, so new additive
+fields carry no retag risk. (`storedPlaybackConfiguration`/`storedVodSource`
+DO have explicit `json:` tags for a few pre-existing fields -- neither was
+retagged, only read from, by this pass.)
+
+**SDK PINNED:** `mediatailor@v1.63.4` (`go.mod`), no dependency-boundary
+exception needed. Real-`aws-sdk-go-v2`-client test ratio: this service
+already had extensive real-client coverage before this pass (most CRUD
+paths, the full route table, several prior-pass round-trip tests); this
+pass added 8 more (`wire_field_fixes_test.go`), 2 of which are deliberately
+raw-body (bugs 6/7, unobservable to a typed client by construction).
+
+**ANYTHING UNVERIFIABLE FROM THE PINNED SDK:** the true real-AWS semantics
+of `ScheduleEntry.Audiences` (see disclosure above) -- the SDK's own doc
+comment is circular and this pass had no live account to confirm against.
+
+**RAW-BODY TESTS:** 2, used deliberately (bugs 6 and 7) -- both are
+over-emission bugs where a real typed client structurally cannot observe an
+extra unknown JSON key (the generated deserializer's `default:` case
+silently ignores it), so only a decoded-body assertion below the SDK layer
+can catch or guard against them.
+
+**PHANTOM OPS:** zero, both directions (see router/second-client above).
+
+**FALSE-POSITIVE RATE:** 0 among the 8 reported bugs -- every one cited the
+real deserializer/struct-definition file, confirmed reached from
+`HandleDeserialize`, before being called a bug.
+
+**GATES:** `go build ./services/mediatailor/...` and full `go build ./...`
+(interface signatures changed -- `StorageBackend.PutFunction`'s signature
+grew 3 parameters) both clean; `go vet` clean; `go test -race -count=1
+./services/mediatailor/...` and `./pkgs/...` both green; `go fix -diff`
+empty; `golangci-lint run ./services/mediatailor/...` 0 issues (fixed 4
+`goconst` findings by promoting `"LogTypes"`/`"HttpPackageConfigurations"`
+to named constants, 2 `golines` wraps, and removed 2 now-unused
+`//nolint:dupl` directives the refactor made stale -- `nolintlint` caught
+these, not silently left); `fieldalignment` clean on every file this pass
+touched (2 pre-existing findings remain in untouched test files, confirmed
+via `git status`/`git diff --stat` neither was edited this pass). Zero
+`//nolint:cyclop/gocyclo/gocognit/funlen` added, grep-confirmed. No
+subagents used (Read/Grep/Bash only, per this session's hard constraint).
+No git-mutating commands run -- orchestrator must commit/push. `git status`
+re-checked before every edit batch; only `services/mediatailor/*` and this
+remainder file touched -- `services/xray/*` (the sibling live at pickup,
+committed mid-session as `df32fb2c0`) was never read or touched.
+
+`mediatailor`'s List/Describe/Get families are now fully swept for this
+issue (19/19 ops layer-1/2/3 clean; 8 real bugs found and fixed -- 3
+never-modelled/dropped-per-item-field bugs affecting entire List
+responses, 2 fabricated-field over-emissions catchable only by raw-body
+test, 1 never-modelled Describe-only member, 1 sibling-family timestamp
+asymmetry, all individually hand-reverted and confirmed before restoring;
+2 stale prior-audit claims corrected; 1 new gap disclosed, not guessed).
+**95 of 162 services swept, 67 remain.** Per the ranked table, the next
+tier starts at 18 (`memorydb`, `codedeploy`, `accessanalyzer`); re-run
+`go run ./cmd/opcensus` and re-check `git status` before picking, as usual.

@@ -19,6 +19,7 @@ const (
 // PutFunction creates or updates a function.
 func (b *InMemoryBackend) PutFunction(
 	functionID, functionType, description string,
+	customOutput, httpRequest, sequentialExecutor map[string]any,
 	tags map[string]string,
 ) (*Function, error) {
 	switch functionType {
@@ -37,11 +38,14 @@ func (b *InMemoryBackend) PutFunction(
 
 	arnStr := arn.Build("mediatailor", b.region, b.accountID, fmt.Sprintf("function/%s", functionID))
 	fn := &Function{
-		Tags:         copyTags(tags),
-		FunctionID:   functionID,
-		FunctionType: functionType,
-		ARN:          arnStr,
-		Description:  description,
+		Tags:                            copyTags(tags),
+		FunctionID:                      functionID,
+		FunctionType:                    functionType,
+		ARN:                             arnStr,
+		Description:                     description,
+		CustomOutputConfiguration:       customOutput,
+		HTTPRequestConfiguration:        httpRequest,
+		SequentialExecutorConfiguration: sequentialExecutor,
 	}
 	b.functions.Put(fn)
 	b.tags[arnStr] = copyTags(tags)
@@ -95,10 +99,14 @@ func (b *InMemoryBackend) ListFunctions(maxResults int, nextToken string) ([]*Fu
 	out := make([]*FunctionSummary, 0, len(pg.Data))
 	for _, fn := range pg.Data {
 		out = append(out, &FunctionSummary{
-			FunctionID:   fn.FunctionID,
-			FunctionType: fn.FunctionType,
-			ARN:          fn.ARN,
-			Tags:         copyTags(b.tags[fn.ARN]),
+			FunctionID:                      fn.FunctionID,
+			FunctionType:                    fn.FunctionType,
+			ARN:                             fn.ARN,
+			Description:                     fn.Description,
+			Tags:                            copyTags(b.tags[fn.ARN]),
+			CustomOutputConfiguration:       fn.CustomOutputConfiguration,
+			HTTPRequestConfiguration:        fn.HTTPRequestConfiguration,
+			SequentialExecutorConfiguration: fn.SequentialExecutorConfiguration,
 		})
 	}
 

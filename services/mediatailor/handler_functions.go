@@ -12,8 +12,13 @@ func (h *Handler) handlePutFunction(c *echo.Context, functionID string, body map
 	functionType, _ := body["FunctionType"].(string)
 	description, _ := body["Description"].(string)
 	tags := extractTags(body)
+	customOutput, _ := body["CustomOutputConfiguration"].(map[string]any)
+	httpRequest, _ := body["HttpRequestConfiguration"].(map[string]any)
+	sequentialExecutor, _ := body["SequentialExecutorConfiguration"].(map[string]any)
 
-	fn, err := h.Backend.PutFunction(functionID, functionType, description, tags)
+	fn, err := h.Backend.PutFunction(
+		functionID, functionType, description, customOutput, httpRequest, sequentialExecutor, tags,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -48,12 +53,19 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		out = append(out, map[string]any{
-			"FunctionId":   s.FunctionID,
-			"FunctionType": s.FunctionType,
-			keyArn:         s.ARN,
-			keyTags:        nilToEmpty(s.Tags),
-		})
+		// ListFunctionsOutput.Items is []types.Function, the same full type
+		// GetFunction returns, so Description and all three FunctionType
+		// configs belong on every list item too.
+		out = append(out, toFunctionOutput(&Function{
+			FunctionID:                      s.FunctionID,
+			FunctionType:                    s.FunctionType,
+			ARN:                             s.ARN,
+			Description:                     s.Description,
+			Tags:                            s.Tags,
+			CustomOutputConfiguration:       s.CustomOutputConfiguration,
+			HTTPRequestConfiguration:        s.HTTPRequestConfiguration,
+			SequentialExecutorConfiguration: s.SequentialExecutorConfiguration,
+		}))
 	}
 
 	resp := map[string]any{keyItems: out}
@@ -65,11 +77,25 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 }
 
 func toFunctionOutput(fn *Function) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"FunctionId":   fn.FunctionID,
 		"FunctionType": fn.FunctionType,
 		keyArn:         fn.ARN,
 		"Description":  fn.Description,
 		keyTags:        nilToEmpty(fn.Tags),
 	}
+
+	if fn.CustomOutputConfiguration != nil {
+		out["CustomOutputConfiguration"] = fn.CustomOutputConfiguration
+	}
+
+	if fn.HTTPRequestConfiguration != nil {
+		out["HttpRequestConfiguration"] = fn.HTTPRequestConfiguration
+	}
+
+	if fn.SequentialExecutorConfiguration != nil {
+		out["SequentialExecutorConfiguration"] = fn.SequentialExecutorConfiguration
+	}
+
+	return out
 }

@@ -63,7 +63,7 @@ func newPersistenceTestBackend(t *testing.T) (*mediatailor.InMemoryBackend, pers
 	prog, err := b.CreateProgram("ch1", "prog1", "sl1", "vs1", "", testScheduleConfig(1_700_000_000_000), nil, nil, nil)
 	require.NoError(t, err)
 
-	fn, err := b.PutFunction("fn1", "HTTP_REQUEST", "test function", nil)
+	fn, err := b.PutFunction("fn1", "HTTP_REQUEST", "test function", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagResource(cfg.PlaybackConfigurationARN, map[string]string{"team": "mediatailor"}))
