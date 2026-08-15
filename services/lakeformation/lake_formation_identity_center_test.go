@@ -17,6 +17,7 @@ func TestBackend_CreateLakeFormationIdentityCenterConfiguration_ReturnsARN(t *te
 		"arn:aws:sso:::instance/x",
 		nil,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, appArn)

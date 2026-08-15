@@ -65,6 +65,7 @@ type StorageBackend interface {
 		catalogID, instanceArn string,
 		externalFiltering *ExternalFilteringConfiguration,
 		shareRecipients []DataLakePrincipal,
+		serviceIntegrations []ServiceIntegration,
 	) (string, error)
 	DeleteLakeFormationIdentityCenterConfiguration(catalogID string) error
 	DescribeLakeFormationIdentityCenterConfiguration(catalogID string) (*IdentityCenterConfiguration, error)
@@ -72,6 +73,8 @@ type StorageBackend interface {
 		catalogID string,
 		externalFiltering *ExternalFilteringConfiguration,
 		appStatus string,
+		shareRecipients []DataLakePrincipal,
+		serviceIntegrations []ServiceIntegration,
 	) error
 
 	CreateLakeFormationOptIn(principal *DataLakePrincipal, resource *Resource, condition *Condition) error

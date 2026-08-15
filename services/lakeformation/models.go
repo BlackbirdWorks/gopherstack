@@ -584,14 +584,26 @@ func toTransactionWireList(list []*Transaction) []*transactionWire {
 	return out
 }
 
-// IdentityCenterConfiguration holds the IAM Identity Center integration configuration.
+// IdentityCenterConfiguration holds the IAM Identity Center integration
+// configuration for internal storage/persistence. Its JSON tags are for the
+// snapshot/restore DTO shape only, NOT the AWS wire shape -- the HTTP
+// response is built field-by-field in
+// describeLakeFormationIdentityCenterConfigurationOutput. ApplicationStatus
+// is tracked here (set only via
+// UpdateLakeFormationIdentityCenterConfigurationInput.ApplicationStatus) but
+// deliberately excluded from that wire output: the real
+// DescribeLakeFormationIdentityCenterConfigurationOutput has no
+// ApplicationStatus member at all (confirmed against
+// deserializers.go's awsRestjson1_deserializeOpDocumentDescribeLakeFormationIdentityCenterConfigurationOutput
+// case list) -- ApplicationStatus is real only as an Update *request* field.
 type IdentityCenterConfiguration struct {
-	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
-	CatalogID         string                          `json:"CatalogId,omitempty"`
-	InstanceArn       string                          `json:"InstanceArn,omitempty"`
-	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
-	ApplicationStatus string                          `json:"ApplicationStatus,omitempty"`
-	ShareRecipients   []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
+	ExternalFiltering   *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
+	CatalogID           string                          `json:"CatalogId,omitempty"`
+	InstanceArn         string                          `json:"InstanceArn,omitempty"`
+	ApplicationArn      string                          `json:"ApplicationArn,omitempty"`
+	ApplicationStatus   string                          `json:"ApplicationStatus,omitempty"`
+	ShareRecipients     []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
+	ServiceIntegrations []ServiceIntegration            `json:"ServiceIntegrations,omitempty"`
 }
 
 // LFOptIn associates a principal and resource for opt-in enforcement. This is
@@ -717,10 +729,11 @@ type createLFTagExpressionOutput struct{}
 // createLakeFormationIdentityCenterConfigurationInput is the request body for
 // CreateLakeFormationIdentityCenterConfiguration.
 type createLakeFormationIdentityCenterConfigurationInput struct {
-	CatalogID         string                          `json:"CatalogId,omitempty"`
-	InstanceArn       string                          `json:"InstanceArn,omitempty"`
-	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
-	ShareRecipients   []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
+	CatalogID           string                          `json:"CatalogId,omitempty"`
+	InstanceArn         string                          `json:"InstanceArn,omitempty"`
+	ExternalFiltering   *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
+	ShareRecipients     []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
+	ServiceIntegrations []ServiceIntegration            `json:"ServiceIntegrations,omitempty"`
 }
 
 // createLakeFormationIdentityCenterConfigurationOutput is the response body for
@@ -893,6 +906,29 @@ type getDataLakePrincipalOutput struct {
 
 // --- New types for 24 additional operations ---
 
+// RedshiftConnect describes the Redshift Connect service-integration
+// authorization state, matching the real types.RedshiftConnect.
+type RedshiftConnect struct {
+	Authorization string `json:"Authorization,omitempty"`
+}
+
+// RedshiftScopeUnion wraps a single Redshift-scoped service integration
+// entry, matching the real types.RedshiftScopeUnion (currently a
+// single-member union: RedshiftConnect).
+type RedshiftScopeUnion struct {
+	RedshiftConnect *RedshiftConnect `json:"RedshiftConnect,omitempty"`
+}
+
+// ServiceIntegration is one entry of
+// CreateLakeFormationIdentityCenterConfigurationInput.ServiceIntegrations /
+// UpdateLakeFormationIdentityCenterConfigurationInput.ServiceIntegrations /
+// DescribeLakeFormationIdentityCenterConfigurationOutput.ServiceIntegrations,
+// matching the real types.ServiceIntegrationUnion (currently a single-member
+// union: Redshift).
+type ServiceIntegration struct {
+	Redshift []RedshiftScopeUnion `json:"Redshift,omitempty"`
+}
+
 // ExternalFilteringConfiguration holds external filtering config.
 type ExternalFilteringConfiguration struct {
 	Status            string   `json:"Status,omitempty"`
@@ -1021,13 +1057,24 @@ type deleteObjectsOnCancelOutput struct{}
 type describeLakeFormationIdentityCenterConfigurationInput struct {
 	CatalogID string `json:"CatalogId,omitempty"`
 }
+
+// describeLakeFormationIdentityCenterConfigurationOutput deliberately has no
+// ApplicationStatus field: it is not a member of the real
+// DescribeLakeFormationIdentityCenterConfigurationOutput at all (that name
+// is real only as UpdateLakeFormationIdentityCenterConfigurationInput's
+// request field -- a real key surfacing on the wrong op/direction). Also
+// missing ResourceShare (*string, the RAM resource-share ARN AWS creates
+// when ShareRecipients is set): disclosed in PARITY.md, not fabricated here
+// -- this backend has no region available where the ARN would be
+// synthesized and no real RAM integration (same class as the
+// already-documented AdditionalDetails/RAM gap).
 type describeLakeFormationIdentityCenterConfigurationOutput struct {
-	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
-	CatalogID         string                          `json:"CatalogId,omitempty"`
-	InstanceArn       string                          `json:"InstanceArn,omitempty"`
-	ApplicationArn    string                          `json:"ApplicationArn,omitempty"`
-	ApplicationStatus string                          `json:"ApplicationStatus,omitempty"`
-	ShareRecipients   []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
+	ExternalFiltering   *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
+	CatalogID           string                          `json:"CatalogId,omitempty"`
+	InstanceArn         string                          `json:"InstanceArn,omitempty"`
+	ApplicationArn      string                          `json:"ApplicationArn,omitempty"`
+	ShareRecipients     []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
+	ServiceIntegrations []ServiceIntegration            `json:"ServiceIntegrations,omitempty"`
 }
 
 type extendTransactionInput struct {
@@ -1096,21 +1143,37 @@ type getTableObjectsOutput struct {
 	Objects   []PartitionedTableObjectsList `json:"Objects,omitempty"`
 }
 
+// getTemporaryDataLocationCredentialsInput is the request body for
+// GetTemporaryDataLocationCredentials. WIRE-BREAKING BUG FIXED: this used to
+// be shaped like the GetTemporaryGlue*Credentials sibling family
+// (ResourceArn/Permissions/SupportedPermissionTypes) -- a sibling-copy
+// mistake. The real GetTemporaryDataLocationCredentialsInput has no
+// ResourceArn/Permissions/SupportedPermissionTypes members at all; it takes
+// DataLocations ([]string, plural) and CredentialsScope instead (confirmed
+// against api_op_GetTemporaryDataLocationCredentials.go and
+// serializers.go's awsRestjson1_serializeOpDocumentGetTemporaryDataLocationCredentialsInput).
+// A real aws-sdk-go-v2 client's request always sent {"DataLocations":
+// [...]}, which gopherstack's old ResourceArn field could never read --
+// every real-client call failed the "ResourceArn is required" check.
 type getTemporaryDataLocationCredentialsInput struct {
-	ResourceArn              string        `json:"ResourceArn"`
-	Permissions              []string      `json:"Permissions,omitempty"`
-	DurationSeconds          *int32        `json:"DurationSeconds,omitempty"`
-	AuditContext             *AuditContext `json:"AuditContext,omitempty"`
-	SupportedPermissionTypes []string      `json:"SupportedPermissionTypes,omitempty"`
+	DurationSeconds  *int32        `json:"DurationSeconds,omitempty"`
+	AuditContext     *AuditContext `json:"AuditContext,omitempty"`
+	CredentialsScope string        `json:"CredentialsScope,omitempty"`
+	DataLocations    []string      `json:"DataLocations,omitempty"`
 }
 
 // getTemporaryDataLocationCredentialsOutput is the response body for
 // GetTemporaryDataLocationCredentials. Real AWS nests Expiration inside
 // Credentials (see types.TemporaryCredentials) rather than at the top level
 // -- unlike GetTemporaryGluePartitionCredentials/GetTemporaryGlueTableCredentials,
-// which return the credential fields flat.
+// which return the credential fields flat. AccessibleDataLocations and
+// CredentialsScope are real response members that were entirely missing
+// (deserializers.go's GetTemporaryDataLocationCredentialsOutput case list:
+// AccessibleDataLocations, Credentials, CredentialsScope).
 type getTemporaryDataLocationCredentialsOutput struct {
-	Credentials *TemporaryCredentials `json:"Credentials,omitempty"`
+	Credentials             *TemporaryCredentials `json:"Credentials,omitempty"`
+	CredentialsScope        string                `json:"CredentialsScope,omitempty"`
+	AccessibleDataLocations []string              `json:"AccessibleDataLocations,omitempty"`
 }
 
 type getTemporaryGluePartitionCredentialsInput struct {
@@ -1133,8 +1196,14 @@ type getTemporaryGluePartitionCredentialsOutput struct {
 	Expiration      float64 `json:"Expiration,omitempty"`
 }
 
+// getTemporaryGlueTableCredentialsInput is the request body for
+// GetTemporaryGlueTableCredentials. S3Path (the Amazon S3 path for the
+// table) is a real request member that was entirely unparsed -- confirmed
+// in api_op_GetTemporaryGlueTableCredentials.go's
+// GetTemporaryGlueTableCredentialsInput.
 type getTemporaryGlueTableCredentialsInput struct {
 	TableArn                 string        `json:"TableArn"`
+	S3Path                   string        `json:"S3Path,omitempty"`
 	Permissions              []string      `json:"Permissions,omitempty"`
 	DurationSeconds          *int32        `json:"DurationSeconds,omitempty"`
 	AuditContext             *AuditContext `json:"AuditContext,omitempty"`
@@ -1145,11 +1214,15 @@ type getTemporaryGlueTableCredentialsInput struct {
 // GetTemporaryGlueTableCredentials. Real AWS returns these fields flat (no
 // nested "Credentials" object) with Expiration as epoch seconds -- see
 // GetTemporaryGlueTableCredentialsOutput in the aws-sdk-go-v2 model.
+// VendedS3Path is a real response member that was entirely missing
+// (deserializers.go's case list includes it alongside AccessKeyId/
+// Expiration/SecretAccessKey/SessionToken).
 type getTemporaryGlueTableCredentialsOutput struct {
-	AccessKeyID     string  `json:"AccessKeyId,omitempty"`
-	SecretAccessKey string  `json:"SecretAccessKey,omitempty"`
-	SessionToken    string  `json:"SessionToken,omitempty"`
-	Expiration      float64 `json:"Expiration,omitempty"`
+	AccessKeyID     string   `json:"AccessKeyId,omitempty"`
+	SecretAccessKey string   `json:"SecretAccessKey,omitempty"`
+	SessionToken    string   `json:"SessionToken,omitempty"`
+	VendedS3Path    []string `json:"VendedS3Path,omitempty"`
+	Expiration      float64  `json:"Expiration,omitempty"`
 }
 
 type getWorkUnitResultsInput struct {
@@ -1225,9 +1298,11 @@ type updateLFTagExpressionInput struct {
 type updateLFTagExpressionOutput struct{}
 
 type updateLakeFormationIdentityCenterConfigurationInput struct {
-	CatalogID         string                          `json:"CatalogId,omitempty"`
-	ExternalFiltering *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
-	ApplicationStatus string                          `json:"ApplicationStatus,omitempty"`
+	CatalogID           string                          `json:"CatalogId,omitempty"`
+	ExternalFiltering   *ExternalFilteringConfiguration `json:"ExternalFiltering,omitempty"`
+	ApplicationStatus   string                          `json:"ApplicationStatus,omitempty"`
+	ShareRecipients     []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
+	ServiceIntegrations []ServiceIntegration            `json:"ServiceIntegrations,omitempty"`
 }
 type updateLakeFormationIdentityCenterConfigurationOutput struct{}
 

@@ -63,6 +63,6 @@ func TestExportHelpers(t *testing.T) {
 	assert.Equal(t, 0, b.IdentityCenterConfigCount())
 
 	b.AddLFTagInternal("", "k", []string{"v"})
-	_, _ = b.CreateLakeFormationIdentityCenterConfiguration("123", "arn:aws:sso:::instance/ssoins-abc", nil, nil)
+	_, _ = b.CreateLakeFormationIdentityCenterConfiguration("123", "arn:aws:sso:::instance/ssoins-abc", nil, nil, nil)
 	assert.Equal(t, 1, b.IdentityCenterConfigCount())
 }

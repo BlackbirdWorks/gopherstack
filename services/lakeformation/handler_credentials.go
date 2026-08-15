@@ -43,12 +43,19 @@ func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
-	if strings.TrimSpace(in.ResourceArn) == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "ResourceArn is required")
+	if len(in.DataLocations) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "DataLocations is required")
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
 
-	return c.JSON(http.StatusOK, getTemporaryDataLocationCredentialsOutput{Credentials: creds})
+	return c.JSON(http.StatusOK, getTemporaryDataLocationCredentialsOutput{
+		Credentials: creds,
+		// No real authorization is enforced (this backend never checks Lake
+		// Formation permissions); echo the request's scope/locations back
+		// rather than fabricate an authorization decision.
+		CredentialsScope:        in.CredentialsScope,
+		AccessibleDataLocations: in.DataLocations,
+	})
 }
 
 func (h *Handler) handleGetTemporaryGluePartitionCredentials(_ context.Context, c *echo.Context, body []byte) error {
@@ -79,10 +86,15 @@ func (h *Handler) handleGetTemporaryGlueTableCredentials(_ context.Context, c *e
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
 
-	return c.JSON(http.StatusOK, getTemporaryGlueTableCredentialsOutput{
+	out := getTemporaryGlueTableCredentialsOutput{
 		AccessKeyID:     creds.AccessKeyID,
 		SecretAccessKey: creds.SecretAccessKey,
 		SessionToken:    creds.SessionToken,
 		Expiration:      creds.Expiration,
-	})
+	}
+	if in.S3Path != "" {
+		out.VendedS3Path = []string{in.S3Path}
+	}
+
+	return c.JSON(http.StatusOK, out)
 }

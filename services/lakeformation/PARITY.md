@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: lakeformation
 sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
-last_audit_commit: 4691484d9
-last_audit_date: 2026-07-24
-overall: A            # ListPermissions wire-shape bug + missing Resource union members fixed
+last_audit_commit: HEAD
+last_audit_date: 2026-08-15
+overall: A            # gopherstack-6flj wrapper-key sweep: GetTemporaryDataLocationCredentials wire-breaking sibling-copy bug fixed, plus 4 adjacent bugs
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -43,9 +43,9 @@ ops:
   CreateLakeFormationOptIn: {wire: ok, errors: ok, state: ok, persist: ok, note: "Condition field added (LFOptIn/createLakeFormationOptInInput)"}
   DeleteLakeFormationOptIn: {wire: ok, errors: ok, state: ok, persist: ok, note: "Condition accepted (not part of the match key -- opt-ins are unique per principal+resource per AWS's documented AlreadyExistsException behavior)"}
   ListLakeFormationOptIns: {wire: ok, errors: ok, state: ok, persist: ok, note: "LastModified epoch seconds; Condition now included"}
-  CreateLakeFormationIdentityCenterConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeLakeFormationIdentityCenterConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateLakeFormationIdentityCenterConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateLakeFormationIdentityCenterConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-6flj): ServiceIntegrations (real member, PARITY.md's own prior deferred: claim that no op takes it was wrong) now parsed and stored"}
+  DescribeLakeFormationIdentityCenterConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-6flj): ApplicationStatus removed from the wire response -- real only as Update's request field, a real key on the wrong op/direction; ServiceIntegrations now emitted. ResourceShare (RAM resource-share ARN) still missing -- disclosed in gaps:, this backend has no region at the storage layer to synthesize one honestly"}
+  UpdateLakeFormationIdentityCenterConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (gopherstack-6flj): ShareRecipients was entirely absent from the request struct (silently discarded on every real update, unlike Create/Describe which already handled it) and ServiceIntegrations was unparsed; both now threaded through with nil-vs-explicit-empty-list semantics matching AWS's documented clear-vs-unchanged behavior"}
   DeleteLakeFormationIdentityCenterConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   StartTransaction: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelTransaction: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -56,9 +56,9 @@ ops:
   DeleteObjectsOnCancel: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not persisted (matches pre-existing scope; tableObjects map was never in backendSnapshot)"}
   UpdateTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetTemporaryDataLocationCredentials: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetTemporaryGluePartitionCredentials: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetTemporaryGlueTableCredentials: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetTemporaryDataLocationCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "WIRE-BREAKING BUG FIXED (gopherstack-6flj): request struct was copied from the GetTemporaryGlue*Credentials sibling shape (ResourceArn/Permissions/SupportedPermissionTypes) -- the real Input has none of those, only DataLocations ([]string)/CredentialsScope. No real client's request was ever readable; every call failed gopherstack's own required-field check. Response also gained the real, previously-missing AccessibleDataLocations/CredentialsScope members."}
+  GetTemporaryGluePartitionCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "checked against its GetTemporaryGlueTableCredentials/GetTemporaryDataLocationCredentials siblings this pass (gopherstack-6flj) -- already correct, no fix needed"}
+  GetTemporaryGlueTableCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-6flj): real request member S3Path was parsed nowhere; real response member VendedS3Path was entirely missing. Now threaded through together. QuerySessionContext (also real on this op) remains unmodeled -- disclosed in gaps:, a broader query-family feature out of scope for this pass"}
   AssumeDecoratedRoleWithSAML: {wire: ok, errors: ok, state: ok, persist: n/a}
   StartQueryPlanning: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetQueryState: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -78,15 +78,39 @@ families:
   resource_union: {status: ok, note: "Resource previously only carried Catalog/Database/Table/TableWithColumns/DataLocation. Added DataCellsFilter/LFTag(LFTagKeyResource)/LFTagExpression/LFTagPolicy(LFTagPolicyResource) -- all real types.Resource union members. GrantPermissions/RevokePermissions/ListPermissions now work end-to-end against every kind (resourceToKey/copyResource/permissionMatchesResource/permissionMatchesResourceType all extended); see handler_permissions_resource_kinds_test.go for coverage of all 6 previously-partial/deferred kinds plus TableWildcard and CatalogResource.Id."}
   permission_enum: {status: ok, note: "isValidPermission previously accepted three gopherstack-INVENTED permission strings that do not exist in types.Permission's Values() at all -- \"CREATE_TAG\" (real name is CREATE_LF_TAG, already separately present), \"CREATE_LAKE_FORMATION_OPT_IN\" (not a Permission at all), and \"SUPER\" (real value is SUPER_USER) -- and was missing the real \"CREATE_LF_TAG_EXPRESSION\" value. All three invented values DELETED, CREATE_LF_TAG_EXPRESSION added. isValidPermission now matches the real 16-member enum exactly."}
 gaps:
+  - "NOT FIXED (gopherstack-6flj, 2026-08-15): DescribeLakeFormationIdentityCenterConfigurationOutput.ResourceShare (*string, the RAM resource-share ARN AWS creates server-side when ShareRecipients is set) is still never populated. This backend's InMemoryBackend carries no account/region fields at the storage layer (region only exists as Handler.DefaultRegion, set post-construction and never threaded into any backend call in this service), and there is no real RAM cross-service integration (same already-documented gap as AdditionalDetails below). Synthesizing a value would mean either fabricating a region or introducing new region-threading plumbing disproportionate to a single-op fix. Disclosed, not fabricated."
+  - "NOT FIXED (gopherstack-6flj, 2026-08-15): GetTemporaryGlueTableCredentialsInput.QuerySessionContext (real, api_op_GetTemporaryGlueTableCredentials.go) is unmodeled anywhere in this service, and likely shared by several query-planning ops (GetWorkUnits/StartQueryPlanning/GetWorkUnitResults use similar context structures). A broader structural feature spanning the query-family ops; out of scope for this pass's discarded-input fixes, which were limited to S3Path/VendedS3Path on this same op."
   - "FIXED (gopherstack-kbnu): PrincipalResourcePermissions.LastUpdatedBy is now populated by GrantPermissions/RevokePermissions/BatchGrantPermissions/BatchRevokePermissions with a synthetic caller ARN derived from awsmeta.Account(ctx) (callerPrincipalARN, credentials.go -- same identity GetDataLakePrincipal reports). Interface signatures gained a ctx context.Context first parameter; all callers updated."
   - "PrincipalResourcePermissions.AdditionalDetails (DetailsMap.ResourceShare, RAM resource-share info) is still never populated. Re-checked this pass: gopherstack DOES have a standalone services/ram package (resource shares, principals, permissions), but there is no cross-service wiring between it and lakeformation anywhere in the codebase (no service in this repo reaches into another service's InMemoryBackend directly -- checked s3<->kms as a second data point, same finding). Populating this would require introducing a new cross-service backend-injection pattern, which is out of scope for a single-service follow-up. Correctly omitted rather than fabricated."
   - "PARTIALLY FIXED (gopherstack-kbnu): LFTagPolicy-based permission grants are now expanded into effective per-resource permissions in GetEffectivePermissionsForPath (resolves the resourceArn to a Database/Table, looks up its actual LF-tags, and evaluates each LFTagPolicy grant's Expression/ExpressionName against them -- AND across tag keys, OR across one key's values, per https://docs.aws.amazon.com/lake-formation/latest/dg/managing-tag-expressions.html). ListPermissions filtered by a concrete resource intentionally still does NOT expand tag-policy grants: AWS's own documented behavior is that LF-Tag-based grants are queried via their own LFTagPolicy/LF_TAG_POLICY_* resource type, not by listing the concrete resource they happen to cover (a tag-based grant 'may not appear in ListPermissions results for specific resources'). SearchTablesByLFTags/SearchDatabasesByLFTags remain untouched (out of scope for this pass -- they answer 'which resources have these tags', not 'what permissions apply to this resource'). No LakeFormation operation in this backend enforces authorization at runtime (permissions are bookkeeping, not an enforcement engine); this pass only makes the LF-Tag-derived permission *record* visible where AWS documents it should be, it does not add access control."
   - "FIXED (gopherstack-kbnu): GetResourceLFTags/AddLFTagsToResource/RemoveLFTagsFromResource now reject Resource kinds other than Database/Table/TableWithColumns with InvalidInputException, matching the documented restriction (\"The database, table, or column resource...\", api_op_GetResourceLFTags.go:30-33 / api_op_AddLFTagsToResource.go:29-31; RemoveLFTagsFromResource states it explicitly: \"Only database, table, or tableWithColumns resource are allowed.\", api_op_RemoveLFTagsFromResource.go:12-14, aws-sdk-go-v2/service/lakeformation@v1.50.4). Was a permissive superset (accepted Catalog/DataLocation/DataCellsFilter/LFTag/LFTagExpression/LFTagPolicy too) -- the same bug class as a glacier-pass finding the same day (gopherstack accepting a clause AWS rejects)."
-deferred: []  # previously: Condition/RowFilter AllRowsWildcard, ColumnWildcard, LFTagPolicyResource -- ALL implemented this pass (see resource_union family + CreateDataCellsFilter note). RedshiftScopeUnion/ServiceIntegrationUnion (RedshiftConnect service-integration resource kinds, api_op none of the 61 routed ops reference them directly as request/response fields outside types.go) remain out of scope: no routed operation in the 61-op surface takes a RedshiftScopeUnion/ServiceIntegrationUnion as an input/output field, so there is no wire surface to implement against.
+deferred: []  # previously: Condition/RowFilter AllRowsWildcard, ColumnWildcard, LFTagPolicyResource -- ALL implemented this pass (see resource_union family + CreateDataCellsFilter note). The prior claim that RedshiftScopeUnion/ServiceIntegrationUnion had no routed wire surface was WRONG (disproved gopherstack-6flj, 2026-08-15): ServiceIntegrations is a real member of CreateLakeFormationIdentityCenterConfigurationInput/UpdateLakeFormationIdentityCenterConfigurationInput/DescribeLakeFormationIdentityCenterConfigurationOutput, all three of them routed ops. Now implemented -- see the identity-center ops above and the ServiceIntegration/RedshiftScopeUnion/RedshiftConnect types in models.go.
 leaks: {status: clean, note: "no new goroutines/janitors added this pass; all new backend methods take b.mu via existing lockmetrics.RWMutex Lock/RLock with defer Unlock/RUnlock, following the pre-existing pattern."}
 ---
 
 ## Notes
+
+**2026-08-15 (gopherstack-6flj wrapper-key sweep):** re-verified all 26
+List/Describe/Get ops against the real deserializer/serializer independently
+of this file's own prior "A grade" claims. The 26 ops' wrapper keys held
+completely clean, but three adjacent ops in the temporary-credentials/
+identity-center families the prior passes hadn't reached had real bugs, one
+wire-breaking: `GetTemporaryDataLocationCredentials`'s request struct was
+copied from its `GetTemporaryGlue*Credentials` siblings
+(`ResourceArn`/`Permissions`/`SupportedPermissionTypes`, none of them real
+for this op) instead of the real `DataLocations`/`CredentialsScope` shape --
+no real client's request was ever readable. Also fixed: `GetTemporaryGlueTableCredentials`'s
+missing `S3Path`/`VendedS3Path` pair; `DescribeLakeFormationIdentityCenterConfigurationOutput`
+fabricating `ApplicationStatus` (real only as `Update`'s request field, a
+real key on the wrong op/direction); and this file's own prior `deferred:`
+claim that no routed op takes `ServiceIntegrationUnion` -- disproved, it is
+real on `Create`/`Update`/`Describe`, now implemented, and
+`UpdateLakeFormationIdentityCenterConfigurationInput` was separately missing
+a `ShareRecipients` field entirely. Full detail, including every
+hand-revert-and-confirm cycle, in
+`services/_WRAPPER_KEY_SWEEP_REMAINDER.md`'s "lakeformation (this session)"
+section -- kept short here per this issue's "notes field is saturated"
+convention.
 
 **2026-08-15 (gopherstack-3gbe):** investigated whether Lake Formation
 shares Omics' (gopherstack-keee) client-side host-prefix-rewrite

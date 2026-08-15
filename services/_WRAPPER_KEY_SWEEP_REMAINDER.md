@@ -1,9 +1,10 @@
 # Wrapper-key / nested-shape sweep remainder (gopherstack-6flj)
 
-**79 of 162 services swept, 83 remain** (apigatewayv2, workmail, wafv2, ce,
-waf, vpclattice, emr, eventbridge, kafka, route53resolver, appsync, and now
-workspaces all added this session, in parallel, by different sessions — see
-each service's own section at the end of this file for full detail).
+**80 of 162 services swept, 82 remain** (apigatewayv2, workmail, wafv2, ce,
+waf, vpclattice, emr, eventbridge, kafka, route53resolver, appsync,
+workspaces, and now lakeformation all added this session, in parallel, by
+different sessions — see each service's own section at the end of this file
+for full detail).
 
 Built for gopherstack-6flj. **Every count this issue's own notes carried
 forward has turned out wrong, twice, by a large factor** — ec2 was recorded
@@ -110,7 +111,8 @@ session), s3,
 s3control, s3tables, sagemaker, secretsmanager, securityhub, servicediscovery,
 ses, sesv2, sns, sqs, ssm, ssoadmin, stepfunctions, transfer,
 **vpclattice** (this session), **waf** (this session), **wafv2** (this
-session), **workmail** (this session), **workspaces** (this session).
+session), **workmail** (this session), **workspaces** (this session),
+**lakeformation** (this session).
 
 One service still has real, extensive wire-shape work under **other** issue
 classes (gopherstack-h910/ctaz's backend-logic fixes) but **no 6flj-specific
@@ -119,7 +121,7 @@ its own section at the end of this file). It is listed in the unswept table
 below on purpose; don't assume "heavily worked on" means "settled for this
 issue."
 
-## Unswept (83 of 162), ranked by List+Describe+Get op count
+## Unswept (82 of 162), ranked by List+Describe+Get op count
 
 This is the real remainder — pick from the top, not alphabetically, per this
 issue's "blast radius" guidance. **Prefer large counts AND a shared
@@ -134,16 +136,15 @@ dynamically, which often correlates with a shared-converter pattern worth
 checking for the sibling-trap bug variant); `manual` = tool-unresolved, hand
 counted (see limitations above).
 
-Sum of the L+D+G column across all 83 (networkmanager's 38, securityhub's
+Sum of the L+D+G column across all 82 (networkmanager's 38, securityhub's
 47, macie2's 40, s3's 45, cognitoidp's 37, personalize's 39,
 apigatewayv2's 37, workmail's 36, wafv2's 32, ce's 31, waf's 34,
 vpclattice's 30, emr's 30, eventbridge's 30, kafka's 29,
-route53resolver's 30, appsync's 28, and workspaces's 27 removed, all swept
-prior to/this session): **981** candidate ops.
+route53resolver's 30, appsync's 28, workspaces's 27, and lakeformation's 26
+removed, all swept prior to/this session): **955** candidate ops.
 
 | service | total ops | list | describe | get | L+D+G | resolution |
 |---|---:|---:|---:|---:|---:|---|
-| lakeformation | 61 | 8 | 3 | 15 | 26 | direct |
 | rekognition | 75 | 9 | 5 | 11 | 25 | dynamic-fallback |
 | elasticsearch | 51 | 9 | 12 | 4 | 25 | direct |
 | directoryservice | 80 | 6 | 17 | 2 | 25 | direct |
@@ -4909,3 +4910,232 @@ L+D+G, `direct`) is next largest but had a live, uncommitted sibling as of
 this session's end -- re-check `git status` before picking it; pick
 `rekognition` (75 ops, 25 L+D+G, `dynamic-fallback`) next if lakeformation
 is still claimed.
+
+## lakeformation (this session, 2026-08-15)
+
+Chosen as the largest unswept service not held by a live sibling: the
+workspaces session (prior entry, this file) flagged `lakeformation` as next
+but noted a live sibling was already editing it concurrently at their
+session's end; that sibling's work landed as commit `0cfcbfb5d` before this
+session started, so `git status` was clean for `services/lakeformation/*` at
+the start of this pass -- confirmed and re-checked throughout, no collision.
+
+PROTOCOL: `awsRestjson1_` exclusively (confirmed via
+`grep -c '^func awsRestjson1_' deserializers.go`), single client (no
+companion/legacy LakeFormation SDK module). Case-sensitive: all 214
+`EqualFold` hits in `deserializers.go` are `errorCode` matching
+(`grep -n EqualFold deserializers.go | grep -v 'errorCode)'` returns
+nothing); `serializers.go` has zero `EqualFold` hits at all. Dead-
+deserializer trap checked against `ListPermissions`
+(`deserializers.go:6339`) and does NOT apply -- `HandleDeserialize` calls
+`awsRestjson1_deserializeOpDocumentListPermissionsOutput` directly
+(`deserializers.go:6379`), same shape as kafka/route53resolver/appsync, not
+pinpoint's restjson1.
+
+DEEP PRIOR COVERAGE, RE-VERIFIED: this service already carried an A grade
+in `PARITY.md` from six prior audit passes (`kbnu`/`jqh2`/`h910`/`mslf`/
+`parity-5`/`3gbe`), including a previously-fixed `ListPermissions` wrapper-
+key bug of exactly this issue's shape. Per this issue's "deep prior coverage
+is not evidence" lesson, all 26 L+D+G ops were independently re-verified
+against the real deserializer/serializer case lists rather than trusting the
+manifest. Result: **mixed** -- the 26 L+D+G ops' own wrapper keys held
+completely clean (matches route53resolver's "A grade held" outcome), but
+three ops in the temporary-credentials/identity-center families the prior
+passes hadn't reached had real, previously-undetected bugs, one of them
+wire-breaking.
+
+**FLAGSHIP FINDING -- wire-breaking, sibling-copy bug:**
+`GetTemporaryDataLocationCredentials`'s request struct
+(`getTemporaryDataLocationCredentialsInput`) was shaped like its
+`GetTemporaryGlue{Partition,Table}Credentials` siblings
+(`ResourceArn`/`Permissions`/`SupportedPermissionTypes`) -- but the real
+`GetTemporaryDataLocationCredentialsInput`
+(`api_op_GetTemporaryDataLocationCredentials.go`,
+`serializers.go:2923` `awsRestjson1_serializeOpDocumentGetTemporaryDataLocationCredentialsInput`)
+has **no such members at all**; it serializes `DataLocations` ([]string,
+plural) and `CredentialsScope` instead. A real, unmodified aws-sdk-go-v2
+client's request body was therefore never readable by the old handler --
+every real-client call failed gopherstack's own "ResourceArn is required"
+check. Same class as this issue's originally-fixed `ListPermissions`
+`ResourceArn` bug and rds's `ValuesToAdd`/`ValuesToRemove` finding: a
+request-side field invented from a sibling shape, unreachable by any typed
+client. Fixed: request now takes `DataLocations`/`CredentialsScope`;
+response gained the two real members that were also entirely missing
+(`AccessibleDataLocations`, `CredentialsScope` --
+`deserializers.go`'s `GetTemporaryDataLocationCredentialsOutput` case list),
+echoing the request's scope/locations back since this backend enforces no
+real Lake Formation authorization to derive them from.
+
+**Second finding, same family:** `GetTemporaryGlueTableCredentials`'s real
+request member `S3Path` (`api_op_GetTemporaryGlueTableCredentials.go`) was
+parsed nowhere (10th discarded-input instance this campaign, after
+apigatewayv2/ce/vpclattice/emr x2/kafka/appsync x3), paired with a missing
+real response member `VendedS3Path` (`deserializers.go`'s
+`GetTemporaryGlueTableCredentialsOutput` case list). Fixed together: `S3Path`
+now threaded through to `VendedS3Path`.
+`GetTemporaryGluePartitionCredentials`, the third sibling in this family,
+was checked and is already correct (its real `Input`/`Output` shapes have no
+analogous fields) -- reported as clean, not left unmentioned.
+
+**Third finding -- real key from the wrong op/direction (fourth instance
+this campaign, after appsync's `AssociationStatus`, route53resolver's
+`VpcId`, and this issue's original `ListPermissions` finding):**
+`DescribeLakeFormationIdentityCenterConfigurationOutput` emitted an
+`ApplicationStatus` field. `ApplicationStatus` **is** a real name in this
+SDK, but only as `UpdateLakeFormationIdentityCenterConfigurationInput`'s
+request field (`api_op_UpdateLakeFormationIdentityCenterConfiguration.go`) --
+the real Describe output has no such member at all (confirmed against
+`deserializers.go`'s
+`awsRestjson1_deserializeOpDocumentDescribeLakeFormationIdentityCenterConfigurationOutput`
+case list: `ApplicationArn`/`CatalogId`/`ExternalFiltering`/`InstanceArn`/
+`ResourceShare`/`ServiceIntegrations`/`ShareRecipients`, no
+`ApplicationStatus`). Fixed by removing it from the wire output only --
+the backend still tracks it internally (needed for Update's own validation)
+via the same struct's JSON tags, which are a persistence DTO shape, not the
+wire shape (see the added doc comment on `IdentityCenterConfiguration` in
+`models.go` clarifying this so a future pass doesn't conflate the two and
+reintroduce a `json:"-"` mistake that would have silently broken
+snapshot/restore -- caught before committing it, see below).
+
+**PRIOR AUDIT CLAIM DISPROVED:** `PARITY.md`'s `deferred:` line asserted
+"RedshiftScopeUnion/ServiceIntegrationUnion... no routed operation in the
+61-op surface takes [either] as an input/output field, so there is no wire
+surface to implement against." This is wrong: `ServiceIntegrations
+[]types.ServiceIntegrationUnion` is a real field on THREE ops --
+`CreateLakeFormationIdentityCenterConfigurationInput`,
+`UpdateLakeFormationIdentityCenterConfigurationInput`, and
+`DescribeLakeFormationIdentityCenterConfigurationOutput` (all confirmed
+directly in their respective `api_op_*.go` files). Traced and fixed:
+`ServiceIntegrations` (with its nested `RedshiftScopeUnion`/`RedshiftConnect`
+union shape, wire keys confirmed against `serializers.go:6678-6710`/
+`deserializers.go:12843-12875`) is now modeled and threaded through
+Create/Update/Describe -- 11th/12th discarded-input instances this campaign.
+
+**Fourth finding, same family:** `UpdateLakeFormationIdentityCenterConfigurationInput`
+also lacked a `ShareRecipients` field entirely (not merely mis-keyed --
+absent from the Go struct, so a real client's update to an existing share's
+recipient list was silently dropped every time, even though Create and
+Describe already handled `ShareRecipients` correctly -- a same-op-family
+"one direction right, sibling direction wrong" shape). Fixed with correct
+nil-vs-explicit-empty-list semantics (`ShareRecipients` unspecified leaves
+the stored value unchanged; an explicit `[]` clears it, matching AWS's
+documented behavior) -- proven by a dedicated round-trip test using the real
+SDK client for both cases.
+
+**DISCLOSED, NOT FABRICATED:** `ResourceShare` (`*string`, the RAM
+resource-share ARN AWS creates server-side when `ShareRecipients` is set) is
+a real `DescribeLakeFormationIdentityCenterConfigurationOutput` member still
+entirely missing. Not fixed: this backend has no region available at the
+storage layer (`InMemoryBackend` carries no account/region fields; region
+only exists as `Handler.DefaultRegion`, set post-construction and never
+threaded into any backend call in this service) and no real RAM
+cross-service integration, so synthesizing a correctly-scoped
+`arn:aws:ram:<region>:...` value would mean either fabricating a region or
+introducing new region-threading plumbing disproportionate to this pass --
+same class as the already-documented `AdditionalDetails`/RAM gap.
+`QuerySessionContext` (real on `GetTemporaryGlueTableCredentials` and
+several query-planning ops) is similarly unmodeled anywhere in this service;
+flagged, not fixed -- a broader structural feature spanning the query-family
+ops, out of scope for this pass's discarded-input fixes.
+
+**TOOLCHAIN HAZARD RECHECKED:** two structs newly added by this pass's field
+additions tripped `fieldalignment` (govet, via `golangci-lint`). Ran
+`fieldalignment -fix` scoped to `./services/lakeformation/...`, then diffed
+the whole package directory against a pre-fix copy: only `models.go`
+changed (two struct field reorderings), and the file's one pre-existing
+`//nolint:ireturn,nolintlint` comment (`provider.go:20`) survived intact --
+confirmed by direct grep before and after, per this issue's standing
+toolchain-hazard note.
+
+**SELF-CAUGHT MISTAKE:** an early draft set `ApplicationStatus string
+`json:"-"`` directly on the internal `IdentityCenterConfiguration` struct to
+suppress the wire leak, without checking that this same struct's JSON tags
+are also the snapshot/restore persistence DTO shape (`persistence.go`'s
+`Snapshot`/`Restore`, backed by `store.Table[IdentityCenterConfiguration]`).
+That would have silently dropped `ApplicationStatus` from every
+snapshot/restore cycle -- caught by re-reading `persistence.go` before
+running any test, reverted to a plain `json:"ApplicationStatus,omitempty"`
+tag, and the wire-leak fix applied only at the handler's explicit
+field-by-field response-struct construction instead (which was always the
+actual wire boundary; the internal struct was never the culprit).
+
+RATIFYING TESTS (found, proven false, rewritten): 2.
+`TestGetTemporaryDataLocationCredentials_Success` sent
+`{"ResourceArn":..., "Permissions":...}` and only passed because the
+handler's fixture agreed with the same wrong shape as a real client would
+never send -- rewritten to use `DataLocations`/`CredentialsScope` and to
+assert the new response members.
+`TestUpdateIdentityCenter_ApplicationStatus` asserted
+`out["ApplicationStatus"]` equal to the value just set, which only passed
+because the Describe handler echoed a field the real API doesn't have --
+rewritten to assert the Update call is still accepted/validated (that part
+was correct) and that `ApplicationStatus` does NOT appear on the Describe
+response.
+
+Every one of the four fixes above was hand-reverted individually (no git;
+plain-text edit + restore, diffed byte-identical against a saved copy before
+moving to the next) and confirmed to fail with the exact predicted symptom
+first:
+1. Old `ResourceArn` shape restored -> real-SDK-client test failed with
+   `InvalidInputException: ResourceArn is required` (the real client never
+   sends that field).
+2. `VendedS3Path` echo removed -> real-SDK-client test failed asserting
+   `[]string(nil)` instead of the provided path.
+3. `ApplicationStatus` added back to the Describe output struct -> existing
+   test failed asserting the response map contained the key it shouldn't.
+4. `ShareRecipients`/`ServiceIntegrations` calls replaced with `nil, nil` at
+   the Update call site -> both the new real-client round-trip test (0
+   ServiceIntegrations instead of 1) and the empty-list-clears test (old
+   recipient survived an explicit-clear request) failed exactly as
+   predicted.
+
+REAL-CLIENT TEST RATIO: this service already had 3 files using a real
+`aws-sdk-go-v2/service/lakeformation` client
+(`handler_work_unit_results_sdk_test.go`, `host_prefix_reachability_test.go`,
+`sdk_completeness_test.go`) before this pass; reused the existing
+`newTestLakeFormationClient` helper rather than inventing a second one.
+Added `services/lakeformation/wire_field_fixes_test.go`: 5 new tests, all
+using the real typed SDK client (`GetTemporaryDataLocationCredentials`
+round-trip, `GetTemporaryGlueTableCredentials` `VendedS3Path`,
+`ServiceIntegrations`+`ShareRecipients` round-trip via Create+Update+
+Describe, and the nil-vs-empty-list `ShareRecipients` pair) plus the 2
+ratifying-test rewrites above (raw-map-based, since they predate this
+pass's file).
+
+PHANTOM OPS: none -- all 61 op-name strings in `GetSupportedOperations`
+resolve to a real `api_op_*.go` file in `lakeformation@v1.50.4` (spot-checked
+the 26 L+D+G ops directly during this pass; the full-service
+`TestExtractOperation_SDKRouteTable`/route-table-drift test from a prior
+audit, unchanged this pass, already covers all 61).
+
+FALSE-POSITIVE RATE: 0 among reported findings -- every finding above cites
+the real `api_op_*.go`/`serializers.go`/`deserializers.go` file and line,
+never a `PARITY.md` claim or doc comment taken on faith (the `deferred:`
+line was explicitly re-checked and found wrong, not trusted).
+
+GATES: `go build ./services/lakeformation/...` and full `go build ./...`
+(interface/backend signature changes on
+`CreateLakeFormationIdentityCenterConfiguration`/
+`UpdateLakeFormationIdentityCenterConfiguration`), `go vet` (scoped and
+full `./...`), `go test -race ./services/lakeformation/...` and
+`go test -race ./pkgs/...`, `go fix -diff` (no diff), `gofmt -l` (clean),
+`golangci-lint run ./services/lakeformation/...` (0 issues after the
+`fieldalignment` fix above; no cyclop/gocyclo/gocognit/funlen nolints
+added) -- all green.
+
+`services/lakeformation/PARITY.md` updated to reflect these findings (see
+its own frontmatter/notes).
+
+No subagents used (Read/Grep/Bash only, per this session's hard constraint).
+No git-mutating commands run -- orchestrator must commit/push. `git status`
+re-checked before starting (confirmed the workspaces sibling's changes had
+already landed as a commit, not a live collision) and periodically
+throughout; no other service's files were touched.
+
+lakeformation's List/Describe/Get families are now fully swept for this
+issue (26/26 ops layer-1 clean; 5 real bugs found and fixed in adjacent
+temporary-credentials/identity-center ops layer-2/3, one wire-breaking; one
+prior `PARITY.md` claim disproved and corrected). 80 of 162 services swept,
+82 remain. Per the ranked table, `rekognition` (75 ops, 25 L+D+G,
+`dynamic-fallback`) is next largest -- re-check `git status` before picking
+it in case a sibling is already there.

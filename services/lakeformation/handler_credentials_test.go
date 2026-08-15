@@ -113,9 +113,16 @@ func TestGetTemporaryDataLocationCredentials_Success(t *testing.T) {
 	b := lakeformation.NewInMemoryBackend()
 	h := lakeformation.NewHandler(b)
 
+	// The real GetTemporaryDataLocationCredentialsInput has no ResourceArn
+	// or Permissions members at all -- it takes DataLocations (plural) and
+	// CredentialsScope (confirmed against
+	// api_op_GetTemporaryDataLocationCredentials.go /
+	// serializers.go@aws-sdk-go-v2/service/lakeformation@v1.50.4). A prior
+	// version of this test sent ResourceArn/Permissions and only passed
+	// because the handler agreed with the same wrong shape.
 	rec := postJSON(t, h, "/GetTemporaryDataLocationCredentials", map[string]any{
-		"ResourceArn": "arn:aws:s3:::my-bucket",
-		"Permissions": []string{"DATA_LOCATION_ACCESS"},
+		"DataLocations":    []string{"s3://my-bucket/path"},
+		"CredentialsScope": "READWRITE",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -127,16 +134,18 @@ func TestGetTemporaryDataLocationCredentials_Success(t *testing.T) {
 	// credential ops, which return it at the top level).
 	creds := out["Credentials"].(map[string]any)
 	assert.NotEmpty(t, creds["Expiration"])
+	assert.Equal(t, "READWRITE", out["CredentialsScope"])
+	assert.Equal(t, []any{"s3://my-bucket/path"}, out["AccessibleDataLocations"])
 }
 
-func TestGetTemporaryDataLocationCredentials_MissingARN(t *testing.T) {
+func TestGetTemporaryDataLocationCredentials_MissingDataLocations(t *testing.T) {
 	t.Parallel()
 
 	b := lakeformation.NewInMemoryBackend()
 	h := lakeformation.NewHandler(b)
 
 	rec := postJSON(t, h, "/GetTemporaryDataLocationCredentials", map[string]any{
-		"ResourceArn": "",
+		"DataLocations": []string{},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

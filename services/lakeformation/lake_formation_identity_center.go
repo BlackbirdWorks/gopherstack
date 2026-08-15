@@ -12,6 +12,7 @@ func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(
 	catalogID, instanceArn string,
 	externalFiltering *ExternalFilteringConfiguration,
 	shareRecipients []DataLakePrincipal,
+	serviceIntegrations []ServiceIntegration,
 ) (string, error) {
 	b.mu.Lock("CreateLakeFormationIdentityCenterConfiguration")
 	defer b.mu.Unlock()
@@ -30,11 +31,12 @@ func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(
 	)
 
 	b.identityCenterConfigs.Put(&IdentityCenterConfiguration{
-		CatalogID:         catalogID,
-		InstanceArn:       instanceArn,
-		ApplicationArn:    appArn,
-		ExternalFiltering: externalFiltering,
-		ShareRecipients:   shareRecipients,
+		CatalogID:           catalogID,
+		InstanceArn:         instanceArn,
+		ApplicationArn:      appArn,
+		ExternalFiltering:   externalFiltering,
+		ShareRecipients:     shareRecipients,
+		ServiceIntegrations: serviceIntegrations,
 	})
 
 	return appArn, nil
@@ -68,8 +70,14 @@ func (b *InMemoryBackend) DescribeLakeFormationIdentityCenterConfiguration(
 }
 
 // UpdateLakeFormationIdentityCenterConfiguration updates or creates the identity center config.
+// shareRecipients/serviceIntegrations use a nil-vs-non-nil-empty-slice
+// distinction to match the real API's "unspecified leaves it unchanged,
+// explicit empty list clears it" semantics (encoding/json already
+// distinguishes an omitted/null JSON field, which unmarshals to a nil Go
+// slice, from an explicit "[]", which unmarshals to a non-nil empty slice).
 func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(
 	catalogID string, externalFiltering *ExternalFilteringConfiguration, appStatus string,
+	shareRecipients []DataLakePrincipal, serviceIntegrations []ServiceIntegration,
 ) error {
 	// Validate ApplicationStatus if provided.
 	if appStatus != "" && appStatus != "ENABLED" && appStatus != "DISABLED" {
@@ -81,9 +89,11 @@ func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(
 	cfg, ok := b.identityCenterConfigs.Get(catalogID)
 	if !ok {
 		b.identityCenterConfigs.Put(&IdentityCenterConfiguration{
-			CatalogID:         catalogID,
-			ExternalFiltering: externalFiltering,
-			ApplicationStatus: appStatus,
+			CatalogID:           catalogID,
+			ExternalFiltering:   externalFiltering,
+			ApplicationStatus:   appStatus,
+			ShareRecipients:     shareRecipients,
+			ServiceIntegrations: serviceIntegrations,
 		})
 
 		return nil
@@ -93,6 +103,12 @@ func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(
 	}
 	if appStatus != "" {
 		cfg.ApplicationStatus = appStatus
+	}
+	if shareRecipients != nil {
+		cfg.ShareRecipients = shareRecipients
+	}
+	if serviceIntegrations != nil {
+		cfg.ServiceIntegrations = serviceIntegrations
 	}
 
 	return nil
