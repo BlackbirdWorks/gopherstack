@@ -400,20 +400,20 @@ func (t *Table) appendStreamRecord(
 
 	switch t.StreamViewType {
 	case streamViewTypeNewAndOldImages:
-		record.OldImage = oldItem
-		record.NewImage = newImage
+		record.OldImage = deepCopyItem(oldItem)
+		record.NewImage = deepCopyItem(newImage)
 		record.StreamViewType = "NEW_AND_OLD_IMAGES"
 	case streamViewTypeNewImage:
-		record.NewImage = newImage
+		record.NewImage = deepCopyItem(newImage)
 		record.StreamViewType = "NEW_IMAGE"
 	case streamViewTypeOldImage:
-		record.OldImage = oldItem
+		record.OldImage = deepCopyItem(oldItem)
 		record.StreamViewType = "OLD_IMAGE"
 	case streamViewTypeKeysOnly:
 		record.StreamViewType = "KEYS_ONLY"
 	default:
-		record.OldImage = oldItem
-		record.NewImage = newImage
+		record.OldImage = deepCopyItem(oldItem)
+		record.NewImage = deepCopyItem(newImage)
 		record.StreamViewType = "NEW_AND_OLD_IMAGES"
 	}
 

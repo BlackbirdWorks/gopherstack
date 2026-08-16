@@ -870,9 +870,9 @@ func (db *InMemoryDB) applyTransactPut(
 	db.doPut(table, wireItem, matchIndex)
 	// Capture stream event for the committed transactional write.
 	if matchIndex != -1 {
-		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem), "", "")
+		table.appendStreamRecord(streamEventModify, oldItem, wireItem, "", "")
 	} else {
-		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem), "", "")
+		table.appendStreamRecord(streamEventInsert, nil, wireItem, "", "")
 	}
 
 	return metric, nil
@@ -899,7 +899,7 @@ func (db *InMemoryDB) applyTransactDelete(
 	}
 
 	// Capture stream event (REMOVE) before the item is removed.
-	table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil, "", "")
+	table.appendStreamRecord(streamEventRemove, oldItem, nil, "", "")
 	db.deleteItemAtIndex(table, matchIndex)
 
 	return metric, nil
@@ -940,10 +940,10 @@ func (db *InMemoryDB) applyTransactUpdate(
 	// Capture stream event for the committed transactional update.
 	if matchIndex != -1 {
 		table.appendStreamRecord(
-			streamEventModify, deepCopyItem(oldItem), deepCopyItem(updated), "", "",
+			streamEventModify, oldItem, updated, "", "",
 		)
 	} else {
-		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated), "", "")
+		table.appendStreamRecord(streamEventInsert, nil, updated, "", "")
 	}
 
 	return metric, nil
