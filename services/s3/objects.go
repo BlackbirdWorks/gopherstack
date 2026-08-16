@@ -580,21 +580,34 @@ func (b *InMemoryBackend) GetObject(
 	bucket.mu.RUnlock()
 
 	// Use per-object lock for version operations instead of holding bucket lock
-	obj.mu.RLock("GetObject")
-	defer obj.mu.RUnlock()
+	var (
+		ver              *StoredObjectVersion
+		dataToDecompress []byte
+		isCompressed     bool
+		size             int64
+		metadata         map[string]string
+		versionIDStr     string
+	)
 
-	ver, err := resolveObjectVersion(obj, versionID)
+	func() {
+		obj.mu.RLock("GetObject")
+		defer obj.mu.RUnlock()
+
+		ver, err = resolveObjectVersion(obj, versionID)
+		if err != nil {
+			return
+		}
+
+		dataToDecompress = ver.Data
+		isCompressed = ver.IsCompressed
+		size = ver.Size
+		metadata = maps.Clone(ver.Metadata)
+		versionIDStr = ver.VersionID
+	}()
+
 	if err != nil {
 		return nil, err
 	}
-
-	// Copy data + metadata under the lock; decryption + decompression
-	// happen outside.
-	dataToDecompress := ver.Data
-	isCompressed := ver.IsCompressed
-	size := ver.Size
-	metadata := maps.Clone(ver.Metadata)
-	versionIDStr := ver.VersionID
 
 	decrypted, skipDecompress, decErr := decryptVersionForGet(ctx, ver, dataToDecompress)
 	if decErr != nil {
@@ -792,23 +805,35 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrNoSuchKey
 	}
 
-	obj.mu.RLock("HeadObject")
-	defer obj.mu.RUnlock()
+	var (
+		ver     *StoredObjectVersion
+		headErr error
+	)
 
-	var ver *StoredObjectVersion
-	if versionID != nil && *versionID != "" {
-		// Use provided version ID
-		v, ok := obj.Versions[*versionID]
-		if !ok {
-			return nil, ErrNoSuchKey
+	func() {
+		obj.mu.RLock("HeadObject")
+		defer obj.mu.RUnlock()
+
+		if versionID != nil && *versionID != "" {
+			// Use provided version ID
+			v, ok := obj.Versions[*versionID]
+			if !ok {
+				headErr = ErrNoSuchKey
+
+				return
+			}
+			ver = v
+		} else if latestID := obj.LatestVersionID; latestID != "" {
+			// Use cached latest version ID to avoid scanning all versions
+			ver = obj.Versions[latestID]
+		} else {
+			// Fallback: scan for latest (shouldn't happen in normal operation)
+			ver = findLatestVersion(obj.Versions)
 		}
-		ver = v
-	} else if latestID := obj.LatestVersionID; latestID != "" {
-		// Use cached latest version ID to avoid scanning all versions
-		ver = obj.Versions[latestID]
-	} else {
-		// Fallback: scan for latest (shouldn't happen in normal operation)
-		ver = findLatestVersion(obj.Versions)
+	}()
+
+	if headErr != nil {
+		return nil, headErr
 	}
 
 	if ver == nil {

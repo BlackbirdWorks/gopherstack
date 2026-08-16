@@ -416,34 +416,47 @@ func (db *InMemoryDB) GetItem(
 		return nil, projErr
 	}
 
-	table.mu.RLock("GetItem")
-	defer table.mu.RUnlock()
-
 	wireKey := models.FromSDKItem(input.Key)
-	err = validateKeySchema(wireKey, table.KeySchema)
-	if err != nil {
-		return nil, err
-	}
-
-	// Enforce throughput after key validation so that invalid requests do not
-	// consume tokens. Double RCU for strongly-consistent reads.
 	consistentRead := aws.ToBool(input.ConsistentRead)
 	rcu := applyConsistentReadMultiplier(models.ConsumedReadUnit, consistentRead)
 	region := getRegionFromContext(ctx, db)
 
-	if !isOnDemandTable(table.BillingMode) {
-		if throttleErr := db.throttler.ConsumeRead(
-			throttleKey(region, tableName),
-			rcu,
-		); throttleErr != nil {
-			return nil, throttleErr
+	var (
+		item     map[string]any
+		ttlAttr  string
+		tableErr error
+	)
+
+	func() {
+		table.mu.RLock("GetItem")
+		defer table.mu.RUnlock()
+
+		tableErr = validateKeySchema(wireKey, table.KeySchema)
+		if tableErr != nil {
+			return
 		}
+
+		if !isOnDemandTable(table.BillingMode) {
+			if throttleErr := db.throttler.ConsumeRead(
+				throttleKey(region, tableName),
+				rcu,
+			); throttleErr != nil {
+				tableErr = throttleErr
+
+				return
+			}
+		}
+
+		pkDef, skDef := getPKAndSK(table.KeySchema)
+		item = db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+		ttlAttr = table.TTLAttribute
+	}()
+
+	if tableErr != nil {
+		return nil, tableErr
 	}
 
-	pkDef, skDef := getPKAndSK(table.KeySchema)
-	item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
-
-	if item == nil || isItemExpired(item, table.TTLAttribute) {
+	if item == nil || isItemExpired(item, ttlAttr) {
 		return &dynamodb.GetItemOutput{}, nil
 	}
 
