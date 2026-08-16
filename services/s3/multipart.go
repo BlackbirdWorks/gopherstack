@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -115,10 +116,13 @@ func (b *InMemoryBackend) UploadPart(
 	bucketName := aws.ToString(input.Bucket)
 
 	// 1. Snapshot the body while computing MD5 etag and S3 checksums.
-	//nolint:gosec // MD5 required
-	md5Hasher := md5.New()
-	var buf bytes.Buffer
-	writers := []io.Writer{md5Hasher, &buf}
+	md5Hasher := httputils.GetMD5()
+	defer httputils.PutMD5(md5Hasher)
+
+	buf := httputils.GetBuffer()
+	defer httputils.PutBuffer(buf)
+
+	writers := []io.Writer{md5Hasher, buf}
 
 	algo := inferChecksumAlgo(input)
 	s3Hasher := newS3Hasher(algo)
@@ -132,7 +136,7 @@ func (b *InMemoryBackend) UploadPart(
 		return nil, err
 	}
 
-	storedData := buf.Bytes()
+	storedData := bytes.Clone(buf.Bytes())
 	etag := hex.EncodeToString(md5Hasher.Sum(nil))
 
 	// 2. Validate Content-MD5 from context if present.

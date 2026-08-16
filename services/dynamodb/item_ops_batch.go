@@ -21,9 +21,6 @@ const batchWriteResponseLimit = 16 * 1024 * 1024
 // eventuallyConsistentRCU is the RCU cost per read for eventually-consistent reads (0.5 per 4KB).
 const eventuallyConsistentRCU = 0.5
 
-// wcuBytesPerUnit is the number of bytes per write capacity unit (1 KB).
-const wcuBytesPerUnit = 1024
-
 // canonicalKey produces a stable, comparable string for a single item key map.
 // Keys only ever contain scalar key attributes (S, N, or B), so we serialize the
 // sorted attribute names together with their typed scalar value.
@@ -240,26 +237,35 @@ func (db *InMemoryDB) batchGetTable(
 	)
 	projector, _ := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
 
+	type matchedEntry struct {
+		item     map[string]any
+		keyIndex int
+	}
+	matched := make([]matchedEntry, 0, len(keysAndAttrs.Keys))
+
+	func() {
+		table.mu.RLock("BatchGetItem")
+		defer table.mu.RUnlock()
+
+		for i, sdkKey := range keysAndAttrs.Keys {
+			wireKey := models.FromSDKItem(sdkKey)
+			item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+			if item != nil {
+				matched = append(matched, matchedEntry{keyIndex: i, item: item})
+			}
+		}
+	}()
+
 	var tableResults []map[string]types.AttributeValue
 
-	table.mu.RLock("BatchGetItem")
-	defer table.mu.RUnlock()
-
-	for i, sdkKey := range keysAndAttrs.Keys {
-		wireKey := models.FromSDKItem(sdkKey)
-		item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
-
-		if item == nil {
-			continue
-		}
-
+	for _, m := range matched {
 		// Project first, then measure size of the projected result (per AWS semantics).
-		result := projector.Project(item)
+		result := projector.Project(m.item)
 		itemSize, _ := CalculateItemSize(result)
 
 		if *currentSize+itemSize > responseSizeLimit && len(tableResults) > 0 {
 			unprocessedKeys[tableName] = types.KeysAndAttributes{
-				Keys:                     keysAndAttrs.Keys[i:],
+				Keys:                     keysAndAttrs.Keys[m.keyIndex:],
 				AttributesToGet:          keysAndAttrs.AttributesToGet,
 				ConsistentRead:           keysAndAttrs.ConsistentRead,
 				ExpressionAttributeNames: keysAndAttrs.ExpressionAttributeNames,
@@ -569,7 +575,7 @@ func computeBatchWriteWCU(reqs []types.WriteRequest) float64 {
 			if err != nil || itemSize <= 0 {
 				cu += 1.0
 			} else {
-				cu += float64((itemSize + wcuBytesPerUnit - 1) / wcuBytesPerUnit)
+				cu += WriteCapacityUnitsFromSize(itemSize)
 			}
 		} else {
 			cu += 1.0
