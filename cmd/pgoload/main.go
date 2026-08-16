@@ -30,8 +30,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -125,11 +123,53 @@ type config struct {
 }
 
 // counters tracks operation and error totals across every worker goroutine.
+// ddb/s3 keep their original flat fields untouched; every service added for
+// breadth uses the shared opCounter type instead of four more fields each.
 type counters struct {
 	ddbOps    atomic.Int64
 	ddbErrors atomic.Int64
 	s3Ops     atomic.Int64
 	s3Errors  atomic.Int64
+
+	sqs            opCounter
+	sns            opCounter
+	kinesis        opCounter
+	iam            opCounter
+	sts            opCounter
+	ssm            opCounter
+	secretsmanager opCounter
+	cloudwatch     opCounter
+	logs           opCounter
+	ec2            opCounter
+	lambda         opCounter
+	kms            opCounter
+	eventbridge    opCounter
+	stepfunctions  opCounter
+}
+
+// namedCounter pairs a scenario name with its counter, for summary printing.
+type namedCounter struct {
+	name string
+	c    *opCounter
+}
+
+func (c *counters) breadthCounters() []namedCounter {
+	return []namedCounter{
+		{"sqs", &c.sqs},
+		{"sns", &c.sns},
+		{"kinesis", &c.kinesis},
+		{"iam", &c.iam},
+		{"sts", &c.sts},
+		{"ssm", &c.ssm},
+		{"secretsmanager", &c.secretsmanager},
+		{"cloudwatch", &c.cloudwatch},
+		{"logs", &c.logs},
+		{"ec2", &c.ec2},
+		{"lambda", &c.lambda},
+		{"kms", &c.kms},
+		{"eventbridge", &c.eventbridge},
+		{"stepfunctions", &c.stepfunctions},
+	}
 }
 
 func main() {
@@ -143,21 +183,21 @@ func run() int {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ddbClient, s3Client, err := buildClients(rootCtx, cfg)
+	cls, err := buildClients(rootCtx, cfg)
 	if err != nil {
 		log.ErrorContext(rootCtx, "failed to build aws clients", "error", err)
 
 		return 1
 	}
 
-	buckets, err := setupResources(rootCtx, ddbClient, s3Client, log)
+	res, err := setupResources(rootCtx, cls, log)
 	if err != nil {
 		log.ErrorContext(rootCtx, "failed to prepare load resources", "error", err)
 
 		return 1
 	}
 
-	return runLoad(rootCtx, cfg, ddbClient, s3Client, buckets, log)
+	return runLoad(rootCtx, cfg, cls, res, log)
 }
 
 // parseFlags resolves CLI flags, falling back to environment variables and
@@ -212,63 +252,9 @@ func envIntOrDefault(key string, def int) int {
 	return def
 }
 
-// buildClients constructs the DynamoDB and S3 clients pointed at the
-// Gopherstack endpoint, using static test credentials.
-func buildClients(ctx context.Context, cfg config) (*dynamodb.Client, *s3.Client, error) {
-	awsCfg, err := awscfg.LoadDefaultConfig(ctx,
-		awscfg.WithRegion(awsRegion),
-		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("load aws config: %w", err)
-	}
-
-	ddbClient := dynamodb.NewFromConfig(awsCfg, func(o *dynamodb.Options) {
-		o.BaseEndpoint = aws.String(cfg.endpoint)
-	})
-
-	s3Client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(cfg.endpoint)
-		o.UsePathStyle = true
-	})
-
-	return ddbClient, s3Client, nil
-}
-
-// setupResources provisions the DynamoDB table and S3 buckets used by the
-// load scenarios, bounded by setupTimeout so a short -duration still leaves
-// time for the load phase itself.
-func setupResources(
-	ctx context.Context,
-	ddbClient *dynamodb.Client,
-	s3Client *s3.Client,
-	log *slog.Logger,
-) ([]string, error) {
-	setupCtx, cancel := context.WithTimeout(ctx, setupTimeout)
-	defer cancel()
-
-	if err := ensureDDBTable(setupCtx, ddbClient, log); err != nil {
-		return nil, fmt.Errorf("ddb table setup: %w", err)
-	}
-
-	buckets, err := ensureS3Buckets(setupCtx, s3Client, log)
-	if err != nil {
-		return nil, fmt.Errorf("s3 bucket setup: %w", err)
-	}
-
-	return buckets, nil
-}
-
 // runLoad fans out cfg.concurrency workers for each scenario and lets them
 // run until cfg.duration elapses (or ctx is canceled), then prints a summary.
-func runLoad(
-	ctx context.Context,
-	cfg config,
-	ddbClient *dynamodb.Client,
-	s3Client *s3.Client,
-	buckets []string,
-	log *slog.Logger,
-) int {
+func runLoad(ctx context.Context, cfg config, cls *clients, res *resources, log *slog.Logger) int {
 	loadCtx, cancel := context.WithTimeout(ctx, cfg.duration)
 	defer cancel()
 
@@ -276,23 +262,33 @@ func runLoad(
 
 	var wg sync.WaitGroup
 
-	for w := range cfg.concurrency {
-		wg.Add(1)
+	spawn := func(n int, worker func(id int)) {
+		for w := range n {
+			wg.Add(1)
 
-		go func(id int) {
-			defer wg.Done()
-			ddbWorker(loadCtx, ddbClient, id, c, log)
-		}(w)
+			go func(id int) {
+				defer wg.Done()
+				worker(id)
+			}(w)
+		}
 	}
 
-	for w := range cfg.concurrency {
-		wg.Add(1)
-
-		go func(id int) {
-			defer wg.Done()
-			s3Worker(loadCtx, s3Client, buckets, id, c, log)
-		}(w)
-	}
+	spawn(cfg.concurrency, func(id int) { ddbWorker(loadCtx, cls.ddb, id, c, log) })
+	spawn(cfg.concurrency, func(id int) { s3Worker(loadCtx, cls.s3, res.s3Buckets, id, c, log) })
+	spawn(cfg.concurrency, func(id int) { sqsWorker(loadCtx, cls.sqs, res, id, &c.sqs, log) })
+	spawn(cfg.concurrency, func(id int) { snsWorker(loadCtx, cls.sns, res, id, &c.sns, log) })
+	spawn(cfg.concurrency, func(id int) { kinesisWorker(loadCtx, cls.kinesis, res, id, &c.kinesis, log) })
+	spawn(cfg.concurrency, func(id int) { iamWorker(loadCtx, cls.iam, id, &c.iam, log) })
+	spawn(cfg.concurrency, func(id int) { stsWorker(loadCtx, cls.sts, res, id, &c.sts, log) })
+	spawn(cfg.concurrency, func(id int) { ssmWorker(loadCtx, cls.ssm, id, &c.ssm, log) })
+	spawn(cfg.concurrency, func(id int) { secretsManagerWorker(loadCtx, cls.secretsmanager, id, &c.secretsmanager, log) })
+	spawn(cfg.concurrency, func(id int) { cloudwatchWorker(loadCtx, cls.cloudwatch, id, &c.cloudwatch, log) })
+	spawn(cfg.concurrency, func(id int) { logsWorker(loadCtx, cls.logs, id, &c.logs, log) })
+	spawn(cfg.concurrency, func(id int) { ec2Worker(loadCtx, cls.ec2, id, &c.ec2, log) })
+	spawn(cfg.concurrency, func(id int) { lambdaWorker(loadCtx, cls.lambda, res, id, &c.lambda, log) })
+	spawn(cfg.concurrency, func(id int) { kmsWorker(loadCtx, cls.kms, res, id, &c.kms, log) })
+	spawn(cfg.concurrency, func(id int) { eventBridgeWorker(loadCtx, cls.eventbridge, id, &c.eventbridge, log) })
+	spawn(cfg.concurrency, func(id int) { stepFunctionsWorker(loadCtx, cls.stepfunctions, res, id, &c.stepfunctions, log) })
 
 	wg.Wait()
 	printSummary(c)
@@ -308,6 +304,10 @@ func printSummary(c *counters) {
 		c.s3Ops.Load(),
 		c.ddbErrors.Load()+c.s3Errors.Load(),
 	)
+
+	for _, nc := range c.breadthCounters() {
+		fmt.Fprintf(os.Stdout, "%s ops=%d, errors=%d\n", nc.name, nc.c.ops.Load(), nc.c.errors.Load())
+	}
 }
 
 // ---------------------------------------------------------------------------
