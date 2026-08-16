@@ -120,23 +120,10 @@ func (b *InMemoryBackend) UploadPart(
 	var buf bytes.Buffer
 	writers := []io.Writer{md5Hasher, &buf}
 
-	var s3Hasher hash.Hash
-	algo := string(input.ChecksumAlgorithm)
-	if algo != "" {
-		switch strings.ToUpper(algo) {
-		case ChecksumCRC32:
-			s3Hasher = crc32.NewIEEE()
-		case ChecksumCRC32C:
-			s3Hasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
-		case ChecksumSHA1:
-			//nolint:gosec // SHA1 supported
-			s3Hasher = sha1.New()
-		case ChecksumSHA256:
-			s3Hasher = sha256.New()
-		}
-		if s3Hasher != nil {
-			writers = append(writers, s3Hasher)
-		}
+	algo := inferChecksumAlgo(input)
+	s3Hasher := newS3Hasher(algo)
+	if s3Hasher != nil {
+		writers = append(writers, s3Hasher)
 	}
 
 	tr := io.TeeReader(input.Body, io.MultiWriter(writers...))
@@ -172,24 +159,26 @@ func (b *InMemoryBackend) UploadPart(
 	// otherwise has no way to report them, since they exist only on this
 	// call's request/response and were never persisted onto the part before.
 	if sErr := b.storePart(bucketName, uploadID, partNumber, &StoredPart{
-		PartNumber:     partNumber,
-		Data:           storedData,
-		ETag:           quotedETag,
-		Size:           originalSize,
-		ChecksumCRC32:  input.ChecksumCRC32,
-		ChecksumCRC32C: input.ChecksumCRC32C,
-		ChecksumSHA1:   input.ChecksumSHA1,
-		ChecksumSHA256: input.ChecksumSHA256,
+		PartNumber:        partNumber,
+		Data:              storedData,
+		ETag:              quotedETag,
+		Size:              originalSize,
+		ChecksumCRC32:     input.ChecksumCRC32,
+		ChecksumCRC32C:    input.ChecksumCRC32C,
+		ChecksumCRC64NVME: input.ChecksumCRC64NVME,
+		ChecksumSHA1:      input.ChecksumSHA1,
+		ChecksumSHA256:    input.ChecksumSHA256,
 	}); sErr != nil {
 		return nil, sErr
 	}
 
 	return &s3.UploadPartOutput{
-		ETag:           aws.String(quotedETag),
-		ChecksumCRC32:  input.ChecksumCRC32,
-		ChecksumCRC32C: input.ChecksumCRC32C,
-		ChecksumSHA1:   input.ChecksumSHA1,
-		ChecksumSHA256: input.ChecksumSHA256,
+		ETag:              aws.String(quotedETag),
+		ChecksumCRC32:     input.ChecksumCRC32,
+		ChecksumCRC32C:    input.ChecksumCRC32C,
+		ChecksumCRC64NVME: input.ChecksumCRC64NVME,
+		ChecksumSHA1:      input.ChecksumSHA1,
+		ChecksumSHA256:    input.ChecksumSHA256,
 	}, nil
 }
 
@@ -819,13 +808,14 @@ func (b *InMemoryBackend) ListParts(
 			}
 			p := upload.Parts[pn]
 			parts = append(parts, types.Part{
-				PartNumber:     aws.Int32(pn),
-				ETag:           aws.String(p.ETag),
-				Size:           aws.Int64(p.Size),
-				ChecksumCRC32:  p.ChecksumCRC32,
-				ChecksumCRC32C: p.ChecksumCRC32C,
-				ChecksumSHA1:   p.ChecksumSHA1,
-				ChecksumSHA256: p.ChecksumSHA256,
+				PartNumber:        aws.Int32(pn),
+				ETag:              aws.String(p.ETag),
+				Size:              aws.Int64(p.Size),
+				ChecksumCRC32:     p.ChecksumCRC32,
+				ChecksumCRC32C:    p.ChecksumCRC32C,
+				ChecksumCRC64NVME: p.ChecksumCRC64NVME,
+				ChecksumSHA1:      p.ChecksumSHA1,
+				ChecksumSHA256:    p.ChecksumSHA256,
 			})
 		}
 	}()
@@ -874,4 +864,44 @@ func (b *InMemoryBackend) storePart(
 	upload.Parts[partNumber] = part
 
 	return nil
+}
+
+func inferChecksumAlgo(input *s3.UploadPartInput) string {
+	algo := string(input.ChecksumAlgorithm)
+	if algo != "" {
+		return algo
+	}
+
+	switch {
+	case input.ChecksumCRC32 != nil:
+		return ChecksumCRC32
+	case input.ChecksumCRC32C != nil:
+		return ChecksumCRC32C
+	case input.ChecksumCRC64NVME != nil:
+		return ChecksumCRC64NVME
+	case input.ChecksumSHA1 != nil:
+		return ChecksumSHA1
+	case input.ChecksumSHA256 != nil:
+		return ChecksumSHA256
+	default:
+		return ""
+	}
+}
+
+func newS3Hasher(algo string) hash.Hash {
+	switch strings.ToUpper(algo) {
+	case ChecksumCRC32:
+		return crc32.NewIEEE()
+	case ChecksumCRC32C:
+		return crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	case ChecksumCRC64NVME:
+		return NewCRC64NVME()
+	case ChecksumSHA1:
+		//nolint:gosec // SHA1 supported
+		return sha1.New()
+	case ChecksumSHA256:
+		return sha256.New()
+	default:
+		return nil
+	}
 }

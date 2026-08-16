@@ -9,7 +9,7 @@
 | --- | --- |
 | Operations audited | 20 (19 ok, 1 other) |
 | Feature families | 8 (8 ok) |
-| Known gaps | 11 |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 

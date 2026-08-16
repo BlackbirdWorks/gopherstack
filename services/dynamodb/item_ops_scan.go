@@ -336,7 +336,7 @@ func scanPage(
 		if parsedFilter.Evaluate(item, eav, eans) {
 			projectedItem := item
 			if projection != nil {
-				projectedItem = applyGSIProjection(item, *projection, tableKeySchema, indexKeySchema)
+				projectedItem = applyIndexProjection(item, *projection, tableKeySchema, indexKeySchema)
 			}
 			results = append(results, projector.Project(projectedItem))
 		}

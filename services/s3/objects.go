@@ -860,8 +860,6 @@ func (b *InMemoryBackend) verifyChecksum(
 	}
 
 	computedSum := s3Hasher.Sum(nil)
-
-	// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
 	if h32, ok := s3Hasher.(hash.Hash32); ok {
 		const checksumSize = 4
 		tmp := make([]byte, checksumSize)
@@ -870,19 +868,7 @@ func (b *InMemoryBackend) verifyChecksum(
 	}
 
 	computedChecksumB64 := base64.StdEncoding.EncodeToString(computedSum)
-
-	var supplied *string
-
-	switch strings.ToUpper(algo) {
-	case ChecksumCRC32:
-		supplied = input.ChecksumCRC32
-	case ChecksumCRC32C:
-		supplied = input.ChecksumCRC32C
-	case ChecksumSHA1:
-		supplied = input.ChecksumSHA1
-	case ChecksumSHA256:
-		supplied = input.ChecksumSHA256
-	}
+	supplied := suppliedPartChecksum(input, algo)
 
 	if supplied != nil && *supplied != "" {
 		if computedChecksumB64 != *supplied {
@@ -892,19 +878,42 @@ func (b *InMemoryBackend) verifyChecksum(
 		return nil
 	}
 
-	// Client requested server-side checksum computation; propagate result.
-	switch strings.ToUpper(algo) {
-	case ChecksumCRC32:
-		input.ChecksumCRC32 = aws.String(computedChecksumB64)
-	case ChecksumCRC32C:
-		input.ChecksumCRC32C = aws.String(computedChecksumB64)
-	case ChecksumSHA1:
-		input.ChecksumSHA1 = aws.String(computedChecksumB64)
-	case ChecksumSHA256:
-		input.ChecksumSHA256 = aws.String(computedChecksumB64)
-	}
+	setPartChecksum(input, algo, computedChecksumB64)
 
 	return nil
+}
+
+func suppliedPartChecksum(input *s3.UploadPartInput, algo string) *string {
+	switch strings.ToUpper(algo) {
+	case ChecksumCRC32:
+		return input.ChecksumCRC32
+	case ChecksumCRC32C:
+		return input.ChecksumCRC32C
+	case ChecksumCRC64NVME:
+		return input.ChecksumCRC64NVME
+	case ChecksumSHA1:
+		return input.ChecksumSHA1
+	case ChecksumSHA256:
+		return input.ChecksumSHA256
+	default:
+		return nil
+	}
+}
+
+func setPartChecksum(input *s3.UploadPartInput, algo, checksum string) {
+	cs := aws.String(checksum)
+	switch strings.ToUpper(algo) {
+	case ChecksumCRC32:
+		input.ChecksumCRC32 = cs
+	case ChecksumCRC32C:
+		input.ChecksumCRC32C = cs
+	case ChecksumCRC64NVME:
+		input.ChecksumCRC64NVME = cs
+	case ChecksumSHA1:
+		input.ChecksumSHA1 = cs
+	case ChecksumSHA256:
+		input.ChecksumSHA256 = cs
+	}
 }
 
 // checkPutObjectAuthAndLock performs initial checks for bucket existence and object lock.

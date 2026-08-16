@@ -218,20 +218,26 @@ func isIndexGSI(table *Table, indexName string) bool {
 	return false
 }
 
-// calculateWriteIndexBreakdowns determines WCU consumed on GSIs and LSIs populated by item.
+// calculateWriteIndexBreakdowns determines WCU consumed on GSIs and LSIs populated by any of the items.
 func calculateWriteIndexBreakdowns(
 	table *Table,
-	item map[string]any,
 	writeUnits float64,
+	items ...map[string]any,
 ) (map[string]float64, map[string]float64) {
-	if item == nil || writeUnits <= 0 || table == nil {
+	if len(items) == 0 || writeUnits <= 0 || table == nil {
 		return nil, nil
 	}
 
-	return calculateGSIWriteBreakdowns(table, item, writeUnits), calculateLSIWriteBreakdowns(table, item, writeUnits)
+	return calculateGSIWriteBreakdowns(
+			table,
+			writeUnits,
+			items...), calculateLSIWriteBreakdowns(
+			table,
+			writeUnits,
+			items...)
 }
 
-func calculateGSIWriteBreakdowns(table *Table, item map[string]any, writeUnits float64) map[string]float64 {
+func calculateGSIWriteBreakdowns(table *Table, writeUnits float64, items ...map[string]any) map[string]float64 {
 	if len(table.GlobalSecondaryIndexes) == 0 {
 		return nil
 	}
@@ -240,18 +246,25 @@ func calculateGSIWriteBreakdowns(table *Table, item map[string]any, writeUnits f
 	for i := range table.GlobalSecondaryIndexes {
 		gsi := &table.GlobalSecondaryIndexes[i]
 		pkDef, skDef := getPKAndSK(gsi.KeySchema)
-		if _, _, ok := secondaryItemKeyValues(item, pkDef, skDef); ok {
-			if gsiWCU == nil {
-				gsiWCU = make(map[string]float64)
+		for _, item := range items {
+			if item == nil {
+				continue
 			}
-			gsiWCU[gsi.IndexName] = writeUnits
+			if _, _, ok := secondaryItemKeyValues(item, pkDef, skDef); ok {
+				if gsiWCU == nil {
+					gsiWCU = make(map[string]float64)
+				}
+				gsiWCU[gsi.IndexName] = writeUnits
+
+				break
+			}
 		}
 	}
 
 	return gsiWCU
 }
 
-func calculateLSIWriteBreakdowns(table *Table, item map[string]any, writeUnits float64) map[string]float64 {
+func calculateLSIWriteBreakdowns(table *Table, writeUnits float64, items ...map[string]any) map[string]float64 {
 	if len(table.LocalSecondaryIndexes) == 0 {
 		return nil
 	}
@@ -260,11 +273,18 @@ func calculateLSIWriteBreakdowns(table *Table, item map[string]any, writeUnits f
 	for i := range table.LocalSecondaryIndexes {
 		lsi := &table.LocalSecondaryIndexes[i]
 		pkDef, skDef := getPKAndSK(lsi.KeySchema)
-		if _, _, ok := secondaryItemKeyValues(item, pkDef, skDef); ok {
-			if lsiWCU == nil {
-				lsiWCU = make(map[string]float64)
+		for _, item := range items {
+			if item == nil {
+				continue
 			}
-			lsiWCU[lsi.IndexName] = writeUnits
+			if _, _, ok := secondaryItemKeyValues(item, pkDef, skDef); ok {
+				if lsiWCU == nil {
+					lsiWCU = make(map[string]float64)
+				}
+				lsiWCU[lsi.IndexName] = writeUnits
+
+				break
+			}
 		}
 	}
 

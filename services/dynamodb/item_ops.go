@@ -403,11 +403,11 @@ func compareScalarField(leftVal, rightVal any) bool {
 	return fmt.Sprintf("%v", leftVal) == fmt.Sprintf("%v", rightVal)
 }
 
-func applyGSIProjection(
+func applyIndexProjection(
 	item map[string]any,
 	projection models.Projection,
 	tableSchema []models.KeySchemaElement,
-	gsiSchema []models.KeySchemaElement,
+	indexSchema []models.KeySchemaElement,
 ) map[string]any {
 	if projection.ProjectionType == "ALL" {
 		return item
@@ -420,7 +420,7 @@ func applyGSIProjection(
 		}
 	}
 
-	for _, k := range gsiSchema {
+	for _, k := range indexSchema {
 		if val, ok := item[k.AttributeName]; ok {
 			newItem[k.AttributeName] = val
 		}

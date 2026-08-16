@@ -394,7 +394,7 @@ func (db *InMemoryDB) tryFilterUsingSecondaryIndex(
 	// GSI/LSI queries must respect the index's declared projection -- see
 	// filterCandidatesScan, which applies the same projection on the scan path.
 	for i, c := range candidates {
-		candidates[i] = applyGSIProjection(c, *projection, table.KeySchema, keySchema)
+		candidates[i] = applyIndexProjection(c, *projection, table.KeySchema, keySchema)
 	}
 
 	return candidates, true
@@ -463,7 +463,7 @@ func (db *InMemoryDB) filterCandidatesScan(
 		if idxName != "" {
 			candidates = append(
 				candidates,
-				applyGSIProjection(item, *projection, table.KeySchema, keySchema),
+				applyIndexProjection(item, *projection, table.KeySchema, keySchema),
 			)
 		} else {
 			candidates = append(candidates, item)

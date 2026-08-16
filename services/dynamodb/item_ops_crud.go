@@ -119,7 +119,7 @@ func (db *InMemoryDB) putItemLocked(
 	}
 
 	globalTableName := table.GlobalTableName
-	out := db.populatePutItemOutput(input, table, oldItem, lsiCollectionBytes)
+	out := db.populatePutItemOutput(input, table, oldItem, wireItem, lsiCollectionBytes)
 
 	return out, globalTableName, region, nil
 }
@@ -349,7 +349,7 @@ func (db *InMemoryDB) validateItem(item map[string]any, table *Table) error {
 func (db *InMemoryDB) populatePutItemOutput(
 	input *dynamodb.PutItemInput,
 	table *Table,
-	oldItem map[string]any,
+	oldItem, wireItem map[string]any,
 	lsiCollectionBytes int64,
 ) *dynamodb.PutItemOutput {
 	out := &dynamodb.PutItemOutput{}
@@ -364,9 +364,8 @@ func (db *InMemoryDB) populatePutItemOutput(
 	// put.
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
-		rawItem := models.FromSDKItem(input.Item)
-		writeUnits := WriteCapacityUnits(rawItem)
-		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, rawItem, writeUnits)
+		writeUnits := WriteCapacityUnits(wireItem)
+		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, writeUnits, wireItem)
 		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
 			table.Name,
 			input.ReturnConsumedCapacity,
@@ -631,7 +630,7 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 		if oldItem != nil {
 			writeUnits = WriteCapacityUnits(oldItem)
 		}
-		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, oldItem, writeUnits)
+		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, writeUnits, oldItem)
 		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
 			table.Name,
 			input.ReturnConsumedCapacity,
@@ -944,7 +943,7 @@ func (db *InMemoryDB) populateUpdateOutput(
 				writeUnits = w
 			}
 		}
-		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, newItem, writeUnits)
+		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, writeUnits, oldItem, newItem)
 		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
 			table.Name,
 			input.ReturnConsumedCapacity,

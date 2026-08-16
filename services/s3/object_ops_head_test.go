@@ -2,6 +2,7 @@ package s3_test
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -131,29 +132,45 @@ func TestHandler_HeadObjectWithMetadata(t *testing.T) {
 func TestHandler_GetObjectAttributes_MultipartParts(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		bucket     string
-		key        string
-		partCount  int
-		wantParts  bool
+	type headArgs struct {
+		bucket    string
+		key       string
+		partCount int
+	}
+
+	type headWant struct {
 		wantStatus int
+		wantParts  bool
+	}
+
+	tests := []struct {
+		name string
+		args headArgs
+		want headWant
 	}{
 		{
-			name:       "multipart_object_returns_parts",
-			bucket:     "mp-bkt",
-			key:        "mp-obj",
-			partCount:  2,
-			wantParts:  true,
-			wantStatus: http.StatusOK,
+			name: "multipart_object_returns_parts",
+			args: headArgs{
+				bucket:    "mp-bkt",
+				key:       "mp-obj",
+				partCount: 2,
+			},
+			want: headWant{
+				wantParts:  true,
+				wantStatus: http.StatusOK,
+			},
 		},
 		{
-			name:       "single_put_object_no_parts",
-			bucket:     "mp-bkt",
-			key:        "single-obj",
-			partCount:  0,
-			wantParts:  false,
-			wantStatus: http.StatusOK,
+			name: "single_put_object_no_parts",
+			args: headArgs{
+				bucket:    "mp-bkt",
+				key:       "single-obj",
+				partCount: 0,
+			},
+			want: headWant{
+				wantParts:  false,
+				wantStatus: http.StatusOK,
+			},
 		},
 	}
 
@@ -162,66 +179,58 @@ func TestHandler_GetObjectAttributes_MultipartParts(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 			handler, backend := newTestHandler(t)
-			mustCreateBucket(t, backend, tt.bucket)
+			mustCreateBucket(t, backend, tt.args.bucket)
 
-			if tt.wantParts {
-				// 1. Initiate multipart upload
+			if tt.args.partCount > 0 {
 				up, err := backend.CreateMultipartUpload(ctx, &sdk_s3.CreateMultipartUploadInput{
-					Bucket: &tt.bucket,
-					Key:    &tt.key,
+					Bucket: &tt.args.bucket,
+					Key:    &tt.args.key,
 				})
 				require.NoError(t, err)
 
-				// 2. Upload parts
-				p1Num := int32(1)
-				p1, err := backend.UploadPart(ctx, &sdk_s3.UploadPartInput{
-					Bucket:     &tt.bucket,
-					Key:        &tt.key,
-					UploadId:   up.UploadId,
-					PartNumber: &p1Num,
-					Body:       bytes.NewReader([]byte("part1-payload")),
-				})
-				require.NoError(t, err)
+				completedParts := make([]types.CompletedPart, 0, tt.args.partCount)
+				for i := 1; i <= tt.args.partCount; i++ {
+					pNum := int32(i)
+					p, uErr := backend.UploadPart(ctx, &sdk_s3.UploadPartInput{
+						Bucket:     &tt.args.bucket,
+						Key:        &tt.args.key,
+						UploadId:   up.UploadId,
+						PartNumber: &pNum,
+						Body:       bytes.NewReader(fmt.Appendf(nil, "part%d-payload", i)),
+					})
+					require.NoError(t, uErr)
+					completedParts = append(completedParts, types.CompletedPart{
+						PartNumber: &pNum,
+						ETag:       p.ETag,
+					})
+				}
 
-				p2Num := int32(2)
-				p2, err := backend.UploadPart(ctx, &sdk_s3.UploadPartInput{
-					Bucket:     &tt.bucket,
-					Key:        &tt.key,
-					UploadId:   up.UploadId,
-					PartNumber: &p2Num,
-					Body:       bytes.NewReader([]byte("part2-payload")),
-				})
-				require.NoError(t, err)
-
-				// 3. Complete multipart upload
 				_, err = backend.CompleteMultipartUpload(ctx, &sdk_s3.CompleteMultipartUploadInput{
-					Bucket:   &tt.bucket,
-					Key:      &tt.key,
+					Bucket:   &tt.args.bucket,
+					Key:      &tt.args.key,
 					UploadId: up.UploadId,
 					MultipartUpload: &types.CompletedMultipartUpload{
-						Parts: []types.CompletedPart{
-							{PartNumber: &p1Num, ETag: p1.ETag},
-							{PartNumber: &p2Num, ETag: p2.ETag},
-						},
+						Parts: completedParts,
 					},
 				})
 				require.NoError(t, err)
 			} else {
-				mustPutObject(t, backend, tt.bucket, tt.key, []byte("single-put-data"))
+				mustPutObject(t, backend, tt.args.bucket, tt.args.key, []byte("single-put-data"))
 			}
 
-			req := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"/"+tt.key+"?attributes", nil)
+			req := httptest.NewRequest(http.MethodGet, "/"+tt.args.bucket+"/"+tt.args.key+"?attributes", nil)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 
-			require.Equal(t, tt.wantStatus, rec.Code)
+			require.Equal(t, tt.want.wantStatus, rec.Code)
 			body := rec.Body.String()
 			assert.Contains(t, body, "<GetObjectAttributesResult")
-			if tt.wantParts {
+			if tt.want.wantParts {
 				assert.Contains(t, body, "<ObjectParts>")
-				assert.Contains(t, body, "<TotalPartsCount>2</TotalPartsCount>")
-				assert.Contains(t, body, "<PartNumber>1</PartNumber>")
-				assert.Contains(t, body, "<PartNumber>2</PartNumber>")
+				assert.Contains(t, body, fmt.Sprintf("<TotalPartsCount>%d</TotalPartsCount>", tt.args.partCount))
+				for i := 1; i <= tt.args.partCount; i++ {
+					assert.Contains(t, body, fmt.Sprintf("<PartNumber>%d</PartNumber>", i))
+				}
 			} else {
 				assert.NotContains(t, body, "<ObjectParts>")
 			}

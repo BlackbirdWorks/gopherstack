@@ -51,39 +51,64 @@ func assertConsumedCapacityBreakdown(
 func TestConsumedCapacity_Indexes_TableDriven(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name         string
-		reqCC        types.ReturnConsumedCapacity
+	type ccArgs struct {
+		reqCC types.ReturnConsumedCapacity
+	}
+
+	type ccWant struct {
 		wantMinTotal float64
 		wantTable    bool
 		wantGSI      bool
 		wantLSI      bool
 		wantNil      bool
+	}
+
+	tests := []struct {
+		name string
+		args ccArgs
+		want ccWant
 	}{
 		{
-			name:         "indexes_requested",
-			reqCC:        types.ReturnConsumedCapacityIndexes,
-			wantMinTotal: 1.0,
-			wantTable:    true,
-			wantGSI:      true,
-			wantLSI:      true,
-			wantNil:      false,
+			name: "indexes_requested",
+			args: ccArgs{
+				reqCC: types.ReturnConsumedCapacityIndexes,
+			},
+			want: ccWant{
+				wantMinTotal: 1.0,
+				wantTable:    true,
+				wantGSI:      true,
+				wantLSI:      true,
+				wantNil:      false,
+			},
 		},
 		{
-			name:         "total_requested",
-			reqCC:        types.ReturnConsumedCapacityTotal,
-			wantMinTotal: 1.0,
-			wantTable:    false,
-			wantGSI:      false,
-			wantLSI:      false,
-			wantNil:      false,
+			name: "total_requested",
+			args: ccArgs{
+				reqCC: types.ReturnConsumedCapacityTotal,
+			},
+			want: ccWant{
+				wantMinTotal: 1.0,
+				wantTable:    false,
+				wantGSI:      false,
+				wantLSI:      false,
+				wantNil:      false,
+			},
 		},
 		{
-			name:    "none_requested",
-			reqCC:   types.ReturnConsumedCapacityNone,
-			wantNil: true,
+			name: "none_requested",
+			args: ccArgs{
+				reqCC: types.ReturnConsumedCapacityNone,
+			},
+			want: ccWant{
+				wantNil: true,
+			},
 		},
 	}
+
+	const (
+		gsi1Name = "gsi1"
+		lsi1Name = "lsi1"
+	)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -106,7 +131,7 @@ func TestConsumedCapacity_Indexes_TableDriven(t *testing.T) {
 				},
 				GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
 					{
-						IndexName: aws.String("gsi1"),
+						IndexName: aws.String(gsi1Name),
 						KeySchema: []types.KeySchemaElement{
 							{AttributeName: aws.String("gsi_pk"), KeyType: types.KeyTypeHash},
 						},
@@ -115,7 +140,7 @@ func TestConsumedCapacity_Indexes_TableDriven(t *testing.T) {
 				},
 				LocalSecondaryIndexes: []types.LocalSecondaryIndex{
 					{
-						IndexName: aws.String("lsi1"),
+						IndexName: aws.String(lsi1Name),
 						KeySchema: []types.KeySchemaElement{
 							{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
 							{AttributeName: aws.String("lsi_sk"), KeyType: types.KeyTypeRange},
@@ -137,59 +162,59 @@ func TestConsumedCapacity_Indexes_TableDriven(t *testing.T) {
 					"lsi_sk": &types.AttributeValueMemberS{Value: "l1"},
 					"val":    &types.AttributeValueMemberS{Value: "hello"},
 				},
-				ReturnConsumedCapacity: tt.reqCC,
+				ReturnConsumedCapacity: tt.args.reqCC,
 			})
 			require.NoError(t, err)
 
-			if tt.wantNil {
+			if tt.want.wantNil {
 				assert.Nil(t, putOut.ConsumedCapacity)
 			} else {
 				assertConsumedCapacityBreakdown(
 					t,
 					putOut.ConsumedCapacity,
 					tableName,
-					tt.wantMinTotal,
-					tt.wantTable,
-					tt.wantGSI,
-					tt.wantLSI,
+					tt.want.wantMinTotal,
+					tt.want.wantTable,
+					tt.want.wantGSI,
+					tt.want.wantLSI,
 				)
 			}
 
 			// 2. Query on GSI
 			qOut, err := db.Query(ctx, &dynamodb_sdk.QueryInput{
 				TableName:              aws.String(tableName),
-				IndexName:              aws.String("gsi1"),
+				IndexName:              aws.String(gsi1Name),
 				KeyConditionExpression: aws.String("gsi_pk = :g"),
 				ExpressionAttributeValues: map[string]types.AttributeValue{
 					":g": &types.AttributeValueMemberS{Value: "g1"},
 				},
-				ReturnConsumedCapacity: tt.reqCC,
+				ReturnConsumedCapacity: tt.args.reqCC,
 			})
 			require.NoError(t, err)
 
-			if tt.wantNil {
+			if tt.want.wantNil {
 				assert.Nil(t, qOut.ConsumedCapacity)
-			} else if tt.wantGSI {
+			} else if tt.want.wantGSI {
 				require.NotNil(t, qOut.ConsumedCapacity)
 				require.NotNil(t, qOut.ConsumedCapacity.GlobalSecondaryIndexes)
-				_, hasGSI := qOut.ConsumedCapacity.GlobalSecondaryIndexes["gsi1"]
+				_, hasGSI := qOut.ConsumedCapacity.GlobalSecondaryIndexes[gsi1Name]
 				assert.True(t, hasGSI)
 			}
 
 			// 3. Scan on LSI
 			scanOut, err := db.Scan(ctx, &dynamodb_sdk.ScanInput{
 				TableName:              aws.String(tableName),
-				IndexName:              aws.String("lsi1"),
-				ReturnConsumedCapacity: tt.reqCC,
+				IndexName:              aws.String(lsi1Name),
+				ReturnConsumedCapacity: tt.args.reqCC,
 			})
 			require.NoError(t, err)
 
-			if tt.wantNil {
+			if tt.want.wantNil {
 				assert.Nil(t, scanOut.ConsumedCapacity)
-			} else if tt.wantLSI {
+			} else if tt.want.wantLSI {
 				require.NotNil(t, scanOut.ConsumedCapacity)
 				require.NotNil(t, scanOut.ConsumedCapacity.LocalSecondaryIndexes)
-				_, hasLSI := scanOut.ConsumedCapacity.LocalSecondaryIndexes["lsi1"]
+				_, hasLSI := scanOut.ConsumedCapacity.LocalSecondaryIndexes[lsi1Name]
 				assert.True(t, hasLSI)
 			}
 
@@ -204,11 +229,11 @@ func TestConsumedCapacity_Indexes_TableDriven(t *testing.T) {
 				ExpressionAttributeValues: map[string]types.AttributeValue{
 					":newval": &types.AttributeValueMemberS{Value: "world"},
 				},
-				ReturnConsumedCapacity: tt.reqCC,
+				ReturnConsumedCapacity: tt.args.reqCC,
 			})
 			require.NoError(t, err)
 
-			if tt.wantNil {
+			if tt.want.wantNil {
 				assert.Nil(t, updateOut.ConsumedCapacity)
 			} else {
 				require.NotNil(t, updateOut.ConsumedCapacity)
@@ -221,11 +246,11 @@ func TestConsumedCapacity_Indexes_TableDriven(t *testing.T) {
 					"pk": &types.AttributeValueMemberS{Value: "k1"},
 					"sk": &types.AttributeValueMemberS{Value: "s1"},
 				},
-				ReturnConsumedCapacity: tt.reqCC,
+				ReturnConsumedCapacity: tt.args.reqCC,
 			})
 			require.NoError(t, err)
 
-			if tt.wantNil {
+			if tt.want.wantNil {
 				assert.Nil(t, delOut.ConsumedCapacity)
 			} else {
 				require.NotNil(t, delOut.ConsumedCapacity)
@@ -361,50 +386,70 @@ func TestConsistentRead_Operations(t *testing.T) {
 func TestBuildConsumedCapacityWithIndexes_Unit(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	type builderArgs struct {
 		gsiRCU    map[string]float64
 		lsiRCU    map[string]float64
-		name      string
 		tableName string
 		req       types.ReturnConsumedCapacity
 		tableRCU  float64
 		tableWCU  float64
+	}
+
+	type builderWant struct {
 		wantTotal float64
 		wantNil   bool
 		wantTable bool
 		wantGSI   bool
 		wantLSI   bool
+	}
+
+	tests := []struct {
+		name string
+		args builderArgs
+		want builderWant
 	}{
 		{
-			name:      "total_mode",
-			tableName: "myTable",
-			req:       types.ReturnConsumedCapacityTotal,
-			tableRCU:  1.0,
-			gsiRCU:    map[string]float64{"gsi1": 1.0},
-			wantNil:   false,
-			wantTotal: 2.0,
-			wantTable: false,
-			wantGSI:   false,
+			name: "total_mode",
+			args: builderArgs{
+				tableName: "myTable",
+				req:       types.ReturnConsumedCapacityTotal,
+				tableRCU:  1.0,
+				gsiRCU:    map[string]float64{"gsi1": 1.0},
+			},
+			want: builderWant{
+				wantNil:   false,
+				wantTotal: 2.0,
+				wantTable: false,
+				wantGSI:   false,
+			},
 		},
 		{
-			name:      "indexes_mode",
-			tableName: "myTable",
-			req:       types.ReturnConsumedCapacityIndexes,
-			tableRCU:  1.0,
-			gsiRCU:    map[string]float64{"gsi1": 0.5},
-			lsiRCU:    map[string]float64{"lsi1": 0.5},
-			wantNil:   false,
-			wantTotal: 2.0,
-			wantTable: true,
-			wantGSI:   true,
-			wantLSI:   true,
+			name: "indexes_mode",
+			args: builderArgs{
+				tableName: "myTable",
+				req:       types.ReturnConsumedCapacityIndexes,
+				tableRCU:  1.0,
+				gsiRCU:    map[string]float64{"gsi1": 0.5},
+				lsiRCU:    map[string]float64{"lsi1": 0.5},
+			},
+			want: builderWant{
+				wantNil:   false,
+				wantTotal: 2.0,
+				wantTable: true,
+				wantGSI:   true,
+				wantLSI:   true,
+			},
 		},
 		{
-			name:      "none_mode",
-			tableName: "myTable",
-			req:       types.ReturnConsumedCapacityNone,
-			tableRCU:  1.0,
-			wantNil:   true,
+			name: "none_mode",
+			args: builderArgs{
+				tableName: "myTable",
+				req:       types.ReturnConsumedCapacityNone,
+				tableRCU:  1.0,
+			},
+			want: builderWant{
+				wantNil: true,
+			},
 		},
 	}
 
@@ -412,31 +457,31 @@ func TestBuildConsumedCapacityWithIndexes_Unit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cc := dynamodb.BuildConsumedCapacityWithIndexes(
-				tt.tableName,
-				tt.req,
-				tt.tableRCU, tt.tableWCU,
-				tt.gsiRCU, nil,
-				tt.lsiRCU, nil,
+				tt.args.tableName,
+				tt.args.req,
+				tt.args.tableRCU, tt.args.tableWCU,
+				tt.args.gsiRCU, nil,
+				tt.args.lsiRCU, nil,
 			)
-			if tt.wantNil {
+			if tt.want.wantNil {
 				assert.Nil(t, cc)
 
 				return
 			}
 			require.NotNil(t, cc)
-			assert.Equal(t, tt.tableName, aws.ToString(cc.TableName))
-			assert.InDelta(t, tt.wantTotal, aws.ToFloat64(cc.CapacityUnits), 1e-9)
-			if tt.wantTable {
+			assert.Equal(t, tt.args.tableName, aws.ToString(cc.TableName))
+			assert.InDelta(t, tt.want.wantTotal, aws.ToFloat64(cc.CapacityUnits), 1e-9)
+			if tt.want.wantTable {
 				assert.NotNil(t, cc.Table)
 			} else {
 				assert.Nil(t, cc.Table)
 			}
-			if tt.wantGSI {
+			if tt.want.wantGSI {
 				assert.NotNil(t, cc.GlobalSecondaryIndexes)
 			} else {
 				assert.Nil(t, cc.GlobalSecondaryIndexes)
 			}
-			if tt.wantLSI {
+			if tt.want.wantLSI {
 				assert.NotNil(t, cc.LocalSecondaryIndexes)
 			} else {
 				assert.Nil(t, cc.LocalSecondaryIndexes)

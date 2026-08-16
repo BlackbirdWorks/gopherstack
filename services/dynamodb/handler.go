@@ -947,7 +947,9 @@ func (h *DynamoDBHandler) Reset() {
 	}
 }
 
-// dispatchExtraOps routes the extended DynamoDB operations to their handlers.
+// dispatchExtraOps routes non-CRUD administrative and integration operations (global tables,
+// Kinesis destinations, contributor insights, resource policies, and imports) to keep the primary
+// data plane dispatch focused.
 func (h *DynamoDBHandler) dispatchExtraOps(
 	ctx context.Context,
 	action string,

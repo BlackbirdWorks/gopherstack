@@ -417,13 +417,14 @@ type ListPartsResult struct {
 
 // PartXML describes a single uploaded part in a multipart upload.
 type PartXML struct {
-	ETag           string `xml:"ETag"`
-	ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
-	ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
-	ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
-	ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
-	Size           int64  `xml:"Size"`
-	PartNumber     int    `xml:"PartNumber"`
+	ETag              string `xml:"ETag"`
+	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
+	Size              int64  `xml:"Size"`
+	PartNumber        int    `xml:"PartNumber"`
 }
 
 // ServerSideEncryptionConfiguration is the XML body for PutBucketEncryption / GetBucketEncryption.

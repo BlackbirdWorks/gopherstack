@@ -743,31 +743,51 @@ func TestScan_Select_SurvivesWireConversion(t *testing.T) {
 func TestScan_GSI_Projection_Masking(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name           string
-		projType       types.ProjectionType
-		nonKeyAttrs    []string
+	type scanArgs struct {
+		projType    types.ProjectionType
+		nonKeyAttrs []string
+	}
+
+	type scanWant struct {
 		wantHasPayload bool
 		wantHasExtra   bool
+	}
+
+	tests := []struct {
+		name string
+		args scanArgs
+		want scanWant
 	}{
 		{
-			name:           "keys_only",
-			projType:       types.ProjectionTypeKeysOnly,
-			wantHasPayload: false,
-			wantHasExtra:   false,
+			name: "keys_only",
+			args: scanArgs{
+				projType: types.ProjectionTypeKeysOnly,
+			},
+			want: scanWant{
+				wantHasPayload: false,
+				wantHasExtra:   false,
+			},
 		},
 		{
-			name:           "include",
-			projType:       types.ProjectionTypeInclude,
-			nonKeyAttrs:    []string{"payload"},
-			wantHasPayload: true,
-			wantHasExtra:   false,
+			name: "include",
+			args: scanArgs{
+				projType:    types.ProjectionTypeInclude,
+				nonKeyAttrs: []string{"payload"},
+			},
+			want: scanWant{
+				wantHasPayload: true,
+				wantHasExtra:   false,
+			},
 		},
 		{
-			name:           "all",
-			projType:       types.ProjectionTypeAll,
-			wantHasPayload: true,
-			wantHasExtra:   true,
+			name: "all",
+			args: scanArgs{
+				projType: types.ProjectionTypeAll,
+			},
+			want: scanWant{
+				wantHasPayload: true,
+				wantHasExtra:   true,
+			},
 		},
 	}
 
@@ -795,8 +815,8 @@ func TestScan_GSI_Projection_Masking(t *testing.T) {
 							{AttributeName: aws.String("gsi_pk"), KeyType: types.KeyTypeHash},
 						},
 						Projection: &types.Projection{
-							ProjectionType:   tt.projType,
-							NonKeyAttributes: tt.nonKeyAttrs,
+							ProjectionType:   tt.args.projType,
+							NonKeyAttributes: tt.args.nonKeyAttrs,
 						},
 					},
 				},
@@ -830,8 +850,8 @@ func TestScan_GSI_Projection_Masking(t *testing.T) {
 
 			assert.True(t, hasPK, "pk must always be projected")
 			assert.True(t, hasGSIPK, "gsi_pk must always be projected")
-			assert.Equal(t, tt.wantHasPayload, hasPayload, "payload presence mismatch")
-			assert.Equal(t, tt.wantHasExtra, hasExtra, "extra presence mismatch")
+			assert.Equal(t, tt.want.wantHasPayload, hasPayload, "payload presence mismatch")
+			assert.Equal(t, tt.want.wantHasExtra, hasExtra, "extra presence mismatch")
 		})
 	}
 }
