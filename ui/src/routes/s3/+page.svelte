@@ -2337,44 +2337,53 @@ class="block w-full p-2 ps-10 text-sm text-slate-900 border border-slate-300 rou
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 {#each pagedBuckets as bucket}
 {@const crossRegion = isCrossRegion(bucket.BucketRegion)}
-<div id="bucket-{bucket.Name}" class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
-<div class="flex justify-between items-start">
-<button onclick={() => openBucket(bucket.Name ?? '')} class="flex-1 text-left">
-<h3 class="text-base font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-{bucket.Name}
-</h3>
-<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
-Created: {formatDate(bucket.CreationDate)}
-</p>
-<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-  Size: {formatSize(bucketSizes.get(bucket.Name ?? '') ?? 0)}
-</p>
-<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
-  Region:
-  {#if bucket.BucketRegion}
-    <RegionChip region={bucket.BucketRegion} />
-  {:else}
-    unknown
-  {/if}
-  {#if crossRegion}
-    <span
-      class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
-      title={`This bucket lives in ${bucket.BucketRegion}, not the currently selected ${currentRegion()}. The bucket list is account-wide, but the region selector governs which region operations on this bucket are signed for.`}
-    >
-      different region
-    </span>
-  {/if}
-</p>
-</button>
-<button
-type="button"
-onclick={() => deleteBucket(bucket.Name ?? '')}
-class="text-xs text-slate-500 hover:text-red-500 dark:hover:text-red-400 p-1"
-title="Delete bucket"
->
-Delete
-</button>
-</div>
+<div id="bucket-{bucket.Name}" class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow flex flex-col justify-between">
+	<div>
+		<div class="flex justify-between items-start gap-2">
+			<h3 class="text-base font-semibold text-slate-900 dark:text-white break-all">
+				{bucket.Name}
+			</h3>
+		</div>
+		<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+			Created: {formatDate(bucket.CreationDate)}
+		</p>
+		<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+			Size: {formatSize(bucketSizes.get(bucket.Name ?? '') ?? 0)}
+		</p>
+		<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
+			Region:
+			{#if bucket.BucketRegion}
+				<RegionChip region={bucket.BucketRegion} />
+			{:else}
+				unknown
+			{/if}
+			{#if crossRegion}
+				<span
+					class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+					title={`This bucket lives in ${bucket.BucketRegion}, not the currently selected ${currentRegion()}. The bucket list is account-wide, but the region selector governs which region operations on this bucket are signed for.`}
+				>
+					different region
+				</span>
+			{/if}
+		</p>
+	</div>
+	<div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-end gap-2">
+		<button
+			type="button"
+			onclick={() => openBucket(bucket.Name ?? '')}
+			class="px-3 py-1.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800/60 rounded-lg transition-colors flex items-center gap-1"
+		>
+			View
+		</button>
+		<button
+			type="button"
+			onclick={() => deleteBucket(bucket.Name ?? '')}
+			class="px-3 py-1.5 text-xs font-medium bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800/60 rounded-lg transition-colors flex items-center gap-1"
+			title="Delete bucket"
+		>
+			Delete
+		</button>
+	</div>
 </div>
 {/each}
 </div>

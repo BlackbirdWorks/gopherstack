@@ -181,7 +181,7 @@ describe("S3 Page", () => {
       { timeout: 3000 },
     );
 
-    const bucketBtn = screen.getByText("my-files");
+    const bucketBtn = screen.getByRole("button", { name: "View" });
     await fireEvent.click(bucketBtn);
 
     await waitFor(() => {
@@ -240,7 +240,7 @@ describe("S3 Page", () => {
     await waitFor(() => {
       expect(screen.getByText("broken-bucket")).toBeInTheDocument();
     });
-    await fireEvent.click(screen.getByText("broken-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
 
     await waitFor(() => {
       expect(screen.getByText("Failed to load objects")).toBeInTheDocument();
@@ -380,7 +380,7 @@ describe("S3 Page", () => {
     render(S3Page);
 
     await waitFor(() => expect(screen.getByText("paged-bucket")).toBeInTheDocument());
-    await fireEvent.click(screen.getByText("paged-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
 
     await waitFor(() => {
       expect(screen.getByText("b.txt")).toBeInTheDocument();
@@ -402,7 +402,7 @@ describe("S3 Page", () => {
     render(S3Page);
 
     await waitFor(() => expect(screen.getByText("upload-bucket")).toBeInTheDocument());
-    await fireEvent.click(screen.getByText("upload-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
     // Sync on the mocked fetch having resolved, not on empty-state text --
     // that text also renders before the mount fetch resolves and races it.
     await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
@@ -449,7 +449,7 @@ describe("S3 Page", () => {
 
     render(S3Page);
     await waitFor(() => expect(screen.getByText("rt-bucket")).toBeInTheDocument());
-    await fireEvent.click(screen.getByText("rt-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
     await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
 
     // Upload
@@ -512,7 +512,7 @@ describe("S3 Page", () => {
 
     render(S3Page);
     await waitFor(() => expect(screen.getByText("copy-bucket")).toBeInTheDocument());
-    await fireEvent.click(screen.getByText("copy-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
     await waitFor(() => expect(screen.getByText("my file.txt")).toBeInTheDocument());
 
     await fireEvent.click(screen.getByText("Copy"));
@@ -546,7 +546,7 @@ describe("S3 Page", () => {
 
     render(S3Page);
     await waitFor(() => expect(screen.getByText("rename-bucket")).toBeInTheDocument());
-    await fireEvent.click(screen.getByText("rename-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
     await waitFor(() => expect(screen.getByText("a+b.txt")).toBeInTheDocument());
 
     await fireEvent.click(screen.getByText("Rename"));
@@ -584,7 +584,7 @@ describe("S3 Page", () => {
 
     render(S3Page);
     await waitFor(() => expect(screen.getByText("vers-bucket")).toBeInTheDocument());
-    await fireEvent.click(screen.getByText("vers-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
     await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
 
     // GetBucketVersioning
@@ -644,7 +644,7 @@ describe("S3 Page", () => {
 
     render(S3Page);
     await waitFor(() => expect(screen.getByText("stale-region-bucket")).toBeInTheDocument());
-    await fireEvent.click(screen.getByText("stale-region-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
     await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
 
     // First Properties load: everything succeeds, region is a real, non-default value.
@@ -711,7 +711,7 @@ describe("S3 Page", () => {
 
     render(S3Page);
     await waitFor(() => expect(screen.getByText("tag-bucket")).toBeInTheDocument());
-    await fireEvent.click(screen.getByText("tag-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
     await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
 
     // GetBucketTagging
@@ -760,7 +760,7 @@ describe("S3 Page", () => {
 
     render(S3Page);
     await waitFor(() => expect(screen.getByText("render-bucket")).toBeInTheDocument());
-    await fireEvent.click(screen.getByText("render-bucket"));
+    await fireEvent.click(screen.getByRole("button", { name: "View" }));
 
     await waitFor(() => expect(screen.getByText("archive.zip")).toBeInTheDocument());
 
