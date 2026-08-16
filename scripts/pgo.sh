@@ -82,7 +82,7 @@ else
 fi
 
 log "starting server (GOPHERSTACK_PPROF_ADDR=${PGO_PPROF_ADDR}, port ${PGO_SERVER_PORT})..."
-GOPHERSTACK_PPROF_ADDR="${PGO_PPROF_ADDR}" "./${BIN_SERVER}" &
+GOPHERSTACK_PPROF_ADDR="${PGO_PPROF_ADDR}" PORT="${PGO_SERVER_PORT}" "./${BIN_SERVER}" &
 SERVER_PID=$!
 
 log "waiting for http://localhost:${PGO_SERVER_PORT} to accept connections..."
