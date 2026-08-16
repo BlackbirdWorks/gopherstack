@@ -1613,7 +1613,6 @@
 	>
 		{#snippet actions()}
 			{#if activeTab === 'clusters'}
-				<WriteRegionHint />
 				<button
 					onclick={openCreateClusterModal}
 					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 text-sm"
@@ -1989,6 +1988,9 @@
 <!-- ==================== Clusters modals ==================== -->
 
 <Modal bind:this={createClusterModal} title="Create Cluster">
+	{#snippet headerAction()}
+		<WriteRegionHint />
+	{/snippet}
 	{#snippet children()}
 		<div class="space-y-3">
 			<div>

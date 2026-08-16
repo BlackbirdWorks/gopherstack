@@ -460,7 +460,6 @@
 			<button onclick={seedDemo} class="px-4 py-2 bg-purple-600/80 hover:bg-purple-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all flex items-center gap-1.5">
 				<Zap class="w-3.5 h-3.5" /> Demo Data
 			</button>
-			<WriteRegionHint />
 			<button onclick={() => showCreateModal = true} class="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all flex items-center gap-1.5">
 				<Plus class="w-4 h-4" /> New Workflow
 			</button>
@@ -754,10 +753,12 @@
 	{:else if pageTab === 'activities'}
 	<div class="space-y-4">
 		<div class="p-5 bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl">
-			<h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 italic flex items-center gap-2"><Cpu class="w-4 h-4" /> Create Activity</h3>
+			<div class="flex items-center justify-between mb-4">
+				<h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic flex items-center gap-2"><Cpu class="w-4 h-4" /> Create Activity</h3>
+				<WriteRegionHint />
+			</div>
 			<div class="flex gap-3 items-center">
 				<input type="text" bind:value={newActivityName} placeholder="my-worker-activity" class="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm" />
-				<WriteRegionHint />
 				<button onclick={createActivity} disabled={creatingActivity || !newActivityName.trim()} class="px-4 py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl font-black uppercase text-[10px] tracking-widest disabled:opacity-50">{creatingActivity ? 'Creating...' : 'Create'}</button>
 			</div>
 		</div>
@@ -908,7 +909,10 @@
 	<div role="none" onclick={() => showCreateModal = false} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
 	<div class="relative w-full max-w-2xl bg-white dark:bg-slate-800 rounded-3xl shadow-2xl border border-pink-500/20">
 		<div class="p-6">
-			<h3 class="text-xl font-black text-slate-900 dark:text-white mb-5 uppercase italic">Create State Machine</h3>
+			<div class="flex items-center justify-between mb-5">
+				<h3 class="text-xl font-black text-slate-900 dark:text-white uppercase italic">Create State Machine</h3>
+				<WriteRegionHint />
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); createSM(); }} class="space-y-4">
 				<div class="grid grid-cols-2 gap-4">
 					<div>

@@ -662,7 +662,6 @@ onRegionChange(() => {
 </div>
 </div>
 <div class="flex items-center gap-2">
-<WriteRegionHint />
 <button
 onclick={() => loadTopics()}
 class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -1200,7 +1199,10 @@ class="mt-2 text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-500 fon
 {#if showCreateModal}
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
-<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Topic</h2>
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Topic</h2>
+<WriteRegionHint />
+</div>
 <form onsubmit={(e) => { e.preventDefault(); createTopic(); }} class="space-y-4">
 <div>
 <label for="sns-topic-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Topic Name</label>

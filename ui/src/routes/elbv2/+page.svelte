@@ -985,7 +985,6 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
-			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -1114,7 +1113,6 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
-			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateTGModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -1525,7 +1523,6 @@
 	{#if activeTab === 'truststores'}
 		<div class="flex items-center justify-between gap-4">
 			<div class="flex-1"></div>
-			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateTSModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -1709,7 +1706,10 @@
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
-			<h2 class="text-lg font-semibold mb-4">Create Load Balancer</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Create Load Balancer</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-3">
 				<div>
 					<label for="lb-name" class="block text-sm font-medium mb-1">Name *</label>
@@ -1941,7 +1941,10 @@
 {#if showCreateTGModal}
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 <div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
-<h2 class="text-lg font-semibold mb-4">Create Target Group</h2>
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-lg font-semibold">Create Target Group</h2>
+<WriteRegionHint />
+</div>
 <div class="space-y-3">
 <div>
 <label for="tg-name" class="block text-sm font-medium mb-1">Name *</label>
@@ -2035,7 +2038,10 @@
 {#if showCreateTSModal}
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 <div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
-<h2 class="text-lg font-semibold mb-4">Create Trust Store</h2>
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-lg font-semibold">Create Trust Store</h2>
+<WriteRegionHint />
+</div>
 <div class="space-y-3">
 <div>
 <label for="ts-name" class="block text-sm font-medium mb-1">Name *</label>

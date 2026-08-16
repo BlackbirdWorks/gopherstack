@@ -621,7 +621,6 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
-			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateApiModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -860,7 +859,6 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
-			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateKeyModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -958,7 +956,6 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
-			<WriteRegionHint />
 			<button
 				onclick={() => (showCreatePlanModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -1055,7 +1052,6 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
-			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateDomainModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -1186,7 +1182,10 @@
 {#if showCreateApiModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
-			<h2 class="text-lg font-semibold mb-4">Create REST API</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Create REST API</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-3">
 				<div>
 					<label for="api-name" class="block text-sm font-medium mb-1">API Name *</label>
@@ -1251,7 +1250,10 @@
 {#if showCreateKeyModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 		<div class="w-full max-w-sm rounded-lg bg-background p-6 shadow-xl">
-			<h2 class="text-lg font-semibold mb-4">Create API Key</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Create API Key</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-3">
 				<div>
 					<label for="key-name" class="block text-sm font-medium mb-1">Key Name *</label>
@@ -1283,7 +1285,10 @@
 {#if showCreatePlanModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 		<div class="w-full max-w-sm rounded-lg bg-background p-6 shadow-xl">
-			<h2 class="text-lg font-semibold mb-4">Create Usage Plan</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Create Usage Plan</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-3">
 				<div>
 					<label for="plan-name" class="block text-sm font-medium mb-1">Plan Name *</label>
@@ -1341,7 +1346,10 @@
 {#if showCreateDomainModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 		<div class="w-full max-w-sm rounded-lg bg-background p-6 shadow-xl">
-			<h2 class="text-lg font-semibold mb-4">Create Custom Domain</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Create Custom Domain</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-3">
 				<div>
 					<label for="domain-name" class="block text-sm font-medium mb-1">Domain Name *</label>

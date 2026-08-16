@@ -277,7 +277,6 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-3">
-			<WriteRegionHint />
 			<button
 				onclick={loadProjects}
 				class="p-2.5 rounded-xl bg-white/50 dark:bg-slate-700/50 hover:bg-white dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 transition-all active:scale-95 shadow-sm"
@@ -651,7 +650,10 @@
 		<div role="none" onclick={() => showCreateModal = false} onkeydown={(e) => e.key === 'Escape' && (showCreateModal = false)} class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
 		<div class="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl border border-blue-500/20 overflow-hidden animate-in zoom-in-95">
 			<div class="p-8">
-				<h3 class="text-2xl font-black text-slate-900 dark:text-white mb-6 uppercase tracking-tighter italic leading-none">Assemble Build Blueprint</h3>
+				<div class="flex items-center justify-between mb-6">
+					<h3 class="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter italic leading-none">Assemble Build Blueprint</h3>
+					<WriteRegionHint />
+				</div>
 				
 				<form onsubmit={(e) => { e.preventDefault(); createProject(); }} class="space-y-6">
 					<div>

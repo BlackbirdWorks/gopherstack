@@ -620,7 +620,6 @@
 					<Server class="w-4 h-4" /> StackSets
 				</button>
 			</div>
-			<WriteRegionHint />
 			{#if mainView === 'stacks'}
 				<button onclick={loadStacks} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
 					<RefreshCw class="w-4 h-4" /> Refresh
@@ -1050,7 +1049,10 @@
 {#if showCreateStack}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Stack</h2>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Stack</h2>
+				<WriteRegionHint />
+			</div>
 			<div>
 				<label for="stack-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Stack Name</label>
 				<input id="stack-name" bind:value={newStackName} type="text" placeholder="my-stack" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
@@ -1130,9 +1132,12 @@
 {#if showCreateStackSet}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-				<Server class="w-5 h-5 text-orange-500" /> Create StackSet
-			</h2>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+					<Server class="w-5 h-5 text-orange-500" /> Create StackSet
+				</h2>
+				<WriteRegionHint />
+			</div>
 			<div>
 				<label for="stackset-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">StackSet Name</label>
 				<input id="stackset-name" bind:value={newStackSetName} type="text" placeholder="my-stackset" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />

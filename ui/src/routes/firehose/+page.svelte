@@ -411,7 +411,6 @@
 			<button onclick={loadStreams} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
 				<RefreshCw class="w-4 h-4" /> Refresh
 			</button>
-			<WriteRegionHint />
 			<button onclick={() => (showCreateStream = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium">
 				<Plus class="w-4 h-4" /> Create Stream
 			</button>
@@ -953,7 +952,10 @@
 {#if showCreateStream}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Delivery Stream</h2>
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Delivery Stream</h2>
+				<WriteRegionHint />
+			</div>
 			<div>
 				<label for="stream-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Stream Name</label>
 				<input id="stream-name" bind:value={newStreamName} type="text" placeholder="my-delivery-stream" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />

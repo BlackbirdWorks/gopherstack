@@ -577,7 +577,6 @@ onRegionChange(() => {
 			<button onclick={() => loadStreams()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 			</button>
-			<WriteRegionHint />
 			<button onclick={() => { showCreateModal = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" />Create Stream
 			</button>
@@ -975,8 +974,9 @@ onRegionChange(() => {
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-slate-700">
-			<div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+			<div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
 				<h3 class="text-lg font-bold text-slate-900 dark:text-white">Create Data Stream</h3>
+				<WriteRegionHint />
 			</div>
 			<div class="p-6 space-y-4">
 				<div class="space-y-1">

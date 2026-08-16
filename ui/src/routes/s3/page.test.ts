@@ -839,11 +839,15 @@ describe("S3 Page", () => {
       expect(mockSend).toHaveBeenCalledTimes(3);
     });
 
-    it("shows the write-region hint beside Create Bucket only when All is selected", async () => {
+    it("shows the write-region hint in Create Bucket modal only when All is selected", async () => {
       setStoredRegion(ALL_REGIONS);
       mockSend.mockResolvedValueOnce({ Buckets: [] });
 
       render(S3Page);
+
+      await waitFor(() => expect(screen.getByText("S3 Buckets")).toBeInTheDocument());
+      const createBtn = screen.getByText("+ Create Bucket");
+      await fireEvent.click(createBtn);
 
       await waitFor(() => expect(screen.getByTestId("write-region-hint")).toBeInTheDocument());
     });

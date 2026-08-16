@@ -417,15 +417,12 @@
 				<Send class="w-4 h-4" />Put Events
 			</button>
 			{#if activeTab === 'buses'}
-				<WriteRegionHint />
 				<button onclick={() => { showCreateBusModal = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"><Plus class="w-4 h-4" />Create Bus</button>
 			{:else if activeTab === 'rules' && selectedBus}
 				<button onclick={() => { showCreateRuleModal = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"><Plus class="w-4 h-4" />Create Rule</button>
 			{:else if activeTab === 'archives'}
-				<WriteRegionHint />
 				<button onclick={() => { showCreateArchiveModal = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"><Plus class="w-4 h-4" />Create Archive</button>
 			{:else if activeTab === 'connections'}
-				<WriteRegionHint />
 				<button onclick={() => { showCreateConnectionModal = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"><Plus class="w-4 h-4" />Create Connection</button>
 			{/if}
 		</div>
@@ -664,7 +661,10 @@
 {#if showCreateBusModal}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Event Bus</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Event Bus</h2>
+				<WriteRegionHint />
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); createBus(); }} class="space-y-4">
 				<div>
 					<label for="eb-bus-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Bus Name</label>
@@ -715,7 +715,10 @@
 {#if showCreateArchiveModal}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Archive</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Archive</h2>
+				<WriteRegionHint />
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); createArchive(); }} class="space-y-4">
 				<div><label for="eb-archive-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Archive Name <span class="text-slate-400">(max 48 chars)</span></label><input id="eb-archive-name" type="text" bind:value={newArchiveName} maxlength={48} placeholder="e.g. my-event-archive" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required /></div>
 				<div><label for="eb-archive-source" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Event Source ARN</label><input id="eb-archive-source" type="text" bind:value={newArchiveSource} placeholder="arn:aws:events:us-east-1:123456789012:event-bus/default" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm" required /></div>
@@ -733,7 +736,10 @@
 {#if showCreateConnectionModal}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Connection</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Connection</h2>
+				<WriteRegionHint />
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); createConnection(); }} class="space-y-4">
 				<div><label for="eb-conn-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Connection Name</label><input id="eb-conn-name" type="text" bind:value={newConnectionName} placeholder="e.g. my-webhook-auth" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" required /></div>
 				<div>

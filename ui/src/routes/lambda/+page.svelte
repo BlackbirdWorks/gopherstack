@@ -489,7 +489,6 @@
 			>
 				<RefreshCw class="w-5 h-5 text-slate-600 dark:text-slate-300 {loading ? 'animate-spin' : ''}" />
 			</button>
-			<WriteRegionHint />
 			<button
 				onclick={() => showCreateModal = true}
 				class="flex items-center gap-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-medium shadow-lg shadow-orange-600/20 transition-all active:scale-95"
@@ -1070,7 +1069,10 @@
 		<div class="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-white/20 dark:border-slate-700 overflow-hidden">
 			<div class="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700/50">
 				<div>
-					<h3 class="text-xl font-bold text-slate-900 dark:text-white">Create Function</h3>
+					<div class="flex items-center gap-2">
+						<h3 class="text-xl font-bold text-slate-900 dark:text-white">Create Function</h3>
+						<WriteRegionHint />
+					</div>
 					<p class="text-xs text-slate-500">Configure a new Lambda function.</p>
 				</div>
 				<button onclick={() => showCreateModal = false} class="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">

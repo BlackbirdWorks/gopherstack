@@ -494,9 +494,6 @@ else if (activeTab === 'metrics') loadMetrics();
 }} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
 <RefreshCw class="w-4 h-4" /> Refresh
 </button>
-{#if activeTab === 'queues' || activeTab === 'compute-environments' || activeTab === 'jobs'}
-<WriteRegionHint />
-{/if}
 {#if activeTab === 'queues'}
 <button onclick={() => (showCreateQueue = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 text-sm font-medium">
 <Plus class="w-4 h-4" /> Create Queue
@@ -954,7 +951,10 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 {#if showCreateQueue}
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
 <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+<div class="flex items-center justify-between">
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Job Queue</h2>
+<WriteRegionHint />
+</div>
 <div>
 <label for="queue-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Queue Name</label>
 <input id="queue-name" bind:value={newQueueName} type="text" placeholder="my-batch-queue" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
@@ -981,7 +981,10 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 {#if showCreateCE}
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
 <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+<div class="flex items-center justify-between">
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Compute Environment</h2>
+<WriteRegionHint />
+</div>
 <div>
 <label for="ce-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
 <input id="ce-name" bind:value={newCEName} type="text" placeholder="my-compute-env" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
@@ -1068,7 +1071,10 @@ Fetch Logs
 {#if showSubmitJob}
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
 <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+<div class="flex items-center justify-between">
 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Submit Job</h2>
+<WriteRegionHint />
+</div>
 <div>
 <label for="job-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Job Name</label>
 <input id="job-name" bind:value={submitJobName} type="text" placeholder="my-batch-job" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />

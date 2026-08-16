@@ -228,7 +228,6 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
-			<WriteRegionHint />
 			<button
 				onclick={() => { showCreateModal = true; }}
 				class="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium"
@@ -527,7 +526,10 @@
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
-			<h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Create File System</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create File System</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-4">
 				<div>
 					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="new-creation-token">Creation Token <span class="text-red-500">*</span></label>

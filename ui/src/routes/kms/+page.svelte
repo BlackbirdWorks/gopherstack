@@ -927,7 +927,6 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 			<button id="create-key-btn" onclick={() => showCreateModal = true} class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" /> Create Key
 			</button>
-			<WriteRegionHint />
 		</div>
 	</div>
 
@@ -1457,7 +1456,10 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 {#if showCreateModal}
 	<div role="dialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create KMS Key</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create KMS Key</h2>
+				<WriteRegionHint />
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); createKey(); }} class="space-y-4">
 				<div>
 					<label for="new-key-description" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>

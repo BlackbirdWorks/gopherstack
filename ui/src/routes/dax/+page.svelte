@@ -98,18 +98,25 @@
 
 	onRegionChange(loadData);
 
+	let showCreateClusterModal = $state(false);
+	let newClusterName = $state('');
+	let showCreateParamGroupModal = $state(false);
+	let newParamGroupName = $state('');
+	let showCreateSubnetGroupModal = $state(false);
+	let newSubnetGroupName = $state('');
+
 	async function createCluster() {
-		// eslint-disable-next-line no-alert
-		const name = prompt("Cluster Name:");
-		if (!name) return;
+		if (!newClusterName.trim()) return;
 		try {
 			await client().send(new CreateClusterCommand({
-				ClusterName: name,
+				ClusterName: newClusterName.trim(),
 				NodeType: "dax.r4.large",
 				ReplicationFactor: 1,
 				IamRoleArn: "arn:aws:iam::000000000000:role/dax-role"
 			}));
 			toast.success("Cluster created");
+			showCreateClusterModal = false;
+			newClusterName = '';
 			loadData();
 		} catch (e) {
 			toast.error(String(e));
@@ -163,12 +170,12 @@
 	}
 
 	async function createParamGroup() {
-		// eslint-disable-next-line no-alert
-		const name = prompt("Parameter Group Name:");
-		if (!name) return;
+		if (!newParamGroupName.trim()) return;
 		try {
-			await client().send(new CreateParameterGroupCommand({ ParameterGroupName: name }));
+			await client().send(new CreateParameterGroupCommand({ ParameterGroupName: newParamGroupName.trim() }));
 			toast.success("Parameter Group created");
+			showCreateParamGroupModal = false;
+			newParamGroupName = '';
 			loadData();
 		} catch (e) {
 			toast.error(String(e));
@@ -204,12 +211,12 @@
 	}
 
 	async function createSubnetGroup() {
-		// eslint-disable-next-line no-alert
-		const name = prompt("Subnet Group Name:");
-		if (!name) return;
+		if (!newSubnetGroupName.trim()) return;
 		try {
-			await client().send(new CreateSubnetGroupCommand({ SubnetGroupName: name, SubnetIds: ["subnet-12345"] }));
+			await client().send(new CreateSubnetGroupCommand({ SubnetGroupName: newSubnetGroupName.trim(), SubnetIds: ["subnet-12345"] }));
 			toast.success("Subnet Group created");
+			showCreateSubnetGroupModal = false;
+			newSubnetGroupName = '';
 			loadData();
 		} catch (e) {
 			toast.error(String(e));
@@ -253,14 +260,11 @@
 				<RefreshCw class="w-4 h-4" /> Refresh
 			</button>
 			{#if activeTab === 'clusters'}
-				<WriteRegionHint />
-				<button onclick={createCluster} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"><Plus class="w-4 h-4"/> Create cluster</button>
+				<button onclick={() => { newClusterName = ''; showCreateClusterModal = true; }} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"><Plus class="w-4 h-4"/> Create cluster</button>
 			{:else if activeTab === 'paramgroups'}
-				<WriteRegionHint />
-				<button onclick={createParamGroup} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"><Plus class="w-4 h-4"/> Create param group</button>
+				<button onclick={() => { newParamGroupName = ''; showCreateParamGroupModal = true; }} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"><Plus class="w-4 h-4"/> Create param group</button>
 			{:else if activeTab === 'subnetgroups'}
-				<WriteRegionHint />
-				<button onclick={createSubnetGroup} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"><Plus class="w-4 h-4"/> Create subnet group</button>
+				<button onclick={() => { newSubnetGroupName = ''; showCreateSubnetGroupModal = true; }} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"><Plus class="w-4 h-4"/> Create subnet group</button>
 			{/if}
 		</div>
 	</div>
@@ -367,3 +371,61 @@
 		</div>
 	</div>
 </div>
+
+{#if showCreateClusterModal}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create DAX Cluster</h2>
+				<WriteRegionHint />
+			</div>
+			<div>
+				<label for="dax-cluster-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cluster Name</label>
+				<input id="dax-cluster-name" bind:value={newClusterName} type="text" placeholder="my-dax-cluster" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showCreateClusterModal = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={createCluster} disabled={!newClusterName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">Create</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showCreateParamGroupModal}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Parameter Group</h2>
+				<WriteRegionHint />
+			</div>
+			<div>
+				<label for="dax-pg-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parameter Group Name</label>
+				<input id="dax-pg-name" bind:value={newParamGroupName} type="text" placeholder="my-param-group" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showCreateParamGroupModal = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={createParamGroup} disabled={!newParamGroupName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">Create</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showCreateSubnetGroupModal}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Subnet Group</h2>
+				<WriteRegionHint />
+			</div>
+			<div>
+				<label for="dax-sg-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Subnet Group Name</label>
+				<input id="dax-sg-name" bind:value={newSubnetGroupName} type="text" placeholder="my-subnet-group" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+			</div>
+			<div class="flex gap-3 pt-2">
+				<button onclick={() => (showCreateSubnetGroupModal = false)} class="flex-1 px-4 py-2 rounded-lg border text-sm hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+				<button onclick={createSubnetGroup} disabled={!newSubnetGroupName.trim()} class="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">Create</button>
+			</div>
+		</div>
+	</div>
+{/if}
+

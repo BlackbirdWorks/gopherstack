@@ -284,7 +284,6 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
-			<WriteRegionHint />
 			<button
 				onclick={() => (activeTab === 'plans' ? loadPlans() : activeTab === 'vaults' ? loadVaults() : loadJobs())}
 				class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
@@ -611,7 +610,10 @@
 {#if showCreateModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
 		<div class="w-full max-w-md rounded-lg bg-background p-6 shadow-xl">
-			<h2 class="text-lg font-semibold mb-4">Create Backup Plan</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-lg font-semibold">Create Backup Plan</h2>
+				<WriteRegionHint />
+			</div>
 			<div class="space-y-3">
 				<div>
 					<label for="plan-name" class="block text-sm font-medium mb-1">Plan Name *</label>

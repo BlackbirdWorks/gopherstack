@@ -730,12 +730,10 @@
 				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 			</button>
 			{#if activeTab === 'alarms'}
-				<WriteRegionHint />
 				<button onclick={() => { showCreateAlarm = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 					<Plus class="w-4 h-4" />Create Alarm
 				</button>
 			{:else if activeTab === 'dashboards'}
-				<WriteRegionHint />
 				<button onclick={() => { showCreateDashboard = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 					<Plus class="w-4 h-4" />Create Dashboard
 				</button>
@@ -942,7 +940,6 @@
 		{/if}
 	{:else if activeTab === 'streams'}
 		<div class="flex justify-end mb-3 items-center gap-3">
-			<WriteRegionHint />
 			<button onclick={() => { showCreateStream = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm">
 				<Plus class="w-4 h-4" />Create Stream
 			</button>
@@ -978,7 +975,6 @@
 		{/if}
 	{:else if activeTab === 'anomaly'}
 		<div class="flex justify-end mb-3 items-center gap-3">
-			<WriteRegionHint />
 			<button onclick={() => { showCreateAnomaly = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm">
 				<Plus class="w-4 h-4" />Create Detector
 			</button>
@@ -1051,7 +1047,10 @@
 {#if showCreateAlarm}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg overflow-y-auto max-h-screen">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Metric Alarm</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Metric Alarm</h2>
+				<WriteRegionHint />
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); createAlarm(); }} class="space-y-4">
 				<div>
 					<label for="cw-alarm-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Alarm Name</label>
@@ -1166,7 +1165,10 @@
 {#if showCreateDashboard}
 	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
-			<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Dashboard</h2>
+			<div class="flex items-center justify-between mb-4">
+				<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Dashboard</h2>
+				<WriteRegionHint />
+			</div>
 			<form onsubmit={(e) => { e.preventDefault(); createDashboard(); }} class="space-y-4">
 				<div>
 					<label for="cw-dashboard-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Dashboard Name</label>
@@ -1268,7 +1270,10 @@
 {#if showCreateStream}
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
-<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Metric Stream</h2>
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Metric Stream</h2>
+<WriteRegionHint />
+</div>
 <form onsubmit={(e) => { e.preventDefault(); createStream(); }} class="space-y-4">
 <div>
 <label for="cw-stream-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Stream Name</label>
@@ -1301,7 +1306,10 @@
 {#if showCreateAnomaly}
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md">
-<h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Create Anomaly Detector</h2>
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-xl font-bold text-slate-900 dark:text-white">Create Anomaly Detector</h2>
+<WriteRegionHint />
+</div>
 <form onsubmit={(e) => { e.preventDefault(); createAnomalyDetector(); }} class="space-y-4">
 <div>
 <label for="cw-anomaly-namespace" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Namespace</label>

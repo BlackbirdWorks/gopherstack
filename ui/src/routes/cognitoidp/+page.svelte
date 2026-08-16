@@ -1375,7 +1375,6 @@
 	>
 		{#snippet actions()}
 			{#if activeTab === 'pools'}
-				<WriteRegionHint />
 				<button
 					onclick={openCreatePoolModal}
 					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"
@@ -1636,6 +1635,9 @@
 <!-- ==================== User Pools modals ==================== -->
 
 <Modal bind:this={createPoolModal} title="Create User Pool">
+	{#snippet headerAction()}
+		<WriteRegionHint />
+	{/snippet}
 	{#snippet children()}
 		<div class="space-y-3">
 			<div>
