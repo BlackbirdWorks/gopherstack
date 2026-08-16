@@ -355,7 +355,7 @@ func TestE2E_S3_UploadFile(t *testing.T) {
 		Timeout: aws.Float64(5000),
 	})
 	require.NoError(t, err)
-	err = bucketCard.First().Click()
+	err = bucketCard.Locator("button:has-text('View')").First().Click()
 	require.NoError(t, err)
 
 	// Wait for detail view
@@ -529,7 +529,7 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 		Timeout: aws.Float64(5000),
 	})
 	require.NoError(t, err)
-	err = page.Locator("#bucket-nav-bucket").First().Click()
+	err = page.Locator("#bucket-nav-bucket button:has-text('View')").First().Click()
 	require.NoError(t, err)
 
 	// Verify file browser shows root contents
