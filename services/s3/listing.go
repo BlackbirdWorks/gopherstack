@@ -15,7 +15,7 @@ func applyDelimiter(
 	prefix, delimiter string,
 	contents []types.Object,
 ) ([]types.Object, []types.CommonPrefix) {
-	var filtered []types.Object
+	filtered := make([]types.Object, 0, len(contents))
 	var cpList []types.CommonPrefix
 	seenPrefixes := make(map[string]struct{})
 

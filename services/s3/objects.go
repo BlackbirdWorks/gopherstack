@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
@@ -999,10 +1000,13 @@ func (b *InMemoryBackend) computeObjectHashes(
 	body io.Reader,
 	algorithm types.ChecksumAlgorithm,
 ) (int64, []byte, string, hash.Hash, error) {
-	//nolint:gosec // MD5 required for S3 ETag
-	md5Hasher := md5.New()
-	var buf bytes.Buffer
-	writers := []io.Writer{md5Hasher, &buf}
+	md5Hasher := httputils.GetMD5()
+	defer httputils.PutMD5(md5Hasher)
+
+	buf := httputils.GetBuffer()
+	defer httputils.PutBuffer(buf)
+
+	writers := []io.Writer{md5Hasher, buf}
 
 	var s3Hasher hash.Hash
 	algo := string(algorithm)
@@ -1031,7 +1035,7 @@ func (b *InMemoryBackend) computeObjectHashes(
 		return 0, nil, "", nil, err
 	}
 
-	return n, buf.Bytes(), hex.EncodeToString(md5Hasher.Sum(nil)), s3Hasher, nil
+	return n, bytes.Clone(buf.Bytes()), hex.EncodeToString(md5Hasher.Sum(nil)), s3Hasher, nil
 }
 
 // validateContentMD5 validates the Content-MD5 header from context against the computed etag.
