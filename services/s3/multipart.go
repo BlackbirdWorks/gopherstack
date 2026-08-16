@@ -340,54 +340,52 @@ func (b *InMemoryBackend) collectPartsDataLocked(
 		}
 	}
 
-	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
+	data := make([]byte, totalSize)
+	offset := 0
 	md5s := make([]byte, 0, len(parts)*md5.Size)
 	partsMeta := make([]StoredObjectPart, 0, len(parts))
 
 	for i, part := range parts {
-		rawBytes, spMeta, err := b.validateAndAppendPart(upload, part, i == len(parts)-1, buf)
+		rawBytes, spMeta, partBytes, err := b.validateAndExtractPart(upload, part, i == len(parts)-1)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
+		copy(data[offset:], partBytes)
+		offset += len(partBytes)
 		md5s = append(md5s, rawBytes...)
 		partsMeta = append(partsMeta, spMeta)
 	}
 
-	return buf.Bytes(), md5s, partsMeta, nil
+	return data, md5s, partsMeta, nil
 }
 
-// validateAndAppendPart validates a single completed part against its stored
-// counterpart, writes its raw bytes into buf, and returns the raw MD5 bytes
-// decoded from its ETag. Extracted from collectPartsDataLocked to keep its
-// cognitive complexity down.
-func (b *InMemoryBackend) validateAndAppendPart(
+// validateAndExtractPart validates a single completed part against its stored
+// counterpart, and returns the raw MD5 bytes decoded from its ETag, metadata, and raw data bytes.
+func (b *InMemoryBackend) validateAndExtractPart(
 	upload *StoredMultipartUpload,
 	part types.CompletedPart,
 	isLastPart bool,
-	buf *bytes.Buffer,
-) ([]byte, StoredObjectPart, error) {
+) ([]byte, StoredObjectPart, []byte, error) {
 	pNum := *part.PartNumber
 	storedPart, ok := upload.Parts[pNum]
 	if !ok {
-		return nil, StoredObjectPart{}, ErrInvalidPart
+		return nil, StoredObjectPart{}, nil, ErrInvalidPart
 	}
 
 	if *part.ETag != storedPart.ETag {
-		return nil, StoredObjectPart{}, ErrInvalidPart
+		return nil, StoredObjectPart{}, nil, ErrInvalidPart
 	}
 
 	if !isLastPart && storedPart.Size < multipartMinPartSize && !b.skipMultipartSizeCheck {
-		return nil, StoredObjectPart{}, ErrEntityTooSmall
+		return nil, StoredObjectPart{}, nil, ErrEntityTooSmall
 	}
-
-	buf.Write(storedPart.Data)
 
 	rawETag := strings.Trim(storedPart.ETag, "\"")
 
 	rawBytes, err := hex.DecodeString(rawETag)
 	if err != nil {
-		return nil, StoredObjectPart{}, ErrInvalidPart
+		return nil, StoredObjectPart{}, nil, ErrInvalidPart
 	}
 
 	meta := StoredObjectPart{
@@ -400,7 +398,7 @@ func (b *InMemoryBackend) validateAndAppendPart(
 		ChecksumSHA256:    storedPart.ChecksumSHA256,
 	}
 
-	return rawBytes, meta, nil
+	return rawBytes, meta, storedPart.Data, nil
 }
 
 // assembleMultipartData reads all parts under the per-upload read lock, assembles

@@ -550,7 +550,7 @@ func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionI
 		b.tags = make(map[string][]types.Tag)
 	}
 
-	tagKey := fmt.Sprintf("%s/%s/%s", bucket, key, versionID)
+	tagKey := bucket + "/" + key + "/" + versionID
 	b.tags[tagKey] = tagList
 }
 

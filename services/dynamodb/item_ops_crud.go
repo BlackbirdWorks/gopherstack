@@ -55,8 +55,12 @@ func (db *InMemoryDB) PutItem(
 
 	// Convert SDK Item to Wire Item once; reused for validation and WCU calculation.
 	wireItem := models.FromSDKItem(input.Item)
+	itemSize, err := CalculateItemSize(wireItem)
+	if err != nil {
+		return nil, err
+	}
 
-	out, globalTableName, region, putErr := db.putItemLocked(ctx, tableName, table, input, wireItem)
+	out, globalTableName, region, putErr := db.putItemLocked(ctx, tableName, table, input, wireItem, itemSize)
 	if putErr != nil {
 		return nil, putErr
 	}
@@ -81,6 +85,7 @@ func (db *InMemoryDB) putItemLocked(
 	table *Table,
 	input *dynamodb.PutItemInput,
 	wireItem map[string]any,
+	itemSize int,
 ) (*dynamodb.PutItemOutput, string, string, error) {
 	table.mu.Lock("PutItem")
 	defer table.mu.Unlock()
@@ -88,11 +93,6 @@ func (db *InMemoryDB) putItemLocked(
 	// Validate item before charging capacity so that validation errors do not
 	// consume tokens (matches real DynamoDB behaviour).
 	if err := db.validateItem(wireItem, table); err != nil {
-		return nil, "", "", err
-	}
-
-	itemSize, err := CalculateItemSize(wireItem)
-	if err != nil {
 		return nil, "", "", err
 	}
 
