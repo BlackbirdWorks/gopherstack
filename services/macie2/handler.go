@@ -7,9 +7,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/labstack/echo/v5"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/labstack/echo/v5"
 )
 
 const (

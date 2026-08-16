@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/ce"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
 // TestGetAnomalyMonitors_HasCreationDateAndLastUpdatedDate verifies real AWS

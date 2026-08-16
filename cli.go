@@ -5580,6 +5580,11 @@ func (a *iamRoleLookupAdapter) GetRoleByArn(roleArn string) (*stsbackend.RoleMet
 	}, nil
 }
 
+// GetUserArnByAccessKeyID looks up the IAM user ARN by access key ID.
+func (a *iamRoleLookupAdapter) GetUserArnByAccessKeyID(accessKeyID string) (string, error) {
+	return a.backend.GetUserArnByAccessKeyID(accessKeyID)
+}
+
 // wireSecretsManagerLambda wires the Lambda invoker into the SecretsManager handler
 // so that RotateSecret with a RotationLambdaARN invokes the Lambda function.
 func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {

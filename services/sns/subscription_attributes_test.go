@@ -7,9 +7,10 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
 // TestIssue8_RedrivePolicyValidated verifies that a malformed ARN is rejected.

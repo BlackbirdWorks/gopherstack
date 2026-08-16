@@ -178,7 +178,10 @@ func (h *Handler) iamNewOpsAccountActions() map[string]iamActionFn {
 		},
 
 		"ChangePassword": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.ChangePassword(vals.Get("OldPassword"), vals.Get("NewPassword")); err != nil {
+			akid := vals.Get("AWSAccessKeyId")
+			oldPass := vals.Get("OldPassword")
+			newPass := vals.Get("NewPassword")
+			if err := h.Backend.ChangePasswordForCaller(akid, oldPass, newPass); err != nil {
 				return nil, err
 			}
 

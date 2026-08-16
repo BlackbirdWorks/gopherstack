@@ -6,9 +6,10 @@ import (
 	"time"
 
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
-	"github.com/blackbirdworks/gopherstack/services/acm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
 // TestACMBackend_AutoValidation verifies the DNS validation auto-transition.

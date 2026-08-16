@@ -8,9 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/opensearch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
 // TestBatch3_StartServiceSoftwareUpdate_ScheduleAt verifies that the handler

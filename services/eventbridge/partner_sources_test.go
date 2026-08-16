@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
 func TestPutPartnerEvents_RecordsResults(t *testing.T) {

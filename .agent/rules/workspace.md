@@ -13,5 +13,7 @@ trigger: always_on
  - All service operations must have a metric recorded 
  - All service operations must have extensive unit tests
  - All service operations must have integration tests using the go aws sdk v2
+ - Snapshot versioning: Bump snapshotVersion ONLY on incompatible structural breaks. Additive omitempty fields MUST NOT bump the version.
  - nolint and removeing rules are forbidden.
  -- the only exception to this rule is if no other fix is available.
+

@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
 func TestTarget_DeadLetterConfigStored(t *testing.T) {

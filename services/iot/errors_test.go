@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/iot"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
 // TestRefinement1_ErrValidationMapping verifies ErrValidation maps to HTTP 400.

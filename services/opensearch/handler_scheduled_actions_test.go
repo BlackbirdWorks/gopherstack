@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/opensearch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
 func TestScheduledActions_ListForDomain(t *testing.T) {

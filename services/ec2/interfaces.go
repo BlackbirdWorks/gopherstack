@@ -516,8 +516,8 @@ type Backend interface {
 
 	// ---- DHCP Options ----
 
-	// CreateDhcpOptions creates a new DHCP options set.
-	CreateDhcpOptions(configs []DhcpConfiguration) (*DhcpOptions, error)
+	// CreateDhcpOptions creates a new DHCP options set with optional tags.
+	CreateDhcpOptions(configs []DhcpConfiguration, tags map[string]string) (*DhcpOptions, error)
 
 	// DescribeDhcpOptions returns DHCP option sets, optionally filtered by IDs.
 	DescribeDhcpOptions(ids []string) []*DhcpOptions

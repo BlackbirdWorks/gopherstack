@@ -196,3 +196,21 @@ func (b *InMemoryBackend) RecordAccessKeyUsage(accessKeyID, region, serviceName 
 	ak.LastUsedServiceName = serviceName
 	b.accessKeys.Put(ak)
 }
+
+// GetUserArnByAccessKeyID returns the ARN of the IAM user that owns the given access key ID.
+func (b *InMemoryBackend) GetUserArnByAccessKeyID(accessKeyID string) (string, error) {
+	b.mu.RLock("GetUserArnByAccessKeyID")
+	defer b.mu.RUnlock()
+
+	ak, exists := b.accessKeys.Get(accessKeyID)
+	if !exists {
+		return "", ErrAccessKeyNotFound
+	}
+
+	u, exists := b.users.Get(ak.UserName)
+	if !exists {
+		return "", ErrUserNotFound
+	}
+
+	return u.Arn, nil
+}

@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
 func TestAPIDestination_CRUD(t *testing.T) {

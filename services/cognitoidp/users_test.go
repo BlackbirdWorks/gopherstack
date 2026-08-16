@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 func TestUserSRPAuth_TwoStepFlow(t *testing.T) {

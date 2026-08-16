@@ -7,10 +7,11 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // typeSchemaFor returns the primary identifier property name for a given CloudFormation resource type.

@@ -243,8 +243,8 @@ func (b *InMemoryBackend) DeleteFlowLogs(ids []string) error {
 
 // ---- DHCP Options ----
 
-// CreateDhcpOptions creates a new DHCP options set.
-func (b *InMemoryBackend) CreateDhcpOptions(configs []DhcpConfiguration) (*DhcpOptions, error) {
+// CreateDhcpOptions creates a new DHCP options set with optional tags.
+func (b *InMemoryBackend) CreateDhcpOptions(configs []DhcpConfiguration, tags map[string]string) (*DhcpOptions, error) {
 	b.mu.Lock("CreateDhcpOptions")
 	defer b.mu.Unlock()
 
@@ -254,6 +254,9 @@ func (b *InMemoryBackend) CreateDhcpOptions(configs []DhcpConfiguration) (*DhcpO
 		AssociatedVPCIDs: []string{},
 	}
 	b.dhcpOptionSets.Put(opts)
+	if len(tags) > 0 {
+		b.setTagsLocked(opts.DhcpOptionsID, tags)
+	}
 
 	cp := *opts
 

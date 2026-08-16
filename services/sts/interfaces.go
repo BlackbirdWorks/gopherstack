@@ -24,6 +24,8 @@ type StorageBackend interface {
 	// LookupSession returns the active SessionInfo for the given access key and optional
 	// session token, or nil if no matching non-expired session exists.
 	LookupSession(accessKeyID, sessionToken string) *SessionInfo
+	// LookupUserArn returns the IAM user ARN for the given access key ID if a UserLookup is configured.
+	LookupUserArn(accessKeyID string) (string, error)
 	// IssueEncodedAuthorizationMessage encodes a plaintext message in the STS-proprietary
 	// format that VerifyEncodedAuthorizationMessage can later authenticate.
 	IssueEncodedAuthorizationMessage(decodedMsg string) string

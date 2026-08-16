@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // fakePEM is a minimal fake PEM certificate returned by CreateCertificateFromCsr and RegisterCertificate.

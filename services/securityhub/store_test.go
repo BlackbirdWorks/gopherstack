@@ -3,9 +3,10 @@ package securityhub_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/securityhub"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
 func TestBackend_AccountIDAndRegion(t *testing.T) {

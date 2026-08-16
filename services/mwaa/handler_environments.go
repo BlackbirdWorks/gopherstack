@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/labstack/echo/v5"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
-	"github.com/labstack/echo/v5"
 )
 
 func (h *Handler) handleCreateEnvironment(c *echo.Context, name string) error {

@@ -11,11 +11,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v5"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v5"
 )
 
 // validateQualifier validates a function qualifier. A valid qualifier is either

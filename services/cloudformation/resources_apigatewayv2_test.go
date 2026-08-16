@@ -3,10 +3,11 @@ package cloudformation_test
 import (
 	"testing"
 
-	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
-	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 // TestResourceCreator_Extra_APIGatewayV2Children verifies Integration, Route, and Authorizer are

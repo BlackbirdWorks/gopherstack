@@ -9,6 +9,36 @@ beforeEach(() => {
   resetMockPage();
 });
 
+if (
+  typeof window !== "undefined" &&
+  (!window.localStorage || typeof window.localStorage.clear !== "function")
+) {
+  let store: Record<string, string> = {};
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      getItem(key: string) {
+        return store[key] ?? null;
+      },
+      setItem(key: string, value: string) {
+        store[key] = String(value);
+      },
+      removeItem(key: string) {
+        delete store[key];
+      },
+      clear() {
+        store = {};
+      },
+      get length() {
+        return Object.keys(store).length;
+      },
+      key(i: number) {
+        return Object.keys(store)[i] ?? null;
+      },
+    },
+    writable: true,
+  });
+}
+
 // jsdom does not implement the HTMLDialogElement modal API.  Define minimal
 // stubs so components that call showModal() / close() work in tests.
 if (!("showModal" in HTMLDialogElement.prototype)) {

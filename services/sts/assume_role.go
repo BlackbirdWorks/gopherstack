@@ -165,10 +165,15 @@ func (b *InMemoryBackend) checkAssumeRoleTrust(input *AssumeRoleInput) error {
 		return nil
 	}
 
+	b.mu.RLock("checkAssumeRoleTrust")
+	strict := b.strictConditions
+	b.mu.RUnlock()
+
 	return evaluateAssumeRoleTrust(meta.TrustPolicy, trustEval{
-		action:     actionAssumeRole,
-		callerArn:  input.CallerArn,
-		externalID: input.ExternalID,
+		action:           actionAssumeRole,
+		callerArn:        input.CallerArn,
+		externalID:       input.ExternalID,
+		strictConditions: strict,
 		conditionCtx: map[string]string{
 			condKeyPrincipalArn: input.CallerArn,
 			condKeyMFAPresent:   strconv.FormatBool(mfaPresent(input)),

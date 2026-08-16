@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ---- Groups ----

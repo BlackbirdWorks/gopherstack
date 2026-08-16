@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
-	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
 func TestInMemoryBackend_DomainNames(t *testing.T) {

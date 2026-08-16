@@ -302,3 +302,75 @@ func TestAutoscalingHandler_PutScalingPolicyPredictiveScalingRoundTrip(t *testin
 			"PredictiveScalingConfiguration must be absent for a non-predictive policy; got: %s", body)
 	})
 }
+
+// TestAutoscalingHandler_TargetTrackingResourceLabelRoundTrip verifies that ResourceLabel
+// in PredefinedMetricSpecification is preserved and round-tripped.
+func TestAutoscalingHandler_TargetTrackingResourceLabelRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		predefinedMetricType string
+		resourceLabel        string
+		wantResourceLabel    bool
+	}{
+		{
+			name:                 "with_resource_label",
+			predefinedMetricType: "ALBRequestCountPerTarget",
+			resourceLabel:        "app/my-alb/1234567890abcdef/targetgroup/my-targets/1234567890abcdef",
+			wantResourceLabel:    true,
+		},
+		{
+			name:                 "without_resource_label",
+			predefinedMetricType: "ASGAverageCPUUtilization",
+			resourceLabel:        "",
+			wantResourceLabel:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			asgName := "tt-asg-" + tt.name
+
+			code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+				"AutoScalingGroupName":       {asgName},
+				"MinSize":                    {"1"},
+				"MaxSize":                    {"10"},
+				"AvailabilityZones.member.1": {"us-east-1a"},
+			})
+			require.Equal(t, 200, code, body)
+
+			vals := url.Values{
+				"AutoScalingGroupName": {asgName},
+				"PolicyName":           {"tt-policy"},
+				"PolicyType":           {"TargetTrackingScaling"},
+				"TargetTrackingConfiguration.TargetValue": {"1000.0"},
+				"TargetTrackingConfiguration.PredefinedMetricSpecification.PredefinedMetricType": {
+					tt.predefinedMetricType,
+				},
+			}
+			if tt.resourceLabel != "" {
+				vals.Set("TargetTrackingConfiguration.PredefinedMetricSpecification.ResourceLabel", tt.resourceLabel)
+			}
+
+			code, body = doAS(t, h, "PutScalingPolicy", vals)
+			require.Equal(t, 200, code, body)
+
+			code, body = doAS(t, h, "DescribePolicies", url.Values{
+				"AutoScalingGroupName": {asgName},
+				"PolicyNames.member.1": {"tt-policy"},
+			})
+			require.Equal(t, 200, code, body)
+
+			assert.Contains(t, body, "<PredefinedMetricType>"+tt.predefinedMetricType+"</PredefinedMetricType>")
+			if tt.wantResourceLabel {
+				assert.Contains(t, body, "<ResourceLabel>"+tt.resourceLabel+"</ResourceLabel>")
+			} else {
+				assert.NotContains(t, body, "<ResourceLabel>")
+			}
+		})
+	}
+}

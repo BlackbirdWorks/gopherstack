@@ -5,8 +5,9 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // PublishVersion creates an immutable version snapshot of the current $LATEST function config.

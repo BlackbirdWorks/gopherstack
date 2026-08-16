@@ -3,9 +3,10 @@ package servicediscovery_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
 func TestBackend_Region(t *testing.T) {

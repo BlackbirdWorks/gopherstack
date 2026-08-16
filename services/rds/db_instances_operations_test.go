@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 // TestRDSBackend_ModifyDBInstance_NewFields tests ModifyDBInstance with new fields.

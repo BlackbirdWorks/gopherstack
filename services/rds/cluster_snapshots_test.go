@@ -8,9 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 func TestClusterSnapshot_CRUD(t *testing.T) {

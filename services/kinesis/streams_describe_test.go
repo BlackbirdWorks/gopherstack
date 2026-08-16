@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
 // AWS allows callers to identify a stream by ARN instead of name.

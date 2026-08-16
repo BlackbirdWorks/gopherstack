@@ -3,10 +3,11 @@ package lakeformation_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
-	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
 func TestGrantRevokeListPermissions(t *testing.T) {

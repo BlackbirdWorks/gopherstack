@@ -5,9 +5,10 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/neptune"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/neptune"
 )
 
 // TestPendingMaintenanceActions_QueueRoundTrip locks the core fix: there was

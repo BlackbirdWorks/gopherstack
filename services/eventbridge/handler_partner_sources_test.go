@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
 func TestHandler_PartnerEventSourceCRUD(t *testing.T) {

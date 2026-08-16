@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
 func TestSNSHandler_CreatePlatformEndpoint(t *testing.T) {

@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/mediastore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/mediastore"
 )
 
 // TestHandler_DeletePolicy_NotSet verifies that all four delete-policy operations

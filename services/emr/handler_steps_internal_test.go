@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // Test_EffectiveStepStatus covers the PENDING -> COMPLETED promotion that

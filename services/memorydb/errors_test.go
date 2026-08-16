@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/memorydb"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
 // TestRefinement1_ErrValidationSentinel verifies that ErrValidation wraps ErrInvalidParameter.

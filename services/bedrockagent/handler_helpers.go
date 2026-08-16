@@ -9,8 +9,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 func handleErr(c *echo.Context, err error) error {

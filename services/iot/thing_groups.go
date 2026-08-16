@@ -7,8 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // AddThingToThingGroup adds a thing to a thing group.

@@ -11,6 +11,7 @@ type ScalingPolicy struct {
 	PolicyType                     string                          `json:"PolicyType,omitempty"`
 	AdjustmentType                 string                          `json:"AdjustmentType,omitempty"`
 	MetricType                     string                          `json:"MetricType,omitempty"`
+	ResourceLabel                  string                          `json:"ResourceLabel,omitempty"`
 	CustomMetricSpec               string                          `json:"CustomMetricSpec,omitempty"`
 	MetricAggregationType          string                          `json:"MetricAggregationType,omitempty"`
 	PolicyARN                      string                          `json:"PolicyARN"`
@@ -141,6 +142,7 @@ type ScalingPolicyInput struct {
 	PolicyType                     string
 	AdjustmentType                 string
 	MetricType                     string
+	ResourceLabel                  string
 	MetricAggregationType          string
 	AutoScalingGroupName           string
 	StepAdjustments                []StepAdjustment

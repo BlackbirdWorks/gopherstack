@@ -39,7 +39,8 @@ ui/build/
 CLAUDE.md
 
 # Gas Town (added by gt)
-.claude/
+.claude/*
+!.claude/skills/
 .logs/
 __pycache__/
 state.json

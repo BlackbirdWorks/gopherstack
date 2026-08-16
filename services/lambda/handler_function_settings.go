@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // handleRuntimeMgmtRoute handles /2021-07-20/functions/{name}/runtime-management-config routes.

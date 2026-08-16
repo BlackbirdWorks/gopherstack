@@ -7,10 +7,11 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
 func TestHandler_SAMLProvider_UpdateAndGet(t *testing.T) {

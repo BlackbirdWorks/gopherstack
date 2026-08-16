@@ -3,10 +3,11 @@ package cloudformation_test
 import (
 	"testing"
 
-	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
-	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	appautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 // TestResourceCreator_AppAutoScaling_ScalableTarget_CreateDelete verifies

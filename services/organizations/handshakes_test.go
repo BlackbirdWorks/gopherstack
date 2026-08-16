@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/organizations"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
 // TestEnableAllFeatures_Backend tests the backend directly.

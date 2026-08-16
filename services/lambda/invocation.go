@@ -10,8 +10,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // maxConcurrentInvocationLogs bounds the number of in-flight async log delivery

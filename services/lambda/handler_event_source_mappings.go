@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // handleESMRoute dispatches event-source-mapping REST API requests.

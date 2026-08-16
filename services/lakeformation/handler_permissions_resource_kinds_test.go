@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
 // TestGrantPermissions_AllResourceKinds exercises GrantPermissions/ListPermissions

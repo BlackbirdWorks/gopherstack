@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/google/uuid"
 )
 
 // instanceTarget is a resolved (account, source-OU) pair. ouID is empty for

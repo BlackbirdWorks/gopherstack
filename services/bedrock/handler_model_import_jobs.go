@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // modelDataSourceWire is the wire shape of the real ModelDataSource union,

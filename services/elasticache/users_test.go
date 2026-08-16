@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/elasticache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/elasticache"
 )
 
 func TestBackend_CreateUser_Redis6ACL(t *testing.T) {

@@ -4,8 +4,9 @@ import (
 	"encoding/base64"
 	"net/http"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // extractUseCaseForModelAccessOperation mirrors routeUseCaseForModelAccess's

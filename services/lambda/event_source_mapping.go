@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/google/uuid"
 )
 
 // EventSourceMappingState represents the lifecycle state of an event source mapping.

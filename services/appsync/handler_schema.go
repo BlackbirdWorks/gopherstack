@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // handleSchemaCreation handles /v1/apis/{apiId}/schemacreation.

@@ -13,99 +13,206 @@ import (
 func TestAccessLogs(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend()
-	app := seedApp(t, b, "ArtifactApp")
+	tests := []struct {
+		name         string
+		domainName   string
+		startTime    string
+		endTime      string
+		useRealApp   bool
+		wantErr      bool
+		wantNonEmpty bool
+	}{
+		{
+			name:         "nonexistent_app_errors",
+			useRealApp:   false,
+			domainName:   "",
+			startTime:    "",
+			endTime:      "",
+			wantErr:      true,
+			wantNonEmpty: false,
+		},
+		{
+			name:         "existing_app_returns_url",
+			useRealApp:   true,
+			domainName:   "example.com",
+			startTime:    "2024-01-01",
+			endTime:      "2024-01-02",
+			wantErr:      false,
+			wantNonEmpty: true,
+		},
+	}
 
-	t.Run("nonexistent_app_errors", func(t *testing.T) {
-		t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		_, err := b.GenerateAccessLogs("nonexistent", "", "", "")
-		require.Error(t, err)
-	})
+			b := newTestBackend()
+			appID := "nonexistent"
+			if tt.useRealApp {
+				app := seedApp(t, b, "ArtifactApp")
+				appID = app.AppID
+			}
 
-	t.Run("existing_app_returns_url", func(t *testing.T) {
-		t.Parallel()
-
-		url, err := b.GenerateAccessLogs(app.AppID, "example.com", "2024-01-01", "2024-01-02")
-		require.NoError(t, err)
-		assert.NotEmpty(t, url)
-	})
+			url, err := b.GenerateAccessLogs(appID, tt.domainName, tt.startTime, tt.endTime)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				if tt.wantNonEmpty {
+					assert.NotEmpty(t, url)
+				}
+			}
+		})
+	}
 }
 
 func TestGetArtifactURL_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend()
+	tests := []struct {
+		name       string
+		artifactID string
+		wantErr    bool
+	}{
+		{
+			name:       "nonexistent_artifact",
+			artifactID: "nonexistent-artifact",
+			wantErr:    true,
+		},
+	}
 
-	_, _, err := b.GetArtifactURL("nonexistent-artifact")
-	require.Error(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			_, _, err := b.GetArtifactURL(tt.artifactID)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestListArtifacts_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		appID      string
+		branchName string
+		jobID      string
+		wantErr    bool
+	}{
+		{
+			name:       "unknown_app_errors",
+			appID:      "nonexistent",
+			branchName: "main",
+			jobID:      "job1",
+			wantErr:    true,
+		},
+		{
+			name:       "unknown_branch_errors",
+			appID:      "valid",
+			branchName: "nonexistent",
+			jobID:      "job1",
+			wantErr:    true,
+		},
+		{
+			name:       "unknown_job_errors",
+			appID:      "valid",
+			branchName: "main",
+			jobID:      "nonexistent",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			app := seedApp(t, b, "ArtifactApp")
+			branch := seedMainBranch(t, b, app.AppID)
+
+			targetApp := tt.appID
+			if targetApp == "valid" {
+				targetApp = app.AppID
+			}
+			targetBranch := tt.branchName
+			if targetBranch == "main" {
+				targetBranch = branch.BranchName
+			}
+
+			_, _, err := b.ListArtifacts(targetApp, targetBranch, tt.jobID, "", 0)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // TestListArtifacts_ProducedByJobCompletion verifies the real producer path
 // for Artifact records: nothing creates one until a job the janitor advances
 // to SUCCEED does so (see janitor.go's advanceJobs / artifacts.go's
 // newBuildArtifact). Before a job completes, ListArtifacts must legitimately
-// return empty -- that is not the "no producer exists" bug PARITY.md used to
-// flag, just a job that hasn't finished yet.
+// return empty. Each test case operates on an isolated backend instance
+// to prevent SweepOnce in one parallel subtest from advancing jobs in another.
 func TestListArtifacts_ProducedByJobCompletion(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend()
-	app := seedApp(t, b, "ArtifactApp")
-	branch := seedMainBranch(t, b, app.AppID)
+	tests := []struct {
+		name          string
+		runJanitor    bool
+		wantArtifacts int
+	}{
+		{
+			name:          "running_job_has_no_artifacts_yet",
+			runJanitor:    false,
+			wantArtifacts: 0,
+		},
+		{
+			name:          "succeeded_job_has_artifacts_reachable_via_get_url",
+			runJanitor:    true,
+			wantArtifacts: 1,
+		},
+	}
 
-	t.Run("unknown_app_errors", func(t *testing.T) {
-		t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		_, _, err := b.ListArtifacts("nonexistent", branch.BranchName, "job1", "", 0)
-		require.Error(t, err)
-	})
+			b := newTestBackend()
+			app := seedApp(t, b, "ArtifactApp")
+			branch := seedMainBranch(t, b, app.AppID)
 
-	t.Run("unknown_branch_errors", func(t *testing.T) {
-		t.Parallel()
+			job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
+			require.NoError(t, err)
 
-		_, _, err := b.ListArtifacts(app.AppID, "nonexistent", "job1", "", 0)
-		require.Error(t, err)
-	})
+			if tt.runJanitor {
+				j := amplify.NewJanitor(b, time.Second)
+				j.SweepOnce(t.Context())
+			}
 
-	t.Run("unknown_job_errors", func(t *testing.T) {
-		t.Parallel()
+			artifacts, _, err := b.ListArtifacts(app.AppID, branch.BranchName, job.JobID, "", 0)
+			require.NoError(t, err)
+			assert.Len(t, artifacts, tt.wantArtifacts)
 
-		_, _, err := b.ListArtifacts(app.AppID, branch.BranchName, "nonexistent", "", 0)
-		require.Error(t, err)
-	})
+			if tt.wantArtifacts > 0 {
+				assert.Equal(t, "BUILD", artifacts[0].ArtifactType)
+				assert.NotEmpty(t, artifacts[0].ArtifactFileName)
 
-	t.Run("running_job_has_no_artifacts_yet", func(t *testing.T) {
-		t.Parallel()
-
-		job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
-		require.NoError(t, err)
-
-		artifacts, _, err := b.ListArtifacts(app.AppID, branch.BranchName, job.JobID, "", 0)
-		require.NoError(t, err)
-		assert.Empty(t, artifacts)
-	})
-
-	t.Run("succeeded_job_has_artifacts_reachable_via_get_url", func(t *testing.T) {
-		t.Parallel()
-
-		job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
-		require.NoError(t, err)
-
-		j := amplify.NewJanitor(b, time.Second)
-		j.SweepOnce(t.Context())
-
-		artifacts, _, err := b.ListArtifacts(app.AppID, branch.BranchName, job.JobID, "", 0)
-		require.NoError(t, err)
-		require.Len(t, artifacts, 1)
-		assert.Equal(t, "BUILD", artifacts[0].ArtifactType)
-		assert.NotEmpty(t, artifacts[0].ArtifactFileName)
-
-		artifactType, url, err := b.GetArtifactURL(artifacts[0].ArtifactID)
-		require.NoError(t, err)
-		assert.Equal(t, "BUILD", artifactType)
-		assert.NotEmpty(t, url)
-	})
+				artifactType, artURL, getErr := b.GetArtifactURL(artifacts[0].ArtifactID)
+				require.NoError(t, getErr)
+				assert.Equal(t, "BUILD", artifactType)
+				assert.NotEmpty(t, artURL)
+			}
+		})
+	}
 }
 
 // TestListArtifacts_CascadeDeletedWithJob verifies DeleteJob removes any
@@ -116,52 +223,49 @@ func TestListArtifacts_ProducedByJobCompletion(t *testing.T) {
 func TestListArtifacts_CascadeDeletedWithJob(t *testing.T) {
 	t.Parallel()
 
-	t.Run("delete_job_removes_its_artifacts", func(t *testing.T) {
-		t.Parallel()
+	tests := []struct {
+		name       string
+		deleteType string
+	}{
+		{
+			name:       "delete_job_removes_its_artifacts",
+			deleteType: "job",
+		},
+		{
+			name:       "delete_app_removes_descendant_artifacts",
+			deleteType: "app",
+		},
+	}
 
-		b := newTestBackend()
-		app := seedApp(t, b, "CascadeApp")
-		branch := seedMainBranch(t, b, app.AppID)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
-		require.NoError(t, err)
+			b := newTestBackend()
+			app := seedApp(t, b, "CascadeApp")
+			branch := seedMainBranch(t, b, app.AppID)
 
-		amplify.NewJanitor(b, time.Second).SweepOnce(t.Context())
+			job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
+			require.NoError(t, err)
 
-		artifacts, _, err := b.ListArtifacts(app.AppID, branch.BranchName, job.JobID, "", 0)
-		require.NoError(t, err)
-		require.Len(t, artifacts, 1)
+			amplify.NewJanitor(b, time.Second).SweepOnce(t.Context())
 
-		artifactID := artifacts[0].ArtifactID
+			artifacts, _, err := b.ListArtifacts(app.AppID, branch.BranchName, job.JobID, "", 0)
+			require.NoError(t, err)
+			require.Len(t, artifacts, 1)
 
-		_, err = b.DeleteJob(app.AppID, branch.BranchName, job.JobID)
-		require.NoError(t, err)
+			artifactID := artifacts[0].ArtifactID
 
-		_, _, err = b.GetArtifactURL(artifactID)
-		require.Error(t, err, "artifact must not survive its job's deletion")
-	})
+			switch tt.deleteType {
+			case "job":
+				_, err = b.DeleteJob(app.AppID, branch.BranchName, job.JobID)
+				require.NoError(t, err)
+			case "app":
+				require.NoError(t, b.DeleteApp(app.AppID))
+			}
 
-	t.Run("delete_app_removes_descendant_artifacts", func(t *testing.T) {
-		t.Parallel()
-
-		b := newTestBackend()
-		app := seedApp(t, b, "CascadeApp2")
-		branch := seedMainBranch(t, b, app.AppID)
-
-		job, err := b.StartJob(app.AppID, branch.BranchName, "RELEASE", "", "", "", time.Time{})
-		require.NoError(t, err)
-
-		amplify.NewJanitor(b, time.Second).SweepOnce(t.Context())
-
-		artifacts, _, err := b.ListArtifacts(app.AppID, branch.BranchName, job.JobID, "", 0)
-		require.NoError(t, err)
-		require.Len(t, artifacts, 1)
-
-		artifactID := artifacts[0].ArtifactID
-
-		require.NoError(t, b.DeleteApp(app.AppID))
-
-		_, _, err = b.GetArtifactURL(artifactID)
-		require.Error(t, err, "artifact must not survive its app's deletion")
-	})
+			_, _, err = b.GetArtifactURL(artifactID)
+			require.Error(t, err, "artifact must not survive deletion")
+		})
+	}
 }

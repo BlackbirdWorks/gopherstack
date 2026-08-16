@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
 func TestHandler_Authorizers(t *testing.T) {

@@ -5,9 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
 // attr is a shorthand for a [DataType, StringValue] message-attribute pair.

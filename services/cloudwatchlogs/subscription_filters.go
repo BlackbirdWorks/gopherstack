@@ -11,8 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // validDistributions returns the allowed values for subscription filter distribution.

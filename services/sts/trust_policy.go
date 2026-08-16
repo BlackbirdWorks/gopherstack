@@ -51,11 +51,12 @@ const (
 // ARN or OIDC issuer) identifies the caller; when both are empty the evaluation
 // is skipped (permissive mock behaviour) because there is no principal to match.
 type trustEval struct {
-	conditionCtx map[string]string
-	action       string
-	callerArn    string
-	federatedArn string
-	externalID   string
+	conditionCtx     map[string]string
+	action           string
+	callerArn        string
+	federatedArn     string
+	externalID       string
+	strictConditions bool
 }
 
 // hasPrincipal reports whether the evaluation carries a caller principal.
@@ -462,6 +463,7 @@ func conditionsSatisfied(cond map[string]map[string]json.RawMessage, ev trustEva
 // silent -- that is the fix for gopherstack-yg95, not a change of default.
 func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) bool {
 	normOp := normalizeConditionOp(op)
+	isIfExists := isIfExistsConditionOp(op)
 
 	actual, known := ev.conditionValue(key)
 
@@ -475,6 +477,12 @@ func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) b
 	}
 
 	if !known {
+		if isIfExists {
+			return true
+		}
+		if ev.strictConditions {
+			return false
+		}
 		warnUnmodeledCondition(key, op, "condition key not modeled by this emulator")
 
 		return true
@@ -511,10 +519,18 @@ func conditionOperatorHolds(op, key string, raw json.RawMessage, ev trustEval) b
 		// this evaluator has no numeric, timestamp, source-IP, or binary
 		// request-context value to compare against for any condition key it
 		// carries (structural, not deferred -- see PARITY.md).
+		if ev.strictConditions {
+			return false
+		}
 		warnUnmodeledCondition(key, op, "condition operator not modeled by this emulator")
 
 		return true
 	}
+}
+
+// isIfExistsConditionOp reports whether op ends with the IfExists suffix.
+func isIfExistsConditionOp(op string) bool {
+	return strings.HasSuffix(strings.ToLower(op), "ifexists")
 }
 
 // nullConditionHolds evaluates AWS's Null condition operator: "true" requires

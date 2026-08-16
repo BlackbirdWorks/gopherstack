@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/memorydb"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
 // TestRefinement1_MaxEventsCap verifies that events are capped at maxEvents.

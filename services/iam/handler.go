@@ -456,6 +456,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValue", "invalid request body")
 		}
 
+		if akid := httputils.ExtractAccessKeyFromRequest(c.Request()); akid != "" {
+			vals.Set("AWSAccessKeyId", akid)
+		}
+
 		action := vals.Get("Action")
 		if action == "" {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")

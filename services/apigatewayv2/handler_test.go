@@ -10,10 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
 // newTestHandler creates a fresh Handler backed by an InMemoryBackend for tests.

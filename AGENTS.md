@@ -43,7 +43,8 @@ only guards direct `sync.Mutex`/`sync.RWMutex` use.
 ```bash
 git add -A && git commit -m "WIP: checkpoint" && git push origin HEAD
 ```
-This prevents losing 3+ hours of work if your session dies (rate limits kill sessions after ~180min).
+**Subagent Isolation:** When dispatching subagents for concurrent tasks, always isolate working trees (`Workspace: 'branch'` or `git worktree`) to avoid cross-contamination of uncommitted edits, `make docs` regeneration, or intermediate build artifacts.
+
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 
 ## Quick Reference

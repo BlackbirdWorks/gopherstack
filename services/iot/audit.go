@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
-	"github.com/google/uuid"
 )
 
 // AddAuditTaskInternal seeds an audit task status with a caller-chosen ID

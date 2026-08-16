@@ -7,8 +7,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // syncConfigHasReferenceToLinkLocked returns true if any sync config references the given repositoryLinkID.

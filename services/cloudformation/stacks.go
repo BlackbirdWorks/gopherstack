@@ -8,9 +8,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
-	"github.com/google/uuid"
 )
 
 type StackOptions struct {

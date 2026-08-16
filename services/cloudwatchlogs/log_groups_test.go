@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
 func TestCloudWatchLogsBackend_CreateLogGroup(t *testing.T) {

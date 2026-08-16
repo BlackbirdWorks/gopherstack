@@ -6,8 +6,9 @@ import (
 	"maps"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // isValidMonitorType reports whether t is a valid AnomalyMonitor MonitorType.

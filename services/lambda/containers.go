@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/google/uuid"
 )
 
 // maxCleanupConcurrency is the maximum number of concurrent runtime cleanup goroutines.

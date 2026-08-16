@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/echo/v5"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
-	"github.com/labstack/echo/v5"
 )
 
 // isDurableExecPath reports whether path belongs to any of the three

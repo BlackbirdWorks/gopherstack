@@ -175,6 +175,7 @@ type RemoveClientIDFromOpenIDConnectProviderResponse struct {
 type LoginProfile struct {
 	CreateDate            time.Time `json:"CreateDate"`
 	UserName              string    `json:"UserName,omitempty"`
+	Password              string    `json:"Password,omitempty"`
 	PasswordResetRequired bool      `json:"PasswordResetRequired,omitempty"`
 }
 

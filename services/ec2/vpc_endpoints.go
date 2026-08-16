@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // CreateVpcEndpointConnectionNotification creates a notification for endpoint connection events.

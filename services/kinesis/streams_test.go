@@ -7,9 +7,10 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
 // TestCreateStream_ShardCount_Validation asserts ValidationException for ShardCount <= 0 on PROVISIONED streams.

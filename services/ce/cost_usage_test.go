@@ -3,9 +3,10 @@ package ce_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/ce"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
 // TestInMemoryBackend_GetDimensionValues verifies backend direct calls.

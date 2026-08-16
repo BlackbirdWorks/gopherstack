@@ -6,9 +6,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/elasticache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/elasticache"
 )
 
 // mockDNSRegistrar is a simple in-memory DNSRegistrar for testing.

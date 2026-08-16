@@ -6,9 +6,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/memorydb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
 // TestHandler_DescribeParameterGroups_All tests DescribeParameterGroups with no filter.

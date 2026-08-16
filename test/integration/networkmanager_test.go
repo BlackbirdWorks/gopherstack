@@ -508,6 +508,58 @@ func TestIntegration_NetworkManager_Tagging(t *testing.T) {
 	assert.Empty(t, listOut.TagList)
 }
 
+func TestIntegration_NetworkManager_ValidationErrors(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := t.Context()
+	client := createNetworkManagerClient(t)
+
+	tests := []struct {
+		run     func(t *testing.T) error
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "describe_non_existent_global_network",
+			run: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.DescribeGlobalNetworks(ctx, &networkmanagersdk.DescribeGlobalNetworksInput{
+					GlobalNetworkIds: []string{"global-network-nonexistent123"},
+				})
+
+				return err
+			},
+			wantErr: false,
+		},
+		{
+			name: "get_non_existent_site",
+			run: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.GetSites(ctx, &networkmanagersdk.GetSitesInput{
+					GlobalNetworkId: aws.String("global-network-nonexistent123"),
+					SiteIds:         []string{"site-nonexistent123"},
+				})
+
+				return err
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.run(t)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // TestIntegration_NetworkManager_StartRouteAnalysis drives StartRouteAnalysis
 // against real EC2 Transit Gateway route-table state (this pass's
 // EC2Resolver-backed graph walk, routeanalysis.go), asserting a genuine

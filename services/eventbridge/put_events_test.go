@@ -7,10 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/eventbridge"
-	"github.com/blackbirdworks/gopherstack/services/ssm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
 // Compile-time proof that InMemoryBackend satisfies the services/ssm

@@ -525,8 +525,96 @@ func TestWildcardMatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := sts.WildcardMatch(tt.pattern, tt.input); got != tt.want {
-				t.Fatalf("WildcardMatch(%q,%q)=%v want %v", tt.pattern, tt.input, got, tt.want)
+			got := sts.WildcardMatch(tt.pattern, tt.input)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestEvaluateAssumeRoleTrust_StrictConditions(t *testing.T) {
+	t.Parallel()
+
+	const (
+		caller = "arn:aws:iam::123456789012:user/alice"
+	)
+
+	tests := []struct {
+		name    string
+		policy  string
+		ev      sts.TrustEvalForTest
+		wantErr bool
+	}{
+		{
+			name: "unmodeled_key_permissive_passes",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":{"AWS":"*"},"Action":"sts:AssumeRole",` +
+				`"Condition":{"StringEquals":{"aws:SourceVpc":"vpc-12345"}}}]}`,
+			ev: sts.TrustEvalForTest{
+				Action:           sts.ActionAssumeRole,
+				CallerArn:        caller,
+				StrictConditions: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "unmodeled_key_strict_denies",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":{"AWS":"*"},"Action":"sts:AssumeRole",` +
+				`"Condition":{"StringEquals":{"aws:SourceVpc":"vpc-12345"}}}]}`,
+			ev: sts.TrustEvalForTest{
+				Action:           sts.ActionAssumeRole,
+				CallerArn:        caller,
+				StrictConditions: true,
+			},
+			wantErr: true,
+		},
+		{
+			name: "unmodeled_key_if_exists_strict_passes",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":{"AWS":"*"},"Action":"sts:AssumeRole",` +
+				`"Condition":{"StringEqualsIfExists":{"aws:SourceVpc":"vpc-12345"}}}]}`,
+			ev: sts.TrustEvalForTest{
+				Action:           sts.ActionAssumeRole,
+				CallerArn:        caller,
+				StrictConditions: true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "unmodeled_operator_permissive_passes",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":{"AWS":"*"},"Action":"sts:AssumeRole",` +
+				`"Condition":{"NumericEquals":{"aws:MultiFactorAuthAge":"3600"}}}]}`,
+			ev: sts.TrustEvalForTest{
+				Action:           sts.ActionAssumeRole,
+				CallerArn:        caller,
+				StrictConditions: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "unmodeled_operator_strict_denies",
+			policy: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+				`"Principal":{"AWS":"*"},"Action":"sts:AssumeRole",` +
+				`"Condition":{"NumericEquals":{"aws:MultiFactorAuthAge":"3600"}}}]}`,
+			ev: sts.TrustEvalForTest{
+				Action:           sts.ActionAssumeRole,
+				CallerArn:        caller,
+				StrictConditions: true,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := sts.EvaluateAssumeRoleTrust(tt.policy, tt.ev)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
 			}
 		})
 	}

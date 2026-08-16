@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // handleTagsByARN handles /v1/tags/{resourceArn} — the real AWS SDK path for

@@ -3,8 +3,9 @@ package lakeformation_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
 func TestSeedHelpers(t *testing.T) {

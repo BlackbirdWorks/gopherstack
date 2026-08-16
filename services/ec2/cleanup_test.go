@@ -219,7 +219,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 
 				dopt, err := b.CreateDhcpOptions([]ec2.DhcpConfiguration{
 					{Key: "domain-name", Values: []string{"example.com"}},
-				})
+				}, nil)
 				require.NoError(t, err)
 
 				return dopt.DhcpOptionsID

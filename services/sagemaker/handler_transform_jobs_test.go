@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
 func TestHandler_TransformJobLifecycle(t *testing.T) {

@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/s3tables"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/s3tables"
 )
 
 // TestBackend_CreateTableBucket_NameValidation verifies CreateTableBucket

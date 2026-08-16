@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
 func TestGetRecords_SizeCap_ExcludesPartitionKey(t *testing.T) {

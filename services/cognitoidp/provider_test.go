@@ -3,10 +3,11 @@ package cognitoidp_test
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
 func TestProvider_Init(t *testing.T) {

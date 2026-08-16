@@ -1,10 +1,11 @@
 package macie2
 
 import (
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
-	"github.com/google/uuid"
 )
 
 const (

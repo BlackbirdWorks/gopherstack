@@ -10,11 +10,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
 	emrtypes "github.com/aws/aws-sdk-go-v2/service/emr/types"
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/services/emr"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
 // newTestEMRClient spins up a real HTTP server fronting h and returns a real
