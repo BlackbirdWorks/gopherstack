@@ -75,36 +75,46 @@ func TestConvenienceAccessors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		ctx       context.Context //nolint:containedctx // table-driven test input
-		region    string
-		account   string
-		partition string
+		name        string
+		ctx         context.Context //nolint:containedctx // table-driven test input
+		region      string
+		account     string
+		partition   string
+		accessKeyID string
+		service     string
 	}{
 		{
-			name:      "nil-context-returns-defaults",
-			ctx:       nil,
-			region:    "",
-			account:   awsmeta.DefaultAccount,
-			partition: awsmeta.DefaultPartition,
+			name:        "nil-context-returns-defaults",
+			ctx:         nil,
+			region:      "",
+			account:     awsmeta.DefaultAccount,
+			partition:   awsmeta.DefaultPartition,
+			accessKeyID: "",
+			service:     "",
 		},
 		{
-			name:      "empty-context-returns-defaults",
-			ctx:       context.Background(),
-			region:    "",
-			account:   awsmeta.DefaultAccount,
-			partition: awsmeta.DefaultPartition,
+			name:        "empty-context-returns-defaults",
+			ctx:         context.Background(),
+			region:      "",
+			account:     awsmeta.DefaultAccount,
+			partition:   awsmeta.DefaultPartition,
+			accessKeyID: "",
+			service:     "",
 		},
 		{
 			name: "populated-context",
 			ctx: awsmeta.Set(context.Background(), &awsmeta.Metadata{
-				Account:   "111111111111",
-				Region:    "eu-west-1",
-				Partition: "aws",
+				Account:     "111111111111",
+				Region:      "eu-west-1",
+				Partition:   "aws",
+				AccessKeyID: "AKIAIOSFODNN7EXAMPLE",
+				Service:     "dynamodb",
 			}),
-			region:    "eu-west-1",
-			account:   "111111111111",
-			partition: "aws",
+			region:      "eu-west-1",
+			account:     "111111111111",
+			partition:   "aws",
+			accessKeyID: "AKIAIOSFODNN7EXAMPLE",
+			service:     "dynamodb",
 		},
 	}
 
@@ -114,6 +124,8 @@ func TestConvenienceAccessors(t *testing.T) {
 			assert.Equal(t, tc.region, awsmeta.Region(tc.ctx))
 			assert.Equal(t, tc.account, awsmeta.Account(tc.ctx))
 			assert.Equal(t, tc.partition, awsmeta.Partition(tc.ctx))
+			assert.Equal(t, tc.accessKeyID, awsmeta.AccessKeyID(tc.ctx))
+			assert.Equal(t, tc.service, awsmeta.Service(tc.ctx))
 		})
 	}
 }
@@ -128,6 +140,8 @@ func TestFromRequest(t *testing.T) {
 		wantRegion    string
 		wantAccount   string
 		wantRequestID string
+		wantAKID      string
+		wantService   string
 	}{
 		{
 			name: "nil-request-uses-default-region",
@@ -150,11 +164,17 @@ func TestFromRequest(t *testing.T) {
 			defaultRegion: "us-east-1",
 			wantRegion:    "eu-central-1",
 			wantAccount:   awsmeta.DefaultAccount,
+			wantAKID:      "AKIA",
+			wantService:   "s3",
 		},
 		{
 			name: "request-id-and-account-headers",
 			buildRequest: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, "/", nil)
+				r := httptest.NewRequest(
+					http.MethodPost,
+					"/?X-Amz-Credential=MYAKID/20260606/us-east-2/dynamodb/aws4_request",
+					nil,
+				)
 				r.Header.Set("X-Amz-Account-Id", "222222222222")
 				r.Header.Set("X-Amz-Request-Id", "abc-123")
 
@@ -164,6 +184,8 @@ func TestFromRequest(t *testing.T) {
 			wantRegion:    "us-east-2",
 			wantAccount:   "222222222222",
 			wantRequestID: "abc-123",
+			wantAKID:      "MYAKID",
+			wantService:   "dynamodb",
 		},
 	}
 
@@ -175,6 +197,8 @@ func TestFromRequest(t *testing.T) {
 			assert.Equal(t, tc.wantRegion, m.Region)
 			assert.Equal(t, tc.wantAccount, m.Account)
 			assert.Equal(t, tc.wantRequestID, m.RequestID)
+			assert.Equal(t, tc.wantAKID, m.AccessKeyID)
+			assert.Equal(t, tc.wantService, m.Service)
 			assert.Equal(t, awsmeta.DefaultPartition, m.Partition)
 		})
 	}

@@ -327,6 +327,10 @@ func ExtractRegionFromRequest(r *http.Request, defaultRegion string) string {
 // header credential scope (AKID/date/region/service/aws4_request).
 // Returns an empty string if the service name cannot be determined.
 func ExtractServiceFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+
 	if auth := r.Header.Get("Authorization"); auth != "" && strings.Contains(auth, "Credential=") {
 		parts := strings.Split(auth, "Credential=")
 		if len(parts) > 1 {
@@ -334,6 +338,41 @@ func ExtractServiceFromRequest(r *http.Request) string {
 			if len(credParts) > sigV4ServiceIndex {
 				return SanitizeHeaderString(credParts[sigV4ServiceIndex])
 			}
+		}
+	}
+
+	if cred := r.URL.Query().Get("X-Amz-Credential"); cred != "" {
+		credParts := strings.Split(cred, "/")
+		if len(credParts) > sigV4ServiceIndex {
+			return SanitizeHeaderString(credParts[sigV4ServiceIndex])
+		}
+	}
+
+	return ""
+}
+
+// ExtractAccessKeyFromRequest extracts the AWS access key ID from an HTTP request.
+// It checks the SigV4 Authorization header credential scope (AKID/date/region/service/aws4_request)
+// first, then the X-Amz-Credential query parameter, and returns an empty string if none is found.
+func ExtractAccessKeyFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+
+	if auth := r.Header.Get("Authorization"); auth != "" && strings.Contains(auth, "Credential=") {
+		parts := strings.Split(auth, "Credential=")
+		if len(parts) > 1 {
+			credParts := strings.Split(parts[1], "/")
+			if len(credParts) > 0 {
+				return SanitizeHeaderString(credParts[0])
+			}
+		}
+	}
+
+	if cred := r.URL.Query().Get("X-Amz-Credential"); cred != "" {
+		credParts := strings.Split(cred, "/")
+		if len(credParts) > 0 {
+			return SanitizeHeaderString(credParts[0])
 		}
 	}
 

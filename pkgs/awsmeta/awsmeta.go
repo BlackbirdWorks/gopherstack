@@ -25,6 +25,10 @@ type Metadata struct {
 	Partition string
 	// RequestID is the X-Amz-Request-Id correlation value.
 	RequestID string
+	// AccessKeyID is the AWS access key ID extracted from the SigV4 credential scope.
+	AccessKeyID string
+	// Service is the AWS service name extracted from the SigV4 credential scope.
+	Service string
 }
 
 // DefaultAccount is the gopherstack default 12-digit account ID.
@@ -73,6 +77,16 @@ func Partition(ctx context.Context) string {
 	return Get(ctx).Partition
 }
 
+// AccessKeyID returns Get(ctx).AccessKeyID.
+func AccessKeyID(ctx context.Context) string {
+	return Get(ctx).AccessKeyID
+}
+
+// Service returns Get(ctx).Service.
+func Service(ctx context.Context) string {
+	return Get(ctx).Service
+}
+
 // FromRequest builds a Metadata from r. defaultRegion is applied when no
 // region is derivable from the SigV4 scope. Always returns non-nil with
 // Account and Partition populated.
@@ -85,10 +99,12 @@ func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 	}
 
 	m := &Metadata{
-		Account:   DefaultAccount,
-		Region:    httputils.ExtractRegionFromRequest(r, defaultRegion),
-		Partition: DefaultPartition,
-		RequestID: httputils.SanitizeHeaderString(r.Header.Get("X-Amz-Request-Id")),
+		Account:     DefaultAccount,
+		Region:      httputils.ExtractRegionFromRequest(r, defaultRegion),
+		Partition:   DefaultPartition,
+		RequestID:   httputils.SanitizeHeaderString(r.Header.Get("X-Amz-Request-Id")),
+		AccessKeyID: httputils.ExtractAccessKeyFromRequest(r),
+		Service:     httputils.ExtractServiceFromRequest(r),
 	}
 
 	if v := r.Header.Get("X-Amz-Account-Id"); v != "" {

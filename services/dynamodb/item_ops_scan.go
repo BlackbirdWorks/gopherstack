@@ -15,30 +15,6 @@ import (
 )
 
 // consumedCapacityForScan returns a populated ConsumedCapacity when the caller
-// has requested capacity reporting. Returns nil when reporting is disabled.
-func consumedCapacityForScan(
-	tableName string,
-	req types.ReturnConsumedCapacity,
-	n int,
-	consistentRead bool,
-) *types.ConsumedCapacity {
-	if req == "" || req == types.ReturnConsumedCapacityNone {
-		return nil
-	}
-	const halfRCU = 0.5 // each 4 KB read costs 0.5 RCU for eventually-consistent reads
-	cu := float64(n) * halfRCU
-	if cu < halfRCU {
-		cu = halfRCU
-	}
-	// Strongly-consistent reads cost twice as much as eventually-consistent ones.
-	cu = applyConsistentReadMultiplier(cu, consistentRead)
-
-	return &types.ConsumedCapacity{
-		TableName:         aws.String(tableName),
-		CapacityUnits:     aws.Float64(cu),
-		ReadCapacityUnits: aws.Float64(cu),
-	}
-}
 
 func (db *InMemoryDB) Scan(
 	ctx context.Context,
@@ -124,9 +100,10 @@ func (db *InMemoryDB) ScanWithContext(
 		pkDef,
 		skDef,
 		keySchema,
+		projection,
 	)
 
-	return db.buildScanOutput(ctx, tableName, billingMode, input, items, lastKey, scannedCount)
+	return db.buildScanOutput(ctx, tableName, billingMode, input, items, lastKey, scannedCount, snapshotTable)
 }
 
 // snapshotTableForScan copies the item slice and table metadata needed by a
@@ -168,6 +145,7 @@ func (db *InMemoryDB) buildScanOutput(
 	items []map[string]any,
 	lastKey map[string]any,
 	scannedCount int32,
+	table *Table,
 ) (*dynamodb.ScanOutput, error) {
 	// Enforce throughput: charge RCU per scanned item.
 	// Double for strongly-consistent; bypass for PAY_PER_REQUEST.
@@ -198,11 +176,13 @@ func (db *InMemoryDB) buildScanOutput(
 		Items:        outItems,
 		Count:        int32(len(items)), // #nosec G115
 		ScannedCount: scannedCount,
-		ConsumedCapacity: consumedCapacityForScan(
+		ConsumedCapacity: consumedCapacityForReadOp(
 			tableName,
 			input.ReturnConsumedCapacity,
 			int(scannedCount),
 			aws.ToBool(input.ConsistentRead),
+			aws.ToString(input.IndexName),
+			table,
 		),
 	}
 
@@ -259,6 +239,7 @@ func (db *InMemoryDB) doScan(
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
 	tableKeySchema []models.KeySchemaElement,
+	projection *models.Projection,
 ) ([]map[string]any, map[string]any, int32) {
 	_ = ctx // ctx reserved for future use (e.g., metrics, cancellation)
 
@@ -298,6 +279,11 @@ func (db *InMemoryDB) doScan(
 	// Pre-parse the filter expression once to avoid re-parsing per item in the hot loop.
 	parsedFilter, _ := ParseConditionStr(filter)
 
+	indexKeySchema := []models.KeySchemaElement{pkDef}
+	if skDef.AttributeName != "" {
+		indexKeySchema = append(indexKeySchema, skDef)
+	}
+
 	return scanPage(
 		candidate,
 		parsedFilter,
@@ -307,6 +293,8 @@ func (db *InMemoryDB) doScan(
 		pkDef,
 		skDef,
 		tableKeySchema,
+		indexKeySchema,
+		projection,
 		limit,
 	)
 }
@@ -322,7 +310,8 @@ func scanPage(
 	eans map[string]string,
 	projector *Projector,
 	pkDef, skDef models.KeySchemaElement,
-	tableKeySchema []models.KeySchemaElement,
+	tableKeySchema, indexKeySchema []models.KeySchemaElement,
+	projection *models.Projection,
 	limit int,
 ) ([]map[string]any, map[string]any, int32) {
 	const maxResponseSize = 1024 * 1024 // 1MB
@@ -345,7 +334,11 @@ func scanPage(
 		totalScannedSize += itemSize
 
 		if parsedFilter.Evaluate(item, eav, eans) {
-			results = append(results, projector.Project(item))
+			projectedItem := item
+			if projection != nil {
+				projectedItem = applyGSIProjection(item, *projection, tableKeySchema, indexKeySchema)
+			}
+			results = append(results, projector.Project(projectedItem))
 		}
 
 		if limit > 0 && int(scannedCount) >= limit {

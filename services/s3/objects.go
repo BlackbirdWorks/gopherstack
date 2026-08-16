@@ -50,9 +50,23 @@ func newStoredObject(key string) *StoredObject {
 type ObjectAttributes struct {
 	LastModified time.Time
 	Checksum     map[string]string
+	Parts        *ObjectPartsAttributes
 	ETag         string
 	StorageClass string
 	ObjectSize   int64
+}
+
+// defaultMaxPartsCount is the default MaxParts ceiling returned in GetObjectAttributes.
+const defaultMaxPartsCount = 1000
+
+// ObjectPartsAttributes contains multipart upload parts breakdown for GetObjectAttributes.
+type ObjectPartsAttributes struct {
+	Parts                []StoredObjectPart
+	TotalPartsCount      int32
+	PartNumberMarker     int32
+	NextPartNumberMarker int32
+	MaxParts             int32
+	IsTruncated          bool
 }
 
 // GetObjectAttributes returns selected attributes for the latest version of an object.
@@ -116,6 +130,15 @@ func (b *InMemoryBackend) GetObjectAttributes(
 	}
 	if ver.ChecksumCRC64NVME != nil {
 		out.Checksum["ChecksumCRC64NVME"] = *ver.ChecksumCRC64NVME
+	}
+
+	if len(ver.Parts) > 0 {
+		out.Parts = &ObjectPartsAttributes{
+			Parts:           ver.Parts,
+			TotalPartsCount: int32(len(ver.Parts)), // #nosec G115
+			MaxParts:        defaultMaxPartsCount,
+			IsTruncated:     false,
+		}
 	}
 
 	return out, nil

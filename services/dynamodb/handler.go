@@ -947,54 +947,119 @@ func (h *DynamoDBHandler) Reset() {
 	}
 }
 
-// dispatchExtraOps routes the extended DynamoDB operations to their handlers
-// using a per-action dispatch map to keep complexity low.
+// dispatchExtraOps routes the extended DynamoDB operations to their handlers.
 func (h *DynamoDBHandler) dispatchExtraOps(
 	ctx context.Context,
 	action string,
 	body []byte,
 ) (any, error) {
-	type handlerFn func() (any, error)
-
-	enableKinesis := func() (any, error) { return h.handleEnableKinesisStreamingDestination(ctx, body) }
-	describeKinesis := func() (any, error) { return h.handleDescribeKinesisStreamingDestination(ctx, body) }
-	disableKinesis := func() (any, error) { return h.handleDisableKinesisStreamingDestination(ctx, body) }
-	updateKinesis := func() (any, error) { return h.handleUpdateKinesisStreamingDestination(ctx, body) }
-	descContrib := func() (any, error) { return h.handleDescribeContributorInsights(ctx, body) }
-	listContrib := func() (any, error) { return h.handleListContributorInsights(ctx, body) }
-	updContrib := func() (any, error) { return h.handleUpdateContributorInsights(ctx, body) }
-	updASReplica := func() (any, error) { return h.handleUpdateTableReplicaAutoScaling(ctx, body) }
-	updGTSettings := func() (any, error) { return h.handleUpdateGlobalTableSettings(ctx, body) }
-
-	handlers := map[string]handlerFn{
-		opCreateGlobalTable:                   func() (any, error) { return h.handleCreateGlobalTable(ctx, body) },
-		opDescribeGlobalTable:                 func() (any, error) { return h.handleDescribeGlobalTable(ctx, body) },
-		opDescribeGlobalTableSettings:         func() (any, error) { return h.handleDescribeGlobalTableSettings(ctx, body) },
-		opListGlobalTables:                    func() (any, error) { return h.handleListGlobalTables(ctx, body) },
-		opUpdateGlobalTable:                   func() (any, error) { return h.handleUpdateGlobalTable(ctx, body) },
-		opUpdateGlobalTableSettings:           updGTSettings,
-		opEnableKinesisStreamingDestination:   enableKinesis,
-		opDescribeKinesisStreamingDestination: describeKinesis,
-		opDisableKinesisStreamingDestination:  disableKinesis,
-		opUpdateKinesisStreamingDestination:   updateKinesis,
-		opDescribeLimits:                      func() (any, error) { return h.handleDescribeLimits(ctx) },
-		opDescribeEndpoints:                   func() (any, error) { return h.handleDescribeEndpoints(ctx) },
-		opDescribeContributorInsights:         descContrib,
-		opListContributorInsights:             listContrib,
-		opUpdateContributorInsights:           updContrib,
-		opUpdateTableReplicaAutoScaling:       updASReplica,
-		opGetResourcePolicy:                   func() (any, error) { return h.handleGetResourcePolicy(ctx, body) },
-		opPutResourcePolicy:                   func() (any, error) { return h.handlePutResourcePolicy(ctx, body) },
-		opDeleteResourcePolicy:                func() (any, error) { return h.handleDeleteResourcePolicy(ctx, body) },
-		opDescribeImport:                      func() (any, error) { return h.handleDescribeImport(ctx, body) },
-		opImportTable:                         func() (any, error) { return h.handleImportTable(ctx, body) },
-		opListImports:                         func() (any, error) { return h.handleListImports(ctx, body) },
+	res, err := h.dispatchGlobalTableOps(ctx, action, body)
+	if !errors.Is(err, ErrUnknownOperation) {
+		return res, err
 	}
 
-	fn, ok := handlers[action]
-	if !ok {
-		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+	res, err = h.dispatchKinesisOps(ctx, action, body)
+	if !errors.Is(err, ErrUnknownOperation) {
+		return res, err
 	}
 
-	return fn()
+	res, err = h.dispatchContribAndPolicyOps(ctx, action, body)
+	if !errors.Is(err, ErrUnknownOperation) {
+		return res, err
+	}
+
+	res, err = h.dispatchImportOps(ctx, action, body)
+	if !errors.Is(err, ErrUnknownOperation) {
+		return res, err
+	}
+
+	return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+}
+
+func (h *DynamoDBHandler) dispatchGlobalTableOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
+	switch action {
+	case opCreateGlobalTable:
+		return h.handleCreateGlobalTable(ctx, body)
+	case opDescribeGlobalTable:
+		return h.handleDescribeGlobalTable(ctx, body)
+	case opDescribeGlobalTableSettings:
+		return h.handleDescribeGlobalTableSettings(ctx, body)
+	case opListGlobalTables:
+		return h.handleListGlobalTables(ctx, body)
+	case opUpdateGlobalTable:
+		return h.handleUpdateGlobalTable(ctx, body)
+	case opUpdateGlobalTableSettings:
+		return h.handleUpdateGlobalTableSettings(ctx, body)
+	default:
+		return nil, ErrUnknownOperation
+	}
+}
+
+func (h *DynamoDBHandler) dispatchKinesisOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
+	switch action {
+	case opEnableKinesisStreamingDestination:
+		return h.handleEnableKinesisStreamingDestination(ctx, body)
+	case opDescribeKinesisStreamingDestination:
+		return h.handleDescribeKinesisStreamingDestination(ctx, body)
+	case opDisableKinesisStreamingDestination:
+		return h.handleDisableKinesisStreamingDestination(ctx, body)
+	case opUpdateKinesisStreamingDestination:
+		return h.handleUpdateKinesisStreamingDestination(ctx, body)
+	default:
+		return nil, ErrUnknownOperation
+	}
+}
+
+func (h *DynamoDBHandler) dispatchContribAndPolicyOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
+	switch action {
+	case opDescribeLimits:
+		return h.handleDescribeLimits(ctx)
+	case opDescribeEndpoints:
+		return h.handleDescribeEndpoints(ctx)
+	case opDescribeContributorInsights:
+		return h.handleDescribeContributorInsights(ctx, body)
+	case opListContributorInsights:
+		return h.handleListContributorInsights(ctx, body)
+	case opUpdateContributorInsights:
+		return h.handleUpdateContributorInsights(ctx, body)
+	case opUpdateTableReplicaAutoScaling:
+		return h.handleUpdateTableReplicaAutoScaling(ctx, body)
+	case opGetResourcePolicy:
+		return h.handleGetResourcePolicy(ctx, body)
+	case opPutResourcePolicy:
+		return h.handlePutResourcePolicy(ctx, body)
+	case opDeleteResourcePolicy:
+		return h.handleDeleteResourcePolicy(ctx, body)
+	default:
+		return nil, ErrUnknownOperation
+	}
+}
+
+func (h *DynamoDBHandler) dispatchImportOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
+	switch action {
+	case opDescribeImport:
+		return h.handleDescribeImport(ctx, body)
+	case opImportTable:
+		return h.handleImportTable(ctx, body)
+	case opListImports:
+		return h.handleListImports(ctx, body)
+	default:
+		return nil, ErrUnknownOperation
+	}
 }

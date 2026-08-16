@@ -3061,6 +3061,109 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses a fixed port that cannot be parallelised
+func TestLocalstackCompatibilityEndpoints(t *testing.T) {
+	port := freeTCPPort(t)
+	cli := parseCLI(t, map[string]string{"PORT": strconv.Itoa(port)})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cli)
+	}()
+
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+
+		return resp.StatusCode == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
+
+	tests := []struct {
+		validate func(t *testing.T, body map[string]any)
+		name     string
+		path     string
+	}{
+		{
+			name: "localstack_health",
+			path: "/_localstack/health",
+			validate: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				assert.Equal(t, "community", body["edition"])
+				assert.NotEmpty(t, body["version"])
+				services, ok := body["services"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "available", services["s3"])
+				assert.Equal(t, "available", services["dynamodb"])
+			},
+		},
+		{
+			name: "aws_health",
+			path: "/_aws/health",
+			validate: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				assert.Equal(t, "community", body["edition"])
+				services, ok := body["services"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "available", services["s3"])
+			},
+		},
+		{
+			name: "localstack_init",
+			path: "/_localstack/init",
+			validate: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				assert.Equal(t, true, body["completed"])
+				assert.NotNil(t, body["scripts"])
+			},
+		},
+		{
+			name: "localstack_init_ready",
+			path: "/_localstack/init/ready",
+			validate: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				assert.Equal(t, true, body["completed"])
+			},
+		},
+		{
+			name: "localstack_info",
+			path: "/_localstack/info",
+			validate: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				assert.Equal(t, "community", body["edition"])
+				assert.Equal(t, false, body["is_auth"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := http.Get(fmt.Sprintf("http://localhost:%d%s", port, tt.path))
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+			tt.validate(t, body)
+		})
+	}
+
+	cancel()
+
+	select {
+	case shutdownErr := <-errCh:
+		require.NoError(t, shutdownErr)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "server did not shut down within timeout")
+	}
+}
+
 // TestCustomHTTPErrorHandler_LogsServerErrors verifies that the custom Echo error
 // handler returns the correct status code for server errors (5xx).
 func TestCustomHTTPErrorHandler_LogsServerErrors(t *testing.T) {

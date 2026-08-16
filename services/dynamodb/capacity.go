@@ -163,3 +163,110 @@ func applyConsistentReadMultiplier(rcu float64, consistentRead bool) float64 {
 
 	return rcu
 }
+
+// consumedCapacityForReadOp returns a populated ConsumedCapacity for Query or Scan operations.
+func consumedCapacityForReadOp(
+	tableName string,
+	req types.ReturnConsumedCapacity,
+	count int,
+	consistentRead bool,
+	indexName string,
+	table *Table,
+) *types.ConsumedCapacity {
+	if req == "" || req == types.ReturnConsumedCapacityNone {
+		return nil
+	}
+	const halfRCU = 0.5
+	cu := float64(count) * halfRCU
+	if cu < halfRCU {
+		cu = halfRCU
+	}
+	cu = applyConsistentReadMultiplier(cu, consistentRead)
+
+	var (
+		tableRCU float64
+		gsiRCU   map[string]float64
+		lsiRCU   map[string]float64
+	)
+
+	if indexName != "" && table != nil {
+		if isIndexGSI(table, indexName) {
+			gsiRCU = map[string]float64{indexName: cu}
+		} else {
+			lsiRCU = map[string]float64{indexName: cu}
+		}
+	} else {
+		tableRCU = cu
+	}
+
+	return buildConsumedCapacityWithIndexes(
+		tableName,
+		req,
+		tableRCU, 0,
+		gsiRCU, nil,
+		lsiRCU, nil,
+	)
+}
+
+func isIndexGSI(table *Table, indexName string) bool {
+	for i := range table.GlobalSecondaryIndexes {
+		if table.GlobalSecondaryIndexes[i].IndexName == indexName {
+			return true
+		}
+	}
+
+	return false
+}
+
+// calculateWriteIndexBreakdowns determines WCU consumed on GSIs and LSIs populated by item.
+func calculateWriteIndexBreakdowns(
+	table *Table,
+	item map[string]any,
+	writeUnits float64,
+) (map[string]float64, map[string]float64) {
+	if item == nil || writeUnits <= 0 || table == nil {
+		return nil, nil
+	}
+
+	return calculateGSIWriteBreakdowns(table, item, writeUnits), calculateLSIWriteBreakdowns(table, item, writeUnits)
+}
+
+func calculateGSIWriteBreakdowns(table *Table, item map[string]any, writeUnits float64) map[string]float64 {
+	if len(table.GlobalSecondaryIndexes) == 0 {
+		return nil
+	}
+
+	var gsiWCU map[string]float64
+	for i := range table.GlobalSecondaryIndexes {
+		gsi := &table.GlobalSecondaryIndexes[i]
+		pkDef, skDef := getPKAndSK(gsi.KeySchema)
+		if _, _, ok := secondaryItemKeyValues(item, pkDef, skDef); ok {
+			if gsiWCU == nil {
+				gsiWCU = make(map[string]float64)
+			}
+			gsiWCU[gsi.IndexName] = writeUnits
+		}
+	}
+
+	return gsiWCU
+}
+
+func calculateLSIWriteBreakdowns(table *Table, item map[string]any, writeUnits float64) map[string]float64 {
+	if len(table.LocalSecondaryIndexes) == 0 {
+		return nil
+	}
+
+	var lsiWCU map[string]float64
+	for i := range table.LocalSecondaryIndexes {
+		lsi := &table.LocalSecondaryIndexes[i]
+		pkDef, skDef := getPKAndSK(lsi.KeySchema)
+		if _, _, ok := secondaryItemKeyValues(item, pkDef, skDef); ok {
+			if lsiWCU == nil {
+				lsiWCU = make(map[string]float64)
+			}
+			lsiWCU[lsi.IndexName] = writeUnits
+		}
+	}
+
+	return lsiWCU
+}

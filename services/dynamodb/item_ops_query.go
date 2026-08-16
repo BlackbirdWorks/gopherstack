@@ -15,32 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-// consumedCapacityForQuery returns a populated ConsumedCapacity when the caller
-// has requested capacity reporting. Returns nil when reporting is disabled.
-func consumedCapacityForQuery(
-	tableName string,
-	req types.ReturnConsumedCapacity,
-	scanned int,
-	consistentRead bool,
-) *types.ConsumedCapacity {
-	if req == "" || req == types.ReturnConsumedCapacityNone {
-		return nil
-	}
-	const halfRCU = 0.5
-	cu := float64(scanned) * halfRCU
-	if cu < halfRCU {
-		cu = halfRCU
-	}
-	// Strongly-consistent reads cost twice as much as eventually-consistent ones.
-	cu = applyConsistentReadMultiplier(cu, consistentRead)
-
-	return &types.ConsumedCapacity{
-		TableName:         aws.String(tableName),
-		CapacityUnits:     aws.Float64(cu),
-		ReadCapacityUnits: aws.Float64(cu),
-	}
-}
-
 func (db *InMemoryDB) Query(
 	ctx context.Context,
 	input *dynamodb.QueryInput,
@@ -131,7 +105,7 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	return db.processQueryResults(
-		ctx, candidates, input, keySchema, snapshotTable.KeySchema, ttlAttr,
+		ctx, candidates, input, keySchema, snapshotTable.KeySchema, ttlAttr, snapshotTable,
 	), nil
 }
 
@@ -532,6 +506,7 @@ func (db *InMemoryDB) processQueryResults(
 	keySchema []models.KeySchemaElement,
 	tableKeySchema []models.KeySchemaElement,
 	ttlAttr string,
+	table *Table,
 ) *dynamodb.QueryOutput {
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	exclusiveStartKey := models.FromSDKItem(input.ExclusiveStartKey)
@@ -565,9 +540,9 @@ func (db *InMemoryDB) processQueryResults(
 		Items:        outItems,
 		Count:        int32(len(items)),   // #nosec G115
 		ScannedCount: int32(scannedCount), // #nosec G115
-		ConsumedCapacity: consumedCapacityForQuery(
+		ConsumedCapacity: consumedCapacityForReadOp(
 			aws.ToString(input.TableName), input.ReturnConsumedCapacity, scannedCount,
-			aws.ToBool(input.ConsistentRead),
+			aws.ToBool(input.ConsistentRead), aws.ToString(input.IndexName), table,
 		),
 	}
 

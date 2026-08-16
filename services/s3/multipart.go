@@ -307,6 +307,7 @@ type multipartAssemblyResult struct {
 	etag           string
 	data           []byte
 	compressedData []byte
+	parts          []StoredObjectPart
 	isCompressed   bool
 }
 
@@ -316,7 +317,7 @@ type multipartAssemblyResult struct {
 func (b *InMemoryBackend) collectPartsData(
 	upload *StoredMultipartUpload,
 	parts []types.CompletedPart,
-) ([]byte, []byte, error) {
+) ([]byte, []byte, []StoredObjectPart, error) {
 	upload.mu.RLock(opCompleteMultipartUpload)
 	defer upload.mu.RUnlock()
 
@@ -330,11 +331,11 @@ func (b *InMemoryBackend) collectPartsData(
 func (b *InMemoryBackend) collectPartsDataLocked(
 	upload *StoredMultipartUpload,
 	parts []types.CompletedPart,
-) ([]byte, []byte, error) {
+) ([]byte, []byte, []StoredObjectPart, error) {
 	// Validate ascending order.
 	for i := 1; i < len(parts); i++ {
 		if *parts[i].PartNumber <= *parts[i-1].PartNumber {
-			return nil, nil, ErrInvalidPartOrder
+			return nil, nil, nil, ErrInvalidPartOrder
 		}
 	}
 
@@ -348,17 +349,19 @@ func (b *InMemoryBackend) collectPartsDataLocked(
 
 	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
 	md5s := make([]byte, 0, len(parts)*md5.Size)
+	partsMeta := make([]StoredObjectPart, 0, len(parts))
 
 	for i, part := range parts {
-		rawBytes, err := b.validateAndAppendPart(upload, part, i == len(parts)-1, buf)
+		rawBytes, spMeta, err := b.validateAndAppendPart(upload, part, i == len(parts)-1, buf)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		md5s = append(md5s, rawBytes...)
+		partsMeta = append(partsMeta, spMeta)
 	}
 
-	return buf.Bytes(), md5s, nil
+	return buf.Bytes(), md5s, partsMeta, nil
 }
 
 // validateAndAppendPart validates a single completed part against its stored
@@ -370,19 +373,19 @@ func (b *InMemoryBackend) validateAndAppendPart(
 	part types.CompletedPart,
 	isLastPart bool,
 	buf *bytes.Buffer,
-) ([]byte, error) {
+) ([]byte, StoredObjectPart, error) {
 	pNum := *part.PartNumber
 	storedPart, ok := upload.Parts[pNum]
 	if !ok {
-		return nil, ErrInvalidPart
+		return nil, StoredObjectPart{}, ErrInvalidPart
 	}
 
 	if *part.ETag != storedPart.ETag {
-		return nil, ErrInvalidPart
+		return nil, StoredObjectPart{}, ErrInvalidPart
 	}
 
 	if !isLastPart && storedPart.Size < multipartMinPartSize && !b.skipMultipartSizeCheck {
-		return nil, ErrEntityTooSmall
+		return nil, StoredObjectPart{}, ErrEntityTooSmall
 	}
 
 	buf.Write(storedPart.Data)
@@ -391,10 +394,20 @@ func (b *InMemoryBackend) validateAndAppendPart(
 
 	rawBytes, err := hex.DecodeString(rawETag)
 	if err != nil {
-		return nil, ErrInvalidPart
+		return nil, StoredObjectPart{}, ErrInvalidPart
 	}
 
-	return rawBytes, nil
+	meta := StoredObjectPart{
+		PartNumber:        pNum,
+		Size:              storedPart.Size,
+		ChecksumCRC32:     storedPart.ChecksumCRC32,
+		ChecksumCRC32C:    storedPart.ChecksumCRC32C,
+		ChecksumCRC64NVME: storedPart.ChecksumCRC64NVME,
+		ChecksumSHA1:      storedPart.ChecksumSHA1,
+		ChecksumSHA256:    storedPart.ChecksumSHA256,
+	}
+
+	return rawBytes, meta, nil
 }
 
 // assembleMultipartData reads all parts under the per-upload read lock, assembles
@@ -414,7 +427,7 @@ func (b *InMemoryBackend) assembleMultipartData(
 
 	parts := input.MultipartUpload.Parts
 
-	data, partMD5s, err := b.collectPartsData(upload, parts)
+	data, partMD5s, partsMeta, err := b.collectPartsData(upload, parts)
 	if err != nil {
 		return multipartAssemblyResult{}, err
 	}
@@ -442,6 +455,7 @@ func (b *InMemoryBackend) assembleMultipartData(
 		data:           data,
 		compressedData: compressedData,
 		etag:           etag,
+		parts:          partsMeta,
 		isCompressed:   isCompressed,
 	}, nil
 }
@@ -512,6 +526,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 			IsCompressed:    assembled.isCompressed,
 			Size:            int64(len(assembled.data)),
 			ETag:            assembled.etag,
+			Parts:           assembled.parts,
 			LastModified:    time.Now(),
 			IsLatest:        true,
 			SSEAlgorithm:    sse.Algorithm,
