@@ -216,7 +216,7 @@ func ToSDKAttributeValue(v any) (types.AttributeValue, error) {
 }
 
 func ToSDKMapAttribute(m map[string]any) (*types.AttributeValueMemberM, error) {
-	out := make(map[string]types.AttributeValue)
+	out := make(map[string]types.AttributeValue, len(m))
 	for k, v := range m {
 		sdkVal, err := ToSDKAttributeValue(v)
 		if err != nil {
@@ -229,13 +229,13 @@ func ToSDKMapAttribute(m map[string]any) (*types.AttributeValueMemberM, error) {
 }
 
 func ToSDKListAttribute(l []any) (types.AttributeValue, error) {
-	var out []types.AttributeValue
-	for _, v := range l {
+	out := make([]types.AttributeValue, len(l))
+	for i, v := range l {
 		sdkVal, err := ToSDKAttributeValue(v)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, sdkVal)
+		out[i] = sdkVal
 	}
 
 	return &types.AttributeValueMemberL{Value: out}, nil
@@ -254,9 +254,9 @@ func FromSDKAttributeValue(av types.AttributeValue) any {
 	case *types.AttributeValueMemberBOOL:
 		return map[string]any{"BOOL": v.Value}
 	case *types.AttributeValueMemberNULL:
-		return map[string]any{"NULL": true}
+		return map[string]any{"NULL": v.Value}
 	case *types.AttributeValueMemberM:
-		m := make(map[string]any)
+		m := make(map[string]any, len(v.Value))
 		for k, val := range v.Value {
 			m[k] = FromSDKAttributeValue(val)
 		}
@@ -287,7 +287,7 @@ func FromSDKAttributeValue(av types.AttributeValue) any {
 
 // ToSDKItem converts a map[string]any (wire item) to map[string]types.AttributeValue.
 func ToSDKItem(item map[string]any) (map[string]types.AttributeValue, error) {
-	out := make(map[string]types.AttributeValue)
+	out := make(map[string]types.AttributeValue, len(item))
 	for k, v := range item {
 		av, err := ToSDKAttributeValue(v)
 		if err != nil {
@@ -301,7 +301,7 @@ func ToSDKItem(item map[string]any) (map[string]types.AttributeValue, error) {
 
 // FromSDKItem converts map[string]types.AttributeValue back to map[string]any (wire item).
 func FromSDKItem(item map[string]types.AttributeValue) map[string]any {
-	out := make(map[string]any)
+	out := make(map[string]any, len(item))
 	for k, v := range item {
 		out[k] = FromSDKAttributeValue(v)
 	}
