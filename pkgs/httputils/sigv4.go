@@ -193,13 +193,13 @@ func parseAuthorizationHeader(auth string) (parsedAuthHeader, *SigV4Error) {
 	}
 
 	// Credential scope: AKID/date/region/service/aws4_request.
-	scope := strings.Split(p.credential, "/")
-	if len(scope) < minSigV4CredentialParts {
+	scope := parseValidSigV4Scope(p.credential)
+	if scope == nil {
 		return p, malformed
 	}
 
-	p.date = scope[1]
-	p.region = scope[2]
+	p.date = scope[sigV4DateIndex]
+	p.region = scope[sigV4RegionIndex]
 	p.service = scope[sigV4ServiceIndex]
 	sort.Strings(p.signedHeaders)
 

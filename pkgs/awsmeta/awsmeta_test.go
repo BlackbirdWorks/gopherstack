@@ -71,61 +71,94 @@ func TestGetSet(t *testing.T) {
 	}
 }
 
-func TestConvenienceAccessors(t *testing.T) {
+func TestExtractors(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		ctx         context.Context //nolint:containedctx // table-driven test input
+	type metaArgs struct {
+		setupCtx func(t *testing.T) context.Context
+	}
+
+	type metaWant struct {
 		region      string
 		account     string
 		partition   string
 		accessKeyID string
 		service     string
+	}
+
+	tests := []struct {
+		name string
+		args metaArgs
+		want metaWant
 	}{
 		{
-			name:        "nil-context-returns-defaults",
-			ctx:         nil,
-			region:      "",
-			account:     awsmeta.DefaultAccount,
-			partition:   awsmeta.DefaultPartition,
-			accessKeyID: "",
-			service:     "",
+			name: "nil-context-returns-defaults",
+			args: metaArgs{
+				setupCtx: func(t *testing.T) context.Context {
+					t.Helper()
+
+					return nil
+				},
+			},
+			want: metaWant{
+				region:      "",
+				account:     awsmeta.DefaultAccount,
+				partition:   awsmeta.DefaultPartition,
+				accessKeyID: "",
+				service:     "",
+			},
 		},
 		{
-			name:        "empty-context-returns-defaults",
-			ctx:         context.Background(),
-			region:      "",
-			account:     awsmeta.DefaultAccount,
-			partition:   awsmeta.DefaultPartition,
-			accessKeyID: "",
-			service:     "",
+			name: "empty-context-returns-defaults",
+			args: metaArgs{
+				setupCtx: func(t *testing.T) context.Context {
+					t.Helper()
+
+					return t.Context()
+				},
+			},
+			want: metaWant{
+				region:      "",
+				account:     awsmeta.DefaultAccount,
+				partition:   awsmeta.DefaultPartition,
+				accessKeyID: "",
+				service:     "",
+			},
 		},
 		{
 			name: "populated-context",
-			ctx: awsmeta.Set(context.Background(), &awsmeta.Metadata{
-				Account:     "111111111111",
-				Region:      "eu-west-1",
-				Partition:   "aws",
-				AccessKeyID: "AKIAIOSFODNN7EXAMPLE",
-				Service:     "dynamodb",
-			}),
-			region:      "eu-west-1",
-			account:     "111111111111",
-			partition:   "aws",
-			accessKeyID: "AKIAIOSFODNN7EXAMPLE",
-			service:     "dynamodb",
+			args: metaArgs{
+				setupCtx: func(t *testing.T) context.Context {
+					t.Helper()
+
+					return awsmeta.Set(t.Context(), &awsmeta.Metadata{
+						Account:     "111111111111",
+						Region:      "eu-west-1",
+						Partition:   "aws",
+						AccessKeyID: "AKIAIOSFODNN7EXAMPLE",
+						Service:     "dynamodb",
+					})
+				},
+			},
+			want: metaWant{
+				region:      "eu-west-1",
+				account:     "111111111111",
+				partition:   "aws",
+				accessKeyID: "AKIAIOSFODNN7EXAMPLE",
+				service:     "dynamodb",
+			},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tc.region, awsmeta.Region(tc.ctx))
-			assert.Equal(t, tc.account, awsmeta.Account(tc.ctx))
-			assert.Equal(t, tc.partition, awsmeta.Partition(tc.ctx))
-			assert.Equal(t, tc.accessKeyID, awsmeta.AccessKeyID(tc.ctx))
-			assert.Equal(t, tc.service, awsmeta.Service(tc.ctx))
+			ctx := tc.args.setupCtx(t)
+			assert.Equal(t, tc.want.region, awsmeta.Region(ctx))
+			assert.Equal(t, tc.want.account, awsmeta.Account(ctx))
+			assert.Equal(t, tc.want.partition, awsmeta.Partition(ctx))
+			assert.Equal(t, tc.want.accessKeyID, awsmeta.AccessKeyID(ctx))
+			assert.Equal(t, tc.want.service, awsmeta.Service(ctx))
 		})
 	}
 }

@@ -3074,8 +3074,10 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
+	client := &http.Client{Timeout: 2 * time.Second}
+
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
 		if err != nil {
 			return false
 		}
@@ -3137,13 +3139,15 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 				t.Helper()
 				assert.Equal(t, "community", body["edition"])
 				assert.Equal(t, false, body["is_auth"])
+				assert.NotEmpty(t, body["version"])
+				assert.Equal(t, "00000000-0000-0000-0000-000000000000", body["session_id"])
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := http.Get(fmt.Sprintf("http://localhost:%d%s", port, tt.path))
+			resp, err := client.Get(fmt.Sprintf("http://localhost:%d%s", port, tt.path))
 			require.NoError(t, err)
 			defer resp.Body.Close()
 

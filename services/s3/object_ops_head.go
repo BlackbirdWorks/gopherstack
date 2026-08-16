@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -151,7 +152,7 @@ func (h *S3Handler) writeHeadObjectResponse(
 // ObjectSize carries no omitempty: a legitimate 0-byte object must still emit
 // <ObjectSize>0</ObjectSize> so the SDK populates its *int64 field.
 type objectAttributesResult struct {
-	XMLName      xml.Name               `xml:"GetObjectAttributesResult"`
+	XMLName      xml.Name               `xml:"GetObjectAttributesResponse"`
 	Xmlns        string                 `xml:"xmlns,attr"`
 	ETag         string                 `xml:"ETag,omitempty"`
 	Checksum     *attrsChecksumElem     `xml:"Checksum,omitempty"`
@@ -246,6 +247,32 @@ func buildObjectPartElem(p StoredObjectPart) objectPartElem {
 	return pe
 }
 
+func parseObjectAttributesPagination(r *http.Request) (int32, int32) {
+	maxParts := int32(defaultMaxPartsCount)
+	if mpStr := r.URL.Query().Get("max-parts"); mpStr != "" {
+		if mp, err := strconv.ParseInt(mpStr, 10, 32); err == nil && mp > 0 {
+			maxParts = int32(mp) // #nosec G115
+		}
+	} else if mpHdr := r.Header.Get("X-Amz-Max-Parts"); mpHdr != "" {
+		if mp, err := strconv.ParseInt(mpHdr, 10, 32); err == nil && mp > 0 {
+			maxParts = int32(mp) // #nosec G115
+		}
+	}
+
+	partMarker := int32(0)
+	if pnmStr := r.URL.Query().Get("part-number-marker"); pnmStr != "" {
+		if pnm, err := strconv.ParseInt(pnmStr, 10, 32); err == nil && pnm >= 0 {
+			partMarker = int32(pnm) // #nosec G115
+		}
+	} else if pnmHdr := r.Header.Get("X-Amz-Part-Number-Marker"); pnmHdr != "" {
+		if pnm, err := strconv.ParseInt(pnmHdr, 10, 32); err == nil && pnm >= 0 {
+			partMarker = int32(pnm) // #nosec G115
+		}
+	}
+
+	return maxParts, partMarker
+}
+
 // handleGetObjectAttributes handles GET /{bucket}/{key}?attributes.
 // The X-Amz-Object-Attributes header lists which attributes the caller wants;
 // we always return the full set we support (ETag, ObjectSize, StorageClass, Checksum, ObjectParts).
@@ -267,8 +294,9 @@ func (h *S3Handler) handleGetObjectAttributes(
 	}
 
 	versionID := r.URL.Query().Get("versionId")
+	maxParts, partMarker := parseObjectAttributesPagination(r)
 
-	attrs, err := h.Backend.GetObjectAttributes(ctx, bucket, key, versionID)
+	attrs, err := h.Backend.GetObjectAttributes(ctx, bucket, key, versionID, maxParts, partMarker)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 

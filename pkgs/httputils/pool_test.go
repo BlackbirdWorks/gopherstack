@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"crypto/sha256"
+	"hash"
 	"hash/crc32"
 	"testing"
 
@@ -59,59 +60,131 @@ func TestBufferPool(t *testing.T) {
 func TestHasherPools(t *testing.T) {
 	t.Parallel()
 
+	type poolArgs struct {
+		acquire func() hash.Hash
+		release func(hash.Hash)
+		compute func([]byte) []byte
+		payload []byte
+	}
+
+	type poolWant struct {
+		payloadSum []byte
+		emptySum   []byte
+	}
+
 	payload := []byte("gopherstack fast hashing test payload")
 
 	tests := []struct {
-		getHasher func() any
-		compute   func([]byte) []byte
-		name      string
+		name string
+		args poolArgs
+		want poolWant
 	}{
 		{
 			name: "crc32",
-			getHasher: func() any {
-				return httputils.GetCRC32()
-			},
-			compute: func(b []byte) []byte {
-				h := crc32.NewIEEE()
-				h.Write(b)
+			args: poolArgs{
+				payload: payload,
+				acquire: func() hash.Hash {
+					return httputils.GetCRC32()
+				},
+				release: func(h hash.Hash) {
+					if h32, ok := h.(hash.Hash32); ok {
+						httputils.PutCRC32(h32)
+					}
+				},
+				compute: func(b []byte) []byte {
+					h := crc32.NewIEEE()
+					h.Write(b)
 
-				return h.Sum(nil)
+					return h.Sum(nil)
+				},
+			},
+			want: poolWant{
+				payloadSum: func() []byte {
+					h := crc32.NewIEEE()
+					h.Write(payload)
+
+					return h.Sum(nil)
+				}(),
+				emptySum: crc32.NewIEEE().Sum(nil),
 			},
 		},
 		{
 			name: "crc32c",
-			getHasher: func() any {
-				return httputils.GetCRC32C()
-			},
-			compute: func(b []byte) []byte {
-				h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
-				h.Write(b)
+			args: poolArgs{
+				payload: payload,
+				acquire: func() hash.Hash {
+					return httputils.GetCRC32C()
+				},
+				release: func(h hash.Hash) {
+					if h32, ok := h.(hash.Hash32); ok {
+						httputils.PutCRC32C(h32)
+					}
+				},
+				compute: func(b []byte) []byte {
+					h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+					h.Write(b)
 
-				return h.Sum(nil)
+					return h.Sum(nil)
+				},
+			},
+			want: poolWant{
+				payloadSum: func() []byte {
+					h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+					h.Write(payload)
+
+					return h.Sum(nil)
+				}(),
+				emptySum: crc32.New(crc32.MakeTable(crc32.Castagnoli)).Sum(nil),
 			},
 		},
 		{
 			name: "sha256",
-			getHasher: func() any {
-				return httputils.GetSHA256()
-			},
-			compute: func(b []byte) []byte {
-				h := sha256.New()
-				h.Write(b)
+			args: poolArgs{
+				payload: payload,
+				acquire: httputils.GetSHA256,
+				release: func(h hash.Hash) {
+					httputils.PutSHA256(h)
+				},
+				compute: func(b []byte) []byte {
+					h := sha256.New()
+					h.Write(b)
 
-				return h.Sum(nil)
+					return h.Sum(nil)
+				},
+			},
+			want: poolWant{
+				payloadSum: func() []byte {
+					h := sha256.New()
+					h.Write(payload)
+
+					return h.Sum(nil)
+				}(),
+				emptySum: sha256.New().Sum(nil),
 			},
 		},
 		{
 			name: "md5",
-			getHasher: func() any {
-				return httputils.GetMD5()
-			},
-			compute: func(b []byte) []byte {
-				h := md5.New()
-				h.Write(b)
+			args: poolArgs{
+				payload: payload,
+				acquire: httputils.GetMD5,
+				release: func(h hash.Hash) {
+					httputils.PutMD5(h)
+				},
+				compute: func(b []byte) []byte {
+					h := md5.New()
+					h.Write(b)
 
-				return h.Sum(nil)
+					return h.Sum(nil)
+				},
+			},
+			want: poolWant{
+				payloadSum: func() []byte {
+					h := md5.New()
+					h.Write(payload)
+
+					return h.Sum(nil)
+				}(),
+				emptySum: md5.New().Sum(nil),
 			},
 		},
 	}
@@ -120,38 +193,18 @@ func TestHasherPools(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			expected := tt.compute(payload)
+			h := tt.args.acquire()
+			require.NotNil(t, h)
+			_, err := h.Write(tt.args.payload)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want.payloadSum, h.Sum(nil))
 
-			h1 := httputils.GetCRC32()
-			h1.Write(payload)
-			sum1 := h1.Sum(nil)
-			httputils.PutCRC32(h1)
+			tt.args.release(h)
 
-			h2 := httputils.GetCRC32C()
-			h2.Write(payload)
-			sum2 := h2.Sum(nil)
-			httputils.PutCRC32C(h2)
-
-			h3 := httputils.GetSHA256()
-			h3.Write(payload)
-			sum3 := h3.Sum(nil)
-			httputils.PutSHA256(h3)
-
-			h4 := httputils.GetMD5()
-			h4.Write(payload)
-			sum4 := h4.Sum(nil)
-			httputils.PutMD5(h4)
-
-			switch tt.name {
-			case "crc32":
-				assert.Equal(t, expected, sum1)
-			case "crc32c":
-				assert.Equal(t, expected, sum2)
-			case "sha256":
-				assert.Equal(t, expected, sum3)
-			case "md5":
-				assert.Equal(t, expected, sum4)
-			}
+			h2 := tt.args.acquire()
+			require.NotNil(t, h2)
+			assert.Equal(t, tt.want.emptySum, h2.Sum(nil))
+			tt.args.release(h2)
 		})
 	}
 }

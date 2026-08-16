@@ -1,3 +1,4 @@
+// Package httputils provides reusable HTTP utility components.
 package httputils
 
 import (

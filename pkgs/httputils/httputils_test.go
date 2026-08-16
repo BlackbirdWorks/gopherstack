@@ -361,6 +361,93 @@ func TestExtractRegionFromRequest(t *testing.T) {
 	}
 }
 
+func TestExtractServiceAndAccessKeyFromRequest(t *testing.T) {
+	t.Parallel()
+
+	type reqArgs struct {
+		auth  string
+		query string
+	}
+
+	type reqWant struct {
+		accessKey string
+		service   string
+		region    string
+	}
+
+	tests := []struct {
+		name string
+		args reqArgs
+		want reqWant
+	}{
+		{
+			name: "valid_authorization_header",
+			args: reqArgs{
+				auth: "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20240101/us-east-1/dynamodb/aws4_request, " +
+					"SignedHeaders=host, Signature=abc",
+			},
+			want: reqWant{
+				accessKey: "AKIAIOSFODNN7EXAMPLE",
+				service:   "dynamodb",
+				region:    "us-east-1",
+			},
+		},
+		{
+			name: "valid_query_credential",
+			args: reqArgs{
+				query: "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE/20240101/us-west-2/s3/aws4_request",
+			},
+			want: reqWant{
+				accessKey: "AKIAIOSFODNN7EXAMPLE",
+				service:   "s3",
+				region:    "us-west-2",
+			},
+		},
+		{
+			name: "malformed_auth_falls_back_to_valid_query",
+			args: reqArgs{
+				auth:  "AWS4-HMAC-SHA256 Credential=bad/short/scope, SignedHeaders=host, Signature=abc",
+				query: "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE/20240101/ap-south-1/sns/aws4_request",
+			},
+			want: reqWant{
+				accessKey: "AKIAIOSFODNN7EXAMPLE",
+				service:   "sns",
+				region:    "ap-south-1",
+			},
+		},
+		{
+			name: "incomplete_scope_rejected",
+			args: reqArgs{
+				auth: "AWS4-HMAC-SHA256 Credential=AKIA/20240101/eu-central-1/sqs, SignedHeaders=host",
+			},
+			want: reqWant{
+				accessKey: "",
+				service:   "",
+				region:    "us-east-1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			target := "/"
+			if tt.args.query != "" {
+				target += "?" + tt.args.query
+			}
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+			if tt.args.auth != "" {
+				req.Header.Set("Authorization", tt.args.auth)
+			}
+
+			assert.Equal(t, tt.want.accessKey, httputils.ExtractAccessKeyFromRequest(req))
+			assert.Equal(t, tt.want.service, httputils.ExtractServiceFromRequest(req))
+			assert.Equal(t, tt.want.region, httputils.ExtractRegionFromRequest(req, "us-east-1"))
+		})
+	}
+}
+
 func TestWriteS3ErrorResponse(t *testing.T) {
 	t.Parallel()
 

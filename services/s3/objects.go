@@ -69,11 +69,72 @@ type ObjectPartsAttributes struct {
 	IsTruncated          bool
 }
 
+func extractObjectChecksums(ver *StoredObjectVersion) map[string]string {
+	c := make(map[string]string)
+	if ver.ChecksumSHA1 != nil {
+		c["ChecksumSHA1"] = *ver.ChecksumSHA1
+	}
+	if ver.ChecksumSHA256 != nil {
+		c["ChecksumSHA256"] = *ver.ChecksumSHA256
+	}
+	if ver.ChecksumCRC32 != nil {
+		c["ChecksumCRC32"] = *ver.ChecksumCRC32
+	}
+	if ver.ChecksumCRC32C != nil {
+		c["ChecksumCRC32C"] = *ver.ChecksumCRC32C
+	}
+	if ver.ChecksumCRC64NVME != nil {
+		c["ChecksumCRC64NVME"] = *ver.ChecksumCRC64NVME
+	}
+
+	return c
+}
+
+func buildObjectPartsAttributes(
+	parts []StoredObjectPart,
+	maxParts, partNumberMarker int32,
+) *ObjectPartsAttributes {
+	if len(parts) == 0 {
+		return nil
+	}
+	if maxParts <= 0 {
+		maxParts = defaultMaxPartsCount
+	}
+
+	var filtered []StoredObjectPart
+	for _, p := range parts {
+		if p.PartNumber > partNumberMarker {
+			filtered = append(filtered, p)
+		}
+	}
+
+	totalParts := int32(len(parts)) // #nosec G115
+	isTruncated := false
+	var nextMarker int32
+	if int32(len(filtered)) > maxParts { // #nosec G115
+		isTruncated = true
+		filtered = filtered[:maxParts]
+		if len(filtered) > 0 {
+			nextMarker = filtered[len(filtered)-1].PartNumber
+		}
+	}
+
+	return &ObjectPartsAttributes{
+		Parts:                filtered,
+		TotalPartsCount:      totalParts,
+		PartNumberMarker:     partNumberMarker,
+		NextPartNumberMarker: nextMarker,
+		MaxParts:             maxParts,
+		IsTruncated:          isTruncated,
+	}
+}
+
 // GetObjectAttributes returns selected attributes for the latest version of an object.
 // versionID may be empty to select the latest version.
 func (b *InMemoryBackend) GetObjectAttributes(
 	_ context.Context,
 	bucketName, key, versionID string,
+	maxParts, partNumberMarker int32,
 ) (*ObjectAttributes, error) {
 	b.mu.RLock("GetObjectAttributes")
 	bucket, err := b.getBucket(bucketName)
@@ -84,10 +145,10 @@ func (b *InMemoryBackend) GetObjectAttributes(
 	}
 
 	bucket.mu.RLock("GetObjectAttributes")
-	defer bucket.mu.RUnlock()
+	obj, exists := bucket.Objects[key]
+	bucket.mu.RUnlock()
 
-	obj, ok := bucket.Objects[key]
-	if !ok {
+	if !exists {
 		return nil, ErrNoSuchKey
 	}
 
@@ -104,44 +165,14 @@ func (b *InMemoryBackend) GetObjectAttributes(
 		return nil, ErrNoSuchKey
 	}
 
-	out := &ObjectAttributes{
+	return &ObjectAttributes{
 		ETag:         ver.ETag,
 		ObjectSize:   ver.Size,
 		StorageClass: ver.StorageClass,
 		LastModified: ver.LastModified,
-		Checksum:     map[string]string{},
-	}
-
-	if out.StorageClass == "" {
-		out.StorageClass = storageStandard
-	}
-
-	if ver.ChecksumSHA1 != nil {
-		out.Checksum["ChecksumSHA1"] = *ver.ChecksumSHA1
-	}
-	if ver.ChecksumSHA256 != nil {
-		out.Checksum["ChecksumSHA256"] = *ver.ChecksumSHA256
-	}
-	if ver.ChecksumCRC32 != nil {
-		out.Checksum["ChecksumCRC32"] = *ver.ChecksumCRC32
-	}
-	if ver.ChecksumCRC32C != nil {
-		out.Checksum["ChecksumCRC32C"] = *ver.ChecksumCRC32C
-	}
-	if ver.ChecksumCRC64NVME != nil {
-		out.Checksum["ChecksumCRC64NVME"] = *ver.ChecksumCRC64NVME
-	}
-
-	if len(ver.Parts) > 0 {
-		out.Parts = &ObjectPartsAttributes{
-			Parts:           ver.Parts,
-			TotalPartsCount: int32(len(ver.Parts)), // #nosec G115
-			MaxParts:        defaultMaxPartsCount,
-			IsTruncated:     false,
-		}
-	}
-
-	return out, nil
+		Checksum:     extractObjectChecksums(ver),
+		Parts:        buildObjectPartsAttributes(ver.Parts, maxParts, partNumberMarker),
+	}, nil
 }
 
 // RestoreObject marks the latest object version as restored for the given duration.

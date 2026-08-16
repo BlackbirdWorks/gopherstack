@@ -133,14 +133,18 @@ func TestHandler_GetObjectAttributes_MultipartParts(t *testing.T) {
 	t.Parallel()
 
 	type headArgs struct {
-		bucket    string
-		key       string
-		partCount int
+		bucket      string
+		key         string
+		queryString string
+		partCount   int
 	}
 
 	type headWant struct {
-		wantStatus int
-		wantParts  bool
+		wantStatus           int
+		wantParts            bool
+		wantTruncated        bool
+		wantNextMarker       int
+		wantVisiblePartCount int
 	}
 
 	tests := []struct {
@@ -156,8 +160,39 @@ func TestHandler_GetObjectAttributes_MultipartParts(t *testing.T) {
 				partCount: 2,
 			},
 			want: headWant{
-				wantParts:  true,
-				wantStatus: http.StatusOK,
+				wantParts:            true,
+				wantStatus:           http.StatusOK,
+				wantVisiblePartCount: 2,
+			},
+		},
+		{
+			name: "multipart_object_pagination_max_parts",
+			args: headArgs{
+				bucket:      "mp-bkt-pag",
+				key:         "mp-obj-pag",
+				queryString: "&max-parts=1",
+				partCount:   2,
+			},
+			want: headWant{
+				wantParts:            true,
+				wantTruncated:        true,
+				wantNextMarker:       1,
+				wantVisiblePartCount: 1,
+				wantStatus:           http.StatusOK,
+			},
+		},
+		{
+			name: "multipart_object_pagination_marker",
+			args: headArgs{
+				bucket:      "mp-bkt-marker",
+				key:         "mp-obj-marker",
+				queryString: "&part-number-marker=1",
+				partCount:   2,
+			},
+			want: headWant{
+				wantParts:            true,
+				wantVisiblePartCount: 1,
+				wantStatus:           http.StatusOK,
 			},
 		},
 		{
@@ -218,19 +253,26 @@ func TestHandler_GetObjectAttributes_MultipartParts(t *testing.T) {
 				mustPutObject(t, backend, tt.args.bucket, tt.args.key, []byte("single-put-data"))
 			}
 
-			req := httptest.NewRequest(http.MethodGet, "/"+tt.args.bucket+"/"+tt.args.key+"?attributes", nil)
+			targetURL := "/" + tt.args.bucket + "/" + tt.args.key + "?attributes" + tt.args.queryString
+			req := httptest.NewRequest(http.MethodGet, targetURL, nil)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 
 			require.Equal(t, tt.want.wantStatus, rec.Code)
 			body := rec.Body.String()
-			assert.Contains(t, body, "<GetObjectAttributesResult")
+			assert.Contains(t, body, "<GetObjectAttributesResponse")
 			if tt.want.wantParts {
 				assert.Contains(t, body, "<ObjectParts>")
 				assert.Contains(t, body, fmt.Sprintf("<TotalPartsCount>%d</TotalPartsCount>", tt.args.partCount))
-				for i := 1; i <= tt.args.partCount; i++ {
-					assert.Contains(t, body, fmt.Sprintf("<PartNumber>%d</PartNumber>", i))
+				if tt.want.wantTruncated {
+					assert.Contains(t, body, "<IsTruncated>true</IsTruncated>")
+					assert.Contains(
+						t,
+						body,
+						fmt.Sprintf("<NextPartNumberMarker>%d</NextPartNumberMarker>", tt.want.wantNextMarker),
+					)
 				}
+				assert.Equal(t, tt.want.wantVisiblePartCount, strings.Count(body, "<Part>"))
 			} else {
 				assert.NotContains(t, body, "<ObjectParts>")
 			}
