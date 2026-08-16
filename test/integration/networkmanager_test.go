@@ -530,7 +530,7 @@ func TestIntegration_NetworkManager_ValidationErrors(t *testing.T) {
 
 				return err
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name: "get_non_existent_site",
