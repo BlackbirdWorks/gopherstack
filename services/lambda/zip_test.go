@@ -144,3 +144,52 @@ func TestExtractZip_SubDirectory(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "# content", string(data))
 }
+
+func TestExtractZip_ZipSlip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		entryPath string
+		wantErr   bool
+	}{
+		{
+			name:      "parent directory traversal rejected",
+			entryPath: "../evil.py",
+			wantErr:   true,
+		},
+		{
+			name:      "nested parent traversal rejected",
+			entryPath: "subdir/../../evil.py",
+			wantErr:   true,
+		},
+		{
+			name:      "valid nested file accepted",
+			entryPath: "subdir/valid.py",
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			w := zip.NewWriter(&buf)
+			f, err := w.Create(tt.entryPath)
+			require.NoError(t, err)
+			_, err = f.Write([]byte("print(1)"))
+			require.NoError(t, err)
+			require.NoError(t, w.Close())
+
+			dir, extractErr := lambda.ExtractZip(buf.Bytes())
+			if tt.wantErr {
+				require.Error(t, extractErr)
+				require.ErrorIs(t, extractErr, lambda.ErrZipSlip)
+			} else {
+				require.NoError(t, extractErr)
+				defer os.RemoveAll(dir)
+			}
+		})
+	}
+}
