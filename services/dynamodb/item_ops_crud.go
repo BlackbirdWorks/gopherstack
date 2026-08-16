@@ -35,13 +35,17 @@ func (db *InMemoryDB) PutItem(
 	}
 
 	condExpr := aws.ToString(input.ConditionExpression)
-	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
-		return nil, err
+	if len(input.ExpressionAttributeNames) > 0 {
+		if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
+			return nil, err
+		}
 	}
 
-	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
-	if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
-		return nil, err
+	if len(input.ExpressionAttributeValues) > 0 {
+		wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+		if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
+			return nil, err
+		}
 	}
 
 	table, err := db.getTable(ctx, tableName)
@@ -87,9 +91,14 @@ func (db *InMemoryDB) putItemLocked(
 		return nil, "", "", err
 	}
 
+	itemSize, err := CalculateItemSize(wireItem)
+	if err != nil {
+		return nil, "", "", err
+	}
+
 	// Enforce throughput after validation, before mutating state.
 	// PAY_PER_REQUEST tables bypass throttling.
-	wcu := WriteCapacityUnits(wireItem)
+	wcu := WriteCapacityUnitsFromSize(itemSize)
 	region := getRegionFromContext(ctx, db)
 
 	if !isOnDemandTable(table.BillingMode) {
@@ -99,8 +108,8 @@ func (db *InMemoryDB) putItemLocked(
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
-	if err := db.checkPutCondition(ctx, input, oldItem); err != nil {
-		return nil, "", "", err
+	if condErr := db.checkPutCondition(ctx, input, oldItem); condErr != nil {
+		return nil, "", "", condErr
 	}
 
 	// Enforce LSI 10 GB per-collection limit before mutating state.
@@ -109,7 +118,7 @@ func (db *InMemoryDB) putItemLocked(
 		return nil, "", "", lsiErr
 	}
 
-	db.doPut(table, wireItem, matchIndex)
+	db.doPutWithSize(table, wireItem, matchIndex, itemSize)
 
 	// Capture stream event
 	if matchIndex != -1 {
@@ -119,7 +128,7 @@ func (db *InMemoryDB) putItemLocked(
 	}
 
 	globalTableName := table.GlobalTableName
-	out := db.populatePutItemOutput(input, table, oldItem, wireItem, lsiCollectionBytes)
+	out := db.populatePutItemOutput(input, table, oldItem, wireItem, wcu, lsiCollectionBytes)
 
 	return out, globalTableName, region, nil
 }
@@ -196,6 +205,10 @@ func (db *InMemoryDB) checkPutCondition(
 
 func (db *InMemoryDB) doPut(table *Table, item map[string]any, matchIndex int) {
 	itemSize, _ := CalculateItemSize(item)
+	db.doPutWithSize(table, item, matchIndex, itemSize)
+}
+
+func (db *InMemoryDB) doPutWithSize(table *Table, item map[string]any, matchIndex int, itemSize int) {
 	if matchIndex != -1 {
 		oldItem := table.Items[matchIndex]
 		table.totalItemSizeBytes += int64(itemSize) - int64(table.itemSizes[matchIndex])
@@ -350,6 +363,7 @@ func (db *InMemoryDB) populatePutItemOutput(
 	input *dynamodb.PutItemInput,
 	table *Table,
 	oldItem, wireItem map[string]any,
+	wcu float64,
 	lsiCollectionBytes int64,
 ) *dynamodb.PutItemOutput {
 	out := &dynamodb.PutItemOutput{}
@@ -364,12 +378,11 @@ func (db *InMemoryDB) populatePutItemOutput(
 	// put.
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
-		writeUnits := WriteCapacityUnits(wireItem)
-		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, writeUnits, wireItem)
+		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, wcu, wireItem)
 		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
 			table.Name,
 			input.ReturnConsumedCapacity,
-			0, writeUnits,
+			0, wcu,
 			nil, gsiWCU,
 			nil, lsiWCU,
 		)
@@ -484,13 +497,17 @@ func (db *InMemoryDB) DeleteItem(
 	}
 
 	condExpr := aws.ToString(input.ConditionExpression)
-	if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
-		return nil, err
+	if len(input.ExpressionAttributeNames) > 0 {
+		if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
+			return nil, err
+		}
 	}
 
-	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
-	if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
-		return nil, err
+	if len(input.ExpressionAttributeValues) > 0 {
+		wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+		if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
+			return nil, err
+		}
 	}
 
 	table, err := db.getTable(ctx, tableName)
@@ -548,12 +565,19 @@ func (db *InMemoryDB) deleteItemLocked(
 		skDef.AttributeName,
 	)
 
+	var oldItemSize int
+	if matchIndex != -1 && matchIndex < len(table.itemSizes) {
+		oldItemSize = table.itemSizes[matchIndex]
+	}
+
+	wcu := WriteCapacityUnitsFromSize(oldItemSize)
+
 	// Enforce throughput after key validation so that invalid requests do not
 	// consume tokens. PAY_PER_REQUEST tables bypass throttling. DeleteItem
 	// consumes WCUs proportional to the size of the deleted item (min 1).
 	if !isOnDemandTable(table.BillingMode) {
 		if throttleErr := db.throttler.ConsumeWrite(
-			throttleKey(region, tableName), WriteCapacityUnits(oldItem),
+			throttleKey(region, tableName), wcu,
 		); throttleErr != nil {
 			return nil, "", "", nil, throttleErr
 		}
@@ -569,7 +593,7 @@ func (db *InMemoryDB) deleteItemLocked(
 		table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil, "", "")
 	}
 
-	out := db.buildDeleteItemOutput(input, table, oldItem)
+	out := db.buildDeleteItemOutput(input, table, oldItem, wcu)
 	globalTableName := table.GlobalTableName
 
 	return out, globalTableName, region, oldItem, nil
@@ -614,6 +638,7 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 	input *dynamodb.DeleteItemInput,
 	table *Table,
 	oldItem map[string]any,
+	wcu float64,
 ) *dynamodb.DeleteItemOutput {
 	out := &dynamodb.DeleteItemOutput{}
 
@@ -623,18 +648,11 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
-		// WCU on a delete is ceil(deleted-item-size / 1 KB), minimum 1. If the
-		// row didn't exist, AWS still bills the 1-WCU floor for the tombstone
-		// write — matching that here keeps cost projections accurate.
-		writeUnits := 1.0
-		if oldItem != nil {
-			writeUnits = WriteCapacityUnits(oldItem)
-		}
-		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, writeUnits, oldItem)
+		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, wcu, oldItem)
 		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
 			table.Name,
 			input.ReturnConsumedCapacity,
-			0, writeUnits,
+			0, wcu,
 			nil, gsiWCU,
 			nil, lsiWCU,
 		)

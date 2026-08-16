@@ -356,20 +356,9 @@ func (b *InMemoryBackend) PutObject(
 		strings.ToUpper(string(input.ChecksumAlgorithm)),
 	)
 
-	// Extract SSE info from context (set by putObject handler).
+	// Extract SSE info from context (set by putObject handler) and apply default bucket encryption.
 	sseFromCtx, _ := ctx.Value(sseKey).(sseInfo)
-
-	// Apply default bucket encryption if no SSE is specified in the request
-	if sseFromCtx.Algorithm == "" && sseFromCtx.SSECAlgorithm == "" && bucket.EncryptionConfig != "" {
-		var config ServerSideEncryptionConfiguration
-		if xmlErr := xml.Unmarshal([]byte(bucket.EncryptionConfig), &config); xmlErr == nil && len(config.Rules) > 0 {
-			def := config.Rules[0].ApplyServerSideEncryptionByDefault
-			if def.SSEAlgorithm != "" {
-				sseFromCtx.Algorithm = def.SSEAlgorithm
-				sseFromCtx.KMSKeyID = def.KMSMasterKeyID
-			}
-		}
-	}
+	sseFromCtx = resolveBucketSSE(bucket, sseFromCtx)
 
 	// Real envelope encryption: when SSE is configured, encrypt the stored
 	// (post-compression) bytes with AES-256-GCM and stash the DEK + nonce on
@@ -390,20 +379,7 @@ func (b *InMemoryBackend) PutObject(
 
 	newVersionID := b.saveObjectVersion(bucket, key, newVersion)
 
-	// Store tags outside bucket.mu to respect the lock ordering
-	// (b.mu must not be acquired while bucket.mu is held).
-	// When overwriting a non-versioned object (NullVersion) without new tags,
-	// evict any stale tags from the previous version to prevent b.tags from growing unbounded.
-	if newVersionID == NullVersion && input.Tagging == nil {
-		func() {
-			b.mu.Lock("PutObject.evictTags")
-			defer b.mu.Unlock()
-
-			if b.tags != nil {
-				delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, key, NullVersion))
-			}
-		}()
-	}
+	b.evictStaleNullTags(bucketName, key, newVersionID, input.Tagging)
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
 	logger.Load(ctx).DebugContext(ctx, "S3 Backend PutObject",
@@ -413,10 +389,12 @@ func (b *InMemoryBackend) PutObject(
 
 	// Async replication to configured destination buckets, parented to the
 	// service context (cancellable on shutdown) rather than the request context.
-	repCtx := b.replicationContext(ctx)
-	b.replicationWg.Go(func() {
-		b.triggerReplication(repCtx, bucketName, key, finalQuotedETag)
-	})
+	if bucket.ReplicationConfig != "" {
+		repCtx := b.replicationContext(ctx)
+		b.replicationWg.Go(func() {
+			b.triggerReplication(repCtx, bucketName, key, finalQuotedETag)
+		})
+	}
 
 	return &s3.PutObjectOutput{
 		ETag:              aws.String(finalQuotedETag),
@@ -1070,4 +1048,39 @@ func (b *InMemoryBackend) validateContentMD5(ctx context.Context, _ []byte, etag
 	}
 
 	return nil
+}
+
+func resolveBucketSSE(bucket *StoredBucket, sseFromCtx sseInfo) sseInfo {
+	if sseFromCtx.Algorithm == "" && sseFromCtx.SSECAlgorithm == "" && bucket.EncryptionConfig != "" {
+		var config ServerSideEncryptionConfiguration
+		//nolint:gosec // XML encryption config is internally stored
+		decoder := xml.NewDecoder(strings.NewReader(bucket.EncryptionConfig))
+		if xmlErr := decoder.Decode(&config); xmlErr == nil && len(config.Rules) > 0 {
+			def := config.Rules[0].ApplyServerSideEncryptionByDefault
+			if def.SSEAlgorithm != "" {
+				sseFromCtx.Algorithm = def.SSEAlgorithm
+				sseFromCtx.KMSKeyID = def.KMSMasterKeyID
+			}
+		}
+	}
+
+	return sseFromCtx
+}
+
+func (b *InMemoryBackend) evictStaleNullTags(bucketName, key, newVersionID string, tagging *string) {
+	if newVersionID != NullVersion || tagging != nil {
+		return
+	}
+
+	b.mu.RLock("PutObject.checkTags")
+	hasTags := len(b.tags) > 0
+	b.mu.RUnlock()
+
+	if hasTags {
+		b.mu.Lock("PutObject.evictTags")
+		if b.tags != nil {
+			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, key, NullVersion))
+		}
+		b.mu.Unlock()
+	}
 }
