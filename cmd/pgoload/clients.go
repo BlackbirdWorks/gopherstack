@@ -86,7 +86,6 @@ func buildClients(ctx context.Context, cfg config) (*clients, error) {
 // resources holds the identifiers of everything provisioned once during
 // setup and then reused by every breadth-scenario worker.
 type resources struct {
-	s3Buckets       []string
 	roleArn         string
 	queueURL        string
 	queueArn        string
@@ -95,6 +94,7 @@ type resources struct {
 	kmsKeyID        string
 	functionName    string
 	stateMachineArn string
+	s3Buckets       []string
 }
 
 // setupResources provisions the DynamoDB table, S3 buckets, and every

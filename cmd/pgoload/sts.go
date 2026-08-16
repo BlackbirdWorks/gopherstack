@@ -13,8 +13,8 @@ import (
 // until ctx is done.
 func stsWorker(ctx context.Context, cl *sts.Client, res *resources, workerID int, c *opCounter, log *slog.Logger) {
 	ops := []opFunc{
-		func(ctx context.Context, workerID, i int) error { return stsGetCallerIdentityOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return stsGetSessionTokenOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return stsGetCallerIdentityOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return stsGetSessionTokenOp(ctx, cl) },
 		func(ctx context.Context, workerID, i int) error {
 			return stsAssumeRoleOp(ctx, cl, res.roleArn, workerID, i)
 		},

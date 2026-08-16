@@ -59,14 +59,20 @@ func ensureSecrets(ctx context.Context, cl *secretsmanager.Client, log *slog.Log
 
 // secretsManagerWorker repeatedly runs a mix of Secrets Manager operations,
 // staggered by workerID, until ctx is done.
-func secretsManagerWorker(ctx context.Context, cl *secretsmanager.Client, workerID int, c *opCounter, log *slog.Logger) {
+func secretsManagerWorker(
+	ctx context.Context,
+	cl *secretsmanager.Client,
+	workerID int,
+	c *opCounter,
+	log *slog.Logger,
+) {
 	ops := []opFunc{
 		func(ctx context.Context, workerID, i int) error { return secretsGetSecretValueOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return secretsGetSecretValueOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return secretsGetSecretValueOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return secretsPutSecretValueOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return secretsPutSecretValueOp(ctx, cl, workerID, i) },
-		func(ctx context.Context, workerID, i int) error { return secretsListSecretsOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return secretsListSecretsOp(ctx, cl) },
 		func(ctx context.Context, workerID, i int) error { return secretsRecreateOp(ctx, cl, workerID, i) },
 	}
 

@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -21,13 +21,15 @@ const (
 
 // cloudwatchWorker repeatedly runs a mix of CloudWatch operations, staggered
 // by workerID, until ctx is done.
+//
+//nolint:dupl // structurally mirrors eventBridgeWorker's op-table shape but wires an unrelated service
 func cloudwatchWorker(ctx context.Context, cl *cloudwatch.Client, workerID int, c *opCounter, log *slog.Logger) {
 	ops := []opFunc{
 		func(ctx context.Context, workerID, i int) error { return cwPutMetricDataOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return cwPutMetricDataOp(ctx, cl, workerID, i) },
-		func(ctx context.Context, workerID, i int) error { return cwListMetricsOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return cwGetMetricStatisticsOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return cwDescribeAlarmsOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return cwListMetricsOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return cwGetMetricStatisticsOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return cwDescribeAlarmsOp(ctx, cl) },
 	}
 
 	runOpLoop(ctx, workerID, ops, c, "cloudwatch", log)
@@ -40,7 +42,7 @@ func cwPutMetricDataOp(ctx context.Context, cl *cloudwatch.Client, workerID, i i
 			MetricName: aws.String(cwMetricName),
 			Value:      aws.Float64(float64(i + j)),
 			Dimensions: []cwtypes.Dimension{
-				{Name: aws.String("Worker"), Value: aws.String(fmt.Sprintf("%d", workerID))},
+				{Name: aws.String("Worker"), Value: aws.String(strconv.Itoa(workerID))},
 			},
 		})
 	}

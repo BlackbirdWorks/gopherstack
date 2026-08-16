@@ -47,9 +47,9 @@ func logsWorker(ctx context.Context, cl *cloudwatchlogs.Client, workerID int, c 
 	ops := []opFunc{
 		func(ctx context.Context, workerID, i int) error { return logsPutLogEventsOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return logsPutLogEventsOp(ctx, cl, workerID, i) },
-		func(ctx context.Context, workerID, i int) error { return logsDescribeLogStreamsOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return logsGetLogEventsOp(ctx, cl, workerID) },
-		func(ctx context.Context, workerID, i int) error { return logsFilterLogEventsOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return logsDescribeLogStreamsOp(ctx, cl) },
+		func(ctx context.Context, workerID, _ int) error { return logsGetLogEventsOp(ctx, cl, workerID) },
+		func(ctx context.Context, _, _ int) error { return logsFilterLogEventsOp(ctx, cl) },
 	}
 
 	runOpLoop(ctx, workerID, ops, c, "logs", log)

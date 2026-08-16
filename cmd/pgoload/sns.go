@@ -24,12 +24,12 @@ func ensureSNSTopic(ctx context.Context, cl *sns.Client, queueArn string, log *s
 
 	topicArn := aws.ToString(out.TopicArn)
 
-	if _, err := cl.Subscribe(ctx, &sns.SubscribeInput{
+	if _, subErr := cl.Subscribe(ctx, &sns.SubscribeInput{
 		TopicArn: aws.String(topicArn),
 		Protocol: aws.String("sqs"),
 		Endpoint: aws.String(queueArn),
-	}); err != nil {
-		log.WarnContext(ctx, "sns subscribe to sqs queue failed (continuing)", "error", err)
+	}); subErr != nil {
+		log.WarnContext(ctx, "sns subscribe to sqs queue failed (continuing)", "error", subErr)
 	}
 
 	return topicArn, nil
@@ -45,8 +45,8 @@ func snsWorker(ctx context.Context, cl *sns.Client, res *resources, workerID int
 		func(ctx context.Context, workerID, i int) error {
 			return snsPublishOp(ctx, cl, res.topicArn, workerID, i)
 		},
-		func(ctx context.Context, workerID, i int) error { return snsListSubscriptionsOp(ctx, cl, res.topicArn) },
-		func(ctx context.Context, workerID, i int) error {
+		func(ctx context.Context, _, _ int) error { return snsListSubscriptionsOp(ctx, cl, res.topicArn) },
+		func(ctx context.Context, _, _ int) error {
 			return snsGetTopicAttributesOp(ctx, cl, res.topicArn)
 		},
 	}

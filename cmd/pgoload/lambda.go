@@ -44,14 +44,16 @@ func ensureLambdaFunction(ctx context.Context, cl *lambda.Client, roleArn string
 	defer cancel()
 
 	for {
-		out, err := cl.GetFunction(waitCtx, &lambda.GetFunctionInput{FunctionName: aws.String(lambdaFunctionName)})
-		if err == nil && out.Configuration != nil && out.Configuration.State != lambdatypes.StatePending {
+		out, getErr := cl.GetFunction(waitCtx, &lambda.GetFunctionInput{FunctionName: aws.String(lambdaFunctionName)})
+		if getErr == nil && out.Configuration != nil && out.Configuration.State != lambdatypes.StatePending {
 			return lambdaFunctionName, nil
 		}
 
 		select {
 		case <-waitCtx.Done():
-			log.WarnContext(ctx, "gave up waiting for lambda function to leave Pending state", "function", lambdaFunctionName)
+			log.WarnContext(
+				ctx, "gave up waiting for lambda function to leave Pending state", "function", lambdaFunctionName,
+			)
 
 			return lambdaFunctionName, nil
 		case <-time.After(pollInterval):
@@ -72,14 +74,21 @@ func lambdaDummyZip() []byte {
 
 // lambdaWorker repeatedly runs a mix of Lambda operations, staggered by
 // workerID, until ctx is done.
-func lambdaWorker(ctx context.Context, cl *lambda.Client, res *resources, workerID int, c *opCounter, log *slog.Logger) {
+func lambdaWorker(
+	ctx context.Context,
+	cl *lambda.Client,
+	res *resources,
+	workerID int,
+	c *opCounter,
+	log *slog.Logger,
+) {
 	ops := []opFunc{
-		func(ctx context.Context, workerID, i int) error { return lambdaInvokeOp(ctx, cl, res.functionName) },
-		func(ctx context.Context, workerID, i int) error { return lambdaInvokeOp(ctx, cl, res.functionName) },
-		func(ctx context.Context, workerID, i int) error {
+		func(ctx context.Context, _, _ int) error { return lambdaInvokeOp(ctx, cl, res.functionName) },
+		func(ctx context.Context, _, _ int) error { return lambdaInvokeOp(ctx, cl, res.functionName) },
+		func(ctx context.Context, _, _ int) error {
 			return lambdaGetFunctionOp(ctx, cl, res.functionName)
 		},
-		func(ctx context.Context, workerID, i int) error { return lambdaListFunctionsOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return lambdaListFunctionsOp(ctx, cl) },
 	}
 
 	runOpLoop(ctx, workerID, ops, c, "lambda", log)

@@ -26,10 +26,10 @@ func ensureKMSKey(ctx context.Context, cl *kms.Client, log *slog.Logger) (string
 // until ctx is done.
 func kmsWorker(ctx context.Context, cl *kms.Client, res *resources, workerID int, c *opCounter, log *slog.Logger) {
 	ops := []opFunc{
-		func(ctx context.Context, workerID, i int) error { return kmsEncryptDecryptOp(ctx, cl, res.kmsKeyID, i) },
-		func(ctx context.Context, workerID, i int) error { return kmsGenerateDataKeyOp(ctx, cl, res.kmsKeyID) },
-		func(ctx context.Context, workerID, i int) error { return kmsDescribeKeyOp(ctx, cl, res.kmsKeyID) },
-		func(ctx context.Context, workerID, i int) error { return kmsListKeysOp(ctx, cl) },
+		func(ctx context.Context, _, i int) error { return kmsEncryptDecryptOp(ctx, cl, res.kmsKeyID, i) },
+		func(ctx context.Context, _, _ int) error { return kmsGenerateDataKeyOp(ctx, cl, res.kmsKeyID) },
+		func(ctx context.Context, _, _ int) error { return kmsDescribeKeyOp(ctx, cl, res.kmsKeyID) },
+		func(ctx context.Context, _, _ int) error { return kmsListKeysOp(ctx, cl) },
 	}
 
 	runOpLoop(ctx, workerID, ops, c, "kms", log)
@@ -40,17 +40,17 @@ func kmsWorker(ctx context.Context, cl *kms.Client, res *resources, workerID int
 func kmsEncryptDecryptOp(ctx context.Context, cl *kms.Client, keyID string, i int) error {
 	enc, err := cl.Encrypt(ctx, &kms.EncryptInput{
 		KeyId:     aws.String(keyID),
-		Plaintext: []byte(fmt.Sprintf("pgoload-plaintext-%d", i)),
+		Plaintext: fmt.Appendf(nil, "pgoload-plaintext-%d", i),
 	})
 	if err != nil {
 		return fmt.Errorf("encrypt: %w", err)
 	}
 
-	if _, err := cl.Decrypt(ctx, &kms.DecryptInput{
+	if _, decErr := cl.Decrypt(ctx, &kms.DecryptInput{
 		KeyId:          aws.String(keyID),
 		CiphertextBlob: enc.CiphertextBlob,
-	}); err != nil {
-		return fmt.Errorf("decrypt: %w", err)
+	}); decErr != nil {
+		return fmt.Errorf("decrypt: %w", decErr)
 	}
 
 	return nil

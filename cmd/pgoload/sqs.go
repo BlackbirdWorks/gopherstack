@@ -60,13 +60,13 @@ func sqsBody(i int) string {
 // until ctx is done.
 func sqsWorker(ctx context.Context, cl *sqs.Client, res *resources, workerID int, c *opCounter, log *slog.Logger) {
 	ops := []opFunc{
-		func(ctx context.Context, workerID, i int) error { return sqsSendMessageOp(ctx, cl, res.queueURL, i) },
-		func(ctx context.Context, workerID, i int) error { return sqsSendMessageOp(ctx, cl, res.queueURL, i) },
-		func(ctx context.Context, workerID, i int) error {
+		func(ctx context.Context, _, i int) error { return sqsSendMessageOp(ctx, cl, res.queueURL, i) },
+		func(ctx context.Context, _, i int) error { return sqsSendMessageOp(ctx, cl, res.queueURL, i) },
+		func(ctx context.Context, _, i int) error {
 			return sqsSendMessageBatchOp(ctx, cl, res.queueURL, i)
 		},
-		func(ctx context.Context, workerID, i int) error { return sqsReceiveDeleteOp(ctx, cl, res.queueURL) },
-		func(ctx context.Context, workerID, i int) error {
+		func(ctx context.Context, _, _ int) error { return sqsReceiveDeleteOp(ctx, cl, res.queueURL) },
+		func(ctx context.Context, _, _ int) error {
 			return sqsGetQueueAttributesOp(ctx, cl, res.queueURL)
 		},
 	}
@@ -114,11 +114,11 @@ func sqsReceiveDeleteOp(ctx context.Context, cl *sqs.Client, queueURL string) er
 	}
 
 	for _, msg := range out.Messages {
-		if _, err := cl.DeleteMessage(ctx, &sqs.DeleteMessageInput{
+		if _, delErr := cl.DeleteMessage(ctx, &sqs.DeleteMessageInput{
 			QueueUrl:      aws.String(queueURL),
 			ReceiptHandle: msg.ReceiptHandle,
-		}); err != nil {
-			return fmt.Errorf("delete message: %w", err)
+		}); delErr != nil {
+			return fmt.Errorf("delete message: %w", delErr)
 		}
 	}
 

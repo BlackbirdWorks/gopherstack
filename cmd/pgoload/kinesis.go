@@ -21,6 +21,10 @@ const (
 	kinesisPayloadSize  = 256
 )
 
+// errStreamNotActive is returned when the Kinesis stream fails to reach the
+// ACTIVE status within setupTimeout.
+var errStreamNotActive = errors.New("kinesis stream did not become active in time")
+
 // ensureKinesisStream creates kinesisStreamName, tolerating one that already
 // exists, waits for it to become ACTIVE, and returns its first shard's ID
 // for the GetRecords op.
@@ -55,9 +59,9 @@ func waitStreamActive(ctx context.Context, cl *kinesis.Client, log *slog.Logger)
 		})
 		if err == nil && out.StreamDescriptionSummary != nil &&
 			out.StreamDescriptionSummary.StreamStatus == kinesistypes.StreamStatusActive {
-			shards, err := cl.ListShards(ctx, &kinesis.ListShardsInput{StreamName: aws.String(kinesisStreamName)})
-			if err != nil || len(shards.Shards) == 0 {
-				return "", fmt.Errorf("list shards for %s: %w", kinesisStreamName, err)
+			shards, shardsErr := cl.ListShards(ctx, &kinesis.ListShardsInput{StreamName: aws.String(kinesisStreamName)})
+			if shardsErr != nil || len(shards.Shards) == 0 {
+				return "", fmt.Errorf("list shards for %s: %w", kinesisStreamName, shardsErr)
 			}
 
 			return aws.ToString(shards.Shards[0].ShardId), nil
@@ -72,20 +76,27 @@ func waitStreamActive(ctx context.Context, cl *kinesis.Client, log *slog.Logger)
 
 	log.WarnContext(ctx, "gave up waiting for stream to become active", "stream", kinesisStreamName)
 
-	return "", fmt.Errorf("stream %s did not become active in time", kinesisStreamName)
+	return "", fmt.Errorf("%w: stream=%s", errStreamNotActive, kinesisStreamName)
 }
 
 // kinesisWorker repeatedly runs a mix of Kinesis operations, staggered by
 // workerID, until ctx is done.
-func kinesisWorker(ctx context.Context, cl *kinesis.Client, res *resources, workerID int, c *opCounter, log *slog.Logger) {
+func kinesisWorker(
+	ctx context.Context,
+	cl *kinesis.Client,
+	res *resources,
+	workerID int,
+	c *opCounter,
+	log *slog.Logger,
+) {
 	ops := []opFunc{
 		func(ctx context.Context, workerID, i int) error { return kinesisPutRecordOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return kinesisPutRecordOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return kinesisPutRecordsOp(ctx, cl, workerID, i) },
-		func(ctx context.Context, workerID, i int) error {
+		func(ctx context.Context, _, _ int) error {
 			return kinesisGetRecordsOp(ctx, cl, res.kinesisShardID)
 		},
-		func(ctx context.Context, workerID, i int) error { return kinesisDescribeStreamOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return kinesisDescribeStreamOp(ctx, cl) },
 	}
 
 	runOpLoop(ctx, workerID, ops, c, "kinesis", log)
@@ -134,8 +145,8 @@ func kinesisGetRecordsOp(ctx context.Context, cl *kinesis.Client, shardID string
 		return fmt.Errorf("get shard iterator: %w", err)
 	}
 
-	if _, err := cl.GetRecords(ctx, &kinesis.GetRecordsInput{ShardIterator: iter.ShardIterator}); err != nil {
-		return fmt.Errorf("get records: %w", err)
+	if _, getErr := cl.GetRecords(ctx, &kinesis.GetRecordsInput{ShardIterator: iter.ShardIterator}); getErr != nil {
+		return fmt.Errorf("get records: %w", getErr)
 	}
 
 	return nil

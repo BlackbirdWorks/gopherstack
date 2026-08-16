@@ -14,14 +14,21 @@ import (
 
 const sfnStateMachineName = "pgoload-sm"
 
+const sfnPassState = "Pass"
+
+// errStateMachineNotFound is returned when a state machine that
+// CreateStateMachine reported as already existing can't be located by a
+// follow-up ListStateMachines call.
+var errStateMachineNotFound = errors.New("state machine exists but was not found by ListStateMachines")
+
 // sfnDefinition is a minimal one-state Pass machine — enough to exercise
 // CreateStateMachine/StartExecution/DescribeExecution without needing real
 // task integrations.
 func sfnDefinition() string {
 	def, _ := json.Marshal(map[string]any{
-		"StartAt": "Pass",
+		"StartAt": sfnPassState,
 		"States": map[string]any{
-			"Pass": map[string]any{"Type": "Pass", "End": true},
+			sfnPassState: map[string]any{"Type": "Pass", "End": true},
 		},
 	})
 
@@ -58,7 +65,7 @@ func ensureStateMachine(ctx context.Context, cl *sfn.Client, roleArn string, log
 		}
 	}
 
-	return "", fmt.Errorf("state machine %s exists but was not found by ListStateMachines", sfnStateMachineName)
+	return "", fmt.Errorf("%w: stateMachine=%s", errStateMachineNotFound, sfnStateMachineName)
 }
 
 // stepFunctionsWorker repeatedly runs a mix of Step Functions operations,
@@ -75,10 +82,10 @@ func stepFunctionsWorker(
 		func(ctx context.Context, workerID, i int) error {
 			return sfnStartDescribeExecutionOp(ctx, cl, res.stateMachineArn, workerID, i)
 		},
-		func(ctx context.Context, workerID, i int) error {
+		func(ctx context.Context, _, _ int) error {
 			return sfnListExecutionsOp(ctx, cl, res.stateMachineArn)
 		},
-		func(ctx context.Context, workerID, i int) error { return sfnListStateMachinesOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return sfnListStateMachinesOp(ctx, cl) },
 	}
 
 	runOpLoop(ctx, workerID, ops, c, "stepfunctions", log)
@@ -95,10 +102,10 @@ func sfnStartDescribeExecutionOp(ctx context.Context, cl *sfn.Client, stateMachi
 		return fmt.Errorf("start execution: %w", err)
 	}
 
-	if _, err := cl.DescribeExecution(ctx, &sfn.DescribeExecutionInput{
+	if _, descErr := cl.DescribeExecution(ctx, &sfn.DescribeExecutionInput{
 		ExecutionArn: started.ExecutionArn,
-	}); err != nil {
-		return fmt.Errorf("describe execution: %w", err)
+	}); descErr != nil {
+		return fmt.Errorf("describe execution: %w", descErr)
 	}
 
 	return nil

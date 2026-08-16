@@ -30,7 +30,7 @@ func ssmWorker(ctx context.Context, cl *ssm.Client, workerID int, c *opCounter, 
 		func(ctx context.Context, workerID, i int) error { return ssmPutParameterOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return ssmGetParameterOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return ssmGetParametersOp(ctx, cl, workerID, i) },
-		func(ctx context.Context, workerID, i int) error { return ssmDescribeParametersOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return ssmDescribeParametersOp(ctx, cl) },
 	}
 
 	runOpLoop(ctx, workerID, ops, c, "ssm", log)

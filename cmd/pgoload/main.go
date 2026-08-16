@@ -149,26 +149,26 @@ type counters struct {
 
 // namedCounter pairs a scenario name with its counter, for summary printing.
 type namedCounter struct {
-	name string
 	c    *opCounter
+	name string
 }
 
 func (c *counters) breadthCounters() []namedCounter {
 	return []namedCounter{
-		{"sqs", &c.sqs},
-		{"sns", &c.sns},
-		{"kinesis", &c.kinesis},
-		{"iam", &c.iam},
-		{"sts", &c.sts},
-		{"ssm", &c.ssm},
-		{"secretsmanager", &c.secretsmanager},
-		{"cloudwatch", &c.cloudwatch},
-		{"logs", &c.logs},
-		{"ec2", &c.ec2},
-		{"lambda", &c.lambda},
-		{"kms", &c.kms},
-		{"eventbridge", &c.eventbridge},
-		{"stepfunctions", &c.stepfunctions},
+		{name: "sqs", c: &c.sqs},
+		{name: "sns", c: &c.sns},
+		{name: "kinesis", c: &c.kinesis},
+		{name: "iam", c: &c.iam},
+		{name: "sts", c: &c.sts},
+		{name: "ssm", c: &c.ssm},
+		{name: "secretsmanager", c: &c.secretsmanager},
+		{name: "cloudwatch", c: &c.cloudwatch},
+		{name: "logs", c: &c.logs},
+		{name: "ec2", c: &c.ec2},
+		{name: "lambda", c: &c.lambda},
+		{name: "kms", c: &c.kms},
+		{name: "eventbridge", c: &c.eventbridge},
+		{name: "stepfunctions", c: &c.stepfunctions},
 	}
 }
 
@@ -281,14 +281,18 @@ func runLoad(ctx context.Context, cfg config, cls *clients, res *resources, log 
 	spawn(cfg.concurrency, func(id int) { iamWorker(loadCtx, cls.iam, id, &c.iam, log) })
 	spawn(cfg.concurrency, func(id int) { stsWorker(loadCtx, cls.sts, res, id, &c.sts, log) })
 	spawn(cfg.concurrency, func(id int) { ssmWorker(loadCtx, cls.ssm, id, &c.ssm, log) })
-	spawn(cfg.concurrency, func(id int) { secretsManagerWorker(loadCtx, cls.secretsmanager, id, &c.secretsmanager, log) })
+	spawn(cfg.concurrency, func(id int) {
+		secretsManagerWorker(loadCtx, cls.secretsmanager, id, &c.secretsmanager, log)
+	})
 	spawn(cfg.concurrency, func(id int) { cloudwatchWorker(loadCtx, cls.cloudwatch, id, &c.cloudwatch, log) })
 	spawn(cfg.concurrency, func(id int) { logsWorker(loadCtx, cls.logs, id, &c.logs, log) })
 	spawn(cfg.concurrency, func(id int) { ec2Worker(loadCtx, cls.ec2, id, &c.ec2, log) })
 	spawn(cfg.concurrency, func(id int) { lambdaWorker(loadCtx, cls.lambda, res, id, &c.lambda, log) })
 	spawn(cfg.concurrency, func(id int) { kmsWorker(loadCtx, cls.kms, res, id, &c.kms, log) })
 	spawn(cfg.concurrency, func(id int) { eventBridgeWorker(loadCtx, cls.eventbridge, id, &c.eventbridge, log) })
-	spawn(cfg.concurrency, func(id int) { stepFunctionsWorker(loadCtx, cls.stepfunctions, res, id, &c.stepfunctions, log) })
+	spawn(cfg.concurrency, func(id int) {
+		stepFunctionsWorker(loadCtx, cls.stepfunctions, res, id, &c.stepfunctions, log)
+	})
 
 	wg.Wait()
 	printSummary(c)

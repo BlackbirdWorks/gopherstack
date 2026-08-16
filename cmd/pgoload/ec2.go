@@ -23,11 +23,11 @@ const (
 // client-side bookkeeping across calls.
 func ec2Worker(ctx context.Context, cl *ec2.Client, workerID int, c *opCounter, log *slog.Logger) {
 	ops := []opFunc{
-		func(ctx context.Context, workerID, i int) error { return ec2RunInstancesOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return ec2DescribeInstancesOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return ec2DescribeInstancesOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return ec2DescribeSecurityGroupsOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return ec2TerminateInstancesOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return ec2RunInstancesOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return ec2DescribeInstancesOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return ec2DescribeInstancesOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return ec2DescribeSecurityGroupsOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return ec2TerminateInstancesOp(ctx, cl) },
 	}
 
 	runOpLoop(ctx, workerID, ops, c, "ec2", log)

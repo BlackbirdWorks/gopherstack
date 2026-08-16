@@ -60,9 +60,9 @@ func iamUserName(workerID, i int) string {
 func iamWorker(ctx context.Context, cl *iam.Client, workerID int, c *opCounter, log *slog.Logger) {
 	ops := []opFunc{
 		func(ctx context.Context, workerID, i int) error { return iamCreateUserOp(ctx, cl, workerID, i) },
-		func(ctx context.Context, workerID, i int) error { return iamGetRoleOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return iamListUsersOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return iamListRolesOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return iamGetRoleOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return iamListUsersOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return iamListRolesOp(ctx, cl) },
 		func(ctx context.Context, workerID, i int) error { return iamPutRolePolicyOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return iamDeleteUserOp(ctx, cl, workerID, i) },
 	}

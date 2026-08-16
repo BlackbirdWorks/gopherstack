@@ -41,13 +41,15 @@ func ensureEventBridgeRule(ctx context.Context, cl *eventbridge.Client, queueArn
 
 // eventBridgeWorker repeatedly runs a mix of EventBridge operations,
 // staggered by workerID, until ctx is done.
+//
+//nolint:dupl // structurally mirrors cloudwatchWorker's op-table shape but wires an unrelated service
 func eventBridgeWorker(ctx context.Context, cl *eventbridge.Client, workerID int, c *opCounter, log *slog.Logger) {
 	ops := []opFunc{
 		func(ctx context.Context, workerID, i int) error { return ebPutEventsOp(ctx, cl, workerID, i) },
 		func(ctx context.Context, workerID, i int) error { return ebPutEventsOp(ctx, cl, workerID, i) },
-		func(ctx context.Context, workerID, i int) error { return ebListRulesOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return ebDescribeRuleOp(ctx, cl) },
-		func(ctx context.Context, workerID, i int) error { return ebListTargetsByRuleOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return ebListRulesOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return ebDescribeRuleOp(ctx, cl) },
+		func(ctx context.Context, _, _ int) error { return ebListTargetsByRuleOp(ctx, cl) },
 	}
 
 	runOpLoop(ctx, workerID, ops, c, "eventbridge", log)
