@@ -50,9 +50,83 @@ func newStoredObject(key string) *StoredObject {
 type ObjectAttributes struct {
 	LastModified time.Time
 	Checksum     map[string]string
+	Parts        *ObjectPartsAttributes
 	ETag         string
 	StorageClass string
 	ObjectSize   int64
+}
+
+// defaultMaxPartsCount is the default MaxParts ceiling returned in GetObjectAttributes.
+const defaultMaxPartsCount = 1000
+
+// ObjectPartsAttributes contains multipart upload parts breakdown for GetObjectAttributes.
+type ObjectPartsAttributes struct {
+	Parts                []StoredObjectPart
+	TotalPartsCount      int32
+	PartNumberMarker     int32
+	NextPartNumberMarker int32
+	MaxParts             int32
+	IsTruncated          bool
+}
+
+func extractObjectChecksums(ver *StoredObjectVersion) map[string]string {
+	c := make(map[string]string)
+	if ver.ChecksumSHA1 != nil {
+		c["ChecksumSHA1"] = *ver.ChecksumSHA1
+	}
+	if ver.ChecksumSHA256 != nil {
+		c["ChecksumSHA256"] = *ver.ChecksumSHA256
+	}
+	if ver.ChecksumCRC32 != nil {
+		c["ChecksumCRC32"] = *ver.ChecksumCRC32
+	}
+	if ver.ChecksumCRC32C != nil {
+		c["ChecksumCRC32C"] = *ver.ChecksumCRC32C
+	}
+	if ver.ChecksumCRC64NVME != nil {
+		c["ChecksumCRC64NVME"] = *ver.ChecksumCRC64NVME
+	}
+
+	return c
+}
+
+func buildObjectPartsAttributes(
+	parts []StoredObjectPart,
+	maxParts, partNumberMarker int32,
+) *ObjectPartsAttributes {
+	if len(parts) == 0 {
+		return nil
+	}
+	if maxParts <= 0 {
+		maxParts = defaultMaxPartsCount
+	}
+
+	var filtered []StoredObjectPart
+	for _, p := range parts {
+		if p.PartNumber > partNumberMarker {
+			filtered = append(filtered, p)
+		}
+	}
+
+	totalParts := int32(len(parts)) // #nosec G115
+	isTruncated := false
+	var nextMarker int32
+	if int32(len(filtered)) > maxParts { // #nosec G115
+		isTruncated = true
+		filtered = filtered[:maxParts]
+		if len(filtered) > 0 {
+			nextMarker = filtered[len(filtered)-1].PartNumber
+		}
+	}
+
+	return &ObjectPartsAttributes{
+		Parts:                filtered,
+		TotalPartsCount:      totalParts,
+		PartNumberMarker:     partNumberMarker,
+		NextPartNumberMarker: nextMarker,
+		MaxParts:             maxParts,
+		IsTruncated:          isTruncated,
+	}
 }
 
 // GetObjectAttributes returns selected attributes for the latest version of an object.
@@ -60,6 +134,7 @@ type ObjectAttributes struct {
 func (b *InMemoryBackend) GetObjectAttributes(
 	_ context.Context,
 	bucketName, key, versionID string,
+	maxParts, partNumberMarker int32,
 ) (*ObjectAttributes, error) {
 	b.mu.RLock("GetObjectAttributes")
 	bucket, err := b.getBucket(bucketName)
@@ -70,10 +145,10 @@ func (b *InMemoryBackend) GetObjectAttributes(
 	}
 
 	bucket.mu.RLock("GetObjectAttributes")
-	defer bucket.mu.RUnlock()
+	obj, exists := bucket.Objects[key]
+	bucket.mu.RUnlock()
 
-	obj, ok := bucket.Objects[key]
-	if !ok {
+	if !exists {
 		return nil, ErrNoSuchKey
 	}
 
@@ -90,35 +165,14 @@ func (b *InMemoryBackend) GetObjectAttributes(
 		return nil, ErrNoSuchKey
 	}
 
-	out := &ObjectAttributes{
+	return &ObjectAttributes{
 		ETag:         ver.ETag,
 		ObjectSize:   ver.Size,
 		StorageClass: ver.StorageClass,
 		LastModified: ver.LastModified,
-		Checksum:     map[string]string{},
-	}
-
-	if out.StorageClass == "" {
-		out.StorageClass = storageStandard
-	}
-
-	if ver.ChecksumSHA1 != nil {
-		out.Checksum["ChecksumSHA1"] = *ver.ChecksumSHA1
-	}
-	if ver.ChecksumSHA256 != nil {
-		out.Checksum["ChecksumSHA256"] = *ver.ChecksumSHA256
-	}
-	if ver.ChecksumCRC32 != nil {
-		out.Checksum["ChecksumCRC32"] = *ver.ChecksumCRC32
-	}
-	if ver.ChecksumCRC32C != nil {
-		out.Checksum["ChecksumCRC32C"] = *ver.ChecksumCRC32C
-	}
-	if ver.ChecksumCRC64NVME != nil {
-		out.Checksum["ChecksumCRC64NVME"] = *ver.ChecksumCRC64NVME
-	}
-
-	return out, nil
+		Checksum:     extractObjectChecksums(ver),
+		Parts:        buildObjectPartsAttributes(ver.Parts, maxParts, partNumberMarker),
+	}, nil
 }
 
 // RestoreObject marks the latest object version as restored for the given duration.
@@ -837,8 +891,6 @@ func (b *InMemoryBackend) verifyChecksum(
 	}
 
 	computedSum := s3Hasher.Sum(nil)
-
-	// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
 	if h32, ok := s3Hasher.(hash.Hash32); ok {
 		const checksumSize = 4
 		tmp := make([]byte, checksumSize)
@@ -847,19 +899,7 @@ func (b *InMemoryBackend) verifyChecksum(
 	}
 
 	computedChecksumB64 := base64.StdEncoding.EncodeToString(computedSum)
-
-	var supplied *string
-
-	switch strings.ToUpper(algo) {
-	case ChecksumCRC32:
-		supplied = input.ChecksumCRC32
-	case ChecksumCRC32C:
-		supplied = input.ChecksumCRC32C
-	case ChecksumSHA1:
-		supplied = input.ChecksumSHA1
-	case ChecksumSHA256:
-		supplied = input.ChecksumSHA256
-	}
+	supplied := suppliedPartChecksum(input, algo)
 
 	if supplied != nil && *supplied != "" {
 		if computedChecksumB64 != *supplied {
@@ -869,19 +909,42 @@ func (b *InMemoryBackend) verifyChecksum(
 		return nil
 	}
 
-	// Client requested server-side checksum computation; propagate result.
-	switch strings.ToUpper(algo) {
-	case ChecksumCRC32:
-		input.ChecksumCRC32 = aws.String(computedChecksumB64)
-	case ChecksumCRC32C:
-		input.ChecksumCRC32C = aws.String(computedChecksumB64)
-	case ChecksumSHA1:
-		input.ChecksumSHA1 = aws.String(computedChecksumB64)
-	case ChecksumSHA256:
-		input.ChecksumSHA256 = aws.String(computedChecksumB64)
-	}
+	setPartChecksum(input, algo, computedChecksumB64)
 
 	return nil
+}
+
+func suppliedPartChecksum(input *s3.UploadPartInput, algo string) *string {
+	switch strings.ToUpper(algo) {
+	case ChecksumCRC32:
+		return input.ChecksumCRC32
+	case ChecksumCRC32C:
+		return input.ChecksumCRC32C
+	case ChecksumCRC64NVME:
+		return input.ChecksumCRC64NVME
+	case ChecksumSHA1:
+		return input.ChecksumSHA1
+	case ChecksumSHA256:
+		return input.ChecksumSHA256
+	default:
+		return nil
+	}
+}
+
+func setPartChecksum(input *s3.UploadPartInput, algo, checksum string) {
+	cs := aws.String(checksum)
+	switch strings.ToUpper(algo) {
+	case ChecksumCRC32:
+		input.ChecksumCRC32 = cs
+	case ChecksumCRC32C:
+		input.ChecksumCRC32C = cs
+	case ChecksumCRC64NVME:
+		input.ChecksumCRC64NVME = cs
+	case ChecksumSHA1:
+		input.ChecksumSHA1 = cs
+	case ChecksumSHA256:
+		input.ChecksumSHA256 = cs
+	}
 }
 
 // checkPutObjectAuthAndLock performs initial checks for bucket existence and object lock.

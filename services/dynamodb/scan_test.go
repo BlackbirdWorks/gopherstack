@@ -739,3 +739,119 @@ func TestScan_Select_SurvivesWireConversion(t *testing.T) {
 	assert.Empty(t, resp.Items, "Select=COUNT must omit Items")
 	assert.Equal(t, int32(1), resp.Count)
 }
+
+func TestScan_GSI_Projection_Masking(t *testing.T) {
+	t.Parallel()
+
+	type scanArgs struct {
+		projType    types.ProjectionType
+		nonKeyAttrs []string
+	}
+
+	type scanWant struct {
+		wantHasPayload bool
+		wantHasExtra   bool
+	}
+
+	tests := []struct {
+		name string
+		args scanArgs
+		want scanWant
+	}{
+		{
+			name: "keys_only",
+			args: scanArgs{
+				projType: types.ProjectionTypeKeysOnly,
+			},
+			want: scanWant{
+				wantHasPayload: false,
+				wantHasExtra:   false,
+			},
+		},
+		{
+			name: "include",
+			args: scanArgs{
+				projType:    types.ProjectionTypeInclude,
+				nonKeyAttrs: []string{"payload"},
+			},
+			want: scanWant{
+				wantHasPayload: true,
+				wantHasExtra:   false,
+			},
+		},
+		{
+			name: "all",
+			args: scanArgs{
+				projType: types.ProjectionTypeAll,
+			},
+			want: scanWant{
+				wantHasPayload: true,
+				wantHasExtra:   true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			db := dynamodb.NewInMemoryDB()
+
+			tableName := "ScanProjTable_" + tt.name
+			gsiName := "gsi_proj"
+			_, err := db.CreateTable(ctx, &dynamodb_sdk.CreateTableInput{
+				TableName: aws.String(tableName),
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+				},
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("gsi_pk"), AttributeType: types.ScalarAttributeTypeS},
+				},
+				GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+					{
+						IndexName: aws.String(gsiName),
+						KeySchema: []types.KeySchemaElement{
+							{AttributeName: aws.String("gsi_pk"), KeyType: types.KeyTypeHash},
+						},
+						Projection: &types.Projection{
+							ProjectionType:   tt.args.projType,
+							NonKeyAttributes: tt.args.nonKeyAttrs,
+						},
+					},
+				},
+				BillingMode: types.BillingModePayPerRequest,
+			})
+			require.NoError(t, err)
+
+			_, err = db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+				TableName: aws.String(tableName),
+				Item: map[string]types.AttributeValue{
+					"pk":      &types.AttributeValueMemberS{Value: "pk1"},
+					"gsi_pk":  &types.AttributeValueMemberS{Value: "g1"},
+					"payload": &types.AttributeValueMemberS{Value: "important_data"},
+					"extra":   &types.AttributeValueMemberS{Value: "extra_data"},
+				},
+			})
+			require.NoError(t, err)
+
+			resp, err := db.Scan(ctx, &dynamodb_sdk.ScanInput{
+				TableName: aws.String(tableName),
+				IndexName: aws.String(gsiName),
+			})
+			require.NoError(t, err)
+			require.Len(t, resp.Items, 1)
+
+			item := resp.Items[0]
+			_, hasPK := item["pk"]
+			_, hasGSIPK := item["gsi_pk"]
+			_, hasPayload := item["payload"]
+			_, hasExtra := item["extra"]
+
+			assert.True(t, hasPK, "pk must always be projected")
+			assert.True(t, hasGSIPK, "gsi_pk must always be projected")
+			assert.Equal(t, tt.want.wantHasPayload, hasPayload, "payload presence mismatch")
+			assert.Equal(t, tt.want.wantHasExtra, hasExtra, "extra presence mismatch")
+		})
+	}
+}

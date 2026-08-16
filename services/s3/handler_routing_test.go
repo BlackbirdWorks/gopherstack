@@ -6,10 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/services/s3"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
 func TestHandler_VirtualHostedStyle(t *testing.T) {

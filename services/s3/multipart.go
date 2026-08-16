@@ -120,23 +120,10 @@ func (b *InMemoryBackend) UploadPart(
 	var buf bytes.Buffer
 	writers := []io.Writer{md5Hasher, &buf}
 
-	var s3Hasher hash.Hash
-	algo := string(input.ChecksumAlgorithm)
-	if algo != "" {
-		switch strings.ToUpper(algo) {
-		case ChecksumCRC32:
-			s3Hasher = crc32.NewIEEE()
-		case ChecksumCRC32C:
-			s3Hasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
-		case ChecksumSHA1:
-			//nolint:gosec // SHA1 supported
-			s3Hasher = sha1.New()
-		case ChecksumSHA256:
-			s3Hasher = sha256.New()
-		}
-		if s3Hasher != nil {
-			writers = append(writers, s3Hasher)
-		}
+	algo := inferChecksumAlgo(input)
+	s3Hasher := newS3Hasher(algo)
+	if s3Hasher != nil {
+		writers = append(writers, s3Hasher)
 	}
 
 	tr := io.TeeReader(input.Body, io.MultiWriter(writers...))
@@ -172,24 +159,26 @@ func (b *InMemoryBackend) UploadPart(
 	// otherwise has no way to report them, since they exist only on this
 	// call's request/response and were never persisted onto the part before.
 	if sErr := b.storePart(bucketName, uploadID, partNumber, &StoredPart{
-		PartNumber:     partNumber,
-		Data:           storedData,
-		ETag:           quotedETag,
-		Size:           originalSize,
-		ChecksumCRC32:  input.ChecksumCRC32,
-		ChecksumCRC32C: input.ChecksumCRC32C,
-		ChecksumSHA1:   input.ChecksumSHA1,
-		ChecksumSHA256: input.ChecksumSHA256,
+		PartNumber:        partNumber,
+		Data:              storedData,
+		ETag:              quotedETag,
+		Size:              originalSize,
+		ChecksumCRC32:     input.ChecksumCRC32,
+		ChecksumCRC32C:    input.ChecksumCRC32C,
+		ChecksumCRC64NVME: input.ChecksumCRC64NVME,
+		ChecksumSHA1:      input.ChecksumSHA1,
+		ChecksumSHA256:    input.ChecksumSHA256,
 	}); sErr != nil {
 		return nil, sErr
 	}
 
 	return &s3.UploadPartOutput{
-		ETag:           aws.String(quotedETag),
-		ChecksumCRC32:  input.ChecksumCRC32,
-		ChecksumCRC32C: input.ChecksumCRC32C,
-		ChecksumSHA1:   input.ChecksumSHA1,
-		ChecksumSHA256: input.ChecksumSHA256,
+		ETag:              aws.String(quotedETag),
+		ChecksumCRC32:     input.ChecksumCRC32,
+		ChecksumCRC32C:    input.ChecksumCRC32C,
+		ChecksumCRC64NVME: input.ChecksumCRC64NVME,
+		ChecksumSHA1:      input.ChecksumSHA1,
+		ChecksumSHA256:    input.ChecksumSHA256,
 	}, nil
 }
 
@@ -307,6 +296,7 @@ type multipartAssemblyResult struct {
 	etag           string
 	data           []byte
 	compressedData []byte
+	parts          []StoredObjectPart
 	isCompressed   bool
 }
 
@@ -316,7 +306,7 @@ type multipartAssemblyResult struct {
 func (b *InMemoryBackend) collectPartsData(
 	upload *StoredMultipartUpload,
 	parts []types.CompletedPart,
-) ([]byte, []byte, error) {
+) ([]byte, []byte, []StoredObjectPart, error) {
 	upload.mu.RLock(opCompleteMultipartUpload)
 	defer upload.mu.RUnlock()
 
@@ -330,11 +320,11 @@ func (b *InMemoryBackend) collectPartsData(
 func (b *InMemoryBackend) collectPartsDataLocked(
 	upload *StoredMultipartUpload,
 	parts []types.CompletedPart,
-) ([]byte, []byte, error) {
+) ([]byte, []byte, []StoredObjectPart, error) {
 	// Validate ascending order.
 	for i := 1; i < len(parts); i++ {
 		if *parts[i].PartNumber <= *parts[i-1].PartNumber {
-			return nil, nil, ErrInvalidPartOrder
+			return nil, nil, nil, ErrInvalidPartOrder
 		}
 	}
 
@@ -348,17 +338,19 @@ func (b *InMemoryBackend) collectPartsDataLocked(
 
 	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
 	md5s := make([]byte, 0, len(parts)*md5.Size)
+	partsMeta := make([]StoredObjectPart, 0, len(parts))
 
 	for i, part := range parts {
-		rawBytes, err := b.validateAndAppendPart(upload, part, i == len(parts)-1, buf)
+		rawBytes, spMeta, err := b.validateAndAppendPart(upload, part, i == len(parts)-1, buf)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		md5s = append(md5s, rawBytes...)
+		partsMeta = append(partsMeta, spMeta)
 	}
 
-	return buf.Bytes(), md5s, nil
+	return buf.Bytes(), md5s, partsMeta, nil
 }
 
 // validateAndAppendPart validates a single completed part against its stored
@@ -370,19 +362,19 @@ func (b *InMemoryBackend) validateAndAppendPart(
 	part types.CompletedPart,
 	isLastPart bool,
 	buf *bytes.Buffer,
-) ([]byte, error) {
+) ([]byte, StoredObjectPart, error) {
 	pNum := *part.PartNumber
 	storedPart, ok := upload.Parts[pNum]
 	if !ok {
-		return nil, ErrInvalidPart
+		return nil, StoredObjectPart{}, ErrInvalidPart
 	}
 
 	if *part.ETag != storedPart.ETag {
-		return nil, ErrInvalidPart
+		return nil, StoredObjectPart{}, ErrInvalidPart
 	}
 
 	if !isLastPart && storedPart.Size < multipartMinPartSize && !b.skipMultipartSizeCheck {
-		return nil, ErrEntityTooSmall
+		return nil, StoredObjectPart{}, ErrEntityTooSmall
 	}
 
 	buf.Write(storedPart.Data)
@@ -391,10 +383,20 @@ func (b *InMemoryBackend) validateAndAppendPart(
 
 	rawBytes, err := hex.DecodeString(rawETag)
 	if err != nil {
-		return nil, ErrInvalidPart
+		return nil, StoredObjectPart{}, ErrInvalidPart
 	}
 
-	return rawBytes, nil
+	meta := StoredObjectPart{
+		PartNumber:        pNum,
+		Size:              storedPart.Size,
+		ChecksumCRC32:     storedPart.ChecksumCRC32,
+		ChecksumCRC32C:    storedPart.ChecksumCRC32C,
+		ChecksumCRC64NVME: storedPart.ChecksumCRC64NVME,
+		ChecksumSHA1:      storedPart.ChecksumSHA1,
+		ChecksumSHA256:    storedPart.ChecksumSHA256,
+	}
+
+	return rawBytes, meta, nil
 }
 
 // assembleMultipartData reads all parts under the per-upload read lock, assembles
@@ -414,7 +416,7 @@ func (b *InMemoryBackend) assembleMultipartData(
 
 	parts := input.MultipartUpload.Parts
 
-	data, partMD5s, err := b.collectPartsData(upload, parts)
+	data, partMD5s, partsMeta, err := b.collectPartsData(upload, parts)
 	if err != nil {
 		return multipartAssemblyResult{}, err
 	}
@@ -442,6 +444,7 @@ func (b *InMemoryBackend) assembleMultipartData(
 		data:           data,
 		compressedData: compressedData,
 		etag:           etag,
+		parts:          partsMeta,
 		isCompressed:   isCompressed,
 	}, nil
 }
@@ -512,6 +515,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 			IsCompressed:    assembled.isCompressed,
 			Size:            int64(len(assembled.data)),
 			ETag:            assembled.etag,
+			Parts:           assembled.parts,
 			LastModified:    time.Now(),
 			IsLatest:        true,
 			SSEAlgorithm:    sse.Algorithm,
@@ -804,13 +808,14 @@ func (b *InMemoryBackend) ListParts(
 			}
 			p := upload.Parts[pn]
 			parts = append(parts, types.Part{
-				PartNumber:     aws.Int32(pn),
-				ETag:           aws.String(p.ETag),
-				Size:           aws.Int64(p.Size),
-				ChecksumCRC32:  p.ChecksumCRC32,
-				ChecksumCRC32C: p.ChecksumCRC32C,
-				ChecksumSHA1:   p.ChecksumSHA1,
-				ChecksumSHA256: p.ChecksumSHA256,
+				PartNumber:        aws.Int32(pn),
+				ETag:              aws.String(p.ETag),
+				Size:              aws.Int64(p.Size),
+				ChecksumCRC32:     p.ChecksumCRC32,
+				ChecksumCRC32C:    p.ChecksumCRC32C,
+				ChecksumCRC64NVME: p.ChecksumCRC64NVME,
+				ChecksumSHA1:      p.ChecksumSHA1,
+				ChecksumSHA256:    p.ChecksumSHA256,
 			})
 		}
 	}()
@@ -859,4 +864,44 @@ func (b *InMemoryBackend) storePart(
 	upload.Parts[partNumber] = part
 
 	return nil
+}
+
+func inferChecksumAlgo(input *s3.UploadPartInput) string {
+	algo := string(input.ChecksumAlgorithm)
+	if algo != "" {
+		return algo
+	}
+
+	switch {
+	case input.ChecksumCRC32 != nil:
+		return ChecksumCRC32
+	case input.ChecksumCRC32C != nil:
+		return ChecksumCRC32C
+	case input.ChecksumCRC64NVME != nil:
+		return ChecksumCRC64NVME
+	case input.ChecksumSHA1 != nil:
+		return ChecksumSHA1
+	case input.ChecksumSHA256 != nil:
+		return ChecksumSHA256
+	default:
+		return ""
+	}
+}
+
+func newS3Hasher(algo string) hash.Hash {
+	switch strings.ToUpper(algo) {
+	case ChecksumCRC32:
+		return crc32.NewIEEE()
+	case ChecksumCRC32C:
+		return crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	case ChecksumCRC64NVME:
+		return NewCRC64NVME()
+	case ChecksumSHA1:
+		//nolint:gosec // SHA1 supported
+		return sha1.New()
+	case ChecksumSHA256:
+		return sha256.New()
+	default:
+		return nil
+	}
 }

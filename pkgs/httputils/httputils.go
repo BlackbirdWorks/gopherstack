@@ -294,47 +294,100 @@ func RequestIDMiddleware() echo.MiddlewareFunc {
 	}
 }
 
-// minSigV4CredentialParts is the minimum number of slash-separated parts in the
-// SigV4 credential scope needed to safely read the region at index 2
-// (AKID/date/region/...).
-const minSigV4CredentialParts = 3
+// expectedSigV4ScopeParts is the exact number of slash-separated parts in a valid SigV4 credential scope:
+// AKID/date/region/service/aws4_request.
+const (
+	expectedSigV4ScopeParts = 5
+	sigV4AccessKeyIndex     = 0
+	sigV4DateIndex          = 1
+	sigV4RegionIndex        = 2
+	sigV4ServiceIndex       = 3
+	sigV4TerminalIndex      = 4
+	sigV4TerminalScope      = "aws4_request"
+)
 
-// sigV4ServiceIndex is the index of the service name in the credential scope parts.
-const sigV4ServiceIndex = 3
+func parseValidSigV4Scope(raw string) []string {
+	if idx := strings.IndexAny(raw, ", \t\r\n"); idx != -1 {
+		raw = raw[:idx]
+	}
 
-// ExtractRegionFromRequest extracts the AWS region from an HTTP request.
-// It checks the SigV4 Authorization header credential scope first, then the
-// X-Amz-Region header, then falls back to defaultRegion.
-func ExtractRegionFromRequest(r *http.Request, defaultRegion string) string {
+	parts := strings.Split(raw, "/")
+	if len(parts) != expectedSigV4ScopeParts {
+		return nil
+	}
+
+	for _, p := range parts {
+		if strings.TrimSpace(p) == "" {
+			return nil
+		}
+	}
+
+	if parts[sigV4TerminalIndex] != sigV4TerminalScope {
+		return nil
+	}
+
+	return parts
+}
+
+func extractSigV4ScopeFromRequest(r *http.Request) []string {
+	if r == nil {
+		return nil
+	}
+
 	if auth := r.Header.Get("Authorization"); auth != "" && strings.Contains(auth, "Credential=") {
 		parts := strings.Split(auth, "Credential=")
 		if len(parts) > 1 {
-			credParts := strings.Split(parts[1], "/")
-			if len(credParts) >= minSigV4CredentialParts {
-				return SanitizeHeaderString(credParts[2])
+			if scope := parseValidSigV4Scope(parts[1]); scope != nil {
+				return scope
 			}
 		}
 	}
 
-	if region := r.Header.Get("X-Amz-Region"); region != "" {
-		return SanitizeHeaderString(region)
+	if r.URL != nil {
+		if cred := r.URL.Query().Get("X-Amz-Credential"); cred != "" {
+			if scope := parseValidSigV4Scope(cred); scope != nil {
+				return scope
+			}
+		}
+	}
+
+	return nil
+}
+
+// ExtractRegionFromRequest extracts the AWS region from an HTTP request.
+// It checks the SigV4 Authorization header credential scope first, then query credential,
+// then the X-Amz-Region header, then falls back to defaultRegion.
+func ExtractRegionFromRequest(r *http.Request, defaultRegion string) string {
+	if r != nil {
+		if scope := extractSigV4ScopeFromRequest(r); scope != nil {
+			return SanitizeHeaderString(scope[sigV4RegionIndex])
+		}
+
+		if region := r.Header.Get("X-Amz-Region"); region != "" {
+			return SanitizeHeaderString(region)
+		}
 	}
 
 	return SanitizeHeaderString(defaultRegion)
 }
 
 // ExtractServiceFromRequest extracts the AWS service name from the SigV4 Authorization
-// header credential scope (AKID/date/region/service/aws4_request).
+// header credential scope or X-Amz-Credential query parameter.
 // Returns an empty string if the service name cannot be determined.
 func ExtractServiceFromRequest(r *http.Request) string {
-	if auth := r.Header.Get("Authorization"); auth != "" && strings.Contains(auth, "Credential=") {
-		parts := strings.Split(auth, "Credential=")
-		if len(parts) > 1 {
-			credParts := strings.Split(parts[1], "/")
-			if len(credParts) > sigV4ServiceIndex {
-				return SanitizeHeaderString(credParts[sigV4ServiceIndex])
-			}
-		}
+	if scope := extractSigV4ScopeFromRequest(r); scope != nil {
+		return SanitizeHeaderString(scope[sigV4ServiceIndex])
+	}
+
+	return ""
+}
+
+// ExtractAccessKeyFromRequest extracts the AWS access key ID from an HTTP request.
+// It checks the SigV4 Authorization header credential scope first, then the
+// X-Amz-Credential query parameter, and returns an empty string if none is found.
+func ExtractAccessKeyFromRequest(r *http.Request) string {
+	if scope := extractSigV4ScopeFromRequest(r); scope != nil {
+		return SanitizeHeaderString(scope[sigV4AccessKeyIndex])
 	}
 
 	return ""

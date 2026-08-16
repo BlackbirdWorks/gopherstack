@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -151,12 +152,32 @@ func (h *S3Handler) writeHeadObjectResponse(
 // ObjectSize carries no omitempty: a legitimate 0-byte object must still emit
 // <ObjectSize>0</ObjectSize> so the SDK populates its *int64 field.
 type objectAttributesResult struct {
-	XMLName      xml.Name           `xml:"GetObjectAttributesResult"`
-	Xmlns        string             `xml:"xmlns,attr"`
-	ETag         string             `xml:"ETag,omitempty"`
-	Checksum     *attrsChecksumElem `xml:"Checksum,omitempty"`
-	StorageClass string             `xml:"StorageClass,omitempty"`
-	ObjectSize   int64              `xml:"ObjectSize"`
+	XMLName      xml.Name               `xml:"GetObjectAttributesResponse"`
+	Xmlns        string                 `xml:"xmlns,attr"`
+	ETag         string                 `xml:"ETag,omitempty"`
+	Checksum     *attrsChecksumElem     `xml:"Checksum,omitempty"`
+	ObjectParts  *objectPartsResultElem `xml:"ObjectParts,omitempty"`
+	StorageClass string                 `xml:"StorageClass,omitempty"`
+	ObjectSize   int64                  `xml:"ObjectSize"`
+}
+
+type objectPartsResultElem struct {
+	Parts                []objectPartElem `xml:"Part,omitempty"`
+	TotalPartsCount      int32            `xml:"TotalPartsCount,omitempty"`
+	PartNumberMarker     int32            `xml:"PartNumberMarker,omitempty"`
+	NextPartNumberMarker int32            `xml:"NextPartNumberMarker,omitempty"`
+	MaxParts             int32            `xml:"MaxParts,omitempty"`
+	IsTruncated          bool             `xml:"IsTruncated,omitempty"`
+}
+
+type objectPartElem struct {
+	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
+	PartNumber        int32  `xml:"PartNumber"`
+	Size              int64  `xml:"Size"`
 }
 
 type attrsChecksumElem struct {
@@ -167,9 +188,94 @@ type attrsChecksumElem struct {
 	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
 }
 
+func buildAttrsChecksumElem(checksum map[string]string) *attrsChecksumElem {
+	if len(checksum) == 0 {
+		return nil
+	}
+
+	return &attrsChecksumElem{
+		ChecksumCRC32:     checksum["ChecksumCRC32"],
+		ChecksumCRC32C:    checksum["ChecksumCRC32C"],
+		ChecksumCRC64NVME: checksum["ChecksumCRC64NVME"],
+		ChecksumSHA1:      checksum["ChecksumSHA1"],
+		ChecksumSHA256:    checksum["ChecksumSHA256"],
+	}
+}
+
+func buildObjectPartsResultElem(parts *ObjectPartsAttributes) *objectPartsResultElem {
+	if parts == nil {
+		return nil
+	}
+
+	elem := &objectPartsResultElem{
+		Parts:                make([]objectPartElem, len(parts.Parts)),
+		TotalPartsCount:      parts.TotalPartsCount,
+		PartNumberMarker:     parts.PartNumberMarker,
+		NextPartNumberMarker: parts.NextPartNumberMarker,
+		MaxParts:             parts.MaxParts,
+		IsTruncated:          parts.IsTruncated,
+	}
+
+	for i, p := range parts.Parts {
+		elem.Parts[i] = buildObjectPartElem(p)
+	}
+
+	return elem
+}
+
+func buildObjectPartElem(p StoredObjectPart) objectPartElem {
+	pe := objectPartElem{
+		PartNumber: p.PartNumber,
+		Size:       p.Size,
+	}
+	if p.ChecksumCRC32 != nil {
+		pe.ChecksumCRC32 = *p.ChecksumCRC32
+	}
+	if p.ChecksumCRC32C != nil {
+		pe.ChecksumCRC32C = *p.ChecksumCRC32C
+	}
+	if p.ChecksumCRC64NVME != nil {
+		pe.ChecksumCRC64NVME = *p.ChecksumCRC64NVME
+	}
+	if p.ChecksumSHA1 != nil {
+		pe.ChecksumSHA1 = *p.ChecksumSHA1
+	}
+	if p.ChecksumSHA256 != nil {
+		pe.ChecksumSHA256 = *p.ChecksumSHA256
+	}
+
+	return pe
+}
+
+func parseObjectAttributesPagination(r *http.Request) (int32, int32) {
+	maxParts := int32(defaultMaxPartsCount)
+	if mpStr := r.URL.Query().Get("max-parts"); mpStr != "" {
+		if mp, err := strconv.ParseInt(mpStr, 10, 32); err == nil && mp > 0 {
+			maxParts = int32(mp) // #nosec G115
+		}
+	} else if mpHdr := r.Header.Get("X-Amz-Max-Parts"); mpHdr != "" {
+		if mp, err := strconv.ParseInt(mpHdr, 10, 32); err == nil && mp > 0 {
+			maxParts = int32(mp) // #nosec G115
+		}
+	}
+
+	partMarker := int32(0)
+	if pnmStr := r.URL.Query().Get("part-number-marker"); pnmStr != "" {
+		if pnm, err := strconv.ParseInt(pnmStr, 10, 32); err == nil && pnm >= 0 {
+			partMarker = int32(pnm) // #nosec G115
+		}
+	} else if pnmHdr := r.Header.Get("X-Amz-Part-Number-Marker"); pnmHdr != "" {
+		if pnm, err := strconv.ParseInt(pnmHdr, 10, 32); err == nil && pnm >= 0 {
+			partMarker = int32(pnm) // #nosec G115
+		}
+	}
+
+	return maxParts, partMarker
+}
+
 // handleGetObjectAttributes handles GET /{bucket}/{key}?attributes.
 // The X-Amz-Object-Attributes header lists which attributes the caller wants;
-// we always return the full set we support (ETag, ObjectSize, StorageClass, Checksum).
+// we always return the full set we support (ETag, ObjectSize, StorageClass, Checksum, ObjectParts).
 func (h *S3Handler) handleGetObjectAttributes(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -188,8 +294,9 @@ func (h *S3Handler) handleGetObjectAttributes(
 	}
 
 	versionID := r.URL.Query().Get("versionId")
+	maxParts, partMarker := parseObjectAttributesPagination(r)
 
-	attrs, err := h.Backend.GetObjectAttributes(ctx, bucket, key, versionID)
+	attrs, err := h.Backend.GetObjectAttributes(ctx, bucket, key, versionID, maxParts, partMarker)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -201,17 +308,8 @@ func (h *S3Handler) handleGetObjectAttributes(
 		ETag:         attrs.ETag,
 		ObjectSize:   attrs.ObjectSize,
 		StorageClass: attrs.StorageClass,
-	}
-
-	if len(attrs.Checksum) > 0 {
-		c := &attrsChecksumElem{
-			ChecksumCRC32:     attrs.Checksum["ChecksumCRC32"],
-			ChecksumCRC32C:    attrs.Checksum["ChecksumCRC32C"],
-			ChecksumCRC64NVME: attrs.Checksum["ChecksumCRC64NVME"],
-			ChecksumSHA1:      attrs.Checksum["ChecksumSHA1"],
-			ChecksumSHA256:    attrs.Checksum["ChecksumSHA256"],
-		}
-		out.Checksum = c
+		Checksum:     buildAttrsChecksumElem(attrs.Checksum),
+		ObjectParts:  buildObjectPartsResultElem(attrs.Parts),
 	}
 
 	if versionID != "" {

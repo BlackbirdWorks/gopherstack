@@ -22,41 +22,106 @@ import (
 func TestUploadPart_ChecksumEchoedInResponseAndListParts(t *testing.T) {
 	t.Parallel()
 
-	client := newRealS3ClientTest(t)
-	bucket := "mp-checksum-bucket"
-	key := "obj.bin"
+	tests := []struct {
+		validatePart func(t *testing.T, part *sdk_s3.UploadPartOutput, listed types.Part)
+		name         string
+		algo         types.ChecksumAlgorithm
+	}{
+		{
+			name: "crc32",
+			algo: types.ChecksumAlgorithmCrc32,
+			validatePart: func(t *testing.T, part *sdk_s3.UploadPartOutput, listed types.Part) {
+				t.Helper()
+				require.NotNil(t, part.ChecksumCRC32)
+				assert.NotEmpty(t, *part.ChecksumCRC32)
+				require.NotNil(t, listed.ChecksumCRC32)
+				assert.Equal(t, *part.ChecksumCRC32, *listed.ChecksumCRC32)
+			},
+		},
+		{
+			name: "crc32c",
+			algo: types.ChecksumAlgorithmCrc32c,
+			validatePart: func(t *testing.T, part *sdk_s3.UploadPartOutput, listed types.Part) {
+				t.Helper()
+				require.NotNil(t, part.ChecksumCRC32C)
+				assert.NotEmpty(t, *part.ChecksumCRC32C)
+				require.NotNil(t, listed.ChecksumCRC32C)
+				assert.Equal(t, *part.ChecksumCRC32C, *listed.ChecksumCRC32C)
+			},
+		},
+		{
+			name: "crc64nvme",
+			algo: types.ChecksumAlgorithmCrc64nvme,
+			validatePart: func(t *testing.T, part *sdk_s3.UploadPartOutput, listed types.Part) {
+				t.Helper()
+				require.NotNil(t, part.ChecksumCRC64NVME)
+				assert.NotEmpty(t, *part.ChecksumCRC64NVME)
+				require.NotNil(t, listed.ChecksumCRC64NVME)
+				assert.Equal(t, *part.ChecksumCRC64NVME, *listed.ChecksumCRC64NVME)
+			},
+		},
+		{
+			name: "sha1",
+			algo: types.ChecksumAlgorithmSha1,
+			validatePart: func(t *testing.T, part *sdk_s3.UploadPartOutput, listed types.Part) {
+				t.Helper()
+				require.NotNil(t, part.ChecksumSHA1)
+				assert.NotEmpty(t, *part.ChecksumSHA1)
+				require.NotNil(t, listed.ChecksumSHA1)
+				assert.Equal(t, *part.ChecksumSHA1, *listed.ChecksumSHA1)
+			},
+		},
+		{
+			name: "sha256",
+			algo: types.ChecksumAlgorithmSha256,
+			validatePart: func(t *testing.T, part *sdk_s3.UploadPartOutput, listed types.Part) {
+				t.Helper()
+				require.NotNil(t, part.ChecksumSHA256)
+				assert.NotEmpty(t, *part.ChecksumSHA256)
+				require.NotNil(t, listed.ChecksumSHA256)
+				assert.Equal(t, *part.ChecksumSHA256, *listed.ChecksumSHA256)
+			},
+		},
+	}
 
-	_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	created, err := client.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
-	require.NoError(t, err)
-	uploadID := created.UploadId
+			client := newRealS3ClientTest(t)
+			bucket := "mp-checksum-bucket-" + tt.name
+			key := "obj.bin"
 
-	part, err := client.UploadPart(t.Context(), &sdk_s3.UploadPartInput{
-		Bucket:            aws.String(bucket),
-		Key:               aws.String(key),
-		UploadId:          uploadID,
-		PartNumber:        aws.Int32(1),
-		Body:              strings.NewReader("payload-bytes-for-checksum"),
-		ChecksumAlgorithm: types.ChecksumAlgorithmCrc32,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, part.ChecksumCRC32, "UploadPart response must echo the verified part checksum")
-	assert.NotEmpty(t, *part.ChecksumCRC32)
+			_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
+			require.NoError(t, err)
 
-	listed, err := client.ListParts(t.Context(), &sdk_s3.ListPartsInput{
-		Bucket:   aws.String(bucket),
-		Key:      aws.String(key),
-		UploadId: uploadID,
-	})
-	require.NoError(t, err)
-	require.Len(t, listed.Parts, 1)
-	require.NotNil(t, listed.Parts[0].ChecksumCRC32, "ListParts must report the checksum recorded at UploadPart time")
-	assert.Equal(t, *part.ChecksumCRC32, *listed.Parts[0].ChecksumCRC32)
+			created, err := client.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(key),
+			})
+			require.NoError(t, err)
+			uploadID := created.UploadId
+
+			part, err := client.UploadPart(t.Context(), &sdk_s3.UploadPartInput{
+				Bucket:            aws.String(bucket),
+				Key:               aws.String(key),
+				UploadId:          uploadID,
+				PartNumber:        aws.Int32(1),
+				Body:              strings.NewReader("payload-bytes-for-checksum"),
+				ChecksumAlgorithm: tt.algo,
+			})
+			require.NoError(t, err)
+
+			listed, err := client.ListParts(t.Context(), &sdk_s3.ListPartsInput{
+				Bucket:   aws.String(bucket),
+				Key:      aws.String(key),
+				UploadId: uploadID,
+			})
+			require.NoError(t, err)
+			require.Len(t, listed.Parts, 1)
+			tt.validatePart(t, part, listed.Parts[0])
+		})
+	}
 }
 
 // TestListObjectVersions_ChecksumAlgorithmPopulated is a regression test for

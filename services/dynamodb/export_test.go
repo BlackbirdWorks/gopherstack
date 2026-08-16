@@ -48,7 +48,7 @@ func ApplyGSIProjection(
 	tableKeySchema []models.KeySchemaElement,
 	indexKeySchema []models.KeySchemaElement,
 ) map[string]any {
-	return applyGSIProjection(item, proj, tableKeySchema, indexKeySchema)
+	return applyIndexProjection(item, proj, tableKeySchema, indexKeySchema)
 }
 
 func ParseStr(v any) string {

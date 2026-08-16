@@ -257,6 +257,7 @@ type StorageBackend interface {
 	GetObjectAttributes(
 		ctx context.Context,
 		bucket, key, versionID string,
+		maxParts, partNumberMarker int32,
 	) (*ObjectAttributes, error)
 	RestoreObject(ctx context.Context, bucket, key string, days int) error
 	RenameObject(ctx context.Context, bucket, sourceKey, targetKey string) error

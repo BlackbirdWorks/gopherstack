@@ -2130,6 +2130,11 @@ func buildEchoServer(
 		return c.Redirect(http.StatusFound, "/dashboard/static/favicon.png")
 	})
 	e.GET("/_gopherstack/health", buildHealthHandler(services))
+	e.GET("/_localstack/health", buildLocalstackHealthHandler(services))
+	e.GET("/_aws/health", buildLocalstackHealthHandler(services))
+	e.GET("/_localstack/init", buildLocalstackInitHandler())
+	e.GET("/_localstack/init/ready", buildLocalstackInitHandler())
+	e.GET("/_localstack/info", buildLocalstackInfoHandler())
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
@@ -10432,6 +10437,61 @@ type healthResponse struct {
 	HeapInuseB uint64 `json:"heap_inuse_bytes"`
 	// NumGC is the total number of completed GC cycles (runtime.MemStats.NumGC).
 	NumGC uint32 `json:"num_gc"`
+}
+
+// localstackHealthResponse is the JSON body returned by LocalStack-compatible health endpoints.
+type localstackHealthResponse struct {
+	Services map[string]string `json:"services"`
+	Version  string            `json:"version"`
+	Edition  string            `json:"edition"`
+}
+
+// localstackInitResponse is the JSON body returned by LocalStack-compatible init endpoints.
+type localstackInitResponse struct {
+	Scripts   []string `json:"scripts"`
+	Completed bool     `json:"completed"`
+}
+
+func buildLocalstackHealthHandler(services []service.Registerable) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		svcMap := make(map[string]string, len(services))
+		for _, svc := range services {
+			svcMap[strings.ToLower(svc.Name())] = "available"
+		}
+
+		return c.JSON(http.StatusOK, localstackHealthResponse{
+			Services: svcMap,
+			Version:  version.Get(),
+			Edition:  "community",
+		})
+	}
+}
+
+func buildLocalstackInitHandler() echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		return c.JSON(http.StatusOK, localstackInitResponse{
+			Completed: true,
+			Scripts:   []string{},
+		})
+	}
+}
+
+type localstackInfoResponse struct {
+	Version   string `json:"version"`
+	Edition   string `json:"edition"`
+	SessionID string `json:"session_id"`
+	IsAuth    bool   `json:"is_auth"`
+}
+
+func buildLocalstackInfoHandler() echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		return c.JSON(http.StatusOK, localstackInfoResponse{
+			Version:   version.Get(),
+			Edition:   "community",
+			IsAuth:    false,
+			SessionID: "00000000-0000-0000-0000-000000000000",
+		})
+	}
 }
 
 func setupChaosAndRegistry(

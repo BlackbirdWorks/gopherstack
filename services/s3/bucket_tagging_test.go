@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/services/s3"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
 func TestHandler_BucketTagging(t *testing.T) {

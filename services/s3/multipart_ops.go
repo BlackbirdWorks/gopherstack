@@ -104,6 +104,10 @@ func (h *S3Handler) uploadPart(
 	}
 
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
+	crc64nvmeP := extractCRC64NVMEChecksum(r)
+	if algo == "" && crc64nvmeP != nil {
+		algo = ChecksumCRC64NVME
+	}
 
 	out, err := h.Backend.UploadPart(ctx, &s3.UploadPartInput{
 		Bucket:            aws.String(bucketName),
@@ -114,6 +118,7 @@ func (h *S3Handler) uploadPart(
 		ChecksumAlgorithm: types.ChecksumAlgorithm(algo),
 		ChecksumCRC32:     crc32p,
 		ChecksumCRC32C:    crc32cp,
+		ChecksumCRC64NVME: crc64nvmeP,
 		ChecksumSHA1:      sha1p,
 		ChecksumSHA256:    sha256p,
 	})
@@ -132,10 +137,11 @@ func (h *S3Handler) uploadPart(
 
 	w.Header().Set("ETag", *out.ETag)
 	h.setChecksumHeaders(w, objectCommonDetails{
-		ChecksumCRC32:  out.ChecksumCRC32,
-		ChecksumCRC32C: out.ChecksumCRC32C,
-		ChecksumSHA1:   out.ChecksumSHA1,
-		ChecksumSHA256: out.ChecksumSHA256,
+		ChecksumCRC32:     out.ChecksumCRC32,
+		ChecksumCRC32C:    out.ChecksumCRC32C,
+		ChecksumCRC64NVME: out.ChecksumCRC64NVME,
+		ChecksumSHA1:      out.ChecksumSHA1,
+		ChecksumSHA256:    out.ChecksumSHA256,
 	})
 	w.WriteHeader(http.StatusOK)
 }
@@ -457,13 +463,14 @@ func (h *S3Handler) listParts(
 
 	for _, p := range out.Parts {
 		result.Parts = append(result.Parts, PartXML{
-			PartNumber:     int(aws.ToInt32(p.PartNumber)),
-			ETag:           aws.ToString(p.ETag),
-			Size:           aws.ToInt64(p.Size),
-			ChecksumCRC32:  aws.ToString(p.ChecksumCRC32),
-			ChecksumCRC32C: aws.ToString(p.ChecksumCRC32C),
-			ChecksumSHA1:   aws.ToString(p.ChecksumSHA1),
-			ChecksumSHA256: aws.ToString(p.ChecksumSHA256),
+			PartNumber:        int(aws.ToInt32(p.PartNumber)),
+			ETag:              aws.ToString(p.ETag),
+			Size:              aws.ToInt64(p.Size),
+			ChecksumCRC32:     aws.ToString(p.ChecksumCRC32),
+			ChecksumCRC32C:    aws.ToString(p.ChecksumCRC32C),
+			ChecksumCRC64NVME: aws.ToString(p.ChecksumCRC64NVME),
+			ChecksumSHA1:      aws.ToString(p.ChecksumSHA1),
+			ChecksumSHA256:    aws.ToString(p.ChecksumSHA256),
 		})
 	}
 

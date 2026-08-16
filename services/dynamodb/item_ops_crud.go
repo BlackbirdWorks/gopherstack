@@ -119,7 +119,7 @@ func (db *InMemoryDB) putItemLocked(
 	}
 
 	globalTableName := table.GlobalTableName
-	out := db.populatePutItemOutput(input, table, oldItem, lsiCollectionBytes)
+	out := db.populatePutItemOutput(input, table, oldItem, wireItem, lsiCollectionBytes)
 
 	return out, globalTableName, region, nil
 }
@@ -349,7 +349,7 @@ func (db *InMemoryDB) validateItem(item map[string]any, table *Table) error {
 func (db *InMemoryDB) populatePutItemOutput(
 	input *dynamodb.PutItemInput,
 	table *Table,
-	oldItem map[string]any,
+	oldItem, wireItem map[string]any,
 	lsiCollectionBytes int64,
 ) *dynamodb.PutItemOutput {
 	out := &dynamodb.PutItemOutput{}
@@ -364,12 +364,15 @@ func (db *InMemoryDB) populatePutItemOutput(
 	// put.
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
-		writeUnits := WriteCapacityUnits(models.FromSDKItem(input.Item))
-		out.ConsumedCapacity = &types.ConsumedCapacity{
-			TableName:          aws.String(table.Name),
-			CapacityUnits:      aws.Float64(writeUnits),
-			WriteCapacityUnits: aws.Float64(writeUnits),
-		}
+		writeUnits := WriteCapacityUnits(wireItem)
+		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, writeUnits, wireItem)
+		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
+			table.Name,
+			input.ReturnConsumedCapacity,
+			0, writeUnits,
+			nil, gsiWCU,
+			nil, lsiWCU,
+		)
 	}
 
 	// ItemCollectionMetrics: only for tables with an LSI and when requested.
@@ -450,11 +453,13 @@ func (db *InMemoryDB) GetItem(
 		// RCU on a read is ceil(item-size / 4 KB) * 0.5 (eventually consistent)
 		// or doubled when ConsistentRead=true. Matches the real AWS formula.
 		readUnits := applyConsistentReadMultiplier(ReadCapacityUnits(item), consistentRead)
-		out.ConsumedCapacity = &types.ConsumedCapacity{
-			TableName:         aws.String(table.Name),
-			CapacityUnits:     aws.Float64(readUnits),
-			ReadCapacityUnits: aws.Float64(readUnits),
-		}
+		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
+			aws.ToString(input.TableName),
+			input.ReturnConsumedCapacity,
+			readUnits, 0,
+			nil, nil,
+			nil, nil,
+		)
 	}
 
 	return out, nil
@@ -625,11 +630,14 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 		if oldItem != nil {
 			writeUnits = WriteCapacityUnits(oldItem)
 		}
-		out.ConsumedCapacity = &types.ConsumedCapacity{
-			TableName:          aws.String(table.Name),
-			CapacityUnits:      aws.Float64(writeUnits),
-			WriteCapacityUnits: aws.Float64(writeUnits),
-		}
+		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, writeUnits, oldItem)
+		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
+			table.Name,
+			input.ReturnConsumedCapacity,
+			0, writeUnits,
+			nil, gsiWCU,
+			nil, lsiWCU,
+		)
 	}
 
 	// ItemCollectionMetrics reflect the collection remaining after the delete.
@@ -935,11 +943,14 @@ func (db *InMemoryDB) populateUpdateOutput(
 				writeUnits = w
 			}
 		}
-		out.ConsumedCapacity = &types.ConsumedCapacity{
-			TableName:          aws.String(table.Name),
-			CapacityUnits:      aws.Float64(writeUnits),
-			WriteCapacityUnits: aws.Float64(writeUnits),
-		}
+		gsiWCU, lsiWCU := calculateWriteIndexBreakdowns(table, writeUnits, oldItem, newItem)
+		out.ConsumedCapacity = buildConsumedCapacityWithIndexes(
+			table.Name,
+			input.ReturnConsumedCapacity,
+			0, writeUnits,
+			nil, gsiWCU,
+			nil, lsiWCU,
+		)
 	}
 
 	// ItemCollectionMetrics reflect the collection after the update is applied.

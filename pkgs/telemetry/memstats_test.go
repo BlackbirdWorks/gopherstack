@@ -5,10 +5,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
 func TestMemoryStatsMiddleware(t *testing.T) {
